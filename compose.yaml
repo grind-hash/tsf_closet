@@ -59,7 +59,6 @@ services:
       args:
         target: runtime
     restart: always
-    image: ghcr.io/berriai/litellm:main-stable
     #########################################
     ## Uncomment these lines to start proxy with a config.yaml file ##
     # volumes:

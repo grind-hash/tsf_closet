@@ -38,7 +38,7 @@ ollama pull llava:7b
 echo "========================================="
 echo "Pulling gpt-oss:20b model..."
 echo "========================================="
-ollama pull gpt-oss:20
+ollama pull gpt-oss:20b
 
 echo "========================================="
 echo "All models pulled successfully!"
