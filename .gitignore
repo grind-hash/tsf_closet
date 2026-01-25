@@ -1,0 +1,51 @@
+data/**
+
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+*.egg-info
+wheels/
+
+# Virtual environments
+.venv/
+venv/
+.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Data persistence (SQLite + history images)
+data/
+*.sqlite
+*.db
+
+# Generated images
+images/dist/*.png
+images/source/*.jpg
+images/source/failed/*.jpg
+images/source/failed/*.png
+images/closet/source/*.jpg
+images/closet/source/*.png
+images/closet/source/failed/*.jpg
+images/closet/source/failed/*.png
+images/closet/input/*.png
+images/closet/input/*.jpg
+images/closet/dist/*.png
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+temp/

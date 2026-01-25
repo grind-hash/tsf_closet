@@ -1,0 +1,182 @@
+# Docker Compose configuration for わくわくへんしんマジック
+# Usage: docker compose up -d
+
+services:
+  # ========================================
+  # Frontend - React + nginx
+  # ========================================
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend/Dockerfile
+    ports:
+      - "80:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - app-network
+
+  # ========================================
+  # Backend - FastAPI + gunicorn/uvicorn
+  # ========================================
+  backend:
+    build:
+      context: .
+      dockerfile: docker/backend/Dockerfile
+    env_file:
+      - .env.docker
+    environment:
+      - LITELLM_BASE_URL=http://litellm:4000
+      - LITELLM_API_KEY=sk-1234
+      - COMFYUI_BASE_URL=http://comfyui:8188
+    volumes:
+      - backend_data:/app/data
+      - ./backend/images:/app/images:ro
+    depends_on:
+      litellm:
+        condition: service_started
+      comfyui:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # ========================================
+  # LiteLLM Proxy - Ollama API gateway
+  # ========================================
+  litellm:
+    build:
+      context: .
+      dockerfile: docker/litellm/Dockerfile
+      args:
+        target: runtime
+    restart: always
+    image: ghcr.io/berriai/litellm:main-stable
+    #########################################
+    ## Uncomment these lines to start proxy with a config.yaml file ##
+    # volumes:
+    #  - ./config.yaml:/app/config.yaml
+    # command:
+    # - "--config=/app/config.yaml"
+    ##############################################
+    ports:
+      - "4000:4000" # Map the container port to the host, change the host port if necessary
+    environment:
+      DATABASE_URL: "postgresql://llmproxy:dbpassword9090@litellm_db:5432/litellm"
+      STORE_MODEL_IN_DB: "True" # allows adding models to proxy via UI
+      LITELLM_MASTER_KEY: "sk-1234"
+    env_file:
+      - .env # Load local .env file
+    depends_on:
+      - litellm_db # Indicates that this service depends on the 'db' service, ensuring 'db' starts first
+    healthcheck: # Defines the health check configuration for the container
+      test: [
+          "CMD-SHELL",
+          "wget --no-verbose --tries=1 http://localhost:4000/health/liveliness || exit 1",
+        ] # Command to execute for health check
+      interval: 30s # Perform health check every 30 seconds
+      timeout: 10s # Health check command times out after 10 seconds
+      retries: 3 # Retry up to 3 times if health check fails
+      start_period: 40s # Wait 40 seconds after container start before beginning health checks
+    networks:
+      - app-network
+      - db-network
+
+  litellm_db:
+    image: postgres:16
+    restart: always
+    container_name: litellm_db
+    environment:
+      POSTGRES_DB: litellm
+      POSTGRES_USER: llmproxy
+      POSTGRES_PASSWORD: dbpassword9090
+    ports:
+      - "5432:5432"
+    volumes:
+      - litellm_postgres_data:/var/lib/postgresql/data # Persists Postgres data across container restarts
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d litellm -U llmproxy"]
+      interval: 1s
+      timeout: 5s
+      retries: 10
+    networks:
+      - db-network
+
+
+  # ========================================
+  # Ollama - Local LLM server (GPU)
+  # ========================================
+  ollama:
+    build:
+      context: .
+      dockerfile: docker/ollama/Dockerfile
+    volumes:
+      - ollama_data:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+    networks:
+      - app-network
+
+  # ========================================
+  # ComfyUI - Image generation (GPU)
+  # ========================================
+  comfyui:
+    build:
+      context: .
+      dockerfile: docker/comfyui/Dockerfile
+    volumes:
+      - comfyui_models:/app/ComfyUI/models
+      - ./backend/workflows:/app/ComfyUI/workflows:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+    ports:
+      - "8188:8188"    
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8188/system_stats"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 300s
+
+# ========================================
+# Volumes
+# ========================================
+volumes:
+  backend_data:
+    name: wakuwaku_backend_data
+  ollama_data:
+    name: wakuwaku_ollama_data
+  comfyui_models:
+    name: wakuwaku_comfyui_models
+  litellm_postgres_data:
+    name: wakuwaku_litellm_postgres_data
+
+# ========================================
+# Networks
+# ========================================
+networks:
+  app-network:
+    driver: bridge
+  db-network:

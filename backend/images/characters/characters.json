@@ -1,0 +1,38 @@
+[
+  {
+    "id": "char1",
+    "name": "キャラ1",
+    "image_path": "images/characters/char1.png",
+    "description": "女の子。カジュアルな服装。",
+    "pronoun": "私",
+    "personality": "明るく好奇心旺盛",
+    "gender": "girl"
+  },
+  {
+    "id": "char2",
+    "name": "キャラ2",
+    "image_path": "images/characters/char2.png",
+    "description": "男の子。カジュアルな服装。",
+    "pronoun": "僕",
+    "personality": "明るく好奇心旺盛",
+    "gender": "boy"
+  },
+  {
+    "id": "char3",
+    "name": "キャラ3",
+    "image_path": "images/characters/char3.png",
+    "description": "女の子。カジュアルな服装。",
+    "pronoun": "ウチ",
+    "personality": "明るく好奇心旺盛",
+    "gender": "girl"
+  },
+  {
+    "id": "char4",
+    "name": "キャラ4",
+    "image_path": "images/characters/char4.png",
+    "description": "男の子。カジュアルな服装。",
+    "pronoun": "自分",
+    "personality": "明るく好奇心旺盛",
+    "gender": "boy"
+  }
+]
