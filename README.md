@@ -125,6 +125,11 @@ uv run python launcher.py --port 8000
    OPENROUTER_LLM_MODEL=google/gemini-3-flash-preview
    ```
 
+## アーキテクチャ及びフロー
+
+
+![architecture_and_flow.png](_image/architecture_and_flow.png)
+
 
 ## Docker
 
