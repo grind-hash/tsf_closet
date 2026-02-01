@@ -1,27 +1,30 @@
 # ComfyUI Dockerfile - Qwen Image Edit 2511
-FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04
-
+FROM nvidia/cuda:13.1.1-cudnn-runtime-ubuntu24.04
+ARG PYTORCH_CUDA_TOOLKIT_URL
 # Set environment variables
-ENV DEBIAN_FRONTEND=noninteractive
-ENV PYTHONUNBUFFERED=1
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3.11 \
-    python3.11-venv \
+    python3.12 \
+    python3.12-dev \
+    python3.12-venv \
     python3-pip \
     git \
     curl \
     wget \
-    libgl1-mesa-glx \
-    libglib2.0-0 \
+    libglx-mesa0 \
+    libgl1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Set Python 3.11 as default
-RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1 \
-    && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
-
 WORKDIR /app
+
+RUN python3 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
 
 # Clone ComfyUI
 RUN git clone https://github.com/comfyanonymous/ComfyUI.git /app/ComfyUI
@@ -29,7 +32,7 @@ RUN git clone https://github.com/comfyanonymous/ComfyUI.git /app/ComfyUI
 WORKDIR /app/ComfyUI
 
 # Install PyTorch with CUDA support
-RUN pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+RUN pip install --no-cache-dir torch torchvision torchaudio --index-url ${PYTORCH_CUDA_TOOLKIT_URL-https://download.pytorch.org/whl/cu124}
 
 # Install ComfyUI requirements
 RUN pip install --no-cache-dir -r requirements.txt
