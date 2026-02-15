@@ -1,0 +1,493 @@
+/* InpaintModal styles */
+
+.inpaint-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.7);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  animation: fadeIn 0.2s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.inpaint-modal {
+  background: #1e1e2e;
+  border-radius: 12px;
+  max-width: 95vw;
+  max-height: 90vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  animation: slideUp 0.25s ease-out;
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.inpaint-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid #3a3a4a;
+  background: #252535;
+}
+
+.inpaint-modal-header h3 {
+  margin: 0;
+  color: #fff;
+  font-size: 1.2rem;
+}
+
+.inpaint-modal-close {
+  background: none;
+  border: none;
+  color: #888;
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 4px;
+  line-height: 1;
+  transition: color 0.2s;
+}
+
+.inpaint-modal-close:hover {
+  color: #fff;
+}
+
+.inpaint-modal-body {
+  display: flex;
+  flex-direction: row;
+  overflow: hidden;
+  flex: 1;
+}
+
+/* 左カラム: キャンバス */
+.inpaint-canvas-column {
+  flex: 1;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  overflow: auto;
+  background: #1a1a28;
+}
+
+.inpaint-canvas-wrapper {
+  position: relative;
+  border: 2px solid #3a3a4a;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #000;
+}
+
+.inpaint-canvas-wrapper img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+.inpaint-canvas-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  cursor: crosshair;
+}
+
+/* 右カラム: 設定パネル */
+.inpaint-settings-column {
+  width: 320px;
+  min-width: 280px;
+  padding: 20px;
+  overflow-y: auto;
+  background: #252535;
+  border-left: 1px solid #3a3a4a;
+}
+
+.inpaint-section {
+  margin-bottom: 20px;
+}
+
+.inpaint-section-title {
+  font-size: 0.85rem;
+  color: #aaa;
+  margin-bottom: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* ブラシツールバー */
+.inpaint-toolbar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.inpaint-tool-btn {
+  padding: 8px 12px;
+  border: 1px solid #4a4a5a;
+  background: #2a2a3a;
+  color: #ddd;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: all 0.2s;
+}
+
+.inpaint-tool-btn:hover {
+  background: #3a3a4a;
+  border-color: #5a5a6a;
+}
+
+.inpaint-tool-btn.active {
+  background: #4a6fff;
+  border-color: #5a7fff;
+  color: #fff;
+}
+
+.inpaint-tool-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* スライダー */
+.inpaint-slider-group {
+  margin-bottom: 12px;
+}
+
+.inpaint-slider-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+  font-size: 0.85rem;
+  color: #ccc;
+}
+
+.inpaint-slider-value {
+  color: #4a6fff;
+  font-weight: 500;
+}
+
+.inpaint-slider {
+  width: 100%;
+  height: 6px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: #3a3a4a;
+  border-radius: 3px;
+  outline: none;
+}
+
+.inpaint-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  background: #4a6fff;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+
+.inpaint-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.1);
+}
+
+/* チェックボックス */
+.inpaint-checkbox-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  cursor: pointer;
+}
+
+.inpaint-checkbox-group input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: #4a6fff;
+}
+
+.inpaint-checkbox-group label {
+  font-size: 0.9rem;
+  color: #ddd;
+  cursor: pointer;
+}
+
+/* テキストエリア */
+.inpaint-textarea {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #3a3a4a;
+  background: #1e1e2e;
+  color: #fff;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  resize: vertical;
+  min-height: 60px;
+}
+
+.inpaint-textarea:focus {
+  outline: none;
+  border-color: #4a6fff;
+}
+
+.inpaint-textarea::placeholder {
+  color: #666;
+}
+
+/* フッター */
+.inpaint-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 16px 20px;
+  border-top: 1px solid #3a3a4a;
+  background: #252535;
+}
+
+.inpaint-btn {
+  padding: 10px 24px;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.inpaint-btn-cancel {
+  background: #3a3a4a;
+  color: #ddd;
+}
+
+.inpaint-btn-cancel:hover {
+  background: #4a4a5a;
+}
+
+.inpaint-btn-apply {
+  background: #4a6fff;
+  color: #fff;
+}
+
+.inpaint-btn-apply:hover {
+  background: #5a7fff;
+}
+
+.inpaint-btn-apply:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* マスク一覧 (履歴・プリセット) */
+.inpaint-mask-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.inpaint-mask-item {
+  width: 60px;
+  height: 60px;
+  border: 2px solid #3a3a4a;
+  border-radius: 6px;
+  overflow: hidden;
+  cursor: pointer;
+  position: relative;
+  transition: border-color 0.2s;
+}
+
+.inpaint-mask-item:hover {
+  border-color: #5a5a6a;
+}
+
+.inpaint-mask-item.selected {
+  border-color: #4a6fff;
+}
+
+.inpaint-mask-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.inpaint-mask-item-name {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: rgba(0, 0, 0, 0.7);
+  color: #fff;
+  font-size: 0.65rem;
+  padding: 2px 4px;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 空の状態メッセージ */
+.inpaint-empty-message {
+  color: #666;
+  font-size: 0.85rem;
+  text-align: center;
+  padding: 16px;
+}
+
+/* プリセット保存ボタン（セクションタイトル内） */
+.inpaint-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.inpaint-preset-save-btn {
+  background: #4a6fff;
+  color: #fff;
+  border: none;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.inpaint-preset-save-btn:hover {
+  background: #5a7fff;
+}
+
+/* プリセットマスク削除ボタン */
+.inpaint-mask-item-delete {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 18px;
+  height: 18px;
+  background: rgba(200, 50, 50, 0.9);
+  color: #fff;
+  border: none;
+  border-radius: 50%;
+  font-size: 0.7rem;
+  font-weight: bold;
+  cursor: pointer;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.inpaint-mask-item:hover .inpaint-mask-item-delete {
+  display: flex;
+}
+
+.inpaint-mask-item-delete:hover {
+  background: rgba(220, 70, 70, 1);
+}
+
+/* ダイアログオーバーレイ */
+.inpaint-dialog-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10001;
+}
+
+/* ダイアログ */
+.inpaint-dialog {
+  background: #2a2a3a;
+  border-radius: 12px;
+  padding: 24px;
+  min-width: 320px;
+  max-width: 90%;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.inpaint-dialog-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #fff;
+  margin-bottom: 16px;
+}
+
+.inpaint-dialog-message {
+  color: #ccc;
+  margin-bottom: 16px;
+  line-height: 1.5;
+}
+
+.inpaint-dialog-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #3a3a4a;
+  border-radius: 6px;
+  background: #1a1a2a;
+  color: #fff;
+  font-size: 0.95rem;
+  margin-bottom: 16px;
+}
+
+.inpaint-dialog-input:focus {
+  outline: none;
+  border-color: #4a6fff;
+}
+
+.inpaint-dialog-buttons {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+}
+
+/* 削除ボタン（危険なアクション） */
+.inpaint-btn-danger {
+  background: #c83232;
+  color: #fff;
+}
+
+.inpaint-btn-danger:hover {
+  background: #dc4646;
+}
+
+/* レスポンシブ */
+@media (max-width: 900px) {
+  .inpaint-modal-body {
+    flex-direction: column;
+  }
+
+  .inpaint-settings-column {
+    width: 100%;
+    min-width: unset;
+    border-left: none;
+    border-top: 1px solid #3a3a4a;
+  }
+}

@@ -29,14 +29,23 @@ from typing import Any, AsyncGenerator, Dict, Optional, Sequence
 
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.datastructures import FormData
 
-from .comfy import ComfyUIClient, ComfyUIError
-from .config import Settings, settings
-from .database import close_database, init_database
-from .game import router as game_router
+from .services.comfy import ComfyUIClient, ComfyUIError
+from .databases import close_database, init_database
+from .routes import (
+    achievements_router,
+    gallery_router,
+    game_router,
+    settings_router,
+)
+from .settings.app_settings import Settings, configure_logging, settings
+
+# ログ設定を適用
+configure_logging()
 
 logger = logging.getLogger(__name__)
 
@@ -186,37 +195,74 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# 静的ファイル配信 (Reactビルド成果物 or レガシーフロントエンド)
-REACT_DIST_DIR = Path(__file__).parent.parent / "frontend" / "dist"
+# CORS設定 (開発時にポート3000からのリクエストを許可)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# 静的ファイル配信 (ポータブル配布時に使用)
 STATIC_DIR = Path(__file__).parent.parent / "static"
 
-# Reactビルド成果物を優先、なければレガシーstaticを使用
-if REACT_DIST_DIR.exists():
-    FRONTEND_DIR = REACT_DIST_DIR
-    app.mount("/assets", StaticFiles(directory=str(REACT_DIST_DIR / "assets")), name="assets")
-elif STATIC_DIR.exists():
-    FRONTEND_DIR = STATIC_DIR
-    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
-else:
-    FRONTEND_DIR = None
+
+def setup_static_files(application: FastAPI) -> None:
+    """静的ファイル配信を設定する（staticディレクトリが存在する場合のみ）
+
+    ポータブル配布パッケージ用。ビルド済みReact SPAを配信する。
+    React Routerのクライアントサイドルーティングに対応するため、
+    未知のルートでは index.html を返す (SPA fallback)。
+
+    Note: このルートは他のすべてのルートより後に登録する必要がある。
+    """
+    if not STATIC_DIR.exists():
+        return
+
+    # 静的アセット配信 (js, css, images)
+    assets_dir = STATIC_DIR / "assets"
+    if assets_dir.exists():
+        application.mount(
+            "/assets", StaticFiles(directory=str(assets_dir)), name="assets"
+        )
+
+    @application.get("/", include_in_schema=False)
+    async def serve_index() -> FileResponse:
+        """ルートアクセス時にindex.htmlを返す"""
+        return FileResponse(STATIC_DIR / "index.html", media_type="text/html")
+
+    @application.get("/{full_path:path}", include_in_schema=False)
+    async def serve_spa(full_path: str) -> FileResponse:
+        """SPA fallback - 静的ファイルまたはindex.htmlを返す
+
+        React Routerのクライアントサイドルーティングに対応。
+        存在する静的ファイルは直接配信、それ以外はindex.htmlを返す。
+        """
+        # favicon.ico などのルートレベルファイル
+        file_path = STATIC_DIR / full_path
+        if file_path.exists() and file_path.is_file():
+            return FileResponse(file_path)
+
+        # SPA fallback
+        return FileResponse(STATIC_DIR / "index.html", media_type="text/html")
 
 
-@app.get("/", include_in_schema=False)
-async def root():
-    """ルートアクセス時にゲームUIを返す"""
-    if FRONTEND_DIR:
-        index_file = FRONTEND_DIR / "index.html"
-        if index_file.exists():
-            return FileResponse(index_file, media_type="text/html")
-    return {"message": "わくわくへんしんマジック API", "docs": "/docs"}
+# ゲームAPIルーターを登録 (prefix="/api"でフロントエンドルートと競合回避)
+app.include_router(game_router, prefix="/api")
 
+# ギャラリーAPIルーターを登録 (007-chat-interactive-ux)
+app.include_router(gallery_router, prefix="/api")
 
-# ゲームAPIルーターを登録
-app.include_router(game_router)
+# 実績APIルーターを登録 (007-chat-interactive-ux)
+app.include_router(achievements_router, prefix="/api")
+
+# 設定APIルーターを登録 (007-chat-interactive-ux)
+app.include_router(settings_router, prefix="/api")
 
 
 # 履歴画像配信エンドポイント
-@app.get("/history/images/{history_id}")
+@app.get("/api/history/images/{history_id}")
 async def get_history_image(history_id: str):
     """履歴画像を取得
 
@@ -226,7 +272,7 @@ async def get_history_image(history_id: str):
     Returns:
         画像ファイル
     """
-    from .session import session_store
+    from .services.session import session_store
 
     history = await session_store.get_history_by_id(history_id)
     if history is None:
@@ -271,7 +317,7 @@ async def health() -> Dict[str, Any]:
     Returns:
         Dict[str, Any]: ヘルスステータスと各サービスの状態
     """
-    from .litellm_client import litellm_client
+    from .services.litellm_client import litellm_client
 
     result: Dict[str, Any] = {
         "status": "ok",
@@ -285,7 +331,7 @@ async def health() -> Dict[str, Any]:
     # ComfyUI 接続確認 (IMAGE_PROVIDER=selfhost時のみ)
     if settings.image_provider == "selfhost":
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
+            async with httpx.AsyncClient(timeout=2.0) as client:
                 resp = await client.get(f"{settings.comfyui_base_url}/system_stats")
                 if resp.status_code == 200:
                     result["services"]["comfyui"] = {"status": "ok"}
@@ -297,7 +343,10 @@ async def health() -> Dict[str, Any]:
         except Exception as e:
             result["services"]["comfyui"] = {"status": "error", "message": str(e)}
     else:
-        result["services"]["comfyui"] = {"status": "skipped", "reason": "using openrouter"}
+        result["services"]["comfyui"] = {
+            "status": "skipped",
+            "reason": f"using {settings.image_provider}",
+        }
 
     # LiteLLM Proxy 接続確認 (selfhost使用時のみ)
     needs_litellm = (
@@ -311,17 +360,264 @@ async def health() -> Dict[str, Any]:
         except Exception as e:
             result["services"]["litellm"] = {"status": "error", "message": str(e)}
     else:
-        result["services"]["litellm"] = {"status": "skipped", "reason": "using openrouter"}
+        result["services"]["litellm"] = {
+            "status": "skipped",
+            "reason": "using openrouter",
+        }
+
+    # NovelAI チェック（IMAGE_PROVIDER=novelai時）
+    if settings.image_provider == "novelai":
+        if settings.novelai_api_key:
+            result["services"]["novelai"] = {"status": "ok"}
+        else:
+            result["services"]["novelai"] = {
+                "status": "error",
+                "message": "NOVELAI_API_KEY is missing",
+            }
 
     # いずれかのサービスがエラーならdegraded (skippedは無視)
-    has_error = any(
-        s.get("status") == "error"
-        for s in result["services"].values()
-    )
+    has_error = any(s.get("status") == "error" for s in result["services"].values())
     if has_error:
         result["status"] = "degraded"
 
     return result
+
+
+@app.get("/novelai/subscription")
+async def get_novelai_subscription() -> Dict[str, Any]:
+    """NovelAIサブスクリプション情報を取得
+
+    NovelAI API /user/subscription を呼び出し、
+    ユーザーのサブスクリプション情報（tier, active, expires_at）を返却。
+
+    tier値:
+    - 0: Free (Paper)
+    - 1: Tablet
+    - 2: Scroll
+    - 3: Opus
+
+    Returns:
+        Dict[str, Any]: サブスクリプション情報
+            - tier: int (0-3)
+            - active: bool
+            - expires_at: Optional[str]
+
+    Raises:
+        HTTPException:
+            - 401: APIキー未設定または認証エラー
+            - 503: NovelAI APIへの接続エラー
+    """
+    if not settings.novelai_api_key:
+        raise HTTPException(
+            status_code=401,
+            detail="NovelAI API key is not configured",
+        )
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                "https://api.novelai.net/user/subscription",
+                headers={
+                    "Authorization": f"Bearer {settings.novelai_api_key}",
+                    "Content-Type": "application/json",
+                },
+            )
+
+            if response.status_code == 401:
+                raise HTTPException(
+                    status_code=401,
+                    detail="Invalid NovelAI API key",
+                )
+
+            response.raise_for_status()
+            data = response.json()
+
+            # デバッグ: 生のレスポンスをログ出力
+            logger.info(f"NovelAI subscription raw response: {data}")
+
+            # tier, active, expiresAtはトップレベルにある
+            return {
+                "tier": data.get("tier", 0),
+                "active": data.get("active", False),
+                "expires_at": data.get("expiresAt"),
+            }
+
+    except httpx.TimeoutException as e:
+        logger.error(f"NovelAI subscription check timeout: {e}")
+        raise HTTPException(
+            status_code=503,
+            detail="NovelAI API timeout",
+        ) from e
+    except httpx.HTTPStatusError as e:
+        logger.error(f"NovelAI subscription check error: {e.response.status_code}")
+        raise HTTPException(
+            status_code=503,
+            detail=f"NovelAI API error: {e.response.status_code}",
+        ) from e
+    except Exception as e:
+        logger.error(f"NovelAI subscription check failed: {e}")
+        raise HTTPException(
+            status_code=503,
+            detail="Failed to check NovelAI subscription",
+        ) from e
+
+
+@app.get("/novelai/suggest-tags")
+async def suggest_tags(
+    prompt: str,
+    model: str = "nai-diffusion-4-5-full",
+    lang: str = "jp",
+) -> Dict[str, Any]:
+    """NovelAIタグ候補検索 (T004-T005)
+
+    NovelAI suggest-tags APIをプロキシして、プロンプト入力補助用のタグ候補を返す。
+    認証はサーバーサイドで行う (NOVELAI_API_KEY環境変数)。
+
+    Args:
+        prompt: 検索クエリ（日本語またはアルファベット）1-500文字
+        model: NovelAIモデル名 (デフォルト: nai-diffusion-4-5-full)
+        lang: 言語コード (デフォルト: jp)
+
+    Returns:
+        Dict[str, Any]: タグ候補レスポンス
+            - tags: list[TagSuggestion] タグ候補リスト
+            - query: str 元のクエリ
+
+    Raises:
+        HTTPException:
+            - 400: promptが空または無効
+            - 401: APIキー未設定
+            - 502: NovelAI APIエラー
+    """
+    # バリデーション
+    if not prompt or prompt.strip() == "":
+        raise HTTPException(
+            status_code=400,
+            detail="prompt is required",
+        )
+    if len(prompt) > 500:
+        raise HTTPException(
+            status_code=400,
+            detail="prompt must be 500 characters or less",
+        )
+
+    if not settings.novelai_api_key:
+        raise HTTPException(
+            status_code=401,
+            detail="NovelAI API key not configured",
+        )
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                "https://image.novelai.net/ai/generate-image/suggest-tags",
+                params={
+                    "model": model,
+                    "prompt": prompt.strip(),
+                    "lang": lang,
+                },
+                headers={
+                    "Authorization": f"Bearer {settings.novelai_api_key}",
+                    "Accept": "application/json",
+                },
+            )
+
+            if response.status_code == 401:
+                raise HTTPException(
+                    status_code=401,
+                    detail="Invalid NovelAI API key",
+                )
+
+            if response.status_code != 200:
+                logger.error(
+                    f"NovelAI suggest-tags error: {response.status_code} - {response.text}"
+                )
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"NovelAI API returned error: {response.status_code}",
+                )
+
+            data = response.json()
+            logger.debug(f"NovelAI suggest-tags raw response: {data}")
+
+            # レスポンス形式を正規化
+            # NovelAI APIレスポンス形式:
+            # [{ "jp_tag": "日本語名", "en_tag": "english_tag", "power": N }, ...]
+            tags = []
+            if isinstance(data, list):
+                # 配列形式の場合 (NovelAI標準)
+                for item in data:
+                    if isinstance(item, dict):
+                        # NovelAI形式: en_tag を優先、なければ jp_tag
+                        tag_name = (
+                            item.get("en_tag")
+                            or item.get("jp_tag")
+                            or item.get("tag")
+                            or item.get("name", "")
+                        )
+                        count = (
+                            item.get("power") or item.get("count") or item.get("score")
+                        )
+                        if tag_name:  # 空のタグは除外
+                            tags.append(
+                                {
+                                    "tag": tag_name,
+                                    "count": count,
+                                }
+                            )
+                    elif isinstance(item, str):
+                        tags.append({"tag": item, "count": None})
+            elif isinstance(data, dict):
+                if "tags" in data:
+                    for item in data["tags"]:
+                        if isinstance(item, dict):
+                            tag_name = (
+                                item.get("en_tag")
+                                or item.get("jp_tag")
+                                or item.get("tag")
+                                or item.get("name", "")
+                            )
+                            count = (
+                                item.get("power")
+                                or item.get("count")
+                                or item.get("score")
+                            )
+                            if tag_name:
+                                tags.append(
+                                    {
+                                        "tag": tag_name,
+                                        "count": count,
+                                    }
+                                )
+                        elif isinstance(item, str):
+                            tags.append({"tag": item, "count": None})
+
+            return {
+                "tags": tags,
+                "query": prompt,
+            }
+
+    except httpx.TimeoutException as e:
+        logger.error(f"NovelAI suggest-tags timeout: {e}")
+        raise HTTPException(
+            status_code=502,
+            detail="NovelAI API timeout",
+        ) from e
+    except httpx.HTTPStatusError as e:
+        logger.error(f"NovelAI suggest-tags HTTP error: {e.response.status_code}")
+        raise HTTPException(
+            status_code=502,
+            detail=f"NovelAI API error: {e.response.status_code}",
+        ) from e
+    except HTTPException:
+        # 既にHTTPExceptionの場合は再スロー
+        raise
+    except Exception as e:
+        logger.error(f"NovelAI suggest-tags failed: {e}")
+        raise HTTPException(
+            status_code=502,
+            detail="Failed to fetch tag suggestions",
+        ) from e
 
 
 async def _process_image_form(
@@ -752,3 +1048,15 @@ async def image_variations(
         ) from exc
 
     return await _process_image_form(form, client=client, cfg=cfg, force_mask_none=True)
+
+
+# 静的ファイル配信を最後に登録（catch-all）
+# APIルートおよびその他のエンドポイントより後に配置することで、
+# API呼び出しが優先され、未マッチのパスのみSPAにフォールバックする
+setup_static_files(app)
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run("gateway.app:app", host="0.0.0.0", port=8000, reload=True)

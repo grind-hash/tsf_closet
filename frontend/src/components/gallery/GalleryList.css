@@ -1,0 +1,112 @@
+/**
+ * GalleryList CSS
+ * 007-chat-interactive-ux
+ */
+
+.gallery-list {
+  overflow-x: auto;
+}
+
+.gallery-list__table {
+  width: 100%;
+  border-collapse: collapse;
+  background-color: var(--card-bg, #16213e);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+/* ヘッダー */
+.gallery-list__th {
+  padding: 0.75rem 1rem;
+  text-align: left;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted, #888);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background-color: var(--bg-color, #1a1a2e);
+  border-bottom: 1px solid var(--border-color, #333);
+}
+
+.gallery-list__th--image {
+  width: 80px;
+}
+
+.gallery-list__th--instruction {
+  min-width: 200px;
+}
+
+.gallery-list__th--category {
+  width: 100px;
+}
+
+.gallery-list__th--date {
+  width: 120px;
+}
+
+/* 行 */
+.gallery-list__row {
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.gallery-list__row:hover {
+  background-color: var(--hover-bg, #1f2f50);
+}
+
+.gallery-list__row:focus {
+  outline: none;
+  background-color: var(--hover-bg, #1f2f50);
+}
+
+.gallery-list__row:focus-visible {
+  outline: 2px solid var(--accent-color, #e94560);
+  outline-offset: -2px;
+}
+
+/* セル */
+.gallery-list__td {
+  padding: 0.75rem 1rem;
+  font-size: 0.875rem;
+  color: var(--text-color, #eee);
+  border-bottom: 1px solid var(--border-color, #333);
+  vertical-align: middle;
+}
+
+.gallery-list__td--instruction {
+  max-width: 300px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gallery-list__td--category {
+  font-size: 0.8rem;
+  color: var(--text-muted, #888);
+}
+
+.gallery-list__td--date {
+  font-size: 0.8rem;
+  color: var(--text-muted, #888);
+  white-space: nowrap;
+}
+
+/* サムネイル */
+.gallery-list__thumbnail {
+  width: 50px;
+  height: 66px;
+  object-fit: cover;
+  border-radius: 4px;
+}
+
+/* レスポンシブ */
+@media (max-width: 768px) {
+  .gallery-list__th--category,
+  .gallery-list__td--category {
+    display: none;
+  }
+
+  .gallery-list__td {
+    padding: 0.5rem;
+  }
+}

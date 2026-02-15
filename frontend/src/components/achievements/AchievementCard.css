@@ -1,0 +1,116 @@
+/**
+ * AchievementCard CSS
+ * 007-chat-interactive-ux
+ */
+
+.achievement-card {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem;
+  background-color: var(--card-bg, #16213e);
+  border: 1px solid var(--border-color, #333);
+  border-radius: 12px;
+  position: relative;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.achievement-card.is-unlocked {
+  border-color: var(--accent-color, #e94560);
+}
+
+.achievement-card.is-locked {
+  opacity: 0.6;
+}
+
+.achievement-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+/* アイコン */
+.achievement-card__icon {
+  width: 50px;
+  height: 50px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2rem;
+  background-color: var(--bg-color, #1a1a2e);
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.achievement-card.is-unlocked .achievement-card__icon {
+  background: linear-gradient(135deg, #e94560, #ff6b9d);
+}
+
+/* コンテンツ */
+.achievement-card__content {
+  flex: 1;
+  min-width: 0;
+}
+
+.achievement-card__name {
+  margin: 0 0 0.25rem 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-color, #eee);
+}
+
+.achievement-card__description {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-muted, #888);
+  line-height: 1.4;
+}
+
+.achievement-card__date {
+  display: inline-block;
+  margin-top: 0.5rem;
+  font-size: 0.7rem;
+  color: var(--accent-color, #e94560);
+}
+
+/* ヒント */
+.achievement-card__hint {
+  margin: 0.5rem 0 0 0;
+  font-size: 0.75rem;
+  color: var(--hint-color, #7aa2f7);
+  font-style: italic;
+  line-height: 1.3;
+}
+
+/* バッジ */
+.achievement-card__badge {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--accent-color, #e94560);
+  border-radius: 50%;
+  color: white;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+/* レスポンシブ */
+@media (max-width: 600px) {
+  .achievement-card {
+    padding: 0.75rem;
+  }
+
+  .achievement-card__icon {
+    width: 40px;
+    height: 40px;
+    font-size: 1.5rem;
+  }
+
+  .achievement-card__name {
+    font-size: 0.9rem;
+  }
+}

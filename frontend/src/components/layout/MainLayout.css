@@ -1,0 +1,125 @@
+/**
+ * MainLayout CSS - 3カラムレイアウト
+ * 007-chat-interactive-ux
+ */
+
+.main-layout {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  grid-template-areas: "sidemenu content";
+  height: 100vh;
+  max-height: 100vh;
+  background-color: var(--bg-color, #1a1a2e);
+  color: var(--text-color, #eee);
+  transition: grid-template-columns 0.3s ease;
+  overflow: hidden;
+}
+
+/* 右パネル表示時は3カラム */
+.main-layout.has-right-panel {
+  grid-template-columns: 200px 1fr 280px;
+  grid-template-areas: "sidemenu content rightpanel";
+}
+
+/* 左サイドメニュー */
+.main-layout__side-menu {
+  grid-area: sidemenu;
+  background-color: var(--side-menu-bg, #16213e);
+  border-right: 1px solid var(--border-color, #333);
+  padding: 1rem 0;
+  overflow-y: auto;
+}
+
+/* メインコンテンツエリア */
+.main-layout__content {
+  grid-area: content;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+/* 右パネルトグルボタン */
+.main-layout__toggle-right {
+  position: fixed;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 100;
+  width: 24px;
+  height: 64px;
+  background-color: var(--side-menu-bg, #16213e);
+  border: 1px solid var(--border-color, #333);
+  border-right: none;
+  border-radius: 8px 0 0 8px;
+  color: var(--text-color, #eee);
+  font-size: 1.2rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s, right 0.3s;
+}
+
+.main-layout__toggle-right:hover {
+  background-color: var(--hover-bg, #1f2f50);
+}
+
+.main-layout__toggle-right.is-open {
+  right: 280px;
+}
+
+/* 右パネル - グリッドベース */
+.main-layout__right-panel {
+  grid-area: rightpanel;
+  display: none;
+  background-color: var(--side-menu-bg, #16213e);
+  border-left: 1px solid var(--border-color, #333);
+  padding: 0;
+  overflow-y: auto;
+  height: 100vh;
+  max-height: 100vh;
+}
+
+.main-layout__right-panel.is-open {
+  display: block;
+}
+
+/* レスポンシブ対応 */
+@media (max-width: 768px) {
+  .main-layout {
+    grid-template-columns: 60px 1fr;
+    grid-template-areas: "sidemenu content";
+  }
+
+  .main-layout__side-menu {
+    padding: 0.5rem 0;
+  }
+
+  .main-layout__right-panel {
+    width: 100%;
+    right: -100%;
+  }
+
+  .main-layout__right-panel.is-open {
+    right: 0;
+  }
+
+  .main-layout__toggle-right.is-open {
+    right: calc(100% - 24px);
+  }
+}
+
+/* CSS Variables (ダークテーマ) */
+:root {
+  --bg-color: #1a1a2e;
+  --side-menu-bg: #16213e;
+  --border-color: #333;
+  --text-color: #eee;
+  --text-muted: #888;
+  --hover-bg: #1f2f50;
+  --accent-color: #e94560;
+  --accent-hover: #ff6b6b;
+  --success-color: #4ade80;
+  --warning-color: #fbbf24;
+}

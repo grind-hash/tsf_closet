@@ -1,12 +1,49 @@
-**/.git
-**/.gitignore
-**/.DS_Store
-**/__pycache__
-**/*.pyc
-**/node_modules
-**/dist
-**/build
-**/.vscode
-**/.idea
-**/*.log
-**/.env*
+# Git
+.git/
+.gitignore
+
+# Node
+node_modules/
+frontend/node_modules/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Build artifacts
+dist/
+frontend/dist/
+backend/static/*
+!backend/static/.gitkeep
+
+# IDE/Editor
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Specs & docs
+specs/
+fine_tune/
+poc_novelai/
+phisycal_sync_knowledge/
+*.md
+
+# Logs
+*.log
+logs/
+
+# Environment files
+.env*
+config.env
+
+# Docker
+docker/
+Dockerfile*
+.dockerignore
+compose.yaml

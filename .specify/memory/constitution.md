@@ -1,50 +1,72 @@
-# [PROJECT_NAME] Constitution
-<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
+# CONSTITUTION（プロジェクト原則）
+
+> **Attention**
+> すべての仕様・出力・ドキュメント・生成コンテンツは原則として日本語で記述しなければならない（MUST）。
+> ユーザーが明示的に要求した場合のみ、英語出力を許可する。
+
+このドキュメントは、TSF Closet プロジェクトにおける開発の基本原則を定義する。
+すべての開発者、AI エージェント、ツールは本憲章に従う必要がある。
 
 ## Core Principles
 
-### [PRINCIPLE_1_NAME]
-<!-- Example: I. Library-First -->
-[PRINCIPLE_1_DESCRIPTION]
-<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
+### I. 情報源の信頼性（NON-NEGOTIABLE）
 
-### [PRINCIPLE_2_NAME]
-<!-- Example: II. CLI Interface -->
-[PRINCIPLE_2_DESCRIPTION]
-<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
+- 技術選定・実装判断は、公式ドキュメント、公式リポジトリ、公式リリースノート等の一次情報を最優先とする（MUST）。
+- 非公式ソースは補助情報として扱い、採用前に必ず公式情報または一次情報で cross-check する（MUST）。
+- 参照情報の鮮度（確認日・バージョン）を明示する（SHOULD）。
 
-### [PRINCIPLE_3_NAME]
-<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
-[PRINCIPLE_3_DESCRIPTION]
-<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
+### II. 品質保証（UI/UX テスト必須）
 
-### [PRINCIPLE_4_NAME]
-<!-- Example: IV. Integration Testing -->
-[PRINCIPLE_4_DESCRIPTION]
-<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
+- UI/UX の変更は自動 E2E テストで検証する（MUST）。
+- テストなしでのマージは原則として禁止する（MUST）。
+- リグレッション防止のため、重要機能には必ず自動テストを追加する（MUST）。
 
-### [PRINCIPLE_5_NAME]
-<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
-[PRINCIPLE_5_DESCRIPTION]
-<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
+### III. 型安全性とコード品質
 
-## [SECTION_2_NAME]
-<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
+- React/TypeScript の型安全性を最優先し、strict モードを維持する（MUST）。
+- `any` 型の使用は極力避け、必要時は明確な理由を残す（SHOULD）。
+- 型エラー・lint エラーは無視せず、根本原因を解消する（MUST）。
+- フロントエンドの Linter/Formatter は ESLint/Prettier、バックエンドの整形は Ruff を用い、警告/エラーをゼロに保つ（MUST）。
 
-[SECTION_2_CONTENT]
-<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
+### IV. API 設計とエラーハンドリング
 
-## [SECTION_3_NAME]
-<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
+- API 呼び出しエラーは適切にハンドリングし、利用者に理解可能なメッセージを返す（MUST）。
+- API 層の責務分離を維持し、UI コンポーネントからの無秩序な直接通信を避ける（SHOULD）。
 
-[SECTION_3_CONTENT]
-<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
+### V. データ・セキュリティ・運用
+
+- スキーマ変更は Alembic マイグレーション経由で実施し、マイグレーションは必ずバージョン管理する（MUST）。
+- 手動 SQL 実行によるスキーマ変更は原則禁止とする（MUST）。
+- 機密情報は環境変数で管理し、ソースコードへハードコーディングしない（MUST）。
+- `.env` はバージョン管理へ含めず、`.env.example` のみを管理対象とする（MUST）。
+
+## Environment Standards
+
+- OS: Windows 11
+- シェル: PowerShell
+- Python 実行: `uv` を使用（`pip` を直接使用しない）
+- Node.js: Volta で管理（推奨バージョン: 24）
+- フロントエンド（React）: port 3000
+- バックエンド（FastAPI）: port 8000
+- Markdown Formatter: Prettier
+
+## Deployment & Dependencies
+
+- デプロイ前に `uv sync` を実行する（MUST）。
+- `requirements.txt` の整合を維持する（MUST）。
+- 依存関係更新履歴を記録する（SHOULD）。
+- Docker Compose を用いた環境構築を基本とし、本番とローカルの差異を最小化する（SHOULD）。
+
+## Documentation & Spec-Driven Development
+
+- README には概要、セットアップ手順、Constitution と AGENTS.md への参照を含める（MUST）。
+- 機能追加は仕様作成から開始し、実装前に仕様レビューを行う（MUST）。
+- spec-kit を活用し、仕様・計画・タスクのトレーサビリティを維持する（SHOULD）。
 
 ## Governance
-<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
 
-[GOVERNANCE_RULES]
-<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
+- 本憲章は、個別の spec、plan、tasks、運用メモより優先される（MUST）。
+- すべての PR・レビューで本憲章への準拠を確認する（MUST）。
+- 本憲章の改定は、変更理由・影響範囲・移行方針を明記した上で実施する（MUST）。
 
-**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
-<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->
+**Version**: 1.0.0 | **Ratified**: 2026-01-20 | **Last Amended**: 2026-02-14

@@ -1,0 +1,131 @@
+/**
+ * ImagePreviewModal CSS
+ * T027-T032: 画像拡大プレビューモーダル
+ */
+
+.image-preview-modal__overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  animation: imagePreviewFadeIn 0.2s ease-out;
+}
+
+@keyframes imagePreviewFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.image-preview-modal__content {
+  position: relative;
+  max-width: 90vw;
+  max-height: 90vh;
+  animation: imagePreviewScaleIn 0.2s ease-out;
+}
+
+@keyframes imagePreviewScaleIn {
+  from {
+    transform: scale(0.95);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.image-preview-modal__image {
+  max-width: 100%;
+  max-height: 90vh;
+  object-fit: contain;
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.image-preview-modal__close {
+  position: absolute;
+  top: -40px;
+  right: 0;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 50%;
+  background-color: rgba(255, 255, 255, 0.15);
+  color: white;
+  font-size: 1.25rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s;
+}
+
+.image-preview-modal__close:hover {
+  background-color: rgba(255, 255, 255, 0.3);
+}
+
+/* ナビゲーションボタン */
+.image-preview-modal__nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 48px;
+  height: 48px;
+  border: none;
+  border-radius: 50%;
+  background-color: rgba(255, 255, 255, 0.15);
+  color: white;
+  font-size: 2rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s, opacity 0.2s;
+}
+
+.image-preview-modal__nav:hover:not(.is-disabled) {
+  background-color: rgba(255, 255, 255, 0.3);
+}
+
+.image-preview-modal__nav.is-disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.image-preview-modal__nav--prev {
+  left: -60px;
+}
+
+.image-preview-modal__nav--next {
+  right: -60px;
+}
+
+/* レスポンシブ */
+@media (max-width: 768px) {
+  .image-preview-modal__close {
+    top: 10px;
+    right: 10px;
+    background-color: rgba(0, 0, 0, 0.5);
+  }
+
+  .image-preview-modal__nav {
+    width: 40px;
+    height: 40px;
+    font-size: 1.5rem;
+  }
+
+  .image-preview-modal__nav--prev {
+    left: 10px;
+  }
+
+  .image-preview-modal__nav--next {
+    right: 10px;
+  }
+}

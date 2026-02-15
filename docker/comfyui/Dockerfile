@@ -1,6 +1,6 @@
 # ComfyUI Dockerfile - Qwen Image Edit 2511
 FROM nvidia/cuda:13.1.1-cudnn-runtime-ubuntu24.04
-ARG PYTORCH_CUDA_TOOLKIT_URL
+
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
@@ -21,6 +21,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 \
     && rm -rf /var/lib/apt/lists/*
 
+# Set Python 3.11 as default
+# RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1 \
+# && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
+
 WORKDIR /app
 
 RUN python3 -m venv /opt/venv
@@ -32,7 +36,7 @@ RUN git clone https://github.com/comfyanonymous/ComfyUI.git /app/ComfyUI
 WORKDIR /app/ComfyUI
 
 # Install PyTorch with CUDA support
-RUN pip install --no-cache-dir torch torchvision torchaudio --index-url ${PYTORCH_CUDA_TOOLKIT_URL-https://download.pytorch.org/whl/cu124}
+RUN pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
 
 # Install ComfyUI requirements
 RUN pip install --no-cache-dir -r requirements.txt

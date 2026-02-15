@@ -1,38 +1,20 @@
 [
   {
     "id": "char1",
-    "name": "キャラ1",
+    "name": "水瀬ユウヤ",
     "image_path": "images/characters/char1.png",
-    "description": "女の子。カジュアルな服装。",
-    "pronoun": "私",
-    "personality": "明るく好奇心旺盛",
-    "gender": "girl"
+    "description": "普通の男の子。Tシャツと短パン姿。",
+    "pronoun": "僕",
+    "personality": "素直で恥ずかしがり屋",
+    "gender": "man"
   },
   {
     "id": "char2",
-    "name": "キャラ2",
+    "name": "星野エミ",
     "image_path": "images/characters/char2.png",
-    "description": "男の子。カジュアルな服装。",
-    "pronoun": "僕",
-    "personality": "明るく好奇心旺盛",
-    "gender": "boy"
-  },
-  {
-    "id": "char3",
-    "name": "キャラ3",
-    "image_path": "images/characters/char3.png",
-    "description": "女の子。カジュアルな服装。",
-    "pronoun": "ウチ",
-    "personality": "明るく好奇心旺盛",
-    "gender": "girl"
-  },
-  {
-    "id": "char4",
-    "name": "キャラ4",
-    "image_path": "images/characters/char4.png",
-    "description": "男の子。カジュアルな服装。",
-    "pronoun": "自分",
-    "personality": "明るく好奇心旺盛",
-    "gender": "boy"
+    "description": "普通の女の子。Tシャツと短パン姿。",
+    "pronoun": "私",
+    "personality": "素直で恥ずかしがり屋",
+    "gender": "woman"
   }
 ]

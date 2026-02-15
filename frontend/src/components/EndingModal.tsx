@@ -1,3 +1,7 @@
+/**
+ * EndingModal component - displays ending achievement.
+ */
+
 import type { Ending } from '../types';
 import './EndingModal.css';
 
@@ -5,62 +9,35 @@ interface EndingModalProps {
   ending: Ending;
   onClose: () => void;
   onRestart: () => void;
+  onGallery: () => void;
 }
 
-export default function EndingModal({ ending, onClose, onRestart }: EndingModalProps) {
-  const getEndingEmoji = (endingId: string) => {
-    switch (endingId) {
-      case 'super_hero': return '🦸';
-      case 'magic_master': return '🧙';
-      case 'adventurer': return '🗺️';
-      case 'transformation_master': return '🌟';
-      default: return '🎉';
-    }
-  };
-
-  const getEndingTitle = (endingId: string) => {
-    switch (endingId) {
-      case 'super_hero': return 'スーパーヒーローエンド！';
-      case 'magic_master': return 'マスターまほうつかいエンド！';
-      case 'adventurer': return 'だいぼうけんかエンド！';
-      case 'transformation_master': return 'へんしんマスターエンド！';
-      default: return ending.title;
-    }
-  };
-
+export default function EndingModal({ ending, onClose, onRestart, onGallery }: EndingModalProps) {
   return (
-    <div className="ending-modal-overlay" onClick={onClose}>
-      <div className="ending-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="ending-badge">
-          <span className="ending-emoji">{getEndingEmoji(ending.endingId)}</span>
-        </div>
-
-        <h2 className="ending-title">
-          🎊 おめでとう！ 🎊
-        </h2>
-
-        <h3 className="ending-type">
-          {getEndingTitle(ending.endingId)}
-        </h3>
-
-        {ending.isNew && (
-          <div className="new-badge">✨ はじめてたっせい！ ✨</div>
+    <div className="ending-modal" onClick={onClose}>
+      <div className="ending-content" onClick={(e) => e.stopPropagation()}>
+        <div className="ending-badge">{ending.badge}</div>
+        <h2 className="ending-title">{ending.name}</h2>
+        <p className="ending-description">{ending.description}</p>
+        
+        {ending.speech && (
+          <div className="ending-speech">
+            {ending.speech}
+          </div>
         )}
-
-        <div className="ending-speech">
-          <p>「{ending.finalSpeech}」</p>
-        </div>
-
-        <div className="ending-summary">
-          <p>{ending.summary}</p>
-        </div>
-
+        
+        {ending.summary && (
+          <div className="ending-summary">
+            {ending.summary}
+          </div>
+        )}
+        
         <div className="ending-actions">
-          <button className="restart-btn" onClick={onRestart}>
-            🔄 もういちどあそぶ
+          <button className="btn btn-primary" onClick={onGallery}>
+            ギャラリーへ
           </button>
-          <button className="close-btn" onClick={onClose}>
-            ✖️ とじる
+          <button className="btn btn-outline" onClick={onRestart}>
+            もう一度プレイ
           </button>
         </div>
       </div>

@@ -1,0 +1,794 @@
+/**
+ * CharacterStatePanel CSS
+ * 007-chat-interactive-ux
+ * 刷新版: 縦レイアウトの左パネル
+ */
+
+.character-state-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1rem;
+  background-color: var(--card-bg, #16213e);
+  border-radius: 12px;
+  height: 100%;
+  overflow-y: auto;
+}
+
+/* キャラクター名 */
+.character-state-panel__name {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--text-color, #eee);
+  text-align: center;
+}
+
+/* 画像コンテナ - 大きく表示 */
+.character-state-panel__image-container {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.character-state-panel__image-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  border-radius: 12px;
+  overflow: hidden;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.character-state-panel__image-btn:hover {
+  transform: scale(1.02);
+  box-shadow: 0 4px 20px rgba(233, 69, 96, 0.3);
+}
+
+.character-state-panel__image {
+  width: 100%;
+  max-width: 280px;
+  height: auto;
+  object-fit: contain;
+  border-radius: 12px;
+}
+
+.character-state-panel__no-image {
+  width: 280px;
+  height: 380px;
+  background-color: var(--bg-color, #1a1a2e);
+  border: 2px dashed var(--border-color, #333);
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted, #888);
+  font-size: 0.875rem;
+}
+
+/* 変身中オーバーレイ */
+.character-state-panel__loading-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(20, 10, 30, 0.9);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #ffd6e6;
+  border-radius: 12px;
+  gap: 0.75rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.character-state-panel__spinner {
+  width: 40px;
+  height: 40px;
+  border: 4px solid rgba(255, 150, 200, 0.3);
+  border-top-color: #ff9eb3;
+  border-radius: 50%;
+  animation: character-state-panel-spin 0.8s linear infinite;
+}
+
+@keyframes character-state-panel-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 履歴ナビゲーション */
+.character-state-panel__nav {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.character-state-panel__nav-btn {
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border-color, #444);
+  border-radius: 50%;
+  background-color: var(--bg-color, #1a1a2e);
+  color: var(--text-color, #eee);
+  font-size: 1.25rem;
+  cursor: pointer;
+  transition: background-color 0.2s, border-color 0.2s, transform 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.character-state-panel__nav-btn:hover:not(:disabled) {
+  background-color: var(--hover-bg, #1f2f50);
+  border-color: var(--accent-color, #e94560);
+  transform: scale(1.1);
+}
+
+.character-state-panel__nav-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.character-state-panel__nav-count {
+  font-size: 0.875rem;
+  color: var(--text-muted, #888);
+  min-width: 60px;
+  text-align: center;
+}
+
+/* 4ボタン履歴ナビゲーション（インペイントトグルの上） */
+.character-state-panel__nav-full {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  background-color: var(--bg-color, #1a1a2e);
+  border-radius: 8px;
+}
+
+.character-state-panel__nav-full .character-state-panel__nav-btn {
+  padding: 0.4rem 0.6rem;
+  font-size: 1.1rem;
+  min-width: 32px;
+}
+
+.character-state-panel__nav-full .character-state-panel__nav-count {
+  font-size: 0.8rem;
+  min-width: 50px;
+}
+
+/* インペイントトグル (FR-017準拠) */
+.character-state-panel__inpaint-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  background-color: var(--bg-color, #1a1a2e);
+  border-radius: 8px;
+}
+
+/* NSFWモードトグル（パネル上部） */
+.character-state-panel__nsfw-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 0.5rem 0.75rem;
+  background-color: rgba(139, 0, 0, 0.2);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 100, 100, 0.3);
+}
+
+.character-state-panel__toggle--nsfw {
+  gap: 0.5rem;
+}
+
+.character-state-panel__toggle-switch--nsfw {
+  width: 36px;
+  height: 20px;
+}
+
+.character-state-panel__toggle-switch--nsfw::after {
+  width: 16px;
+  height: 16px;
+}
+
+.character-state-panel__toggle-input:checked + .character-state-panel__toggle-switch--nsfw {
+  background-color: #dc3545;
+}
+
+.character-state-panel__toggle-input:checked + .character-state-panel__toggle-switch--nsfw::after {
+  transform: translateX(16px);
+}
+
+.character-state-panel__toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+}
+
+.character-state-panel__toggle-label {
+  font-size: 0.875rem;
+  color: var(--text-color, #eee);
+}
+
+.character-state-panel__toggle-input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.character-state-panel__toggle-switch {
+  position: relative;
+  width: 44px;
+  height: 24px;
+  background-color: var(--border-color, #333);
+  border-radius: 12px;
+  transition: background-color 0.2s;
+}
+
+.character-state-panel__toggle-switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  background-color: white;
+  border-radius: 50%;
+  transition: transform 0.2s;
+}
+
+.character-state-panel__toggle-input:checked + .character-state-panel__toggle-switch {
+  background-color: var(--accent-color, #e94560);
+}
+
+.character-state-panel__toggle-input:checked + .character-state-panel__toggle-switch::after {
+  transform: translateX(20px);
+}
+
+/* マスク編集ボタン */
+.character-state-panel__mask-edit-btn {
+  padding: 0.375rem 0.625rem;
+  font-size: 0.75rem;
+  background-color: var(--accent-color, #e94560);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.2s, transform 0.1s;
+  white-space: nowrap;
+}
+
+.character-state-panel__mask-edit-btn:hover {
+  background-color: var(--accent-hover, #d63350);
+  transform: scale(1.02);
+}
+
+.character-state-panel__mask-edit-btn:active {
+  transform: scale(0.98);
+}
+
+/* 属性セクション */
+.character-state-panel__attributes-section {
+  padding: 0.75rem;
+  background-color: var(--bg-color, #1a1a2e);
+  border-radius: 8px;
+}
+
+.character-state-panel__section-title {
+  margin: 0 0 0.5rem 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-muted, #888);
+}
+
+.character-state-panel__attributes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.character-state-panel__attribute-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.5rem;
+  background-color: var(--accent-color, #e94560);
+  color: white;
+  border-radius: 16px;
+  font-size: 0.75rem;
+}
+
+.character-state-panel__attribute-text {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.character-state-panel__attribute-action {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 0.875rem;
+  cursor: pointer;
+  padding: 0;
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: background-color 0.2s, color 0.2s;
+}
+
+.character-state-panel__attribute-action:hover {
+  background-color: rgba(255, 255, 255, 0.2);
+  color: white;
+}
+
+.character-state-panel__attribute-add-btn {
+  padding: 0.25rem 0.5rem;
+  background-color: transparent;
+  border: 1px dashed var(--border-color, #444);
+  color: var(--text-muted, #888);
+  border-radius: 16px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: border-color 0.2s, color 0.2s;
+}
+
+.character-state-panel__attribute-add-btn:hover {
+  border-color: var(--accent-color, #e94560);
+  color: var(--accent-color, #e94560);
+}
+
+.character-state-panel__attribute-input {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  width: 100%;
+  margin-top: 0.25rem;
+}
+
+.character-state-panel__attribute-input input {
+  flex: 1;
+  padding: 0.375rem 0.5rem;
+  background-color: var(--bg-secondary, #1a1a2e);
+  border: 1px solid var(--border-color, #444);
+  border-radius: 8px;
+  color: var(--text-color, #eee);
+  font-size: 0.75rem;
+}
+
+.character-state-panel__attribute-input input:focus {
+  outline: none;
+  border-color: var(--accent-color, #e94560);
+}
+
+.character-state-panel__btn-add,
+.character-state-panel__btn-cancel {
+  padding: 0.375rem 0.5rem;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.character-state-panel__btn-add {
+  background-color: var(--accent-color, #e94560);
+  color: white;
+}
+
+.character-state-panel__btn-add:hover:not(:disabled) {
+  background-color: var(--accent-hover, #d63350);
+}
+
+.character-state-panel__btn-add:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.character-state-panel__btn-cancel {
+  background-color: var(--border-color, #444);
+  color: var(--text-color, #eee);
+}
+
+.character-state-panel__btn-cancel:hover {
+  background-color: var(--hover-bg, #555);
+}
+
+/* パラメータ表示 */
+.character-state-panel__stats {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  background-color: var(--bg-color, #1a1a2e);
+  border-radius: 8px;
+}
+
+.character-state-panel__stat {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.character-state-panel__stat-label {
+  width: 55px;
+  font-size: 0.75rem;
+  color: var(--text-muted, #888);
+  flex-shrink: 0;
+}
+
+.character-state-panel__stat-bar {
+  flex: 1;
+  height: 8px;
+  background-color: var(--bg-secondary, #0f0f1a);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.character-state-panel__stat-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.5s ease-out;
+}
+
+.character-state-panel__stat-fill--bloom {
+  background: linear-gradient(90deg, #e94560, #ff6b9d);
+}
+
+.character-state-panel__stat-fill--shame {
+  background: linear-gradient(90deg, #ff9f43, #feca57);
+}
+
+.character-state-panel__stat-fill--adaptation {
+  background: linear-gradient(90deg, #10ac84, #1dd1a1);
+}
+
+.character-state-panel__adaptation-meter {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.character-state-panel__adaptation-labels {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.65rem;
+  color: var(--text-muted, #888);
+  line-height: 1;
+}
+
+.character-state-panel__stat-bar--adaptation {
+  position: relative;
+  height: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: linear-gradient(
+    90deg,
+    rgba(255, 105, 180, 0.2) 0%,
+    rgba(255, 255, 255, 0.08) 50%,
+    rgba(46, 204, 113, 0.22) 100%
+  );
+}
+
+.character-state-panel__adaptation-center {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+  background-color: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 4px rgba(255, 255, 255, 0.45);
+  z-index: 2;
+  pointer-events: none;
+}
+
+.character-state-panel__stat-value {
+  width: 30px;
+  font-size: 0.875rem;
+  color: var(--text-color, #eee);
+  text-align: right;
+  flex-shrink: 0;
+}
+
+/* 状態説明 */
+.character-state-panel__description {
+  margin: 0;
+  padding: 0.75rem;
+  background-color: var(--bg-color, #1a1a2e);
+  border-radius: 8px;
+  font-size: 0.875rem;
+  color: var(--text-color, #eee);
+  line-height: 1.5;
+}
+
+/* スクロールバー */
+.character-state-panel::-webkit-scrollbar {
+  width: 6px;
+}
+
+.character-state-panel::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.character-state-panel::-webkit-scrollbar-thumb {
+  background: var(--border-color, #444);
+  border-radius: 3px;
+}
+
+.character-state-panel::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted, #666);
+}
+
+/* レスポンシブ */
+@media (max-width: 768px) {
+  .character-state-panel__image {
+    max-width: 200px;
+  }
+
+  .character-state-panel__no-image {
+    width: 200px;
+    height: 270px;
+  }
+}
+
+/* プリセット管理 */
+.character-state-panel__preset-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.character-state-panel__preset-btn {
+  flex: 1;
+  padding: 0.5rem;
+  font-size: 0.75rem;
+  background-color: var(--bg-color, #1a1a2e);
+  border: 1px solid var(--border-color, #444);
+  border-radius: 6px;
+  color: var(--text-color, #eee);
+  cursor: pointer;
+  transition: background-color 0.2s, border-color 0.2s;
+}
+
+.character-state-panel__preset-btn:hover:not(:disabled) {
+  background-color: var(--hover-bg, #1f2f50);
+  border-color: var(--accent-color, #e94560);
+}
+
+.character-state-panel__preset-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* プリセット一覧 */
+.character-state-panel__preset-list {
+  margin-top: 0.5rem;
+  padding: 0.5rem;
+  background-color: var(--bg-color, #1a1a2e);
+  border: 1px solid var(--border-color, #444);
+  border-radius: 8px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.character-state-panel__preset-empty {
+  margin: 0;
+  padding: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--text-muted, #888);
+  text-align: center;
+}
+
+.character-state-panel__preset-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0;
+}
+
+.character-state-panel__preset-item:not(:last-child) {
+  border-bottom: 1px solid var(--border-color, #333);
+}
+
+.character-state-panel__preset-load-btn {
+  flex: 1;
+  padding: 0.5rem;
+  font-size: 0.75rem;
+  background: none;
+  border: none;
+  color: var(--text-color, #eee);
+  cursor: pointer;
+  text-align: left;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+}
+
+.character-state-panel__preset-load-btn:hover {
+  background-color: var(--hover-bg, #1f2f50);
+}
+
+.character-state-panel__preset-delete-btn {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  font-size: 0.875rem;
+  background: none;
+  border: none;
+  color: var(--text-muted, #888);
+  cursor: pointer;
+  border-radius: 4px;
+  transition: color 0.2s, background-color 0.2s;
+}
+
+.character-state-panel__preset-delete-btn:hover {
+  color: var(--danger-color, #e94560);
+  background-color: rgba(233, 69, 96, 0.1);
+}
+
+/* プリセット保存モーダル */
+.character-state-panel__preset-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.character-state-panel__preset-modal-content {
+  background-color: var(--card-bg, #16213e);
+  padding: 1.5rem;
+  border-radius: 12px;
+  min-width: 280px;
+  max-width: 90%;
+}
+
+.character-state-panel__preset-modal-content h5 {
+  margin: 0 0 1rem 0;
+  font-size: 1rem;
+  color: var(--text-color, #eee);
+}
+
+.character-state-panel__preset-modal-content input {
+  width: 100%;
+  padding: 0.75rem;
+  font-size: 0.875rem;
+  background-color: var(--bg-color, #1a1a2e);
+  border: 1px solid var(--border-color, #444);
+  border-radius: 8px;
+  color: var(--text-color, #eee);
+  margin-bottom: 1rem;
+  box-sizing: border-box;
+}
+
+.character-state-panel__preset-modal-content input:focus {
+  outline: none;
+  border-color: var(--accent-color, #e94560);
+}
+
+.character-state-panel__preset-modal-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+}
+
+.character-state-panel__preset-modal-actions button {
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 0.2s, opacity 0.2s;
+}
+
+.character-state-panel__preset-modal-actions button:first-child {
+  background-color: var(--accent-color, #e94560);
+  color: white;
+}
+
+.character-state-panel__preset-modal-actions button:first-child:hover:not(:disabled) {
+  background-color: #d83c54;
+}
+
+.character-state-panel__preset-modal-actions button:first-child:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.character-state-panel__preset-modal-actions button:last-child {
+  background-color: var(--bg-color, #1a1a2e);
+  color: var(--text-muted, #888);
+  border: 1px solid var(--border-color, #444);
+}
+
+.character-state-panel__preset-modal-actions button:last-child:hover {
+  background-color: var(--hover-bg, #1f2f50);
+}
+
+/* 変身経過サムネイルストリップ */
+.character-state-panel__history-strip {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+  max-width: 100%;
+  background-color: rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--accent-color, #e94560) transparent;
+}
+
+.character-state-panel__history-strip::-webkit-scrollbar {
+  height: 6px;
+}
+
+.character-state-panel__history-strip::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.character-state-panel__history-strip::-webkit-scrollbar-thumb {
+  background-color: var(--accent-color, #e94560);
+  border-radius: 3px;
+}
+
+.character-state-panel__history-thumb {
+  position: relative;
+  flex-shrink: 0;
+  width: 50px;
+  height: 70px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 6px;
+  overflow: hidden;
+  cursor: pointer;
+  background: none;
+  transition: border-color 0.2s, transform 0.2s, box-shadow 0.2s;
+}
+
+.character-state-panel__history-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.character-state-panel__history-thumb:hover {
+  transform: scale(1.05);
+  border-color: rgba(233, 69, 96, 0.5);
+}
+
+.character-state-panel__history-thumb.is-active {
+  border-color: var(--accent-color, #e94560);
+  box-shadow: 0 0 8px rgba(233, 69, 96, 0.5);
+}
+
+.character-state-panel__history-thumb-num {
+  position: absolute;
+  bottom: 2px;
+  right: 2px;
+  font-size: 0.625rem;
+  font-weight: bold;
+  color: white;
+  background-color: rgba(0, 0, 0, 0.7);
+  padding: 1px 4px;
+  border-radius: 3px;
+  line-height: 1;
+}

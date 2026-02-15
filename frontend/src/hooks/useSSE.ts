@@ -1,159 +1,287 @@
-import { useCallback, useRef } from 'react';
+/**
+ * useSSE hook - handles Server-Sent Events for real-time updates.
+ * Supports both GET (EventSource) and POST (fetch API) methods.
+ */
+
+import { useRef, useCallback } from "react";
+import type {
+  SSEStatsData,
+  SSEEndingData,
+  SSECriticalData,
+  SSEAchievementData,
+} from "../types";
 
 export interface UseSSEOptions {
   onText?: (chunk: string) => void;
-  onImage?: (image: string, historyId: string) => void;
-  onStats?: (stats: {
-    excitement: number;
-    immersion: number;
-    challenge: number;
-    excitementDelta: number;
-    immersionDelta: number;
-    challengeDelta: number;
-  }) => void;
-  onCritical?: (data: {
-    threshold: number;
-    name: string;
-    effectType: string;
-    speech: string;
-  }) => void;
-  onEnding?: (data: {
-    endingId: string;
-    title: string;
-    finalSpeech: string;
-    summary: string;
-    isNew: boolean;
-  }) => void;
-  onComplete?: (sessionId: string, transformationCount: number) => void;
+  onImage?: (imageBase64: string, historyId: string) => void;
+  onStats?: (stats: SSEStatsData) => void;
+  onCritical?: (data: SSECriticalData) => void;
+  onEnding?: (data: SSEEndingData) => void;
+  onAchievement?: (data: SSEAchievementData) => void;
+  onComplete?: (historyId: string, transformationCount: number) => void;
+  onCost?: (cost: number) => void;
   onError?: (message: string) => void;
 }
 
 export interface UseSSEReturn {
   startStream: (url: string) => void;
+  startPostStream: (url: string, body: Record<string, unknown>) => void;
   stopStream: () => void;
   isStreaming: boolean;
 }
 
 export function useSSE(options: UseSSEOptions): UseSSEReturn {
   const eventSourceRef = useRef<EventSource | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
   const isStreamingRef = useRef(false);
+  const errorHandledRef = useRef(false);
 
   const stopStream = useCallback(() => {
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
       eventSourceRef.current = null;
     }
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
     isStreamingRef.current = false;
+    errorHandledRef.current = false;
   }, []);
 
-  const startStream = useCallback((url: string) => {
-    stopStream();
-
-    const eventSource = new EventSource(url);
-    eventSourceRef.current = eventSource;
-    isStreamingRef.current = true;
-
-    eventSource.addEventListener('text', (event) => {
+  // Process a single SSE event line
+  const processEvent = useCallback(
+    (eventType: string, eventData: string) => {
       try {
-        const data = JSON.parse(event.data);
-        options.onText?.(data.chunk);
-      } catch (e) {
-        console.error('Failed to parse text event:', e);
-      }
-    });
+        const data = JSON.parse(eventData);
 
-    eventSource.addEventListener('image', (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        options.onImage?.(data.image, data.history_id);
-      } catch (e) {
-        console.error('Failed to parse image event:', e);
-      }
-    });
-
-    eventSource.addEventListener('stats', (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        options.onStats?.({
-          excitement: data.excitement,
-          immersion: data.immersion,
-          challenge: data.challenge,
-          excitementDelta: data.excitement_delta,
-          immersionDelta: data.immersion_delta,
-          challengeDelta: data.challenge_delta,
-        });
-      } catch (e) {
-        console.error('Failed to parse stats event:', e);
-      }
-    });
-
-    eventSource.addEventListener('critical', (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        options.onCritical?.({
-          threshold: data.threshold,
-          name: data.name,
-          effectType: data.effect_type,
-          speech: data.speech,
-        });
-      } catch (e) {
-        console.error('Failed to parse critical event:', e);
-      }
-    });
-
-    eventSource.addEventListener('ending', (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        options.onEnding?.({
-          endingId: data.ending_id,
-          title: data.title,
-          finalSpeech: data.final_speech,
-          summary: data.summary,
-          isNew: data.is_new,
-        });
-      } catch (e) {
-        console.error('Failed to parse ending event:', e);
-      }
-    });
-
-    eventSource.addEventListener('complete', (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        options.onComplete?.(data.session_id, data.transformation_count);
-      } catch (e) {
-        console.error('Failed to parse complete event:', e);
-      }
-      stopStream();
-    });
-
-    // エラーイベント処理済みフラグ
-    let errorHandled = false;
-
-    eventSource.addEventListener('error', (event) => {
-      if (event instanceof MessageEvent) {
-        try {
-          const data = JSON.parse(event.data);
-          options.onError?.(data.message);
-          errorHandled = true;
-        } catch {
-          options.onError?.('ストリームエラーが発生しました');
-          errorHandled = true;
+        switch (eventType) {
+          case "text":
+            if (data.chunk && options.onText) {
+              options.onText(data.chunk);
+            }
+            break;
+          case "image":
+            if (options.onImage) {
+              options.onImage(data.image, data.history_id);
+            }
+            break;
+          case "stats":
+            if (options.onStats) {
+              options.onStats({
+                bloom: data.bloom,
+                shame: data.shame,
+                adaptation: data.adaptation,
+              });
+            }
+            break;
+          case "critical":
+            if (options.onCritical) {
+              options.onCritical(data);
+            }
+            break;
+          case "ending":
+            if (options.onEnding) {
+              options.onEnding(data);
+            }
+            break;
+          case "achievement":
+            if (options.onAchievement) {
+              options.onAchievement(data);
+            }
+            break;
+          case "complete":
+            if (options.onComplete) {
+              options.onComplete(data.history_id, data.transformation_count);
+            }
+            break;
+          case "cost":
+            if (options.onCost) {
+              options.onCost(data.cost_usd);
+            }
+            break;
+          case "error":
+            errorHandledRef.current = true;
+            if (options.onError) {
+              options.onError(data.message || "エラーが発生しました");
+            }
+            break;
         }
+      } catch (e) {
+        console.error(`Failed to parse ${eventType} event:`, e);
       }
-      stopStream();
-    });
+    },
+    [options],
+  );
 
-    eventSource.onerror = () => {
-      // エラーイベントで既に処理済みの場合は無視
-      if (!errorHandled) {
-        options.onError?.('接続が切断されました');
-      }
+  // POST対応: fetch APIを使用してSSEストリームを取得
+  const startPostStream = useCallback(
+    async (url: string, body: Record<string, unknown>) => {
       stopStream();
-    };
-  }, [options, stopStream]);
+      errorHandledRef.current = false;
+      isStreamingRef.current = true;
+
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+
+      try {
+        const response = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "text/event-stream",
+          },
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          errorHandledRef.current = true;
+          if (options.onError) {
+            options.onError(`HTTP ${response.status}: ${errorText}`);
+          }
+          stopStream();
+          return;
+        }
+
+        const reader = response.body?.getReader();
+        if (!reader) {
+          if (options.onError) {
+            options.onError("ストリームを開始できませんでした");
+          }
+          stopStream();
+          return;
+        }
+
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let currentEvent = "";
+        let currentData = "";
+
+        const flushEvent = (): boolean => {
+          if (currentEvent && currentData) {
+            processEvent(currentEvent, currentData);
+            const wasComplete =
+              currentEvent === "complete" || currentEvent === "error";
+            currentEvent = "";
+            currentData = "";
+            return wasComplete;
+          }
+          return false;
+        };
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) {
+            // Flush any remaining event when stream ends
+            flushEvent();
+            break;
+          }
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || ""; // Keep incomplete line in buffer
+
+          for (const line of lines) {
+            // Skip comment lines (start with :)
+            if (line.startsWith(":")) {
+              continue;
+            }
+
+            if (line.startsWith("event:")) {
+              // Flush previous event before starting new one
+              if (flushEvent()) {
+                stopStream();
+                return;
+              }
+              currentEvent = line.slice(6).trim();
+            } else if (line.startsWith("data:")) {
+              currentData = line.slice(5).trim();
+            } else if (line === "") {
+              // Empty line marks end of event
+              if (flushEvent()) {
+                stopStream();
+                return;
+              }
+            }
+          }
+        }
+      } catch (error) {
+        if ((error as Error).name !== "AbortError") {
+          if (!errorHandledRef.current && options.onError) {
+            options.onError("接続が切断されました");
+          }
+        }
+      } finally {
+        stopStream();
+      }
+    },
+    [options, stopStream, processEvent],
+  );
+
+  // GET対応: 従来のEventSourceを使用
+  const startStream = useCallback(
+    (url: string) => {
+      // Close any existing stream
+      stopStream();
+      errorHandledRef.current = false;
+
+      const eventSource = new EventSource(url);
+      eventSourceRef.current = eventSource;
+      isStreamingRef.current = true;
+
+      eventSource.addEventListener("text", (event) => {
+        processEvent("text", event.data);
+      });
+
+      eventSource.addEventListener("image", (event) => {
+        processEvent("image", event.data);
+      });
+
+      eventSource.addEventListener("stats", (event) => {
+        processEvent("stats", event.data);
+      });
+
+      eventSource.addEventListener("critical", (event) => {
+        processEvent("critical", event.data);
+      });
+
+      eventSource.addEventListener("ending", (event) => {
+        processEvent("ending", event.data);
+      });
+
+      eventSource.addEventListener("complete", (event) => {
+        processEvent("complete", event.data);
+        stopStream();
+      });
+
+      eventSource.addEventListener("cost", (event) => {
+        processEvent("cost", event.data);
+      });
+
+      eventSource.addEventListener("error", (event) => {
+        if (event instanceof MessageEvent) {
+          processEvent("error", event.data);
+        } else if (!errorHandledRef.current && options.onError) {
+          options.onError("接続が切断されました");
+        }
+        stopStream();
+      });
+
+      eventSource.onerror = () => {
+        if (!errorHandledRef.current && options.onError) {
+          options.onError("接続が切断されました");
+        }
+        stopStream();
+      };
+    },
+    [options, stopStream, processEvent],
+  );
 
   return {
     startStream,
+    startPostStream,
     stopStream,
     isStreaming: isStreamingRef.current,
   };

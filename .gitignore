@@ -1,4 +1,9 @@
 data/**
+.playwright-mcp/**
+
+poc_novelai/**/*.png
+poc_novelai/**/*.jpg
+
 
 # Python-generated files
 __pycache__/
@@ -8,14 +13,27 @@ dist/
 *.egg-info
 wheels/
 
+# Portable build artifacts
+backend/static/*
+!backend/static/.gitkeep
+backend/requirements.txt
+
 # Virtual environments
 .venv/
 venv/
 .env
+.env*
+!.env.example.*
+!.env.docker
+
+# Node modules
+node_modules/
+frontend/node_modules/
 
 # IDE
 .idea/
-.vscode/
+.vscode/*
+!.vscode/extensions.json
 *.swp
 *.swo
 *~

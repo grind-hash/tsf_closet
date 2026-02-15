@@ -1,7 +1,7 @@
 """
 データモデル定義
 
-変身インタラクティブゲームで使用するデータモデル。
+着せ替えインタラクティブゲームで使用するデータモデル。
 Pydantic (APIリクエスト/レスポンス) と dataclass (内部状態) の両方を含む。
 """
 
@@ -11,7 +11,7 @@ import json
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Literal
 
 from pydantic import BaseModel, Field
 
@@ -27,15 +27,15 @@ class DifficultyPreset:
 
     id: str
     name: str
-    immersion_initial: int
-    excitement_multiplier: float
-    challenge_multiplier: float
+    shame_initial: int
+    bloom_multiplier: float
+    adaptation_multiplier: float
 
 
 DIFFICULTY_PRESETS: Dict[str, DifficultyPreset] = {
-    "easy": DifficultyPreset("easy", "かんたん", 70, 0.5, 1.0),
-    "normal": DifficultyPreset("normal", "ふつう", 50, 1.0, 1.0),
-    "hard": DifficultyPreset("hard", "むずかしい", 30, 1.5, 1.2),
+    "easy": DifficultyPreset("easy", "抵抗しやすい", 70, 0.5, 1.0),
+    "normal": DifficultyPreset("normal", "普通", 50, 1.0, 1.0),
+    "hard": DifficultyPreset("hard", "堕ちやすい", 30, 1.5, 1.2),
 }
 
 
@@ -54,12 +54,11 @@ class CriticalPointEvent:
     speech: str
 
 
-# 子供向け臨界点メッセージ（成長・達成系）
 CRITICAL_POINTS: List[CriticalPointEvent] = [
-    CriticalPointEvent(25, "レベル1", "flash", "へんしんって楽しいかも！"),
-    CriticalPointEvent(50, "レベル2", "pulse", "だいぶ上手になってきた！"),
-    CriticalPointEvent(75, "レベル3", "shake", "もうどんな変身もへっちゃら！"),
-    CriticalPointEvent(100, "マスター", "full", "やった！変身マスターになった！"),
+    CriticalPointEvent(25, "第一臨界点", "flash", "なんか…頭がぼーっとしてきた…"),
+    CriticalPointEvent(50, "第二臨界点", "pulse", "もう…元に戻れないのかな…"),
+    CriticalPointEvent(75, "第三臨界点", "shake", "どうしよう…止まらない…"),
+    CriticalPointEvent(100, "最終臨界点", "full", "もう…いいや…"),
 ]
 
 
@@ -71,19 +70,23 @@ CRITICAL_POINTS: List[CriticalPointEvent] = [
 @dataclass
 class SessionStats:
     """セッション統計（パラメータ状態）
-    
-    子供向けパラメータ:
-    - excitement (ワクワク度): 0-100
-    - immersion (なりきり度): 0-100
-    - challenge (チャレンジ度): -50〜+50
+
+    Note:
+        difficulty と nsfw_mode フィールドは DEPRECATED です。
+        代わりに users テーブルの対応するフィールドを使用してください。
+        session_store.get_user_settings(session_id) でユーザー設定を取得できます。
     """
 
     session_id: str
-    excitement: int = 0  # ワクワク度 0-100
-    immersion: int = 50  # なりきり度 0-100
-    challenge: int = 0  # チャレンジ度 -50〜+50
+    bloom: int = 0  # 開花度 0-100 (旧: 開花度)
+    shame: int = 50  # 羞恥心 0-100
+    adaptation: int = 0  # 順応度 -50〜+50
     passed_critical_points: List[int] = field(default_factory=list)
+    # DEPRECATED: users テーブルの difficulty を使用してください
     difficulty: str = "normal"
+    # DEPRECATED: users テーブルの nsfw_mode を使用してください
+    nsfw_mode: bool = False
+    enable_prompt_preview: bool = False  # プロンプト確認有効化 (DB保存対象外)
 
     @classmethod
     def from_row(cls, row: dict) -> "SessionStats":
@@ -95,26 +98,28 @@ class SessionStats:
         )
         return cls(
             session_id=row["session_id"],
-            excitement=row.get("excitement", 0),
-            immersion=row.get("immersion", 50),
-            challenge=row.get("challenge", 0),
+            bloom=row.get("bloom", row.get("bloom", 0)),  # 後方互換性
+            shame=row["shame"],
+            adaptation=row["adaptation"],
             passed_critical_points=passed_points,
-            difficulty=row.get("difficulty", "normal"),
+            difficulty=row["difficulty"],
+            nsfw_mode=bool(row.get("nsfw_mode", 0)),
         )
 
     @classmethod
     def create_with_difficulty(
-        cls, session_id: str, difficulty: str = "normal"
+        cls, session_id: str, difficulty: str = "normal", nsfw_mode: bool = False
     ) -> "SessionStats":
         """難易度に応じた初期値でインスタンスを作成"""
         preset = DIFFICULTY_PRESETS.get(difficulty, DIFFICULTY_PRESETS["normal"])
         return cls(
             session_id=session_id,
-            excitement=0,
-            immersion=preset.immersion_initial,
-            challenge=0,
+            bloom=0,
+            shame=preset.shame_initial,
+            adaptation=0,
             passed_critical_points=[],
             difficulty=difficulty,
+            nsfw_mode=nsfw_mode,
         )
 
 
@@ -129,7 +134,7 @@ class TransformationTag:
 
     history_id: str
     costume_category: str = "other"  # swimsuit, uniform, maid, etc.
-    sparkle_level: str = "medium"  # high, medium, low
+    exposure_level: str = "medium"  # high, medium, low
     age_impression: str = "unknown"  # child, student, adult, unknown
 
     @classmethod
@@ -138,7 +143,7 @@ class TransformationTag:
         return cls(
             history_id=row["history_id"],
             costume_category=row["costume_category"],
-            sparkle_level=row["sparkle_level"],
+            exposure_level=row["exposure_level"],
             age_impression=row["age_impression"],
         )
 
@@ -167,6 +172,33 @@ class AchievedEnding:
 
 
 # =============================================================================
+# ユーザー実績達成 (UserAchievement)
+# =============================================================================
+
+
+@dataclass
+class UserAchievement:
+    """ユーザー実績達成状態"""
+
+    id: str  # UUID
+    achievement_id: str  # 実績ID (Achievementへの参照)
+    session_id: Optional[str]  # 達成時のセッションID（オプション）
+    achieved_at: Optional[str]  # 達成日時 (ISO 8601)、未達成時はNone
+    progress: int = 0  # 進捗 (条件値に対する現在値)
+
+    @classmethod
+    def from_row(cls, row: dict) -> "UserAchievement":
+        """SQLite行からインスタンスを作成"""
+        return cls(
+            id=row["id"],
+            achievement_id=row["achievement_id"],
+            session_id=row.get("session_id"),
+            achieved_at=row.get("achieved_at"),
+            progress=row.get("progress", 0),
+        )
+
+
+# =============================================================================
 # 会話メッセージ (Conversation)
 # =============================================================================
 
@@ -177,9 +209,15 @@ class ConversationMessage:
 
     id: str
     session_id: str
-    role: str  # "user" or "character"
+    role: str  # "user" or "character" or "system"
     content: str
     created_at: str  # ISO形式
+    # 007-chat-interactive-ux: 新規フィールド
+    instruction_type: Optional[str] = (
+        None  # "dress_up" | "reality_alter" | "conversation"
+    )
+    attached_image_url: Optional[str] = None  # 添付画像URL
+    related_history_id: Optional[str] = None  # 関連する変身履歴ID
 
     @classmethod
     def from_row(cls, row: dict) -> "ConversationMessage":
@@ -190,6 +228,9 @@ class ConversationMessage:
             role=row["role"],
             content=row["content"],
             created_at=row["created_at"],
+            instruction_type=row.get("instruction_type"),
+            attached_image_url=row.get("attached_image_url"),
+            related_history_id=row.get("related_history_id"),
         )
 
 
@@ -198,8 +239,45 @@ class ConversationMessage:
 # =============================================================================
 
 
+class NovelAISubscriptionResponse(BaseModel):
+    """NovelAIサブスクリプション情報レスポンス
+
+    NovelAI API /user/subscription からの情報を返す。
+    tier値: 0=Free, 1=Tablet, 2=Scroll, 3=Opus
+    """
+
+    tier: int = Field(..., description="サブスクリプションティア (0-3)")
+    active: bool = Field(..., description="サブスクリプションがアクティブか")
+    expires_at: Optional[str] = Field(None, description="有効期限 (ISO 8601)")
+
+
+# =============================================================================
+# NovelAI タグサジェスト (006-novelai-prompt-enhancement)
+# =============================================================================
+
+
+class TagSuggestion(BaseModel):
+    """タグ候補
+
+    NovelAI suggest-tags APIから返されるタグ候補。
+    """
+
+    tag: str = Field(..., min_length=1, description="タグ文字列 (例: tifa_lockhart)")
+    count: Optional[int] = Field(None, ge=0, description="関連度/出現数スコア")
+
+
+class TagSuggestResponse(BaseModel):
+    """タグ検索レスポンス
+
+    バックエンドからフロントエンドへのタグ検索レスポンス。
+    """
+
+    tags: List[TagSuggestion] = Field(..., description="タグ候補リスト")
+    query: Optional[str] = Field(None, description="元のクエリ (デバッグ用)")
+
+
 class PlayRequest(BaseModel):
-    """変身プレイリクエスト"""
+    """着せ替えプレイリクエスト"""
 
     session_id: Optional[str] = Field(
         None, description="既存セッションID（継続プレイ時）"
@@ -211,18 +289,59 @@ class PlayRequest(BaseModel):
         None, description="Base64エンコード画像（カスタム時）"
     )
     instruction: str = Field(
-        ..., description="変身指示テキスト", min_length=1, max_length=500
+        ..., description="着せ替え指示テキスト", min_length=1, max_length=500
+    )
+    # 衣装参照画像
+    costume_image: Optional[str] = Field(
+        None, description="Base64エンコードされた参照衣装画像"
+    )
+    # 変更範囲コントロール
+    preserve_elements: Optional[List[str]] = Field(
+        None,
+        description="保持する要素のリスト (background, hairstyle, pose, expression, accessories)",
+    )
+    change_scope: str = Field(
+        "full", description="変更対象 (full, upper, lower, accessories, shoes)"
+    )
+    custom_preserve_text: str = Field("", description="カスタム保持指示（自由記述）")
+    # NovelAI専用: マスク & プロンプト制御
+    mask_image: Optional[str] = Field(
+        None,
+        description="Base64エンコードされたインペイント用マスク画像（透明=保持, 白=変更）",
+    )
+    mask_id: Optional[str] = Field(
+        None, description="保存済みマスクID（/game/masks で取得）"
+    )
+    inpaint_strength: Optional[float] = Field(
+        None, description="NovelAI inpaintImg2ImgStrength (0.05-0.99 推奨)"
+    )
+    inpaint_noise: Optional[float] = Field(
+        None, description="NovelAI img2img noise (0-0.5 推奨)"
+    )
+    negative_prompt: Optional[str] = Field(
+        None, description="NovelAI専用ネガティブプロンプト"
+    )
+    prompt_override: Optional[str] = Field(
+        None,
+        description="NovelAI専用: LLM生成をスキップしてこのプロンプトをそのまま使う",
+    )
+    # 変身タイプ: costume=衣装変更, reality=現実改変
+    transformation_type: str = Field(
+        "costume", description="変身タイプ (costume=衣装変更, reality=現実改変)"
+    )
+    language: Optional[str] = Field(
+        None, description="応答言語（ja/en、未指定時はユーザー設定を使用）"
     )
 
 
 class PlayResponse(BaseModel):
-    """変身プレイレスポンス"""
+    """着せ替えプレイレスポンス"""
 
     session_id: str = Field(..., description="セッションID")
     after_image: str = Field(..., description="Base64エンコードされた結果画像")
     feeling_text: str = Field(..., description="キャラクターの心境テキスト")
-    before_description: str = Field(..., description="変身前の状態説明")
-    after_description: str = Field(..., description="変身後の状態説明")
+    before_description: str = Field(..., description="着せ替え前の状態説明")
+    after_description: str = Field(..., description="着せ替え後の状態説明")
 
 
 class CharacterInfo(BaseModel):
@@ -232,7 +351,6 @@ class CharacterInfo(BaseModel):
     name: str = Field(..., description="キャラクター名")
     thumbnail: str = Field(..., description="Base64エンコードされたサムネイル画像")
     description: str = Field(..., description="キャラクター説明")
-    gender: str = Field("unknown", description="性別 (girl/boy/unknown)")
 
 
 class CharacterListResponse(BaseModel):
@@ -245,22 +363,29 @@ class HistoryItem(BaseModel):
     """履歴アイテム (API用)"""
 
     id: str = Field(..., description="履歴ID")
-    instruction: str = Field(..., description="変身指示")
+    instruction: str = Field(..., description="着せ替え指示")
     image_url: str = Field(..., description="結果画像URL")
     feeling_text: str = Field(..., description="心境テキスト")
-    before_description: str = Field(..., description="変身前の説明")
-    after_description: str = Field(..., description="変身後の説明")
+    before_description: str = Field(..., description="着せ替え前の説明")
+    after_description: str = Field(..., description="着せ替え後の説明")
     timestamp: str = Field(..., description="実行日時 (ISO形式)")
     # T025: タグ情報を追加
     costume_category: Optional[str] = Field(
         None, description="衣装カテゴリ (cute/sexy/elegant/cool/casual)"
     )
-    sparkle_level: Optional[str] = Field(
-        None, description="きらめき度 (modest/moderate/bold/extreme)"
+    exposure_level: Optional[str] = Field(
+        None, description="露出度 (modest/moderate/bold/extreme)"
     )
     age_impression: Optional[str] = Field(
         None, description="年齢印象 (mature/neutral/youthful)"
     )
+
+
+class SessionAttributeResponse(BaseModel):
+    """セッション属性（API用）"""
+
+    id: str = Field(..., description="属性ID")
+    text: str = Field(..., description="属性テキスト")
 
 
 class SessionResponse(BaseModel):
@@ -274,7 +399,37 @@ class SessionResponse(BaseModel):
     created_at: str = Field(..., description="作成日時 (ISO形式)")
     updated_at: str = Field(..., description="更新日時 (ISO形式)")
     # パラメータ情報
-    stats: Optional[dict] = Field(None, description="パラメータ (excitement, immersion, challenge)")
+    stats: Optional[SessionStatsResponse] = Field(
+        None, description="パラメータ (bloom, shame, adaptation)"
+    )
+    # 復帰用データ
+    attributes: List[SessionAttributeResponse] = Field(
+        default_factory=list, description="セッション属性"
+    )
+    conversation_history: List[ConversationMessageResponse] = Field(
+        default_factory=list, description="会話履歴"
+    )
+
+
+class SessionSummary(BaseModel):
+    """セッション概要（一覧表示用）"""
+
+    session_id: str = Field(..., description="セッションID")
+    character_id: Optional[str] = Field(None, description="キャラクターID")
+    character_name: Optional[str] = Field(None, description="キャラクター名")
+    thumbnail_url: Optional[str] = Field(None, description="サムネイルURL")
+    transformation_count: int = Field(0, description="変身回数")
+    is_active: bool = Field(..., description="アクティブセッションか")
+    created_at: str = Field(..., description="作成日時 (ISO形式)")
+    updated_at: str = Field(..., description="更新日時 (ISO形式)")
+    last_instruction: Optional[str] = Field(None, description="最後の変身指示")
+
+
+class SessionListResponse(BaseModel):
+    """セッション一覧レスポンス"""
+
+    sessions: List[SessionSummary] = Field(..., description="セッション一覧")
+    total_count: int = Field(..., description="総セッション数")
 
 
 class ErrorResponse(BaseModel):
@@ -339,9 +494,7 @@ class ConversationHistoryResponse(BaseModel):
     """会話履歴レスポンス"""
 
     session_id: str = Field(..., description="セッションID")
-    messages: List[ConversationMessageResponse] = Field(
-        ..., description="会話履歴"
-    )
+    messages: List[ConversationMessageResponse] = Field(..., description="会話履歴")
 
 
 # =============================================================================
@@ -376,6 +529,48 @@ class SSEErrorEvent(BaseModel):
 
 
 # =============================================================================
+# マスク管理 (NovelAI専用)
+# =============================================================================
+
+
+class MaskSaveRequest(BaseModel):
+    """マスク保存リクエスト"""
+
+    mask_base64: str = Field(..., description="Base64エンコードされたマスクPNG")
+    name: Optional[str] = Field(
+        None,
+        min_length=1,
+        max_length=50,
+        description="プリセット名 (指定時はプリセットとして保存)",
+    )
+    auto_save: bool = Field(False, description="自動保存フラグ (変身時にtrue)")
+
+
+class MaskInfo(BaseModel):
+    """マスク情報"""
+
+    id: str = Field(
+        ..., description="マスクID (system:filename / history:uuid / preset:uuid)"
+    )
+    name: str = Field(..., description="表示名")
+    type: Literal["system", "history", "preset"] = Field(..., description="マスク種別")
+    url: str = Field(..., description="取得用URL")
+    created_at: Optional[str] = Field(
+        None, description="作成日時 (ISO) - history/presetのみ"
+    )
+
+
+class MaskListResponse(BaseModel):
+    """マスク一覧レスポンス"""
+
+    system: List[MaskInfo] = Field(..., description="システムデフォルトマスク")
+    history: List[MaskInfo] = Field(..., description="保存済み履歴マスク（最大20件）")
+    presets: List[MaskInfo] = Field(
+        default_factory=list, description="ユーザープリセットマスク"
+    )
+
+
+# =============================================================================
 # パラメータシステム用 API モデル (T010)
 # =============================================================================
 
@@ -383,18 +578,28 @@ class SSEErrorEvent(BaseModel):
 class SessionStatsResponse(BaseModel):
     """セッション統計レスポンス"""
 
-    excitement: int = Field(..., ge=0, le=100, description="ワクワク度")
-    immersion: int = Field(..., ge=0, le=100, description="なりきり度")
-    challenge: int = Field(..., ge=-50, le=50, description="チャレンジ度")
-    passed_critical_points: List[int] = Field(..., description="通過済み臨界点")
+    bloom: int = Field(..., ge=0, le=100, description="開花度")
+    shame: int = Field(..., ge=0, le=100, description="羞恥心")
+    adaptation: int = Field(..., ge=-50, le=50, description="順応度")
+    passed_critical_points: List[int] = Field(
+        ..., description="通過済み臨界点", alias="passedCriticalPoints"
+    )
     difficulty: str = Field(..., description="難易度")
+    nsfw_mode: bool = Field(False, description="NSFWモード", alias="nsfwMode")
+    enable_prompt_preview: bool = Field(
+        False, description="プロンプト確認有効化", alias="enablePromptPreview"
+    )
+
+    class Config:
+        populate_by_name = True
+        allow_population_by_field_name = True
 
 
 class TransformationTagResponse(BaseModel):
     """変身タグレスポンス"""
 
     costume_category: str = Field(..., description="衣装カテゴリ")
-    sparkle_level: str = Field(..., description="きらめき度")
+    exposure_level: str = Field(..., description="露出度")
     age_impression: str = Field(..., description="年齢印象")
 
 
@@ -439,6 +644,7 @@ class GameStartRequest(BaseModel):
 
     character_id: Optional[str] = Field(None, description="キャラクターID")
     difficulty: str = Field("normal", description="難易度 (easy/normal/hard)")
+    nsfw_mode: bool = Field(False, description="NSFWモード")
 
 
 class GameStartResponse(BaseModel):
@@ -469,19 +675,19 @@ class GalleryResponse(BaseModel):
 class SSEStatsEvent(BaseModel):
     """SSE パラメータ更新イベント"""
 
-    excitement: int = Field(..., description="ワクワク度")
-    immersion: int = Field(..., description="なりきり度")
-    challenge: int = Field(..., description="チャレンジ度")
-    excitement_delta: int = Field(..., description="ワクワク度変化量")
-    immersion_delta: int = Field(..., description="なりきり度変化量")
-    challenge_delta: int = Field(..., description="チャレンジ度変化量")
+    bloom: int = Field(..., description="開花度")
+    shame: int = Field(..., description="羞恥心")
+    adaptation: int = Field(..., description="順応度")
+    bloom_delta: int = Field(..., description="開花度変化量")
+    shame_delta: int = Field(..., description="羞恥心変化量")
+    adaptation_delta: int = Field(..., description="順応度変化量")
 
 
 class SSETagsEvent(BaseModel):
     """SSE タグイベント"""
 
     costume_category: str = Field(..., description="衣装カテゴリ")
-    sparkle_level: str = Field(..., description="きらめき度")
+    exposure_level: str = Field(..., description="露出度")
     age_impression: str = Field(..., description="年齢印象")
 
 
@@ -522,7 +728,6 @@ class Character:
     description: str
     pronoun: str = "僕"
     personality: str = ""
-    gender: str = "unknown"  # "girl", "boy", "unknown"
 
 
 @dataclass
@@ -592,7 +797,7 @@ class PersistedSession:
 class PlayHistory:
     """プレイ履歴
 
-    1回の変身操作の入力と結果を記録。
+    1回の着せ替え操作の入力と結果を記録。
     """
 
     instruction: str
@@ -621,8 +826,8 @@ class PlayHistory:
 class GameSession:
     """ゲームセッション
 
-    変身ゲームの1回のプレイセッションを表す。
-    キャラクター選択から複数回の変身までを管理。
+    着せ替えゲームの1回のプレイセッションを表す。
+    キャラクター選択から複数回の着せ替えまでを管理。
     """
 
     session_id: str = field(default_factory=lambda: str(uuid.uuid4()))
@@ -631,7 +836,9 @@ class GameSession:
     current_image: bytes = b""
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
+
     history: List[PlayHistory] = field(default_factory=list)
+    stats: Optional[SessionStats] = None
 
     def update_image(self, new_image: bytes) -> None:
         """現在の画像を更新"""
@@ -652,4 +859,15 @@ class GameSession:
             character_id=self.character_id,
             current_image=base64.b64encode(self.current_image).decode("utf-8"),
             history=[h.to_api_model() for h in self.history],
+            stats=SessionStatsResponse(
+                bloom=self.stats.bloom,
+                shame=self.stats.shame,
+                adaptation=self.stats.adaptation,
+                passed_critical_points=self.stats.passed_critical_points,
+                difficulty=self.stats.difficulty,
+                nsfw_mode=self.stats.nsfw_mode,
+                enable_prompt_preview=self.stats.enable_prompt_preview,
+            )
+            if self.stats
+            else None,
         )

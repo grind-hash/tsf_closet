@@ -1,0 +1,196 @@
+/**
+ * AchievementsScreen CSS
+ * 007-chat-interactive-ux
+ */
+
+.achievements-screen {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 1.5rem;
+  overflow: hidden;
+}
+
+/* ヘッダー */
+.achievements-screen__header {
+  margin-bottom: 1.5rem;
+  flex-shrink: 0;
+}
+
+.achievements-screen__title-area {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.achievements-screen__title {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--text-color, #eee);
+}
+
+/* 進捗バー */
+.achievements-screen__progress {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex: 1;
+  max-width: 300px;
+}
+
+.achievements-screen__progress-bar {
+  flex: 1;
+  height: 8px;
+  background-color: var(--bg-color, #1a1a2e);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.achievements-screen__progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #e94560, #ff6b9d);
+  border-radius: 4px;
+  transition: width 0.5s ease-out;
+}
+
+.achievements-screen__progress-text {
+  font-size: 0.875rem;
+  color: var(--text-muted, #888);
+  white-space: nowrap;
+}
+
+/* フィルター */
+.achievements-screen__filters {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.achievements-screen__totals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1rem;
+  margin-top: 0.75rem;
+  font-size: 0.85rem;
+  color: var(--text-muted, #aaa);
+}
+
+.achievements-screen__filter-btn {
+  padding: 0.5rem 1rem;
+  background-color: var(--bg-color, #1a1a2e);
+  border: 1px solid var(--border-color, #333);
+  border-radius: 20px;
+  color: var(--text-muted, #888);
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: background-color 0.2s, border-color 0.2s, color 0.2s;
+}
+
+.achievements-screen__filter-btn:hover {
+  background-color: var(--hover-bg, #1f2f50);
+  color: var(--text-color, #eee);
+}
+
+.achievements-screen__filter-btn.is-active {
+  background-color: var(--accent-color, #e94560);
+  border-color: var(--accent-color, #e94560);
+  color: white;
+}
+
+/* コンテンツ */
+.achievements-screen__content {
+  flex: 1;
+  overflow-y: auto;
+  padding-top: 0.5rem;
+  padding-right: 0.5rem;
+}
+
+/* グリッド */
+.achievements-screen__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1rem;
+  padding-right: 0.25rem;
+}
+
+/* ローディング */
+.achievements-screen__loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 200px;
+  color: var(--text-muted, #888);
+}
+
+.achievements-screen__spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid var(--border-color, #333);
+  border-top-color: var(--accent-color, #e94560);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-bottom: 1rem;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* エラー */
+.achievements-screen__error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 200px;
+  color: var(--accent-color, #e94560);
+  text-align: center;
+}
+
+.achievements-screen__error button {
+  margin-top: 1rem;
+  padding: 0.5rem 1rem;
+  background-color: var(--accent-color, #e94560);
+  border: none;
+  border-radius: 8px;
+  color: white;
+  cursor: pointer;
+}
+
+/* 空状態 */
+.achievements-screen__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 200px;
+  color: var(--text-muted, #888);
+  text-align: center;
+}
+
+/* レスポンシブ */
+@media (max-width: 768px) {
+  .achievements-screen {
+    padding: 1rem;
+  }
+
+  .achievements-screen__title-area {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+
+  .achievements-screen__progress {
+    width: 100%;
+    max-width: none;
+  }
+
+  .achievements-screen__grid {
+    grid-template-columns: 1fr;
+  }
+}

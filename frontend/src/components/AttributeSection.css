@@ -1,0 +1,283 @@
+/* AttributeSection.css - 属性セクションのスタイル */
+
+.attribute-section {
+  margin-top: 16px;
+}
+
+.attribute-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.attribute-section-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #ddd;
+}
+
+.attribute-preset-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.attribute-preset-select {
+  padding: 4px 8px;
+  border: 1px solid #3a3a4a;
+  border-radius: 4px;
+  background: #1a1a2a;
+  color: #fff;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.attribute-preset-select:focus {
+  outline: none;
+  border-color: #4a6fff;
+}
+
+.attribute-preset-btn {
+  padding: 4px 8px;
+  border: none;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.attribute-preset-save-btn {
+  background: #4a6fff;
+  color: #fff;
+}
+
+.attribute-preset-save-btn:hover {
+  background: #5a7fff;
+}
+
+.attribute-preset-delete-btn {
+  background: #c83232;
+  color: #fff;
+}
+
+.attribute-preset-delete-btn:hover {
+  background: #dc4646;
+}
+
+/* 属性バッジ一覧 */
+.attribute-badges-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.attribute-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  background: #3a3a5a;
+  border-radius: 16px;
+  font-size: 0.85rem;
+  color: #eee;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.attribute-badge:hover {
+  background: #4a4a6a;
+}
+
+.attribute-badge.hovered {
+  background: #4a6fff;
+}
+
+.badge-text {
+  max-width: 150px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.badge-actions {
+  display: none;
+  gap: 4px;
+}
+
+.attribute-badge:hover .badge-actions {
+  display: flex;
+}
+
+.badge-action-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 0.75rem;
+  cursor: pointer;
+  opacity: 0.7;
+  transition: opacity 0.2s;
+}
+
+.badge-action-btn:hover {
+  opacity: 1;
+}
+
+/* 追加ボタン */
+.attribute-add-btn {
+  padding: 4px 10px;
+  border: 1px dashed #5a5a6a;
+  border-radius: 16px;
+  background: transparent;
+  color: #888;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.attribute-add-btn:hover {
+  border-color: #4a6fff;
+  color: #4a6fff;
+}
+
+/* 入力エリア */
+.attribute-input-area {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.attribute-input-area input {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid #3a3a4a;
+  border-radius: 4px;
+  background: #1a1a2a;
+  color: #fff;
+  font-size: 0.9rem;
+}
+
+.attribute-input-area input:focus {
+  outline: none;
+  border-color: #4a6fff;
+}
+
+.attribute-input-area button {
+  padding: 6px 12px;
+  border: none;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.attribute-input-area .btn-primary {
+  background: #4a6fff;
+  color: #fff;
+}
+
+.attribute-input-area .btn-primary:hover {
+  background: #5a7fff;
+}
+
+.attribute-input-area .btn-outline {
+  background: #3a3a4a;
+  color: #ddd;
+}
+
+.attribute-input-area .btn-outline:hover {
+  background: #4a4a5a;
+}
+
+/* 空メッセージ */
+.attribute-empty-message {
+  color: #666;
+  font-size: 0.85rem;
+  margin-bottom: 8px;
+}
+
+/* プリセット保存ダイアログ */
+.attribute-dialog-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10001;
+}
+
+.attribute-dialog {
+  background: #2a2a3a;
+  border-radius: 12px;
+  padding: 24px;
+  min-width: 320px;
+  max-width: 90%;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.attribute-dialog-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #fff;
+  margin-bottom: 16px;
+}
+
+.attribute-dialog-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #3a3a4a;
+  border-radius: 6px;
+  background: #1a1a2a;
+  color: #fff;
+  font-size: 0.95rem;
+  margin-bottom: 16px;
+}
+
+.attribute-dialog-input:focus {
+  outline: none;
+  border-color: #4a6fff;
+}
+
+.attribute-dialog-buttons {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+}
+
+.attribute-dialog-btn {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.attribute-dialog-btn-cancel {
+  background: #3a3a4a;
+  color: #ddd;
+}
+
+.attribute-dialog-btn-cancel:hover {
+  background: #4a4a5a;
+}
+
+.attribute-dialog-btn-save {
+  background: #4a6fff;
+  color: #fff;
+}
+
+.attribute-dialog-btn-save:hover {
+  background: #5a7fff;
+}
+
+.attribute-dialog-btn-save:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

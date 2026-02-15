@@ -1,0 +1,155 @@
+/**
+ * SideMenu CSS - 左サイドメニュースタイル
+ * 007-chat-interactive-ux
+ */
+
+.side-menu {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* ヘッダー */
+.side-menu__header {
+  padding: 1rem;
+  border-bottom: 1px solid var(--border-color, #333);
+  margin-bottom: 0.5rem;
+}
+
+.side-menu__title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--accent-color, #e94560);
+  margin: 0;
+  text-align: center;
+  background: transparent;
+  border: none;
+  cursor: default;
+  width: 100%;
+  padding: 0;
+}
+
+.side-menu__title.is-clickable {
+  cursor: pointer;
+  transition: color 0.2s, text-decoration 0.2s;
+}
+
+.side-menu__title.is-clickable:hover {
+  color: var(--accent-hover, #ff6b8a);
+  text-decoration: underline;
+}
+
+.side-menu__title:disabled {
+  opacity: 0.8;
+}
+
+/* メニューリスト */
+.side-menu__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex: 1;
+}
+
+.side-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.875rem 1.25rem;
+  background: transparent;
+  border: none;
+  color: var(--text-color, #eee);
+  font-size: 0.95rem;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.2s, color 0.2s;
+}
+
+.side-menu__item:hover {
+  background-color: var(--hover-bg, #1f2f50);
+}
+
+.side-menu__item.is-active {
+  background-color: var(--hover-bg, #1f2f50);
+  border-left: 3px solid var(--accent-color, #e94560);
+  padding-left: calc(1.25rem - 3px);
+}
+
+.side-menu__item.is-active .side-menu__label {
+  color: var(--accent-color, #e94560);
+  font-weight: 600;
+}
+
+.side-menu__icon {
+  font-size: 1.25rem;
+  width: 1.5rem;
+  text-align: center;
+}
+
+.side-menu__label {
+  flex: 1;
+}
+
+/* サブアイテム（プレイ中のゲームに移動など） */
+.side-menu__item--sub {
+  padding-left: 2.5rem;
+  font-size: 0.85rem;
+  color: var(--text-muted, #888);
+  background-color: rgba(255, 255, 255, 0.02);
+}
+
+.side-menu__item--sub:hover {
+  background-color: var(--hover-bg, #1f2f50);
+  color: var(--text-color, #eee);
+}
+
+.side-menu__item--sub .side-menu__icon {
+  font-size: 0.9rem;
+}
+
+/* フッター */
+.side-menu__footer {
+  padding: 1rem;
+  border-top: 1px solid var(--border-color, #333);
+  margin-top: auto;
+}
+
+.side-menu__version {
+  display: block;
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--text-muted, #888);
+}
+
+/* レスポンシブ対応（アイコンのみ表示） */
+@media (max-width: 768px) {
+  .side-menu__header {
+    padding: 0.5rem;
+  }
+
+  .side-menu__title {
+    font-size: 0.8rem;
+  }
+
+  .side-menu__item {
+    justify-content: center;
+    padding: 1rem 0.5rem;
+  }
+
+  .side-menu__label {
+    display: none;
+  }
+
+  .side-menu__icon {
+    font-size: 1.5rem;
+  }
+
+  .side-menu__item.is-active {
+    padding-left: 0.5rem;
+  }
+
+  .side-menu__footer {
+    display: none;
+  }
+}

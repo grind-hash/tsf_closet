@@ -1,0 +1,310 @@
+/**
+ * WelcomeScreen CSS - ウェルカム画面スタイル
+ * 007-chat-interactive-ux
+ */
+
+.welcome-screen {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+  padding: 2rem;
+  padding-bottom: 100px;
+  /* 固定ボタン用の余白 */
+  max-width: 1200px;
+  margin: 0 auto;
+  height: 100%;
+  overflow-y: auto;
+}
+
+/* ヘッダー */
+.welcome-screen__header {
+  text-align: center;
+}
+
+.welcome-screen__title {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--accent-color, #e94560);
+  margin: 0 0 1rem;
+}
+
+.welcome-screen__description {
+  font-size: 1rem;
+  color: var(--text-muted, #888);
+  line-height: 1.6;
+  margin: 0;
+}
+
+/* セクションタイトル */
+.welcome-screen__section-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-color, #eee);
+  margin: 0 0 1rem;
+}
+
+/* キャラクター選択 */
+.welcome-screen__characters {
+  background-color: rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+  padding: 1.5rem;
+}
+
+.welcome-screen__loading {
+  text-align: center;
+  color: var(--text-muted, #888);
+  padding: 2rem;
+}
+
+.welcome-screen__character-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 1.5rem;
+  justify-items: center;
+}
+
+.welcome-screen__character-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1rem;
+  background: transparent;
+  border: 2px solid transparent;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.welcome-screen__character-card:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+  border-color: var(--border-color, #333);
+}
+
+.welcome-screen__character-card.is-selected {
+  background-color: rgba(233, 69, 96, 0.2);
+  border-color: var(--accent-color, #e94560);
+}
+
+.welcome-screen__character-image {
+  width: 160px;
+  height: 220px;
+
+  border-radius: 8px;
+  border: 2px solid var(--border-color, #333);
+}
+
+.welcome-screen__character-card.is-selected .welcome-screen__character-image {
+  border-color: var(--accent-color, #e94560);
+}
+
+.welcome-screen__character-name {
+  font-size: 0.875rem;
+  color: var(--text-color, #eee);
+  text-align: center;
+}
+
+/* カスタム画像 */
+.welcome-screen__custom {
+  background-color: rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+  padding: 1.5rem;
+}
+
+.welcome-screen__custom-upload {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.welcome-screen__file-input {
+  display: none;
+}
+
+.welcome-screen__upload-btn {
+  padding: 0.75rem 1.5rem;
+  background-color: var(--side-menu-bg, #16213e);
+  border: 1px solid var(--border-color, #333);
+  border-radius: 8px;
+  color: var(--text-color, #eee);
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.welcome-screen__upload-btn:hover {
+  background-color: var(--hover-bg, #1f2f50);
+}
+
+.welcome-screen__custom-preview {
+  position: relative;
+  width: 80px;
+  height: 80px;
+}
+
+.welcome-screen__custom-preview img {
+  width: 100%;
+  height: 100%;
+  border-radius: 8px;
+  object-fit: cover;
+  border: 2px solid var(--accent-color, #e94560);
+}
+
+.welcome-screen__remove-btn {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background-color: var(--accent-color, #e94560);
+  border: none;
+  color: white;
+  font-size: 0.75rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.welcome-screen__remove-btn:hover {
+  background-color: var(--accent-hover, #ff6b6b);
+}
+
+.welcome-screen__saved-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.welcome-screen__saved-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.5rem;
+  border: 1px solid var(--border-color, #333);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-color, #eee);
+  cursor: pointer;
+}
+
+.welcome-screen__saved-item img {
+  width: 100%;
+  height: 80px;
+  object-fit: cover;
+  border-radius: 6px;
+}
+
+.welcome-screen__saved-item.is-selected {
+  border-color: var(--accent-color, #e94560);
+  background-color: rgba(233, 69, 96, 0.15);
+}
+
+.welcome-screen__custom-fields {
+  margin-top: 1rem;
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.welcome-screen__custom-fields input {
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid var(--border-color, #333);
+  background: var(--bg-color, #1a1a2e);
+  color: var(--text-color, #eee);
+}
+
+.welcome-screen__custom-fields select {
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid var(--border-color, #333);
+  background: var(--bg-color, #1a1a2e);
+  color: var(--text-color, #eee);
+}
+
+/* 開始ボタン */
+.welcome-screen__actions {
+  display: flex;
+  justify-content: center;
+  padding: 1rem 2rem;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(transparent, var(--bg-secondary, #1a1a2e) 30%);
+  z-index: 100;
+}
+
+.welcome-screen__start-btn {
+  padding: 1rem 3rem;
+  font-size: 1.1rem;
+  font-weight: 600;
+  background-color: var(--accent-color, #e94560);
+  border: none;
+  border-radius: 12px;
+  color: white;
+  cursor: pointer;
+  transition: background-color 0.2s, transform 0.1s;
+  box-shadow: 0 4px 12px rgba(233, 69, 96, 0.3);
+}
+
+.welcome-screen__start-btn:hover:not(:disabled) {
+  background-color: var(--accent-hover, #ff6b6b);
+  transform: scale(1.02);
+}
+
+.welcome-screen__start-btn:disabled {
+  background-color: var(--text-muted, #888);
+  cursor: not-allowed;
+}
+
+/* レスポンシブ */
+@media (max-width: 770px) {
+  .welcome-screen {
+    padding: 1rem;
+    padding-bottom: 90px;
+    gap: 1.5rem;
+  }
+
+  .welcome-screen__title {
+    font-size: 1.5rem;
+  }
+
+  .welcome-screen__description {
+    font-size: 0.9rem;
+  }
+
+  .welcome-screen__character-grid {
+    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+    gap: 1rem;
+  }
+
+  .welcome-screen__character-image {
+    width: 100px;
+    height: 140px;
+  }
+
+  .welcome-screen__character-card {
+    padding: 0.5rem;
+    gap: 0.25rem;
+  }
+
+  .welcome-screen__actions {
+    padding: 0.75rem 1rem;
+  }
+
+  .welcome-screen__start-btn {
+    padding: 0.875rem 2rem;
+    font-size: 1rem;
+  }
+
+  .welcome-screen__characters,
+  .welcome-screen__custom {
+    padding: 1rem;
+  }
+}

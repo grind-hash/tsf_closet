@@ -1,0 +1,67 @@
+# デフォルト: 自動判定
+* text=auto
+
+# ============================================
+#   Windows 専用 (CRLF 必須)
+# ============================================
+*.bat    text eol=crlf
+*.cmd    text eol=crlf
+
+# ============================================
+#   スクリプト
+# ============================================
+*.ps1    text eol=crlf
+*.sh     text eol=lf
+
+# ============================================
+#   Web / フロントエンド
+# ============================================
+*.ts     text eol=lf
+*.tsx    text eol=lf
+*.js     text eol=lf
+*.jsx    text eol=lf
+*.css    text eol=lf
+*.html   text eol=lf
+*.json   text eol=lf
+*.yaml   text eol=lf
+*.yml    text eol=lf
+*.toml   text eol=lf
+
+# ============================================
+#   Python / バックエンド
+# ============================================
+*.py     text eol=lf
+*.pyi    text eol=lf
+*.ini    text eol=lf
+
+# ============================================
+#   ドキュメント / 設定
+# ============================================
+*.md     text eol=lf
+*.txt    text eol=lf
+*.env    text eol=lf
+
+# ============================================
+#   Docker
+# ============================================
+Dockerfile*  text eol=lf
+*.dockerignore text eol=lf
+
+# ============================================
+#   バイナリ (変換しない)
+# ============================================
+*.png    binary
+*.jpg    binary
+*.jpeg   binary
+*.gif    binary
+*.ico    binary
+*.webp   binary
+*.woff   binary
+*.woff2  binary
+*.ttf    binary
+*.eot    binary
+*.zip    binary
+*.gz     binary
+*.tar    binary
+*.sqlite binary
+*.db     binary

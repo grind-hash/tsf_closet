@@ -1,0 +1,152 @@
+/**
+ * AchievementToast CSS
+ * 007-chat-interactive-ux
+ */
+
+.achievement-toast {
+  position: fixed;
+  top: 1.5rem;
+  right: 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  background: linear-gradient(135deg, #16213e, #1a1a2e);
+  border: 2px solid var(--accent-color, #e94560);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(233, 69, 96, 0.3);
+  z-index: 9999;
+  cursor: pointer;
+  animation: slideIn 0.3s ease-out;
+}
+
+.achievement-toast.is-exiting {
+  animation: slideOut 0.3s ease-in forwards;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideOut {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+}
+
+/* アイコン */
+.achievement-toast__icon {
+  width: 50px;
+  height: 50px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2rem;
+  background: linear-gradient(135deg, #e94560, #ff6b9d);
+  border-radius: 50%;
+  animation: pulse 1s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.1);
+  }
+}
+
+/* コンテンツ */
+.achievement-toast__content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.achievement-toast__label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--accent-color, #e94560);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.achievement-toast__name {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-color, #eee);
+}
+
+.achievement-toast__description {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-muted, #888);
+}
+
+/* 閉じるボタン */
+.achievement-toast__close {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--text-muted, #888);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.achievement-toast__close:hover {
+  color: var(--text-color, #eee);
+}
+
+/* レスポンシブ */
+@media (max-width: 600px) {
+  .achievement-toast {
+    top: auto;
+    bottom: 1rem;
+    right: 1rem;
+    left: 1rem;
+  }
+
+  @keyframes slideIn {
+    from {
+      transform: translateY(100%);
+      opacity: 0;
+    }
+    to {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  }
+
+  @keyframes slideOut {
+    from {
+      transform: translateY(0);
+      opacity: 1;
+    }
+    to {
+      transform: translateY(100%);
+      opacity: 0;
+    }
+  }
+}

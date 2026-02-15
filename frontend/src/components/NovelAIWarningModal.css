@@ -1,0 +1,160 @@
+/* NovelAI Warning Modal Styles */
+
+.novelai-warning-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn 0.2s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.novelai-warning-modal {
+  background: linear-gradient(145deg, #1a1a2e 0%, #16213e 100%);
+  border: 1px solid #e94560;
+  border-radius: 16px;
+  padding: 28px;
+  max-width: 440px;
+  width: 90%;
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(233, 69, 96, 0.2);
+  animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateY(-20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.novelai-warning-icon {
+  font-size: 40px;
+  margin-bottom: 12px;
+}
+
+.novelai-warning-modal h2 {
+  color: #e94560;
+  margin: 0 0 18px 0;
+  font-size: 1.4rem;
+}
+
+.novelai-warning-content {
+  color: #eee;
+  margin-bottom: 20px;
+}
+
+.novelai-warning-content p {
+  margin: 6px 0;
+  line-height: 1.5;
+}
+
+.novelai-warning-plan {
+  color: #ddd;
+  font-size: 1rem;
+}
+
+.novelai-warning-main {
+  color: #fff;
+  font-size: 1rem;
+  font-weight: 600;
+  margin-top: 10px !important;
+}
+
+.novelai-warning-content strong {
+  color: #fff;
+}
+
+.novelai-warning-detail {
+  color: #aaa;
+  font-size: 0.9rem;
+  margin-top: 10px !important;
+}
+
+.novelai-warning-actions {
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+}
+
+.novelai-warning-actions button {
+  padding: 12px 32px;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.novelai-warning-cancel {
+  background: transparent;
+  border: 2px solid #666;
+  color: #aaa;
+}
+
+.novelai-warning-cancel:hover {
+  border-color: #888;
+  color: #fff;
+}
+
+.novelai-warning-continue {
+  background: linear-gradient(135deg, #e94560 0%, #c23a51 100%);
+  border: none;
+  color: white;
+}
+
+.novelai-warning-continue:hover {
+  background: linear-gradient(135deg, #ff5a75 0%, #e94560 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(233, 69, 96, 0.4);
+}
+
+.novelai-warning-note {
+  color: #666;
+  font-size: 0.8rem;
+  margin-top: 14px;
+  margin-bottom: 0;
+}
+
+.novelai-warning-hint {
+  color: #4ecdc4;
+  font-size: 0.9rem;
+  margin-top: 16px !important;
+  font-weight: 500;
+}
+
+.novelai-warning-sizes {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.novelai-warning-sizes li {
+  color: #aaa;
+  font-size: 0.85rem;
+  padding: 4px 12px;
+  background: rgba(78, 205, 196, 0.1);
+  border-radius: 4px;
+  display: inline-block;
+}

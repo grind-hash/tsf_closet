@@ -137,8 +137,6 @@ services:
     build:
       context: .
       dockerfile: docker/comfyui/Dockerfile
-      args:
-      - PYTORCH_CUDA_TOOLKIT_URL=https://download.pytorch.org/whl/cu130
     volumes:
       - comfyui_models:/app/ComfyUI/models
       - ./backend/workflows:/app/ComfyUI/workflows:ro

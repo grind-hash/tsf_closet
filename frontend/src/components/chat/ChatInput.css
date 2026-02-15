@@ -1,0 +1,173 @@
+/**
+ * ChatInput CSS
+ * 007-chat-interactive-ux
+ */
+
+.chat-input {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+/* 添付プレビュー */
+.chat-input__attachment-preview {
+  position: relative;
+  display: inline-block;
+  width: fit-content;
+}
+
+.chat-input__attachment-image {
+  max-width: 120px;
+  max-height: 80px;
+  border-radius: 8px;
+  object-fit: cover;
+  border: 2px solid var(--accent-color, #e94560);
+}
+
+.chat-input__attachment-remove {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background-color: var(--accent-color, #e94560);
+  border: none;
+  color: white;
+  font-size: 0.6rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.chat-input__attachment-remove:hover {
+  background-color: var(--accent-hover, #ff6b6b);
+}
+
+/* 入力行 */
+.chat-input__row {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5rem;
+}
+
+/* 指示タイプ選択 */
+.chat-input__type-select {
+  padding: 0.625rem 0.75rem;
+  background-color: var(--bg-color, #1a1a2e);
+  border: 1px solid var(--border-color, #333);
+  border-radius: 8px;
+  color: var(--text-color, #eee);
+  font-size: 0.875rem;
+  cursor: pointer;
+  min-width: 100px;
+}
+
+.chat-input__type-select:focus {
+  outline: none;
+  border-color: var(--accent-color, #e94560);
+}
+
+.chat-input__type-select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* テキストエリア */
+.chat-input__textarea {
+  flex: 1;
+  padding: 0.625rem 0.75rem;
+  background-color: var(--bg-color, #1a1a2e);
+  border: 1px solid var(--border-color, #333);
+  border-radius: 8px;
+  color: var(--text-color, #eee);
+  font-size: 0.95rem;
+  font-family: inherit;
+  resize: none;
+  min-height: 40px;
+  max-height: 150px;
+  line-height: 1.4;
+}
+
+.chat-input__textarea:focus {
+  outline: none;
+  border-color: var(--accent-color, #e94560);
+}
+
+.chat-input__textarea:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.chat-input__textarea::placeholder {
+  color: var(--text-muted, #888);
+}
+
+/* ファイル入力（非表示） */
+.chat-input__file-input {
+  display: none;
+}
+
+/* 添付ボタン */
+.chat-input__attach-btn {
+  padding: 0.625rem;
+  background-color: var(--bg-color, #1a1a2e);
+  border: 1px solid var(--border-color, #333);
+  border-radius: 8px;
+  color: var(--text-color, #eee);
+  font-size: 1.2rem;
+  cursor: pointer;
+  transition: background-color 0.2s, border-color 0.2s;
+  min-width: 44px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.chat-input__attach-btn:hover:not(:disabled) {
+  background-color: var(--hover-bg, #1f2f50);
+  border-color: var(--accent-color, #e94560);
+}
+
+.chat-input__attach-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 送信ボタン */
+.chat-input__send-btn {
+  padding: 0.625rem 1.25rem;
+  background-color: var(--accent-color, #e94560);
+  border: none;
+  border-radius: 8px;
+  color: white;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  min-height: 44px;
+}
+
+.chat-input__send-btn:hover:not(:disabled) {
+  background-color: var(--accent-hover, #ff6b6b);
+}
+
+.chat-input__send-btn:disabled {
+  background-color: var(--text-muted, #888);
+  cursor: not-allowed;
+}
+
+/* レスポンシブ */
+@media (max-width: 600px) {
+  .chat-input__type-select {
+    min-width: 80px;
+    font-size: 0.8rem;
+  }
+
+  .chat-input__send-btn {
+    padding: 0.625rem 0.75rem;
+    font-size: 0.875rem;
+  }
+}
