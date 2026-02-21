@@ -23,17 +23,16 @@ def build_enhanced_feeling_prompt(
     personality: str = "",
     description: str = "",
     used_openings: list[str] | None = None,
-    self_mode: bool = False,
-    self_profile: dict | None = None,
 ) -> tuple[str, str]:
     """強化版心境生成用プロンプトを構築
+
+    self_mode の場合は game_service.py が直接 build_self_mode_feeling_prompt() を
+    呼び出すため、この関数には self_mode/self_profile 引数を含めない。
 
     新規引数:
         personality: キャラクターの性格特性
         description: キャラクターの説明
         used_openings: 最近使用済みのオープニングセリフ（重複回避用）
-        self_mode: 自分自身モードフラグ
-        self_profile: 自分自身プロフィール辞書（self_mode時のみ使用）
 
     Returns:
         (システムプロンプト, ユーザープロンプト) のタプル
@@ -113,6 +112,8 @@ def build_action_prompt(
 ) -> tuple[str, str]:
     """行動機能用のプロンプトを構築
 
+    生成されるプロンプトは 300-500 文字の場面転換テキストを想定する。
+
     Args:
         action_instruction: ユーザーの行動指示
         current_appearance: 現在のキャラクター外見説明
@@ -184,14 +185,18 @@ def build_self_profile_generation_prompt(input_text: str) -> tuple[str, str]:
 # 行動フロー（instruction_type == "action"の場合）
 if instruction_type == "action":
     # 1. 画像説明取得（現在の外見情報として）
-    # 2. 行動用プロンプト生成
-    # 3. テキストストリーミング生成のみ
-    # 4. 会話履歴保存
-    # 5. 画像生成・パラメータ計算・タグ分類スキップ
-    # 6. complete イベント送信
+    # 2. Conversation から直近の action 履歴を抽出し recent_actions に渡す
+    # 3. 行動用プロンプト生成
+    # 4. テキストストリーミング生成のみ
+    # 5. 会話履歴保存
+    # 6. 画像生成・パラメータ計算・タグ分類スキップ
+    # 7. complete イベント送信
 
 # 自分自身モード分岐（self_mode == True の場合）
 if session.self_mode:
+    # build_enhanced_feeling_prompt() の代わりに
+    # build_self_mode_feeling_prompt() を直接呼び出す
+    # self_profile が null の場合は通常プロンプトにフォールバック
     # パラメータ計算をスキップ
     # 臨界点チェックをスキップ
     # self_mode_prompts.py のプロンプトを使用

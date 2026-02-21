@@ -17,44 +17,43 @@
 
 ### バックエンド
 
-| ファイル | 種別 | 変更内容 |
-|---------|------|----------|
-| `gateway/services/prompts.py` | **変更** | pronoun テンプレート化, personality 注入, openings 拡充・辞書化, select_opening() 追加 |
-| `gateway/services/action_prompts.py` | **新規** | 行動機能用プロンプト定義 |
-| `gateway/services/self_mode_prompts.py` | **新規** | 自分自身モード用プロンプト定義 |
-| `gateway/services/game_service.py` | **変更** | action 分岐追加, self_mode 分岐追加, personality パラメータ伝播 |
-| `gateway/models.py` | **変更** | SelfProfile Pydantic モデル追加 |
-| `gateway/databases/models.py` | **変更** | Session.self_mode, User.self_profile_json カラム追加 |
-| `gateway/databases/orm.py` (or equivalent) | **変更** | 新カラムの ORM マッピング |
-| `gateway/routes/game_router.py` | **変更** | GameStartRequest に self_mode 追加, session レスポンスに self_mode 追加 |
-| `gateway/routes/settings_router.py` | **変更** | self-profile CRUD エンドポイント3個追加 |
-| `gateway/services/settings_service.py` | **変更** | self_profile の読み書きロジック追加 |
-| `gateway/services/session.py` | **変更** | create_session に self_mode 引数追加 |
-| `migrations/versions/008_add_self_mode.py` | **新規** | self_mode + self_profile_json マイグレーション |
+| ファイル                                   | 種別     | 変更内容                                                                               |
+| ------------------------------------------ | -------- | -------------------------------------------------------------------------------------- |
+| `gateway/services/prompts.py`              | **変更** | pronoun テンプレート化, personality 注入, openings 拡充・辞書化, select_opening() 追加 |
+| `gateway/services/action_prompts.py`       | **新規** | 行動機能用プロンプト定義                                                               |
+| `gateway/services/self_mode_prompts.py`    | **新規** | 自分自身モード用プロンプト定義                                                         |
+| `gateway/services/game_service.py`         | **変更** | action 分岐追加, self_mode 分岐追加, personality パラメータ伝播                        |
+| `gateway/models.py`                        | **変更** | SelfProfile Pydantic モデル追加                                                        |
+| `gateway/databases/models.py`              | **変更** | Session.self_mode, User.self_profile_json カラム追加                                   |
+| `gateway/databases/orm.py` (該当する場合)   | **変更** | 新カラムの ORM マッピング（既存 ORM で自動対応済みの場合は変更不要）                   |
+| `gateway/routes/game_router.py`            | **変更** | GameStartRequest に self_mode 追加, session レスポンスに self_mode 追加                |
+| `gateway/routes/settings_router.py`        | **変更** | self-profile CRUD エンドポイント3個追加                                                |
+| `gateway/services/settings_service.py`     | **変更** | self_profile の読み書きロジック追加                                                    |
+| `gateway/services/session.py`              | **変更** | create_session に self_mode 引数追加                                                   |
+| `migrations/versions/008_add_self_mode.py` | **新規** | self_mode + self_profile_json マイグレーション                                         |
 
 ### フロントエンド
 
-| ファイル | 種別 | 変更内容 |
-|---------|------|----------|
-| `src/types/index.ts` | **変更** | InstructionType に "action" 追加, SelfProfile 型追加, INSTRUCTION_TYPE_LABELS 更新 |
-| `src/apis/settings.ts` (or equivalent) | **変更** | self-profile API 関数追加 |
-| `src/apis/game.ts` (or equivalent) | **変更** | GameStartRequest に self_mode 追加 |
-| `src/contexts/SettingsContext.tsx` | **変更** | selfMode 状態管理, selfProfile 状態管理追加 |
-| `src/contexts/GameContext.tsx` | **変更** | selfMode を session 状態に含める |
-| `src/components/chat/ChatInput.tsx` | **変更** | instruction_type 選択肢に「行動」追加 |
-| `src/components/chat/WelcomeScreen.tsx` | **変更** | 自分自身モード選択UI追加 |
-| `src/components/settings/SettingsScreen.tsx` | **変更** | 性格プロフィール設定UI追加（テキスト入力 + 生成ボタン + 編集フォーム） |
-| `src/components/settings/SelfProfileEditor.tsx` | **新規** | 性格プロフィール編集コンポーネント |
+| ファイル                                        | 種別     | 変更内容                                                                           |
+| ----------------------------------------------- | -------- | ---------------------------------------------------------------------------------- |
+| `src/types/index.ts`                            | **変更** | InstructionType に "action" 追加, SelfProfile 型追加, INSTRUCTION_TYPE_LABELS 更新 |
+| `src/apis/settings.ts` (or equivalent)          | **変更** | self-profile API 関数追加                                                          |
+| `src/contexts/SettingsContext.tsx`              | **変更** | selfMode 状態管理, selfProfile 状態管理追加                                        |
+| `src/contexts/GameContext.tsx`                  | **変更** | selfMode を session 状態に含める, GameStartRequest に self_mode 追加               |
+| `src/components/chat/ChatInput.tsx`             | **変更** | instruction_type 選択肢に「行動」追加                                              |
+| `src/components/chat/WelcomeScreen.tsx`         | **変更** | 自分自身モード選択UI追加                                                           |
+| `src/components/settings/SettingsScreen.tsx`    | **変更** | 性格プロフィール設定UI追加（テキスト入力 + 生成ボタン + 編集フォーム）             |
+| `src/components/settings/SelfProfileEditor.tsx` | **新規** | 性格プロフィール編集コンポーネント                                                 |
 
 ### テスト
 
-| ファイル | 種別 | テスト内容 |
-|---------|------|----------|
-| `backend/tests/unit/test_prompts.py` | **新規/変更** | pronoun 置換, personality 注入, openings 選択, 重複回避 |
-| `backend/tests/unit/test_action_prompts.py` | **新規** | 行動プロンプト生成 |
-| `backend/tests/unit/test_self_mode_prompts.py` | **新規** | 自分自身モードプロンプト生成 |
-| `frontend/tests/e2e/action-mode.spec.ts` | **新規** | 行動機能 E2E |
-| `frontend/tests/e2e/self-mode.spec.ts` | **新規** | 自分自身モード E2E |
+| ファイル                                       | 種別          | テスト内容                                              |
+| ---------------------------------------------- | ------------- | ------------------------------------------------------- |
+| `backend/tests/unit/test_prompts.py`           | **新規/変更** | pronoun 置換, personality 注入, openings 選択, 重複回避 |
+| `backend/tests/unit/test_action_prompts.py`    | **新規**      | 行動プロンプト生成                                      |
+| `backend/tests/unit/test_self_mode_prompts.py` | **新規**      | 自分自身モードプロンプト生成                            |
+| `frontend/tests/e2e/action-mode.spec.ts`       | **新規**      | 行動機能 E2E                                            |
+| `frontend/tests/e2e/self-mode.spec.ts`         | **新規**      | 自分自身モード E2E                                      |
 
 ## 実装順序（推奨）
 
