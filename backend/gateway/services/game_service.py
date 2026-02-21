@@ -44,6 +44,8 @@ from .reality_prompts import (
     build_reality_edit_prompt,
     get_reality_edit_system_prompt,
 )
+from .action_prompts import build_action_prompt
+from .self_mode_prompts import build_self_mode_feeling_prompt
 from .session import session_store
 from .tag_classifier import classify_tags, TransformationTags
 from .endings import judge_ending
@@ -630,22 +632,31 @@ class GameService:
         nsfw_mode: bool = False,
         transformation_count: int = 0,
         language: str = "ja",
+        personality: str = "",
+        description: str = "",
+        used_openings: list[str] | None = None,
     ) -> AsyncGenerator[str, None]:
-        """心境をストリーミング生成 (LLM)
+        """Stream feeling text generation via LLM.
 
-        開花度に応じて心理段階が変化する強化版プロンプトを使用。(T059)
+        Uses the enhanced prompt with psychological stages based on bloom (T059),
+        and injects personality when provided (US2).
 
         Args:
-            before_desc: 着せ替え前の説明
-            after_desc: 着せ替え後の説明
-            instruction: 着せ替え指示
-            pronoun: 一人称
-            bloom: 開花度 (0-100)
-            attributes: キャラクターに付与された属性リスト
-            transformation_count: 現在の変身回数（初回判定用）
+            before_desc: Description before outfit change
+            after_desc: Description after outfit change
+            instruction: Outfit change instruction
+            pronoun: First-person pronoun
+            bloom: Bloom value (0-100)
+            attributes: Character attribute list
+            nsfw_mode: Whether NSFW mode is enabled
+            transformation_count: Current transformation count (for first-time detection)
+            language: Output language
+            personality: Character personality text
+            description: Character description text
+            used_openings: Recently used opening lines for dedup
 
         Yields:
-            テキストチャンク
+            Text chunks
         """
         # 開花度に応じた強化版プロンプトを使用
         system_prompt, user_prompt = build_enhanced_feeling_prompt(
@@ -657,6 +668,9 @@ class GameService:
             attributes=attributes,
             nsfw_mode=nsfw_mode,
             transformation_count=transformation_count,
+            personality=personality,
+            description=description,
+            used_openings=used_openings,
         )
         from .conversation import get_language_rules
 
@@ -670,6 +684,54 @@ class GameService:
                 yield chunk
         except (LLMServiceError, LiteLLMClientError) as e:
             logger.error(f"心境ストリーミングエラー: {e}")
+            if language == "en":
+                yield "(Failed to generate inner monologue)"
+            else:
+                yield "(心境生成に失敗しました)"
+
+    async def _generate_self_mode_feeling_stream(
+        self,
+        before_desc: str,
+        after_desc: str,
+        instruction: str,
+        self_profile: dict,
+        nsfw_mode: bool = False,
+        language: str = "ja",
+    ) -> AsyncGenerator[str, None]:
+        """Stream self-mode feeling text using the user's personality profile.
+
+        No psychological stages or parameter dependency (R-007).
+
+        Args:
+            before_desc: Description before outfit change
+            after_desc: Description after outfit change
+            instruction: Outfit change instruction
+            self_profile: Parsed self-profile dict
+            nsfw_mode: Whether NSFW mode is enabled
+            language: Output language
+
+        Yields:
+            Text chunks
+        """
+        system_prompt, user_prompt = build_self_mode_feeling_prompt(
+            before_desc=before_desc,
+            after_desc=after_desc,
+            instruction=instruction,
+            self_profile=self_profile,
+            nsfw_mode=nsfw_mode,
+        )
+        from .conversation import get_language_rules
+
+        system_prompt = f"{system_prompt}\n\n{get_language_rules(language)}"
+
+        try:
+            async for chunk in llm_service.generate_feeling_stream(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+            ):
+                yield chunk
+        except (LLMServiceError, LiteLLMClientError) as e:
+            logger.error(f"Self-mode feeling streaming error: {e}")
             if language == "en":
                 yield "(Failed to generate inner monologue)"
             else:
@@ -790,6 +852,7 @@ class GameService:
         difficulty_override: str | None = None,
         language_override: str | None = None,
         character_references: list[dict] | None = None,
+        instruction_type: str | None = None,
     ) -> AsyncGenerator[StreamEvent, None]:
         """ストリーミング対応の着せ替えを実行
 
@@ -929,6 +992,100 @@ class GameService:
                 f"difficulty={effective_difficulty}, language={effective_language}"
             )
 
+            # ── self_mode: load user profile for profile-based text gen (US5 T026) ──
+            self_profile: dict | None = None
+            if session.self_mode:
+                self_profile = await session_store.get_self_profile()
+                logger.info(
+                    "Self mode active: self_profile=%s",
+                    "loaded" if self_profile else "not set",
+                )
+
+            # ── action mode: text-only, skip image/params/tags (US4 T017) ──
+            if instruction_type == "action":
+                logger.info("Action mode: skipping image generation and parameters")
+
+                # Current stats for bloom-based stage description
+                action_stats = await session_store.get_or_create_session_stats(
+                    session.id
+                )
+
+                # Describe current image for context (reuse last history desc)
+                last_hist = await session_store.get_latest_history(session.id)
+                current_desc = (
+                    last_hist.after_description
+                    if last_hist and last_hist.after_description
+                    else "Not available"
+                )
+
+                # Extract recent action instructions from Conversation table
+                recent_actions: list[str] = []
+                try:
+                    convos = await session_store.get_conversation_history(
+                        session.id, limit=50
+                    )
+                    for c in convos:
+                        if c.instruction_type == "action" and c.role == "user":
+                            recent_actions.append(c.content)
+                except Exception:
+                    logger.debug("Could not extract recent actions from conversations")
+
+                # Build action prompt
+                act_system, act_user = build_action_prompt(
+                    instruction=instruction,
+                    current_description=current_desc,
+                    pronoun=pronoun,
+                    bloom=action_stats.bloom,
+                    nsfw_mode=effective_nsfw_mode,
+                    personality=character.personality if character else "",
+                    description=character.description if character else "",
+                    recent_actions=recent_actions or None,
+                )
+
+                from .conversation import get_language_rules
+
+                act_system = f"{act_system}\n\n{get_language_rules(effective_language)}"
+
+                # Stream text via LLM
+                action_chunks: list[str] = []
+                try:
+                    async for chunk in llm_service.generate_feeling_stream(
+                        system_prompt=act_system,
+                        user_prompt=act_user,
+                    ):
+                        action_chunks.append(chunk)
+                        yield StreamEvent(type="text", data={"chunk": chunk})
+                except (LLMServiceError, LiteLLMClientError) as e:
+                    logger.error(f"Action text streaming error: {e}")
+                    fallback = "(行動テキスト生成に失敗しました)"
+                    action_chunks.append(fallback)
+                    yield StreamEvent(type="text", data={"chunk": fallback})
+
+                action_full_text = "".join(action_chunks)
+
+                # Save to history (no image change — reuse current image)
+                current_image_bytes = before_image
+                await session_store.add_history(
+                    session_id=session.id,
+                    instruction=instruction,
+                    image_data=current_image_bytes,
+                    feeling_text=action_full_text,
+                    before_description=current_desc,
+                    after_description=current_desc,
+                )
+
+                # Complete event (no image change, no stats change)
+                yield StreamEvent(
+                    type="complete",
+                    data={
+                        "session_id": session.id,
+                        "transformation_count": session.transformation_count,
+                        "before_desc": current_desc,
+                        "after_desc": current_desc,
+                    },
+                )
+                return
+
             # 現在の変身回数を取得（初回変身判定用）
             current_transformation_count = session.transformation_count
 
@@ -1055,13 +1212,40 @@ class GameService:
             # イベントキューを作成
             event_queue: asyncio.Queue[StreamEvent | None] = asyncio.Queue()
 
+            # Extract used_openings from recent history (US3 dedup)
+            used_openings: list[str] = []
+            try:
+                recent_history = await session_store.get_history(session.id)
+                for h in recent_history[-10:]:
+                    if h.feeling_text:
+                        # Extract up to the first 30 chars as opening signature
+                        opening_sig = h.feeling_text[:30].split("\n")[0]
+                        if opening_sig:
+                            used_openings.append(opening_sig)
+            except Exception:
+                logger.debug("Could not extract used_openings from history")
+
             # テキスト収集用
             text_chunks: list[str] = []
 
             async def text_producer():
                 """テキストチャンクをキューに送信"""
                 try:
-                    if is_reality:
+                    if session.self_mode and self_profile:
+                        # Self mode: profile-based text, no psychological stages (US5)
+                        async for chunk in self._generate_self_mode_feeling_stream(
+                            before_desc=before_desc,
+                            after_desc=inferred_after_desc,
+                            instruction=instruction,
+                            self_profile=self_profile,
+                            nsfw_mode=effective_nsfw_mode,
+                            language=effective_language,
+                        ):
+                            text_chunks.append(chunk)
+                            await event_queue.put(
+                                StreamEvent(type="text", data={"chunk": chunk})
+                            )
+                    elif is_reality:
                         # 現実改変用心境生成（ストリーミング）
                         async for chunk in self._generate_reality_feeling_stream(
                             before_desc=before_desc,
@@ -1089,6 +1273,9 @@ class GameService:
                             nsfw_mode=effective_nsfw_mode,
                             transformation_count=current_transformation_count,
                             language=effective_language,
+                            personality=character.personality if character else "",
+                            description=character.description if character else "",
+                            used_openings=used_openings,
                         ):
                             text_chunks.append(chunk)
                             await event_queue.put(
@@ -1201,174 +1388,181 @@ class GameService:
                 },
             )
 
-            # 5.2. パラメータ計算と更新 (T015, T016)
-            stats = await session_store.get_or_create_session_stats(session.id)
-            old_bloom = stats.bloom
+            # ── self_mode: skip parameter/critical/ending/achievement (US5 T026) ──
+            if not session.self_mode:
+                # 5.2. パラメータ計算と更新 (T015, T016)
+                stats = await session_store.get_or_create_session_stats(session.id)
+                old_bloom = stats.bloom
 
-            bloom_delta, shame_delta, adaptation_delta = calculate_parameter_change(
-                tags, stats
-            )
-
-            # 現実改変の場合はパラメータ変動を増幅
-            if is_reality:
-                # 開花度を大きく上昇 (現実改変は影響大)
-                bloom_reality_boost = random.randint(5, 15)
-                bloom_delta += bloom_reality_boost
-
-                # 羞恥心へのインパクト
-                shame_reality_boost = 5 + random.randint(-2, 2)
-                shame_delta += shame_reality_boost
-
-                # 順応度を揺さぶる
-                adaptation_reality_boost = random.randint(-3, 3)
-                adaptation_delta += adaptation_reality_boost
-
-                logger.info(
-                    f"Reality alteration boost: bloom+{bloom_reality_boost}, "
-                    f"shame+{shame_reality_boost}, adapt+{adaptation_reality_boost}"
+                bloom_delta, shame_delta, adaptation_delta = calculate_parameter_change(
+                    tags, stats
                 )
 
-            new_stats = apply_parameter_change(
-                stats, bloom_delta, shame_delta, adaptation_delta
-            )
+                # 現実改変の場合はパラメータ変動を増幅
+                if is_reality:
+                    # 開花度を大きく上昇 (現実改変は影響大)
+                    bloom_reality_boost = random.randint(5, 15)
+                    bloom_delta += bloom_reality_boost
 
-            # 臨界点チェック
-            critical_event = check_critical_point(
-                old_bloom,
-                new_stats.bloom,
-                new_stats.passed_critical_points,
-            )
+                    # 羞恥心へのインパクト
+                    shame_reality_boost = 5 + random.randint(-2, 2)
+                    shame_delta += shame_reality_boost
 
-            # 臨界点を通過した場合は記録
-            if critical_event:
-                new_stats.passed_critical_points.append(critical_event.threshold)
+                    # 順応度を揺さぶる
+                    adaptation_reality_boost = random.randint(-3, 3)
+                    adaptation_delta += adaptation_reality_boost
 
-            # 更新をDBに保存
-            await session_store.update_session_stats(new_stats)
+                    logger.info(
+                        f"Reality alteration boost: bloom+{bloom_reality_boost}, "
+                        f"shame+{shame_reality_boost}, adapt+{adaptation_reality_boost}"
+                    )
 
-            # statsイベントを送信 (T016)
-            yield StreamEvent(
-                type="stats",
-                data={
-                    "bloom": new_stats.bloom,
-                    "shame": new_stats.shame,
-                    "adaptation": new_stats.adaptation,
-                    "bloom_delta": bloom_delta,
-                    "shame_delta": shame_delta,
-                    "adaptation_delta": adaptation_delta,
-                    "passedCriticalPoints": new_stats.passed_critical_points,
-                    "difficulty": new_stats.difficulty,
-                    "nsfwMode": new_stats.nsfw_mode,
-                    "enablePromptPreview": settings.enable_prompt_preview,  # stats might be missing this depending on fetch method, safe to use settings or new_stats
-                },
-            )
+                new_stats = apply_parameter_change(
+                    stats, bloom_delta, shame_delta, adaptation_delta
+                )
 
-            # 臨界点イベントを送信 (T033)
-            if critical_event:
-                # ランダムな特別セリフを取得
-                speech = get_critical_speech(critical_event.threshold)
+                # 臨界点チェック
+                critical_event = check_critical_point(
+                    old_bloom,
+                    new_stats.bloom,
+                    new_stats.passed_critical_points,
+                )
+
+                # 臨界点を通過した場合は記録
+                if critical_event:
+                    new_stats.passed_critical_points.append(critical_event.threshold)
+
+                # 更新をDBに保存
+                await session_store.update_session_stats(new_stats)
+
+                # statsイベントを送信 (T016)
                 yield StreamEvent(
-                    type="critical",
+                    type="stats",
                     data={
-                        "threshold": critical_event.threshold,
-                        "name": critical_event.name,
-                        "effect_type": critical_event.effect_type,
-                        "speech": speech,
+                        "bloom": new_stats.bloom,
+                        "shame": new_stats.shame,
+                        "adaptation": new_stats.adaptation,
+                        "bloom_delta": bloom_delta,
+                        "shame_delta": shame_delta,
+                        "adaptation_delta": adaptation_delta,
+                        "passedCriticalPoints": new_stats.passed_critical_points,
+                        "difficulty": new_stats.difficulty,
+                        "nsfwMode": new_stats.nsfw_mode,
+                        "enablePromptPreview": settings.enable_prompt_preview,  # stats might be missing this depending on fetch method, safe to use settings or new_stats
                     },
                 )
+
+                # 臨界点イベントを送信 (T033)
+                if critical_event:
+                    # ランダムな特別セリフを取得
+                    speech = get_critical_speech(
+                        critical_event.threshold, pronoun=pronoun
+                    )
+                    yield StreamEvent(
+                        type="critical",
+                        data={
+                            "threshold": critical_event.threshold,
+                            "name": critical_event.name,
+                            "effect_type": critical_event.effect_type,
+                            "speech": speech,
+                        },
+                    )
 
             # 6. 変身回数をインクリメント
             transformation_count = await session_store.increment_transformation_count(
                 session.id
             )
 
-            # 6.1 エンディング判定 (T048)
-            has_session_ending = await session_store.has_achieved_ending_for_session(
-                session.id
-            )
-            if not has_session_ending:
-                tag_counts = await session_store.get_session_tag_counts(session.id)
-                achieved_ending_ids = await session_store.get_achieved_ending_ids()
-                ending_result = judge_ending(
-                    new_stats, transformation_count, tag_counts, achieved_ending_ids
+            if not session.self_mode:
+                # 6.1 エンディング判定 (T048)
+                has_session_ending = (
+                    await session_store.has_achieved_ending_for_session(session.id)
                 )
-                if ending_result.triggered and ending_result.ending:
-                    # 初達成なら保存
-                    if ending_result.is_new:
-                        await session_store.save_achieved_ending(
-                            ending_result.ending_id,
-                            session.id,
+                if not has_session_ending:
+                    tag_counts = await session_store.get_session_tag_counts(session.id)
+                    achieved_ending_ids = await session_store.get_achieved_ending_ids()
+                    ending_result = judge_ending(
+                        new_stats, transformation_count, tag_counts, achieved_ending_ids
+                    )
+                    if ending_result.triggered and ending_result.ending:
+                        # 初達成なら保存
+                        if ending_result.is_new:
+                            await session_store.save_achieved_ending(
+                                ending_result.ending_id,
+                                session.id,
+                            )
+                        # エンディングイベントを送信
+                        yield StreamEvent(
+                            type="ending",
+                            data={
+                                "ending_id": ending_result.ending_id,
+                                "title": ending_result.ending.title,
+                                "description": ending_result.ending.description,
+                                "final_speech": ending_result.ending.final_speech,
+                                "summary": ending_result.ending.summary,
+                                "badge": ending_result.ending.badge,
+                                "is_new": ending_result.is_new,
+                            },
                         )
-                    # エンディングイベントを送信
-                    yield StreamEvent(
-                        type="ending",
-                        data={
-                            "ending_id": ending_result.ending_id,
-                            "title": ending_result.ending.title,
-                            "description": ending_result.ending.description,
-                            "final_speech": ending_result.ending.final_speech,
-                            "summary": ending_result.ending.summary,
-                            "badge": ending_result.ending.badge,
-                            "is_new": ending_result.is_new,
-                        },
+
+                # 6.1.5 実績分類処理 - テキスト生成完了後に変身指示を分類してカウント更新
+                try:
+                    classification_result = await classify_for_achievement(
+                        query=instruction,
+                        gender="man",  # デフォルトで男性（キャラクターの元の性別）
+                    )
+                    categories = list(classification_result.categories)
+                    if is_reality and "REALITY_ALTER" not in categories:
+                        categories.append("REALITY_ALTER")
+                    if categories:
+                        update_achievement_counts(categories)
+                        logger.info(
+                            f"Achievement classification: categories={categories}"
+                        )
+                except Exception as e:
+                    # 分類エラーはメイン処理を妨げない（フェイルセーフ設計）
+                    logger.warning(f"Achievement classification failed: {e}")
+
+                # 6.2 実績判定 (T066)
+                try:
+                    # 既存の解除済み実績を取得（グローバル管理）
+                    user_achievements = get_user_achievements()
+                    already_unlocked = {
+                        ua.achievement_id for ua in user_achievements if ua.unlocked
+                    }
+
+                    # 累積統計を取得して実績判定用に変換
+                    achievement_stats = get_global_stats()
+                    # 現在のセッションの最新値で上書き
+                    # Note: transform_countはincrement後の値を直接使用（DB同期問題を回避）
+                    achievement_stats.transform_count = transformation_count
+                    achievement_stats.bloom = new_stats.bloom
+                    achievement_stats.shame = new_stats.shame
+                    achievement_stats.adaptation = new_stats.adaptation
+
+                    # 新規解除された実績をチェック
+                    newly_unlocked = check_achievements(
+                        session.id, achievement_stats, already_unlocked
                     )
 
-            # 6.1.5 実績分類処理 - テキスト生成完了後に変身指示を分類してカウント更新
-            try:
-                classification_result = await classify_for_achievement(
-                    query=instruction,
-                    gender="man",  # デフォルトで男性（キャラクターの元の性別）
-                )
-                categories = list(classification_result.categories)
-                if is_reality and "REALITY_ALTER" not in categories:
-                    categories.append("REALITY_ALTER")
-                if categories:
-                    update_achievement_counts(categories)
-                    logger.info(f"Achievement classification: categories={categories}")
-            except Exception as e:
-                # 分類エラーはメイン処理を妨げない（フェイルセーフ設計）
-                logger.warning(f"Achievement classification failed: {e}")
-
-            # 6.2 実績判定 (T066)
-            try:
-                # 既存の解除済み実績を取得（グローバル管理）
-                user_achievements = get_user_achievements()
-                already_unlocked = {
-                    ua.achievement_id for ua in user_achievements if ua.unlocked
-                }
-
-                # 累積統計を取得して実績判定用に変換
-                achievement_stats = get_global_stats()
-                # 現在のセッションの最新値で上書き
-                # Note: transform_countはincrement後の値を直接使用（DB同期問題を回避）
-                achievement_stats.transform_count = transformation_count
-                achievement_stats.bloom = new_stats.bloom
-                achievement_stats.shame = new_stats.shame
-                achievement_stats.adaptation = new_stats.adaptation
-
-                # 新規解除された実績をチェック
-                newly_unlocked = check_achievements(
-                    session.id, achievement_stats, already_unlocked
-                )
-
-                # 新規解除された実績を保存してイベント送信 (T067)
-                for achievement in newly_unlocked:
-                    save_user_achievement(session.id, achievement.id)
-                    yield StreamEvent(
-                        type="achievement",
-                        data={
-                            "achievement_id": achievement.id,
-                            "name": achievement.name,
-                            "description": achievement.description,
-                            "icon": achievement.icon,
-                            "category": achievement.category,
-                        },
-                    )
-                    logger.info(
-                        f"Achievement unlocked: {achievement.name} for session {session.id}"
-                    )
-            except Exception as e:
-                logger.warning(f"Achievement check failed: {e}")
+                    # 新規解除された実績を保存してイベント送信 (T067)
+                    for achievement in newly_unlocked:
+                        save_user_achievement(session.id, achievement.id)
+                        yield StreamEvent(
+                            type="achievement",
+                            data={
+                                "achievement_id": achievement.id,
+                                "name": achievement.name,
+                                "description": achievement.description,
+                                "icon": achievement.icon,
+                                "category": achievement.category,
+                            },
+                        )
+                        logger.info(
+                            f"Achievement unlocked: {achievement.name} for session {session.id}"
+                        )
+                except Exception as e:
+                    logger.warning(f"Achievement check failed: {e}")
 
             # 7. 現在の画像パスを更新
             await session_store.update_session(

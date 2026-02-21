@@ -28,7 +28,7 @@
 
 **目的**: 作業ブランチの確認と既存テストのベースライン確立
 
-- [ ] T001 ブランチ 001-prompt-persona-actions であることを確認し、既存テストを実行してベースラインを確立
+- [x] T001 ブランチ 001-prompt-persona-actions であることを確認し、既存テストを実行してベースラインを確立
 
 ---
 
@@ -38,8 +38,8 @@
 
 **⚠️ 重要**: このフェーズが完了するまで、ユーザーストーリーの作業は開始できません
 
-- [ ] T002 PERSONALITY_TYPE_KEYWORDS 定数と classify_personality_type() 関数を backend/gateway/services/prompts.py に追加（R-010 準拠: キーワードマッチによる bold/gentle/cheerful/shy/calm/passionate/default 判定）
-- [ ] T003 select_opening() 関数を backend/gateway/services/prompts.py に追加（性格タイプ別ルーティング + pronoun フォーマット + used_openings 重複除外ロジック、R-003/R-009 準拠）
+- [x] T002 PERSONALITY_TYPE_KEYWORDS 定数と classify_personality_type() 関数を backend/gateway/services/prompts.py に追加（R-010 準拠: キーワードマッチによる bold/gentle/cheerful/shy/calm/passionate/default 判定）
+- [x] T003 select_opening() 関数を backend/gateway/services/prompts.py に追加（性格タイプ別ルーティング + pronoun フォーマット + used_openings 重複除外ロジック、R-003/R-009 準拠）
 
 **チェックポイント**: classify_personality_type() と select_opening() が単体で動作することを確認
 
@@ -53,11 +53,11 @@
 
 ### ユーザーストーリー 1 の実装
 
-- [ ] T004 [US1] FIRST_TRANSFORMATION_STAGE の openings 2箇所（index 0, 1）のハードコード「僕」を `{pronoun}` テンプレートに置換 in backend/gateway/services/prompts.py
-- [ ] T005 [US1] CRITICAL_POINT_SPEECHES の 75/100 合計4箇所のハードコード「僕」を `{pronoun}` テンプレートに置換 in backend/gateway/services/prompts.py
-- [ ] T006 [US1] get_critical_speech() に pronoun パラメータを追加し、返却前に .format(pronoun=pronoun) を適用。pronoun が空文字/None の場合は "僕" にフォールバックするガード処理も追加（FR-004 準拠）in backend/gateway/services/prompts.py
-- [ ] T007a [US1] build_enhanced_feeling_prompt() 内のオープニング選択後に .format(pronoun=pronoun) を適用 in backend/gateway/services/prompts.py
-- [ ] T007b [US1] game_service.py の get_critical_speech() 呼び出しに pronoun を渡す + _generate_feeling_stream() で pronoun を build_enhanced_feeling_prompt() に伝播 in backend/gateway/services/game_service.py
+- [x] T004 [US1] FIRST_TRANSFORMATION_STAGE の openings 2箇所（index 0, 1）のハードコード「僕」を `{pronoun}` テンプレートに置換 in backend/gateway/services/prompts.py
+- [x] T005 [US1] CRITICAL_POINT_SPEECHES の 75/100 合計4箇所のハードコード「僕」を `{pronoun}` テンプレートに置換 in backend/gateway/services/prompts.py
+- [x] T006 [US1] get_critical_speech() に pronoun パラメータを追加し、返却前に .format(pronoun=pronoun) を適用。pronoun が空文字/None の場合は "僕" にフォールバックするガード処理も追加（FR-004 準拠）in backend/gateway/services/prompts.py
+- [x] T007a [US1] build_enhanced_feeling_prompt() 内のオープニング選択後に .format(pronoun=pronoun) を適用 in backend/gateway/services/prompts.py
+- [x] T007b [US1] game_service.py の get_critical_speech() 呼び出しに pronoun を渡す + \_generate_feeling_stream() で pronoun を build_enhanced_feeling_prompt() に伝播 in backend/gateway/services/game_service.py
 
 **チェックポイント**: pronoun が「私」のキャラクターで変身実行時、心境テキスト内に「僕」が出現しないことを確認
 
@@ -71,9 +71,9 @@
 
 ### ユーザーストーリー 2 の実装
 
-- [ ] T008 [US2] build_enhanced_feeling_prompt() に personality と description パラメータを追加 in backend/gateway/services/prompts.py
-- [ ] T009 [US2] personality が非空の場合、システムプロンプト末尾に「キャラクターの性格」セクションを動的挿入するロジックを実装（personality が500文字超の場合は先頭500文字に切り詰め）in backend/gateway/services/prompts.py（R-002 準拠）
-- [ ] T010 [US2] \_generate_feeling_stream() からキャラクターの personality と description を build_enhanced_feeling_prompt() に渡す in backend/gateway/services/game_service.py
+- [x] T008 [US2] build_enhanced_feeling_prompt() に personality と description パラメータを追加 in backend/gateway/services/prompts.py
+- [x] T009 [US2] personality が非空の場合、システムプロンプト末尾に「キャラクターの性格」セクションを動的挿入するロジックを実装（personality が500文字超の場合は先頭500文字に切り詰め）in backend/gateway/services/prompts.py（R-002 準拠）
+- [x] T010 [US2] \_generate_feeling_stream() からキャラクターの personality と description を build_enhanced_feeling_prompt() に渡す in backend/gateway/services/game_service.py
 
 **チェックポイント**: personality が「気が強い」と「おっとり」のキャラクターで同じ指示を実行し、語調が異なることを確認
 
@@ -89,10 +89,10 @@
 
 ### ユーザーストーリー 3 の実装
 
-- [ ] T011 [US3] PSYCHOLOGICAL_STAGES（通常 + NSFW）と FIRST_TRANSFORMATION_STAGE の openings をフラットリストから性格タイプ別辞書構造（default/bold/gentle/cheerful/shy キー）に変換 in backend/gateway/services/prompts.py
-- [ ] T012 [US3] 各段階の default オープニングを10個以上、各性格タイプ別オープニングを5個以上に拡充 in backend/gateway/services/prompts.py（NSFW 版も含む）
-- [ ] T013 [US3] build_enhanced_feeling_prompt() 内のオープニング選択ロジックを select_opening() 呼び出しに置き換え（classify_personality_type + used_openings 連携）in backend/gateway/services/prompts.py
-- [ ] T014 [US3] \_generate_feeling_stream() でセッション履歴の直近 feeling_text から冒頭文字列を抽出し used_openings として渡す in backend/gateway/services/game_service.py
+- [x] T011 [US3] PSYCHOLOGICAL_STAGES（通常 + NSFW）と FIRST_TRANSFORMATION_STAGE の openings をフラットリストから性格タイプ別辞書構造（default/bold/gentle/cheerful/shy キー）に変換 in backend/gateway/services/prompts.py
+- [x] T012 [US3] 各段階の default オープニングを10個以上、各性格タイプ別オープニングを5個以上に拡充 in backend/gateway/services/prompts.py（NSFW 版も含む）
+- [x] T013 [US3] build_enhanced_feeling_prompt() 内のオープニング選択ロジックを select_opening() 呼び出しに置き換え（classify_personality_type + used_openings 連携）in backend/gateway/services/prompts.py
+- [x] T014 [US3] \_generate_feeling_stream() でセッション履歴の直近 feeling_text から冒頭文字列を抽出し used_openings として渡す in backend/gateway/services/game_service.py
 
 **チェックポイント**: 連続10回の変身でオープニングの重複2回以下 + 性格タイプ別に語調が異なること
 
@@ -106,11 +106,11 @@
 
 ### ユーザーストーリー 4 の実装
 
-- [ ] T015 [P] [US4] 行動機能用プロンプトモジュール backend/gateway/services/action_prompts.py を新規作成（build_action_prompt(): 心理段階別システムプロンプト + NSFW 版、R-005 準拠）
-- [ ] T016 [P] [US4] InstructionType に "action" を追加し INSTRUCTION_TYPE_LABELS に「行動」を追加 in frontend/src/types/index.ts
-- [ ] T017 [US4] play_with_stream() に instruction_type == "action" 分岐を追加（画像生成・パラメータ計算・タグ分類をスキップし text + complete イベントのみ送信）。Conversation テーブルから直近の action 履歴を抽出し recent_actions として build_action_prompt() に渡す（FR-016 準拠）in backend/gateway/services/game_service.py
-- [ ] T018 [US4] ChatInput の instruction_type セレクタに「行動」オプションを追加（i18n キー追加含む）in frontend/src/components/chat/ChatInput.tsx
-- [ ] T019 [US4] 行動機能の E2E テスト（行動指示 → テキスト生成確認 + 画像未変更確認）in frontend/tests/e2e/action-mode.spec.ts
+- [x] T015 [P] [US4] 行動機能用プロンプトモジュール backend/gateway/services/action_prompts.py を新規作成（build_action_prompt(): 心理段階別システムプロンプト + NSFW 版、R-005 準拠）
+- [x] T016 [P] [US4] InstructionType に "action" を追加し INSTRUCTION_TYPE_LABELS に「行動」を追加 in frontend/src/types/index.ts
+- [x] T017 [US4] play_with_stream() に instruction_type == "action" 分岐を追加（画像生成・パラメータ計算・タグ分類をスキップし text + complete イベントのみ送信）。Conversation テーブルから直近の action 履歴を抽出し recent_actions として build_action_prompt() に渡す（FR-016 準拠）in backend/gateway/services/game_service.py
+- [x] T018 [US4] ChatInput の instruction_type セレクタに「行動」オプションを追加（i18n キー追加含む）in frontend/src/components/chat/ChatInput.tsx
+- [x] T019 [US4] 行動機能の E2E テスト（行動指示 → テキスト生成確認 + 画像未変更確認）in frontend/tests/e2e/action-mode.spec.ts
 
 **チェックポイント**: 行動指示でテキスト生成、画像は変更なし、パラメータは不変
 
@@ -124,16 +124,16 @@
 
 ### ユーザーストーリー 5 の実装
 
-- [ ] T020 [P] [US5] DB マイグレーション 008_add_self_mode.py を作成（Session.self_mode BOOLEAN DEFAULT FALSE + User.self_profile_json TEXT NULLABLE）in backend/migrations/versions/008_add_self_mode.py
-- [ ] T021 [P] [US5] Session モデルに self_mode カラム、User モデルに self_profile_json カラムを追加 in backend/gateway/databases/models.py
-- [ ] T022 [P] [US5] SelfProfile Pydantic モデルを追加（personality, reaction_style, pronoun, interests, tsf_attitude, raw_input フィールド + バリデーション）in backend/gateway/models.py
-- [ ] T023 [P] [US5] 自分自身モード用プロンプトモジュール backend/gateway/services/self_mode_prompts.py を新規作成（build_self_mode_feeling_prompt(): 心理段階不使用、self_profile ベース、R-007 準拠）
-- [ ] T024 [US5] create_session() に self_mode パラメータを追加し、セッション作成時に保存 in backend/gateway/services/session.py
-- [ ] T025 [P] [US5] GameStartRequest に self_mode フィールドを追加し、session レスポンスにも self_mode を含める in backend/gateway/routes/game_router.py
-- [ ] T026 [US5] play_with_stream() に self_mode 分岐を追加（パラメータ計算スキップ + 臨界点チェックスキップ + self_mode_prompts 使用）。self_profile が null/未設定の場合は既存の通常プロンプトにフォールバック in backend/gateway/services/game_service.py
-- [ ] T027 [US5] GameContext に selfMode 状態を追加し、セッション開始時に self_mode を API に渡す in frontend/src/contexts/GameContext.tsx
-- [ ] T028 [US5] WelcomeScreen に自分自身モード選択トグル UI を追加（i18n キー追加含む）in frontend/src/components/chat/WelcomeScreen.tsx
-- [ ] T029 [US5] 自分自身モードの E2E テスト（self_mode ON → 変身 → パラメータ不変確認 + テキスト生成確認）in frontend/tests/e2e/self-mode.spec.ts
+- [x] T020 [P] [US5] DB マイグレーション 008_add_self_mode.py を作成（Session.self_mode BOOLEAN DEFAULT FALSE + User.self_profile_json TEXT NULLABLE）in backend/migrations/versions/008_add_self_mode.py
+- [x] T021 [P] [US5] Session モデルに self_mode カラム、User モデルに self_profile_json カラムを追加 in backend/gateway/databases/models.py
+- [x] T022 [P] [US5] SelfProfile Pydantic モデルを追加（personality, reaction_style, pronoun, interests, tsf_attitude, raw_input フィールド + バリデーション）in backend/gateway/models.py
+- [x] T023 [P] [US5] 自分自身モード用プロンプトモジュール backend/gateway/services/self_mode_prompts.py を新規作成（build_self_mode_feeling_prompt(): 心理段階不使用、self_profile ベース、R-007 準拠）
+- [x] T024 [US5] create_session() に self_mode パラメータを追加し、セッション作成時に保存 in backend/gateway/services/session.py
+- [x] T025 [P] [US5] GameStartRequest に self_mode フィールドを追加し、session レスポンスにも self_mode を含める in backend/gateway/routes/game_router.py
+- [x] T026 [US5] play_with_stream() に self_mode 分岐を追加（パラメータ計算スキップ + 臨界点チェックスキップ + self_mode_prompts 使用）。self_profile が null/未設定の場合は既存の通常プロンプトにフォールバック in backend/gateway/services/game_service.py
+- [x] T027 [US5] GameContext に selfMode 状態を追加し、セッション開始時に self_mode を API に渡す in frontend/src/contexts/GameContext.tsx
+- [x] T028 [US5] WelcomeScreen に自分自身モード選択トグル UI を追加（i18n キー追加含む）in frontend/src/components/chat/WelcomeScreen.tsx
+- [x] T029 [US5] 自分自身モードの E2E テスト（self_mode ON → 変身 → パラメータ不変確認 + テキスト生成確認）in frontend/tests/e2e/self-mode.spec.ts
 
 **チェックポイント**: self_mode ON で変身後、bloom/shame/adaptation が変動せず、性格に合った反応テキストが生成
 
@@ -149,14 +149,14 @@
 
 ### ユーザーストーリー 6 の実装
 
-- [ ] T030 [US6] build_self_profile_generation_prompt() を追加（入力テキストから JSON 形式の SelfProfile を生成する LLM プロンプト、R-008 準拠）in backend/gateway/services/self_mode_prompts.py
-- [ ] T031 [US6] generate_self_profile()、save_self_profile()、get_self_profile() を実装 in backend/gateway/services/settings_service.py
-- [ ] T032 [US6] self-profile CRUD 3エンドポイント（POST /generate、PUT /save、GET /retrieve）を追加 in backend/gateway/routes/settings_router.py
-- [ ] T033 [P] [US6] self-profile API 関数（generateSelfProfile, saveSelfProfile, getSelfProfile）を追加 in frontend/src/apis/settings.ts（新規作成）
-- [ ] T034 [P] [US6] SettingsContext に selfProfile 状態管理と API 連携を追加 in frontend/src/contexts/SettingsContext.tsx
+- [x] T030 [US6] build_self_profile_generation_prompt() を追加（入力テキストから JSON 形式の SelfProfile を生成する LLM プロンプト、R-008 準拠）in backend/gateway/services/self_mode_prompts.py
+- [x] T031 [US6] generate_self_profile()、save_self_profile()、get_self_profile() を実装 in backend/gateway/services/settings_service.py
+- [x] T032 [US6] self-profile CRUD 3エンドポイント（POST /generate、PUT /save、GET /retrieve）を追加 in backend/gateway/routes/settings_router.py
+- [x] T033 [P] [US6] self-profile API 関数（generateSelfProfile, saveSelfProfile, getSelfProfile）を追加 in frontend/src/apis/settings.ts（新規作成）
+- [x] T034 [P] [US6] SettingsContext に selfProfile 状態管理と API 連携を追加 in frontend/src/contexts/SettingsContext.tsx
 - [ ] T035 [US6] SelfProfileEditor コンポーネントを新規作成（テキスト入力 + 生成ボタン + 各フィールド編集フォーム + 保存ボタン）in frontend/src/components/settings/SelfProfileEditor.tsx
-- [ ] T036 [US6] SettingsScreen に性格プロフィール設定セクションを追加し SelfProfileEditor を統合（i18n キー追加含む）in frontend/src/components/settings/SettingsScreen.tsx
-- [ ] T036b [US6] 性格自動生成機能の E2E テスト（テキスト入力 → 生成ボタン → プロフィール表示確認 → 編集 → 保存 → リロード後の反映確認）in frontend/tests/e2e/self-mode.spec.ts
+- [X] T036 [US6] SettingsScreen に性格プロフィール設定セクションを追加し SelfProfileEditor を統合（i18n キー追加含む）in frontend/src/components/settings/SettingsScreen.tsx
+- [X] T036b [US6] 性格自動生成機能の E2E テスト（テキスト入力 → 生成ボタン → プロフィール表示確認 → 編集 → 保存 → リロード後の反映確認）in frontend/tests/e2e/self-profile-editor.spec.ts
 
 **チェックポイント**: テキスト入力 → 自動生成 → 編集 → 保存 → 再読み込みで保存内容が維持されること
 
@@ -166,12 +166,12 @@
 
 **目的**: コード品質確保、テスト、ドキュメント整合性
 
-- [ ] T037 [P] pronoun 置換・personality 注入・オープニング選択・重複回避のユニットテストを作成 in backend/tests/unit/test_prompts.py
-- [ ] T038 [P] 行動プロンプト生成のユニットテストを作成 in backend/tests/unit/test_action_prompts.py
-- [ ] T039 [P] 自分自身モードプロンプト生成・性格自動生成プロンプトのユニットテストを作成 in backend/tests/unit/test_self_mode_prompts.py
-- [ ] T040 Ruff リンターを全変更バックエンドファイルに実行し warn/error をゼロにする
-- [ ] T041 ESLint + Prettier を全変更フロントエンドファイルに実行し warn/error をゼロにする
-- [ ] T042 quickstart.md のテストシナリオを通しで検証し、全ステップが正常動作することを確認
+- [X] T037 [P] pronoun 置換・personality 注入・オープニング選択・重複回避のユニットテストを作成 in backend/tests/unit/test_prompts.py
+- [X] T038 [P] 行動プロンプト生成のユニットテストを作成 in backend/tests/unit/test_action_prompts.py
+- [X] T039 [P] 自分自身モードプロンプト生成・性格自動生成プロンプトのユニットテストを作成 in backend/tests/unit/test_self_mode_prompts.py
+- [X] T040 Ruff リンターを全変更バックエンドファイルに実行し warn/error をゼロにする
+- [X] T041 ESLint + Prettier を全変更フロントエンドファイルに実行し warn/error をゼロにする
+- [X] T042 quickstart.md のテストシナリオを通しで検証し、全ステップが正常動作することを確認
 
 ---
 

@@ -25,6 +25,8 @@ import {
   DEFAULT_INPAINT_SETTINGS,
 } from "../types";
 import { DEFAULT_LANGUAGE, type UiLanguage } from "../constants/language";
+import type { SelfProfile } from "../apis/settings";
+import { getSelfProfile as fetchSelfProfileApi } from "../apis/settings";
 import i18n from "../i18n";
 
 // 設定状態の型定義
@@ -63,6 +65,9 @@ interface SettingsState {
 
   // 精密参照画像 (013)
   preciseReferences: PreciseReference[];
+
+  // Self-profile (US6)
+  selfProfile: SelfProfile | null;
 }
 
 // アクション型
@@ -94,7 +99,8 @@ type SettingsAction =
       payload: { id: string } & Partial<PreciseReference>;
     }
   | { type: "REMOVE_PRECISE_REFERENCE"; payload: string }
-  | { type: "CLEAR_PRECISE_REFERENCES" };
+  | { type: "CLEAR_PRECISE_REFERENCES" }
+  | { type: "SET_SELF_PROFILE"; payload: SelfProfile | null };
 
 // デフォルト状態
 const defaultState: SettingsState = {
@@ -113,6 +119,7 @@ const defaultState: SettingsState = {
   soundVolume: 0.5,
   rightPanelOpen: false,
   preciseReferences: [],
+  selfProfile: null,
 };
 
 // Reducer
@@ -202,6 +209,8 @@ function settingsReducer(
       };
     case "CLEAR_PRECISE_REFERENCES":
       return { ...state, preciseReferences: [] };
+    case "SET_SELF_PROFILE":
+      return { ...state, selfProfile: action.payload };
     default:
       return state;
   }
@@ -237,6 +246,10 @@ interface SettingsContextType {
   ) => void;
   removePreciseReference: (id: string) => void;
   clearPreciseReferences: () => void;
+  // US6: Self-profile
+  selfProfile: SelfProfile | null;
+  setSelfProfile: (profile: SelfProfile | null) => void;
+  loadSelfProfile: () => Promise<void>;
 }
 
 // Context作成
@@ -317,6 +330,21 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     fetchUserSettings();
   }, []);
 
+  // Load self-profile from backend on init (US6)
+  useEffect(() => {
+    const loadProfile = async () => {
+      try {
+        const profile = await fetchSelfProfileApi();
+        if (profile) {
+          dispatch({ type: "SET_SELF_PROFILE", payload: profile });
+        }
+      } catch (error) {
+        console.warn("Failed to fetch self-profile:", error);
+      }
+    };
+    loadProfile();
+  }, []);
+
   // 状態変更時にlocalStorageに保存（imageProviderは除外）
   // 初期化完了後のみ保存（初期状態での上書きを防ぐ）
   useEffect(() => {
@@ -326,6 +354,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       const {
         imageProvider: _ignored,
         preciseReferences: _ignored2,
+        selfProfile: _ignored3,
         ...rest
       } = state;
       /* eslint-enable @typescript-eslint/no-unused-vars */
@@ -492,6 +521,19 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "CLEAR_PRECISE_REFERENCES" });
   }, []);
 
+  const setSelfProfile = useCallback((profile: SelfProfile | null) => {
+    dispatch({ type: "SET_SELF_PROFILE", payload: profile });
+  }, []);
+
+  const loadSelfProfile = useCallback(async () => {
+    try {
+      const profile = await fetchSelfProfileApi();
+      dispatch({ type: "SET_SELF_PROFILE", payload: profile });
+    } catch (error) {
+      console.warn("Failed to load self-profile:", error);
+    }
+  }, []);
+
   const value: SettingsContextType = {
     state,
     setDifficulty,
@@ -515,6 +557,9 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     updatePreciseReference,
     removePreciseReference,
     clearPreciseReferences,
+    selfProfile: state.selfProfile,
+    setSelfProfile,
+    loadSelfProfile,
   };
 
   return (

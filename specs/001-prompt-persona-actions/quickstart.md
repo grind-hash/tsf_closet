@@ -25,7 +25,7 @@
 | `gateway/services/game_service.py`         | **変更** | action 分岐追加, self_mode 分岐追加, personality パラメータ伝播                        |
 | `gateway/models.py`                        | **変更** | SelfProfile Pydantic モデル追加                                                        |
 | `gateway/databases/models.py`              | **変更** | Session.self_mode, User.self_profile_json カラム追加                                   |
-| `gateway/databases/orm.py` (該当する場合)   | **変更** | 新カラムの ORM マッピング（既存 ORM で自動対応済みの場合は変更不要）                   |
+| `gateway/databases/orm.py` (該当する場合)  | **変更** | 新カラムの ORM マッピング（既存 ORM で自動対応済みの場合は変更不要）                   |
 | `gateway/routes/game_router.py`            | **変更** | GameStartRequest に self_mode 追加, session レスポンスに self_mode 追加                |
 | `gateway/routes/settings_router.py`        | **変更** | self-profile CRUD エンドポイント3個追加                                                |
 | `gateway/services/settings_service.py`     | **変更** | self_profile の読み書きロジック追加                                                    |

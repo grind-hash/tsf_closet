@@ -29,6 +29,7 @@ class User(Base):
     nsfw_mode: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     difficulty: Mapped[str] = mapped_column(String, default="normal", nullable=False)
     language: Mapped[str] = mapped_column(String, default="ja", nullable=False)
+    self_profile_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     sessions: Mapped[List["Session"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
@@ -51,6 +52,7 @@ class Session(Base):
         Integer, default=0, nullable=False
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    self_mode: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         default=func.current_timestamp(), nullable=False
     )

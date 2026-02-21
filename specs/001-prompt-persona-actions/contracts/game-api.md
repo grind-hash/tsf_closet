@@ -174,7 +174,7 @@ data: {"session_id": "uuid", "transformation_count": 3}
 | `pronoun`        | 必須、1-10文字                                                            |
 | `interests`      | 任意、最大10要素、各要素50文字以下                                        |
 | `tsf_attitude`   | 任意、最大200文字                                                         |
-| `raw_input`      | 任意、最大1000文字。自動生成時にサーバー側で付与                               |
+| `raw_input`      | 任意、最大1000文字。自動生成時にサーバー側で付与                          |
 
 ---
 

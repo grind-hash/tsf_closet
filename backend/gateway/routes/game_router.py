@@ -263,6 +263,7 @@ async def play_game_stream(request: PlayStreamRequest) -> EventSourceResponse:
             ]
             if request.character_references
             else None,
+            instruction_type=request.instruction_type,
         ):
             yield {
                 "event": event.type,
@@ -417,6 +418,7 @@ async def start_game(request: GameStartRequest) -> GameStartResponse:
     session = await session_store.create_session(
         image_path=image_path,
         character_id=character_id,
+        self_mode=request.self_mode,
     )
 
     # セッション統計を作成

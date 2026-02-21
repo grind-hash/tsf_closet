@@ -129,3 +129,46 @@ async def update_user_settings(
         return UserSettingsResponse(**updated)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+# ── Self-profile endpoints (US6 T032) ──
+
+
+class SelfProfileGenerateRequest(BaseModel):
+    input_text: str
+
+
+class SelfProfileSaveRequest(BaseModel):
+    personality: str = ""
+    reaction_style: str = "default"
+    pronoun: str = "僕"
+    interests: list[str] = []
+    tsf_attitude: str = ""
+    raw_input: str = ""
+
+
+@router.post("/self-profile/generate")
+async def generate_self_profile(request: SelfProfileGenerateRequest) -> dict:
+    """Generate a SelfProfile from free-form text via LLM."""
+    if not request.input_text or not request.input_text.strip():
+        raise HTTPException(status_code=400, detail="input_text is required")
+    try:
+        profile = await settings_service.generate_self_profile(request.input_text)
+        return profile
+    except (ValueError, Exception) as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.put("/self-profile")
+async def save_self_profile(request: SelfProfileSaveRequest) -> dict:
+    """Save the user's self-profile."""
+    profile = request.model_dump()
+    saved = await settings_service.save_self_profile(profile)
+    return saved
+
+
+@router.get("/self-profile")
+async def get_self_profile() -> dict:
+    """Retrieve the user's self-profile, or empty dict if not set."""
+    profile = await settings_service.get_self_profile()
+    return profile or {}

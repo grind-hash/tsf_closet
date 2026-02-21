@@ -35,7 +35,13 @@ interface CustomCharacter {
 
 export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
   const { t } = useTranslation();
-  const { startSession, setLoading, setError } = useGame();
+  const {
+    startSession,
+    setLoading,
+    setError,
+    state: gameState,
+    setSelfMode,
+  } = useGame();
 
   // キャラクター一覧
   const [characters, setCharacters] = useState<Character[]>([]);
@@ -205,6 +211,7 @@ export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
             custom_character_id: selectedCustomCharacterId,
             difficulty: "normal",
             nsfw_mode: false,
+            self_mode: gameState.selfMode,
             name: customName || t("chat.welcome.customCharacterDefaultName"),
             description: customDescription,
             pronoun: customPronoun || t("chat.welcome.defaultPronoun"),
@@ -223,6 +230,7 @@ export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
             character_id: selectedCharacterId,
             difficulty: "normal",
             nsfw_mode: false,
+            self_mode: gameState.selfMode,
           }),
         });
         if (!response.ok) throw new Error(t("chat.welcome.startSessionError"));
@@ -415,6 +423,22 @@ export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
             </select>
           </div>
         )}
+      </div>
+
+      {/* 自分自身モード (US5) */}
+      <div className="welcome-screen__self-mode">
+        <label className="welcome-screen__self-mode-label">
+          <input
+            type="checkbox"
+            checked={gameState.selfMode}
+            onChange={(e) => setSelfMode(e.target.checked)}
+            className="welcome-screen__self-mode-checkbox"
+          />
+          <span>{t("chat.welcome.selfMode")}</span>
+        </label>
+        <p className="welcome-screen__self-mode-desc">
+          {t("chat.welcome.selfModeDescription")}
+        </p>
       </div>
 
       {/* 開始ボタン */}

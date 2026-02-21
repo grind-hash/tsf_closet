@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import logging
 from datetime import datetime
 
 from sqlalchemy import select
@@ -10,6 +12,8 @@ from ..databases.base import async_session_factory
 from ..databases.models import User
 
 DEFAULT_USER_ID = "default-user"
+
+logger = logging.getLogger(__name__)
 
 
 class SettingsService:
@@ -128,6 +132,98 @@ class SettingsService:
     @staticmethod
     def utc_now_iso() -> str:
         return datetime.utcnow().isoformat()
+
+    async def get_self_profile(
+        self,
+        user_id: str = DEFAULT_USER_ID,
+    ) -> dict | None:
+        """Return the parsed self_profile_json for the given user, or None."""
+        async with async_session_factory() as session:
+            result = await session.execute(select(User).where(User.id == user_id))
+            user = result.scalar_one_or_none()
+            if user is None or not user.self_profile_json:
+                return None
+            try:
+                return json.loads(user.self_profile_json)
+            except (json.JSONDecodeError, TypeError):
+                return None
+
+    async def generate_self_profile(self, input_text: str) -> dict:
+        """Generate a SelfProfile JSON from free-form user text via LLM (R-008).
+
+        Args:
+            input_text: User's self-introduction or personality description
+
+        Returns:
+            Parsed SelfProfile dict
+
+        Raises:
+            ValueError: If LLM output is not valid JSON
+        """
+        from .self_mode_prompts import build_self_profile_generation_prompt
+        from .llm_service import llm_service
+
+        system_prompt, user_prompt = build_self_profile_generation_prompt(input_text)
+        result = await llm_service.generate_text(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+        )
+
+        # Parse the JSON output from LLM
+        raw = result.content.strip()
+        # Handle markdown code blocks
+        if raw.startswith("```"):
+            lines = raw.split("\n")
+            # Remove first and last lines (``` markers)
+            lines = [line for line in lines if not line.strip().startswith("```")]
+            raw = "\n".join(lines).strip()
+
+        try:
+            profile = json.loads(raw)
+        except json.JSONDecodeError as e:
+            logger.error("LLM returned invalid JSON for profile generation: %s", raw)
+            raise ValueError(f"Failed to parse generated profile: {e}") from e
+
+        # Attach raw_input for traceability
+        profile["raw_input"] = input_text[:1000]
+        return profile
+
+    async def save_self_profile(
+        self,
+        profile: dict,
+        user_id: str = DEFAULT_USER_ID,
+    ) -> dict:
+        """Save a SelfProfile JSON to the user record.
+
+        Args:
+            profile: SelfProfile dict to persist
+            user_id: User identifier
+
+        Returns:
+            The saved profile dict
+        """
+        profile_json = json.dumps(profile, ensure_ascii=False)
+
+        async with async_session_factory() as session:
+            result = await session.execute(select(User).where(User.id == user_id))
+            user = result.scalar_one_or_none()
+
+            if user is None:
+                user = User(
+                    id=user_id,
+                    nsfw_mode=0,
+                    difficulty="normal",
+                    language=DEFAULT_LANGUAGE,
+                    self_profile_json=profile_json,
+                )
+                session.add(user)
+            else:
+                user.self_profile_json = profile_json
+
+            await session.commit()
+
+        logger.info("Saved self profile for user %s", user_id)
+        return profile
 
 
 settings_service = SettingsService()

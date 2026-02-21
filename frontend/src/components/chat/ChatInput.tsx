@@ -93,6 +93,8 @@ export default function ChatInput({
         return t("chat.instructionType.realityAlter");
       case "conversation":
         return t("chat.instructionType.conversation");
+      case "action":
+        return t("chat.instructionType.action");
       default:
         return type;
     }
@@ -131,7 +133,12 @@ export default function ChatInput({
           aria-label={t("chat.input.instructionTypeAria")}
         >
           {(
-            ["dress_up", "reality_alter", "conversation"] as InstructionType[]
+            [
+              "dress_up",
+              "reality_alter",
+              "conversation",
+              "action",
+            ] as InstructionType[]
           ).map((type) => (
             <option key={type} value={type}>
               {getInstructionTypeLabel(type)}
