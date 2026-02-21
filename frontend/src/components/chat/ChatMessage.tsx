@@ -51,6 +51,8 @@ const ChatMessageItem = forwardRef<HTMLDivElement, ChatMessageProps>(
           return t("chat.instructionType.realityAlter");
         case "conversation":
           return t("chat.instructionType.conversation");
+        case "action":
+          return t("chat.instructionType.action");
         default:
           return message.instructionType;
       }

@@ -49,7 +49,7 @@ export default function CharacterStatePanel({
     addAttribute,
     removeAttribute,
   } = useGame();
-  const { scrollToMessage, highlightMessage } = useChat();
+  const { scrollToMessage, highlightMessage, state: chatState } = useChat();
   const { state: settingsState, toggleInpaint, toggleNsfw } = useSettings();
 
   // 属性入力状態
@@ -296,11 +296,15 @@ export default function CharacterStatePanel({
           </div>
         )}
 
-        {/* 変身中オーバーレイ */}
+        {/* 変身中/行動中オーバーレイ */}
         {isTransforming && (
           <div className="character-state-panel__loading-overlay">
             <div className="character-state-panel__spinner" />
-            <p>{t("characterPanel.transforming")}</p>
+            <p>
+              {chatState.instructionType === "action"
+                ? t("characterPanel.acting")
+                : t("characterPanel.transforming")}
+            </p>
           </div>
         )}
 

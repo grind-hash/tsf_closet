@@ -26,7 +26,9 @@ class StubSessionStore:
     async def get_history(self, session_id: str):
         return []
 
-    async def add_conversation(self, session_id: str, role: str, content: str):
+    async def add_conversation(
+        self, session_id: str, role: str, content: str, **kwargs
+    ):
         return None
 
     async def get_session_attribute_texts(self, session_id: str):

@@ -568,6 +568,7 @@ class LLMService:
         character_base_tags: str | None = None,
         nsfw_mode: bool = False,
         language: str = "ja",
+        system_prompt_override: str | None = None,
     ) -> str:
         """NovelAI画像生成プロンプトを生成する (T006)
 
@@ -579,6 +580,9 @@ class LLMService:
             previous_prompt: 前回生成したプロンプト（継続の場合）
             character_base_tags: キャラクターベースタグ（初回の場合）
             nsfw_mode: NSFWモードかどうか
+            language: 指示言語
+            system_prompt_override: Custom system prompt (e.g. action mode).
+                If provided, replaces the default system prompt.
 
         Returns:
             NovelAI用タグプロンプト（カンマ区切り）
@@ -588,10 +592,13 @@ class LLMService:
             get_novelai_prompt_generation_system,
         )
 
-        system_prompt = get_novelai_prompt_generation_system(
-            nsfw_mode=nsfw_mode,
-            instruction_language=language,
-        )
+        if system_prompt_override:
+            system_prompt = system_prompt_override
+        else:
+            system_prompt = get_novelai_prompt_generation_system(
+                nsfw_mode=nsfw_mode,
+                instruction_language=language,
+            )
         user_prompt = build_novelai_prompt_generation_user(
             instruction=instruction,
             previous_prompt=previous_prompt,

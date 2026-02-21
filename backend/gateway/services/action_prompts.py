@@ -138,6 +138,200 @@ PRE_TRANSFORM_ACTION_USER_PROMPT_TEMPLATE = """主人公は以下の行動を取
 変身・性転換・衣装変化に関する描写は絶対にしないでください。"""
 
 
+# ── Scene-change image editing system prompts (T001: NovelAI tag format) ──
+
+ACTION_IMAGE_EDIT_SYSTEM_PROMPT_NOVELAI = """You are an assistant that converts a brief Japanese action/scene-change instruction into a single positive prompt for NovelAI (diffusion) image-to-image.
+
+Strict requirements:
+- You are ONLY changing the BACKGROUND / ENVIRONMENT / LIGHTING. The character must remain EXACTLY the same.
+- Keep ALL character-related tags from the previous prompt inside {{}} (curly-brace emphasis) to lock them.
+  Example: {{1girl, maid outfit, black hair, blue eyes}}
+- Replace or add ONLY background/environment tags to match the new scene.
+- Single character, single frame, no panels, no side-by-side.
+- Keep the prompt compact, comma-separated tags style, 40-80 words.
+
+Structure:
+1. Character tags inside {{}} (copied from previous prompt, unchanged).
+2. New background/environment/lighting tags describing the action destination.
+3. Quality tags at the end: very aesthetic, best quality
+
+Output only the positive prompt in English. No explanation."""
+
+ACTION_IMAGE_EDIT_SYSTEM_PROMPT_NOVELAI_NSFW = """You are an assistant that converts a brief Japanese action/scene-change instruction into a single positive prompt for NovelAI (diffusion) image-to-image. This is NSFW mode.
+
+Strict requirements:
+- You are ONLY changing the BACKGROUND / ENVIRONMENT / LIGHTING. The character must remain EXACTLY the same.
+- Keep ALL character-related tags from the previous prompt inside {{}} (curly-brace emphasis) to lock them.
+  Example: {{1girl, maid outfit, black hair, blue eyes, nsfw, revealing}}
+- Replace or add ONLY background/environment tags to match the new scene.
+- Single character, single frame, no panels, no side-by-side.
+- Keep the prompt compact, comma-separated tags style, 40-80 words.
+
+NSFW guidelines:
+- ALWAYS include "nsfw" tag.
+- Preserve all sensual/body-related tags inside {{}} unchanged.
+- Scene/environment may include suggestive atmosphere.
+
+Structure:
+1. Character tags inside {{}} (copied from previous prompt, unchanged).
+2. New background/environment/lighting tags.
+3. Quality tags: nsfw, very aesthetic, best quality
+
+Output only the positive prompt in English. No explanation."""
+
+
+# ── Scene-change image editing system prompts (T002: Qwen Image Edit format) ──
+
+ACTION_IMAGE_EDIT_SYSTEM_PROMPT = """You are an AI image editing assistant (Qwen Image Edit).
+
+Your task: Change ONLY the background/environment/scene of the image.
+Keep the person EXACTLY as they are — same outfit, same pose, same expression, same hairstyle, same body.
+
+Important constraints:
+- Do NOT change the character's appearance, clothing, accessories, or pose in any way.
+- ONLY modify the background, environment, lighting, and atmosphere.
+- Describe the new scene/environment in detail (location, lighting, time of day, mood).
+
+Output a single English editing prompt, 50-100 words."""
+
+ACTION_IMAGE_EDIT_SYSTEM_PROMPT_NSFW = """You are an AI image editing assistant (Qwen Image Edit). This is NSFW mode.
+
+Your task: Change ONLY the background/environment/scene of the image.
+Keep the person EXACTLY as they are — same outfit, same pose, same expression, same body, same level of exposure.
+
+Important constraints:
+- Do NOT change the character's appearance, clothing, accessories, pose, or body exposure in any way.
+- ONLY modify the background, environment, lighting, and atmosphere.
+- The new scene may have a sensual or suggestive atmosphere appropriate for the action.
+
+Output a single English editing prompt, 50-100 words."""
+
+
+# ── Scene-change NovelAI GLM-4.6 tag generation system prompts (T003) ──
+
+ACTION_NOVELAI_PROMPT_GENERATION_SYSTEM = """You are a NovelAI image generation prompt expert specializing in SCENE CHANGES.
+
+The user wants to change the background/environment while keeping the character unchanged.
+
+## Rules
+1. Output comma-separated tags only.
+2. Quality tags first: masterpiece, best quality, very aesthetic
+3. COPY all character/person tags from the previous prompt EXACTLY (appearance, outfit, pose, expression).
+4. REPLACE only background/environment/location tags with new ones matching the action instruction.
+5. Single character: 1girl, solo (keep from previous prompt)
+6. Add specific background tags for the new location/scene.
+
+## CRITICAL: Character Preservation
+- ALL character appearance tags (hair, eyes, outfit, accessories, body) must be kept UNCHANGED.
+- Only background, location, and environmental tags should change.
+
+## Output
+Tag prompt only. No explanation or preamble."""
+
+ACTION_NOVELAI_PROMPT_GENERATION_SYSTEM_NSFW = """You are a NovelAI image generation prompt expert specializing in SCENE CHANGES.
+Adult content tags are allowed.
+
+The user wants to change the background/environment while keeping the character unchanged.
+
+## Rules
+1. Output comma-separated tags only.
+2. Quality tags first: masterpiece, best quality, very aesthetic
+3. COPY all character/person tags from the previous prompt EXACTLY (appearance, outfit, pose, expression, body exposure).
+4. REPLACE only background/environment/location tags with new ones matching the action instruction.
+5. Single character: 1girl, solo (keep from previous prompt)
+6. Add specific background tags for the new location/scene.
+7. Keep all NSFW/body-related tags from the previous prompt unchanged.
+
+## CRITICAL: Character Preservation
+- ALL character appearance and NSFW tags must be kept UNCHANGED.
+- Only background, location, and environmental tags should change.
+
+## Output
+Tag prompt only. No explanation or preamble."""
+
+
+# ── Scene-change helper functions (T004, T005, T006) ──
+
+
+def get_action_image_edit_system_prompt(
+    image_provider: str = "qwen",
+    nsfw_mode: bool = False,
+) -> str:
+    """Return the scene-change image editing system prompt.
+
+    Selects the appropriate template based on image provider and NSFW mode.
+
+    Args:
+        image_provider: Image provider ("novelai" or "qwen"/other)
+        nsfw_mode: Whether NSFW mode is enabled
+
+    Returns:
+        System prompt string for scene-change image editing
+    """
+    if image_provider == "novelai":
+        if nsfw_mode:
+            return ACTION_IMAGE_EDIT_SYSTEM_PROMPT_NOVELAI_NSFW
+        return ACTION_IMAGE_EDIT_SYSTEM_PROMPT_NOVELAI
+
+    # Default (Qwen / other providers)
+    if nsfw_mode:
+        return ACTION_IMAGE_EDIT_SYSTEM_PROMPT_NSFW
+    return ACTION_IMAGE_EDIT_SYSTEM_PROMPT
+
+
+def build_action_image_edit_prompt(
+    instruction: str,
+    current_description: str,
+) -> str:
+    """Build a user prompt for scene-change image editing.
+
+    Combines the action instruction with the current image description
+    to create a prompt for the image editing model.
+
+    Args:
+        instruction: The action instruction (e.g. "go to the cafe")
+        current_description: Vision LLM description of the current image
+
+    Returns:
+        User prompt string for scene-change image editing
+    """
+    return (
+        f"Current image description: {current_description}\n\n"
+        f"Action instruction: {instruction}\n\n"
+        "Change ONLY the background and environment to match the action. "
+        "Keep the person exactly as they are."
+    )
+
+
+def get_action_novelai_prompt_generation_system(
+    nsfw_mode: bool = False,
+    language: str = "ja",
+) -> str:
+    """Return the scene-change NovelAI tag generation system prompt.
+
+    Used with GLM-4.6 to generate scene-change tags that preserve
+    character tags and only modify background/environment tags.
+
+    Args:
+        nsfw_mode: Whether NSFW mode is enabled
+        language: Instruction language ("ja", "en", etc.)
+
+    Returns:
+        System prompt string for GLM-4.6 scene-change tag generation
+    """
+    language_name = "English" if language == "en" else "Japanese"
+    language_hint = (
+        "\n\nInstruction Language:\n"
+        f"- The user instruction language is {language_name}."
+        "\n- Interpret either Japanese or English user instructions correctly."
+        "\n- Output must be English tag prompt only."
+    )
+
+    if nsfw_mode:
+        return ACTION_NOVELAI_PROMPT_GENERATION_SYSTEM_NSFW + language_hint
+    return ACTION_NOVELAI_PROMPT_GENERATION_SYSTEM + language_hint
+
+
 def build_action_prompt(
     instruction: str,
     current_description: str,

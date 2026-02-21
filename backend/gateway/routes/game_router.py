@@ -942,7 +942,9 @@ async def chat_with_character(
         current_outfit_desc = latest.after_description or ""
 
     # ユーザーメッセージを保存
-    await session_store.add_conversation(session_id, "user", message)
+    await session_store.add_conversation(
+        session_id, "user", message, instruction_type="conversation"
+    )
 
     # 属性を取得
     attributes = await session_store.get_session_attribute_texts(session_id)
@@ -1083,7 +1085,9 @@ async def chat_with_character_stream(
         current_outfit_desc = latest.after_description or ""
 
     # ユーザーメッセージを保存
-    await session_store.add_conversation(session_id, "user", message)
+    await session_store.add_conversation(
+        session_id, "user", message, instruction_type="conversation"
+    )
 
     # 属性を取得
     attributes = await session_store.get_session_attribute_texts(session_id)

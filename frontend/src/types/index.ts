@@ -23,6 +23,7 @@ export interface HistoryItem {
   beforeDescription: string;
   afterDescription: string;
   timestamp: string;
+  instructionType?: string;
   costumeCategory?: string;
   exposureLevel?: string; // exposure_level を維持
   ageImpression?: string;
@@ -173,6 +174,7 @@ export interface ConversationMessage {
   role: "user" | "character";
   content: string;
   createdAt: string;
+  instruction_type?: string | null;
 }
 
 // Session attribute

@@ -212,7 +212,11 @@ export default function GamePlayScreen({
           role: "user",
           content: h.instruction,
           createdAt: h.timestamp,
-          instructionType: "dress_up" as const,
+          instructionType: (h.instructionType || "dress_up") as
+            | "dress_up"
+            | "reality_alter"
+            | "conversation"
+            | "action",
         });
         // 心境テキスト（存在し、画質改善でない場合）
         if (h.feelingText && h.feelingText !== "(画質改善)") {
@@ -238,7 +242,13 @@ export default function GamePlayScreen({
           content: msg.content,
           createdAt: msg.createdAt || new Date().toISOString(),
           instructionType:
-            msg.role === "user" ? ("conversation" as const) : undefined,
+            msg.role === "user"
+              ? ((msg.instruction_type || "conversation") as
+                  | "dress_up"
+                  | "reality_alter"
+                  | "conversation"
+                  | "action")
+              : undefined,
           attachedImageUrl: undefined,
           isStreaming: false,
         });
@@ -430,7 +440,8 @@ export default function GamePlayScreen({
         instructionType: instructionType as
           | "dress_up"
           | "reality_alter"
-          | "conversation",
+          | "conversation"
+          | "action",
       };
       addMessage(userMsg);
 

@@ -179,6 +179,7 @@ export function useSession(): UseSessionReturn {
             before_description?: string;
             after_description?: string;
             timestamp: string;
+            instruction_type?: string;
             costume_category?: string;
             exposure_level?: number;
             age_impression?: string;
@@ -190,6 +191,7 @@ export function useSession(): UseSessionReturn {
             beforeDescription: h.before_description || "",
             afterDescription: h.after_description || "",
             timestamp: h.timestamp,
+            instructionType: h.instruction_type ?? undefined,
             costumeCategory: h.costume_category,
             exposureLevel: h.exposure_level,
             ageImpression: h.age_impression,
@@ -235,11 +237,13 @@ export function useSession(): UseSessionReturn {
               role: string;
               content: string;
               created_at: string;
+              instruction_type?: string | null;
             }) => ({
               id: c.id,
               role: c.role as "user" | "character",
               content: c.content,
               createdAt: c.created_at,
+              instruction_type: c.instruction_type ?? undefined,
             }),
           ),
         );

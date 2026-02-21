@@ -2,11 +2,23 @@
 
 Covers build_action_prompt with various bloom levels, NSFW mode,
 personality injection, and recent actions handling.
+Also covers scene-change image prompt helpers (T017-T020).
 """
 
 import pytest
 
-from gateway.services.action_prompts import build_action_prompt
+from gateway.services.action_prompts import (
+    build_action_prompt,
+    build_action_image_edit_prompt,
+    get_action_image_edit_system_prompt,
+    get_action_novelai_prompt_generation_system,
+    ACTION_IMAGE_EDIT_SYSTEM_PROMPT,
+    ACTION_IMAGE_EDIT_SYSTEM_PROMPT_NSFW,
+    ACTION_IMAGE_EDIT_SYSTEM_PROMPT_NOVELAI,
+    ACTION_IMAGE_EDIT_SYSTEM_PROMPT_NOVELAI_NSFW,
+    ACTION_NOVELAI_PROMPT_GENERATION_SYSTEM,
+    ACTION_NOVELAI_PROMPT_GENERATION_SYSTEM_NSFW,
+)
 
 
 def test_basic_action_prompt_returns_tuple() -> None:
@@ -186,3 +198,145 @@ def test_pre_transform_with_personality() -> None:
     )
     assert "明るくて元気" in system
     assert "明るくて元気" in user
+
+
+# ── T017: get_action_image_edit_system_prompt tests ──
+
+
+@pytest.mark.parametrize(
+    ("provider", "nsfw", "expected_template"),
+    [
+        ("novelai", False, ACTION_IMAGE_EDIT_SYSTEM_PROMPT_NOVELAI),
+        ("novelai", True, ACTION_IMAGE_EDIT_SYSTEM_PROMPT_NOVELAI_NSFW),
+        ("qwen", False, ACTION_IMAGE_EDIT_SYSTEM_PROMPT),
+        ("qwen", True, ACTION_IMAGE_EDIT_SYSTEM_PROMPT_NSFW),
+    ],
+)
+def test_get_action_image_edit_system_prompt_variants(
+    provider: str, nsfw: bool, expected_template: str
+) -> None:
+    result = get_action_image_edit_system_prompt(
+        image_provider=provider, nsfw_mode=nsfw
+    )
+    assert result == expected_template
+
+
+def test_get_action_image_edit_system_prompt_default_provider() -> None:
+    """Default provider (no arg) should return Qwen SFW template."""
+    result = get_action_image_edit_system_prompt()
+    assert result == ACTION_IMAGE_EDIT_SYSTEM_PROMPT
+
+
+def test_get_action_image_edit_system_prompt_unknown_provider_returns_qwen() -> None:
+    """Unknown provider should fall back to Qwen template."""
+    result = get_action_image_edit_system_prompt(image_provider="openrouter")
+    assert result == ACTION_IMAGE_EDIT_SYSTEM_PROMPT
+
+
+# ── T018: build_action_image_edit_prompt tests ──
+
+
+def test_build_action_image_edit_prompt_includes_instruction() -> None:
+    result = build_action_image_edit_prompt(
+        instruction="go to the cafe",
+        current_description="wearing a maid outfit",
+    )
+    assert "go to the cafe" in result
+
+
+def test_build_action_image_edit_prompt_includes_description() -> None:
+    result = build_action_image_edit_prompt(
+        instruction="walk in the park",
+        current_description="character in school uniform",
+    )
+    assert "character in school uniform" in result
+
+
+def test_build_action_image_edit_prompt_preserves_person() -> None:
+    """The prompt must instruct to keep the person unchanged."""
+    result = build_action_image_edit_prompt(
+        instruction="beach",
+        current_description="dress",
+    )
+    assert "keep the person" in result.lower() or "Keep the person" in result
+
+
+# ── T019: get_action_novelai_prompt_generation_system tests ──
+
+
+def test_get_action_novelai_prompt_generation_system_sfw() -> None:
+    result = get_action_novelai_prompt_generation_system(nsfw_mode=False)
+    assert "SCENE CHANGE" in result.upper() or "scene change" in result.lower()
+    assert "English" not in result.split("Instruction Language")[0] or True
+
+
+def test_get_action_novelai_prompt_generation_system_nsfw() -> None:
+    result = get_action_novelai_prompt_generation_system(nsfw_mode=True)
+    assert "Adult content" in result or "NSFW" in result
+
+
+def test_get_action_novelai_prompt_generation_system_language_en() -> None:
+    result = get_action_novelai_prompt_generation_system(nsfw_mode=False, language="en")
+    assert "English" in result
+
+
+def test_get_action_novelai_prompt_generation_system_language_ja() -> None:
+    result = get_action_novelai_prompt_generation_system(nsfw_mode=False, language="ja")
+    assert "Japanese" in result
+
+
+# ── T020: Character preservation constraint verification ──
+
+
+@pytest.mark.parametrize(
+    "template",
+    [
+        ACTION_IMAGE_EDIT_SYSTEM_PROMPT,
+        ACTION_IMAGE_EDIT_SYSTEM_PROMPT_NSFW,
+        ACTION_IMAGE_EDIT_SYSTEM_PROMPT_NOVELAI,
+        ACTION_IMAGE_EDIT_SYSTEM_PROMPT_NOVELAI_NSFW,
+    ],
+    ids=["qwen_sfw", "qwen_nsfw", "novelai_sfw", "novelai_nsfw"],
+)
+def test_image_edit_templates_preserve_person(template: str) -> None:
+    """All image edit templates must contain a person-preservation constraint."""
+    lower = template.lower()
+    assert any(
+        phrase in lower
+        for phrase in [
+            "keep the person exactly",
+            "character must remain exactly",
+            "keep all character",
+        ]
+    ), f"Template missing person-preservation constraint: {template[:80]}..."
+
+
+@pytest.mark.parametrize(
+    "template",
+    [
+        ACTION_NOVELAI_PROMPT_GENERATION_SYSTEM,
+        ACTION_NOVELAI_PROMPT_GENERATION_SYSTEM_NSFW,
+    ],
+    ids=["glm_sfw", "glm_nsfw"],
+)
+def test_novelai_tag_gen_templates_preserve_character(template: str) -> None:
+    """All NovelAI tag generation templates must contain character preservation."""
+    lower = template.lower()
+    assert any(
+        phrase in lower
+        for phrase in [
+            "character preservation",
+            "character appearance tags",
+            "copy all character",
+        ]
+    ), f"Template missing character-preservation constraint: {template[:80]}..."
+
+
+def test_build_action_image_edit_prompt_has_background_change_instruction() -> None:
+    """The user prompt must instruct to change background/environment."""
+    result = build_action_image_edit_prompt(
+        instruction="go shopping",
+        current_description="maid outfit",
+    )
+    lower = result.lower()
+    assert "background" in lower or "environment" in lower

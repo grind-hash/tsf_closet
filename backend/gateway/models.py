@@ -411,6 +411,9 @@ class HistoryItem(BaseModel):
     before_description: str = Field(..., description="着せ替え前の説明")
     after_description: str = Field(..., description="着せ替え後の説明")
     timestamp: str = Field(..., description="実行日時 (ISO形式)")
+    instruction_type: Optional[str] = Field(
+        None, description="指示タイプ (dress_up/reality_alter/action)"
+    )
     # T025: タグ情報を追加
     costume_category: Optional[str] = Field(
         None, description="衣装カテゴリ (cute/sexy/elegant/cool/casual)"
@@ -531,6 +534,9 @@ class ConversationMessageResponse(BaseModel):
     role: str = Field(..., description="発言者 (user/character)")
     content: str = Field(..., description="メッセージ内容")
     created_at: str = Field(..., description="送信日時 (ISO形式)")
+    instruction_type: Optional[str] = Field(
+        None, description="指示タイプ (dress_up/reality_alter/conversation/action)"
+    )
 
 
 class ConversationHistoryResponse(BaseModel):
@@ -789,6 +795,7 @@ class PersistedHistory:
     before_description: Optional[str]
     after_description: Optional[str]
     created_at: datetime
+    instruction_type: Optional[str] = None
 
     @classmethod
     def from_row(cls, row: dict) -> "PersistedHistory":
@@ -802,6 +809,7 @@ class PersistedHistory:
             before_description=row["before_description"],
             after_description=row["after_description"],
             created_at=datetime.fromisoformat(row["created_at"]),
+            instruction_type=row.get("instruction_type"),
         )
 
 

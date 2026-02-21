@@ -112,6 +112,7 @@ class DatabaseSessionStore:
             before_description=orm_history.before_description,
             after_description=orm_history.after_description,
             created_at=_to_datetime(orm_history.created_at),
+            instruction_type=orm_history.instruction_type,
         )
 
     async def get_active_session(
@@ -347,6 +348,7 @@ class DatabaseSessionStore:
         feeling_text: str | None = None,
         before_description: str | None = None,
         after_description: str | None = None,
+        instruction_type: str | None = None,
     ) -> PersistedHistory:
         """履歴を追加"""
         history_id = str(uuid.uuid4())
@@ -367,6 +369,7 @@ class DatabaseSessionStore:
                 before_description=before_description,
                 after_description=after_description,
                 created_at=now,
+                instruction_type=instruction_type,
             )
             db_session.add(orm_history)
             await db_session.commit()
@@ -382,6 +385,7 @@ class DatabaseSessionStore:
             before_description=before_description,
             after_description=after_description,
             created_at=now,
+            instruction_type=instruction_type,
         )
 
     async def get_history(
@@ -496,6 +500,7 @@ class DatabaseSessionStore:
                     before_description=history_item.before_description or "",
                     after_description=history_item.after_description or "",
                     timestamp=history_item.created_at.isoformat(),
+                    instruction_type=history_item.instruction_type,
                     costume_category=tag.costume_category if tag else None,
                     exposure_level=tag.exposure_level if tag else None,
                     age_impression=tag.age_impression if tag else None,
@@ -532,6 +537,7 @@ class DatabaseSessionStore:
                 role=conv.role,
                 content=conv.content,
                 created_at=conv.created_at,
+                instruction_type=conv.instruction_type,
             )
             for conv in conversations
         ]

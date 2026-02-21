@@ -44,7 +44,12 @@ from .reality_prompts import (
     build_reality_edit_prompt,
     get_reality_edit_system_prompt,
 )
-from .action_prompts import build_action_prompt
+from .action_prompts import (
+    build_action_prompt,
+    build_action_image_edit_prompt,
+    get_action_image_edit_system_prompt,
+    get_action_novelai_prompt_generation_system,
+)
 from .self_mode_prompts import build_self_mode_feeling_prompt
 from .session import session_store
 from .tag_classifier import classify_tags, TransformationTags
@@ -1001,9 +1006,11 @@ class GameService:
                     "loaded" if self_profile else "not set",
                 )
 
-            # ── action mode: text-only, skip image/params/tags (US4 T017) ──
+            # ── action mode: scene-change image + text, skip params/tags ──
             if instruction_type == "action":
-                logger.info("Action mode: skipping image generation and parameters")
+                logger.info(
+                    "Action mode: generating scene-change image + text in parallel"
+                )
 
                 # Current stats for bloom-based stage description
                 action_stats = await session_store.get_or_create_session_stats(
@@ -1030,7 +1037,7 @@ class GameService:
                 except Exception:
                     logger.debug("Could not extract recent actions from conversations")
 
-                # Build action prompt
+                # Build action text prompt
                 #   - self_mode: use self_profile personality
                 #   - pre-transform (transformation_count==0): daily-life prompt
                 action_personality = ""
@@ -1057,42 +1064,232 @@ class GameService:
 
                 act_system = f"{act_system}\n\n{get_language_rules(effective_language)}"
 
-                # Stream text via LLM
-                action_chunks: list[str] = []
-                try:
-                    async for chunk in llm_service.generate_feeling_stream(
-                        system_prompt=act_system,
-                        user_prompt=act_user,
-                    ):
-                        action_chunks.append(chunk)
-                        yield StreamEvent(type="text", data={"chunk": chunk})
-                except (LLMServiceError, LiteLLMClientError) as e:
-                    logger.error(f"Action text streaming error: {e}")
-                    fallback = "(行動テキスト生成に失敗しました)"
-                    action_chunks.append(fallback)
-                    yield StreamEvent(type="text", data={"chunk": fallback})
-
-                action_full_text = "".join(action_chunks)
-
-                # Save to history (no image change — reuse current image)
-                current_image_bytes = before_image
-                await session_store.add_history(
-                    session_id=session.id,
-                    instruction=instruction,
-                    image_data=current_image_bytes,
-                    feeling_text=action_full_text,
-                    before_description=current_desc,
-                    after_description=current_desc,
+                # ── T007: NovelAI Opus mode detection for action ──
+                is_action_novelai_opus = (
+                    settings.image_provider == "novelai"
+                    and settings.image_description_provider == "novelai"
                 )
 
-                # Complete event (no image change, no stats change)
+                # T010: Action-specific default i2i_strength (0.85)
+                action_inpaint_strength = (
+                    inpaint_strength if inpaint_strength is not None else 0.85
+                )
+
+                # ── T008/T009: Generate scene-change image prompt ──
+                action_image_prompt: str | None = None
+                action_novelai_prompt: str | None = None
+                action_prompt_desc: str = current_desc  # for after_description
+
+                if is_action_novelai_opus:
+                    # T008: NovelAI Opus path — GLM-4.6 tag generation
+                    # Use action-specific system prompt for scene-change
+                    action_tag_system = get_action_novelai_prompt_generation_system(
+                        nsfw_mode=effective_nsfw_mode,
+                        language=effective_language,
+                    )
+                    previous_prompt = current_desc  # last after_description
+                    action_novelai_prompt = (
+                        await llm_service.generate_novelai_image_prompt(
+                            instruction=instruction,
+                            previous_prompt=previous_prompt,
+                            character_base_tags=character.name if character else None,
+                            nsfw_mode=effective_nsfw_mode,
+                            language=effective_language,
+                            system_prompt_override=action_tag_system,
+                        )
+                    )
+                    action_image_prompt = action_novelai_prompt
+                    action_prompt_desc = action_novelai_prompt
+                    logger.info(
+                        "Action NovelAI Opus: generated prompt len=%d",
+                        len(action_image_prompt),
+                    )
+                else:
+                    # T009: Non-NovelAI path — Vision LLM + scene-change prompt
+                    vision_desc, _ = await self._describe_image(
+                        before_image, effective_nsfw_mode
+                    )
+                    action_edit_system = get_action_image_edit_system_prompt(
+                        image_provider=settings.image_provider,
+                        nsfw_mode=effective_nsfw_mode,
+                    )
+                    action_edit_user = build_action_image_edit_prompt(
+                        instruction=instruction,
+                        current_description=vision_desc,
+                    )
+                    # Generate the editing prompt via LLM
+                    action_image_prompt_result = await llm_service.generate_text(
+                        system_prompt=action_edit_system,
+                        user_prompt=action_edit_user,
+                    )
+                    action_image_prompt = action_image_prompt_result.content.strip()
+                    action_prompt_desc = action_image_prompt
+                    logger.info(
+                        "Action non-NovelAI: generated edit prompt len=%d",
+                        len(action_image_prompt),
+                    )
+
+                # NovelAI quality tag enhancement
+                if settings.image_provider == "novelai" and action_image_prompt:
+                    from .prompts import enhance_prompt_for_novelai
+
+                    action_image_prompt = enhance_prompt_for_novelai(
+                        action_image_prompt
+                    )
+                    if (
+                        effective_nsfw_mode
+                        and "nsfw" not in action_image_prompt.lower()
+                    ):
+                        action_image_prompt = action_image_prompt + ", nsfw"
+
+                # ── T011: Parallel text + image generation ──
+                action_event_queue: asyncio.Queue[StreamEvent | None] = asyncio.Queue()
+                action_text_chunks: list[str] = []
+
+                async def action_text_producer():
+                    """Stream action monologue text to the event queue."""
+                    try:
+                        async for chunk in llm_service.generate_feeling_stream(
+                            system_prompt=act_system,
+                            user_prompt=act_user,
+                        ):
+                            action_text_chunks.append(chunk)
+                            await action_event_queue.put(
+                                StreamEvent(type="text", data={"chunk": chunk})
+                            )
+                    except (LLMServiceError, LiteLLMClientError) as e:
+                        logger.error(f"Action text streaming error: {e}")
+                        fallback_msg = "(行動テキスト生成に失敗しました)"
+                        action_text_chunks.append(fallback_msg)
+                        await action_event_queue.put(
+                            StreamEvent(type="text", data={"chunk": fallback_msg})
+                        )
+                    finally:
+                        await action_event_queue.put(
+                            StreamEvent(type="_text_done", data={})
+                        )
+
+                async def action_image_producer():
+                    """Generate scene-change image and put result to queue."""
+                    try:
+                        after_img, img_cost = await self._generate_image(
+                            before_image,
+                            action_image_prompt,
+                            nsfw_mode=effective_nsfw_mode,
+                            inpaint_strength=action_inpaint_strength,
+                            inpaint_noise=inpaint_noise,
+                            negative_prompt=negative_prompt,
+                            character_references=character_references,
+                        )
+                        logger.info(
+                            "Action image generated: %d bytes, cost=%s",
+                            len(after_img),
+                            img_cost,
+                        )
+                        await action_event_queue.put(
+                            StreamEvent(
+                                type="_image_ready",
+                                data={"image": after_img, "cost": img_cost},
+                            )
+                        )
+                    except Exception as e:
+                        logger.error(f"Action image generation error: {e}")
+                        await action_event_queue.put(
+                            StreamEvent(type="_image_error", data={"error": str(e)})
+                        )
+
+                # Launch both producers in parallel
+                action_text_task = asyncio.create_task(action_text_producer())
+                action_image_task = asyncio.create_task(action_image_producer())
+
+                # Consume events from the queue
+                action_text_done = False
+                action_image_data: bytes | None = None
+                action_image_cost: float | None = None
+                action_image_error: str | None = None
+
+                while True:
+                    event = await action_event_queue.get()
+                    if event is None:
+                        break
+
+                    if event.type == "text":
+                        yield event
+                    elif event.type == "_text_done":
+                        action_text_done = True
+                    elif event.type == "_image_ready":
+                        action_image_data = event.data["image"]
+                        action_image_cost = event.data.get("cost")
+                    elif event.type == "_image_error":
+                        action_image_error = event.data["error"]
+
+                    # Both finished?
+                    if action_text_done and (
+                        action_image_data is not None or action_image_error is not None
+                    ):
+                        break
+
+                await asyncio.gather(
+                    action_text_task, action_image_task, return_exceptions=True
+                )
+
+                # ── T015: Fallback — if image failed, use text-only ──
+                action_full_text = "".join(action_text_chunks)
+                final_action_image = before_image  # default: keep previous image
+
+                if action_image_error:
+                    logger.warning(
+                        "Action image generation failed, falling back to text-only: %s",
+                        action_image_error,
+                    )
+                    # Keep before_image as the current image (no change)
+                    action_prompt_desc = current_desc
+                elif action_image_data is not None:
+                    final_action_image = action_image_data
+
+                # ── T013: Save to history with generated image ──
+                history = await session_store.add_history(
+                    session_id=session.id,
+                    instruction=instruction,
+                    image_data=final_action_image,
+                    feeling_text=action_full_text,
+                    before_description=current_desc,
+                    after_description=action_prompt_desc,
+                    instruction_type="action",
+                )
+
+                # Update session's current image to the action result
+                if history.image_path:
+                    await session_store.update_session(
+                        session_id=session.id,
+                        current_image_path=history.image_path,
+                    )
+
+                # ── T012: SSE events — image, cost, complete ──
+                if action_image_data is not None:
+                    # Send image event with generated scene image
+                    image_b64 = base64.b64encode(action_image_data).decode("utf-8")
+                    yield StreamEvent(
+                        type="image",
+                        data={"image": image_b64, "history_id": history.id},
+                    )
+
+                # Send cost event if applicable
+                if action_image_cost is not None:
+                    yield StreamEvent(
+                        type="cost",
+                        data={"cost_usd": action_image_cost},
+                    )
+
+                # T014: Complete event — transformation_count unchanged
                 yield StreamEvent(
                     type="complete",
                     data={
                         "session_id": session.id,
                         "transformation_count": session.transformation_count,
                         "before_desc": current_desc,
-                        "after_desc": current_desc,
+                        "after_desc": action_prompt_desc,
+                        "history_id": history.id,
                     },
                 )
                 return
@@ -1378,6 +1575,7 @@ class GameService:
                 feeling_text=full_text,
                 before_description=before_desc,
                 after_description=inferred_after_desc,
+                instruction_type=instruction_type or "dress_up",
             )
 
             # 5.1. タグ分類 (T023)

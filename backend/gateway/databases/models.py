@@ -94,6 +94,7 @@ class History(Base):
     feeling_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     before_description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     after_description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    instruction_type: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         default=func.current_timestamp(), nullable=False
     )
