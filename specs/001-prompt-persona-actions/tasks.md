@@ -155,8 +155,8 @@
 - [x] T033 [P] [US6] self-profile API 関数（generateSelfProfile, saveSelfProfile, getSelfProfile）を追加 in frontend/src/apis/settings.ts（新規作成）
 - [x] T034 [P] [US6] SettingsContext に selfProfile 状態管理と API 連携を追加 in frontend/src/contexts/SettingsContext.tsx
 - [ ] T035 [US6] SelfProfileEditor コンポーネントを新規作成（テキスト入力 + 生成ボタン + 各フィールド編集フォーム + 保存ボタン）in frontend/src/components/settings/SelfProfileEditor.tsx
-- [X] T036 [US6] SettingsScreen に性格プロフィール設定セクションを追加し SelfProfileEditor を統合（i18n キー追加含む）in frontend/src/components/settings/SettingsScreen.tsx
-- [X] T036b [US6] 性格自動生成機能の E2E テスト（テキスト入力 → 生成ボタン → プロフィール表示確認 → 編集 → 保存 → リロード後の反映確認）in frontend/tests/e2e/self-profile-editor.spec.ts
+- [x] T036 [US6] SettingsScreen に性格プロフィール設定セクションを追加し SelfProfileEditor を統合（i18n キー追加含む）in frontend/src/components/settings/SettingsScreen.tsx
+- [x] T036b [US6] 性格自動生成機能の E2E テスト（テキスト入力 → 生成ボタン → プロフィール表示確認 → 編集 → 保存 → リロード後の反映確認）in frontend/tests/e2e/self-profile-editor.spec.ts
 
 **チェックポイント**: テキスト入力 → 自動生成 → 編集 → 保存 → 再読み込みで保存内容が維持されること
 
@@ -166,12 +166,12 @@
 
 **目的**: コード品質確保、テスト、ドキュメント整合性
 
-- [X] T037 [P] pronoun 置換・personality 注入・オープニング選択・重複回避のユニットテストを作成 in backend/tests/unit/test_prompts.py
-- [X] T038 [P] 行動プロンプト生成のユニットテストを作成 in backend/tests/unit/test_action_prompts.py
-- [X] T039 [P] 自分自身モードプロンプト生成・性格自動生成プロンプトのユニットテストを作成 in backend/tests/unit/test_self_mode_prompts.py
-- [X] T040 Ruff リンターを全変更バックエンドファイルに実行し warn/error をゼロにする
-- [X] T041 ESLint + Prettier を全変更フロントエンドファイルに実行し warn/error をゼロにする
-- [X] T042 quickstart.md のテストシナリオを通しで検証し、全ステップが正常動作することを確認
+- [x] T037 [P] pronoun 置換・personality 注入・オープニング選択・重複回避のユニットテストを作成 in backend/tests/unit/test_prompts.py
+- [x] T038 [P] 行動プロンプト生成のユニットテストを作成 in backend/tests/unit/test_action_prompts.py
+- [x] T039 [P] 自分自身モードプロンプト生成・性格自動生成プロンプトのユニットテストを作成 in backend/tests/unit/test_self_mode_prompts.py
+- [x] T040 Ruff リンターを全変更バックエンドファイルに実行し warn/error をゼロにする
+- [x] T041 ESLint + Prettier を全変更フロントエンドファイルに実行し warn/error をゼロにする
+- [x] T042 quickstart.md のテストシナリオを通しで検証し、全ステップが正常動作することを確認
 
 ---
 

@@ -156,9 +156,7 @@ def test_self_mode_feeling_prompt_empty_desc_fallback() -> None:
 
 
 def test_self_profile_generation_prompt_returns_tuple() -> None:
-    system, user = build_self_profile_generation_prompt(
-        "20代の大学生、アニメ好き"
-    )
+    system, user = build_self_profile_generation_prompt("20代の大学生、アニメ好き")
     assert isinstance(system, str)
     assert isinstance(user, str)
 

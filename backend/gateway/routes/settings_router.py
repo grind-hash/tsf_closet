@@ -139,6 +139,7 @@ class SelfProfileGenerateRequest(BaseModel):
 
 
 class SelfProfileSaveRequest(BaseModel):
+    display_name: str = ""
     personality: str = ""
     reaction_style: str = "default"
     pronoun: str = "僕"

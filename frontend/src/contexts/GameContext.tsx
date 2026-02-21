@@ -70,6 +70,7 @@ type GameAction =
         stats: SessionStats;
         history: HistoryItem[];
         attributes?: SessionAttribute[];
+        selfMode?: boolean;
       };
     }
   | { type: "UPDATE_STATS"; payload: Partial<SessionStats> }
@@ -131,6 +132,7 @@ function gameReducer(state: GameState, action: GameAction): GameState {
         history: action.payload.history,
         currentHistoryIndex: action.payload.history.length - 1,
         attributes: action.payload.attributes || [],
+        selfMode: action.payload.selfMode ?? false,
         ending: null,
         error: null,
       };
@@ -206,6 +208,7 @@ interface GameContextType {
     stats: SessionStats,
     history: HistoryItem[],
     attributes?: SessionAttribute[],
+    selfMode?: boolean,
   ) => void;
   updateStats: (stats: Partial<SessionStats>) => void;
   addHistoryItem: (item: HistoryItem) => void;
@@ -273,6 +276,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
       stats: SessionStats,
       history: HistoryItem[],
       attributes?: SessionAttribute[],
+      selfMode?: boolean,
     ) => {
       dispatch({
         type: "RESTORE_SESSION",
@@ -283,6 +287,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
           stats,
           history,
           attributes: attributes || [],
+          selfMode: selfMode ?? false,
         },
       });
     },

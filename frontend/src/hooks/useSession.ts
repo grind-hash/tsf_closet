@@ -48,6 +48,7 @@ export interface UseSessionReturn {
   ) => Promise<void>;
   restoreSession: () => Promise<boolean>;
   resetSession: () => Promise<void>;
+  selfMode: boolean;
   updateStats: (newStats: Partial<SessionStats>) => void;
   updateFromSSE: (data: {
     image?: string;
@@ -75,6 +76,7 @@ export function useSession(): UseSessionReturn {
   const [conversationHistory, setConversationHistory] = useState<
     ConversationMessage[]
   >([]);
+  const [selfMode, setSelfMode] = useState(false);
 
   const loadCharacters = useCallback(async () => {
     try {
@@ -222,6 +224,8 @@ export function useSession(): UseSessionReturn {
           ),
         );
       }
+      // self_mode を復元
+      setSelfMode(Boolean(data.self_mode));
       // 会話履歴を復元
       if (data.conversation_history) {
         setConversationHistory(
@@ -343,6 +347,7 @@ export function useSession(): UseSessionReturn {
     characters,
     attributes,
     conversationHistory,
+    selfMode,
     loadCharacters,
     startSession,
     startWithCustomImage,

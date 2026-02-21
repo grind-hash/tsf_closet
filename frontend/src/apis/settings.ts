@@ -6,6 +6,7 @@
 import { API_BASE } from "../utils/api";
 
 export interface SelfProfile {
+  display_name: string;
   personality: string;
   reaction_style: string;
   pronoun: string;
@@ -20,14 +21,11 @@ export interface SelfProfile {
 export async function generateSelfProfile(
   inputText: string,
 ): Promise<SelfProfile> {
-  const response = await fetch(
-    `${API_BASE}/settings/self-profile/generate`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ input_text: inputText }),
-    },
-  );
+  const response = await fetch(`${API_BASE}/settings/self-profile/generate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ input_text: inputText }),
+  });
   if (!response.ok) {
     const detail = await response.text();
     throw new Error(`Failed to generate profile: ${detail}`);

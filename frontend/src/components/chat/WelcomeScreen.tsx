@@ -8,9 +8,11 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useTranslation } from "react-i18next";
+import { Link } from "react-router-dom";
 import type { Character } from "../../types";
 import { useGame } from "../../contexts/GameContext";
 import { useSettings } from "../../contexts/SettingsContext";
+import { ROUTES } from "../../routes";
 import { API_BASE } from "../../utils/api";
 import {
   getImageDimensions,
@@ -79,8 +81,11 @@ export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
     height: number;
   } | null>(null);
 
-  // SettingsContextからimageProviderを取得
-  const { state: settingsState } = useSettings();
+  // SettingsContextからimageProvider, selfProfileを取得
+  const { state: settingsState, selfProfile } = useSettings();
+
+  // 自分自身モードON + プロフィール未設定の判定
+  const selfModeNeedsProfile = gameState.selfMode && !selfProfile;
 
   // キャラクター一覧を取得
   useEffect(() => {
@@ -439,6 +444,17 @@ export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
         <p className="welcome-screen__self-mode-desc">
           {t("chat.welcome.selfModeDescription")}
         </p>
+        {selfModeNeedsProfile && (
+          <p className="welcome-screen__self-mode-warning">
+            {t("chat.welcome.selfModeNoProfile")}
+            <Link
+              to={ROUTES.SETTINGS}
+              className="welcome-screen__self-mode-warning-link"
+            >
+              {t("chat.welcome.selfModeGoSettings")}
+            </Link>
+          </p>
+        )}
       </div>
 
       {/* 開始ボタン */}
@@ -447,7 +463,7 @@ export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
           type="button"
           className="welcome-screen__start-btn"
           onClick={handleStartGame}
-          disabled={!canStart || isStarting}
+          disabled={!canStart || isStarting || selfModeNeedsProfile}
         >
           {isStarting
             ? t("chat.welcome.starting")

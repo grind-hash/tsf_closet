@@ -257,6 +257,9 @@ REACTION_STYLES = (
 class SelfProfile(BaseModel):
     """Self mode personality profile stored as JSON in User.self_profile_json."""
 
+    display_name: str = Field(
+        "", max_length=50, description="Display name shown in chat UI"
+    )
     personality: str = Field(
         ..., min_length=1, max_length=200, description="Personality summary"
     )

@@ -792,3 +792,39 @@
   border-radius: 3px;
   line-height: 1;
 }
+
+/* Self-mode indicator */
+.character-state-panel__self-mode-indicator {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1rem 0.75rem;
+}
+
+.character-state-panel__self-mode-badge {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: rgba(255, 71, 87, 0.15);
+  border: 1px solid var(--accent, #ff4757);
+  border-radius: 20px;
+}
+
+.character-state-panel__self-mode-icon {
+  font-size: 1.1rem;
+}
+
+.character-state-panel__self-mode-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--accent, #ff4757);
+}
+
+.character-state-panel__self-mode-desc {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--text-muted, #888);
+  text-align: center;
+}

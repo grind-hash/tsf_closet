@@ -38,6 +38,8 @@ def _get_action_stage(bloom: int) -> str:
     )
 
 
+# ── Post-transformation templates (transformation_count >= 1) ──
+
 ACTION_SYSTEM_PROMPT_TEMPLATE = """あなたは物語の主人公の心の声を書く作家です。
 主人公は変身した姿のまま「行動」しています。服装は変わりませんが、場面が転換します。
 
@@ -72,6 +74,44 @@ ACTION_SYSTEM_PROMPT_NSFW_TEMPLATE = """あなたは官能小説家です。主�
 官能的で自然な日本語で、感情豊かに書いてください。"""
 
 
+# ── Pre-transformation templates (transformation_count == 0) ──
+
+PRE_TRANSFORM_ACTION_SYSTEM_PROMPT = """あなたは物語の主人公の心の声を書く作家です。
+主人公はまだ変身しておらず、普段の姿のまま行動しています。
+
+キャラクターの一人称視点で、日常の行動中の心境をモノローグ形式で表現してください。
+
+**文字数指示: 300～500文字で詳細に描写してください。**
+以下の要素を含めてください:
+- 行動先の場面描写（場所の雰囲気、空気感）
+- 日常の中で感じる気持ちや思考
+- 周囲の人々や環境との関わり
+- 何気ない瞬間の内面的な発見や感情
+
+重要: 主人公はまだ変身していません。変身に関する描写は一切入れないでください。
+普通の日常行動として自然に描写してください。
+
+自然な日本語で、感情豊かに書いてください。"""
+
+
+PRE_TRANSFORM_ACTION_SYSTEM_PROMPT_NSFW = """あなたは官能小説家です。主人公の心の声を書きます。
+主人公はまだ変身しておらず、普段の姿のまま行動しています。
+
+キャラクターの一人称視点で、日常の行動中の心境をモノローグ形式で表現してください。
+
+**文字数指示: 300～500文字で詳細に描写してください。**
+以下の要素を含めてください:
+- 行動先での官能的な空気感や雰囲気
+- 日常に潜む色気や身体的な感覚
+- 周囲の人々への意識
+- 何気ない瞬間の感覚的な描写
+
+重要: 主人公はまだ変身していません。変身に関する描写は一切入れないでください。
+普通の日常行動として官能的に描写してください。
+
+官能的で自然な日本語で、感情豊かに書いてください。"""
+
+
 ACTION_USER_PROMPT_TEMPLATE = """主人公は以下の行動を取ります:
 「{instruction}」
 
@@ -85,6 +125,19 @@ ACTION_USER_PROMPT_TEMPLATE = """主人公は以下の行動を取ります:
 冒頭は行動に関連する描写で始めてください。"""
 
 
+PRE_TRANSFORM_ACTION_USER_PROMPT_TEMPLATE = """主人公は以下の行動を取ります:
+「{instruction}」
+
+主人公は普段の姿のままです。まだ何の変身も起きていません。
+
+一人称: 「{pronoun}」
+
+{recent_actions_section}
+{personality_section}
+冒頭は行動に関連する描写で始めてください。
+変身・性転換・衣装変化に関する描写は絶対にしないでください。"""
+
+
 def build_action_prompt(
     instruction: str,
     current_description: str,
@@ -94,8 +147,14 @@ def build_action_prompt(
     personality: str = "",
     description: str = "",
     recent_actions: list[str] | None = None,
+    transformation_count: int = 0,
 ) -> tuple[str, str]:
     """Build system and user prompts for the action instruction type.
+
+    When transformation_count == 0, uses pre-transformation templates that
+    describe normal daily life without any transformation references.
+    When transformation_count >= 1, uses the standard post-transformation
+    templates with bloom-based psychological stages.
 
     Args:
         instruction: The action the user wants the character to take
@@ -106,20 +165,29 @@ def build_action_prompt(
         personality: Character personality text
         description: Character description text
         recent_actions: List of recent action instructions for context
+        transformation_count: Number of transformations so far (0 = pre-transform)
 
     Returns:
         (system_prompt, user_prompt) tuple
     """
-    stage_desc = _get_action_stage(bloom)
+    is_pre_transform = transformation_count == 0
 
-    if nsfw_mode:
-        system_prompt = ACTION_SYSTEM_PROMPT_NSFW_TEMPLATE.format(
-            stage_description=stage_desc,
-        )
+    # Select system prompt template
+    if is_pre_transform:
+        if nsfw_mode:
+            system_prompt = PRE_TRANSFORM_ACTION_SYSTEM_PROMPT_NSFW
+        else:
+            system_prompt = PRE_TRANSFORM_ACTION_SYSTEM_PROMPT
     else:
-        system_prompt = ACTION_SYSTEM_PROMPT_TEMPLATE.format(
-            stage_description=stage_desc,
-        )
+        stage_desc = _get_action_stage(bloom)
+        if nsfw_mode:
+            system_prompt = ACTION_SYSTEM_PROMPT_NSFW_TEMPLATE.format(
+                stage_description=stage_desc,
+            )
+        else:
+            system_prompt = ACTION_SYSTEM_PROMPT_TEMPLATE.format(
+                stage_description=stage_desc,
+            )
 
     # Add personality section to system prompt
     if personality:
@@ -147,12 +215,21 @@ def build_action_prompt(
     if personality:
         personality_section = f"キャラクターの性格: {personality[:200]}"
 
-    user_prompt = ACTION_USER_PROMPT_TEMPLATE.format(
-        instruction=instruction,
-        current_description=current_description or "不明",
-        pronoun=pronoun,
-        recent_actions_section=recent_actions_section,
-        personality_section=personality_section,
-    )
+    # Select user prompt template
+    if is_pre_transform:
+        user_prompt = PRE_TRANSFORM_ACTION_USER_PROMPT_TEMPLATE.format(
+            instruction=instruction,
+            pronoun=pronoun,
+            recent_actions_section=recent_actions_section,
+            personality_section=personality_section,
+        )
+    else:
+        user_prompt = ACTION_USER_PROMPT_TEMPLATE.format(
+            instruction=instruction,
+            current_description=current_description or "不明",
+            pronoun=pronoun,
+            recent_actions_section=recent_actions_section,
+            personality_section=personality_section,
+        )
 
     return system_prompt, user_prompt

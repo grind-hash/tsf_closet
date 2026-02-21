@@ -145,6 +145,131 @@ def build_self_mode_feeling_prompt(
     return system_prompt, user_prompt
 
 
+# ── Self-mode conversation prompt (US5 self_profile personality in chat) ──
+
+SELF_MODE_CONVERSATION_SYSTEM_PROMPT = """あなたは着せ替えゲームの主人公として、ユーザーとの会話に応答します。
+これは「自分自身」モードです。主人公は実在の人物の性格を反映しています。
+
+**主人公の設定:**
+- 名前: {character_name}
+- 一人称: {pronoun}
+- 現在の衣装: {current_outfit}
+
+【性格プロフィール】
+{self_profile_section}
+
+**会話ルール:**
+- 一人称は必ず「{pronoun}」を使用
+- 性格プロフィールに基づいた自然な口調・態度で応答する
+- キャラクター的な定型パターン（おどおど、内気、ツンデレ等）は使わない
+- 性格に忠実に反応する（例: 論理的な性格なら論理的に、情熱的なら感情豊かに）
+- 応答は200〜300文字程度
+- 自然な日本語で、性格が感じられるように
+- 現在着ている衣装への言及を時々含める
+- 相手（ユーザー）への二人称は「あなた」
+- {language_rules}
+"""
+
+SELF_MODE_CONVERSATION_SYSTEM_PROMPT_NSFW = """あなたは着せ替えゲームの主人公として、ユーザーとの会話に応答します。
+これは「自分自身」モードです。主人公は実在の人物の性格を反映しています。
+
+**主人公の設定:**
+- 名前: {character_name}
+- 一人称: {pronoun}
+- 現在の衣装: {current_outfit}
+
+【性格プロフィール】
+{self_profile_section}
+
+**会話ルール:**
+- 一人称は必ず「{pronoun}」を使用
+- 性格プロフィールに基づいた自然な口調・態度で応答する
+- キャラクター的な定型パターン（おどおど、内気、ツンデレ等）は使わない
+- 性格に忠実に反応する（例: 論理的な性格なら論理的に、情熱的なら感情豊かに）
+- 応答は200〜300文字程度
+- 自然な日本語で、性格が感じられるように
+- 現在着ている衣装への言及を時々含める
+- 相手（ユーザー）への二人称は「あなた」
+- {language_rules}
+
+**アダルトコンテンツ許可:**
+- 性的な話題・表現・描写を含めることが許可されています
+- 性格プロフィールに忠実な反応をしつつ、官能的な描写を含める
+- 露出度の高い衣装や身体への感覚を率直に表現
+"""
+
+
+def build_self_mode_conversation_prompt(
+    message: str,
+    conversation_history: list,
+    current_outfit_desc: str,
+    self_profile: dict,
+    nsfw_mode: bool = False,
+    language: str = "ja",
+) -> tuple[str, str]:
+    """Build conversation prompt for self-mode using the user's personality profile.
+
+    Instead of using psychological stages (bloom/shame/adaptation), this uses the
+    user's self_profile personality, reaction_style, and interests.
+
+    Args:
+        message: User message
+        conversation_history: Recent conversation messages
+        current_outfit_desc: Description of current outfit
+        self_profile: Self-profile dict with personality, reaction_style, etc.
+        nsfw_mode: Whether NSFW mode is enabled
+        language: Response language
+
+    Returns:
+        (system_prompt, user_prompt) tuple
+    """
+    from .conversation import get_language_rules
+
+    profile_section = _build_self_profile_section(self_profile)
+    character_name = self_profile.get("display_name") or "主人公"
+    pronoun = self_profile.get("pronoun") or "僕"
+
+    if nsfw_mode:
+        template = SELF_MODE_CONVERSATION_SYSTEM_PROMPT_NSFW
+    else:
+        template = SELF_MODE_CONVERSATION_SYSTEM_PROMPT
+
+    system_prompt = template.format(
+        character_name=character_name,
+        pronoun=pronoun,
+        current_outfit=current_outfit_desc or "不明",
+        self_profile_section=profile_section,
+        language_rules=get_language_rules(language),
+    )
+
+    # Append interests as context
+    interests = self_profile.get("interests", [])
+    if interests:
+        interests_text = "、".join(str(i) for i in interests[:10])
+        system_prompt += f"\n\n**主人公の興味・関心:** {interests_text}"
+
+    # Build conversation history text
+    history_text = ""
+    if conversation_history:
+        recent = conversation_history[-6:]
+        lines = []
+        for msg in recent:
+            role_label = "ユーザー" if msg.role == "user" else character_name
+            lines.append(f"{role_label}: {msg.content}")
+        history_text = "\n".join(lines)
+
+    user_prompt = f"""これまでの会話:
+{history_text if history_text else "(まだ会話していません)"}
+
+ユーザーの発言: {message}
+
+上記に対して、性格プロフィールに基づいた自然な応答をしてください。200〜300文字程度で。
+
+Output language: {"English only" if language == "en" else "Japanese only"}"""
+
+    return system_prompt, user_prompt
+
+
 # ── Profile generation prompt (R-008, US6 T030) ──
 
 PROFILE_GEN_SYSTEM_PROMPT = """あなたは性格分析の専門家です。ユーザーの自己紹介テキストから、

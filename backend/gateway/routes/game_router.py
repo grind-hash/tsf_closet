@@ -915,7 +915,15 @@ async def chat_with_character(
     # キャラクター情報を取得
     character_name = "キャラクター"
     pronoun = "僕"
-    if session.character_id:
+    self_profile = None
+
+    # self_mode: self_profile からプロフィールを上書き
+    if getattr(session, "self_mode", False):
+        self_profile = await session_store.get_self_profile()
+        if self_profile:
+            character_name = self_profile.get("display_name") or character_name
+            pronoun = self_profile.get("pronoun") or pronoun
+    elif session.character_id:
         character = character_manager.get_by_id(session.character_id)
         if character:
             character_name = character.name
@@ -941,19 +949,31 @@ async def chat_with_character(
     user_settings = await session_store.get_user_settings()
     language = normalize_language(language or user_settings.get("language"))
 
-    # プロンプトを構築（NSFWモード・変身回数を考慮）
-    system_prompt, user_prompt = build_conversation_prompt(
-        message=message,
-        conversation_history=conversation_history,
-        stats=stats,
-        current_outfit_desc=current_outfit_desc,
-        character_name=character_name,
-        pronoun=pronoun,
-        attributes=attributes,
-        nsfw_mode=stats.nsfw_mode,
-        transformation_count=session.transformation_count,
-        language=language,
-    )
+    # プロンプトを構築（self_mode はプロフィールベース、通常はステージベース）
+    if getattr(session, "self_mode", False) and self_profile:
+        from ..services.self_mode_prompts import build_self_mode_conversation_prompt
+
+        system_prompt, user_prompt = build_self_mode_conversation_prompt(
+            message=message,
+            conversation_history=conversation_history,
+            current_outfit_desc=current_outfit_desc,
+            self_profile=self_profile,
+            nsfw_mode=stats.nsfw_mode,
+            language=language,
+        )
+    else:
+        system_prompt, user_prompt = build_conversation_prompt(
+            message=message,
+            conversation_history=conversation_history,
+            stats=stats,
+            current_outfit_desc=current_outfit_desc,
+            character_name=character_name,
+            pronoun=pronoun,
+            attributes=attributes,
+            nsfw_mode=stats.nsfw_mode,
+            transformation_count=session.transformation_count,
+            language=language,
+        )
 
     # LLMで応答を生成
     response_text = ""
@@ -1036,7 +1056,15 @@ async def chat_with_character_stream(
     # キャラクター情報を取得
     character_name = "キャラクター"
     pronoun = "僕"
-    if session.character_id:
+    self_profile = None
+
+    # self_mode: self_profile からプロフィールを上書き
+    if getattr(session, "self_mode", False):
+        self_profile = await session_store.get_self_profile()
+        if self_profile:
+            character_name = self_profile.get("display_name") or character_name
+            pronoun = self_profile.get("pronoun") or pronoun
+    elif session.character_id:
         character = character_manager.get_by_id(session.character_id)
         if character:
             character_name = character.name
@@ -1062,19 +1090,31 @@ async def chat_with_character_stream(
     user_settings = await session_store.get_user_settings()
     language = normalize_language(language or user_settings.get("language"))
 
-    # プロンプトを構築（NSFWモード・変身回数を考慮）
-    system_prompt, user_prompt = build_conversation_prompt(
-        message=message,
-        conversation_history=conversation_history,
-        stats=stats,
-        current_outfit_desc=current_outfit_desc,
-        character_name=character_name,
-        pronoun=pronoun,
-        attributes=attributes,
-        nsfw_mode=stats.nsfw_mode,
-        transformation_count=session.transformation_count,
-        language=language,
-    )
+    # プロンプトを構築（self_mode はプロフィールベース、通常はステージベース）
+    if getattr(session, "self_mode", False) and self_profile:
+        from ..services.self_mode_prompts import build_self_mode_conversation_prompt
+
+        system_prompt, user_prompt = build_self_mode_conversation_prompt(
+            message=message,
+            conversation_history=conversation_history,
+            current_outfit_desc=current_outfit_desc,
+            self_profile=self_profile,
+            nsfw_mode=stats.nsfw_mode,
+            language=language,
+        )
+    else:
+        system_prompt, user_prompt = build_conversation_prompt(
+            message=message,
+            conversation_history=conversation_history,
+            stats=stats,
+            current_outfit_desc=current_outfit_desc,
+            character_name=character_name,
+            pronoun=pronoun,
+            attributes=attributes,
+            nsfw_mode=stats.nsfw_mode,
+            transformation_count=session.transformation_count,
+            language=language,
+        )
 
     async def generate_stream():
         """ストリーミング応答を生成"""

@@ -125,6 +125,19 @@ export default function SelfProfileEditor() {
         <div className="self-profile-editor__form">
           <div className="self-profile-editor__field">
             <label className="self-profile-editor__label">
+              {t("settings.selfProfile.displayName")}
+            </label>
+            <input
+              type="text"
+              className="self-profile-editor__input"
+              value={editProfile.display_name}
+              onChange={(e) => updateField("display_name", e.target.value)}
+              placeholder={t("settings.selfProfile.displayNamePlaceholder")}
+            />
+          </div>
+
+          <div className="self-profile-editor__field">
+            <label className="self-profile-editor__label">
               {t("settings.selfProfile.personality")}
             </label>
             <textarea

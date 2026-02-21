@@ -60,12 +60,15 @@ const resources = {
         selfProfile: {
           sectionTitle: "自分自身プロフィール",
           inputLabel: "あなた自身について教えてください",
-          inputPlaceholder: "例：20代の大学生で、アニメと読書が好き。性格はおっとりしている。",
+          inputPlaceholder:
+            "例：20代の大学生で、アニメと読書が好き。性格はおっとりしている。",
           generateButton: "プロフィールを自動生成",
           generating: "生成中...",
           generateError: "プロフィールの生成に失敗しました",
           saved: "プロフィールを保存しました",
           saveError: "プロフィールの保存に失敗しました",
+          displayName: "表示名",
+          displayNamePlaceholder: "チャットに表示される名前",
           personality: "性格",
           reactionStyle: "リアクションスタイル",
           reactionStyles: {
@@ -79,7 +82,8 @@ const resources = {
           },
           pronoun: "一人称",
           interests: "趣味・興味",
-          interestsPlaceholder: "カンマ区切りで入力（例：アニメ, ゲーム, 読書）",
+          interestsPlaceholder:
+            "カンマ区切りで入力（例：アニメ, ゲーム, 読書）",
           tsfAttitude: "TSFへの態度",
           saving: "保存中...",
           saveButton: "プロフィールを保存",
@@ -207,6 +211,8 @@ const resources = {
         adaptationSexy: "セクシー",
         adaptationNeutral: "中立",
         adaptationCute: "可愛い",
+        selfModeLabel: "自分自身モード",
+        selfModeDesc: "パラメータ追跡は無効です",
       },
       attributeSection: {
         title: "属性付与（任意）",
@@ -300,6 +306,7 @@ const resources = {
         },
         message: {
           roleYou: "あなた",
+          roleInstruction: "指示",
           roleCharacter: "キャラクター",
           attachedImageAlt: "添付画像",
         },
@@ -338,6 +345,9 @@ const resources = {
           selfMode: "自分自身モード",
           selfModeDescription:
             "パラメータ追跡なしで、自分の性格に基づいた反応を生成します",
+          selfModeNoProfile:
+            "自分自身プロフィールが未設定です。先に設定画面で登録してください。",
+          selfModeGoSettings: "設定画面へ →",
         },
       },
       gameplay: {
@@ -484,12 +494,15 @@ const resources = {
         selfProfile: {
           sectionTitle: "Self Profile",
           inputLabel: "Tell us about yourself",
-          inputPlaceholder: "e.g. I'm a college student in my 20s who likes anime and reading. I have a laid-back personality.",
+          inputPlaceholder:
+            "e.g. I'm a college student in my 20s who likes anime and reading. I have a laid-back personality.",
           generateButton: "Auto-generate Profile",
           generating: "Generating...",
           generateError: "Failed to generate profile",
           saved: "Profile saved",
           saveError: "Failed to save profile",
+          displayName: "Display Name",
+          displayNamePlaceholder: "Name shown in chat",
           personality: "Personality",
           reactionStyle: "Reaction Style",
           reactionStyles: {
@@ -631,6 +644,8 @@ const resources = {
         adaptationSexy: "Sexy",
         adaptationNeutral: "Neutral",
         adaptationCute: "Cute",
+        selfModeLabel: "Self Mode",
+        selfModeDesc: "Parameter tracking is disabled",
       },
       attributeSection: {
         title: "Attributes (Optional)",
@@ -724,6 +739,7 @@ const resources = {
         },
         message: {
           roleYou: "You",
+          roleInstruction: "Instruction",
           roleCharacter: "Character",
           attachedImageAlt: "Attached image",
         },
@@ -762,6 +778,9 @@ const resources = {
           selfMode: "Self Mode",
           selfModeDescription:
             "Generate reactions based on your own personality without parameter tracking",
+          selfModeNoProfile:
+            "Your self profile is not set up yet. Please configure it in settings first.",
+          selfModeGoSettings: "Go to Settings →",
         },
       },
       gameplay: {

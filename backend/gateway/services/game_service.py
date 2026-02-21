@@ -1031,15 +1031,26 @@ class GameService:
                     logger.debug("Could not extract recent actions from conversations")
 
                 # Build action prompt
+                #   - self_mode: use self_profile personality
+                #   - pre-transform (transformation_count==0): daily-life prompt
+                action_personality = ""
+                action_description = ""
+                if self_profile:
+                    action_personality = self_profile.get("personality", "")
+                elif character:
+                    action_personality = character.personality
+                    action_description = character.description
+
                 act_system, act_user = build_action_prompt(
                     instruction=instruction,
                     current_description=current_desc,
                     pronoun=pronoun,
                     bloom=action_stats.bloom,
                     nsfw_mode=effective_nsfw_mode,
-                    personality=character.personality if character else "",
-                    description=character.description if character else "",
+                    personality=action_personality,
+                    description=action_description,
                     recent_actions=recent_actions or None,
+                    transformation_count=session.transformation_count,
                 )
 
                 from .conversation import get_language_rules
