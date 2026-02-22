@@ -116,12 +116,6 @@ export default function SelfProfileEditor() {
         </button>
       </div>
 
-      {/* Error / success messages */}
-      {error && <div className="self-profile-editor__error">{error}</div>}
-      {successMessage && (
-        <div className="self-profile-editor__success">{successMessage}</div>
-      )}
-
       {/* Profile editing form */}
       {editProfile && (
         <div className="self-profile-editor__form">
@@ -239,6 +233,12 @@ export default function SelfProfileEditor() {
               ? t("settings.selfProfile.saving")
               : t("settings.selfProfile.saveButton")}
           </button>
+
+          {/* Error / success messages */}
+          {error && <div className="self-profile-editor__error">{error}</div>}
+          {successMessage && (
+            <div className="self-profile-editor__success">{successMessage}</div>
+          )}
         </div>
       )}
 

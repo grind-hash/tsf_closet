@@ -13,6 +13,7 @@ import json
 import logging
 import random
 from dataclasses import dataclass
+from pathlib import Path
 from typing import AsyncGenerator, Optional, Tuple
 
 from .characters import character_manager
@@ -258,6 +259,74 @@ class GameService:
             return json.loads(metadata_path.read_text(encoding="utf-8"))
         except Exception:
             return {}
+
+    @staticmethod
+    def _build_initial_prompt(
+        gender: str,
+        character: Optional["Character"] = None,
+        self_profile: dict | None = None,
+    ) -> str:
+        """NovelAI Opusモードの初回用初期プロンプトを構築
+
+        履歴がない初回ターンで、LLMへの性別・外見情報を提供する。
+        self_modeではプレイヤー名はNovelAIタグのノイズとなるため含めない。
+
+        Args:
+            gender: 性別 ("man" or "woman")
+            character: キャラクターオブジェクト
+            self_profile: 自分自身モードのプロフィール
+
+        Returns:
+            NovelAIタグ形式の初期プロンプト
+        """
+        gender_tag = "1boy" if gender == "man" else "1girl"
+        char_desc = character.description if character and not self_profile else ""
+        return (
+            f"masterpiece, best quality, very aesthetic, "
+            f"{gender_tag}, solo, {char_desc}"
+        ).rstrip(", ")
+
+    @staticmethod
+    def _enhance_novelai_prompt(prompt: str, nsfw_mode: bool) -> str:
+        """NovelAI向けに品質タグとNSFWキーワードを付与する
+
+        Args:
+            prompt: 元のプロンプト
+            nsfw_mode: NSFWモードの有無
+
+        Returns:
+            品質タグ付きのプロンプト
+        """
+        from .prompts import enhance_prompt_for_novelai
+
+        result = enhance_prompt_for_novelai(prompt)
+        if nsfw_mode and "nsfw" not in result.lower():
+            result = result + ", nsfw"
+        return result
+
+    @staticmethod
+    def _resolve_image_path(image_path_str: str) -> Path | None:
+        """Resolve an image path by trying data-relative then BASE_DIR-relative.
+
+        Args:
+            image_path_str: relative image path stored in session
+
+        Returns:
+            Resolved absolute Path if found, None otherwise
+        """
+        from ..settings.config import BASE_DIR
+
+        # data-relative (history_images etc.)
+        candidate = settings.history_images_dir.parent / image_path_str
+        if candidate.exists():
+            return candidate
+
+        # BASE_DIR-relative (character images etc.)
+        candidate = BASE_DIR / image_path_str
+        if candidate.exists():
+            return candidate
+
+        return None
 
     async def play(self, request: PlayRequest) -> PlayResponse:
         """着せ替えを実行
@@ -641,27 +710,27 @@ class GameService:
         description: str = "",
         used_openings: list[str] | None = None,
     ) -> AsyncGenerator[str, None]:
-        """Stream feeling text generation via LLM.
+        """LLM経由で心境テキストをストリーミング生成する。
 
-        Uses the enhanced prompt with psychological stages based on bloom (T059),
-        and injects personality when provided (US2).
+        開花度に応じた心理段階プロンプト (T059) を使用し、
+        性格が指定されている場合は注入する (US2)。
 
         Args:
-            before_desc: Description before outfit change
-            after_desc: Description after outfit change
-            instruction: Outfit change instruction
-            pronoun: First-person pronoun
-            bloom: Bloom value (0-100)
-            attributes: Character attribute list
-            nsfw_mode: Whether NSFW mode is enabled
-            transformation_count: Current transformation count (for first-time detection)
-            language: Output language
-            personality: Character personality text
-            description: Character description text
-            used_openings: Recently used opening lines for dedup
+            before_desc: 着せ替え前の説明
+            after_desc: 着せ替え後の説明
+            instruction: 着せ替え指示
+            pronoun: 一人称
+            bloom: 開花度 (0-100)
+            attributes: キャラクター属性リスト
+            nsfw_mode: NSFWモードの有無
+            transformation_count: 現在の変身回数（初回判定用）
+            language: 出力言語
+            personality: キャラクターの性格テキスト
+            description: キャラクターの説明テキスト
+            used_openings: 最近使用した書き出し（重複排除用）
 
         Yields:
-            Text chunks
+            テキストチャンク
         """
         # 開花度に応じた強化版プロンプトを使用
         system_prompt, user_prompt = build_enhanced_feeling_prompt(
@@ -681,6 +750,32 @@ class GameService:
 
         system_prompt = f"{system_prompt}\n\n{get_language_rules(language)}"
 
+        async for chunk in self._stream_feeling(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            language=language,
+            error_context="心境ストリーミングエラー",
+        ):
+            yield chunk
+
+    async def _stream_feeling(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        language: str,
+        error_context: str = "Feeling stream error",
+    ) -> AsyncGenerator[str, None]:
+        """Common helper: stream feeling text from LLM with error handling.
+
+        Args:
+            system_prompt: system prompt (language rules already appended by caller)
+            user_prompt: user prompt
+            language: output language for fallback message
+            error_context: log message prefix on error
+
+        Yields:
+            text chunks
+        """
         try:
             async for chunk in llm_service.generate_feeling_stream(
                 system_prompt=system_prompt,
@@ -688,7 +783,7 @@ class GameService:
             ):
                 yield chunk
         except (LLMServiceError, LiteLLMClientError) as e:
-            logger.error(f"心境ストリーミングエラー: {e}")
+            logger.error(f"{error_context}: {e}")
             if language == "en":
                 yield "(Failed to generate inner monologue)"
             else:
@@ -703,20 +798,20 @@ class GameService:
         nsfw_mode: bool = False,
         language: str = "ja",
     ) -> AsyncGenerator[str, None]:
-        """Stream self-mode feeling text using the user's personality profile.
+        """自分自身モードの心境テキストをユーザーの性格プロフィールでストリーミング生成する。
 
-        No psychological stages or parameter dependency (R-007).
+        心理段階やパラメータ依存なし (R-007)。
 
         Args:
-            before_desc: Description before outfit change
-            after_desc: Description after outfit change
-            instruction: Outfit change instruction
-            self_profile: Parsed self-profile dict
-            nsfw_mode: Whether NSFW mode is enabled
-            language: Output language
+            before_desc: 着せ替え前の説明
+            after_desc: 着せ替え後の説明
+            instruction: 着せ替え指示
+            self_profile: パース済みの自分自身プロフィール辞書
+            nsfw_mode: NSFWモードの有無
+            language: 出力言語
 
         Yields:
-            Text chunks
+            テキストチャンク
         """
         system_prompt, user_prompt = build_self_mode_feeling_prompt(
             before_desc=before_desc,
@@ -729,18 +824,13 @@ class GameService:
 
         system_prompt = f"{system_prompt}\n\n{get_language_rules(language)}"
 
-        try:
-            async for chunk in llm_service.generate_feeling_stream(
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-            ):
-                yield chunk
-        except (LLMServiceError, LiteLLMClientError) as e:
-            logger.error(f"Self-mode feeling streaming error: {e}")
-            if language == "en":
-                yield "(Failed to generate inner monologue)"
-            else:
-                yield "(心境生成に失敗しました)"
+        async for chunk in self._stream_feeling(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            language=language,
+            error_context="自分自身モード心境ストリーミングエラー",
+        ):
+            yield chunk
 
     async def _generate_reality_edit_prompt(
         self,
@@ -822,18 +912,13 @@ class GameService:
 
         system_prompt = f"{system_prompt}\n\n{get_language_rules(language)}"
 
-        try:
-            async for chunk in llm_service.generate_feeling_stream(
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-            ):
-                yield chunk
-        except (LLMServiceError, LiteLLMClientError) as e:
-            logger.error(f"現実改変心境ストリーミングエラー: {e}")
-            if language == "en":
-                yield "(Failed to generate inner monologue)"
-            else:
-                yield "(心境生成に失敗しました)"
+        async for chunk in self._stream_feeling(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            language=language,
+            error_context="現実改変心境ストリーミングエラー",
+        ):
+            yield chunk
 
     async def play_with_stream(
         self,
@@ -916,6 +1001,10 @@ class GameService:
             custom_metadata = self._load_custom_session_metadata(session.id)
             pronoun = (
                 character.pronoun if character else custom_metadata.get("pronoun", "僕")
+            )
+            # キャラクター、自分自身プロフィール、カスタムメタデータから性別を解決
+            gender = (
+                character.gender if character else custom_metadata.get("gender", "man")
             )
 
             # 衣装参照画像をデコード
@@ -1005,6 +1094,10 @@ class GameService:
                     "Self mode active: self_profile=%s",
                     "loaded" if self_profile else "not set",
                 )
+                # 自分自身プロフィールから性別・一人称を上書き
+                if self_profile:
+                    gender = self_profile.get("gender", gender)
+                    pronoun = self_profile.get("pronoun", pronoun)
 
             # ── action mode: scene-change image + text, skip params/tags ──
             if instruction_type == "action":
@@ -1012,20 +1105,27 @@ class GameService:
                     "Action mode: generating scene-change image + text in parallel"
                 )
 
-                # Current stats for bloom-based stage description
+                # 開花度ベースの段階説明用に現在のstatesを取得
                 action_stats = await session_store.get_or_create_session_stats(
                     session.id
                 )
 
-                # Describe current image for context (reuse last history desc)
+                # コンテキスト用に現在の画像を説明（最新履歴のafter_descriptionを再利用）
                 last_hist = await session_store.get_latest_history(session.id)
                 current_desc = (
                     last_hist.after_description
                     if last_hist and last_hist.after_description
-                    else "Not available"
+                    else None
                 )
+                if not current_desc:
+                    # 初回: 性別・外見情報から初期コンテキストを構築
+                    current_desc = self._build_initial_prompt(
+                        gender, character, self_profile
+                    )
 
-                # Extract recent action instructions from Conversation table
+                logger.info("current_desc:%s", current_desc)
+
+                # Conversationテーブルから最近のアクション指示を抽出
                 recent_actions: list[str] = []
                 try:
                     convos = await session_store.get_conversation_history(
@@ -1037,9 +1137,9 @@ class GameService:
                 except Exception:
                     logger.debug("Could not extract recent actions from conversations")
 
-                # Build action text prompt
-                #   - self_mode: use self_profile personality
-                #   - pre-transform (transformation_count==0): daily-life prompt
+                # アクションテキストプロンプトを構築
+                #   - self_mode: 自分自身プロフィールの性格を使用
+                #   - 変身前 (transformation_count==0): 日常生活プロンプト
                 action_personality = ""
                 action_description = ""
                 if self_profile:
@@ -1049,13 +1149,7 @@ class GameService:
                     action_description = character.description
 
                 action_gender = (
-                    character.gender
-                    if character
-                    else (
-                        self_profile.get("gender", "man")
-                        if self_profile
-                        else custom_metadata.get("gender", "man")
-                    )
+                    self_profile.get("gender", gender) if self_profile else gender
                 )
 
                 logger.info("action_gender=%s", action_gender)
@@ -1078,10 +1172,7 @@ class GameService:
                 act_system = f"{act_system}\n\n{get_language_rules(effective_language)}"
 
                 # ── T007: NovelAI Opus mode detection for action ──
-                is_action_novelai_opus = (
-                    settings.image_provider == "novelai"
-                    and settings.image_description_provider == "novelai"
-                )
+                is_action_novelai_opus = settings.is_novelai_opus_mode
 
                 # T010: Action-specific default i2i_strength (0.85)
                 action_inpaint_strength = (
@@ -1091,21 +1182,20 @@ class GameService:
                 # ── T008/T009: Generate scene-change image prompt ──
                 action_image_prompt: str | None = None
                 action_novelai_prompt: str | None = None
-                action_prompt_desc: str = current_desc  # for after_description
+                action_prompt_desc: str = current_desc  # after_description用
 
                 if is_action_novelai_opus:
                     # T008: NovelAI Opus path — GLM-4.6 tag generation
-                    # Use action-specific system prompt for scene-change
+                    # アクション専用のシステムプロンプトで場面転換を生成
                     action_tag_system = get_action_novelai_prompt_generation_system(
                         nsfw_mode=effective_nsfw_mode,
                         language=effective_language,
                     )
-                    previous_prompt = current_desc  # last after_description
+                    previous_prompt = current_desc  # 前回のafter_description
                     action_novelai_prompt = (
                         await llm_service.generate_novelai_image_prompt(
                             instruction=instruction,
                             previous_prompt=previous_prompt,
-                            character_base_tags=character.name if character else None,
                             nsfw_mode=effective_nsfw_mode,
                             language=effective_language,
                             system_prompt_override=action_tag_system,
@@ -1130,7 +1220,7 @@ class GameService:
                         instruction=instruction,
                         current_description=vision_desc,
                     )
-                    # Generate the editing prompt via LLM
+                    # LLM経由で編集プロンプトを生成
                     action_image_prompt_result = await llm_service.generate_text(
                         system_prompt=action_edit_system,
                         user_prompt=action_edit_user,
@@ -1142,25 +1232,18 @@ class GameService:
                         len(action_image_prompt),
                     )
 
-                # NovelAI quality tag enhancement
+                # NovelAI品質タグの付与
                 if settings.image_provider == "novelai" and action_image_prompt:
-                    from .prompts import enhance_prompt_for_novelai
-
-                    action_image_prompt = enhance_prompt_for_novelai(
-                        action_image_prompt
+                    action_image_prompt = self._enhance_novelai_prompt(
+                        action_image_prompt, effective_nsfw_mode
                     )
-                    if (
-                        effective_nsfw_mode
-                        and "nsfw" not in action_image_prompt.lower()
-                    ):
-                        action_image_prompt = action_image_prompt + ", nsfw"
 
                 # ── T011: Parallel text + image generation ──
                 action_event_queue: asyncio.Queue[StreamEvent | None] = asyncio.Queue()
                 action_text_chunks: list[str] = []
 
                 async def action_text_producer():
-                    """Stream action monologue text to the event queue."""
+                    """アクションモノローグテキストをイベントキューにストリーミング送信する。"""
                     try:
                         async for chunk in llm_service.generate_feeling_stream(
                             system_prompt=act_system,
@@ -1183,7 +1266,7 @@ class GameService:
                         )
 
                 async def action_image_producer():
-                    """Generate scene-change image and put result to queue."""
+                    """シーン変更画像を生成しキューに結果を送信する。"""
                     try:
                         after_img, img_cost = await self._generate_image(
                             before_image,
@@ -1211,11 +1294,11 @@ class GameService:
                             StreamEvent(type="_image_error", data={"error": str(e)})
                         )
 
-                # Launch both producers in parallel
+                # 両プロデューサーを並列開始
                 action_text_task = asyncio.create_task(action_text_producer())
                 action_image_task = asyncio.create_task(action_image_producer())
 
-                # Consume events from the queue
+                # キューからイベントを消費
                 action_text_done = False
                 action_image_data: bytes | None = None
                 action_image_cost: float | None = None
@@ -1236,7 +1319,7 @@ class GameService:
                     elif event.type == "_image_error":
                         action_image_error = event.data["error"]
 
-                    # Both finished?
+                    # 両方完了？
                     if action_text_done and (
                         action_image_data is not None or action_image_error is not None
                     ):
@@ -1248,14 +1331,14 @@ class GameService:
 
                 # ── T015: Fallback — if image failed, use text-only ──
                 action_full_text = "".join(action_text_chunks)
-                final_action_image = before_image  # default: keep previous image
+                final_action_image = before_image  # デフォルト: 前回の画像を保持
 
                 if action_image_error:
                     logger.warning(
                         "Action image generation failed, falling back to text-only: %s",
                         action_image_error,
                     )
-                    # Keep before_image as the current image (no change)
+                    # 前回の画像を現在の画像として維持（変更なし）
                     action_prompt_desc = current_desc
                 elif action_image_data is not None:
                     final_action_image = action_image_data
@@ -1271,7 +1354,7 @@ class GameService:
                     instruction_type="action",
                 )
 
-                # Update session's current image to the action result
+                # セッションの現在の画像をアクション結果で更新
                 if history.image_path:
                     await session_store.update_session(
                         session_id=session.id,
@@ -1280,14 +1363,14 @@ class GameService:
 
                 # ── T012: SSE events — image, cost, complete ──
                 if action_image_data is not None:
-                    # Send image event with generated scene image
+                    # 生成されたシーン画像のイベントを送信
                     image_b64 = base64.b64encode(action_image_data).decode("utf-8")
                     yield StreamEvent(
                         type="image",
                         data={"image": image_b64, "history_id": history.id},
                     )
 
-                # Send cost event if applicable
+                # コストイベントを送信（該当する場合）
                 if action_image_cost is not None:
                     yield StreamEvent(
                         type="cost",
@@ -1311,10 +1394,7 @@ class GameService:
             current_transformation_count = session.transformation_count
 
             # T007: NovelAI Opusモード判定
-            is_novelai_opus_mode = (
-                settings.image_provider == "novelai"
-                and settings.image_description_provider == "novelai"
-            )
+            is_novelai_opus_mode = settings.is_novelai_opus_mode
 
             # 前回のプロンプトを取得（NovelAI Opusモード用）
             previous_prompt: str | None = None
@@ -1323,6 +1403,11 @@ class GameService:
                 last_history = await session_store.get_latest_history(session.id)
                 if last_history and last_history.after_description:
                     previous_prompt = last_history.after_description
+                else:
+                    # 初回: 性別・外見情報から初期プロンプトを構築
+                    previous_prompt = self._build_initial_prompt(
+                        gender, character, self_profile
+                    )
                 logger.info(
                     f"NovelAI Opus mode: previous_prompt={'yes' if previous_prompt else 'no'}"
                 )
@@ -1331,8 +1416,8 @@ class GameService:
             describe_cost: float | None = None
             if is_novelai_opus_mode:
                 # T010: Vision LLMをスキップ
-                # before_desc は前回のプロンプトまたは初期状態
-                before_desc = previous_prompt or "初期状態（キャラクター初期画像）"
+                # before_desc は前回のプロンプトまたは初期プロンプト（previous_promptは必ず値あり）
+                before_desc = previous_prompt
                 logger.info("NovelAI Opus mode: Skipping Vision LLM (describe_image)")
             else:
                 logger.info("Describing current image via LLaVA...")
@@ -1365,7 +1450,6 @@ class GameService:
                     await llm_service.generate_novelai_image_prompt(
                         instruction=instruction + attribute_context,
                         previous_prompt=previous_prompt,
-                        character_base_tags=character.name if character else None,
                         nsfw_mode=effective_nsfw_mode,
                         language=effective_language,
                     )
@@ -1414,12 +1498,9 @@ class GameService:
                     final_prompt = prompt_override.strip()
             if settings.image_provider == "novelai":
                 # T014: 品質タグを追加
-                from .prompts import enhance_prompt_for_novelai
-
-                final_prompt = enhance_prompt_for_novelai(final_prompt)
-                # NSFWモード時にキーワード付与
-                if effective_nsfw_mode and "nsfw" not in final_prompt.lower():
-                    final_prompt = final_prompt + ", nsfw"
+                final_prompt = self._enhance_novelai_prompt(
+                    final_prompt, effective_nsfw_mode
+                )
 
             # 4. 真の並列処理: asyncio.Queue を使ってイベントを統合
             # T010: NovelAI Opusモードでは生成プロンプトをafter_descとして使用
@@ -1433,13 +1514,13 @@ class GameService:
             # イベントキューを作成
             event_queue: asyncio.Queue[StreamEvent | None] = asyncio.Queue()
 
-            # Extract used_openings from recent history (US3 dedup)
+            # 最近の履歴からused_openingsを抽出 (US3 重複排除)
             used_openings: list[str] = []
             try:
                 recent_history = await session_store.get_history(session.id)
                 for h in recent_history[-10:]:
                     if h.feeling_text:
-                        # Extract up to the first 30 chars as opening signature
+                        # 先頭30文字までを書き出し㊲グネチャーとして抽出
                         opening_sig = h.feeling_text[:30].split("\n")[0]
                         if opening_sig:
                             used_openings.append(opening_sig)
@@ -1453,7 +1534,7 @@ class GameService:
                 """テキストチャンクをキューに送信"""
                 try:
                     if session.self_mode and self_profile:
-                        # Self mode: profile-based text, no psychological stages (US5)
+                        # 自分自身モード: プロフィールベースのテキスト、心理段階なし (US5)
                         async for chunk in self._generate_self_mode_feeling_stream(
                             before_desc=before_desc,
                             after_desc=inferred_after_desc,
@@ -1670,7 +1751,7 @@ class GameService:
                         "passedCriticalPoints": new_stats.passed_critical_points,
                         "difficulty": new_stats.difficulty,
                         "nsfwMode": new_stats.nsfw_mode,
-                        "enablePromptPreview": settings.enable_prompt_preview,  # stats might be missing this depending on fetch method, safe to use settings or new_stats
+                        "enablePromptPreview": settings.enable_prompt_preview,  # statsの取得方法によっては欠落する可能性があるため、settingsから取得
                     },
                 )
 
@@ -1862,36 +1943,20 @@ class GameService:
                 f"[DEBUG] Session current_image_path: {session.current_image_path}"
             )
             if session.current_image_path:
-                from ..settings.config import BASE_DIR
-
-                # まず履歴画像パスとして試す (data/ からの相対パス)
-                image_path = (
-                    settings.history_images_dir.parent / session.current_image_path
-                )
-                logger.info(f"[DEBUG] Trying data-relative path: {image_path}")
-                if image_path.exists():
-                    image_bytes = image_path.read_bytes()
+                resolved = self._resolve_image_path(session.current_image_path)
+                if resolved:
+                    image_bytes = resolved.read_bytes()
                     logger.info(
-                        f"[DEBUG] Loaded image from: {image_path} ({len(image_bytes)} bytes)"
+                        f"[DEBUG] Loaded image from: {resolved} ({len(image_bytes)} bytes)"
                     )
                 else:
-                    # 次にBASE_DIRからの相対パスとして試す (キャラクター画像)
-                    image_path = BASE_DIR / session.current_image_path
-                    logger.info(f"[DEBUG] Trying BASE_DIR-relative path: {image_path}")
-                    if image_path.exists():
-                        image_bytes = image_path.read_bytes()
-                        logger.info(
-                            f"[DEBUG] Loaded image from: {image_path} ({len(image_bytes)} bytes)"
-                        )
+                    logger.warning(
+                        "[DEBUG] Image file not found, falling back to character image!"
+                    )
+                    if character:
+                        image_bytes = character_manager.get_image_bytes(character)
                     else:
-                        # ファイルがない場合、元のキャラクター画像を使用
-                        logger.warning(
-                            "[DEBUG] Image file not found, falling back to character image!"
-                        )
-                        if character:
-                            image_bytes = character_manager.get_image_bytes(character)
-                        else:
-                            raise ValueError("セッションの画像が見つかりません")
+                        raise ValueError("セッションの画像が見つかりません")
             else:
                 # current_image_pathがない場合
                 logger.warning(
@@ -1934,18 +1999,9 @@ class GameService:
                 if session.character_id:
                     character = character_manager.get_by_id(session.character_id)
                 if session.current_image_path:
-                    # まず履歴画像パスとして試す
-                    image_path = (
-                        settings.history_images_dir.parent / session.current_image_path
-                    )
-                    if image_path.exists():
-                        return session, character, image_path.read_bytes()
-                    # 次にBASE_DIRからの相対パスとして試す
-                    from ..settings.config import BASE_DIR
-
-                    image_path = BASE_DIR / session.current_image_path
-                    if image_path.exists():
-                        return session, character, image_path.read_bytes()
+                    resolved = self._resolve_image_path(session.current_image_path)
+                    if resolved:
+                        return session, character, resolved.read_bytes()
                 if character:
                     return (
                         session,
@@ -1996,19 +2052,9 @@ class GameService:
             # 2. 現在の画像を取得
             current_image_bytes: bytes | None = None
             if session.current_image_path:
-                from ..settings.config import BASE_DIR
-
-                # まず履歴画像パスとして試す
-                image_path = (
-                    settings.history_images_dir.parent / session.current_image_path
-                )
-                if image_path.exists():
-                    current_image_bytes = image_path.read_bytes()
-                else:
-                    # 次にBASE_DIRからの相対パスとして試す
-                    image_path = BASE_DIR / session.current_image_path
-                    if image_path.exists():
-                        current_image_bytes = image_path.read_bytes()
+                resolved = self._resolve_image_path(session.current_image_path)
+                if resolved:
+                    current_image_bytes = resolved.read_bytes()
 
             if current_image_bytes is None:
                 raise GameServiceError("現在の画像が見つかりません")

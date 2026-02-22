@@ -43,6 +43,7 @@ from ..models import (
 )
 from ..services.session import session_store
 from ..services.endings import ENDINGS
+from ..services.game_service import GameService
 from ..consts.language import normalize_language
 
 router = APIRouter(prefix="/game", tags=["Game"])
@@ -427,13 +428,17 @@ async def start_game(request: GameStartRequest) -> GameStartResponse:
     )
 
     if character is not None:
+        initial_desc = GameService._build_initial_prompt(
+            gender=character.gender,
+            character=character,
+        )
         await session_store.add_history(
             session_id=session.id,
             instruction="初期状態",
             image_data=character_manager.get_image_bytes(character),
             feeling_text="(初期状態)",
-            before_description="初期状態",
-            after_description="初期状態",
+            before_description=initial_desc,
+            after_description=initial_desc,
         )
 
     return GameStartResponse(
@@ -559,13 +564,16 @@ async def start_game_custom(request: CustomStartRequest) -> GameStartResponse:
         session.id, difficulty, request.nsfw_mode
     )
 
+    initial_desc = GameService._build_initial_prompt(
+        gender=normalized_gender,
+    )
     await session_store.add_history(
         session_id=session.id,
         instruction="初期状態",
         image_data=image_bytes,
         feeling_text="(初期状態)",
-        before_description="初期状態",
-        after_description="初期状態",
+        before_description=initial_desc,
+        after_description=initial_desc,
     )
 
     return GameStartResponse(

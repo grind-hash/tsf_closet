@@ -1215,52 +1215,54 @@ def get_critical_speech(threshold: int, pronoun: str = "僕") -> str:
 # ========================================
 # Vision LLMをスキップし、生成プロンプトを心境生成の入力として再利用
 
-NOVELAI_PROMPT_GENERATION_SYSTEM = """あなたはNovelAIの画像生成プロンプト専門家です。
-ユーザーの日本語指示を、NovelAI画像生成に最適な英語タグプロンプトに変換してください。
+NOVELAI_PROMPT_GENERATION_SYSTEM = """You are a NovelAI image generation prompt expert.
+Convert the user's instruction into an optimal English tag prompt for NovelAI image generation.
 
-## ルール
-1. タグはカンマ区切りで出力
-2. 品質タグを先頭に: masterpiece, best quality, very aesthetic
-3. キャラクター特徴を維持するタグを含める
-4. 衣装・ポーズの詳細タグを追加
-5. 単一キャラクター指定: 1girl, solo
-6. 背景指定: simple background または具体的な背景
+## Rules
+1. Output comma-separated tags only.
+2. Quality tags first: masterpiece, best quality, very aesthetic
+3. Maintain character feature tags from the previous prompt.
+4. Add detailed tags for outfit, pose, etc.
+5. Single character: solo. Use 1boy or 1girl based on the character's appearance in context.
+6. Background: simple background or a specific scene.
+7. If the instruction implies a gender/body transformation (e.g. TSF), reflect it in the gender tag and body features.
 
-## 出力形式
-タグプロンプトのみを出力。説明や前置きは不要。
+## Output
+Tag prompt only. No explanation or preamble.
 
-## 例
-入力: 「メイド服に着替えて」
-出力: masterpiece, best quality, very aesthetic, 1girl, solo, maid outfit, maid headdress, black dress, white apron, frills, standing, looking at viewer, simple background"""
+## Example
+Input: 'Change into a maid outfit'
+Output: masterpiece, best quality, very aesthetic, 1girl, solo, maid outfit, maid headdress, black dress, white apron, frills, standing, looking at viewer, simple background"""
 
-NOVELAI_PROMPT_GENERATION_SYSTEM_NSFW = """あなたはNovelAIの画像生成プロンプト専門家です。
-ユーザーの日本語指示を、NovelAI画像生成に最適な英語タグプロンプトに変換してください。
-成人向けコンテンツのタグも適切に使用できます。
+NOVELAI_PROMPT_GENERATION_SYSTEM_NSFW = """You are a NovelAI image generation prompt expert.
+Convert the user's instruction into an optimal English tag prompt for NovelAI image generation.
+Adult content tags are allowed.
 
-## ルール
-1. タグはカンマ区切りで出力
-2. 品質タグを先頭に: masterpiece, best quality, very aesthetic
-3. キャラクター特徴を維持するタグを含める
-4. 衣装・ポーズ・露出度の詳細タグを追加
-5. 単一キャラクター指定: 1girl, solo
-6. 背景指定: simple background または具体的な背景
-7. 露出度が高い場合: 適切な身体描写タグを使用
+## Rules
+1. Output comma-separated tags only.
+2. Quality tags first: masterpiece, best quality, very aesthetic
+3. Maintain character feature tags from the previous prompt.
+4. Add detailed tags for outfit, pose, and exposure level.
+5. Single character: solo. Use 1boy or 1girl based on the character's appearance in context.
+6. Background: simple background or a specific scene.
+7. For high exposure: use appropriate body description tags.
+8. If the instruction implies a gender/body transformation (e.g. TSF), reflect it in the gender tag and body features.
 
-## 出力形式
-タグプロンプトのみを出力。説明や前置きは不要。
+## Output
+Tag prompt only. No explanation or preamble.
 
-## 例
-入力: 「もっと露出度を上げて」
-出力: masterpiece, best quality, very aesthetic, 1girl, solo, revealing outfit, cleavage, bare shoulders, thighhighs, miniskirt, seductive pose, looking at viewer, simple background"""
+## Example
+Input: 'Make the outfit more revealing'
+Output: masterpiece, best quality, very aesthetic, 1girl, solo, revealing outfit, cleavage, bare shoulders, thighhighs, miniskirt, seductive pose, looking at viewer, simple background"""
 
-NOVELAI_PROMPT_GENERATION_USER_TEMPLATE = """前回のプロンプト: {previous_prompt}
-キャラクター基本タグ: {character_base_tags}
+NOVELAI_PROMPT_GENERATION_USER_TEMPLATE = """Previous prompt: {previous_prompt}
 
-ユーザーの指示: {instruction}
+User instruction: {instruction}
 
-上記の指示に基づいて、NovelAI画像生成プロンプトを生成してください。
-前回のプロンプトからキャラクター特徴を維持しつつ、指示に従って変更を加えてください。
-タグプロンプトのみを出力してください。"""
+Generate a NovelAI image generation prompt based on the above instruction.
+Maintain character features from the previous prompt while applying changes per the instruction.
+Choose 1boy or 1girl based on the character's current appearance (which may change if the instruction implies transformation).
+Output only the tag prompt."""
 
 
 def get_novelai_prompt_generation_system(
@@ -1271,9 +1273,10 @@ def get_novelai_prompt_generation_system(
 
     Args:
         nsfw_mode: NSFWモードかどうか
+        instruction_language: ユーザー指示の言語
 
     Returns:
-        システムプロンプト
+        システムプロンプト文字列
     """
     language_name = "English" if instruction_language == "en" else "Japanese"
     language_hint = (
@@ -1291,20 +1294,17 @@ def get_novelai_prompt_generation_system(
 def build_novelai_prompt_generation_user(
     instruction: str,
     previous_prompt: str | None = None,
-    character_base_tags: str | None = None,
 ) -> str:
     """NovelAIプロンプト生成用ユーザープロンプトを構築
 
     Args:
-        instruction: ユーザーの日本語指示
+        instruction: ユーザーの指示
         previous_prompt: 前回生成したプロンプト（継続の場合）
-        character_base_tags: キャラクターベースタグ（初回の場合）
 
     Returns:
-        構築されたユーザープロンプト
+        構築されたユーザープロンプト文字列
     """
     return NOVELAI_PROMPT_GENERATION_USER_TEMPLATE.format(
-        previous_prompt=previous_prompt or "なし（初回）",
-        character_base_tags=character_base_tags or "なし",
+        previous_prompt=previous_prompt or "None (first time)",
         instruction=instruction,
     )

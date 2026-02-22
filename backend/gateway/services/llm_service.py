@@ -490,7 +490,12 @@ class LLMService:
             return await self._get_openrouter_client().generate_text(
                 system_prompt, user_prompt
             )
+        elif provider == "novelai":
+            return await self._get_novelai_client().generate_text(
+                system_prompt, user_prompt
+            )
         else:
+            # セルフホスト (LiteLLM Proxy)
             client = self._get_litellm_client()
             content = await client.generate_text(system_prompt, user_prompt)
             return LLMResult(
@@ -569,20 +574,22 @@ class LLMService:
         nsfw_mode: bool = False,
         language: str = "ja",
         system_prompt_override: str | None = None,
+        gender: str = "man",
     ) -> str:
         """NovelAI画像生成プロンプトを生成する (T006)
 
-        ユーザーの日本語指示をNovelAI用タグプロンプトに変換する。
+        ユーザーの指示をNovelAI用タグプロンプトに変換する。
         NovelAI GLM-4.6を使用。
 
         Args:
-            instruction: ユーザーの日本語指示
+            instruction: ユーザーの指示
             previous_prompt: 前回生成したプロンプト（継続の場合）
             character_base_tags: キャラクターベースタグ（初回の場合）
             nsfw_mode: NSFWモードかどうか
             language: 指示言語
-            system_prompt_override: Custom system prompt (e.g. action mode).
-                If provided, replaces the default system prompt.
+            system_prompt_override: カスタムシステムプロンプト（行動モード等）。
+                指定された場合、デフォルトのシステムプロンプトを置き換える。
+            gender: キャラクターの元の性別（"man" または "woman"）
 
         Returns:
             NovelAI用タグプロンプト（カンマ区切り）
@@ -602,7 +609,6 @@ class LLMService:
         user_prompt = build_novelai_prompt_generation_user(
             instruction=instruction,
             previous_prompt=previous_prompt,
-            character_base_tags=character_base_tags,
         )
 
         # NovelAI GLM-4.6を使用
