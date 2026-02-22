@@ -53,6 +53,7 @@ class CharacterManager:
                 description=item["description"],
                 pronoun=item.get("pronoun", "僕"),
                 personality=item.get("personality", ""),
+                gender=item.get("gender", "man"),
             )
             for item in data
         ]

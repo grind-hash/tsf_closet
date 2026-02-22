@@ -1048,6 +1048,18 @@ class GameService:
                     action_personality = character.personality
                     action_description = character.description
 
+                action_gender = (
+                    character.gender
+                    if character
+                    else (
+                        self_profile.get("gender", "man")
+                        if self_profile
+                        else custom_metadata.get("gender", "man")
+                    )
+                )
+
+                logger.info("action_gender=%s", action_gender)
+
                 act_system, act_user = build_action_prompt(
                     instruction=instruction,
                     current_description=current_desc,
@@ -1058,6 +1070,7 @@ class GameService:
                     description=action_description,
                     recent_actions=recent_actions or None,
                     transformation_count=session.transformation_count,
+                    gender=action_gender,
                 )
 
                 from .conversation import get_language_rules

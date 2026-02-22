@@ -10,6 +10,7 @@ export interface SelfProfile {
   personality: string;
   reaction_style: string;
   pronoun: string;
+  gender: string;
   interests: string[];
   tsf_attitude: string;
   raw_input: string;

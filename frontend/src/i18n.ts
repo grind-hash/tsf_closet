@@ -81,6 +81,11 @@ const resources = {
             passionate: "情熱的",
           },
           pronoun: "一人称",
+          gender: "性別",
+          genders: {
+            man: "男性",
+            woman: "女性",
+          },
           interests: "趣味・興味",
           interestsPlaceholder:
             "カンマ区切りで入力（例：アニメ, ゲーム, 読書）",
@@ -516,6 +521,11 @@ const resources = {
             passionate: "Passionate",
           },
           pronoun: "Pronoun",
+          gender: "Gender",
+          genders: {
+            man: "Male",
+            woman: "Female",
+          },
           interests: "Interests",
           interestsPlaceholder: "Comma-separated (e.g. anime, gaming, reading)",
           tsfAttitude: "TSF Attitude",

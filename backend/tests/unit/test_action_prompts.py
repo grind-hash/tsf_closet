@@ -340,3 +340,49 @@ def test_build_action_image_edit_prompt_has_background_change_instruction() -> N
     )
     lower = result.lower()
     assert "background" in lower or "environment" in lower
+
+
+# ── Gender parameter tests ──
+
+
+def test_action_prompt_default_gender_man() -> None:
+    """Default gender should produce male label in user prompt."""
+    _, user = build_action_prompt(
+        instruction="walk",
+        current_description="casual outfit",
+        transformation_count=1,
+    )
+    assert "男性" in user
+
+
+def test_action_prompt_gender_woman() -> None:
+    """Passing gender='woman' should produce female label in user prompt."""
+    _, user = build_action_prompt(
+        instruction="walk",
+        current_description="casual outfit",
+        gender="woman",
+        transformation_count=1,
+    )
+    assert "女性" in user
+
+
+def test_pre_transform_action_gender_included() -> None:
+    """Pre-transform prompt should include gender info."""
+    _, user = build_action_prompt(
+        instruction="walk",
+        current_description="",
+        gender="man",
+        transformation_count=0,
+    )
+    assert "男性" in user
+
+
+def test_pre_transform_action_gender_woman() -> None:
+    """Pre-transform prompt should include female gender when specified."""
+    _, user = build_action_prompt(
+        instruction="walk",
+        current_description="",
+        gender="woman",
+        transformation_count=0,
+    )
+    assert "女性" in user

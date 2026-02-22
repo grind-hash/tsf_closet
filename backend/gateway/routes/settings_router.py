@@ -143,6 +143,7 @@ class SelfProfileSaveRequest(BaseModel):
     personality: str = ""
     reaction_style: str = "default"
     pronoun: str = "僕"
+    gender: str = "man"
     interests: list[str] = []
     tsf_attitude: str = ""
     raw_input: str = ""

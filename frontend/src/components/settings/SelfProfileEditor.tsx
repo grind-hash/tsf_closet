@@ -23,6 +23,8 @@ const REACTION_STYLES = [
   "passionate",
 ] as const;
 
+const GENDERS = ["man", "woman"] as const;
+
 export default function SelfProfileEditor() {
   const { t } = useTranslation();
   const { selfProfile, setSelfProfile, loadSelfProfile } = useSettings();
@@ -175,6 +177,23 @@ export default function SelfProfileEditor() {
               value={editProfile.pronoun}
               onChange={(e) => updateField("pronoun", e.target.value)}
             />
+          </div>
+
+          <div className="self-profile-editor__field">
+            <label className="self-profile-editor__label">
+              {t("settings.selfProfile.gender")}
+            </label>
+            <select
+              className="self-profile-editor__select"
+              value={editProfile.gender || "man"}
+              onChange={(e) => updateField("gender", e.target.value)}
+            >
+              {GENDERS.map((g) => (
+                <option key={g} value={g}>
+                  {t(`settings.selfProfile.genders.${g}`)}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div className="self-profile-editor__field">

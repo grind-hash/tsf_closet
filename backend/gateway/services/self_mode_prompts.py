@@ -71,6 +71,11 @@ def _build_self_profile_section(self_profile: dict) -> str:
     """
     parts: list[str] = []
 
+    gender = self_profile.get("gender", "")
+    if gender:
+        gender_label = "男性" if gender == "man" else "女性"
+        parts.append(f"- 性別: {gender_label}")
+
     personality = self_profile.get("personality", "")
     if personality:
         parts.append(f"- 性格: {personality[:200]}")
@@ -280,6 +285,7 @@ PROFILE_GEN_SYSTEM_PROMPT = """あなたは性格分析の専門家です。ユ�
   "personality": "性格を1-2文で要約",
   "reaction_style": "bold|gentle|cheerful|calm|shy|passionate",
   "pronoun": "一人称（僕/私/俺/わたし/あたし等）",
+  "gender": "man|woman",
   "interests": ["興味・関心のキーワード"],
   "tsf_attitude": "TSFに対する態度を1文で"
 }
@@ -287,6 +293,7 @@ PROFILE_GEN_SYSTEM_PROMPT = """あなたは性格分析の専門家です。ユ�
 ルール:
 - reaction_style は必ず bold, gentle, cheerful, calm, shy, passionate のいずれかを選択
 - pronoun は入力テキストの文体から推測し、不明なら「僕」
+- gender は必ず man または woman のいずれかを選択。入力テキストの一人称や文脈から推測し、不明なら「man」
 - interests は最大5個のキーワードで
 - tsf_attitude は入力テキストにTSFへの態度が書かれていなければ「興味はあるが戸惑いもある」のような中立的な表現
 - personality は入力テキストを元に自然な日本語で要約

@@ -115,6 +115,7 @@ PRE_TRANSFORM_ACTION_SYSTEM_PROMPT_NSFW = """あなたは官能小説家です�
 ACTION_USER_PROMPT_TEMPLATE = """主人公は以下の行動を取ります:
 「{instruction}」
 
+主人公の元の性別: {gender}
 主人公の現在の服装/外見:
 {current_description}
 
@@ -128,6 +129,7 @@ ACTION_USER_PROMPT_TEMPLATE = """主人公は以下の行動を取ります:
 PRE_TRANSFORM_ACTION_USER_PROMPT_TEMPLATE = """主人公は以下の行動を取ります:
 「{instruction}」
 
+主人公の性別: {gender}
 主人公は普段の姿のままです。まだ何の変身も起きていません。
 
 一人称: 「{pronoun}」
@@ -342,6 +344,7 @@ def build_action_prompt(
     description: str = "",
     recent_actions: list[str] | None = None,
     transformation_count: int = 0,
+    gender: str = "man",
 ) -> tuple[str, str]:
     """Build system and user prompts for the action instruction type.
 
@@ -360,6 +363,7 @@ def build_action_prompt(
         description: Character description text
         recent_actions: List of recent action instructions for context
         transformation_count: Number of transformations so far (0 = pre-transform)
+        gender: Original gender of the character ("man" or "woman")
 
     Returns:
         (system_prompt, user_prompt) tuple
@@ -409,11 +413,15 @@ def build_action_prompt(
     if personality:
         personality_section = f"キャラクターの性格: {personality[:200]}"
 
+    # Map gender value to Japanese label for prompt
+    gender_label = "男性" if gender == "man" else "女性"
+
     # Select user prompt template
     if is_pre_transform:
         user_prompt = PRE_TRANSFORM_ACTION_USER_PROMPT_TEMPLATE.format(
             instruction=instruction,
             pronoun=pronoun,
+            gender=gender_label,
             recent_actions_section=recent_actions_section,
             personality_section=personality_section,
         )
@@ -422,6 +430,7 @@ def build_action_prompt(
             instruction=instruction,
             current_description=current_description or "不明",
             pronoun=pronoun,
+            gender=gender_label,
             recent_actions_section=recent_actions_section,
             personality_section=personality_section,
         )

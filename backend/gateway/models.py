@@ -778,6 +778,7 @@ class Character:
     description: str
     pronoun: str = "僕"
     personality: str = ""
+    gender: str = "man"
 
 
 @dataclass
