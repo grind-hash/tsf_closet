@@ -171,7 +171,7 @@ export default function SettingsScreen() {
             </div>
           </section>
 
-          {/* 自分自身プロフィール */}
+          {/* 自分自身モード キャラ設定 */}
           <section className="settings-screen__section">
             <h2 className="settings-screen__section-title">
               {t("settings.selfProfile.sectionTitle")}
