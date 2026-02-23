@@ -317,8 +317,8 @@ export default function GamePlayScreen({
   // 007: GameContextにセッション情報を同期（sessionIdが必要な操作のため）
   useEffect(() => {
     if (sessionId && currentImageUrl) {
-      // GameContextのrestoreSessionを呼び出してsessionIdを設定
-      // 最小限の情報のみ渡す（history, statsは別途同期されるため空データ）
+      // GameContextのrestoreSessionを呼び出してsessionIdと全状態を設定
+      // history も含めて一括で渡す（Effect A の SET_HISTORY との二重セットは冪等なので安全）
       const fullStats = {
         bloom: _stats.bloom ?? 0,
         shame: _stats.shame ?? 50,
@@ -333,7 +333,7 @@ export default function GamePlayScreen({
         { id: "", name: "", description: "", thumbnail: currentImageUrl },
         currentImageUrl,
         fullStats,
-        [], // historyは別途同期
+        history,
         attributes,
         selfModeProp,
       );

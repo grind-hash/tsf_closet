@@ -123,16 +123,18 @@ fi
 
 mkdir -p "backend/data"
 
-if [[ ! -f "backend/data/database.sqlite" ]]; then
-    echo "データベースを初期化中..."
-    if [[ -d "backend/migrations/versions" ]]; then
-        pushd "backend" > /dev/null
-        "$PYTHON_EXE" -m alembic upgrade head 2>/dev/null || true
-        popd > /dev/null
+# Run alembic upgrade head every launch (handles both first-run and updates)
+echo "データベースマイグレーションを確認中..."
+if [[ -d "backend/migrations/versions" ]]; then
+    pushd "backend" > /dev/null
+    if "$PYTHON_EXE" -m alembic upgrade head 2>/dev/null; then
+        echo "  データベースは最新です。"
+    else
+        echo "  警告: マイグレーションでエラーが発生しましたが、起動を続行します。"
     fi
-    echo "  データベース初期化完了"
-    echo ""
+    popd > /dev/null
 fi
+echo ""
 
 # ============================================
 #   Start server
