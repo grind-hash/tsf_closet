@@ -397,11 +397,29 @@ if [[ -f "$STOP_SH_TEMPLATE" ]]; then
     write_success "stop.sh を生成"
 fi
 
-# README_linux.txt
+# README files (Linux versions → renamed for end users)
 README_TEMPLATE="$TEMPLATES_DIR/README_linux.txt"
 if [[ -f "$README_TEMPLATE" ]]; then
     cp "$README_TEMPLATE" "$PACKAGE_DIR/README.txt"
     write_success "README.txt を生成"
+fi
+
+README_UPDATE_TEMPLATE="$TEMPLATES_DIR/README_linux_update.txt"
+if [[ -f "$README_UPDATE_TEMPLATE" ]]; then
+    cp "$README_UPDATE_TEMPLATE" "$PACKAGE_DIR/README_update.txt"
+    write_success "README_update.txt を生成"
+fi
+
+README_EN_TEMPLATE="$TEMPLATES_DIR/README_linux_en.txt"
+if [[ -f "$README_EN_TEMPLATE" ]]; then
+    cp "$README_EN_TEMPLATE" "$PACKAGE_DIR/README_en.txt"
+    write_success "README_en.txt を生成"
+fi
+
+README_EN_UPDATE_TEMPLATE="$TEMPLATES_DIR/README_linux_en_update.txt"
+if [[ -f "$README_EN_UPDATE_TEMPLATE" ]]; then
+    cp "$README_EN_UPDATE_TEMPLATE" "$PACKAGE_DIR/README_en_update.txt"
+    write_success "README_en_update.txt を生成"
 fi
 
 # LICENSE
