@@ -2,55 +2,12 @@
 # Pre-configured for Ollama models
 
 model_list:
-  # Gemma 3 4B - Content filtering, feeling analysis, general LLM tasks
-  - model_name: ollama/gemma3:4b
-    litellm_params:
-      model: ollama/gemma3:4b
-      api_base: http://ollama:11434
-      request_timeout: 120
-
-  # LLaVA 7B - Vision model for image description
-  - model_name: ollama/llava:7b
-    litellm_params:
-      model: ollama/llava:7b
-      api_base: http://ollama:11434
-      request_timeout: 180
-
-  # gpt-oss
-  - model_name: ollama/gpt-oss:20b
-    litellm_params:
-      model: ollama/gpt-oss:20b
-      api_base: http://ollama:11434
-      request_timeout: 300
-      merge_reasoning_content_in_choices: true
-
   # ministral-3:3b
   - model_name: ollama/ministral-3:3b-instruct-2512-q4_K_M
     litellm_params:
       model: ollama/ministral-3:3b-instruct-2512-q4_K_M
       api_base: http://ollama:11434
-      request_timeout: 180
-
-  # ministral3 14B Vision model for image description
-  - model_name: ollama/ministral-3:14b-instruct-2512-q4_K_M
-    litellm_params:
-      model: ollama/ministral-3:14b-instruct-2512-q4_K_M
-      api_base: http://ollama:11434
-      request_timeout: 180
-
-  # ministral3 14B Vision model for image description
-  - model_name: ollama/deepseek-r1:8b-llama-distill-q8_0
-    litellm_params:
-      model: ollama/deepseek-r1:8b-llama-distill-q8_0
-      api_base: http://ollama:11434
-      request_timeout: 180
-
-  # ministral3 14B Vision model for image description
-  - model_name: ollama/glm-4.7-flash:latest
-    litellm_params:
-      model: ollama/glm-4.7-flash:latest
-      api_base: http://ollama:11434
-      request_timeout: 180
+      request_timeout: 300
 
 # General settings
 general_settings:

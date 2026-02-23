@@ -452,7 +452,20 @@
 }
 
 .character-state-panel__stat-fill--adaptation {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  height: auto;
+  border-radius: 2px;
+  transition: width 0.5s ease-out, left 0.5s ease-out;
+}
+
+.character-state-panel__stat-fill--adaptation-cute {
   background: linear-gradient(90deg, #10ac84, #1dd1a1);
+}
+
+.character-state-panel__stat-fill--adaptation-sexy {
+  background: linear-gradient(90deg, #e94560, #ff6b9d);
 }
 
 .character-state-panel__adaptation-meter {

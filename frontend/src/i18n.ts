@@ -217,7 +217,7 @@ const resources = {
         adaptationSexy: "セクシー",
         adaptationNeutral: "中立",
         adaptationCute: "可愛い",
-        selfModeLabel: "自分自身モード",
+        selfModeLabel: "自分自身モード（実験的機能）",
         selfModeDesc: "パラメータ追跡は無効です",
       },
       attributeSection: {
@@ -299,7 +299,7 @@ const resources = {
           dressUp: "着せ替え",
           realityAlter: "現実改変",
           conversation: "会話",
-          action: "行動",
+          action: "行動（実験的機能）",
         },
         input: {
           attachmentPreviewAlt: "添付画像プレビュー",
@@ -348,7 +348,7 @@ const resources = {
           customCharacterDefaultName: "カスタムキャラクター",
           startSessionError: "セッション開始に失敗しました",
           startSessionFailed: "セッションの開始に失敗しました",
-          selfMode: "自分自身モード",
+          selfMode: "自分自身モード（実験的機能）",
           selfModeDescription:
             "パラメータ追跡なしで、自分の性格に基づいた反応を生成します",
           selfModeNoProfile:
@@ -656,7 +656,7 @@ const resources = {
         adaptationSexy: "Sexy",
         adaptationNeutral: "Neutral",
         adaptationCute: "Cute",
-        selfModeLabel: "Self Mode",
+        selfModeLabel: "Self Mode (Experimental)",
         selfModeDesc: "Parameter tracking is disabled",
       },
       attributeSection: {
@@ -738,7 +738,7 @@ const resources = {
           dressUp: "Dress Up",
           realityAlter: "Reality Alter",
           conversation: "Conversation",
-          action: "Action",
+          action: "Action (Experimental)",
         },
         input: {
           attachmentPreviewAlt: "Attached image preview",
@@ -787,7 +787,7 @@ const resources = {
           customCharacterDefaultName: "Custom Character",
           startSessionError: "Failed to start session",
           startSessionFailed: "Failed to start the session",
-          selfMode: "Self Mode",
+          selfMode: "Self Mode (Experimental)",
           selfModeDescription:
             "Generate reactions based on your own personality without parameter tracking",
           selfModeNoProfile:

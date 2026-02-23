@@ -246,10 +246,13 @@ export default function CharacterStatePanel({
     return Math.max(0, Math.min(100, value ?? 0));
   };
 
-  // 順応度表示値変換 (-50~50 -> 0~100)
-  const getAdaptationMeterValue = (value: number | undefined) => {
+  // Center-origin adaptation bar style (-50~50 -> left/width from center)
+  const getAdaptationBarStyle = (value: number | undefined) => {
     const clamped = Math.max(-50, Math.min(50, value ?? 0));
-    return clamped + 50;
+    const normalized = clamped + 50; // 0-100, 50 = center
+    const barWidth = Math.abs(normalized - 50);
+    const barLeft = Math.min(normalized, 50);
+    return { width: `${barWidth}%`, left: `${barLeft}%` };
   };
 
   return (
@@ -684,16 +687,18 @@ export default function CharacterStatePanel({
                     style={{ height: "10px", minHeight: "10px" }}
                   >
                     <div
-                      className="character-state-panel__stat-fill character-state-panel__stat-fill--adaptation"
-                      style={{
-                        width: `${getAdaptationMeterValue(stats.adaptation)}%`,
-                      }}
+                      className={`character-state-panel__stat-fill character-state-panel__stat-fill--adaptation ${
+                        (stats.adaptation ?? 0) < 0
+                          ? "character-state-panel__stat-fill--adaptation-sexy"
+                          : "character-state-panel__stat-fill--adaptation-cute"
+                      }`}
+                      style={getAdaptationBarStyle(stats.adaptation)}
                     />
                     <span className="character-state-panel__adaptation-center" />
                   </div>
                 </div>
                 <span className="character-state-panel__stat-value">
-                  {Math.round(getAdaptationMeterValue(stats.adaptation))}
+                  {stats.adaptation ?? 0}
                 </span>
               </div>
             </>

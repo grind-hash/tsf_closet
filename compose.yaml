@@ -1,4 +1,3 @@
-# Docker Compose configuration for わくわくへんしんマジック
 # Usage: docker compose up -d
 
 services:
@@ -25,15 +24,21 @@ services:
     build:
       context: .
       dockerfile: docker/backend/Dockerfile
-    env_file:
-      - .env.docker
+    ports:
+      - "8000:8000"
     environment:
       - LITELLM_BASE_URL=http://litellm:4000
       - LITELLM_API_KEY=sk-1234
       - COMFYUI_BASE_URL=http://comfyui:8188
+      - COMFYUI_WORKFLOW_PATH
+      - COMFYUI_REQUEST_TIMEOUT
+      - LITELLM_LLAVA_MODEL
+      - LITELLM_FEELING_MODEL
+      - LITELLM_LLM_MODEL
     volumes:
       - backend_data:/app/data
       - ./backend/images:/app/images:ro
+      - ./.env.docker:/app/.env
     depends_on:
       litellm:
         condition: service_started
@@ -92,7 +97,6 @@ services:
   litellm_db:
     image: postgres:16
     restart: always
-    container_name: litellm_db
     environment:
       POSTGRES_DB: litellm
       POSTGRES_USER: llmproxy
@@ -108,7 +112,6 @@ services:
       retries: 10
     networks:
       - db-network
-
 
   # ========================================
   # Ollama - Local LLM server (GPU)
@@ -149,7 +152,7 @@ services:
               capabilities: [gpu]
     restart: unless-stopped
     ports:
-      - "8188:8188"    
+      - "8188:8188"
     networks:
       - app-network
     healthcheck:
@@ -164,13 +167,13 @@ services:
 # ========================================
 volumes:
   backend_data:
-    name: wakuwaku_backend_data
+    name: tsf_closet_backend_data
   ollama_data:
-    name: wakuwaku_ollama_data
+    name: tsf_closet_ollama_data
   comfyui_models:
-    name: wakuwaku_comfyui_models
+    name: tsf_closet_comfyui_models
   litellm_postgres_data:
-    name: wakuwaku_litellm_postgres_data
+    name: tsf_closet_litellm_postgres_data
 
 # ========================================
 # Networks

@@ -145,6 +145,8 @@ npm run dev
 
 ```powershell
 docker compose up -d
+# バックエンドのデータベースマイグレーション適用
+docker compose exec backend bash -c "uv run alembic upgrade head"
 ```
 
 > **注意**: ComfyUI のモデルダウンロード完了まで 1 時間以上かかる場合があります。`docker compose logs -f comfyui` で進行状況を確認してください。

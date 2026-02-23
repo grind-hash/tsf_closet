@@ -66,26 +66,24 @@ for /f "tokens=*" %%a in ('netstat -ano 2^>nul ^| find "LISTENING" ^| find ":%PO
 if "!PORT_IN_USE!"=="1" goto :err_port
 
 REM ============================================
-REM   Database initialization
+REM   Database migration
 REM ============================================
 
 if not exist "backend\data" mkdir "backend\data"
 
-REM First-run DB init
-if not exist "backend\data\database.sqlite" goto :init_db
-goto :skip_db_init
-
-:init_db
-echo データベースを初期化中...
+REM Run alembic upgrade head every launch (handles both first-run and updates)
+echo データベースマイグレーションを確認中...
 cd /d "%~dp0backend"
 if exist "migrations\versions" (
     "%~dp0python_embeded\python.exe" -m alembic upgrade head 2>nul
+    if errorlevel 1 (
+        echo   警告: マイグレーションでエラーが発生しましたが、起動を続行します。
+    ) else (
+        echo   データベースは最新です。
+    )
 )
 cd /d "%~dp0"
-echo   データベース初期化完了
 echo.
-
-:skip_db_init
 
 REM ============================================
 REM   Start server

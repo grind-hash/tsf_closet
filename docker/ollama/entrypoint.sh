@@ -26,39 +26,9 @@ fi
 
 # Pull required models
 echo "========================================="
-echo "Pulling gemma3:4b model..."
-echo "========================================="
-ollama pull gemma3:4b
-
-echo "========================================="
-echo "Pulling llava:7b model..."
-echo "========================================="
-ollama pull llava:7b
-
-echo "========================================="
-echo "Pulling gpt-oss:20b model..."
-echo "========================================="
-ollama pull gpt-oss:20b
-
-echo "========================================="
-echo "Pulling ministral-3:14b-instruct-2512-q4_K_M model..."
-echo "========================================="
-ollama pull ministral-3:14b-instruct-2512-q4_K_M
-
-echo "========================================="
 echo "Pulling ministral-3:3b-instruct-2512-q4_K_M model..."
 echo "========================================="
 ollama pull ministral-3:3b-instruct-2512-q4_K_M
-
-echo "========================================="
-echo "Pulling deepseek-r1:8b-llama-distill-q8_0 model..."
-echo "========================================="
-ollama pull deepseek-r1:8b-llama-distill-q8_0
-
-echo "========================================="
-echo "Pulling glm-4.7-flash:latest model..."
-echo "========================================="
-ollama pull glm-4.7-flash:latest
 
 echo "========================================="
 echo "All models pulled successfully!"

@@ -392,11 +392,13 @@ if (Test-Path $StopBatTemplate) {
     Write-Success "stop.bat を生成"
 }
 
-# README.txt
-$ReadmeTemplate = Join-Path $TemplatesDir "README.txt"
-if (Test-Path $ReadmeTemplate) {
-    Copy-Item -Path $ReadmeTemplate -Destination $PackageDir -Force
-    Write-Success "README.txt を生成"
+# README files
+foreach ($readmeFile in @("README.txt", "README_update.txt", "README_en.txt", "README_en_update.txt")) {
+    $readmePath = Join-Path $TemplatesDir $readmeFile
+    if (Test-Path $readmePath) {
+        Copy-Item -Path $readmePath -Destination $PackageDir -Force
+        Write-Success "$readmeFile を生成"
+    }
 }
 
 # LICENSE

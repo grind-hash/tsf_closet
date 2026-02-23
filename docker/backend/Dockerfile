@@ -25,8 +25,10 @@ RUN uv sync --frozen --no-dev
 COPY backend/gateway ./gateway
 COPY backend/workflows ./workflows
 COPY backend/images ./images
+COPY backend/migrations ./migrations
 
 # Create data directory for SQLite
+COPY backend/alembic.ini ./
 RUN mkdir -p /app/data
 
 # Expose port 8000
