@@ -1,3 +1,7 @@
+🌐 **日本語** | **[English](README_en.md)**
+
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](License.txt)
+
 <p align="center">
   <img src="repo_resources/brand_image.jpg" alt="TSF Closet" width="720" />
 </p>
