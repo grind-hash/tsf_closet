@@ -23,6 +23,7 @@ export interface HistoryItem {
   beforeDescription: string;
   afterDescription: string;
   timestamp: string;
+  instructionType?: string;
   costumeCategory?: string;
   exposureLevel?: string; // exposure_level を維持
   ageImpression?: string;
@@ -173,6 +174,7 @@ export interface ConversationMessage {
   role: "user" | "character";
   content: string;
   createdAt: string;
+  instruction_type?: string | null;
 }
 
 // Session attribute
@@ -313,7 +315,11 @@ export const DEFAULT_CHANGE_SETTINGS: ChangeSettings = {
 /**
  * 指示タイプ (着せ替え/現実改変/会話)
  */
-export type InstructionType = "dress_up" | "reality_alter" | "conversation";
+export type InstructionType =
+  | "dress_up"
+  | "reality_alter"
+  | "conversation"
+  | "action";
 
 /**
  * 指示タイプのラベル (日本語)
@@ -322,6 +328,7 @@ export const INSTRUCTION_TYPE_LABELS: Record<InstructionType, string> = {
   dress_up: "着せ替え",
   reality_alter: "現実改変",
   conversation: "会話",
+  action: "行動",
 };
 
 /**

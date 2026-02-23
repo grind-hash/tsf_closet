@@ -70,7 +70,9 @@ export default function ApiKeyConsentModal({
               <span className="consent-modal__usage-icon">💬</span>
               <div className="consent-modal__usage-text">
                 <strong>テキスト生成</strong>
-                <span>キャラクターの心境テキストを生成します</span>
+                <span>
+                  心境テキスト、会話、自分自身モードのキャラ性格テキスト、画像用プロンプトを生成します
+                </span>
               </div>
             </div>
           </div>

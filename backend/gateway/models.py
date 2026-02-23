@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, List, Optional, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # =============================================================================
@@ -239,6 +239,48 @@ class ConversationMessage:
 # =============================================================================
 
 
+# =============================================================================
+# SelfProfile (自分自身モード)
+# =============================================================================
+
+REACTION_STYLES = (
+    "default",
+    "bold",
+    "gentle",
+    "cheerful",
+    "shy",
+    "calm",
+    "passionate",
+)
+
+
+class SelfProfile(BaseModel):
+    """Self mode personality profile stored as JSON in User.self_profile_json."""
+
+    display_name: str = Field(
+        "", max_length=50, description="Display name shown in chat UI"
+    )
+    personality: str = Field(
+        ..., min_length=1, max_length=200, description="Personality summary"
+    )
+    reaction_style: str = Field("default", description="Reaction style keyword")
+    pronoun: str = Field(
+        "僕", min_length=1, max_length=10, description="First-person pronoun"
+    )
+    interests: list[str] = Field(
+        default_factory=list, max_length=10, description="Interest keywords"
+    )
+    tsf_attitude: str = Field("", max_length=200, description="Attitude towards TSF")
+    raw_input: str = Field("", max_length=1000, description="Original input text")
+
+    @field_validator("reaction_style")
+    @classmethod
+    def validate_reaction_style(cls, v: str) -> str:
+        if v not in REACTION_STYLES:
+            return "default"
+        return v
+
+
 class NovelAISubscriptionResponse(BaseModel):
     """NovelAIサブスクリプション情報レスポンス
 
@@ -369,6 +411,9 @@ class HistoryItem(BaseModel):
     before_description: str = Field(..., description="着せ替え前の説明")
     after_description: str = Field(..., description="着せ替え後の説明")
     timestamp: str = Field(..., description="実行日時 (ISO形式)")
+    instruction_type: Optional[str] = Field(
+        None, description="指示タイプ (dress_up/reality_alter/action)"
+    )
     # T025: タグ情報を追加
     costume_category: Optional[str] = Field(
         None, description="衣装カテゴリ (cute/sexy/elegant/cool/casual)"
@@ -407,8 +452,9 @@ class SessionResponse(BaseModel):
         default_factory=list, description="セッション属性"
     )
     conversation_history: List[ConversationMessageResponse] = Field(
-        default_factory=list, description="会話履歴"
+        default_factory=list, description="Conversation history"
     )
+    self_mode: bool = Field(False, description="Self mode enabled")
 
 
 class SessionSummary(BaseModel):
@@ -488,6 +534,9 @@ class ConversationMessageResponse(BaseModel):
     role: str = Field(..., description="発言者 (user/character)")
     content: str = Field(..., description="メッセージ内容")
     created_at: str = Field(..., description="送信日時 (ISO形式)")
+    instruction_type: Optional[str] = Field(
+        None, description="指示タイプ (dress_up/reality_alter/conversation/action)"
+    )
 
 
 class ConversationHistoryResponse(BaseModel):
@@ -640,11 +689,12 @@ class DifficultyListResponse(BaseModel):
 
 
 class GameStartRequest(BaseModel):
-    """ゲーム開始リクエスト"""
+    """Game start request."""
 
-    character_id: Optional[str] = Field(None, description="キャラクターID")
-    difficulty: str = Field("normal", description="難易度 (easy/normal/hard)")
-    nsfw_mode: bool = Field(False, description="NSFWモード")
+    character_id: Optional[str] = Field(None, description="Character ID")
+    difficulty: str = Field("normal", description="Difficulty (easy/normal/hard)")
+    nsfw_mode: bool = Field(False, description="NSFW mode")
+    self_mode: bool = Field(False, description="Self mode (bypass parameters)")
 
 
 class GameStartResponse(BaseModel):
@@ -728,6 +778,7 @@ class Character:
     description: str
     pronoun: str = "僕"
     personality: str = ""
+    gender: str = "man"
 
 
 @dataclass
@@ -745,6 +796,7 @@ class PersistedHistory:
     before_description: Optional[str]
     after_description: Optional[str]
     created_at: datetime
+    instruction_type: Optional[str] = None
 
     @classmethod
     def from_row(cls, row: dict) -> "PersistedHistory":
@@ -758,6 +810,7 @@ class PersistedHistory:
             before_description=row["before_description"],
             after_description=row["after_description"],
             created_at=datetime.fromisoformat(row["created_at"]),
+            instruction_type=row.get("instruction_type"),
         )
 
 
@@ -776,6 +829,7 @@ class PersistedSession:
     is_active: bool
     created_at: datetime
     updated_at: datetime
+    self_mode: bool = False
     history: List[PersistedHistory] = field(default_factory=list)
 
     @classmethod

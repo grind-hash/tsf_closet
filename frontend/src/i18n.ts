@@ -57,6 +57,44 @@ const resources = {
         reset: "設定を初期化",
         resetDesc: "すべての設定を初期値に戻します",
         resetConfirm: "設定を初期値に戻しますか？",
+        selfProfile: {
+          sectionTitle: "自分自身モードで利用するキャラ設定",
+          inputLabel: "利用したい性格を教えてください",
+          inputPlaceholder:
+            "例：20代の大学生で、アニメと読書が好き。性格はおっとりしている。",
+          generateButton: "性格を自動生成",
+          generating: "生成中...",
+          generateError: "性格の生成に失敗しました",
+          saved: "キャラ設定を保存しました",
+          saveError: "キャラ設定の保存に失敗しました",
+          displayName: "表示名",
+          displayNamePlaceholder: "チャットに表示される名前",
+          personality: "性格",
+          reactionStyle: "リアクションスタイル",
+          reactionStyles: {
+            default: "デフォルト",
+            bold: "大胆",
+            gentle: "穏やか",
+            cheerful: "明るい",
+            shy: "恥ずかしがり",
+            calm: "冷静",
+            passionate: "情熱的",
+          },
+          pronoun: "一人称",
+          gender: "性別",
+          genders: {
+            man: "男性",
+            woman: "女性",
+          },
+          interests: "趣味・興味",
+          interestsPlaceholder:
+            "カンマ区切りで入力（例：アニメ, ゲーム, 読書）",
+          tsfAttitude: "TSFへの態度",
+          saving: "保存中...",
+          saveButton: "キャラ設定を保存",
+          currentProfile: "現在のキャラ設定",
+          editButton: "編集する",
+        },
       },
       common: {
         add: "追加",
@@ -146,6 +184,7 @@ const resources = {
         characterAlt: "キャラクター",
         noImage: "画像なし",
         transforming: "変身中...",
+        acting: "行動中...",
         transformHistory: "変身 {{index}}",
         navFirstAria: "最初の状態",
         navFirstTitle: "最初へ",
@@ -178,6 +217,8 @@ const resources = {
         adaptationSexy: "セクシー",
         adaptationNeutral: "中立",
         adaptationCute: "可愛い",
+        selfModeLabel: "自分自身モード（実験的機能）",
+        selfModeDesc: "パラメータ追跡は無効です",
       },
       attributeSection: {
         title: "属性付与（任意）",
@@ -258,6 +299,7 @@ const resources = {
           dressUp: "着せ替え",
           realityAlter: "現実改変",
           conversation: "会話",
+          action: "行動（実験的機能）",
         },
         input: {
           attachmentPreviewAlt: "添付画像プレビュー",
@@ -270,6 +312,7 @@ const resources = {
         },
         message: {
           roleYou: "あなた",
+          roleInstruction: "指示",
           roleCharacter: "キャラクター",
           attachedImageAlt: "添付画像",
         },
@@ -281,7 +324,7 @@ const resources = {
           title: "TSF Closetへようこそ",
           descriptionLine1: "キャラクターを選択してゲームを開始しましょう。",
           descriptionLine2:
-            "チャットで「着せ替え」「現実改変」「会話」の指示を送ることができます。",
+            "チャットで「着せ替え」「現実改変」「行動」「会話」の指示を送ることができます。",
           selectCharacter: "キャラクターを選択",
           loading: "読み込み中...",
           customImageSection: "または自分の画像を使用",
@@ -305,6 +348,12 @@ const resources = {
           customCharacterDefaultName: "カスタムキャラクター",
           startSessionError: "セッション開始に失敗しました",
           startSessionFailed: "セッションの開始に失敗しました",
+          selfMode: "自分自身モード（実験的機能）",
+          selfModeDescription:
+            "パラメータ追跡なしで、自分の性格に基づいた反応を生成します",
+          selfModeNoProfile:
+            "自分自身モードのキャラ設定が未登録です。先に設定画面で登録してください。",
+          selfModeGoSettings: "設定画面へ →",
         },
       },
       gameplay: {
@@ -448,6 +497,43 @@ const resources = {
         reset: "Reset settings",
         resetDesc: "Reset all settings to defaults",
         resetConfirm: "Reset settings to defaults?",
+        selfProfile: {
+          sectionTitle: "Character Settings for Self Mode",
+          inputLabel: "Describe the personality you want to use",
+          inputPlaceholder:
+            "e.g. I'm a college student in my 20s who likes anime and reading. I have a laid-back personality.",
+          generateButton: "Auto-generate Personality",
+          generating: "Generating...",
+          generateError: "Failed to generate personality",
+          saved: "Settings saved",
+          saveError: "Failed to save settings",
+          displayName: "Display Name",
+          displayNamePlaceholder: "Name shown in chat",
+          personality: "Personality",
+          reactionStyle: "Reaction Style",
+          reactionStyles: {
+            default: "Default",
+            bold: "Bold",
+            gentle: "Gentle",
+            cheerful: "Cheerful",
+            shy: "Shy",
+            calm: "Calm",
+            passionate: "Passionate",
+          },
+          pronoun: "Pronoun",
+          gender: "Gender",
+          genders: {
+            man: "Male",
+            woman: "Female",
+          },
+          interests: "Interests",
+          interestsPlaceholder: "Comma-separated (e.g. anime, gaming, reading)",
+          tsfAttitude: "TSF Attitude",
+          saving: "Saving...",
+          saveButton: "Save Settings",
+          currentProfile: "Current Settings",
+          editButton: "Edit",
+        },
       },
       common: {
         add: "Add",
@@ -537,6 +623,7 @@ const resources = {
         characterAlt: "Character",
         noImage: "No image",
         transforming: "Transforming...",
+        acting: "Acting...",
         transformHistory: "Transform {{index}}",
         navFirstAria: "First state",
         navFirstTitle: "First",
@@ -569,6 +656,8 @@ const resources = {
         adaptationSexy: "Sexy",
         adaptationNeutral: "Neutral",
         adaptationCute: "Cute",
+        selfModeLabel: "Self Mode (Experimental)",
+        selfModeDesc: "Parameter tracking is disabled",
       },
       attributeSection: {
         title: "Attributes (Optional)",
@@ -649,6 +738,7 @@ const resources = {
           dressUp: "Dress Up",
           realityAlter: "Reality Alter",
           conversation: "Conversation",
+          action: "Action (Experimental)",
         },
         input: {
           attachmentPreviewAlt: "Attached image preview",
@@ -661,6 +751,7 @@ const resources = {
         },
         message: {
           roleYou: "You",
+          roleInstruction: "Instruction",
           roleCharacter: "Character",
           attachedImageAlt: "Attached image",
         },
@@ -672,7 +763,7 @@ const resources = {
           title: "Welcome to TSF Closet",
           descriptionLine1: "Select a character to start the game.",
           descriptionLine2:
-            'You can send "Dress Up", "Reality Alter", and "Conversation" instructions in chat.',
+            'You can send "Dress Up", "Reality Alter", "Action", and "Conversation" instructions in chat.',
           selectCharacter: "Select Character",
           loading: "Loading...",
           customImageSection: "Or use your own image",
@@ -696,6 +787,12 @@ const resources = {
           customCharacterDefaultName: "Custom Character",
           startSessionError: "Failed to start session",
           startSessionFailed: "Failed to start the session",
+          selfMode: "Self Mode (Experimental)",
+          selfModeDescription:
+            "Generate reactions based on your own personality without parameter tracking",
+          selfModeNoProfile:
+            "Character settings for Self Mode are not configured yet. Please set them up in settings first.",
+          selfModeGoSettings: "Go to Settings →",
         },
       },
       gameplay: {

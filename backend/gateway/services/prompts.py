@@ -145,13 +145,48 @@ FIRST_TRANSFORMATION_STAGE = {
 
 「また」や「今度も」といった繰り返しを示唆する表現は絶対に使わないでください。
 自然な日本語で、感情豊かに書いてください。""",
-    "openings": [
-        "えっ？何これ...僕の体が...",
-        "うそ...これ、僕...？",
-        "な、なんで？ちょっと待って...",
-        "えええぇ！？なにが起きて...",
-        "うそ...信じられない...",
-    ],
+    "openings": {
+        "default": [
+            "えっ？何これ...{pronoun}の体が...",
+            "うそ...これ、{pronoun}...？",
+            "な、なんで？ちょっと待って...",
+            "えええぇ！？なにが起きて...",
+            "うそ...信じられない...",
+            "は？え？ちょっと...何が...",
+            "な、何が起きたの...{pronoun}の姿が...",
+            "嘘でしょ...こんなの聞いてない...",
+            "え、え、え...どうして...",
+            "待って...これって...本当に{pronoun}...？",
+        ],
+        "bold": [
+            "はぁ！？何だよこれ...！",
+            "ちょっと！勝手に何してくれてんの！？",
+            "ふざけんな...{pronoun}の体を何だと...",
+            "おい...これはどういう冗談だ...",
+            "何してくれてんだ...ったく...！",
+        ],
+        "gentle": [
+            "あ...あれ...{pronoun}、どうなって...",
+            "え...これは...夢、かしら...",
+            "ふぇ...な、何が起きたのかな...",
+            "あわわ...{pronoun}の姿が...",
+            "ど、どうしましょう...こんなことに...",
+        ],
+        "cheerful": [
+            "えっ！何これ！？すっごいびっくり！",
+            "うわわわ！{pronoun}の体が変わってる！？",
+            "ちょ、何これ！マジで！？",
+            "え、え、えーー！こんなことあるの！？",
+            "びっくりした！{pronoun}、変わっちゃった！？",
+        ],
+        "shy": [
+            "ひっ...{pronoun}の体が...変...",
+            "え...あの...{pronoun}...どうして...",
+            "こ、こんな...恥ずかしい...",
+            "う...うそ...{pronoun}、こんな姿に...",
+            "だ、誰にも見られたくない...",
+        ],
+    },
 }
 
 PSYCHOLOGICAL_STAGES = {
@@ -177,13 +212,48 @@ PSYCHOLOGICAL_STAGES = {
 - 感情の動き（否定→戸惑い→微かな違和感）
 
 自然な日本語で、感情豊かに書いてください。""",
-        "openings": [
-            "な、なんで!?こんな格好…",
-            "うそ…これ、どういうこと...",
-            "ひっ!?",
-            "はぁ!?ちょ、待って待って!",
-            "い、嫌だ…恥ずかしすぎる…",
-        ],
+        "openings": {
+            "default": [
+                "な、なんで!?こんな格好…",
+                "うそ…これ、どういうこと...",
+                "ひっ!?",
+                "はぁ!?ちょ、待って待って!",
+                "い、嫌だ…恥ずかしすぎる…",
+                "やめて...こんなの着たくない...",
+                "なんでこんな格好に...信じられない...",
+                "誰かに見られたらどうするの...",
+                "こんなの...{pronoun}じゃない...",
+                "お願い...元に戻して...",
+            ],
+            "bold": [
+                "はぁ!?ふざけんな、こんな格好!",
+                "ちょっと！何させようとしてんの！",
+                "こんな服、{pronoun}には合わないっての！",
+                "誰がこんなの着るかよ...!",
+                "脱がせろ...今すぐ！",
+            ],
+            "gentle": [
+                "あ...あの...こんな格好は...",
+                "ど、どうしよう...こんなことに...",
+                "恥ずかしい...見ないでほしい...",
+                "え...{pronoun}、こんな格好になっちゃって...",
+                "困ります...こんなの...",
+            ],
+            "cheerful": [
+                "え、ちょ、何この格好！？",
+                "うわ！こんな服になっちゃった！？",
+                "はは...ちょっとびっくりしすぎて...",
+                "マジで！？こんなの着てるの！？",
+                "いやいやいや！これはちょっと...！",
+            ],
+            "shy": [
+                "ひっ...こ、こんな格好...",
+                "み、見ないで...お願い...",
+                "は、恥ずかしい...消えたい...",
+                "う...うぅ...どうして{pronoun}が...",
+                "こ、こんなの...無理...",
+            ],
+        },
     },
     # 開花度 25-49: 揺らぎ・葛藤フェーズ
     "wavering": {
@@ -207,13 +277,48 @@ PSYCHOLOGICAL_STAGES = {
 - 抵抗しようとする心と反応してしまう体の対比
 
 自然な日本語で、感情豊かに書いてください。""",
-        "openings": [
-            "また…でも、さっきよりは…",
-            "もう何度目だろう…慣れたく、ないのに…",
-            "恥ずかしい…でも、少しだけ…",
-            "こんなの嫌だ…なのに、なんで…",
-            "鏡を見るたびに…わからなくなる…",
-        ],
+        "openings": {
+            "default": [
+                "また…でも、さっきよりは…",
+                "もう何度目だろう…慣れたく、ないのに…",
+                "恥ずかしい…でも、少しだけ…",
+                "こんなの嫌だ…なのに、なんで…",
+                "鏡を見るたびに…わからなくなる…",
+                "また変わった...でも前ほど驚かない…",
+                "少しだけ...ドキドキしてる自分がいる…",
+                "嫌なはずなのに…体が慣れてきてる…",
+                "こんな{pronoun}、知らなかった…",
+                "否定したいのに…心が揺れてる…",
+            ],
+            "bold": [
+                "ちっ...また着替えか...慣れたくないのに...",
+                "何度やっても腹立つ...でも、少しだけ...",
+                "認めないからな...こんなの...",
+                "はー...もういい加減にしてくれ...",
+                "悔しい...{pronoun}の負けじゃないからな...",
+            ],
+            "gentle": [
+                "また...でも、大丈夫...かな...",
+                "少しだけ...慣れてきた気がする...",
+                "こういう姿も...悪くないのかな...",
+                "ふふ...ちょっとだけ、綺麗かも...",
+                "不思議...前より恥ずかしくない...",
+            ],
+            "cheerful": [
+                "お、また変わった！今度は何かな！",
+                "あれ？なんか前より平気かも！",
+                "うーん...正直ちょっと楽しくなってきた？",
+                "またか！でもまぁ...悪くないかも！",
+                "はは...慣れてきちゃったかな！",
+            ],
+            "shy": [
+                "うぅ...また...でも、少しだけ...",
+                "恥ずかしい...けど、前よりは...",
+                "見ないで...でも...ちょっとだけ...",
+                "何度も...{pronoun}、変わっていくの...",
+                "慣れたく...ないのに...体は...",
+            ],
+        },
     },
     # 開花度 50-74: 受容開始フェーズ
     "acceptance_start": {
@@ -237,13 +342,48 @@ PSYCHOLOGICAL_STAGES = {
 - 元の自分を思い出そうとする心の動き
 
 自然な日本語で、感情豊かに書いてください。""",
-        "openings": [
-            "今度は…あ、これ、意外と…",
-            "また変わった…けど、嫌じゃない…かも…",
-            "恥ずかしいけど…綺麗、かもしれない…",
-            "こんな姿になっても…悪くない、って…",
-            "また…でも、今回は少しワクワク…って、違う!",
-        ],
+        "openings": {
+            "default": [
+                "今度は…あ、これ、意外と…",
+                "また変わった…けど、嫌じゃない…かも…",
+                "恥ずかしいけど…綺麗、かもしれない…",
+                "こんな姿になっても…悪くない、って…",
+                "また…でも、今回は少しワクワク…って、違う!",
+                "認めちゃおうかな...この姿も{pronoun}だって...",
+                "ちょっと...好きかもしれない、この感じ...",
+                "鏡の中の{pronoun}、思ったより...素敵...",
+                "もう抵抗する気持ち...薄れてきちゃった...",
+                "こういうの、案外{pronoun}に似合うのかも...",
+            ],
+            "bold": [
+                "ふん...悪くないじゃん、この格好...",
+                "認めてやるよ...ちょっとだけ似合ってる...",
+                "はー...{pronoun}って意外とこういうの向いてんのかもな...",
+                "もう抵抗するのも面倒...素直に楽しむか...",
+                "ま...嫌いではないかも...この姿...",
+            ],
+            "gentle": [
+                "ふふ...これも{pronoun}なんだって...思えてきたの...",
+                "受け入れちゃってもいいのかな...",
+                "こういう{pronoun}も...いいのかもしれないね...",
+                "穏やかな気持ち...不思議...嫌じゃないの...",
+                "少しずつ...好きになってきたかも...",
+            ],
+            "cheerful": [
+                "お！今回のいいじゃん！結構好きかも！",
+                "あはは！もう楽しくなってきちゃった！",
+                "わー！今度のは可愛い！ねー！",
+                "うんうん、{pronoun}こういうの似合うかも！",
+                "テンション上がってきた！次も楽しみ！",
+            ],
+            "shy": [
+                "あ...あの...これ...悪くない...かも...",
+                "ちょっとだけ...{pronoun}、好き...かも...",
+                "恥ずかしいけど...綺麗って思っちゃった...",
+                "認めるの恥ずかしいけど...似合ってる...？",
+                "うぅ...こんな気持ちになるなんて...",
+            ],
+        },
     },
     # 開花度 75-100: 堕落・快楽フェーズ
     "fallen": {
@@ -268,13 +408,48 @@ PSYCHOLOGICAL_STAGES = {
 - 新しいアイデンティティへの没入
 
 自然な日本語で、感情豊かに書いてください。""",
-        "openings": [
-            "わぁ…今度はこんな衣装…素敵…",
-            "また変身できる…嬉しい…",
-            "今日はどんな姿になれるのかな…って待ってた…",
-            "こんなに恥ずかしい格好なのに…もっと…",
-            "ふふ…また可愛くなっちゃった…",
-        ],
+        "openings": {
+            "default": [
+                "わぁ…今度はこんな衣装…素敵…",
+                "また変身できる…嬉しい…",
+                "今日はどんな姿になれるのかな…って待ってた…",
+                "こんなに恥ずかしい格好なのに…もっと…",
+                "ふふ…また可愛くなっちゃった…",
+                "もっと{pronoun}を変えて…もっと綺麗に…",
+                "この感覚...{pronoun}はもう戻れない…",
+                "最高...こんな衣装が似合う{pronoun}になったんだ…",
+                "次は何かな…楽しみでたまらない…",
+                "変わるたびに{pronoun}はもっと{pronoun}らしくなる…",
+            ],
+            "bold": [
+                "ふん、もっといいのないの？もっと過激なやつ！",
+                "いいね...{pronoun}こういうの好きだよ...！",
+                "もう遠慮はいらない...どんとこい！",
+                "もっとだ！もっと{pronoun}を変えろ！",
+                "はは！最高だな...この感覚！",
+            ],
+            "gentle": [
+                "ふふ…また新しい{pronoun}に出会えた…",
+                "嬉しい…こんな素敵な姿に…",
+                "もう{pronoun}はこの姿が大好き…",
+                "穏やかに受け入れられる…幸せ…",
+                "変わっていく{pronoun}が…好き…",
+            ],
+            "cheerful": [
+                "やったー！また変身！テンション上がる！",
+                "わーい！今度のも可愛い！最高！",
+                "楽しい楽しい！もっとやろ！",
+                "ふふふ！{pronoun}もう止まらないよ！",
+                "いえーい！どんどん可愛くなっちゃうね！",
+            ],
+            "shy": [
+                "あ…嬉しい…また変われる…",
+                "恥ずかしいけど…嬉しいの…もっと…",
+                "こっそり鏡を覗くの…好きになっちゃった…",
+                "誰にも言えないけど…{pronoun}、幸せ…",
+                "うぅ…でも…もっと見てほしい…",
+            ],
+        },
     },
 }
 
@@ -307,12 +482,48 @@ PSYCHOLOGICAL_STAGES_NSFW = {
 - 見られていることへの恐怖と、微かな期待感
 
 官能的で自然な日本語で、感情豊かに書いてください。体の感覚を具体的に描写してください。""",
-        "openings": [
-            "な、なんで!?こんな…体のライン丸見えじゃ…",
-            "うそ…こんな際どい格好…胸が…",
-            "ちょっと…そんなに見られると困る…恥ずかしい…",
-            "こ、こんな露出…急に言われても心の準備が…",
-        ],
+        "openings": {
+            "default": [
+                "な、なんで!?こんな…体のライン丸見えじゃ…",
+                "うそ…こんな際どい格好…胸が…",
+                "ちょっと…そんなに見られると困る…恥ずかしい…",
+                "こ、こんな露出…急に言われても心の準備が…",
+                "や、やだ...こんな格好...体が丸見え...",
+                "ひっ...こんなに肌が出てる...",
+                "お願い...見ないで...恥ずかしすぎる...",
+                "こんな際どい服...{pronoun}には刺激が強すぎ...",
+                "肌に空気が...こんなに露出してるなんて...",
+                "は、恥ずかしい...体のラインが全部...",
+            ],
+            "bold": [
+                "はぁ!?こんなエロい格好させて何のつもり！",
+                "ちょっと！こんな露出...どういうつもりだ！",
+                "ふざけんな...{pronoun}の体で遊ぶんじゃない！",
+                "こんな際どい服...{pronoun}が着るわけ...！",
+                "脱がせろ...こんな恥ずかしい格好...！",
+            ],
+            "gentle": [
+                "あ...あの...こんなに露出が...",
+                "恥ずかしい...肌がこんなに...",
+                "え...こんな際どいの...{pronoun}には...",
+                "ど、どうしよう...体のラインが全部...",
+                "お肌が...冷たい空気を感じちゃう...",
+            ],
+            "cheerful": [
+                "えっ！ちょ、これすごくない！？露出すご！",
+                "うわっ！こんなセクシーな服！？",
+                "はは...さすがにこれはびっくり...胸が...",
+                "マジで！？こんな際どいの着ちゃうの！？",
+                "あはは...でもちょっとドキドキする...",
+            ],
+            "shy": [
+                "ひっ...こ、こんな...肌が見えすぎ...",
+                "み、見ないで...裸みたいで...",
+                "う...うぅ...こんなエロい格好...",
+                "恥ずかしくて死にそう...体が...",
+                "だ、誰か助けて...こんな姿...",
+            ],
+        },
     },
     # 開花度 25-49: 揺らぎ・葛藤フェーズ (NSFW)
     "wavering": {
@@ -336,13 +547,48 @@ PSYCHOLOGICAL_STAGES_NSFW = {
 - 抵抗する心と正直に反応する体の対比
 
 官能的で自然な日本語で、感情豊かに書いてください。体の感覚を具体的に描写してください。""",
-        "openings": [
-            "また…でも、さっきよりは…体が慣れてきた…",
-            "もう何度目だろう…こんな格好に反応してしまう…",
-            "恥ずかしい…でも、ちょっと気持ちいい…",
-            "こんなの嫌だ…なのに、体が熱くなる…",
-            "鏡を見るたびに…セクシーって思っちゃう…",
-        ],
+        "openings": {
+            "default": [
+                "また…でも、さっきよりは…体が慣れてきた…",
+                "もう何度目だろう…こんな格好に反応してしまう…",
+                "恥ずかしい…でも、ちょっと気持ちいい…",
+                "こんなの嫌だ…なのに、体が熱くなる…",
+                "鏡を見るたびに…セクシーって思っちゃう…",
+                "肌に触れる布地の感触が...気になって...",
+                "見られることに...少し慣れてきた自分が怖い...",
+                "前より恥ずかしくない...なんで...体が...",
+                "こんな格好でドキドキするなんて...{pronoun}...",
+                "嫌なはずなのに...体がぞくぞくする...",
+            ],
+            "bold": [
+                "ちっ...また際どい格好か...でも体は...",
+                "悔しいけど...慣れてきたのは認める...",
+                "ふん...こんなの{pronoun}にはまだまだ刺激が足りない...",
+                "はー...もう好きにしろ...体は正直に反応してる...",
+                "何度やっても腹立つ...でも肌がゾクゾクする...",
+            ],
+            "gentle": [
+                "また...でも、体が少し受け入れてる...",
+                "不思議...前より恥ずかしくない...肌が...",
+                "こういう感覚...嫌じゃないのかも...",
+                "肌に触れる空気が...気持ちいい...",
+                "ふふ...{pronoun}の体、意外と綺麗かも...",
+            ],
+            "cheerful": [
+                "あれ？体が慣れてきた？意外と平気かも！",
+                "うーん...正直に言うとちょっと気持ちいいかも！",
+                "はは...肌に触れる感触、悪くないかも！",
+                "あ、体が反応してる...でも嫌じゃない！",
+                "おお！前より全然恥ずかしくない！成長！？",
+            ],
+            "shy": [
+                "うぅ...また...でも体が...少し...",
+                "恥ずかしい...けど前ほどじゃない...怖い...",
+                "肌が...敏感になってる...こんなの...",
+                "見られてる...のに...体が...熱い...",
+                "{pronoun}の体...変わってきてる...感じ方が...",
+            ],
+        },
     },
     # 開花度 50-74: 受容開始フェーズ (NSFW)
     "acceptance_start": {
@@ -366,13 +612,48 @@ PSYCHOLOGICAL_STAGES_NSFW = {
 - もっと過激なものを求める心の芽生え
 
 官能的で自然な日本語で、感情豊かに書いてください。体の感覚を具体的に描写してください。""",
-        "openings": [
-            "今度は…あ、これ、すごく際どい…でも嫌じゃない…",
-            "また変わった…けど、こういうの…好きかも…",
-            "恥ずかしいけど…エロくて…綺麗かも…",
-            "こんな格好になっても…見られたい、って…",
-            "また…でも、体がゾクゾクする…って、これ…",
-        ],
+        "openings": {
+            "default": [
+                "今度は…あ、これ、すごく際どい…でも嫌じゃない…",
+                "また変わった…けど、こういうの…好きかも…",
+                "恥ずかしいけど…エロくて…綺麗かも…",
+                "こんな格好になっても…見られたい、って…",
+                "また…でも、体がゾクゾクする…って、これ…",
+                "もう隠す必要ないかも...こんなに綺麗なら...",
+                "この露出...{pronoun}の体を見せたいって思ってる...",
+                "恥ずかしいのが気持ちよくなってきた...",
+                "こういう{pronoun}も...いいのかも...体は正直...",
+                "エロいけど...好き...この感覚...",
+            ],
+            "bold": [
+                "ふん...もっと際どいのでもいいよ？",
+                "いいね...{pronoun}のこういう姿、悪くない...",
+                "はは...もう恥ずかしがるのはやめた...",
+                "見せてやるよ...{pronoun}の本当の姿...",
+                "もっと攻めてこいよ...受けて立つ...",
+            ],
+            "gentle": [
+                "ふふ...こういうの...好きになっちゃった...",
+                "体が喜んでる...{pronoun}、感じちゃって...",
+                "恥ずかしいけど...嬉しい...見てほしい...",
+                "優しく触れられたら...もっと...",
+                "綺麗って...思ってくれるかな...",
+            ],
+            "cheerful": [
+                "わー！これエロい！でも好き！",
+                "あはは！もう開き直っちゃった！いいじゃん！",
+                "すごいドキドキする！でも楽しい！",
+                "{pronoun}って意外とセクシーかも！ね！",
+                "体が反応してるのが自分でわかる！面白い！",
+            ],
+            "shy": [
+                "恥ずかしいけど...見てほしい...の...",
+                "こんなこと言えないけど...好き...この感覚...",
+                "{pronoun}の体...綺麗って...思っちゃった...",
+                "うぅ...でも...もっと見せたい...",
+                "秘密にしてね...{pronoun}、感じてるの...",
+            ],
+        },
     },
     # 開花度 75-100: 堕落・快楽フェーズ (NSFW)
     "fallen": {
@@ -396,15 +677,145 @@ PSYCHOLOGICAL_STAGES_NSFW = {
 - 新しい快楽を求める欲望
 
 官能的で自然な日本語で、感情豊かに書いてください。体の感覚を具体的に描写してください。""",
-        "openings": [
-            "わぁ…こんなにエロい衣装…最高…",
-            "また変身できる…体がうずうずしてた…",
-            "今日はどんな過激な格好になれるのかな…",
-            "こんなに恥ずかしい格好なのに…もっと見て…",
-            "ふふ…また可愛くてエロくなっちゃった…",
-        ],
+        "openings": {
+            "default": [
+                "わぁ…こんなにエロい衣装…最高…",
+                "また変身できる…体がうずうずしてた…",
+                "今日はどんな過激な格好になれるのかな…",
+                "こんなに恥ずかしい格好なのに…もっと見て…",
+                "ふふ…また可愛くてエロくなっちゃった…",
+                "もっと脱がせて…もっと見せたい…",
+                "体が疼く…もっと過激にして…",
+                "この快感…{pronoun}はもう止まれない…",
+                "エロいのが好き…{pronoun}の本性…",
+                "もっともっと…{pronoun}を変えて…染めて…",
+            ],
+            "bold": [
+                "もっとだ！もっとエロくしろ！",
+                "ふん、この程度じゃ{pronoun}は満足しないよ？",
+                "いいね…もっと過激なの、見せてやるよ…",
+                "はは！最高だ！{pronoun}の体、こんなにエロいなんて！",
+                "全部脱がせてもいいよ？{pronoun}は怖くない！",
+            ],
+            "gentle": [
+                "ふふ…また素敵な{pronoun}に…嬉しい…",
+                "体が喜んでる…{pronoun}、幸せ…",
+                "もっと綺麗にして…もっと感じさせて…",
+                "こんなに気持ちいいの…嬉しくて涙が…",
+                "大好き…この感覚…ずっと{pronoun}でいたい…",
+            ],
+            "cheerful": [
+                "やったー！今日のもエロい！最高！",
+                "わーい！もっとやろ！楽しい！",
+                "あはは！{pronoun}ってこんなにセクシーだったんだ！",
+                "テンション上がる！もっともっと！",
+                "いえーい！エロ可愛い{pronoun}最高！",
+            ],
+            "shy": [
+                "あ…嬉しい…また…{pronoun}を…見て…",
+                "恥ずかしいけど…もっと…お願い…",
+                "こっそり…もっと過激なの…着たい…",
+                "誰にも言えないけど…{pronoun}、こういうの好き…",
+                "うぅ…でも…もっと見てほしいの…",
+            ],
+        },
     },
 }
+
+
+# ========================================
+# 性格タイプ判定 (R-010 準拠)
+# ========================================
+
+PERSONALITY_TYPE_KEYWORDS: dict[str, list[str]] = {
+    "bold": ["気が強い", "強気", "勝ち気", "ツンデレ", "反抗的", "攻撃的"],
+    "gentle": ["おっとり", "穏やか", "優しい", "温厚", "おとなしい", "控えめ"],
+    "cheerful": ["明るい", "元気", "活発", "陽気", "楽天的", "テンション高い"],
+    "shy": ["恥ずかしがり", "内気", "臆病", "人見知り", "引っ込み思案"],
+    "calm": [
+        "冷静",
+        "クール",
+        "落ち着いた",
+        "理知的",
+        "淡々とした",
+        "クールビューティー",
+    ],
+    "passionate": ["情熱的", "熱い", "一生懸命", "全力", "アツい", "燃える"],
+}
+
+
+def classify_personality_type(
+    personality: str = "",
+    description: str = "",
+) -> str:
+    """Personality and description text from keyword matching to determine personality type.
+
+    Args:
+        personality: Character personality text
+        description: Character description text
+
+    Returns:
+        Personality type key (bold/gentle/cheerful/shy/calm/passionate/default)
+    """
+    combined = f"{personality} {description}"
+    if not combined.strip():
+        return "default"
+
+    best_type = "default"
+    best_count = 0
+    for ptype, keywords in PERSONALITY_TYPE_KEYWORDS.items():
+        count = sum(1 for kw in keywords if kw in combined)
+        if count > best_count:
+            best_count = count
+            best_type = ptype
+    return best_type
+
+
+def select_opening(
+    openings: dict[str, list[str]] | list[str],
+    personality_type: str = "default",
+    pronoun: str = "僕",
+    used_openings: list[str] | None = None,
+) -> str:
+    """Select an opening line based on personality type with dedup logic.
+
+    Supports both the old flat-list format and the new dict-by-personality format.
+
+    Args:
+        openings: Either a flat list of strings (legacy) or a dict keyed by
+            personality type (default/bold/gentle/cheerful/shy/calm/passionate).
+        personality_type: Personality type key from classify_personality_type().
+        pronoun: First-person pronoun to substitute into {pronoun} templates.
+        used_openings: List of recently used opening lines (already formatted)
+            to avoid repetition.
+
+    Returns:
+        A selected opening line with {pronoun} substituted.
+    """
+    import random
+
+    # Build candidate pool
+    if isinstance(openings, dict):
+        pool = list(openings.get("default", []))
+        if personality_type != "default" and personality_type in openings:
+            pool.extend(openings[personality_type])
+    else:
+        pool = list(openings)
+
+    if not pool:
+        return f"えっ…{pronoun}の姿が…"
+
+    # Format all candidates with pronoun first for dedup comparison
+    formatted_pool = [o.format(pronoun=pronoun) for o in pool]
+
+    # Deduplicate against used_openings
+    if used_openings:
+        available = [fp for fp in formatted_pool if fp not in used_openings]
+        if available:
+            return random.choice(available)
+        # All used — reset and pick from full pool
+
+    return random.choice(formatted_pool)
 
 
 def get_psychological_stage(bloom: int, nsfw_mode: bool = False) -> dict:
@@ -435,35 +846,59 @@ def build_enhanced_feeling_prompt(
     attributes: list[str] | None = None,
     nsfw_mode: bool = False,
     transformation_count: int = 0,
+    personality: str = "",
+    description: str = "",
+    used_openings: list[str] | None = None,
 ) -> tuple[str, str]:
-    """強化版心境生成用プロンプトを構築 (T059: 開花度ベースに修正)
+    """Build an enhanced feeling prompt with psychological stage and personality.
 
-    開花度に応じて心理段階を変化させる。
-    変身回数が0の場合は初回変身用の特別なプロンプトを使用する。
+    Selects the psychological stage from bloom, picks an opening via
+    personality-based routing with dedup, and injects character personality
+    into the system prompt when provided.
 
     Args:
-        before_desc: 着せ替え前の状態説明
-        after_desc: 着せ替え後の状態説明
-        instruction: ユーザーの着せ替え指示
-        bloom: 開花度 (0-100)
-        pronoun: 一人称
-        attributes: キャラクターに付与された属性リスト
-        nsfw_mode: NSFWモードかどうか
-        transformation_count: 現在の変身回数（0=初回変身）
+        before_desc: Description before outfit change
+        after_desc: Description after outfit change
+        instruction: User outfit change instruction
+        bloom: Bloom value (0-100)
+        pronoun: First-person pronoun
+        attributes: Character attribute list
+        nsfw_mode: Whether NSFW mode is enabled
+        transformation_count: Current transformation count (0 = first time)
+        personality: Character personality text
+        description: Character description text
+        used_openings: Recently used opening lines for dedup
 
     Returns:
-        (システムプロンプト, ユーザープロンプト) のタプル
+        (system_prompt, user_prompt) tuple
     """
-    import random
-
     # 初回変身（transformation_count == 0）の場合は特別なプロンプトを使用
     if transformation_count == 0:
         stage = FIRST_TRANSFORMATION_STAGE
     else:
         stage = get_psychological_stage(bloom, nsfw_mode)
 
-    opening = random.choice(stage["openings"])
+    personality_type = classify_personality_type(personality, description)
+    opening = select_opening(
+        openings=stage["openings"],
+        personality_type=personality_type,
+        pronoun=pronoun,
+        used_openings=used_openings,
+    )
     situation = f"「{instruction}」という指示で衣装が変更された"
+
+    # Build system prompt with optional personality section (R-002)
+    system_prompt = stage["system_prompt"]
+    if personality:
+        truncated = personality[:500] if len(personality) > 500 else personality
+        personality_section = f"\n\n【このキャラクターの性格】\n- 性格: {truncated}\n"
+        if description:
+            desc_truncated = (
+                description[:500] if len(description) > 500 else description
+            )
+            personality_section += f"- 説明: {desc_truncated}\n"
+        personality_section += "- このキャラクターの性格特性に合わせて、語調・反応・思考パターンを調整してください。"
+        system_prompt += personality_section
 
     # 属性情報を追加
     attribute_section = ""
@@ -485,7 +920,7 @@ def build_enhanced_feeling_prompt(
         + attribute_section
     )
 
-    return stage["system_prompt"], user_prompt
+    return system_prompt, user_prompt
 
 
 # ========================================
@@ -740,34 +1175,39 @@ CRITICAL_POINT_SPEECHES: dict[int, list[str]] = {
     ],
     75: [
         "もう…元に戻りたいなんて思えない…",
-        "この感覚、手放したくない…僕、変わっちゃったのかな…",
+        "この感覚、手放したくない…{pronoun}、変わっちゃったのかな…",
         "抵抗？そんなの、もう必要ないよね…",
-        "認めちゃえば楽なんだ…こっちの自分が本当の僕…",
+        "認めちゃえば楽なんだ…こっちの自分が本当の{pronoun}…",
     ],
     100: [
         "ついに…完全に目覚めちゃった…もう戻れない…",
-        "最高に気持ちいい…これが本当の僕だったんだ…",
-        "もう迷わない。この姿が、この気持ちが、僕のすべて…",
+        "最高に気持ちいい…これが本当の{pronoun}だったんだ…",
+        "もう迷わない。この姿が、この気持ちが、{pronoun}のすべて…",
         "完璧…もっと綺麗に、もっと可愛くなりたい…",
     ],
 }
 
 
-def get_critical_speech(threshold: int) -> str:
-    """臨界点用の特別セリフをランダムに取得
+def get_critical_speech(threshold: int, pronoun: str = "僕") -> str:
+    """Get a random special speech for a critical point.
 
     Args:
-        threshold: 臨界点の閾値 (25, 50, 75, 100)
+        threshold: Critical point threshold (25, 50, 75, 100)
+        pronoun: First-person pronoun for template substitution
 
     Returns:
-        特別セリフ
+        Special speech text with pronoun applied
     """
     import random
+
+    if not pronoun:
+        pronoun = "僕"
 
     speeches = CRITICAL_POINT_SPEECHES.get(threshold, [])
     if not speeches:
         return f"開花度が{threshold}%を超えました…"
-    return random.choice(speeches)
+    speech = random.choice(speeches)
+    return speech.format(pronoun=pronoun)
 
 
 # ========================================
@@ -775,52 +1215,54 @@ def get_critical_speech(threshold: int) -> str:
 # ========================================
 # Vision LLMをスキップし、生成プロンプトを心境生成の入力として再利用
 
-NOVELAI_PROMPT_GENERATION_SYSTEM = """あなたはNovelAIの画像生成プロンプト専門家です。
-ユーザーの日本語指示を、NovelAI画像生成に最適な英語タグプロンプトに変換してください。
+NOVELAI_PROMPT_GENERATION_SYSTEM = """You are a NovelAI image generation prompt expert.
+Convert the user's instruction into an optimal English tag prompt for NovelAI image generation.
 
-## ルール
-1. タグはカンマ区切りで出力
-2. 品質タグを先頭に: masterpiece, best quality, very aesthetic
-3. キャラクター特徴を維持するタグを含める
-4. 衣装・ポーズの詳細タグを追加
-5. 単一キャラクター指定: 1girl, solo
-6. 背景指定: simple background または具体的な背景
+## Rules
+1. Output comma-separated tags only.
+2. Quality tags first: masterpiece, best quality, very aesthetic
+3. Maintain character feature tags from the previous prompt.
+4. Add detailed tags for outfit, pose, etc.
+5. Single character: solo. Use 1boy or 1girl based on the character's appearance in context.
+6. Background: simple background or a specific scene.
+7. If the instruction implies a gender/body transformation (e.g. TSF), reflect it in the gender tag and body features.
 
-## 出力形式
-タグプロンプトのみを出力。説明や前置きは不要。
+## Output
+Tag prompt only. No explanation or preamble.
 
-## 例
-入力: 「メイド服に着替えて」
-出力: masterpiece, best quality, very aesthetic, 1girl, solo, maid outfit, maid headdress, black dress, white apron, frills, standing, looking at viewer, simple background"""
+## Example
+Input: 'Change into a maid outfit'
+Output: masterpiece, best quality, very aesthetic, 1girl, solo, maid outfit, maid headdress, black dress, white apron, frills, standing, looking at viewer, simple background"""
 
-NOVELAI_PROMPT_GENERATION_SYSTEM_NSFW = """あなたはNovelAIの画像生成プロンプト専門家です。
-ユーザーの日本語指示を、NovelAI画像生成に最適な英語タグプロンプトに変換してください。
-成人向けコンテンツのタグも適切に使用できます。
+NOVELAI_PROMPT_GENERATION_SYSTEM_NSFW = """You are a NovelAI image generation prompt expert.
+Convert the user's instruction into an optimal English tag prompt for NovelAI image generation.
+Adult content tags are allowed.
 
-## ルール
-1. タグはカンマ区切りで出力
-2. 品質タグを先頭に: masterpiece, best quality, very aesthetic
-3. キャラクター特徴を維持するタグを含める
-4. 衣装・ポーズ・露出度の詳細タグを追加
-5. 単一キャラクター指定: 1girl, solo
-6. 背景指定: simple background または具体的な背景
-7. 露出度が高い場合: 適切な身体描写タグを使用
+## Rules
+1. Output comma-separated tags only.
+2. Quality tags first: masterpiece, best quality, very aesthetic
+3. Maintain character feature tags from the previous prompt.
+4. Add detailed tags for outfit, pose, and exposure level.
+5. Single character: solo. Use 1boy or 1girl based on the character's appearance in context.
+6. Background: simple background or a specific scene.
+7. For high exposure: use appropriate body description tags.
+8. If the instruction implies a gender/body transformation (e.g. TSF), reflect it in the gender tag and body features.
 
-## 出力形式
-タグプロンプトのみを出力。説明や前置きは不要。
+## Output
+Tag prompt only. No explanation or preamble.
 
-## 例
-入力: 「もっと露出度を上げて」
-出力: masterpiece, best quality, very aesthetic, 1girl, solo, revealing outfit, cleavage, bare shoulders, thighhighs, miniskirt, seductive pose, looking at viewer, simple background"""
+## Example
+Input: 'Make the outfit more revealing'
+Output: masterpiece, best quality, very aesthetic, 1girl, solo, revealing outfit, cleavage, bare shoulders, thighhighs, miniskirt, seductive pose, looking at viewer, simple background"""
 
-NOVELAI_PROMPT_GENERATION_USER_TEMPLATE = """前回のプロンプト: {previous_prompt}
-キャラクター基本タグ: {character_base_tags}
+NOVELAI_PROMPT_GENERATION_USER_TEMPLATE = """Previous prompt: {previous_prompt}
 
-ユーザーの指示: {instruction}
+User instruction: {instruction}
 
-上記の指示に基づいて、NovelAI画像生成プロンプトを生成してください。
-前回のプロンプトからキャラクター特徴を維持しつつ、指示に従って変更を加えてください。
-タグプロンプトのみを出力してください。"""
+Generate a NovelAI image generation prompt based on the above instruction.
+Maintain character features from the previous prompt while applying changes per the instruction.
+Choose 1boy or 1girl based on the character's current appearance (which may change if the instruction implies transformation).
+Output only the tag prompt."""
 
 
 def get_novelai_prompt_generation_system(
@@ -831,9 +1273,10 @@ def get_novelai_prompt_generation_system(
 
     Args:
         nsfw_mode: NSFWモードかどうか
+        instruction_language: ユーザー指示の言語
 
     Returns:
-        システムプロンプト
+        システムプロンプト文字列
     """
     language_name = "English" if instruction_language == "en" else "Japanese"
     language_hint = (
@@ -851,20 +1294,17 @@ def get_novelai_prompt_generation_system(
 def build_novelai_prompt_generation_user(
     instruction: str,
     previous_prompt: str | None = None,
-    character_base_tags: str | None = None,
 ) -> str:
     """NovelAIプロンプト生成用ユーザープロンプトを構築
 
     Args:
-        instruction: ユーザーの日本語指示
+        instruction: ユーザーの指示
         previous_prompt: 前回生成したプロンプト（継続の場合）
-        character_base_tags: キャラクターベースタグ（初回の場合）
 
     Returns:
-        構築されたユーザープロンプト
+        構築されたユーザープロンプト文字列
     """
     return NOVELAI_PROMPT_GENERATION_USER_TEMPLATE.format(
-        previous_prompt=previous_prompt or "なし（初回）",
-        character_base_tags=character_base_tags or "なし",
+        previous_prompt=previous_prompt or "None (first time)",
         instruction=instruction,
     )

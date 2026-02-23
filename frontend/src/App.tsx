@@ -42,7 +42,10 @@ function App() {
   if (location.pathname === "/gallery") {
     return <GalleryScreen />;
   }
-  if (location.pathname === "/endings" && settingsState.experimentalEndingEnabled) {
+  if (
+    location.pathname === "/endings" &&
+    settingsState.experimentalEndingEnabled
+  ) {
     return <EndingsScreen />;
   }
   if (location.pathname === "/achievements") {
@@ -393,6 +396,7 @@ function AppMain() {
           fidelity: number;
         }>;
       },
+      instructionType?: string,
     ) => {
       if (!session.sessionId || isTransforming) return;
 
@@ -406,6 +410,9 @@ function AppMain() {
         transformation_type: transformationType,
         language: settingsState.language,
       };
+      if (instructionType) {
+        body.instruction_type = instructionType;
+      }
       if (costumeImage) {
         body.costume_image = costumeImage;
       }
@@ -573,6 +580,7 @@ function AppMain() {
         changeSettings={changeSettings}
         onChangeSettingsUpdate={handleChangeSettingsUpdate}
         imageProvider={imageProvider}
+        selfMode={session.selfMode}
         onSessionStart={handleSessionStart}
       />
 

@@ -263,6 +263,47 @@
   cursor: not-allowed;
 }
 
+/* Self mode section */
+.welcome-screen__self-mode {
+  padding: 0.75rem 1rem;
+}
+
+.welcome-screen__self-mode-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.welcome-screen__self-mode-desc {
+  margin: 0.25rem 0 0 1.75rem;
+  font-size: 0.85rem;
+  color: var(--text-muted, #888);
+}
+
+.welcome-screen__self-mode-warning {
+  margin: 0.5rem 0 0 1.75rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.85rem;
+  color: var(--warning-text, #b8860b);
+  background-color: var(--warning-bg, rgba(255, 193, 7, 0.1));
+  border: 1px solid var(--warning-border, rgba(255, 193, 7, 0.3));
+  border-radius: 6px;
+}
+
+.welcome-screen__self-mode-warning-link {
+  display: inline-block;
+  margin-left: 0.5rem;
+  color: var(--accent, #ff4757);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.welcome-screen__self-mode-warning-link:hover {
+  text-decoration: underline;
+}
+
 /* レスポンシブ */
 @media (max-width: 770px) {
   .welcome-screen {

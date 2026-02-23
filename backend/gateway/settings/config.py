@@ -184,6 +184,14 @@ class Settings:
         if self.multipart_max_part_size <= 0:
             raise ValueError("MULTIPART_MAX_PART_SIZE_BYTES must be a positive integer")
 
+    @property
+    def is_novelai_opus_mode(self) -> bool:
+        """NovelAI Opus mode: both image and description providers are novelai."""
+        return (
+            self.image_provider == "novelai"
+            and self.image_description_provider == "novelai"
+        )
+
     def ensure_workflow_exists(self, workflow_path: Path | None = None) -> None:
         path = workflow_path or self.comfyui_workflow_path
         if not path.exists():

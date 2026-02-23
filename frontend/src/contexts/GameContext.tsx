@@ -42,6 +42,9 @@ interface GameState {
   // エンディング
   ending: Ending | null;
 
+  // 自分自身モード (US5)
+  selfMode: boolean;
+
   // UI状態
   isTransforming: boolean;
   isLoading: boolean;
@@ -67,6 +70,7 @@ type GameAction =
         stats: SessionStats;
         history: HistoryItem[];
         attributes?: SessionAttribute[];
+        selfMode?: boolean;
       };
     }
   | { type: "UPDATE_STATS"; payload: Partial<SessionStats> }
@@ -81,6 +85,7 @@ type GameAction =
   | { type: "SET_ATTRIBUTES"; payload: SessionAttribute[] }
   | { type: "ADD_ATTRIBUTE"; payload: SessionAttribute }
   | { type: "REMOVE_ATTRIBUTE"; payload: string }
+  | { type: "SET_SELF_MODE"; payload: boolean }
   | { type: "CLEAR_SESSION" };
 
 // デフォルト状態
@@ -94,6 +99,7 @@ const defaultState: GameState = {
   currentHistoryIndex: -1,
   attributes: [],
   ending: null,
+  selfMode: false,
   isTransforming: false,
   isLoading: false,
   error: null,
@@ -126,6 +132,7 @@ function gameReducer(state: GameState, action: GameAction): GameState {
         history: action.payload.history,
         currentHistoryIndex: action.payload.history.length - 1,
         attributes: action.payload.attributes || [],
+        selfMode: action.payload.selfMode ?? false,
         ending: null,
         error: null,
       };
@@ -177,6 +184,8 @@ function gameReducer(state: GameState, action: GameAction): GameState {
         ...state,
         attributes: state.attributes.filter((a) => a.id !== action.payload),
       };
+    case "SET_SELF_MODE":
+      return { ...state, selfMode: action.payload };
     case "CLEAR_SESSION":
       return defaultState;
     default:
@@ -199,6 +208,7 @@ interface GameContextType {
     stats: SessionStats,
     history: HistoryItem[],
     attributes?: SessionAttribute[],
+    selfMode?: boolean,
   ) => void;
   updateStats: (stats: Partial<SessionStats>) => void;
   addHistoryItem: (item: HistoryItem) => void;
@@ -216,6 +226,8 @@ interface GameContextType {
   addAttribute: (text: string) => Promise<void>;
   removeAttribute: (id: string) => Promise<void>;
   setAttributes: (attributes: SessionAttribute[]) => void;
+  // US5: 自分自身モード
+  setSelfMode: (selfMode: boolean) => void;
 }
 
 // Context作成
@@ -264,6 +276,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
       stats: SessionStats,
       history: HistoryItem[],
       attributes?: SessionAttribute[],
+      selfMode?: boolean,
     ) => {
       dispatch({
         type: "RESTORE_SESSION",
@@ -274,6 +287,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
           stats,
           history,
           attributes: attributes || [],
+          selfMode: selfMode ?? false,
         },
       });
     },
@@ -338,6 +352,10 @@ export function GameProvider({ children }: { children: ReactNode }) {
   // 属性管理関数
   const setAttributes = useCallback((attributes: SessionAttribute[]) => {
     dispatch({ type: "SET_ATTRIBUTES", payload: attributes });
+  }, []);
+
+  const setSelfMode = useCallback((selfMode: boolean) => {
+    dispatch({ type: "SET_SELF_MODE", payload: selfMode });
   }, []);
 
   const addAttribute = useCallback(
@@ -419,6 +437,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
     addAttribute,
     removeAttribute,
     setAttributes,
+    setSelfMode,
   };
 
   return <GameContext.Provider value={value}>{children}</GameContext.Provider>;

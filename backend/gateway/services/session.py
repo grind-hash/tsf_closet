@@ -98,6 +98,7 @@ class DatabaseSessionStore:
             is_active=bool(orm_session.is_active),
             created_at=_to_datetime(orm_session.created_at),
             updated_at=_to_datetime(orm_session.updated_at),
+            self_mode=bool(getattr(orm_session, "self_mode", False)),
         )
 
     @staticmethod
@@ -111,6 +112,7 @@ class DatabaseSessionStore:
             before_description=orm_history.before_description,
             after_description=orm_history.after_description,
             created_at=_to_datetime(orm_history.created_at),
+            instruction_type=orm_history.instruction_type,
         )
 
     async def get_active_session(
@@ -214,8 +216,9 @@ class DatabaseSessionStore:
         image_path: str,
         character_id: str | None = None,
         user_id: str = DEFAULT_USER_ID,
+        self_mode: bool = False,
     ) -> PersistedSession:
-        """新しいセッションを作成"""
+        """Create a new session."""
         session_id = str(uuid.uuid4())
         now = datetime.now()
 
@@ -227,6 +230,7 @@ class DatabaseSessionStore:
                 current_image_path=image_path,
                 transformation_count=0,
                 is_active=True,
+                self_mode=self_mode,
                 created_at=now,
                 updated_at=now,
             )
@@ -240,6 +244,7 @@ class DatabaseSessionStore:
             current_image_path=image_path,
             transformation_count=0,
             is_active=True,
+            self_mode=self_mode,
             created_at=now,
             updated_at=now,
         )
@@ -343,6 +348,7 @@ class DatabaseSessionStore:
         feeling_text: str | None = None,
         before_description: str | None = None,
         after_description: str | None = None,
+        instruction_type: str | None = None,
     ) -> PersistedHistory:
         """履歴を追加"""
         history_id = str(uuid.uuid4())
@@ -363,6 +369,7 @@ class DatabaseSessionStore:
                 before_description=before_description,
                 after_description=after_description,
                 created_at=now,
+                instruction_type=instruction_type,
             )
             db_session.add(orm_history)
             await db_session.commit()
@@ -378,6 +385,7 @@ class DatabaseSessionStore:
             before_description=before_description,
             after_description=after_description,
             created_at=now,
+            instruction_type=instruction_type,
         )
 
     async def get_history(
@@ -492,6 +500,7 @@ class DatabaseSessionStore:
                     before_description=history_item.before_description or "",
                     after_description=history_item.after_description or "",
                     timestamp=history_item.created_at.isoformat(),
+                    instruction_type=history_item.instruction_type,
                     costume_category=tag.costume_category if tag else None,
                     exposure_level=tag.exposure_level if tag else None,
                     age_impression=tag.age_impression if tag else None,
@@ -528,6 +537,7 @@ class DatabaseSessionStore:
                 role=conv.role,
                 content=conv.content,
                 created_at=conv.created_at,
+                instruction_type=conv.instruction_type,
             )
             for conv in conversations
         ]
@@ -543,6 +553,7 @@ class DatabaseSessionStore:
             stats=stats_response,
             attributes=attributes,
             conversation_history=conversation_history,
+            self_mode=session.self_mode,
         )
 
     async def _cleanup_old_history(
@@ -982,6 +993,13 @@ class DatabaseSessionStore:
     ) -> dict:
         """ユーザー設定を取得"""
         return await settings_service.get_user_settings(user_id=user_id)
+
+    async def get_self_profile(
+        self,
+        user_id: str = DEFAULT_USER_ID,
+    ) -> dict | None:
+        """Return the parsed self_profile_json for the given user, or None."""
+        return await settings_service.get_self_profile(user_id=user_id)
 
     async def update_user_settings(
         self,

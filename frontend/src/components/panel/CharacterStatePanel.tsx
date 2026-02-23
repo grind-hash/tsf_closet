@@ -49,7 +49,7 @@ export default function CharacterStatePanel({
     addAttribute,
     removeAttribute,
   } = useGame();
-  const { scrollToMessage, highlightMessage } = useChat();
+  const { scrollToMessage, highlightMessage, state: chatState } = useChat();
   const { state: settingsState, toggleInpaint, toggleNsfw } = useSettings();
 
   // 属性入力状態
@@ -246,10 +246,13 @@ export default function CharacterStatePanel({
     return Math.max(0, Math.min(100, value ?? 0));
   };
 
-  // 順応度表示値変換 (-50~50 -> 0~100)
-  const getAdaptationMeterValue = (value: number | undefined) => {
+  // Center-origin adaptation bar style (-50~50 -> left/width from center)
+  const getAdaptationBarStyle = (value: number | undefined) => {
     const clamped = Math.max(-50, Math.min(50, value ?? 0));
-    return clamped + 50;
+    const normalized = clamped + 50; // 0-100, 50 = center
+    const barWidth = Math.abs(normalized - 50);
+    const barLeft = Math.min(normalized, 50);
+    return { width: `${barWidth}%`, left: `${barLeft}%` };
   };
 
   return (
@@ -296,11 +299,15 @@ export default function CharacterStatePanel({
           </div>
         )}
 
-        {/* 変身中オーバーレイ */}
+        {/* 変身中/行動中オーバーレイ */}
         {isTransforming && (
           <div className="character-state-panel__loading-overlay">
             <div className="character-state-panel__spinner" />
-            <p>{t("characterPanel.transforming")}</p>
+            <p>
+              {chatState.instructionType === "action"
+                ? t("characterPanel.acting")
+                : t("characterPanel.transforming")}
+            </p>
           </div>
         )}
 
@@ -603,7 +610,7 @@ export default function CharacterStatePanel({
       {/* パラメータ表示 */}
       {stats && (
         <div className="character-state-panel__stats">
-          {/* 変身回数 */}
+          {/* 変身回数 (両モード共通) */}
           <div className="character-state-panel__stat character-state-panel__stat--count">
             <span className="character-state-panel__stat-label">
               {t("characterPanel.transformCountLabel")}
@@ -615,63 +622,87 @@ export default function CharacterStatePanel({
             </span>
           </div>
 
-          <div className="character-state-panel__stat">
-            <span className="character-state-panel__stat-label">
-              {t("characterPanel.bloom")}
-            </span>
-            <div className="character-state-panel__stat-bar">
-              <div
-                className="character-state-panel__stat-fill character-state-panel__stat-fill--bloom"
-                style={{ width: `${getBarWidth(stats.bloom)}%` }}
-              />
-            </div>
-            <span className="character-state-panel__stat-value">
-              {stats.bloom ?? 0}
-            </span>
-          </div>
-
-          <div className="character-state-panel__stat">
-            <span className="character-state-panel__stat-label">
-              {t("characterPanel.shame")}
-            </span>
-            <div className="character-state-panel__stat-bar">
-              <div
-                className="character-state-panel__stat-fill character-state-panel__stat-fill--shame"
-                style={{ width: `${getBarWidth(stats.shame)}%` }}
-              />
-            </div>
-            <span className="character-state-panel__stat-value">
-              {stats.shame ?? 0}
-            </span>
-          </div>
-
-          <div className="character-state-panel__stat">
-            <span className="character-state-panel__stat-label">
-              {t("characterPanel.adaptation")}
-            </span>
-            <div className="character-state-panel__adaptation-meter">
-              <div className="character-state-panel__adaptation-labels">
-                <span>{t("characterPanel.adaptationSexy")}</span>
-                <span>{t("characterPanel.adaptationNeutral")}</span>
-                <span>{t("characterPanel.adaptationCute")}</span>
+          {/* 自分自身モード インジケーター */}
+          {state.selfMode && (
+            <>
+              <div className="character-state-panel__self-mode-badge">
+                <span className="character-state-panel__self-mode-icon">
+                  👤
+                </span>
+                <span className="character-state-panel__self-mode-label">
+                  {t("characterPanel.selfModeLabel")}
+                </span>
               </div>
-              <div
-                className="character-state-panel__stat-bar character-state-panel__stat-bar--adaptation"
-                style={{ height: "10px", minHeight: "10px" }}
-              >
-                <div
-                  className="character-state-panel__stat-fill character-state-panel__stat-fill--adaptation"
-                  style={{
-                    width: `${getAdaptationMeterValue(stats.adaptation)}%`,
-                  }}
-                />
-                <span className="character-state-panel__adaptation-center" />
+              <p className="character-state-panel__self-mode-desc">
+                {t("characterPanel.selfModeDesc")}
+              </p>
+            </>
+          )}
+
+          {/* パラメータバー (通常モードのみ) */}
+          {!state.selfMode && (
+            <>
+              <div className="character-state-panel__stat">
+                <span className="character-state-panel__stat-label">
+                  {t("characterPanel.bloom")}
+                </span>
+                <div className="character-state-panel__stat-bar">
+                  <div
+                    className="character-state-panel__stat-fill character-state-panel__stat-fill--bloom"
+                    style={{ width: `${getBarWidth(stats.bloom)}%` }}
+                  />
+                </div>
+                <span className="character-state-panel__stat-value">
+                  {stats.bloom ?? 0}
+                </span>
               </div>
-            </div>
-            <span className="character-state-panel__stat-value">
-              {Math.round(getAdaptationMeterValue(stats.adaptation))}
-            </span>
-          </div>
+
+              <div className="character-state-panel__stat">
+                <span className="character-state-panel__stat-label">
+                  {t("characterPanel.shame")}
+                </span>
+                <div className="character-state-panel__stat-bar">
+                  <div
+                    className="character-state-panel__stat-fill character-state-panel__stat-fill--shame"
+                    style={{ width: `${getBarWidth(stats.shame)}%` }}
+                  />
+                </div>
+                <span className="character-state-panel__stat-value">
+                  {stats.shame ?? 0}
+                </span>
+              </div>
+
+              <div className="character-state-panel__stat">
+                <span className="character-state-panel__stat-label">
+                  {t("characterPanel.adaptation")}
+                </span>
+                <div className="character-state-panel__adaptation-meter">
+                  <div className="character-state-panel__adaptation-labels">
+                    <span>{t("characterPanel.adaptationSexy")}</span>
+                    <span>{t("characterPanel.adaptationNeutral")}</span>
+                    <span>{t("characterPanel.adaptationCute")}</span>
+                  </div>
+                  <div
+                    className="character-state-panel__stat-bar character-state-panel__stat-bar--adaptation"
+                    style={{ height: "10px", minHeight: "10px" }}
+                  >
+                    <div
+                      className={`character-state-panel__stat-fill character-state-panel__stat-fill--adaptation ${
+                        (stats.adaptation ?? 0) < 0
+                          ? "character-state-panel__stat-fill--adaptation-sexy"
+                          : "character-state-panel__stat-fill--adaptation-cute"
+                      }`}
+                      style={getAdaptationBarStyle(stats.adaptation)}
+                    />
+                    <span className="character-state-panel__adaptation-center" />
+                  </div>
+                </div>
+                <span className="character-state-panel__stat-value">
+                  {stats.adaptation ?? 0}
+                </span>
+              </div>
+            </>
+          )}
         </div>
       )}
 

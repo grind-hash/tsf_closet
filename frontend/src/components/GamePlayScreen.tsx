@@ -70,6 +70,7 @@ interface GamePlayScreenProps {
       negativePrompt?: string;
       promptOverride?: string;
     },
+    instructionType?: string,
   ) => void;
   changeSettings: ChangeSettings;
   onChangeSettingsUpdate: (settings: ChangeSettings) => void;
@@ -82,6 +83,8 @@ interface GamePlayScreenProps {
   onResetCost: () => void;
   showCost: boolean;
   imageProvider: "selfhost" | "openrouter" | "novelai";
+  // US5: 自分自身モードフラグ
+  selfMode?: boolean;
   // 007: セッション開始時のコールバック（App.tsx側でuseSession.restoreSession()を呼ぶため）
   onSessionStart?: () => void;
 }
@@ -112,6 +115,7 @@ export default function GamePlayScreen({
   onResetCost,
   showCost,
   imageProvider,
+  selfMode: selfModeProp = false,
   onSessionStart,
 }: GamePlayScreenProps) {
   const { t } = useTranslation();
@@ -125,6 +129,7 @@ export default function GamePlayScreen({
     setCurrentImage,
     setHistory: setGameHistory,
     setAttributes: setGameAttributes,
+    setSelfMode,
     navigatePrevHistory,
     navigateNextHistory,
   } = useGame();
@@ -179,6 +184,7 @@ export default function GamePlayScreen({
     transformationType: string;
     transformOptions: Record<string, unknown> | undefined;
     anlasCost: number;
+    instructionType?: string;
   } | null>(null);
 
   // チャット履歴を統合して復元（history + chatHistory を時系列順に統合）
@@ -206,7 +212,11 @@ export default function GamePlayScreen({
           role: "user",
           content: h.instruction,
           createdAt: h.timestamp,
-          instructionType: "dress_up" as const,
+          instructionType: (h.instructionType || "dress_up") as
+            | "dress_up"
+            | "reality_alter"
+            | "conversation"
+            | "action",
         });
         // 心境テキスト（存在し、画質改善でない場合）
         if (h.feelingText && h.feelingText !== "(画質改善)") {
@@ -232,7 +242,13 @@ export default function GamePlayScreen({
           content: msg.content,
           createdAt: msg.createdAt || new Date().toISOString(),
           instructionType:
-            msg.role === "user" ? ("conversation" as const) : undefined,
+            msg.role === "user"
+              ? ((msg.instruction_type || "conversation") as
+                  | "dress_up"
+                  | "reality_alter"
+                  | "conversation"
+                  | "action")
+              : undefined,
           attachedImageUrl: undefined,
           isStreaming: false,
         });
@@ -282,6 +298,11 @@ export default function GamePlayScreen({
     }
   }, [attributes, setGameAttributes]);
 
+  // US5: selfMode を GameContext に同期
+  useEffect(() => {
+    setSelfMode(selfModeProp);
+  }, [selfModeProp, setSelfMode]);
+
   // 007: GameContextにパラメータを同期（CharacterStatePanelの表示更新用）
   useEffect(() => {
     updateGameStats({
@@ -314,6 +335,7 @@ export default function GamePlayScreen({
         fullStats,
         [], // historyは別途同期
         attributes,
+        selfModeProp,
       );
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -418,7 +440,8 @@ export default function GamePlayScreen({
         instructionType: instructionType as
           | "dress_up"
           | "reality_alter"
-          | "conversation",
+          | "conversation"
+          | "action",
       };
       addMessage(userMsg);
 
@@ -512,9 +535,13 @@ export default function GamePlayScreen({
           updateMessage(charMsgId, uiText.chatNetworkError);
         }
       } else {
-        // 着せ替えまたは現実改変
+        // action / dress_up / reality_alter -> play/stream
         const transformationType =
           instructionType === "reality_alter" ? "reality" : "costume";
+
+        // Determine instruction_type for backend
+        const backendInstructionType =
+          instructionType === "action" ? "action" : instructionType;
 
         // Build transform options including inpaint and character references
         let transformOptions:
@@ -580,6 +607,7 @@ export default function GamePlayScreen({
               | Record<string, unknown>
               | undefined,
             anlasCost: enabledRefCount * 5,
+            instructionType: backendInstructionType,
           });
           return; // Wait for user confirmation
         }
@@ -590,6 +618,7 @@ export default function GamePlayScreen({
           changeSettings,
           transformationType,
           transformOptions,
+          backendInstructionType,
         );
       }
     },
@@ -630,9 +659,17 @@ export default function GamePlayScreen({
       changeSettings: cs,
       transformationType,
       transformOptions,
+      instructionType: pendingInstructionType,
     } = anlasConfirmPending;
     setAnlasConfirmPending(null);
-    onTransform(message, undefined, cs, transformationType, transformOptions);
+    onTransform(
+      message,
+      undefined,
+      cs,
+      transformationType,
+      transformOptions,
+      pendingInstructionType,
+    );
   }, [anlasConfirmPending, onTransform]);
 
   const handleAnlasCancel = useCallback(() => {

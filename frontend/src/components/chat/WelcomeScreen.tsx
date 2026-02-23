@@ -8,9 +8,11 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useTranslation } from "react-i18next";
+import { Link } from "react-router-dom";
 import type { Character } from "../../types";
 import { useGame } from "../../contexts/GameContext";
 import { useSettings } from "../../contexts/SettingsContext";
+import { ROUTES } from "../../routes";
 import { API_BASE } from "../../utils/api";
 import {
   getImageDimensions,
@@ -35,7 +37,13 @@ interface CustomCharacter {
 
 export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
   const { t } = useTranslation();
-  const { startSession, setLoading, setError } = useGame();
+  const {
+    startSession,
+    setLoading,
+    setError,
+    state: gameState,
+    setSelfMode,
+  } = useGame();
 
   // キャラクター一覧
   const [characters, setCharacters] = useState<Character[]>([]);
@@ -73,8 +81,11 @@ export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
     height: number;
   } | null>(null);
 
-  // SettingsContextからimageProviderを取得
-  const { state: settingsState } = useSettings();
+  // SettingsContextからimageProvider, selfProfileを取得
+  const { state: settingsState, selfProfile } = useSettings();
+
+  // 自分自身モードON + プロフィール未設定の判定
+  const selfModeNeedsProfile = gameState.selfMode && !selfProfile;
 
   // キャラクター一覧を取得
   useEffect(() => {
@@ -205,6 +216,7 @@ export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
             custom_character_id: selectedCustomCharacterId,
             difficulty: "normal",
             nsfw_mode: false,
+            self_mode: gameState.selfMode,
             name: customName || t("chat.welcome.customCharacterDefaultName"),
             description: customDescription,
             pronoun: customPronoun || t("chat.welcome.defaultPronoun"),
@@ -223,6 +235,7 @@ export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
             character_id: selectedCharacterId,
             difficulty: "normal",
             nsfw_mode: false,
+            self_mode: gameState.selfMode,
           }),
         });
         if (!response.ok) throw new Error(t("chat.welcome.startSessionError"));
@@ -417,13 +430,40 @@ export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
         )}
       </div>
 
+      {/* 自分自身モード (US5) */}
+      <div className="welcome-screen__self-mode">
+        <label className="welcome-screen__self-mode-label">
+          <input
+            type="checkbox"
+            checked={gameState.selfMode}
+            onChange={(e) => setSelfMode(e.target.checked)}
+            className="welcome-screen__self-mode-checkbox"
+          />
+          <span>{t("chat.welcome.selfMode")}</span>
+        </label>
+        <p className="welcome-screen__self-mode-desc">
+          {t("chat.welcome.selfModeDescription")}
+        </p>
+        {selfModeNeedsProfile && (
+          <p className="welcome-screen__self-mode-warning">
+            {t("chat.welcome.selfModeNoProfile")}
+            <Link
+              to={ROUTES.SETTINGS}
+              className="welcome-screen__self-mode-warning-link"
+            >
+              {t("chat.welcome.selfModeGoSettings")}
+            </Link>
+          </p>
+        )}
+      </div>
+
       {/* 開始ボタン */}
       <div className="welcome-screen__actions">
         <button
           type="button"
           className="welcome-screen__start-btn"
           onClick={handleStartGame}
-          disabled={!canStart || isStarting}
+          disabled={!canStart || isStarting || selfModeNeedsProfile}
         >
           {isStarting
             ? t("chat.welcome.starting")

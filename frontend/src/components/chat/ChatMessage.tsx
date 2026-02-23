@@ -7,6 +7,8 @@
 
 import { forwardRef } from "react";
 import { useTranslation } from "react-i18next";
+import { useGame } from "../../contexts/GameContext";
+import { useSettings } from "../../contexts/SettingsContext";
 import type { ChatMessage } from "../../types";
 import "./ChatMessage.css";
 
@@ -18,17 +20,22 @@ interface ChatMessageProps {
 const ChatMessageItem = forwardRef<HTMLDivElement, ChatMessageProps>(
   ({ message, isHighlighted = false }, ref) => {
     const { t, i18n } = useTranslation();
+    const { state } = useGame();
+    const { selfProfile } = useSettings();
     const isUser = message.role === "user";
     const isSystem = message.role === "system";
 
     const getRoleLabel = () => {
       switch (message.role) {
         case "user":
-          return t("chat.message.roleYou");
+          return state.selfMode
+            ? t("chat.message.roleInstruction")
+            : t("chat.message.roleYou");
         case "system":
-          // システムからのメッセージは「キャラクター」として表示
-          return t("chat.message.roleCharacter");
         case "character":
+          if (state.selfMode && selfProfile?.display_name) {
+            return selfProfile.display_name;
+          }
           return t("chat.message.roleCharacter");
         default:
           return message.role;
@@ -44,6 +51,8 @@ const ChatMessageItem = forwardRef<HTMLDivElement, ChatMessageProps>(
           return t("chat.instructionType.realityAlter");
         case "conversation":
           return t("chat.instructionType.conversation");
+        case "action":
+          return t("chat.instructionType.action");
         default:
           return message.instructionType;
       }

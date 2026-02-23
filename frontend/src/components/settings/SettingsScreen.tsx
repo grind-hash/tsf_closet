@@ -6,6 +6,7 @@
 import MainLayout from "../layout/MainLayout";
 import { useSettings } from "../../contexts/SettingsContext";
 import { useTranslation } from "react-i18next";
+import SelfProfileEditor from "./SelfProfileEditor";
 import "./SettingsScreen.css";
 
 export default function SettingsScreen() {
@@ -168,6 +169,14 @@ export default function SettingsScreen() {
                 {state.imageProvider === "novelai" && t("settings.novelai")}
               </div>
             </div>
+          </section>
+
+          {/* 自分自身モード キャラ設定 */}
+          <section className="settings-screen__section">
+            <h2 className="settings-screen__section-title">
+              {t("settings.selfProfile.sectionTitle")}
+            </h2>
+            <SelfProfileEditor />
           </section>
 
           {/* 通知設定 */}
