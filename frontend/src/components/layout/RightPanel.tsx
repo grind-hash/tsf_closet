@@ -78,6 +78,7 @@ export default function RightPanel({
     removePreciseReference,
     setSeed,
     setEnableSurroundingsImage,
+    setSurroundingsIncludePeople,
   } = useSettings();
   const { state: gameState, addAttribute, removeAttribute } = useGame();
 
@@ -774,6 +775,35 @@ export default function RightPanel({
                 )}
               </small>
             </div>
+
+            {/* Surroundings: include reactive bystanders */}
+            {settingsState.enableSurroundingsImage && (
+              <div className="right-panel__form-group">
+                <label className="right-panel__toggle">
+                  <span className="right-panel__toggle-label">
+                    {t(
+                      "rightPanel.surroundingsIncludePeople",
+                      "Include bystanders in surroundings",
+                    )}
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={settingsState.surroundingsIncludePeople}
+                    onChange={(e) =>
+                      setSurroundingsIncludePeople(e.target.checked)
+                    }
+                    className="right-panel__toggle-input"
+                  />
+                  <span className="right-panel__toggle-switch" />
+                </label>
+                <small className="right-panel__hint">
+                  {t(
+                    "rightPanel.surroundingsIncludePeopleHint",
+                    "Include 2-3 reactive bystanders in the surroundings image.",
+                  )}
+                </small>
+              </div>
+            )}
 
             {/* NSFWモードトグル */}
             {/* <label className="right-panel__toggle">

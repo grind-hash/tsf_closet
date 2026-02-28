@@ -27,6 +27,10 @@ export interface UseSSEOptions {
   onComplete?: (historyId: string, transformationCount: number) => void;
   onCost?: (cost: number) => void;
   onAnlas?: (balance: AnlasBalance) => void;
+  onRealityAttributeAdded?: (data: {
+    attribute_id: string;
+    attribute_text: string;
+  }) => void;
   onError?: (message: string) => void;
 }
 
@@ -123,6 +127,11 @@ export function useSSE(options: UseSSEOptions): UseSSEReturn {
                 purchasedAnlas: data.purchased_anlas ?? 0,
                 totalAnlas: data.total_anlas ?? 0,
               });
+            }
+            break;
+          case "reality_attribute_added":
+            if (options.onRealityAttributeAdded) {
+              options.onRealityAttributeAdded(data);
             }
             break;
           case "error":

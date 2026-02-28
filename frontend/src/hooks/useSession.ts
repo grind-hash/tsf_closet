@@ -58,6 +58,7 @@ export interface UseSessionReturn {
   }) => void;
   addAttribute: (text: string) => Promise<void>;
   removeAttribute: (id: string) => Promise<void>;
+  updateAttributesFromSSE: (attr: { id: string; text: string }) => void;
   setConversationHistory: React.Dispatch<
     React.SetStateAction<ConversationMessage[]>
   >;
@@ -346,6 +347,18 @@ export function useSession(): UseSessionReturn {
     }
   }, []);
 
+  // Update attributes state from SSE event (no API call needed)
+  const updateAttributesFromSSE = useCallback(
+    (attr: { id: string; text: string }) => {
+      setAttributes((prev) => {
+        // Avoid duplicate
+        if (prev.some((a) => a.id === attr.id)) return prev;
+        return [...prev, attr];
+      });
+    },
+    [],
+  );
+
   return {
     sessionId,
     currentImageUrl,
@@ -367,6 +380,7 @@ export function useSession(): UseSessionReturn {
     updateFromSSE,
     addAttribute,
     removeAttribute,
+    updateAttributesFromSSE,
     setConversationHistory,
   };
 }

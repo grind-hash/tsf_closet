@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useLocation } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { useSession } from "./hooks/useSession";
 import { useSSE } from "./hooks/useSSE";
 import { useNotification } from "./contexts/NotificationContext";
@@ -64,7 +65,8 @@ function AppMain() {
   const location = useLocation();
   const session = useSession();
   const { state: settingsState } = useSettings();
-  const { showAchievementNotification } = useNotification();
+  const { showNotification, showAchievementNotification } = useNotification();
+  const { t } = useTranslation();
   // 旧UI用: 新UIではWelcomeScreenが担当 (型定義用にscreen変数を使用)
   const [screen, setScreen] = useState<"character-select" | "game">(
     "character-select",
@@ -208,6 +210,29 @@ function AppMain() {
     // US5: Anlas balance update
     onAnlas: (balance) => {
       setAnlasBalance(balance);
+    },
+    // Reality change: auto-added attribute notification
+    onRealityAttributeAdded: (data) => {
+      // Update local attributes state
+      session.updateAttributesFromSSE({
+        id: data.attribute_id,
+        text: data.attribute_text,
+      });
+      // Show notification if enabled in settings
+      if (settingsState.showRealityAttributeNotification) {
+        const msg =
+          t("settings.realityAttributeAddedMsg", {
+            attr: data.attribute_text,
+          }) +
+          "\n" +
+          t("settings.realityAttributeAddedLink");
+        showNotification(
+          "info",
+          t("settings.realityAttributeAdded"),
+          msg,
+          8000,
+        );
+      }
     },
     onError: (message) => {
       console.error("SSE Error:", message);
@@ -453,6 +478,9 @@ function AppMain() {
       // US3: Include surroundings image generation setting
       if (settingsState.enableSurroundingsImage) {
         body.enable_surroundings_image = true;
+        if (settingsState.surroundingsIncludePeople) {
+          body.surroundings_include_people = true;
+        }
       }
       if (costumeImage) {
         body.costume_image = costumeImage;
@@ -523,6 +551,7 @@ function AppMain() {
       settingsState.language,
       settingsState.seed,
       settingsState.enableSurroundingsImage,
+      settingsState.surroundingsIncludePeople,
     ],
   );
 

@@ -17,8 +17,10 @@ export default function SettingsScreen() {
     setLanguage,
     setNsfwMode,
     setShowAchievementNotifications,
+    setShowRealityAttributeNotification,
     setExperimentalEndingEnabled,
     setEnableSurroundingsImage,
+    setSurroundingsIncludePeople,
     resetSettings,
   } = useSettings();
 
@@ -207,6 +209,28 @@ export default function SettingsScreen() {
                 <span className="settings-screen__toggle-switch" />
               </label>
             </div>
+
+            <div className="settings-screen__item">
+              <label className="settings-screen__toggle">
+                <div className="settings-screen__toggle-info">
+                  <span className="settings-screen__item-label">
+                    {t("settings.realityAttributeNotify")}
+                  </span>
+                  <span className="settings-screen__item-desc">
+                    {t("settings.realityAttributeNotifyDesc")}
+                  </span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={state.showRealityAttributeNotification}
+                  onChange={(e) =>
+                    setShowRealityAttributeNotification(e.target.checked)
+                  }
+                  className="settings-screen__toggle-input"
+                />
+                <span className="settings-screen__toggle-switch" />
+              </label>
+            </div>
           </section>
 
           <section className="settings-screen__section">
@@ -255,6 +279,30 @@ export default function SettingsScreen() {
                 <span className="settings-screen__toggle-switch" />
               </label>
             </div>
+
+            {state.enableSurroundingsImage && (
+              <div className="settings-screen__item">
+                <label className="settings-screen__toggle">
+                  <div className="settings-screen__toggle-info">
+                    <span className="settings-screen__item-label">
+                      {t("settings.experimentalSurroundingsPeople")}
+                    </span>
+                    <span className="settings-screen__item-desc">
+                      {t("settings.experimentalSurroundingsPeopleDesc")}
+                    </span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={state.surroundingsIncludePeople}
+                    onChange={(e) =>
+                      setSurroundingsIncludePeople(e.target.checked)
+                    }
+                    className="settings-screen__toggle-input"
+                  />
+                  <span className="settings-screen__toggle-switch" />
+                </label>
+              </div>
+            )}
           </section>
 
           {/* リセット */}

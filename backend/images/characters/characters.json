@@ -3,18 +3,40 @@
     "id": "char1",
     "name": "水瀬ユウヤ",
     "image_path": "images/characters/char1.png",
-    "description": "普通の男の子。Tシャツと短パン姿。",
+    "description": "普通の男の子。黒髪で、瞳の色も黒。白いTシャツと黒の短パン姿。",
     "pronoun": "僕",
     "personality": "素直で恥ずかしがり屋",
-    "gender": "man"
+    "gender": "man",
+    "fallback": ""
   },
   {
     "id": "char2",
     "name": "星野エミ",
     "image_path": "images/characters/char2.png",
-    "description": "普通の女の子。Tシャツと短パン姿。",
+    "description": "普通の女の子。茶髪で、瞳の色は黒。白いTシャツと短パン姿。",
     "pronoun": "私",
     "personality": "素直で恥ずかしがり屋",
-    "gender": "woman"
+    "gender": "woman",
+    "fallback": ""
+  },
+  {
+    "id": "char1_v2",
+    "name": "水瀬ユウヤ",
+    "image_path": "images/characters/char1_v2.png",
+    "description": "普通の男の子。黒髪で、瞳の色も黒。白いTシャツと黒の短パン姿。",
+    "pronoun": "僕",
+    "personality": "素直で恥ずかしがり屋",
+    "gender": "man",
+    "fallback": "char1"
+  },
+  {
+    "id": "char2_v2",
+    "name": "星野エミ",
+    "image_path": "images/characters/char2_v2.png",
+    "description": "普通の女の子。茶髪で、瞳の色は黒。白いTシャツと短パン姿。",
+    "pronoun": "私",
+    "personality": "素直で恥ずかしがり屋",
+    "gender": "woman",
+    "fallback": "char2"
   }
 ]

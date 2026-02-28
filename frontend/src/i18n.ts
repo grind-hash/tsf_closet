@@ -49,6 +49,13 @@ const resources = {
         notifySection: "通知",
         achievementNotify: "実績通知",
         achievementNotifyDesc: "実績解除時にトースト通知を表示",
+        realityAttributeNotify: "現実改変の属性自動追加通知",
+        realityAttributeNotifyDesc:
+          "現実改変時に属性が自動追加された際にトースト通知を表示",
+        realityAttributeAdded: "属性が自動追加されました",
+        realityAttributeAddedMsg:
+          "「{{attr}}」が属性に追加されました。調整はサイドパネルの属性欄から可能です。",
+        realityAttributeAddedLink: "この通知を無効にする → 設定",
         experimentalSection: "Experimental（実験的機能）",
         experimentalEnding: "エンディング",
         experimentalEndingDesc:
@@ -56,6 +63,9 @@ const resources = {
         experimentalSurroundings: "周囲状況画像の生成",
         experimentalSurroundingsDesc:
           "行動指示の後に周囲の状況を描写した画像を追加生成します。Opusプランでない場合は追加の Anlas を消費します。",
+        experimentalSurroundingsPeople: "周囲画像に通行人を含める",
+        experimentalSurroundingsPeopleDesc:
+          "周囲状況画像にリアクションする通行人（2‐3人）を描写します。",
         dataSection: "データ",
         reset: "設定を初期化",
         resetDesc: "すべての設定を初期値に戻します",
@@ -188,6 +198,9 @@ const resources = {
         enableSurroundingsImage: "周囲状況画像を生成",
         enableSurroundingsImageHint:
           "行動指示後に周囲の環境を描写した画像を追加生成します。Opusプラン以外では追加のAnlasを消費します。",
+        surroundingsIncludePeople: "周囲画像に通行人を含める",
+        surroundingsIncludePeopleHint:
+          "周囲状況画像にリアクションする通行人（2‐3人）を描写します。",
       },
       characterPanel: {
         expandImage: "画像を拡大",
@@ -499,6 +512,13 @@ const resources = {
         notifySection: "Notifications",
         achievementNotify: "Achievement Notifications",
         achievementNotifyDesc: "Show toast when an achievement is unlocked",
+        realityAttributeNotify: "Reality Change Auto-Attribute Notification",
+        realityAttributeNotifyDesc:
+          "Show a toast when attributes are auto-added by reality change",
+        realityAttributeAdded: "Attribute auto-added",
+        realityAttributeAddedMsg:
+          '"{{attr}}" has been added to attributes. You can adjust it from the attributes section in the side panel.',
+        realityAttributeAddedLink: "Disable this notification → Settings",
         experimentalSection: "Experimental Features",
         experimentalEnding: "Endings",
         experimentalEndingDesc:
@@ -506,6 +526,9 @@ const resources = {
         experimentalSurroundings: "Generate Surroundings Image",
         experimentalSurroundingsDesc:
           "Generate an additional image showing the surrounding environment after action instructions. Uses extra Anlas on non-Opus plans.",
+        experimentalSurroundingsPeople: "Include bystanders in surroundings",
+        experimentalSurroundingsPeopleDesc:
+          "Include 2-3 reactive bystanders in the surroundings image.",
         dataSection: "Data",
         reset: "Reset settings",
         resetDesc: "Reset all settings to defaults",
@@ -637,6 +660,9 @@ const resources = {
         enableSurroundingsImage: "Generate surroundings image",
         enableSurroundingsImageHint:
           "Generate an additional image showing the surrounding environment after action instructions. Uses extra Anlas on non-Opus plans.",
+        surroundingsIncludePeople: "Include bystanders in surroundings",
+        surroundingsIncludePeopleHint:
+          "Include 2-3 reactive bystanders in the surroundings image.",
       },
       characterPanel: {
         expandImage: "Expand image",

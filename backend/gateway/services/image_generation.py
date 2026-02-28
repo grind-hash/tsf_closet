@@ -544,6 +544,7 @@ class NovelAIImageClient:
         # Build SDK Character objects for V4 prompt splitting
         sdk_characters: Optional[List[Character]] = None
         if characters:
+            logger.info("characters: %s", characters)
             sdk_characters = [
                 Character(
                     prompt=c["prompt"],
@@ -630,14 +631,16 @@ class NovelAIImageClient:
         size: str = "landscape",
         negative_prompt_override: Optional[str] = None,
         seed: Optional[int] = None,
+        include_people: bool = False,
     ) -> ImageGenerationResult:
-        """背景・風景画像の txt2img 生成 (US2 用)
+        """Background / scenery txt2img generation (US2)
 
         Args:
-            prompt: 生成プロンプト
-            size: 画像サイズプリセット (デフォルト: landscape = 1216x832)
-            negative_prompt_override: ネガティブプロンプト
-            seed: 画像生成seed値
+            prompt: Generation prompt
+            size: Image size preset (default: landscape = 1216x832)
+            negative_prompt_override: Negative prompt override
+            seed: Image generation seed
+            include_people: If True, allow anonymous bystanders (block protagonist only)
 
         Returns:
             ImageGenerationResult
@@ -645,7 +648,18 @@ class NovelAIImageClient:
         client = await self._get_client()
 
         neg_prompt = negative_prompt_override or self.negative_prompt
-        extra_negative = ", 1girl, 1boy, person, people, character, human, face, body"
+        if include_people:
+            # Allow exactly 2-3 generic bystanders; block protagonist and large groups
+            extra_negative = (
+                ", solo, solo focus, close-up, portrait, pov"
+                ", crowd, many people, large group, 4girls, 5girls"
+                ", 4boys, 5boys, 6+others"
+            )
+        else:
+            # Block all people
+            extra_negative = (
+                ", 1girl, 1boy, person, people, character, human, face, body"
+            )
 
         actual_seed = seed if seed is not None else random.randint(0, 999999999)
 
@@ -870,21 +884,23 @@ class ImageGenerationService:
         negative_prompt: Optional[str] = None,
         seed: Optional[int] = None,
         nsfw_mode: bool = True,
+        include_people: bool = False,
     ) -> ImageGenerationResult:
-        """背景・風景画像を生成 (NovelAI txt2img, US2 用)
+        """Generate background / scenery image (NovelAI txt2img, US2)
 
         Args:
-            prompt: 生成プロンプト
-            size: 画像サイズプリセット (デフォルト: landscape = 1216x832)
-            negative_prompt: ネガティブプロンプト
-            seed: 画像生成seed値
-            nsfw_mode: NSFWモード
+            prompt: Generation prompt
+            size: Image size preset (default: landscape = 1216x832)
+            negative_prompt: Negative prompt
+            seed: Image generation seed
+            nsfw_mode: NSFW mode
+            include_people: If True, allow anonymous bystanders
 
         Returns:
             ImageGenerationResult
 
         Raises:
-            ValueError: NovelAI以外のプロバイダーでは利用不可
+            ValueError: Not supported on non-NovelAI providers
         """
         if self._default_provider != "novelai":
             raise ValueError(
@@ -897,6 +913,7 @@ class ImageGenerationService:
             size=size,
             negative_prompt_override=negative_prompt,
             seed=seed,
+            include_people=include_people,
         )
 
     async def health_check(self) -> Dict[str, bool]:

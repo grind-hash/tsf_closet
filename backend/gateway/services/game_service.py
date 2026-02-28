@@ -574,17 +574,21 @@ class GameService:
         before_description: str,
         after_description: str,
         nsfw_mode: bool = False,
+        include_people: bool = False,
+        is_reality_change: bool = False,
     ) -> tuple[bytes | None, float | None, int | None]:
-        """周囲状況画像を生成 (NovelAI txt2img, US2 用)
+        """Generate surroundings image (NovelAI txt2img, US2)
 
         Args:
-            instruction: 行動指示
-            before_description: 行動前の状況説明
-            after_description: 行動後の状況説明
-            nsfw_mode: NSFWモード
+            instruction: Action instruction
+            before_description: Description before the action
+            after_description: Description after the action
+            nsfw_mode: NSFW mode
+            include_people: Include reactive bystanders in the image
+            is_reality_change: Reality-change mode (bystanders are indifferent)
 
         Returns:
-            (生成された画像, API料金USD, seed値) または失敗時は (None, None, None)
+            (image bytes, API cost USD, seed) or (None, None, None) on failure
         """
         if settings.image_provider != "novelai":
             logger.info("Surroundings image generation is only supported with NovelAI")
@@ -597,11 +601,17 @@ class GameService:
                 build_surroundings_image_user_prompt,
             )
 
-            system_prompt = get_surroundings_image_prompt_system(nsfw_mode=nsfw_mode)
+            system_prompt = get_surroundings_image_prompt_system(
+                nsfw_mode=nsfw_mode,
+                include_people=include_people,
+                is_reality_change=is_reality_change,
+            )
             user_prompt = build_surroundings_image_user_prompt(
                 instruction=instruction,
                 before_description=before_description,
                 after_description=after_description,
+                include_people=include_people,
+                is_reality_change=is_reality_change,
             )
 
             scenery_prompt_result = await llm_service.generate_text(
@@ -614,11 +624,13 @@ class GameService:
                 len(scenery_prompt),
             )
 
-            # 画像生成 (landscape = 1216x832)
+            # Image generation: portrait for bystanders, landscape for bg-only
+            scenery_size = "portrait" if include_people else "landscape"
             result = await self._image_service.generate_scenery(
                 prompt=scenery_prompt,
-                size="landscape",
+                size=scenery_size,
                 nsfw_mode=nsfw_mode,
+                include_people=include_people,
             )
 
             if not result.images:
@@ -1040,6 +1052,7 @@ class GameService:
         instruction_type: str | None = None,
         seed: int | None = None,
         enable_surroundings_image: bool = False,
+        surroundings_include_people: bool = False,
     ) -> AsyncGenerator[StreamEvent, None]:
         """ストリーミング対応の着せ替えを実行
 
@@ -1062,6 +1075,7 @@ class GameService:
             difficulty_override: ユーザー設定からの難易度（Noneの場合はセッション設定を使用）
             seed: 画像生成seed値（未指定時はランダム生成）
             enable_surroundings_image: 周囲状況画像を生成するか（行動モード専用）
+            surroundings_include_people: 周囲画像にリアクションする通行人を含めるか
 
         Yields:
             StreamEvent: text/image/complete/error イベント
@@ -1224,6 +1238,33 @@ class GameService:
 
                 logger.info("current_desc:%s", current_desc)
 
+                # 直前の状況サマリーを生成（LLM要約）
+                previous_situation_summary: str | None = None
+                if (
+                    last_hist
+                    and last_hist.feeling_text
+                    and last_hist.instruction_type == "action"
+                ):
+                    try:
+                        from .action_prompts import SITUATION_SUMMARY_SYSTEM_PROMPT
+
+                        summary_user = (
+                            f"行動: 「{last_hist.instruction}」\n\n"
+                            f"モノローグ:\n{last_hist.feeling_text}"
+                        )
+                        summary_result = await llm_service.generate_text(
+                            system_prompt=SITUATION_SUMMARY_SYSTEM_PROMPT,
+                            user_prompt=summary_user,
+                        )
+                        previous_situation_summary = summary_result.content.strip()
+                        logger.info(
+                            "Previous situation summary: %s",
+                            previous_situation_summary,
+                        )
+                    except Exception as e:
+                        logger.warning("Failed to generate situation summary: %s", e)
+                        previous_situation_summary = None
+
                 # Conversationテーブルから最近のアクション指示を抽出
                 recent_actions: list[str] = []
                 try:
@@ -1264,6 +1305,7 @@ class GameService:
                     recent_actions=recent_actions or None,
                     transformation_count=session.transformation_count,
                     gender=action_gender,
+                    previous_situation_summary=previous_situation_summary,
                 )
 
                 from .conversation import get_language_rules
@@ -1544,6 +1586,8 @@ class GameService:
                         before_description=current_desc,
                         after_description=action_prompt_desc,
                         nsfw_mode=effective_nsfw_mode,
+                        include_people=surroundings_include_people,
+                        is_reality_change=(transformation_type == "reality"),
                     )
 
                     if surroundings_data is not None:
@@ -1920,6 +1964,25 @@ class GameService:
                     "age_impression": tags.age_impression,
                 },
             )
+
+            # 5.1.5 現実改変時: 指示文をセッション属性に自動追加
+            if is_reality:
+                reality_attr_text = f"[現実改変] {instruction}"
+                existing_attrs = await session_store.get_session_attribute_texts(
+                    session.id
+                )
+                if reality_attr_text not in existing_attrs:
+                    new_attr = await session_store.add_session_attribute(
+                        session.id, reality_attr_text
+                    )
+                    logger.info(f"Auto-added reality attribute: {reality_attr_text}")
+                    yield StreamEvent(
+                        type="reality_attribute_added",
+                        data={
+                            "attribute_id": new_attr.id,
+                            "attribute_text": reality_attr_text,
+                        },
+                    )
 
             # ── self_mode: skip parameter/critical/ending/achievement (US5 T026) ──
             if not session.self_mode:

@@ -54,6 +54,7 @@ interface SettingsState {
 
   // 通知設定
   showAchievementNotifications: boolean;
+  showRealityAttributeNotification: boolean;
   experimentalEndingEnabled: boolean;
 
   // サウンド設定
@@ -74,6 +75,8 @@ interface SettingsState {
 
   // US3: Enable surroundings image generation
   enableSurroundingsImage: boolean;
+  // Include reactive bystanders in surroundings image
+  surroundingsIncludePeople: boolean;
 }
 
 // アクション型
@@ -93,6 +96,7 @@ type SettingsAction =
   | { type: "TOGGLE_INPAINT" }
   | { type: "SET_CHANGE_SETTINGS"; payload: Partial<ChangeSettings> }
   | { type: "SET_SHOW_ACHIEVEMENT_NOTIFICATIONS"; payload: boolean }
+  | { type: "SET_SHOW_REALITY_ATTRIBUTE_NOTIFICATION"; payload: boolean }
   | { type: "SET_EXPERIMENTAL_ENDING_ENABLED"; payload: boolean }
   | { type: "SET_SOUND_ENABLED"; payload: boolean }
   | { type: "SET_SOUND_VOLUME"; payload: number }
@@ -108,7 +112,8 @@ type SettingsAction =
   | { type: "CLEAR_PRECISE_REFERENCES" }
   | { type: "SET_SELF_PROFILE"; payload: SelfProfile | null }
   | { type: "SET_SEED"; payload: number | null }
-  | { type: "SET_ENABLE_SURROUNDINGS_IMAGE"; payload: boolean };
+  | { type: "SET_ENABLE_SURROUNDINGS_IMAGE"; payload: boolean }
+  | { type: "SET_SURROUNDINGS_INCLUDE_PEOPLE"; payload: boolean };
 
 // デフォルト状態
 const defaultState: SettingsState = {
@@ -122,6 +127,7 @@ const defaultState: SettingsState = {
   inpaintMask: DEFAULT_INPAINT_MASK_STATE,
   changeSettings: DEFAULT_CHANGE_SETTINGS,
   showAchievementNotifications: true,
+  showRealityAttributeNotification: true,
   experimentalEndingEnabled: false,
   soundEnabled: true,
   soundVolume: 0.5,
@@ -130,6 +136,7 @@ const defaultState: SettingsState = {
   selfProfile: null,
   seed: null,
   enableSurroundingsImage: false,
+  surroundingsIncludePeople: false,
 };
 
 // Reducer
@@ -186,6 +193,8 @@ function settingsReducer(
       };
     case "SET_SHOW_ACHIEVEMENT_NOTIFICATIONS":
       return { ...state, showAchievementNotifications: action.payload };
+    case "SET_SHOW_REALITY_ATTRIBUTE_NOTIFICATION":
+      return { ...state, showRealityAttributeNotification: action.payload };
     case "SET_EXPERIMENTAL_ENDING_ENABLED":
       return { ...state, experimentalEndingEnabled: action.payload };
     case "SET_SOUND_ENABLED":
@@ -225,6 +234,8 @@ function settingsReducer(
       return { ...state, seed: action.payload };
     case "SET_ENABLE_SURROUNDINGS_IMAGE":
       return { ...state, enableSurroundingsImage: action.payload };
+    case "SET_SURROUNDINGS_INCLUDE_PEOPLE":
+      return { ...state, surroundingsIncludePeople: action.payload };
     default:
       return state;
   }
@@ -248,6 +259,7 @@ interface SettingsContextType {
   toggleInpaint: () => void;
   setChangeSettings: (settings: Partial<ChangeSettings>) => void;
   setShowAchievementNotifications: (show: boolean) => void;
+  setShowRealityAttributeNotification: (show: boolean) => void;
   setExperimentalEndingEnabled: (enabled: boolean) => void;
   setSoundEnabled: (enabled: boolean) => void;
   setSoundVolume: (volume: number) => void;
@@ -266,6 +278,7 @@ interface SettingsContextType {
   loadSelfProfile: () => Promise<void>;
   setSeed: (seed: number | null) => void;
   setEnableSurroundingsImage: (enabled: boolean) => void;
+  setSurroundingsIncludePeople: (enabled: boolean) => void;
 }
 
 // Context作成
@@ -500,6 +513,13 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "SET_SHOW_ACHIEVEMENT_NOTIFICATIONS", payload: show });
   }, []);
 
+  const setShowRealityAttributeNotification = useCallback((show: boolean) => {
+    dispatch({
+      type: "SET_SHOW_REALITY_ATTRIBUTE_NOTIFICATION",
+      payload: show,
+    });
+  }, []);
+
   const setExperimentalEndingEnabled = useCallback((enabled: boolean) => {
     dispatch({ type: "SET_EXPERIMENTAL_ENDING_ENABLED", payload: enabled });
   }, []);
@@ -563,6 +583,10 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "SET_ENABLE_SURROUNDINGS_IMAGE", payload: enabled });
   }, []);
 
+  const setSurroundingsIncludePeople = useCallback((enabled: boolean) => {
+    dispatch({ type: "SET_SURROUNDINGS_INCLUDE_PEOPLE", payload: enabled });
+  }, []);
+
   const value: SettingsContextType = {
     state,
     setDifficulty,
@@ -577,6 +601,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     toggleInpaint,
     setChangeSettings,
     setShowAchievementNotifications,
+    setShowRealityAttributeNotification,
     setExperimentalEndingEnabled,
     setSoundEnabled,
     setSoundVolume,
@@ -591,6 +616,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     loadSelfProfile,
     setSeed,
     setEnableSurroundingsImage,
+    setSurroundingsIncludePeople,
   };
 
   return (

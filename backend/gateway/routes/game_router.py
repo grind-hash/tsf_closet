@@ -232,6 +232,11 @@ class PlayStreamRequest(BaseModel):
         False,
         description="行動後の周囲状況画像生成を有効にする",
     )
+    # Surroundings image: include reactive bystanders
+    surroundings_include_people: bool = Field(
+        False,
+        description="周囲状況画像にリアクションする通行人を含める",
+    )
 
 
 @router.post(
@@ -279,6 +284,7 @@ async def play_game_stream(request: PlayStreamRequest) -> EventSourceResponse:
             instruction_type=request.instruction_type,
             seed=request.seed,
             enable_surroundings_image=request.enable_surroundings_image,
+            surroundings_include_people=request.surroundings_include_people,
         ):
             yield {
                 "event": event.type,
