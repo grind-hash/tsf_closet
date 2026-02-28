@@ -306,7 +306,7 @@ Generate a prompt for a BACKGROUND-ONLY image (NO characters) in 1216x832 LANDSC
 
 ## Rules
 1. Output comma-separated tags only.
-2. Quality tags first: masterpiece, best quality, very aesthetic, no humans, scenery, background
+2. Quality/style tags first: masterpiece, best quality, very aesthetic, anime, moe, no humans, scenery, background
 3. Include detailed environmental tags: location, lighting, time of day, atmosphere, weather.
 4. Wide landscape composition for 1216x832 aspect ratio.
 5. NO character tags whatsoever (no 1girl, no person references).
@@ -326,7 +326,7 @@ This is NSFW mode — scenes may have suggestive or intimate atmosphere.
 
 ## Rules
 1. Output comma-separated tags only.
-2. Quality tags first: masterpiece, best quality, very aesthetic, no humans, scenery, background
+2. Quality/style tags first: masterpiece, best quality, very aesthetic, anime, moe, no humans, scenery, background
 3. Include detailed environmental tags: location, lighting, time of day, atmosphere, weather.
 4. Wide landscape composition for 1216x832 aspect ratio.
 5. NO character tags whatsoever (no 1girl, no person references).
@@ -349,7 +349,7 @@ Format: 832x1216 PORTRAIT (vertical composition to frame standing figures).
 
 ## Rules
 1. Output comma-separated tags only.
-2. Quality tags first: masterpiece, best quality, very aesthetic, scenery
+2. Quality/style tags first: masterpiece, best quality, very aesthetic, anime, moe, scenery
 3. Include EXACTLY 2 or 3 bystanders. Use ONE of these specific count tags:
    - For 2 people: "2others" (NEVER "multiple people" or "crowd")
    - For 3 people: "3others" (NEVER "multiple people" or "crowd")
@@ -379,7 +379,7 @@ Format: 832x1216 PORTRAIT (vertical composition). NSFW mode — scenes may invol
 
 ## Rules
 1. Output comma-separated tags only.
-2. Quality tags first: masterpiece, best quality, very aesthetic, scenery
+2. Quality/style tags first: masterpiece, best quality, very aesthetic, anime, moe, scenery
 3. Include EXACTLY 2 or 3 bystanders. Use ONE of these specific count tags:
    - For 2 people: "2others" (NEVER "multiple people" or "crowd")
    - For 3 people: "3others" (NEVER "multiple people" or "crowd")
@@ -429,13 +429,16 @@ def get_surroundings_image_prompt_system(
             base += (
                 "\n\n## OVERRIDE \u2014 Reality Change Mode\n"
                 "This is a REALITY CHANGE scenario. In this altered world, "
-                "the current situation is considered COMPLETELY NORMAL by everyone.\n"
-                "Bystanders must show NO surprise, NO shock, NO embarrassment.\n"
-                "Instead, use ONLY calm/indifferent reactions: "
-                "calm, relaxed, indifferent, going about their business, "
-                "looking at phone, chatting casually, walking normally, "
-                "minding own business, nonchalant, unfazed.\n"
-                "Do NOT use any shocked/surprised/embarrassed reaction tags."
+                "the current situation is considered COMPLETELY NORMAL.\n"
+                "- Most bystanders go about their daily lives unfazed "
+                "(calm, relaxed, looking at phone, chatting, walking normally, nonchalant).\n"
+                "- However, ONE bystander naturally engages with the situation "
+                "as if it fits this altered reality perfectly "
+                "(e.g., casually greeting, offering help, smiling warmly, "
+                "giving a thumbs-up, handing over an item, nodding approvingly).\n"
+                "- NO bystander should appear shocked, surprised, or embarrassed.\n"
+                "- The overall atmosphere must feel mundane and everyday, "
+                "with that one person's interaction reinforcing the normalcy."
             )
         return base
     if nsfw_mode:
@@ -476,10 +479,12 @@ def build_surroundings_image_user_prompt(
                 "Do NOT use 'crowd' or 'multiple people' tags. "
                 "Do NOT include the protagonist. "
                 "IMPORTANT: This is a REALITY CHANGE world where the current "
-                "situation is completely normal. Bystanders must appear CALM, "
-                "INDIFFERENT, and unbothered \u2014 going about their daily lives "
-                "as if nothing unusual is happening. "
-                "NO shocked, surprised, or embarrassed reactions."
+                "situation is considered perfectly normal. "
+                "Most bystanders should be calm and going about their business. "
+                "But ONE bystander should naturally interact with or acknowledge "
+                "the situation in a casual, accepting way \u2014 as if it fits "
+                "this world's reality (e.g., smiling, waving, casually chatting). "
+                "NO shocked, surprised, or embarrassed reactions from anyone."
             )
         return (
             base + "Generate a scenery prompt (832x1216 portrait) depicting the "

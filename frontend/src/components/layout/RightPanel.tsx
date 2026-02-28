@@ -79,6 +79,7 @@ export default function RightPanel({
     setSeed,
     setEnableSurroundingsImage,
     setSurroundingsIncludePeople,
+    setShowRealityAttributeNotification,
   } = useSettings();
   const { state: gameState, addAttribute, removeAttribute } = useGame();
 
@@ -508,6 +509,20 @@ export default function RightPanel({
               </div>
             )}
           </div>
+
+          {/* Reality attribute notification toggle */}
+          <label className="right-panel__mini-toggle">
+            <input
+              type="checkbox"
+              checked={settingsState.showRealityAttributeNotification}
+              onChange={(e) =>
+                setShowRealityAttributeNotification(e.target.checked)
+              }
+            />
+            <span className="right-panel__mini-toggle-label">
+              {t("rightPanel.realityAttrNotify")}
+            </span>
+          </label>
         </section>
 
         {/* 保持する要素セクション */}

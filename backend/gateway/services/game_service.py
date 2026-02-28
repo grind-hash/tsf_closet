@@ -1577,6 +1577,13 @@ class GameService:
                 surroundings_image_path: str | None = None
                 if enable_surroundings_image and settings.image_provider == "novelai":
                     logger.info("Generating surroundings image for action...")
+                    # Detect reality-change from session attributes
+                    action_attrs = await session_store.get_session_attribute_texts(
+                        session.id
+                    )
+                    has_reality_attrs = any(
+                        a.startswith("[現実改変]") for a in action_attrs
+                    )
                     (
                         surroundings_data,
                         surroundings_cost,
@@ -1587,7 +1594,7 @@ class GameService:
                         after_description=action_prompt_desc,
                         nsfw_mode=effective_nsfw_mode,
                         include_people=surroundings_include_people,
-                        is_reality_change=(transformation_type == "reality"),
+                        is_reality_change=has_reality_attrs,
                     )
 
                     if surroundings_data is not None:
@@ -1979,7 +1986,7 @@ class GameService:
                     yield StreamEvent(
                         type="reality_attribute_added",
                         data={
-                            "attribute_id": new_attr.id,
+                            "attribute_id": new_attr["id"],
                             "attribute_text": reality_attr_text,
                         },
                     )
