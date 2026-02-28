@@ -90,6 +90,25 @@ function AppMain() {
   const [showApiKeyConsent, setShowApiKeyConsent] = useState(false);
   const [apiKeyConsentDeclined, setApiKeyConsentDeclined] = useState(false);
 
+  // Last generated seed (from SSE image event)
+  const [lastGeneratedSeed, setLastGeneratedSeed] = useState<number | null>(
+    null,
+  );
+
+  // US2: Last generated surroundings image (from SSE)
+  const [lastSurroundingsImage, setLastSurroundingsImage] = useState<{
+    imageBase64: string;
+    historyId: string;
+    seed?: number;
+  } | null>(null);
+
+  // US5: Anlas balance state
+  const [anlasBalance, setAnlasBalance] = useState<{
+    fixedAnlas: number;
+    purchasedAnlas: number;
+    totalAnlas: number;
+  } | null>(null);
+
   // API累積コスト (localStorage永続化)
   const [totalCost, setTotalCost] = useState<number>(() => {
     const saved = localStorage.getItem("api_total_cost");
@@ -120,11 +139,21 @@ function AppMain() {
     onText: (chunk) => {
       setFeelingText((prev) => prev + chunk);
     },
-    onImage: async (image, historyId) => {
+    onImage: async (image, historyId, seed) => {
       session.updateFromSSE({ image, historyId });
-      // 履歴を更新するためセッションを再読み込み
+      // Store the last generated seed for display
+      if (seed !== undefined) {
+        setLastGeneratedSeed(seed);
+      }
+      // Reload session to update history
       await session.restoreSession();
-      setIsTransforming(false);
+      // Note: isTransforming is cleared by onComplete, not here.
+      // This allows surroundings image generation to continue with
+      // the progress indicator still visible.
+    },
+    // US2: Surroundings image handler
+    onSurroundingsImage: (imageBase64, historyId, seed) => {
+      setLastSurroundingsImage({ imageBase64, historyId, seed });
     },
     onStats: (stats) => {
       session.updateStats({
@@ -175,6 +204,10 @@ function AppMain() {
         localStorage.setItem("api_total_cost", newTotal.toString());
         return newTotal;
       });
+    },
+    // US5: Anlas balance update
+    onAnlas: (balance) => {
+      setAnlasBalance(balance);
     },
     onError: (message) => {
       console.error("SSE Error:", message);
@@ -413,6 +446,14 @@ function AppMain() {
       if (instructionType) {
         body.instruction_type = instructionType;
       }
+      // Include seed if specified in settings
+      if (settingsState.seed !== null) {
+        body.seed = settingsState.seed;
+      }
+      // US3: Include surroundings image generation setting
+      if (settingsState.enableSurroundingsImage) {
+        body.enable_surroundings_image = true;
+      }
       if (costumeImage) {
         body.costume_image = costumeImage;
       }
@@ -480,6 +521,8 @@ function AppMain() {
       sse,
       imageProvider,
       settingsState.language,
+      settingsState.seed,
+      settingsState.enableSurroundingsImage,
     ],
   );
 
@@ -582,6 +625,11 @@ function AppMain() {
         imageProvider={imageProvider}
         selfMode={session.selfMode}
         onSessionStart={handleSessionStart}
+        lastGeneratedSeed={lastGeneratedSeed}
+        anlasBalance={anlasBalance}
+        onAnlasBalanceChange={setAnlasBalance}
+        lastSurroundingsImage={lastSurroundingsImage}
+        onClearSurroundingsImage={() => setLastSurroundingsImage(null)}
       />
 
       {providerLoading && (

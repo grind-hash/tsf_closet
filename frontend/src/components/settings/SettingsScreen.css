@@ -175,7 +175,8 @@
   background-color: var(--accent-color, #e94560);
 }
 
-.settings-screen__toggle-input:checked + .settings-screen__toggle-switch::after {
+.settings-screen__toggle-input:checked
+  + .settings-screen__toggle-switch::after {
   transform: translateX(22px);
 }
 
@@ -220,7 +221,9 @@
   color: var(--accent-color, #e94560);
   font-size: 0.95rem;
   cursor: pointer;
-  transition: background-color 0.2s, color 0.2s;
+  transition:
+    background-color 0.2s,
+    color 0.2s;
 }
 
 .settings-screen__reset-btn:hover {

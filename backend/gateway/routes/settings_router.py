@@ -57,6 +57,7 @@ class SettingsModel(BaseModel):
     sound_enabled: bool = True
     sound_volume: float = 0.5
     right_panel_open: bool = False
+    enable_surroundings_image: bool = False
 
 
 class SettingsResponse(BaseModel):
@@ -78,6 +79,7 @@ class SettingsUpdateRequest(BaseModel):
     sound_enabled: bool | None = None
     sound_volume: float | None = None
     right_panel_open: bool | None = None
+    enable_surroundings_image: bool | None = None
 
 
 @router.get("", response_model=SettingsResponse)

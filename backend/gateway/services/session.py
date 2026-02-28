@@ -113,6 +113,8 @@ class DatabaseSessionStore:
             after_description=orm_history.after_description,
             created_at=_to_datetime(orm_history.created_at),
             instruction_type=orm_history.instruction_type,
+            seed=orm_history.seed,
+            surroundings_image_path=orm_history.surroundings_image_path,
         )
 
     async def get_active_session(
@@ -273,6 +275,21 @@ class DatabaseSessionStore:
             await db_session.execute(stmt)
             await db_session.commit()
 
+    async def update_history_surroundings(
+        self,
+        history_id: str,
+        surroundings_image_path: str,
+    ) -> None:
+        """履歴の周囲状況画像パスを更新 (US2 用)"""
+        async with async_session_factory() as db_session:
+            stmt = (
+                update(HistoryORM)
+                .where(HistoryORM.id == history_id)
+                .values(surroundings_image_path=surroundings_image_path)
+            )
+            await db_session.execute(stmt)
+            await db_session.commit()
+
     async def reset_session(
         self,
         user_id: str = DEFAULT_USER_ID,
@@ -349,6 +366,8 @@ class DatabaseSessionStore:
         before_description: str | None = None,
         after_description: str | None = None,
         instruction_type: str | None = None,
+        seed: int | None = None,
+        surroundings_image_path: str | None = None,
     ) -> PersistedHistory:
         """履歴を追加"""
         history_id = str(uuid.uuid4())
@@ -370,6 +389,8 @@ class DatabaseSessionStore:
                 after_description=after_description,
                 created_at=now,
                 instruction_type=instruction_type,
+                seed=seed,
+                surroundings_image_path=surroundings_image_path,
             )
             db_session.add(orm_history)
             await db_session.commit()
@@ -386,6 +407,8 @@ class DatabaseSessionStore:
             after_description=after_description,
             created_at=now,
             instruction_type=instruction_type,
+            seed=seed,
+            surroundings_image_path=surroundings_image_path,
         )
 
     async def get_history(
@@ -491,6 +514,10 @@ class DatabaseSessionStore:
         history_items = []
         for history_item in session.history:
             tag = await self.get_transformation_tag(history_item.id)
+            # Build surroundings image URL if path exists
+            surroundings_url = None
+            if history_item.surroundings_image_path:
+                surroundings_url = f"/history/surroundings/{history_item.id}"
             history_items.append(
                 HistoryItem(
                     id=history_item.id,
@@ -504,6 +531,8 @@ class DatabaseSessionStore:
                     costume_category=tag.costume_category if tag else None,
                     exposure_level=tag.exposure_level if tag else None,
                     age_impression=tag.age_impression if tag else None,
+                    seed=history_item.seed,
+                    surroundings_image_url=surroundings_url,
                 )
             )
 

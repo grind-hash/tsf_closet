@@ -252,6 +252,88 @@ The user wants to change the background/environment while keeping the character 
 Tag prompt only. No explanation or preamble."""
 
 
+# ── US2 T030: Surroundings image prompt generation ──
+
+SURROUNDINGS_IMAGE_PROMPT_SYSTEM = """You are a NovelAI background/scenery image prompt expert.
+
+Generate a prompt for a BACKGROUND-ONLY image (NO characters) in 1216x832 LANDSCAPE format.
+
+## Rules
+1. Output comma-separated tags only.
+2. Quality tags first: masterpiece, best quality, very aesthetic, no humans, scenery, background
+3. Include detailed environmental tags: location, lighting, time of day, atmosphere, weather.
+4. Wide landscape composition for 1216x832 aspect ratio.
+5. NO character tags whatsoever (no 1girl, no person references).
+
+## Output Style
+- English tags only
+- Comma-separated
+- 30-50 tags max
+- Focus on: location type, architectural/natural features, lighting, mood, colors, atmosphere
+
+Output tag prompt only. No explanation."""
+
+SURROUNDINGS_IMAGE_PROMPT_SYSTEM_NSFW = """You are a NovelAI background/scenery image prompt expert.
+
+Generate a prompt for a BACKGROUND-ONLY image (NO characters) in 1216x832 LANDSCAPE format.
+This is NSFW mode — scenes may have suggestive or intimate atmosphere.
+
+## Rules
+1. Output comma-separated tags only.
+2. Quality tags first: masterpiece, best quality, very aesthetic, no humans, scenery, background
+3. Include detailed environmental tags: location, lighting, time of day, atmosphere, weather.
+4. Wide landscape composition for 1216x832 aspect ratio.
+5. NO character tags whatsoever (no 1girl, no person references).
+6. Scene can have romantic, sensual, or intimate atmosphere if appropriate to the action.
+
+## Output Style
+- English tags only
+- Comma-separated
+- 30-50 tags max
+- Focus on: location type, architectural/natural features, lighting, mood, colors, atmosphere
+
+Output tag prompt only. No explanation."""
+
+
+def get_surroundings_image_prompt_system(nsfw_mode: bool = False) -> str:
+    """Return the surroundings image generation system prompt.
+
+    Args:
+        nsfw_mode: Whether NSFW mode is enabled
+
+    Returns:
+        System prompt string for surroundings image tag generation
+    """
+    if nsfw_mode:
+        return SURROUNDINGS_IMAGE_PROMPT_SYSTEM_NSFW
+    return SURROUNDINGS_IMAGE_PROMPT_SYSTEM
+
+
+def build_surroundings_image_user_prompt(
+    instruction: str,
+    before_description: str,
+    after_description: str,
+) -> str:
+    """Build a user prompt for surroundings image generation.
+
+    Args:
+        instruction: The action instruction (e.g. "go to the cafe")
+        before_description: Description before the action
+        after_description: Description after the action
+
+    Returns:
+        User prompt string for surroundings image generation
+    """
+    return (
+        f"Action: {instruction}\n\n"
+        f"Scene before: {before_description}\n\n"
+        f"Scene after: {after_description}\n\n"
+        "Generate a background-only scenery prompt (1216x832 landscape) "
+        "depicting the environment where this action takes place. "
+        "NO characters. Focus on the location, atmosphere, and mood."
+    )
+
+
 # ── Scene-change helper functions (T004, T005, T006) ──
 
 

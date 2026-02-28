@@ -58,7 +58,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background-color 0.2s, right 0.3s;
+  transition:
+    background-color 0.2s,
+    right 0.3s;
 }
 
 .main-layout__toggle-right:hover {

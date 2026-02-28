@@ -25,10 +25,12 @@ import ChatInput from "./chat/ChatInput";
 import WelcomeScreen from "./chat/WelcomeScreen";
 import InpaintModal from "./InpaintModal";
 import ImagePreviewModal from "./ImagePreviewModal";
+import ImageOverlay from "./ui/ImageOverlay";
 import { useGame } from "../contexts/GameContext";
 import { useChat } from "../contexts/ChatContext";
 import { useSettings } from "../contexts/SettingsContext";
 import { API_BASE } from "../utils/api";
+import { fetchAnlasBalance } from "../apis/anlas";
 import type {
   ChangeSettings,
   ConversationMessage,
@@ -87,6 +89,28 @@ interface GamePlayScreenProps {
   selfMode?: boolean;
   // 007: セッション開始時のコールバック（App.tsx側でuseSession.restoreSession()を呼ぶため）
   onSessionStart?: () => void;
+  // US4: Last generated seed value
+  lastGeneratedSeed?: number | null;
+  // US5: Anlas balance (NovelAI only)
+  anlasBalance?: {
+    fixedAnlas: number;
+    purchasedAnlas: number;
+    totalAnlas: number;
+  } | null;
+  onAnlasBalanceChange?: (
+    balance: {
+      fixedAnlas: number;
+      purchasedAnlas: number;
+      totalAnlas: number;
+    } | null,
+  ) => void;
+  // US2: Last surroundings image from SSE
+  lastSurroundingsImage?: {
+    imageBase64: string;
+    historyId: string;
+    seed?: number;
+  } | null;
+  onClearSurroundingsImage?: () => void;
 }
 
 /* eslint-disable @typescript-eslint/no-unused-vars */
@@ -117,6 +141,11 @@ export default function GamePlayScreen({
   imageProvider,
   selfMode: selfModeProp = false,
   onSessionStart,
+  lastGeneratedSeed,
+  anlasBalance,
+  onAnlasBalanceChange,
+  lastSurroundingsImage,
+  onClearSurroundingsImage,
 }: GamePlayScreenProps) {
   const { t } = useTranslation();
   const location = useLocation();
@@ -177,6 +206,11 @@ export default function GamePlayScreen({
   // T031: 画像拡大プレビューモーダル
   const [showImagePreviewModal, setShowImagePreviewModal] = useState(false);
 
+  // US2: 周囲状況画像拡大モーダル
+  const [surroundingsOverlayUrl, setSurroundingsOverlayUrl] = useState<
+    string | null
+  >(null);
+
   // Anlas cost confirmation dialog for precise references
   const [anlasConfirmPending, setAnlasConfirmPending] = useState<{
     message: string;
@@ -218,7 +252,7 @@ export default function GamePlayScreen({
             | "conversation"
             | "action",
         });
-        // 心境テキスト（存在し、画質改善でない場合）
+        // US2: Attach surroundings image to the character's feeling text message
         if (h.feelingText && h.feelingText !== "(画質改善)") {
           allMessages.push({
             id: `feeling-${h.id}`,
@@ -227,6 +261,7 @@ export default function GamePlayScreen({
             content: `💭 ${h.feelingText}`,
             createdAt: h.timestamp,
             isFeelingText: true,
+            surroundingsImageUrl: h.surroundingsImageUrl,
           });
         }
       }
@@ -341,6 +376,17 @@ export default function GamePlayScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
 
+  // US5: Initial Anlas balance fetch (NovelAI only)
+  useEffect(() => {
+    if (imageProvider === "novelai" && onAnlasBalanceChange) {
+      fetchAnlasBalance().then((balance) => {
+        if (balance) {
+          onAnlasBalanceChange(balance);
+        }
+      });
+    }
+  }, [imageProvider, onAnlasBalanceChange]);
+
   // 心境テキストをチャットメッセージとして追加（ストリーミング対応）
   // ストリーミング中は既存のfeelingメッセージを更新し、完了時に新規追加
   const prevFeelingRef = React.useRef<string | null>(null);
@@ -403,6 +449,35 @@ export default function GamePlayScreen({
     updateMessage,
     setMessageStreaming,
     isTransforming,
+  ]);
+
+  // US2: Update message with surroundings image when received
+  // Attach to the character's feeling text message (not the user's action message)
+  useEffect(() => {
+    if (lastSurroundingsImage && sessionId) {
+      const { imageBase64 } = lastSurroundingsImage;
+      // Find the most recent feeling-text system message (character response)
+      const feelingMsg = [...chatState.messages]
+        .reverse()
+        .find(
+          (m) =>
+            m.role === "system" && m.isFeelingText && !m.surroundingsImageUrl,
+        );
+      if (feelingMsg) {
+        const dataUrl = `data:image/png;base64,${imageBase64}`;
+        updateMessage(feelingMsg.id, feelingMsg.content, {
+          surroundingsImageUrl: dataUrl,
+        });
+      }
+      // Clear the surroundings image state
+      onClearSurroundingsImage?.();
+    }
+  }, [
+    lastSurroundingsImage,
+    sessionId,
+    chatState.messages,
+    updateMessage,
+    onClearSurroundingsImage,
   ]);
 
   // 右パネルトグル（SettingsContext経由でlocalStorageに永続化）
@@ -726,6 +801,28 @@ export default function GamePlayScreen({
             </button>
           </div>
         )}
+        {/* US5: Anlas balance display (NovelAI only) */}
+        {imageProvider === "novelai" && anlasBalance && (
+          <div className="game-play-screen__anlas-bar">
+            <span className="game-play-screen__anlas-label">
+              Anlas: {anlasBalance.totalAnlas.toLocaleString()}
+            </span>
+            <span
+              className="game-play-screen__anlas-detail"
+              title={t(
+                "gameplay.anlasBreakdown",
+                "Fixed: {{fixed}}, Purchased: {{purchased}}",
+                {
+                  fixed: anlasBalance.fixedAnlas.toLocaleString(),
+                  purchased: anlasBalance.purchasedAnlas.toLocaleString(),
+                },
+              )}
+            >
+              ({anlasBalance.fixedAnlas.toLocaleString()} +{" "}
+              {anlasBalance.purchasedAnlas.toLocaleString()})
+            </span>
+          </div>
+        )}
         {!isSessionActive ? (
           <WelcomeScreen onSessionStart={onSessionStart} />
         ) : (
@@ -739,6 +836,33 @@ export default function GamePlayScreen({
                 transformationCount={_transformationCount}
                 isTransforming={isTransforming}
               />
+              {/* US4: Seed display */}
+              {lastGeneratedSeed !== null &&
+                lastGeneratedSeed !== undefined && (
+                  <div
+                    className="game-play-screen__seed-display"
+                    title={t("gameplay.seedTooltip", "Click to copy seed")}
+                    onClick={() => {
+                      void navigator.clipboard.writeText(
+                        String(lastGeneratedSeed),
+                      );
+                    }}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        void navigator.clipboard.writeText(
+                          String(lastGeneratedSeed),
+                        );
+                      }
+                    }}
+                  >
+                    <span className="game-play-screen__seed-label">Seed:</span>
+                    <span className="game-play-screen__seed-value">
+                      {lastGeneratedSeed}
+                    </span>
+                  </div>
+                )}
             </div>
 
             {/* 右カラム: チャットエリア */}
@@ -750,6 +874,9 @@ export default function GamePlayScreen({
                   highlightedMessageId={chatState.highlightedMessageId}
                   scrollToMessageId={chatState.scrollToMessageId}
                   isTyping={isTransforming}
+                  onSurroundingsImageClick={(url) =>
+                    setSurroundingsOverlayUrl(url)
+                  }
                 />
               </div>
 
@@ -881,6 +1008,15 @@ export default function GamePlayScreen({
             </div>
           </div>
         </div>
+      )}
+
+      {/* US2: 周囲状況画像拡大表示 */}
+      {surroundingsOverlayUrl && (
+        <ImageOverlay
+          imageUrl={surroundingsOverlayUrl}
+          alt="周囲状況画像"
+          onClose={() => setSurroundingsOverlayUrl(null)}
+        />
       )}
     </MainLayout>
   );

@@ -118,7 +118,9 @@
   color: var(--text-color, #eee);
   font-size: 1.2rem;
   cursor: pointer;
-  transition: background-color 0.2s, border-color 0.2s;
+  transition:
+    background-color 0.2s,
+    border-color 0.2s;
   min-width: 44px;
   min-height: 44px;
   display: flex;

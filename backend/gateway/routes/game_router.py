@@ -220,6 +220,18 @@ class PlayStreamRequest(BaseModel):
         None,
         description="精密参照画像パラメータの配列（NovelAIプロバイダー使用時のみ有効）",
     )
+    # Seed for image generation
+    seed: Optional[int] = Field(
+        None,
+        description="画像生成seed値（0〜999999999、未指定時はランダム）",
+        ge=0,
+        le=999999999,
+    )
+    # Surroundings image generation toggle
+    enable_surroundings_image: bool = Field(
+        False,
+        description="行動後の周囲状況画像生成を有効にする",
+    )
 
 
 @router.post(
@@ -265,6 +277,8 @@ async def play_game_stream(request: PlayStreamRequest) -> EventSourceResponse:
             if request.character_references
             else None,
             instruction_type=request.instruction_type,
+            seed=request.seed,
+            enable_surroundings_image=request.enable_surroundings_image,
         ):
             yield {
                 "event": event.type,
@@ -1546,3 +1560,45 @@ async def delete_preset_mask(mask_id: str) -> MaskListResponse:
             pass  # メタデータ削除失敗は無視
 
     return await list_masks()
+
+
+# ---------- Anlas balance ----------
+
+
+class AnlasBalanceResponse(BaseModel):
+    """Anlas balance response model."""
+
+    fixed_anlas: int | None = None
+    purchased_anlas: int | None = None
+    total_anlas: int | None = None
+
+
+@router.get(
+    "/anlas",
+    response_model=AnlasBalanceResponse,
+    summary="Anlas残高取得",
+    description="NovelAIのAnlas残高を取得する。NovelAI以外のプロバイダー使用時はnullを返す。",
+)
+async def get_anlas_balance() -> AnlasBalanceResponse:
+    """Get the current Anlas balance from NovelAI."""
+    from ..settings.config import settings as app_settings
+
+    if app_settings.image_provider.lower() != "novelai":
+        return AnlasBalanceResponse()
+
+    try:
+        from ..services.anlas_service import get_anlas_balance as fetch_anlas
+
+        balance = await fetch_anlas()
+        if balance is None:
+            return AnlasBalanceResponse()
+        return AnlasBalanceResponse(
+            fixed_anlas=balance.fixed_anlas,
+            purchased_anlas=balance.purchased_anlas,
+            total_anlas=balance.total_anlas,
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch Anlas balance: {e}",
+        )

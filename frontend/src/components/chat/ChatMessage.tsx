@@ -15,10 +15,11 @@ import "./ChatMessage.css";
 interface ChatMessageProps {
   message: ChatMessage;
   isHighlighted?: boolean;
+  onSurroundingsImageClick?: (imageUrl: string) => void;
 }
 
 const ChatMessageItem = forwardRef<HTMLDivElement, ChatMessageProps>(
-  ({ message, isHighlighted = false }, ref) => {
+  ({ message, isHighlighted = false, onSurroundingsImageClick }, ref) => {
     const { t, i18n } = useTranslation();
     const { state } = useGame();
     const { selfProfile } = useSettings();
@@ -96,6 +97,36 @@ const ChatMessageItem = forwardRef<HTMLDivElement, ChatMessageProps>(
               alt={t("chat.message.attachedImageAlt")}
               className="chat-message__attachment-image"
             />
+          </div>
+        )}
+
+        {/* US2: 周囲状況画像サムネイル */}
+        {message.surroundingsImageUrl && (
+          <div
+            className="chat-message__surroundings"
+            onClick={() =>
+              onSurroundingsImageClick?.(message.surroundingsImageUrl!)
+            }
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                onSurroundingsImageClick?.(message.surroundingsImageUrl!);
+              }
+            }}
+          >
+            <img
+              src={message.surroundingsImageUrl}
+              alt={t("chat.message.surroundingsImageAlt", {
+                defaultValue: "周囲状況",
+              })}
+              className="chat-message__surroundings-image"
+            />
+            <span className="chat-message__surroundings-label">
+              {t("chat.message.surroundingsLabel", {
+                defaultValue: "📍 周囲状況",
+              })}
+            </span>
           </div>
         )}
       </div>

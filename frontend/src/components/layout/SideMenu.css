@@ -31,7 +31,9 @@
 
 .side-menu__title.is-clickable {
   cursor: pointer;
-  transition: color 0.2s, text-decoration 0.2s;
+  transition:
+    color 0.2s,
+    text-decoration 0.2s;
 }
 
 .side-menu__title.is-clickable:hover {
@@ -63,7 +65,9 @@
   font-size: 0.95rem;
   text-align: left;
   cursor: pointer;
-  transition: background-color 0.2s, color 0.2s;
+  transition:
+    background-color 0.2s,
+    color 0.2s;
 }
 
 .side-menu__item:hover {

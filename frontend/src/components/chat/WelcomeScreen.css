@@ -249,7 +249,9 @@
   border-radius: 12px;
   color: white;
   cursor: pointer;
-  transition: background-color 0.2s, transform 0.1s;
+  transition:
+    background-color 0.2s,
+    transform 0.1s;
   box-shadow: 0 4px 12px rgba(233, 69, 96, 0.3);
 }
 

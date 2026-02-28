@@ -45,7 +45,9 @@
   border-radius: 8px;
   font-size: 0.875rem;
   cursor: pointer;
-  transition: background-color 0.2s, opacity 0.2s;
+  transition:
+    background-color 0.2s,
+    opacity 0.2s;
 }
 
 .self-profile-editor__generate-btn {

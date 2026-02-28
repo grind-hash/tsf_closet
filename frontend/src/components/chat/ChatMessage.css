@@ -113,10 +113,12 @@
 }
 
 @keyframes blink {
-  0%, 50% {
+  0%,
+  50% {
     opacity: 1;
   }
-  51%, 100% {
+  51%,
+  100% {
     opacity: 0;
   }
 }
@@ -139,9 +141,49 @@
   transform: scale(1.05);
 }
 
+/* US2: 周囲状況画像サムネイル */
+.chat-message__surroundings {
+  margin-top: 0.75rem;
+  padding: 0.5rem;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.chat-message__surroundings:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.chat-message__surroundings-image {
+  width: 100%;
+  max-width: 300px;
+  aspect-ratio: 1216 / 832;
+  border-radius: 6px;
+  object-fit: cover;
+  display: block;
+}
+
+.chat-message__surroundings-label {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 0.75rem;
+  color: var(--text-muted, #999);
+}
+
 /* レスポンシブ */
+@media (max-width: 900px) {
+  .chat-message__surroundings-image {
+    max-width: 250px;
+  }
+}
+
 @media (max-width: 600px) {
   .chat-message {
     max-width: 90%;
+  }
+
+  .chat-message__surroundings-image {
+    max-width: 200px;
   }
 }

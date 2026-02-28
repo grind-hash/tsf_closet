@@ -424,6 +424,12 @@ class HistoryItem(BaseModel):
     age_impression: Optional[str] = Field(
         None, description="年齢印象 (mature/neutral/youthful)"
     )
+    # US4: seed value
+    seed: Optional[int] = Field(None, description="画像生成seed値")
+    # US2: surroundings image
+    surroundings_image_url: Optional[str] = Field(
+        None, description="周囲状況画像URL (action時のみ)"
+    )
 
 
 class SessionAttributeResponse(BaseModel):
@@ -797,6 +803,8 @@ class PersistedHistory:
     after_description: Optional[str]
     created_at: datetime
     instruction_type: Optional[str] = None
+    seed: Optional[int] = None
+    surroundings_image_path: Optional[str] = None
 
     @classmethod
     def from_row(cls, row: dict) -> "PersistedHistory":

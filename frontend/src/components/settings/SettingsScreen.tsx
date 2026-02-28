@@ -18,6 +18,7 @@ export default function SettingsScreen() {
     setNsfwMode,
     setShowAchievementNotifications,
     setExperimentalEndingEnabled,
+    setEnableSurroundingsImage,
     resetSettings,
   } = useSettings();
 
@@ -229,6 +230,26 @@ export default function SettingsScreen() {
                   onChange={(e) =>
                     setExperimentalEndingEnabled(e.target.checked)
                   }
+                  className="settings-screen__toggle-input"
+                />
+                <span className="settings-screen__toggle-switch" />
+              </label>
+            </div>
+
+            <div className="settings-screen__item">
+              <label className="settings-screen__toggle">
+                <div className="settings-screen__toggle-info">
+                  <span className="settings-screen__item-label">
+                    {t("settings.experimentalSurroundings")}
+                  </span>
+                  <span className="settings-screen__item-desc">
+                    {t("settings.experimentalSurroundingsDesc")}
+                  </span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={state.enableSurroundingsImage}
+                  onChange={(e) => setEnableSurroundingsImage(e.target.checked)}
                   className="settings-screen__toggle-input"
                 />
                 <span className="settings-screen__toggle-switch" />

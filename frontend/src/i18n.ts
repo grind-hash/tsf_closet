@@ -53,6 +53,9 @@ const resources = {
         experimentalEnding: "エンディング",
         experimentalEndingDesc:
           "有効時のみエンディングメニューとエンディング通知を表示",
+        experimentalSurroundings: "周囲状況画像の生成",
+        experimentalSurroundingsDesc:
+          "行動指示の後に周囲の状況を描写した画像を追加生成します。Opusプランでない場合は追加の Anlas を消費します。",
         dataSection: "データ",
         reset: "設定を初期化",
         resetDesc: "すべての設定を初期値に戻します",
@@ -178,6 +181,13 @@ const resources = {
         savePreservePresetTitle: "現在の保持設定をプリセットとして保存",
         attributePresetModalTitle: "属性プリセットを保存",
         preservePresetModalTitle: "保持設定プリセットを保存",
+        seedLabel: "シード値",
+        seedPlaceholder: "ランダム",
+        seedClear: "シードをクリア",
+        seedHint: "空欄 = ランダム。値を指定すると同じ画像を再現できます。",
+        enableSurroundingsImage: "周囲状況画像を生成",
+        enableSurroundingsImageHint:
+          "行動指示後に周囲の環境を描写した画像を追加生成します。Opusプラン以外では追加のAnlasを消費します。",
       },
       characterPanel: {
         expandImage: "画像を拡大",
@@ -493,6 +503,9 @@ const resources = {
         experimentalEnding: "Endings",
         experimentalEndingDesc:
           "Show ending menu and ending notification only when enabled",
+        experimentalSurroundings: "Generate Surroundings Image",
+        experimentalSurroundingsDesc:
+          "Generate an additional image showing the surrounding environment after action instructions. Uses extra Anlas on non-Opus plans.",
         dataSection: "Data",
         reset: "Reset settings",
         resetDesc: "Reset all settings to defaults",
@@ -617,6 +630,13 @@ const resources = {
         savePreservePresetTitle: "Save current preserve settings as preset",
         attributePresetModalTitle: "Save attribute preset",
         preservePresetModalTitle: "Save preserve preset",
+        seedLabel: "Seed",
+        seedPlaceholder: "Random",
+        seedClear: "Clear seed",
+        seedHint: "Empty = random. Set a value to reproduce the same image.",
+        enableSurroundingsImage: "Generate surroundings image",
+        enableSurroundingsImageHint:
+          "Generate an additional image showing the surrounding environment after action instructions. Uses extra Anlas on non-Opus plans.",
       },
       characterPanel: {
         expandImage: "Expand image",

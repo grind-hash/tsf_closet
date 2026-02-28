@@ -63,6 +63,7 @@ from ..routes.achievements_router import (
     update_achievement_counts,
 )
 from .achievement_classifier import classify_for_achievement
+from .anlas_service import get_anlas_balance
 from ..consts.language import normalize_language
 
 logger = logging.getLogger(__name__)
@@ -393,9 +394,10 @@ class GameService:
         )
 
         # 両方の完了を待つ
-        (after_image, _img_cost), (feeling_text, _feel_cost) = await asyncio.gather(
-            image_task, feeling_task
-        )
+        (
+            (after_image, _img_cost, _img_seed),
+            (feeling_text, _feel_cost),
+        ) = await asyncio.gather(image_task, feeling_task)
         logger.info("Parallel processing completed")
         logger.info("Image generated: %d bytes", len(after_image))
         logger.info(
@@ -483,6 +485,25 @@ class GameService:
         )
         return session
 
+    @staticmethod
+    async def _get_anlas_event() -> StreamEvent | None:
+        """Get Anlas balance as an SSE event (NovelAI provider only)."""
+        if settings.image_provider != "novelai":
+            return None
+        try:
+            balance = await get_anlas_balance()
+            return StreamEvent(
+                type="anlas",
+                data={
+                    "fixed_anlas": balance.fixed_anlas,
+                    "purchased_anlas": balance.purchased_anlas,
+                    "total_anlas": balance.total_anlas,
+                },
+            )
+        except Exception as e:
+            logger.warning("Failed to get Anlas balance: %s", e)
+            return None
+
     async def _generate_image(
         self,
         image_bytes: bytes,
@@ -494,7 +515,8 @@ class GameService:
         inpaint_noise: float | None = None,
         negative_prompt: str | None = None,
         character_references: list[dict] | None = None,
-    ) -> tuple[bytes, float | None]:
+        seed: int | None = None,
+    ) -> tuple[bytes, float | None, int | None]:
         """画像を生成 (ImageGenerationService経由)
 
         プロバイダーはIMAGE_PROVIDER環境変数で切り替え:
@@ -507,9 +529,10 @@ class GameService:
             costume_image_bytes: 参照衣装画像（オプション）
             nsfw_mode: NSFWモード (Trueの場合NSFWワークフローを使用)
             character_references: 精密参照画像パラメータのリスト（NovelAI専用）
+            seed: 画像生成seed値（未指定時はNovelAIプロバイダーでランダム生成）
 
         Returns:
-            (生成された画像, API料金USD)
+            (生成された画像, API料金USD, seed値)
 
         Raises:
             GameServiceError: 画像生成に失敗した場合
@@ -531,15 +554,84 @@ class GameService:
                 inpaint_noise=inpaint_noise,
                 nsfw_mode=nsfw_mode,
                 character_references=character_references,
+                seed=seed,
             )
             if not result.images:
                 raise GameServiceError("画像が生成されませんでした")
             logger.info(
-                f"画像生成完了: provider={result.provider}, cost={result.cost_usd}"
+                f"画像生成完了: provider={result.provider}, cost={result.cost_usd}, seed={result.seed}"
             )
-            return result.images[0], result.cost_usd
+            return result.images[0], result.cost_usd, result.seed
         except Exception as e:
             raise GameServiceError(f"画像生成エラー: {e}") from e
+
+    async def _generate_surroundings_image(
+        self,
+        instruction: str,
+        before_description: str,
+        after_description: str,
+        nsfw_mode: bool = False,
+    ) -> tuple[bytes | None, float | None, int | None]:
+        """周囲状況画像を生成 (NovelAI txt2img, US2 用)
+
+        Args:
+            instruction: 行動指示
+            before_description: 行動前の状況説明
+            after_description: 行動後の状況説明
+            nsfw_mode: NSFWモード
+
+        Returns:
+            (生成された画像, API料金USD, seed値) または失敗時は (None, None, None)
+        """
+        if settings.image_provider != "novelai":
+            logger.info("Surroundings image generation is only supported with NovelAI")
+            return None, None, None
+
+        try:
+            # LLM でプロンプト生成
+            from .action_prompts import (
+                get_surroundings_image_prompt_system,
+                build_surroundings_image_user_prompt,
+            )
+
+            system_prompt = get_surroundings_image_prompt_system(nsfw_mode=nsfw_mode)
+            user_prompt = build_surroundings_image_user_prompt(
+                instruction=instruction,
+                before_description=before_description,
+                after_description=after_description,
+            )
+
+            scenery_prompt_result = await llm_service.generate_text(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+            )
+            scenery_prompt = scenery_prompt_result.content.strip()
+            logger.info(
+                "Surroundings prompt generated: %d chars",
+                len(scenery_prompt),
+            )
+
+            # 画像生成 (landscape = 1216x832)
+            result = await self._image_service.generate_scenery(
+                prompt=scenery_prompt,
+                size="landscape",
+                nsfw_mode=nsfw_mode,
+            )
+
+            if not result.images:
+                logger.warning("Surroundings image generation returned no images")
+                return None, None, None
+
+            logger.info(
+                "Surroundings image generated: %d bytes, seed=%s",
+                len(result.images[0]),
+                result.seed,
+            )
+            return result.images[0], result.cost_usd, result.seed
+
+        except Exception as e:
+            logger.warning("Surroundings image generation failed: %s", e)
+            return None, None, None
 
     async def _generate_image_edit_prompt(
         self,
@@ -943,6 +1035,8 @@ class GameService:
         language_override: str | None = None,
         character_references: list[dict] | None = None,
         instruction_type: str | None = None,
+        seed: int | None = None,
+        enable_surroundings_image: bool = False,
     ) -> AsyncGenerator[StreamEvent, None]:
         """ストリーミング対応の着せ替えを実行
 
@@ -963,6 +1057,8 @@ class GameService:
             transformation_type: 変身タイプ (costume=衣装変更, reality=現実改変)
             nsfw_mode_override: ユーザー設定からのNSFWモード（Noneの場合はセッション設定を使用）
             difficulty_override: ユーザー設定からの難易度（Noneの場合はセッション設定を使用）
+            seed: 画像生成seed値（未指定時はランダム生成）
+            enable_surroundings_image: 周囲状況画像を生成するか（行動モード専用）
 
         Yields:
             StreamEvent: text/image/complete/error イベント
@@ -1268,24 +1364,31 @@ class GameService:
                 async def action_image_producer():
                     """シーン変更画像を生成しキューに結果を送信する。"""
                     try:
-                        after_img, img_cost = await self._generate_image(
+                        after_img, img_cost, img_seed = await self._generate_image(
                             before_image,
                             action_image_prompt,
                             nsfw_mode=effective_nsfw_mode,
+                            mask_bytes=mask_bytes,
                             inpaint_strength=action_inpaint_strength,
                             inpaint_noise=inpaint_noise,
                             negative_prompt=negative_prompt,
                             character_references=character_references,
+                            seed=seed,
                         )
                         logger.info(
-                            "Action image generated: %d bytes, cost=%s",
+                            "Action image generated: %d bytes, cost=%s, seed=%s",
                             len(after_img),
                             img_cost,
+                            img_seed,
                         )
                         await action_event_queue.put(
                             StreamEvent(
                                 type="_image_ready",
-                                data={"image": after_img, "cost": img_cost},
+                                data={
+                                    "image": after_img,
+                                    "cost": img_cost,
+                                    "seed": img_seed,
+                                },
                             )
                         )
                     except Exception as e:
@@ -1303,6 +1406,7 @@ class GameService:
                 action_image_data: bytes | None = None
                 action_image_cost: float | None = None
                 action_image_error: str | None = None
+                action_image_seed: int | None = None
 
                 while True:
                     event = await action_event_queue.get()
@@ -1316,6 +1420,7 @@ class GameService:
                     elif event.type == "_image_ready":
                         action_image_data = event.data["image"]
                         action_image_cost = event.data.get("cost")
+                        action_image_seed = event.data.get("seed")
                     elif event.type == "_image_error":
                         action_image_error = event.data["error"]
 
@@ -1352,6 +1457,7 @@ class GameService:
                     before_description=current_desc,
                     after_description=action_prompt_desc,
                     instruction_type="action",
+                    seed=action_image_seed,
                 )
 
                 # セッションの現在の画像をアクション結果で更新
@@ -1367,7 +1473,11 @@ class GameService:
                     image_b64 = base64.b64encode(action_image_data).decode("utf-8")
                     yield StreamEvent(
                         type="image",
-                        data={"image": image_b64, "history_id": history.id},
+                        data={
+                            "image": image_b64,
+                            "history_id": history.id,
+                            "seed": action_image_seed,
+                        },
                     )
 
                 # コストイベントを送信（該当する場合）
@@ -1376,6 +1486,79 @@ class GameService:
                         type="cost",
                         data={"cost_usd": action_image_cost},
                     )
+
+                # US5: Anlas balance event (NovelAI only)
+                anlas_event = await self._get_anlas_event()
+                if anlas_event:
+                    yield anlas_event
+
+                # ── US2 T031-T033: Surroundings image generation (NovelAI only) ──
+                surroundings_image_path: str | None = None
+                if enable_surroundings_image and settings.image_provider == "novelai":
+                    logger.info("Generating surroundings image for action...")
+                    (
+                        surroundings_data,
+                        surroundings_cost,
+                        surroundings_seed,
+                    ) = await self._generate_surroundings_image(
+                        instruction=instruction,
+                        before_description=current_desc,
+                        after_description=action_prompt_desc,
+                        nsfw_mode=effective_nsfw_mode,
+                    )
+
+                    if surroundings_data is not None:
+                        # Save to file
+                        import uuid
+
+                        surroundings_filename = f"surroundings_{uuid.uuid4().hex}.png"
+                        surroundings_dir = settings.history_images_dir
+                        surroundings_dir.mkdir(parents=True, exist_ok=True)
+                        surroundings_path = surroundings_dir / surroundings_filename
+                        surroundings_path.write_bytes(surroundings_data)
+                        # Store as relative path (e.g. history_images/surroundings_xxx.png)
+                        surroundings_image_path = str(
+                            surroundings_path.relative_to(
+                                settings.history_images_dir.parent
+                            )
+                        )
+
+                        # Update history with surroundings path
+                        await session_store.update_history_surroundings(
+                            history_id=history.id,
+                            surroundings_image_path=surroundings_image_path,
+                        )
+
+                        # Emit SSE event
+                        surroundings_b64 = base64.b64encode(surroundings_data).decode(
+                            "utf-8"
+                        )
+                        yield StreamEvent(
+                            type="surroundings_image",
+                            data={
+                                "image": surroundings_b64,
+                                "history_id": history.id,
+                                "seed": surroundings_seed,
+                            },
+                        )
+
+                        # Emit cost if any
+                        if surroundings_cost is not None:
+                            yield StreamEvent(
+                                type="cost",
+                                data={"cost_usd": surroundings_cost},
+                            )
+
+                        # Refresh Anlas balance after surroundings generation
+                        anlas_event2 = await self._get_anlas_event()
+                        if anlas_event2:
+                            yield anlas_event2
+
+                        logger.info(
+                            "Surroundings image saved: %s", surroundings_image_path
+                        )
+                    else:
+                        logger.info("Surroundings image generation skipped or failed")
 
                 # T014: Complete event — transformation_count unchanged
                 yield StreamEvent(
@@ -1591,7 +1774,7 @@ class GameService:
             async def image_producer():
                 """画像生成完了をキューに送信"""
                 try:
-                    after_image, image_cost = await self._generate_image(
+                    after_image, image_cost, img_seed = await self._generate_image(
                         before_image,
                         final_prompt,
                         costume_image_bytes,
@@ -1601,6 +1784,7 @@ class GameService:
                         inpaint_noise=inpaint_noise,
                         negative_prompt=negative_prompt,
                         character_references=character_references,
+                        seed=seed,
                     )
                     logger.info(
                         "Image generated: %d bytes, cost: %s",
@@ -1610,7 +1794,11 @@ class GameService:
                     await event_queue.put(
                         StreamEvent(
                             type="_image_ready",
-                            data={"image": after_image, "cost": image_cost},
+                            data={
+                                "image": after_image,
+                                "cost": image_cost,
+                                "seed": img_seed,
+                            },
                         )
                     )
                 except Exception as e:
@@ -1628,6 +1816,7 @@ class GameService:
             image_data: bytes | None = None
             image_cost: float | None = None
             image_error: str | None = None
+            image_seed: int | None = None
 
             # キューからイベントを消費
             while True:
@@ -1643,6 +1832,7 @@ class GameService:
                 elif event.type == "_image_ready":
                     image_data = event.data["image"]
                     image_cost = event.data.get("cost")
+                    image_seed = event.data.get("seed")
                 elif event.type == "_image_error":
                     image_error = event.data["error"]
 
@@ -1670,6 +1860,7 @@ class GameService:
                 before_description=before_desc,
                 after_description=inferred_after_desc,
                 instruction_type=instruction_type or "dress_up",
+                seed=image_seed,
             )
 
             # 5.1. タグ分類 (T023)
@@ -1877,7 +2068,11 @@ class GameService:
             image_b64 = base64.b64encode(image_data).decode("utf-8")
             yield StreamEvent(
                 type="image",
-                data={"image": image_b64, "history_id": history.id},
+                data={
+                    "image": image_b64,
+                    "history_id": history.id,
+                    "seed": image_seed,
+                },
             )
 
             # 8.5 コストイベントを送信（API料金がある場合）
@@ -1890,6 +2085,11 @@ class GameService:
                     type="cost",
                     data={"cost_usd": total_api_cost},
                 )
+
+            # US5: Anlas balance event (NovelAI only)
+            anlas_event = await self._get_anlas_event()
+            if anlas_event:
+                yield anlas_event
 
             # 9. 完了イベント
             yield StreamEvent(
@@ -2096,7 +2296,7 @@ class GameService:
             yield StreamEvent(type="status", data={"message": "画質改善中..."})
 
             # 7. 新しい画像を生成
-            new_image, image_cost = await self._generate_image(
+            new_image, image_cost, improve_seed = await self._generate_image(
                 initial_image_bytes, improve_instruction
             )
             logger.info(f"Quality improvement done: {len(new_image)} bytes")
@@ -2110,6 +2310,7 @@ class GameService:
                 feeling_text="(画質改善)",
                 before_description="",
                 after_description=current_description,
+                seed=improve_seed,
             )
 
             # 9. 現在の画像パスを更新
@@ -2122,7 +2323,11 @@ class GameService:
             image_b64 = base64.b64encode(new_image).decode("utf-8")
             yield StreamEvent(
                 type="image",
-                data={"image": image_b64, "history_id": history.id},
+                data={
+                    "image": image_b64,
+                    "history_id": history.id,
+                    "seed": improve_seed,
+                },
             )
 
             # コストイベント
@@ -2134,6 +2339,11 @@ class GameService:
                     type="cost",
                     data={"cost_usd": total_api_cost},
                 )
+
+            # US5: Anlas balance event (NovelAI only)
+            anlas_event = await self._get_anlas_event()
+            if anlas_event:
+                yield anlas_event
 
             # 完了イベント
             yield StreamEvent(

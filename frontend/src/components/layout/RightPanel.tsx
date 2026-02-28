@@ -76,6 +76,8 @@ export default function RightPanel({
     addPreciseReference,
     updatePreciseReference,
     removePreciseReference,
+    setSeed,
+    setEnableSurroundingsImage,
   } = useSettings();
   const { state: gameState, addAttribute, removeAttribute } = useGame();
 
@@ -698,6 +700,78 @@ export default function RightPanel({
               />
               <small className="right-panel__hint">
                 {t("rightPanel.inpaintNoiseHint")}
+              </small>
+            </div>
+
+            {/* US4: Seed input */}
+            <div className="right-panel__form-group">
+              <label className="right-panel__label">
+                {t("rightPanel.seedLabel", "Seed")}
+              </label>
+              <div style={{ display: "flex", gap: "0.5rem" }}>
+                <input
+                  type="number"
+                  className="right-panel__input"
+                  min={0}
+                  max={999999999}
+                  step={1}
+                  value={settingsState.seed ?? ""}
+                  onChange={(e) => {
+                    const raw = e.target.value;
+                    if (raw === "") {
+                      setSeed(null);
+                      return;
+                    }
+                    const num = parseInt(raw, 10);
+                    if (!isNaN(num) && num >= 0 && num <= 999999999) {
+                      setSeed(num);
+                    }
+                  }}
+                  placeholder={t("rightPanel.seedPlaceholder", "Random")}
+                  style={{ flex: 1, minWidth: 0 }}
+                />
+                {settingsState.seed !== null && (
+                  <button
+                    type="button"
+                    className="right-panel__btn-secondary"
+                    onClick={() => setSeed(null)}
+                    style={{ flexShrink: 0, padding: "0.25rem 0.5rem" }}
+                    title={t("rightPanel.seedClear", "Clear seed")}
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+              <small className="right-panel__hint">
+                {t(
+                  "rightPanel.seedHint",
+                  "Empty = random. Set a value to reproduce the same image.",
+                )}
+              </small>
+            </div>
+
+            {/* US3: 周囲状況画像生成トグル */}
+            <div className="right-panel__form-group">
+              <label className="right-panel__toggle">
+                <span className="right-panel__toggle-label">
+                  {t(
+                    "rightPanel.enableSurroundingsImage",
+                    "Generate surroundings image",
+                  )}
+                </span>
+                <input
+                  type="checkbox"
+                  checked={settingsState.enableSurroundingsImage}
+                  onChange={(e) => setEnableSurroundingsImage(e.target.checked)}
+                  className="right-panel__toggle-input"
+                />
+                <span className="right-panel__toggle-switch" />
+              </label>
+              <small className="right-panel__hint">
+                {t(
+                  "rightPanel.enableSurroundingsImageHint",
+                  "Generate an additional image showing the surrounding environment after action instructions. Uses extra Anlas on non-Opus plans.",
+                )}
               </small>
             </div>
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import base64
 import logging
+import random
 from dataclasses import dataclass
 from io import BytesIO
 from typing import Any, Dict, List, Literal, Optional
@@ -48,6 +49,7 @@ class ImageGenerationResult:
     usage: Optional[UsageInfo] = None
     cost_usd: Optional[float] = None  # USD単位の料金
     model: Optional[str] = None
+    seed: Optional[int] = None
 
 
 class OpenRouterImageError(Exception):
@@ -413,6 +415,7 @@ class NovelAIImageClient:
         inpaint_strength_override: Optional[float] = None,
         noise_override: Optional[float] = None,
         character_references: Optional[List[Dict[str, Any]]] = None,
+        seed: Optional[int] = None,
     ) -> ImageGenerationResult:
         """画像生成 / 画像変換 (i2i)"""
         client = await self._get_client()
@@ -534,6 +537,9 @@ class NovelAIImageClient:
                 )
             logger.info("Character references: %d items", len(sdk_char_refs))
 
+        # Determine the seed to use
+        actual_seed = seed if seed is not None else random.randint(0, 999999999)
+
         # NOTE: GenerateImageParamsのmodelはSDKのリテラル制約に合わせてベースモデルを入れる
         params = GenerateImageParams(
             prompt=self._format_prompt(prompt),
@@ -549,6 +555,7 @@ class NovelAIImageClient:
             i2i=i2i_params,
             n_samples=1,
             character_references=sdk_char_refs,
+            seed=actual_seed,
         )
 
         try:
@@ -596,6 +603,72 @@ class NovelAIImageClient:
             images=image_bytes_list,
             provider="novelai",
             model=actual_model_used,
+            seed=actual_seed,
+        )
+
+    async def generate_scenery(
+        self,
+        prompt: str,
+        size: str = "landscape",
+        negative_prompt_override: Optional[str] = None,
+        seed: Optional[int] = None,
+    ) -> ImageGenerationResult:
+        """背景・風景画像の txt2img 生成 (US2 用)
+
+        Args:
+            prompt: 生成プロンプト
+            size: 画像サイズプリセット (デフォルト: landscape = 1216x832)
+            negative_prompt_override: ネガティブプロンプト
+            seed: 画像生成seed値
+
+        Returns:
+            ImageGenerationResult
+        """
+        client = await self._get_client()
+
+        neg_prompt = negative_prompt_override or self.negative_prompt
+        extra_negative = ", 1girl, 1boy, person, people, character, human, face, body"
+
+        actual_seed = seed if seed is not None else random.randint(0, 999999999)
+
+        params = GenerateImageParams(
+            prompt=prompt,
+            model=self.model,
+            size=size,
+            steps=self.steps,
+            scale=self.scale,
+            uc_preset=self.uc_preset,
+            negative_prompt=(neg_prompt + extra_negative)
+            if neg_prompt
+            else extra_negative,
+            quality=True,
+            n_samples=1,
+            seed=actual_seed,
+        )
+
+        try:
+            req = await async_convert_user_params_to_api_request(params, client)
+            # txt2img: action="generate"
+            req.action = "generate"
+            images = await client.api_client.image.generate(req)
+        except NovelAIError as e:
+            logger.error("NovelAI scenery generation error: %s", e)
+            raise NovelAIImageError(str(e)) from e
+
+        if not images:
+            raise NovelAIImageError("No scenery images returned from NovelAI")
+
+        image_bytes_list: List[bytes] = []
+        for img in images:
+            buf = BytesIO()
+            img.save(buf, format="PNG")
+            image_bytes_list.append(buf.getvalue())
+
+        return ImageGenerationResult(
+            images=image_bytes_list,
+            provider="novelai",
+            model=self.model,
+            seed=actual_seed,
         )
 
 
@@ -660,6 +733,7 @@ class ImageGenerationService:
         i2i_noise_override: Optional[float] = None,
         nsfw_mode: bool = True,
         character_references: Optional[List[Dict[str, Any]]] = None,
+        seed: Optional[int] = None,
         **comfy_kwargs: Any,
     ) -> ImageGenerationResult:
         """画像を生成する
@@ -701,6 +775,7 @@ class ImageGenerationService:
                 inpaint_strength_override=i2i_strength_override,
                 noise_override=i2i_noise_override,
                 character_references=character_references,
+                seed=seed,
             )
         else:
             # セルフホスト (ComfyUI)
@@ -734,6 +809,7 @@ class ImageGenerationService:
         inpaint_noise: Optional[float] = None,
         nsfw_mode: bool = True,
         character_references: Optional[List[Dict[str, Any]]] = None,
+        seed: Optional[int] = None,
         **comfy_kwargs: Any,
     ) -> ImageGenerationResult:
         """画像を編集する
@@ -760,7 +836,44 @@ class ImageGenerationService:
             i2i_noise_override=inpaint_noise,
             nsfw_mode=nsfw_mode,
             character_references=character_references,
+            seed=seed,
             **comfy_kwargs,
+        )
+
+    async def generate_scenery(
+        self,
+        prompt: str,
+        size: str = "landscape",
+        negative_prompt: Optional[str] = None,
+        seed: Optional[int] = None,
+        nsfw_mode: bool = True,
+    ) -> ImageGenerationResult:
+        """背景・風景画像を生成 (NovelAI txt2img, US2 用)
+
+        Args:
+            prompt: 生成プロンプト
+            size: 画像サイズプリセット (デフォルト: landscape = 1216x832)
+            negative_prompt: ネガティブプロンプト
+            seed: 画像生成seed値
+            nsfw_mode: NSFWモード
+
+        Returns:
+            ImageGenerationResult
+
+        Raises:
+            ValueError: NovelAI以外のプロバイダーでは利用不可
+        """
+        if self._default_provider != "novelai":
+            raise ValueError(
+                "Scenery generation is only supported with NovelAI provider"
+            )
+
+        client = self._get_novelai_client(nsfw_mode=nsfw_mode)
+        return await client.generate_scenery(
+            prompt=prompt,
+            size=size,
+            negative_prompt_override=negative_prompt,
+            seed=seed,
         )
 
     async def health_check(self) -> Dict[str, bool]:

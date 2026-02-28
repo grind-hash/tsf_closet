@@ -34,7 +34,14 @@ interface ChatState {
 type ChatAction =
   | { type: "SET_MESSAGES"; payload: ChatMessage[] }
   | { type: "ADD_MESSAGE"; payload: ChatMessage }
-  | { type: "UPDATE_MESSAGE"; payload: { id: string; content: string } }
+  | {
+      type: "UPDATE_MESSAGE";
+      payload: {
+        id: string;
+        content: string;
+        extras?: Partial<ChatMessage>;
+      };
+    }
   | { type: "APPEND_TO_MESSAGE"; payload: { id: string; content: string } }
   | {
       type: "SET_MESSAGE_STREAMING";
@@ -76,7 +83,11 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
         ...state,
         messages: state.messages.map((msg) =>
           msg.id === action.payload.id
-            ? { ...msg, content: action.payload.content }
+            ? {
+                ...msg,
+                content: action.payload.content,
+                ...action.payload.extras,
+              }
             : msg,
         ),
       };
@@ -133,7 +144,11 @@ interface ChatContextType {
   state: ChatState;
   setMessages: (messages: ChatMessage[]) => void;
   addMessage: (message: ChatMessage) => void;
-  updateMessage: (id: string, content: string) => void;
+  updateMessage: (
+    id: string,
+    content: string,
+    extras?: Partial<ChatMessage>,
+  ) => void;
   appendToMessage: (id: string, content: string) => void;
   setMessageStreaming: (id: string, isStreaming: boolean) => void;
   setInputText: (text: string) => void;
@@ -163,9 +178,12 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "ADD_MESSAGE", payload: message });
   }, []);
 
-  const updateMessage = useCallback((id: string, content: string) => {
-    dispatch({ type: "UPDATE_MESSAGE", payload: { id, content } });
-  }, []);
+  const updateMessage = useCallback(
+    (id: string, content: string, extras?: Partial<ChatMessage>) => {
+      dispatch({ type: "UPDATE_MESSAGE", payload: { id, content, extras } });
+    },
+    [],
+  );
 
   const appendToMessage = useCallback((id: string, content: string) => {
     dispatch({ type: "APPEND_TO_MESSAGE", payload: { id, content } });

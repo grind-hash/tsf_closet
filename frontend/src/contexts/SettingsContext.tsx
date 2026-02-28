@@ -68,6 +68,12 @@ interface SettingsState {
 
   // Self-profile (US6)
   selfProfile: SelfProfile | null;
+
+  // Seed value for image generation (null = random)
+  seed: number | null;
+
+  // US3: Enable surroundings image generation
+  enableSurroundingsImage: boolean;
 }
 
 // アクション型
@@ -100,7 +106,9 @@ type SettingsAction =
     }
   | { type: "REMOVE_PRECISE_REFERENCE"; payload: string }
   | { type: "CLEAR_PRECISE_REFERENCES" }
-  | { type: "SET_SELF_PROFILE"; payload: SelfProfile | null };
+  | { type: "SET_SELF_PROFILE"; payload: SelfProfile | null }
+  | { type: "SET_SEED"; payload: number | null }
+  | { type: "SET_ENABLE_SURROUNDINGS_IMAGE"; payload: boolean };
 
 // デフォルト状態
 const defaultState: SettingsState = {
@@ -120,6 +128,8 @@ const defaultState: SettingsState = {
   rightPanelOpen: false,
   preciseReferences: [],
   selfProfile: null,
+  seed: null,
+  enableSurroundingsImage: false,
 };
 
 // Reducer
@@ -211,6 +221,10 @@ function settingsReducer(
       return { ...state, preciseReferences: [] };
     case "SET_SELF_PROFILE":
       return { ...state, selfProfile: action.payload };
+    case "SET_SEED":
+      return { ...state, seed: action.payload };
+    case "SET_ENABLE_SURROUNDINGS_IMAGE":
+      return { ...state, enableSurroundingsImage: action.payload };
     default:
       return state;
   }
@@ -250,6 +264,8 @@ interface SettingsContextType {
   selfProfile: SelfProfile | null;
   setSelfProfile: (profile: SelfProfile | null) => void;
   loadSelfProfile: () => Promise<void>;
+  setSeed: (seed: number | null) => void;
+  setEnableSurroundingsImage: (enabled: boolean) => void;
 }
 
 // Context作成
@@ -258,28 +274,32 @@ const SettingsContext = createContext<SettingsContextType | null>(null);
 // localStorage キー
 const STORAGE_KEY = "app_settings";
 
+// Lazy initializer: load settings from localStorage synchronously
+// to avoid race condition where the save effect overwrites before dispatch is processed
+function loadInitialState(initial: SettingsState): SettingsState {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      // imageProviderはバックエンドから取得するため除外
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { imageProvider: _ignored, ...rest } = parsed;
+      return { ...initial, ...rest };
+    }
+  } catch (error) {
+    console.error("Failed to load settings from localStorage:", error);
+  }
+  return initial;
+}
+
 // Provider コンポーネント
 export function SettingsProvider({ children }: { children: ReactNode }) {
-  const [state, dispatch] = useReducer(settingsReducer, defaultState);
-  const isInitializedRef = useRef(false);
-
-  // 初回ロード時にlocalStorageから復元
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        // imageProviderはバックエンドから取得するため除外
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        const { imageProvider: _ignored, ...rest } = parsed;
-        dispatch({ type: "LOAD_SETTINGS", payload: rest });
-      }
-    } catch (error) {
-      console.error("Failed to load settings from localStorage:", error);
-    }
-    // 初期化完了をマーク
-    isInitializedRef.current = true;
-  }, []);
+  const [state, dispatch] = useReducer(
+    settingsReducer,
+    defaultState,
+    loadInitialState,
+  );
+  const isInitializedRef = useRef(true);
 
   // 初回ロード時にバックエンドから画像プロバイダーを取得
   useEffect(() => {
@@ -355,6 +375,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         imageProvider: _ignored,
         preciseReferences: _ignored2,
         selfProfile: _ignored3,
+        seed: _ignored4,
         ...rest
       } = state;
       /* eslint-enable @typescript-eslint/no-unused-vars */
@@ -534,6 +555,14 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const setSeed = useCallback((seed: number | null) => {
+    dispatch({ type: "SET_SEED", payload: seed });
+  }, []);
+
+  const setEnableSurroundingsImage = useCallback((enabled: boolean) => {
+    dispatch({ type: "SET_ENABLE_SURROUNDINGS_IMAGE", payload: enabled });
+  }, []);
+
   const value: SettingsContextType = {
     state,
     setDifficulty,
@@ -560,6 +589,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     selfProfile: state.selfProfile,
     setSelfProfile,
     loadSelfProfile,
+    setSeed,
+    setEnableSurroundingsImage,
   };
 
   return (

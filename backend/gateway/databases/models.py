@@ -95,6 +95,8 @@ class History(Base):
     before_description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     after_description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     instruction_type: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    seed: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    surroundings_image_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         default=func.current_timestamp(), nullable=False
     )

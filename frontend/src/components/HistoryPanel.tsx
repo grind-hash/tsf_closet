@@ -2,15 +2,18 @@
  * HistoryPanel component - displays transformation history.
  */
 
-import type { HistoryItem } from '../types';
-import './HistoryPanel.css';
+import type { HistoryItem } from "../types";
+import "./HistoryPanel.css";
 
 interface HistoryPanelProps {
   history: HistoryItem[];
   onSelectHistory: (historyId: string) => void;
 }
 
-export default function HistoryPanel({ history, onSelectHistory }: HistoryPanelProps) {
+export default function HistoryPanel({
+  history,
+  onSelectHistory,
+}: HistoryPanelProps) {
   if (history.length === 0) {
     return null;
   }

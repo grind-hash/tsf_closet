@@ -183,6 +183,8 @@ export function useSession(): UseSessionReturn {
             costume_category?: string;
             exposure_level?: number;
             age_impression?: string;
+            seed?: number;
+            surroundings_image_url?: string;
           }) => ({
             id: h.id,
             instruction: h.instruction,
@@ -195,6 +197,10 @@ export function useSession(): UseSessionReturn {
             costumeCategory: h.costume_category,
             exposureLevel: h.exposure_level,
             ageImpression: h.age_impression,
+            seed: h.seed,
+            surroundingsImageUrl: h.surroundings_image_url
+              ? `${API_BASE}${h.surroundings_image_url}`
+              : undefined,
           }),
         ) || [],
       );

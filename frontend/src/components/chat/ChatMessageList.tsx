@@ -14,6 +14,7 @@ interface ChatMessageListProps {
   highlightedMessageId: string | null;
   scrollToMessageId: string | null;
   isTyping?: boolean;
+  onSurroundingsImageClick?: (imageUrl: string) => void;
 }
 
 export default function ChatMessageList({
@@ -21,6 +22,7 @@ export default function ChatMessageList({
   highlightedMessageId,
   scrollToMessageId,
   isTyping = false,
+  onSurroundingsImageClick,
 }: ChatMessageListProps) {
   const { t } = useTranslation();
   const messageRefs = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -71,6 +73,7 @@ export default function ChatMessageList({
           message={message}
           isHighlighted={message.id === highlightedMessageId}
           ref={(el) => setMessageRef(message.id, el)}
+          onSurroundingsImageClick={onSurroundingsImageClick}
         />
       ))}
       {/* タイピングインジケーター - AI応答待ち中に表示 */}
