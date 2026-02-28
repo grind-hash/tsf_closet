@@ -216,19 +216,28 @@ ACTION_NOVELAI_PROMPT_GENERATION_SYSTEM = """You are a NovelAI image generation 
 The user wants to change the background/environment while keeping the character unchanged.
 
 ## Rules
-1. Output comma-separated tags only.
-2. Quality tags first: masterpiece, best quality, very aesthetic
-3. COPY all character/person tags from the previous prompt EXACTLY (appearance, outfit, pose, expression).
-4. REPLACE only background/environment/location tags with new ones matching the action instruction.
-5. Single character: 1girl, solo (keep from previous prompt)
-6. Add specific background tags for the new location/scene.
+1. Output **valid JSON only** with two keys: "character" and "scene".
+2. "character": comma-separated English Danbooru-style tags for the character ONLY.
+   - Extract character appearance details from the previous prompt and convert to English Danbooru tags.
+   - If the previous prompt is in Japanese or natural language, you MUST translate/convert to English tags.
+   - Include: 1girl or 1boy, solo, hair color/style, eye color, clothing items, accessories, pose, expression.
+   - Example: "1boy, solo, short brown hair, blue eyes, white t-shirt, black shorts, standing"
+   - Do NOT include background or environment tags here.
+3. "scene": comma-separated English tags for background/environment ONLY.
+   - Quality tags first: masterpiece, best quality, very aesthetic
+   - REPLACE background/environment/location tags with new ones matching the action instruction.
+   - Do NOT include character appearance tags here.
 
-## CRITICAL: Character Preservation
-- ALL character appearance tags (hair, eyes, outfit, accessories, body) must be kept UNCHANGED.
-- Only background, location, and environmental tags should change.
+## CRITICAL
+- ALL output tags must be in **English** Danbooru tag format. No Japanese text.
+- ALL character appearance tags (hair, eyes, outfit, accessories, body) must be kept UNCHANGED in "character".
+- Only background, location, and environmental tags should change in "scene".
 
-## Output
-Tag prompt only. No explanation or preamble."""
+## Output Format
+```json
+{"character": "1girl, solo, long black hair, ...", "scene": "masterpiece, best quality, very aesthetic, cafe, ..."}
+```
+JSON only. No explanation or preamble."""
 
 ACTION_NOVELAI_PROMPT_GENERATION_SYSTEM_NSFW = """You are a NovelAI image generation prompt expert specializing in SCENE CHANGES.
 Adult content tags are allowed.
@@ -236,20 +245,30 @@ Adult content tags are allowed.
 The user wants to change the background/environment while keeping the character unchanged.
 
 ## Rules
-1. Output comma-separated tags only.
-2. Quality tags first: masterpiece, best quality, very aesthetic
-3. COPY all character/person tags from the previous prompt EXACTLY (appearance, outfit, pose, expression, body exposure).
-4. REPLACE only background/environment/location tags with new ones matching the action instruction.
-5. Single character: 1girl, solo (keep from previous prompt)
-6. Add specific background tags for the new location/scene.
-7. Keep all NSFW/body-related tags from the previous prompt unchanged.
+1. Output **valid JSON only** with two keys: "character" and "scene".
+2. "character": comma-separated English Danbooru-style tags for the character ONLY.
+   - Extract character appearance details from the previous prompt and convert to English Danbooru tags.
+   - If the previous prompt is in Japanese or natural language, you MUST translate/convert to English tags.
+   - Include: 1girl or 1boy, solo, hair color/style, eye color, clothing items, accessories, pose, expression, body exposure.
+   - Keep all NSFW/body-related tags from the previous prompt unchanged.
+   - Example: "1boy, solo, short brown hair, blue eyes, white t-shirt, black shorts, standing"
+   - Do NOT include background or environment tags here.
+3. "scene": comma-separated English tags for background/environment ONLY.
+   - Quality tags first: masterpiece, best quality, very aesthetic
+   - REPLACE background/environment/location tags with new ones matching the action instruction.
+   - Scene can have sensual or intimate atmosphere if appropriate.
+   - Do NOT include character appearance tags here.
 
-## CRITICAL: Character Preservation
-- ALL character appearance and NSFW tags must be kept UNCHANGED.
-- Only background, location, and environmental tags should change.
+## CRITICAL
+- ALL output tags must be in **English** Danbooru tag format. No Japanese text.
+- ALL character appearance and NSFW tags must be kept UNCHANGED in "character".
+- Only background, location, and environmental tags should change in "scene".
 
-## Output
-Tag prompt only. No explanation or preamble."""
+## Output Format
+```json
+{"character": "1girl, solo, ...", "scene": "masterpiece, best quality, ..."}
+```
+JSON only. No explanation or preamble."""
 
 
 # ── US2 T030: Surroundings image prompt generation ──

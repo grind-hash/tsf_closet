@@ -516,6 +516,7 @@ class GameService:
         negative_prompt: str | None = None,
         character_references: list[dict] | None = None,
         seed: int | None = None,
+        characters: list[dict] | None = None,
     ) -> tuple[bytes, float | None, int | None]:
         """画像を生成 (ImageGenerationService経由)
 
@@ -530,6 +531,7 @@ class GameService:
             nsfw_mode: NSFWモード (Trueの場合NSFWワークフローを使用)
             character_references: 精密参照画像パラメータのリスト（NovelAI専用）
             seed: 画像生成seed値（未指定時はNovelAIプロバイダーでランダム生成）
+            characters: V4キャラクタープロンプト分離用（NovelAI専用）
 
         Returns:
             (生成された画像, API料金USD, seed値)
@@ -555,6 +557,7 @@ class GameService:
                 nsfw_mode=nsfw_mode,
                 character_references=character_references,
                 seed=seed,
+                characters=characters,
             )
             if not result.images:
                 raise GameServiceError("画像が生成されませんでした")
@@ -1279,6 +1282,8 @@ class GameService:
                 action_image_prompt: str | None = None
                 action_novelai_prompt: str | None = None
                 action_prompt_desc: str = current_desc  # after_description用
+                # PoC: V4 character/scene prompt splitting
+                action_characters: list[dict] | None = None
 
                 if is_action_novelai_opus:
                     # T008: NovelAI Opus path — GLM-4.6 tag generation
@@ -1297,7 +1302,40 @@ class GameService:
                             system_prompt_override=action_tag_system,
                         )
                     )
-                    action_image_prompt = action_novelai_prompt
+
+                    # PoC: Parse JSON response for character/scene splitting
+                    try:
+                        raw = action_novelai_prompt.strip()
+                        # Strip markdown code fence if present
+                        if raw.startswith("```"):
+                            raw = raw.split("\n", 1)[-1]
+                            if raw.endswith("```"):
+                                raw = raw[: -len("```")]
+                            raw = raw.strip()
+                        parsed = json.loads(raw)
+                        char_prompt = parsed.get("character", "").strip()
+                        scene_prompt = parsed.get("scene", "").strip()
+                        if char_prompt and scene_prompt:
+                            # Use scene as the base prompt, character as Character object
+                            action_image_prompt = scene_prompt
+                            action_characters = [
+                                {"prompt": char_prompt, "position": (0.5, 0.5)}
+                            ]
+                            logger.info(
+                                "Action prompt split OK: char_len=%d, scene_len=%d",
+                                len(char_prompt),
+                                len(scene_prompt),
+                            )
+                        else:
+                            raise ValueError("Missing character or scene key")
+                    except (json.JSONDecodeError, ValueError, KeyError) as e:
+                        # Fallback: use raw response as flat prompt (backward compat)
+                        logger.warning(
+                            "Action prompt split failed, using flat prompt: %s", e
+                        )
+                        action_image_prompt = action_novelai_prompt
+                        action_characters = None
+
                     action_prompt_desc = action_novelai_prompt
                     logger.info(
                         "Action NovelAI Opus: generated prompt len=%d",
@@ -1374,6 +1412,7 @@ class GameService:
                             negative_prompt=negative_prompt,
                             character_references=character_references,
                             seed=seed,
+                            characters=action_characters,
                         )
                         logger.info(
                             "Action image generated: %d bytes, cost=%s, seed=%s",

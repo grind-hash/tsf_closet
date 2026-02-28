@@ -20,7 +20,7 @@ from PIL import Image, ImageFilter
 from .comfy import ComfyUIClient, ComfyUIResult
 from ..settings.config import settings
 from novelai import AsyncNovelAI
-from novelai.types import CharacterReference, GenerateImageParams, I2iParams
+from novelai.types import Character, CharacterReference, GenerateImageParams, I2iParams
 from novelai.exceptions import NovelAIError
 from novelai._utils.converter import async_convert_user_params_to_api_request
 
@@ -416,6 +416,7 @@ class NovelAIImageClient:
         noise_override: Optional[float] = None,
         character_references: Optional[List[Dict[str, Any]]] = None,
         seed: Optional[int] = None,
+        characters: Optional[List[Dict[str, Any]]] = None,
     ) -> ImageGenerationResult:
         """画像生成 / 画像変換 (i2i)"""
         client = await self._get_client()
@@ -540,6 +541,22 @@ class NovelAIImageClient:
         # Determine the seed to use
         actual_seed = seed if seed is not None else random.randint(0, 999999999)
 
+        # Build SDK Character objects for V4 prompt splitting
+        sdk_characters: Optional[List[Character]] = None
+        if characters:
+            sdk_characters = [
+                Character(
+                    prompt=c["prompt"],
+                    negative_prompt=c.get("negative_prompt", ""),
+                    position=tuple(c.get("position", (0.5, 0.5))),
+                    enabled=c.get("enabled", True),
+                )
+                for c in characters
+            ]
+            logger.info(
+                "V4 character prompt splitting: %d characters", len(sdk_characters)
+            )
+
         # NOTE: GenerateImageParamsのmodelはSDKのリテラル制約に合わせてベースモデルを入れる
         params = GenerateImageParams(
             prompt=self._format_prompt(prompt),
@@ -556,6 +573,7 @@ class NovelAIImageClient:
             n_samples=1,
             character_references=sdk_char_refs,
             seed=actual_seed,
+            characters=sdk_characters,
         )
 
         try:
@@ -734,6 +752,7 @@ class ImageGenerationService:
         nsfw_mode: bool = True,
         character_references: Optional[List[Dict[str, Any]]] = None,
         seed: Optional[int] = None,
+        characters: Optional[List[Dict[str, Any]]] = None,
         **comfy_kwargs: Any,
     ) -> ImageGenerationResult:
         """画像を生成する
@@ -776,6 +795,7 @@ class ImageGenerationService:
                 noise_override=i2i_noise_override,
                 character_references=character_references,
                 seed=seed,
+                characters=characters,
             )
         else:
             # セルフホスト (ComfyUI)
@@ -810,6 +830,7 @@ class ImageGenerationService:
         nsfw_mode: bool = True,
         character_references: Optional[List[Dict[str, Any]]] = None,
         seed: Optional[int] = None,
+        characters: Optional[List[Dict[str, Any]]] = None,
         **comfy_kwargs: Any,
     ) -> ImageGenerationResult:
         """画像を編集する
@@ -820,6 +841,7 @@ class ImageGenerationService:
             reference_image_bytes: 衣装参照画像（オプション）
             provider_override: 一時的にプロバイダーを変更
             nsfw_mode: NSFWモード（NovelAI使用時のモデル選択に影響）
+            characters: V4キャラクタープロンプト分離用（NovelAI専用）
             **comfy_kwargs: ComfyUI用の追加パラメータ
 
         Returns:
@@ -837,6 +859,7 @@ class ImageGenerationService:
             nsfw_mode=nsfw_mode,
             character_references=character_references,
             seed=seed,
+            characters=characters,
             **comfy_kwargs,
         )
 
