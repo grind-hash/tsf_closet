@@ -566,12 +566,12 @@
 /* レスポンシブ */
 @media (max-width: 768px) {
   .character-state-panel__image {
-    max-width: 200px;
+    max-width: 280px;
   }
 
   .character-state-panel__no-image {
-    width: 200px;
-    height: 270px;
+    width: 280px;
+    height: 380px;
   }
 }
 

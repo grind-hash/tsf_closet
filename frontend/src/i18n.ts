@@ -324,6 +324,10 @@ const resources = {
           realityAlter: "現実改変",
           conversation: "会話",
           action: "行動（実験的機能）",
+          dressUpShort: "着替",
+          realityAlterShort: "改変",
+          conversationShort: "会話",
+          actionShort: "行動",
         },
         input: {
           attachmentPreviewAlt: "添付画像プレビュー",
@@ -787,6 +791,10 @@ const resources = {
           realityAlter: "Reality Alter",
           conversation: "Conversation",
           action: "Action (Experimental)",
+          dressUpShort: "Dress",
+          realityAlterShort: "Reality",
+          conversationShort: "Chat",
+          actionShort: "Action",
         },
         input: {
           attachmentPreviewAlt: "Attached image preview",
