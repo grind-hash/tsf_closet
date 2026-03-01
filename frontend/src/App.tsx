@@ -665,7 +665,7 @@ function AppMain() {
         <div className="backdrop">
           <div className="backdrop-content">
             <div className="spinner"></div>
-            <p>初期化中…</p>
+            <p>{t("appLoading.initializing")}</p>
           </div>
         </div>
       )}
@@ -674,7 +674,7 @@ function AppMain() {
         <div className="backdrop">
           <div className="backdrop-content">
             <div className="spinner"></div>
-            <p>NovelAI機能をチェック中…</p>
+            <p>{t("appLoading.checkingNovelai")}</p>
           </div>
         </div>
       )}
@@ -682,7 +682,7 @@ function AppMain() {
       {session.isLoading && (
         <div className="loading-overlay">
           <div className="spinner"></div>
-          <p>準備中...</p>
+          <p>{t("appLoading.preparing")}</p>
         </div>
       )}
 
@@ -734,13 +734,13 @@ function AppMain() {
         >
           <div className="error-modal" onClick={(e) => e.stopPropagation()}>
             <div className="error-modal-icon">⚠️</div>
-            <h3>エラー</h3>
+            <h3>{t("appLoading.error")}</h3>
             <p>{errorMessage}</p>
             <button
               className="btn btn-primary"
               onClick={() => setErrorMessage(null)}
             >
-              閉じる
+              {t("appLoading.close")}
             </button>
           </div>
         </div>
@@ -776,18 +776,14 @@ function AppMain() {
           <div className="backdrop-content">
             <div className="consent-declined-message">
               <span className="consent-declined-icon">🔒</span>
-              <h3>APIキー利用の同意が必要です</h3>
-              <p>
-                NovelAI機能を使用するにはAPIキー利用への同意が必要です。
-                <br />
-                同意される場合は、ページを再読み込みしてください。
-              </p>
+              <h3>{t("consentDeclined.title")}</h3>
+              <p>{t("consentDeclined.message")}</p>
               <button
                 type="button"
                 className="btn btn-primary"
                 onClick={() => window.location.reload()}
               >
-                再読み込み
+                {t("consentDeclined.reload")}
               </button>
             </div>
           </div>

@@ -468,6 +468,51 @@ const resources = {
           "エンディング一覧の取得に失敗しました ({{status}} {{statusText}})",
         genericError: "エラーが発生しました",
       },
+      novelaiWarning: {
+        titleUnsupported: "NovelAI 未対応プランのお知らせ",
+        titleInfo: "NovelAI プランのご案内",
+        currentPlan: "現在のNovelAIプラン: ",
+        unsupportedMessage:
+          "Paper（無料トライアル）には対応しておりません。画像・テキスト生成には有料プランが必要です。",
+        recommendOpus: "本アプリは Opus (tier 3) を推奨しています。",
+        cancel: "キャンセル",
+        close: "閉じる",
+        continue: "続行する",
+        note: "※ この警告は「続行する」を選択すると、次回以降表示されません",
+      },
+      appLoading: {
+        initializing: "初期化中…",
+        checkingNovelai: "NovelAI機能をチェック中…",
+        preparing: "準備中...",
+        error: "エラー",
+        close: "閉じる",
+      },
+      consentDeclined: {
+        title: "APIキー利用の同意が必要です",
+        message:
+          "NovelAI機能を使用するにはAPIキー利用への同意が必要です。同意される場合は、ページを再読み込みしてください。",
+        reload: "再読み込み",
+      },
+      apiKeyConsent: {
+        title: "APIキーの利用について",
+        intro:
+          "本アプリでは、config.envに設定されたNovelAI APIキーを以下の目的で利用します。よろしいですか？",
+        usagePlanTitle: "プラン情報・残高の取得",
+        usagePlanDesc:
+          "Opusプランかどうかの判断、および現在のAnlas残高の表示に使用します",
+        usageImageTitle: "画像生成",
+        usageImageDesc: "キャラクターの変身画像を生成します",
+        usageTextTitle: "テキスト生成",
+        usageTextDesc:
+          "心境テキスト、会話、自分自身モードのキャラ性格テキスト、画像用プロンプトを生成します",
+        safety:
+          "本アプリはOSSであり、ご自身のパソコン環境（localhost）でお楽しみいただくことを想定しています。APIキーがブラウザに保存されたり、本アプリから外部に送信されることはありません。",
+        notice: "なお、一般的なセキュリティ対策として、",
+        noticeStrong: "定期的にAPIキーをリセットすること",
+        noticeEnd: "を推奨いたします。",
+        decline: "キャンセル",
+        consent: "同意して続行",
+      },
     },
   },
   en: {
@@ -933,6 +978,51 @@ const resources = {
         notAchieved: "Locked",
         fetchError: "Failed to fetch endings ({{status}} {{statusText}})",
         genericError: "An error occurred",
+      },
+      novelaiWarning: {
+        titleUnsupported: "NovelAI Unsupported Plan Notice",
+        titleInfo: "NovelAI Plan Information",
+        currentPlan: "Current NovelAI Plan: ",
+        unsupportedMessage:
+          "The Paper (free trial) plan is not supported. A paid plan is required for image and text generation.",
+        recommendOpus: "This app recommends the Opus (tier 3) plan.",
+        cancel: "Cancel",
+        close: "Close",
+        continue: "Continue",
+        note: '* This warning will not be shown again after selecting "Continue"',
+      },
+      appLoading: {
+        initializing: "Initializing…",
+        checkingNovelai: "Checking NovelAI features…",
+        preparing: "Preparing...",
+        error: "Error",
+        close: "Close",
+      },
+      consentDeclined: {
+        title: "API Key Consent Required",
+        message:
+          "You must agree to API key usage to use NovelAI features. Please reload the page if you wish to consent.",
+        reload: "Reload",
+      },
+      apiKeyConsent: {
+        title: "About API Key Usage",
+        intro:
+          "This app uses the NovelAI API key configured in config.env for the following purposes. Do you agree?",
+        usagePlanTitle: "Plan & Balance Retrieval",
+        usagePlanDesc:
+          "Used to determine your Opus plan status and display the current Anlas balance",
+        usageImageTitle: "Image Generation",
+        usageImageDesc: "Generates transformation images of your character",
+        usageTextTitle: "Text Generation",
+        usageTextDesc:
+          "Generates mood text, dialogue, self-mode character personality text, and image prompts",
+        safety:
+          "This app is open-source and designed to run on your local machine (localhost). Your API key is never stored in the browser or sent to any external server.",
+        notice: "As a general security measure, we recommend ",
+        noticeStrong: "resetting your API key periodically",
+        noticeEnd: ".",
+        decline: "Cancel",
+        consent: "Agree & Continue",
       },
     },
   },

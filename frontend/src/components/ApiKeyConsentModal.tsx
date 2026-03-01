@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import "./ApiKeyConsentModal.css";
 import { saveApiKeyConsent } from "./apiKeyConsentStorage";
 
@@ -16,6 +17,7 @@ export default function ApiKeyConsentModal({
   onConsent,
   onDecline,
 }: ApiKeyConsentModalProps) {
+  const { t } = useTranslation();
   const [isVisible, setIsVisible] = useState(false);
 
   useEffect(() => {
@@ -40,57 +42,49 @@ export default function ApiKeyConsentModal({
       <div className="consent-modal">
         <div className="consent-modal__header">
           <span className="consent-modal__icon">🔑</span>
-          <h2 className="consent-modal__title">APIキーの利用について</h2>
+          <h2 className="consent-modal__title">{t("apiKeyConsent.title")}</h2>
         </div>
 
         <div className="consent-modal__content">
-          <p className="consent-modal__intro">
-            本アプリでは、config.envに設定されたNovelAI
-            APIキーを以下の目的で利用します。よろしいですか？
-          </p>
+          <p className="consent-modal__intro">{t("apiKeyConsent.intro")}</p>
 
           <div className="consent-modal__usage-list">
             <div className="consent-modal__usage-item">
               <span className="consent-modal__usage-icon">📊</span>
               <div className="consent-modal__usage-text">
-                <strong>プラン情報の取得</strong>
-                <span>Opusプランかどうかの判断に使用します</span>
+                <strong>{t("apiKeyConsent.usagePlanTitle")}</strong>
+                <span>{t("apiKeyConsent.usagePlanDesc")}</span>
               </div>
             </div>
 
             <div className="consent-modal__usage-item">
               <span className="consent-modal__usage-icon">🎨</span>
               <div className="consent-modal__usage-text">
-                <strong>画像生成</strong>
-                <span>キャラクターの変身画像を生成します</span>
+                <strong>{t("apiKeyConsent.usageImageTitle")}</strong>
+                <span>{t("apiKeyConsent.usageImageDesc")}</span>
               </div>
             </div>
 
             <div className="consent-modal__usage-item">
               <span className="consent-modal__usage-icon">💬</span>
               <div className="consent-modal__usage-text">
-                <strong>テキスト生成</strong>
-                <span>
-                  心境テキスト、会話、自分自身モードのキャラ性格テキスト、画像用プロンプトを生成します
-                </span>
+                <strong>{t("apiKeyConsent.usageTextTitle")}</strong>
+                <span>{t("apiKeyConsent.usageTextDesc")}</span>
               </div>
             </div>
           </div>
 
           <div className="consent-modal__safety">
             <span className="consent-modal__safety-icon">🏠</span>
-            <p>
-              本アプリはOSSであり、ご自身のパソコン環境（localhost）でお楽しみいただくことを想定しています。
-              APIキーがブラウザに保存されたり、本アプリから外部に送信されることはありません。
-            </p>
+            <p>{t("apiKeyConsent.safety")}</p>
           </div>
 
           <div className="consent-modal__notice">
             <span className="consent-modal__notice-icon">⚠️</span>
             <p>
-              なお、一般的なセキュリティ対策として、
-              <strong>定期的にAPIキーをリセットすること</strong>
-              を推奨いたします。
+              {t("apiKeyConsent.notice")}
+              <strong>{t("apiKeyConsent.noticeStrong")}</strong>
+              {t("apiKeyConsent.noticeEnd")}
             </p>
           </div>
         </div>
@@ -101,14 +95,14 @@ export default function ApiKeyConsentModal({
             className="consent-modal__btn consent-modal__btn--decline"
             onClick={handleDecline}
           >
-            キャンセル
+            {t("apiKeyConsent.decline")}
           </button>
           <button
             type="button"
             className="consent-modal__btn consent-modal__btn--consent"
             onClick={handleConsent}
           >
-            同意して続行
+            {t("apiKeyConsent.consent")}
           </button>
         </div>
       </div>
