@@ -564,14 +564,16 @@
 }
 
 /* レスポンシブ */
-@media (max-width: 768px) {
+@media (max-width: 900px) {
   .character-state-panel__image {
-    max-width: 280px;
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
   }
 
   .character-state-panel__no-image {
-    width: 280px;
-    height: 380px;
+    width: 200px;
+    height: 270px;
   }
 }
 
