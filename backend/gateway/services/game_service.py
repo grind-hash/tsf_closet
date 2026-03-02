@@ -1712,6 +1712,9 @@ class GameService:
             # T008: NovelAI Opusモード用のプロンプト生成
             generated_novelai_prompt: str | None = None
             prompt_gen_cost: float | None = None
+            # Phase2: V4 character/scene prompt 分離用
+            dress_up_characters: list[dict] | None = None
+
             if is_novelai_opus_mode:
                 # NovelAI GLM-4.6でプロンプト生成
                 generated_novelai_prompt = (
@@ -1722,9 +1725,43 @@ class GameService:
                         language=effective_language,
                     )
                 )
-                image_edit_prompt = generated_novelai_prompt
+
+                # Phase2: JSONレスポンスをパースしてcharacter/sceneを分離
+                try:
+                    raw = generated_novelai_prompt.strip()
+                    # マークダウンコードフェンスを除去
+                    if raw.startswith("```"):
+                        raw = raw.split("\n", 1)[-1]
+                        if raw.endswith("```"):
+                            raw = raw[: -len("```")]
+                        raw = raw.strip()
+                    parsed = json.loads(raw)
+                    char_prompt = parsed.get("character", "").strip()
+                    scene_prompt = parsed.get("scene", "").strip()
+                    if char_prompt and scene_prompt:
+                        image_edit_prompt = scene_prompt
+                        dress_up_characters = [
+                            {"prompt": char_prompt, "position": (0.5, 0.5)}
+                        ]
+                        logger.info(
+                            "Dress-up prompt split OK: char_len=%d, scene_len=%d",
+                            len(char_prompt),
+                            len(scene_prompt),
+                        )
+                    else:
+                        raise ValueError("Missing character or scene key")
+                except (json.JSONDecodeError, ValueError, KeyError) as e:
+                    # フォールバック: フラットプロンプトとして使用（後方互換）
+                    logger.warning(
+                        "Dress-up prompt split failed, using flat prompt: %s", e
+                    )
+                    image_edit_prompt = generated_novelai_prompt
+                    dress_up_characters = None
+
                 logger.info(
-                    f"NovelAI Opus: Generated prompt length={len(image_edit_prompt)}"
+                    "NovelAI Opus: Generated prompt len=%d, split=%s",
+                    len(image_edit_prompt),
+                    dress_up_characters is not None,
                 )
             elif is_reality:
                 # 現実改変用プロンプト生成（T016: image_provider対応）
@@ -1870,6 +1907,7 @@ class GameService:
                         negative_prompt=negative_prompt,
                         character_references=character_references,
                         seed=seed,
+                        characters=dress_up_characters,
                     )
                     logger.info(
                         "Image generated: %d bytes, cost: %s",

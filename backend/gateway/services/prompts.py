@@ -1219,41 +1219,60 @@ NOVELAI_PROMPT_GENERATION_SYSTEM = """You are a NovelAI image generation prompt 
 Convert the user's instruction into an optimal English tag prompt for NovelAI image generation.
 
 ## Rules
-1. Output comma-separated tags only.
-2. Quality tags first: masterpiece, best quality, very aesthetic
-3. Maintain character feature tags from the previous prompt.
-4. Add detailed tags for outfit, pose, etc.
-5. Single character: solo. Use 1boy or 1girl based on the character's appearance in context.
-6. Background: simple background or a specific scene.
-7. If the instruction implies a gender/body transformation (e.g. TSF), reflect it in the gender tag and body features.
+1. Output **valid JSON only** with two keys: "character" and "scene".
+2. "character": comma-separated English Danbooru-style tags for the character ONLY.
+   - Start with: 1girl or 1boy, solo
+   - ALWAYS KEEP immutable traits from the previous prompt: hair color/style, eye color, body type, face features.
+   - UPDATE clothing/outfit tags to match the instruction.
+   - Add pose and expression tags appropriate for the outfit.
+   - If the instruction implies a gender/body transformation (e.g. TSF), reflect it in the gender tag and body features.
+   - Do NOT include background or environment tags here.
+3. "scene": comma-separated English tags for background/environment ONLY.
+   - Quality tags first: masterpiece, best quality, very aesthetic
+   - Background: simple background or a specific scene matching the context.
+   - Do NOT include character appearance tags here.
 
-## Output
-Tag prompt only. No explanation or preamble.
+## CRITICAL
+- ALL output tags must be in **English** Danbooru tag format. No Japanese text.
+- Immutable traits (hair, eyes, body type) are NEVER changed unless the instruction explicitly transforms them.
+- Mutable traits (clothing, pose, expression, accessories) are updated per the instruction.
 
-## Example
-Input: 'Change into a maid outfit'
-Output: masterpiece, best quality, very aesthetic, 1girl, solo, maid outfit, maid headdress, black dress, white apron, frills, standing, looking at viewer, simple background"""
+## Output Format
+```json
+{"character": "1girl, solo, long black hair, blue eyes, maid outfit, ...", "scene": "masterpiece, best quality, very aesthetic, simple background"}
+```
+JSON only. No explanation or preamble."""
 
 NOVELAI_PROMPT_GENERATION_SYSTEM_NSFW = """You are a NovelAI image generation prompt expert.
 Convert the user's instruction into an optimal English tag prompt for NovelAI image generation.
 Adult content tags are allowed.
 
 ## Rules
-1. Output comma-separated tags only.
-2. Quality tags first: masterpiece, best quality, very aesthetic
-3. Maintain character feature tags from the previous prompt.
-4. Add detailed tags for outfit, pose, and exposure level.
-5. Single character: solo. Use 1boy or 1girl based on the character's appearance in context.
-6. Background: simple background or a specific scene.
-7. For high exposure: use appropriate body description tags.
-8. If the instruction implies a gender/body transformation (e.g. TSF), reflect it in the gender tag and body features.
+1. Output **valid JSON only** with two keys: "character" and "scene".
+2. "character": comma-separated English Danbooru-style tags for the character ONLY.
+   - Start with: 1girl or 1boy, solo
+   - ALWAYS KEEP immutable traits from the previous prompt: hair color/style, eye color, body type, face features.
+   - UPDATE clothing/outfit/exposure tags to match the instruction.
+   - Add pose and expression tags appropriate for the outfit.
+   - For high exposure: use appropriate body description tags.
+   - If the instruction implies a gender/body transformation (e.g. TSF), reflect it in the gender tag and body features.
+   - Do NOT include background or environment tags here.
+3. "scene": comma-separated English tags for background/environment ONLY.
+   - Quality tags first: masterpiece, best quality, very aesthetic
+   - Background: simple background or a specific scene matching the context.
+   - Scene can have sensual or intimate atmosphere if appropriate.
+   - Do NOT include character appearance tags here.
 
-## Output
-Tag prompt only. No explanation or preamble.
+## CRITICAL
+- ALL output tags must be in **English** Danbooru tag format. No Japanese text.
+- Immutable traits (hair, eyes, body type) are NEVER changed unless the instruction explicitly transforms them.
+- Mutable traits (clothing, pose, expression, accessories, exposure) are updated per the instruction.
 
-## Example
-Input: 'Make the outfit more revealing'
-Output: masterpiece, best quality, very aesthetic, 1girl, solo, revealing outfit, cleavage, bare shoulders, thighhighs, miniskirt, seductive pose, looking at viewer, simple background"""
+## Output Format
+```json
+{"character": "1girl, solo, long black hair, blue eyes, revealing outfit, ...", "scene": "masterpiece, best quality, very aesthetic, simple background"}
+```
+JSON only. No explanation or preamble."""
 
 NOVELAI_PROMPT_GENERATION_USER_TEMPLATE = """Previous prompt: {previous_prompt}
 
@@ -1262,7 +1281,7 @@ User instruction: {instruction}
 Generate a NovelAI image generation prompt based on the above instruction.
 Maintain character features from the previous prompt while applying changes per the instruction.
 Choose 1boy or 1girl based on the character's current appearance (which may change if the instruction implies transformation).
-Output only the tag prompt."""
+Output valid JSON with "character" and "scene" keys only."""
 
 
 def get_novelai_prompt_generation_system(

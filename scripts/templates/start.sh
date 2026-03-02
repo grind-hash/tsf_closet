@@ -148,7 +148,7 @@ export ENV_FILE="$SCRIPT_DIR/config.env"
 
 # Launch server in background
 cd "$SCRIPT_DIR/backend"
-"$PYTHON_EXE" -m uvicorn gateway.app:app --host 127.0.0.1 --port "$PORT" --log-level "$LOG_LEVEL" &
+"$PYTHON_EXE" -m uvicorn gateway.app:app --host 0.0.0.0 --port "$PORT" --log-level "$LOG_LEVEL" &
 SERVER_PID=$!
 cd "$SCRIPT_DIR"
 
