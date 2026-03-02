@@ -934,6 +934,45 @@ class DatabaseSessionStore:
                 for row in rows
             ]
 
+    async def get_session_timeline(
+        self,
+        session_id: str,
+        limit: int = 30,
+    ) -> list[tuple[str, str]]:
+        """history + conversation から指示を時系列でマージ取得する。
+
+        Returns:
+            (instruction_type, instruction_text) のタプルリスト。
+            created_at 降順（新しい順）で最大 limit 件。
+        """
+        async with async_session_factory() as db_session:
+            # 履歴テーブル: 着替・現実改変・行動
+            h_stmt = select(
+                HistoryORM.instruction_type,
+                HistoryORM.instruction,
+                HistoryORM.created_at,
+            ).where(HistoryORM.session_id == session_id)
+            h_rows = (await db_session.execute(h_stmt)).all()
+
+            # 会話テーブル: ユーザー発言のみ
+            c_stmt = select(
+                ConversationORM.instruction_type,
+                ConversationORM.content,
+                ConversationORM.created_at,
+            ).where(
+                ConversationORM.session_id == session_id,
+                ConversationORM.role == "user",
+            )
+            c_rows = (await db_session.execute(c_stmt)).all()
+
+        # created_at 降順でマージソート（新しい順）
+        merged = [(r[0] or "unknown", r[1], r[2]) for r in h_rows] + [
+            (r[0] or "conversation", r[1], r[2]) for r in c_rows
+        ]
+        merged.sort(key=lambda x: x[2], reverse=True)
+        # (type, text) タプルを最大 limit 件返す
+        return [(m[0], m[1]) for m in merged[:limit]]
+
     async def clear_conversation(
         self,
         session_id: str,

@@ -595,7 +595,7 @@ def build_action_prompt(
     nsfw_mode: bool = False,
     personality: str = "",
     description: str = "",
-    recent_actions: list[str] | None = None,
+    recent_actions: list[str] | list[tuple[str, str]] | None = None,
     transformation_count: int = 0,
     gender: str = "man",
     previous_situation_summary: str | None = None,
@@ -665,10 +665,23 @@ def build_action_prompt(
     # Build recent actions section
     recent_actions_section = ""
     if recent_actions:
-        recent_list = "\n".join(f"- {a}" for a in recent_actions[-5:])
+        _TYPE_LABELS = {
+            "dress_up": "着替",
+            "reality_alter": "改変",
+            "action": "行動",
+            "conversation": "会話",
+        }
+        lines: list[str] = []
+        for entry in recent_actions[-5:]:
+            if isinstance(entry, tuple):
+                itype, text = entry
+                label = _TYPE_LABELS.get(itype, itype)
+                lines.append(f"- [{label}] {text}")
+            else:
+                lines.append(f"- {entry}")
         recent_actions_section = (
-            f"これまでの行動履歴:\n{recent_list}\n"
-            "（上記の行動と重複しない新しい場面を描写してください）"
+            f"これまでの履歴:\n{''.join(line + chr(10) for line in lines)}"
+            "（上記の履歴を踏まえ、状況に矛盾しない新しい場面を描写してください）"
         )
 
     # Build personality section for user prompt

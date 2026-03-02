@@ -979,6 +979,11 @@ async def chat_with_character(
     user_settings = await session_store.get_user_settings()
     language = normalize_language(language or user_settings.get("language"))
 
+    # セッション経緯を取得（着替・改変・行動・会話を時系列マージ）
+    session_timeline = await session_store.get_session_timeline(session_id, limit=30)
+    # 新しい順 → 時系列順に反転
+    session_timeline = list(reversed(session_timeline))
+
     # プロンプトを構築（self_mode はプロフィールベース、通常はステージベース）
     if getattr(session, "self_mode", False) and self_profile:
         from ..services.self_mode_prompts import build_self_mode_conversation_prompt
@@ -990,6 +995,7 @@ async def chat_with_character(
             self_profile=self_profile,
             nsfw_mode=stats.nsfw_mode,
             language=language,
+            session_timeline=session_timeline,
         )
     else:
         system_prompt, user_prompt = build_conversation_prompt(
@@ -1003,6 +1009,7 @@ async def chat_with_character(
             nsfw_mode=stats.nsfw_mode,
             transformation_count=session.transformation_count,
             language=language,
+            session_timeline=session_timeline,
         )
 
     # LLMで応答を生成
@@ -1122,6 +1129,11 @@ async def chat_with_character_stream(
     user_settings = await session_store.get_user_settings()
     language = normalize_language(language or user_settings.get("language"))
 
+    # セッション経緯を取得（着替・改変・行動・会話を時系列マージ）
+    session_timeline = await session_store.get_session_timeline(session_id, limit=30)
+    # 新しい順 → 時系列順に反転
+    session_timeline = list(reversed(session_timeline))
+
     # プロンプトを構築（self_mode はプロフィールベース、通常はステージベース）
     if getattr(session, "self_mode", False) and self_profile:
         from ..services.self_mode_prompts import build_self_mode_conversation_prompt
@@ -1133,6 +1145,7 @@ async def chat_with_character_stream(
             self_profile=self_profile,
             nsfw_mode=stats.nsfw_mode,
             language=language,
+            session_timeline=session_timeline,
         )
     else:
         system_prompt, user_prompt = build_conversation_prompt(
@@ -1146,6 +1159,7 @@ async def chat_with_character_stream(
             nsfw_mode=stats.nsfw_mode,
             transformation_count=session.transformation_count,
             language=language,
+            session_timeline=session_timeline,
         )
 
     async def generate_stream():

@@ -232,6 +232,7 @@ def build_conversation_prompt(
     nsfw_mode: bool = False,
     transformation_count: int = 0,
     language: str = "ja",
+    session_timeline: list[tuple[str, str]] | None = None,
 ) -> tuple[str, str]:
     """会話プロンプトを構築
 
@@ -245,6 +246,7 @@ def build_conversation_prompt(
         attributes: キャラクターに付与された属性リスト
         nsfw_mode: NSFWモードかどうか
         transformation_count: 変身回数（0=未変身）
+        session_timeline: history+conversationをマージした経緯リスト
 
     Returns:
         (システムプロンプト, ユーザープロンプト) のタプル
@@ -305,9 +307,31 @@ def build_conversation_prompt(
                 history_lines.append(f"{character_name}: {msg.content}")
         history_text = "\n".join(history_lines)
 
+    # セッション経緯を構築（着替・改変・行動の履歴）
+    timeline_text = ""
+    if session_timeline:
+        _TYPE_LABELS = {
+            "dress_up": "着替",
+            "reality_alter": "改変",
+            "action": "行動",
+            "conversation": "会話",
+        }
+        tl_lines = []
+        for itype, text in session_timeline[-8:]:
+            label = _TYPE_LABELS.get(itype, itype)
+            tl_lines.append(f"- [{label}] {text}")
+        timeline_text = "\n".join(tl_lines)
+
+    # ユーザープロンプト構築
+    timeline_section = ""
+    if timeline_text:
+        timeline_section = f"""\nこれまでの経緯:
+{timeline_text}
+（上記の経緯を踏まえて応答してください）\n"""
+
     user_prompt = f"""これまでの会話:
 {history_text if history_text else "(まだ会話していません)"}
-
+{timeline_section}
 ユーザーの発言: {message}
 
 上記に対して、キャラクターとして応答してください。200〜300文字程度で。

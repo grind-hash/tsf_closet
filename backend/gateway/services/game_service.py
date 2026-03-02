@@ -1238,13 +1238,9 @@ class GameService:
 
                 logger.info("current_desc:%s", current_desc)
 
-                # 直前の状況サマリーを生成（LLM要約）
+                # 前ターンの状況サマリーを生成
                 previous_situation_summary: str | None = None
-                if (
-                    last_hist
-                    and last_hist.feeling_text
-                    and last_hist.instruction_type == "action"
-                ):
+                if last_hist and last_hist.feeling_text:
                     try:
                         from .action_prompts import SITUATION_SUMMARY_SYSTEM_PROMPT
 
@@ -1265,17 +1261,16 @@ class GameService:
                         logger.warning("Failed to generate situation summary: %s", e)
                         previous_situation_summary = None
 
-                # Conversationテーブルから最近のアクション指示を抽出
-                recent_actions: list[str] = []
+                # 履歴+会話をマージしたタイムラインから最近の指示を取得
+                recent_actions: list[tuple[str, str]] = []
                 try:
-                    convos = await session_store.get_conversation_history(
-                        session.id, limit=50
+                    timeline = await session_store.get_session_timeline(
+                        session.id, limit=30
                     )
-                    for c in convos:
-                        if c.instruction_type == "action" and c.role == "user":
-                            recent_actions.append(c.content)
+                    # 新しい順 → 時系列順に反転
+                    recent_actions = list(reversed(timeline))
                 except Exception:
-                    logger.debug("Could not extract recent actions from conversations")
+                    logger.debug("セッションタイムラインの取得に失敗")
 
                 # アクションテキストプロンプトを構築
                 #   - self_mode: 自分自身プロフィールの性格を使用
