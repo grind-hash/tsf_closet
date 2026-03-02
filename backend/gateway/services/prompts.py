@@ -1220,8 +1220,10 @@ Convert the user's instruction into an optimal English tag prompt for NovelAI im
 
 ## Rules
 1. Output **valid JSON only** with two keys: "character" and "scene".
-2. "character": comma-separated English Danbooru-style tags for the character ONLY.
-   - Start with: 1girl or 1boy, solo
+2. "character": comma-separated English Danbooru-style tags for the MAIN CHARACTER (and others if the instruction involves them).
+   - **Single-person scene** (default for outfit changes): Start with 1girl or 1boy, solo.
+   - **Multi-person scene** (if the instruction explicitly involves another person): Use appropriate count tags (e.g. 1boy 1girl, 2girls). Do NOT use "solo".
+     - Include minimal tags for the other person AFTER the main character's tags.
    - ALWAYS KEEP immutable traits from the previous prompt: hair color/style, eye color, body type, face features.
    - UPDATE clothing/outfit tags to match the instruction.
    - Add pose and expression tags appropriate for the outfit.
@@ -1249,8 +1251,11 @@ Adult content tags are allowed.
 
 ## Rules
 1. Output **valid JSON only** with two keys: "character" and "scene".
-2. "character": comma-separated English Danbooru-style tags for the character ONLY.
-   - Start with: 1girl or 1boy, solo
+2. "character": comma-separated English Danbooru-style tags for the MAIN CHARACTER (and others if the instruction involves them).
+   - **Single-person scene** (default for outfit changes): Start with 1girl or 1boy, solo.
+   - **Multi-person scene** (if the instruction explicitly involves another person): Use appropriate count tags (e.g. 1boy 1girl, 2girls). Do NOT use "solo".
+     - Include minimal tags for the other person AFTER the main character's tags.
+     - Clearly depict physical interaction using appropriate Danbooru tags.
    - ALWAYS KEEP immutable traits from the previous prompt: hair color/style, eye color, body type, face features.
    - UPDATE clothing/outfit/exposure tags to match the instruction.
    - Add pose and expression tags appropriate for the outfit.

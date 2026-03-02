@@ -235,15 +235,16 @@ The user performs an action that may change the scene, clothing, pose, or any co
 
 ## Rules
 1. Output **valid JSON only** with two keys: "character" and "scene".
-2. "character": comma-separated English Danbooru-style tags for the character ONLY.
-   - Start with: 1girl or 1boy, solo
-   - ALWAYS KEEP immutable traits from the previous prompt: hair color/style, eye color, body type, face features.
-   - If the action mentions clothing/outfit changes (e.g. "put on a suit", "wear a dress"), UPDATE the clothing tags to match the NEW outfit described in the action.
-   - If the action does NOT mention clothing changes, keep the current clothing tags from the previous prompt.
+2. "character": comma-separated English Danbooru-style tags for the MAIN CHARACTER and any other people involved.
+   - **Single-person action** (no other person involved): Start with 1girl or 1boy, solo.
+   - **Multi-person action** (interacting with another person): Use appropriate count tags (e.g. 1boy 1girl, 2girls, etc.). Do NOT use "solo".
+     - Include minimal tags for the other person (gender, basic appearance) AFTER the main character's tags.
+     - Clearly depict the interaction described in the action (e.g. physical contact, poses).
+   - ALWAYS KEEP the main character's immutable traits from the previous prompt: hair color/style, eye color, body type, face features.
+   - If the action mentions clothing/outfit changes, UPDATE the clothing tags to match.
+   - If the action does NOT mention clothing changes, keep the current clothing tags.
    - Update pose and expression tags to match the action context.
    - If the previous prompt is in Japanese or natural language, translate/convert ALL tags to English Danbooru format.
-   - Example (outfit change): "1boy, solo, short black hair, brown eyes, black suit, white dress shirt, necktie, standing"
-   - Example (no outfit change): "1boy, solo, short black hair, brown eyes, white t-shirt, black shorts, walking"
    - Do NOT include background or environment tags here.
 3. "scene": comma-separated English tags for background/environment ONLY.
    - Quality tags first: masterpiece, best quality, very aesthetic
@@ -252,13 +253,13 @@ The user performs an action that may change the scene, clothing, pose, or any co
 
 ## CRITICAL
 - ALL output tags must be in **English** Danbooru tag format. No Japanese text.
-- Read the action instruction carefully: if it says to change clothes, you MUST change the clothing tags.
+- Read the action instruction carefully: if it involves another person, you MUST include them.
 - Immutable traits (hair, eyes, body type) are NEVER changed.
 - Mutable traits (clothing, pose, expression, accessories) are updated when the action requires it.
 
 ## Output Format
 ```json
-{"character": "1boy, solo, short black hair, brown eyes, black suit, ...", "scene": "masterpiece, best quality, very aesthetic, train station, ..."}
+{"character": "1boy 1girl, short black hair, brown eyes, ...", "scene": "masterpiece, best quality, very aesthetic, train station, ..."}
 ```
 JSON only. No explanation or preamble."""
 
@@ -269,15 +270,17 @@ The user performs an action that may change the scene, clothing, pose, or any co
 
 ## Rules
 1. Output **valid JSON only** with two keys: "character" and "scene".
-2. "character": comma-separated English Danbooru-style tags for the character ONLY.
-   - Start with: 1girl or 1boy, solo
-   - ALWAYS KEEP immutable traits from the previous prompt: hair color/style, eye color, body type, face features.
-   - If the action mentions clothing/outfit changes (e.g. "put on a suit", "wear a dress"), UPDATE the clothing tags to match the NEW outfit described in the action.
-   - If the action does NOT mention clothing changes, keep the current clothing/exposure tags from the previous prompt.
+2. "character": comma-separated English Danbooru-style tags for the MAIN CHARACTER and any other people involved.
+   - **Single-person action** (no other person involved): Start with 1girl or 1boy, solo.
+   - **Multi-person action** (interacting with another person): Use appropriate count tags (e.g. 1boy 1girl, 2girls, 2boys, etc.). Do NOT use "solo".
+     - Include minimal tags for the other person (gender, basic appearance) AFTER the main character's tags.
+     - Clearly depict the physical interaction described in the action using appropriate Danbooru tags (e.g. oral, licking, kissing, hugging, holding hands, etc.).
+   - ALWAYS KEEP the main character's immutable traits from the previous prompt: hair color/style, eye color, body type, face features.
+   - If the action mentions clothing/outfit changes, UPDATE the clothing tags to match.
+   - If the action does NOT mention clothing changes, keep the current clothing/exposure tags.
    - Update pose and expression tags to match the action context.
    - Keep NSFW/body exposure tags unless the action explicitly changes them (e.g. "get dressed").
    - If the previous prompt is in Japanese or natural language, translate/convert ALL tags to English Danbooru format.
-   - Example (outfit change): "1boy, solo, short black hair, brown eyes, black suit, white dress shirt, necktie, standing"
    - Do NOT include background or environment tags here.
 3. "scene": comma-separated English tags for background/environment ONLY.
    - Quality tags first: masterpiece, best quality, very aesthetic
@@ -287,13 +290,13 @@ The user performs an action that may change the scene, clothing, pose, or any co
 
 ## CRITICAL
 - ALL output tags must be in **English** Danbooru tag format. No Japanese text.
-- Read the action instruction carefully: if it says to change clothes, you MUST change the clothing tags.
+- Read the action instruction carefully: if it involves another person, you MUST include them and depict the interaction.
 - Immutable traits (hair, eyes, body type) are NEVER changed.
 - Mutable traits (clothing, pose, expression, accessories, exposure) are updated when the action requires it.
 
 ## Output Format
 ```json
-{"character": "1boy, solo, short black hair, brown eyes, black suit, ...", "scene": "masterpiece, best quality, very aesthetic, train station, ..."}
+{"character": "1boy 1girl, long black hair, black eyes, ..., oral, ...", "scene": "masterpiece, best quality, very aesthetic, bedroom, ..."}
 ```
 JSON only. No explanation or preamble."""
 
