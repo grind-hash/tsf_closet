@@ -2527,12 +2527,25 @@ class GameService:
         preserve_elements: list[str] | None = None,
         change_scope: str = "full",
         custom_preserve_text: str = "",
+        instruction_type: str | None = None,
     ) -> dict:
-        """プロンプトのプレビューを生成する"""
+        """プロンプトのプレビューを生成する
+
+        instruction_type が "action" の場合はアクション専用プロンプトを構築する。
+        それ以外は衣装変更/現実改変のプロンプトを構築する。
+        """
 
         current_description = ""
         nsfw_mode = False
         bloom = 0
+        transformation_count = 0
+        gender = "man"
+        pronoun = "僕"
+        personality = ""
+        description = ""
+        session = None
+        recent_actions: list[tuple[str, str]] = []
+        previous_situation_summary: str | None = None
 
         if session_id:
             try:
@@ -2541,15 +2554,15 @@ class GameService:
                 if session:
                     stats = await session_store.get_or_create_session_stats(session_id)
 
-                    # ユーザー設定からnsfw_modeを取得（session statsはDEPRECATED）
+                    # ユーザー設定からnsfw_modeを取得
                     user_settings = await session_store.get_user_settings(session_id)
                     nsfw_mode = user_settings.get("nsfw_mode", False)
                     bloom = stats.bloom
+                    transformation_count = session.transformation_count
 
                     # 履歴から最新の画像説明を取得
                     history_items = await session_store.get_history(session_id)
                     if history_items:
-                        # 最新の履歴を使用 (get_historyは古い順)
                         current_description = history_items[-1].after_description
 
                     # セッション属性を取得（プロンプトに反映）
@@ -2558,11 +2571,96 @@ class GameService:
                     )
                     instruction += self._format_attribute_context(attributes)
 
+                    # self_mode の場合、プロフィールから性別・一人称を取得
+                    if session.self_mode:
+                        self_profile = await session_store.get_self_profile()
+                        if self_profile:
+                            gender = self_profile.get("gender", gender)
+                            pronoun = self_profile.get("pronoun", pronoun)
+                            personality = self_profile.get("personality", "")
+
+                    # action プレビュー用: タイムラインと前回サマリー
+                    if instruction_type == "action":
+                        try:
+                            timeline = await session_store.get_session_timeline(
+                                session_id, limit=30
+                            )
+                            recent_actions = list(reversed(timeline))
+                        except Exception:
+                            pass
+
+                        last_hist = await session_store.get_latest_history(session_id)
+                        if (
+                            last_hist
+                            and last_hist.feeling_text
+                            and last_hist.instruction != "初期状態"
+                        ):
+                            try:
+                                from .action_prompts import (
+                                    SITUATION_SUMMARY_SYSTEM_PROMPT,
+                                )
+
+                                summary_user = (
+                                    f"行動: 「{last_hist.instruction}」\n\n"
+                                    f"モノローグ:\n{last_hist.feeling_text}"
+                                )
+                                summary_result = await llm_service.generate_text(
+                                    system_prompt=SITUATION_SUMMARY_SYSTEM_PROMPT,
+                                    user_prompt=summary_user,
+                                )
+                                previous_situation_summary = (
+                                    summary_result.content.strip()
+                                )
+                            except Exception:
+                                previous_situation_summary = None
+
             except Exception as e:
                 logger.warning(f"Preview prompts session fetch error: {e}")
-                # セッション取得エラーでもデフォルト値で続行
 
-        # 画像編集プロンプト生成
+        # -- action モードのプレビュー --
+        if instruction_type == "action":
+            act_system, act_user = build_action_prompt(
+                instruction=instruction,
+                current_description=current_description or "不明",
+                pronoun=pronoun,
+                bloom=bloom,
+                nsfw_mode=nsfw_mode,
+                personality=personality,
+                description=description,
+                recent_actions=recent_actions or None,
+                transformation_count=transformation_count,
+                gender=gender,
+                previous_situation_summary=previous_situation_summary,
+            )
+
+            # 画像プロンプト（NovelAI Opus / その他で分岐）
+            image_edit_prompt = ""
+            novelai_tag_prompt: str | None = None
+            if settings.is_novelai_opus_mode:
+                action_tag_system = get_action_novelai_prompt_generation_system(
+                    nsfw_mode=nsfw_mode,
+                    language=settings.language
+                    if hasattr(settings, "language")
+                    else "ja",
+                )
+                novelai_tag_prompt = action_tag_system
+                image_edit_prompt = "(NovelAI Opus: タグはLLMが動的生成)"
+            else:
+                action_edit_system = get_action_image_edit_system_prompt(
+                    image_provider=settings.image_provider,
+                    nsfw_mode=nsfw_mode,
+                )
+                image_edit_prompt = action_edit_system
+
+            return {
+                "image_edit_prompt": image_edit_prompt,
+                "feeling_system_prompt": act_system,
+                "feeling_user_prompt": act_user,
+                "instruction_type": "action",
+                "novelai_tag_prompt": novelai_tag_prompt,
+            }
+
+        # -- 衣装変更 / 現実改変のプレビュー --
         image_edit_prompt = ""
         if transformation_type == "reality":
             image_edit_prompt, _ = await self._generate_reality_edit_prompt(
@@ -2581,35 +2679,24 @@ class GameService:
                 nsfw_mode=nsfw_mode,
             )
 
-        # 心境生成プロンプト生成
-        # プレビュー用なので一人称はデフォルト、openingはランダム
         from .prompts import build_feeling_prompt, get_psychological_stage
 
         stage = get_psychological_stage(bloom, nsfw_mode)
         system_prompt = stage["system_prompt"]
 
-        # 心境生成プロンプト構築 (属性反映)
-        # build_feeling_prompt内部で属性セクションを追加するため、
-        # ここではinstructionに属性を連結せず、attributes引数として渡す必要があるが、
-        # 現状のbuild_feeling_promptはattributes引数を取らない設計（prompts.pyを確認済み）。
-        # ※確認: prompts.pyのbuild_feeling_promptはattributes引数を取らないが、
-        # play_with_streamの_generate_feeling_stream呼び出しではbuild_enhanced_feeling_promptを使用しており
-        # そちらはattributesを取る。
-        # プレビューでは標準のbuild_feeling_promptを使っているため、instructionにコンテキストを含ませるのは
-        # 画像生成プロンプトにとっては正しいが、心境生成にとっては二重になる可能性がある。
-        # しかし、画像生成プロンプトのプレビューが主目的なので、instructionへの統合を維持する。
-
         user_prompt = build_feeling_prompt(
             before_desc=current_description or "着せ替え前の状態",
             after_desc=f"{instruction}に変身した姿",
             instruction=instruction,
-            pronoun="僕",  # 仮
+            pronoun=pronoun,
         )
 
         return {
             "image_edit_prompt": image_edit_prompt,
             "feeling_system_prompt": system_prompt,
             "feeling_user_prompt": user_prompt,
+            "instruction_type": instruction_type or transformation_type,
+            "novelai_tag_prompt": None,
         }
 
     def _format_attribute_context(self, attributes: list[str] | None) -> str:

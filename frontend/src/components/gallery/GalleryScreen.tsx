@@ -10,10 +10,10 @@ import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import MainLayout from "../layout/MainLayout";
 import GalleryCard from "./GalleryCard";
-import GalleryList from "./GalleryList";
+import PlaySummaryModal from "./PlaySummaryModal";
 import { deleteGalleryItem } from "../../apis/gallery";
 import { API_BASE } from "../../utils/api";
-import type { GalleryItem, GallerySession, GalleryViewMode } from "../../types";
+import type { GalleryItem, GallerySession } from "../../types";
 import "./GalleryScreen.css";
 
 interface GalleryScreenProps {
@@ -45,7 +45,6 @@ export default function GalleryScreen({ onSelectItem }: GalleryScreenProps) {
   const [itemsTotal, setItemsTotal] = useState(0);
 
   // 共通状態
-  const [viewMode, setViewMode] = useState<GalleryViewMode>("card");
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<GallerySession | null>(
@@ -54,6 +53,9 @@ export default function GalleryScreen({ onSelectItem }: GalleryScreenProps) {
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteItemConfirm, setDeleteItemConfirm] =
     useState<GalleryItem | null>(null);
+
+  // Play Summary modal
+  const [summarySessionId, setSummarySessionId] = useState<string | null>(null);
 
   const pageSize = 20;
 
@@ -333,26 +335,6 @@ export default function GalleryScreen({ onSelectItem }: GalleryScreenProps) {
                 ? `${sessionsTotal} ${t("gallery.sessionsSuffix")}`
                 : `${itemsTotal} ${t("gallery.itemsSuffix")}`}
             </span>
-            <div className="gallery-screen__view-toggle">
-              <button
-                type="button"
-                className={`gallery-screen__view-btn ${viewMode === "card" ? "is-active" : ""}`}
-                onClick={() => setViewMode("card")}
-                aria-label={t("gallery.cardView")}
-                aria-pressed={viewMode === "card"}
-              >
-                ▦
-              </button>
-              <button
-                type="button"
-                className={`gallery-screen__view-btn ${viewMode === "list" ? "is-active" : ""}`}
-                onClick={() => setViewMode("list")}
-                aria-label={t("gallery.listView")}
-                aria-pressed={viewMode === "list"}
-              >
-                ≡
-              </button>
-            </div>
           </div>
         </header>
 
@@ -417,6 +399,11 @@ export default function GalleryScreen({ onSelectItem }: GalleryScreenProps) {
                           <h3 className="gallery-screen__session-name">
                             {session.character_name ||
                               t("gallery.unknownCharacter")}
+                            {session.self_mode && (
+                              <span className="gallery-screen__self-mode-chip">
+                                {t("gallery.selfModeChip")}
+                              </span>
+                            )}
                           </h3>
                           <p className="gallery-screen__session-meta">
                             {session.item_count} {t("gallery.itemsUnit")} ・{" "}
@@ -430,6 +417,21 @@ export default function GalleryScreen({ onSelectItem }: GalleryScreenProps) {
                               title={t("gallery.resumeSessionTitle")}
                             >
                               ▶ {t("gallery.resume")}
+                            </button>
+                            <button
+                              type="button"
+                              className={`gallery-screen__session-summary${
+                                session.has_summary
+                                  ? " gallery-screen__session-summary--done"
+                                  : ""
+                              }`}
+                              onClick={() =>
+                                setSummarySessionId(session.session_id)
+                              }
+                              title={t("gallery.summaryButtonTitle")}
+                            >
+                              {session.has_summary ? "✅" : "📜"}{" "}
+                              {t("gallery.summaryButton")}
                             </button>
                             <button
                               type="button"
@@ -475,20 +477,16 @@ export default function GalleryScreen({ onSelectItem }: GalleryScreenProps) {
 
               {items.length > 0 && (
                 <>
-                  {viewMode === "card" ? (
-                    <div className="gallery-screen__cards">
-                      {items.map((item) => (
-                        <GalleryCard
-                          key={item.id}
-                          item={item}
-                          onClick={() => handleItemClick(item)}
-                          onDelete={(i) => setDeleteItemConfirm(i)}
-                        />
-                      ))}
-                    </div>
-                  ) : (
-                    <GalleryList items={items} onItemClick={handleItemClick} />
-                  )}
+                  <div className="gallery-screen__cards">
+                    {items.map((item) => (
+                      <GalleryCard
+                        key={item.id}
+                        item={item}
+                        onClick={() => handleItemClick(item)}
+                        onDelete={(i) => setDeleteItemConfirm(i)}
+                      />
+                    ))}
+                  </div>
 
                   {itemsHasMore && (
                     <div className="gallery-screen__load-more">
@@ -623,6 +621,20 @@ export default function GalleryScreen({ onSelectItem }: GalleryScreenProps) {
           </div>
         )}
       </div>
+
+      {/* Play Summary Modal */}
+      <PlaySummaryModal
+        sessionId={summarySessionId || ""}
+        isOpen={summarySessionId !== null}
+        onClose={() => setSummarySessionId(null)}
+        onSummaryGenerated={(sid) => {
+          setSessions((prev) =>
+            prev.map((s) =>
+              s.session_id === sid ? { ...s, has_summary: true } : s,
+            ),
+          );
+        }}
+      />
     </MainLayout>
   );
 }

@@ -252,3 +252,28 @@ class UserAchievement(Base):
         Index("idx_user_achievements_achievement_id", "achievement_id"),
         Index("idx_user_achievements_achieved_at", "achieved_at"),
     )
+
+
+class PlaySummary(Base):
+    """LLM-generated play summary and title for a session."""
+
+    __tablename__ = "play_summaries"
+
+    session_id: Mapped[str] = mapped_column(
+        String,
+        ForeignKey("sessions.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    title: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    summary: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    timeline_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        default=func.current_timestamp(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        default=func.current_timestamp(),
+        onupdate=func.current_timestamp(),
+        nullable=False,
+    )
+
+    session: Mapped["Session"] = relationship(backref="play_summary")

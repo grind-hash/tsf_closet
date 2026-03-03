@@ -1,0 +1,110 @@
+/* SharePreviewCard overlay and card styles */
+.share-preview__overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+}
+
+.share-preview {
+  background: #1a1a2e;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  width: 90vw;
+  max-width: 700px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+}
+
+.share-preview__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.share-preview__header h3 {
+  margin: 0;
+  color: #e2e8f0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.share-preview__close {
+  background: none;
+  border: none;
+  color: #94a3b8;
+  font-size: 1.1rem;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: background 0.15s, color 0.15s;
+}
+
+.share-preview__close:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #e2e8f0;
+}
+
+.share-preview__canvas-wrapper {
+  padding: 16px;
+  display: flex;
+  justify-content: center;
+  overflow: auto;
+}
+
+.share-preview__canvas-wrapper canvas {
+  width: 100%;
+  max-width: 640px;
+  height: auto;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.share-preview__actions {
+  display: flex;
+  gap: 10px;
+  padding: 12px 20px 16px;
+  justify-content: center;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.share-preview__btn {
+  padding: 8px 20px;
+  border-radius: 6px;
+  border: none;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s;
+}
+
+.share-preview__btn:active {
+  transform: scale(0.97);
+}
+
+.share-preview__btn--copy {
+  background: #6366f1;
+  color: #fff;
+}
+
+.share-preview__btn--copy:hover {
+  background: #818cf8;
+}
+
+.share-preview__btn--download {
+  background: rgba(255, 255, 255, 0.1);
+  color: #e2e8f0;
+}
+
+.share-preview__btn--download:hover {
+  background: rgba(255, 255, 255, 0.18);
+}

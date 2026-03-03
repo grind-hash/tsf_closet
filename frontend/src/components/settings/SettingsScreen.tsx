@@ -21,6 +21,7 @@ export default function SettingsScreen() {
     setExperimentalEndingEnabled,
     setEnableSurroundingsImage,
     setSurroundingsIncludePeople,
+    setFontFamily,
     resetSettings,
   } = useSettings();
 
@@ -48,6 +49,44 @@ export default function SettingsScreen() {
       id: "en",
       label: t("settings.en"),
       description: t("settings.enDesc"),
+    },
+  ] as const;
+
+  const fontOptions = [
+    {
+      id: "system",
+      label: t("settings.fontSystem"),
+      description: t("settings.fontSystemDesc"),
+    },
+    {
+      id: "browser-default",
+      label: t("settings.fontBrowserDefault"),
+      description: t("settings.fontBrowserDefaultDesc"),
+    },
+    {
+      id: "noto-sans-jp",
+      label: "Noto Sans JP",
+      description: t("settings.fontNotoSansJPDesc"),
+    },
+    {
+      id: "biz-udgothic",
+      label: "BIZ UDGothic",
+      description: t("settings.fontBizUDGothicDesc"),
+    },
+    {
+      id: "biz-udmincho",
+      label: "BIZ UDMincho",
+      description: t("settings.fontBizUDMinchoDesc"),
+    },
+    {
+      id: "inter",
+      label: "Inter",
+      description: t("settings.fontInterDesc"),
+    },
+    {
+      id: "roboto-mono",
+      label: "Roboto Mono",
+      description: t("settings.fontRobotoMonoDesc"),
     },
   ] as const;
 
@@ -147,6 +186,40 @@ export default function SettingsScreen() {
                   </label>
                 ))}
               </div>
+            </div>
+          </section>
+
+          {/* 表示設定 */}
+          <section className="settings-screen__section">
+            <h2 className="settings-screen__section-title">
+              {t("settings.displaySection")}
+            </h2>
+
+            <div className="settings-screen__item">
+              <div className="settings-screen__item-header">
+                <span className="settings-screen__item-label">
+                  {t("settings.fontFamily")}
+                </span>
+                <span className="settings-screen__item-desc">
+                  {t("settings.fontFamilyDesc")}
+                </span>
+              </div>
+              <div className="settings-screen__select-wrapper">
+                <select
+                  className="settings-screen__select"
+                  value={state.fontFamily}
+                  onChange={(e) => setFontFamily(e.target.value)}
+                >
+                  {fontOptions.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <p className="settings-screen__font-preview">
+                {t("settings.fontPreview")}
+              </p>
             </div>
           </section>
 

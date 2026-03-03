@@ -77,6 +77,9 @@ interface SettingsState {
   enableSurroundingsImage: boolean;
   // Include reactive bystanders in surroundings image
   surroundingsIncludePeople: boolean;
+
+  // Font family setting
+  fontFamily: string;
 }
 
 // アクション型
@@ -113,7 +116,8 @@ type SettingsAction =
   | { type: "SET_SELF_PROFILE"; payload: SelfProfile | null }
   | { type: "SET_SEED"; payload: number | null }
   | { type: "SET_ENABLE_SURROUNDINGS_IMAGE"; payload: boolean }
-  | { type: "SET_SURROUNDINGS_INCLUDE_PEOPLE"; payload: boolean };
+  | { type: "SET_SURROUNDINGS_INCLUDE_PEOPLE"; payload: boolean }
+  | { type: "SET_FONT_FAMILY"; payload: string };
 
 // デフォルト状態
 const defaultState: SettingsState = {
@@ -137,6 +141,7 @@ const defaultState: SettingsState = {
   seed: null,
   enableSurroundingsImage: false,
   surroundingsIncludePeople: false,
+  fontFamily: "system",
 };
 
 // Reducer
@@ -236,6 +241,8 @@ function settingsReducer(
       return { ...state, enableSurroundingsImage: action.payload };
     case "SET_SURROUNDINGS_INCLUDE_PEOPLE":
       return { ...state, surroundingsIncludePeople: action.payload };
+    case "SET_FONT_FAMILY":
+      return { ...state, fontFamily: action.payload };
     default:
       return state;
   }
@@ -279,6 +286,7 @@ interface SettingsContextType {
   setSeed: (seed: number | null) => void;
   setEnableSurroundingsImage: (enabled: boolean) => void;
   setSurroundingsIncludePeople: (enabled: boolean) => void;
+  setFontFamily: (fontFamily: string) => void;
 }
 
 // Context作成
@@ -403,6 +411,23 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       void i18n.changeLanguage(state.language);
     }
   }, [state.language]);
+
+  // Apply font family to document root (fonts are bundled via @fontsource)
+  useEffect(() => {
+    const fontMap: Record<string, string> = {
+      "browser-default": "initial",
+      system:
+        '"Segoe UI", "Noto Sans", system-ui, -apple-system, "Hiragino Sans", sans-serif',
+      "biz-udgothic": '"BIZ UDGothic", "Segoe UI", system-ui, sans-serif',
+      "noto-sans-jp": '"Noto Sans JP", "Segoe UI", system-ui, sans-serif',
+      "biz-udmincho": '"BIZ UDMincho", "Segoe UI", system-ui, serif',
+      inter: '"Inter", "Segoe UI", system-ui, sans-serif',
+      "roboto-mono": '"Roboto Mono", "Courier New", monospace',
+    };
+
+    const fontValue = fontMap[state.fontFamily] ?? fontMap.system;
+    document.documentElement.style.setProperty("--app-font-family", fontValue);
+  }, [state.fontFamily]);
 
   // アクション関数
   const setDifficulty = useCallback(
@@ -587,6 +612,10 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "SET_SURROUNDINGS_INCLUDE_PEOPLE", payload: enabled });
   }, []);
 
+  const setFontFamily = useCallback((fontFamily: string) => {
+    dispatch({ type: "SET_FONT_FAMILY", payload: fontFamily });
+  }, []);
+
   const value: SettingsContextType = {
     state,
     setDifficulty,
@@ -617,6 +646,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setSeed,
     setEnableSurroundingsImage,
     setSurroundingsIncludePeople,
+    setFontFamily,
   };
 
   return (

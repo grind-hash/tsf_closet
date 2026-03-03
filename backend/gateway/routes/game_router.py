@@ -1391,6 +1391,7 @@ async def preview_prompt(request: PlayRequest) -> dict:
         preserve_elements=request.preserve_elements,
         change_scope=request.change_scope,
         custom_preserve_text=request.custom_preserve_text,
+        instruction_type=request.instruction_type,
     )
 
 
@@ -1681,3 +1682,44 @@ async def generate_base_tags(request: GenerateBaseTagsRequest) -> dict:
             status_code=500,
             detail=f"Failed to generate base tags: {e}",
         )
+
+
+# ------------------------------------------------------------------
+# Latest history deletion (self-mode only)
+# ------------------------------------------------------------------
+
+
+@router.delete(
+    "/session/{session_id}/latest-history",
+    summary="最新履歴を削除",
+    description="セルフモード時のみ最新の履歴を削除し、1つ前の状態に復元する",
+)
+async def delete_latest_history(session_id: str) -> dict:
+    """Delete the latest history entry and restore previous state."""
+    # Validate session exists and is self-mode
+    session = await session_store.get_session_by_id(session_id)
+    if session is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "SESSION_NOT_FOUND", "message": "Session not found"},
+        )
+    if not session.self_mode:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "NOT_SELF_MODE",
+                "message": "This operation is only allowed in self-mode",
+            },
+        )
+
+    result = await session_store.delete_latest_history(session_id)
+    if result is None:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": "NO_HISTORY",
+                "message": "No history to delete",
+            },
+        )
+
+    return result

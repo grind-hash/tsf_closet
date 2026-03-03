@@ -477,6 +477,124 @@ class DatabaseSessionStore:
         )
         return history.image_path
 
+    async def delete_latest_history(
+        self,
+        session_id: str,
+    ) -> dict | None:
+        """最新の履歴エントリを削除し、セッションを1つ前の状態に戻す
+
+        Returns:
+            削除された履歴情報の辞書、または履歴がない場合None
+        """
+        async with async_session_factory() as db_session:
+            # 最新の履歴を取得
+            latest_stmt = (
+                select(HistoryORM)
+                .where(HistoryORM.session_id == session_id)
+                .order_by(HistoryORM.created_at.desc(), HistoryORM.id.desc())
+                .limit(1)
+            )
+            latest = (await db_session.execute(latest_stmt)).scalars().first()
+            if latest is None:
+                return None
+
+            deleted_id = latest.id
+            deleted_instruction = latest.instruction
+            deleted_instruction_type = latest.instruction_type or "dress_up"
+
+            # 画像ファイル削除
+            if latest.image_path:
+                image_path = Path(latest.image_path)
+                if image_path.exists():
+                    try:
+                        os.remove(image_path)
+                    except OSError as exc:
+                        logger.warning("Failed to delete image %s: %s", image_path, exc)
+
+            # 周囲画像ファイル削除
+            if latest.surroundings_image_path:
+                surr_path = (
+                    settings.history_images_dir.parent / latest.surroundings_image_path
+                )
+                if surr_path.exists():
+                    try:
+                        os.remove(surr_path)
+                    except OSError as exc:
+                        logger.warning(
+                            "Failed to delete surroundings image %s: %s",
+                            surr_path,
+                            exc,
+                        )
+
+            # 関連する conversation レコードを削除
+            await db_session.execute(
+                delete(ConversationORM).where(
+                    ConversationORM.related_history_id == deleted_id
+                )
+            )
+
+            # 履歴レコードを削除 (CASCADE で transformation_tags も削除される)
+            await db_session.execute(
+                delete(HistoryORM).where(HistoryORM.id == deleted_id)
+            )
+
+            # 1つ前の履歴を取得して current_image_path を復元
+            prev_stmt = (
+                select(HistoryORM)
+                .where(HistoryORM.session_id == session_id)
+                .order_by(HistoryORM.created_at.desc(), HistoryORM.id.desc())
+                .limit(1)
+            )
+            prev = (await db_session.execute(prev_stmt)).scalars().first()
+            restored_image_path = prev.image_path if prev else ""
+
+            # セッションの current_image_path を更新
+            if restored_image_path:
+                await db_session.execute(
+                    update(SessionORM)
+                    .where(SessionORM.id == session_id)
+                    .values(
+                        current_image_path=restored_image_path,
+                        updated_at=datetime.now(),
+                    )
+                )
+
+            # transformation_count のデクリメント (dress_up/reality のみ)
+            if deleted_instruction_type in ("dress_up", "reality_alter"):
+                session_row = (
+                    (
+                        await db_session.execute(
+                            select(SessionORM).where(SessionORM.id == session_id)
+                        )
+                    )
+                    .scalars()
+                    .first()
+                )
+                if session_row and session_row.transformation_count > 0:
+                    await db_session.execute(
+                        update(SessionORM)
+                        .where(SessionORM.id == session_id)
+                        .values(
+                            transformation_count=session_row.transformation_count - 1,
+                        )
+                    )
+
+            await db_session.commit()
+
+            logger.info(
+                "Deleted latest history %s for session %s, restored to %s",
+                deleted_id,
+                session_id,
+                restored_image_path or "(none)",
+            )
+
+            return {
+                "deleted_history_id": deleted_id,
+                "restored_instruction": deleted_instruction,
+                "restored_instruction_type": deleted_instruction_type,
+                "current_image_path": restored_image_path,
+            }
+
     async def get_session_with_history(
         self,
         session_id: str,
@@ -944,7 +1062,7 @@ class DatabaseSessionStore:
 
         Returns:
             (instruction_type, instruction_text) のタプルリスト。
-            created_at 降順（新しい順）で最大 limit 件。
+            created_at 昇順（古い順 = 時系列順）で最大 limit 件。
         """
         async with async_session_factory() as db_session:
             # 履歴テーブル: 着替・現実改変・行動
@@ -966,11 +1084,11 @@ class DatabaseSessionStore:
             )
             c_rows = (await db_session.execute(c_stmt)).all()
 
-        # created_at 降順でマージソート（新しい順）
+        # created_at 昇順でマージソート（古い順 = 時系列順）
         merged = [(r[0] or "unknown", r[1], r[2]) for r in h_rows] + [
             (r[0] or "conversation", r[1], r[2]) for r in c_rows
         ]
-        merged.sort(key=lambda x: x[2], reverse=True)
+        merged.sort(key=lambda x: x[2], reverse=False)
         # (type, text) タプルを最大 limit 件返す
         return [(m[0], m[1]) for m in merged[:limit]]
 

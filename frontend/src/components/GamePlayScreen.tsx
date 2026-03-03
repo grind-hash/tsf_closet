@@ -32,6 +32,7 @@ import { useSettings } from "../contexts/SettingsContext";
 import { API_BASE } from "../utils/api";
 import { fetchAnlasBalance } from "../apis/anlas";
 import { deleteGalleryItem } from "../apis/gallery";
+import { deleteLatestHistory } from "../apis/game";
 import type {
   ChangeSettings,
   ConversationMessage,
@@ -171,6 +172,9 @@ export default function GamePlayScreen({
     setMessageStreaming,
     appendToMessage: _appendToMessage,
     setStreaming: _setStreaming,
+    clearInput,
+    setInputText,
+    setInstructionType,
     messageListRef,
   } = useChat();
   const {
@@ -219,6 +223,13 @@ export default function GamePlayScreen({
     responsePreview: string;
   } | null>(null);
   const [isDeletingMessage, setIsDeletingMessage] = useState(false);
+
+  // 最新メッセージ編集・再生成確認モーダル
+  const [editMessageConfirm, setEditMessageConfirm] = useState<{
+    messageId: string;
+    content: string;
+  } | null>(null);
+  const [isEditingMessage, setIsEditingMessage] = useState(false);
 
   // Anlas cost confirmation dialog for precise references
   const [anlasConfirmPending, setAnlasConfirmPending] = useState<{
@@ -735,6 +746,87 @@ export default function GamePlayScreen({
     }
   }, [currentImageUrl]);
 
+  // プロンプトプレビューからのオーバーライド送信
+  const handleSendWithPromptOverride = useCallback(
+    (override: string) => {
+      if (!sessionId || isTransforming) return;
+      const message = chatState.inputText.trim();
+      const instructionType = chatState.instructionType;
+      if (!message || instructionType === "conversation") return;
+
+      // ユーザーメッセージをチャットに追加
+      const now = new Date().toISOString();
+      const userMsg: ChatMessage = {
+        id: `user-${Date.now()}`,
+        sessionId,
+        role: "user",
+        content: message,
+        createdAt: now,
+        instructionType: instructionType as
+          | "dress_up"
+          | "reality_alter"
+          | "action",
+      };
+      addMessage(userMsg);
+
+      const transformationType =
+        instructionType === "reality_alter" ? "reality" : "costume";
+      const backendInstructionType =
+        instructionType === "action" ? "action" : instructionType;
+
+      // prompt_override を含むオプションでtransformを実行
+      const transformOptions: {
+        promptOverride: string;
+        maskImage?: string;
+        maskId?: string;
+        inpaintStrength?: number;
+        inpaintNoise?: number;
+        negativePrompt?: string;
+      } = {
+        promptOverride: override,
+      };
+
+      if (imageProvider === "novelai") {
+        transformOptions.inpaintStrength = inpaintSettings.i2iStrength;
+        transformOptions.inpaintNoise = inpaintSettings.inpaintNoise;
+        if (inpaintSettings.negativePrompt) {
+          transformOptions.negativePrompt = inpaintSettings.negativePrompt;
+        }
+        if (settingsState.inpaintEnabled && maskDataUrl) {
+          transformOptions.maskImage = maskDataUrl;
+          transformOptions.maskId = selectedMaskId || undefined;
+        }
+      }
+
+      onTransform(
+        message,
+        undefined,
+        changeSettings,
+        transformationType,
+        transformOptions,
+        backendInstructionType,
+      );
+
+      // 入力をクリア
+      clearInput();
+    },
+    [
+      sessionId,
+      isTransforming,
+      chatState.inputText,
+      chatState.instructionType,
+      addMessage,
+      onTransform,
+      changeSettings,
+      imageProvider,
+      inpaintSettings,
+      settingsState.inpaintEnabled,
+      maskDataUrl,
+      selectedMaskId,
+      clearInput,
+    ],
+  );
+
   // Anlas confirmation dialog handlers
   const handleAnlasConfirm = useCallback(() => {
     if (!anlasConfirmPending) return;
@@ -810,6 +902,70 @@ export default function GamePlayScreen({
     }
   }, [deleteMessageConfirm, chatState.messages, setMessages]);
 
+  // 最新メッセージ編集リクエスト（確認ダイアログを表示）
+  const handleRequestEditMessage = useCallback(
+    (messageId: string, content: string) => {
+      setEditMessageConfirm({ messageId, content });
+    },
+    [],
+  );
+
+  // 最新メッセージ編集を確定して実行
+  const handleConfirmEditMessage = useCallback(async () => {
+    if (!editMessageConfirm || !sessionId) return;
+
+    const { messageId, content } = editMessageConfirm;
+    const historyId = messageId.replace(/^user-/, "");
+
+    try {
+      setIsEditingMessage(true);
+
+      // Backend: delete latest history
+      const result = await deleteLatestHistory(sessionId);
+
+      // Chat messages: remove user message + corresponding feeling message
+      const idsToRemove = new Set([
+        `user-${historyId}`,
+        `feeling-${historyId}`,
+      ]);
+      setMessages(chatState.messages.filter((m) => !idsToRemove.has(m.id)));
+
+      // Restore instruction text to input
+      setInputText(content);
+
+      // Restore instruction type
+      if (result.restored_instruction_type) {
+        setInstructionType(
+          result.restored_instruction_type as
+            | "dress_up"
+            | "reality_alter"
+            | "conversation"
+            | "action",
+        );
+      }
+
+      // Update current image in GameContext
+      if (result.current_image_path) {
+        setCurrentImage(result.current_image_path);
+      }
+
+      setEditMessageConfirm(null);
+    } catch (err) {
+      console.error("Failed to edit message:", err);
+      setEditMessageConfirm(null);
+    } finally {
+      setIsEditingMessage(false);
+    }
+  }, [
+    editMessageConfirm,
+    sessionId,
+    chatState.messages,
+    setMessages,
+    setInputText,
+    setInstructionType,
+    setCurrentImage,
+  ]);
+
   // インペイントトグル時のハンドラ
   const handleInpaintToggle = useCallback(
     (enabled: boolean) => {
@@ -834,6 +990,7 @@ export default function GamePlayScreen({
     <RightPanel
       onClose={togglePanel}
       onOpenInpaintModal={() => setShowInpaintModal(true)}
+      onSendWithPromptOverride={handleSendWithPromptOverride}
     />
   );
 
@@ -937,6 +1094,7 @@ export default function GamePlayScreen({
                     setSurroundingsOverlayUrl(url)
                   }
                   onDeleteMessage={handleRequestDeleteMessage}
+                  onEditMessage={handleRequestEditMessage}
                 />
               </div>
 
@@ -1129,6 +1287,56 @@ export default function GamePlayScreen({
           alt="周囲状況画像"
           onClose={() => setSurroundingsOverlayUrl(null)}
         />
+      )}
+
+      {/* 最新メッセージ編集確認ダイアログ */}
+      {editMessageConfirm && (
+        <div
+          className="game-play-screen__delete-modal-overlay"
+          onClick={() => !isEditingMessage && setEditMessageConfirm(null)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape" && !isEditingMessage)
+              setEditMessageConfirm(null);
+          }}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="edit-msg-modal-title"
+        >
+          <div
+            className="game-play-screen__delete-modal"
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={() => {}}
+            role="document"
+          >
+            <h3 id="edit-msg-modal-title">{t("gameplay.editMessageTitle")}</h3>
+            <p>{t("gameplay.editMessageConfirm")}</p>
+            <p
+              className="game-play-screen__delete-modal-preview"
+              style={{ fontStyle: "italic" }}
+            >
+              {editMessageConfirm.content.slice(0, 60)}
+              {editMessageConfirm.content.length > 60 ? "..." : ""}
+            </p>
+            <div className="game-play-screen__delete-modal-actions">
+              <button
+                type="button"
+                onClick={handleConfirmEditMessage}
+                disabled={isEditingMessage}
+                className="game-play-screen__delete-modal-confirm"
+              >
+                {t("gameplay.editMessageAction")}
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditMessageConfirm(null)}
+                disabled={isEditingMessage}
+                className="game-play-screen__delete-modal-cancel"
+              >
+                {t("gameplay.editMessageCancel")}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </MainLayout>
   );

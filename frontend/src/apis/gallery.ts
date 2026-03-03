@@ -132,3 +132,61 @@ export async function deleteGalleryItem(
 
   return response.json();
 }
+
+// Play Summary types
+export interface PlaySummaryResponse {
+  session_id: string;
+  title: string;
+  summary: string;
+  timeline: Array<{ label: string; type: string }>;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+/**
+ * Get existing play summary for a session
+ */
+export async function getSessionSummary(
+  sessionId: string,
+): Promise<PlaySummaryResponse | null> {
+  const response = await fetch(
+    `${API_BASE}/gallery/sessions/${sessionId}/summary`,
+  );
+
+  if (response.status === 404) {
+    return null;
+  }
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail?.message || `Failed to fetch summary: ${response.status}`,
+    );
+  }
+
+  return response.json();
+}
+
+/**
+ * Generate play summary for a session using LLM
+ */
+export async function generateSessionSummary(
+  sessionId: string,
+  language: string = "ja",
+): Promise<PlaySummaryResponse> {
+  const response = await fetch(
+    `${API_BASE}/gallery/sessions/${sessionId}/summary?language=${language}`,
+    { method: "POST" },
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail?.message ||
+        error.detail ||
+        `Summary generation failed: ${response.status}`,
+    );
+  }
+
+  return response.json();
+}

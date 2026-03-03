@@ -371,6 +371,11 @@ class PlayRequest(BaseModel):
     transformation_type: str = Field(
         "costume", description="変身タイプ (costume=衣装変更, reality=現実改変)"
     )
+    # 指示タイプ: dress_up, reality_alter, action, conversation
+    instruction_type: Optional[str] = Field(
+        None,
+        description="指示タイプ (dress_up, reality_alter, action, conversation)",
+    )
     language: Optional[str] = Field(
         None, description="応答言語（ja/en、未指定時はユーザー設定を使用）"
     )

@@ -19,6 +19,7 @@ from ..settings.config import settings
 from ..databases.base import async_session_factory
 from ..databases.models import History as HistoryORM
 from ..databases.models import Session as SessionORM
+from ..databases.models import PlaySummary as PlaySummaryORM
 
 router = APIRouter(prefix="/gallery", tags=["gallery"])
 
@@ -69,6 +70,8 @@ class GallerySession(BaseModel):
     item_count: int
     first_timestamp: str
     last_timestamp: str
+    self_mode: bool = False
+    has_summary: bool = False
 
 
 class GallerySessionsResponse(BaseModel):
@@ -155,12 +158,18 @@ async def get_gallery_sessions(
                 summary_subquery.c.first_timestamp,
                 summary_subquery.c.last_timestamp,
                 SessionORM.character_id,
+                SessionORM.self_mode,
+                PlaySummaryORM.session_id.isnot(None).label("has_summary"),
             )
             .outerjoin(
                 latest_id_subquery,
                 summary_subquery.c.session_id == latest_id_subquery.c.session_id,
             )
             .outerjoin(SessionORM, SessionORM.id == summary_subquery.c.session_id)
+            .outerjoin(
+                PlaySummaryORM,
+                PlaySummaryORM.session_id == summary_subquery.c.session_id,
+            )
             .order_by(desc(summary_subquery.c.last_timestamp))
             .limit(page_size)
             .offset(offset)
@@ -168,13 +177,28 @@ async def get_gallery_sessions(
         rows = (await db_session.execute(stmt)).all()
 
     char_manager = CharacterManager()
+
+    # self_mode セッション用: self_profile から display_name を取得
+    self_display_name: str | None = None
+    from ..services.settings_service import settings_service
+
+    try:
+        self_profile = await settings_service.get_self_profile()
+        if self_profile:
+            self_display_name = self_profile.get("display_name")
+    except Exception:
+        pass
+
     sessions = []
     for row in rows:
         session_id = str(row.session_id)
         latest_id = str(row.latest_id) if row.latest_id else None
+        is_self_mode = bool(row.self_mode) if row.self_mode is not None else False
 
         character_name = None
-        if row.character_id:
+        if is_self_mode and self_display_name:
+            character_name = self_display_name
+        elif row.character_id:
             char = char_manager.get_by_id(row.character_id)
             character_name = char.name if char else row.character_id
         else:
@@ -190,6 +214,8 @@ async def get_gallery_sessions(
                 item_count=int(row.item_count),
                 first_timestamp=_to_iso(row.first_timestamp),
                 last_timestamp=_to_iso(row.last_timestamp),
+                self_mode=is_self_mode,
+                has_summary=bool(row.has_summary),
             )
         )
 
@@ -435,3 +461,62 @@ async def delete_gallery_item(item_id: str):
         except Exception as exc:
             await db_session.rollback()
             raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ------------------------------------------------------------------
+# Play Summary endpoints
+# ------------------------------------------------------------------
+
+
+@router.get(
+    "/sessions/{session_id}/summary",
+    summary="プレイ要約を取得",
+    description="既存のプレイ要約を取得する。未生成の場合は404",
+)
+async def get_session_summary(session_id: str) -> dict:
+    """Get existing play summary for a session."""
+    from ..services.summary_service import summary_service
+
+    result = await summary_service.get_summary(session_id)
+    if result is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "NO_SUMMARY", "message": "Summary not found"},
+        )
+    return result
+
+
+@router.post(
+    "/sessions/{session_id}/summary",
+    summary="プレイ要約を生成",
+    description="LLMを使用してプレイ要約とタイトルを生成する",
+)
+async def generate_session_summary(
+    session_id: str,
+    language: str = Query("ja", description="Output language (ja/en)"),
+) -> dict:
+    """Generate play summary for a session using LLM."""
+    from ..services.summary_service import summary_service
+
+    # Verify session exists
+    async with async_session_factory() as db_session:
+        stmt = select(SessionORM).where(SessionORM.id == session_id)
+        session = (await db_session.execute(stmt)).scalars().first()
+        if session is None:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "error": "SESSION_NOT_FOUND",
+                    "message": "Session not found",
+                },
+            )
+
+    try:
+        return await summary_service.generate_summary(session_id, language)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Summary generation failed: {e}",
+        )

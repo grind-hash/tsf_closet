@@ -390,6 +390,8 @@ export interface GallerySession {
   item_count: number;
   first_timestamp: string;
   last_timestamp: string;
+  self_mode?: boolean;
+  has_summary?: boolean;
 }
 
 /**

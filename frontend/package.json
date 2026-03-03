@@ -11,6 +11,12 @@
     "e2e:test": "playwright test"
   },
   "dependencies": {
+    "@fontsource/biz-udgothic": "^5.2.7",
+    "@fontsource/biz-udmincho": "^5.2.7",
+    "@fontsource/inter": "^5.2.8",
+    "@fontsource/noto-sans-jp": "^5.2.9",
+    "@fontsource/roboto-mono": "^5.2.8",
+    "@xyflow/react": "^12.10.1",
     "i18next": "^25.8.7",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",

@@ -15,16 +15,19 @@ import { useState, useRef, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useSettings } from "../../contexts/SettingsContext";
 import { useGame } from "../../contexts/GameContext";
+import { useChat } from "../../contexts/ChatContext";
 import type {
   PreserveElement,
   ChangeScope,
   PreciseReferenceType,
 } from "../../types";
+import { previewPrompt, type PreviewPromptResponse } from "../../apis/game";
 import "./RightPanel.css";
 
 interface RightPanelProps {
   onClose?: () => void;
-  onOpenInpaintModal?: () => void; // T024: マスク設定ボタン用
+  onOpenInpaintModal?: () => void;
+  onSendWithPromptOverride?: (override: string) => void;
 }
 
 // 属性プリセットの型
@@ -66,6 +69,7 @@ const CHANGE_SCOPES: ChangeScope[] = [
 export default function RightPanel({
   onClose,
   onOpenInpaintModal,
+  onSendWithPromptOverride,
 }: RightPanelProps) {
   const { t } = useTranslation();
   const {
@@ -82,6 +86,61 @@ export default function RightPanel({
     setShowRealityAttributeNotification,
   } = useSettings();
   const { state: gameState, addAttribute, removeAttribute } = useGame();
+  const { state: chatState } = useChat();
+
+  // プロンプトプレビュー状態
+  const [previewResult, setPreviewResult] =
+    useState<PreviewPromptResponse | null>(null);
+  const [isLoadingPreview, setIsLoadingPreview] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [editedPrompt, setEditedPrompt] = useState("");
+  const [showPreviewDetail, setShowPreviewDetail] = useState(false);
+
+  // プロンプトプレビュー取得
+  const handlePreviewPrompt = useCallback(async () => {
+    if (!gameState.sessionId || !chatState.inputText.trim()) return;
+    setIsLoadingPreview(true);
+    setPreviewError(null);
+    try {
+      const instructionType = chatState.instructionType;
+      const transformationType =
+        instructionType === "reality_alter" ? "reality" : "costume";
+      const result = await previewPrompt({
+        session_id: gameState.sessionId,
+        instruction: chatState.inputText.trim(),
+        transformation_type: transformationType,
+        instruction_type: instructionType,
+        preserve_elements:
+          settingsState.changeSettings.preserveElements.length > 0
+            ? settingsState.changeSettings.preserveElements
+            : undefined,
+        change_scope: settingsState.changeSettings.changeScope,
+        custom_preserve_text:
+          settingsState.changeSettings.customPreserveText || undefined,
+      });
+      setPreviewResult(result);
+      setEditedPrompt(result.image_edit_prompt);
+    } catch (err) {
+      setPreviewError(
+        err instanceof Error ? err.message : "プレビューの取得に失敗しました",
+      );
+    } finally {
+      setIsLoadingPreview(false);
+    }
+  }, [
+    gameState.sessionId,
+    chatState.inputText,
+    chatState.instructionType,
+    settingsState.changeSettings,
+  ]);
+
+  // 編集済みプロンプトで送信
+  const handleSendWithOverride = useCallback(() => {
+    if (!editedPrompt.trim() || !onSendWithPromptOverride) return;
+    onSendWithPromptOverride(editedPrompt.trim());
+    setPreviewResult(null);
+    setEditedPrompt("");
+  }, [editedPrompt, onSendWithPromptOverride]);
 
   // 属性入力状態
   const [showAttributeInput, setShowAttributeInput] = useState(false);
@@ -1092,6 +1151,134 @@ export default function RightPanel({
             ))}
           </div>
         </section> */}
+
+        {/* プロンプトプレビューセクション */}
+        {gameState.stats?.enablePromptPreview &&
+          chatState.instructionType !== "conversation" && (
+            <section className="right-panel__section">
+              <h4 className="right-panel__section-title">
+                {t("rightPanel.promptPreview")}
+              </h4>
+
+              <button
+                type="button"
+                className="right-panel__btn-primary"
+                onClick={handlePreviewPrompt}
+                disabled={
+                  isLoadingPreview ||
+                  !gameState.sessionId ||
+                  !chatState.inputText.trim()
+                }
+                style={{ width: "100%", marginBottom: "0.5rem" }}
+              >
+                {isLoadingPreview
+                  ? t("rightPanel.loadingDots")
+                  : t("rightPanel.generatePreview")}
+              </button>
+
+              {previewError && (
+                <p
+                  className="right-panel__hint"
+                  style={{ color: "var(--color-error, #e74c3c)" }}
+                >
+                  {previewError}
+                </p>
+              )}
+
+              {previewResult && (
+                <div className="right-panel__preview-result">
+                  {/* 画像編集プロンプト（編集可能） */}
+                  <div className="right-panel__form-group">
+                    <label className="right-panel__label">
+                      {t("rightPanel.imageEditPrompt")}
+                    </label>
+                    <textarea
+                      className="right-panel__textarea"
+                      value={editedPrompt}
+                      onChange={(e) => setEditedPrompt(e.target.value)}
+                      rows={5}
+                      style={{ fontSize: "0.8rem" }}
+                    />
+                    <small className="right-panel__hint">
+                      {t("rightPanel.imageEditPromptHint")}
+                    </small>
+                  </div>
+
+                  {/* 心境プロンプト (折りたたみ) */}
+                  <button
+                    type="button"
+                    className="right-panel__btn-secondary"
+                    onClick={() => setShowPreviewDetail(!showPreviewDetail)}
+                    style={{
+                      width: "100%",
+                      marginBottom: "0.5rem",
+                      fontSize: "0.8rem",
+                    }}
+                  >
+                    {showPreviewDetail
+                      ? t("rightPanel.hideDetail")
+                      : t("rightPanel.showDetail")}
+                  </button>
+
+                  {showPreviewDetail && (
+                    <>
+                      <div className="right-panel__form-group">
+                        <label className="right-panel__label">
+                          {t("rightPanel.feelingSystemPrompt")}
+                        </label>
+                        <textarea
+                          className="right-panel__textarea"
+                          value={previewResult.feeling_system_prompt}
+                          readOnly
+                          rows={4}
+                          style={{ fontSize: "0.75rem", opacity: 0.8 }}
+                        />
+                      </div>
+                      <div className="right-panel__form-group">
+                        <label className="right-panel__label">
+                          {t("rightPanel.feelingUserPrompt")}
+                        </label>
+                        <textarea
+                          className="right-panel__textarea"
+                          value={previewResult.feeling_user_prompt}
+                          readOnly
+                          rows={4}
+                          style={{ fontSize: "0.75rem", opacity: 0.8 }}
+                        />
+                      </div>
+                      {previewResult.novelai_tag_prompt && (
+                        <div className="right-panel__form-group">
+                          <label className="right-panel__label">
+                            NovelAI Tag System
+                          </label>
+                          <textarea
+                            className="right-panel__textarea"
+                            value={previewResult.novelai_tag_prompt}
+                            readOnly
+                            rows={3}
+                            style={{ fontSize: "0.75rem", opacity: 0.8 }}
+                          />
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {/* 送信ボタン */}
+                  {onSendWithPromptOverride && (
+                    <button
+                      type="button"
+                      className="right-panel__btn-primary"
+                      onClick={handleSendWithOverride}
+                      disabled={!editedPrompt.trim()}
+                      style={{ width: "100%", marginTop: "0.3rem" }}
+                    >
+                      {t("rightPanel.sendWithPrompt")}
+                    </button>
+                  )}
+                </div>
+              )}
+            </section>
+          )}
 
         <section className="right-panel__section">
           <h4 className="right-panel__section-title">

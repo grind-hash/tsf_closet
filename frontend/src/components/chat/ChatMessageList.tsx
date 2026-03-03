@@ -16,6 +16,7 @@ interface ChatMessageListProps {
   isTyping?: boolean;
   onSurroundingsImageClick?: (imageUrl: string) => void;
   onDeleteMessage?: (messageId: string) => void;
+  onEditMessage?: (messageId: string, content: string) => void;
 }
 
 export default function ChatMessageList({
@@ -25,6 +26,7 @@ export default function ChatMessageList({
   isTyping = false,
   onSurroundingsImageClick,
   onDeleteMessage,
+  onEditMessage,
 }: ChatMessageListProps) {
   const { t } = useTranslation();
   const messageRefs = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -67,6 +69,14 @@ export default function ChatMessageList({
     );
   }
 
+  // Find the latest user message id for the edit button
+  const latestUserMessageId = (() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === "user") return messages[i].id;
+    }
+    return null;
+  })();
+
   return (
     <div className="chat-message-list">
       {messages.map((message) => (
@@ -74,9 +84,11 @@ export default function ChatMessageList({
           key={message.id}
           message={message}
           isHighlighted={message.id === highlightedMessageId}
+          isLatestUserMessage={message.id === latestUserMessageId}
           ref={(el) => setMessageRef(message.id, el)}
           onSurroundingsImageClick={onSurroundingsImageClick}
           onDeleteMessage={onDeleteMessage}
+          onEditMessage={onEditMessage}
         />
       ))}
       {/* タイピングインジケーター - AI応答待ち中に表示 */}
