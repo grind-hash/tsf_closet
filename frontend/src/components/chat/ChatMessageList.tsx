@@ -15,6 +15,7 @@ interface ChatMessageListProps {
   scrollToMessageId: string | null;
   isTyping?: boolean;
   onSurroundingsImageClick?: (imageUrl: string) => void;
+  onDeleteMessage?: (messageId: string) => void;
 }
 
 export default function ChatMessageList({
@@ -23,6 +24,7 @@ export default function ChatMessageList({
   scrollToMessageId,
   isTyping = false,
   onSurroundingsImageClick,
+  onDeleteMessage,
 }: ChatMessageListProps) {
   const { t } = useTranslation();
   const messageRefs = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -74,6 +76,7 @@ export default function ChatMessageList({
           isHighlighted={message.id === highlightedMessageId}
           ref={(el) => setMessageRef(message.id, el)}
           onSurroundingsImageClick={onSurroundingsImageClick}
+          onDeleteMessage={onDeleteMessage}
         />
       ))}
       {/* タイピングインジケーター - AI応答待ち中に表示 */}

@@ -489,6 +489,8 @@ class CustomStartRequest(BaseModel):
     pronoun: str = Field("僕", description="一人称")
     personality: str = Field("", description="パーソナリティ")
     gender: str = Field("other", description="性別 (man/woman/other)")
+    base_tags: str = Field("", description="Danbooru形式の外見タグ (英語)")
+    self_mode: bool = Field(False, description="自分自身モード")
 
 
 @router.post(
@@ -546,6 +548,7 @@ async def start_game_custom(request: CustomStartRequest) -> GameStartResponse:
                 "pronoun": request.pronoun,
                 "personality": request.personality,
                 "gender": normalized_gender,
+                "base_tags": request.base_tags,
             },
             ensure_ascii=False,
         ),
@@ -556,6 +559,7 @@ async def start_game_custom(request: CustomStartRequest) -> GameStartResponse:
     session = await session_store.create_session(
         image_path=relative_path,
         character_id=None,  # カスタム画像なのでキャラクターIDなし
+        self_mode=request.self_mode,
     )
 
     session_metadata_path = custom_images_dir / f"session_{session.id}.json"
@@ -568,6 +572,7 @@ async def start_game_custom(request: CustomStartRequest) -> GameStartResponse:
                 "pronoun": request.pronoun,
                 "personality": request.personality,
                 "gender": normalized_gender,
+                "base_tags": request.base_tags,
             },
             ensure_ascii=False,
         ),
@@ -586,6 +591,7 @@ async def start_game_custom(request: CustomStartRequest) -> GameStartResponse:
 
     initial_desc = GameService._build_initial_prompt(
         gender=normalized_gender,
+        base_tags=request.base_tags,
     )
     await session_store.add_history(
         session_id=session.id,
@@ -640,6 +646,7 @@ async def list_custom_characters() -> dict:
                 "pronoun": metadata.get("pronoun", "僕"),
                 "personality": metadata.get("personality", ""),
                 "gender": normalize_gender(metadata.get("gender", "other")),
+                "base_tags": metadata.get("base_tags", ""),
             }
         )
     return {"characters": items}
@@ -1621,4 +1628,56 @@ async def get_anlas_balance() -> AnlasBalanceResponse:
         raise HTTPException(
             status_code=500,
             detail=f"Failed to fetch Anlas balance: {e}",
+        )
+
+
+# ── Base tags generation endpoint ──
+
+
+class GenerateBaseTagsRequest(BaseModel):
+    """外見タグ自動生成リクエスト"""
+
+    name: str = Field("", description="キャラクター名")
+    description: str = Field("", description="外見の説明")
+    gender: str = Field("other", description="性別 (man/woman/other)")
+    personality: str = Field("", description="パーソナリティ")
+
+
+@router.post(
+    "/generate-base-tags",
+    summary="外見タグを自動生成",
+    description="キャラクター情報からDanbooru形式の英語外見タグをLLMで自動生成",
+)
+async def generate_base_tags(request: GenerateBaseTagsRequest) -> dict:
+    """Generate Danbooru-style base tags from character description via LLM."""
+    from ..services.prompts import build_base_tags_generation_prompt
+    from ..services.llm_service import llm_service
+
+    system_prompt, user_prompt = build_base_tags_generation_prompt(
+        name=request.name,
+        description=request.description,
+        gender=request.gender,
+        personality=request.personality,
+    )
+
+    try:
+        result = await llm_service.generate_text(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+        )
+        # Clean up: remove markdown formatting, extra whitespace
+        raw = result.content.strip()
+        if raw.startswith("```"):
+            lines = raw.split("\n")
+            lines = [line for line in lines if not line.strip().startswith("```")]
+            raw = "\n".join(lines).strip()
+        # Ensure single-line comma-separated format
+        tags = ", ".join(
+            tag.strip() for tag in raw.replace("\n", ",").split(",") if tag.strip()
+        )
+        return {"base_tags": tags}
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate base tags: {e}",
         )

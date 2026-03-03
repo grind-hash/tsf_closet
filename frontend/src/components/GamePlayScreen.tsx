@@ -31,6 +31,7 @@ import { useChat } from "../contexts/ChatContext";
 import { useSettings } from "../contexts/SettingsContext";
 import { API_BASE } from "../utils/api";
 import { fetchAnlasBalance } from "../apis/anlas";
+import { deleteGalleryItem } from "../apis/gallery";
 import type {
   ChangeSettings,
   ConversationMessage,
@@ -210,6 +211,14 @@ export default function GamePlayScreen({
   const [surroundingsOverlayUrl, setSurroundingsOverlayUrl] = useState<
     string | null
   >(null);
+
+  // メッセージ削除確認モーダル
+  const [deleteMessageConfirm, setDeleteMessageConfirm] = useState<{
+    messageId: string;
+    historyId: string;
+    responsePreview: string;
+  } | null>(null);
+  const [isDeletingMessage, setIsDeletingMessage] = useState(false);
 
   // Anlas cost confirmation dialog for precise references
   const [anlasConfirmPending, setAnlasConfirmPending] = useState<{
@@ -751,6 +760,56 @@ export default function GamePlayScreen({
     setAnlasConfirmPending(null);
   }, []);
 
+  // メッセージ削除の確認ダイアログを表示
+  const handleRequestDeleteMessage = useCallback(
+    (messageId: string) => {
+      // user-{historyId} から historyId を抽出
+      const historyId = messageId.replace(/^user-/, "");
+      // 対応する応答メッセージ (feeling-{historyId}) を取得してプレビューを作成
+      const feelingMsg = chatState.messages.find(
+        (m) => m.id === `feeling-${historyId}`,
+      );
+      const preview = feelingMsg
+        ? feelingMsg.content.slice(0, 30) +
+          (feelingMsg.content.length > 30 ? "..." : "")
+        : "";
+
+      setDeleteMessageConfirm({
+        messageId,
+        historyId,
+        responsePreview: preview,
+      });
+    },
+    [chatState.messages],
+  );
+
+  // メッセージ削除を実行
+  const handleConfirmDeleteMessage = useCallback(async () => {
+    if (!deleteMessageConfirm) return;
+
+    const { historyId } = deleteMessageConfirm;
+
+    try {
+      setIsDeletingMessage(true);
+      // バックエンドの履歴アイテムを削除
+      await deleteGalleryItem(historyId);
+
+      // チャットメッセージから対象のユーザーメッセージ + 応答メッセージを除去
+      const idsToRemove = new Set([
+        `user-${historyId}`,
+        `feeling-${historyId}`,
+      ]);
+      setMessages(chatState.messages.filter((m) => !idsToRemove.has(m.id)));
+
+      setDeleteMessageConfirm(null);
+    } catch (err) {
+      console.error("Failed to delete message:", err);
+      setDeleteMessageConfirm(null);
+    } finally {
+      setIsDeletingMessage(false);
+    }
+  }, [deleteMessageConfirm, chatState.messages, setMessages]);
+
   // インペイントトグル時のハンドラ
   const handleInpaintToggle = useCallback(
     (enabled: boolean) => {
@@ -877,6 +936,7 @@ export default function GamePlayScreen({
                   onSurroundingsImageClick={(url) =>
                     setSurroundingsOverlayUrl(url)
                   }
+                  onDeleteMessage={handleRequestDeleteMessage}
                 />
               </div>
 
@@ -1004,6 +1064,58 @@ export default function GamePlayScreen({
                 }}
               >
                 {uiText.anlasProceed}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* メッセージ削除確認ダイアログ */}
+      {deleteMessageConfirm && (
+        <div
+          className="game-play-screen__delete-modal-overlay"
+          onClick={() => !isDeletingMessage && setDeleteMessageConfirm(null)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape" && !isDeletingMessage)
+              setDeleteMessageConfirm(null);
+          }}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-msg-modal-title"
+        >
+          <div
+            className="game-play-screen__delete-modal"
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={() => {}}
+            role="document"
+          >
+            <h3 id="delete-msg-modal-title">
+              {t("gameplay.deleteMessageTitle")}
+            </h3>
+            <p>{t("gameplay.deleteMessageConfirm")}</p>
+            {deleteMessageConfirm.responsePreview && (
+              <p className="game-play-screen__delete-modal-preview">
+                {t("gameplay.deleteMessageResponsePreview", {
+                  preview: deleteMessageConfirm.responsePreview,
+                })}
+              </p>
+            )}
+            <div className="game-play-screen__delete-modal-actions">
+              <button
+                type="button"
+                onClick={handleConfirmDeleteMessage}
+                disabled={isDeletingMessage}
+                className="game-play-screen__delete-modal-confirm"
+              >
+                {t("gameplay.deleteMessageAction")}
+              </button>
+              <button
+                type="button"
+                onClick={() => setDeleteMessageConfirm(null)}
+                disabled={isDeletingMessage}
+                className="game-play-screen__delete-modal-cancel"
+              >
+                {t("gameplay.deleteMessageCancel")}
               </button>
             </div>
           </div>

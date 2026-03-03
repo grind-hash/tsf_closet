@@ -785,6 +785,7 @@ class Character:
     pronoun: str = "僕"
     personality: str = ""
     gender: str = "man"
+    base_tags: str = ""
 
 
 @dataclass

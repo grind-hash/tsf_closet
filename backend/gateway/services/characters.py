@@ -54,6 +54,7 @@ class CharacterManager:
                 pronoun=item.get("pronoun", "僕"),
                 personality=item.get("personality", ""),
                 gender=item.get("gender", "man"),
+                base_tags=item.get("base_tags", ""),
             )
             for item in data
         ]

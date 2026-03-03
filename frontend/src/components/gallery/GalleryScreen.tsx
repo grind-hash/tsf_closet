@@ -11,6 +11,7 @@ import { useNavigate } from "react-router-dom";
 import MainLayout from "../layout/MainLayout";
 import GalleryCard from "./GalleryCard";
 import GalleryList from "./GalleryList";
+import { deleteGalleryItem } from "../../apis/gallery";
 import { API_BASE } from "../../utils/api";
 import type { GalleryItem, GallerySession, GalleryViewMode } from "../../types";
 import "./GalleryScreen.css";
@@ -51,6 +52,8 @@ export default function GalleryScreen({ onSelectItem }: GalleryScreenProps) {
     null,
   );
   const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteItemConfirm, setDeleteItemConfirm] =
+    useState<GalleryItem | null>(null);
 
   const pageSize = 20;
 
@@ -194,6 +197,39 @@ export default function GalleryScreen({ onSelectItem }: GalleryScreenProps) {
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : t("gallery.deleteFailed"));
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  // アイテム個別削除
+  const handleDeleteItem = async () => {
+    if (!deleteItemConfirm) return;
+
+    try {
+      setIsDeleting(true);
+      await deleteGalleryItem(deleteItemConfirm.id);
+
+      // リストから削除
+      setItems((prev) => prev.filter((i) => i.id !== deleteItemConfirm.id));
+      setItemsTotal((prev) => prev - 1);
+
+      // セッション一覧側のカウントも更新
+      if (selectedSession) {
+        setSessions((prev) =>
+          prev.map((s) =>
+            s.session_id === selectedSession.session_id
+              ? { ...s, item_count: Math.max(0, s.item_count - 1) }
+              : s,
+          ),
+        );
+      }
+
+      setDeleteItemConfirm(null);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : t("gallery.deleteItemError"),
+      );
     } finally {
       setIsDeleting(false);
     }
@@ -446,6 +482,7 @@ export default function GalleryScreen({ onSelectItem }: GalleryScreenProps) {
                           key={item.id}
                           item={item}
                           onClick={() => handleItemClick(item)}
+                          onDelete={(i) => setDeleteItemConfirm(i)}
                         />
                       ))}
                     </div>
@@ -527,6 +564,55 @@ export default function GalleryScreen({ onSelectItem }: GalleryScreenProps) {
                 <button
                   type="button"
                   onClick={() => setDeleteConfirm(null)}
+                  disabled={isDeleting}
+                  className="gallery-screen__delete-modal-cancel"
+                >
+                  {t("gallery.cancel")}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* アイテム個別削除確認モーダル */}
+        {deleteItemConfirm && (
+          <div
+            className="gallery-screen__delete-modal-overlay"
+            onClick={() => !isDeleting && setDeleteItemConfirm(null)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape" && !isDeleting) setDeleteItemConfirm(null);
+            }}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-item-modal-title"
+          >
+            <div
+              className="gallery-screen__delete-modal"
+              onClick={(e) => e.stopPropagation()}
+              onKeyDown={() => {}}
+              role="document"
+            >
+              <h2 id="delete-item-modal-title">
+                {t("gallery.deleteItemTitle")}
+              </h2>
+              <p>{t("gallery.deleteItemConfirm")}</p>
+              <p className="gallery-screen__delete-modal-warning">
+                {t("gallery.deleteItemWarning")}
+              </p>
+              <div className="gallery-screen__delete-modal-actions">
+                <button
+                  type="button"
+                  onClick={handleDeleteItem}
+                  disabled={isDeleting}
+                  className="gallery-screen__delete-modal-confirm"
+                >
+                  {isDeleting
+                    ? t("gallery.deleting")
+                    : t("gallery.deleteItemAction")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDeleteItemConfirm(null)}
                   disabled={isDeleting}
                   className="gallery-screen__delete-modal-cancel"
                 >

@@ -343,6 +343,7 @@ const resources = {
           roleInstruction: "指示",
           roleCharacter: "キャラクター",
           attachedImageAlt: "添付画像",
+          copy: "コピー",
         },
         list: {
           emptyLine1: "メッセージはまだありません。",
@@ -364,6 +365,10 @@ const resources = {
           pronounPlaceholder: "一人称",
           defaultPronoun: "僕",
           personalityPlaceholder: "パーソナリティ（性格）",
+          baseTagsPlaceholder:
+            "外見タグ (Danbooru形式、例: short black hair, blue eyes)",
+          generateTags: "タグを自動生成",
+          generatingTags: "生成中...",
           genderAria: "性別",
           genderMan: "男性",
           genderWoman: "女性",
@@ -393,6 +398,12 @@ const resources = {
         imageAlt: "キャラクター画像",
         anlasTitle: "Anlas 追加消費の確認",
         anlasCancel: "キャンセル",
+        deleteMessageTitle: "メッセージを削除",
+        deleteMessageConfirm: "このメッセージと対応する応答を削除しますか？",
+        deleteMessageResponsePreview: "削除される応答: {{preview}}",
+        deleteMessageAction: "削除する",
+        deleteMessageCancel: "キャンセル",
+        deleteMessageError: "メッセージの削除に失敗しました",
         anlasProceed: "続行",
       },
       gallery: {
@@ -438,6 +449,12 @@ const resources = {
         genericError: "エラーが発生しました",
         deleteSessionError: "セッションの削除に失敗しました",
         deleteFailed: "削除に失敗しました",
+        deleteItemTitle: "アイテムを削除",
+        deleteItemConfirm: "このアイテムを削除しますか？",
+        deleteItemWarning:
+          "この画像と関連データが削除されます。この操作は取り消せません。",
+        deleteItemAction: "削除する",
+        deleteItemError: "アイテムの削除に失敗しました",
       },
       achievements: {
         title: "実績",
@@ -855,6 +872,7 @@ const resources = {
           roleInstruction: "Instruction",
           roleCharacter: "Character",
           attachedImageAlt: "Attached image",
+          copy: "Copy",
         },
         list: {
           emptyLine1: "No messages yet.",
@@ -876,6 +894,10 @@ const resources = {
           pronounPlaceholder: "Pronoun",
           defaultPronoun: "I",
           personalityPlaceholder: "Personality",
+          baseTagsPlaceholder:
+            "Appearance tags (Danbooru format, e.g. short black hair, blue eyes)",
+          generateTags: "Auto-generate tags",
+          generatingTags: "Generating...",
           genderAria: "Gender",
           genderMan: "Man",
           genderWoman: "Woman",
@@ -906,6 +928,12 @@ const resources = {
         anlasTitle: "Confirm additional Anlas usage",
         anlasCancel: "Cancel",
         anlasProceed: "Proceed",
+        deleteMessageTitle: "Delete Message",
+        deleteMessageConfirm: "Delete this message and its response?",
+        deleteMessageResponsePreview: "Response to delete: {{preview}}",
+        deleteMessageAction: "Delete",
+        deleteMessageCancel: "Cancel",
+        deleteMessageError: "Failed to delete message",
       },
       gallery: {
         title: "Gallery",
@@ -950,6 +978,12 @@ const resources = {
         genericError: "An error occurred",
         deleteSessionError: "Failed to delete session",
         deleteFailed: "Delete failed",
+        deleteItemTitle: "Delete Item",
+        deleteItemConfirm: "Delete this item?",
+        deleteItemWarning:
+          "The image and related data will be deleted. This action cannot be undone.",
+        deleteItemAction: "Delete",
+        deleteItemError: "Failed to delete item",
       },
       achievements: {
         title: "Achievements",

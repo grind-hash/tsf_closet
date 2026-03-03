@@ -4,6 +4,7 @@
  */
 
 .chat-message {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
@@ -95,6 +96,68 @@
 .chat-message__time {
   margin-left: auto;
   color: var(--text-muted, #888);
+}
+
+/* アクションバー (Discord/Slack 風フローティング) */
+.chat-message__actions {
+  position: absolute;
+  top: -0.75rem;
+  right: 0.5rem;
+  display: flex;
+  gap: 0.125rem;
+  padding: 0.125rem;
+  background-color: var(--bg-secondary, #1a1a2e);
+  border: 1px solid var(--border-color, #333);
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+  z-index: 1;
+}
+
+.chat-message:hover .chat-message__actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.chat-message__action-btn {
+  background: none;
+  border: none;
+  padding: 0.3rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted, #aaa);
+  cursor: pointer;
+  border-radius: 4px;
+  transition:
+    color 0.15s,
+    background-color 0.15s;
+}
+
+.chat-message__action-btn:hover {
+  color: var(--text-color, #eee);
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.chat-message__action-btn--delete:hover {
+  color: var(--accent-color, #e94560);
+  background-color: rgba(233, 69, 96, 0.15);
+}
+
+.chat-message__action-btn--copied {
+  color: #4ade80;
+}
+
+.chat-message__action-btn--copied:hover {
+  color: #4ade80;
+  background-color: rgba(74, 222, 128, 0.15);
+}
+
+.chat-message__action-btn:focus-visible {
+  outline: 2px solid var(--accent-color, #e94560);
+  outline-offset: 1px;
 }
 
 /* コンテンツ */

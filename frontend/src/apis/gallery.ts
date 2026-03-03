@@ -21,6 +21,12 @@ interface GalleryDetailResponse {
   next_id: string | null;
 }
 
+interface DeleteItemResponse {
+  success: boolean;
+  deleted_count: number;
+  message: string;
+}
+
 /**
  * ギャラリー一覧を取得
  */
@@ -104,4 +110,25 @@ function convertGalleryItem(item: Record<string, unknown>): GalleryItem {
       : null,
     exposure_level: item.exposure_level ? String(item.exposure_level) : null,
   };
+}
+
+/**
+ * ギャラリーアイテムを個別削除
+ */
+export async function deleteGalleryItem(
+  itemId: string,
+): Promise<DeleteItemResponse> {
+  const response = await fetch(`${API_BASE}/gallery/${itemId}`, {
+    method: "DELETE",
+  });
+
+  if (!response.ok) {
+    if (response.status === 404) {
+      throw new Error("アイテムが見つかりません");
+    }
+    const error = await response.text();
+    throw new Error(error || "アイテムの削除に失敗しました");
+  }
+
+  return response.json();
 }

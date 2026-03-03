@@ -227,6 +227,48 @@
   color: var(--text-color, #eee);
 }
 
+/* 外見タグ行 (入力欄 + 自動生成ボタン) */
+.welcome-screen__base-tags-row {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.welcome-screen__base-tags-row input {
+  flex: 1;
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid var(--border-color, #333);
+  background: var(--bg-color, #1a1a2e);
+  color: var(--text-color, #eee);
+}
+
+.welcome-screen__generate-tags-btn {
+  flex-shrink: 0;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  border: 1px solid var(--accent-color, #e94560);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--accent-color, #e94560);
+  cursor: pointer;
+  transition:
+    background-color 0.2s,
+    opacity 0.2s;
+  white-space: nowrap;
+}
+
+.welcome-screen__generate-tags-btn:hover:not(:disabled) {
+  background-color: rgba(233, 69, 96, 0.15);
+}
+
+.welcome-screen__generate-tags-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* 開始ボタン */
 .welcome-screen__actions {
   display: flex;

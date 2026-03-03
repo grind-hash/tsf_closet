@@ -389,7 +389,11 @@ async def delete_gallery_item(item_id: str):
         try:
             row = (
                 await db_session.execute(
-                    select(HistoryORM.id, HistoryORM.image_path)
+                    select(
+                        HistoryORM.id,
+                        HistoryORM.image_path,
+                        HistoryORM.surroundings_image_path,
+                    )
                     .where(HistoryORM.id == item_id)
                     .limit(1)
                 )
@@ -398,11 +402,23 @@ async def delete_gallery_item(item_id: str):
             if not row:
                 raise HTTPException(status_code=404, detail=f"Item {item_id} not found")
 
+            # メイン画像を削除
             if row.image_path:
                 image_path = Path(row.image_path)
                 if image_path.exists():
                     try:
                         os.remove(image_path)
+                    except OSError:
+                        pass
+
+            # 周囲状況画像を削除
+            if row.surroundings_image_path:
+                surroundings_path = (
+                    settings.history_images_dir.parent / row.surroundings_image_path
+                )
+                if surroundings_path.exists():
+                    try:
+                        os.remove(surroundings_path)
                     except OSError:
                         pass
 

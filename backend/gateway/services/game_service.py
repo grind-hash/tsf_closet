@@ -266,25 +266,34 @@ class GameService:
         gender: str,
         character: Optional["Character"] = None,
         self_profile: dict | None = None,
+        base_tags: str = "",
     ) -> str:
         """NovelAI Opusモードの初回用初期プロンプトを構築
 
         履歴がない初回ターンで、LLMへの性別・外見情報を提供する。
         self_modeではプレイヤー名はNovelAIタグのノイズとなるため含めない。
+        base_tagsがあればDanbooruタグ形式の英語タグを優先的に使用する。
 
         Args:
             gender: 性別 ("man" or "woman")
             character: キャラクターオブジェクト
             self_profile: 自分自身モードのプロフィール
+            base_tags: Danbooru形式の外見タグ (直接指定)
 
         Returns:
             NovelAIタグ形式の初期プロンプト
         """
         gender_tag = "1boy" if gender == "man" else "1girl"
-        char_desc = character.description if character and not self_profile else ""
+        # 直接指定のbase_tagsを最優先
+        if base_tags:
+            char_tags = base_tags
+        elif character and not self_profile:
+            char_tags = character.base_tags or character.description
+        else:
+            char_tags = ""
         return (
             f"masterpiece, best quality, very aesthetic, "
-            f"{gender_tag}, solo, {char_desc}"
+            f"{gender_tag}, solo, {char_tags}"
         ).rstrip(", ")
 
     @staticmethod
@@ -1232,15 +1241,24 @@ class GameService:
                 )
                 if not current_desc:
                     # 初回: 性別・外見情報から初期コンテキストを構築
+                    custom_base_tags = custom_metadata.get("base_tags", "")
                     current_desc = self._build_initial_prompt(
-                        gender, character, self_profile
+                        gender,
+                        character,
+                        self_profile,
+                        base_tags=custom_base_tags,
                     )
 
                 logger.info("current_desc:%s", current_desc)
 
                 # 前ターンの状況サマリーを生成
+                # 初期状態レコード（instruction="初期状態"）はプレイ前の仮データなのでスキップ
                 previous_situation_summary: str | None = None
-                if last_hist and last_hist.feeling_text:
+                if (
+                    last_hist
+                    and last_hist.feeling_text
+                    and last_hist.instruction != "初期状態"
+                ):
                     try:
                         from .action_prompts import SITUATION_SUMMARY_SYSTEM_PROMPT
 
@@ -1673,8 +1691,12 @@ class GameService:
                     previous_prompt = last_history.after_description
                 else:
                     # 初回: 性別・外見情報から初期プロンプトを構築
+                    custom_base_tags_dress = custom_metadata.get("base_tags", "")
                     previous_prompt = self._build_initial_prompt(
-                        gender, character, self_profile
+                        gender,
+                        character,
+                        self_profile,
+                        base_tags=custom_base_tags_dress,
                     )
                 logger.info(
                     f"NovelAI Opus mode: previous_prompt={'yes' if previous_prompt else 'no'}"

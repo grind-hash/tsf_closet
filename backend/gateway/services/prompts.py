@@ -1332,3 +1332,76 @@ def build_novelai_prompt_generation_user(
         previous_prompt=previous_prompt or "None (first time)",
         instruction=instruction,
     )
+
+
+# ── Base tags generation from character description ──
+
+BASE_TAGS_GENERATION_SYSTEM = """You are an expert at converting character descriptions into Danbooru-style tags for NovelAI image generation.
+
+Given a character's description (name, gender, appearance, personality), generate a concise set of English Danbooru tags that accurately represent the character's VISUAL appearance.
+
+## Rules
+1. Output ONLY comma-separated English Danbooru tags. No JSON, no explanation.
+2. Focus on VISUAL traits only:
+   - Hair: color, length, style (e.g. short black hair, long brown hair, twintails)
+   - Eyes: color (e.g. blue eyes, brown eyes)
+   - Body: type if mentioned (e.g. slim, muscular, petite)
+   - Clothing: current outfit (e.g. white t-shirt, school uniform, black shorts)
+   - Accessories: if mentioned (e.g. glasses, ribbon, necklace)
+3. Do NOT include:
+   - Personality traits (shy, bold, etc.)
+   - Non-visual attributes (smart, kind, etc.)
+   - Gender tags (1boy, 1girl) — these are added separately
+   - Quality tags (masterpiece, best quality) — these are added separately
+4. Use standard Danbooru tag conventions:
+   - Hair length: short hair, medium hair, long hair, very long hair
+   - Hair color: black hair, brown hair, blonde hair, red hair, blue hair, etc.
+   - Clothing uses specific item names
+5. Keep it concise: 5-15 tags maximum.
+6. If the description is in Japanese, translate all tags to English.
+7. If the description is vague or empty, output reasonable defaults based on gender.
+
+## Examples
+Input: "普通の男の子。黒髪で、瞳の色も黒。白いTシャツと黒の短パン姿。"
+Output: short black hair, black eyes, white t-shirt, black shorts
+
+Input: "Brown-haired girl with green eyes wearing a summer dress"
+Output: brown hair, medium hair, green eyes, sundress, bare shoulders
+
+Output tags only. No explanation."""
+
+BASE_TAGS_GENERATION_USER_TEMPLATE = """Character information:
+- Name: {name}
+- Gender: {gender}
+- Description: {description}
+- Personality: {personality}
+
+Generate Danbooru-style visual appearance tags for this character.
+Tags only, comma-separated, English only."""
+
+
+def build_base_tags_generation_prompt(
+    name: str = "",
+    description: str = "",
+    gender: str = "other",
+    personality: str = "",
+) -> tuple[str, str]:
+    """Build prompts for base_tags generation from character info.
+
+    Args:
+        name: Character name
+        description: Character appearance/description text
+        gender: Gender string ("man", "woman", "other")
+        personality: Personality description (used as supplementary context)
+
+    Returns:
+        (system_prompt, user_prompt) tuple
+    """
+    gender_label = {"man": "Male", "woman": "Female"}.get(gender, "Other")
+    user_prompt = BASE_TAGS_GENERATION_USER_TEMPLATE.format(
+        name=name or "(unnamed)",
+        gender=gender_label,
+        description=description or "(no description provided)",
+        personality=personality or "(not specified)",
+    )
+    return BASE_TAGS_GENERATION_SYSTEM, user_prompt

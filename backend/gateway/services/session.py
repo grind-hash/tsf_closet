@@ -395,7 +395,8 @@ class DatabaseSessionStore:
             db_session.add(orm_history)
             await db_session.commit()
 
-        await self._cleanup_old_history(session_id)
+        # 自動削除は廃止: ユーザーが個別に削除する運用に変更
+        # await self._cleanup_old_history(session_id)
 
         return PersistedHistory(
             id=history_id,

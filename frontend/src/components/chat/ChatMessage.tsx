@@ -5,7 +5,7 @@
  * User/System/Character メッセージを区別して表示
  */
 
-import { forwardRef } from "react";
+import { forwardRef, useCallback, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useGame } from "../../contexts/GameContext";
 import { useSettings } from "../../contexts/SettingsContext";
@@ -16,14 +16,33 @@ interface ChatMessageProps {
   message: ChatMessage;
   isHighlighted?: boolean;
   onSurroundingsImageClick?: (imageUrl: string) => void;
+  onDeleteMessage?: (messageId: string) => void;
 }
 
 const ChatMessageItem = forwardRef<HTMLDivElement, ChatMessageProps>(
-  ({ message, isHighlighted = false, onSurroundingsImageClick }, ref) => {
+  (
+    {
+      message,
+      isHighlighted = false,
+      onSurroundingsImageClick,
+      onDeleteMessage,
+    },
+    ref,
+  ) => {
     const { t, i18n } = useTranslation();
     const { state } = useGame();
     const { selfProfile } = useSettings();
+    const [copied, setCopied] = useState(false);
+    const copyTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
     const isUser = message.role === "user";
+
+    const handleCopy = useCallback(() => {
+      navigator.clipboard.writeText(message.content).then(() => {
+        setCopied(true);
+        if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+        copyTimerRef.current = setTimeout(() => setCopied(false), 2000);
+      });
+    }, [message.content]);
     const isSystem = message.role === "system";
 
     const getRoleLabel = () => {
@@ -79,6 +98,71 @@ const ChatMessageItem = forwardRef<HTMLDivElement, ChatMessageProps>(
           <span className="chat-message__time">
             {formatTime(message.createdAt, i18n.language)}
           </span>
+        </div>
+
+        {/* ホバー時アクションバー (Discord/Slack 風) */}
+        <div className="chat-message__actions">
+          <button
+            type="button"
+            className={`chat-message__action-btn${
+              copied ? " chat-message__action-btn--copied" : ""
+            }`}
+            onClick={handleCopy}
+            aria-label={t("chat.message.copy")}
+            title={t("chat.message.copy")}
+          >
+            {copied ? (
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            ) : (
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+              </svg>
+            )}
+          </button>
+          {isUser && message.id.startsWith("user-") && onDeleteMessage && (
+            <button
+              type="button"
+              className="chat-message__action-btn chat-message__action-btn--delete"
+              onClick={() => onDeleteMessage(message.id)}
+              aria-label={t("gameplay.deleteMessageTitle")}
+              title={t("gameplay.deleteMessageTitle")}
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <polyline points="3 6 5 6 21 6" />
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+              </svg>
+            </button>
+          )}
         </div>
 
         {/* コンテンツ */}

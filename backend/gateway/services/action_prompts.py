@@ -352,7 +352,7 @@ Format: 832x1216 PORTRAIT (vertical composition to frame standing figures).
 
 ## Rules
 1. Output comma-separated tags only.
-2. Quality/style tags first: masterpiece, best quality, very aesthetic, anime, moe, scenery
+2. Quality/style tags first: best quality, moe, anime,
 3. Include EXACTLY 2 or 3 bystanders. Use ONE of these specific count tags:
    - For 2 people: "2others" (NEVER "multiple people" or "crowd")
    - For 3 people: "3others" (NEVER "multiple people" or "crowd")
@@ -382,7 +382,7 @@ Format: 832x1216 PORTRAIT (vertical composition). NSFW mode — scenes may invol
 
 ## Rules
 1. Output comma-separated tags only.
-2. Quality/style tags first: masterpiece, best quality, very aesthetic, anime, moe, scenery
+2. Quality/style tags first: 1.5::nsfw::, best quality,moe, anime
 3. Include EXACTLY 2 or 3 bystanders. Use ONE of these specific count tags:
    - For 2 people: "2others" (NEVER "multiple people" or "crowd")
    - For 3 people: "3others" (NEVER "multiple people" or "crowd")
@@ -435,13 +435,19 @@ def get_surroundings_image_prompt_system(
                 "the current situation is considered COMPLETELY NORMAL.\n"
                 "- Most bystanders go about their daily lives unfazed "
                 "(calm, relaxed, looking at phone, chatting, walking normally, nonchalant).\n"
-                "- However, ONE bystander naturally engages with the situation "
-                "as if it fits this altered reality perfectly "
-                "(e.g., casually greeting, offering help, smiling warmly, "
-                "giving a thumbs-up, handing over an item, nodding approvingly).\n"
+                "- However, ONE bystander should be performing a SIMILAR or "
+                "EQUIVALENT action to what the protagonist is doing, "
+                "as if it is perfectly ordinary behavior in this world. "
+                "Read the action instruction carefully and depict that bystander "
+                "doing the same kind of activity naturally and casually "
+                "(e.g., if the protagonist is eating in an unusual way, "
+                "the bystander is also eating the same way nearby; "
+                "if the protagonist is doing something intimate in public, "
+                "the bystander is doing something equally intimate without concern).\n"
                 "- NO bystander should appear shocked, surprised, or embarrassed.\n"
                 "- The overall atmosphere must feel mundane and everyday, "
-                "with that one person's interaction reinforcing the normalcy."
+                "with that one person's matching behavior reinforcing "
+                "that this is simply how this world works."
             )
         return base
     if nsfw_mode:
@@ -484,9 +490,10 @@ def build_surroundings_image_user_prompt(
                 "IMPORTANT: This is a REALITY CHANGE world where the current "
                 "situation is considered perfectly normal. "
                 "Most bystanders should be calm and going about their business. "
-                "But ONE bystander should naturally interact with or acknowledge "
-                "the situation in a casual, accepting way \u2014 as if it fits "
-                "this world's reality (e.g., smiling, waving, casually chatting). "
+                "But ONE bystander should be performing a SIMILAR or EQUIVALENT "
+                "action to what the protagonist is doing, as if it is completely "
+                "ordinary in this world. Read the action description above and "
+                "depict that bystander doing the same kind of activity naturally. "
                 "NO shocked, surprised, or embarrassed reactions from anyone."
             )
         return (
