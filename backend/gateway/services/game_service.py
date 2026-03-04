@@ -585,6 +585,7 @@ class GameService:
         nsfw_mode: bool = False,
         include_people: bool = False,
         is_reality_change: bool = False,
+        reality_alter_descriptions: list[str] | None = None,
     ) -> tuple[bytes | None, float | None, int | None]:
         """Generate surroundings image (NovelAI txt2img, US2)
 
@@ -595,6 +596,7 @@ class GameService:
             nsfw_mode: NSFW mode
             include_people: Include reactive bystanders in the image
             is_reality_change: Reality-change mode (bystanders are indifferent)
+            reality_alter_descriptions: Active reality alteration texts
 
         Returns:
             (image bytes, API cost USD, seed) or (None, None, None) on failure
@@ -614,6 +616,7 @@ class GameService:
                 nsfw_mode=nsfw_mode,
                 include_people=include_people,
                 is_reality_change=is_reality_change,
+                reality_alter_descriptions=reality_alter_descriptions,
             )
             user_prompt = build_surroundings_image_user_prompt(
                 instruction=instruction,
@@ -621,6 +624,7 @@ class GameService:
                 after_description=after_description,
                 include_people=include_people,
                 is_reality_change=is_reality_change,
+                reality_alter_descriptions=reality_alter_descriptions,
             )
 
             scenery_prompt_result = await llm_service.generate_text(
@@ -1594,9 +1598,10 @@ class GameService:
                     action_attrs = await session_store.get_session_attribute_texts(
                         session.id
                     )
-                    has_reality_attrs = any(
-                        a.startswith("[現実改変]") for a in action_attrs
-                    )
+                    reality_alter_texts = [
+                        a for a in action_attrs if a.startswith("[現実改変]")
+                    ]
+                    has_reality_attrs = len(reality_alter_texts) > 0
                     (
                         surroundings_data,
                         surroundings_cost,
@@ -1608,6 +1613,9 @@ class GameService:
                         nsfw_mode=effective_nsfw_mode,
                         include_people=surroundings_include_people,
                         is_reality_change=has_reality_attrs,
+                        reality_alter_descriptions=reality_alter_texts
+                        if has_reality_attrs
+                        else None,
                     )
 
                     if surroundings_data is not None:

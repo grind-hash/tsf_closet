@@ -411,6 +411,7 @@ def get_surroundings_image_prompt_system(
     nsfw_mode: bool = False,
     include_people: bool = False,
     is_reality_change: bool = False,
+    reality_alter_descriptions: list[str] | None = None,
 ) -> str:
     """Return the surroundings image generation system prompt.
 
@@ -419,6 +420,8 @@ def get_surroundings_image_prompt_system(
         include_people: Whether to include reactive bystanders
         is_reality_change: Whether this is a reality-change scenario
             (bystanders treat everything as normal)
+        reality_alter_descriptions: List of active reality alteration texts
+            (e.g. ["[現実改変] カフェでオナニーするのは常識"])
 
     Returns:
         System prompt string for surroundings image tag generation
@@ -429,24 +432,33 @@ def get_surroundings_image_prompt_system(
         else:
             base = SURROUNDINGS_WITH_PEOPLE_PROMPT_SYSTEM
         if is_reality_change:
+            # Build a description of active reality alterations
+            alter_list = ""
+            if reality_alter_descriptions:
+                items = "\n".join(f"  - {desc}" for desc in reality_alter_descriptions)
+                alter_list = f"\n\nActive reality alterations:\n{items}\n"
             base += (
                 "\n\n## OVERRIDE \u2014 Reality Change Mode\n"
                 "This is a REALITY CHANGE scenario. In this altered world, "
-                "the current situation is considered COMPLETELY NORMAL.\n"
+                "the reality alterations listed below are considered "
+                "COMPLETELY NORMAL everyday behavior.\n"
+                + alter_list
+                + "\n### Bystander behavior rules:\n"
                 "- Most bystanders go about their daily lives unfazed "
-                "(calm, relaxed, looking at phone, chatting, walking normally, nonchalant).\n"
-                "- However, ONE bystander should be performing a SIMILAR or "
-                "EQUIVALENT action to what the protagonist is doing, "
-                "as if it is perfectly ordinary behavior in this world. "
-                "Read the action instruction carefully and depict that bystander "
-                "doing the same kind of activity naturally and casually "
-                "(e.g., if the protagonist is eating in an unusual way, "
-                "the bystander is also eating the same way nearby; "
-                "if the protagonist is doing something intimate in public, "
-                "the bystander is doing something equally intimate without concern).\n"
-                "- NO bystander should appear shocked, surprised, or embarrassed.\n"
+                "(calm, relaxed, looking at phone, chatting, walking normally, "
+                "nonchalant).\n"
+                "- However, ONE bystander should be performing an action that "
+                "reflects the REALITY ALTERATION CONTENT above — NOT the "
+                "protagonist's current action. The bystander acts out what the "
+                "altered reality considers normal (e.g., if the alteration says "
+                "'public masturbation is normal', one bystander is casually "
+                "doing that even though the protagonist may just be drinking "
+                "coffee; if multiple alterations exist, pick the most visually "
+                "distinctive one for that bystander).\n"
+                "- NO bystander should appear shocked, surprised, or "
+                "embarrassed.\n"
                 "- The overall atmosphere must feel mundane and everyday, "
-                "with that one person's matching behavior reinforcing "
+                "with that one bystander's reality-altered behavior reinforcing "
                 "that this is simply how this world works."
             )
         return base
@@ -461,6 +473,7 @@ def build_surroundings_image_user_prompt(
     after_description: str,
     include_people: bool = False,
     is_reality_change: bool = False,
+    reality_alter_descriptions: list[str] | None = None,
 ) -> str:
     """Build a user prompt for surroundings image generation.
 
@@ -470,6 +483,7 @@ def build_surroundings_image_user_prompt(
         after_description: Description after the action
         include_people: Whether to include reactive bystanders
         is_reality_change: Whether this is a reality-change scenario
+        reality_alter_descriptions: List of active reality alteration texts
 
     Returns:
         User prompt string for surroundings image generation
@@ -481,19 +495,27 @@ def build_surroundings_image_user_prompt(
     )
     if include_people:
         if is_reality_change:
+            alter_section = ""
+            if reality_alter_descriptions:
+                items = "; ".join(reality_alter_descriptions)
+                alter_section = f"Active reality alterations: {items}\n\n"
             return (
-                base + "Generate a scenery prompt (832x1216 portrait) depicting the "
+                base
+                + alter_section
+                + "Generate a scenery prompt (832x1216 portrait) depicting the "
                 "environment where this action takes place, with EXACTLY 2 or 3 "
                 "anonymous bystanders (use 2others or 3others tag). "
                 "Do NOT use 'crowd' or 'multiple people' tags. "
                 "Do NOT include the protagonist. "
-                "IMPORTANT: This is a REALITY CHANGE world where the current "
-                "situation is considered perfectly normal. "
+                "IMPORTANT: This is a REALITY CHANGE world. "
                 "Most bystanders should be calm and going about their business. "
-                "But ONE bystander should be performing a SIMILAR or EQUIVALENT "
-                "action to what the protagonist is doing, as if it is completely "
-                "ordinary in this world. Read the action description above and "
-                "depict that bystander doing the same kind of activity naturally. "
+                "But ONE bystander should be performing an action that reflects "
+                "the REALITY ALTERATION content — NOT the protagonist's current "
+                "action. For example, if the alteration says 'public masturbation "
+                "is normal' but the protagonist is just eating, the bystander "
+                "should still be casually doing what the alteration describes. "
+                "If multiple alterations exist, pick the most visually distinctive "
+                "one for that bystander. "
                 "NO shocked, surprised, or embarrassed reactions from anyone."
             )
         return (
