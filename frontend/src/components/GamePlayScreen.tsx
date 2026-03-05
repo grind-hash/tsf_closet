@@ -887,10 +887,23 @@ export default function GamePlayScreen({
       await deleteGalleryItem(historyId);
 
       // チャットメッセージから対象のユーザーメッセージ + 応答メッセージを除去
-      const idsToRemove = new Set([
-        `user-${historyId}`,
-        `feeling-${historyId}`,
-      ]);
+      // The feeling message created during streaming uses "feeling-{Date.now()}"
+      // (not historyId), so we find it by position after the user message.
+      const userMsgIdx = chatState.messages.findIndex(
+        (m) => m.id === `user-${historyId}`,
+      );
+      const idsToRemove = new Set<string>();
+      if (userMsgIdx !== -1) {
+        idsToRemove.add(chatState.messages[userMsgIdx].id);
+        for (let i = userMsgIdx + 1; i < chatState.messages.length; i++) {
+          const m = chatState.messages[i];
+          if (m.role === "system" && m.isFeelingText) {
+            idsToRemove.add(m.id);
+            break;
+          }
+          if (m.role === "user") break;
+        }
+      }
       setMessages(chatState.messages.filter((m) => !idsToRemove.has(m.id)));
 
       setDeleteMessageConfirm(null);
@@ -924,10 +937,26 @@ export default function GamePlayScreen({
       const result = await deleteLatestHistory(sessionId);
 
       // Chat messages: remove user message + corresponding feeling message
-      const idsToRemove = new Set([
-        `user-${historyId}`,
-        `feeling-${historyId}`,
-      ]);
+      // The user message ID is "user-{historyId}", but the feeling message
+      // created during streaming uses "feeling-{Date.now()}" (not historyId).
+      // So we find the feeling message by locating the one that immediately
+      // follows the user message in the list.
+      const userMsgIdx = chatState.messages.findIndex(
+        (m) => m.id === `user-${historyId}`,
+      );
+      const idsToRemove = new Set<string>();
+      if (userMsgIdx !== -1) {
+        idsToRemove.add(chatState.messages[userMsgIdx].id);
+        // Find the corresponding feeling/system message after the user message
+        for (let i = userMsgIdx + 1; i < chatState.messages.length; i++) {
+          const m = chatState.messages[i];
+          if (m.role === "system" && m.isFeelingText) {
+            idsToRemove.add(m.id);
+            break;
+          }
+          if (m.role === "user") break; // next user message reached
+        }
+      }
       setMessages(chatState.messages.filter((m) => !idsToRemove.has(m.id)));
 
       // Restore instruction text to input
@@ -944,9 +973,19 @@ export default function GamePlayScreen({
         );
       }
 
-      // Update current image in GameContext
-      if (result.current_image_path) {
-        setCurrentImage(result.current_image_path);
+      // Restore image: use history API URL with restored history ID
+      if (result.restored_history_id) {
+        setCurrentImage(
+          `${API_BASE}/history/images/${result.restored_history_id}`,
+        );
+      }
+
+      // Re-sync full session state (image URL, history, stats, etc.)
+      // Reset the message restoration flag so the useEffect will rebuild
+      // messages from fresh history + chatHistory after restoreSession.
+      hasRestoredMessagesRef.current = false;
+      if (onSessionStart) {
+        await onSessionStart();
       }
 
       setEditMessageConfirm(null);
@@ -964,6 +1003,7 @@ export default function GamePlayScreen({
     setInputText,
     setInstructionType,
     setCurrentImage,
+    onSessionStart,
   ]);
 
   // インペイントトグル時のハンドラ

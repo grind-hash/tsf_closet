@@ -547,6 +547,7 @@ class DatabaseSessionStore:
             )
             prev = (await db_session.execute(prev_stmt)).scalars().first()
             restored_image_path = prev.image_path if prev else ""
+            restored_history_id = prev.id if prev else ""
 
             # セッションの current_image_path を更新
             if restored_image_path:
@@ -593,6 +594,7 @@ class DatabaseSessionStore:
                 "restored_instruction": deleted_instruction,
                 "restored_instruction_type": deleted_instruction_type,
                 "current_image_path": restored_image_path,
+                "restored_history_id": restored_history_id,
             }
 
     async def get_session_with_history(

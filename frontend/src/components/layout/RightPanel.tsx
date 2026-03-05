@@ -782,6 +782,12 @@ export default function RightPanel({
             <div className="right-panel__form-group">
               <label className="right-panel__label">
                 {t("rightPanel.seedLabel", "Seed")}
+                <span
+                  className="feature-chip-new"
+                  data-feature-version="v0.3.0"
+                >
+                  New
+                </span>
               </label>
               <div style={{ display: "flex", gap: "0.5rem" }}>
                 <input
@@ -842,6 +848,20 @@ export default function RightPanel({
                 />
                 <span className="right-panel__toggle-switch" />
               </label>
+              <div style={{ marginTop: "0.25rem" }}>
+                <span
+                  className="feature-chip-new"
+                  data-feature-version="v0.3.0"
+                >
+                  New
+                </span>
+                <span
+                  className="feature-chip-experimental"
+                  data-feature-version="v0.3.0"
+                >
+                  Experimental
+                </span>
+              </div>
               <small className="right-panel__hint">
                 {t(
                   "rightPanel.enableSurroundingsImageHint",
@@ -870,6 +890,20 @@ export default function RightPanel({
                   />
                   <span className="right-panel__toggle-switch" />
                 </label>
+                <div style={{ marginTop: "0.25rem" }}>
+                  <span
+                    className="feature-chip-new"
+                    data-feature-version="v0.3.0"
+                  >
+                    New
+                  </span>
+                  <span
+                    className="feature-chip-experimental"
+                    data-feature-version="v0.3.0"
+                  >
+                    Experimental
+                  </span>
+                </div>
                 <small className="right-panel__hint">
                   {t(
                     "rightPanel.surroundingsIncludePeopleHint",
@@ -1256,6 +1290,34 @@ export default function RightPanel({
                             value={previewResult.novelai_tag_prompt}
                             readOnly
                             rows={3}
+                            style={{ fontSize: "0.75rem", opacity: 0.8 }}
+                          />
+                        </div>
+                      )}
+                      {previewResult.surroundings_system_prompt && (
+                        <div className="right-panel__form-group">
+                          <label className="right-panel__label">
+                            {t("rightPanel.surroundingsSystemPrompt")}
+                          </label>
+                          <textarea
+                            className="right-panel__textarea"
+                            value={previewResult.surroundings_system_prompt}
+                            readOnly
+                            rows={4}
+                            style={{ fontSize: "0.75rem", opacity: 0.8 }}
+                          />
+                        </div>
+                      )}
+                      {previewResult.surroundings_user_prompt && (
+                        <div className="right-panel__form-group">
+                          <label className="right-panel__label">
+                            {t("rightPanel.surroundingsUserPrompt")}
+                          </label>
+                          <textarea
+                            className="right-panel__textarea"
+                            value={previewResult.surroundings_user_prompt}
+                            readOnly
+                            rows={4}
                             style={{ fontSize: "0.75rem", opacity: 0.8 }}
                           />
                         </div>

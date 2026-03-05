@@ -217,7 +217,8 @@ def setup_static_files(application: FastAPI) -> None:
 
     Note: このルートは他のすべてのルートより後に登録する必要がある。
     """
-    if not STATIC_DIR.exists():
+    index_html = STATIC_DIR / "index.html"
+    if not index_html.exists():
         return
 
     # 静的アセット配信 (js, css, images)

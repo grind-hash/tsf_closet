@@ -24,6 +24,8 @@ export interface PreviewPromptResponse {
   feeling_user_prompt: string;
   instruction_type: string;
   novelai_tag_prompt: string | null;
+  surroundings_system_prompt?: string;
+  surroundings_user_prompt?: string;
 }
 
 // 最新履歴削除 レスポンス
@@ -32,6 +34,7 @@ export interface DeleteLatestHistoryResponse {
   restored_instruction: string;
   restored_instruction_type: string;
   current_image_path: string;
+  restored_history_id: string;
 }
 
 /**

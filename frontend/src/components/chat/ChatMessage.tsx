@@ -7,6 +7,7 @@
 
 import { forwardRef, useCallback, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useChat } from "../../contexts/ChatContext";
 import { useGame } from "../../contexts/GameContext";
 import { useSettings } from "../../contexts/SettingsContext";
 import type { ChatMessage } from "../../types";
@@ -35,7 +36,9 @@ const ChatMessageItem = forwardRef<HTMLDivElement, ChatMessageProps>(
   ) => {
     const { t, i18n } = useTranslation();
     const { state } = useGame();
+    const { state: chatState } = useChat();
     const { selfProfile } = useSettings();
+    const isBusy = state.isTransforming || chatState.isStreaming;
     const [copied, setCopied] = useState(false);
     const copyTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
     const isUser = message.role === "user";
@@ -149,6 +152,7 @@ const ChatMessageItem = forwardRef<HTMLDivElement, ChatMessageProps>(
               type="button"
               className="chat-message__action-btn chat-message__action-btn--delete"
               onClick={() => onDeleteMessage(message.id)}
+              disabled={isBusy}
               aria-label={t("gameplay.deleteMessageTitle")}
               title={t("gameplay.deleteMessageTitle")}
             >
@@ -172,6 +176,7 @@ const ChatMessageItem = forwardRef<HTMLDivElement, ChatMessageProps>(
               type="button"
               className="chat-message__action-btn chat-message__action-btn--edit"
               onClick={() => onEditMessage(message.id, message.content)}
+              disabled={isBusy}
               aria-label={t("gameplay.editMessageTitle")}
               title={t("gameplay.editMessageTitle")}
             >

@@ -29,9 +29,8 @@ import type {
 import { DEFAULT_CHANGE_SETTINGS, DEFAULT_INPAINT_SETTINGS } from "./types";
 import "./App.css";
 
-// 007-chat-interactive-ux: Context hooks（GamePlayScreen内で使用）
-// import { useGame } from "./contexts/GameContext";
-// import { useChat } from "./contexts/ChatContext";
+// 007-chat-interactive-ux: Context hooks
+import { useGame } from "./contexts/GameContext";
 
 function App() {
   // 007-chat-interactive-ux: React Router location
@@ -65,6 +64,7 @@ function AppMain() {
   const location = useLocation();
   const session = useSession();
   const { state: settingsState } = useSettings();
+  const { setTransforming } = useGame();
   const { showNotification, showAchievementNotification } = useNotification();
   const { t } = useTranslation();
   // 旧UI用: 新UIではWelcomeScreenが担当 (型定義用にscreen変数を使用)
@@ -199,6 +199,7 @@ function AppMain() {
     onComplete: async (_, transformationCount) => {
       session.updateFromSSE({ transformationCount });
       setIsTransforming(false);
+      setTransforming(false);
     },
     onCost: (cost) => {
       setTotalCost((prev) => {
@@ -238,6 +239,7 @@ function AppMain() {
       console.error("SSE Error:", message);
       setErrorMessage(message);
       setIsTransforming(false);
+      setTransforming(false);
     },
   });
 
@@ -459,6 +461,7 @@ function AppMain() {
       if (!session.sessionId || isTransforming) return;
 
       setIsTransforming(true);
+      setTransforming(true);
       setFeelingText("");
 
       // POST リクエストボディを構築
@@ -552,6 +555,7 @@ function AppMain() {
       settingsState.seed,
       settingsState.enableSurroundingsImage,
       settingsState.surroundingsIncludePeople,
+      setTransforming,
     ],
   );
 
@@ -560,11 +564,12 @@ function AppMain() {
     if (!session.sessionId || isTransforming) return;
 
     setIsTransforming(true);
+    setTransforming(true);
     setFeelingText("");
 
     const url = `${API_BASE}/game/improve-quality/stream?session_id=${session.sessionId}`;
     sse.startStream(url);
-  }, [session.sessionId, isTransforming, sse]);
+  }, [session.sessionId, isTransforming, sse, setTransforming]);
 
   // リセット
   const handleReset = useCallback(async () => {

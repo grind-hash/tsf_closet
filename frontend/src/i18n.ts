@@ -224,6 +224,8 @@ const resources = {
         hideDetail: "▲ 心境プロンプトを隠す",
         feelingSystemPrompt: "心境 システムプロンプト:",
         feelingUserPrompt: "心境 ユーザープロンプト:",
+        surroundingsSystemPrompt: "周辺画像 システムプロンプト:",
+        surroundingsUserPrompt: "周辺画像 ユーザープロンプト:",
         sendWithPrompt: "📤 このプロンプトで送信",
       },
       characterPanel: {
@@ -802,6 +804,8 @@ const resources = {
         hideDetail: "▲ Hide feeling prompts",
         feelingSystemPrompt: "Feeling System Prompt:",
         feelingUserPrompt: "Feeling User Prompt:",
+        surroundingsSystemPrompt: "Surroundings System Prompt:",
+        surroundingsUserPrompt: "Surroundings User Prompt:",
         sendWithPrompt: "📤 Send with this prompt",
       },
       characterPanel: {

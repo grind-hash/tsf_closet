@@ -54,6 +54,8 @@ ACTION_SYSTEM_PROMPT_TEMPLATE = """あなたは物語の主人公の心の声を
 - 場面描写（場所の雰囲気、空気感）
 - 内面の葛藤や発見
 
+**一人称ルール（厳守）**: ユーザープロンプトで指定された一人称を必ず使ってください。「僕」「俺」「私」など勝手に変えてはいけません。
+
 自然な日本語で、感情豊かに書いてください。"""
 
 
@@ -70,6 +72,8 @@ ACTION_SYSTEM_PROMPT_NSFW_TEMPLATE = """あなたは官能小説家です。主�
 - 官能的な身体感覚（風が肌に触れる、布地が擦れるなど）
 - 見られていることへの羞恥と高揚
 - 場面描写と内面の欲望
+
+**一人称ルール（厳守）**: ユーザープロンプトで指定された一人称を必ず使ってください。「僕」「俺」「私」など勝手に変えてはいけません。
 
 官能的で自然な日本語で、感情豊かに書いてください。"""
 
@@ -91,6 +95,8 @@ PRE_TRANSFORM_ACTION_SYSTEM_PROMPT = """あなたは物語の主人公の心の�
 重要: 主人公はまだ変身していません。変身に関する描写は一切入れないでください。
 普通の日常行動として自然に描写してください。
 
+**一人称ルール（厳守）**: ユーザープロンプトで指定された一人称を必ず使ってください。「僕」「俺」「私」など勝手に変えてはいけません。
+
 自然な日本語で、感情豊かに書いてください。"""
 
 
@@ -108,6 +114,8 @@ PRE_TRANSFORM_ACTION_SYSTEM_PROMPT_NSFW = """あなたは官能小説家です�
 
 重要: 主人公はまだ変身していません。変身に関する描写は一切入れないでください。
 普通の日常行動として官能的に描写してください。
+
+**一人称ルール（厳守）**: ユーザープロンプトで指定された一人称を必ず使ってください。「僕」「俺」「私」など勝手に変えてはいけません。
 
 官能的で自然な日本語で、感情豊かに書いてください。"""
 
@@ -249,6 +257,7 @@ The user performs an action that may change the scene, clothing, pose, or any co
 3. "scene": comma-separated English tags for background/environment ONLY.
    - Quality tags first: masterpiece, best quality, very aesthetic
    - Generate background/environment/location tags matching the action instruction.
+   - **CRITICAL: If the user instruction does NOT explicitly mention moving to a new location, KEEP the location/environment tags from the previous prompt.** For example, if the previous prompt shows "train_station", keep "train_station" unless the user says "go home" or changes location.
    - Do NOT include character appearance tags here.
 
 ## CRITICAL
@@ -256,6 +265,7 @@ The user performs an action that may change the scene, clothing, pose, or any co
 - Read the action instruction carefully: if it involves another person, you MUST include them.
 - Immutable traits (hair, eyes, body type) are NEVER changed.
 - Mutable traits (clothing, pose, expression, accessories) are updated when the action requires it.
+- **Location continuity**: Unless the instruction explicitly changes the location, preserve the previous location tags.
 
 ## Output Format
 ```json
@@ -285,6 +295,7 @@ The user performs an action that may change the scene, clothing, pose, or any co
 3. "scene": comma-separated English tags for background/environment ONLY.
    - Quality tags first: masterpiece, best quality, very aesthetic
    - Generate background/environment/location tags matching the action instruction.
+   - **CRITICAL: If the user instruction does NOT explicitly mention moving to a new location, KEEP the location/environment tags from the previous prompt.** For example, if the previous prompt shows "karaoke_box", keep "karaoke_box" unless the user says "go home" or "go to the park" etc.
    - Scene can have sensual or intimate atmosphere if appropriate.
    - Do NOT include character appearance tags here.
 
@@ -293,10 +304,11 @@ The user performs an action that may change the scene, clothing, pose, or any co
 - Read the action instruction carefully: if it involves another person, you MUST include them and depict the interaction.
 - Immutable traits (hair, eyes, body type) are NEVER changed.
 - Mutable traits (clothing, pose, expression, accessories, exposure) are updated when the action requires it.
+- **Location continuity**: Unless the instruction explicitly changes the location, preserve the previous location tags.
 
 ## Output Format
 ```json
-{"character": "1boy 1girl, long black hair, black eyes, ..., oral, ...", "scene": "masterpiece, best quality, very aesthetic, bedroom, ..."}
+{"character": "1boy 1girl, long black hair, black eyes, ..., oral, ...", "scene": "masterpiece, best quality, very aesthetic, indoor, ..."}
 ```
 JSON only. No explanation or preamble."""
 
@@ -356,16 +368,18 @@ Format: 832x1216 PORTRAIT (vertical composition to frame standing figures).
 3. Include EXACTLY 2 or 3 bystanders. Use ONE of these specific count tags:
    - For 2 people: "2others" (NEVER "multiple people" or "crowd")
    - For 3 people: "3others" (NEVER "multiple people" or "crowd")
-4. **CRITICAL: Bystander reactions MUST match the intensity of the action.**
-   - Mild action (walking, eating): surprised, curious, staring, glancing
-   - Embarrassing action (strange outfit, talking loudly): open mouth, shocked, pointing, whispering, covering mouth, laughing
-   - Extreme/indecent action (nudity, sexual): horrified, screaming, covering eyes, looking away, disgust, trembling, running away, open mouth, dropped jaw, frozen in shock, blushing furiously, averting gaze
-   Choose the reaction tier that fits the action described by the user.
-5. Keep bystanders generic. Example: businessman, office lady, student, passerby
-6. FORBIDDEN tags: crowd, multiple people, many people, large group, 4+people, 5+people, group
-7. Include environmental tags: location, lighting, time of day, atmosphere.
-8. Vertical portrait composition suitable for 832x1216. Show bystanders at mid-distance (waist-up or full body visible).
-9. Do NOT include the protagonist. This image shows the surroundings and bystander reactions only.
+4. **CRITICAL: Bystander reactions MUST match the intensity of the ACTION ONLY.**
+   - Mild action (walking, eating, singing karaoke, shopping): calm, smiling, relaxed, chatting, nonchalant
+   - Embarrassing action (public outburst, talking loudly to oneself): surprised, curious, staring, glancing
+   - Shocking action (stripping, indecent behavior): open mouth, shocked, pointing, whispering, covering mouth, laughing
+   - Extreme/indecent action (nudity, sexual): horrified, screaming, covering eyes, looking away, disgust, trembling
+   Choose the reaction tier that fits the ACTION described by the user.
+5. **IMPORTANT: Bystanders react ONLY to the ACTION, NEVER to the protagonist's physical appearance, outfit, or body.** The protagonist's clothing, cross-dressing, or transformed appearance is NOT a reason for bystanders to be shocked, embarrassed, or surprised. Treat the protagonist's appearance as completely unremarkable.
+6. Keep bystanders generic. Example: businessman, office lady, student, passerby
+7. FORBIDDEN tags: crowd, multiple people, many people, large group, 4+people, 5+people, group
+8. Include environmental tags: location, lighting, time of day, atmosphere.
+9. Vertical portrait composition suitable for 832x1216. Show bystanders at mid-distance (waist-up or full body visible).
+10. Do NOT include the protagonist. This image shows the surroundings and bystander reactions only.
 
 ## Output Style
 - English tags only
@@ -386,17 +400,19 @@ Format: 832x1216 PORTRAIT (vertical composition). NSFW mode — scenes may invol
 3. Include EXACTLY 2 or 3 bystanders. Use ONE of these specific count tags:
    - For 2 people: "2others" (NEVER "multiple people" or "crowd")
    - For 3 people: "3others" (NEVER "multiple people" or "crowd")
-4. **CRITICAL: Bystander reactions MUST match the intensity and nature of the action.**
+4. **CRITICAL: Bystander reactions MUST match the intensity and nature of the ACTION ONLY.**
+   - Mild action (walking, eating, singing karaoke, shopping): calm, smiling, relaxed, chatting, nonchalant
    - Mildly embarrassing: open mouth, shocked, pointing, whispering, covering mouth
    - Sexually suggestive: blushing, averting gaze, nosebleed, sweating, staring with wide eyes, trembling, fidgeting
    - Indecent/explicit: horrified, screaming, covering eyes, looking away, disgust, dropped jaw, frozen in shock, blushing furiously, running away, panicking, hands up in disbelief
-   The action described by the user is likely provocative in NSFW mode. Choose STRONG reactions.
-5. Keep bystanders generic. Example: businessman, office lady, student, passerby
-6. FORBIDDEN tags: crowd, multiple people, many people, large group, 4+people, 5+people, group
-7. Include environmental tags: location, lighting, time of day, atmosphere.
-8. Vertical portrait composition suitable for 832x1216. Show bystanders at mid-distance (waist-up or full body visible).
-9. Do NOT include the protagonist. Show ONLY bystanders and environment.
-10. Emphasize the atmosphere: tense, awkward, chaotic, scandalous, voyeuristic.
+   The action described by the user is likely provocative in NSFW mode. Choose STRONG reactions only when the ACTION warrants it.
+5. **IMPORTANT: Bystanders react ONLY to the ACTION, NEVER to the protagonist's physical appearance, outfit, or body.** The protagonist's clothing, cross-dressing, or transformed appearance is NOT a reason for bystanders to be shocked, embarrassed, or surprised. Treat the protagonist's appearance as completely unremarkable.
+6. Keep bystanders generic. Example: businessman, office lady, student, passerby
+7. FORBIDDEN tags: crowd, multiple people, many people, large group, 4+people, 5+people, group
+8. Include environmental tags: location, lighting, time of day, atmosphere.
+9. Vertical portrait composition suitable for 832x1216. Show bystanders at mid-distance (waist-up or full body visible).
+10. Do NOT include the protagonist. Show ONLY bystanders and environment.
+11. Emphasize the atmosphere: tense, awkward, chaotic, scandalous, voyeuristic — ONLY if the ACTION itself is provocative.
 
 ## Output Style
 - English tags only
@@ -508,14 +524,15 @@ def build_surroundings_image_user_prompt(
                 "Do NOT use 'crowd' or 'multiple people' tags. "
                 "Do NOT include the protagonist. "
                 "IMPORTANT: This is a REALITY CHANGE world. "
-                "Most bystanders should be calm and going about their business. "
-                "But ONE bystander should be performing an action that reflects "
-                "the REALITY ALTERATION content — NOT the protagonist's current "
-                "action. For example, if the alteration says 'public masturbation "
-                "is normal' but the protagonist is just eating, the bystander "
-                "should still be casually doing what the alteration describes. "
-                "If multiple alterations exist, pick the most visually distinctive "
-                "one for that bystander. "
+                "First, determine if the reality alteration applies UNIVERSALLY "
+                "to ALL people (e.g., 'everyone wears X', 'regardless of gender', "
+                "'all people must do Y'). "
+                "If UNIVERSAL: ALL bystanders must visually reflect the alteration "
+                "(e.g., if everyone must wear cabaret dresses, ALL bystanders wear "
+                "cabaret dresses). "
+                "If NOT universal: most bystanders act normally, but ONE bystander "
+                "should be performing an action that reflects the REALITY ALTERATION "
+                "content — NOT the protagonist's current action. "
                 "NO shocked, surprised, or embarrassed reactions from anyone."
             )
         return (
@@ -525,9 +542,16 @@ def build_surroundings_image_user_prompt(
             "Do NOT use 'crowd' or 'multiple people' tags. "
             "Do NOT include the protagonist. "
             "The bystanders' reactions MUST reflect the nature and intensity "
-            "of the action described above. If the action is shocking, "
-            "embarrassing, or indecent, bystanders should show STRONG "
-            "emotional reactions (horror, covering eyes, blushing, etc). "
+            "of the ACTION described above. "
+            "IMPORTANT: Bystanders react ONLY to the ACTION itself. "
+            "The protagonist's physical appearance, outfit, or body "
+            "(including cross-dressing or transformed appearance) must NOT "
+            "influence bystander reactions. Treat the protagonist's appearance "
+            "as completely unremarkable. "
+            "If the action is shocking, embarrassing, or indecent, bystanders "
+            "should show STRONG emotional reactions. "
+            "If the action is ordinary (walking, eating, singing karaoke), "
+            "bystanders should be calm and going about their business. "
             "Focus on the location, atmosphere, and bystander reactions."
         )
     return (

@@ -73,3 +73,41 @@ img {
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.15);
 }
+
+/* ── Feature badge: "New" chip (version-tagged for batch removal) ── */
+.feature-chip-new {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1rem 0.4rem;
+  margin-left: 0.35rem;
+  font-size: 0.625rem;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  color: #fff;
+  background: linear-gradient(135deg, #6c5ce7, #a29bfe);
+  border-radius: 8px;
+  white-space: nowrap;
+  vertical-align: middle;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* ── Feature badge: "Experimental" label ── */
+.feature-chip-experimental {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1rem 0.4rem;
+  margin-left: 0.35rem;
+  font-size: 0.6rem;
+  font-weight: 600;
+  line-height: 1;
+  color: #fbbf24;
+  background-color: rgba(251, 191, 36, 0.15);
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  border-radius: 8px;
+  white-space: nowrap;
+  vertical-align: middle;
+  pointer-events: none;
+  user-select: none;
+}

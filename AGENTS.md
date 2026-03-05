@@ -77,6 +77,50 @@ tavily-remote MCP を利用してライブラリ選定を行う際は、以下�
 - ❌ 裏取りなしで設定ファイルの構文を別形式に書き換える
 - ❌ ユーザーが意図していない設定変更を「改善」として勝手に行う
 
+## フロントエンドアーキテクチャ: 状態管理方針
+
+### Context 優先原則 (Props Drilling 防止)
+
+> **⚠️ 重要**: 複数コンポーネントで共有される状態は、**props バケツリレーではなく React Context 経由で提供すること**
+
+#### 既存 Context 一覧と責務
+
+| Context                 | 責務                                                                         | ファイル                           |
+| ----------------------- | ---------------------------------------------------------------------------- | ---------------------------------- |
+| **SettingsContext**     | アプリ設定全般（難易度, 言語, NSFW, 画像プロバイダ, 変更設定, フォント等）   | `contexts/SettingsContext.tsx`     |
+| **GameContext**         | ゲームセッション状態（sessionId, 画像, stats, 履歴, 属性, 変身状態等）       | `contexts/GameContext.tsx`         |
+| **ChatContext**         | チャットUI状態（メッセージ一覧, 入力テキスト, 指示タイプ, ストリーミング等） | `contexts/ChatContext.tsx`         |
+| **NotificationContext** | 通知・実績表示                                                               | `contexts/NotificationContext.tsx` |
+
+#### 必須ルール
+
+1. **新しい共有状態を追加する場合**、まず既存の Context に収まるか検討すること。既存 Context のどれにも属さない場合のみ新規 Context の作成を検討する
+2. **子コンポーネントが必要とするデータ**は、親から props で受け渡すのではなく、Context (`useGame()`, `useChat()`, `useSettings()`) 経由で直接取得させること
+3. **コールバック props** は、Context のアクション関数として提供できないか検討すること。イベントハンドラの中間転送（A → B → C にコールバックを渡すだけ）は避けること
+4. **props は原則として「そのコンポーネント固有の設定」のみ**に使用する（例: `className`, `onClose`, `variant` 等のUI制御用）
+
+#### 禁止パターン
+
+- ❌ **props → useEffect → Context 同期**: 親から props で受け取った値を `useEffect` で Context に書き戻すパターン。状態の二重管理になるため、最初から Context に状態を持たせること
+- ❌ **useSession の値を props で中継**: `useSession` hook の返却値を `App.tsx` で受け取り、子コンポーネントの props として丸ごと渡すパターン。セッション状態は `GameContext` 経由で取得させること
+- ❌ **未使用 props の放置**: コンポーネントの props インターフェースに定義されているが `_` プレフィックスで受け取って使用していない props は、速やかに削除すること
+
+#### 推奨パターン
+
+- ✅ `useGame()` で sessionId, currentImage, stats, history, attributes 等を取得
+- ✅ `useChat()` で messages, inputText, instructionType 等を取得
+- ✅ `useSettings()` で imageProvider, changeSettings, nsfw 等を取得
+- ✅ API 呼び出しと状態更新は Context 内のアクション関数で完結させる
+
+#### リファクタリング観点
+
+新機能追加やバグ修正の際に、以下に該当する場合は Context への移行を検討すること：
+
+- 同じ状態が **2つ以上の場所で管理**されている
+- props が **3階層以上**をバケツリレーで通過している
+- コンポーネントの props が **15個を超えている**
+- `useEffect` で **props を Context に同期**しているコードがある
+
 ## 言語設定
 
 - **コミュニケーション**: 回答は常に日本語で行ってください

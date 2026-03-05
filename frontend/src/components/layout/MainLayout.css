@@ -94,13 +94,25 @@
     grid-template-areas: "sidemenu content";
   }
 
+  /* モバイルでは右パネルを表示してもグリッドは2カラムのまま維持 */
+  .main-layout.has-right-panel {
+    grid-template-columns: 60px 1fr;
+    grid-template-areas: "sidemenu content";
+  }
+
   .main-layout__side-menu {
     padding: 0.5rem 0;
   }
 
+  /* モバイルでは右パネルをオーバーレイとして表示 */
   .main-layout__right-panel {
-    width: 100%;
+    position: fixed;
+    top: 0;
     right: -100%;
+    width: 100%;
+    height: 100vh;
+    z-index: 200;
+    transition: right 0.3s ease;
   }
 
   .main-layout__right-panel.is-open {
@@ -109,6 +121,7 @@
 
   .main-layout__toggle-right.is-open {
     right: calc(100% - 24px);
+    z-index: 201;
   }
 }
 

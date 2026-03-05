@@ -2554,6 +2554,7 @@ class GameService:
         session = None
         recent_actions: list[tuple[str, str]] = []
         previous_situation_summary: str | None = None
+        reality_alter_texts: list[str] = []
 
         if session_id:
             try:
@@ -2577,6 +2578,10 @@ class GameService:
                     attributes = await session_store.get_session_attribute_texts(
                         session_id
                     )
+                    # 現実改変属性を抽出（周辺プロンプトプレビュー用）
+                    reality_alter_texts = [
+                        a for a in (attributes or []) if a.startswith("[現実改変]")
+                    ]
                     instruction += self._format_attribute_context(attributes)
 
                     # self_mode の場合、プロフィールから性別・一人称を取得
@@ -2660,12 +2665,40 @@ class GameService:
                 )
                 image_edit_prompt = action_edit_system
 
+            # 周辺画像プロンプトプレビュー（現実改変属性含む）
+            has_reality_attrs = len(reality_alter_texts) > 0
+            from .action_prompts import (
+                get_surroundings_image_prompt_system,
+                build_surroundings_image_user_prompt,
+            )
+
+            surroundings_system = get_surroundings_image_prompt_system(
+                nsfw_mode=nsfw_mode,
+                include_people=True,
+                is_reality_change=has_reality_attrs,
+                reality_alter_descriptions=reality_alter_texts
+                if has_reality_attrs
+                else None,
+            )
+            surroundings_user = build_surroundings_image_user_prompt(
+                instruction=instruction,
+                before_description=current_description or "不明",
+                after_description="(アクション後の状態)",
+                include_people=True,
+                is_reality_change=has_reality_attrs,
+                reality_alter_descriptions=reality_alter_texts
+                if has_reality_attrs
+                else None,
+            )
+
             return {
                 "image_edit_prompt": image_edit_prompt,
                 "feeling_system_prompt": act_system,
                 "feeling_user_prompt": act_user,
                 "instruction_type": "action",
                 "novelai_tag_prompt": novelai_tag_prompt,
+                "surroundings_system_prompt": surroundings_system,
+                "surroundings_user_prompt": surroundings_user,
             }
 
         # -- 衣装変更 / 現実改変のプレビュー --
