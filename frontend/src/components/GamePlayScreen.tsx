@@ -857,6 +857,18 @@ export default function GamePlayScreen({
     (messageId: string) => {
       // user-{historyId} から historyId を抽出
       const historyId = messageId.replace(/^user-/, "");
+
+      // Temporary guard: right after sending, the ID is still a timestamp (not UUID).
+      // In that case, prompt the user to reload.
+      if (
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+          historyId,
+        )
+      ) {
+        alert(t("gameplay.messageRequiresReload"));
+        return;
+      }
+
       // 対応する応答メッセージ (feeling-{historyId}) を取得してプレビューを作成
       const feelingMsg = chatState.messages.find(
         (m) => m.id === `feeling-${historyId}`,
@@ -872,7 +884,7 @@ export default function GamePlayScreen({
         responsePreview: preview,
       });
     },
-    [chatState.messages],
+    [chatState.messages, t],
   );
 
   // メッセージ削除を実行
@@ -918,9 +930,20 @@ export default function GamePlayScreen({
   // 最新メッセージ編集リクエスト（確認ダイアログを表示）
   const handleRequestEditMessage = useCallback(
     (messageId: string, content: string) => {
+      // Temporary guard: right after sending, the ID is still a timestamp (not UUID).
+      const historyId = messageId.replace(/^user-/, "");
+      if (
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+          historyId,
+        )
+      ) {
+        alert(t("gameplay.messageRequiresReload"));
+        return;
+      }
+
       setEditMessageConfirm({ messageId, content });
     },
-    [],
+    [t],
   );
 
   // 最新メッセージ編集を確定して実行
