@@ -223,4 +223,3 @@ class Settings:
 
 
 settings = Settings()
-print(f"[CONFIG] ENABLE_PROMPT_PREVIEW: {settings.enable_prompt_preview}")
