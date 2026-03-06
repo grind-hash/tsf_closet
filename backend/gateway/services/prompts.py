@@ -1258,6 +1258,7 @@ Convert the user's instruction into an optimal English tag prompt for NovelAI im
 - ALL output tags must be in **English** Danbooru tag format. No Japanese text.
 - Immutable traits (hair, eyes, body type) are NEVER changed unless the instruction explicitly transforms them.
 - Mutable traits (clothing, pose, expression, accessories) are updated per the instruction.
+- **CLOTHING COLOR RULE**: ALWAYS include explicit color tags for EVERY clothing item (e.g. "red dress", "black stockings", "white blouse"). If the user instruction does not specify a color, YOU MUST choose a specific color that fits the outfit concept. NEVER leave clothing without a color tag.
 
 ## Output Format
 ```json
@@ -1292,6 +1293,7 @@ Adult content tags are allowed.
 - ALL output tags must be in **English** Danbooru tag format. No Japanese text.
 - Immutable traits (hair, eyes, body type) are NEVER changed unless the instruction explicitly transforms them.
 - Mutable traits (clothing, pose, expression, accessories, exposure) are updated per the instruction.
+- **CLOTHING COLOR RULE**: ALWAYS include explicit color tags for EVERY clothing item (e.g. "red dress", "black stockings", "white lingerie"). If the user instruction does not specify a color, YOU MUST choose a specific color that fits the outfit concept. NEVER leave clothing without a color tag.
 
 ## Output Format
 ```json

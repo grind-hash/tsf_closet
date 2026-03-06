@@ -266,6 +266,7 @@ The user performs an action that may change the scene, clothing, pose, or any co
 - Immutable traits (hair, eyes, body type) are NEVER changed.
 - Mutable traits (clothing, pose, expression, accessories) are updated when the action requires it.
 - **Location continuity**: Unless the instruction explicitly changes the location, preserve the previous location tags.
+- **CLOTHING CONTINUITY**: When the action does NOT mention clothing changes, copy ALL clothing-related tags from the previous prompt EXACTLY — including COLOR tags (e.g. "gold dress" must stay "gold dress", not become "white dress"). Changing clothing colors without explicit instruction is FORBIDDEN.
 
 ## Output Format
 ```json
@@ -305,6 +306,7 @@ The user performs an action that may change the scene, clothing, pose, or any co
 - Immutable traits (hair, eyes, body type) are NEVER changed.
 - Mutable traits (clothing, pose, expression, accessories, exposure) are updated when the action requires it.
 - **Location continuity**: Unless the instruction explicitly changes the location, preserve the previous location tags.
+- **CLOTHING CONTINUITY**: When the action does NOT mention clothing changes, copy ALL clothing-related tags from the previous prompt EXACTLY — including COLOR tags and exposure tags (e.g. "gold dress" must stay "gold dress", not become "white dress"). Changing clothing colors without explicit instruction is FORBIDDEN.
 
 ## Output Format
 ```json
