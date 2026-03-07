@@ -66,6 +66,9 @@ const resources = {
         experimentalSurroundingsPeople: "周囲画像に通行人を含める",
         experimentalSurroundingsPeopleDesc:
           "周囲状況画像にリアクションする通行人（2‐3人）を描写します。",
+        experimentalClothingColor: "服の色の一貫性を保つ",
+        experimentalClothingColorDesc:
+          "変身時に服の色を必ず指定し、行動時に色が変わらないようにします。",
         dataSection: "データ",
         reset: "設定を初期化",
         resetDesc: "すべての設定を初期値に戻します",
@@ -215,6 +218,28 @@ const resources = {
         surroundingsIncludePeople: "周囲画像に通行人を含める",
         surroundingsIncludePeopleHint:
           "周囲状況画像にリアクションする通行人（2‐3人）を描写します。",
+        clothingColorConsistency: "服の色の一貫性を保つ",
+        clothingColorConsistencyHint:
+          "有効にすると、プロンプト生成時に服の色の一貫性を保つルールが追加されます。",
+        clothingColorConsistencyTradeoff:
+          "※ 「誰が・どの衣装で・どこで・何を・どうする」のように、具体的な指示が必要になります。下のプロンプトビルダーをご活用ください。",
+        sectionPromptBuilder: "プロンプトビルダー",
+        promptBuilderWho: "誰が",
+        promptBuilderWhoPlaceholder: "主人公",
+        promptBuilderLocation: "場所",
+        promptBuilderLocationPlaceholder: "この場所",
+        promptBuilderOutfit: "衣装",
+        promptBuilderOutfitPlaceholder: "同じ衣装",
+        promptBuilderTarget: "対象",
+        promptBuilderTargetPlaceholder: "コーヒー",
+        promptBuilderAction: "行動",
+        promptBuilderActionPlaceholder: "飲みながらくつろぐ",
+        promptBuilderApply: "📝 指示として利用",
+        promptBuilderReset: "リセット",
+        promptBuilderSwitchToTextarea: "⌨️ 自由入力に切り替え",
+        promptBuilderSwitchToFields: "📋 フィールド入力に切り替え",
+        promptBuilderFreeformPlaceholder:
+          "主人公、同じ衣装で、この場所にて、コーヒーを、飲みながらくつろぐ",
         promptPreview: "プロンプトプレビュー",
         generatePreview: "🔍 プレビュー生成",
         imageEditPrompt: "画像編集プロンプト:",
@@ -649,6 +674,9 @@ const resources = {
         experimentalSurroundingsPeople: "Include bystanders in surroundings",
         experimentalSurroundingsPeopleDesc:
           "Include 2-3 reactive bystanders in the surroundings image.",
+        experimentalClothingColor: "Clothing Color Consistency",
+        experimentalClothingColorDesc:
+          "Always specify clothing colors during transformation and preserve them during actions.",
         dataSection: "Data",
         reset: "Reset settings",
         resetDesc: "Reset all settings to defaults",
@@ -797,6 +825,28 @@ const resources = {
         surroundingsIncludePeople: "Include bystanders in surroundings",
         surroundingsIncludePeopleHint:
           "Include 2-3 reactive bystanders in the surroundings image.",
+        clothingColorConsistency: "Clothing Color Consistency",
+        clothingColorConsistencyHint:
+          "When enabled, adds rules to prompt generation to maintain clothing color consistency.",
+        clothingColorConsistencyTradeoff:
+          '* Requires specific instructions like "who, wearing what, where, doing what". Use the prompt builder below.',
+        sectionPromptBuilder: "Prompt Builder",
+        promptBuilderWho: "Who",
+        promptBuilderWhoPlaceholder: "Protagonist",
+        promptBuilderLocation: "Location",
+        promptBuilderLocationPlaceholder: "Here",
+        promptBuilderOutfit: "Outfit",
+        promptBuilderOutfitPlaceholder: "Same outfit",
+        promptBuilderTarget: "Target",
+        promptBuilderTargetPlaceholder: "Coffee",
+        promptBuilderAction: "Action",
+        promptBuilderActionPlaceholder: "Drink while relaxing",
+        promptBuilderApply: "📝 Use as instruction",
+        promptBuilderReset: "Reset",
+        promptBuilderSwitchToTextarea: "⌨️ Switch to freeform",
+        promptBuilderSwitchToFields: "📋 Switch to fields",
+        promptBuilderFreeformPlaceholder:
+          "Protagonist, same outfit, here, coffee, drink while relaxing",
         promptPreview: "Prompt Preview",
         generatePreview: "🔍 Generate Preview",
         imageEditPrompt: "Image Edit Prompt:",

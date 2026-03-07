@@ -485,6 +485,10 @@ function AppMain() {
           body.surroundings_include_people = true;
         }
       }
+      // Clothing color consistency experimental feature
+      if (settingsState.clothingColorConsistency) {
+        body.clothing_color_consistency = true;
+      }
       if (costumeImage) {
         body.costume_image = costumeImage;
       }

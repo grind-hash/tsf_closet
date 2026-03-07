@@ -237,6 +237,11 @@ class PlayStreamRequest(BaseModel):
         False,
         description="周囲状況画像にリアクションする通行人を含める",
     )
+    # Clothing color consistency toggle
+    clothing_color_consistency: bool = Field(
+        False,
+        description="服の色の一貫性を保つ実験的機能",
+    )
 
 
 @router.post(
@@ -285,6 +290,7 @@ async def play_game_stream(request: PlayStreamRequest) -> EventSourceResponse:
             seed=request.seed,
             enable_surroundings_image=request.enable_surroundings_image,
             surroundings_include_people=request.surroundings_include_people,
+            clothing_color_consistency=request.clothing_color_consistency,
         ):
             yield {
                 "event": event.type,

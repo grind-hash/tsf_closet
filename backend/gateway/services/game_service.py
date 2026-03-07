@@ -1066,6 +1066,7 @@ class GameService:
         seed: int | None = None,
         enable_surroundings_image: bool = False,
         surroundings_include_people: bool = False,
+        clothing_color_consistency: bool = False,
     ) -> AsyncGenerator[StreamEvent, None]:
         """ストリーミング対応の着せ替えを実行
 
@@ -1350,6 +1351,7 @@ class GameService:
                     action_tag_system = get_action_novelai_prompt_generation_system(
                         nsfw_mode=effective_nsfw_mode,
                         language=effective_language,
+                        clothing_color_consistency=clothing_color_consistency,
                     )
                     previous_prompt = current_desc  # 前回のafter_description
                     action_novelai_prompt = (
@@ -1753,6 +1755,7 @@ class GameService:
                         previous_prompt=previous_prompt,
                         nsfw_mode=effective_nsfw_mode,
                         language=effective_language,
+                        clothing_color_consistency=clothing_color_consistency,
                     )
                 )
 

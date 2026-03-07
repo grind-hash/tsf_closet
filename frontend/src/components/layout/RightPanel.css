@@ -249,6 +249,15 @@
   user-select: none;
 }
 
+/* Prompt builder field label */
+.right-panel__mini-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.8rem;
+  color: var(--text-muted, #aaa);
+}
+
 /* プリセット */
 .right-panel__attribute-presets {
   display: flex;

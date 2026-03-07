@@ -266,7 +266,6 @@ The user performs an action that may change the scene, clothing, pose, or any co
 - Immutable traits (hair, eyes, body type) are NEVER changed.
 - Mutable traits (clothing, pose, expression, accessories) are updated when the action requires it.
 - **Location continuity**: Unless the instruction explicitly changes the location, preserve the previous location tags.
-- **CLOTHING CONTINUITY**: When the action does NOT mention clothing changes, copy ALL clothing-related tags from the previous prompt EXACTLY — including COLOR tags (e.g. "gold dress" must stay "gold dress", not become "white dress"). Changing clothing colors without explicit instruction is FORBIDDEN.
 
 ## Output Format
 ```json
@@ -306,7 +305,6 @@ The user performs an action that may change the scene, clothing, pose, or any co
 - Immutable traits (hair, eyes, body type) are NEVER changed.
 - Mutable traits (clothing, pose, expression, accessories, exposure) are updated when the action requires it.
 - **Location continuity**: Unless the instruction explicitly changes the location, preserve the previous location tags.
-- **CLOTHING CONTINUITY**: When the action does NOT mention clothing changes, copy ALL clothing-related tags from the previous prompt EXACTLY — including COLOR tags and exposure tags (e.g. "gold dress" must stay "gold dress", not become "white dress"). Changing clothing colors without explicit instruction is FORBIDDEN.
 
 ## Output Format
 ```json
@@ -619,6 +617,7 @@ def build_action_image_edit_prompt(
 def get_action_novelai_prompt_generation_system(
     nsfw_mode: bool = False,
     language: str = "ja",
+    clothing_color_consistency: bool = False,
 ) -> str:
     """Return the scene-change NovelAI tag generation system prompt.
 
@@ -628,6 +627,7 @@ def get_action_novelai_prompt_generation_system(
     Args:
         nsfw_mode: Whether NSFW mode is enabled
         language: Instruction language ("ja", "en", etc.)
+        clothing_color_consistency: Whether to add clothing continuity rules
 
     Returns:
         System prompt string for GLM-4.6 scene-change tag generation
@@ -641,8 +641,24 @@ def get_action_novelai_prompt_generation_system(
     )
 
     if nsfw_mode:
-        return ACTION_NOVELAI_PROMPT_GENERATION_SYSTEM_NSFW + language_hint
-    return ACTION_NOVELAI_PROMPT_GENERATION_SYSTEM + language_hint
+        base = ACTION_NOVELAI_PROMPT_GENERATION_SYSTEM_NSFW
+    else:
+        base = ACTION_NOVELAI_PROMPT_GENERATION_SYSTEM
+
+    if clothing_color_consistency:
+        clothing_rule = (
+            '\n- **CLOTHING CONTINUITY**: When the action does NOT mention '
+            'clothing changes, copy ALL clothing-related tags from the previous '
+            'prompt EXACTLY \u2014 including COLOR tags (e.g. "gold dress" must stay '
+            '"gold dress", not become "white dress"). Changing clothing colors '
+            'without explicit instruction is FORBIDDEN.'
+        )
+        base = base.replace(
+            "\n## Output Format",
+            clothing_rule + "\n\n## Output Format",
+        )
+
+    return base + language_hint
 
 
 def build_action_prompt(

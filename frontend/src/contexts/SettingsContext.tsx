@@ -80,6 +80,9 @@ interface SettingsState {
 
   // Font family setting
   fontFamily: string;
+
+  // Clothing color consistency (experimental)
+  clothingColorConsistency: boolean;
 }
 
 // アクション型
@@ -117,7 +120,8 @@ type SettingsAction =
   | { type: "SET_SEED"; payload: number | null }
   | { type: "SET_ENABLE_SURROUNDINGS_IMAGE"; payload: boolean }
   | { type: "SET_SURROUNDINGS_INCLUDE_PEOPLE"; payload: boolean }
-  | { type: "SET_FONT_FAMILY"; payload: string };
+  | { type: "SET_FONT_FAMILY"; payload: string }
+  | { type: "SET_CLOTHING_COLOR_CONSISTENCY"; payload: boolean };
 
 // デフォルト状態
 const defaultState: SettingsState = {
@@ -142,6 +146,7 @@ const defaultState: SettingsState = {
   enableSurroundingsImage: false,
   surroundingsIncludePeople: false,
   fontFamily: "system",
+  clothingColorConsistency: false,
 };
 
 // Reducer
@@ -243,6 +248,8 @@ function settingsReducer(
       return { ...state, surroundingsIncludePeople: action.payload };
     case "SET_FONT_FAMILY":
       return { ...state, fontFamily: action.payload };
+    case "SET_CLOTHING_COLOR_CONSISTENCY":
+      return { ...state, clothingColorConsistency: action.payload };
     default:
       return state;
   }
@@ -287,6 +294,7 @@ interface SettingsContextType {
   setEnableSurroundingsImage: (enabled: boolean) => void;
   setSurroundingsIncludePeople: (enabled: boolean) => void;
   setFontFamily: (fontFamily: string) => void;
+  setClothingColorConsistency: (enabled: boolean) => void;
 }
 
 // Context作成
@@ -616,6 +624,10 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "SET_FONT_FAMILY", payload: fontFamily });
   }, []);
 
+  const setClothingColorConsistency = useCallback((enabled: boolean) => {
+    dispatch({ type: "SET_CLOTHING_COLOR_CONSISTENCY", payload: enabled });
+  }, []);
+
   const value: SettingsContextType = {
     state,
     setDifficulty,
@@ -647,6 +659,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setEnableSurroundingsImage,
     setSurroundingsIncludePeople,
     setFontFamily,
+    setClothingColorConsistency,
   };
 
   return (

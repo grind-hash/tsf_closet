@@ -21,6 +21,7 @@ export default function SettingsScreen() {
     setExperimentalEndingEnabled,
     setEnableSurroundingsImage,
     setSurroundingsIncludePeople,
+    setClothingColorConsistency,
     setFontFamily,
     resetSettings,
   } = useSettings();
@@ -344,6 +345,13 @@ export default function SettingsScreen() {
                 <div className="settings-screen__toggle-info">
                   <span className="settings-screen__item-label">
                     {t("settings.experimentalSurroundings")}
+                    <span
+                      className="feature-chip-new"
+                      data-feature-version="v0.3.0"
+                      style={{ marginLeft: "0.5rem" }}
+                    >
+                      New
+                    </span>
                   </span>
                   <span className="settings-screen__item-desc">
                     {t("settings.experimentalSurroundingsDesc")}
@@ -382,6 +390,35 @@ export default function SettingsScreen() {
                 </label>
               </div>
             )}
+
+            <div className="settings-screen__item">
+              <label className="settings-screen__toggle">
+                <div className="settings-screen__toggle-info">
+                  <span className="settings-screen__item-label">
+                    {t("settings.experimentalClothingColor")}
+                    <span
+                      className="feature-chip-new"
+                      data-feature-version="v0.3.0"
+                      style={{ marginLeft: "0.5rem" }}
+                    >
+                      New
+                    </span>
+                  </span>
+                  <span className="settings-screen__item-desc">
+                    {t("settings.experimentalClothingColorDesc")}
+                  </span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={state.clothingColorConsistency}
+                  onChange={(e) =>
+                    setClothingColorConsistency(e.target.checked)
+                  }
+                  className="settings-screen__toggle-input"
+                />
+                <span className="settings-screen__toggle-switch" />
+              </label>
+            </div>
           </section>
 
           {/* リセット */}

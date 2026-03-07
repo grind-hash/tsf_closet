@@ -1258,7 +1258,6 @@ Convert the user's instruction into an optimal English tag prompt for NovelAI im
 - ALL output tags must be in **English** Danbooru tag format. No Japanese text.
 - Immutable traits (hair, eyes, body type) are NEVER changed unless the instruction explicitly transforms them.
 - Mutable traits (clothing, pose, expression, accessories) are updated per the instruction.
-- **CLOTHING COLOR RULE**: ALWAYS include explicit color tags for EVERY clothing item (e.g. "red dress", "black stockings", "white blouse"). If the user instruction does not specify a color, YOU MUST choose a specific color that fits the outfit concept. NEVER leave clothing without a color tag.
 
 ## Output Format
 ```json
@@ -1293,7 +1292,6 @@ Adult content tags are allowed.
 - ALL output tags must be in **English** Danbooru tag format. No Japanese text.
 - Immutable traits (hair, eyes, body type) are NEVER changed unless the instruction explicitly transforms them.
 - Mutable traits (clothing, pose, expression, accessories, exposure) are updated per the instruction.
-- **CLOTHING COLOR RULE**: ALWAYS include explicit color tags for EVERY clothing item (e.g. "red dress", "black stockings", "white lingerie"). If the user instruction does not specify a color, YOU MUST choose a specific color that fits the outfit concept. NEVER leave clothing without a color tag.
 
 ## Output Format
 ```json
@@ -1315,12 +1313,14 @@ Output valid JSON with "character" and "scene" keys only."""
 def get_novelai_prompt_generation_system(
     nsfw_mode: bool = False,
     instruction_language: str = "ja",
+    clothing_color_consistency: bool = False,
 ) -> str:
     """NovelAIプロンプト生成用システムプロンプトを取得
 
     Args:
         nsfw_mode: NSFWモードかどうか
         instruction_language: ユーザー指示の言語
+        clothing_color_consistency: 服の色の一貫性ルールを追加するか
 
     Returns:
         システムプロンプト文字列
@@ -1334,8 +1334,24 @@ def get_novelai_prompt_generation_system(
     )
 
     if nsfw_mode:
-        return NOVELAI_PROMPT_GENERATION_SYSTEM_NSFW + language_hint
-    return NOVELAI_PROMPT_GENERATION_SYSTEM + language_hint
+        base = NOVELAI_PROMPT_GENERATION_SYSTEM_NSFW
+    else:
+        base = NOVELAI_PROMPT_GENERATION_SYSTEM
+
+    if clothing_color_consistency:
+        clothing_rule = (
+            '\n- **CLOTHING COLOR RULE**: ALWAYS include explicit color tags '
+            'for EVERY clothing item (e.g. "red dress", "black stockings", '
+            '"white blouse"). If the user instruction does not specify a color, '
+            'YOU MUST choose a specific color that fits the outfit concept. '
+            'NEVER leave clothing without a color tag.'
+        )
+        base = base.replace(
+            "\n## Output Format",
+            clothing_rule + "\n\n## Output Format",
+        )
+
+    return base + language_hint
 
 
 def build_novelai_prompt_generation_user(
