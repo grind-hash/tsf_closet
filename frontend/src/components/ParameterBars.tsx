@@ -2,8 +2,8 @@
  * ParameterBars component - displays bloom, shame, and adaptation bars.
  */
 
-import type { SessionStats } from '../types';
-import './ParameterBars.css';
+import type { SessionStats } from "../types";
+import "./ParameterBars.css";
 
 interface ParameterBarsProps {
   stats: SessionStats;
@@ -12,7 +12,6 @@ interface ParameterBarsProps {
 export default function ParameterBars({ stats }: ParameterBarsProps) {
   return (
     <div className="parameters-panel">
-      
       {/* 開花度 (bloom) */}
       <div className="parameter-bar">
         <label>開花度</label>
@@ -45,7 +44,10 @@ export default function ParameterBars({ stats }: ParameterBarsProps) {
             className="progress-bar adaptation"
             style={{
               width: `${Math.abs(stats.adaptation)}%`,
-              marginLeft: stats.adaptation >= 0 ? '50%' : `${50 - Math.abs(stats.adaptation)}%`,
+              marginLeft:
+                stats.adaptation >= 0
+                  ? "50%"
+                  : `${50 - Math.abs(stats.adaptation)}%`,
             }}
           />
         </div>

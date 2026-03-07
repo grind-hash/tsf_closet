@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import base64
 import logging
+import random
 from dataclasses import dataclass
 from io import BytesIO
 from typing import Any, Dict, List, Literal, Optional
@@ -19,7 +20,7 @@ from PIL import Image, ImageFilter
 from .comfy import ComfyUIClient, ComfyUIResult
 from ..settings.config import settings
 from novelai import AsyncNovelAI
-from novelai.types import CharacterReference, GenerateImageParams, I2iParams
+from novelai.types import Character, CharacterReference, GenerateImageParams, I2iParams
 from novelai.exceptions import NovelAIError
 from novelai._utils.converter import async_convert_user_params_to_api_request
 
@@ -48,6 +49,7 @@ class ImageGenerationResult:
     usage: Optional[UsageInfo] = None
     cost_usd: Optional[float] = None  # USD単位の料金
     model: Optional[str] = None
+    seed: Optional[int] = None
 
 
 class OpenRouterImageError(Exception):
@@ -413,6 +415,8 @@ class NovelAIImageClient:
         inpaint_strength_override: Optional[float] = None,
         noise_override: Optional[float] = None,
         character_references: Optional[List[Dict[str, Any]]] = None,
+        seed: Optional[int] = None,
+        characters: Optional[List[Dict[str, Any]]] = None,
     ) -> ImageGenerationResult:
         """画像生成 / 画像変換 (i2i)"""
         client = await self._get_client()
@@ -534,6 +538,26 @@ class NovelAIImageClient:
                 )
             logger.info("Character references: %d items", len(sdk_char_refs))
 
+        # Determine the seed to use
+        actual_seed = seed if seed is not None else random.randint(0, 999999999)
+
+        # Build SDK Character objects for V4 prompt splitting
+        sdk_characters: Optional[List[Character]] = None
+        if characters:
+            logger.info("characters: %s", characters)
+            sdk_characters = [
+                Character(
+                    prompt=c["prompt"],
+                    negative_prompt=c.get("negative_prompt", ""),
+                    position=tuple(c.get("position", (0.5, 0.5))),
+                    enabled=c.get("enabled", True),
+                )
+                for c in characters
+            ]
+            logger.info(
+                "V4 character prompt splitting: %d characters", len(sdk_characters)
+            )
+
         # NOTE: GenerateImageParamsのmodelはSDKのリテラル制約に合わせてベースモデルを入れる
         params = GenerateImageParams(
             prompt=self._format_prompt(prompt),
@@ -549,6 +573,8 @@ class NovelAIImageClient:
             i2i=i2i_params,
             n_samples=1,
             character_references=sdk_char_refs,
+            seed=actual_seed,
+            characters=sdk_characters,
         )
 
         try:
@@ -596,6 +622,85 @@ class NovelAIImageClient:
             images=image_bytes_list,
             provider="novelai",
             model=actual_model_used,
+            seed=actual_seed,
+        )
+
+    async def generate_scenery(
+        self,
+        prompt: str,
+        size: str = "landscape",
+        negative_prompt_override: Optional[str] = None,
+        seed: Optional[int] = None,
+        include_people: bool = False,
+    ) -> ImageGenerationResult:
+        """Background / scenery txt2img generation (US2)
+
+        Args:
+            prompt: Generation prompt
+            size: Image size preset (default: landscape = 1216x832)
+            negative_prompt_override: Negative prompt override
+            seed: Image generation seed
+            include_people: If True, allow anonymous bystanders (block protagonist only)
+
+        Returns:
+            ImageGenerationResult
+        """
+        client = await self._get_client()
+
+        neg_prompt = negative_prompt_override or self.negative_prompt
+        if include_people:
+            # Allow exactly 2-3 generic bystanders; block protagonist and large groups
+            extra_negative = (
+                ", solo, solo focus, close-up, portrait, pov"
+                ", crowd, many people, large group, 4girls, 5girls"
+                ", 4boys, 5boys, 6+others"
+            )
+        else:
+            # Block all people
+            extra_negative = (
+                ", 1girl, 1boy, person, people, character, human, face, body"
+            )
+
+        actual_seed = seed if seed is not None else random.randint(0, 999999999)
+
+        params = GenerateImageParams(
+            prompt=prompt,
+            model=self.model,
+            size=size,
+            steps=self.steps,
+            scale=self.scale,
+            uc_preset=self.uc_preset,
+            negative_prompt=(neg_prompt + extra_negative)
+            if neg_prompt
+            else extra_negative,
+            quality=True,
+            n_samples=1,
+            seed=actual_seed,
+        )
+
+        try:
+            req = await async_convert_user_params_to_api_request(params, client)
+            # txt2img: action="generate"
+            req.action = "generate"
+            images = await client.api_client.image.generate(req)
+        except NovelAIError as e:
+            logger.error("NovelAI scenery generation error: %s", e)
+            raise NovelAIImageError(str(e)) from e
+
+        if not images:
+            raise NovelAIImageError("No scenery images returned from NovelAI")
+
+        image_bytes_list: List[bytes] = []
+        for img in images:
+            buf = BytesIO()
+            img.save(buf, format="PNG")
+            image_bytes_list.append(buf.getvalue())
+
+        return ImageGenerationResult(
+            images=image_bytes_list,
+            provider="novelai",
+            model=self.model,
+            seed=actual_seed,
         )
 
 
@@ -660,6 +765,8 @@ class ImageGenerationService:
         i2i_noise_override: Optional[float] = None,
         nsfw_mode: bool = True,
         character_references: Optional[List[Dict[str, Any]]] = None,
+        seed: Optional[int] = None,
+        characters: Optional[List[Dict[str, Any]]] = None,
         **comfy_kwargs: Any,
     ) -> ImageGenerationResult:
         """画像を生成する
@@ -701,6 +808,8 @@ class ImageGenerationService:
                 inpaint_strength_override=i2i_strength_override,
                 noise_override=i2i_noise_override,
                 character_references=character_references,
+                seed=seed,
+                characters=characters,
             )
         else:
             # セルフホスト (ComfyUI)
@@ -734,6 +843,8 @@ class ImageGenerationService:
         inpaint_noise: Optional[float] = None,
         nsfw_mode: bool = True,
         character_references: Optional[List[Dict[str, Any]]] = None,
+        seed: Optional[int] = None,
+        characters: Optional[List[Dict[str, Any]]] = None,
         **comfy_kwargs: Any,
     ) -> ImageGenerationResult:
         """画像を編集する
@@ -744,6 +855,7 @@ class ImageGenerationService:
             reference_image_bytes: 衣装参照画像（オプション）
             provider_override: 一時的にプロバイダーを変更
             nsfw_mode: NSFWモード（NovelAI使用時のモデル選択に影響）
+            characters: V4キャラクタープロンプト分離用（NovelAI専用）
             **comfy_kwargs: ComfyUI用の追加パラメータ
 
         Returns:
@@ -760,7 +872,48 @@ class ImageGenerationService:
             i2i_noise_override=inpaint_noise,
             nsfw_mode=nsfw_mode,
             character_references=character_references,
+            seed=seed,
+            characters=characters,
             **comfy_kwargs,
+        )
+
+    async def generate_scenery(
+        self,
+        prompt: str,
+        size: str = "landscape",
+        negative_prompt: Optional[str] = None,
+        seed: Optional[int] = None,
+        nsfw_mode: bool = True,
+        include_people: bool = False,
+    ) -> ImageGenerationResult:
+        """Generate background / scenery image (NovelAI txt2img, US2)
+
+        Args:
+            prompt: Generation prompt
+            size: Image size preset (default: landscape = 1216x832)
+            negative_prompt: Negative prompt
+            seed: Image generation seed
+            nsfw_mode: NSFW mode
+            include_people: If True, allow anonymous bystanders
+
+        Returns:
+            ImageGenerationResult
+
+        Raises:
+            ValueError: Not supported on non-NovelAI providers
+        """
+        if self._default_provider != "novelai":
+            raise ValueError(
+                "Scenery generation is only supported with NovelAI provider"
+            )
+
+        client = self._get_novelai_client(nsfw_mode=nsfw_mode)
+        return await client.generate_scenery(
+            prompt=prompt,
+            size=size,
+            negative_prompt_override=negative_prompt,
+            seed=seed,
+            include_people=include_people,
         )
 
     async def health_check(self) -> Dict[str, bool]:

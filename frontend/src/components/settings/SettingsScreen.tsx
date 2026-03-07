@@ -17,7 +17,12 @@ export default function SettingsScreen() {
     setLanguage,
     setNsfwMode,
     setShowAchievementNotifications,
+    setShowRealityAttributeNotification,
     setExperimentalEndingEnabled,
+    setEnableSurroundingsImage,
+    setSurroundingsIncludePeople,
+    setClothingColorConsistency,
+    setFontFamily,
     resetSettings,
   } = useSettings();
 
@@ -45,6 +50,44 @@ export default function SettingsScreen() {
       id: "en",
       label: t("settings.en"),
       description: t("settings.enDesc"),
+    },
+  ] as const;
+
+  const fontOptions = [
+    {
+      id: "system",
+      label: t("settings.fontSystem"),
+      description: t("settings.fontSystemDesc"),
+    },
+    {
+      id: "browser-default",
+      label: t("settings.fontBrowserDefault"),
+      description: t("settings.fontBrowserDefaultDesc"),
+    },
+    {
+      id: "noto-sans-jp",
+      label: "Noto Sans JP",
+      description: t("settings.fontNotoSansJPDesc"),
+    },
+    {
+      id: "biz-udgothic",
+      label: "BIZ UDGothic",
+      description: t("settings.fontBizUDGothicDesc"),
+    },
+    {
+      id: "biz-udmincho",
+      label: "BIZ UDMincho",
+      description: t("settings.fontBizUDMinchoDesc"),
+    },
+    {
+      id: "inter",
+      label: "Inter",
+      description: t("settings.fontInterDesc"),
+    },
+    {
+      id: "roboto-mono",
+      label: "Roboto Mono",
+      description: t("settings.fontRobotoMonoDesc"),
     },
   ] as const;
 
@@ -147,6 +190,46 @@ export default function SettingsScreen() {
             </div>
           </section>
 
+          {/* 表示設定 */}
+          <section className="settings-screen__section">
+            <h2 className="settings-screen__section-title">
+              {t("settings.displaySection")}
+            </h2>
+
+            <div className="settings-screen__item">
+              <div className="settings-screen__item-header">
+                <span className="settings-screen__item-label">
+                  {t("settings.fontFamily")}
+                  <span
+                    className="feature-chip-new"
+                    data-feature-version="v0.3.0"
+                  >
+                    New
+                  </span>
+                </span>
+                <span className="settings-screen__item-desc">
+                  {t("settings.fontFamilyDesc")}
+                </span>
+              </div>
+              <div className="settings-screen__select-wrapper">
+                <select
+                  className="settings-screen__select"
+                  value={state.fontFamily}
+                  onChange={(e) => setFontFamily(e.target.value)}
+                >
+                  {fontOptions.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <p className="settings-screen__font-preview">
+                {t("settings.fontPreview")}
+              </p>
+            </div>
+          </section>
+
           {/* 画像生成設定 */}
           <section className="settings-screen__section">
             <h2 className="settings-screen__section-title">
@@ -206,6 +289,28 @@ export default function SettingsScreen() {
                 <span className="settings-screen__toggle-switch" />
               </label>
             </div>
+
+            <div className="settings-screen__item">
+              <label className="settings-screen__toggle">
+                <div className="settings-screen__toggle-info">
+                  <span className="settings-screen__item-label">
+                    {t("settings.realityAttributeNotify")}
+                  </span>
+                  <span className="settings-screen__item-desc">
+                    {t("settings.realityAttributeNotifyDesc")}
+                  </span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={state.showRealityAttributeNotification}
+                  onChange={(e) =>
+                    setShowRealityAttributeNotification(e.target.checked)
+                  }
+                  className="settings-screen__toggle-input"
+                />
+                <span className="settings-screen__toggle-switch" />
+              </label>
+            </div>
           </section>
 
           <section className="settings-screen__section">
@@ -228,6 +333,86 @@ export default function SettingsScreen() {
                   checked={state.experimentalEndingEnabled}
                   onChange={(e) =>
                     setExperimentalEndingEnabled(e.target.checked)
+                  }
+                  className="settings-screen__toggle-input"
+                />
+                <span className="settings-screen__toggle-switch" />
+              </label>
+            </div>
+
+            <div className="settings-screen__item">
+              <label className="settings-screen__toggle">
+                <div className="settings-screen__toggle-info">
+                  <span className="settings-screen__item-label">
+                    {t("settings.experimentalSurroundings")}
+                    <span
+                      className="feature-chip-new"
+                      data-feature-version="v0.3.0"
+                      style={{ marginLeft: "0.5rem" }}
+                    >
+                      New
+                    </span>
+                  </span>
+                  <span className="settings-screen__item-desc">
+                    {t("settings.experimentalSurroundingsDesc")}
+                  </span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={state.enableSurroundingsImage}
+                  onChange={(e) => setEnableSurroundingsImage(e.target.checked)}
+                  className="settings-screen__toggle-input"
+                />
+                <span className="settings-screen__toggle-switch" />
+              </label>
+            </div>
+
+            {state.enableSurroundingsImage && (
+              <div className="settings-screen__item">
+                <label className="settings-screen__toggle">
+                  <div className="settings-screen__toggle-info">
+                    <span className="settings-screen__item-label">
+                      {t("settings.experimentalSurroundingsPeople")}
+                    </span>
+                    <span className="settings-screen__item-desc">
+                      {t("settings.experimentalSurroundingsPeopleDesc")}
+                    </span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={state.surroundingsIncludePeople}
+                    onChange={(e) =>
+                      setSurroundingsIncludePeople(e.target.checked)
+                    }
+                    className="settings-screen__toggle-input"
+                  />
+                  <span className="settings-screen__toggle-switch" />
+                </label>
+              </div>
+            )}
+
+            <div className="settings-screen__item">
+              <label className="settings-screen__toggle">
+                <div className="settings-screen__toggle-info">
+                  <span className="settings-screen__item-label">
+                    {t("settings.experimentalClothingColor")}
+                    <span
+                      className="feature-chip-new"
+                      data-feature-version="v0.3.0"
+                      style={{ marginLeft: "0.5rem" }}
+                    >
+                      New
+                    </span>
+                  </span>
+                  <span className="settings-screen__item-desc">
+                    {t("settings.experimentalClothingColorDesc")}
+                  </span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={state.clothingColorConsistency}
+                  onChange={(e) =>
+                    setClothingColorConsistency(e.target.checked)
                   }
                   className="settings-screen__toggle-input"
                 />

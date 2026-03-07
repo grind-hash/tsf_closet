@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useLocation } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { useSession } from "./hooks/useSession";
 import { useSSE } from "./hooks/useSSE";
 import { useNotification } from "./contexts/NotificationContext";
@@ -28,9 +29,8 @@ import type {
 import { DEFAULT_CHANGE_SETTINGS, DEFAULT_INPAINT_SETTINGS } from "./types";
 import "./App.css";
 
-// 007-chat-interactive-ux: Context hooks（GamePlayScreen内で使用）
-// import { useGame } from "./contexts/GameContext";
-// import { useChat } from "./contexts/ChatContext";
+// 007-chat-interactive-ux: Context hooks
+import { useGame } from "./contexts/GameContext";
 
 function App() {
   // 007-chat-interactive-ux: React Router location
@@ -64,7 +64,9 @@ function AppMain() {
   const location = useLocation();
   const session = useSession();
   const { state: settingsState } = useSettings();
-  const { showAchievementNotification } = useNotification();
+  const { setTransforming } = useGame();
+  const { showNotification, showAchievementNotification } = useNotification();
+  const { t } = useTranslation();
   // 旧UI用: 新UIではWelcomeScreenが担当 (型定義用にscreen変数を使用)
   const [screen, setScreen] = useState<"character-select" | "game">(
     "character-select",
@@ -89,6 +91,25 @@ function AppMain() {
   // NovelAI APIキー同意モーダル関連
   const [showApiKeyConsent, setShowApiKeyConsent] = useState(false);
   const [apiKeyConsentDeclined, setApiKeyConsentDeclined] = useState(false);
+
+  // Last generated seed (from SSE image event)
+  const [lastGeneratedSeed, setLastGeneratedSeed] = useState<number | null>(
+    null,
+  );
+
+  // US2: Last generated surroundings image (from SSE)
+  const [lastSurroundingsImage, setLastSurroundingsImage] = useState<{
+    imageBase64: string;
+    historyId: string;
+    seed?: number;
+  } | null>(null);
+
+  // US5: Anlas balance state
+  const [anlasBalance, setAnlasBalance] = useState<{
+    fixedAnlas: number;
+    purchasedAnlas: number;
+    totalAnlas: number;
+  } | null>(null);
 
   // API累積コスト (localStorage永続化)
   const [totalCost, setTotalCost] = useState<number>(() => {
@@ -120,11 +141,21 @@ function AppMain() {
     onText: (chunk) => {
       setFeelingText((prev) => prev + chunk);
     },
-    onImage: async (image, historyId) => {
+    onImage: async (image, historyId, seed) => {
       session.updateFromSSE({ image, historyId });
-      // 履歴を更新するためセッションを再読み込み
+      // Store the last generated seed for display
+      if (seed !== undefined) {
+        setLastGeneratedSeed(seed);
+      }
+      // Reload session to update history
       await session.restoreSession();
-      setIsTransforming(false);
+      // Note: isTransforming is cleared by onComplete, not here.
+      // This allows surroundings image generation to continue with
+      // the progress indicator still visible.
+    },
+    // US2: Surroundings image handler
+    onSurroundingsImage: (imageBase64, historyId, seed) => {
+      setLastSurroundingsImage({ imageBase64, historyId, seed });
     },
     onStats: (stats) => {
       session.updateStats({
@@ -168,6 +199,7 @@ function AppMain() {
     onComplete: async (_, transformationCount) => {
       session.updateFromSSE({ transformationCount });
       setIsTransforming(false);
+      setTransforming(false);
     },
     onCost: (cost) => {
       setTotalCost((prev) => {
@@ -176,10 +208,38 @@ function AppMain() {
         return newTotal;
       });
     },
+    // US5: Anlas balance update
+    onAnlas: (balance) => {
+      setAnlasBalance(balance);
+    },
+    // Reality change: auto-added attribute notification
+    onRealityAttributeAdded: (data) => {
+      // Update local attributes state
+      session.updateAttributesFromSSE({
+        id: data.attribute_id,
+        text: data.attribute_text,
+      });
+      // Show notification if enabled in settings
+      if (settingsState.showRealityAttributeNotification) {
+        const msg =
+          t("settings.realityAttributeAddedMsg", {
+            attr: data.attribute_text,
+          }) +
+          "\n" +
+          t("settings.realityAttributeAddedLink");
+        showNotification(
+          "info",
+          t("settings.realityAttributeAdded"),
+          msg,
+          8000,
+        );
+      }
+    },
     onError: (message) => {
       console.error("SSE Error:", message);
       setErrorMessage(message);
       setIsTransforming(false);
+      setTransforming(false);
     },
   });
 
@@ -401,6 +461,7 @@ function AppMain() {
       if (!session.sessionId || isTransforming) return;
 
       setIsTransforming(true);
+      setTransforming(true);
       setFeelingText("");
 
       // POST リクエストボディを構築
@@ -412,6 +473,21 @@ function AppMain() {
       };
       if (instructionType) {
         body.instruction_type = instructionType;
+      }
+      // Include seed if specified in settings
+      if (settingsState.seed !== null) {
+        body.seed = settingsState.seed;
+      }
+      // US3: Include surroundings image generation setting
+      if (settingsState.enableSurroundingsImage) {
+        body.enable_surroundings_image = true;
+        if (settingsState.surroundingsIncludePeople) {
+          body.surroundings_include_people = true;
+        }
+      }
+      // Clothing color consistency experimental feature
+      if (settingsState.clothingColorConsistency) {
+        body.clothing_color_consistency = true;
       }
       if (costumeImage) {
         body.costume_image = costumeImage;
@@ -480,6 +556,10 @@ function AppMain() {
       sse,
       imageProvider,
       settingsState.language,
+      settingsState.seed,
+      settingsState.enableSurroundingsImage,
+      settingsState.surroundingsIncludePeople,
+      setTransforming,
     ],
   );
 
@@ -488,11 +568,12 @@ function AppMain() {
     if (!session.sessionId || isTransforming) return;
 
     setIsTransforming(true);
+    setTransforming(true);
     setFeelingText("");
 
     const url = `${API_BASE}/game/improve-quality/stream?session_id=${session.sessionId}`;
     sse.startStream(url);
-  }, [session.sessionId, isTransforming, sse]);
+  }, [session.sessionId, isTransforming, sse, setTransforming]);
 
   // リセット
   const handleReset = useCallback(async () => {
@@ -582,13 +663,18 @@ function AppMain() {
         imageProvider={imageProvider}
         selfMode={session.selfMode}
         onSessionStart={handleSessionStart}
+        lastGeneratedSeed={lastGeneratedSeed}
+        anlasBalance={anlasBalance}
+        onAnlasBalanceChange={setAnlasBalance}
+        lastSurroundingsImage={lastSurroundingsImage}
+        onClearSurroundingsImage={() => setLastSurroundingsImage(null)}
       />
 
       {providerLoading && (
         <div className="backdrop">
           <div className="backdrop-content">
             <div className="spinner"></div>
-            <p>初期化中…</p>
+            <p>{t("appLoading.initializing")}</p>
           </div>
         </div>
       )}
@@ -597,7 +683,7 @@ function AppMain() {
         <div className="backdrop">
           <div className="backdrop-content">
             <div className="spinner"></div>
-            <p>NovelAI機能をチェック中…</p>
+            <p>{t("appLoading.checkingNovelai")}</p>
           </div>
         </div>
       )}
@@ -605,7 +691,7 @@ function AppMain() {
       {session.isLoading && (
         <div className="loading-overlay">
           <div className="spinner"></div>
-          <p>準備中...</p>
+          <p>{t("appLoading.preparing")}</p>
         </div>
       )}
 
@@ -657,13 +743,13 @@ function AppMain() {
         >
           <div className="error-modal" onClick={(e) => e.stopPropagation()}>
             <div className="error-modal-icon">⚠️</div>
-            <h3>エラー</h3>
+            <h3>{t("appLoading.error")}</h3>
             <p>{errorMessage}</p>
             <button
               className="btn btn-primary"
               onClick={() => setErrorMessage(null)}
             >
-              閉じる
+              {t("appLoading.close")}
             </button>
           </div>
         </div>
@@ -699,18 +785,14 @@ function AppMain() {
           <div className="backdrop-content">
             <div className="consent-declined-message">
               <span className="consent-declined-icon">🔒</span>
-              <h3>APIキー利用の同意が必要です</h3>
-              <p>
-                NovelAI機能を使用するにはAPIキー利用への同意が必要です。
-                <br />
-                同意される場合は、ページを再読み込みしてください。
-              </p>
+              <h3>{t("consentDeclined.title")}</h3>
+              <p>{t("consentDeclined.message")}</p>
               <button
                 type="button"
                 className="btn btn-primary"
                 onClick={() => window.location.reload()}
               >
-                再読み込み
+                {t("consentDeclined.reload")}
               </button>
             </div>
           </div>

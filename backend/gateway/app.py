@@ -217,7 +217,8 @@ def setup_static_files(application: FastAPI) -> None:
 
     Note: このルートは他のすべてのルートより後に登録する必要がある。
     """
-    if not STATIC_DIR.exists():
+    index_html = STATIC_DIR / "index.html"
+    if not index_html.exists():
         return
 
     # 静的アセット配信 (js, css, images)
@@ -281,6 +282,34 @@ async def get_history_image(history_id: str):
     image_path = settings.history_images_dir.parent / history.image_path
     if not image_path.exists():
         raise HTTPException(status_code=404, detail="Image file not found")
+
+    return FileResponse(image_path, media_type="image/png")
+
+
+# US2: 周囲状況画像配信エンドポイント
+@app.get("/api/history/surroundings/{history_id}")
+async def get_history_surroundings_image(history_id: str):
+    """周囲状況画像を取得 (US2)
+
+    Args:
+        history_id: 履歴ID
+
+    Returns:
+        周囲状況画像ファイル
+    """
+    from .services.session import session_store
+
+    history = await session_store.get_history_by_id(history_id)
+    if history is None:
+        raise HTTPException(status_code=404, detail="History not found")
+
+    if not history.surroundings_image_path:
+        raise HTTPException(status_code=404, detail="Surroundings image not found")
+
+    # Resolve relative path (e.g. history_images/surroundings_xxx.png) against data dir
+    image_path = settings.history_images_dir.parent / history.surroundings_image_path
+    if not image_path.exists():
+        raise HTTPException(status_code=404, detail="Surroundings image file not found")
 
     return FileResponse(image_path, media_type="image/png")
 

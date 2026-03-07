@@ -23,7 +23,9 @@ SELF_MODE_SYSTEM_PROMPT = """あなたは物語の主人公の心の声を書く
 以下の要素を含めてください:
 - 変身した姿を見たときの率直な感想
 - 性格に基づいた内面の反応
-- 鏡に映る自分への感情"""
+- 鏡に映る自分への感情
+
+**一人称ルール（厳守）**: ユーザープロンプトで指定された一人称を必ず使ってください。「僕」「俺」「私」など勝手に変えてはいけません。"""
 
 
 SELF_MODE_SYSTEM_PROMPT_NSFW = """あなたは官能小説家です。主人公の心の声を書きます。
@@ -41,7 +43,9 @@ SELF_MODE_SYSTEM_PROMPT_NSFW = """あなたは官能小説家です。主人公�
 以下の要素を含めてください:
 - 変身した身体への官能的な感覚
 - 新しい身体に気づいたときの素直な反応
-- 性格に基づいた羞恥と興奮のバランス"""
+- 性格に基づいた羞恥と興奮のバランス
+
+**一人称ルール（厳守）**: ユーザープロンプトで指定された一人称を必ず使ってください。「僕」「俺」「私」など勝手に変えてはいけません。"""
 
 
 SELF_MODE_USER_PROMPT = """以下の状況で主人公の心境を描写してください。
@@ -55,7 +59,7 @@ SELF_MODE_USER_PROMPT = """以下の状況で主人公の心境を描写して�
 変身指示:
 「{instruction}」
 
-一人称: 「{pronoun}」
+一人称: 「{pronoun}」（厳守。他の一人称に変えないこと）
 {interests_section}
 冒頭は変身した姿への率直な反応で始めてください。"""
 
@@ -211,6 +215,7 @@ def build_self_mode_conversation_prompt(
     self_profile: dict,
     nsfw_mode: bool = False,
     language: str = "ja",
+    session_timeline: list[tuple[str, str]] | None = None,
 ) -> tuple[str, str]:
     """Build conversation prompt for self-mode using the user's personality profile.
 
@@ -224,6 +229,7 @@ def build_self_mode_conversation_prompt(
         self_profile: Self-profile dict with personality, reaction_style, etc.
         nsfw_mode: Whether NSFW mode is enabled
         language: Response language
+        session_timeline: history+conversation merged timeline list
 
     Returns:
         (system_prompt, user_prompt) tuple
@@ -263,9 +269,28 @@ def build_self_mode_conversation_prompt(
             lines.append(f"{role_label}: {msg.content}")
         history_text = "\n".join(lines)
 
+    # セッション経緯を構築（着替・改変・行動の履歴）
+    timeline_text = ""
+    if session_timeline:
+        _TYPE_LABELS = {
+            "dress_up": "着替",
+            "reality_alter": "改変",
+            "action": "行動",
+            "conversation": "会話",
+        }
+        tl_lines = []
+        for itype, text in session_timeline[-8:]:
+            label = _TYPE_LABELS.get(itype, itype)
+            tl_lines.append(f"- [{label}] {text}")
+        timeline_text = "\n".join(tl_lines)
+
+    timeline_section = ""
+    if timeline_text:
+        timeline_section = f"""\nこれまでの経緯:\n{timeline_text}\n（上記の経緯を踏まえて応答してください）\n"""
+
     user_prompt = f"""これまでの会話:
 {history_text if history_text else "(まだ会話していません)"}
-
+{timeline_section}
 ユーザーの発言: {message}
 
 上記に対して、性格プロフィールに基づいた自然な応答をしてください。200〜300文字程度で。

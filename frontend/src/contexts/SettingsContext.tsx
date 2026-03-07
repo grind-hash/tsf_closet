@@ -54,6 +54,7 @@ interface SettingsState {
 
   // 通知設定
   showAchievementNotifications: boolean;
+  showRealityAttributeNotification: boolean;
   experimentalEndingEnabled: boolean;
 
   // サウンド設定
@@ -68,6 +69,20 @@ interface SettingsState {
 
   // Self-profile (US6)
   selfProfile: SelfProfile | null;
+
+  // Seed value for image generation (null = random)
+  seed: number | null;
+
+  // US3: Enable surroundings image generation
+  enableSurroundingsImage: boolean;
+  // Include reactive bystanders in surroundings image
+  surroundingsIncludePeople: boolean;
+
+  // Font family setting
+  fontFamily: string;
+
+  // Clothing color consistency (experimental)
+  clothingColorConsistency: boolean;
 }
 
 // アクション型
@@ -87,6 +102,7 @@ type SettingsAction =
   | { type: "TOGGLE_INPAINT" }
   | { type: "SET_CHANGE_SETTINGS"; payload: Partial<ChangeSettings> }
   | { type: "SET_SHOW_ACHIEVEMENT_NOTIFICATIONS"; payload: boolean }
+  | { type: "SET_SHOW_REALITY_ATTRIBUTE_NOTIFICATION"; payload: boolean }
   | { type: "SET_EXPERIMENTAL_ENDING_ENABLED"; payload: boolean }
   | { type: "SET_SOUND_ENABLED"; payload: boolean }
   | { type: "SET_SOUND_VOLUME"; payload: number }
@@ -100,7 +116,12 @@ type SettingsAction =
     }
   | { type: "REMOVE_PRECISE_REFERENCE"; payload: string }
   | { type: "CLEAR_PRECISE_REFERENCES" }
-  | { type: "SET_SELF_PROFILE"; payload: SelfProfile | null };
+  | { type: "SET_SELF_PROFILE"; payload: SelfProfile | null }
+  | { type: "SET_SEED"; payload: number | null }
+  | { type: "SET_ENABLE_SURROUNDINGS_IMAGE"; payload: boolean }
+  | { type: "SET_SURROUNDINGS_INCLUDE_PEOPLE"; payload: boolean }
+  | { type: "SET_FONT_FAMILY"; payload: string }
+  | { type: "SET_CLOTHING_COLOR_CONSISTENCY"; payload: boolean };
 
 // デフォルト状態
 const defaultState: SettingsState = {
@@ -114,12 +135,18 @@ const defaultState: SettingsState = {
   inpaintMask: DEFAULT_INPAINT_MASK_STATE,
   changeSettings: DEFAULT_CHANGE_SETTINGS,
   showAchievementNotifications: true,
+  showRealityAttributeNotification: true,
   experimentalEndingEnabled: false,
   soundEnabled: true,
   soundVolume: 0.5,
   rightPanelOpen: false,
   preciseReferences: [],
   selfProfile: null,
+  seed: null,
+  enableSurroundingsImage: false,
+  surroundingsIncludePeople: false,
+  fontFamily: "system",
+  clothingColorConsistency: false,
 };
 
 // Reducer
@@ -176,6 +203,8 @@ function settingsReducer(
       };
     case "SET_SHOW_ACHIEVEMENT_NOTIFICATIONS":
       return { ...state, showAchievementNotifications: action.payload };
+    case "SET_SHOW_REALITY_ATTRIBUTE_NOTIFICATION":
+      return { ...state, showRealityAttributeNotification: action.payload };
     case "SET_EXPERIMENTAL_ENDING_ENABLED":
       return { ...state, experimentalEndingEnabled: action.payload };
     case "SET_SOUND_ENABLED":
@@ -211,6 +240,16 @@ function settingsReducer(
       return { ...state, preciseReferences: [] };
     case "SET_SELF_PROFILE":
       return { ...state, selfProfile: action.payload };
+    case "SET_SEED":
+      return { ...state, seed: action.payload };
+    case "SET_ENABLE_SURROUNDINGS_IMAGE":
+      return { ...state, enableSurroundingsImage: action.payload };
+    case "SET_SURROUNDINGS_INCLUDE_PEOPLE":
+      return { ...state, surroundingsIncludePeople: action.payload };
+    case "SET_FONT_FAMILY":
+      return { ...state, fontFamily: action.payload };
+    case "SET_CLOTHING_COLOR_CONSISTENCY":
+      return { ...state, clothingColorConsistency: action.payload };
     default:
       return state;
   }
@@ -234,6 +273,7 @@ interface SettingsContextType {
   toggleInpaint: () => void;
   setChangeSettings: (settings: Partial<ChangeSettings>) => void;
   setShowAchievementNotifications: (show: boolean) => void;
+  setShowRealityAttributeNotification: (show: boolean) => void;
   setExperimentalEndingEnabled: (enabled: boolean) => void;
   setSoundEnabled: (enabled: boolean) => void;
   setSoundVolume: (volume: number) => void;
@@ -250,6 +290,11 @@ interface SettingsContextType {
   selfProfile: SelfProfile | null;
   setSelfProfile: (profile: SelfProfile | null) => void;
   loadSelfProfile: () => Promise<void>;
+  setSeed: (seed: number | null) => void;
+  setEnableSurroundingsImage: (enabled: boolean) => void;
+  setSurroundingsIncludePeople: (enabled: boolean) => void;
+  setFontFamily: (fontFamily: string) => void;
+  setClothingColorConsistency: (enabled: boolean) => void;
 }
 
 // Context作成
@@ -258,28 +303,32 @@ const SettingsContext = createContext<SettingsContextType | null>(null);
 // localStorage キー
 const STORAGE_KEY = "app_settings";
 
+// Lazy initializer: load settings from localStorage synchronously
+// to avoid race condition where the save effect overwrites before dispatch is processed
+function loadInitialState(initial: SettingsState): SettingsState {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      // imageProviderはバックエンドから取得するため除外
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { imageProvider: _ignored, ...rest } = parsed;
+      return { ...initial, ...rest };
+    }
+  } catch (error) {
+    console.error("Failed to load settings from localStorage:", error);
+  }
+  return initial;
+}
+
 // Provider コンポーネント
 export function SettingsProvider({ children }: { children: ReactNode }) {
-  const [state, dispatch] = useReducer(settingsReducer, defaultState);
-  const isInitializedRef = useRef(false);
-
-  // 初回ロード時にlocalStorageから復元
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        // imageProviderはバックエンドから取得するため除外
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        const { imageProvider: _ignored, ...rest } = parsed;
-        dispatch({ type: "LOAD_SETTINGS", payload: rest });
-      }
-    } catch (error) {
-      console.error("Failed to load settings from localStorage:", error);
-    }
-    // 初期化完了をマーク
-    isInitializedRef.current = true;
-  }, []);
+  const [state, dispatch] = useReducer(
+    settingsReducer,
+    defaultState,
+    loadInitialState,
+  );
+  const isInitializedRef = useRef(true);
 
   // 初回ロード時にバックエンドから画像プロバイダーを取得
   useEffect(() => {
@@ -355,6 +404,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         imageProvider: _ignored,
         preciseReferences: _ignored2,
         selfProfile: _ignored3,
+        seed: _ignored4,
         ...rest
       } = state;
       /* eslint-enable @typescript-eslint/no-unused-vars */
@@ -369,6 +419,23 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       void i18n.changeLanguage(state.language);
     }
   }, [state.language]);
+
+  // Apply font family to document root (fonts are bundled via @fontsource)
+  useEffect(() => {
+    const fontMap: Record<string, string> = {
+      "browser-default": "initial",
+      system:
+        '"Segoe UI", "Noto Sans", system-ui, -apple-system, "Hiragino Sans", sans-serif',
+      "biz-udgothic": '"BIZ UDGothic", "Segoe UI", system-ui, sans-serif',
+      "noto-sans-jp": '"Noto Sans JP", "Segoe UI", system-ui, sans-serif',
+      "biz-udmincho": '"BIZ UDMincho", "Segoe UI", system-ui, serif',
+      inter: '"Inter", "Segoe UI", system-ui, sans-serif',
+      "roboto-mono": '"Roboto Mono", "Courier New", monospace',
+    };
+
+    const fontValue = fontMap[state.fontFamily] ?? fontMap.system;
+    document.documentElement.style.setProperty("--app-font-family", fontValue);
+  }, [state.fontFamily]);
 
   // アクション関数
   const setDifficulty = useCallback(
@@ -479,6 +546,13 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "SET_SHOW_ACHIEVEMENT_NOTIFICATIONS", payload: show });
   }, []);
 
+  const setShowRealityAttributeNotification = useCallback((show: boolean) => {
+    dispatch({
+      type: "SET_SHOW_REALITY_ATTRIBUTE_NOTIFICATION",
+      payload: show,
+    });
+  }, []);
+
   const setExperimentalEndingEnabled = useCallback((enabled: boolean) => {
     dispatch({ type: "SET_EXPERIMENTAL_ENDING_ENABLED", payload: enabled });
   }, []);
@@ -534,6 +608,26 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const setSeed = useCallback((seed: number | null) => {
+    dispatch({ type: "SET_SEED", payload: seed });
+  }, []);
+
+  const setEnableSurroundingsImage = useCallback((enabled: boolean) => {
+    dispatch({ type: "SET_ENABLE_SURROUNDINGS_IMAGE", payload: enabled });
+  }, []);
+
+  const setSurroundingsIncludePeople = useCallback((enabled: boolean) => {
+    dispatch({ type: "SET_SURROUNDINGS_INCLUDE_PEOPLE", payload: enabled });
+  }, []);
+
+  const setFontFamily = useCallback((fontFamily: string) => {
+    dispatch({ type: "SET_FONT_FAMILY", payload: fontFamily });
+  }, []);
+
+  const setClothingColorConsistency = useCallback((enabled: boolean) => {
+    dispatch({ type: "SET_CLOTHING_COLOR_CONSISTENCY", payload: enabled });
+  }, []);
+
   const value: SettingsContextType = {
     state,
     setDifficulty,
@@ -548,6 +642,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     toggleInpaint,
     setChangeSettings,
     setShowAchievementNotifications,
+    setShowRealityAttributeNotification,
     setExperimentalEndingEnabled,
     setSoundEnabled,
     setSoundVolume,
@@ -560,6 +655,11 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     selfProfile: state.selfProfile,
     setSelfProfile,
     loadSelfProfile,
+    setSeed,
+    setEnableSurroundingsImage,
+    setSurroundingsIncludePeople,
+    setFontFamily,
+    setClothingColorConsistency,
   };
 
   return (

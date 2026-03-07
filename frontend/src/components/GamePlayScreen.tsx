@@ -25,10 +25,14 @@ import ChatInput from "./chat/ChatInput";
 import WelcomeScreen from "./chat/WelcomeScreen";
 import InpaintModal from "./InpaintModal";
 import ImagePreviewModal from "./ImagePreviewModal";
+import ImageOverlay from "./ui/ImageOverlay";
 import { useGame } from "../contexts/GameContext";
 import { useChat } from "../contexts/ChatContext";
 import { useSettings } from "../contexts/SettingsContext";
 import { API_BASE } from "../utils/api";
+import { fetchAnlasBalance } from "../apis/anlas";
+import { deleteGalleryItem } from "../apis/gallery";
+import { deleteLatestHistory } from "../apis/game";
 import type {
   ChangeSettings,
   ConversationMessage,
@@ -87,6 +91,28 @@ interface GamePlayScreenProps {
   selfMode?: boolean;
   // 007: セッション開始時のコールバック（App.tsx側でuseSession.restoreSession()を呼ぶため）
   onSessionStart?: () => void;
+  // US4: Last generated seed value
+  lastGeneratedSeed?: number | null;
+  // US5: Anlas balance (NovelAI only)
+  anlasBalance?: {
+    fixedAnlas: number;
+    purchasedAnlas: number;
+    totalAnlas: number;
+  } | null;
+  onAnlasBalanceChange?: (
+    balance: {
+      fixedAnlas: number;
+      purchasedAnlas: number;
+      totalAnlas: number;
+    } | null,
+  ) => void;
+  // US2: Last surroundings image from SSE
+  lastSurroundingsImage?: {
+    imageBase64: string;
+    historyId: string;
+    seed?: number;
+  } | null;
+  onClearSurroundingsImage?: () => void;
 }
 
 /* eslint-disable @typescript-eslint/no-unused-vars */
@@ -117,6 +143,11 @@ export default function GamePlayScreen({
   imageProvider,
   selfMode: selfModeProp = false,
   onSessionStart,
+  lastGeneratedSeed,
+  anlasBalance,
+  onAnlasBalanceChange,
+  lastSurroundingsImage,
+  onClearSurroundingsImage,
 }: GamePlayScreenProps) {
   const { t } = useTranslation();
   const location = useLocation();
@@ -141,6 +172,9 @@ export default function GamePlayScreen({
     setMessageStreaming,
     appendToMessage: _appendToMessage,
     setStreaming: _setStreaming,
+    clearInput,
+    setInputText,
+    setInstructionType,
     messageListRef,
   } = useChat();
   const {
@@ -176,6 +210,26 @@ export default function GamePlayScreen({
 
   // T031: 画像拡大プレビューモーダル
   const [showImagePreviewModal, setShowImagePreviewModal] = useState(false);
+
+  // US2: 周囲状況画像拡大モーダル
+  const [surroundingsOverlayUrl, setSurroundingsOverlayUrl] = useState<
+    string | null
+  >(null);
+
+  // メッセージ削除確認モーダル
+  const [deleteMessageConfirm, setDeleteMessageConfirm] = useState<{
+    messageId: string;
+    historyId: string;
+    responsePreview: string;
+  } | null>(null);
+  const [isDeletingMessage, setIsDeletingMessage] = useState(false);
+
+  // 最新メッセージ編集・再生成確認モーダル
+  const [editMessageConfirm, setEditMessageConfirm] = useState<{
+    messageId: string;
+    content: string;
+  } | null>(null);
+  const [isEditingMessage, setIsEditingMessage] = useState(false);
 
   // Anlas cost confirmation dialog for precise references
   const [anlasConfirmPending, setAnlasConfirmPending] = useState<{
@@ -218,7 +272,7 @@ export default function GamePlayScreen({
             | "conversation"
             | "action",
         });
-        // 心境テキスト（存在し、画質改善でない場合）
+        // US2: Attach surroundings image to the character's feeling text message
         if (h.feelingText && h.feelingText !== "(画質改善)") {
           allMessages.push({
             id: `feeling-${h.id}`,
@@ -227,6 +281,7 @@ export default function GamePlayScreen({
             content: `💭 ${h.feelingText}`,
             createdAt: h.timestamp,
             isFeelingText: true,
+            surroundingsImageUrl: h.surroundingsImageUrl,
           });
         }
       }
@@ -341,6 +396,17 @@ export default function GamePlayScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
 
+  // US5: Initial Anlas balance fetch (NovelAI only)
+  useEffect(() => {
+    if (imageProvider === "novelai" && onAnlasBalanceChange) {
+      fetchAnlasBalance().then((balance) => {
+        if (balance) {
+          onAnlasBalanceChange(balance);
+        }
+      });
+    }
+  }, [imageProvider, onAnlasBalanceChange]);
+
   // 心境テキストをチャットメッセージとして追加（ストリーミング対応）
   // ストリーミング中は既存のfeelingメッセージを更新し、完了時に新規追加
   const prevFeelingRef = React.useRef<string | null>(null);
@@ -403,6 +469,35 @@ export default function GamePlayScreen({
     updateMessage,
     setMessageStreaming,
     isTransforming,
+  ]);
+
+  // US2: Update message with surroundings image when received
+  // Attach to the character's feeling text message (not the user's action message)
+  useEffect(() => {
+    if (lastSurroundingsImage && sessionId) {
+      const { imageBase64 } = lastSurroundingsImage;
+      // Find the most recent feeling-text system message (character response)
+      const feelingMsg = [...chatState.messages]
+        .reverse()
+        .find(
+          (m) =>
+            m.role === "system" && m.isFeelingText && !m.surroundingsImageUrl,
+        );
+      if (feelingMsg) {
+        const dataUrl = `data:image/png;base64,${imageBase64}`;
+        updateMessage(feelingMsg.id, feelingMsg.content, {
+          surroundingsImageUrl: dataUrl,
+        });
+      }
+      // Clear the surroundings image state
+      onClearSurroundingsImage?.();
+    }
+  }, [
+    lastSurroundingsImage,
+    sessionId,
+    chatState.messages,
+    updateMessage,
+    onClearSurroundingsImage,
   ]);
 
   // 右パネルトグル（SettingsContext経由でlocalStorageに永続化）
@@ -651,6 +746,87 @@ export default function GamePlayScreen({
     }
   }, [currentImageUrl]);
 
+  // プロンプトプレビューからのオーバーライド送信
+  const handleSendWithPromptOverride = useCallback(
+    (override: string) => {
+      if (!sessionId || isTransforming) return;
+      const message = chatState.inputText.trim();
+      const instructionType = chatState.instructionType;
+      if (!message || instructionType === "conversation") return;
+
+      // ユーザーメッセージをチャットに追加
+      const now = new Date().toISOString();
+      const userMsg: ChatMessage = {
+        id: `user-${Date.now()}`,
+        sessionId,
+        role: "user",
+        content: message,
+        createdAt: now,
+        instructionType: instructionType as
+          | "dress_up"
+          | "reality_alter"
+          | "action",
+      };
+      addMessage(userMsg);
+
+      const transformationType =
+        instructionType === "reality_alter" ? "reality" : "costume";
+      const backendInstructionType =
+        instructionType === "action" ? "action" : instructionType;
+
+      // prompt_override を含むオプションでtransformを実行
+      const transformOptions: {
+        promptOverride: string;
+        maskImage?: string;
+        maskId?: string;
+        inpaintStrength?: number;
+        inpaintNoise?: number;
+        negativePrompt?: string;
+      } = {
+        promptOverride: override,
+      };
+
+      if (imageProvider === "novelai") {
+        transformOptions.inpaintStrength = inpaintSettings.i2iStrength;
+        transformOptions.inpaintNoise = inpaintSettings.inpaintNoise;
+        if (inpaintSettings.negativePrompt) {
+          transformOptions.negativePrompt = inpaintSettings.negativePrompt;
+        }
+        if (settingsState.inpaintEnabled && maskDataUrl) {
+          transformOptions.maskImage = maskDataUrl;
+          transformOptions.maskId = selectedMaskId || undefined;
+        }
+      }
+
+      onTransform(
+        message,
+        undefined,
+        changeSettings,
+        transformationType,
+        transformOptions,
+        backendInstructionType,
+      );
+
+      // 入力をクリア
+      clearInput();
+    },
+    [
+      sessionId,
+      isTransforming,
+      chatState.inputText,
+      chatState.instructionType,
+      addMessage,
+      onTransform,
+      changeSettings,
+      imageProvider,
+      inpaintSettings,
+      settingsState.inpaintEnabled,
+      maskDataUrl,
+      selectedMaskId,
+      clearInput,
+    ],
+  );
+
   // Anlas confirmation dialog handlers
   const handleAnlasConfirm = useCallback(() => {
     if (!anlasConfirmPending) return;
@@ -676,6 +852,183 @@ export default function GamePlayScreen({
     setAnlasConfirmPending(null);
   }, []);
 
+  // メッセージ削除の確認ダイアログを表示
+  const handleRequestDeleteMessage = useCallback(
+    (messageId: string) => {
+      // user-{historyId} から historyId を抽出
+      const historyId = messageId.replace(/^user-/, "");
+
+      // Temporary guard: right after sending, the ID is still a timestamp (not UUID).
+      // In that case, prompt the user to reload.
+      if (
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+          historyId,
+        )
+      ) {
+        alert(t("gameplay.messageRequiresReload"));
+        return;
+      }
+
+      // 対応する応答メッセージ (feeling-{historyId}) を取得してプレビューを作成
+      const feelingMsg = chatState.messages.find(
+        (m) => m.id === `feeling-${historyId}`,
+      );
+      const preview = feelingMsg
+        ? feelingMsg.content.slice(0, 30) +
+          (feelingMsg.content.length > 30 ? "..." : "")
+        : "";
+
+      setDeleteMessageConfirm({
+        messageId,
+        historyId,
+        responsePreview: preview,
+      });
+    },
+    [chatState.messages, t],
+  );
+
+  // メッセージ削除を実行
+  const handleConfirmDeleteMessage = useCallback(async () => {
+    if (!deleteMessageConfirm) return;
+
+    const { historyId } = deleteMessageConfirm;
+
+    try {
+      setIsDeletingMessage(true);
+      // バックエンドの履歴アイテムを削除
+      await deleteGalleryItem(historyId);
+
+      // チャットメッセージから対象のユーザーメッセージ + 応答メッセージを除去
+      // The feeling message created during streaming uses "feeling-{Date.now()}"
+      // (not historyId), so we find it by position after the user message.
+      const userMsgIdx = chatState.messages.findIndex(
+        (m) => m.id === `user-${historyId}`,
+      );
+      const idsToRemove = new Set<string>();
+      if (userMsgIdx !== -1) {
+        idsToRemove.add(chatState.messages[userMsgIdx].id);
+        for (let i = userMsgIdx + 1; i < chatState.messages.length; i++) {
+          const m = chatState.messages[i];
+          if (m.role === "system" && m.isFeelingText) {
+            idsToRemove.add(m.id);
+            break;
+          }
+          if (m.role === "user") break;
+        }
+      }
+      setMessages(chatState.messages.filter((m) => !idsToRemove.has(m.id)));
+
+      setDeleteMessageConfirm(null);
+    } catch (err) {
+      console.error("Failed to delete message:", err);
+      setDeleteMessageConfirm(null);
+    } finally {
+      setIsDeletingMessage(false);
+    }
+  }, [deleteMessageConfirm, chatState.messages, setMessages]);
+
+  // 最新メッセージ編集リクエスト（確認ダイアログを表示）
+  const handleRequestEditMessage = useCallback(
+    (messageId: string, content: string) => {
+      // Temporary guard: right after sending, the ID is still a timestamp (not UUID).
+      const historyId = messageId.replace(/^user-/, "");
+      if (
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+          historyId,
+        )
+      ) {
+        alert(t("gameplay.messageRequiresReload"));
+        return;
+      }
+
+      setEditMessageConfirm({ messageId, content });
+    },
+    [t],
+  );
+
+  // 最新メッセージ編集を確定して実行
+  const handleConfirmEditMessage = useCallback(async () => {
+    if (!editMessageConfirm || !sessionId) return;
+
+    const { messageId, content } = editMessageConfirm;
+    const historyId = messageId.replace(/^user-/, "");
+
+    try {
+      setIsEditingMessage(true);
+
+      // Backend: delete latest history
+      const result = await deleteLatestHistory(sessionId);
+
+      // Chat messages: remove user message + corresponding feeling message
+      // The user message ID is "user-{historyId}", but the feeling message
+      // created during streaming uses "feeling-{Date.now()}" (not historyId).
+      // So we find the feeling message by locating the one that immediately
+      // follows the user message in the list.
+      const userMsgIdx = chatState.messages.findIndex(
+        (m) => m.id === `user-${historyId}`,
+      );
+      const idsToRemove = new Set<string>();
+      if (userMsgIdx !== -1) {
+        idsToRemove.add(chatState.messages[userMsgIdx].id);
+        // Find the corresponding feeling/system message after the user message
+        for (let i = userMsgIdx + 1; i < chatState.messages.length; i++) {
+          const m = chatState.messages[i];
+          if (m.role === "system" && m.isFeelingText) {
+            idsToRemove.add(m.id);
+            break;
+          }
+          if (m.role === "user") break; // next user message reached
+        }
+      }
+      setMessages(chatState.messages.filter((m) => !idsToRemove.has(m.id)));
+
+      // Restore instruction text to input
+      setInputText(content);
+
+      // Restore instruction type
+      if (result.restored_instruction_type) {
+        setInstructionType(
+          result.restored_instruction_type as
+            | "dress_up"
+            | "reality_alter"
+            | "conversation"
+            | "action",
+        );
+      }
+
+      // Restore image: use history API URL with restored history ID
+      if (result.restored_history_id) {
+        setCurrentImage(
+          `${API_BASE}/history/images/${result.restored_history_id}`,
+        );
+      }
+
+      // Re-sync full session state (image URL, history, stats, etc.)
+      // Reset the message restoration flag so the useEffect will rebuild
+      // messages from fresh history + chatHistory after restoreSession.
+      hasRestoredMessagesRef.current = false;
+      if (onSessionStart) {
+        await onSessionStart();
+      }
+
+      setEditMessageConfirm(null);
+    } catch (err) {
+      console.error("Failed to edit message:", err);
+      setEditMessageConfirm(null);
+    } finally {
+      setIsEditingMessage(false);
+    }
+  }, [
+    editMessageConfirm,
+    sessionId,
+    chatState.messages,
+    setMessages,
+    setInputText,
+    setInstructionType,
+    setCurrentImage,
+    onSessionStart,
+  ]);
+
   // インペイントトグル時のハンドラ
   const handleInpaintToggle = useCallback(
     (enabled: boolean) => {
@@ -700,6 +1053,7 @@ export default function GamePlayScreen({
     <RightPanel
       onClose={togglePanel}
       onOpenInpaintModal={() => setShowInpaintModal(true)}
+      onSendWithPromptOverride={handleSendWithPromptOverride}
     />
   );
 
@@ -726,6 +1080,28 @@ export default function GamePlayScreen({
             </button>
           </div>
         )}
+        {/* US5: Anlas balance display (NovelAI only) */}
+        {imageProvider === "novelai" && anlasBalance && (
+          <div className="game-play-screen__anlas-bar">
+            <span className="game-play-screen__anlas-label">
+              Anlas: {anlasBalance.totalAnlas.toLocaleString()}
+            </span>
+            <span
+              className="game-play-screen__anlas-detail"
+              title={t(
+                "gameplay.anlasBreakdown",
+                "Fixed: {{fixed}}, Purchased: {{purchased}}",
+                {
+                  fixed: anlasBalance.fixedAnlas.toLocaleString(),
+                  purchased: anlasBalance.purchasedAnlas.toLocaleString(),
+                },
+              )}
+            >
+              ({anlasBalance.fixedAnlas.toLocaleString()} +{" "}
+              {anlasBalance.purchasedAnlas.toLocaleString()})
+            </span>
+          </div>
+        )}
         {!isSessionActive ? (
           <WelcomeScreen onSessionStart={onSessionStart} />
         ) : (
@@ -739,6 +1115,33 @@ export default function GamePlayScreen({
                 transformationCount={_transformationCount}
                 isTransforming={isTransforming}
               />
+              {/* US4: Seed display */}
+              {lastGeneratedSeed !== null &&
+                lastGeneratedSeed !== undefined && (
+                  <div
+                    className="game-play-screen__seed-display"
+                    title={t("gameplay.seedTooltip", "Click to copy seed")}
+                    onClick={() => {
+                      void navigator.clipboard.writeText(
+                        String(lastGeneratedSeed),
+                      );
+                    }}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        void navigator.clipboard.writeText(
+                          String(lastGeneratedSeed),
+                        );
+                      }
+                    }}
+                  >
+                    <span className="game-play-screen__seed-label">Seed:</span>
+                    <span className="game-play-screen__seed-value">
+                      {lastGeneratedSeed}
+                    </span>
+                  </div>
+                )}
             </div>
 
             {/* 右カラム: チャットエリア */}
@@ -750,6 +1153,11 @@ export default function GamePlayScreen({
                   highlightedMessageId={chatState.highlightedMessageId}
                   scrollToMessageId={chatState.scrollToMessageId}
                   isTyping={isTransforming}
+                  onSurroundingsImageClick={(url) =>
+                    setSurroundingsOverlayUrl(url)
+                  }
+                  onDeleteMessage={handleRequestDeleteMessage}
+                  onEditMessage={handleRequestEditMessage}
                 />
               </div>
 
@@ -877,6 +1285,117 @@ export default function GamePlayScreen({
                 }}
               >
                 {uiText.anlasProceed}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* メッセージ削除確認ダイアログ */}
+      {deleteMessageConfirm && (
+        <div
+          className="game-play-screen__delete-modal-overlay"
+          onClick={() => !isDeletingMessage && setDeleteMessageConfirm(null)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape" && !isDeletingMessage)
+              setDeleteMessageConfirm(null);
+          }}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-msg-modal-title"
+        >
+          <div
+            className="game-play-screen__delete-modal"
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={() => {}}
+            role="document"
+          >
+            <h3 id="delete-msg-modal-title">
+              {t("gameplay.deleteMessageTitle")}
+            </h3>
+            <p>{t("gameplay.deleteMessageConfirm")}</p>
+            {deleteMessageConfirm.responsePreview && (
+              <p className="game-play-screen__delete-modal-preview">
+                {t("gameplay.deleteMessageResponsePreview", {
+                  preview: deleteMessageConfirm.responsePreview,
+                })}
+              </p>
+            )}
+            <div className="game-play-screen__delete-modal-actions">
+              <button
+                type="button"
+                onClick={handleConfirmDeleteMessage}
+                disabled={isDeletingMessage}
+                className="game-play-screen__delete-modal-confirm"
+              >
+                {t("gameplay.deleteMessageAction")}
+              </button>
+              <button
+                type="button"
+                onClick={() => setDeleteMessageConfirm(null)}
+                disabled={isDeletingMessage}
+                className="game-play-screen__delete-modal-cancel"
+              >
+                {t("gameplay.deleteMessageCancel")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* US2: 周囲状況画像拡大表示 */}
+      {surroundingsOverlayUrl && (
+        <ImageOverlay
+          imageUrl={surroundingsOverlayUrl}
+          alt="周囲状況画像"
+          onClose={() => setSurroundingsOverlayUrl(null)}
+        />
+      )}
+
+      {/* 最新メッセージ編集確認ダイアログ */}
+      {editMessageConfirm && (
+        <div
+          className="game-play-screen__delete-modal-overlay"
+          onClick={() => !isEditingMessage && setEditMessageConfirm(null)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape" && !isEditingMessage)
+              setEditMessageConfirm(null);
+          }}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="edit-msg-modal-title"
+        >
+          <div
+            className="game-play-screen__delete-modal"
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={() => {}}
+            role="document"
+          >
+            <h3 id="edit-msg-modal-title">{t("gameplay.editMessageTitle")}</h3>
+            <p>{t("gameplay.editMessageConfirm")}</p>
+            <p
+              className="game-play-screen__delete-modal-preview"
+              style={{ fontStyle: "italic" }}
+            >
+              {editMessageConfirm.content.slice(0, 60)}
+              {editMessageConfirm.content.length > 60 ? "..." : ""}
+            </p>
+            <div className="game-play-screen__delete-modal-actions">
+              <button
+                type="button"
+                onClick={handleConfirmEditMessage}
+                disabled={isEditingMessage}
+                className="game-play-screen__delete-modal-confirm"
+              >
+                {t("gameplay.editMessageAction")}
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditMessageConfirm(null)}
+                disabled={isEditingMessage}
+                className="game-play-screen__delete-modal-cancel"
+              >
+                {t("gameplay.editMessageCancel")}
               </button>
             </div>
           </div>

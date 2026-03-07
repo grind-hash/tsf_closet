@@ -71,6 +71,8 @@ export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
   );
   const [customPersonality, setCustomPersonality] = useState("");
   const [customGender, setCustomGender] = useState("other");
+  const [customBaseTags, setCustomBaseTags] = useState("");
+  const [isGeneratingTags, setIsGeneratingTags] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // 009: カスタム画像サイズ警告用state
@@ -193,6 +195,10 @@ export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
     setCustomPronoun(character.pronoun || t("chat.welcome.defaultPronoun"));
     setCustomPersonality(character.personality);
     setCustomGender(character.gender || "other");
+    // base_tagsが保存済みなら復元
+    setCustomBaseTags(
+      (character as CustomCharacter & { base_tags?: string }).base_tags || "",
+    );
   };
 
   // ゲーム開始ハンドラ
@@ -222,6 +228,7 @@ export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
             pronoun: customPronoun || t("chat.welcome.defaultPronoun"),
             personality: customPersonality,
             gender: customGender || "other",
+            base_tags: customBaseTags,
           }),
         });
         if (!response.ok) throw new Error(t("chat.welcome.startSessionError"));
@@ -426,6 +433,49 @@ export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
               <option value="woman">{t("chat.welcome.genderWoman")}</option>
               <option value="other">{t("chat.welcome.genderOther")}</option>
             </select>
+            <div className="welcome-screen__base-tags-row">
+              <input
+                type="text"
+                value={customBaseTags}
+                onChange={(e) => setCustomBaseTags(e.target.value)}
+                placeholder={t("chat.welcome.baseTagsPlaceholder")}
+              />
+              <button
+                type="button"
+                className="welcome-screen__generate-tags-btn"
+                disabled={isGeneratingTags || !customDescription.trim()}
+                onClick={async () => {
+                  setIsGeneratingTags(true);
+                  try {
+                    const resp = await fetch(
+                      `${API_BASE}/game/generate-base-tags`,
+                      {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          name: customName,
+                          description: customDescription,
+                          gender: customGender,
+                          personality: customPersonality,
+                        }),
+                      },
+                    );
+                    if (resp.ok) {
+                      const data = await resp.json();
+                      setCustomBaseTags(data.base_tags || "");
+                    }
+                  } catch (err) {
+                    console.error("Failed to generate base tags:", err);
+                  } finally {
+                    setIsGeneratingTags(false);
+                  }
+                }}
+              >
+                {isGeneratingTags
+                  ? t("chat.welcome.generatingTags")
+                  : t("chat.welcome.generateTags")}
+              </button>
+            </div>
           </div>
         )}
       </div>

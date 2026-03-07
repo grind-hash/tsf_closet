@@ -9,17 +9,28 @@ import type {
   SSEEndingData,
   SSECriticalData,
   SSEAchievementData,
+  AnlasBalance,
 } from "../types";
 
 export interface UseSSEOptions {
   onText?: (chunk: string) => void;
-  onImage?: (imageBase64: string, historyId: string) => void;
+  onImage?: (imageBase64: string, historyId: string, seed?: number) => void;
+  onSurroundingsImage?: (
+    imageBase64: string,
+    historyId: string,
+    seed?: number,
+  ) => void;
   onStats?: (stats: SSEStatsData) => void;
   onCritical?: (data: SSECriticalData) => void;
   onEnding?: (data: SSEEndingData) => void;
   onAchievement?: (data: SSEAchievementData) => void;
   onComplete?: (historyId: string, transformationCount: number) => void;
   onCost?: (cost: number) => void;
+  onAnlas?: (balance: AnlasBalance) => void;
+  onRealityAttributeAdded?: (data: {
+    attribute_id: string;
+    attribute_text: string;
+  }) => void;
   onError?: (message: string) => void;
 }
 
@@ -63,7 +74,16 @@ export function useSSE(options: UseSSEOptions): UseSSEReturn {
             break;
           case "image":
             if (options.onImage) {
-              options.onImage(data.image, data.history_id);
+              options.onImage(data.image, data.history_id, data.seed);
+            }
+            break;
+          case "surroundings_image":
+            if (options.onSurroundingsImage) {
+              options.onSurroundingsImage(
+                data.image,
+                data.history_id,
+                data.seed,
+              );
             }
             break;
           case "stats":
@@ -98,6 +118,20 @@ export function useSSE(options: UseSSEOptions): UseSSEReturn {
           case "cost":
             if (options.onCost) {
               options.onCost(data.cost_usd);
+            }
+            break;
+          case "anlas":
+            if (options.onAnlas) {
+              options.onAnlas({
+                fixedAnlas: data.fixed_anlas ?? 0,
+                purchasedAnlas: data.purchased_anlas ?? 0,
+                totalAnlas: data.total_anlas ?? 0,
+              });
+            }
+            break;
+          case "reality_attribute_added":
+            if (options.onRealityAttributeAdded) {
+              options.onRealityAttributeAdded(data);
             }
             break;
           case "error":

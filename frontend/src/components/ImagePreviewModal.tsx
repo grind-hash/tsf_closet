@@ -3,7 +3,7 @@
  * T027-T032: キャラクター画像クリックで拡大表示
  */
 
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import "./ImagePreviewModal.css";
 
@@ -31,7 +31,38 @@ export default function ImagePreviewModal({
 }: ImagePreviewModalProps) {
   const { t } = useTranslation();
   const resolvedAlt = alt || t("imagePreview.imageAlt");
-  // T028: ESCキーで閉じる、左右キーでナビゲーション
+
+  // Swipe detection for mobile
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const SWIPE_THRESHOLD = 50;
+
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    const touch = e.touches[0];
+    touchStartRef.current = { x: touch.clientX, y: touch.clientY };
+  }, []);
+
+  const handleTouchEnd = useCallback(
+    (e: React.TouchEvent) => {
+      if (!touchStartRef.current) return;
+      const touch = e.changedTouches[0];
+      const deltaX = touch.clientX - touchStartRef.current.x;
+      const deltaY = touch.clientY - touchStartRef.current.y;
+      touchStartRef.current = null;
+
+      // Only trigger if horizontal swipe is dominant
+      if (Math.abs(deltaX) < SWIPE_THRESHOLD) return;
+      if (Math.abs(deltaY) > Math.abs(deltaX)) return;
+
+      if (deltaX > 0 && onPrev && hasPrev) {
+        onPrev();
+      } else if (deltaX < 0 && onNext && hasNext) {
+        onNext();
+      }
+    },
+    [onPrev, onNext, hasPrev, hasNext],
+  );
+
+  // T028: ESC key and arrow key navigation
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -70,6 +101,8 @@ export default function ImagePreviewModal({
     <div
       className="image-preview-modal__overlay"
       onClick={handleOverlayClick}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
       role="dialog"
       aria-modal="true"
       aria-label={t("imagePreview.dialogAria")}

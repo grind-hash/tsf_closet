@@ -371,6 +371,11 @@ class PlayRequest(BaseModel):
     transformation_type: str = Field(
         "costume", description="変身タイプ (costume=衣装変更, reality=現実改変)"
     )
+    # 指示タイプ: dress_up, reality_alter, action, conversation
+    instruction_type: Optional[str] = Field(
+        None,
+        description="指示タイプ (dress_up, reality_alter, action, conversation)",
+    )
     language: Optional[str] = Field(
         None, description="応答言語（ja/en、未指定時はユーザー設定を使用）"
     )
@@ -423,6 +428,12 @@ class HistoryItem(BaseModel):
     )
     age_impression: Optional[str] = Field(
         None, description="年齢印象 (mature/neutral/youthful)"
+    )
+    # US4: seed value
+    seed: Optional[int] = Field(None, description="画像生成seed値")
+    # US2: surroundings image
+    surroundings_image_url: Optional[str] = Field(
+        None, description="周囲状況画像URL (action時のみ)"
     )
 
 
@@ -779,6 +790,7 @@ class Character:
     pronoun: str = "僕"
     personality: str = ""
     gender: str = "man"
+    base_tags: str = ""
 
 
 @dataclass
@@ -797,6 +809,8 @@ class PersistedHistory:
     after_description: Optional[str]
     created_at: datetime
     instruction_type: Optional[str] = None
+    seed: Optional[int] = None
+    surroundings_image_path: Optional[str] = None
 
     @classmethod
     def from_row(cls, row: dict) -> "PersistedHistory":

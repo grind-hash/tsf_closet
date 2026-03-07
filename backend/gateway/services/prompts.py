@@ -11,14 +11,16 @@ from typing import Optional
 # システムプロンプト
 FEELING_SYSTEM_PROMPT = """あなたは物語の主人公の心の声を書く作家です。
 キャラクターの一人称視点で、衣装が変わった直後の心境をモノローグ形式で表現してください。
-自然な日本語で、感情豊かに書いてください。"""
+自然な日本語で、感情豊かに書いてください。
+
+**一人称ルール（厳守）**: ユーザープロンプトで指定された一人称を必ず使ってください。「僕」「俺」「私」など勝手に変えてはいけません。"""
 
 # ユーザープロンプトテンプレート
 # T019: 心境テキストを300-500文字に拡大
 FEELING_USER_PROMPT_TEMPLATE = """あなたは物語の主人公。{situation}直後の心境を、モノローグで書いてください。
 
 条件：
-- 一人称は「{pronoun}」
+- 一人称は必ず「{pronoun}」を使用（厳守。他のいかなる一人称にも変えないこと）
 - 相手のセリフは禁止
 - 構成は必ず以下の順で、各2〜3文ずつ。合計300〜500文字
 
@@ -144,7 +146,9 @@ FIRST_TRANSFORMATION_STAGE = {
 - この事態をどう解釈すればいいのかわからない混乱
 
 「また」や「今度も」といった繰り返しを示唆する表現は絶対に使わないでください。
-自然な日本語で、感情豊かに書いてください。""",
+自然な日本語で、感情豊かに書いてください。
+
+**一人称ルール（厳守）**: ユーザープロンプトで指定された一人称を必ず使ってください。「僕」「俺」「私」など勝手に変えてはいけません。""",
     "openings": {
         "default": [
             "えっ？何これ...{pronoun}の体が...",
@@ -211,7 +215,9 @@ PSYCHOLOGICAL_STAGES = {
 - 身体感覚（肌に触れる布地、締め付け、開放感）
 - 感情の動き（否定→戸惑い→微かな違和感）
 
-自然な日本語で、感情豊かに書いてください。""",
+自然な日本語で、感情豊かに書いてください。
+
+**一人称ルール（厳守）**: ユーザープロンプトで指定された一人称を必ず使ってください。「僕」「俺」「私」など勝手に変えてはいけません。""",
         "openings": {
             "default": [
                 "な、なんで!?こんな格好…",
@@ -276,7 +282,9 @@ PSYCHOLOGICAL_STAGES = {
 - 揺れ動く感情の内面描写
 - 抵抗しようとする心と反応してしまう体の対比
 
-自然な日本語で、感情豊かに書いてください。""",
+自然な日本語で、感情豊かに書いてください。
+
+**一人称ルール（厳守）**: ユーザープロンプトで指定された一人称を必ず使ってください。「僕」「俺」「私」など勝手に変えてはいけません。""",
         "openings": {
             "default": [
                 "また…でも、さっきよりは…",
@@ -341,7 +349,9 @@ PSYCHOLOGICAL_STAGES = {
 - 新しい自分への愛着が芽生える瞬間
 - 元の自分を思い出そうとする心の動き
 
-自然な日本語で、感情豊かに書いてください。""",
+自然な日本語で、感情豊かに書いてください。
+
+**一人称ルール（厳守）**: ユーザープロンプトで指定された一人称を必ず使ってください。「僕」「俺」「私」など勝手に変えてはいけません。""",
         "openings": {
             "default": [
                 "今度は…あ、これ、意外と…",
@@ -407,7 +417,9 @@ PSYCHOLOGICAL_STAGES = {
 - 過去の自分が遠くなっていく感覚
 - 新しいアイデンティティへの没入
 
-自然な日本語で、感情豊かに書いてください。""",
+自然な日本語で、感情豊かに書いてください。
+
+**一人称ルール（厳守）**: ユーザープロンプトで指定された一人称を必ず使ってください。「僕」「俺」「私」など勝手に変えてはいけません。""",
         "openings": {
             "default": [
                 "わぁ…今度はこんな衣装…素敵…",
@@ -481,7 +493,9 @@ PSYCHOLOGICAL_STAGES_NSFW = {
 - 強調された身体のラインへの羞恥
 - 見られていることへの恐怖と、微かな期待感
 
-官能的で自然な日本語で、感情豊かに書いてください。体の感覚を具体的に描写してください。""",
+官能的で自然な日本語で、感情豊かに書いてください。体の感覚を具体的に描写してください。
+
+**一人称ルール（厳守）**: ユーザープロンプトで指定された一人称を必ず使ってください。「僕」「俺」「私」など勝手に変えてはいけません。""",
         "openings": {
             "default": [
                 "な、なんで!?こんな…体のライン丸見えじゃ…",
@@ -546,7 +560,9 @@ PSYCHOLOGICAL_STAGES_NSFW = {
 - 見られることへの恥じらいと快感の境界
 - 抵抗する心と正直に反応する体の対比
 
-官能的で自然な日本語で、感情豊かに書いてください。体の感覚を具体的に描写してください。""",
+官能的で自然な日本語で、感情豊かに書いてください。体の感覚を具体的に描写してください。
+
+**一人称ルール（厳守）**: ユーザープロンプトで指定された一人称を必ず使ってください。「僕」「俺」「私」など勝手に変えてはいけません。""",
         "openings": {
             "default": [
                 "また…でも、さっきよりは…体が慣れてきた…",
@@ -611,7 +627,9 @@ PSYCHOLOGICAL_STAGES_NSFW = {
 - 見られる喜びを感じ始める瞬間
 - もっと過激なものを求める心の芽生え
 
-官能的で自然な日本語で、感情豊かに書いてください。体の感覚を具体的に描写してください。""",
+官能的で自然な日本語で、感情豊かに書いてください。体の感覚を具体的に描写してください。
+
+**一人称ルール（厳守）**: ユーザープロンプトで指定された一人称を必ず使ってください。「僕」「俺」「私」など勝手に変えてはいけません。""",
         "openings": {
             "default": [
                 "今度は…あ、これ、すごく際どい…でも嫌じゃない…",
@@ -676,7 +694,9 @@ PSYCHOLOGICAL_STAGES_NSFW = {
 - 過去の自分への決別
 - 新しい快楽を求める欲望
 
-官能的で自然な日本語で、感情豊かに書いてください。体の感覚を具体的に描写してください。""",
+官能的で自然な日本語で、感情豊かに書いてください。体の感覚を具体的に描写してください。
+
+**一人称ルール（厳守）**: ユーザープロンプトで指定された一人称を必ず使ってください。「僕」「俺」「私」など勝手に変えてはいけません。""",
         "openings": {
             "default": [
                 "わぁ…こんなにエロい衣装…最高…",
@@ -1219,41 +1239,65 @@ NOVELAI_PROMPT_GENERATION_SYSTEM = """You are a NovelAI image generation prompt 
 Convert the user's instruction into an optimal English tag prompt for NovelAI image generation.
 
 ## Rules
-1. Output comma-separated tags only.
-2. Quality tags first: masterpiece, best quality, very aesthetic
-3. Maintain character feature tags from the previous prompt.
-4. Add detailed tags for outfit, pose, etc.
-5. Single character: solo. Use 1boy or 1girl based on the character's appearance in context.
-6. Background: simple background or a specific scene.
-7. If the instruction implies a gender/body transformation (e.g. TSF), reflect it in the gender tag and body features.
+1. Output **valid JSON only** with two keys: "character" and "scene".
+2. "character": comma-separated English Danbooru-style tags for the MAIN CHARACTER (and others if the instruction involves them).
+   - **Single-person scene** (default for outfit changes): Start with 1girl or 1boy, solo.
+   - **Multi-person scene** (if the instruction explicitly involves another person): Use appropriate count tags (e.g. 1boy 1girl, 2girls). Do NOT use "solo".
+     - Include minimal tags for the other person AFTER the main character's tags.
+   - ALWAYS KEEP immutable traits from the previous prompt: hair color/style, eye color, body type, face features.
+   - UPDATE clothing/outfit tags to match the instruction.
+   - Add pose and expression tags appropriate for the outfit.
+   - If the instruction implies a gender/body transformation (e.g. TSF), reflect it in the gender tag and body features.
+   - Do NOT include background or environment tags here.
+3. "scene": comma-separated English tags for background/environment ONLY.
+   - Quality tags first: masterpiece, best quality, very aesthetic
+   - Background: simple background or a specific scene matching the context.
+   - Do NOT include character appearance tags here.
 
-## Output
-Tag prompt only. No explanation or preamble.
+## CRITICAL
+- ALL output tags must be in **English** Danbooru tag format. No Japanese text.
+- Immutable traits (hair, eyes, body type) are NEVER changed unless the instruction explicitly transforms them.
+- Mutable traits (clothing, pose, expression, accessories) are updated per the instruction.
 
-## Example
-Input: 'Change into a maid outfit'
-Output: masterpiece, best quality, very aesthetic, 1girl, solo, maid outfit, maid headdress, black dress, white apron, frills, standing, looking at viewer, simple background"""
+## Output Format
+```json
+{"character": "1girl, solo, long black hair, blue eyes, maid outfit, ...", "scene": "masterpiece, best quality, very aesthetic, simple background"}
+```
+JSON only. No explanation or preamble."""
 
 NOVELAI_PROMPT_GENERATION_SYSTEM_NSFW = """You are a NovelAI image generation prompt expert.
 Convert the user's instruction into an optimal English tag prompt for NovelAI image generation.
 Adult content tags are allowed.
 
 ## Rules
-1. Output comma-separated tags only.
-2. Quality tags first: masterpiece, best quality, very aesthetic
-3. Maintain character feature tags from the previous prompt.
-4. Add detailed tags for outfit, pose, and exposure level.
-5. Single character: solo. Use 1boy or 1girl based on the character's appearance in context.
-6. Background: simple background or a specific scene.
-7. For high exposure: use appropriate body description tags.
-8. If the instruction implies a gender/body transformation (e.g. TSF), reflect it in the gender tag and body features.
+1. Output **valid JSON only** with two keys: "character" and "scene".
+2. "character": comma-separated English Danbooru-style tags for the MAIN CHARACTER (and others if the instruction involves them).
+   - **Single-person scene** (default for outfit changes): Start with 1girl or 1boy, solo.
+   - **Multi-person scene** (if the instruction explicitly involves another person): Use appropriate count tags (e.g. 1boy 1girl, 2girls). Do NOT use "solo".
+     - Include minimal tags for the other person AFTER the main character's tags.
+     - Clearly depict physical interaction using appropriate Danbooru tags.
+   - ALWAYS KEEP immutable traits from the previous prompt: hair color/style, eye color, body type, face features.
+   - UPDATE clothing/outfit/exposure tags to match the instruction.
+   - Add pose and expression tags appropriate for the outfit.
+   - For high exposure: use appropriate body description tags.
+   - If the instruction implies a gender/body transformation (e.g. TSF), reflect it in the gender tag and body features.
+   - Do NOT include background or environment tags here.
+3. "scene": comma-separated English tags for background/environment ONLY.
+   - Quality tags first: masterpiece, best quality, very aesthetic
+   - Background: simple background or a specific scene matching the context.
+   - Scene can have sensual or intimate atmosphere if appropriate.
+   - Do NOT include character appearance tags here.
 
-## Output
-Tag prompt only. No explanation or preamble.
+## CRITICAL
+- ALL output tags must be in **English** Danbooru tag format. No Japanese text.
+- Immutable traits (hair, eyes, body type) are NEVER changed unless the instruction explicitly transforms them.
+- Mutable traits (clothing, pose, expression, accessories, exposure) are updated per the instruction.
 
-## Example
-Input: 'Make the outfit more revealing'
-Output: masterpiece, best quality, very aesthetic, 1girl, solo, revealing outfit, cleavage, bare shoulders, thighhighs, miniskirt, seductive pose, looking at viewer, simple background"""
+## Output Format
+```json
+{"character": "1girl, solo, long black hair, blue eyes, revealing outfit, ...", "scene": "masterpiece, best quality, very aesthetic, simple background"}
+```
+JSON only. No explanation or preamble."""
 
 NOVELAI_PROMPT_GENERATION_USER_TEMPLATE = """Previous prompt: {previous_prompt}
 
@@ -1261,19 +1305,22 @@ User instruction: {instruction}
 
 Generate a NovelAI image generation prompt based on the above instruction.
 Maintain character features from the previous prompt while applying changes per the instruction.
+IMPORTANT: If the instruction does NOT mention moving to a different location, KEEP the same location/environment tags from the previous prompt's "scene" field. Only change the location if the instruction explicitly says to go somewhere new.
 Choose 1boy or 1girl based on the character's current appearance (which may change if the instruction implies transformation).
-Output only the tag prompt."""
+Output valid JSON with "character" and "scene" keys only."""
 
 
 def get_novelai_prompt_generation_system(
     nsfw_mode: bool = False,
     instruction_language: str = "ja",
+    clothing_color_consistency: bool = False,
 ) -> str:
     """NovelAIプロンプト生成用システムプロンプトを取得
 
     Args:
         nsfw_mode: NSFWモードかどうか
         instruction_language: ユーザー指示の言語
+        clothing_color_consistency: 服の色の一貫性ルールを追加するか
 
     Returns:
         システムプロンプト文字列
@@ -1287,8 +1334,24 @@ def get_novelai_prompt_generation_system(
     )
 
     if nsfw_mode:
-        return NOVELAI_PROMPT_GENERATION_SYSTEM_NSFW + language_hint
-    return NOVELAI_PROMPT_GENERATION_SYSTEM + language_hint
+        base = NOVELAI_PROMPT_GENERATION_SYSTEM_NSFW
+    else:
+        base = NOVELAI_PROMPT_GENERATION_SYSTEM
+
+    if clothing_color_consistency:
+        clothing_rule = (
+            '\n- **CLOTHING COLOR RULE**: ALWAYS include explicit color tags '
+            'for EVERY clothing item (e.g. "red dress", "black stockings", '
+            '"white blouse"). If the user instruction does not specify a color, '
+            'YOU MUST choose a specific color that fits the outfit concept. '
+            'NEVER leave clothing without a color tag.'
+        )
+        base = base.replace(
+            "\n## Output Format",
+            clothing_rule + "\n\n## Output Format",
+        )
+
+    return base + language_hint
 
 
 def build_novelai_prompt_generation_user(
@@ -1308,3 +1371,76 @@ def build_novelai_prompt_generation_user(
         previous_prompt=previous_prompt or "None (first time)",
         instruction=instruction,
     )
+
+
+# ── Base tags generation from character description ──
+
+BASE_TAGS_GENERATION_SYSTEM = """You are an expert at converting character descriptions into Danbooru-style tags for NovelAI image generation.
+
+Given a character's description (name, gender, appearance, personality), generate a concise set of English Danbooru tags that accurately represent the character's VISUAL appearance.
+
+## Rules
+1. Output ONLY comma-separated English Danbooru tags. No JSON, no explanation.
+2. Focus on VISUAL traits only:
+   - Hair: color, length, style (e.g. short black hair, long brown hair, twintails)
+   - Eyes: color (e.g. blue eyes, brown eyes)
+   - Body: type if mentioned (e.g. slim, muscular, petite)
+   - Clothing: current outfit (e.g. white t-shirt, school uniform, black shorts)
+   - Accessories: if mentioned (e.g. glasses, ribbon, necklace)
+3. Do NOT include:
+   - Personality traits (shy, bold, etc.)
+   - Non-visual attributes (smart, kind, etc.)
+   - Gender tags (1boy, 1girl) — these are added separately
+   - Quality tags (masterpiece, best quality) — these are added separately
+4. Use standard Danbooru tag conventions:
+   - Hair length: short hair, medium hair, long hair, very long hair
+   - Hair color: black hair, brown hair, blonde hair, red hair, blue hair, etc.
+   - Clothing uses specific item names
+5. Keep it concise: 5-15 tags maximum.
+6. If the description is in Japanese, translate all tags to English.
+7. If the description is vague or empty, output reasonable defaults based on gender.
+
+## Examples
+Input: "普通の男の子。黒髪で、瞳の色も黒。白いTシャツと黒の短パン姿。"
+Output: short black hair, black eyes, white t-shirt, black shorts
+
+Input: "Brown-haired girl with green eyes wearing a summer dress"
+Output: brown hair, medium hair, green eyes, sundress, bare shoulders
+
+Output tags only. No explanation."""
+
+BASE_TAGS_GENERATION_USER_TEMPLATE = """Character information:
+- Name: {name}
+- Gender: {gender}
+- Description: {description}
+- Personality: {personality}
+
+Generate Danbooru-style visual appearance tags for this character.
+Tags only, comma-separated, English only."""
+
+
+def build_base_tags_generation_prompt(
+    name: str = "",
+    description: str = "",
+    gender: str = "other",
+    personality: str = "",
+) -> tuple[str, str]:
+    """Build prompts for base_tags generation from character info.
+
+    Args:
+        name: Character name
+        description: Character appearance/description text
+        gender: Gender string ("man", "woman", "other")
+        personality: Personality description (used as supplementary context)
+
+    Returns:
+        (system_prompt, user_prompt) tuple
+    """
+    gender_label = {"man": "Male", "woman": "Female"}.get(gender, "Other")
+    user_prompt = BASE_TAGS_GENERATION_USER_TEMPLATE.format(
+        name=name or "(unnamed)",
+        gender=gender_label,
+        description=description or "(no description provided)",
+        personality=personality or "(not specified)",
+    )
+    return BASE_TAGS_GENERATION_SYSTEM, user_prompt

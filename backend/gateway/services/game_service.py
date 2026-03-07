@@ -63,6 +63,7 @@ from ..routes.achievements_router import (
     update_achievement_counts,
 )
 from .achievement_classifier import classify_for_achievement
+from .anlas_service import get_anlas_balance
 from ..consts.language import normalize_language
 
 logger = logging.getLogger(__name__)
@@ -265,25 +266,34 @@ class GameService:
         gender: str,
         character: Optional["Character"] = None,
         self_profile: dict | None = None,
+        base_tags: str = "",
     ) -> str:
         """NovelAI Opusモードの初回用初期プロンプトを構築
 
         履歴がない初回ターンで、LLMへの性別・外見情報を提供する。
         self_modeではプレイヤー名はNovelAIタグのノイズとなるため含めない。
+        base_tagsがあればDanbooruタグ形式の英語タグを優先的に使用する。
 
         Args:
             gender: 性別 ("man" or "woman")
             character: キャラクターオブジェクト
             self_profile: 自分自身モードのプロフィール
+            base_tags: Danbooru形式の外見タグ (直接指定)
 
         Returns:
             NovelAIタグ形式の初期プロンプト
         """
         gender_tag = "1boy" if gender == "man" else "1girl"
-        char_desc = character.description if character and not self_profile else ""
+        # 直接指定のbase_tagsを最優先
+        if base_tags:
+            char_tags = base_tags
+        elif character and not self_profile:
+            char_tags = character.base_tags or character.description
+        else:
+            char_tags = ""
         return (
             f"masterpiece, best quality, very aesthetic, "
-            f"{gender_tag}, solo, {char_desc}"
+            f"{gender_tag}, solo, {char_tags}"
         ).rstrip(", ")
 
     @staticmethod
@@ -393,9 +403,10 @@ class GameService:
         )
 
         # 両方の完了を待つ
-        (after_image, _img_cost), (feeling_text, _feel_cost) = await asyncio.gather(
-            image_task, feeling_task
-        )
+        (
+            (after_image, _img_cost, _img_seed),
+            (feeling_text, _feel_cost),
+        ) = await asyncio.gather(image_task, feeling_task)
         logger.info("Parallel processing completed")
         logger.info("Image generated: %d bytes", len(after_image))
         logger.info(
@@ -483,6 +494,25 @@ class GameService:
         )
         return session
 
+    @staticmethod
+    async def _get_anlas_event() -> StreamEvent | None:
+        """Get Anlas balance as an SSE event (NovelAI provider only)."""
+        if settings.image_provider != "novelai":
+            return None
+        try:
+            balance = await get_anlas_balance()
+            return StreamEvent(
+                type="anlas",
+                data={
+                    "fixed_anlas": balance.fixed_anlas,
+                    "purchased_anlas": balance.purchased_anlas,
+                    "total_anlas": balance.total_anlas,
+                },
+            )
+        except Exception as e:
+            logger.warning("Failed to get Anlas balance: %s", e)
+            return None
+
     async def _generate_image(
         self,
         image_bytes: bytes,
@@ -494,7 +524,9 @@ class GameService:
         inpaint_noise: float | None = None,
         negative_prompt: str | None = None,
         character_references: list[dict] | None = None,
-    ) -> tuple[bytes, float | None]:
+        seed: int | None = None,
+        characters: list[dict] | None = None,
+    ) -> tuple[bytes, float | None, int | None]:
         """画像を生成 (ImageGenerationService経由)
 
         プロバイダーはIMAGE_PROVIDER環境変数で切り替え:
@@ -507,9 +539,11 @@ class GameService:
             costume_image_bytes: 参照衣装画像（オプション）
             nsfw_mode: NSFWモード (Trueの場合NSFWワークフローを使用)
             character_references: 精密参照画像パラメータのリスト（NovelAI専用）
+            seed: 画像生成seed値（未指定時はNovelAIプロバイダーでランダム生成）
+            characters: V4キャラクタープロンプト分離用（NovelAI専用）
 
         Returns:
-            (生成された画像, API料金USD)
+            (生成された画像, API料金USD, seed値)
 
         Raises:
             GameServiceError: 画像生成に失敗した場合
@@ -531,15 +565,101 @@ class GameService:
                 inpaint_noise=inpaint_noise,
                 nsfw_mode=nsfw_mode,
                 character_references=character_references,
+                seed=seed,
+                characters=characters,
             )
             if not result.images:
                 raise GameServiceError("画像が生成されませんでした")
             logger.info(
-                f"画像生成完了: provider={result.provider}, cost={result.cost_usd}"
+                f"画像生成完了: provider={result.provider}, cost={result.cost_usd}, seed={result.seed}"
             )
-            return result.images[0], result.cost_usd
+            return result.images[0], result.cost_usd, result.seed
         except Exception as e:
             raise GameServiceError(f"画像生成エラー: {e}") from e
+
+    async def _generate_surroundings_image(
+        self,
+        instruction: str,
+        before_description: str,
+        after_description: str,
+        nsfw_mode: bool = False,
+        include_people: bool = False,
+        is_reality_change: bool = False,
+        reality_alter_descriptions: list[str] | None = None,
+    ) -> tuple[bytes | None, float | None, int | None]:
+        """Generate surroundings image (NovelAI txt2img, US2)
+
+        Args:
+            instruction: Action instruction
+            before_description: Description before the action
+            after_description: Description after the action
+            nsfw_mode: NSFW mode
+            include_people: Include reactive bystanders in the image
+            is_reality_change: Reality-change mode (bystanders are indifferent)
+            reality_alter_descriptions: Active reality alteration texts
+
+        Returns:
+            (image bytes, API cost USD, seed) or (None, None, None) on failure
+        """
+        if settings.image_provider != "novelai":
+            logger.info("Surroundings image generation is only supported with NovelAI")
+            return None, None, None
+
+        try:
+            # LLM でプロンプト生成
+            from .action_prompts import (
+                get_surroundings_image_prompt_system,
+                build_surroundings_image_user_prompt,
+            )
+
+            system_prompt = get_surroundings_image_prompt_system(
+                nsfw_mode=nsfw_mode,
+                include_people=include_people,
+                is_reality_change=is_reality_change,
+                reality_alter_descriptions=reality_alter_descriptions,
+            )
+            user_prompt = build_surroundings_image_user_prompt(
+                instruction=instruction,
+                before_description=before_description,
+                after_description=after_description,
+                include_people=include_people,
+                is_reality_change=is_reality_change,
+                reality_alter_descriptions=reality_alter_descriptions,
+            )
+
+            scenery_prompt_result = await llm_service.generate_text(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+            )
+            scenery_prompt = scenery_prompt_result.content.strip()
+            logger.info(
+                "Surroundings prompt generated: %d chars",
+                len(scenery_prompt),
+            )
+
+            # Image generation: portrait for bystanders, landscape for bg-only
+            scenery_size = "portrait" if include_people else "landscape"
+            result = await self._image_service.generate_scenery(
+                prompt=scenery_prompt,
+                size=scenery_size,
+                nsfw_mode=nsfw_mode,
+                include_people=include_people,
+            )
+
+            if not result.images:
+                logger.warning("Surroundings image generation returned no images")
+                return None, None, None
+
+            logger.info(
+                "Surroundings image generated: %d bytes, seed=%s",
+                len(result.images[0]),
+                result.seed,
+            )
+            return result.images[0], result.cost_usd, result.seed
+
+        except Exception as e:
+            logger.warning("Surroundings image generation failed: %s", e)
+            return None, None, None
 
     async def _generate_image_edit_prompt(
         self,
@@ -943,6 +1063,10 @@ class GameService:
         language_override: str | None = None,
         character_references: list[dict] | None = None,
         instruction_type: str | None = None,
+        seed: int | None = None,
+        enable_surroundings_image: bool = False,
+        surroundings_include_people: bool = False,
+        clothing_color_consistency: bool = False,
     ) -> AsyncGenerator[StreamEvent, None]:
         """ストリーミング対応の着せ替えを実行
 
@@ -963,6 +1087,9 @@ class GameService:
             transformation_type: 変身タイプ (costume=衣装変更, reality=現実改変)
             nsfw_mode_override: ユーザー設定からのNSFWモード（Noneの場合はセッション設定を使用）
             difficulty_override: ユーザー設定からの難易度（Noneの場合はセッション設定を使用）
+            seed: 画像生成seed値（未指定時はランダム生成）
+            enable_surroundings_image: 周囲状況画像を生成するか（行動モード専用）
+            surroundings_include_people: 周囲画像にリアクションする通行人を含めるか
 
         Yields:
             StreamEvent: text/image/complete/error イベント
@@ -1119,23 +1246,54 @@ class GameService:
                 )
                 if not current_desc:
                     # 初回: 性別・外見情報から初期コンテキストを構築
+                    custom_base_tags = custom_metadata.get("base_tags", "")
                     current_desc = self._build_initial_prompt(
-                        gender, character, self_profile
+                        gender,
+                        character,
+                        self_profile,
+                        base_tags=custom_base_tags,
                     )
 
                 logger.info("current_desc:%s", current_desc)
 
-                # Conversationテーブルから最近のアクション指示を抽出
-                recent_actions: list[str] = []
+                # 前ターンの状況サマリーを生成
+                # 初期状態レコード（instruction="初期状態"）はプレイ前の仮データなのでスキップ
+                previous_situation_summary: str | None = None
+                if (
+                    last_hist
+                    and last_hist.feeling_text
+                    and last_hist.instruction != "初期状態"
+                ):
+                    try:
+                        from .action_prompts import SITUATION_SUMMARY_SYSTEM_PROMPT
+
+                        summary_user = (
+                            f"行動: 「{last_hist.instruction}」\n\n"
+                            f"モノローグ:\n{last_hist.feeling_text}"
+                        )
+                        summary_result = await llm_service.generate_text(
+                            system_prompt=SITUATION_SUMMARY_SYSTEM_PROMPT,
+                            user_prompt=summary_user,
+                        )
+                        previous_situation_summary = summary_result.content.strip()
+                        logger.info(
+                            "Previous situation summary: %s",
+                            previous_situation_summary,
+                        )
+                    except Exception as e:
+                        logger.warning("Failed to generate situation summary: %s", e)
+                        previous_situation_summary = None
+
+                # 履歴+会話をマージしたタイムラインから最近の指示を取得
+                recent_actions: list[tuple[str, str]] = []
                 try:
-                    convos = await session_store.get_conversation_history(
-                        session.id, limit=50
+                    timeline = await session_store.get_session_timeline(
+                        session.id, limit=30
                     )
-                    for c in convos:
-                        if c.instruction_type == "action" and c.role == "user":
-                            recent_actions.append(c.content)
+                    # 新しい順 → 時系列順に反転
+                    recent_actions = list(reversed(timeline))
                 except Exception:
-                    logger.debug("Could not extract recent actions from conversations")
+                    logger.debug("セッションタイムラインの取得に失敗")
 
                 # アクションテキストプロンプトを構築
                 #   - self_mode: 自分自身プロフィールの性格を使用
@@ -1165,6 +1323,7 @@ class GameService:
                     recent_actions=recent_actions or None,
                     transformation_count=session.transformation_count,
                     gender=action_gender,
+                    previous_situation_summary=previous_situation_summary,
                 )
 
                 from .conversation import get_language_rules
@@ -1183,6 +1342,8 @@ class GameService:
                 action_image_prompt: str | None = None
                 action_novelai_prompt: str | None = None
                 action_prompt_desc: str = current_desc  # after_description用
+                # PoC: V4 character/scene prompt splitting
+                action_characters: list[dict] | None = None
 
                 if is_action_novelai_opus:
                     # T008: NovelAI Opus path — GLM-4.6 tag generation
@@ -1190,6 +1351,7 @@ class GameService:
                     action_tag_system = get_action_novelai_prompt_generation_system(
                         nsfw_mode=effective_nsfw_mode,
                         language=effective_language,
+                        clothing_color_consistency=clothing_color_consistency,
                     )
                     previous_prompt = current_desc  # 前回のafter_description
                     action_novelai_prompt = (
@@ -1201,7 +1363,40 @@ class GameService:
                             system_prompt_override=action_tag_system,
                         )
                     )
-                    action_image_prompt = action_novelai_prompt
+
+                    # PoC: Parse JSON response for character/scene splitting
+                    try:
+                        raw = action_novelai_prompt.strip()
+                        # Strip markdown code fence if present
+                        if raw.startswith("```"):
+                            raw = raw.split("\n", 1)[-1]
+                            if raw.endswith("```"):
+                                raw = raw[: -len("```")]
+                            raw = raw.strip()
+                        parsed = json.loads(raw)
+                        char_prompt = parsed.get("character", "").strip()
+                        scene_prompt = parsed.get("scene", "").strip()
+                        if char_prompt and scene_prompt:
+                            # Use scene as the base prompt, character as Character object
+                            action_image_prompt = scene_prompt
+                            action_characters = [
+                                {"prompt": char_prompt, "position": (0.5, 0.5)}
+                            ]
+                            logger.info(
+                                "Action prompt split OK: char_len=%d, scene_len=%d",
+                                len(char_prompt),
+                                len(scene_prompt),
+                            )
+                        else:
+                            raise ValueError("Missing character or scene key")
+                    except (json.JSONDecodeError, ValueError, KeyError) as e:
+                        # Fallback: use raw response as flat prompt (backward compat)
+                        logger.warning(
+                            "Action prompt split failed, using flat prompt: %s", e
+                        )
+                        action_image_prompt = action_novelai_prompt
+                        action_characters = None
+
                     action_prompt_desc = action_novelai_prompt
                     logger.info(
                         "Action NovelAI Opus: generated prompt len=%d",
@@ -1268,24 +1463,32 @@ class GameService:
                 async def action_image_producer():
                     """シーン変更画像を生成しキューに結果を送信する。"""
                     try:
-                        after_img, img_cost = await self._generate_image(
+                        after_img, img_cost, img_seed = await self._generate_image(
                             before_image,
                             action_image_prompt,
                             nsfw_mode=effective_nsfw_mode,
+                            mask_bytes=mask_bytes,
                             inpaint_strength=action_inpaint_strength,
                             inpaint_noise=inpaint_noise,
                             negative_prompt=negative_prompt,
                             character_references=character_references,
+                            seed=seed,
+                            characters=action_characters,
                         )
                         logger.info(
-                            "Action image generated: %d bytes, cost=%s",
+                            "Action image generated: %d bytes, cost=%s, seed=%s",
                             len(after_img),
                             img_cost,
+                            img_seed,
                         )
                         await action_event_queue.put(
                             StreamEvent(
                                 type="_image_ready",
-                                data={"image": after_img, "cost": img_cost},
+                                data={
+                                    "image": after_img,
+                                    "cost": img_cost,
+                                    "seed": img_seed,
+                                },
                             )
                         )
                     except Exception as e:
@@ -1303,6 +1506,7 @@ class GameService:
                 action_image_data: bytes | None = None
                 action_image_cost: float | None = None
                 action_image_error: str | None = None
+                action_image_seed: int | None = None
 
                 while True:
                     event = await action_event_queue.get()
@@ -1316,6 +1520,7 @@ class GameService:
                     elif event.type == "_image_ready":
                         action_image_data = event.data["image"]
                         action_image_cost = event.data.get("cost")
+                        action_image_seed = event.data.get("seed")
                     elif event.type == "_image_error":
                         action_image_error = event.data["error"]
 
@@ -1352,6 +1557,7 @@ class GameService:
                     before_description=current_desc,
                     after_description=action_prompt_desc,
                     instruction_type="action",
+                    seed=action_image_seed,
                 )
 
                 # セッションの現在の画像をアクション結果で更新
@@ -1367,7 +1573,11 @@ class GameService:
                     image_b64 = base64.b64encode(action_image_data).decode("utf-8")
                     yield StreamEvent(
                         type="image",
-                        data={"image": image_b64, "history_id": history.id},
+                        data={
+                            "image": image_b64,
+                            "history_id": history.id,
+                            "seed": action_image_seed,
+                        },
                     )
 
                 # コストイベントを送信（該当する場合）
@@ -1376,6 +1586,92 @@ class GameService:
                         type="cost",
                         data={"cost_usd": action_image_cost},
                     )
+
+                # US5: Anlas balance event (NovelAI only)
+                anlas_event = await self._get_anlas_event()
+                if anlas_event:
+                    yield anlas_event
+
+                # ── US2 T031-T033: Surroundings image generation (NovelAI only) ──
+                surroundings_image_path: str | None = None
+                if enable_surroundings_image and settings.image_provider == "novelai":
+                    logger.info("Generating surroundings image for action...")
+                    # Detect reality-change from session attributes
+                    action_attrs = await session_store.get_session_attribute_texts(
+                        session.id
+                    )
+                    reality_alter_texts = [
+                        a for a in action_attrs if a.startswith("[現実改変]")
+                    ]
+                    has_reality_attrs = len(reality_alter_texts) > 0
+                    (
+                        surroundings_data,
+                        surroundings_cost,
+                        surroundings_seed,
+                    ) = await self._generate_surroundings_image(
+                        instruction=instruction,
+                        before_description=current_desc,
+                        after_description=action_prompt_desc,
+                        nsfw_mode=effective_nsfw_mode,
+                        include_people=surroundings_include_people,
+                        is_reality_change=has_reality_attrs,
+                        reality_alter_descriptions=reality_alter_texts
+                        if has_reality_attrs
+                        else None,
+                    )
+
+                    if surroundings_data is not None:
+                        # Save to file
+                        import uuid
+
+                        surroundings_filename = f"surroundings_{uuid.uuid4().hex}.png"
+                        surroundings_dir = settings.history_images_dir
+                        surroundings_dir.mkdir(parents=True, exist_ok=True)
+                        surroundings_path = surroundings_dir / surroundings_filename
+                        surroundings_path.write_bytes(surroundings_data)
+                        # Store as relative path (e.g. history_images/surroundings_xxx.png)
+                        surroundings_image_path = str(
+                            surroundings_path.relative_to(
+                                settings.history_images_dir.parent
+                            )
+                        )
+
+                        # Update history with surroundings path
+                        await session_store.update_history_surroundings(
+                            history_id=history.id,
+                            surroundings_image_path=surroundings_image_path,
+                        )
+
+                        # Emit SSE event
+                        surroundings_b64 = base64.b64encode(surroundings_data).decode(
+                            "utf-8"
+                        )
+                        yield StreamEvent(
+                            type="surroundings_image",
+                            data={
+                                "image": surroundings_b64,
+                                "history_id": history.id,
+                                "seed": surroundings_seed,
+                            },
+                        )
+
+                        # Emit cost if any
+                        if surroundings_cost is not None:
+                            yield StreamEvent(
+                                type="cost",
+                                data={"cost_usd": surroundings_cost},
+                            )
+
+                        # Refresh Anlas balance after surroundings generation
+                        anlas_event2 = await self._get_anlas_event()
+                        if anlas_event2:
+                            yield anlas_event2
+
+                        logger.info(
+                            "Surroundings image saved: %s", surroundings_image_path
+                        )
+                    else:
+                        logger.info("Surroundings image generation skipped or failed")
 
                 # T014: Complete event — transformation_count unchanged
                 yield StreamEvent(
@@ -1405,8 +1701,12 @@ class GameService:
                     previous_prompt = last_history.after_description
                 else:
                     # 初回: 性別・外見情報から初期プロンプトを構築
+                    custom_base_tags_dress = custom_metadata.get("base_tags", "")
                     previous_prompt = self._build_initial_prompt(
-                        gender, character, self_profile
+                        gender,
+                        character,
+                        self_profile,
+                        base_tags=custom_base_tags_dress,
                     )
                 logger.info(
                     f"NovelAI Opus mode: previous_prompt={'yes' if previous_prompt else 'no'}"
@@ -1444,6 +1744,9 @@ class GameService:
             # T008: NovelAI Opusモード用のプロンプト生成
             generated_novelai_prompt: str | None = None
             prompt_gen_cost: float | None = None
+            # Phase2: V4 character/scene prompt 分離用
+            dress_up_characters: list[dict] | None = None
+
             if is_novelai_opus_mode:
                 # NovelAI GLM-4.6でプロンプト生成
                 generated_novelai_prompt = (
@@ -1452,11 +1755,46 @@ class GameService:
                         previous_prompt=previous_prompt,
                         nsfw_mode=effective_nsfw_mode,
                         language=effective_language,
+                        clothing_color_consistency=clothing_color_consistency,
                     )
                 )
-                image_edit_prompt = generated_novelai_prompt
+
+                # Phase2: JSONレスポンスをパースしてcharacter/sceneを分離
+                try:
+                    raw = generated_novelai_prompt.strip()
+                    # マークダウンコードフェンスを除去
+                    if raw.startswith("```"):
+                        raw = raw.split("\n", 1)[-1]
+                        if raw.endswith("```"):
+                            raw = raw[: -len("```")]
+                        raw = raw.strip()
+                    parsed = json.loads(raw)
+                    char_prompt = parsed.get("character", "").strip()
+                    scene_prompt = parsed.get("scene", "").strip()
+                    if char_prompt and scene_prompt:
+                        image_edit_prompt = scene_prompt
+                        dress_up_characters = [
+                            {"prompt": char_prompt, "position": (0.5, 0.5)}
+                        ]
+                        logger.info(
+                            "Dress-up prompt split OK: char_len=%d, scene_len=%d",
+                            len(char_prompt),
+                            len(scene_prompt),
+                        )
+                    else:
+                        raise ValueError("Missing character or scene key")
+                except (json.JSONDecodeError, ValueError, KeyError) as e:
+                    # フォールバック: フラットプロンプトとして使用（後方互換）
+                    logger.warning(
+                        "Dress-up prompt split failed, using flat prompt: %s", e
+                    )
+                    image_edit_prompt = generated_novelai_prompt
+                    dress_up_characters = None
+
                 logger.info(
-                    f"NovelAI Opus: Generated prompt length={len(image_edit_prompt)}"
+                    "NovelAI Opus: Generated prompt len=%d, split=%s",
+                    len(image_edit_prompt),
+                    dress_up_characters is not None,
                 )
             elif is_reality:
                 # 現実改変用プロンプト生成（T016: image_provider対応）
@@ -1591,7 +1929,7 @@ class GameService:
             async def image_producer():
                 """画像生成完了をキューに送信"""
                 try:
-                    after_image, image_cost = await self._generate_image(
+                    after_image, image_cost, img_seed = await self._generate_image(
                         before_image,
                         final_prompt,
                         costume_image_bytes,
@@ -1601,6 +1939,8 @@ class GameService:
                         inpaint_noise=inpaint_noise,
                         negative_prompt=negative_prompt,
                         character_references=character_references,
+                        seed=seed,
+                        characters=dress_up_characters,
                     )
                     logger.info(
                         "Image generated: %d bytes, cost: %s",
@@ -1610,7 +1950,11 @@ class GameService:
                     await event_queue.put(
                         StreamEvent(
                             type="_image_ready",
-                            data={"image": after_image, "cost": image_cost},
+                            data={
+                                "image": after_image,
+                                "cost": image_cost,
+                                "seed": img_seed,
+                            },
                         )
                     )
                 except Exception as e:
@@ -1628,6 +1972,7 @@ class GameService:
             image_data: bytes | None = None
             image_cost: float | None = None
             image_error: str | None = None
+            image_seed: int | None = None
 
             # キューからイベントを消費
             while True:
@@ -1643,6 +1988,7 @@ class GameService:
                 elif event.type == "_image_ready":
                     image_data = event.data["image"]
                     image_cost = event.data.get("cost")
+                    image_seed = event.data.get("seed")
                 elif event.type == "_image_error":
                     image_error = event.data["error"]
 
@@ -1670,6 +2016,7 @@ class GameService:
                 before_description=before_desc,
                 after_description=inferred_after_desc,
                 instruction_type=instruction_type or "dress_up",
+                seed=image_seed,
             )
 
             # 5.1. タグ分類 (T023)
@@ -1690,6 +2037,25 @@ class GameService:
                     "age_impression": tags.age_impression,
                 },
             )
+
+            # 5.1.5 現実改変時: 指示文をセッション属性に自動追加
+            if is_reality:
+                reality_attr_text = f"[現実改変] {instruction}"
+                existing_attrs = await session_store.get_session_attribute_texts(
+                    session.id
+                )
+                if reality_attr_text not in existing_attrs:
+                    new_attr = await session_store.add_session_attribute(
+                        session.id, reality_attr_text
+                    )
+                    logger.info(f"Auto-added reality attribute: {reality_attr_text}")
+                    yield StreamEvent(
+                        type="reality_attribute_added",
+                        data={
+                            "attribute_id": new_attr["id"],
+                            "attribute_text": reality_attr_text,
+                        },
+                    )
 
             # ── self_mode: skip parameter/critical/ending/achievement (US5 T026) ──
             if not session.self_mode:
@@ -1877,7 +2243,11 @@ class GameService:
             image_b64 = base64.b64encode(image_data).decode("utf-8")
             yield StreamEvent(
                 type="image",
-                data={"image": image_b64, "history_id": history.id},
+                data={
+                    "image": image_b64,
+                    "history_id": history.id,
+                    "seed": image_seed,
+                },
             )
 
             # 8.5 コストイベントを送信（API料金がある場合）
@@ -1890,6 +2260,11 @@ class GameService:
                     type="cost",
                     data={"cost_usd": total_api_cost},
                 )
+
+            # US5: Anlas balance event (NovelAI only)
+            anlas_event = await self._get_anlas_event()
+            if anlas_event:
+                yield anlas_event
 
             # 9. 完了イベント
             yield StreamEvent(
@@ -2096,7 +2471,7 @@ class GameService:
             yield StreamEvent(type="status", data={"message": "画質改善中..."})
 
             # 7. 新しい画像を生成
-            new_image, image_cost = await self._generate_image(
+            new_image, image_cost, improve_seed = await self._generate_image(
                 initial_image_bytes, improve_instruction
             )
             logger.info(f"Quality improvement done: {len(new_image)} bytes")
@@ -2110,6 +2485,7 @@ class GameService:
                 feeling_text="(画質改善)",
                 before_description="",
                 after_description=current_description,
+                seed=improve_seed,
             )
 
             # 9. 現在の画像パスを更新
@@ -2122,7 +2498,11 @@ class GameService:
             image_b64 = base64.b64encode(new_image).decode("utf-8")
             yield StreamEvent(
                 type="image",
-                data={"image": image_b64, "history_id": history.id},
+                data={
+                    "image": image_b64,
+                    "history_id": history.id,
+                    "seed": improve_seed,
+                },
             )
 
             # コストイベント
@@ -2134,6 +2514,11 @@ class GameService:
                     type="cost",
                     data={"cost_usd": total_api_cost},
                 )
+
+            # US5: Anlas balance event (NovelAI only)
+            anlas_event = await self._get_anlas_event()
+            if anlas_event:
+                yield anlas_event
 
             # 完了イベント
             yield StreamEvent(
@@ -2153,12 +2538,26 @@ class GameService:
         preserve_elements: list[str] | None = None,
         change_scope: str = "full",
         custom_preserve_text: str = "",
+        instruction_type: str | None = None,
     ) -> dict:
-        """プロンプトのプレビューを生成する"""
+        """プロンプトのプレビューを生成する
+
+        instruction_type が "action" の場合はアクション専用プロンプトを構築する。
+        それ以外は衣装変更/現実改変のプロンプトを構築する。
+        """
 
         current_description = ""
         nsfw_mode = False
         bloom = 0
+        transformation_count = 0
+        gender = "man"
+        pronoun = "僕"
+        personality = ""
+        description = ""
+        session = None
+        recent_actions: list[tuple[str, str]] = []
+        previous_situation_summary: str | None = None
+        reality_alter_texts: list[str] = []
 
         if session_id:
             try:
@@ -2167,28 +2566,145 @@ class GameService:
                 if session:
                     stats = await session_store.get_or_create_session_stats(session_id)
 
-                    # ユーザー設定からnsfw_modeを取得（session statsはDEPRECATED）
+                    # ユーザー設定からnsfw_modeを取得
                     user_settings = await session_store.get_user_settings(session_id)
                     nsfw_mode = user_settings.get("nsfw_mode", False)
                     bloom = stats.bloom
+                    transformation_count = session.transformation_count
 
                     # 履歴から最新の画像説明を取得
                     history_items = await session_store.get_history(session_id)
                     if history_items:
-                        # 最新の履歴を使用 (get_historyは古い順)
                         current_description = history_items[-1].after_description
 
                     # セッション属性を取得（プロンプトに反映）
                     attributes = await session_store.get_session_attribute_texts(
                         session_id
                     )
+                    # 現実改変属性を抽出（周辺プロンプトプレビュー用）
+                    reality_alter_texts = [
+                        a for a in (attributes or []) if a.startswith("[現実改変]")
+                    ]
                     instruction += self._format_attribute_context(attributes)
+
+                    # self_mode の場合、プロフィールから性別・一人称を取得
+                    if session.self_mode:
+                        self_profile = await session_store.get_self_profile()
+                        if self_profile:
+                            gender = self_profile.get("gender", gender)
+                            pronoun = self_profile.get("pronoun", pronoun)
+                            personality = self_profile.get("personality", "")
+
+                    # action プレビュー用: タイムラインと前回サマリー
+                    if instruction_type == "action":
+                        try:
+                            timeline = await session_store.get_session_timeline(
+                                session_id, limit=30
+                            )
+                            recent_actions = list(reversed(timeline))
+                        except Exception:
+                            pass
+
+                        last_hist = await session_store.get_latest_history(session_id)
+                        if (
+                            last_hist
+                            and last_hist.feeling_text
+                            and last_hist.instruction != "初期状態"
+                        ):
+                            try:
+                                from .action_prompts import (
+                                    SITUATION_SUMMARY_SYSTEM_PROMPT,
+                                )
+
+                                summary_user = (
+                                    f"行動: 「{last_hist.instruction}」\n\n"
+                                    f"モノローグ:\n{last_hist.feeling_text}"
+                                )
+                                summary_result = await llm_service.generate_text(
+                                    system_prompt=SITUATION_SUMMARY_SYSTEM_PROMPT,
+                                    user_prompt=summary_user,
+                                )
+                                previous_situation_summary = (
+                                    summary_result.content.strip()
+                                )
+                            except Exception:
+                                previous_situation_summary = None
 
             except Exception as e:
                 logger.warning(f"Preview prompts session fetch error: {e}")
-                # セッション取得エラーでもデフォルト値で続行
 
-        # 画像編集プロンプト生成
+        # -- action モードのプレビュー --
+        if instruction_type == "action":
+            act_system, act_user = build_action_prompt(
+                instruction=instruction,
+                current_description=current_description or "不明",
+                pronoun=pronoun,
+                bloom=bloom,
+                nsfw_mode=nsfw_mode,
+                personality=personality,
+                description=description,
+                recent_actions=recent_actions or None,
+                transformation_count=transformation_count,
+                gender=gender,
+                previous_situation_summary=previous_situation_summary,
+            )
+
+            # 画像プロンプト（NovelAI Opus / その他で分岐）
+            image_edit_prompt = ""
+            novelai_tag_prompt: str | None = None
+            if settings.is_novelai_opus_mode:
+                action_tag_system = get_action_novelai_prompt_generation_system(
+                    nsfw_mode=nsfw_mode,
+                    language=settings.language
+                    if hasattr(settings, "language")
+                    else "ja",
+                )
+                novelai_tag_prompt = action_tag_system
+                image_edit_prompt = "(NovelAI Opus: タグはLLMが動的生成)"
+            else:
+                action_edit_system = get_action_image_edit_system_prompt(
+                    image_provider=settings.image_provider,
+                    nsfw_mode=nsfw_mode,
+                )
+                image_edit_prompt = action_edit_system
+
+            # 周辺画像プロンプトプレビュー（現実改変属性含む）
+            has_reality_attrs = len(reality_alter_texts) > 0
+            from .action_prompts import (
+                get_surroundings_image_prompt_system,
+                build_surroundings_image_user_prompt,
+            )
+
+            surroundings_system = get_surroundings_image_prompt_system(
+                nsfw_mode=nsfw_mode,
+                include_people=True,
+                is_reality_change=has_reality_attrs,
+                reality_alter_descriptions=reality_alter_texts
+                if has_reality_attrs
+                else None,
+            )
+            surroundings_user = build_surroundings_image_user_prompt(
+                instruction=instruction,
+                before_description=current_description or "不明",
+                after_description="(アクション後の状態)",
+                include_people=True,
+                is_reality_change=has_reality_attrs,
+                reality_alter_descriptions=reality_alter_texts
+                if has_reality_attrs
+                else None,
+            )
+
+            return {
+                "image_edit_prompt": image_edit_prompt,
+                "feeling_system_prompt": act_system,
+                "feeling_user_prompt": act_user,
+                "instruction_type": "action",
+                "novelai_tag_prompt": novelai_tag_prompt,
+                "surroundings_system_prompt": surroundings_system,
+                "surroundings_user_prompt": surroundings_user,
+            }
+
+        # -- 衣装変更 / 現実改変のプレビュー --
         image_edit_prompt = ""
         if transformation_type == "reality":
             image_edit_prompt, _ = await self._generate_reality_edit_prompt(
@@ -2207,35 +2723,24 @@ class GameService:
                 nsfw_mode=nsfw_mode,
             )
 
-        # 心境生成プロンプト生成
-        # プレビュー用なので一人称はデフォルト、openingはランダム
         from .prompts import build_feeling_prompt, get_psychological_stage
 
         stage = get_psychological_stage(bloom, nsfw_mode)
         system_prompt = stage["system_prompt"]
 
-        # 心境生成プロンプト構築 (属性反映)
-        # build_feeling_prompt内部で属性セクションを追加するため、
-        # ここではinstructionに属性を連結せず、attributes引数として渡す必要があるが、
-        # 現状のbuild_feeling_promptはattributes引数を取らない設計（prompts.pyを確認済み）。
-        # ※確認: prompts.pyのbuild_feeling_promptはattributes引数を取らないが、
-        # play_with_streamの_generate_feeling_stream呼び出しではbuild_enhanced_feeling_promptを使用しており
-        # そちらはattributesを取る。
-        # プレビューでは標準のbuild_feeling_promptを使っているため、instructionにコンテキストを含ませるのは
-        # 画像生成プロンプトにとっては正しいが、心境生成にとっては二重になる可能性がある。
-        # しかし、画像生成プロンプトのプレビューが主目的なので、instructionへの統合を維持する。
-
         user_prompt = build_feeling_prompt(
             before_desc=current_description or "着せ替え前の状態",
             after_desc=f"{instruction}に変身した姿",
             instruction=instruction,
-            pronoun="僕",  # 仮
+            pronoun=pronoun,
         )
 
         return {
             "image_edit_prompt": image_edit_prompt,
             "feeling_system_prompt": system_prompt,
             "feeling_user_prompt": user_prompt,
+            "instruction_type": instruction_type or transformation_type,
+            "novelai_tag_prompt": None,
         }
 
     def _format_attribute_context(self, attributes: list[str] | None) -> str:

@@ -28,6 +28,8 @@ export interface HistoryItem {
   exposureLevel?: string; // exposure_level を維持
   ageImpression?: string;
   relatedMessageId?: string; // 007: 関連するチャットメッセージID
+  seed?: number;
+  surroundingsImageUrl?: string;
 }
 
 // Character
@@ -100,7 +102,9 @@ export type SSEEventType =
   | "ending"
   | "complete"
   | "cost"
-  | "error";
+  | "error"
+  | "surroundings_image"
+  | "anlas";
 
 // SSE stats data
 export interface SSEStatsData {
@@ -386,6 +390,8 @@ export interface GallerySession {
   item_count: number;
   first_timestamp: string;
   last_timestamp: string;
+  self_mode?: boolean;
+  has_summary?: boolean;
 }
 
 /**
@@ -428,4 +434,19 @@ export interface ChatMessage {
   isStreaming?: boolean;
   /** 心境テキストメッセージかどうか */
   isFeelingText?: boolean;
+  surroundingsImageUrl?: string;
+  seed?: number;
+}
+
+// Anlas balance information
+export interface AnlasBalance {
+  fixedAnlas: number;
+  purchasedAnlas: number;
+  totalAnlas: number;
+}
+
+// Surroundings image SSE event data
+export interface SurroundingsImageEvent {
+  image: string;
+  historyId: string;
 }

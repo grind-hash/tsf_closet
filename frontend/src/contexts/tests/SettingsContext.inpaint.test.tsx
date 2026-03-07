@@ -31,10 +31,7 @@ function ExperimentalEndingProbe() {
       <div data-testid="experimental-ending-enabled">
         {state.experimentalEndingEnabled ? "on" : "off"}
       </div>
-      <button
-        type="button"
-        onClick={() => setExperimentalEndingEnabled(true)}
-      >
+      <button type="button" onClick={() => setExperimentalEndingEnabled(true)}>
         enable-ending
       </button>
     </>

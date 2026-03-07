@@ -2,19 +2,23 @@
   {
     "id": "char1",
     "name": "水瀬ユウヤ",
-    "image_path": "images/characters/char1.png",
-    "description": "普通の男の子。Tシャツと短パン姿。",
+    "image_path": "images/characters/char1_v2.png",
+    "description": "普通の男の子。黒髪で、瞳の色も黒。白いTシャツと黒の短パン姿。",
+    "base_tags": "short black hair, black eyes, white t-shirt, black shorts",
     "pronoun": "僕",
     "personality": "素直で恥ずかしがり屋",
-    "gender": "man"
+    "gender": "man",
+    "fallback": "char1"
   },
   {
     "id": "char2",
     "name": "星野エミ",
-    "image_path": "images/characters/char2.png",
-    "description": "普通の女の子。Tシャツと短パン姿。",
+    "image_path": "images/characters/char2_v2.png",
+    "description": "普通の女の子。茶髪で、瞳の色は黒。白いTシャツと短パン姿。",
+    "base_tags": "brown hair, medium hair, black eyes, white t-shirt, shorts",
     "pronoun": "私",
     "personality": "素直で恥ずかしがり屋",
-    "gender": "woman"
+    "gender": "woman",
+    "fallback": "char2"
   }
 ]

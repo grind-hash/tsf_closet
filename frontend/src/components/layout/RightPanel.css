@@ -36,7 +36,9 @@
   color: var(--text-muted, #888);
   font-size: 1rem;
   cursor: pointer;
-  transition: background-color 0.2s, color 0.2s;
+  transition:
+    background-color 0.2s,
+    color 0.2s;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -222,6 +224,38 @@
   display: flex;
   gap: 0.5rem;
   width: 100%;
+}
+
+/* Mini toggle (inline checkbox + label) */
+.right-panel__mini-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+  cursor: pointer;
+  font-size: 0.75rem;
+  color: var(--text-muted, #888);
+}
+
+.right-panel__mini-toggle input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--primary, #6c5ce7);
+}
+
+.right-panel__mini-toggle-label {
+  user-select: none;
+}
+
+/* Prompt builder field label */
+.right-panel__mini-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.8rem;
+  color: var(--text-muted, #aaa);
 }
 
 /* プリセット */

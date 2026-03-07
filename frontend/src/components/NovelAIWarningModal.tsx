@@ -6,6 +6,7 @@
  * tier === 0 (Free/Paper) の場合は未対応プランである旨を追加表示する。
  */
 
+import { useTranslation } from "react-i18next";
 import "./NovelAIWarningModal.css";
 
 interface NovelAIWarningModalProps {
@@ -26,11 +27,12 @@ export default function NovelAIWarningModal({
   onContinue,
   onCancel,
 }: NovelAIWarningModalProps) {
+  const { t } = useTranslation();
   const tierName = TIER_NAMES[tier] ?? `Unknown (${tier})`;
   const isTrialTier = tier === 0;
   const title = isTrialTier
-    ? "NovelAI 未対応プランのお知らせ"
-    : "NovelAI プランのご案内";
+    ? t("novelaiWarning.titleUnsupported")
+    : t("novelaiWarning.titleInfo");
 
   return (
     <div className="novelai-warning-overlay">
@@ -40,18 +42,17 @@ export default function NovelAIWarningModal({
 
         <div className="novelai-warning-content">
           <p className="novelai-warning-plan">
-            現在のNovelAIプラン: <strong>{tierName}</strong>
+            {t("novelaiWarning.currentPlan")}
+            <strong>{tierName}</strong>
           </p>
           {isTrialTier && (
             <p className="novelai-warning-main">
-              Paper（無料トライアル）には対応しておりません。
-              <br />
-              画像・テキスト生成には有料プランが必要です。
+              {t("novelaiWarning.unsupportedMessage")}
             </p>
           )}
           {!isTrialTier && (
             <p className="novelai-warning-detail">
-              本アプリは <strong>Opus (tier 3)</strong> を推奨しています。
+              {t("novelaiWarning.recommendOpus")}
             </p>
           )}
         </div>
@@ -63,7 +64,7 @@ export default function NovelAIWarningModal({
               className="novelai-warning-cancel"
               onClick={onCancel}
             >
-              キャンセル
+              {t("novelaiWarning.cancel")}
             </button>
           )}
           <button
@@ -71,14 +72,14 @@ export default function NovelAIWarningModal({
             className="novelai-warning-continue"
             onClick={isTrialTier ? onCancel : onContinue}
           >
-            {isTrialTier ? "閉じる" : "続行する"}
+            {isTrialTier
+              ? t("novelaiWarning.close")
+              : t("novelaiWarning.continue")}
           </button>
         </div>
 
         {!isTrialTier && (
-          <p className="novelai-warning-note">
-            ※ この警告は「続行する」を選択すると、次回以降表示されません
-          </p>
+          <p className="novelai-warning-note">{t("novelaiWarning.note")}</p>
         )}
       </div>
     </div>

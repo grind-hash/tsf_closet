@@ -9,7 +9,13 @@
  * - SendButton: 送信
  */
 
-import { useRef, useEffect, type FormEvent, type KeyboardEvent } from "react";
+import {
+  useRef,
+  useEffect,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { useChat } from "../../contexts/ChatContext";
 import type { InstructionType } from "../../types";
@@ -29,6 +35,16 @@ export default function ChatInput({
   const { t } = useTranslation();
   const { state, setInputText, setInstructionType, attachImage, clearInput } =
     useChat();
+
+  // Detect narrow viewport for short labels
+  const [isNarrow, setIsNarrow] = useState(
+    typeof window !== "undefined" && window.innerWidth <= 900,
+  );
+  useEffect(() => {
+    const handleResize = () => setIsNarrow(window.innerWidth <= 900);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -88,13 +104,21 @@ export default function ChatInput({
   const getInstructionTypeLabel = (type: InstructionType) => {
     switch (type) {
       case "dress_up":
-        return t("chat.instructionType.dressUp");
+        return isNarrow
+          ? t("chat.instructionType.dressUpShort")
+          : t("chat.instructionType.dressUp");
       case "reality_alter":
-        return t("chat.instructionType.realityAlter");
+        return isNarrow
+          ? t("chat.instructionType.realityAlterShort")
+          : t("chat.instructionType.realityAlter");
       case "conversation":
-        return t("chat.instructionType.conversation");
+        return isNarrow
+          ? t("chat.instructionType.conversationShort")
+          : t("chat.instructionType.conversation");
       case "action":
-        return t("chat.instructionType.action");
+        return isNarrow
+          ? t("chat.instructionType.actionShort")
+          : t("chat.instructionType.action");
       default:
         return type;
     }

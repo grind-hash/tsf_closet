@@ -575,6 +575,7 @@ class LLMService:
         language: str = "ja",
         system_prompt_override: str | None = None,
         gender: str = "man",
+        clothing_color_consistency: bool = False,
     ) -> str:
         """NovelAI画像生成プロンプトを生成する (T006)
 
@@ -605,6 +606,7 @@ class LLMService:
             system_prompt = get_novelai_prompt_generation_system(
                 nsfw_mode=nsfw_mode,
                 instruction_language=language,
+                clothing_color_consistency=clothing_color_consistency,
             )
         user_prompt = build_novelai_prompt_generation_user(
             instruction=instruction,

@@ -220,6 +220,28 @@ class PlayStreamRequest(BaseModel):
         None,
         description="精密参照画像パラメータの配列（NovelAIプロバイダー使用時のみ有効）",
     )
+    # Seed for image generation
+    seed: Optional[int] = Field(
+        None,
+        description="画像生成seed値（0〜999999999、未指定時はランダム）",
+        ge=0,
+        le=999999999,
+    )
+    # Surroundings image generation toggle
+    enable_surroundings_image: bool = Field(
+        False,
+        description="行動後の周囲状況画像生成を有効にする",
+    )
+    # Surroundings image: include reactive bystanders
+    surroundings_include_people: bool = Field(
+        False,
+        description="周囲状況画像にリアクションする通行人を含める",
+    )
+    # Clothing color consistency toggle
+    clothing_color_consistency: bool = Field(
+        False,
+        description="服の色の一貫性を保つ実験的機能",
+    )
 
 
 @router.post(
@@ -265,6 +287,10 @@ async def play_game_stream(request: PlayStreamRequest) -> EventSourceResponse:
             if request.character_references
             else None,
             instruction_type=request.instruction_type,
+            seed=request.seed,
+            enable_surroundings_image=request.enable_surroundings_image,
+            surroundings_include_people=request.surroundings_include_people,
+            clothing_color_consistency=request.clothing_color_consistency,
         ):
             yield {
                 "event": event.type,
@@ -469,6 +495,8 @@ class CustomStartRequest(BaseModel):
     pronoun: str = Field("僕", description="一人称")
     personality: str = Field("", description="パーソナリティ")
     gender: str = Field("other", description="性別 (man/woman/other)")
+    base_tags: str = Field("", description="Danbooru形式の外見タグ (英語)")
+    self_mode: bool = Field(False, description="自分自身モード")
 
 
 @router.post(
@@ -526,6 +554,7 @@ async def start_game_custom(request: CustomStartRequest) -> GameStartResponse:
                 "pronoun": request.pronoun,
                 "personality": request.personality,
                 "gender": normalized_gender,
+                "base_tags": request.base_tags,
             },
             ensure_ascii=False,
         ),
@@ -536,6 +565,7 @@ async def start_game_custom(request: CustomStartRequest) -> GameStartResponse:
     session = await session_store.create_session(
         image_path=relative_path,
         character_id=None,  # カスタム画像なのでキャラクターIDなし
+        self_mode=request.self_mode,
     )
 
     session_metadata_path = custom_images_dir / f"session_{session.id}.json"
@@ -548,6 +578,7 @@ async def start_game_custom(request: CustomStartRequest) -> GameStartResponse:
                 "pronoun": request.pronoun,
                 "personality": request.personality,
                 "gender": normalized_gender,
+                "base_tags": request.base_tags,
             },
             ensure_ascii=False,
         ),
@@ -566,6 +597,7 @@ async def start_game_custom(request: CustomStartRequest) -> GameStartResponse:
 
     initial_desc = GameService._build_initial_prompt(
         gender=normalized_gender,
+        base_tags=request.base_tags,
     )
     await session_store.add_history(
         session_id=session.id,
@@ -620,6 +652,7 @@ async def list_custom_characters() -> dict:
                 "pronoun": metadata.get("pronoun", "僕"),
                 "personality": metadata.get("personality", ""),
                 "gender": normalize_gender(metadata.get("gender", "other")),
+                "base_tags": metadata.get("base_tags", ""),
             }
         )
     return {"characters": items}
@@ -959,6 +992,11 @@ async def chat_with_character(
     user_settings = await session_store.get_user_settings()
     language = normalize_language(language or user_settings.get("language"))
 
+    # セッション経緯を取得（着替・改変・行動・会話を時系列マージ）
+    session_timeline = await session_store.get_session_timeline(session_id, limit=30)
+    # 新しい順 → 時系列順に反転
+    session_timeline = list(reversed(session_timeline))
+
     # プロンプトを構築（self_mode はプロフィールベース、通常はステージベース）
     if getattr(session, "self_mode", False) and self_profile:
         from ..services.self_mode_prompts import build_self_mode_conversation_prompt
@@ -970,6 +1008,7 @@ async def chat_with_character(
             self_profile=self_profile,
             nsfw_mode=stats.nsfw_mode,
             language=language,
+            session_timeline=session_timeline,
         )
     else:
         system_prompt, user_prompt = build_conversation_prompt(
@@ -983,6 +1022,7 @@ async def chat_with_character(
             nsfw_mode=stats.nsfw_mode,
             transformation_count=session.transformation_count,
             language=language,
+            session_timeline=session_timeline,
         )
 
     # LLMで応答を生成
@@ -1102,6 +1142,11 @@ async def chat_with_character_stream(
     user_settings = await session_store.get_user_settings()
     language = normalize_language(language or user_settings.get("language"))
 
+    # セッション経緯を取得（着替・改変・行動・会話を時系列マージ）
+    session_timeline = await session_store.get_session_timeline(session_id, limit=30)
+    # 新しい順 → 時系列順に反転
+    session_timeline = list(reversed(session_timeline))
+
     # プロンプトを構築（self_mode はプロフィールベース、通常はステージベース）
     if getattr(session, "self_mode", False) and self_profile:
         from ..services.self_mode_prompts import build_self_mode_conversation_prompt
@@ -1113,6 +1158,7 @@ async def chat_with_character_stream(
             self_profile=self_profile,
             nsfw_mode=stats.nsfw_mode,
             language=language,
+            session_timeline=session_timeline,
         )
     else:
         system_prompt, user_prompt = build_conversation_prompt(
@@ -1126,6 +1172,7 @@ async def chat_with_character_stream(
             nsfw_mode=stats.nsfw_mode,
             transformation_count=session.transformation_count,
             language=language,
+            session_timeline=session_timeline,
         )
 
     async def generate_stream():
@@ -1350,6 +1397,7 @@ async def preview_prompt(request: PlayRequest) -> dict:
         preserve_elements=request.preserve_elements,
         change_scope=request.change_scope,
         custom_preserve_text=request.custom_preserve_text,
+        instruction_type=request.instruction_type,
     )
 
 
@@ -1546,3 +1594,138 @@ async def delete_preset_mask(mask_id: str) -> MaskListResponse:
             pass  # メタデータ削除失敗は無視
 
     return await list_masks()
+
+
+# ---------- Anlas balance ----------
+
+
+class AnlasBalanceResponse(BaseModel):
+    """Anlas balance response model."""
+
+    fixed_anlas: int | None = None
+    purchased_anlas: int | None = None
+    total_anlas: int | None = None
+
+
+@router.get(
+    "/anlas",
+    response_model=AnlasBalanceResponse,
+    summary="Anlas残高取得",
+    description="NovelAIのAnlas残高を取得する。NovelAI以外のプロバイダー使用時はnullを返す。",
+)
+async def get_anlas_balance() -> AnlasBalanceResponse:
+    """Get the current Anlas balance from NovelAI."""
+    from ..settings.config import settings as app_settings
+
+    if app_settings.image_provider.lower() != "novelai":
+        return AnlasBalanceResponse()
+
+    try:
+        from ..services.anlas_service import get_anlas_balance as fetch_anlas
+
+        balance = await fetch_anlas()
+        if balance is None:
+            return AnlasBalanceResponse()
+        return AnlasBalanceResponse(
+            fixed_anlas=balance.fixed_anlas,
+            purchased_anlas=balance.purchased_anlas,
+            total_anlas=balance.total_anlas,
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch Anlas balance: {e}",
+        )
+
+
+# ── Base tags generation endpoint ──
+
+
+class GenerateBaseTagsRequest(BaseModel):
+    """外見タグ自動生成リクエスト"""
+
+    name: str = Field("", description="キャラクター名")
+    description: str = Field("", description="外見の説明")
+    gender: str = Field("other", description="性別 (man/woman/other)")
+    personality: str = Field("", description="パーソナリティ")
+
+
+@router.post(
+    "/generate-base-tags",
+    summary="外見タグを自動生成",
+    description="キャラクター情報からDanbooru形式の英語外見タグをLLMで自動生成",
+)
+async def generate_base_tags(request: GenerateBaseTagsRequest) -> dict:
+    """Generate Danbooru-style base tags from character description via LLM."""
+    from ..services.prompts import build_base_tags_generation_prompt
+    from ..services.llm_service import llm_service
+
+    system_prompt, user_prompt = build_base_tags_generation_prompt(
+        name=request.name,
+        description=request.description,
+        gender=request.gender,
+        personality=request.personality,
+    )
+
+    try:
+        result = await llm_service.generate_text(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+        )
+        # Clean up: remove markdown formatting, extra whitespace
+        raw = result.content.strip()
+        if raw.startswith("```"):
+            lines = raw.split("\n")
+            lines = [line for line in lines if not line.strip().startswith("```")]
+            raw = "\n".join(lines).strip()
+        # Ensure single-line comma-separated format
+        tags = ", ".join(
+            tag.strip() for tag in raw.replace("\n", ",").split(",") if tag.strip()
+        )
+        return {"base_tags": tags}
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate base tags: {e}",
+        )
+
+
+# ------------------------------------------------------------------
+# Latest history deletion (self-mode only)
+# ------------------------------------------------------------------
+
+
+@router.delete(
+    "/session/{session_id}/latest-history",
+    summary="最新履歴を削除",
+    description="セルフモード時のみ最新の履歴を削除し、1つ前の状態に復元する",
+)
+async def delete_latest_history(session_id: str) -> dict:
+    """Delete the latest history entry and restore previous state."""
+    # Validate session exists and is self-mode
+    session = await session_store.get_session_by_id(session_id)
+    if session is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "SESSION_NOT_FOUND", "message": "Session not found"},
+        )
+    if not session.self_mode:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "NOT_SELF_MODE",
+                "message": "This operation is only allowed in self-mode",
+            },
+        )
+
+    result = await session_store.delete_latest_history(session_id)
+    if result is None:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": "NO_HISTORY",
+                "message": "No history to delete",
+            },
+        )
+
+    return result

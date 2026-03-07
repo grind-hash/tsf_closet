@@ -11,20 +11,23 @@
  * T127-T130: Context経由で状態を取得
  */
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { useSettings } from "../../contexts/SettingsContext";
 import { useGame } from "../../contexts/GameContext";
+import { useChat } from "../../contexts/ChatContext";
 import type {
   PreserveElement,
   ChangeScope,
   PreciseReferenceType,
 } from "../../types";
+import { previewPrompt, type PreviewPromptResponse } from "../../apis/game";
 import "./RightPanel.css";
 
 interface RightPanelProps {
   onClose?: () => void;
-  onOpenInpaintModal?: () => void; // T024: マスク設定ボタン用
+  onOpenInpaintModal?: () => void;
+  onSendWithPromptOverride?: (override: string) => void;
 }
 
 // 属性プリセットの型
@@ -66,6 +69,7 @@ const CHANGE_SCOPES: ChangeScope[] = [
 export default function RightPanel({
   onClose,
   onOpenInpaintModal,
+  onSendWithPromptOverride,
 }: RightPanelProps) {
   const { t } = useTranslation();
   const {
@@ -76,8 +80,112 @@ export default function RightPanel({
     addPreciseReference,
     updatePreciseReference,
     removePreciseReference,
+    setSeed,
+    setEnableSurroundingsImage,
+    setSurroundingsIncludePeople,
+    setClothingColorConsistency,
+    setShowRealityAttributeNotification,
   } = useSettings();
   const { state: gameState, addAttribute, removeAttribute } = useGame();
+  const { state: chatState, setInputText } = useChat();
+
+  // プロンプトプレビュー状態
+  const [previewResult, setPreviewResult] =
+    useState<PreviewPromptResponse | null>(null);
+  const [isLoadingPreview, setIsLoadingPreview] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [editedPrompt, setEditedPrompt] = useState("");
+  const [showPreviewDetail, setShowPreviewDetail] = useState(false);
+
+  // Prompt builder state (lazy init from localStorage)
+  const PB_STORAGE_KEY = "prompt_builder";
+  const pbSaved = useMemo(() => {
+    try {
+      const raw = localStorage.getItem(PB_STORAGE_KEY);
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  }, []);
+  const [pbMode, setPbMode] = useState<"fields" | "textarea">(
+    pbSaved.mode === "textarea" ? "textarea" : "fields",
+  );
+  const [pbWho, setPbWho] = useState<string>(pbSaved.who ?? "");
+  const [pbLocation, setPbLocation] = useState<string>(
+    pbSaved.location ?? "",
+  );
+  const [pbOutfit, setPbOutfit] = useState<string>(pbSaved.outfit ?? "");
+  const [pbTarget, setPbTarget] = useState<string>(pbSaved.target ?? "");
+  const [pbAction, setPbAction] = useState<string>(pbSaved.action ?? "");
+  const [pbFreeform, setPbFreeform] = useState<string>(
+    pbSaved.freeform ?? "",
+  );
+
+  // Save prompt builder state to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        PB_STORAGE_KEY,
+        JSON.stringify({
+          mode: pbMode,
+          who: pbWho,
+          location: pbLocation,
+          outfit: pbOutfit,
+          target: pbTarget,
+          action: pbAction,
+          freeform: pbFreeform,
+        }),
+      );
+    } catch {
+      /* ignore */
+    }
+  }, [pbMode, pbWho, pbLocation, pbOutfit, pbTarget, pbAction, pbFreeform]);
+
+  // プロンプトプレビュー取得
+  const handlePreviewPrompt = useCallback(async () => {
+    if (!gameState.sessionId || !chatState.inputText.trim()) return;
+    setIsLoadingPreview(true);
+    setPreviewError(null);
+    try {
+      const instructionType = chatState.instructionType;
+      const transformationType =
+        instructionType === "reality_alter" ? "reality" : "costume";
+      const result = await previewPrompt({
+        session_id: gameState.sessionId,
+        instruction: chatState.inputText.trim(),
+        transformation_type: transformationType,
+        instruction_type: instructionType,
+        preserve_elements:
+          settingsState.changeSettings.preserveElements.length > 0
+            ? settingsState.changeSettings.preserveElements
+            : undefined,
+        change_scope: settingsState.changeSettings.changeScope,
+        custom_preserve_text:
+          settingsState.changeSettings.customPreserveText || undefined,
+      });
+      setPreviewResult(result);
+      setEditedPrompt(result.image_edit_prompt);
+    } catch (err) {
+      setPreviewError(
+        err instanceof Error ? err.message : "プレビューの取得に失敗しました",
+      );
+    } finally {
+      setIsLoadingPreview(false);
+    }
+  }, [
+    gameState.sessionId,
+    chatState.inputText,
+    chatState.instructionType,
+    settingsState.changeSettings,
+  ]);
+
+  // 編集済みプロンプトで送信
+  const handleSendWithOverride = useCallback(() => {
+    if (!editedPrompt.trim() || !onSendWithPromptOverride) return;
+    onSendWithPromptOverride(editedPrompt.trim());
+    setPreviewResult(null);
+    setEditedPrompt("");
+  }, [editedPrompt, onSendWithPromptOverride]);
 
   // 属性入力状態
   const [showAttributeInput, setShowAttributeInput] = useState(false);
@@ -505,6 +613,20 @@ export default function RightPanel({
               </div>
             )}
           </div>
+
+          {/* Reality attribute notification toggle */}
+          <label className="right-panel__mini-toggle">
+            <input
+              type="checkbox"
+              checked={settingsState.showRealityAttributeNotification}
+              onChange={(e) =>
+                setShowRealityAttributeNotification(e.target.checked)
+              }
+            />
+            <span className="right-panel__mini-toggle-label">
+              {t("rightPanel.realityAttrNotify")}
+            </span>
+          </label>
         </section>
 
         {/* 保持する要素セクション */}
@@ -700,6 +822,367 @@ export default function RightPanel({
                 {t("rightPanel.inpaintNoiseHint")}
               </small>
             </div>
+
+            {/* US4: Seed input */}
+            <div className="right-panel__form-group">
+              <label className="right-panel__label">
+                {t("rightPanel.seedLabel", "Seed")}
+                <span
+                  className="feature-chip-new"
+                  data-feature-version="v0.3.0"
+                >
+                  New
+                </span>
+              </label>
+              <div style={{ display: "flex", gap: "0.5rem" }}>
+                <input
+                  type="number"
+                  className="right-panel__input"
+                  min={0}
+                  max={999999999}
+                  step={1}
+                  value={settingsState.seed ?? ""}
+                  onChange={(e) => {
+                    const raw = e.target.value;
+                    if (raw === "") {
+                      setSeed(null);
+                      return;
+                    }
+                    const num = parseInt(raw, 10);
+                    if (!isNaN(num) && num >= 0 && num <= 999999999) {
+                      setSeed(num);
+                    }
+                  }}
+                  placeholder={t("rightPanel.seedPlaceholder", "Random")}
+                  style={{ flex: 1, minWidth: 0 }}
+                />
+                {settingsState.seed !== null && (
+                  <button
+                    type="button"
+                    className="right-panel__btn-secondary"
+                    onClick={() => setSeed(null)}
+                    style={{ flexShrink: 0, padding: "0.25rem 0.5rem" }}
+                    title={t("rightPanel.seedClear", "Clear seed")}
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+              <small className="right-panel__hint">
+                {t(
+                  "rightPanel.seedHint",
+                  "Empty = random. Set a value to reproduce the same image.",
+                )}
+              </small>
+            </div>
+
+            {/* US3: 周囲状況画像生成トグル */}
+            <div className="right-panel__form-group">
+              <label className="right-panel__toggle">
+                <span className="right-panel__toggle-label">
+                  {t(
+                    "rightPanel.enableSurroundingsImage",
+                    "Generate surroundings image",
+                  )}
+                </span>
+                <input
+                  type="checkbox"
+                  checked={settingsState.enableSurroundingsImage}
+                  onChange={(e) => setEnableSurroundingsImage(e.target.checked)}
+                  className="right-panel__toggle-input"
+                />
+                <span className="right-panel__toggle-switch" />
+              </label>
+              <div style={{ marginTop: "0.25rem" }}>
+                <span
+                  className="feature-chip-new"
+                  data-feature-version="v0.3.0"
+                >
+                  New
+                </span>
+                <span
+                  className="feature-chip-experimental"
+                  data-feature-version="v0.3.0"
+                >
+                  Experimental
+                </span>
+              </div>
+              <small className="right-panel__hint">
+                {t(
+                  "rightPanel.enableSurroundingsImageHint",
+                  "Generate an additional image showing the surrounding environment after action instructions. Uses extra Anlas on non-Opus plans.",
+                )}
+              </small>
+            </div>
+
+            {/* Surroundings: include reactive bystanders */}
+            {settingsState.enableSurroundingsImage && (
+              <div className="right-panel__form-group">
+                <label className="right-panel__toggle">
+                  <span className="right-panel__toggle-label">
+                    {t(
+                      "rightPanel.surroundingsIncludePeople",
+                      "Include bystanders in surroundings",
+                    )}
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={settingsState.surroundingsIncludePeople}
+                    onChange={(e) =>
+                      setSurroundingsIncludePeople(e.target.checked)
+                    }
+                    className="right-panel__toggle-input"
+                  />
+                  <span className="right-panel__toggle-switch" />
+                </label>
+                <div style={{ marginTop: "0.25rem" }}>
+                  <span
+                    className="feature-chip-new"
+                    data-feature-version="v0.3.0"
+                  >
+                    New
+                  </span>
+                  <span
+                    className="feature-chip-experimental"
+                    data-feature-version="v0.3.0"
+                  >
+                    Experimental
+                  </span>
+                </div>
+                <small className="right-panel__hint">
+                  {t(
+                    "rightPanel.surroundingsIncludePeopleHint",
+                    "Include 2-3 reactive bystanders in the surroundings image.",
+                  )}
+                </small>
+              </div>
+            )}
+
+            {/* Clothing color consistency toggle */}
+            <div className="right-panel__form-group">
+              <label className="right-panel__toggle">
+                <span className="right-panel__toggle-label">
+                  {t(
+                    "rightPanel.clothingColorConsistency",
+                    "Clothing Color Consistency",
+                  )}
+                </span>
+                <input
+                  type="checkbox"
+                  checked={settingsState.clothingColorConsistency}
+                  onChange={(e) =>
+                    setClothingColorConsistency(e.target.checked)
+                  }
+                  className="right-panel__toggle-input"
+                />
+                <span className="right-panel__toggle-switch" />
+              </label>
+              <div style={{ marginTop: "0.25rem" }}>
+                <span
+                  className="feature-chip-new"
+                  data-feature-version="v0.3.0"
+                >
+                  New
+                </span>
+                <span
+                  className="feature-chip-experimental"
+                  data-feature-version="v0.3.0"
+                >
+                  Experimental
+                </span>
+              </div>
+              <small className="right-panel__hint">
+                {t(
+                  "rightPanel.clothingColorConsistencyHint",
+                  "When enabled, adds rules to prompt generation to maintain clothing color consistency.",
+                )}
+              </small>
+              {settingsState.clothingColorConsistency && (
+                <small
+                  className="right-panel__hint"
+                  style={{
+                    marginTop: "0.25rem",
+                    color: "var(--text-warning, #e0a050)",
+                  }}
+                >
+                  {t("rightPanel.clothingColorConsistencyTradeoff")}
+                </small>
+              )}
+            </div>
+
+            {/* Prompt Builder */}
+            {settingsState.clothingColorConsistency && (
+              <div className="right-panel__form-group">
+                <h4 className="right-panel__section-title">
+                  {t("rightPanel.sectionPromptBuilder")}
+                  <span
+                    className="feature-chip-new"
+                    data-feature-version="v0.3.0"
+                    style={{ marginLeft: "0.5rem" }}
+                  >
+                    New
+                  </span>
+                </h4>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "flex-end",
+                    marginBottom: "0.3rem",
+                  }}
+                >
+                  <button
+                    type="button"
+                    className="right-panel__btn-secondary"
+                    style={{ fontSize: "0.75rem", padding: "0.2rem 0.5rem" }}
+                    onClick={() =>
+                      setPbMode(pbMode === "fields" ? "textarea" : "fields")
+                    }
+                  >
+                    {pbMode === "fields"
+                      ? t("rightPanel.promptBuilderSwitchToTextarea")
+                      : t("rightPanel.promptBuilderSwitchToFields")}
+                  </button>
+                </div>
+                {pbMode === "fields" ? (
+                  <div
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "0.4rem",
+                    }}
+                  >
+                    <label className="right-panel__mini-label">
+                      {t("rightPanel.promptBuilderWho")}
+                      <input
+                        type="text"
+                        className="right-panel__input"
+                        value={pbWho}
+                        onChange={(e) => setPbWho(e.target.value)}
+                        placeholder={t(
+                          "rightPanel.promptBuilderWhoPlaceholder",
+                        )}
+                      />
+                    </label>
+                    <label className="right-panel__mini-label">
+                      {t("rightPanel.promptBuilderLocation")}
+                      <input
+                        type="text"
+                        className="right-panel__input"
+                        value={pbLocation}
+                        onChange={(e) => setPbLocation(e.target.value)}
+                        placeholder={t(
+                          "rightPanel.promptBuilderLocationPlaceholder",
+                        )}
+                      />
+                    </label>
+                    <label className="right-panel__mini-label">
+                      {t("rightPanel.promptBuilderOutfit")}
+                      <input
+                        type="text"
+                        className="right-panel__input"
+                        value={pbOutfit}
+                        onChange={(e) => setPbOutfit(e.target.value)}
+                        placeholder={t(
+                          "rightPanel.promptBuilderOutfitPlaceholder",
+                        )}
+                      />
+                    </label>
+                    <label className="right-panel__mini-label">
+                      {t("rightPanel.promptBuilderTarget")}
+                      <input
+                        type="text"
+                        className="right-panel__input"
+                        value={pbTarget}
+                        onChange={(e) => setPbTarget(e.target.value)}
+                        placeholder={t(
+                          "rightPanel.promptBuilderTargetPlaceholder",
+                        )}
+                      />
+                    </label>
+                    <label className="right-panel__mini-label">
+                      {t("rightPanel.promptBuilderAction")}
+                      <input
+                        type="text"
+                        className="right-panel__input"
+                        value={pbAction}
+                        onChange={(e) => setPbAction(e.target.value)}
+                        placeholder={t(
+                          "rightPanel.promptBuilderActionPlaceholder",
+                        )}
+                      />
+                    </label>
+                  </div>
+                ) : (
+                  <div>
+                    <textarea
+                      className="right-panel__textarea"
+                      rows={4}
+                      value={pbFreeform}
+                      onChange={(e) => setPbFreeform(e.target.value)}
+                      placeholder={t(
+                        "rightPanel.promptBuilderFreeformPlaceholder",
+                      )}
+                    />
+                  </div>
+                )}
+                <div
+                  style={{
+                    display: "flex",
+                    gap: "0.5rem",
+                    marginTop: "0.5rem",
+                  }}
+                >
+                  <button
+                    type="button"
+                    className="right-panel__btn-primary"
+                    onClick={() => {
+                      if (pbMode === "textarea") {
+                        const text =
+                          pbFreeform.trim() ||
+                          t("rightPanel.promptBuilderFreeformPlaceholder");
+                        setInputText(text);
+                      } else {
+                        const who = pbWho.trim();
+                        const outfit = pbOutfit.trim();
+                        const location = pbLocation.trim();
+                        const target = pbTarget.trim();
+                        const action = pbAction.trim();
+
+                        if (!who && !outfit && !location && !target && !action) {
+                          setInputText(
+                            `${t("rightPanel.promptBuilderWhoPlaceholder")}、${t("rightPanel.promptBuilderOutfitPlaceholder")}で、${t("rightPanel.promptBuilderLocationPlaceholder")}にて、${t("rightPanel.promptBuilderTargetPlaceholder")}を、${t("rightPanel.promptBuilderActionPlaceholder")}`,
+                          );
+                        } else {
+                          const parts: string[] = [];
+                          if (who) parts.push(who);
+                          if (outfit) parts.push(`${outfit}で`);
+                          if (location) parts.push(`${location}にて`);
+                          if (target) parts.push(`${target}を`);
+                          if (action) parts.push(action);
+                          setInputText(parts.join("、"));
+                        }
+                      }
+                    }}
+                  >
+                    {t("rightPanel.promptBuilderApply")}
+                  </button>
+                  <button
+                    type="button"
+                    className="right-panel__btn-secondary"
+                    onClick={() => {
+                      setPbWho("");
+                      setPbLocation("");
+                      setPbOutfit("");
+                      setPbTarget("");
+                      setPbAction("");
+                      setPbFreeform("");
+                    }}
+                  >
+                    {t("rightPanel.promptBuilderReset")}
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* NSFWモードトグル */}
             {/* <label className="right-panel__toggle">
@@ -973,6 +1456,162 @@ export default function RightPanel({
             ))}
           </div>
         </section> */}
+
+        {/* プロンプトプレビューセクション */}
+        {gameState.stats?.enablePromptPreview &&
+          chatState.instructionType !== "conversation" && (
+            <section className="right-panel__section">
+              <h4 className="right-panel__section-title">
+                {t("rightPanel.promptPreview")}
+              </h4>
+
+              <button
+                type="button"
+                className="right-panel__btn-primary"
+                onClick={handlePreviewPrompt}
+                disabled={
+                  isLoadingPreview ||
+                  !gameState.sessionId ||
+                  !chatState.inputText.trim()
+                }
+                style={{ width: "100%", marginBottom: "0.5rem" }}
+              >
+                {isLoadingPreview
+                  ? t("rightPanel.loadingDots")
+                  : t("rightPanel.generatePreview")}
+              </button>
+
+              {previewError && (
+                <p
+                  className="right-panel__hint"
+                  style={{ color: "var(--color-error, #e74c3c)" }}
+                >
+                  {previewError}
+                </p>
+              )}
+
+              {previewResult && (
+                <div className="right-panel__preview-result">
+                  {/* 画像編集プロンプト（編集可能） */}
+                  <div className="right-panel__form-group">
+                    <label className="right-panel__label">
+                      {t("rightPanel.imageEditPrompt")}
+                    </label>
+                    <textarea
+                      className="right-panel__textarea"
+                      value={editedPrompt}
+                      onChange={(e) => setEditedPrompt(e.target.value)}
+                      rows={5}
+                      style={{ fontSize: "0.8rem" }}
+                    />
+                    <small className="right-panel__hint">
+                      {t("rightPanel.imageEditPromptHint")}
+                    </small>
+                  </div>
+
+                  {/* 心境プロンプト (折りたたみ) */}
+                  <button
+                    type="button"
+                    className="right-panel__btn-secondary"
+                    onClick={() => setShowPreviewDetail(!showPreviewDetail)}
+                    style={{
+                      width: "100%",
+                      marginBottom: "0.5rem",
+                      fontSize: "0.8rem",
+                    }}
+                  >
+                    {showPreviewDetail
+                      ? t("rightPanel.hideDetail")
+                      : t("rightPanel.showDetail")}
+                  </button>
+
+                  {showPreviewDetail && (
+                    <>
+                      <div className="right-panel__form-group">
+                        <label className="right-panel__label">
+                          {t("rightPanel.feelingSystemPrompt")}
+                        </label>
+                        <textarea
+                          className="right-panel__textarea"
+                          value={previewResult.feeling_system_prompt}
+                          readOnly
+                          rows={4}
+                          style={{ fontSize: "0.75rem", opacity: 0.8 }}
+                        />
+                      </div>
+                      <div className="right-panel__form-group">
+                        <label className="right-panel__label">
+                          {t("rightPanel.feelingUserPrompt")}
+                        </label>
+                        <textarea
+                          className="right-panel__textarea"
+                          value={previewResult.feeling_user_prompt}
+                          readOnly
+                          rows={4}
+                          style={{ fontSize: "0.75rem", opacity: 0.8 }}
+                        />
+                      </div>
+                      {previewResult.novelai_tag_prompt && (
+                        <div className="right-panel__form-group">
+                          <label className="right-panel__label">
+                            NovelAI Tag System
+                          </label>
+                          <textarea
+                            className="right-panel__textarea"
+                            value={previewResult.novelai_tag_prompt}
+                            readOnly
+                            rows={3}
+                            style={{ fontSize: "0.75rem", opacity: 0.8 }}
+                          />
+                        </div>
+                      )}
+                      {previewResult.surroundings_system_prompt && (
+                        <div className="right-panel__form-group">
+                          <label className="right-panel__label">
+                            {t("rightPanel.surroundingsSystemPrompt")}
+                          </label>
+                          <textarea
+                            className="right-panel__textarea"
+                            value={previewResult.surroundings_system_prompt}
+                            readOnly
+                            rows={4}
+                            style={{ fontSize: "0.75rem", opacity: 0.8 }}
+                          />
+                        </div>
+                      )}
+                      {previewResult.surroundings_user_prompt && (
+                        <div className="right-panel__form-group">
+                          <label className="right-panel__label">
+                            {t("rightPanel.surroundingsUserPrompt")}
+                          </label>
+                          <textarea
+                            className="right-panel__textarea"
+                            value={previewResult.surroundings_user_prompt}
+                            readOnly
+                            rows={4}
+                            style={{ fontSize: "0.75rem", opacity: 0.8 }}
+                          />
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {/* 送信ボタン */}
+                  {onSendWithPromptOverride && (
+                    <button
+                      type="button"
+                      className="right-panel__btn-primary"
+                      onClick={handleSendWithOverride}
+                      disabled={!editedPrompt.trim()}
+                      style={{ width: "100%", marginTop: "0.3rem" }}
+                    >
+                      {t("rightPanel.sendWithPrompt")}
+                    </button>
+                  )}
+                </div>
+              )}
+            </section>
+          )}
 
         <section className="right-panel__section">
           <h4 className="right-panel__section-title">

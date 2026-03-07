@@ -39,12 +39,39 @@
   font-size: 0.8rem;
   cursor: pointer;
   line-height: 1;
-  transition: color 0.2s, border-color 0.2s;
+  transition:
+    color 0.2s,
+    border-color 0.2s;
 }
 
 .game-play-screen__cost-reset:hover {
   color: var(--accent-color, #7c3aed);
   border-color: var(--accent-color, #7c3aed);
+}
+
+/* US5: Anlas残高表示バー */
+.game-play-screen__anlas-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: 0.25rem 1rem;
+  background: var(--bg-primary, #0f0f1a);
+  border-bottom: 1px solid var(--border-color, #333);
+  flex-shrink: 0;
+}
+
+.game-play-screen__anlas-label {
+  font-size: 0.8rem;
+  color: #9be;
+  font-family: monospace;
+  font-weight: 600;
+}
+
+.game-play-screen__anlas-detail {
+  font-size: 0.75rem;
+  color: var(--text-muted, #888);
+  font-family: monospace;
 }
 
 /* 2カラムコンテンツ */
@@ -92,7 +119,8 @@
 
 /* アニメーション */
 @keyframes pulse {
-  0%, 100% {
+  0%,
+  100% {
     opacity: 1;
   }
   50% {
@@ -109,6 +137,37 @@
 /* スクロールバー */
 .game-play-screen__messages::-webkit-scrollbar {
   width: 8px;
+}
+
+/* US4: Seed display below image */
+.game-play-screen__seed-display {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.5rem;
+  margin-top: 0.25rem;
+  font-size: 0.75rem;
+  color: var(--text-muted, #999);
+  background: var(--bg-secondary, #1a1a2e);
+  border-radius: 4px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s;
+}
+
+.game-play-screen__seed-display:hover {
+  background: var(--bg-tertiary, #2a2a3e);
+  color: var(--text-primary, #ccc);
+}
+
+.game-play-screen__seed-label {
+  font-weight: 600;
+  opacity: 0.7;
+}
+
+.game-play-screen__seed-value {
+  font-family: monospace;
+  letter-spacing: 0.5px;
 }
 
 .game-play-screen__messages::-webkit-scrollbar-track {
@@ -131,9 +190,25 @@
     flex-direction: column;
   }
 
+  /* Image panel: takes ~60% of available space, shrinks if needed */
   .game-play-screen__left-panel {
     width: 100%;
-    max-height: 300px;
+    flex: 3 1 0;
+    min-height: 0;
+    overflow-y: auto;
+  }
+
+  /* Chat area: takes ~40%, never collapses below input height */
+  .game-play-screen__chat-area {
+    flex: 2 1 0;
+    min-height: 120px;
+  }
+
+  /* Messages scroll inside their own box */
+  .game-play-screen__messages {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
   }
 }
 
@@ -147,4 +222,92 @@
     max-height: 80px;
     font-size: 0.85rem;
   }
+}
+
+/* メッセージ削除確認モーダル */
+.game-play-screen__delete-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.game-play-screen__delete-modal {
+  background: var(--bg-secondary, #2a2a2a);
+  border-radius: 12px;
+  padding: 1.5rem;
+  max-width: 400px;
+  width: 90%;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+}
+
+.game-play-screen__delete-modal h3 {
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
+  color: var(--text-color, #eee);
+}
+
+.game-play-screen__delete-modal p {
+  margin: 0 0 0.75rem;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: var(--text-color, #ccc);
+}
+
+.game-play-screen__delete-modal-preview {
+  font-size: 0.85rem;
+  color: var(--text-muted, #888);
+  font-style: italic;
+  padding: 0.5rem;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+  word-break: break-word;
+}
+
+.game-play-screen__delete-modal-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  margin-top: 1rem;
+}
+
+.game-play-screen__delete-modal-confirm {
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  border: none;
+  background: var(--accent-color, #e94560);
+  color: #fff;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.game-play-screen__delete-modal-confirm:hover {
+  opacity: 0.9;
+}
+
+.game-play-screen__delete-modal-confirm:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.game-play-screen__delete-modal-cancel {
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  border: 1px solid var(--border-color, #555);
+  background: transparent;
+  color: var(--text-color, #eee);
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.game-play-screen__delete-modal-cancel:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.game-play-screen__delete-modal-cancel:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
