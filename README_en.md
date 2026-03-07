@@ -22,6 +22,12 @@ Give natural-language instructions to change character outfits and watch AI tran
 | :---------------------------------------------------: | :-------------------------------------------------------: |
 | ![Game screen (initial)](repo_resources/screen01.png) | ![After dress-up (princess)](repo_resources/screen02.png) |
 
+### Play Summary & Title
+
+|                  Before Generation                  |                  After Generation                  |                     Share Preview                      |
+| :-------------------------------------------------: | :------------------------------------------------: | :----------------------------------------------------: |
+| ![Before generation](repo_resources/screen05_0.png) | ![After generation](repo_resources/screen05_1.png) | ![Share preview save](repo_resources/screen05_1_2.png) |
+
 ### Inpaint (Partial Changes)
 
 |                   Mask Editing                    |                      Generating                      |                      Result                      |
@@ -54,6 +60,8 @@ Give natural-language instructions to change character outfits and watch AI tran
 | **Critical-Point Events** | Special dialogue triggers when Bloom reaches thresholds                |
 | **Achievement System**    | 12 achievements auto-detected                                          |
 | **Gallery**               | Browse past transformation images and completed endings                |
+| **Play Summary & Title**  | LLM auto-generates a summary and title (epithet) from play history     |
+| **Share Preview**         | Save summary card as OGP-style image (1200×630) or copy to clipboard   |
 | **Inpaint / Masks**       | Partial outfit changes (system / history / preset masks)               |
 | **Character Chat**        | Chat with characters beyond dress-up instructions                      |
 | **Multilingual**          | Japanese / English switching (with conversation language validation)   |
@@ -275,12 +283,14 @@ Achievements are automatically unlocked based on conditions such as transform co
 
 ### Gallery (`/api/gallery`)
 
-| Method   | Path         | Description                       |
-| -------- | ------------ | --------------------------------- |
-| `GET`    | `/`          | List gallery items                |
-| `GET`    | `/sessions`  | Gallery by session                |
-| `GET`    | `/{item_id}` | Item details (with prev/next nav) |
-| `DELETE` | `/{item_id}` | Delete item                       |
+| Method   | Path                             | Description                                  |
+| -------- | -------------------------------- | -------------------------------------------- |
+| `GET`    | `/`                              | List gallery items                           |
+| `GET`    | `/sessions`                      | Gallery by session                           |
+| `GET`    | `/{item_id}`                     | Item details (with prev/next nav)            |
+| `DELETE` | `/{item_id}`                     | Delete item                                  |
+| `GET`    | `/sessions/{session_id}/summary` | Get play summary & title                     |
+| `POST`   | `/sessions/{session_id}/summary` | Generate play summary & title (`?language=`) |
 
 ### Achievements (`/api/achievements`)
 
