@@ -2,26 +2,27 @@ import { test, expect } from "@playwright/test";
 
 test.describe("Self Profile Editor (US6)", () => {
   test.beforeEach(async ({ page }) => {
-    // Navigate to settings page
-    await page.goto("/");
-    // Open menu and navigate to settings
-    const menuButton = page.locator('[class*="menu"]').first();
-    if (await menuButton.isVisible()) {
-      await menuButton.click();
-    }
-    // Try navigating directly to settings
-    await page.goto("/#/settings");
+    await page.addInitScript(() => {
+      window.localStorage.setItem("novelai_api_key_consent", "true");
+    });
+    await page.goto("/settings");
     await page.waitForLoadState("networkidle");
   });
 
   test("self profile section is visible in settings", async ({ page }) => {
+    await expect(
+      page.locator(".settings-screen, .settings-container"),
+    ).toBeVisible({ timeout: 5000 });
+
     // The self profile section title should be visible
-    const sectionTitles = page.locator(".settings-screen__section-title");
-    const titles = await sectionTitles.allTextContents();
-    const hasSelfProfile = titles.some(
-      (t) => t.includes("自分自身プロフィール") || t.includes("Self Profile"),
+    // Use heading role for more reliable matching across languages
+    const selfProfileHeading = page.locator(
+      "h2.settings-screen__section-title",
+      {
+        hasText: /自分自身モード|Self Mode|Character Settings/i,
+      },
     );
-    expect(hasSelfProfile).toBeTruthy();
+    await expect(selfProfileHeading).toBeVisible();
   });
 
   test("self profile editor has generate input and button", async ({

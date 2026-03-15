@@ -30,37 +30,17 @@ import { useGame } from "../contexts/GameContext";
 import { useChat } from "../contexts/ChatContext";
 import { useSettings } from "../contexts/SettingsContext";
 import { API_BASE } from "../utils/api";
-import { fetchAnlasBalance } from "../apis/anlas";
+import { generateUUID } from "../utils/generateUUID";
 import { deleteGalleryItem } from "../apis/gallery";
 import { deleteLatestHistory } from "../apis/game";
 import type {
   ChangeSettings,
   ConversationMessage,
   ChatMessage,
-  HistoryItem,
 } from "../types";
 import "./GamePlayScreen.css";
 
-const DEFAULT_SHAME_VALUE = 50;
-
 interface GamePlayScreenProps {
-  // 既存のGameScreen からのprops
-  sessionId: string | null;
-  currentImageUrl: string | null;
-  stats: {
-    bloom: number;
-    shame: number;
-    adaptation: number;
-    nsfwMode?: boolean;
-    enablePromptPreview?: boolean;
-  };
-  transformationCount: number;
-  history: HistoryItem[];
-  attributes: Array<{ id: string; text: string }>;
-  feelingText: string;
-  isTransforming: boolean;
-  chatHistory: ConversationMessage[];
-  onChatHistoryChange: (history: ConversationMessage[]) => void;
   onTransform: (
     instruction: string,
     costumeImage?: string,
@@ -75,79 +55,18 @@ interface GamePlayScreenProps {
       promptOverride?: string;
     },
     instructionType?: string,
+    pendingToken?: string,
   ) => void;
-  changeSettings: ChangeSettings;
-  onChangeSettingsUpdate: (settings: ChangeSettings) => void;
-  onImproveQuality: () => void;
-  onReset: () => void;
-  onSelectHistory: (historyId: string) => void;
-  onAddAttribute: (text: string) => void;
-  onRemoveAttribute: (id: string) => void;
-  totalCost: number;
   onResetCost: () => void;
-  showCost: boolean;
-  imageProvider: "selfhost" | "openrouter" | "novelai";
-  // US5: 自分自身モードフラグ
-  selfMode?: boolean;
-  // 007: セッション開始時のコールバック（App.tsx側でuseSession.restoreSession()を呼ぶため）
   onSessionStart?: () => void;
-  // US4: Last generated seed value
-  lastGeneratedSeed?: number | null;
-  // US5: Anlas balance (NovelAI only)
-  anlasBalance?: {
-    fixedAnlas: number;
-    purchasedAnlas: number;
-    totalAnlas: number;
-  } | null;
-  onAnlasBalanceChange?: (
-    balance: {
-      fixedAnlas: number;
-      purchasedAnlas: number;
-      totalAnlas: number;
-    } | null,
-  ) => void;
-  // US2: Last surroundings image from SSE
-  lastSurroundingsImage?: {
-    imageBase64: string;
-    historyId: string;
-    seed?: number;
-  } | null;
-  onClearSurroundingsImage?: () => void;
 }
 
 /* eslint-disable @typescript-eslint/no-unused-vars */
 // 未使用の props と変数は将来のリファクタリングで使用予定
 export default function GamePlayScreen({
-  sessionId,
-  currentImageUrl,
-  // 以下の props は将来的に RightPanel で使用予定
-  stats: _stats,
-  transformationCount: _transformationCount,
-  history,
-  attributes,
-  feelingText,
-  isTransforming,
-  chatHistory,
-  onChatHistoryChange,
   onTransform,
-  changeSettings,
-  onChangeSettingsUpdate: _onChangeSettingsUpdate,
-  onImproveQuality: _onImproveQuality,
-  onReset: _onReset,
-  onSelectHistory: _onSelectHistory,
-  onAddAttribute: _onAddAttribute,
-  onRemoveAttribute: _onRemoveAttribute,
-  totalCost,
   onResetCost,
-  showCost,
-  imageProvider,
-  selfMode: selfModeProp = false,
   onSessionStart,
-  lastGeneratedSeed,
-  anlasBalance,
-  onAnlasBalanceChange,
-  lastSurroundingsImage,
-  onClearSurroundingsImage,
 }: GamePlayScreenProps) {
   const { t } = useTranslation();
   const location = useLocation();
@@ -155,12 +74,9 @@ export default function GamePlayScreen({
 
   const {
     state: gameState,
-    restoreSession,
-    updateStats: updateGameStats,
     setCurrentImage,
-    setHistory: setGameHistory,
-    setAttributes: setGameAttributes,
-    setSelfMode,
+    setConversationHistory,
+    setLastSurroundingsImage,
     navigatePrevHistory,
     navigateNextHistory,
   } = useGame();
@@ -172,6 +88,10 @@ export default function GamePlayScreen({
     setMessageStreaming,
     appendToMessage: _appendToMessage,
     setStreaming: _setStreaming,
+    upsertPendingIdentity,
+    attachFeelingMessage,
+    getLatestPendingIdentity,
+    getMessageHistoryId,
     clearInput,
     setInputText,
     setInstructionType,
@@ -184,6 +104,18 @@ export default function GamePlayScreen({
     clearInpaintMask,
     togglePanel,
   } = useSettings();
+  const sessionId = gameState.sessionId;
+  const currentImageUrl = gameState.currentImage;
+  const history = gameState.history;
+  const feelingText = gameState.feelingText;
+  const isTransforming = gameState.isTransforming;
+  const chatHistory = gameState.conversationHistory;
+  const changeSettings = settingsState.changeSettings;
+  const totalCost = settingsState.totalCost;
+  const showCost = settingsState.showCost;
+  const imageProvider = settingsState.imageProvider;
+  const lastGeneratedSeed = gameState.lastGeneratedSeed;
+  const anlasBalance = settingsState.anlasBalance;
 
   // 右パネル開閉状態はSettingsContext経由でlocalStorageに保存
   const showRightPanel = settingsState.rightPanelOpen;
@@ -266,6 +198,7 @@ export default function GamePlayScreen({
           role: "user",
           content: h.instruction,
           createdAt: h.timestamp,
+          relatedHistoryId: h.id,
           instructionType: (h.instructionType || "dress_up") as
             | "dress_up"
             | "reality_alter"
@@ -281,6 +214,7 @@ export default function GamePlayScreen({
             content: `💭 ${h.feelingText}`,
             createdAt: h.timestamp,
             isFeelingText: true,
+            relatedHistoryId: h.id,
             surroundingsImageUrl: h.surroundingsImageUrl,
           });
         }
@@ -331,82 +265,6 @@ export default function GamePlayScreen({
   //   }
   // }, [history, setHistory]);
 
-  // GameContextに現在の画像を同期
-  useEffect(() => {
-    if (currentImageUrl) {
-      setCurrentImage(currentImageUrl);
-    }
-  }, [currentImageUrl, setCurrentImage]);
-
-  // 007: GameContextに履歴を同期（CharacterStatePanelの履歴ナビゲーション用）
-  useEffect(() => {
-    // historyが配列であれば同期（空配列も含む）
-    if (Array.isArray(history)) {
-      setGameHistory(history);
-    }
-  }, [history, setGameHistory]);
-
-  // 007: GameContextに属性を同期（RightPanelがuseGame()経由で属性を操作できるように）
-  useEffect(() => {
-    if (attributes && attributes.length > 0) {
-      setGameAttributes(attributes);
-    }
-  }, [attributes, setGameAttributes]);
-
-  // US5: selfMode を GameContext に同期
-  useEffect(() => {
-    setSelfMode(selfModeProp);
-  }, [selfModeProp, setSelfMode]);
-
-  // 007: GameContextにパラメータを同期（CharacterStatePanelの表示更新用）
-  useEffect(() => {
-    updateGameStats({
-      bloom: _stats.bloom ?? 0,
-      shame: _stats.shame ?? DEFAULT_SHAME_VALUE,
-      adaptation: _stats.adaptation ?? 0,
-      nsfwMode: _stats.nsfwMode ?? false,
-      enablePromptPreview: _stats.enablePromptPreview ?? false,
-    });
-  }, [_stats, updateGameStats]);
-
-  // 007: GameContextにセッション情報を同期（sessionIdが必要な操作のため）
-  useEffect(() => {
-    if (sessionId && currentImageUrl) {
-      // GameContextのrestoreSessionを呼び出してsessionIdと全状態を設定
-      // history も含めて一括で渡す（Effect A の SET_HISTORY との二重セットは冪等なので安全）
-      const fullStats = {
-        bloom: _stats.bloom ?? 0,
-        shame: _stats.shame ?? 50,
-        adaptation: _stats.adaptation ?? 0,
-        passedCriticalPoints: [],
-        difficulty: "normal" as const,
-        nsfwMode: _stats.nsfwMode ?? false,
-        enablePromptPreview: _stats.enablePromptPreview ?? false,
-      };
-      restoreSession(
-        sessionId,
-        { id: "", name: "", description: "", thumbnail: currentImageUrl },
-        currentImageUrl,
-        fullStats,
-        history,
-        attributes,
-        selfModeProp,
-      );
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId]);
-
-  // US5: Initial Anlas balance fetch (NovelAI only)
-  useEffect(() => {
-    if (imageProvider === "novelai" && onAnlasBalanceChange) {
-      fetchAnlasBalance().then((balance) => {
-        if (balance) {
-          onAnlasBalanceChange(balance);
-        }
-      });
-    }
-  }, [imageProvider, onAnlasBalanceChange]);
-
   // 心境テキストをチャットメッセージとして追加（ストリーミング対応）
   // ストリーミング中は既存のfeelingメッセージを更新し、完了時に新規追加
   const prevFeelingRef = React.useRef<string | null>(null);
@@ -420,7 +278,11 @@ export default function GamePlayScreen({
           updateMessage(currentFeelingIdRef.current, `💭 ${feelingText}`);
         } else {
           // 新しいfeelingメッセージを作成（ストリーミング開始時）
-          const newId = `feeling-${Date.now()}`;
+          const pendingIdentity = getLatestPendingIdentity();
+          if (!pendingIdentity) {
+            return;
+          }
+          const newId = `feeling-${pendingIdentity.tempToken}`;
           currentFeelingIdRef.current = newId;
           const feelingMsg: ChatMessage = {
             id: newId,
@@ -430,8 +292,10 @@ export default function GamePlayScreen({
             createdAt: new Date().toISOString(),
             isFeelingText: true,
             isStreaming: true,
+            pendingToken: pendingIdentity.tempToken,
           };
           addMessage(feelingMsg);
+          attachFeelingMessage(pendingIdentity.tempToken, newId);
         }
         prevFeelingRef.current = feelingText;
       } else if (!isTransforming && prevFeelingRef.current !== feelingText) {
@@ -466,38 +330,38 @@ export default function GamePlayScreen({
     feelingText,
     sessionId,
     addMessage,
+    attachFeelingMessage,
+    getLatestPendingIdentity,
     updateMessage,
     setMessageStreaming,
     isTransforming,
   ]);
 
-  // US2: Update message with surroundings image when received
-  // Attach to the character's feeling text message (not the user's action message)
+  // 周囲状況画像をフィーリングメッセージに紐づけ
   useEffect(() => {
-    if (lastSurroundingsImage && sessionId) {
-      const { imageBase64 } = lastSurroundingsImage;
-      // Find the most recent feeling-text system message (character response)
-      const feelingMsg = [...chatState.messages]
-        .reverse()
-        .find(
-          (m) =>
-            m.role === "system" && m.isFeelingText && !m.surroundingsImageUrl,
-        );
-      if (feelingMsg) {
-        const dataUrl = `data:image/png;base64,${imageBase64}`;
-        updateMessage(feelingMsg.id, feelingMsg.content, {
-          surroundingsImageUrl: dataUrl,
-        });
-      }
-      // Clear the surroundings image state
-      onClearSurroundingsImage?.();
+    const surroundings = gameState.lastSurroundingsImage;
+    if (!surroundings || !sessionId) return;
+
+    const { imageBase64 } = surroundings;
+    const feelingMsg = [...chatState.messages]
+      .reverse()
+      .find(
+        (m) =>
+          m.role === "system" && m.isFeelingText && !m.surroundingsImageUrl,
+      );
+    if (feelingMsg) {
+      const dataUrl = `data:image/png;base64,${imageBase64}`;
+      updateMessage(feelingMsg.id, feelingMsg.content, {
+        surroundingsImageUrl: dataUrl,
+      });
+      setLastSurroundingsImage(null);
     }
   }, [
-    lastSurroundingsImage,
+    gameState.lastSurroundingsImage,
     sessionId,
     chatState.messages,
     updateMessage,
-    onClearSurroundingsImage,
+    setLastSurroundingsImage,
   ]);
 
   // 右パネルトグル（SettingsContext経由でlocalStorageに永続化）
@@ -526,12 +390,14 @@ export default function GamePlayScreen({
 
       // ユーザーメッセージをチャットに追加
       const now = new Date().toISOString();
+      const tempToken = generateUUID();
       const userMsg: ChatMessage = {
-        id: `user-${Date.now()}`,
+        id: `user-${tempToken}`,
         sessionId: sessionId,
         role: "user",
         content: message,
         createdAt: now,
+        pendingToken: tempToken,
         instructionType: instructionType as
           | "dress_up"
           | "reality_alter"
@@ -539,6 +405,13 @@ export default function GamePlayScreen({
           | "action",
       };
       addMessage(userMsg);
+      upsertPendingIdentity({
+        tempToken,
+        userMessageId: userMsg.id,
+        feelingMessageId: null,
+        resolvedHistoryId: null,
+        status: "pending",
+      });
 
       // 指示タイプに応じた処理
       if (instructionType === "conversation") {
@@ -618,7 +491,7 @@ export default function GamePlayScreen({
               content: fullResponse,
               createdAt: charNow,
             };
-            onChatHistoryChange([...chatHistory, userConvMsg, charConvMsg]);
+            setConversationHistory([...chatHistory, userConvMsg, charConvMsg]);
           } else {
             // エラー時
             setMessageStreaming(charMsgId, false);
@@ -714,6 +587,7 @@ export default function GamePlayScreen({
           transformationType,
           transformOptions,
           backendInstructionType,
+          tempToken,
         );
       }
     },
@@ -721,12 +595,13 @@ export default function GamePlayScreen({
       sessionId,
       isTransforming,
       addMessage,
+      upsertPendingIdentity,
       updateMessage,
       setMessageStreaming,
       onTransform,
       changeSettings,
       chatHistory,
-      onChatHistoryChange,
+      setConversationHistory,
       imageProvider,
       settingsState.inpaintEnabled,
       uiText,
@@ -756,18 +631,27 @@ export default function GamePlayScreen({
 
       // ユーザーメッセージをチャットに追加
       const now = new Date().toISOString();
+      const tempToken = generateUUID();
       const userMsg: ChatMessage = {
-        id: `user-${Date.now()}`,
+        id: `user-${tempToken}`,
         sessionId,
         role: "user",
         content: message,
         createdAt: now,
+        pendingToken: tempToken,
         instructionType: instructionType as
           | "dress_up"
           | "reality_alter"
           | "action",
       };
       addMessage(userMsg);
+      upsertPendingIdentity({
+        tempToken,
+        userMessageId: userMsg.id,
+        feelingMessageId: null,
+        resolvedHistoryId: null,
+        status: "pending",
+      });
 
       const transformationType =
         instructionType === "reality_alter" ? "reality" : "costume";
@@ -805,6 +689,7 @@ export default function GamePlayScreen({
         transformationType,
         transformOptions,
         backendInstructionType,
+        tempToken,
       );
 
       // 入力をクリア
@@ -816,6 +701,7 @@ export default function GamePlayScreen({
       chatState.inputText,
       chatState.instructionType,
       addMessage,
+      upsertPendingIdentity,
       onTransform,
       changeSettings,
       imageProvider,
@@ -856,22 +742,14 @@ export default function GamePlayScreen({
   const handleRequestDeleteMessage = useCallback(
     (messageId: string) => {
       // user-{historyId} から historyId を抽出
-      const historyId = messageId.replace(/^user-/, "");
-
-      // Temporary guard: right after sending, the ID is still a timestamp (not UUID).
-      // In that case, prompt the user to reload.
-      if (
-        !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-          historyId,
-        )
-      ) {
-        alert(t("gameplay.messageRequiresReload"));
+      const historyId = getMessageHistoryId(messageId);
+      if (!historyId) {
         return;
       }
 
       // 対応する応答メッセージ (feeling-{historyId}) を取得してプレビューを作成
       const feelingMsg = chatState.messages.find(
-        (m) => m.id === `feeling-${historyId}`,
+        (m) => m.relatedHistoryId === historyId && m.isFeelingText,
       );
       const preview = feelingMsg
         ? feelingMsg.content.slice(0, 30) +
@@ -884,7 +762,7 @@ export default function GamePlayScreen({
         responsePreview: preview,
       });
     },
-    [chatState.messages, t],
+    [chatState.messages, getMessageHistoryId],
   );
 
   // メッセージ削除を実行
@@ -901,21 +779,11 @@ export default function GamePlayScreen({
       // チャットメッセージから対象のユーザーメッセージ + 応答メッセージを除去
       // The feeling message created during streaming uses "feeling-{Date.now()}"
       // (not historyId), so we find it by position after the user message.
-      const userMsgIdx = chatState.messages.findIndex(
-        (m) => m.id === `user-${historyId}`,
+      const idsToRemove = new Set(
+        chatState.messages
+          .filter((message) => message.relatedHistoryId === historyId)
+          .map((message) => message.id),
       );
-      const idsToRemove = new Set<string>();
-      if (userMsgIdx !== -1) {
-        idsToRemove.add(chatState.messages[userMsgIdx].id);
-        for (let i = userMsgIdx + 1; i < chatState.messages.length; i++) {
-          const m = chatState.messages[i];
-          if (m.role === "system" && m.isFeelingText) {
-            idsToRemove.add(m.id);
-            break;
-          }
-          if (m.role === "user") break;
-        }
-      }
       setMessages(chatState.messages.filter((m) => !idsToRemove.has(m.id)));
 
       setDeleteMessageConfirm(null);
@@ -931,19 +799,14 @@ export default function GamePlayScreen({
   const handleRequestEditMessage = useCallback(
     (messageId: string, content: string) => {
       // Temporary guard: right after sending, the ID is still a timestamp (not UUID).
-      const historyId = messageId.replace(/^user-/, "");
-      if (
-        !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-          historyId,
-        )
-      ) {
-        alert(t("gameplay.messageRequiresReload"));
+      const historyId = getMessageHistoryId(messageId);
+      if (!historyId) {
         return;
       }
 
       setEditMessageConfirm({ messageId, content });
     },
-    [t],
+    [getMessageHistoryId],
   );
 
   // 最新メッセージ編集を確定して実行
@@ -951,7 +814,10 @@ export default function GamePlayScreen({
     if (!editMessageConfirm || !sessionId) return;
 
     const { messageId, content } = editMessageConfirm;
-    const historyId = messageId.replace(/^user-/, "");
+    const historyId = getMessageHistoryId(messageId);
+    if (!historyId) {
+      return;
+    }
 
     try {
       setIsEditingMessage(true);
@@ -964,22 +830,11 @@ export default function GamePlayScreen({
       // created during streaming uses "feeling-{Date.now()}" (not historyId).
       // So we find the feeling message by locating the one that immediately
       // follows the user message in the list.
-      const userMsgIdx = chatState.messages.findIndex(
-        (m) => m.id === `user-${historyId}`,
+      const idsToRemove = new Set(
+        chatState.messages
+          .filter((message) => message.relatedHistoryId === historyId)
+          .map((message) => message.id),
       );
-      const idsToRemove = new Set<string>();
-      if (userMsgIdx !== -1) {
-        idsToRemove.add(chatState.messages[userMsgIdx].id);
-        // Find the corresponding feeling/system message after the user message
-        for (let i = userMsgIdx + 1; i < chatState.messages.length; i++) {
-          const m = chatState.messages[i];
-          if (m.role === "system" && m.isFeelingText) {
-            idsToRemove.add(m.id);
-            break;
-          }
-          if (m.role === "user") break; // next user message reached
-        }
-      }
       setMessages(chatState.messages.filter((m) => !idsToRemove.has(m.id)));
 
       // Restore instruction text to input
@@ -1023,6 +878,7 @@ export default function GamePlayScreen({
     sessionId,
     chatState.messages,
     setMessages,
+    getMessageHistoryId,
     setInputText,
     setInstructionType,
     setCurrentImage,
@@ -1112,7 +968,7 @@ export default function GamePlayScreen({
                 onImageClick={handleImageClick}
                 onInpaintToggle={handleInpaintToggle}
                 onOpenInpaintModal={() => setShowInpaintModal(true)}
-                transformationCount={_transformationCount}
+                transformationCount={gameState.transformationCount}
                 isTransforming={isTransforming}
               />
               {/* US4: Seed display */}

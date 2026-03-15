@@ -15,9 +15,11 @@ test.describe("US2: Surroundings image display", () => {
     await expect(page.locator(".game-play-screen")).toBeVisible();
 
     // Chat message list should exist
-    const chatMessages = page.locator(
-      ".chat-message-list, .chat-messages, .game-play-screen__messages",
-    );
+    const chatMessages = page
+      .locator(
+        ".chat-message-list, .chat-messages, .game-play-screen__messages",
+      )
+      .first();
     await expect(chatMessages).toBeVisible();
 
     // The CSS classes for surroundings images should be defined
@@ -153,9 +155,9 @@ test.describe("US2: Surroundings image in history", () => {
     await expect(page.locator(".game-play-screen")).toBeVisible();
 
     // Chat messages should be renderable
-    const messageContainer = page.locator(
-      ".game-play-screen__messages, .chat-message-list",
-    );
+    const messageContainer = page
+      .locator(".game-play-screen__messages, .chat-message-list")
+      .first();
     await expect(messageContainer).toBeVisible();
 
     // The component should handle messages with surroundingsImageUrl property

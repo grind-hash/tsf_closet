@@ -18,6 +18,7 @@ import type {
   ChangeSettings,
   InstructionType,
   PreciseReference,
+  AnlasBalance,
 } from "../types";
 import {
   DEFAULT_CHANGE_SETTINGS,
@@ -40,6 +41,11 @@ interface SettingsState {
 
   // 画像プロバイダー
   imageProvider: "selfhost" | "openrouter" | "novelai";
+
+  // 補助表示情報
+  totalCost: number;
+  showCost: boolean;
+  anlasBalance: AnlasBalance | null;
 
   // デフォルトの指示タイプ
   defaultInstructionType: InstructionType;
@@ -95,6 +101,11 @@ type SettingsAction =
       type: "SET_IMAGE_PROVIDER";
       payload: "selfhost" | "openrouter" | "novelai";
     }
+  | { type: "SET_TOTAL_COST"; payload: number }
+  | { type: "ADD_TOTAL_COST"; payload: number }
+  | { type: "RESET_TOTAL_COST" }
+  | { type: "SET_SHOW_COST"; payload: boolean }
+  | { type: "SET_ANLAS_BALANCE"; payload: AnlasBalance | null }
   | { type: "SET_DEFAULT_INSTRUCTION_TYPE"; payload: InstructionType }
   | { type: "SET_INPAINT_SETTINGS"; payload: Partial<InpaintSettings> }
   | { type: "SET_INPAINT_MASK"; payload: InpaintMaskState }
@@ -129,6 +140,9 @@ const defaultState: SettingsState = {
   language: DEFAULT_LANGUAGE,
   nsfwMode: false,
   imageProvider: "selfhost",
+  totalCost: 0,
+  showCost: false,
+  anlasBalance: null,
   defaultInstructionType: "dress_up",
   inpaintSettings: DEFAULT_INPAINT_SETTINGS,
   inpaintEnabled: false,
@@ -165,6 +179,16 @@ function settingsReducer(
       return { ...state, nsfwMode: !state.nsfwMode };
     case "SET_IMAGE_PROVIDER":
       return { ...state, imageProvider: action.payload };
+    case "SET_TOTAL_COST":
+      return { ...state, totalCost: action.payload };
+    case "ADD_TOTAL_COST":
+      return { ...state, totalCost: state.totalCost + action.payload };
+    case "RESET_TOTAL_COST":
+      return { ...state, totalCost: 0 };
+    case "SET_SHOW_COST":
+      return { ...state, showCost: action.payload };
+    case "SET_ANLAS_BALANCE":
+      return { ...state, anlasBalance: action.payload };
     case "SET_DEFAULT_INSTRUCTION_TYPE":
       return { ...state, defaultInstructionType: action.payload };
     case "SET_INPAINT_SETTINGS":
@@ -263,6 +287,11 @@ interface SettingsContextType {
   setNsfwMode: (enabled: boolean) => void;
   toggleNsfw: () => void;
   setImageProvider: (provider: "selfhost" | "openrouter" | "novelai") => void;
+  setTotalCost: (value: number) => void;
+  addTotalCost: (value: number) => void;
+  resetTotalCost: () => void;
+  setShowCost: (show: boolean) => void;
+  setAnlasBalance: (balance: AnlasBalance | null) => void;
   setDefaultInstructionType: (type: InstructionType) => void;
   setInpaintSettings: (settings: Partial<InpaintSettings>) => void;
   setInpaintMask: (
@@ -308,12 +337,29 @@ const STORAGE_KEY = "app_settings";
 function loadInitialState(initial: SettingsState): SettingsState {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
+    const legacyTotalCost = localStorage.getItem("api_total_cost");
     if (saved) {
       const parsed = JSON.parse(saved);
       // imageProviderはバックエンドから取得するため除外
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { imageProvider: _ignored, ...rest } = parsed;
-      return { ...initial, ...rest };
+      return {
+        ...initial,
+        ...rest,
+        totalCost:
+          typeof rest.totalCost === "number"
+            ? rest.totalCost
+            : legacyTotalCost
+              ? parseFloat(legacyTotalCost)
+              : initial.totalCost,
+      };
+    }
+
+    if (legacyTotalCost) {
+      return {
+        ...initial,
+        totalCost: parseFloat(legacyTotalCost),
+      };
     }
   } catch (error) {
     console.error("Failed to load settings from localStorage:", error);
@@ -348,6 +394,16 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
           ) {
             dispatch({ type: "SET_IMAGE_PROVIDER", payload: provider });
           }
+
+          const hasCostProvider =
+            data.image_provider === "openrouter" ||
+            data.image_description_provider === "openrouter" ||
+            data.feeling_provider === "openrouter";
+          dispatch({ type: "SET_SHOW_COST", payload: hasCostProvider });
+
+          if (provider !== "novelai") {
+            dispatch({ type: "SET_ANLAS_BALANCE", payload: null });
+          }
         }
       } catch (error) {
         console.warn("Failed to fetch image provider from /health:", error);
@@ -355,6 +411,12 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     };
     fetchImageProvider();
   }, []);
+
+  useEffect(() => {
+    if (state.imageProvider !== "novelai" && state.anlasBalance !== null) {
+      dispatch({ type: "SET_ANLAS_BALANCE", payload: null });
+    }
+  }, [state.imageProvider, state.anlasBalance]);
 
   // 初回ロード時にバックエンドからユーザー設定を取得
   useEffect(() => {
@@ -405,10 +467,12 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         preciseReferences: _ignored2,
         selfProfile: _ignored3,
         seed: _ignored4,
+        anlasBalance: _ignored5,
         ...rest
       } = state;
       /* eslint-enable @typescript-eslint/no-unused-vars */
       localStorage.setItem(STORAGE_KEY, JSON.stringify(rest));
+      localStorage.setItem("api_total_cost", String(state.totalCost));
     } catch (error) {
       console.error("Failed to save settings to localStorage:", error);
     }
@@ -505,6 +569,26 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     },
     [],
   );
+
+  const setTotalCost = useCallback((value: number) => {
+    dispatch({ type: "SET_TOTAL_COST", payload: value });
+  }, []);
+
+  const addTotalCost = useCallback((value: number) => {
+    dispatch({ type: "ADD_TOTAL_COST", payload: value });
+  }, []);
+
+  const resetTotalCost = useCallback(() => {
+    dispatch({ type: "RESET_TOTAL_COST" });
+  }, []);
+
+  const setShowCost = useCallback((show: boolean) => {
+    dispatch({ type: "SET_SHOW_COST", payload: show });
+  }, []);
+
+  const setAnlasBalance = useCallback((balance: AnlasBalance | null) => {
+    dispatch({ type: "SET_ANLAS_BALANCE", payload: balance });
+  }, []);
 
   const setDefaultInstructionType = useCallback((type: InstructionType) => {
     dispatch({ type: "SET_DEFAULT_INSTRUCTION_TYPE", payload: type });
@@ -635,6 +719,11 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setNsfwMode,
     toggleNsfw,
     setImageProvider,
+    setTotalCost,
+    addTotalCost,
+    resetTotalCost,
+    setShowCost,
+    setAnlasBalance,
     setDefaultInstructionType,
     setInpaintSettings,
     setInpaintMask,

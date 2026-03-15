@@ -11,12 +11,19 @@ import {
   useRef,
   type ReactNode,
 } from "react";
-import type { ChatMessage, InstructionType } from "../types";
+import type {
+  ChatMessage,
+  InstructionType,
+  PendingMessageIdentity,
+} from "../types";
 
 // チャット状態
 interface ChatState {
   // メッセージ一覧
   messages: ChatMessage[];
+
+  // 送信直後メッセージの一時 ID 管理
+  pendingIdentities: PendingMessageIdentity[];
 
   // 入力状態
   inputText: string;
@@ -56,12 +63,28 @@ type ChatAction =
   | { type: "SET_STREAMING"; payload: boolean }
   | { type: "SET_HIGHLIGHTED_MESSAGE"; payload: string | null }
   | { type: "SET_SCROLL_TO_MESSAGE"; payload: string | null }
+  | { type: "UPSERT_PENDING_IDENTITY"; payload: PendingMessageIdentity }
+  | {
+      type: "ATTACH_FEELING_MESSAGE";
+      payload: { tempToken: string; feelingMessageId: string };
+    }
+  | {
+      type: "RESOLVE_PENDING_IDENTITY";
+      payload: { tempToken: string; historyId: string };
+    }
+  | {
+      type: "FINALIZE_PENDING_IDENTITY";
+      payload: { tempToken: string; historyId?: string | null };
+    }
+  | { type: "FAIL_PENDING_IDENTITY"; payload: { tempToken: string } }
+  | { type: "REPLACE_MESSAGE_ID"; payload: { oldId: string; newId: string } }
   | { type: "CLEAR_INPUT" }
   | { type: "CLEAR_MESSAGES" };
 
 // デフォルト状態
 const defaultState: ChatState = {
   messages: [],
+  pendingIdentities: [],
   inputText: "",
   instructionType: "dress_up",
   attachedImage: null,
@@ -125,6 +148,119 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
       return { ...state, highlightedMessageId: action.payload };
     case "SET_SCROLL_TO_MESSAGE":
       return { ...state, scrollToMessageId: action.payload };
+    case "UPSERT_PENDING_IDENTITY": {
+      const existingIndex = state.pendingIdentities.findIndex(
+        (identity) => identity.tempToken === action.payload.tempToken,
+      );
+
+      if (existingIndex === -1) {
+        return {
+          ...state,
+          pendingIdentities: [...state.pendingIdentities, action.payload],
+        };
+      }
+
+      const pendingIdentities = [...state.pendingIdentities];
+      pendingIdentities[existingIndex] = action.payload;
+      return { ...state, pendingIdentities };
+    }
+    case "ATTACH_FEELING_MESSAGE":
+      return {
+        ...state,
+        pendingIdentities: state.pendingIdentities.map((identity) =>
+          identity.tempToken === action.payload.tempToken
+            ? {
+                ...identity,
+                feelingMessageId: action.payload.feelingMessageId,
+              }
+            : identity,
+        ),
+      };
+    case "RESOLVE_PENDING_IDENTITY":
+      return {
+        ...state,
+        pendingIdentities: state.pendingIdentities.map((identity) =>
+          identity.tempToken === action.payload.tempToken
+            ? {
+                ...identity,
+                resolvedHistoryId: action.payload.historyId,
+                status: "resolvable",
+              }
+            : identity,
+        ),
+      };
+    case "FINALIZE_PENDING_IDENTITY": {
+      const identity = state.pendingIdentities.find(
+        (entry) => entry.tempToken === action.payload.tempToken,
+      );
+
+      if (!identity) {
+        return state;
+      }
+
+      const historyId = action.payload.historyId ?? identity.resolvedHistoryId;
+      if (!historyId) {
+        return {
+          ...state,
+          pendingIdentities: state.pendingIdentities.map((entry) =>
+            entry.tempToken === action.payload.tempToken
+              ? { ...entry, status: "failed" }
+              : entry,
+          ),
+        };
+      }
+
+      return {
+        ...state,
+        messages: state.messages.map((message) => {
+          if (message.id === identity.userMessageId) {
+            return {
+              ...message,
+              id: `user-${historyId}`,
+              relatedHistoryId: historyId,
+              pendingToken: undefined,
+              isStreaming: false,
+            };
+          }
+
+          if (
+            identity.feelingMessageId &&
+            message.id === identity.feelingMessageId
+          ) {
+            return {
+              ...message,
+              id: `feeling-${historyId}`,
+              relatedHistoryId: historyId,
+              pendingToken: undefined,
+              isStreaming: false,
+            };
+          }
+
+          return message;
+        }),
+        pendingIdentities: state.pendingIdentities.filter(
+          (entry) => entry.tempToken !== action.payload.tempToken,
+        ),
+      };
+    }
+    case "FAIL_PENDING_IDENTITY":
+      return {
+        ...state,
+        pendingIdentities: state.pendingIdentities.map((identity) =>
+          identity.tempToken === action.payload.tempToken
+            ? { ...identity, status: "failed" }
+            : identity,
+        ),
+      };
+    case "REPLACE_MESSAGE_ID":
+      return {
+        ...state,
+        messages: state.messages.map((message) =>
+          message.id === action.payload.oldId
+            ? { ...message, id: action.payload.newId }
+            : message,
+        ),
+      };
     case "CLEAR_INPUT":
       return {
         ...state,
@@ -155,6 +291,17 @@ interface ChatContextType {
   setInstructionType: (type: InstructionType) => void;
   attachImage: (file: File | null) => void;
   setStreaming: (isStreaming: boolean) => void;
+  upsertPendingIdentity: (identity: PendingMessageIdentity) => void;
+  attachFeelingMessage: (tempToken: string, feelingMessageId: string) => void;
+  resolvePendingIdentity: (tempToken: string, historyId: string) => void;
+  finalizePendingIdentity: (
+    tempToken: string,
+    historyId?: string | null,
+  ) => void;
+  failPendingIdentity: (tempToken: string) => void;
+  replaceMessageId: (oldId: string, newId: string) => void;
+  getMessageHistoryId: (messageId: string) => string | null;
+  getLatestPendingIdentity: () => PendingMessageIdentity | null;
   highlightMessage: (messageId: string | null, duration?: number) => void;
   scrollToMessage: (messageId: string | null) => void;
   clearInput: () => void;
@@ -226,6 +373,81 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "SET_STREAMING", payload: isStreaming });
   }, []);
 
+  const upsertPendingIdentity = useCallback(
+    (identity: PendingMessageIdentity) => {
+      dispatch({ type: "UPSERT_PENDING_IDENTITY", payload: identity });
+    },
+    [],
+  );
+
+  const attachFeelingMessage = useCallback(
+    (tempToken: string, feelingMessageId: string) => {
+      dispatch({
+        type: "ATTACH_FEELING_MESSAGE",
+        payload: { tempToken, feelingMessageId },
+      });
+    },
+    [],
+  );
+
+  const resolvePendingIdentity = useCallback(
+    (tempToken: string, historyId: string) => {
+      dispatch({
+        type: "RESOLVE_PENDING_IDENTITY",
+        payload: { tempToken, historyId },
+      });
+    },
+    [],
+  );
+
+  const finalizePendingIdentity = useCallback(
+    (tempToken: string, historyId?: string | null) => {
+      dispatch({
+        type: "FINALIZE_PENDING_IDENTITY",
+        payload: { tempToken, historyId },
+      });
+    },
+    [],
+  );
+
+  const failPendingIdentity = useCallback((tempToken: string) => {
+    dispatch({ type: "FAIL_PENDING_IDENTITY", payload: { tempToken } });
+  }, []);
+
+  const replaceMessageId = useCallback((oldId: string, newId: string) => {
+    dispatch({ type: "REPLACE_MESSAGE_ID", payload: { oldId, newId } });
+  }, []);
+
+  const getMessageHistoryId = useCallback(
+    (messageId: string): string | null => {
+      const message = state.messages.find((entry) => entry.id === messageId);
+      if (!message) {
+        return null;
+      }
+
+      if (message.relatedHistoryId) {
+        return message.relatedHistoryId;
+      }
+
+      const match = message.id.match(/^(?:user|feeling)-(.+)$/);
+      if (!match) {
+        return null;
+      }
+
+      const candidate = match[1];
+      return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        candidate,
+      )
+        ? candidate
+        : null;
+    },
+    [state.messages],
+  );
+
+  const getLatestPendingIdentity = useCallback(() => {
+    return state.pendingIdentities[state.pendingIdentities.length - 1] ?? null;
+  }, [state.pendingIdentities]);
+
   const highlightMessage = useCallback(
     (messageId: string | null, duration = 2000) => {
       dispatch({ type: "SET_HIGHLIGHTED_MESSAGE", payload: messageId });
@@ -267,6 +489,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setInstructionType,
     attachImage,
     setStreaming,
+    upsertPendingIdentity,
+    attachFeelingMessage,
+    resolvePendingIdentity,
+    finalizePendingIdentity,
+    failPendingIdentity,
+    replaceMessageId,
+    getMessageHistoryId,
+    getLatestPendingIdentity,
     highlightMessage,
     scrollToMessage,
     clearInput,

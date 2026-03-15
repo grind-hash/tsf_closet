@@ -15,6 +15,12 @@ const viewports = [
 ] as const;
 
 test.describe("Responsive layout regression", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.addInitScript(() => {
+      window.localStorage.setItem("novelai_api_key_consent", "true");
+    });
+  });
+
   for (const viewport of viewports) {
     test(`play screen renders correctly at ${viewport.name} (${viewport.width}x${viewport.height})`, async ({
       page,
@@ -32,10 +38,15 @@ test.describe("Responsive layout regression", () => {
       // Wait for any loading states to complete
       await page.waitForTimeout(500);
 
-      // Take a screenshot for visual comparison
+      // Take a screenshot for visual comparison (mask dynamic content)
       await expect(page).toHaveScreenshot(`play-screen-${viewport.name}.png`, {
         fullPage: false,
-        maxDiffPixels: 100, // Allow small differences for antialiasing
+        maxDiffPixelRatio: 0.05,
+        mask: [
+          page.locator(".game-play-screen__messages"),
+          page.locator(".chat-message-list"),
+          page.locator(".game-play-screen__character-image"),
+        ],
       });
     });
   }

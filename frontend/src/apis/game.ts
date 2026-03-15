@@ -33,8 +33,8 @@ export interface DeleteLatestHistoryResponse {
   deleted_history_id: string;
   restored_instruction: string;
   restored_instruction_type: string;
-  current_image_path: string;
-  restored_history_id: string;
+  current_image_path: string | null;
+  restored_history_id: string | null;
 }
 
 /**

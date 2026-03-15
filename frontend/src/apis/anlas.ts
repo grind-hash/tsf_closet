@@ -1,6 +1,12 @@
 import { API_BASE } from "../utils/api";
 import type { AnlasBalance } from "../types";
 
+interface AnlasBalanceResponse {
+  fixed_anlas: number | null;
+  purchased_anlas: number | null;
+  total_anlas: number | null;
+}
+
 /**
  * Fetch Anlas balance from the backend API.
  * Returns null if the request fails (e.g., non-NovelAI provider).
@@ -11,11 +17,18 @@ export async function fetchAnlasBalance(): Promise<AnlasBalance | null> {
     if (!response.ok) {
       return null;
     }
-    const data = await response.json();
+    const data = (await response.json()) as AnlasBalanceResponse;
+    if (
+      data.fixed_anlas === null ||
+      data.purchased_anlas === null ||
+      data.total_anlas === null
+    ) {
+      return null;
+    }
     return {
-      fixedAnlas: data.fixed_anlas ?? 0,
-      purchasedAnlas: data.purchased_anlas ?? 0,
-      totalAnlas: data.total_anlas ?? 0,
+      fixedAnlas: data.fixed_anlas,
+      purchasedAnlas: data.purchased_anlas,
+      totalAnlas: data.total_anlas,
     };
   } catch {
     return null;

@@ -22,6 +22,7 @@ import type {
   PreciseReferenceType,
 } from "../../types";
 import { previewPrompt, type PreviewPromptResponse } from "../../apis/game";
+import { generateUUID } from "../../utils/generateUUID";
 import "./RightPanel.css";
 
 interface RightPanelProps {
@@ -111,15 +112,11 @@ export default function RightPanel({
     pbSaved.mode === "textarea" ? "textarea" : "fields",
   );
   const [pbWho, setPbWho] = useState<string>(pbSaved.who ?? "");
-  const [pbLocation, setPbLocation] = useState<string>(
-    pbSaved.location ?? "",
-  );
+  const [pbLocation, setPbLocation] = useState<string>(pbSaved.location ?? "");
   const [pbOutfit, setPbOutfit] = useState<string>(pbSaved.outfit ?? "");
   const [pbTarget, setPbTarget] = useState<string>(pbSaved.target ?? "");
   const [pbAction, setPbAction] = useState<string>(pbSaved.action ?? "");
-  const [pbFreeform, setPbFreeform] = useState<string>(
-    pbSaved.freeform ?? "",
-  );
+  const [pbFreeform, setPbFreeform] = useState<string>(pbSaved.freeform ?? "");
 
   // Save prompt builder state to localStorage
   useEffect(() => {
@@ -451,7 +448,7 @@ export default function RightPanel({
         reader.onload = () => {
           const dataUrl = reader.result as string;
           addPreciseReference({
-            id: crypto.randomUUID(),
+            id: generateUUID(),
             imageData: dataUrl,
             fileName: file.name,
             type: "character&style",
@@ -1148,7 +1145,13 @@ export default function RightPanel({
                         const target = pbTarget.trim();
                         const action = pbAction.trim();
 
-                        if (!who && !outfit && !location && !target && !action) {
+                        if (
+                          !who &&
+                          !outfit &&
+                          !location &&
+                          !target &&
+                          !action
+                        ) {
                           setInputText(
                             `${t("rightPanel.promptBuilderWhoPlaceholder")}、${t("rightPanel.promptBuilderOutfitPlaceholder")}で、${t("rightPanel.promptBuilderLocationPlaceholder")}にて、${t("rightPanel.promptBuilderTargetPlaceholder")}を、${t("rightPanel.promptBuilderActionPlaceholder")}`,
                           );

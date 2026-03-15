@@ -61,6 +61,8 @@ images/closet/input/*.png
 images/closet/input/*.jpg
 images/closet/dist/*.png
 
+frontend/tests/e2e/**/*.png
+
 # Logs
 *.log
 logs/

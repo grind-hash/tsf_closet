@@ -257,6 +257,12 @@ export interface InpaintMaskState {
   selectedMaskId: string | null;
 }
 
+export interface SurroundingsImageState {
+  imageBase64: string;
+  historyId: string;
+  seed?: number;
+}
+
 // Default inpaint settings
 export const DEFAULT_INPAINT_SETTINGS: InpaintSettings = {
   enabled: false,
@@ -431,11 +437,26 @@ export interface ChatMessage {
   instructionType?: InstructionType;
   attachedImageUrl?: string;
   relatedHistoryId?: string;
+  pendingToken?: string;
   isStreaming?: boolean;
   /** 心境テキストメッセージかどうか */
   isFeelingText?: boolean;
   surroundingsImageUrl?: string;
   seed?: number;
+}
+
+export type PendingMessageStatus =
+  | "pending"
+  | "resolvable"
+  | "resolved"
+  | "failed";
+
+export interface PendingMessageIdentity {
+  tempToken: string;
+  userMessageId: string;
+  feelingMessageId: string | null;
+  resolvedHistoryId: string | null;
+  status: PendingMessageStatus;
 }
 
 // Anlas balance information

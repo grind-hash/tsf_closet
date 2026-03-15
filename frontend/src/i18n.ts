@@ -459,8 +459,6 @@ const resources = {
           "最新のメッセージを取り消し、入力欄に戻して修正できるようにしますか？（最新の画像は削除されます）",
         editMessageAction: "取り消して修正する",
         editMessageCancel: "キャンセル",
-        messageRequiresReload:
-          "このメッセージを操作するにはページをリロードしてください",
         anlasProceed: "続行",
       },
       gallery: {
@@ -1067,7 +1065,6 @@ const resources = {
           "Undo the latest message and restore it to the input for editing? (Image and parameter changes will not be rolled back)",
         editMessageAction: "Undo & Edit",
         editMessageCancel: "Cancel",
-        messageRequiresReload: "Please reload the page to manage this message",
       },
       gallery: {
         title: "Gallery",

@@ -152,7 +152,7 @@ const ChatMessageItem = forwardRef<HTMLDivElement, ChatMessageProps>(
               type="button"
               className="chat-message__action-btn chat-message__action-btn--delete"
               onClick={() => onDeleteMessage(message.id)}
-              disabled={isBusy}
+              disabled={isBusy || !message.relatedHistoryId}
               aria-label={t("gameplay.deleteMessageTitle")}
               title={t("gameplay.deleteMessageTitle")}
             >
@@ -176,7 +176,7 @@ const ChatMessageItem = forwardRef<HTMLDivElement, ChatMessageProps>(
               type="button"
               className="chat-message__action-btn chat-message__action-btn--edit"
               onClick={() => onEditMessage(message.id, message.content)}
-              disabled={isBusy}
+              disabled={isBusy || !message.relatedHistoryId}
               aria-label={t("gameplay.editMessageTitle")}
               title={t("gameplay.editMessageTitle")}
             >

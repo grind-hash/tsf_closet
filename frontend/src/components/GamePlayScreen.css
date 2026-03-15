@@ -190,10 +190,11 @@
     flex-direction: column;
   }
 
-  /* Image panel: takes ~60% of available space, shrinks if needed */
+  /* Image panel: takes ~60% of available space, capped at 40vh (T037) */
   .game-play-screen__left-panel {
     width: 100%;
     flex: 3 1 0;
+    max-height: 40vh;
     min-height: 0;
     overflow-y: auto;
   }

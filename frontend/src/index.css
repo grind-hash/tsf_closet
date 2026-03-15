@@ -1,8 +1,9 @@
 /* Global styles */
 
 :root {
-  --app-font-family: "Segoe UI", "Noto Sans", system-ui, -apple-system,
-    "Hiragino Sans", sans-serif;
+  --app-font-family:
+    "Segoe UI", "Noto Sans", system-ui, -apple-system, "Hiragino Sans",
+    sans-serif;
   font-family: var(--app-font-family);
   line-height: 1.5;
   font-weight: 400;
