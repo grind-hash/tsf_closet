@@ -69,6 +69,9 @@ const resources = {
         experimentalClothingColor: "服の色の一貫性を保つ",
         experimentalClothingColorDesc:
           "変身時に服の色を必ず指定し、行動時に色が変わらないようにします。",
+        linkChatToImage: "画像とチャットを連動",
+        linkChatToImageDesc:
+          "画像履歴をめくるとき、対応するチャットメッセージまでスクロールします。",
         dataSection: "データ",
         reset: "設定を初期化",
         resetDesc: "すべての設定を初期値に戻します",
@@ -399,6 +402,12 @@ const resources = {
           emptyLine1: "メッセージはまだありません。",
           emptyLine2: "指示を入力してゲームを始めましょう。",
         },
+        export: {
+          button: "エクスポート",
+          markdown: "Markdown (.md)",
+          csv: "CSV (.csv)",
+          json: "JSON (.json)",
+        },
         welcome: {
           title: "TSF Closetへようこそ",
           descriptionLine1: "キャラクターを選択してゲームを開始しましょう。",
@@ -539,6 +548,7 @@ const resources = {
         filterCrossdress: "女装",
         filterReality: "現実改変",
         filterCollection: "コレクション",
+        filterSelf: "自分モード",
         transformCount: "変身回数: {{count}}",
         crossdressCount: "女装回数: {{count}}",
         realityAlterCount: "現実改変回数: {{count}}",
@@ -675,6 +685,9 @@ const resources = {
         experimentalClothingColor: "Clothing Color Consistency",
         experimentalClothingColorDesc:
           "Always specify clothing colors during transformation and preserve them during actions.",
+        linkChatToImage: "Link Chat to Image",
+        linkChatToImageDesc:
+          "Scroll to the corresponding chat message when navigating image history.",
         dataSection: "Data",
         reset: "Reset settings",
         resetDesc: "Reset all settings to defaults",
@@ -1004,6 +1017,12 @@ const resources = {
           emptyLine1: "No messages yet.",
           emptyLine2: "Enter an instruction to start the game.",
         },
+        export: {
+          button: "Export",
+          markdown: "Markdown (.md)",
+          csv: "CSV (.csv)",
+          json: "JSON (.json)",
+        },
         welcome: {
           title: "Welcome to TSF Closet",
           descriptionLine1: "Select a character to start the game.",
@@ -1143,7 +1162,8 @@ const resources = {
         filterCrossdress: "Crossdress",
         filterReality: "Reality Alter",
         filterCollection: "Collection",
-        transformCount: "Transform Count: {{count}}",
+        filterSelf: "Self Mode",
+        transformCount: "Transform Count: {{count}}", "Transform Count: {{count}}",
         crossdressCount: "Crossdress Count: {{count}}",
         realityAlterCount: "Reality Alter Count: {{count}}",
         galleryCount: "Gallery Images: {{count}}",

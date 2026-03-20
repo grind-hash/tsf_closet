@@ -89,6 +89,9 @@ interface SettingsState {
 
   // Clothing color consistency (experimental)
   clothingColorConsistency: boolean;
+
+  // Chat-to-image linking: scroll chat on image navigation
+  linkChatToImage: boolean;
 }
 
 // アクション型
@@ -132,7 +135,8 @@ type SettingsAction =
   | { type: "SET_ENABLE_SURROUNDINGS_IMAGE"; payload: boolean }
   | { type: "SET_SURROUNDINGS_INCLUDE_PEOPLE"; payload: boolean }
   | { type: "SET_FONT_FAMILY"; payload: string }
-  | { type: "SET_CLOTHING_COLOR_CONSISTENCY"; payload: boolean };
+  | { type: "SET_CLOTHING_COLOR_CONSISTENCY"; payload: boolean }
+  | { type: "SET_LINK_CHAT_TO_IMAGE"; payload: boolean };
 
 // デフォルト状態
 const defaultState: SettingsState = {
@@ -161,6 +165,7 @@ const defaultState: SettingsState = {
   surroundingsIncludePeople: false,
   fontFamily: "system",
   clothingColorConsistency: false,
+  linkChatToImage: false,
 };
 
 // Reducer
@@ -274,6 +279,8 @@ function settingsReducer(
       return { ...state, fontFamily: action.payload };
     case "SET_CLOTHING_COLOR_CONSISTENCY":
       return { ...state, clothingColorConsistency: action.payload };
+    case "SET_LINK_CHAT_TO_IMAGE":
+      return { ...state, linkChatToImage: action.payload };
     default:
       return state;
   }
@@ -324,6 +331,7 @@ interface SettingsContextType {
   setSurroundingsIncludePeople: (enabled: boolean) => void;
   setFontFamily: (fontFamily: string) => void;
   setClothingColorConsistency: (enabled: boolean) => void;
+  setLinkChatToImage: (enabled: boolean) => void;
 }
 
 // Context作成
@@ -712,6 +720,10 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "SET_CLOTHING_COLOR_CONSISTENCY", payload: enabled });
   }, []);
 
+  const setLinkChatToImage = useCallback((enabled: boolean) => {
+    dispatch({ type: "SET_LINK_CHAT_TO_IMAGE", payload: enabled });
+  }, []);
+
   const value: SettingsContextType = {
     state,
     setDifficulty,
@@ -749,6 +761,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setSurroundingsIncludePeople,
     setFontFamily,
     setClothingColorConsistency,
+    setLinkChatToImage,
   };
 
   return (

@@ -1691,6 +1691,40 @@ async def generate_base_tags(request: GenerateBaseTagsRequest) -> dict:
 
 
 # ------------------------------------------------------------------
+# Conversation-only deletion (preserves History & images)
+# ------------------------------------------------------------------
+
+
+@router.delete(
+    "/conversation/{history_id}",
+    summary="会話テキストのみ削除",
+    description="指定した履歴IDに紐づく会話テキストのみを削除し、履歴レコードと画像は保持する",
+)
+async def delete_conversation_by_history(
+    history_id: str,
+    session_id: str = Query(..., description="セッションID"),
+) -> dict:
+    """Delete conversation records for a history item without touching History/images."""
+    result = await session_store.delete_conversation_by_history_id(
+        session_id=session_id,
+        history_id=history_id,
+    )
+    if result == -1:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": "NOT_FOUND",
+                "message": "History not found in this session",
+            },
+        )
+    return {
+        "success": True,
+        "deleted_count": result,
+        "message": f"Deleted {result} conversation records for history {history_id}",
+    }
+
+
+# ------------------------------------------------------------------
 # Latest history deletion (self-mode only)
 # ------------------------------------------------------------------
 

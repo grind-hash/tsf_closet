@@ -56,6 +56,8 @@ from .session import session_store
 from .tag_classifier import classify_tags, TransformationTags
 from .endings import judge_ending
 from ..routes.achievements_router import (
+    ACHIEVEMENTS,
+    check_achievement,
     check_achievements,
     save_user_achievement,
     get_user_achievements,
@@ -2233,6 +2235,38 @@ class GameService:
                 except Exception as e:
                     logger.warning(f"Achievement check failed: {e}")
 
+            # self_mode: self系実績のみ判定
+            if session.self_mode:
+                try:
+                    user_achievements = get_user_achievements()
+                    already_unlocked = {
+                        ua.achievement_id for ua in user_achievements if ua.unlocked
+                    }
+                    self_stats = get_global_stats()
+                    self_achievements = [
+                        a for a in ACHIEVEMENTS.values() if a.category == "self"
+                    ]
+                    for achievement in self_achievements:
+                        if achievement.id in already_unlocked:
+                            continue
+                        if check_achievement(achievement, self_stats):
+                            save_user_achievement(session.id, achievement.id)
+                            yield StreamEvent(
+                                type="achievement",
+                                data={
+                                    "achievement_id": achievement.id,
+                                    "name": achievement.name,
+                                    "description": achievement.description,
+                                    "icon": achievement.icon,
+                                    "category": achievement.category,
+                                },
+                            )
+                            logger.info(
+                                f"Self-mode achievement unlocked: {achievement.name}"
+                            )
+                except Exception as e:
+                    logger.warning(f"Self-mode achievement check failed: {e}")
+
             # 7. 現在の画像パスを更新
             await session_store.update_session(
                 session_id=session.id,
@@ -2274,6 +2308,7 @@ class GameService:
                     "transformation_count": transformation_count,
                     "before_desc": before_desc,
                     "after_desc": inferred_after_desc,
+                    "history_id": history.id,
                 },
             )
 

@@ -1107,6 +1107,50 @@ class DatabaseSessionStore:
             await db_session.commit()
             return result.rowcount or 0
 
+    async def delete_conversation_by_history_id(
+        self,
+        session_id: str,
+        history_id: str,
+    ) -> int:
+        """指定した history_id に紐づく会話レコードのみ削除する
+
+        History レコードや画像ファイルは削除しない。
+        History.feeling_text もクリアする。
+
+        Returns:
+            削除された Conversation レコード数
+        """
+        async with async_session_factory() as db_session:
+            # 対象 History がセッションに属するか確認
+            history_row = (
+                await db_session.execute(
+                    select(HistoryORM.id).where(
+                        HistoryORM.id == history_id,
+                        HistoryORM.session_id == session_id,
+                    )
+                )
+            ).first()
+            if history_row is None:
+                return -1  # not found
+
+            # Conversation レコード削除
+            result = await db_session.execute(
+                delete(ConversationORM).where(
+                    ConversationORM.related_history_id == history_id
+                )
+            )
+            deleted_count = result.rowcount or 0
+
+            # History.feeling_text をクリア
+            await db_session.execute(
+                update(HistoryORM)
+                .where(HistoryORM.id == history_id)
+                .values(feeling_text=None)
+            )
+
+            await db_session.commit()
+            return deleted_count
+
     async def add_session_attribute(
         self,
         session_id: str,

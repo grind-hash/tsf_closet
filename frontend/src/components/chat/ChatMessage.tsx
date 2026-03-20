@@ -88,6 +88,11 @@ const ChatMessageItem = forwardRef<HTMLDivElement, ChatMessageProps>(
     return (
       <div
         ref={ref}
+        id={
+          message.relatedHistoryId
+            ? `history-msg-${message.relatedHistoryId}`
+            : undefined
+        }
         className={`chat-message ${isUser ? "chat-message--user" : ""} ${
           isSystem ? "chat-message--system" : ""
         } ${isHighlighted ? "chat-message--highlighted" : ""} ${

@@ -43,6 +43,7 @@ export default function AchievementsScreen({
     { id: "crossdress", label: t("achievements.filterCrossdress") },
     { id: "reality", label: t("achievements.filterReality") },
     { id: "collection", label: t("achievements.filterCollection") },
+    { id: "self", label: t("achievements.filterSelf") },
   ];
 
   // 実績を取得

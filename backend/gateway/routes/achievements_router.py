@@ -162,6 +162,40 @@ ACHIEVEMENTS: Dict[str, Achievement] = {
         condition_value=100,
         hint="完全な開花を目指して継続しましょう",
     ),
+    # Self-mode achievements
+    "self_first": Achievement(
+        id="self_first",
+        name="自分自身として",
+        description="自分モードで初めて変身を行った",
+        category="self",
+        icon="🪞",
+        condition_type="count",
+        condition_target="self_transform",
+        condition_value=1,
+        hint="自分モードで変身を試してみましょう",
+    ),
+    "self_10": Achievement(
+        id="self_10",
+        name="もう一人の自分",
+        description="自分モードで変身を10回行った",
+        category="self",
+        icon="🔮",
+        condition_type="count",
+        condition_target="self_transform",
+        condition_value=10,
+        hint="自分モードでさらに変身を重ねましょう",
+    ),
+    "self_50": Achievement(
+        id="self_50",
+        name="変身する自分",
+        description="自分モードで変身を50回行った",
+        category="self",
+        icon="💎",
+        condition_type="count",
+        condition_target="self_transform",
+        condition_value=50,
+        hint="自分モードの達人を目指して継続しましょう",
+    ),
 }
 
 
@@ -232,6 +266,7 @@ class SessionStats(BaseModel):
     crossdress_count: int = 0
     reality_alter_count: int = 0
     gallery_count: int = 0
+    self_transform_count: int = 0
     bloom: int = 0
     shame: int = 0
     adaptation: int = 0
@@ -250,6 +285,8 @@ def check_achievement(achievement: Achievement, stats: SessionStats) -> bool:
             return stats.reality_alter_count >= achievement.condition_value
         elif target == "gallery":
             return stats.gallery_count >= achievement.condition_value
+        elif target == "self_transform":
+            return stats.self_transform_count >= achievement.condition_value
     elif achievement.condition_type == "threshold":
         target = achievement.condition_target
         if target == "bloom":

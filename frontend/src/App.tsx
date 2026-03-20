@@ -33,7 +33,10 @@ function App() {
   console.log("[App] Current route:", location.pathname);
 
   // ルートに基づいて専用画面を表示（各画面は内部でMainLayoutを持つ）
-  if (location.pathname === "/gallery") {
+  if (
+    location.pathname === "/gallery" ||
+    location.pathname.startsWith("/gallery/")
+  ) {
     return <GalleryScreen />;
   }
   if (

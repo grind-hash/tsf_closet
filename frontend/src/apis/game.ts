@@ -81,3 +81,35 @@ export async function deleteLatestHistory(
 
   return response.json();
 }
+
+// 会話テキスト削除 レスポンス
+export interface DeleteConversationResponse {
+  success: boolean;
+  deleted_count: number;
+  message: string;
+}
+
+/**
+ * 指定履歴IDに紐づく会話テキストのみを削除する（履歴レコードと画像は保持）
+ */
+export async function deleteConversation(
+  historyId: string,
+  sessionId: string,
+): Promise<DeleteConversationResponse> {
+  const params = new URLSearchParams({ session_id: sessionId });
+  const response = await fetch(
+    `${API_BASE}/game/conversation/${encodeURIComponent(historyId)}?${params}`,
+    {
+      method: "DELETE",
+    },
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail?.message || `Delete conversation failed: ${response.status}`,
+    );
+  }
+
+  return response.json();
+}

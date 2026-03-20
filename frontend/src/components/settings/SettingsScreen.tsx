@@ -23,6 +23,7 @@ export default function SettingsScreen() {
     setSurroundingsIncludePeople,
     setClothingColorConsistency,
     setFontFamily,
+    setLinkChatToImage,
     resetSettings,
   } = useSettings();
 
@@ -414,6 +415,33 @@ export default function SettingsScreen() {
                   onChange={(e) =>
                     setClothingColorConsistency(e.target.checked)
                   }
+                  className="settings-screen__toggle-input"
+                />
+                <span className="settings-screen__toggle-switch" />
+              </label>
+            </div>
+
+            <div className="settings-screen__item">
+              <label className="settings-screen__toggle">
+                <div className="settings-screen__toggle-info">
+                  <span className="settings-screen__item-label">
+                    {t("settings.linkChatToImage")}
+                    <span
+                      className="feature-chip-new"
+                      data-feature-version="v0.4.0"
+                      style={{ marginLeft: "0.5rem" }}
+                    >
+                      New
+                    </span>
+                  </span>
+                  <span className="settings-screen__item-desc">
+                    {t("settings.linkChatToImageDesc")}
+                  </span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={state.linkChatToImage}
+                  onChange={(e) => setLinkChatToImage(e.target.checked)}
                   className="settings-screen__toggle-input"
                 />
                 <span className="settings-screen__toggle-switch" />

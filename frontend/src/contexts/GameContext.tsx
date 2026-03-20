@@ -260,6 +260,7 @@ interface GameContextType {
   navigateHistory: (index: number) => void;
   navigatePrevHistory: () => void;
   navigateNextHistory: () => void;
+  navigateToHistoryById: (historyId: string) => boolean;
   setTransforming: (isTransforming: boolean) => void;
   setLoading: (isLoading: boolean) => void;
   setError: (error: string | null) => void;
@@ -591,6 +592,18 @@ export function GameProvider({ children }: { children: ReactNode }) {
     });
   }, [state.currentHistoryIndex]);
 
+  const navigateToHistoryById = useCallback(
+    (historyId: string): boolean => {
+      const index = state.history.findIndex((h) => h.id === historyId);
+      if (index >= 0) {
+        dispatch({ type: "NAVIGATE_HISTORY", payload: index });
+        return true;
+      }
+      return false;
+    },
+    [state.history],
+  );
+
   const setTransforming = useCallback((isTransforming: boolean) => {
     dispatch({ type: "SET_TRANSFORMING", payload: isTransforming });
   }, []);
@@ -718,6 +731,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
     navigateHistory,
     navigatePrevHistory,
     navigateNextHistory,
+    navigateToHistoryById,
     setTransforming,
     setLoading,
     setError,

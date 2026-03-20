@@ -31,8 +31,7 @@ import { useChat } from "../contexts/ChatContext";
 import { useSettings } from "../contexts/SettingsContext";
 import { API_BASE } from "../utils/api";
 import { generateUUID } from "../utils/generateUUID";
-import { deleteGalleryItem } from "../apis/gallery";
-import { deleteLatestHistory } from "../apis/game";
+import { deleteLatestHistory, deleteConversation } from "../apis/game";
 import type {
   ChangeSettings,
   ConversationMessage,
@@ -79,6 +78,7 @@ export default function GamePlayScreen({
     setLastSurroundingsImage,
     navigatePrevHistory,
     navigateNextHistory,
+    navigateToHistoryById,
   } = useGame();
   const {
     state: chatState,
@@ -255,6 +255,20 @@ export default function GamePlayScreen({
       hasRestoredMessagesRef.current = true;
     }
   }, [sessionId, history, chatHistory, setMessages, isNewGameRoute]);
+
+  // ギャラリーからの遷移時: historyIdクエリパラメータで指定画像にナビゲート
+  const hasNavigatedToHistoryRef = React.useRef(false);
+  useEffect(() => {
+    if (hasNavigatedToHistoryRef.current) return;
+    if (!history || history.length === 0) return;
+    const params = new URLSearchParams(location.search);
+    const targetHistoryId = params.get("historyId");
+    if (!targetHistoryId) return;
+    const success = navigateToHistoryById(targetHistoryId);
+    if (success) {
+      hasNavigatedToHistoryRef.current = true;
+    }
+  }, [history, location.search, navigateToHistoryById]);
 
   // GameContextに履歴を同期（既存のhistory propsをGameContext形式に変換）
   // 注: GameContext.setHistoryはHistoryItem[]を期待するが、props.historyは部分的な型
@@ -621,6 +635,40 @@ export default function GamePlayScreen({
     }
   }, [currentImageUrl]);
 
+  // 画像ナビゲーション時のチャットスクロール
+  const scrollToCurrentHistoryMessage = useCallback(
+    (historyIndex: number) => {
+      if (!settingsState.linkChatToImage) return;
+      const item = gameState.history[historyIndex];
+      if (!item) return;
+      const el = document.getElementById(`history-msg-${item.id}`);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    },
+    [settingsState.linkChatToImage, gameState.history],
+  );
+
+  const handlePrevWithScroll = useCallback(() => {
+    const newIndex = gameState.currentHistoryIndex - 1;
+    navigatePrevHistory();
+    scrollToCurrentHistoryMessage(newIndex);
+  }, [
+    gameState.currentHistoryIndex,
+    navigatePrevHistory,
+    scrollToCurrentHistoryMessage,
+  ]);
+
+  const handleNextWithScroll = useCallback(() => {
+    const newIndex = gameState.currentHistoryIndex + 1;
+    navigateNextHistory();
+    scrollToCurrentHistoryMessage(newIndex);
+  }, [
+    gameState.currentHistoryIndex,
+    navigateNextHistory,
+    scrollToCurrentHistoryMessage,
+  ]);
+
   // プロンプトプレビューからのオーバーライド送信
   const handleSendWithPromptOverride = useCallback(
     (override: string) => {
@@ -773,8 +821,8 @@ export default function GamePlayScreen({
 
     try {
       setIsDeletingMessage(true);
-      // バックエンドの履歴アイテムを削除
-      await deleteGalleryItem(historyId);
+      // 会話テキストのみを削除（履歴レコードと画像は保持）
+      await deleteConversation(historyId, sessionId || "");
 
       // チャットメッセージから対象のユーザーメッセージ + 応答メッセージを除去
       // The feeling message created during streaming uses "feeling-{Date.now()}"
@@ -1065,8 +1113,8 @@ export default function GamePlayScreen({
         imageUrl={gameState.currentImage || currentImageUrl}
         onClose={() => setShowImagePreviewModal(false)}
         alt={uiText.imageAlt}
-        onPrev={navigatePrevHistory}
-        onNext={navigateNextHistory}
+        onPrev={handlePrevWithScroll}
+        onNext={handleNextWithScroll}
         hasPrev={gameState.currentHistoryIndex > 0}
         hasNext={gameState.currentHistoryIndex < gameState.history.length - 1}
       />

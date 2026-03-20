@@ -375,11 +375,12 @@ Format: 832x1216 PORTRAIT (vertical composition to frame standing figures).
    - Extreme/indecent action (nudity, sexual): horrified, screaming, covering eyes, looking away, disgust, trembling
    Choose the reaction tier that fits the ACTION described by the user.
 5. **IMPORTANT: Bystanders react ONLY to the ACTION, NEVER to the protagonist's physical appearance, outfit, or body.** The protagonist's clothing, cross-dressing, or transformed appearance is NOT a reason for bystanders to be shocked, embarrassed, or surprised. Treat the protagonist's appearance as completely unremarkable.
-6. Keep bystanders generic. Example: businessman, office lady, student, passerby
-7. FORBIDDEN tags: crowd, multiple people, many people, large group, 4+people, 5+people, group
-8. Include environmental tags: location, lighting, time of day, atmosphere.
-9. Vertical portrait composition suitable for 832x1216. Show bystanders at mid-distance (waist-up or full body visible).
-10. Do NOT include the protagonist. This image shows the surroundings and bystander reactions only.
+6. **CRITICAL: Bystanders must NOT perform any independent special actions.** Bystanders only REACT (facial expressions, body language). They do NOT perform any suggestive, sexual, indecent, or unusual actions themselves. Bystanders should be engaged in ordinary daily activities (standing, walking, talking, using phone) with reactions shown ONLY through facial expressions and body posture.
+7. Keep bystanders generic. Example: businessman, office lady, student, passerby
+8. FORBIDDEN tags: crowd, multiple people, many people, large group, 4+people, 5+people, group
+9. Include environmental tags: location, lighting, time of day, atmosphere.
+10. Vertical portrait composition suitable for 832x1216. Show bystanders at mid-distance (waist-up or full body visible).
+11. Do NOT include the protagonist. This image shows the surroundings and bystander reactions only.
 
 ## Output Style
 - English tags only
@@ -407,12 +408,13 @@ Format: 832x1216 PORTRAIT (vertical composition). NSFW mode — scenes may invol
    - Indecent/explicit: horrified, screaming, covering eyes, looking away, disgust, dropped jaw, frozen in shock, blushing furiously, running away, panicking, hands up in disbelief
    The action described by the user is likely provocative in NSFW mode. Choose STRONG reactions only when the ACTION warrants it.
 5. **IMPORTANT: Bystanders react ONLY to the ACTION, NEVER to the protagonist's physical appearance, outfit, or body.** The protagonist's clothing, cross-dressing, or transformed appearance is NOT a reason for bystanders to be shocked, embarrassed, or surprised. Treat the protagonist's appearance as completely unremarkable.
-6. Keep bystanders generic. Example: businessman, office lady, student, passerby
-7. FORBIDDEN tags: crowd, multiple people, many people, large group, 4+people, 5+people, group
-8. Include environmental tags: location, lighting, time of day, atmosphere.
-9. Vertical portrait composition suitable for 832x1216. Show bystanders at mid-distance (waist-up or full body visible).
-10. Do NOT include the protagonist. Show ONLY bystanders and environment.
-11. Emphasize the atmosphere: tense, awkward, chaotic, scandalous, voyeuristic — ONLY if the ACTION itself is provocative.
+6. **CRITICAL: Bystanders must NOT perform any independent special actions.** Bystanders only REACT (facial expressions, body language). They do NOT perform any suggestive, sexual, indecent, or unusual actions themselves. Bystanders should be engaged in ordinary daily activities (standing, walking, talking, using phone) with reactions shown ONLY through facial expressions and body posture.
+7. Keep bystanders generic. Example: businessman, office lady, student, passerby
+8. FORBIDDEN tags: crowd, multiple people, many people, large group, 4+people, 5+people, group
+9. Include environmental tags: location, lighting, time of day, atmosphere.
+10. Vertical portrait composition suitable for 832x1216. Show bystanders at mid-distance (waist-up or full body visible).
+11. Do NOT include the protagonist. Show ONLY bystanders and environment.
+12. Emphasize the atmosphere: tense, awkward, chaotic, scandalous, voyeuristic — ONLY if the ACTION itself is provocative.
 
 ## Output Style
 - English tags only
@@ -548,6 +550,11 @@ def build_surroundings_image_user_prompt(
             "(including cross-dressing or transformed appearance) must NOT "
             "influence bystander reactions. Treat the protagonist's appearance "
             "as completely unremarkable. "
+            "CRITICAL: Bystanders must NOT perform any independent special "
+            "actions themselves. They can only show REACTIONS through facial "
+            "expressions and body language (surprised, calm, shocked, etc.). "
+            "Bystanders should otherwise be engaged in ordinary daily "
+            "activities (standing, walking, talking, using phone). "
             "If the action is shocking, embarrassing, or indecent, bystanders "
             "should show STRONG emotional reactions. "
             "If the action is ordinary (walking, eating, singing karaoke), "
@@ -647,11 +654,11 @@ def get_action_novelai_prompt_generation_system(
 
     if clothing_color_consistency:
         clothing_rule = (
-            '\n- **CLOTHING CONTINUITY**: When the action does NOT mention '
-            'clothing changes, copy ALL clothing-related tags from the previous '
+            "\n- **CLOTHING CONTINUITY**: When the action does NOT mention "
+            "clothing changes, copy ALL clothing-related tags from the previous "
             'prompt EXACTLY \u2014 including COLOR tags (e.g. "gold dress" must stay '
             '"gold dress", not become "white dress"). Changing clothing colors '
-            'without explicit instruction is FORBIDDEN.'
+            "without explicit instruction is FORBIDDEN."
         )
         base = base.replace(
             "\n## Output Format",
