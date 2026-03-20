@@ -104,6 +104,52 @@ export function exportAsJson(
 }
 
 // ----------------------------------------------------------------
+// Plain text (for clipboard)
+// ----------------------------------------------------------------
+
+export function exportAsPlainText(
+  messages: ChatMessage[],
+  info: ExportSessionInfo,
+): string {
+  const lines: string[] = [];
+  lines.push(`Session: ${info.sessionId}`);
+  if (info.characterName) {
+    lines.push(`Character: ${info.characterName}`);
+  }
+  lines.push("");
+
+  for (const msg of messages) {
+    const role = msg.role === "user" ? "You" : "Character";
+    const time = formatTimestamp(msg.createdAt);
+    const typeLabel = msg.instructionType ? ` [${msg.instructionType}]` : "";
+    lines.push(`${role}${typeLabel} (${time}):`);
+    lines.push(msg.content);
+    lines.push("");
+  }
+
+  return lines.join("\n");
+}
+
+// ----------------------------------------------------------------
+// Novel (content only, .txt)
+// ----------------------------------------------------------------
+
+export function exportAsNovel(messages: ChatMessage[]): string {
+  return messages
+    .filter((msg) => msg.role !== "user" && msg.content.trim())
+    .map((msg) => {
+      let text = msg.content.trim();
+      // Strip feelingText emoji prefix
+      if (msg.isFeelingText && text.startsWith("\u{1F4AD}")) {
+        text = text.replace(/^\u{1F4AD}\s*/u, "").trim();
+      }
+      return text;
+    })
+    .filter((text) => text.length > 0)
+    .join("\n\n");
+}
+
+// ----------------------------------------------------------------
 // Download helper
 // ----------------------------------------------------------------
 

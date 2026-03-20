@@ -14,7 +14,13 @@
  * └─────────────────────────────────────────────────────────────┘
  */
 
-import React, { useState, useCallback, useEffect, useMemo } from "react";
+import React, {
+  useState,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation } from "react-router-dom";
 import MainLayout from "./layout/MainLayout";
@@ -32,12 +38,22 @@ import { useSettings } from "../contexts/SettingsContext";
 import { API_BASE } from "../utils/api";
 import { generateUUID } from "../utils/generateUUID";
 import { deleteLatestHistory, deleteConversation } from "../apis/game";
+import {
+  exportAsMarkdown,
+  exportAsCsv,
+  exportAsJson,
+  exportAsPlainText,
+  exportAsNovel,
+  downloadFile,
+} from "../utils/exportChat";
+import type { ExportSessionInfo } from "../utils/exportChat";
 import type {
   ChangeSettings,
   ConversationMessage,
   ChatMessage,
 } from "../types";
 import "./GamePlayScreen.css";
+import "./chat/ChatContainer.css";
 
 interface GamePlayScreenProps {
   onTransform: (
@@ -148,6 +164,10 @@ export default function GamePlayScreen({
     string | null
   >(null);
 
+  // Export menu
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
+
   // メッセージ削除確認モーダル
   const [deleteMessageConfirm, setDeleteMessageConfirm] = useState<{
     messageId: string;
@@ -172,6 +192,74 @@ export default function GamePlayScreen({
     anlasCost: number;
     instructionType?: string;
   } | null>(null);
+
+  // Close export menu on outside click
+  useEffect(() => {
+    if (!exportMenuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (
+        exportMenuRef.current &&
+        !exportMenuRef.current.contains(e.target as Node)
+      ) {
+        setExportMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [exportMenuOpen]);
+
+  const buildExportSessionInfo = useCallback((): ExportSessionInfo => {
+    return {
+      sessionId: gameState.sessionId ?? "unknown",
+      characterName: gameState.character?.name,
+    };
+  }, [gameState.sessionId, gameState.character]);
+
+  const handleExport = useCallback(
+    (format: "markdown" | "csv" | "json" | "clipboard" | "novel") => {
+      const info = buildExportSessionInfo();
+      if (format === "clipboard") {
+        const content = exportAsPlainText(chatState.messages, info);
+        void navigator.clipboard.writeText(content);
+        setExportMenuOpen(false);
+        return;
+      }
+      const ts = new Date().toISOString().slice(0, 10);
+      const base = `chat_${ts}_${info.sessionId.slice(0, 8)}`;
+      switch (format) {
+        case "markdown": {
+          const content = exportAsMarkdown(chatState.messages, info);
+          downloadFile(content, `${base}.md`, "text/markdown;charset=utf-8");
+          break;
+        }
+        case "csv": {
+          const content = exportAsCsv(chatState.messages, info);
+          downloadFile(content, `${base}.csv`, "text/csv;charset=utf-8");
+          break;
+        }
+        case "json": {
+          const content = exportAsJson(chatState.messages, info);
+          downloadFile(
+            content,
+            `${base}.json`,
+            "application/json;charset=utf-8",
+          );
+          break;
+        }
+        case "novel": {
+          const content = exportAsNovel(chatState.messages);
+          downloadFile(
+            content,
+            `${base}_novel.txt`,
+            "text/plain;charset=utf-8",
+          );
+          break;
+        }
+      }
+      setExportMenuOpen(false);
+    },
+    [chatState.messages, buildExportSessionInfo],
+  );
 
   // チャット履歴を統合して復元（history + chatHistory を時系列順に統合）
   // /play/new の場合は新規ゲームなので復元しない
@@ -1048,9 +1136,43 @@ export default function GamePlayScreen({
                 )}
             </div>
 
-            {/* 右カラム: チャットエリア */}
+            {/* Right column: chat area */}
             <div className="game-play-screen__chat-area">
-              {/* チャットメッセージ一覧 */}
+              {/* Export header */}
+              {chatState.messages.length > 0 && (
+                <div className="chat-export-header" ref={exportMenuRef}>
+                  <button
+                    className="chat-export-header__btn"
+                    onClick={() => setExportMenuOpen((prev) => !prev)}
+                    title={t("chat.export.button")}
+                    data-open={exportMenuOpen}
+                  >
+                    ↗ {t("chat.export.button")}
+                  </button>
+                  {exportMenuOpen && (
+                    <div className="chat-export-header__menu">
+                      <button onClick={() => handleExport("clipboard")}>
+                        {t("chat.export.clipboard")}
+                      </button>
+                      <hr />
+                      <button onClick={() => handleExport("markdown")}>
+                        {t("chat.export.markdown")}
+                      </button>
+                      <button onClick={() => handleExport("csv")}>
+                        {t("chat.export.csv")}
+                      </button>
+                      <button onClick={() => handleExport("json")}>
+                        {t("chat.export.json")}
+                      </button>
+                      <hr />
+                      <button onClick={() => handleExport("novel")}>
+                        {t("chat.export.novel")}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+              {/* Message area */}
               <div className="game-play-screen__messages" ref={messageListRef}>
                 <ChatMessageList
                   messages={chatState.messages}

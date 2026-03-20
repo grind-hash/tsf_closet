@@ -196,6 +196,52 @@ ACHIEVEMENTS: Dict[str, Achievement] = {
         condition_value=50,
         hint="自分モードの達人を目指して継続しましょう",
     ),
+    # Self-mode reality alter achievements
+    "self_reality_first": Achievement(
+        id="self_reality_first",
+        name="自分の現実を変える",
+        description="自分モードで初めて現実改変を行った",
+        category="self",
+        icon="🌊",
+        condition_type="count",
+        condition_target="self_reality_alter",
+        condition_value=1,
+        hint="自分モードで現実改変を試してみましょう",
+    ),
+    "self_reality_10": Achievement(
+        id="self_reality_10",
+        name="自分だけの世界",
+        description="自分モードで現実改変を10回行った",
+        category="self",
+        icon="🌠",
+        condition_type="count",
+        condition_target="self_reality_alter",
+        condition_value=10,
+        hint="自分モードで現実改変を重ねましょう",
+    ),
+    # Self-mode action achievements
+    "self_action_first": Achievement(
+        id="self_action_first",
+        name="自分で行動する",
+        description="自分モードで初めて行動を行った",
+        category="self",
+        icon="🏃",
+        condition_type="count",
+        condition_target="self_action",
+        condition_value=1,
+        hint="自分モードで行動を試してみましょう",
+    ),
+    "self_action_10": Achievement(
+        id="self_action_10",
+        name="行動派の自分",
+        description="自分モードで行動を10回行った",
+        category="self",
+        icon="⚡",
+        condition_type="count",
+        condition_target="self_action",
+        condition_value=10,
+        hint="自分モードで積極的に行動しましょう",
+    ),
 }
 
 
@@ -267,6 +313,8 @@ class SessionStats(BaseModel):
     reality_alter_count: int = 0
     gallery_count: int = 0
     self_transform_count: int = 0
+    self_reality_alter_count: int = 0
+    self_action_count: int = 0
     bloom: int = 0
     shame: int = 0
     adaptation: int = 0
@@ -287,6 +335,10 @@ def check_achievement(achievement: Achievement, stats: SessionStats) -> bool:
             return stats.gallery_count >= achievement.condition_value
         elif target == "self_transform":
             return stats.self_transform_count >= achievement.condition_value
+        elif target == "self_reality_alter":
+            return stats.self_reality_alter_count >= achievement.condition_value
+        elif target == "self_action":
+            return stats.self_action_count >= achievement.condition_value
     elif achievement.condition_type == "threshold":
         target = achievement.condition_target
         if target == "bloom":

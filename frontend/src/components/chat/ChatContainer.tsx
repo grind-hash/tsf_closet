@@ -19,6 +19,8 @@ import {
   exportAsMarkdown,
   exportAsCsv,
   exportAsJson,
+  exportAsPlainText,
+  exportAsNovel,
   downloadFile,
 } from "../../utils/exportChat";
 import type { ExportSessionInfo } from "../../utils/exportChat";
@@ -61,8 +63,14 @@ export default function ChatContainer({ onSendMessage }: ChatContainerProps) {
   }, [gameState.sessionId, gameState.character]);
 
   const handleExport = useCallback(
-    (format: "markdown" | "csv" | "json") => {
+    (format: "markdown" | "csv" | "json" | "clipboard" | "novel") => {
       const info = buildSessionInfo();
+      if (format === "clipboard") {
+        const content = exportAsPlainText(chatState.messages, info);
+        void navigator.clipboard.writeText(content);
+        setExportMenuOpen(false);
+        return;
+      }
       const ts = new Date().toISOString().slice(0, 10);
       const base = `chat_${ts}_${info.sessionId.slice(0, 8)}`;
       switch (format) {
@@ -85,6 +93,15 @@ export default function ChatContainer({ onSendMessage }: ChatContainerProps) {
           );
           break;
         }
+        case "novel": {
+          const content = exportAsNovel(chatState.messages);
+          downloadFile(
+            content,
+            `${base}_novel.txt`,
+            "text/plain;charset=utf-8",
+          );
+          break;
+        }
       }
       setExportMenuOpen(false);
     },
@@ -98,35 +115,44 @@ export default function ChatContainer({ onSendMessage }: ChatContainerProps) {
         <WelcomeScreen />
       ) : (
         <>
-          {/* Export button */}
+          {/* Export header */}
           {hasMessages && (
-            <div className="chat-container__toolbar">
-              <div className="chat-container__export" ref={exportMenuRef}>
-                <button
-                  className="chat-container__export-btn"
-                  onClick={() => setExportMenuOpen((prev) => !prev)}
-                  title={t("chat.export.button")}
-                >
-                  ↓ {t("chat.export.button")}
-                </button>
-                {exportMenuOpen && (
-                  <div className="chat-container__export-menu">
-                    <button onClick={() => handleExport("markdown")}>
-                      {t("chat.export.markdown")}
-                    </button>
-                    <button onClick={() => handleExport("csv")}>
-                      {t("chat.export.csv")}
-                    </button>
-                    <button onClick={() => handleExport("json")}>
-                      {t("chat.export.json")}
-                    </button>
-                  </div>
-                )}
-              </div>
+            <div className="chat-export-header" ref={exportMenuRef}>
+              <button
+                className="chat-export-header__btn"
+                onClick={() => setExportMenuOpen((prev) => !prev)}
+                title={t("chat.export.button")}
+                data-open={exportMenuOpen}
+              >
+                ↗ {t("chat.export.button")}
+              </button>
+              {exportMenuOpen && (
+                <div className="chat-export-header__menu">
+                  <button onClick={() => handleExport("clipboard")}>
+                    {t("chat.export.clipboard")}
+                  </button>
+                  <hr />
+                  <button onClick={() => handleExport("markdown")}>
+                    {t("chat.export.markdown")}
+                  </button>
+                  <button onClick={() => handleExport("csv")}>
+                    {t("chat.export.csv")}
+                  </button>
+                  <button onClick={() => handleExport("json")}>
+                    {t("chat.export.json")}
+                  </button>
+                  <hr />
+                  <button onClick={() => handleExport("novel")}>
+                    {t("chat.export.novel")}
+                  </button>
+                  <button onClick={() => handleExport("json")}>
+                    {t("chat.export.json")}
+                  </button>
+                </div>
+              )}
             </div>
           )}
-
-          {/* メッセージ一覧 */}
+          {/* Message list */}
           <div className="chat-container__messages" ref={messageListRef}>
             <ChatMessageList
               messages={chatState.messages}

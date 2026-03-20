@@ -404,6 +404,8 @@ const resources = {
         },
         export: {
           button: "エクスポート",
+          clipboard: "クリップボードにコピー",
+          novel: "小説形式 (.txt)",
           markdown: "Markdown (.md)",
           csv: "CSV (.csv)",
           json: "JSON (.json)",
@@ -1019,6 +1021,8 @@ const resources = {
         },
         export: {
           button: "Export",
+          clipboard: "Copy to Clipboard",
+          novel: "Novel Format (.txt)",
           markdown: "Markdown (.md)",
           csv: "CSV (.csv)",
           json: "JSON (.json)",
@@ -1163,7 +1167,7 @@ const resources = {
         filterReality: "Reality Alter",
         filterCollection: "Collection",
         filterSelf: "Self Mode",
-        transformCount: "Transform Count: {{count}}", "Transform Count: {{count}}",
+        transformCount: "Transform Count: {{count}}",
         crossdressCount: "Crossdress Count: {{count}}",
         realityAlterCount: "Reality Alter Count: {{count}}",
         galleryCount: "Gallery Images: {{count}}",

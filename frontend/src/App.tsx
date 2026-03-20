@@ -12,6 +12,7 @@ import SessionListModal from "./components/SessionListModal";
 import NovelAIWarningModal from "./components/NovelAIWarningModal";
 import ApiKeyConsentModal from "./components/ApiKeyConsentModal";
 import { hasApiKeyConsent } from "./components/apiKeyConsentStorage";
+import { fetchAnlasBalance } from "./apis/anlas";
 import NotificationContainer from "./components/notifications/NotificationContainer";
 // 007-chat-interactive-ux: ルートベースの画面コンポーネント
 import GalleryScreen from "./components/gallery/GalleryScreen";
@@ -59,7 +60,11 @@ function App() {
 function AppMain() {
   // 旧UIで使用していた変数（新UIへの移行後、削除予定）
   const location = useLocation();
-  const { state: settingsState, resetTotalCost } = useSettings();
+  const {
+    state: settingsState,
+    resetTotalCost,
+    setAnlasBalance,
+  } = useSettings();
   const {
     state: gameState,
     loadCharacters,
@@ -197,6 +202,13 @@ function AppMain() {
           return; // 同意を待ってから続行
         }
 
+        // 同意済み: Anlas残高を取得
+        fetchAnlasBalance().then((balance) => {
+          if (balance) {
+            setAnlasBalance(balance);
+          }
+        });
+
         // 同意済みの場合はサブスクリプションをチェック
         // localStorageで既に確認済みかチェック
         const opusConfirmed = localStorage.getItem("novelai_opus_confirmed");
@@ -230,9 +242,16 @@ function AppMain() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // NovelAI APIキー同意後のサブスクリプションチェック
+  // NovelAI APIキー同意後のサブスクリプションチェック + Anlas取得
   const handleApiKeyConsent = useCallback(async () => {
     setShowApiKeyConsent(false);
+
+    // 同意後、Anlas残高を取得
+    fetchAnlasBalance().then((balance) => {
+      if (balance) {
+        setAnlasBalance(balance);
+      }
+    });
 
     // 同意後、サブスクリプションをチェック
     const opusConfirmed = localStorage.getItem("novelai_opus_confirmed");
@@ -256,7 +275,7 @@ function AppMain() {
     } finally {
       setNovelaiCheckLoading(false);
     }
-  }, []);
+  }, [setAnlasBalance]);
 
   // NovelAI APIキー同意を拒否
   const handleApiKeyConsentDecline = useCallback(() => {
