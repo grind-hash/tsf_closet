@@ -1,145 +1,145 @@
-# Modification Recipes
+# 変更レシピ集
 
-> Last verified: 2026-03-07 | Update when: new modification patterns are discovered or file structure changes
+> 最終検証: 2026-03-07 | 更新条件: 新しい変更パターンの発見やファイル構成の変更時
 
-Quick lookup: "I want to do X" → "Read/modify these files"
+クイックルックアップ: 「〇〇をしたい」→「このファイルを読む/変更する」
 
-## Backend Recipes
+## バックエンドレシピ
 
-### Add a new API endpoint
+### 新しい API エンドポイントの追加
 
-| Step | Action                           | Files                                              |
-| ---- | -------------------------------- | -------------------------------------------------- |
-| 1    | Define Pydantic request/response | `backend/gateway/models.py`                        |
-| 2    | Add route handler                | `backend/gateway/routes/{router}.py`               |
-| 3    | (If new router) Register in app  | `backend/gateway/app.py`                           |
-| 4    | Add business logic               | `backend/gateway/services/{service}.py`            |
-| 5    | (If DB needed) Add model         | `backend/gateway/databases/models.py`              |
-| 6    | (If DB needed) Create migration  | `uv run alembic revision --autogenerate -m "desc"` |
+| 手順 | 操作                                | ファイル                                           |
+| ---- | ----------------------------------- | -------------------------------------------------- |
+| 1    | Pydantic リクエスト/レスポンス定義   | `backend/gateway/models.py`                        |
+| 2    | ルートハンドラの追加                 | `backend/gateway/routes/{router}.py`               |
+| 3    | （新規ルーターの場合）アプリに登録   | `backend/gateway/app.py`                           |
+| 4    | ビジネスロジックの追加               | `backend/gateway/services/{service}.py`            |
+| 5    | （DB必要時）モデル追加               | `backend/gateway/databases/models.py`              |
+| 6    | （DB必要時）マイグレーション作成     | `uv run alembic revision --autogenerate -m "desc"` |
 
-### Modify game play logic (transformation pipeline)
+### ゲームプレイロジックの変更（変身パイプライン）
 
-| Priority | Files to Read                                                          |
-| -------- | ---------------------------------------------------------------------- |
-| Core     | `backend/gateway/services/game_service.py` (play_with_stream)          |
-| LLM      | `backend/gateway/services/llm_service.py`                              |
-| Image    | `backend/gateway/services/image_generation.py`                         |
-| Prompts  | `backend/gateway/services/action_prompts.py` or `reality_prompts.py`   |
-| Stats    | `backend/gateway/services/game_service.py` (stats calculation section) |
+| 優先度 | 読むべきファイル                                                        |
+| ------ | ----------------------------------------------------------------------- |
+| コア   | `backend/gateway/services/game_service.py` (play_with_stream)           |
+| LLM    | `backend/gateway/services/llm_service.py`                               |
+| 画像   | `backend/gateway/services/image_generation.py`                          |
+| プロンプト | `backend/gateway/services/action_prompts.py` or `reality_prompts.py`|
+| ステータス | `backend/gateway/services/game_service.py` (ステータス計算部分)      |
 
-### Add/modify an achievement
+### 実績の追加/変更
 
-| Files                                                | Purpose                           |
-| ---------------------------------------------------- | --------------------------------- |
-| `backend/gateway/services/achievement_service.py`    | Unlock conditions                 |
-| `backend/gateway/services/achievement_classifier.py` | Category classification           |
-| `backend/gateway/databases/models.py`                | Achievement/AchievedEnding models |
+| ファイル                                             | 目的                    |
+| ---------------------------------------------------- | ----------------------- |
+| `backend/gateway/services/achievement_service.py`    | 解除条件                 |
+| `backend/gateway/services/achievement_classifier.py` | カテゴリ分類             |
+| `backend/gateway/databases/models.py`                | Achievement/AchievedEnding モデル |
 
-### Modify ending conditions
+### エンディング条件の変更
 
-| Files                                         | Purpose                 |
-| --------------------------------------------- | ----------------------- |
-| `backend/gateway/services/summary_service.py` | Ending evaluation logic |
-| `backend/gateway/services/summary_prompts.py` | Ending prompt templates |
-| `backend/gateway/services/endings.py`         | Ending definitions      |
+| ファイル                                      | 目的                          |
+| --------------------------------------------- | ----------------------------- |
+| `backend/gateway/services/summary_service.py` | エンディング評価ロジック       |
+| `backend/gateway/services/summary_prompts.py` | エンディングプロンプトテンプレート |
+| `backend/gateway/services/endings.py`         | エンディング定義               |
 
-### Modify LLM prompts
+### LLM プロンプトの変更
 
-| Prompt Type          | File                                            |
+| プロンプト種別       | ファイル                                        |
 | -------------------- | ----------------------------------------------- |
-| Dress-up instruction | `backend/gateway/services/action_prompts.py`    |
-| Reality change       | `backend/gateway/services/reality_prompts.py`   |
-| Self-mode            | `backend/gateway/services/self_mode_prompts.py` |
-| Summary/ending       | `backend/gateway/services/summary_prompts.py`   |
-| Shared utilities     | `backend/gateway/services/prompts.py`           |
+| 着せ替え指示         | `backend/gateway/services/action_prompts.py`    |
+| 現実改変             | `backend/gateway/services/reality_prompts.py`   |
+| セルフモード         | `backend/gateway/services/self_mode_prompts.py` |
+| サマリー/エンディング | `backend/gateway/services/summary_prompts.py`   |
+| 共通ユーティリティ   | `backend/gateway/services/prompts.py`           |
 
-### Add a new DB table
+### 新しい DB テーブルの追加
 
-| Step | Action                  | Files                                                       |
-| ---- | ----------------------- | ----------------------------------------------------------- |
-| 1    | Define SQLAlchemy model | `backend/gateway/databases/models.py`                       |
-| 2    | Generate migration      | `uv run alembic revision --autogenerate -m "add_tablename"` |
-| 3    | Apply migration         | `uv run alembic upgrade head`                               |
+| 手順 | 操作                       | ファイル                                                    |
+| ---- | -------------------------- | ----------------------------------------------------------- |
+| 1    | SQLAlchemy モデル定義       | `backend/gateway/databases/models.py`                       |
+| 2    | マイグレーション生成        | `uv run alembic revision --autogenerate -m "add_tablename"` |
+| 3    | マイグレーション適用        | `uv run alembic upgrade head`                               |
 
-## Frontend Recipes
+## フロントエンドレシピ
 
-### Add a new page/screen
+### 新しいページ/画面の追加
 
-| Step | Action           | Files                                                 |
-| ---- | ---------------- | ----------------------------------------------------- |
-| 1    | Create component | `frontend/src/components/{feature}/FeatureScreen.tsx` |
-| 2    | Add route        | `frontend/src/App.tsx` (pathname switch)              |
-| 3    | Add nav link     | `frontend/src/components/layout/SideMenu.tsx`         |
-| 4    | Add i18n keys    | `frontend/src/assets/` (locale JSON files)            |
+| 手順 | 操作             | ファイル                                                |
+| ---- | ---------------- | ------------------------------------------------------- |
+| 1    | コンポーネント作成 | `frontend/src/components/{feature}/FeatureScreen.tsx`   |
+| 2    | ルート追加        | `frontend/src/App.tsx` (パスのスイッチ)                  |
+| 3    | ナビリンク追加    | `frontend/src/components/layout/SideMenu.tsx`           |
+| 4    | i18n キー追加     | `frontend/src/assets/` (ロケール JSON ファイル)          |
 
-### Add shared state
+### 共有状態の追加
 
-| Step | Action                               | Files                                  |
-| ---- | ------------------------------------ | -------------------------------------- |
-| 1    | Check if it fits an existing Context | See Context table in SKILL.md          |
-| 2a   | Add to existing Context              | `frontend/src/contexts/{Context}.tsx`  |
-| 2b   | (New context) Create new             | `frontend/src/contexts/NewContext.tsx` |
-| 3    | (New context) Wrap in provider       | `frontend/src/main.tsx` or `App.tsx`   |
+| 手順 | 操作                                    | ファイル                                  |
+| ---- | --------------------------------------- | ----------------------------------------- |
+| 1    | 既存の Context に収まるか確認            | SKILL.md の Context 表を参照              |
+| 2a   | 既存 Context に追加                      | `frontend/src/contexts/{Context}.tsx`     |
+| 2b   | （新規 Context の場合）新規作成          | `frontend/src/contexts/NewContext.tsx`    |
+| 3    | （新規 Context の場合）プロバイダでラップ | `frontend/src/main.tsx` or `App.tsx`      |
 
-### Modify game UI (main play screen)
+### ゲーム UI（メインプレイ画面）の変更
 
-| Files                                            | Purpose                       |
-| ------------------------------------------------ | ----------------------------- |
-| `frontend/src/components/GamePlayScreen.tsx`     | Main game view layout         |
-| `frontend/src/components/chat/ChatContainer.tsx` | Chat panel                    |
-| `frontend/src/components/chat/ChatInput.tsx`     | User input + instruction type |
-| `frontend/src/components/ParameterBars.tsx`      | Stats display                 |
-| `frontend/src/components/HistoryPanel.tsx`       | History sidebar               |
-| `frontend/src/components/layout/MainLayout.tsx`  | Two-column layout frame       |
-| `frontend/src/components/layout/RightPanel.tsx`  | Right sidebar                 |
+| ファイル                                         | 目的                             |
+| ------------------------------------------------ | -------------------------------- |
+| `frontend/src/components/GamePlayScreen.tsx`     | メインゲーム画面レイアウト        |
+| `frontend/src/components/chat/ChatContainer.tsx` | チャットパネル                    |
+| `frontend/src/components/chat/ChatInput.tsx`     | ユーザー入力 + 指示タイプ選択     |
+| `frontend/src/components/ParameterBars.tsx`      | ステータス表示                    |
+| `frontend/src/components/HistoryPanel.tsx`       | 履歴サイドバー                    |
+| `frontend/src/components/layout/MainLayout.tsx`  | 2カラムレイアウトフレーム         |
+| `frontend/src/components/layout/RightPanel.tsx`  | 右サイドバー                      |
 
-### Add a new API call from frontend
+### フロントエンドから API 呼び出しの追加
 
-| Step | Action                             | Files                                             |
-| ---- | ---------------------------------- | ------------------------------------------------- |
-| 1    | Add function                       | `frontend/src/apis/{module}.ts`                   |
-| 2    | (If new types needed) Define types | `frontend/src/types/index.ts`                     |
-| 3    | Call from hook or Context action   | `frontend/src/hooks/` or `frontend/src/contexts/` |
+| 手順 | 操作                              | ファイル                                             |
+| ---- | --------------------------------- | ---------------------------------------------------- |
+| 1    | 関数を追加                         | `frontend/src/apis/{module}.ts`                      |
+| 2    | （新しい型が必要な場合）型を定義    | `frontend/src/types/index.ts`                        |
+| 3    | Hook または Context アクションから呼出 | `frontend/src/hooks/` or `frontend/src/contexts/` |
 
-### Modify SSE event handling
+### SSE イベントハンドリングの変更
 
-| Files                                        | Purpose                                               |
-| -------------------------------------------- | ----------------------------------------------------- |
-| `frontend/src/hooks/useSSE.ts`               | SSE event parsing + callbacks                         |
-| `frontend/src/components/GamePlayScreen.tsx` | Callback wiring                                       |
-| Receiving Context                            | `GameContext` / `ChatContext` / `NotificationContext` |
+| ファイル                                     | 目的                                                 |
+| -------------------------------------------- | ---------------------------------------------------- |
+| `frontend/src/hooks/useSSE.ts`               | SSE イベント解析 + コールバック                        |
+| `frontend/src/components/GamePlayScreen.tsx` | コールバックの接続                                    |
+| 受信側 Context                               | `GameContext` / `ChatContext` / `NotificationContext` |
 
-### Add i18n translations
+### i18n 翻訳の追加
 
-| Step | Files                                                      |
+| 手順 | ファイル                                                   |
 | ---- | ---------------------------------------------------------- |
-| 1    | Add keys to locale JSONs in `frontend/src/assets/`         |
-| 2    | Use `useTranslation()` hook or `t()` function in component |
-| 3    | Config in `frontend/src/i18n.ts`                           |
+| 1    | `frontend/src/assets/` のロケール JSON にキーを追加         |
+| 2    | コンポーネントで `useTranslation()` Hook or `t()` 関数を使用 |
+| 3    | 設定は `frontend/src/i18n.ts`                               |
 
-## Full-Stack Recipes
+## フルスタックレシピ
 
-### New feature end-to-end
+### 新機能のエンドツーエンド実装
 
-| Layer    | Step                          | Files                                     |
-| -------- | ----------------------------- | ----------------------------------------- |
-| Backend  | 1. Pydantic models            | `backend/gateway/models.py`               |
-| Backend  | 2. Service logic              | `backend/gateway/services/new_service.py` |
-| Backend  | 3. Route                      | `backend/gateway/routes/{router}.py`      |
-| Backend  | 4. (If DB) Models + migration | `databases/models.py` + Alembic           |
-| Frontend | 5. Types                      | `frontend/src/types/index.ts`             |
-| Frontend | 6. API client                 | `frontend/src/apis/{module}.ts`           |
-| Frontend | 7. Hook or Context action     | `hooks/` or `contexts/`                   |
-| Frontend | 8. UI component               | `components/{feature}/`                   |
-| Frontend | 9. Route (if page)            | `App.tsx`                                 |
-| Frontend | 10. i18n                      | Locale files                              |
-| Test     | 11. E2E (Playwright)          | `frontend/tests/e2e/`                     |
+| レイヤー    | 手順                        | ファイル                                  |
+| ----------- | --------------------------- | ----------------------------------------- |
+| バックエンド | 1. Pydantic モデル          | `backend/gateway/models.py`               |
+| バックエンド | 2. サービスロジック          | `backend/gateway/services/new_service.py` |
+| バックエンド | 3. ルート                    | `backend/gateway/routes/{router}.py`      |
+| バックエンド | 4. （DB必要時）モデル + マイグレーション | `databases/models.py` + Alembic |
+| フロントエンド | 5. 型定義                  | `frontend/src/types/index.ts`             |
+| フロントエンド | 6. API クライアント        | `frontend/src/apis/{module}.ts`           |
+| フロントエンド | 7. Hook または Context アクション | `hooks/` or `contexts/`            |
+| フロントエンド | 8. UI コンポーネント       | `components/{feature}/`                   |
+| フロントエンド | 9. ルート（ページの場合）  | `App.tsx`                                 |
+| フロントエンド | 10. i18n                   | ロケールファイル                           |
+| テスト       | 11. E2E (Playwright)       | `frontend/tests/e2e/`                     |
 
-### Add SSE event type
+### SSE イベントタイプの追加
 
-| Layer    | Step                          | Files                                        |
-| -------- | ----------------------------- | -------------------------------------------- |
-| Backend  | 1. Emit event in game_service | `backend/gateway/services/game_service.py`   |
-| Frontend | 2. Add callback type          | `frontend/src/hooks/useSSE.ts`               |
-| Frontend | 3. Wire callback              | `frontend/src/components/GamePlayScreen.tsx` |
-| Frontend | 4. Handle in Context          | Appropriate Context file                     |
+| レイヤー      | 手順                              | ファイル                                     |
+| ------------- | --------------------------------- | -------------------------------------------- |
+| バックエンド   | 1. game_service でイベントを送出   | `backend/gateway/services/game_service.py`   |
+| フロントエンド | 2. コールバック型の追加            | `frontend/src/hooks/useSSE.ts`               |
+| フロントエンド | 3. コールバックの接続              | `frontend/src/components/GamePlayScreen.tsx` |
+| フロントエンド | 4. Context で処理                  | 該当する Context ファイル                     |

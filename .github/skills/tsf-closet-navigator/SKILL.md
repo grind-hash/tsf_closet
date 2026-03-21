@@ -4,98 +4,98 @@ description: "tsf_closet_base project navigator for context-efficient investigat
 argument-hint: "Describe what you want to investigate or modify (e.g., 'add a new API endpoint', 'fix stats calculation', 'trace image generation flow')"
 ---
 
-# TSF Closet Navigator
+# TSF Closet ナビゲーター
 
-Context-efficient project investigation and modification skill for tsf_closet_base.
+tsf_closet_base のコンテキスト効率的なプロジェクト調査・変更スキル。
 
-## When to Use
+## 使用する場面
 
-- Investigating how a feature works without reading dozens of files
-- Planning where to make changes for a new feature or bug fix
-- Tracing data flow between frontend ↔ backend
-- Understanding which files to modify for a given change
-- Onboarding to unfamiliar parts of the codebase
+- 大量のファイルを読まずに機能の仕組みを調査したい場合
+- 新機能やバグ修正でどこを変更すべきか計画する場合
+- フロントエンド ↔ バックエンド間のデータフローをトレースする場合
+- 特定の変更に必要なファイルを特定する場合
+- コードベースの不慣れな部分にオンボーディングする場合
 
-## Procedure
+## 手順
 
-### Step 1: Classify the Task
+### ステップ 1: タスクの分類
 
-Determine the modification category:
+変更カテゴリを判定する:
 
-| Category        | Description                                          | Reference to Load                               |
-| --------------- | ---------------------------------------------------- | ----------------------------------------------- |
-| **Backend API** | New/modify endpoints, request/response models        | [backend-map.md](./references/backend-map.md)   |
-| **Frontend UI** | Components, contexts, hooks, pages                   | [frontend-map.md](./references/frontend-map.md) |
-| **Data Flow**   | End-to-end feature tracing (FE → API → Service → DB) | [data-flow.md](./references/data-flow.md)       |
-| **Full-Stack**  | Changes spanning both frontend and backend           | Load both backend-map + frontend-map            |
+| カテゴリ              | 説明                                                     | 読み込むリファレンス                            |
+| --------------------- | -------------------------------------------------------- | ----------------------------------------------- |
+| **バックエンド API**  | エンドポイントの新規/変更、リクエスト/レスポンスモデル   | [backend-map.md](./references/backend-map.md)   |
+| **フロントエンド UI** | コンポーネント、Context、Hook、ページ                    | [frontend-map.md](./references/frontend-map.md) |
+| **データフロー**      | エンドツーエンドの機能トレース (FE → API → Service → DB) | [data-flow.md](./references/data-flow.md)       |
+| **フルスタック**      | フロントエンドとバックエンド両方にまたがる変更           | backend-map + frontend-map の両方を読み込み     |
 
-### Step 2: Use the Modification Recipes
+### ステップ 2: 変更レシピの参照
 
-Based on the task, use the [modification recipes](./references/modification-recipes.md) to identify the **minimum set of files** to read and modify. Do NOT explore the file tree broadly — use the recipe tables instead.
+タスクに基づいて、[変更レシピ集](./references/modification-recipes.md)を使用し、読むべき/変更すべき**最小限のファイルセット**を特定する。ファイルツリーを広範に探索するのではなく、レシピのテーブルを使うこと。
 
-### Step 3: Read Only What's Needed
+### ステップ 3: 必要なものだけ読む
 
-Follow the recipe and read **only** the listed files. For each file, read only the relevant section (use grep_search or targeted line ranges).
+レシピに従い、記載されたファイル**のみ**を読む。各ファイルについて関連箇所のみ読むこと（grep_search やターゲットを絞った行範囲を使用）。
 
-### Step 4: Implement Changes
+### ステップ 4: 変更の実装
 
-Apply changes following AGENTS.md conventions (Context-first state management, uv for Python, ESLint/Prettier/Ruff, etc.).
+AGENTS.md の規約に従って変更を実装する（Context 優先の状態管理、Python は uv、ESLint/Prettier/Ruff 等）。
 
-### Step 5: Self-Maintenance Check
+### ステップ 5: セルフメンテナンスチェック
 
-After completing structural changes (new files, renamed files, new routes/contexts/hooks), update the affected reference file:
+構造的な変更（新規ファイル、リネーム、新規ルート/Context/Hook）を完了した後、影響を受けるリファレンスファイルを更新する:
 
-**Trigger conditions for update:**
+**更新のトリガー条件:**
 
-- New route/endpoint added → update [backend-map.md](./references/backend-map.md)
-- New component/context/hook added → update [frontend-map.md](./references/frontend-map.md)
-- New data flow pattern introduced → update [data-flow.md](./references/data-flow.md)
-- New modification pattern discovered → update [modification-recipes.md](./references/modification-recipes.md)
+- 新しいルート/エンドポイントを追加した → [backend-map.md](./references/backend-map.md) を更新
+- 新しいコンポーネント/Context/Hook を追加した → [frontend-map.md](./references/frontend-map.md) を更新
+- 新しいデータフローパターンを導入した → [data-flow.md](./references/data-flow.md) を更新
+- 新しい変更パターンを発見した → [modification-recipes.md](./references/modification-recipes.md) を更新
 
-Use the [refresh prompt](./references/refresh-guide.md) for full regeneration when references feel outdated.
+リファレンスが全体的に古くなった場合は[更新ガイド](./references/refresh-guide.md)を使用してフル再生成する。
 
-## Architecture Quick Reference (Always Loaded)
+## アーキテクチャ クイックリファレンス（常時読み込み）
 
-### Tech Stack
+### 技術スタック
 
-- **Frontend**: React 19 + TypeScript 5.9 + Vite 7.2 + React Router 7 (port 3000)
-- **Backend**: FastAPI 0.115 + SQLAlchemy 2.0 + aiosqlite (port 8000)
-- **Image Gen**: ComfyUI (inpaint/variation workflows)
-- **LLM**: OpenAI-compatible API (via LiteLLM/OpenRouter/local)
-- **Streaming**: Server-Sent Events (SSE) for real-time game responses
-- **Package Mgmt**: uv (Python), npm (Node.js)
+- **フロントエンド**: React 19 + TypeScript 5.9 + Vite 7.2 + React Router 7 (ポート 3000)
+- **バックエンド**: FastAPI 0.115 + SQLAlchemy 2.0 + aiosqlite (ポート 8000)
+- **画像生成**: ComfyUI (inpaint/variation ワークフロー)
+- **LLM**: OpenAI 互換 API (LiteLLM/OpenRouter/ローカル経由)
+- **ストリーミング**: Server-Sent Events (SSE) によるリアルタイムゲーム応答
+- **パッケージ管理**: uv (Python), npm (Node.js)
 
-### Core Directories
+### コアディレクトリ
 
 ```
 backend/gateway/
-  routes/          ← FastAPI routers (game, settings, achievements, gallery)
-  services/        ← Business logic (game_service, llm_service, image_generation, etc.)
-  databases/       ← SQLAlchemy models + ORM queries
-  models.py        ← Pydantic request/response schemas
-  consts/          ← Constants (language codes, etc.)
+  routes/          ← FastAPI ルーター（game, settings, achievements, gallery）
+  services/        ← ビジネスロジック（game_service, llm_service, image_generation 等）
+  databases/       ← SQLAlchemy モデル + ORM クエリ
+  models.py        ← Pydantic リクエスト/レスポンススキーマ
+  consts/          ← 定数（言語コード等）
 
 frontend/src/
-  apis/            ← API client modules (game, settings, achievements, gallery, anlas)
-  components/      ← React components (chat/, settings/, gallery/, achievements/, ui/)
-  contexts/        ← 4 Contexts: Game, Chat, Settings, Notification
-  hooks/           ← Custom hooks (useSession, useSSE, useAchievements, useGallery)
-  types/           ← TypeScript type definitions (types/index.ts)
-  routes/          ← Route definitions
+  apis/            ← API クライアントモジュール（game, settings, achievements, gallery, anlas）
+  components/      ← React コンポーネント（chat/, settings/, gallery/, achievements/, ui/）
+  contexts/        ← 4つの Context: Game, Chat, Settings, Notification
+  hooks/           ← カスタム Hook（useSession, useSSE, useAchievements, useGallery）
+  types/           ← TypeScript 型定義（types/index.ts）
+  routes/          ← ルート定義
 ```
 
-### Context Providers (Frontend State)
+### Context プロバイダ（フロントエンド状態管理）
 
-| Context             | Hook                | Key State                                                             |
+| Context             | Hook                | 主な状態                                                              |
 | ------------------- | ------------------- | --------------------------------------------------------------------- |
 | GameContext         | `useGame()`         | sessionId, currentImage, stats, history, attributes, ending, selfMode |
 | ChatContext         | `useChat()`         | messages, inputText, instructionType, isStreaming                     |
 | SettingsContext     | `useSettings()`     | difficulty, language, nsfwMode, imageProvider, changeSettings         |
 | NotificationContext | `useNotification()` | notifications[]                                                       |
 
-### API Endpoints Summary
+### API エンドポイント概要
 
-| Prefix          | Router                 | Key Operations                        |
+| プレフィックス  | ルーター               | 主な操作                              |
 | --------------- | ---------------------- | ------------------------------------- |
 | `/game`         | game_router.py         | play (SSE), start, session/:id, reset |
 | `/settings`     | settings_router.py     | user GET/PUT, self-profile            |
