@@ -824,12 +824,6 @@ export default function RightPanel({
             <div className="right-panel__form-group">
               <label className="right-panel__label">
                 {t("rightPanel.seedLabel", "Seed")}
-                <span
-                  className="feature-chip-new"
-                  data-feature-version="v0.3.0"
-                >
-                  New
-                </span>
               </label>
               <div style={{ display: "flex", gap: "0.5rem" }}>
                 <input
@@ -892,12 +886,6 @@ export default function RightPanel({
               </label>
               <div style={{ marginTop: "0.25rem" }}>
                 <span
-                  className="feature-chip-new"
-                  data-feature-version="v0.3.0"
-                >
-                  New
-                </span>
-                <span
                   className="feature-chip-experimental"
                   data-feature-version="v0.3.0"
                 >
@@ -934,12 +922,6 @@ export default function RightPanel({
                 </label>
                 <div style={{ marginTop: "0.25rem" }}>
                   <span
-                    className="feature-chip-new"
-                    data-feature-version="v0.3.0"
-                  >
-                    New
-                  </span>
-                  <span
                     className="feature-chip-experimental"
                     data-feature-version="v0.3.0"
                   >
@@ -975,12 +957,6 @@ export default function RightPanel({
                 <span className="right-panel__toggle-switch" />
               </label>
               <div style={{ marginTop: "0.25rem" }}>
-                <span
-                  className="feature-chip-new"
-                  data-feature-version="v0.3.0"
-                >
-                  New
-                </span>
                 <span
                   className="feature-chip-experimental"
                   data-feature-version="v0.3.0"

@@ -113,18 +113,17 @@ function AppMain() {
       if (location.pathname === "/play/new") {
         // 新規ゲームなので何もしない
       } else if (urlSessionId) {
-        // URLにセッションIDが含まれている場合、そのセッションを復元
-        try {
-          const response = await fetch(
-            `${API_BASE}/game/sessions/${urlSessionId}/restore`,
-            { method: "POST" },
-          );
-          if (response.ok) {
+        // ギャラリー等から遷移済みで、GameContextに同じセッションが既にある場合はスキップ
+        if (gameState.sessionId === urlSessionId) {
+          setScreen("game");
+        } else {
+          // URLにセッションIDが含まれている場合、そのセッションを復元
+          try {
             await restoreSessionById(urlSessionId);
             setScreen("game");
             // URLは既にセッションID付きなので更新不要
-          } else {
-            console.warn("Failed to restore session from URL:", urlSessionId);
+          } catch (err) {
+            console.error("Error restoring session from URL:", err);
             // 復元失敗時はlocalStorageのセッションを復元
             const restored = await restoreActiveSession();
             if (restored) {
@@ -133,15 +132,6 @@ function AppMain() {
                 localStorage.getItem("current_session_id"),
               );
             }
-          }
-        } catch (err) {
-          console.error("Error restoring session from URL:", err);
-          const restored = await restoreActiveSession();
-          if (restored) {
-            setScreen("game");
-            replacePathWithSessionId(
-              localStorage.getItem("current_session_id"),
-            );
           }
         }
       } else {

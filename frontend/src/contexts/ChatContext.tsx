@@ -466,7 +466,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     if (messageId) {
       setTimeout(() => {
         dispatch({ type: "SET_SCROLL_TO_MESSAGE", payload: null });
-      }, 100);
+      }, 500);
     }
   }, []);
 

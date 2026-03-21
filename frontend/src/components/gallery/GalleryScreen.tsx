@@ -12,6 +12,7 @@ import MainLayout from "../layout/MainLayout";
 import GalleryCard from "./GalleryCard";
 import PlaySummaryModal from "./PlaySummaryModal";
 import { deleteGalleryItem } from "../../apis/gallery";
+import { useGame } from "../../contexts/GameContext";
 import { API_BASE } from "../../utils/api";
 import type { GalleryItem, GallerySession } from "../../types";
 import "./GalleryScreen.css";
@@ -24,6 +25,7 @@ export default function GalleryScreen({ onSelectItem }: GalleryScreenProps) {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
+  const { restoreSessionById } = useGame();
 
   // URLベースで表示モードを判定: /gallery/:sessionId → items, /gallery → sessions
   const urlSessionId = useMemo(() => {
@@ -261,36 +263,26 @@ export default function GalleryScreen({ onSelectItem }: GalleryScreenProps) {
 
       // デフォルト: セッション復元してゲーム画面に遷移
       try {
-        const response = await fetch(
-          `${API_BASE}/game/sessions/${item.session_id}/restore`,
-          {
-            method: "POST",
-          },
-        );
-
-        if (!response.ok) {
+        const restored = await restoreSessionById(item.session_id);
+        if (!restored) {
           console.error("セッション復元に失敗しました");
           return;
         }
 
         // ゲーム画面に遷移（セッションID + historyId付き）
-        navigate(`/play/${item.session_id}?historyId=${item.history_id}`);
+        navigate(`/play/${item.session_id}?historyId=${item.id}`);
       } catch (err) {
         console.error("セッション復元エラー:", err);
       }
     },
-    [onSelectItem, navigate],
+    [onSelectItem, navigate, restoreSessionById],
   );
 
   // セッションをゲームで再開
   const handleResumeSession = async (session: GallerySession) => {
     try {
-      const response = await fetch(
-        `${API_BASE}/game/sessions/${session.session_id}/restore`,
-        { method: "POST" },
-      );
-
-      if (!response.ok) {
+      const restored = await restoreSessionById(session.session_id);
+      if (!restored) {
         console.error("セッション復元に失敗しました");
         return;
       }

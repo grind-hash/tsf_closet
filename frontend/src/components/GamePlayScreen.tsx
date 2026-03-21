@@ -37,7 +37,7 @@ import { useChat } from "../contexts/ChatContext";
 import { useSettings } from "../contexts/SettingsContext";
 import { API_BASE } from "../utils/api";
 import { generateUUID } from "../utils/generateUUID";
-import { deleteLatestHistory, deleteConversation } from "../apis/game";
+import { deleteLatestHistory, deleteHistoryEntry } from "../apis/game";
 import {
   exportAsMarkdown,
   exportAsCsv,
@@ -95,6 +95,7 @@ export default function GamePlayScreen({
     navigatePrevHistory,
     navigateNextHistory,
     navigateToHistoryById,
+    removeHistoryEntry,
   } = useGame();
   const {
     state: chatState,
@@ -111,6 +112,7 @@ export default function GamePlayScreen({
     clearInput,
     setInputText,
     setInstructionType,
+    scrollToMessage,
     messageListRef,
   } = useChat();
   const {
@@ -339,10 +341,26 @@ export default function GamePlayScreen({
         const dateB = new Date(b.createdAt).getTime();
         return dateA - dateB;
       });
+
+      // ギャラリーからの遷移時は対象メッセージへのスクロールを予約（自動スクロールを抑制）
+      const params = new URLSearchParams(location.search);
+      const galleryHistoryId = params.get("historyId");
+      if (galleryHistoryId) {
+        scrollToMessage(`user-${galleryHistoryId}`);
+      }
+
       setMessages(allMessages);
       hasRestoredMessagesRef.current = true;
     }
-  }, [sessionId, history, chatHistory, setMessages, isNewGameRoute]);
+  }, [
+    sessionId,
+    history,
+    chatHistory,
+    setMessages,
+    isNewGameRoute,
+    location.search,
+    scrollToMessage,
+  ]);
 
   // ギャラリーからの遷移時: historyIdクエリパラメータで指定画像にナビゲート
   const hasNavigatedToHistoryRef = React.useRef(false);
@@ -909,18 +927,24 @@ export default function GamePlayScreen({
 
     try {
       setIsDeletingMessage(true);
-      // 会話テキストのみを削除（履歴レコードと画像は保持）
-      await deleteConversation(historyId, sessionId || "");
+      // 履歴エントリを完全削除（History + 画像 + 会話テキスト）
+      const result = await deleteHistoryEntry(historyId, sessionId || "");
 
       // チャットメッセージから対象のユーザーメッセージ + 応答メッセージを除去
-      // The feeling message created during streaming uses "feeling-{Date.now()}"
-      // (not historyId), so we find it by position after the user message.
       const idsToRemove = new Set(
         chatState.messages
-          .filter((message) => message.relatedHistoryId === historyId)
+          .filter(
+            (message) =>
+              message.relatedHistoryId === historyId ||
+              message.id === `user-${historyId}` ||
+              message.id === `feeling-${historyId}`,
+          )
           .map((message) => message.id),
       );
       setMessages(chatState.messages.filter((m) => !idsToRemove.has(m.id)));
+
+      // GameContext の history からもエントリを除去（画像表示を更新）
+      removeHistoryEntry(historyId, result.restored_history_id || "");
 
       setDeleteMessageConfirm(null);
     } catch (err) {
@@ -929,7 +953,13 @@ export default function GamePlayScreen({
     } finally {
       setIsDeletingMessage(false);
     }
-  }, [deleteMessageConfirm, chatState.messages, setMessages]);
+  }, [
+    deleteMessageConfirm,
+    chatState.messages,
+    setMessages,
+    sessionId,
+    removeHistoryEntry,
+  ]);
 
   // 最新メッセージ編集リクエスト（確認ダイアログを表示）
   const handleRequestEditMessage = useCallback(
@@ -1148,6 +1178,13 @@ export default function GamePlayScreen({
                     data-open={exportMenuOpen}
                   >
                     ↗ {t("chat.export.button")}
+                    <span
+                      className="feature-chip-new"
+                      data-feature-version="v0.4.0"
+                      style={{ marginLeft: "0.5rem" }}
+                    >
+                      New
+                    </span>
                   </button>
                   {exportMenuOpen && (
                     <div className="chat-export-header__menu">

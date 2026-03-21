@@ -113,3 +113,35 @@ export async function deleteConversation(
 
   return response.json();
 }
+
+export interface DeleteHistoryEntryResponse {
+  success: boolean;
+  deleted_history_id: string;
+  restored_history_id: string;
+}
+
+/**
+ * 指定履歴IDの履歴エントリを完全削除する（History + 画像 + 会話テキスト）
+ */
+export async function deleteHistoryEntry(
+  historyId: string,
+  sessionId: string,
+): Promise<DeleteHistoryEntryResponse> {
+  const params = new URLSearchParams({ session_id: sessionId });
+  const response = await fetch(
+    `${API_BASE}/game/history/${encodeURIComponent(historyId)}?${params}`,
+    {
+      method: "DELETE",
+    },
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail?.message ||
+        `Delete history entry failed: ${response.status}`,
+    );
+  }
+
+  return response.json();
+}

@@ -212,6 +212,9 @@ export default function CharacterStatePanel({
       navigateNextHistory();
     }
 
+    // linkChatToImage が有効な場合のみ、対応メッセージにスクロール
+    if (!settingsState.linkChatToImage) return;
+
     // 遷移先の履歴に対応するメッセージIDを取得
     const targetIndex =
       direction === "prev" ? currentHistoryIndex - 1 : currentHistoryIndex + 1;
@@ -230,7 +233,9 @@ export default function CharacterStatePanel({
     // GameContextのnavigate関数を使って指定インデックスにジャンプ
     navigateHistory(index);
 
-    // 対応するメッセージにスクロール
+    // linkChatToImage が有効な場合のみ、対応メッセージにスクロール
+    if (!settingsState.linkChatToImage) return;
+
     const targetHistory = history[index];
     if (targetHistory?.relatedMessageId) {
       scrollToMessage(targetHistory.relatedMessageId);

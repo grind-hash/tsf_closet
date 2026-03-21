@@ -201,12 +201,6 @@ export default function SettingsScreen() {
               <div className="settings-screen__item-header">
                 <span className="settings-screen__item-label">
                   {t("settings.fontFamily")}
-                  <span
-                    className="feature-chip-new"
-                    data-feature-version="v0.3.0"
-                  >
-                    New
-                  </span>
                 </span>
                 <span className="settings-screen__item-desc">
                   {t("settings.fontFamilyDesc")}
@@ -346,13 +340,6 @@ export default function SettingsScreen() {
                 <div className="settings-screen__toggle-info">
                   <span className="settings-screen__item-label">
                     {t("settings.experimentalSurroundings")}
-                    <span
-                      className="feature-chip-new"
-                      data-feature-version="v0.3.0"
-                      style={{ marginLeft: "0.5rem" }}
-                    >
-                      New
-                    </span>
                   </span>
                   <span className="settings-screen__item-desc">
                     {t("settings.experimentalSurroundingsDesc")}
@@ -397,13 +384,6 @@ export default function SettingsScreen() {
                 <div className="settings-screen__toggle-info">
                   <span className="settings-screen__item-label">
                     {t("settings.experimentalClothingColor")}
-                    <span
-                      className="feature-chip-new"
-                      data-feature-version="v0.3.0"
-                      style={{ marginLeft: "0.5rem" }}
-                    >
-                      New
-                    </span>
                   </span>
                   <span className="settings-screen__item-desc">
                     {t("settings.experimentalClothingColorDesc")}

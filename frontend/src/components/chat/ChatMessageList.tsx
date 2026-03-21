@@ -31,9 +31,12 @@ export default function ChatMessageList({
   const { t } = useTranslation();
   const messageRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const listEndRef = useRef<HTMLDivElement>(null);
+  const suppressAutoScrollRef = useRef(false);
 
   // 新しいメッセージが追加されたら自動スクロール
+  // suppressAutoScrollRef が有効な場合はスキップ（ギャラリー遷移等でのメッセージ復元時）
   useEffect(() => {
+    if (suppressAutoScrollRef.current) return;
     if (messages.length > 0) {
       listEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }
@@ -42,10 +45,20 @@ export default function ChatMessageList({
   // 特定のメッセージへスクロール
   useEffect(() => {
     if (scrollToMessageId) {
+      // 自動スクロールを一時的に抑制
+      suppressAutoScrollRef.current = true;
       const element = messageRefs.current.get(scrollToMessageId);
       if (element) {
         element.scrollIntoView({ behavior: "smooth", block: "center" });
       }
+      // DOM反映後に抑制を解除
+      const timer = setTimeout(() => {
+        suppressAutoScrollRef.current = false;
+      }, 600);
+      return () => clearTimeout(timer);
+    } else {
+      // scrollToMessageIdがクリアされた時点で自動スクロール抑制を確実に解除
+      suppressAutoScrollRef.current = false;
     }
   }, [scrollToMessageId]);
 

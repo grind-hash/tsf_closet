@@ -90,6 +90,10 @@ type GameAction =
       type: "SET_LAST_SURROUNDINGS_IMAGE";
       payload: SurroundingsImageState | null;
     }
+  | {
+      type: "REMOVE_HISTORY_ENTRY";
+      payload: { historyId: string; restoredHistoryId: string };
+    }
   | { type: "CLEAR_SESSION" };
 
 const defaultState: GameState = {
@@ -217,6 +221,33 @@ function gameReducer(state: GameState, action: GameAction): GameState {
       return { ...state, lastGeneratedSeed: action.payload };
     case "SET_LAST_SURROUNDINGS_IMAGE":
       return { ...state, lastSurroundingsImage: action.payload };
+    case "REMOVE_HISTORY_ENTRY": {
+      const { historyId, restoredHistoryId } = action.payload;
+      const newHistory = state.history.filter((h) => h.id !== historyId);
+      const removedIndex = state.history.findIndex((h) => h.id === historyId);
+      // Determine new currentHistoryIndex
+      let newIndex = state.currentHistoryIndex;
+      if (newHistory.length === 0) {
+        newIndex = -1;
+      } else if (removedIndex <= state.currentHistoryIndex) {
+        newIndex = Math.max(0, state.currentHistoryIndex - 1);
+      }
+      // Update currentImage to the restored history entry or previous
+      let newImage = state.currentImage;
+      if (restoredHistoryId && newHistory.length > 0) {
+        newImage = `${API_BASE}/history/images/${restoredHistoryId}`;
+      } else if (newHistory.length > 0) {
+        const entry = newHistory[Math.min(newIndex, newHistory.length - 1)];
+        newImage = `${API_BASE}/history/images/${entry.id}`;
+      }
+      return {
+        ...state,
+        history: newHistory,
+        currentHistoryIndex: newIndex,
+        currentImage: newImage,
+        transformationCount: Math.max(0, state.transformationCount - 1),
+      };
+    }
     case "CLEAR_SESSION":
       return { ...defaultState, characters: state.characters };
     default:
@@ -276,6 +307,7 @@ interface GameContextType {
   setTransformationCount: (count: number) => void;
   setLastGeneratedSeed: (seed: number | null) => void;
   setLastSurroundingsImage: (image: SurroundingsImageState | null) => void;
+  removeHistoryEntry: (historyId: string, restoredHistoryId: string) => void;
 }
 
 const GameContext = createContext<GameContextType | null>(null);
@@ -663,6 +695,16 @@ export function GameProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  const removeHistoryEntry = useCallback(
+    (historyId: string, restoredHistoryId: string) => {
+      dispatch({
+        type: "REMOVE_HISTORY_ENTRY",
+        payload: { historyId, restoredHistoryId },
+      });
+    },
+    [],
+  );
+
   const addAttribute = useCallback(
     async (text: string): Promise<void> => {
       if (!state.sessionId) {
@@ -747,6 +789,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
     setTransformationCount,
     setLastGeneratedSeed,
     setLastSurroundingsImage,
+    removeHistoryEntry,
   };
 
   return <GameContext.Provider value={value}>{children}</GameContext.Provider>;

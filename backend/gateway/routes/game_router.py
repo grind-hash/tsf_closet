@@ -1725,6 +1725,39 @@ async def delete_conversation_by_history(
 
 
 # ------------------------------------------------------------------
+# Full history entry deletion (History + images + conversations)
+# ------------------------------------------------------------------
+
+
+@router.delete(
+    "/history/{history_id}",
+    summary="履歴エントリを完全削除",
+    description="指定した履歴IDの履歴レコード・画像・会話テキストを全て削除する",
+)
+async def delete_history_entry(
+    history_id: str,
+    session_id: str = Query(..., description="セッションID"),
+) -> dict:
+    """Delete a history entry and all associated data (images, conversations)."""
+    result = await session_store.delete_history_entry(
+        session_id=session_id,
+        history_id=history_id,
+    )
+    if result is None:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": "NOT_FOUND",
+                "message": "History not found in this session",
+            },
+        )
+    return {
+        "success": True,
+        **result,
+    }
+
+
+# ------------------------------------------------------------------
 # Latest history deletion (self-mode only)
 # ------------------------------------------------------------------
 
