@@ -1,6 +1,6 @@
 # フロントエンド アーキテクチャマップ
 
-> 最終検証: 2026-03-07 | 更新条件: コンポーネント、Context、Hook、APIモジュールの追加・リネーム・削除時
+> 最終検証: 2026-03-22 | 更新条件: コンポーネント、Context、Hook、APIモジュールの追加・リネーム・削除時
 
 ## ルーティング (App.tsx)
 
@@ -19,14 +19,14 @@
 ### GameContext (`useGame()`)
 
 - **ファイル**: `frontend/src/contexts/GameContext.tsx`
-- **状態**: sessionId, isActive, character, currentImage, stats, history[], attributes[], ending, selfMode, isTransforming, transformationCount
-- **アクション**: START_SESSION, RESTORE_SESSION, UPDATE_STATS, ADD_HISTORY_ITEM, SET_CURRENT_IMAGE, SET_ENDING, SET_TRANSFORMING
+- **状態**: sessionId, isActive, character, currentImage, currentHistoryIndex, stats, history[], conversationHistory[], attributes[], ending, selfMode, isTransforming, transformationCount, feelingText
+- **アクション**: START_SESSION, RESTORE_SESSION, UPDATE_STATS, ADD_HISTORY_ITEM, SET_CURRENT_IMAGE, SET_ENDING, SET_TRANSFORMING, SET_CONVERSATION_HISTORY, APPEND_FEELING_TEXT, REMOVE_HISTORY_ENTRY
 
 ### ChatContext (`useChat()`)
 
 - **ファイル**: `frontend/src/contexts/ChatContext.tsx`
-- **状態**: messages[], inputText, instructionType, attachedImage, isStreaming, highlightedMessageId
-- **アクション**: ADD_MESSAGE, UPDATE_MESSAGE, SET_INPUT_TEXT, SET_INSTRUCTION_TYPE, SET_STREAMING
+- **状態**: messages[], inputText, instructionType, isStreaming, highlightedMessageId, scrollToMessageId, pendingIdentities[], messageListRef
+- **アクション**: ADD_MESSAGE, UPDATE_MESSAGE, APPEND_TO_MESSAGE, SET_INPUT_TEXT, SET_INSTRUCTION_TYPE, SET_STREAMING, SET_SCROLL_TO_MESSAGE, FINALIZE_PENDING_IDENTITY
 
 ### SettingsContext (`useSettings()`)
 
@@ -94,7 +94,7 @@ components/
 ├── CustomImageSizeWarningModal.tsx
 │
 ├── chat/
-│   ├── ChatContainer.tsx      ← チャットパネルラッパー
+│   ├── ChatContainer.tsx      ← 旧チャットラッパー（現メイン導線では未使用）
 │   ├── ChatInput.tsx          ← ユーザー入力（テキスト + 指示タイプ選択）
 │   ├── ChatMessage.tsx        ← 単一メッセージバブル
 │   ├── ChatMessageList.tsx    ← メッセージリストスクロールコンテナ
@@ -142,8 +142,8 @@ components/
 | `HistoryItem`         | id, instruction, imageUrl, feelingText, beforeDescription, afterDescription, instructionType, costumeCategory, exposureLevel, ageImpression, seed |
 | `Character`           | id, name, thumbnail, description                                                                                                                  |
 | `Ending`              | id, name, description, triggerCondition, badge, speech, summary                                                                                   |
-| `ChatMessage`         | role, content, timestamp                                                                                                                          |
-| `InstructionType`     | "dress_up" \| "reality_change" \| "conversation"                                                                                                  |
+| `ChatMessage`         | id, role, content, createdAt, instructionType, relatedHistoryId, isStreaming, isFeelingText, surroundingsImageUrl                               |
+| `InstructionType`     | "dress_up" \| "reality_alter" \| "conversation" \| "action"                                                                                   |
 | `ChangeSettings`      | preserveElements[], changeScope, customPreserveText                                                                                               |
 | `InpaintSettings`     | enabled, brushSize, eraserMode, i2iStrength, maskStrength, invertMask, negativePrompt, promptOverride                                             |
 | `SessionAttribute`    | id, text                                                                                                                                          |

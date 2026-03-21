@@ -1,6 +1,6 @@
 # バックエンド アーキテクチャマップ
 
-> 最終検証: 2026-03-07 | 更新条件: ルート、サービス、DBモデルの追加・リネーム・削除時
+> 最終検証: 2026-03-22 | 更新条件: ルート、サービス、DBモデルの追加・リネーム・削除時
 
 ## FastAPI アプリケーション
 
@@ -45,7 +45,9 @@
 | 32    | DELETE   | `/game/masks/preset/{id}`           | プリセットマスク削除                     |
 | 33    | GET      | `/game/anlas`                       | NovelAI Anlas 残高                       |
 | 34    | POST     | `/game/generate-base-tags`          | ベースタグ生成                           |
-| 35    | DELETE   | `/game/session/{id}/latest-history` | 最新履歴の削除                           |
+| 35    | DELETE   | `/game/conversation/{history_id}`   | 指定履歴に紐づく会話テキストのみ削除     |
+| 36    | DELETE   | `/game/history/{history_id}`        | 履歴エントリを完全削除（画像・会話含む） |
+| 37    | DELETE   | `/game/session/{id}/latest-history` | 最新履歴の削除                           |
 
 ### `/settings` — [backend/gateway/routes/settings_router.py](../../backend/gateway/routes/settings_router.py)
 

@@ -1,6 +1,6 @@
 # 変更レシピ集
 
-> 最終検証: 2026-03-07 | 更新条件: 新しい変更パターンの発見やファイル構成の変更時
+> 最終検証: 2026-03-22 | 更新条件: 新しい変更パターンの発見やファイル構成の変更時
 
 クイックルックアップ: 「〇〇をしたい」→「このファイルを読む/変更する」
 
@@ -86,12 +86,27 @@
 | ファイル                                         | 目的                             |
 | ------------------------------------------------ | -------------------------------- |
 | `frontend/src/components/GamePlayScreen.tsx`     | メインゲーム画面レイアウト        |
-| `frontend/src/components/chat/ChatContainer.tsx` | チャットパネル                    |
+| `frontend/src/components/chat/ChatMessageList.tsx` | チャットメッセージ一覧          |
 | `frontend/src/components/chat/ChatInput.tsx`     | ユーザー入力 + 指示タイプ選択     |
+| `frontend/src/components/chat/ChatMessage.tsx`   | メッセージ単体表示 / 削除・編集UI |
 | `frontend/src/components/ParameterBars.tsx`      | ステータス表示                    |
 | `frontend/src/components/HistoryPanel.tsx`       | 履歴サイドバー                    |
 | `frontend/src/components/layout/MainLayout.tsx`  | 2カラムレイアウトフレーム         |
 | `frontend/src/components/layout/RightPanel.tsx`  | 右サイドバー                      |
+
+補足: `ChatContainer.tsx` は現状のメイン導線では使われておらず、チャット領域の実装主体は `GamePlayScreen.tsx` です。
+
+### メッセージ削除 / 履歴削除の変更
+
+| レイヤー | ファイル                                         | 目的                                      |
+| -------- | ------------------------------------------------ | ----------------------------------------- |
+| FE UI    | `frontend/src/components/GamePlayScreen.tsx`     | 削除確認ダイアログ、削除後の画面同期       |
+| FE UI    | `frontend/src/components/chat/ChatMessage.tsx`   | 削除ボタンの表示条件                      |
+| FE API   | `frontend/src/apis/game.ts`                      | `deleteHistoryEntry`, `deleteLatestHistory` |
+| FE State | `frontend/src/contexts/GameContext.tsx`          | 履歴削除後の `history/currentImage` 更新   |
+| FE State | `frontend/src/contexts/ChatContext.tsx`          | メッセージID / `relatedHistoryId` 解決     |
+| BE Route | `backend/gateway/routes/game_router.py`          | `/game/history/{history_id}` などの削除API |
+| BE Logic | `backend/gateway/services/session.py`            | 履歴・画像・会話の実削除処理              |
 
 ### フロントエンドから API 呼び出しの追加
 
