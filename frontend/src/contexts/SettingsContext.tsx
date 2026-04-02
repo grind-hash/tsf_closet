@@ -92,6 +92,14 @@ interface SettingsState {
 
   // Chat-to-image linking: scroll chat on image navigation
   linkChatToImage: boolean;
+
+  // Multiple people in image generation (experimental)
+  enableMultiplePeople: boolean;
+
+  // NovelAI text model selection (Opus only)
+  novelaiTextModel: string;
+  // NovelAI subscription tier (null = unknown)
+  novelaiTier: number | null;
 }
 
 // アクション型
@@ -136,7 +144,10 @@ type SettingsAction =
   | { type: "SET_SURROUNDINGS_INCLUDE_PEOPLE"; payload: boolean }
   | { type: "SET_FONT_FAMILY"; payload: string }
   | { type: "SET_CLOTHING_COLOR_CONSISTENCY"; payload: boolean }
-  | { type: "SET_LINK_CHAT_TO_IMAGE"; payload: boolean };
+  | { type: "SET_LINK_CHAT_TO_IMAGE"; payload: boolean }
+  | { type: "SET_ENABLE_MULTIPLE_PEOPLE"; payload: boolean }
+  | { type: "SET_NOVELAI_TEXT_MODEL"; payload: string }
+  | { type: "SET_NOVELAI_TIER"; payload: number | null };
 
 // デフォルト状態
 const defaultState: SettingsState = {
@@ -166,6 +177,9 @@ const defaultState: SettingsState = {
   fontFamily: "system",
   clothingColorConsistency: false,
   linkChatToImage: false,
+  enableMultiplePeople: false,
+  novelaiTextModel: "glm-4-6",
+  novelaiTier: null,
 };
 
 // Reducer
@@ -281,6 +295,12 @@ function settingsReducer(
       return { ...state, clothingColorConsistency: action.payload };
     case "SET_LINK_CHAT_TO_IMAGE":
       return { ...state, linkChatToImage: action.payload };
+    case "SET_ENABLE_MULTIPLE_PEOPLE":
+      return { ...state, enableMultiplePeople: action.payload };
+    case "SET_NOVELAI_TEXT_MODEL":
+      return { ...state, novelaiTextModel: action.payload };
+    case "SET_NOVELAI_TIER":
+      return { ...state, novelaiTier: action.payload };
     default:
       return state;
   }
@@ -332,6 +352,9 @@ interface SettingsContextType {
   setFontFamily: (fontFamily: string) => void;
   setClothingColorConsistency: (enabled: boolean) => void;
   setLinkChatToImage: (enabled: boolean) => void;
+  setEnableMultiplePeople: (enabled: boolean) => void;
+  setNovelaiTextModel: (model: string) => void;
+  setNovelaiTier: (tier: number | null) => void;
 }
 
 // Context作成
@@ -351,9 +374,12 @@ function loadInitialState(initial: SettingsState): SettingsState {
       // imageProviderはバックエンドから取得するため除外
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { imageProvider: _ignored, ...rest } = parsed;
+      // novelaiTextModelとnovelaiTierはバックエンド/API経由のため除外
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { novelaiTextModel: _nai, novelaiTier: _tier, ...filtered } = rest;
       return {
         ...initial,
-        ...rest,
+        ...filtered,
         totalCost:
           typeof rest.totalCost === "number"
             ? rest.totalCost
@@ -439,6 +465,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
               nsfwMode: data.nsfw_mode,
               difficulty: data.difficulty,
               language: data.language ?? DEFAULT_LANGUAGE,
+              novelaiTextModel: data.novelai_text_model ?? "glm-4-6",
             },
           });
         }
@@ -476,6 +503,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         selfProfile: _ignored3,
         seed: _ignored4,
         anlasBalance: _ignored5,
+        novelaiTextModel: _ignored6,
+        novelaiTier: _ignored7,
         ...rest
       } = state;
       /* eslint-enable @typescript-eslint/no-unused-vars */
@@ -724,6 +753,27 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "SET_LINK_CHAT_TO_IMAGE", payload: enabled });
   }, []);
 
+  const setEnableMultiplePeople = useCallback((enabled: boolean) => {
+    dispatch({ type: "SET_ENABLE_MULTIPLE_PEOPLE", payload: enabled });
+  }, []);
+
+  const setNovelaiTextModel = useCallback(async (model: string) => {
+    dispatch({ type: "SET_NOVELAI_TEXT_MODEL", payload: model });
+    try {
+      await fetch("/api/settings/user", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ novelai_text_model: model }),
+      });
+    } catch (error) {
+      console.error("Failed to save novelai_text_model to backend:", error);
+    }
+  }, []);
+
+  const setNovelaiTier = useCallback((tier: number | null) => {
+    dispatch({ type: "SET_NOVELAI_TIER", payload: tier });
+  }, []);
+
   const value: SettingsContextType = {
     state,
     setDifficulty,
@@ -762,6 +812,9 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setFontFamily,
     setClothingColorConsistency,
     setLinkChatToImage,
+    setEnableMultiplePeople,
+    setNovelaiTextModel,
+    setNovelaiTier,
   };
 
   return (

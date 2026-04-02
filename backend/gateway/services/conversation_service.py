@@ -10,12 +10,14 @@ class ConversationService:
         system_prompt: str,
         user_prompt: str,
         language: str,
+        novelai_model_override: str | None = None,
     ) -> str | None:
         current_user_prompt = user_prompt
         for _ in range(2):
             result = await llm_service.generate_feeling(
                 system_prompt=system_prompt,
                 user_prompt=current_user_prompt,
+                novelai_model_override=novelai_model_override,
             )
             candidate = result.content
             if is_response_language_valid(candidate, language):

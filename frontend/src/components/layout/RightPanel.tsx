@@ -86,6 +86,8 @@ export default function RightPanel({
     setSurroundingsIncludePeople,
     setClothingColorConsistency,
     setShowRealityAttributeNotification,
+    setEnableMultiplePeople,
+    setNovelaiTextModel,
   } = useSettings();
   const { state: gameState, addAttribute, removeAttribute } = useGame();
   const { state: chatState, setInputText } = useChat();
@@ -982,6 +984,76 @@ export default function RightPanel({
                 </small>
               )}
             </div>
+
+            {/* Multiple people toggle */}
+            <div className="right-panel__form-group">
+              <label className="right-panel__toggle">
+                <span className="right-panel__toggle-label">
+                  {t(
+                    "rightPanel.enableMultiplePeople",
+                    "Multiple People (Experimental)",
+                  )}
+                </span>
+                <input
+                  type="checkbox"
+                  checked={settingsState.enableMultiplePeople}
+                  onChange={(e) => setEnableMultiplePeople(e.target.checked)}
+                  className="right-panel__toggle-input"
+                />
+                <span className="right-panel__toggle-switch" />
+              </label>
+              <div style={{ marginTop: "0.25rem" }}>
+                <span
+                  className="feature-chip-experimental"
+                  data-feature-version="v0.3.0"
+                >
+                  Experimental
+                </span>
+              </div>
+              <small className="right-panel__hint">
+                {t(
+                  "rightPanel.enableMultiplePeopleHint",
+                  "Allow multiple characters in generated images. When enabled, the LLM determines the number of characters based on your instructions.",
+                )}
+              </small>
+            </div>
+
+            {/* NovelAI Text Model Selector (Opus only) */}
+            {settingsState.novelaiTier === 3 && (
+              <div className="right-panel__form-group">
+                <label className="right-panel__label">
+                  {t("settings.novelaiTextModel", "NovelAI Text Model")}
+                  <span
+                    className="feature-chip-experimental"
+                    data-feature-version="v0.5.0"
+                    style={{ marginLeft: "0.5rem" }}
+                  >
+                    Experimental
+                  </span>
+                </label>
+                <select
+                  className="right-panel__select"
+                  value={settingsState.novelaiTextModel}
+                  onChange={(e) => setNovelaiTextModel(e.target.value)}
+                >
+                  <option value="glm-4-6">
+                    {t("settings.novelaiTextModelGlm", "GLM 4.6 (Default)")}
+                  </option>
+                  <option value="xialong-v1">
+                    {t(
+                      "settings.novelaiTextModelXialong",
+                      "Xialong v1 (Experimental)",
+                    )}
+                  </option>
+                </select>
+                <small className="right-panel__hint">
+                  {t(
+                    "settings.novelaiTextModelDesc",
+                    "Select the NovelAI model for text generation.",
+                  )}
+                </small>
+              </div>
+            )}
 
             {/* Prompt Builder */}
             {settingsState.clothingColorConsistency && (

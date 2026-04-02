@@ -64,6 +64,17 @@ SELF_MODE_USER_PROMPT = """以下の状況で主人公の心境を描写して�
 冒頭は変身した姿への率直な反応で始めてください。"""
 
 
+# Multiple people mode appendix for feeling prompts
+SELF_MODE_MULTIPLE_PEOPLE_FEELING_APPENDIX = """
+
+**複数人表示モード:**
+- ユーザーの指示に他のキャラクターが含まれている場合、そのキャラクターとのインタラクション（会話・反応・行動）も描写してください
+- 他のキャラクターのセリフや反応も自然に含めてください
+- 主人公の一人称ルールは引き続き厳守してください
+- 他のキャラクターの名前は指示に基づいて自由に決めてください
+- 指示に他の人が含まれない場合は、従来通り主人公のみの描写で構いません"""
+
+
 def _build_self_profile_section(self_profile: dict) -> str:
     """Format the self_profile dict into a text section for the system prompt.
 
@@ -109,6 +120,7 @@ def build_self_mode_feeling_prompt(
     instruction: str,
     self_profile: dict,
     nsfw_mode: bool = False,
+    enable_multiple_people: bool = False,
 ) -> tuple[str, str]:
     """Build system and user prompts for self-mode feeling generation.
 
@@ -120,6 +132,7 @@ def build_self_mode_feeling_prompt(
         instruction: Outfit change instruction
         self_profile: Self-profile dict (SelfProfile-compatible structure)
         nsfw_mode: Whether NSFW mode is enabled
+        enable_multiple_people: Whether multiple people mode is active
 
     Returns:
         (system_prompt, user_prompt) tuple
@@ -135,6 +148,9 @@ def build_self_mode_feeling_prompt(
         system_prompt = SELF_MODE_SYSTEM_PROMPT.format(
             self_profile_section=profile_section,
         )
+
+    if enable_multiple_people:
+        system_prompt += SELF_MODE_MULTIPLE_PEOPLE_FEELING_APPENDIX
 
     # Build interests section
     interests = self_profile.get("interests", [])
@@ -216,6 +232,7 @@ def build_self_mode_conversation_prompt(
     nsfw_mode: bool = False,
     language: str = "ja",
     session_timeline: list[tuple[str, str]] | None = None,
+    enable_multiple_people: bool = False,
 ) -> tuple[str, str]:
     """Build conversation prompt for self-mode using the user's personality profile.
 
@@ -230,6 +247,7 @@ def build_self_mode_conversation_prompt(
         nsfw_mode: Whether NSFW mode is enabled
         language: Response language
         session_timeline: history+conversation merged timeline list
+        enable_multiple_people: Whether multiple people mode is active
 
     Returns:
         (system_prompt, user_prompt) tuple
@@ -258,6 +276,14 @@ def build_self_mode_conversation_prompt(
     if interests:
         interests_text = "、".join(str(i) for i in interests[:10])
         system_prompt += f"\n\n**主人公の興味・関心:** {interests_text}"
+
+    if enable_multiple_people:
+        system_prompt += (
+            "\n\n**複数人表示モード:**\n"
+            "- ユーザーが複数のキャラクターとの会話を求めた場合、複数のキャラクターのセリフや反応を自然に含めてください\n"
+            "- 他のキャラクターの名前や性格はユーザーの指示に基づいて自由に決めてください\n"
+            "- 主人公の一人称ルールは引き続き厳守してください"
+        )
 
     # Build conversation history text
     history_text = ""

@@ -72,6 +72,14 @@ const resources = {
         linkChatToImage: "画像とチャットを連動",
         linkChatToImageDesc:
           "画像履歴をめくるとき、対応するチャットメッセージまでスクロールします。",
+        enableMultiplePeople: "複数人表示（実験的）",
+        enableMultiplePeopleDesc:
+          "画像生成時に複数のキャラクターを表示できるようにします。ONにすると、指示に基づいてLLMが人数を自動判断します。",
+        novelaiTextModel: "NovelAI テキストモデル",
+        novelaiTextModelDesc:
+          "テキスト生成（心境・プロンプト拡張・会話など）に使用するNovelAIモデルを選択します。Opusプラン限定です。",
+        novelaiTextModelGlm: "GLM 4.6（デフォルト）",
+        novelaiTextModelXialong: "Xialong v1（実験的）",
         dataSection: "データ",
         reset: "設定を初期化",
         resetDesc: "すべての設定を初期値に戻します",
@@ -226,6 +234,9 @@ const resources = {
           "有効にすると、プロンプト生成時に服の色の一貫性を保つルールが追加されます。",
         clothingColorConsistencyTradeoff:
           "※ 「誰が・どの衣装で・どこで・何を・どうする」のように、具体的な指示が必要になります。下のプロンプトビルダーをご活用ください。",
+        enableMultiplePeople: "複数人表示（実験的）",
+        enableMultiplePeopleHint:
+          "画像生成時に複数のキャラクターを表示できるようにします。ONにすると、指示に基づいてLLMが人数を自動判断します。",
         sectionPromptBuilder: "プロンプトビルダー",
         promptBuilderWho: "誰が",
         promptBuilderWhoPlaceholder: "主人公",
@@ -294,7 +305,7 @@ const resources = {
         adaptationSexy: "セクシー",
         adaptationNeutral: "中立",
         adaptationCute: "可愛い",
-        selfModeLabel: "自分自身モード（実験的機能）",
+        selfModeLabel: "自分自身モード",
         selfModeDesc: "パラメータ追跡は無効です",
       },
       attributeSection: {
@@ -376,7 +387,7 @@ const resources = {
           dressUp: "着せ替え",
           realityAlter: "現実改変",
           conversation: "会話",
-          action: "行動（実験的機能）",
+          action: "行動",
           dressUpShort: "着替",
           realityAlterShort: "改変",
           conversationShort: "会話",
@@ -442,7 +453,7 @@ const resources = {
           customCharacterDefaultName: "カスタムキャラクター",
           startSessionError: "セッション開始に失敗しました",
           startSessionFailed: "セッションの開始に失敗しました",
-          selfMode: "自分自身モード（実験的機能）",
+          selfMode: "自分自身モード",
           selfModeDescription:
             "パラメータ追跡なしで、自分の性格に基づいた反応を生成します",
           selfModeNoProfile:
@@ -690,6 +701,14 @@ const resources = {
         linkChatToImage: "Link Chat to Image",
         linkChatToImageDesc:
           "Scroll to the corresponding chat message when navigating image history.",
+        enableMultiplePeople: "Multiple People (Experimental)",
+        enableMultiplePeopleDesc:
+          "Allow multiple characters in generated images. When enabled, the LLM determines the number of characters based on your instructions.",
+        novelaiTextModel: "NovelAI Text Model",
+        novelaiTextModelDesc:
+          "Select the NovelAI model for text generation (inner monologue, prompt expansion, chat, etc.). Opus plan only.",
+        novelaiTextModelGlm: "GLM 4.6 (Default)",
+        novelaiTextModelXialong: "Xialong v1 (Experimental)",
         dataSection: "Data",
         reset: "Reset settings",
         resetDesc: "Reset all settings to defaults",
@@ -843,6 +862,9 @@ const resources = {
           "When enabled, adds rules to prompt generation to maintain clothing color consistency.",
         clothingColorConsistencyTradeoff:
           '* Requires specific instructions like "who, wearing what, where, doing what". Use the prompt builder below.',
+        enableMultiplePeople: "Multiple People (Experimental)",
+        enableMultiplePeopleHint:
+          "Allow multiple characters in generated images. When enabled, the LLM determines the number of characters based on your instructions.",
         sectionPromptBuilder: "Prompt Builder",
         promptBuilderWho: "Who",
         promptBuilderWhoPlaceholder: "Protagonist",
@@ -911,7 +933,7 @@ const resources = {
         adaptationSexy: "Sexy",
         adaptationNeutral: "Neutral",
         adaptationCute: "Cute",
-        selfModeLabel: "Self Mode (Experimental)",
+        selfModeLabel: "Self Mode",
         selfModeDesc: "Parameter tracking is disabled",
       },
       attributeSection: {
@@ -993,7 +1015,7 @@ const resources = {
           dressUp: "Dress Up",
           realityAlter: "Reality Alter",
           conversation: "Conversation",
-          action: "Action (Experimental)",
+          action: "Action",
           dressUpShort: "Dress",
           realityAlterShort: "Reality",
           conversationShort: "Chat",
@@ -1059,7 +1081,7 @@ const resources = {
           customCharacterDefaultName: "Custom Character",
           startSessionError: "Failed to start session",
           startSessionFailed: "Failed to start the session",
-          selfMode: "Self Mode (Experimental)",
+          selfMode: "Self Mode",
           selfModeDescription:
             "Generate reactions based on your own personality without parameter tracking",
           selfModeNoProfile:

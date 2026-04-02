@@ -62,6 +62,7 @@ class SettingsService:
             "nsfw_mode": False,
             "difficulty": "normal",
             "language": DEFAULT_LANGUAGE,
+            "novelai_text_model": "glm-4-6",
         }
 
     @staticmethod
@@ -70,6 +71,7 @@ class SettingsService:
             "nsfw_mode": bool(user.nsfw_mode),
             "difficulty": user.difficulty or "normal",
             "language": normalize_language(user.language),
+            "novelai_text_model": user.novelai_text_model or "glm-4-6",
         }
 
     async def _get_user_settings_with_session(
@@ -96,9 +98,11 @@ class SettingsService:
         nsfw_mode: bool | None = None,
         difficulty: str | None = None,
         language: str | None = None,
+        novelai_text_model: str | None = None,
     ) -> dict:
         has_updates = any(
-            value is not None for value in (nsfw_mode, difficulty, language)
+            value is not None
+            for value in (nsfw_mode, difficulty, language, novelai_text_model)
         )
 
         async with async_session_factory() as session:
@@ -123,6 +127,8 @@ class SettingsService:
                 user.difficulty = difficulty
             if language is not None:
                 user.language = normalize_language(language)
+            if novelai_text_model is not None:
+                user.novelai_text_model = novelai_text_model
 
             if has_updates:
                 await session.commit()

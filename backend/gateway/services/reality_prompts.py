@@ -455,6 +455,7 @@ def build_reality_feeling_prompt(
     pronoun: str = "僕",
     attributes: list[str] | None = None,
     nsfw_mode: bool = False,
+    enable_multiple_people: bool = False,
 ) -> tuple[str, str]:
     """現実改変用心境生成プロンプトを構築
 
@@ -485,6 +486,17 @@ def build_reality_feeling_prompt(
             + "\n（これらの属性を心境表現に反映してください）"
         )
 
+    system_prompt = stage["system_prompt"]
+
+    # 複数人表示モードの場合、他者との相互作用描写を許可
+    if enable_multiple_people:
+        system_prompt += (
+            "\n\n【複数人モード】\n"
+            "- ユーザーの指示に他の人物が関わる場合、その人物との相互作用や会話を自然に描写してよい。\n"
+            "- 他のキャラクターの名前はLLMが自由に決定してよい。\n"
+            "- ただし主人公の一人称は必ず維持すること。"
+        )
+
     user_prompt = (
         REALITY_FEELING_USER_PROMPT_TEMPLATE.format(
             situation=situation,
@@ -496,7 +508,7 @@ def build_reality_feeling_prompt(
         + attribute_section
     )
 
-    return stage["system_prompt"], user_prompt
+    return system_prompt, user_prompt
 
 
 def build_reality_edit_prompt(

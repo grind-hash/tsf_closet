@@ -869,6 +869,7 @@ def build_enhanced_feeling_prompt(
     personality: str = "",
     description: str = "",
     used_openings: list[str] | None = None,
+    enable_multiple_people: bool = False,
 ) -> tuple[str, str]:
     """Build an enhanced feeling prompt with psychological stage and personality.
 
@@ -919,6 +920,15 @@ def build_enhanced_feeling_prompt(
             personality_section += f"- 説明: {desc_truncated}\n"
         personality_section += "- このキャラクターの性格特性に合わせて、語調・反応・思考パターンを調整してください。"
         system_prompt += personality_section
+
+    # 複数人表示モードの場合、他者との相互作用描写を許可
+    if enable_multiple_people:
+        system_prompt += (
+            "\n\n【複数人モード】\n"
+            "- ユーザーの指示に他の人物が関わる場合、その人物との相互作用や会話を自然に描写してよい。\n"
+            "- 他のキャラクターの名前はLLMが自由に決定してよい。\n"
+            "- ただし主人公の一人称は必ず維持すること。"
+        )
 
     # 属性情報を追加
     attribute_section = ""
@@ -1314,6 +1324,7 @@ def get_novelai_prompt_generation_system(
     nsfw_mode: bool = False,
     instruction_language: str = "ja",
     clothing_color_consistency: bool = False,
+    enable_multiple_people: bool = False,
 ) -> str:
     """NovelAIプロンプト生成用システムプロンプトを取得
 
@@ -1321,6 +1332,7 @@ def get_novelai_prompt_generation_system(
         nsfw_mode: NSFWモードかどうか
         instruction_language: ユーザー指示の言語
         clothing_color_consistency: 服の色の一貫性ルールを追加するか
+        enable_multiple_people: 複数人表示モード
 
     Returns:
         システムプロンプト文字列
@@ -1340,15 +1352,114 @@ def get_novelai_prompt_generation_system(
 
     if clothing_color_consistency:
         clothing_rule = (
-            '\n- **CLOTHING COLOR RULE**: ALWAYS include explicit color tags '
+            "\n- **CLOTHING COLOR RULE**: ALWAYS include explicit color tags "
             'for EVERY clothing item (e.g. "red dress", "black stockings", '
             '"white blouse"). If the user instruction does not specify a color, '
-            'YOU MUST choose a specific color that fits the outfit concept. '
-            'NEVER leave clothing without a color tag.'
+            "YOU MUST choose a specific color that fits the outfit concept. "
+            "NEVER leave clothing without a color tag."
         )
         base = base.replace(
             "\n## Output Format",
             clothing_rule + "\n\n## Output Format",
+        )
+
+    if enable_multiple_people:
+        # (1) Relax the "two keys" constraint in Rule #1
+        base = base.replace(
+            'with two keys: "character" and "scene".',
+            "(see Output Format below for single-person / multi-person structure).",
+        )
+        # (2) Remove multi-person sub-rules that instruct mixing tags
+        #     NSFW variant first (3 lines — must match before shorter SFW variant)
+        base = base.replace(
+            "   - **Multi-person scene** (if the instruction explicitly involves "
+            "another person): Use appropriate count tags (e.g. 1boy 1girl, "
+            '2girls). Do NOT use "solo".\n'
+            "     - Include minimal tags for the other person AFTER the main "
+            "character's tags.\n"
+            "     - Clearly depict physical interaction using appropriate "
+            "Danbooru tags.\n",
+            "",
+        )
+        #     SFW variant (2 lines)
+        base = base.replace(
+            "   - **Multi-person scene** (if the instruction explicitly involves "
+            "another person): Use appropriate count tags (e.g. 1boy 1girl, "
+            '2girls). Do NOT use "solo".\n'
+            "     - Include minimal tags for the other person AFTER the main "
+            "character's tags.\n",
+            "",
+        )
+
+        # (3) Add multi-person specific rules
+        multi_person_extra = (
+            "\n- **MULTI-PERSON RULES**:\n"
+            '  - Do NOT use the "solo" tag for ANY character.\n'
+            "  - If [現実改変] attributes are listed in the instruction, "
+            "they describe the WORLD STATE and apply to ALL characters "
+            "in the scene, not just the main character.\n"
+            '    Example: if the world rule says "everyone wears bras", '
+            "then the other person must ALSO wear a bra. Do NOT ignore "
+            "the world rule for secondary characters."
+        )
+        base = base.replace(
+            "\n## CRITICAL",
+            multi_person_extra + "\n\n## CRITICAL",
+        )
+
+        # (4) Replace Output Format with multi-person aware version
+        multi_output = (
+            "## Output Format\n"
+            "\n"
+            "### Single person (no other people in the instruction):\n"
+            "```json\n"
+            '{"character": "1girl, solo, long black hair, blue eyes, maid outfit, '
+            '...", "scene": "masterpiece, best quality, very aesthetic, '
+            'simple background"}\n'
+            "```\n"
+            "\n"
+            "### Multiple people (instruction involves OTHER characters):\n"
+            'You MUST use "characters" (ARRAY) key instead of "character" '
+            "(string). Each person is a SEPARATE object:\n"
+            "```json\n"
+            '{"characters": [\n'
+            '  {"tags": "short black hair, blue eyes, bra, flat chest, sitting, '
+            'talking", "position": "center"},\n'
+            '  {"tags": "male, bra, brown hair, sitting, talking", '
+            '"position": "right"}\n'
+            '], "scene": "masterpiece, best quality, very aesthetic, cafe, '
+            'table"}\n'
+            "```\n"
+            '- "position": "center" for the MAIN character, "left" or "right" '
+            "for others.\n"
+            "- Each character's \"tags\" field has ONLY that character's own "
+            'tags. No "solo" tag in multi-person mode.\n'
+            '- Do NOT use the single "character" key when 2+ people are '
+            "present.\n"
+            "\n"
+            "JSON only. No explanation or preamble."
+        )
+        # SFW output format
+        base = base.replace(
+            "## Output Format\n"
+            "```json\n"
+            '{"character": "1girl, solo, long black hair, blue eyes, maid '
+            'outfit, ...", "scene": "masterpiece, best quality, very aesthetic, '
+            'simple background"}\n'
+            "```\n"
+            "JSON only. No explanation or preamble.",
+            multi_output,
+        )
+        # NSFW output format
+        base = base.replace(
+            "## Output Format\n"
+            "```json\n"
+            '{"character": "1girl, solo, long black hair, blue eyes, revealing '
+            'outfit, ...", "scene": "masterpiece, best quality, very aesthetic, '
+            'simple background"}\n'
+            "```\n"
+            "JSON only. No explanation or preamble.",
+            multi_output,
         )
 
     return base + language_hint
@@ -1357,20 +1468,30 @@ def get_novelai_prompt_generation_system(
 def build_novelai_prompt_generation_user(
     instruction: str,
     previous_prompt: str | None = None,
+    enable_multiple_people: bool = False,
 ) -> str:
     """NovelAIプロンプト生成用ユーザープロンプトを構築
 
     Args:
         instruction: ユーザーの指示
         previous_prompt: 前回生成したプロンプト（継続の場合）
+        enable_multiple_people: 複数人表示モード
 
     Returns:
         構築されたユーザープロンプト文字列
     """
-    return NOVELAI_PROMPT_GENERATION_USER_TEMPLATE.format(
+    result = NOVELAI_PROMPT_GENERATION_USER_TEMPLATE.format(
         previous_prompt=previous_prompt or "None (first time)",
         instruction=instruction,
     )
+    if enable_multiple_people:
+        result = result.replace(
+            'Output valid JSON with "character" and "scene" keys only.',
+            "Output valid JSON following the Output Format specified in the "
+            "system prompt. If other people are involved, you MUST use the "
+            '"characters" array format.',
+        )
+    return result
 
 
 # ── Base tags generation from character description ──

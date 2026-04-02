@@ -625,6 +625,7 @@ def get_action_novelai_prompt_generation_system(
     nsfw_mode: bool = False,
     language: str = "ja",
     clothing_color_consistency: bool = False,
+    enable_multiple_people: bool = False,
 ) -> str:
     """Return the scene-change NovelAI tag generation system prompt.
 
@@ -635,6 +636,7 @@ def get_action_novelai_prompt_generation_system(
         nsfw_mode: Whether NSFW mode is enabled
         language: Instruction language ("ja", "en", etc.)
         clothing_color_consistency: Whether to add clothing continuity rules
+        enable_multiple_people: Whether multiple people mode is active
 
     Returns:
         System prompt string for GLM-4.6 scene-change tag generation
@@ -665,6 +667,108 @@ def get_action_novelai_prompt_generation_system(
             clothing_rule + "\n\n## Output Format",
         )
 
+    if enable_multiple_people:
+        # (1) Relax the "two keys" constraint in Rule #1
+        base = base.replace(
+            'with two keys: "character" and "scene".',
+            "(see Output Format below for single-person / multi-person structure).",
+        )
+        # (2) Remove multi-person sub-rules that instruct mixing tags
+        #     NSFW variant first (3 lines — must match before shorter SFW variant)
+        base = base.replace(
+            "   - **Multi-person action** (interacting with another person): "
+            "Use appropriate count tags (e.g. 1boy 1girl, 2girls, 2boys, etc.). "
+            'Do NOT use "solo".\n'
+            "     - Include minimal tags for the other person (gender, basic "
+            "appearance) AFTER the main character's tags.\n"
+            "     - Clearly depict the physical interaction described in the "
+            "action using appropriate Danbooru tags (e.g. oral, licking, "
+            "kissing, hugging, holding hands, etc.).\n",
+            "",
+        )
+        #     SFW variant (3 lines with non-NSFW interaction text)
+        base = base.replace(
+            "   - **Multi-person action** (interacting with another person): "
+            "Use appropriate count tags (e.g. 1boy 1girl, 2girls, etc.). "
+            'Do NOT use "solo".\n'
+            "     - Include minimal tags for the other person (gender, basic "
+            "appearance) AFTER the main character's tags.\n"
+            "     - Clearly depict the interaction described in the action "
+            "(e.g. physical contact, poses).\n",
+            "",
+        )
+
+        # (3) Add multi-person specific rules
+        multi_person_extra = (
+            "\n- **MULTI-PERSON RULES**:\n"
+            '  - Do NOT use the "solo" tag for ANY character.\n'
+            "  - If [現実改変] attributes are listed in the instruction, "
+            "they describe the WORLD STATE and apply to ALL characters "
+            "in the scene, not just the main character.\n"
+            '    Example: if the world rule says "everyone wears bras", '
+            "then the other person must ALSO wear a bra. Do NOT ignore "
+            "the world rule for secondary characters."
+        )
+        base = base.replace(
+            "\n## CRITICAL",
+            multi_person_extra + "\n\n## CRITICAL",
+        )
+
+        # (4) Replace Output Format with multi-person aware version
+        multi_output = (
+            "## Output Format\n"
+            "\n"
+            "### Single person (no other people involved):\n"
+            "```json\n"
+            '{"character": "1girl, solo, short black hair, brown eyes, ...", '
+            '"scene": "masterpiece, best quality, very aesthetic, '
+            'train station, ..."}\n'
+            "```\n"
+            "\n"
+            "### Multiple people (instruction involves OTHER characters):\n"
+            'You MUST use "characters" (ARRAY) key instead of "character" '
+            "(string). Each person is a SEPARATE object:\n"
+            "```json\n"
+            '{"characters": [\n'
+            '  {"tags": "short black hair, blue eyes, bra, flat chest, sitting, '
+            'talking", "position": "center"},\n'
+            '  {"tags": "male, bra, brown hair, sitting, talking", '
+            '"position": "right"}\n'
+            '], "scene": "masterpiece, best quality, very aesthetic, cafe, '
+            'table"}\n'
+            "```\n"
+            '- "position": "center" for the MAIN character, "left" or "right" '
+            "for others.\n"
+            "- Each character's \"tags\" field has ONLY that character's own "
+            'tags. No "solo" tag in multi-person mode.\n'
+            '- Do NOT use the single "character" key when 2+ people are '
+            "present.\n"
+            "\n"
+            "JSON only. No explanation or preamble."
+        )
+        # SFW output format
+        base = base.replace(
+            "## Output Format\n"
+            "```json\n"
+            '{"character": "1boy 1girl, short black hair, brown eyes, ...", '
+            '"scene": "masterpiece, best quality, very aesthetic, '
+            'train station, ..."}\n'
+            "```\n"
+            "JSON only. No explanation or preamble.",
+            multi_output,
+        )
+        # NSFW output format
+        base = base.replace(
+            "## Output Format\n"
+            "```json\n"
+            '{"character": "1boy 1girl, long black hair, black eyes, ..., '
+            'oral, ...", "scene": "masterpiece, best quality, very aesthetic, '
+            'indoor, ..."}\n'
+            "```\n"
+            "JSON only. No explanation or preamble.",
+            multi_output,
+        )
+
     return base + language_hint
 
 
@@ -680,6 +784,7 @@ def build_action_prompt(
     transformation_count: int = 0,
     gender: str = "man",
     previous_situation_summary: str | None = None,
+    enable_multiple_people: bool = False,
 ) -> tuple[str, str]:
     """Build system and user prompts for the action instruction type.
 
@@ -734,6 +839,15 @@ def build_action_prompt(
             personality_sys += f"- 説明: {desc_truncated}\n"
         personality_sys += "- このキャラクターの性格特性に合わせて、語調・反応・思考パターンを調整してください。"
         system_prompt += personality_sys
+
+    # 複数人表示モードの場合、他者との相互作用描写を許可
+    if enable_multiple_people:
+        system_prompt += (
+            "\n\n【複数人モード】\n"
+            "- ユーザーの指示に他の人物が関わる場合、その人物との相互作用や会話を自然に描写してよい。\n"
+            "- 他のキャラクターの名前はLLMが自由に決定してよい。\n"
+            "- ただし主人公の一人称は必ず維持すること。"
+        )
 
     # Build previous situation section
     previous_situation_section = ""

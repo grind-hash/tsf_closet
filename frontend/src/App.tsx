@@ -64,6 +64,7 @@ function AppMain() {
     state: settingsState,
     resetTotalCost,
     setAnlasBalance,
+    setNovelaiTier,
   } = useSettings();
   const {
     state: gameState,
@@ -84,7 +85,6 @@ function AppMain() {
   const [providerLoading, setProviderLoading] = useState(true);
 
   // NovelAIサブスクリプション警告関連
-  const [novelaiTier, setNovelaiTier] = useState<number | null>(null);
   const [showNovelaiWarning, setShowNovelaiWarning] = useState(false);
   const [novelaiCheckLoading, setNovelaiCheckLoading] = useState(false);
   // NovelAI APIキー同意モーダル関連
@@ -265,7 +265,7 @@ function AppMain() {
     } finally {
       setNovelaiCheckLoading(false);
     }
-  }, [setAnlasBalance]);
+  }, [setAnlasBalance, setNovelaiTier]);
 
   // NovelAI APIキー同意を拒否
   const handleApiKeyConsentDecline = useCallback(() => {
@@ -324,6 +324,10 @@ function AppMain() {
       // Clothing color consistency experimental feature
       if (settingsState.clothingColorConsistency) {
         body.clothing_color_consistency = true;
+      }
+      // Multiple people experimental feature
+      if (settingsState.enableMultiplePeople) {
+        body.enable_multiple_people = true;
       }
       if (costumeImage) {
         body.costume_image = costumeImage;
@@ -395,6 +399,7 @@ function AppMain() {
       settingsState.enableSurroundingsImage,
       settingsState.surroundingsIncludePeople,
       settingsState.clothingColorConsistency,
+      settingsState.enableMultiplePeople,
       settingsState.imageProvider,
     ],
   );
@@ -511,9 +516,9 @@ function AppMain() {
       )}
 
       {/* NovelAI非Opusプラン警告モーダル */}
-      {showNovelaiWarning && novelaiTier !== null && (
+      {showNovelaiWarning && settingsState.novelaiTier !== null && (
         <NovelAIWarningModal
-          tier={novelaiTier}
+          tier={settingsState.novelaiTier}
           onContinue={() => {
             // 続行を選択: localStorageに保存して警告を閉じる
             localStorage.setItem("novelai_opus_confirmed", "true");

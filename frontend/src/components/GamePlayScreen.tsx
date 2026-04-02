@@ -556,6 +556,9 @@ export default function GamePlayScreen({
             message: message,
             language: settingsState.language,
           });
+          if (settingsState.enableMultiplePeople) {
+            params.set("enable_multiple_people", "true");
+          }
           const response = await fetch(
             `${API_BASE}/game/chat/stream?${params.toString()}`,
           );
@@ -730,6 +733,7 @@ export default function GamePlayScreen({
       inpaintSettings,
       settingsState.preciseReferences,
       settingsState.language,
+      settingsState.enableMultiplePeople,
     ],
   );
 
