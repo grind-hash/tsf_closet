@@ -990,7 +990,7 @@ async def chat_with_character(
         current_outfit_desc = latest.after_description or ""
 
     # ユーザーメッセージを保存
-    await session_store.add_conversation(
+    user_conv = await session_store.add_conversation(
         session_id, "user", message, instruction_type="conversation"
     )
 
@@ -1054,7 +1054,9 @@ async def chat_with_character(
         response_text = get_fallback_response(stats.bloom, pronoun, stats.nsfw_mode)
 
     # キャラクター応答を保存
-    await session_store.add_conversation(session_id, "character", response_text)
+    char_conv = await session_store.add_conversation(
+        session_id, "character", response_text
+    )
 
     # 心理段階名を取得
     if session.transformation_count == 0:
@@ -1068,6 +1070,8 @@ async def chat_with_character(
         "character_response": response_text,
         "psychological_state": stage_display,
         "language": language,
+        "user_conversation_id": user_conv.id,
+        "character_conversation_id": char_conv.id,
     }
 
 
@@ -1144,7 +1148,7 @@ async def chat_with_character_stream(
         current_outfit_desc = latest.after_description or ""
 
     # ユーザーメッセージを保存
-    await session_store.add_conversation(
+    user_conv = await session_store.add_conversation(
         session_id, "user", message, instruction_type="conversation"
     )
 
@@ -1213,31 +1217,37 @@ async def chat_with_character_stream(
                         )
                     )
                     if retry_text and is_response_language_valid(retry_text, language):
-                        await session_store.add_conversation(
+                        char_conv = await session_store.add_conversation(
                             session_id, "character", retry_text
                         )
-                        yield f"data: {json.dumps({'type': 'error', 'fallback': retry_text, 'language': language})}\n\n"
+                        yield f"data: {json.dumps({'type': 'error', 'fallback': retry_text, 'language': language, 'user_conversation_id': user_conv.id, 'character_conversation_id': char_conv.id})}\n\n"
                         return
                 except Exception:
                     pass
 
                 fallback = get_fallback_response(stats.bloom, pronoun, stats.nsfw_mode)
-                await session_store.add_conversation(session_id, "character", fallback)
-                yield f"data: {json.dumps({'type': 'error', 'fallback': fallback, 'language': language})}\n\n"
+                char_conv = await session_store.add_conversation(
+                    session_id, "character", fallback
+                )
+                yield f"data: {json.dumps({'type': 'error', 'fallback': fallback, 'language': language, 'user_conversation_id': user_conv.id, 'character_conversation_id': char_conv.id})}\n\n"
                 return
 
             # キャラクター応答を保存
-            await session_store.add_conversation(session_id, "character", full_response)
+            char_conv = await session_store.add_conversation(
+                session_id, "character", full_response
+            )
 
             # 完了イベント
-            yield f"data: {json.dumps({'type': 'done', 'full_response': full_response, 'language': language})}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'full_response': full_response, 'language': language, 'user_conversation_id': user_conv.id, 'character_conversation_id': char_conv.id})}\n\n"
 
         except Exception as e:
             logger.error(f"Chat stream error: {e}")
             # フォールバック応答を使用
             fallback = get_fallback_response(stats.bloom, pronoun, stats.nsfw_mode)
-            await session_store.add_conversation(session_id, "character", fallback)
-            yield f"data: {json.dumps({'type': 'error', 'fallback': fallback, 'language': language})}\n\n"
+            char_conv = await session_store.add_conversation(
+                session_id, "character", fallback
+            )
+            yield f"data: {json.dumps({'type': 'error', 'fallback': fallback, 'language': language, 'user_conversation_id': user_conv.id, 'character_conversation_id': char_conv.id})}\n\n"
 
     return StreamingResponse(
         generate_stream(),
@@ -1741,6 +1751,34 @@ async def delete_conversation_by_history(
         "success": True,
         "deleted_count": result,
         "message": f"Deleted {result} conversation records for history {history_id}",
+    }
+
+
+@router.delete(
+    "/conversation/message/{conversation_id}",
+    summary="会話メッセージの個別削除",
+    description="指定したconversation IDのメッセージを1件削除する。履歴・画像は削除しない。",
+)
+async def delete_conversation_message(
+    conversation_id: str,
+    session_id: str = Query(..., description="セッションID"),
+) -> dict:
+    """Delete a single conversation message by its ID. History/images are NOT affected."""
+    success = await session_store.delete_conversation_message(
+        session_id=session_id,
+        conversation_id=conversation_id,
+    )
+    if not success:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": "NOT_FOUND",
+                "message": "Conversation message not found in this session",
+            },
+        )
+    return {
+        "success": True,
+        "message": f"Deleted conversation message {conversation_id}",
     }
 
 

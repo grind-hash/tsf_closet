@@ -114,6 +114,38 @@ export async function deleteConversation(
   return response.json();
 }
 
+// 個別会話メッセージ削除 レスポンス
+export interface DeleteConversationMessageResponse {
+  success: boolean;
+  deleted_conversation_id: string;
+}
+
+/**
+ * 個別の会話メッセージレコードを削除する（画像は無関係）
+ */
+export async function deleteConversationMessage(
+  conversationId: string,
+  sessionId: string,
+): Promise<DeleteConversationMessageResponse> {
+  const params = new URLSearchParams({ session_id: sessionId });
+  const response = await fetch(
+    `${API_BASE}/game/conversation/message/${encodeURIComponent(conversationId)}?${params}`,
+    {
+      method: "DELETE",
+    },
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail?.message ||
+        `Delete conversation message failed: ${response.status}`,
+    );
+  }
+
+  return response.json();
+}
+
 export interface DeleteHistoryEntryResponse {
   success: boolean;
   deleted_history_id: string;

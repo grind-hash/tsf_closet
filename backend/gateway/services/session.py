@@ -1151,6 +1151,28 @@ class DatabaseSessionStore:
             await db_session.commit()
             return deleted_count
 
+    async def delete_conversation_message(
+        self,
+        session_id: str,
+        conversation_id: str,
+    ) -> bool:
+        """会話メッセージを1件削除する (conversation.id 直接指定)
+
+        History レコードや画像ファイルは一切触らない。
+
+        Returns:
+            削除成功: True, 見つからない: False
+        """
+        async with async_session_factory() as db_session:
+            result = await db_session.execute(
+                delete(ConversationORM).where(
+                    ConversationORM.id == conversation_id,
+                    ConversationORM.session_id == session_id,
+                )
+            )
+            await db_session.commit()
+            return (result.rowcount or 0) > 0
+
     async def delete_history_entry(
         self,
         session_id: str,

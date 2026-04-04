@@ -437,6 +437,8 @@ export interface ChatMessage {
   instructionType?: InstructionType;
   attachedImageUrl?: string;
   relatedHistoryId?: string;
+  /** バックエンド会話レコードのID */
+  conversationId?: string;
   pendingToken?: string;
   isStreaming?: boolean;
   /** 心境テキストメッセージかどうか */

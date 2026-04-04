@@ -37,7 +37,11 @@ import { useChat } from "../contexts/ChatContext";
 import { useSettings } from "../contexts/SettingsContext";
 import { API_BASE } from "../utils/api";
 import { generateUUID } from "../utils/generateUUID";
-import { deleteLatestHistory, deleteHistoryEntry } from "../apis/game";
+import {
+  deleteLatestHistory,
+  deleteHistoryEntry,
+  deleteConversationMessage,
+} from "../apis/game";
 import {
   exportAsMarkdown,
   exportAsCsv,
@@ -173,7 +177,8 @@ export default function GamePlayScreen({
   // メッセージ削除確認モーダル
   const [deleteMessageConfirm, setDeleteMessageConfirm] = useState<{
     messageId: string;
-    historyId: string;
+    historyId?: string;
+    conversationId?: string;
     responsePreview: string;
   } | null>(null);
   const [isDeletingMessage, setIsDeletingMessage] = useState(false);
@@ -330,6 +335,7 @@ export default function GamePlayScreen({
               : undefined,
           attachedImageUrl: undefined,
           isStreaming: false,
+          conversationId: msg.id,
         });
       }
     }
@@ -567,6 +573,8 @@ export default function GamePlayScreen({
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
             let fullResponse = "";
+            let userConversationId: string | undefined;
+            let charConversationId: string | undefined;
 
             while (true) {
               const { done, value } = await reader.read();
@@ -583,13 +591,25 @@ export default function GamePlayScreen({
                       fullResponse += data.chunk;
                       updateMessage(charMsgId, fullResponse);
                     } else if (data.type === "done") {
-                      // ストリーミング完了
+                      // ストリーミング完了 - 会話IDを保存
                       setMessageStreaming(charMsgId, false);
+                      if (data.user_conversation_id) {
+                        userConversationId = data.user_conversation_id;
+                      }
+                      if (data.character_conversation_id) {
+                        charConversationId = data.character_conversation_id;
+                      }
                     } else if (data.type === "error" && data.fallback) {
                       // エラー時はフォールバック応答を表示
                       fullResponse = data.fallback;
                       updateMessage(charMsgId, fullResponse);
                       setMessageStreaming(charMsgId, false);
+                      if (data.user_conversation_id) {
+                        userConversationId = data.user_conversation_id;
+                      }
+                      if (data.character_conversation_id) {
+                        charConversationId = data.character_conversation_id;
+                      }
                     }
                   } catch {
                     // JSON解析エラーは無視
@@ -601,15 +621,27 @@ export default function GamePlayScreen({
             // ストリーミング完了後の処理
             setMessageStreaming(charMsgId, false);
 
+            // 会話IDをメッセージに反映
+            if (userConversationId) {
+              updateMessage(userMsg.id, message, {
+                conversationId: userConversationId,
+              });
+            }
+            if (charConversationId) {
+              updateMessage(charMsgId, fullResponse, {
+                conversationId: charConversationId,
+              });
+            }
+
             // 既存のchatHistoryにも追加
             const userConvMsg: ConversationMessage = {
-              id: userMsg.id,
+              id: userConversationId || userMsg.id,
               role: "user",
               content: message,
               createdAt: userMsg.createdAt,
             };
             const charConvMsg: ConversationMessage = {
-              id: charMsgId,
+              id: charConversationId || charMsgId,
               role: "character",
               content: fullResponse,
               createdAt: charNow,
@@ -899,26 +931,51 @@ export default function GamePlayScreen({
   // メッセージ削除の確認ダイアログを表示
   const handleRequestDeleteMessage = useCallback(
     (messageId: string) => {
-      // user-{historyId} から historyId を抽出
       const historyId = getMessageHistoryId(messageId);
-      if (!historyId) {
+
+      // 会話メッセージのconversationIdを取得
+      const userMessage = chatState.messages.find((m) => m.id === messageId);
+      const conversationId = userMessage?.conversationId;
+
+      // historyIdもconversationIdもなければ削除不可
+      if (!historyId && !conversationId) {
         return;
       }
 
-      // 対応する応答メッセージ (feeling-{historyId}) を取得してプレビューを作成
-      const feelingMsg = chatState.messages.find(
-        (m) => m.relatedHistoryId === historyId && m.isFeelingText,
-      );
-      const preview = feelingMsg
-        ? feelingMsg.content.slice(0, 30) +
-          (feelingMsg.content.length > 30 ? "..." : "")
-        : "";
+      if (historyId) {
+        // 画像付きメッセージ: 応答メッセージのプレビューを作成
+        const feelingMsg = chatState.messages.find(
+          (m) => m.relatedHistoryId === historyId && m.isFeelingText,
+        );
+        const preview = feelingMsg
+          ? feelingMsg.content.slice(0, 30) +
+            (feelingMsg.content.length > 30 ? "..." : "")
+          : "";
 
-      setDeleteMessageConfirm({
-        messageId,
-        historyId,
-        responsePreview: preview,
-      });
+        setDeleteMessageConfirm({
+          messageId,
+          historyId,
+          responsePreview: preview,
+        });
+      } else {
+        // 会話のみメッセージ: 対応するキャラクター応答を検索
+        const msgIndex = chatState.messages.findIndex(
+          (m) => m.id === messageId,
+        );
+        const charMsg =
+          msgIndex >= 0 ? chatState.messages[msgIndex + 1] : undefined;
+        const preview =
+          charMsg && charMsg.role !== "user"
+            ? charMsg.content.slice(0, 30) +
+              (charMsg.content.length > 30 ? "..." : "")
+            : "";
+
+        setDeleteMessageConfirm({
+          messageId,
+          conversationId,
+          responsePreview: preview,
+        });
+      }
     },
     [chatState.messages, getMessageHistoryId],
   );
@@ -927,28 +984,75 @@ export default function GamePlayScreen({
   const handleConfirmDeleteMessage = useCallback(async () => {
     if (!deleteMessageConfirm) return;
 
-    const { historyId } = deleteMessageConfirm;
+    const { messageId, historyId, conversationId } = deleteMessageConfirm;
 
     try {
       setIsDeletingMessage(true);
-      // 履歴エントリを完全削除（History + 画像 + 会話テキスト）
-      const result = await deleteHistoryEntry(historyId, sessionId || "");
 
-      // チャットメッセージから対象のユーザーメッセージ + 応答メッセージを除去
-      const idsToRemove = new Set(
-        chatState.messages
-          .filter(
-            (message) =>
-              message.relatedHistoryId === historyId ||
-              message.id === `user-${historyId}` ||
-              message.id === `feeling-${historyId}`,
-          )
-          .map((message) => message.id),
-      );
-      setMessages(chatState.messages.filter((m) => !idsToRemove.has(m.id)));
+      if (historyId) {
+        // 画像付きメッセージ: 履歴エントリを完全削除（History + 画像 + 会話テキスト）
+        const result = await deleteHistoryEntry(historyId, sessionId || "");
 
-      // GameContext の history からもエントリを除去（画像表示を更新）
-      removeHistoryEntry(historyId, result.restored_history_id || "");
+        // チャットメッセージから対象のユーザーメッセージ + 応答メッセージを除去
+        const idsToRemove = new Set(
+          chatState.messages
+            .filter(
+              (message) =>
+                message.relatedHistoryId === historyId ||
+                message.id === `user-${historyId}` ||
+                message.id === `feeling-${historyId}`,
+            )
+            .map((message) => message.id),
+        );
+        setMessages(chatState.messages.filter((m) => !idsToRemove.has(m.id)));
+
+        // GameContext の history からもエントリを除去（画像表示を更新）
+        removeHistoryEntry(historyId, result.restored_history_id || "");
+      } else if (conversationId) {
+        // 会話のみメッセージ: ユーザーの会話レコードを削除
+        await deleteConversationMessage(conversationId, sessionId || "");
+
+        // 対応するキャラクター応答メッセージも特定して削除
+        const userMessage = chatState.messages.find((m) => m.id === messageId);
+        const msgIndex = chatState.messages.findIndex(
+          (m) => m.id === messageId,
+        );
+        const charMsg =
+          msgIndex >= 0 ? chatState.messages[msgIndex + 1] : undefined;
+
+        // キャラクター応答の会話レコードも削除
+        if (charMsg && charMsg.role !== "user" && charMsg.conversationId) {
+          try {
+            await deleteConversationMessage(
+              charMsg.conversationId,
+              sessionId || "",
+            );
+          } catch {
+            // キャラクター応答の削除失敗は無視
+          }
+        }
+
+        // UIからメッセージペアを除去
+        const idsToRemove = new Set([messageId]);
+        if (charMsg && charMsg.role !== "user") {
+          idsToRemove.add(charMsg.id);
+        }
+        setMessages(chatState.messages.filter((m) => !idsToRemove.has(m.id)));
+
+        // conversationHistoryからも除去
+        const convIdsToRemove = new Set<string>();
+        if (userMessage?.conversationId) {
+          convIdsToRemove.add(userMessage.conversationId);
+        }
+        if (charMsg?.conversationId) {
+          convIdsToRemove.add(charMsg.conversationId);
+        }
+        if (convIdsToRemove.size > 0) {
+          setConversationHistory(
+            chatHistory.filter((ch) => !convIdsToRemove.has(ch.id)),
+          );
+        }
+      }
 
       setDeleteMessageConfirm(null);
     } catch (err) {
@@ -963,6 +1067,8 @@ export default function GamePlayScreen({
     setMessages,
     sessionId,
     removeHistoryEntry,
+    chatHistory,
+    setConversationHistory,
   ]);
 
   // 最新メッセージ編集リクエスト（確認ダイアログを表示）
