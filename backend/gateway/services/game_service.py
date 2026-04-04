@@ -355,7 +355,7 @@ class GameService:
         # 複数人表示モードではsoloタグを付与しない
         solo_tag = "" if enable_multiple_people else ", solo"
         return (
-            f"masterpiece, best quality, very aesthetic, "
+            f"masterpiece, best quality, very aesthetic, anime, moe, "
             f"{gender_tag}{solo_tag}, {char_tags}"
         ).rstrip(", ")
 

@@ -255,7 +255,7 @@ The user performs an action that may change the scene, clothing, pose, or any co
    - If the previous prompt is in Japanese or natural language, translate/convert ALL tags to English Danbooru format.
    - Do NOT include background or environment tags here.
 3. "scene": comma-separated English tags for background/environment ONLY.
-   - Quality tags first: masterpiece, best quality, very aesthetic
+   - Quality tags first: masterpiece, best quality, very aesthetic, anime, moe
    - Generate background/environment/location tags matching the action instruction.
    - **CRITICAL: If the user instruction does NOT explicitly mention moving to a new location, KEEP the location/environment tags from the previous prompt.** For example, if the previous prompt shows "train_station", keep "train_station" unless the user says "go home" or changes location.
    - Do NOT include character appearance tags here.
@@ -269,7 +269,7 @@ The user performs an action that may change the scene, clothing, pose, or any co
 
 ## Output Format
 ```json
-{"character": "1boy 1girl, short black hair, brown eyes, ...", "scene": "masterpiece, best quality, very aesthetic, train station, ..."}
+{"character": "1boy 1girl, short black hair, brown eyes, ...", "scene": "masterpiece, best quality, very aesthetic, anime, moe, train station, ..."}
 ```
 JSON only. No explanation or preamble."""
 
@@ -293,7 +293,7 @@ The user performs an action that may change the scene, clothing, pose, or any co
    - If the previous prompt is in Japanese or natural language, translate/convert ALL tags to English Danbooru format.
    - Do NOT include background or environment tags here.
 3. "scene": comma-separated English tags for background/environment ONLY.
-   - Quality tags first: masterpiece, best quality, very aesthetic
+   - Quality tags first: masterpiece, best quality, very aesthetic, anime, moe
    - Generate background/environment/location tags matching the action instruction.
    - **CRITICAL: If the user instruction does NOT explicitly mention moving to a new location, KEEP the location/environment tags from the previous prompt.** For example, if the previous prompt shows "karaoke_box", keep "karaoke_box" unless the user says "go home" or "go to the park" etc.
    - Scene can have sensual or intimate atmosphere if appropriate.
@@ -308,7 +308,7 @@ The user performs an action that may change the scene, clothing, pose, or any co
 
 ## Output Format
 ```json
-{"character": "1boy 1girl, long black hair, black eyes, ..., oral, ...", "scene": "masterpiece, best quality, very aesthetic, indoor, ..."}
+{"character": "1boy 1girl, long black hair, black eyes, ..., oral, ...", "scene": "masterpiece, best quality, very aesthetic, anime, moe, indoor, ..."}
 ```
 JSON only. No explanation or preamble."""
 
@@ -364,7 +364,7 @@ Format: 832x1216 PORTRAIT (vertical composition to frame standing figures).
 
 ## Rules
 1. Output comma-separated tags only.
-2. Quality/style tags first: best quality, moe, anime,
+2. Quality/style tags first: masterpiece, best quality, very aesthetic, anime, moe,
 3. Include EXACTLY 2 or 3 bystanders. Use ONE of these specific count tags:
    - For 2 people: "2others" (NEVER "multiple people" or "crowd")
    - For 3 people: "3others" (NEVER "multiple people" or "crowd")
@@ -397,7 +397,7 @@ Format: 832x1216 PORTRAIT (vertical composition). NSFW mode — scenes may invol
 
 ## Rules
 1. Output comma-separated tags only.
-2. Quality/style tags first: 1.5::nsfw::, best quality,moe, anime
+2. Quality/style tags first: 1.5::nsfw::, masterpiece, best quality, very aesthetic, anime, moe
 3. Include EXACTLY 2 or 3 bystanders. Use ONE of these specific count tags:
    - For 2 people: "2others" (NEVER "multiple people" or "crowd")
    - For 3 people: "3others" (NEVER "multiple people" or "crowd")
@@ -721,7 +721,7 @@ def get_action_novelai_prompt_generation_system(
             "### Single person (no other people involved):\n"
             "```json\n"
             '{"character": "1girl, solo, short black hair, brown eyes, ...", '
-            '"scene": "masterpiece, best quality, very aesthetic, '
+            '"scene": "masterpiece, best quality, very aesthetic, anime, moe, '
             'train station, ..."}\n'
             "```\n"
             "\n"
@@ -734,7 +734,7 @@ def get_action_novelai_prompt_generation_system(
             'talking", "position": "center"},\n'
             '  {"tags": "male, bra, brown hair, sitting, talking", '
             '"position": "right"}\n'
-            '], "scene": "masterpiece, best quality, very aesthetic, cafe, '
+            '], "scene": "masterpiece, best quality, very aesthetic, anime, moe, cafe, '
             'table"}\n'
             "```\n"
             '- "position": "center" for the MAIN character, "left" or "right" '
@@ -751,7 +751,7 @@ def get_action_novelai_prompt_generation_system(
             "## Output Format\n"
             "```json\n"
             '{"character": "1boy 1girl, short black hair, brown eyes, ...", '
-            '"scene": "masterpiece, best quality, very aesthetic, '
+            '"scene": "masterpiece, best quality, very aesthetic, anime, moe, '
             'train station, ..."}\n'
             "```\n"
             "JSON only. No explanation or preamble.",
@@ -762,7 +762,7 @@ def get_action_novelai_prompt_generation_system(
             "## Output Format\n"
             "```json\n"
             '{"character": "1boy 1girl, long black hair, black eyes, ..., '
-            'oral, ...", "scene": "masterpiece, best quality, very aesthetic, '
+            'oral, ...", "scene": "masterpiece, best quality, very aesthetic, anime, moe, '
             'indoor, ..."}\n'
             "```\n"
             "JSON only. No explanation or preamble.",

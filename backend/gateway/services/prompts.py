@@ -1260,7 +1260,7 @@ Convert the user's instruction into an optimal English tag prompt for NovelAI im
    - If the instruction implies a gender/body transformation (e.g. TSF), reflect it in the gender tag and body features.
    - Do NOT include background or environment tags here.
 3. "scene": comma-separated English tags for background/environment ONLY.
-   - Quality tags first: masterpiece, best quality, very aesthetic
+   - Quality tags first: masterpiece, best quality, very aesthetic, anime, moe
    - Background: simple background or a specific scene matching the context.
    - Do NOT include character appearance tags here.
 
@@ -1271,7 +1271,7 @@ Convert the user's instruction into an optimal English tag prompt for NovelAI im
 
 ## Output Format
 ```json
-{"character": "1girl, solo, long black hair, blue eyes, maid outfit, ...", "scene": "masterpiece, best quality, very aesthetic, simple background"}
+{"character": "1girl, solo, long black hair, blue eyes, maid outfit, ...", "scene": "masterpiece, best quality, very aesthetic, anime, moe, simple background"}
 ```
 JSON only. No explanation or preamble."""
 
@@ -1293,7 +1293,7 @@ Adult content tags are allowed.
    - If the instruction implies a gender/body transformation (e.g. TSF), reflect it in the gender tag and body features.
    - Do NOT include background or environment tags here.
 3. "scene": comma-separated English tags for background/environment ONLY.
-   - Quality tags first: masterpiece, best quality, very aesthetic
+   - Quality tags first: masterpiece, best quality, very aesthetic, anime, moe
    - Background: simple background or a specific scene matching the context.
    - Scene can have sensual or intimate atmosphere if appropriate.
    - Do NOT include character appearance tags here.
@@ -1305,7 +1305,7 @@ Adult content tags are allowed.
 
 ## Output Format
 ```json
-{"character": "1girl, solo, long black hair, blue eyes, revealing outfit, ...", "scene": "masterpiece, best quality, very aesthetic, simple background"}
+{"character": "1girl, solo, long black hair, blue eyes, revealing outfit, ...", "scene": "masterpiece, best quality, very aesthetic, anime, moe, simple background"}
 ```
 JSON only. No explanation or preamble."""
 
@@ -1414,7 +1414,7 @@ def get_novelai_prompt_generation_system(
             "### Single person (no other people in the instruction):\n"
             "```json\n"
             '{"character": "1girl, solo, long black hair, blue eyes, maid outfit, '
-            '...", "scene": "masterpiece, best quality, very aesthetic, '
+            '...", "scene": "masterpiece, best quality, very aesthetic, anime, moe, '
             'simple background"}\n'
             "```\n"
             "\n"
@@ -1427,7 +1427,7 @@ def get_novelai_prompt_generation_system(
             'talking", "position": "center"},\n'
             '  {"tags": "male, bra, brown hair, sitting, talking", '
             '"position": "right"}\n'
-            '], "scene": "masterpiece, best quality, very aesthetic, cafe, '
+            '], "scene": "masterpiece, best quality, very aesthetic, anime, moe, cafe, '
             'table"}\n'
             "```\n"
             '- "position": "center" for the MAIN character, "left" or "right" '
@@ -1444,7 +1444,7 @@ def get_novelai_prompt_generation_system(
             "## Output Format\n"
             "```json\n"
             '{"character": "1girl, solo, long black hair, blue eyes, maid '
-            'outfit, ...", "scene": "masterpiece, best quality, very aesthetic, '
+            'outfit, ...", "scene": "masterpiece, best quality, very aesthetic, anime, moe, '
             'simple background"}\n'
             "```\n"
             "JSON only. No explanation or preamble.",
@@ -1455,7 +1455,7 @@ def get_novelai_prompt_generation_system(
             "## Output Format\n"
             "```json\n"
             '{"character": "1girl, solo, long black hair, blue eyes, revealing '
-            'outfit, ...", "scene": "masterpiece, best quality, very aesthetic, '
+            'outfit, ...", "scene": "masterpiece, best quality, very aesthetic, anime, moe, '
             'simple background"}\n'
             "```\n"
             "JSON only. No explanation or preamble.",
