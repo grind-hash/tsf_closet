@@ -387,7 +387,7 @@ class NovelAIImageClient:
             self._client = AsyncNovelAI(api_key=self.api_key)
         return self._client
 
-    def _format_prompt(self, prompt: str) -> str:
+    def _format_prompt(self, prompt: str, multiple_people: bool = False) -> str:
         """NovelAI向けに軽く整形
 
         - 改行や余分な空白を削除
@@ -395,15 +395,22 @@ class NovelAIImageClient:
         """
         compact = " ".join(prompt.strip().split())
         compact = compact.replace("、", ", ").replace("。", ", ")
-        # NovelAIでの「before/after並列」誤生成を防ぐため、単一カット指示を強調
-        no_panel_suffix = (
-            ", single frame, one character only, single shot, single pose, "
-            "show only the transformed state, solo portrait, one subject, "
-            "no before/after panels, no split screen, no side-by-side comparison, "
-            "no duplicate characters, no twins, no clones, center composition, "
-            "same person, same face, same hairstyle, same hair color, same skin tone"
-        )
-        return compact + no_panel_suffix
+        if multiple_people:
+            # 複数人モード: パネル分割防止のみ付与
+            suffix = (
+                ", single frame, single shot, "
+                "no before/after panels, no split screen, no side-by-side comparison"
+            )
+        else:
+            # 単一キャラモード: 重複キャラ防止を強調
+            suffix = (
+                ", single frame, one character only, single shot, single pose, "
+                "show only the transformed state, solo portrait, one subject, "
+                "no before/after panels, no split screen, no side-by-side comparison, "
+                "no duplicate characters, no twins, no clones, center composition, "
+                "same person, same face, same hairstyle, same hair color, same skin tone"
+            )
+        return compact + suffix
 
     async def generate(
         self,
@@ -506,10 +513,12 @@ class NovelAIImageClient:
                 noise=noise,
             )
 
-        print(self._format_prompt(prompt))
+        multiple_people = bool(characters and len(characters) > 1)
 
-        extra_negative = ", split screen, before and after, side by side, duplicate characters, mirrored panels, two people, multiple people, clone, twin, copy body, duplicate body"
-        print((neg_prompt or "") + extra_negative)
+        if multiple_people:
+            extra_negative = ", split screen, before and after, mirrored panels"
+        else:
+            extra_negative = ", split screen, before and after, side by side, duplicate characters, mirrored panels, two people, multiple people, clone, twin, copy body, duplicate body"
 
         # モデル・アクション選択（PoC準拠）
         use_inpaint = normalized_mask is not None
@@ -560,7 +569,7 @@ class NovelAIImageClient:
 
         # NOTE: GenerateImageParamsのmodelはSDKのリテラル制約に合わせてベースモデルを入れる
         params = GenerateImageParams(
-            prompt=self._format_prompt(prompt),
+            prompt=self._format_prompt(prompt, multiple_people=multiple_people),
             model=self.model,
             size=self.size,
             steps=self.steps,

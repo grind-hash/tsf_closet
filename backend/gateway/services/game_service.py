@@ -881,6 +881,7 @@ class GameService:
                 system_prompt=FEELING_SYSTEM_PROMPT,
                 user_prompt=user_prompt,
                 novelai_model_override=novelai_model_override,
+                max_tokens=1024,
             )
             logger.info(
                 f"心境生成完了: provider={result.provider}, cost={result.cost_usd}"
@@ -980,6 +981,7 @@ class GameService:
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 novelai_model_override=novelai_model_override,
+                max_tokens=1024,
             ):
                 yield chunk
         except (LLMServiceError, LiteLLMClientError) as e:
