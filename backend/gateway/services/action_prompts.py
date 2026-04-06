@@ -255,7 +255,7 @@ The user performs an action that may change the scene, clothing, pose, or any co
    - If the previous prompt is in Japanese or natural language, translate/convert ALL tags to English Danbooru format.
    - Do NOT include background or environment tags here.
 3. "scene": comma-separated English tags for background/environment ONLY.
-   - Quality tags first: masterpiece, best quality, very aesthetic
+   - Quality tags first: masterpiece, best quality, very aesthetic, anime, moe
    - Generate background/environment/location tags matching the action instruction.
    - **CRITICAL: If the user instruction does NOT explicitly mention moving to a new location, KEEP the location/environment tags from the previous prompt.** For example, if the previous prompt shows "train_station", keep "train_station" unless the user says "go home" or changes location.
    - Do NOT include character appearance tags here.
@@ -269,7 +269,7 @@ The user performs an action that may change the scene, clothing, pose, or any co
 
 ## Output Format
 ```json
-{"character": "1boy 1girl, short black hair, brown eyes, ...", "scene": "masterpiece, best quality, very aesthetic, train station, ..."}
+{"character": "1boy 1girl, short black hair, brown eyes, ...", "scene": "masterpiece, best quality, very aesthetic, anime, moe, train station, ..."}
 ```
 JSON only. No explanation or preamble."""
 
@@ -293,7 +293,7 @@ The user performs an action that may change the scene, clothing, pose, or any co
    - If the previous prompt is in Japanese or natural language, translate/convert ALL tags to English Danbooru format.
    - Do NOT include background or environment tags here.
 3. "scene": comma-separated English tags for background/environment ONLY.
-   - Quality tags first: masterpiece, best quality, very aesthetic
+   - Quality tags first: masterpiece, best quality, very aesthetic, anime, moe
    - Generate background/environment/location tags matching the action instruction.
    - **CRITICAL: If the user instruction does NOT explicitly mention moving to a new location, KEEP the location/environment tags from the previous prompt.** For example, if the previous prompt shows "karaoke_box", keep "karaoke_box" unless the user says "go home" or "go to the park" etc.
    - Scene can have sensual or intimate atmosphere if appropriate.
@@ -308,7 +308,7 @@ The user performs an action that may change the scene, clothing, pose, or any co
 
 ## Output Format
 ```json
-{"character": "1boy 1girl, long black hair, black eyes, ..., oral, ...", "scene": "masterpiece, best quality, very aesthetic, indoor, ..."}
+{"character": "1boy 1girl, long black hair, black eyes, ..., oral, ...", "scene": "masterpiece, best quality, very aesthetic, anime, moe, indoor, ..."}
 ```
 JSON only. No explanation or preamble."""
 
@@ -364,7 +364,7 @@ Format: 832x1216 PORTRAIT (vertical composition to frame standing figures).
 
 ## Rules
 1. Output comma-separated tags only.
-2. Quality/style tags first: best quality, moe, anime,
+2. Quality/style tags first: masterpiece, best quality, very aesthetic, anime, moe,
 3. Include EXACTLY 2 or 3 bystanders. Use ONE of these specific count tags:
    - For 2 people: "2others" (NEVER "multiple people" or "crowd")
    - For 3 people: "3others" (NEVER "multiple people" or "crowd")
@@ -375,11 +375,12 @@ Format: 832x1216 PORTRAIT (vertical composition to frame standing figures).
    - Extreme/indecent action (nudity, sexual): horrified, screaming, covering eyes, looking away, disgust, trembling
    Choose the reaction tier that fits the ACTION described by the user.
 5. **IMPORTANT: Bystanders react ONLY to the ACTION, NEVER to the protagonist's physical appearance, outfit, or body.** The protagonist's clothing, cross-dressing, or transformed appearance is NOT a reason for bystanders to be shocked, embarrassed, or surprised. Treat the protagonist's appearance as completely unremarkable.
-6. Keep bystanders generic. Example: businessman, office lady, student, passerby
-7. FORBIDDEN tags: crowd, multiple people, many people, large group, 4+people, 5+people, group
-8. Include environmental tags: location, lighting, time of day, atmosphere.
-9. Vertical portrait composition suitable for 832x1216. Show bystanders at mid-distance (waist-up or full body visible).
-10. Do NOT include the protagonist. This image shows the surroundings and bystander reactions only.
+6. **CRITICAL: Bystanders must NOT perform any independent special actions.** Bystanders only REACT (facial expressions, body language). They do NOT perform any suggestive, sexual, indecent, or unusual actions themselves. Bystanders should be engaged in ordinary daily activities (standing, walking, talking, using phone) with reactions shown ONLY through facial expressions and body posture.
+7. Keep bystanders generic. Example: businessman, office lady, student, passerby
+8. FORBIDDEN tags: crowd, multiple people, many people, large group, 4+people, 5+people, group
+9. Include environmental tags: location, lighting, time of day, atmosphere.
+10. Vertical portrait composition suitable for 832x1216. Show bystanders at mid-distance (waist-up or full body visible).
+11. Do NOT include the protagonist. This image shows the surroundings and bystander reactions only.
 
 ## Output Style
 - English tags only
@@ -396,7 +397,7 @@ Format: 832x1216 PORTRAIT (vertical composition). NSFW mode — scenes may invol
 
 ## Rules
 1. Output comma-separated tags only.
-2. Quality/style tags first: 1.5::nsfw::, best quality,moe, anime
+2. Quality/style tags first: 1.5::nsfw::, masterpiece, best quality, very aesthetic, anime, moe
 3. Include EXACTLY 2 or 3 bystanders. Use ONE of these specific count tags:
    - For 2 people: "2others" (NEVER "multiple people" or "crowd")
    - For 3 people: "3others" (NEVER "multiple people" or "crowd")
@@ -407,12 +408,13 @@ Format: 832x1216 PORTRAIT (vertical composition). NSFW mode — scenes may invol
    - Indecent/explicit: horrified, screaming, covering eyes, looking away, disgust, dropped jaw, frozen in shock, blushing furiously, running away, panicking, hands up in disbelief
    The action described by the user is likely provocative in NSFW mode. Choose STRONG reactions only when the ACTION warrants it.
 5. **IMPORTANT: Bystanders react ONLY to the ACTION, NEVER to the protagonist's physical appearance, outfit, or body.** The protagonist's clothing, cross-dressing, or transformed appearance is NOT a reason for bystanders to be shocked, embarrassed, or surprised. Treat the protagonist's appearance as completely unremarkable.
-6. Keep bystanders generic. Example: businessman, office lady, student, passerby
-7. FORBIDDEN tags: crowd, multiple people, many people, large group, 4+people, 5+people, group
-8. Include environmental tags: location, lighting, time of day, atmosphere.
-9. Vertical portrait composition suitable for 832x1216. Show bystanders at mid-distance (waist-up or full body visible).
-10. Do NOT include the protagonist. Show ONLY bystanders and environment.
-11. Emphasize the atmosphere: tense, awkward, chaotic, scandalous, voyeuristic — ONLY if the ACTION itself is provocative.
+6. **CRITICAL: Bystanders must NOT perform any independent special actions.** Bystanders only REACT (facial expressions, body language). They do NOT perform any suggestive, sexual, indecent, or unusual actions themselves. Bystanders should be engaged in ordinary daily activities (standing, walking, talking, using phone) with reactions shown ONLY through facial expressions and body posture.
+7. Keep bystanders generic. Example: businessman, office lady, student, passerby
+8. FORBIDDEN tags: crowd, multiple people, many people, large group, 4+people, 5+people, group
+9. Include environmental tags: location, lighting, time of day, atmosphere.
+10. Vertical portrait composition suitable for 832x1216. Show bystanders at mid-distance (waist-up or full body visible).
+11. Do NOT include the protagonist. Show ONLY bystanders and environment.
+12. Emphasize the atmosphere: tense, awkward, chaotic, scandalous, voyeuristic — ONLY if the ACTION itself is provocative.
 
 ## Output Style
 - English tags only
@@ -548,6 +550,11 @@ def build_surroundings_image_user_prompt(
             "(including cross-dressing or transformed appearance) must NOT "
             "influence bystander reactions. Treat the protagonist's appearance "
             "as completely unremarkable. "
+            "CRITICAL: Bystanders must NOT perform any independent special "
+            "actions themselves. They can only show REACTIONS through facial "
+            "expressions and body language (surprised, calm, shocked, etc.). "
+            "Bystanders should otherwise be engaged in ordinary daily "
+            "activities (standing, walking, talking, using phone). "
             "If the action is shocking, embarrassing, or indecent, bystanders "
             "should show STRONG emotional reactions. "
             "If the action is ordinary (walking, eating, singing karaoke), "
@@ -618,6 +625,7 @@ def get_action_novelai_prompt_generation_system(
     nsfw_mode: bool = False,
     language: str = "ja",
     clothing_color_consistency: bool = False,
+    enable_multiple_people: bool = False,
 ) -> str:
     """Return the scene-change NovelAI tag generation system prompt.
 
@@ -628,6 +636,7 @@ def get_action_novelai_prompt_generation_system(
         nsfw_mode: Whether NSFW mode is enabled
         language: Instruction language ("ja", "en", etc.)
         clothing_color_consistency: Whether to add clothing continuity rules
+        enable_multiple_people: Whether multiple people mode is active
 
     Returns:
         System prompt string for GLM-4.6 scene-change tag generation
@@ -647,15 +656,117 @@ def get_action_novelai_prompt_generation_system(
 
     if clothing_color_consistency:
         clothing_rule = (
-            '\n- **CLOTHING CONTINUITY**: When the action does NOT mention '
-            'clothing changes, copy ALL clothing-related tags from the previous '
+            "\n- **CLOTHING CONTINUITY**: When the action does NOT mention "
+            "clothing changes, copy ALL clothing-related tags from the previous "
             'prompt EXACTLY \u2014 including COLOR tags (e.g. "gold dress" must stay '
             '"gold dress", not become "white dress"). Changing clothing colors '
-            'without explicit instruction is FORBIDDEN.'
+            "without explicit instruction is FORBIDDEN."
         )
         base = base.replace(
             "\n## Output Format",
             clothing_rule + "\n\n## Output Format",
+        )
+
+    if enable_multiple_people:
+        # (1) Relax the "two keys" constraint in Rule #1
+        base = base.replace(
+            'with two keys: "character" and "scene".',
+            "(see Output Format below for single-person / multi-person structure).",
+        )
+        # (2) Remove multi-person sub-rules that instruct mixing tags
+        #     NSFW variant first (3 lines — must match before shorter SFW variant)
+        base = base.replace(
+            "   - **Multi-person action** (interacting with another person): "
+            "Use appropriate count tags (e.g. 1boy 1girl, 2girls, 2boys, etc.). "
+            'Do NOT use "solo".\n'
+            "     - Include minimal tags for the other person (gender, basic "
+            "appearance) AFTER the main character's tags.\n"
+            "     - Clearly depict the physical interaction described in the "
+            "action using appropriate Danbooru tags (e.g. oral, licking, "
+            "kissing, hugging, holding hands, etc.).\n",
+            "",
+        )
+        #     SFW variant (3 lines with non-NSFW interaction text)
+        base = base.replace(
+            "   - **Multi-person action** (interacting with another person): "
+            "Use appropriate count tags (e.g. 1boy 1girl, 2girls, etc.). "
+            'Do NOT use "solo".\n'
+            "     - Include minimal tags for the other person (gender, basic "
+            "appearance) AFTER the main character's tags.\n"
+            "     - Clearly depict the interaction described in the action "
+            "(e.g. physical contact, poses).\n",
+            "",
+        )
+
+        # (3) Add multi-person specific rules
+        multi_person_extra = (
+            "\n- **MULTI-PERSON RULES**:\n"
+            '  - Do NOT use the "solo" tag for ANY character.\n'
+            "  - If [現実改変] attributes are listed in the instruction, "
+            "they describe the WORLD STATE and apply to ALL characters "
+            "in the scene, not just the main character.\n"
+            '    Example: if the world rule says "everyone wears bras", '
+            "then the other person must ALSO wear a bra. Do NOT ignore "
+            "the world rule for secondary characters."
+        )
+        base = base.replace(
+            "\n## CRITICAL",
+            multi_person_extra + "\n\n## CRITICAL",
+        )
+
+        # (4) Replace Output Format with multi-person aware version
+        multi_output = (
+            "## Output Format\n"
+            "\n"
+            "### Single person (no other people involved):\n"
+            "```json\n"
+            '{"character": "1girl, solo, short black hair, brown eyes, ...", '
+            '"scene": "masterpiece, best quality, very aesthetic, anime, moe, '
+            'train station, ..."}\n'
+            "```\n"
+            "\n"
+            "### Multiple people (instruction involves OTHER characters):\n"
+            'You MUST use "characters" (ARRAY) key instead of "character" '
+            "(string). Each person is a SEPARATE object:\n"
+            "```json\n"
+            '{"characters": [\n'
+            '  {"tags": "short black hair, blue eyes, bra, flat chest, sitting, '
+            'talking", "position": "center"},\n'
+            '  {"tags": "male, bra, brown hair, sitting, talking", '
+            '"position": "right"}\n'
+            '], "scene": "masterpiece, best quality, very aesthetic, anime, moe, cafe, '
+            'table"}\n'
+            "```\n"
+            '- "position": "center" for the MAIN character, "left" or "right" '
+            "for others.\n"
+            "- Each character's \"tags\" field has ONLY that character's own "
+            'tags. No "solo" tag in multi-person mode.\n'
+            '- Do NOT use the single "character" key when 2+ people are '
+            "present.\n"
+            "\n"
+            "JSON only. No explanation or preamble."
+        )
+        # SFW output format
+        base = base.replace(
+            "## Output Format\n"
+            "```json\n"
+            '{"character": "1boy 1girl, short black hair, brown eyes, ...", '
+            '"scene": "masterpiece, best quality, very aesthetic, anime, moe, '
+            'train station, ..."}\n'
+            "```\n"
+            "JSON only. No explanation or preamble.",
+            multi_output,
+        )
+        # NSFW output format
+        base = base.replace(
+            "## Output Format\n"
+            "```json\n"
+            '{"character": "1boy 1girl, long black hair, black eyes, ..., '
+            'oral, ...", "scene": "masterpiece, best quality, very aesthetic, anime, moe, '
+            'indoor, ..."}\n'
+            "```\n"
+            "JSON only. No explanation or preamble.",
+            multi_output,
         )
 
     return base + language_hint
@@ -673,6 +784,7 @@ def build_action_prompt(
     transformation_count: int = 0,
     gender: str = "man",
     previous_situation_summary: str | None = None,
+    enable_multiple_people: bool = False,
 ) -> tuple[str, str]:
     """Build system and user prompts for the action instruction type.
 
@@ -727,6 +839,15 @@ def build_action_prompt(
             personality_sys += f"- 説明: {desc_truncated}\n"
         personality_sys += "- このキャラクターの性格特性に合わせて、語調・反応・思考パターンを調整してください。"
         system_prompt += personality_sys
+
+    # 複数人表示モードの場合、他者との相互作用描写を許可
+    if enable_multiple_people:
+        system_prompt += (
+            "\n\n【複数人モード】\n"
+            "- ユーザーの指示に他の人物が関わる場合、その人物との相互作用や会話を自然に描写してよい。\n"
+            "- 他のキャラクターの名前はLLMが自由に決定してよい。\n"
+            "- ただし主人公の一人称は必ず維持すること。"
+        )
 
     # Build previous situation section
     previous_situation_section = ""

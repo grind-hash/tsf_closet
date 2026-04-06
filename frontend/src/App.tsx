@@ -1,9 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { useSession } from "./hooks/useSession";
-import { useSSE } from "./hooks/useSSE";
-import { useNotification } from "./contexts/NotificationContext";
+import { useGameSSE } from "./hooks/useGameSSE";
 import { useSettings } from "./contexts/SettingsContext";
 import { getGameSessionPath } from "./routes";
 import { API_BASE } from "./utils/api";
@@ -14,6 +12,7 @@ import SessionListModal from "./components/SessionListModal";
 import NovelAIWarningModal from "./components/NovelAIWarningModal";
 import ApiKeyConsentModal from "./components/ApiKeyConsentModal";
 import { hasApiKeyConsent } from "./components/apiKeyConsentStorage";
+import { fetchAnlasBalance } from "./apis/anlas";
 import NotificationContainer from "./components/notifications/NotificationContainer";
 // 007-chat-interactive-ux: ルートベースの画面コンポーネント
 import GalleryScreen from "./components/gallery/GalleryScreen";
@@ -21,12 +20,8 @@ import AchievementsScreen from "./components/achievements/AchievementsScreen";
 import EndingsScreen from "./components/endings/EndingsScreen";
 import SettingsScreen from "./components/settings/SettingsScreen";
 // MainLayout は各画面コンポーネント内で使用
-import type {
-  Ending,
-  ChangeSettings,
-  NovelAISubscriptionResponse,
-} from "./types";
-import { DEFAULT_CHANGE_SETTINGS, DEFAULT_INPAINT_SETTINGS } from "./types";
+import type { ChangeSettings, NovelAISubscriptionResponse } from "./types";
+import { DEFAULT_INPAINT_SETTINGS } from "./types";
 import "./App.css";
 
 // 007-chat-interactive-ux: Context hooks
@@ -39,7 +34,10 @@ function App() {
   console.log("[App] Current route:", location.pathname);
 
   // ルートに基づいて専用画面を表示（各画面は内部でMainLayoutを持つ）
-  if (location.pathname === "/gallery") {
+  if (
+    location.pathname === "/gallery" ||
+    location.pathname.startsWith("/gallery/")
+  ) {
     return <GalleryScreen />;
   }
   if (
@@ -62,191 +60,50 @@ function App() {
 function AppMain() {
   // 旧UIで使用していた変数（新UIへの移行後、削除予定）
   const location = useLocation();
-  const session = useSession();
-  const { state: settingsState } = useSettings();
-  const { setTransforming } = useGame();
-  const { showNotification, showAchievementNotification } = useNotification();
+  const {
+    state: settingsState,
+    resetTotalCost,
+    setAnlasBalance,
+    setNovelaiTier,
+  } = useSettings();
+  const {
+    state: gameState,
+    loadCharacters,
+    restoreActiveSession,
+    restoreSessionById,
+    resetSession,
+    setEnding,
+    setError,
+  } = useGame();
   const { t } = useTranslation();
   // 旧UI用: 新UIではWelcomeScreenが担当 (型定義用にscreen変数を使用)
   const [screen, setScreen] = useState<"character-select" | "game">(
     "character-select",
   );
   console.log("[App] Current screen:", screen, "route:", location.pathname);
-  const [feelingText, setFeelingText] = useState("");
-  const [isTransforming, setIsTransforming] = useState(false);
-  const [ending, setEnding] = useState<Ending | null>(null);
   const [showSessionList, setShowSessionList] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [imageProvider, setImageProvider] = useState<
-    "selfhost" | "openrouter" | "novelai"
-  >("selfhost");
   const [providerLoading, setProviderLoading] = useState(true);
-  // コスト表示フラグ: いずれかのproviderがopenrouterの場合に表示
-  const [showCost, setShowCost] = useState(false);
 
   // NovelAIサブスクリプション警告関連
-  const [novelaiTier, setNovelaiTier] = useState<number | null>(null);
   const [showNovelaiWarning, setShowNovelaiWarning] = useState(false);
   const [novelaiCheckLoading, setNovelaiCheckLoading] = useState(false);
   // NovelAI APIキー同意モーダル関連
   const [showApiKeyConsent, setShowApiKeyConsent] = useState(false);
   const [apiKeyConsentDeclined, setApiKeyConsentDeclined] = useState(false);
 
-  // Last generated seed (from SSE image event)
-  const [lastGeneratedSeed, setLastGeneratedSeed] = useState<number | null>(
-    null,
-  );
+  const sse = useGameSSE();
 
-  // US2: Last generated surroundings image (from SSE)
-  const [lastSurroundingsImage, setLastSurroundingsImage] = useState<{
-    imageBase64: string;
-    historyId: string;
-    seed?: number;
-  } | null>(null);
-
-  // US5: Anlas balance state
-  const [anlasBalance, setAnlasBalance] = useState<{
-    fixedAnlas: number;
-    purchasedAnlas: number;
-    totalAnlas: number;
-  } | null>(null);
-
-  // API累積コスト (localStorage永続化)
-  const [totalCost, setTotalCost] = useState<number>(() => {
-    const saved = localStorage.getItem("api_total_cost");
-    return saved ? parseFloat(saved) : 0;
-  });
-
-  // 変更設定 (localStorage永続化)
-  const [changeSettings, setChangeSettings] = useState<ChangeSettings>(() => {
-    const saved = localStorage.getItem("change_settings");
-    if (saved) {
-      try {
-        return { ...DEFAULT_CHANGE_SETTINGS, ...JSON.parse(saved) };
-      } catch {
-        return DEFAULT_CHANGE_SETTINGS;
-      }
+  const replacePathWithSessionId = useCallback((sessionId: string | null) => {
+    if (!sessionId) {
+      return;
     }
-    return DEFAULT_CHANGE_SETTINGS;
-  });
-
-  // 変更設定の更新ハンドラ
-  const handleChangeSettingsUpdate = useCallback((settings: ChangeSettings) => {
-    setChangeSettings(settings);
-    localStorage.setItem("change_settings", JSON.stringify(settings));
+    window.history.replaceState(null, "", getGameSessionPath(sessionId));
   }, []);
-
-  // SSEハンドラ
-  const sse = useSSE({
-    onText: (chunk) => {
-      setFeelingText((prev) => prev + chunk);
-    },
-    onImage: async (image, historyId, seed) => {
-      session.updateFromSSE({ image, historyId });
-      // Store the last generated seed for display
-      if (seed !== undefined) {
-        setLastGeneratedSeed(seed);
-      }
-      // Reload session to update history
-      await session.restoreSession();
-      // Note: isTransforming is cleared by onComplete, not here.
-      // This allows surroundings image generation to continue with
-      // the progress indicator still visible.
-    },
-    // US2: Surroundings image handler
-    onSurroundingsImage: (imageBase64, historyId, seed) => {
-      setLastSurroundingsImage({ imageBase64, historyId, seed });
-    },
-    onStats: (stats) => {
-      session.updateStats({
-        bloom: stats.bloom,
-        shame: stats.shame,
-        adaptation: stats.adaptation,
-      });
-    },
-    onCritical: (data) => {
-      // 臨界点イベント - 心境テキストに特別セリフを追加
-      console.log("Critical point reached:", data.name, data.threshold);
-      setFeelingText((prev) => prev + `\n\n【${data.name}】\n${data.speech}`);
-    },
-    onEnding: (data) => {
-      if (!settingsState.experimentalEndingEnabled) return;
-      // バックエンドのフィールド名をフロントエンドの型にマッピング
-      setEnding({
-        id: data.ending_id,
-        name: data.title, // title → name
-        description: data.description,
-        triggerCondition: "",
-        badge: data.badge,
-        speech: data.final_speech, // final_speech → speech
-        summary: data.summary,
-      });
-    },
-    // 007-chat-interactive-ux: 実績解除通知
-    onAchievement: (data) => {
-      showAchievementNotification({
-        id: data.achievement_id,
-        name: data.name,
-        description: data.description,
-        icon: data.icon,
-        category: data.category,
-        condition_type: "",
-        condition_target: "",
-        condition_value: 0,
-        is_hidden: false,
-      });
-    },
-    onComplete: async (_, transformationCount) => {
-      session.updateFromSSE({ transformationCount });
-      setIsTransforming(false);
-      setTransforming(false);
-    },
-    onCost: (cost) => {
-      setTotalCost((prev) => {
-        const newTotal = prev + cost;
-        localStorage.setItem("api_total_cost", newTotal.toString());
-        return newTotal;
-      });
-    },
-    // US5: Anlas balance update
-    onAnlas: (balance) => {
-      setAnlasBalance(balance);
-    },
-    // Reality change: auto-added attribute notification
-    onRealityAttributeAdded: (data) => {
-      // Update local attributes state
-      session.updateAttributesFromSSE({
-        id: data.attribute_id,
-        text: data.attribute_text,
-      });
-      // Show notification if enabled in settings
-      if (settingsState.showRealityAttributeNotification) {
-        const msg =
-          t("settings.realityAttributeAddedMsg", {
-            attr: data.attribute_text,
-          }) +
-          "\n" +
-          t("settings.realityAttributeAddedLink");
-        showNotification(
-          "info",
-          t("settings.realityAttributeAdded"),
-          msg,
-          8000,
-        );
-      }
-    },
-    onError: (message) => {
-      console.error("SSE Error:", message);
-      setErrorMessage(message);
-      setIsTransforming(false);
-      setTransforming(false);
-    },
-  });
 
   // 初期化: セッション復元を試みる（/play/new の場合は復元しない）
   useEffect(() => {
     const init = async () => {
-      await session.loadCharacters();
+      await loadCharacters();
 
       // URLからセッションIDを抽出（/play/:sessionId 形式）
       const playMatch = location.pathname.match(/^\/play\/([a-f0-9-]+)$/i);
@@ -256,60 +113,33 @@ function AppMain() {
       if (location.pathname === "/play/new") {
         // 新規ゲームなので何もしない
       } else if (urlSessionId) {
-        // URLにセッションIDが含まれている場合、そのセッションを復元
-        try {
-          const response = await fetch(
-            `${API_BASE}/game/sessions/${urlSessionId}/restore`,
-            { method: "POST" },
-          );
-          if (response.ok) {
-            await session.restoreSession();
+        // ギャラリー等から遷移済みで、GameContextに同じセッションが既にある場合はスキップ
+        if (gameState.sessionId === urlSessionId) {
+          setScreen("game");
+        } else {
+          // URLにセッションIDが含まれている場合、そのセッションを復元
+          try {
+            await restoreSessionById(urlSessionId);
             setScreen("game");
             // URLは既にセッションID付きなので更新不要
-          } else {
-            console.warn("Failed to restore session from URL:", urlSessionId);
+          } catch (err) {
+            console.error("Error restoring session from URL:", err);
             // 復元失敗時はlocalStorageのセッションを復元
-            const restored = await session.restoreSession();
+            const restored = await restoreActiveSession();
             if (restored) {
               setScreen("game");
-              // URLをセッションID付きに更新
-              if (session.sessionId) {
-                window.history.replaceState(
-                  null,
-                  "",
-                  getGameSessionPath(session.sessionId),
-                );
-              }
-            }
-          }
-        } catch (err) {
-          console.error("Error restoring session from URL:", err);
-          const restored = await session.restoreSession();
-          if (restored) {
-            setScreen("game");
-            // URLをセッションID付きに更新
-            if (session.sessionId) {
-              window.history.replaceState(
-                null,
-                "",
-                getGameSessionPath(session.sessionId),
+              replacePathWithSessionId(
+                localStorage.getItem("current_session_id"),
               );
             }
           }
         }
       } else {
         // 通常のセッション復元（/play や / にアクセス時）
-        const restored = await session.restoreSession();
+        const restored = await restoreActiveSession();
         if (restored) {
           setScreen("game");
-          // URLをセッションID付きに更新
-          if (session.sessionId) {
-            window.history.replaceState(
-              null,
-              "",
-              getGameSessionPath(session.sessionId),
-            );
-          }
+          replacePathWithSessionId(localStorage.getItem("current_session_id"));
         }
       }
       // 画像プロバイダー取得（NovelAI専用UI制御）
@@ -326,8 +156,6 @@ function AppMain() {
           | "selfhost"
           | "openrouter"
           | "novelai";
-        setImageProvider(detectedProvider);
-        setShowCost(cachedShowCost === "true");
         setProviderLoading(false);
       } else {
         try {
@@ -339,16 +167,12 @@ function AppMain() {
               data.image_provider === "novelai"
             ) {
               detectedProvider = data.image_provider;
-              setImageProvider(data.image_provider);
-            } else {
-              setImageProvider("selfhost");
             }
             // いずれかのproviderがopenrouterならコスト表示
             const hasCostProvider =
               data.image_provider === "openrouter" ||
               data.image_description_provider === "openrouter" ||
               data.feeling_provider === "openrouter";
-            setShowCost(hasCostProvider);
             // キャッシュに保存
             sessionStorage.setItem("image_provider", detectedProvider);
             sessionStorage.setItem("show_cost", String(hasCostProvider));
@@ -367,6 +191,13 @@ function AppMain() {
           setShowApiKeyConsent(true);
           return; // 同意を待ってから続行
         }
+
+        // 同意済み: Anlas残高を取得
+        fetchAnlasBalance().then((balance) => {
+          if (balance) {
+            setAnlasBalance(balance);
+          }
+        });
 
         // 同意済みの場合はサブスクリプションをチェック
         // localStorageで既に確認済みかチェック
@@ -401,9 +232,16 @@ function AppMain() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // NovelAI APIキー同意後のサブスクリプションチェック
+  // NovelAI APIキー同意後のサブスクリプションチェック + Anlas取得
   const handleApiKeyConsent = useCallback(async () => {
     setShowApiKeyConsent(false);
+
+    // 同意後、Anlas残高を取得
+    fetchAnlasBalance().then((balance) => {
+      if (balance) {
+        setAnlasBalance(balance);
+      }
+    });
 
     // 同意後、サブスクリプションをチェック
     const opusConfirmed = localStorage.getItem("novelai_opus_confirmed");
@@ -427,7 +265,7 @@ function AppMain() {
     } finally {
       setNovelaiCheckLoading(false);
     }
-  }, []);
+  }, [setAnlasBalance, setNovelaiTier]);
 
   // NovelAI APIキー同意を拒否
   const handleApiKeyConsentDecline = useCallback(() => {
@@ -457,16 +295,14 @@ function AppMain() {
         }>;
       },
       instructionType?: string,
+      pendingToken?: string,
     ) => {
-      if (!session.sessionId || isTransforming) return;
-
-      setIsTransforming(true);
-      setTransforming(true);
-      setFeelingText("");
+      void pendingToken;
+      if (!gameState.sessionId || gameState.isTransforming) return;
 
       // POST リクエストボディを構築
       const body: Record<string, unknown> = {
-        session_id: session.sessionId,
+        session_id: gameState.sessionId,
         instruction,
         transformation_type: transformationType,
         language: settingsState.language,
@@ -489,6 +325,10 @@ function AppMain() {
       if (settingsState.clothingColorConsistency) {
         body.clothing_color_consistency = true;
       }
+      // Multiple people experimental feature
+      if (settingsState.enableMultiplePeople) {
+        body.enable_multiple_people = true;
+      }
       if (costumeImage) {
         body.costume_image = costumeImage;
       }
@@ -500,7 +340,7 @@ function AppMain() {
 
       // NovelAI利用時は常にi2i強度とノイズを送信（Image2Image必須）
       // optionsで明示的に指定された場合はそちらを優先、なければデフォルト値を使用
-      if (imageProvider === "novelai") {
+      if (settingsState.imageProvider === "novelai") {
         body.inpaint_strength =
           options?.inpaintStrength ?? DEFAULT_INPAINT_SETTINGS.i2iStrength;
         body.inpaint_noise =
@@ -548,90 +388,42 @@ function AppMain() {
         });
       }
 
-      sse.startPostStream(`${API_BASE}/game/play/stream`, body);
+      sse.startPostStream(`${API_BASE}/game/play/stream`, body, pendingToken);
     },
     [
-      session.sessionId,
-      isTransforming,
+      gameState.sessionId,
+      gameState.isTransforming,
       sse,
-      imageProvider,
       settingsState.language,
       settingsState.seed,
       settingsState.enableSurroundingsImage,
       settingsState.surroundingsIncludePeople,
-      setTransforming,
+      settingsState.clothingColorConsistency,
+      settingsState.enableMultiplePeople,
+      settingsState.imageProvider,
     ],
   );
 
-  // 画質改善
-  const handleImproveQuality = useCallback(() => {
-    if (!session.sessionId || isTransforming) return;
-
-    setIsTransforming(true);
-    setTransforming(true);
-    setFeelingText("");
-
-    const url = `${API_BASE}/game/improve-quality/stream?session_id=${session.sessionId}`;
-    sse.startStream(url);
-  }, [session.sessionId, isTransforming, sse, setTransforming]);
-
   // リセット
   const handleReset = useCallback(async () => {
-    await session.resetSession();
+    await resetSession();
     setScreen("character-select");
-    setFeelingText("");
     setEnding(null);
-  }, [session]);
+  }, [resetSession, setEnding]);
 
   // コストリセット
   const handleResetCost = useCallback(() => {
-    setTotalCost(0);
-    localStorage.setItem("api_total_cost", "0");
-  }, []);
-
-  // 履歴選択
-  const handleSelectHistory = useCallback(
-    async (historyId: string) => {
-      try {
-        const response = await fetch(
-          `${API_BASE}/game/history/${historyId}/select`,
-          {
-            method: "POST",
-          },
-        );
-        if (response.ok) {
-          await session.restoreSession();
-          // 選択した履歴の心境テキストを表示
-          const historyItem = session.history.find((h) => h.id === historyId);
-          if (
-            historyItem?.feelingText &&
-            historyItem.feelingText !== "(画質改善)"
-          ) {
-            setFeelingText(historyItem.feelingText);
-          }
-        }
-      } catch (err) {
-        console.error("Failed to select history:", err);
-      }
-    },
-    [session],
-  );
+    resetTotalCost();
+  }, [resetTotalCost]);
 
   // 007-chat-interactive-ux: 新UIを使用
   // セッション開始時のコールバック（WelcomeScreen → GamePlayScreen → App.tsx）
   const handleSessionStart = useCallback(async () => {
     console.log("[App] Session started, restoring session data...");
-    await session.restoreSession();
+    await restoreActiveSession();
     setScreen("game");
-    // URLをセッションID付きに更新（ブラウザ履歴を置換）
-    if (session.sessionId) {
-      window.history.replaceState(
-        null,
-        "",
-        getGameSessionPath(session.sessionId),
-      );
-    }
-  }, [session]);
+    replacePathWithSessionId(localStorage.getItem("current_session_id"));
+  }, [replacePathWithSessionId, restoreActiveSession]);
 
   return (
     <div className="app">
@@ -639,35 +431,9 @@ function AppMain() {
       <NotificationContainer />
 
       <GamePlayScreen
-        sessionId={session.sessionId}
-        currentImageUrl={session.currentImageUrl}
-        stats={session.stats}
-        transformationCount={session.transformationCount}
-        history={session.history}
-        attributes={session.attributes}
-        feelingText={feelingText}
-        isTransforming={isTransforming}
-        chatHistory={session.conversationHistory}
-        onChatHistoryChange={session.setConversationHistory}
         onTransform={handleTransform}
-        onImproveQuality={handleImproveQuality}
-        onReset={handleReset}
-        onSelectHistory={handleSelectHistory}
-        onAddAttribute={session.addAttribute}
-        onRemoveAttribute={session.removeAttribute}
-        totalCost={totalCost}
         onResetCost={handleResetCost}
-        showCost={showCost}
-        changeSettings={changeSettings}
-        onChangeSettingsUpdate={handleChangeSettingsUpdate}
-        imageProvider={imageProvider}
-        selfMode={session.selfMode}
         onSessionStart={handleSessionStart}
-        lastGeneratedSeed={lastGeneratedSeed}
-        anlasBalance={anlasBalance}
-        onAnlasBalanceChange={setAnlasBalance}
-        lastSurroundingsImage={lastSurroundingsImage}
-        onClearSurroundingsImage={() => setLastSurroundingsImage(null)}
       />
 
       {providerLoading && (
@@ -688,16 +454,16 @@ function AppMain() {
         </div>
       )}
 
-      {session.isLoading && (
+      {gameState.isLoading && (
         <div className="loading-overlay">
           <div className="spinner"></div>
           <p>{t("appLoading.preparing")}</p>
         </div>
       )}
 
-      {ending && (
+      {gameState.ending && (
         <EndingModal
-          ending={ending}
+          ending={gameState.ending}
           onClose={() => setEnding(null)}
           onRestart={handleReset}
           onGallery={() => {
@@ -720,35 +486,29 @@ function AppMain() {
               );
               if (response.ok) {
                 // セッション情報を再読み込み
-                await session.restoreSession();
+                await restoreSessionById(sessionId);
                 // モーダルを閉じてゲーム画面に遷移
                 setShowSessionList(false);
                 setScreen("game");
               } else {
                 console.error("Failed to restore session");
-                setErrorMessage("セッションの復元に失敗しました");
+                setError("セッションの復元に失敗しました");
               }
             } catch (err) {
               console.error("Error restoring session:", err);
-              setErrorMessage("セッションの復元に失敗しました");
+              setError("セッションの復元に失敗しました");
             }
           }}
         />
       )}
 
-      {errorMessage && (
-        <div
-          className="error-modal-overlay"
-          onClick={() => setErrorMessage(null)}
-        >
+      {gameState.error && (
+        <div className="error-modal-overlay" onClick={() => setError(null)}>
           <div className="error-modal" onClick={(e) => e.stopPropagation()}>
             <div className="error-modal-icon">⚠️</div>
             <h3>{t("appLoading.error")}</h3>
-            <p>{errorMessage}</p>
-            <button
-              className="btn btn-primary"
-              onClick={() => setErrorMessage(null)}
-            >
+            <p>{gameState.error}</p>
+            <button className="btn btn-primary" onClick={() => setError(null)}>
               {t("appLoading.close")}
             </button>
           </div>
@@ -756,9 +516,9 @@ function AppMain() {
       )}
 
       {/* NovelAI非Opusプラン警告モーダル */}
-      {showNovelaiWarning && novelaiTier !== null && (
+      {showNovelaiWarning && settingsState.novelaiTier !== null && (
         <NovelAIWarningModal
-          tier={novelaiTier}
+          tier={settingsState.novelaiTier}
           onContinue={() => {
             // 続行を選択: localStorageに保存して警告を閉じる
             localStorage.setItem("novelai_opus_confirmed", "true");

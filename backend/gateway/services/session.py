@@ -1107,6 +1107,197 @@ class DatabaseSessionStore:
             await db_session.commit()
             return result.rowcount or 0
 
+    async def delete_conversation_by_history_id(
+        self,
+        session_id: str,
+        history_id: str,
+    ) -> int:
+        """指定した history_id に紐づく会話レコードのみ削除する
+
+        History レコードや画像ファイルは削除しない。
+        History.feeling_text もクリアする。
+
+        Returns:
+            削除された Conversation レコード数
+        """
+        async with async_session_factory() as db_session:
+            # 対象 History がセッションに属するか確認
+            history_row = (
+                await db_session.execute(
+                    select(HistoryORM.id).where(
+                        HistoryORM.id == history_id,
+                        HistoryORM.session_id == session_id,
+                    )
+                )
+            ).first()
+            if history_row is None:
+                return -1  # not found
+
+            # Conversation レコード削除
+            result = await db_session.execute(
+                delete(ConversationORM).where(
+                    ConversationORM.related_history_id == history_id
+                )
+            )
+            deleted_count = result.rowcount or 0
+
+            # History.feeling_text をクリア
+            await db_session.execute(
+                update(HistoryORM)
+                .where(HistoryORM.id == history_id)
+                .values(feeling_text=None)
+            )
+
+            await db_session.commit()
+            return deleted_count
+
+    async def delete_conversation_message(
+        self,
+        session_id: str,
+        conversation_id: str,
+    ) -> bool:
+        """会話メッセージを1件削除する (conversation.id 直接指定)
+
+        History レコードや画像ファイルは一切触らない。
+
+        Returns:
+            削除成功: True, 見つからない: False
+        """
+        async with async_session_factory() as db_session:
+            result = await db_session.execute(
+                delete(ConversationORM).where(
+                    ConversationORM.id == conversation_id,
+                    ConversationORM.session_id == session_id,
+                )
+            )
+            await db_session.commit()
+            return (result.rowcount or 0) > 0
+
+    async def delete_history_entry(
+        self,
+        session_id: str,
+        history_id: str,
+    ) -> dict | None:
+        """指定した history_id の履歴エントリを完全削除する
+
+        History レコード、関連 Conversation レコード、画像ファイルを全て削除する。
+        削除後、セッションの current_image_path を直前の履歴に復元する。
+
+        Returns:
+            削除情報の辞書、またはエントリが見つからない場合 None
+        """
+        async with async_session_factory() as db_session:
+            # 対象 History がセッションに属するか確認
+            history_row = (
+                (
+                    await db_session.execute(
+                        select(HistoryORM).where(
+                            HistoryORM.id == history_id,
+                            HistoryORM.session_id == session_id,
+                        )
+                    )
+                )
+                .scalars()
+                .first()
+            )
+            if history_row is None:
+                return None
+
+            deleted_instruction_type = history_row.instruction_type or "dress_up"
+
+            # 画像ファイル削除
+            if history_row.image_path:
+                image_path = Path(history_row.image_path)
+                if image_path.exists():
+                    try:
+                        os.remove(image_path)
+                    except OSError as exc:
+                        logger.warning("Failed to delete image %s: %s", image_path, exc)
+
+            # 周囲画像ファイル削除
+            if history_row.surroundings_image_path:
+                surr_path = (
+                    settings.history_images_dir.parent
+                    / history_row.surroundings_image_path
+                )
+                if surr_path.exists():
+                    try:
+                        os.remove(surr_path)
+                    except OSError as exc:
+                        logger.warning(
+                            "Failed to delete surroundings image %s: %s",
+                            surr_path,
+                            exc,
+                        )
+
+            # 関連する Conversation レコードを削除
+            await db_session.execute(
+                delete(ConversationORM).where(
+                    ConversationORM.related_history_id == history_id
+                )
+            )
+
+            # 履歴レコードを削除 (CASCADE で transformation_tags も削除される)
+            await db_session.execute(
+                delete(HistoryORM).where(HistoryORM.id == history_id)
+            )
+
+            # 直前の履歴を取得して current_image_path を復元
+            prev_stmt = (
+                select(HistoryORM)
+                .where(HistoryORM.session_id == session_id)
+                .order_by(HistoryORM.created_at.desc(), HistoryORM.id.desc())
+                .limit(1)
+            )
+            prev = (await db_session.execute(prev_stmt)).scalars().first()
+            restored_image_path = prev.image_path if prev else ""
+            restored_history_id = prev.id if prev else ""
+
+            # セッションの current_image_path を更新
+            if restored_image_path:
+                await db_session.execute(
+                    update(SessionORM)
+                    .where(SessionORM.id == session_id)
+                    .values(
+                        current_image_path=restored_image_path,
+                        updated_at=datetime.now(),
+                    )
+                )
+
+            # transformation_count のデクリメント (dress_up/reality のみ)
+            if deleted_instruction_type in ("dress_up", "reality_alter"):
+                session_row = (
+                    (
+                        await db_session.execute(
+                            select(SessionORM).where(SessionORM.id == session_id)
+                        )
+                    )
+                    .scalars()
+                    .first()
+                )
+                if session_row and session_row.transformation_count > 0:
+                    await db_session.execute(
+                        update(SessionORM)
+                        .where(SessionORM.id == session_id)
+                        .values(
+                            transformation_count=session_row.transformation_count - 1,
+                        )
+                    )
+
+            await db_session.commit()
+
+            logger.info(
+                "Deleted history entry %s for session %s, restored to %s",
+                history_id,
+                session_id,
+                restored_image_path or "(none)",
+            )
+
+            return {
+                "deleted_history_id": history_id,
+                "restored_history_id": restored_history_id,
+            }
+
     async def add_session_attribute(
         self,
         session_id: str,

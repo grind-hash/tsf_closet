@@ -1,74 +1,74 @@
-# Reference Refresh Guide
+# リファレンス更新ガイド
 
-This guide is used to regenerate the navigator reference files when they become outdated.
+このガイドは、ナビゲーターのリファレンスファイルが古くなった場合に再生成するために使用する。
 
-## When to Refresh
+## 更新するタイミング
 
-- Major refactoring (file renames, directory restructuring)
-- Multiple new features have been added since last verification
-- "Last verified" dates in reference files are more than 2 weeks old
-- An agent reports that a referenced file path doesn't exist
+- 大規模リファクタリング（ファイルリネーム、ディレクトリ構成変更）の後
+- 最終検証以降に多数の新機能が追加された場合
+- リファレンスファイルの「最終検証」日付が 2 週間以上前の場合
+- エージェントが参照先のファイルパスが存在しないと報告した場合
 
-## Refresh Procedure
+## 更新手順
 
-### Quick Validation (recommended: after each structural change)
+### クイック検証（推奨: 構造変更の都度）
 
-After adding/removing/renaming files, update only the affected reference:
+ファイルの追加/削除/リネームを行った後、影響のあるリファレンスのみ更新する:
 
-1. **New/removed backend route or service** → Edit `references/backend-map.md`
-2. **New/removed frontend component, context, or hook** → Edit `references/frontend-map.md`
-3. **New data flow pattern** → Edit `references/data-flow.md`
-4. **New modification recipe discovered** → Edit `references/modification-recipes.md`
+1. **バックエンドルートやサービスの新規/削除** → `references/backend-map.md` を編集
+2. **フロントエンドコンポーネント、Context、Hook の新規/削除** → `references/frontend-map.md` を編集
+3. **新しいデータフローパターン** → `references/data-flow.md` を編集
+4. **新しい変更レシピの発見** → `references/modification-recipes.md` を編集
 
-Update the `Last verified` date at the top of the edited file.
+編集したファイルの先頭にある `最終検証` 日付を更新すること。
 
-### Full Regeneration (when references feel broadly outdated)
+### フル再生成（リファレンスが全体的に古くなった場合）
 
-Use the Explore subagent with the following prompts to regenerate each reference:
+Explore サブエージェントに以下のプロンプトを使用して各リファレンスを再生成する:
 
-#### Backend Map
-
-```
-Explore the backend architecture at backend/gateway/. Report:
-1. All routes in routes/*.py with HTTP method, path, and purpose
-2. All services (class name + public methods + 1-line purpose)
-3. All DB models with key fields
-4. All constant definitions
-Format as a markdown reference table. Base path: c:\source\tech_study2026\tsf_closet_base\
-```
-
-#### Frontend Map
+#### バックエンドマップ
 
 ```
-Explore the frontend at frontend/src/. Report:
-1. App.tsx routing structure
-2. All Context providers: state fields + action types
-3. All custom hooks: name + purpose
-4. All API modules: exported functions + endpoints
-5. Component tree (file names + 1-line purpose)
-6. Type definitions from types/index.ts (name + key fields)
-Base path: c:\source\tech_study2026\tsf_closet_base\
+backend/gateway/ のバックエンドアーキテクチャを調査してください。以下を報告:
+1. routes/*.py の全ルート（HTTPメソッド、パス、目的）
+2. 全サービス（クラス名 + 公開メソッド + 1行の目的説明）
+3. 全DBモデルと主要フィールド
+4. 全定数定義
+Markdownリファレンステーブル形式で出力。ベースパス: c:\source\tech_study2026\tsf_closet_base\
 ```
 
-#### Data Flow
+#### フロントエンドマップ
 
 ```
-Trace the main game loop data flow in tsf_closet_base:
-1. How does a user instruction flow from ChatInput → SSE → backend → image gen → frontend update?
-2. What SSE events exist and what do they trigger?
-3. Session lifecycle (create → play → end)
-Base path: c:\source\tech_study2026\tsf_closet_base\
+frontend/src/ のフロントエンドを調査してください。以下を報告:
+1. App.tsx のルーティング構成
+2. 全 Context プロバイダ: 状態フィールド + アクション型
+3. 全カスタム Hook: 名前 + 目的
+4. 全 API モジュール: エクスポート関数 + エンドポイント
+5. コンポーネントツリー（ファイル名 + 1行の目的説明）
+6. types/index.ts の型定義（名前 + 主要フィールド）
+ベースパス: c:\source\tech_study2026\tsf_closet_base\
 ```
 
-After regeneration, update all `Last verified` dates.
+#### データフロー
 
-## Self-Maintenance Checklist
+```
+tsf_closet_base のメインゲームループのデータフローをトレースしてください:
+1. ChatInput → SSE → バックエンド → 画像生成 → フロントエンド更新のユーザー指示フロー
+2. 存在する SSE イベントとそのトリガー
+3. セッションライフサイクル（作成 → プレイ → 終了）
+ベースパス: c:\source\tech_study2026\tsf_closet_base\
+```
 
-When you complete a modification task using this skill, ask yourself:
+再生成後、すべての `最終検証` 日付を更新すること。
 
-- [ ] Did I add a new file that should appear in backend-map or frontend-map?
-- [ ] Did I create a new route, context, hook, or component?
-- [ ] Did I introduce a new data flow pattern?
-- [ ] Did I discover a useful modification recipe that isn't documented?
+## セルフメンテナンスチェックリスト
 
-If any answer is yes, update the reference before completing the task.
+このスキルを使用して変更タスクを完了した際、以下を自問すること:
+
+- [ ] backend-map または frontend-map に載せるべき新しいファイルを追加したか？
+- [ ] 新しいルート、Context、Hook、またはコンポーネントを作成したか？
+- [ ] 新しいデータフローパターンを導入したか？
+- [ ] ドキュメント化されていない有用な変更レシピを発見したか？
+
+いずれかに該当する場合、タスク完了前にリファレンスを更新すること。

@@ -17,16 +17,22 @@ class UserSettingsModel(BaseModel):
     language: LanguageCode = DEFAULT_LANGUAGE
 
 
+# NovelAI Text API で選択可能なモデル
+NOVELAI_TEXT_MODEL_OPTIONS = ("glm-4-6", "xialong-v1")
+
+
 class UserSettingsResponse(BaseModel):
     nsfw_mode: bool
     difficulty: str
     language: LanguageCode
+    novelai_text_model: str = "glm-4-6"
 
 
 class UserSettingsUpdateRequest(BaseModel):
     nsfw_mode: bool | None = None
     difficulty: Literal["easy", "normal", "hard"] | None = None
     language: LanguageCode | None = None
+    novelai_text_model: Literal["glm-4-6", "xialong-v1"] | None = None
 
 
 class InpaintSettingsModel(BaseModel):
@@ -129,6 +135,7 @@ async def update_user_settings(
             nsfw_mode=request.nsfw_mode,
             difficulty=request.difficulty,
             language=request.language,
+            novelai_text_model=request.novelai_text_model,
         )
         return UserSettingsResponse(**updated)
     except Exception as exc:

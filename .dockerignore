@@ -45,3 +45,5 @@ config.env
 # Docker
 .dockerignore
 compose.yaml
+Dockerfile*
+coverage/

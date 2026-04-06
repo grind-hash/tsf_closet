@@ -242,6 +242,11 @@ class PlayStreamRequest(BaseModel):
         False,
         description="服の色の一貫性を保つ実験的機能",
     )
+    # Multiple people in image generation toggle
+    enable_multiple_people: bool = Field(
+        False,
+        description="複数人表示を有効にする実験的機能",
+    )
 
 
 @router.post(
@@ -291,6 +296,7 @@ async def play_game_stream(request: PlayStreamRequest) -> EventSourceResponse:
             enable_surroundings_image=request.enable_surroundings_image,
             surroundings_include_people=request.surroundings_include_people,
             clothing_color_consistency=request.clothing_color_consistency,
+            enable_multiple_people=request.enable_multiple_people,
         ):
             yield {
                 "event": event.type,
@@ -922,6 +928,7 @@ async def chat_with_character(
     session_id: str = Query(..., description="セッションID"),
     message: str = Query(..., min_length=1, max_length=500, description="メッセージ"),
     language: str | None = Query(None, description="応答言語 (ja/en)"),
+    enable_multiple_people: bool = Query(False, description="複数人表示を有効にする"),
 ) -> dict:
     """キャラクターとの会話"""
     from ..services.conversation import (
@@ -983,7 +990,7 @@ async def chat_with_character(
         current_outfit_desc = latest.after_description or ""
 
     # ユーザーメッセージを保存
-    await session_store.add_conversation(
+    user_conv = await session_store.add_conversation(
         session_id, "user", message, instruction_type="conversation"
     )
 
@@ -991,6 +998,7 @@ async def chat_with_character(
     attributes = await session_store.get_session_attribute_texts(session_id)
     user_settings = await session_store.get_user_settings()
     language = normalize_language(language or user_settings.get("language"))
+    effective_novelai_text_model = user_settings.get("novelai_text_model")
 
     # セッション経緯を取得（着替・改変・行動・会話を時系列マージ）
     session_timeline = await session_store.get_session_timeline(session_id, limit=30)
@@ -1009,6 +1017,7 @@ async def chat_with_character(
             nsfw_mode=stats.nsfw_mode,
             language=language,
             session_timeline=session_timeline,
+            enable_multiple_people=enable_multiple_people,
         )
     else:
         system_prompt, user_prompt = build_conversation_prompt(
@@ -1034,6 +1043,7 @@ async def chat_with_character(
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 language=language,
+                novelai_model_override=effective_novelai_text_model,
             )
             or ""
         )
@@ -1044,7 +1054,9 @@ async def chat_with_character(
         response_text = get_fallback_response(stats.bloom, pronoun, stats.nsfw_mode)
 
     # キャラクター応答を保存
-    await session_store.add_conversation(session_id, "character", response_text)
+    char_conv = await session_store.add_conversation(
+        session_id, "character", response_text
+    )
 
     # 心理段階名を取得
     if session.transformation_count == 0:
@@ -1058,6 +1070,8 @@ async def chat_with_character(
         "character_response": response_text,
         "psychological_state": stage_display,
         "language": language,
+        "user_conversation_id": user_conv.id,
+        "character_conversation_id": char_conv.id,
     }
 
 
@@ -1070,6 +1084,7 @@ async def chat_with_character_stream(
     session_id: str = Query(..., description="セッションID"),
     message: str = Query(..., min_length=1, max_length=500, description="メッセージ"),
     language: str | None = Query(None, description="応答言語 (ja/en)"),
+    enable_multiple_people: bool = Query(False, description="複数人表示を有効にする"),
 ) -> StreamingResponse:
     """キャラクターとの会話（ストリーミング）"""
     import logging
@@ -1133,7 +1148,7 @@ async def chat_with_character_stream(
         current_outfit_desc = latest.after_description or ""
 
     # ユーザーメッセージを保存
-    await session_store.add_conversation(
+    user_conv = await session_store.add_conversation(
         session_id, "user", message, instruction_type="conversation"
     )
 
@@ -1141,6 +1156,7 @@ async def chat_with_character_stream(
     attributes = await session_store.get_session_attribute_texts(session_id)
     user_settings = await session_store.get_user_settings()
     language = normalize_language(language or user_settings.get("language"))
+    effective_novelai_text_model = user_settings.get("novelai_text_model")
 
     # セッション経緯を取得（着替・改変・行動・会話を時系列マージ）
     session_timeline = await session_store.get_session_timeline(session_id, limit=30)
@@ -1159,6 +1175,7 @@ async def chat_with_character_stream(
             nsfw_mode=stats.nsfw_mode,
             language=language,
             session_timeline=session_timeline,
+            enable_multiple_people=enable_multiple_people,
         )
     else:
         system_prompt, user_prompt = build_conversation_prompt(
@@ -1182,6 +1199,7 @@ async def chat_with_character_stream(
             async for chunk in llm_service.generate_feeling_stream(
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
+                novelai_model_override=effective_novelai_text_model,
             ):
                 full_response += chunk
                 yield f"data: {json.dumps({'type': 'text', 'chunk': chunk})}\n\n"
@@ -1195,34 +1213,41 @@ async def chat_with_character_stream(
                             system_prompt=system_prompt,
                             user_prompt=retry_prompt,
                             language=language,
+                            novelai_model_override=effective_novelai_text_model,
                         )
                     )
                     if retry_text and is_response_language_valid(retry_text, language):
-                        await session_store.add_conversation(
+                        char_conv = await session_store.add_conversation(
                             session_id, "character", retry_text
                         )
-                        yield f"data: {json.dumps({'type': 'error', 'fallback': retry_text, 'language': language})}\n\n"
+                        yield f"data: {json.dumps({'type': 'error', 'fallback': retry_text, 'language': language, 'user_conversation_id': user_conv.id, 'character_conversation_id': char_conv.id})}\n\n"
                         return
                 except Exception:
                     pass
 
                 fallback = get_fallback_response(stats.bloom, pronoun, stats.nsfw_mode)
-                await session_store.add_conversation(session_id, "character", fallback)
-                yield f"data: {json.dumps({'type': 'error', 'fallback': fallback, 'language': language})}\n\n"
+                char_conv = await session_store.add_conversation(
+                    session_id, "character", fallback
+                )
+                yield f"data: {json.dumps({'type': 'error', 'fallback': fallback, 'language': language, 'user_conversation_id': user_conv.id, 'character_conversation_id': char_conv.id})}\n\n"
                 return
 
             # キャラクター応答を保存
-            await session_store.add_conversation(session_id, "character", full_response)
+            char_conv = await session_store.add_conversation(
+                session_id, "character", full_response
+            )
 
             # 完了イベント
-            yield f"data: {json.dumps({'type': 'done', 'full_response': full_response, 'language': language})}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'full_response': full_response, 'language': language, 'user_conversation_id': user_conv.id, 'character_conversation_id': char_conv.id})}\n\n"
 
         except Exception as e:
             logger.error(f"Chat stream error: {e}")
             # フォールバック応答を使用
             fallback = get_fallback_response(stats.bloom, pronoun, stats.nsfw_mode)
-            await session_store.add_conversation(session_id, "character", fallback)
-            yield f"data: {json.dumps({'type': 'error', 'fallback': fallback, 'language': language})}\n\n"
+            char_conv = await session_store.add_conversation(
+                session_id, "character", fallback
+            )
+            yield f"data: {json.dumps({'type': 'error', 'fallback': fallback, 'language': language, 'user_conversation_id': user_conv.id, 'character_conversation_id': char_conv.id})}\n\n"
 
     return StreamingResponse(
         generate_stream(),
@@ -1667,10 +1692,15 @@ async def generate_base_tags(request: GenerateBaseTagsRequest) -> dict:
         personality=request.personality,
     )
 
+    # ユーザー設定からNovelAIテキストモデルを取得
+    user_settings = await session_store.get_user_settings()
+    effective_novelai_text_model = user_settings.get("novelai_text_model")
+
     try:
         result = await llm_service.generate_text(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
+            novelai_model_override=effective_novelai_text_model,
         )
         # Clean up: remove markdown formatting, extra whitespace
         raw = result.content.strip()
@@ -1688,6 +1718,101 @@ async def generate_base_tags(request: GenerateBaseTagsRequest) -> dict:
             status_code=500,
             detail=f"Failed to generate base tags: {e}",
         )
+
+
+# ------------------------------------------------------------------
+# Conversation-only deletion (preserves History & images)
+# ------------------------------------------------------------------
+
+
+@router.delete(
+    "/conversation/{history_id}",
+    summary="会話テキストのみ削除",
+    description="指定した履歴IDに紐づく会話テキストのみを削除し、履歴レコードと画像は保持する",
+)
+async def delete_conversation_by_history(
+    history_id: str,
+    session_id: str = Query(..., description="セッションID"),
+) -> dict:
+    """Delete conversation records for a history item without touching History/images."""
+    result = await session_store.delete_conversation_by_history_id(
+        session_id=session_id,
+        history_id=history_id,
+    )
+    if result == -1:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": "NOT_FOUND",
+                "message": "History not found in this session",
+            },
+        )
+    return {
+        "success": True,
+        "deleted_count": result,
+        "message": f"Deleted {result} conversation records for history {history_id}",
+    }
+
+
+@router.delete(
+    "/conversation/message/{conversation_id}",
+    summary="会話メッセージの個別削除",
+    description="指定したconversation IDのメッセージを1件削除する。履歴・画像は削除しない。",
+)
+async def delete_conversation_message(
+    conversation_id: str,
+    session_id: str = Query(..., description="セッションID"),
+) -> dict:
+    """Delete a single conversation message by its ID. History/images are NOT affected."""
+    success = await session_store.delete_conversation_message(
+        session_id=session_id,
+        conversation_id=conversation_id,
+    )
+    if not success:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": "NOT_FOUND",
+                "message": "Conversation message not found in this session",
+            },
+        )
+    return {
+        "success": True,
+        "message": f"Deleted conversation message {conversation_id}",
+    }
+
+
+# ------------------------------------------------------------------
+# Full history entry deletion (History + images + conversations)
+# ------------------------------------------------------------------
+
+
+@router.delete(
+    "/history/{history_id}",
+    summary="履歴エントリを完全削除",
+    description="指定した履歴IDの履歴レコード・画像・会話テキストを全て削除する",
+)
+async def delete_history_entry(
+    history_id: str,
+    session_id: str = Query(..., description="セッションID"),
+) -> dict:
+    """Delete a history entry and all associated data (images, conversations)."""
+    result = await session_store.delete_history_entry(
+        session_id=session_id,
+        history_id=history_id,
+    )
+    if result is None:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": "NOT_FOUND",
+                "message": "History not found in this session",
+            },
+        )
+    return {
+        "success": True,
+        **result,
+    }
 
 
 # ------------------------------------------------------------------

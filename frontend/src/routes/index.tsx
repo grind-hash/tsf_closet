@@ -34,6 +34,7 @@ export const ROUTES = {
   GAME_SESSION: "/play/:sessionId",
   GAME_NEW: "/play/new",
   GALLERY: "/gallery",
+  GALLERY_SESSION: "/gallery/:sessionId",
   ENDINGS: "/endings",
   ACHIEVEMENTS: "/achievements",
   SETTINGS: "/settings",

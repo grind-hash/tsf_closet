@@ -18,6 +18,7 @@ import type {
   ChangeSettings,
   InstructionType,
   PreciseReference,
+  AnlasBalance,
 } from "../types";
 import {
   DEFAULT_CHANGE_SETTINGS,
@@ -40,6 +41,11 @@ interface SettingsState {
 
   // 画像プロバイダー
   imageProvider: "selfhost" | "openrouter" | "novelai";
+
+  // 補助表示情報
+  totalCost: number;
+  showCost: boolean;
+  anlasBalance: AnlasBalance | null;
 
   // デフォルトの指示タイプ
   defaultInstructionType: InstructionType;
@@ -83,6 +89,17 @@ interface SettingsState {
 
   // Clothing color consistency (experimental)
   clothingColorConsistency: boolean;
+
+  // Chat-to-image linking: scroll chat on image navigation
+  linkChatToImage: boolean;
+
+  // Multiple people in image generation (experimental)
+  enableMultiplePeople: boolean;
+
+  // NovelAI text model selection (Opus only)
+  novelaiTextModel: string;
+  // NovelAI subscription tier (null = unknown)
+  novelaiTier: number | null;
 }
 
 // アクション型
@@ -95,6 +112,11 @@ type SettingsAction =
       type: "SET_IMAGE_PROVIDER";
       payload: "selfhost" | "openrouter" | "novelai";
     }
+  | { type: "SET_TOTAL_COST"; payload: number }
+  | { type: "ADD_TOTAL_COST"; payload: number }
+  | { type: "RESET_TOTAL_COST" }
+  | { type: "SET_SHOW_COST"; payload: boolean }
+  | { type: "SET_ANLAS_BALANCE"; payload: AnlasBalance | null }
   | { type: "SET_DEFAULT_INSTRUCTION_TYPE"; payload: InstructionType }
   | { type: "SET_INPAINT_SETTINGS"; payload: Partial<InpaintSettings> }
   | { type: "SET_INPAINT_MASK"; payload: InpaintMaskState }
@@ -121,7 +143,11 @@ type SettingsAction =
   | { type: "SET_ENABLE_SURROUNDINGS_IMAGE"; payload: boolean }
   | { type: "SET_SURROUNDINGS_INCLUDE_PEOPLE"; payload: boolean }
   | { type: "SET_FONT_FAMILY"; payload: string }
-  | { type: "SET_CLOTHING_COLOR_CONSISTENCY"; payload: boolean };
+  | { type: "SET_CLOTHING_COLOR_CONSISTENCY"; payload: boolean }
+  | { type: "SET_LINK_CHAT_TO_IMAGE"; payload: boolean }
+  | { type: "SET_ENABLE_MULTIPLE_PEOPLE"; payload: boolean }
+  | { type: "SET_NOVELAI_TEXT_MODEL"; payload: string }
+  | { type: "SET_NOVELAI_TIER"; payload: number | null };
 
 // デフォルト状態
 const defaultState: SettingsState = {
@@ -129,6 +155,9 @@ const defaultState: SettingsState = {
   language: DEFAULT_LANGUAGE,
   nsfwMode: false,
   imageProvider: "selfhost",
+  totalCost: 0,
+  showCost: false,
+  anlasBalance: null,
   defaultInstructionType: "dress_up",
   inpaintSettings: DEFAULT_INPAINT_SETTINGS,
   inpaintEnabled: false,
@@ -147,6 +176,10 @@ const defaultState: SettingsState = {
   surroundingsIncludePeople: false,
   fontFamily: "system",
   clothingColorConsistency: false,
+  linkChatToImage: false,
+  enableMultiplePeople: false,
+  novelaiTextModel: "glm-4-6",
+  novelaiTier: null,
 };
 
 // Reducer
@@ -165,6 +198,16 @@ function settingsReducer(
       return { ...state, nsfwMode: !state.nsfwMode };
     case "SET_IMAGE_PROVIDER":
       return { ...state, imageProvider: action.payload };
+    case "SET_TOTAL_COST":
+      return { ...state, totalCost: action.payload };
+    case "ADD_TOTAL_COST":
+      return { ...state, totalCost: state.totalCost + action.payload };
+    case "RESET_TOTAL_COST":
+      return { ...state, totalCost: 0 };
+    case "SET_SHOW_COST":
+      return { ...state, showCost: action.payload };
+    case "SET_ANLAS_BALANCE":
+      return { ...state, anlasBalance: action.payload };
     case "SET_DEFAULT_INSTRUCTION_TYPE":
       return { ...state, defaultInstructionType: action.payload };
     case "SET_INPAINT_SETTINGS":
@@ -250,6 +293,14 @@ function settingsReducer(
       return { ...state, fontFamily: action.payload };
     case "SET_CLOTHING_COLOR_CONSISTENCY":
       return { ...state, clothingColorConsistency: action.payload };
+    case "SET_LINK_CHAT_TO_IMAGE":
+      return { ...state, linkChatToImage: action.payload };
+    case "SET_ENABLE_MULTIPLE_PEOPLE":
+      return { ...state, enableMultiplePeople: action.payload };
+    case "SET_NOVELAI_TEXT_MODEL":
+      return { ...state, novelaiTextModel: action.payload };
+    case "SET_NOVELAI_TIER":
+      return { ...state, novelaiTier: action.payload };
     default:
       return state;
   }
@@ -263,6 +314,11 @@ interface SettingsContextType {
   setNsfwMode: (enabled: boolean) => void;
   toggleNsfw: () => void;
   setImageProvider: (provider: "selfhost" | "openrouter" | "novelai") => void;
+  setTotalCost: (value: number) => void;
+  addTotalCost: (value: number) => void;
+  resetTotalCost: () => void;
+  setShowCost: (show: boolean) => void;
+  setAnlasBalance: (balance: AnlasBalance | null) => void;
   setDefaultInstructionType: (type: InstructionType) => void;
   setInpaintSettings: (settings: Partial<InpaintSettings>) => void;
   setInpaintMask: (
@@ -295,6 +351,10 @@ interface SettingsContextType {
   setSurroundingsIncludePeople: (enabled: boolean) => void;
   setFontFamily: (fontFamily: string) => void;
   setClothingColorConsistency: (enabled: boolean) => void;
+  setLinkChatToImage: (enabled: boolean) => void;
+  setEnableMultiplePeople: (enabled: boolean) => void;
+  setNovelaiTextModel: (model: string) => void;
+  setNovelaiTier: (tier: number | null) => void;
 }
 
 // Context作成
@@ -308,12 +368,32 @@ const STORAGE_KEY = "app_settings";
 function loadInitialState(initial: SettingsState): SettingsState {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
+    const legacyTotalCost = localStorage.getItem("api_total_cost");
     if (saved) {
       const parsed = JSON.parse(saved);
       // imageProviderはバックエンドから取得するため除外
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { imageProvider: _ignored, ...rest } = parsed;
-      return { ...initial, ...rest };
+      // novelaiTextModelとnovelaiTierはバックエンド/API経由のため除外
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { novelaiTextModel: _nai, novelaiTier: _tier, ...filtered } = rest;
+      return {
+        ...initial,
+        ...filtered,
+        totalCost:
+          typeof rest.totalCost === "number"
+            ? rest.totalCost
+            : legacyTotalCost
+              ? parseFloat(legacyTotalCost)
+              : initial.totalCost,
+      };
+    }
+
+    if (legacyTotalCost) {
+      return {
+        ...initial,
+        totalCost: parseFloat(legacyTotalCost),
+      };
     }
   } catch (error) {
     console.error("Failed to load settings from localStorage:", error);
@@ -348,6 +428,16 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
           ) {
             dispatch({ type: "SET_IMAGE_PROVIDER", payload: provider });
           }
+
+          const hasCostProvider =
+            data.image_provider === "openrouter" ||
+            data.image_description_provider === "openrouter" ||
+            data.feeling_provider === "openrouter";
+          dispatch({ type: "SET_SHOW_COST", payload: hasCostProvider });
+
+          if (provider !== "novelai") {
+            dispatch({ type: "SET_ANLAS_BALANCE", payload: null });
+          }
         }
       } catch (error) {
         console.warn("Failed to fetch image provider from /health:", error);
@@ -355,6 +445,12 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     };
     fetchImageProvider();
   }, []);
+
+  useEffect(() => {
+    if (state.imageProvider !== "novelai" && state.anlasBalance !== null) {
+      dispatch({ type: "SET_ANLAS_BALANCE", payload: null });
+    }
+  }, [state.imageProvider, state.anlasBalance]);
 
   // 初回ロード時にバックエンドからユーザー設定を取得
   useEffect(() => {
@@ -369,6 +465,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
               nsfwMode: data.nsfw_mode,
               difficulty: data.difficulty,
               language: data.language ?? DEFAULT_LANGUAGE,
+              novelaiTextModel: data.novelai_text_model ?? "glm-4-6",
             },
           });
         }
@@ -405,10 +502,14 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         preciseReferences: _ignored2,
         selfProfile: _ignored3,
         seed: _ignored4,
+        anlasBalance: _ignored5,
+        novelaiTextModel: _ignored6,
+        novelaiTier: _ignored7,
         ...rest
       } = state;
       /* eslint-enable @typescript-eslint/no-unused-vars */
       localStorage.setItem(STORAGE_KEY, JSON.stringify(rest));
+      localStorage.setItem("api_total_cost", String(state.totalCost));
     } catch (error) {
       console.error("Failed to save settings to localStorage:", error);
     }
@@ -505,6 +606,26 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     },
     [],
   );
+
+  const setTotalCost = useCallback((value: number) => {
+    dispatch({ type: "SET_TOTAL_COST", payload: value });
+  }, []);
+
+  const addTotalCost = useCallback((value: number) => {
+    dispatch({ type: "ADD_TOTAL_COST", payload: value });
+  }, []);
+
+  const resetTotalCost = useCallback(() => {
+    dispatch({ type: "RESET_TOTAL_COST" });
+  }, []);
+
+  const setShowCost = useCallback((show: boolean) => {
+    dispatch({ type: "SET_SHOW_COST", payload: show });
+  }, []);
+
+  const setAnlasBalance = useCallback((balance: AnlasBalance | null) => {
+    dispatch({ type: "SET_ANLAS_BALANCE", payload: balance });
+  }, []);
 
   const setDefaultInstructionType = useCallback((type: InstructionType) => {
     dispatch({ type: "SET_DEFAULT_INSTRUCTION_TYPE", payload: type });
@@ -628,6 +749,31 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "SET_CLOTHING_COLOR_CONSISTENCY", payload: enabled });
   }, []);
 
+  const setLinkChatToImage = useCallback((enabled: boolean) => {
+    dispatch({ type: "SET_LINK_CHAT_TO_IMAGE", payload: enabled });
+  }, []);
+
+  const setEnableMultiplePeople = useCallback((enabled: boolean) => {
+    dispatch({ type: "SET_ENABLE_MULTIPLE_PEOPLE", payload: enabled });
+  }, []);
+
+  const setNovelaiTextModel = useCallback(async (model: string) => {
+    dispatch({ type: "SET_NOVELAI_TEXT_MODEL", payload: model });
+    try {
+      await fetch("/api/settings/user", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ novelai_text_model: model }),
+      });
+    } catch (error) {
+      console.error("Failed to save novelai_text_model to backend:", error);
+    }
+  }, []);
+
+  const setNovelaiTier = useCallback((tier: number | null) => {
+    dispatch({ type: "SET_NOVELAI_TIER", payload: tier });
+  }, []);
+
   const value: SettingsContextType = {
     state,
     setDifficulty,
@@ -635,6 +781,11 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setNsfwMode,
     toggleNsfw,
     setImageProvider,
+    setTotalCost,
+    addTotalCost,
+    resetTotalCost,
+    setShowCost,
+    setAnlasBalance,
     setDefaultInstructionType,
     setInpaintSettings,
     setInpaintMask,
@@ -660,6 +811,10 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setSurroundingsIncludePeople,
     setFontFamily,
     setClothingColorConsistency,
+    setLinkChatToImage,
+    setEnableMultiplePeople,
+    setNovelaiTextModel,
+    setNovelaiTier,
   };
 
   return (

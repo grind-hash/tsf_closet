@@ -22,6 +22,7 @@ import type {
   PreciseReferenceType,
 } from "../../types";
 import { previewPrompt, type PreviewPromptResponse } from "../../apis/game";
+import { generateUUID } from "../../utils/generateUUID";
 import "./RightPanel.css";
 
 interface RightPanelProps {
@@ -85,6 +86,8 @@ export default function RightPanel({
     setSurroundingsIncludePeople,
     setClothingColorConsistency,
     setShowRealityAttributeNotification,
+    setEnableMultiplePeople,
+    setNovelaiTextModel,
   } = useSettings();
   const { state: gameState, addAttribute, removeAttribute } = useGame();
   const { state: chatState, setInputText } = useChat();
@@ -111,15 +114,11 @@ export default function RightPanel({
     pbSaved.mode === "textarea" ? "textarea" : "fields",
   );
   const [pbWho, setPbWho] = useState<string>(pbSaved.who ?? "");
-  const [pbLocation, setPbLocation] = useState<string>(
-    pbSaved.location ?? "",
-  );
+  const [pbLocation, setPbLocation] = useState<string>(pbSaved.location ?? "");
   const [pbOutfit, setPbOutfit] = useState<string>(pbSaved.outfit ?? "");
   const [pbTarget, setPbTarget] = useState<string>(pbSaved.target ?? "");
   const [pbAction, setPbAction] = useState<string>(pbSaved.action ?? "");
-  const [pbFreeform, setPbFreeform] = useState<string>(
-    pbSaved.freeform ?? "",
-  );
+  const [pbFreeform, setPbFreeform] = useState<string>(pbSaved.freeform ?? "");
 
   // Save prompt builder state to localStorage
   useEffect(() => {
@@ -451,7 +450,7 @@ export default function RightPanel({
         reader.onload = () => {
           const dataUrl = reader.result as string;
           addPreciseReference({
-            id: crypto.randomUUID(),
+            id: generateUUID(),
             imageData: dataUrl,
             fileName: file.name,
             type: "character&style",
@@ -827,12 +826,6 @@ export default function RightPanel({
             <div className="right-panel__form-group">
               <label className="right-panel__label">
                 {t("rightPanel.seedLabel", "Seed")}
-                <span
-                  className="feature-chip-new"
-                  data-feature-version="v0.3.0"
-                >
-                  New
-                </span>
               </label>
               <div style={{ display: "flex", gap: "0.5rem" }}>
                 <input
@@ -895,12 +888,6 @@ export default function RightPanel({
               </label>
               <div style={{ marginTop: "0.25rem" }}>
                 <span
-                  className="feature-chip-new"
-                  data-feature-version="v0.3.0"
-                >
-                  New
-                </span>
-                <span
                   className="feature-chip-experimental"
                   data-feature-version="v0.3.0"
                 >
@@ -936,12 +923,6 @@ export default function RightPanel({
                   <span className="right-panel__toggle-switch" />
                 </label>
                 <div style={{ marginTop: "0.25rem" }}>
-                  <span
-                    className="feature-chip-new"
-                    data-feature-version="v0.3.0"
-                  >
-                    New
-                  </span>
                   <span
                     className="feature-chip-experimental"
                     data-feature-version="v0.3.0"
@@ -979,12 +960,6 @@ export default function RightPanel({
               </label>
               <div style={{ marginTop: "0.25rem" }}>
                 <span
-                  className="feature-chip-new"
-                  data-feature-version="v0.3.0"
-                >
-                  New
-                </span>
-                <span
                   className="feature-chip-experimental"
                   data-feature-version="v0.3.0"
                 >
@@ -1009,6 +984,83 @@ export default function RightPanel({
                 </small>
               )}
             </div>
+
+            {/* Multiple people toggle */}
+            <div className="right-panel__form-group">
+              <label className="right-panel__toggle">
+                <span className="right-panel__toggle-label">
+                  {t(
+                    "rightPanel.enableMultiplePeople",
+                    "Multiple People (Experimental)",
+                  )}
+                </span>
+                <input
+                  type="checkbox"
+                  checked={settingsState.enableMultiplePeople}
+                  onChange={(e) => setEnableMultiplePeople(e.target.checked)}
+                  className="right-panel__toggle-input"
+                />
+                <span className="right-panel__toggle-switch" />
+              </label>
+              <div style={{ marginTop: "0.25rem" }}>
+                <span
+                  className="feature-chip-experimental"
+                  data-feature-version="v0.3.0"
+                >
+                  Experimental
+                </span>
+              </div>
+              <small className="right-panel__hint">
+                {t(
+                  "rightPanel.enableMultiplePeopleHint",
+                  "Allow multiple characters in generated images. When enabled, the LLM determines the number of characters based on your instructions.",
+                )}
+              </small>
+            </div>
+
+            {/* NovelAI Text Model Selector (Opus only) */}
+            {settingsState.novelaiTier === 3 && (
+              <div className="right-panel__form-group">
+                <label className="right-panel__label">
+                  {t("settings.novelaiTextModel", "NovelAI Text Model")}
+                  <span
+                    className="feature-chip-new"
+                    data-feature-version="v0.4.0"
+                    style={{ marginLeft: "0.5rem" }}
+                  >
+                    New
+                  </span>
+                  <span
+                    className="feature-chip-experimental"
+                    data-feature-version="v0.5.0"
+                    style={{ marginLeft: "0.5rem" }}
+                  >
+                    Experimental
+                  </span>
+                </label>
+                <select
+                  className="right-panel__select"
+                  value={settingsState.novelaiTextModel}
+                  onChange={(e) => setNovelaiTextModel(e.target.value)}
+                >
+                  <option value="glm-4-6">
+                    {t("settings.novelaiTextModelGlm", "GLM 4.6 (Default)")}
+                  </option>
+                  <option value="xialong-v1">
+                    {t(
+                      "settings.novelaiTextModelXialong",
+                      "Xialong v1 (Experimental)",
+                    )}
+                  </option>
+                </select>
+                <small className="right-panel__hint">
+                  {t(
+                    "settings.novelaiTextModelDesc",
+                    "Select the NovelAI model for text generation.",
+                  )}
+                </small>
+              </div>
+            )}
 
             {/* Prompt Builder */}
             {settingsState.clothingColorConsistency && (
@@ -1148,7 +1200,13 @@ export default function RightPanel({
                         const target = pbTarget.trim();
                         const action = pbAction.trim();
 
-                        if (!who && !outfit && !location && !target && !action) {
+                        if (
+                          !who &&
+                          !outfit &&
+                          !location &&
+                          !target &&
+                          !action
+                        ) {
                           setInputText(
                             `${t("rightPanel.promptBuilderWhoPlaceholder")}、${t("rightPanel.promptBuilderOutfitPlaceholder")}で、${t("rightPanel.promptBuilderLocationPlaceholder")}にて、${t("rightPanel.promptBuilderTargetPlaceholder")}を、${t("rightPanel.promptBuilderActionPlaceholder")}`,
                           );

@@ -1,22 +1,37 @@
 import { test, expect } from "@playwright/test";
+import { startFirstCharacterGame } from "./helpers/gameplay";
 
 test("inpaint OFF clears mask configured state", async ({ page }) => {
-  await page.addInitScript(() => {
-    window.localStorage.setItem("novelai_api_key_consent", "true");
+  // Intercept health endpoint to ensure image_provider is "novelai"
+  await page.route("**/health", async (route) => {
+    const response = await route.fetch();
+    const json = await response.json();
+    json.image_provider = "novelai";
+    await route.fulfill({ response, json });
   });
-  await page.goto("http://localhost:3000/play");
 
-  await page.locator(".backdrop").first().waitFor({ state: "hidden" });
-  await page.getByText("🎨 インペイントモード").click();
+  await startFirstCharacterGame(page);
 
-  const applyButton = page.getByRole("button", { name: "適用" });
+  // Language-agnostic locator for inpaint toggle
+  const inpaintToggle = page.getByText(/インペイントモード|Inpaint Mode/);
+  await expect(inpaintToggle).toBeVisible({ timeout: 10_000 });
+  await inpaintToggle.click();
+
+  // Language-agnostic locators for buttons and status
+  const applyButton = page.getByRole("button", { name: /適用|Apply/ });
+  const maskEditButton = page.getByRole("button", {
+    name: /マスク編集|Edit Mask/,
+  });
   if (!(await applyButton.isVisible().catch(() => false))) {
-    await page.getByRole("button", { name: "✂️ マスク編集" }).click();
+    await maskEditButton.click();
   }
-  await page.getByRole("button", { name: "適用" }).click();
+  await applyButton.click();
 
-  await expect(page.getByText("✓ マスクが設定されています")).toBeVisible();
+  const maskStatus = page.getByText(
+    /マスクが設定されています|Mask is configured/,
+  );
+  await expect(maskStatus).toBeVisible();
 
-  await page.getByText("🎨 インペイントモード").click();
-  await expect(page.getByText("✓ マスクが設定されています")).toBeHidden();
+  await inpaintToggle.click();
+  await expect(maskStatus).toBeHidden();
 });

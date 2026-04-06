@@ -69,6 +69,17 @@ const resources = {
         experimentalClothingColor: "服の色の一貫性を保つ",
         experimentalClothingColorDesc:
           "変身時に服の色を必ず指定し、行動時に色が変わらないようにします。",
+        linkChatToImage: "画像とチャットを連動",
+        linkChatToImageDesc:
+          "画像履歴をめくるとき、対応するチャットメッセージまでスクロールします。",
+        enableMultiplePeople: "複数人表示（実験的）",
+        enableMultiplePeopleDesc:
+          "画像生成時に複数のキャラクターを表示できるようにします。ONにすると、指示に基づいてLLMが人数を自動判断します。",
+        novelaiTextModel: "NovelAI テキストモデル",
+        novelaiTextModelDesc:
+          "テキスト生成（心境・プロンプト拡張・会話など）に使用するNovelAIモデルを選択します。Opusプラン限定です。",
+        novelaiTextModelGlm: "GLM 4.6（デフォルト）",
+        novelaiTextModelXialong: "Xialong v1（実験的）",
         dataSection: "データ",
         reset: "設定を初期化",
         resetDesc: "すべての設定を初期値に戻します",
@@ -223,6 +234,9 @@ const resources = {
           "有効にすると、プロンプト生成時に服の色の一貫性を保つルールが追加されます。",
         clothingColorConsistencyTradeoff:
           "※ 「誰が・どの衣装で・どこで・何を・どうする」のように、具体的な指示が必要になります。下のプロンプトビルダーをご活用ください。",
+        enableMultiplePeople: "複数人表示（実験的）",
+        enableMultiplePeopleHint:
+          "画像生成時に複数のキャラクターを表示できるようにします。ONにすると、指示に基づいてLLMが人数を自動判断します。",
         sectionPromptBuilder: "プロンプトビルダー",
         promptBuilderWho: "誰が",
         promptBuilderWhoPlaceholder: "主人公",
@@ -291,7 +305,7 @@ const resources = {
         adaptationSexy: "セクシー",
         adaptationNeutral: "中立",
         adaptationCute: "可愛い",
-        selfModeLabel: "自分自身モード（実験的機能）",
+        selfModeLabel: "自分自身モード",
         selfModeDesc: "パラメータ追跡は無効です",
       },
       attributeSection: {
@@ -373,7 +387,7 @@ const resources = {
           dressUp: "着せ替え",
           realityAlter: "現実改変",
           conversation: "会話",
-          action: "行動（実験的機能）",
+          action: "行動",
           dressUpShort: "着替",
           realityAlterShort: "改変",
           conversationShort: "会話",
@@ -398,6 +412,14 @@ const resources = {
         list: {
           emptyLine1: "メッセージはまだありません。",
           emptyLine2: "指示を入力してゲームを始めましょう。",
+        },
+        export: {
+          button: "エクスポート",
+          clipboard: "クリップボードにコピー",
+          novel: "小説形式 (.txt)",
+          markdown: "Markdown (.md)",
+          csv: "CSV (.csv)",
+          json: "JSON (.json)",
         },
         welcome: {
           title: "TSF Closetへようこそ",
@@ -431,7 +453,7 @@ const resources = {
           customCharacterDefaultName: "カスタムキャラクター",
           startSessionError: "セッション開始に失敗しました",
           startSessionFailed: "セッションの開始に失敗しました",
-          selfMode: "自分自身モード（実験的機能）",
+          selfMode: "自分自身モード",
           selfModeDescription:
             "パラメータ追跡なしで、自分の性格に基づいた反応を生成します",
           selfModeNoProfile:
@@ -459,8 +481,6 @@ const resources = {
           "最新のメッセージを取り消し、入力欄に戻して修正できるようにしますか？（最新の画像は削除されます）",
         editMessageAction: "取り消して修正する",
         editMessageCancel: "キャンセル",
-        messageRequiresReload:
-          "このメッセージを操作するにはページをリロードしてください",
         anlasProceed: "続行",
       },
       gallery: {
@@ -541,6 +561,7 @@ const resources = {
         filterCrossdress: "女装",
         filterReality: "現実改変",
         filterCollection: "コレクション",
+        filterSelf: "自分モード",
         transformCount: "変身回数: {{count}}",
         crossdressCount: "女装回数: {{count}}",
         realityAlterCount: "現実改変回数: {{count}}",
@@ -677,6 +698,17 @@ const resources = {
         experimentalClothingColor: "Clothing Color Consistency",
         experimentalClothingColorDesc:
           "Always specify clothing colors during transformation and preserve them during actions.",
+        linkChatToImage: "Link Chat to Image",
+        linkChatToImageDesc:
+          "Scroll to the corresponding chat message when navigating image history.",
+        enableMultiplePeople: "Multiple People (Experimental)",
+        enableMultiplePeopleDesc:
+          "Allow multiple characters in generated images. When enabled, the LLM determines the number of characters based on your instructions.",
+        novelaiTextModel: "NovelAI Text Model",
+        novelaiTextModelDesc:
+          "Select the NovelAI model for text generation (inner monologue, prompt expansion, chat, etc.). Opus plan only.",
+        novelaiTextModelGlm: "GLM 4.6 (Default)",
+        novelaiTextModelXialong: "Xialong v1 (Experimental)",
         dataSection: "Data",
         reset: "Reset settings",
         resetDesc: "Reset all settings to defaults",
@@ -830,6 +862,9 @@ const resources = {
           "When enabled, adds rules to prompt generation to maintain clothing color consistency.",
         clothingColorConsistencyTradeoff:
           '* Requires specific instructions like "who, wearing what, where, doing what". Use the prompt builder below.',
+        enableMultiplePeople: "Multiple People (Experimental)",
+        enableMultiplePeopleHint:
+          "Allow multiple characters in generated images. When enabled, the LLM determines the number of characters based on your instructions.",
         sectionPromptBuilder: "Prompt Builder",
         promptBuilderWho: "Who",
         promptBuilderWhoPlaceholder: "Protagonist",
@@ -898,7 +933,7 @@ const resources = {
         adaptationSexy: "Sexy",
         adaptationNeutral: "Neutral",
         adaptationCute: "Cute",
-        selfModeLabel: "Self Mode (Experimental)",
+        selfModeLabel: "Self Mode",
         selfModeDesc: "Parameter tracking is disabled",
       },
       attributeSection: {
@@ -980,7 +1015,7 @@ const resources = {
           dressUp: "Dress Up",
           realityAlter: "Reality Alter",
           conversation: "Conversation",
-          action: "Action (Experimental)",
+          action: "Action",
           dressUpShort: "Dress",
           realityAlterShort: "Reality",
           conversationShort: "Chat",
@@ -1005,6 +1040,14 @@ const resources = {
         list: {
           emptyLine1: "No messages yet.",
           emptyLine2: "Enter an instruction to start the game.",
+        },
+        export: {
+          button: "Export",
+          clipboard: "Copy to Clipboard",
+          novel: "Novel Format (.txt)",
+          markdown: "Markdown (.md)",
+          csv: "CSV (.csv)",
+          json: "JSON (.json)",
         },
         welcome: {
           title: "Welcome to TSF Closet",
@@ -1038,7 +1081,7 @@ const resources = {
           customCharacterDefaultName: "Custom Character",
           startSessionError: "Failed to start session",
           startSessionFailed: "Failed to start the session",
-          selfMode: "Self Mode (Experimental)",
+          selfMode: "Self Mode",
           selfModeDescription:
             "Generate reactions based on your own personality without parameter tracking",
           selfModeNoProfile:
@@ -1067,7 +1110,6 @@ const resources = {
           "Undo the latest message and restore it to the input for editing? (Image and parameter changes will not be rolled back)",
         editMessageAction: "Undo & Edit",
         editMessageCancel: "Cancel",
-        messageRequiresReload: "Please reload the page to manage this message",
       },
       gallery: {
         title: "Gallery",
@@ -1146,6 +1188,7 @@ const resources = {
         filterCrossdress: "Crossdress",
         filterReality: "Reality Alter",
         filterCollection: "Collection",
+        filterSelf: "Self Mode",
         transformCount: "Transform Count: {{count}}",
         crossdressCount: "Crossdress Count: {{count}}",
         realityAlterCount: "Reality Alter Count: {{count}}",

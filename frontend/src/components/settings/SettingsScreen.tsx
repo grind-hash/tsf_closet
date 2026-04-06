@@ -23,6 +23,9 @@ export default function SettingsScreen() {
     setSurroundingsIncludePeople,
     setClothingColorConsistency,
     setFontFamily,
+    setLinkChatToImage,
+    setEnableMultiplePeople,
+    setNovelaiTextModel,
     resetSettings,
   } = useSettings();
 
@@ -200,12 +203,6 @@ export default function SettingsScreen() {
               <div className="settings-screen__item-header">
                 <span className="settings-screen__item-label">
                   {t("settings.fontFamily")}
-                  <span
-                    className="feature-chip-new"
-                    data-feature-version="v0.3.0"
-                  >
-                    New
-                  </span>
                 </span>
                 <span className="settings-screen__item-desc">
                   {t("settings.fontFamilyDesc")}
@@ -345,13 +342,6 @@ export default function SettingsScreen() {
                 <div className="settings-screen__toggle-info">
                   <span className="settings-screen__item-label">
                     {t("settings.experimentalSurroundings")}
-                    <span
-                      className="feature-chip-new"
-                      data-feature-version="v0.3.0"
-                      style={{ marginLeft: "0.5rem" }}
-                    >
-                      New
-                    </span>
                   </span>
                   <span className="settings-screen__item-desc">
                     {t("settings.experimentalSurroundingsDesc")}
@@ -396,13 +386,6 @@ export default function SettingsScreen() {
                 <div className="settings-screen__toggle-info">
                   <span className="settings-screen__item-label">
                     {t("settings.experimentalClothingColor")}
-                    <span
-                      className="feature-chip-new"
-                      data-feature-version="v0.3.0"
-                      style={{ marginLeft: "0.5rem" }}
-                    >
-                      New
-                    </span>
                   </span>
                   <span className="settings-screen__item-desc">
                     {t("settings.experimentalClothingColorDesc")}
@@ -414,6 +397,101 @@ export default function SettingsScreen() {
                   onChange={(e) =>
                     setClothingColorConsistency(e.target.checked)
                   }
+                  className="settings-screen__toggle-input"
+                />
+                <span className="settings-screen__toggle-switch" />
+              </label>
+            </div>
+
+            <div className="settings-screen__item">
+              <label className="settings-screen__toggle">
+                <div className="settings-screen__toggle-info">
+                  <span className="settings-screen__item-label">
+                    {t("settings.enableMultiplePeople")}
+                    <span
+                      className="feature-chip-new"
+                      data-feature-version="v0.4.0"
+                      style={{ marginLeft: "0.5rem" }}
+                    >
+                      New
+                    </span>
+                  </span>
+                  <span className="settings-screen__item-desc">
+                    {t("settings.enableMultiplePeopleDesc")}
+                  </span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={state.enableMultiplePeople}
+                  onChange={(e) => setEnableMultiplePeople(e.target.checked)}
+                  className="settings-screen__toggle-input"
+                />
+                <span className="settings-screen__toggle-switch" />
+              </label>
+            </div>
+
+            {state.imageProvider === "novelai" && state.novelaiTier === 3 && (
+              <div className="settings-screen__item">
+                <div className="settings-screen__toggle-info">
+                  <span className="settings-screen__item-label">
+                    {t("settings.novelaiTextModel")}
+                    <span
+                      className="feature-chip-new"
+                      data-feature-version="v0.4.0"
+                      style={{ marginLeft: "0.5rem" }}
+                    >
+                      New
+                    </span>
+                    <span
+                      className="feature-chip-experimental"
+                      data-feature-version="v0.5.0"
+                      style={{ marginLeft: "0.5rem" }}
+                    >
+                      Experimental
+                    </span>
+                  </span>
+                  <span className="settings-screen__item-desc">
+                    {t("settings.novelaiTextModelDesc")}
+                  </span>
+                </div>
+                <div className="settings-screen__select-wrapper">
+                  <select
+                    className="settings-screen__select"
+                    value={state.novelaiTextModel}
+                    onChange={(e) => setNovelaiTextModel(e.target.value)}
+                  >
+                    <option value="glm-4-6">
+                      {t("settings.novelaiTextModelGlm")}
+                    </option>
+                    <option value="xialong-v1">
+                      {t("settings.novelaiTextModelXialong")}
+                    </option>
+                  </select>
+                </div>
+              </div>
+            )}
+
+            <div className="settings-screen__item">
+              <label className="settings-screen__toggle">
+                <div className="settings-screen__toggle-info">
+                  <span className="settings-screen__item-label">
+                    {t("settings.linkChatToImage")}
+                    <span
+                      className="feature-chip-new"
+                      data-feature-version="v0.4.0"
+                      style={{ marginLeft: "0.5rem" }}
+                    >
+                      New
+                    </span>
+                  </span>
+                  <span className="settings-screen__item-desc">
+                    {t("settings.linkChatToImageDesc")}
+                  </span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={state.linkChatToImage}
+                  onChange={(e) => setLinkChatToImage(e.target.checked)}
                   className="settings-screen__toggle-input"
                 />
                 <span className="settings-screen__toggle-switch" />

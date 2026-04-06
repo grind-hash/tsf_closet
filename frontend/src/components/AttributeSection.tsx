@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { AttributePreset } from "../types";
+import { generateUUID } from "../utils/generateUUID";
 import "./AttributeSection.css";
 
 export interface Attribute {
@@ -68,7 +69,7 @@ export function AttributeSection({
     } else {
       // 追加
       const newAttr: Attribute = {
-        id: crypto.randomUUID(),
+        id: generateUUID(),
         text,
       };
       onAttributesChange([...attributes, newAttr]);
@@ -125,7 +126,7 @@ export function AttributeSection({
       if (preset) {
         onAttributesChange(
           preset.attributes.map((text) => ({
-            id: crypto.randomUUID(),
+            id: generateUUID(),
             text,
           })),
         );
@@ -139,7 +140,7 @@ export function AttributeSection({
     if (!name || attributes.length === 0) return;
 
     const newPreset: AttributePreset = {
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       name,
       attributes: attributes.map((a) => a.text),
       createdAt: new Date().toISOString(),

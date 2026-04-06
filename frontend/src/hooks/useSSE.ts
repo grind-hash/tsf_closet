@@ -24,7 +24,7 @@ export interface UseSSEOptions {
   onCritical?: (data: SSECriticalData) => void;
   onEnding?: (data: SSEEndingData) => void;
   onAchievement?: (data: SSEAchievementData) => void;
-  onComplete?: (historyId: string, transformationCount: number) => void;
+  onComplete?: (historyId: string | null, transformationCount: number) => void;
   onCost?: (cost: number) => void;
   onAnlas?: (balance: AnlasBalance) => void;
   onRealityAttributeAdded?: (data: {
@@ -112,7 +112,10 @@ export function useSSE(options: UseSSEOptions): UseSSEReturn {
             break;
           case "complete":
             if (options.onComplete) {
-              options.onComplete(data.history_id, data.transformation_count);
+              options.onComplete(
+                data.history_id ?? null,
+                data.transformation_count,
+              );
             }
             break;
           case "cost":
@@ -122,11 +125,17 @@ export function useSSE(options: UseSSEOptions): UseSSEReturn {
             break;
           case "anlas":
             if (options.onAnlas) {
-              options.onAnlas({
-                fixedAnlas: data.fixed_anlas ?? 0,
-                purchasedAnlas: data.purchased_anlas ?? 0,
-                totalAnlas: data.total_anlas ?? 0,
-              });
+              if (
+                typeof data.fixed_anlas === "number" &&
+                typeof data.purchased_anlas === "number" &&
+                typeof data.total_anlas === "number"
+              ) {
+                options.onAnlas({
+                  fixedAnlas: data.fixed_anlas,
+                  purchasedAnlas: data.purchased_anlas,
+                  totalAnlas: data.total_anlas,
+                });
+              }
             }
             break;
           case "reality_attribute_added":

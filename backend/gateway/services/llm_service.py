@@ -225,6 +225,25 @@ class OpenRouterLLMClient:
 # =============================================================================
 
 
+# モデルごとのデフォルトサンプリングパラメータ
+_NOVELAI_MODEL_PARAMS: Dict[str, Dict[str, Any]] = {
+    "xialong-v1": {
+        "top_k": 250,
+        "top_p": 0.95,
+        "temperature": 0.85,
+        "stop": ["***", "\n["],
+    },
+    "glm-4-6": {"top_k": 40, "top_p": 0.95, "temperature": 1.0},
+}
+
+
+# NovelAI画像プロンプト用タグ置換マップ
+# LLMが出力しがちな表現をNovelAI画像生成で有効なタグに変換する
+_NOVELAI_PROMPT_TAG_REPLACEMENTS: Dict[str, str] = {
+    "shorts": "panties",
+}
+
+
 class NovelAILLMClient:
     """NovelAI LLMクライアント (OpenAI互換エンドポイント)
 
@@ -254,42 +273,55 @@ class NovelAILLMClient:
         self,
         system_prompt: str,
         user_prompt: str,
+        model_override: Optional[str] = None,
+        max_tokens: int = 4096,
     ) -> LLMResult:
         """テキストを生成する（内部でストリーミングを使用）
 
         NovelAI APIではstream=falseの場合token_idsが返されるため、
         内部でストリーミングを使用し、全チャンクを結合して返す。
         """
+        effective_model = model_override or self.model
         content_parts: List[str] = []
-        async for chunk in self.generate_text_stream(system_prompt, user_prompt):
+        async for chunk in self.generate_text_stream(
+            system_prompt,
+            user_prompt,
+            model_override=model_override,
+            max_tokens=max_tokens,
+        ):
             content_parts.append(chunk)
 
         content = "".join(content_parts)
-        logger.info(f"NovelAI LLM: model={self.model}, length={len(content)}")
+        logger.info(f"NovelAI LLM: model={effective_model}, length={len(content)}")
 
         return LLMResult(
             content=content,
             provider="novelai",
-            model=self.model,
+            model=effective_model,
         )
 
     async def generate_text_stream(
         self,
         system_prompt: str,
         user_prompt: str,
+        model_override: Optional[str] = None,
+        max_tokens: int = 4096,
     ) -> AsyncGenerator[str, None]:
         """テキストをストリーミング生成する
 
         SSEフォーマットでレスポンスを受け取り、delta.contentを順次yield。
         """
+        effective_model = model_override or self.model
+        sampling_params = _NOVELAI_MODEL_PARAMS.get(effective_model, {})
         payload = {
-            "model": self.model,
+            "model": effective_model,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            "max_tokens": 4096,
+            "max_tokens": max_tokens,
             "stream": True,  # 必須: falseだとtoken_idsが返される
+            **sampling_params,
         }
 
         try:
@@ -401,6 +433,8 @@ class LLMService:
         system_prompt: str,
         user_prompt: str,
         provider_override: Optional[str] = None,
+        novelai_model_override: Optional[str] = None,
+        max_tokens: Optional[int] = None,
     ) -> LLMResult:
         """心境テキストを生成する
 
@@ -419,8 +453,13 @@ class LLMService:
                 system_prompt, user_prompt
             )
         elif provider == "novelai":
+            kwargs: dict[str, Any] = {
+                "model_override": novelai_model_override,
+            }
+            if max_tokens is not None:
+                kwargs["max_tokens"] = max_tokens
             return await self._get_novelai_client().generate_text(
-                system_prompt, user_prompt
+                system_prompt, user_prompt, **kwargs
             )
         else:
             # セルフホスト (LiteLLM Proxy)
@@ -437,6 +476,8 @@ class LLMService:
         system_prompt: str,
         user_prompt: str,
         provider_override: Optional[str] = None,
+        novelai_model_override: Optional[str] = None,
+        max_tokens: Optional[int] = None,
     ) -> AsyncGenerator[str, None]:
         """心境テキストをストリーミング生成する
 
@@ -456,8 +497,13 @@ class LLMService:
             ):
                 yield chunk
         elif provider == "novelai":
+            nai_kwargs: dict[str, Any] = {
+                "model_override": novelai_model_override,
+            }
+            if max_tokens is not None:
+                nai_kwargs["max_tokens"] = max_tokens
             async for chunk in self._get_novelai_client().generate_text_stream(
-                system_prompt, user_prompt
+                system_prompt, user_prompt, **nai_kwargs
             ):
                 yield chunk
         else:
@@ -473,6 +519,7 @@ class LLMService:
         system_prompt: str,
         user_prompt: str,
         provider_override: Optional[str] = None,
+        novelai_model_override: Optional[str] = None,
     ) -> LLMResult:
         """テキストを生成する (汎用)
 
@@ -492,7 +539,7 @@ class LLMService:
             )
         elif provider == "novelai":
             return await self._get_novelai_client().generate_text(
-                system_prompt, user_prompt
+                system_prompt, user_prompt, model_override=novelai_model_override
             )
         else:
             # セルフホスト (LiteLLM Proxy)
@@ -576,6 +623,8 @@ class LLMService:
         system_prompt_override: str | None = None,
         gender: str = "man",
         clothing_color_consistency: bool = False,
+        enable_multiple_people: bool = False,
+        novelai_model_override: str | None = None,
     ) -> str:
         """NovelAI画像生成プロンプトを生成する (T006)
 
@@ -607,18 +656,27 @@ class LLMService:
                 nsfw_mode=nsfw_mode,
                 instruction_language=language,
                 clothing_color_consistency=clothing_color_consistency,
+                enable_multiple_people=enable_multiple_people,
             )
         user_prompt = build_novelai_prompt_generation_user(
             instruction=instruction,
             previous_prompt=previous_prompt,
+            enable_multiple_people=enable_multiple_people,
         )
 
         # NovelAI GLM-4.6を使用
         client = self._get_novelai_client()
-        result = await client.generate_text(system_prompt, user_prompt)
+        result = await client.generate_text(
+            system_prompt, user_prompt, model_override=novelai_model_override
+        )
 
         # 生成されたプロンプトをクリーンアップ（余分な空白・改行を除去）
         generated_prompt = result.content.strip()
+
+        # タグ置換: LLMが出す不適切な表現をNovelAI有効タグに変換
+        for old_tag, new_tag in _NOVELAI_PROMPT_TAG_REPLACEMENTS.items():
+            generated_prompt = generated_prompt.replace(old_tag, new_tag)
+
         logger.info(
             f"NovelAI prompt generation: instruction='{instruction[:30]}...', "
             f"prompt_length={len(generated_prompt)}"

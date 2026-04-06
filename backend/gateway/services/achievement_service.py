@@ -79,6 +79,33 @@ class AchievementService:
             )
             gallery_count = session.scalar(select(func.count(History.id)))
 
+            # Self-mode transformation count
+            self_transform_count = session.scalar(
+                select(func.coalesce(func.sum(Session.transformation_count), 0)).where(
+                    Session.self_mode.is_(True)
+                )
+            )
+
+            # Self-mode reality_alter count
+            self_reality_alter_count = session.scalar(
+                select(func.count(History.id))
+                .join(Session, Session.id == History.session_id)
+                .where(
+                    Session.self_mode.is_(True),
+                    History.instruction_type == "reality_alter",
+                )
+            )
+
+            # Self-mode action count
+            self_action_count = session.scalar(
+                select(func.count(History.id))
+                .join(Session, Session.id == History.session_id)
+                .where(
+                    Session.self_mode.is_(True),
+                    History.instruction_type == "action",
+                )
+            )
+
             latest_stats = session.execute(
                 select(SessionStats)
                 .join(Session, Session.id == SessionStats.session_id)
@@ -94,6 +121,9 @@ class AchievementService:
                 "crossdress_count": counts.crossdress_count if counts else 0,
                 "reality_alter_count": counts.reality_alter_count if counts else 0,
                 "gallery_count": int(gallery_count or 0),
+                "self_transform_count": int(self_transform_count or 0),
+                "self_reality_alter_count": int(self_reality_alter_count or 0),
+                "self_action_count": int(self_action_count or 0),
                 "bloom": latest_stats.bloom if latest_stats else 0,
                 "shame": latest_stats.shame if latest_stats else 50,
                 "adaptation": latest_stats.adaptation if latest_stats else 0,

@@ -56,6 +56,8 @@ from .session import session_store
 from .tag_classifier import classify_tags, TransformationTags
 from .endings import judge_ending
 from ..routes.achievements_router import (
+    ACHIEVEMENTS,
+    check_achievement,
     check_achievements,
     save_user_achievement,
     get_user_achievements,
@@ -67,6 +69,63 @@ from .anlas_service import get_anlas_balance
 from ..consts.language import normalize_language
 
 logger = logging.getLogger(__name__)
+
+# Position mapping for multi-character V4 prompt
+_POSITION_MAP: dict[str, tuple[float, float]] = {
+    "center": (0.5, 0.5),
+    "left": (0.3, 0.5),
+    "right": (0.7, 0.5),
+}
+
+
+def _parse_novelai_prompt_json(
+    raw_response: str,
+) -> tuple[str, list[dict]] | None:
+    """Parse LLM response into (scene_prompt, characters_list).
+
+    Supports two formats:
+    - Single character: {"character": "...", "scene": "..."}
+    - Multiple characters: {"characters": [{"tags": "...", "position": "center"}, ...], "scene": "..."}
+
+    Returns None if parsing fails.
+    """
+    raw = raw_response.strip()
+    if raw.startswith("```"):
+        raw = raw.split("\n", 1)[-1]
+        if raw.endswith("```"):
+            raw = raw[: -len("```")]
+        raw = raw.strip()
+
+    parsed = json.loads(raw)
+    scene_prompt = parsed.get("scene", "").strip()
+    if not scene_prompt:
+        return None
+
+    # Multi-character format: {"characters": [...], "scene": "..."}
+    characters_list = parsed.get("characters")
+    if isinstance(characters_list, list) and len(characters_list) > 0:
+        result_chars = []
+        for i, char_entry in enumerate(characters_list):
+            tags = char_entry.get("tags", "").strip()
+            if not tags:
+                continue
+            pos_name = char_entry.get("position", "center")
+            position = _POSITION_MAP.get(pos_name, (0.5, 0.5))
+            result_chars.append({"prompt": tags, "position": position})
+        if result_chars:
+            logger.info(
+                "Multi-character prompt parsed: %d characters, scene_len=%d",
+                len(result_chars),
+                len(scene_prompt),
+            )
+            return scene_prompt, result_chars
+
+    # Single character format: {"character": "...", "scene": "..."}
+    char_prompt = parsed.get("character", "").strip()
+    if char_prompt:
+        return scene_prompt, [{"prompt": char_prompt, "position": (0.5, 0.5)}]
+
+    return None
 
 
 class GameServiceError(RuntimeError):
@@ -267,6 +326,7 @@ class GameService:
         character: Optional["Character"] = None,
         self_profile: dict | None = None,
         base_tags: str = "",
+        enable_multiple_people: bool = False,
     ) -> str:
         """NovelAI Opusモードの初回用初期プロンプトを構築
 
@@ -279,6 +339,7 @@ class GameService:
             character: キャラクターオブジェクト
             self_profile: 自分自身モードのプロフィール
             base_tags: Danbooru形式の外見タグ (直接指定)
+            enable_multiple_people: 複数人表示モード（soloタグを付与しない）
 
         Returns:
             NovelAIタグ形式の初期プロンプト
@@ -291,9 +352,11 @@ class GameService:
             char_tags = character.base_tags or character.description
         else:
             char_tags = ""
+        # 複数人表示モードではsoloタグを付与しない
+        solo_tag = "" if enable_multiple_people else ", solo"
         return (
-            f"masterpiece, best quality, very aesthetic, "
-            f"{gender_tag}, solo, {char_tags}"
+            f"masterpiece, best quality, very aesthetic, anime, moe, "
+            f"{gender_tag}{solo_tag}, {char_tags}"
         ).rstrip(", ")
 
     @staticmethod
@@ -364,6 +427,10 @@ class GameService:
         session = await self._get_or_create_session(request)
         logger.debug("Session: %s", session.session_id)
 
+        # ユーザー設定からNovelAIテキストモデルを取得
+        user_settings = await session_store.get_user_settings(session.session_id)
+        effective_novelai_text_model = user_settings.get("novelai_text_model")
+
         before_image = session.current_image
         pronoun = session.character.pronoun if session.character else "僕"
 
@@ -377,6 +444,7 @@ class GameService:
         image_edit_prompt, _prompt_cost = await self._generate_image_edit_prompt(
             instruction=request.instruction,
             current_description=before_desc,
+            novelai_model_override=effective_novelai_text_model,
         )
         logger.info("Image edit prompt: %s", image_edit_prompt[:100])
 
@@ -399,6 +467,7 @@ class GameService:
                 after_desc=inferred_after_desc,
                 instruction=request.instruction,
                 pronoun=pronoun,
+                novelai_model_override=effective_novelai_text_model,
             )
         )
 
@@ -586,6 +655,7 @@ class GameService:
         include_people: bool = False,
         is_reality_change: bool = False,
         reality_alter_descriptions: list[str] | None = None,
+        novelai_model_override: str | None = None,
     ) -> tuple[bytes | None, float | None, int | None]:
         """Generate surroundings image (NovelAI txt2img, US2)
 
@@ -630,6 +700,7 @@ class GameService:
             scenery_prompt_result = await llm_service.generate_text(
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
+                novelai_model_override=novelai_model_override,
             )
             scenery_prompt = scenery_prompt_result.content.strip()
             logger.info(
@@ -669,6 +740,7 @@ class GameService:
         change_scope: str = "full",
         custom_preserve_text: str = "",
         nsfw_mode: bool = False,
+        novelai_model_override: str | None = None,
     ) -> tuple[str, float | None]:
         """画像編集プロンプトを生成 (LLMService経由)
 
@@ -777,6 +849,7 @@ class GameService:
         after_desc: str,
         instruction: str,
         pronoun: str,
+        novelai_model_override: str | None = None,
     ) -> tuple[str, float | None]:
         """心境を生成 (LLMService経由)
 
@@ -807,6 +880,8 @@ class GameService:
             result = await llm_service.generate_feeling(
                 system_prompt=FEELING_SYSTEM_PROMPT,
                 user_prompt=user_prompt,
+                novelai_model_override=novelai_model_override,
+                max_tokens=1024,
             )
             logger.info(
                 f"心境生成完了: provider={result.provider}, cost={result.cost_usd}"
@@ -829,6 +904,8 @@ class GameService:
         personality: str = "",
         description: str = "",
         used_openings: list[str] | None = None,
+        enable_multiple_people: bool = False,
+        novelai_model_override: str | None = None,
     ) -> AsyncGenerator[str, None]:
         """LLM経由で心境テキストをストリーミング生成する。
 
@@ -865,6 +942,7 @@ class GameService:
             personality=personality,
             description=description,
             used_openings=used_openings,
+            enable_multiple_people=enable_multiple_people,
         )
         from .conversation import get_language_rules
 
@@ -875,6 +953,7 @@ class GameService:
             user_prompt=user_prompt,
             language=language,
             error_context="心境ストリーミングエラー",
+            novelai_model_override=novelai_model_override,
         ):
             yield chunk
 
@@ -884,6 +963,7 @@ class GameService:
         user_prompt: str,
         language: str,
         error_context: str = "Feeling stream error",
+        novelai_model_override: str | None = None,
     ) -> AsyncGenerator[str, None]:
         """Common helper: stream feeling text from LLM with error handling.
 
@@ -900,6 +980,8 @@ class GameService:
             async for chunk in llm_service.generate_feeling_stream(
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
+                novelai_model_override=novelai_model_override,
+                max_tokens=1024,
             ):
                 yield chunk
         except (LLMServiceError, LiteLLMClientError) as e:
@@ -917,6 +999,8 @@ class GameService:
         self_profile: dict,
         nsfw_mode: bool = False,
         language: str = "ja",
+        enable_multiple_people: bool = False,
+        novelai_model_override: str | None = None,
     ) -> AsyncGenerator[str, None]:
         """自分自身モードの心境テキストをユーザーの性格プロフィールでストリーミング生成する。
 
@@ -929,6 +1013,7 @@ class GameService:
             self_profile: パース済みの自分自身プロフィール辞書
             nsfw_mode: NSFWモードの有無
             language: 出力言語
+            enable_multiple_people: 複数人表示モード
 
         Yields:
             テキストチャンク
@@ -939,6 +1024,7 @@ class GameService:
             instruction=instruction,
             self_profile=self_profile,
             nsfw_mode=nsfw_mode,
+            enable_multiple_people=enable_multiple_people,
         )
         from .conversation import get_language_rules
 
@@ -949,6 +1035,7 @@ class GameService:
             user_prompt=user_prompt,
             language=language,
             error_context="自分自身モード心境ストリーミングエラー",
+            novelai_model_override=novelai_model_override,
         ):
             yield chunk
 
@@ -958,6 +1045,7 @@ class GameService:
         current_description: str,
         nsfw_mode: bool = False,
         image_provider: str = "qwen",
+        novelai_model_override: str | None = None,
     ) -> tuple[str, float | None]:
         """現実改変用画像編集プロンプトを生成 (LLMService経由)
 
@@ -983,6 +1071,7 @@ class GameService:
             result = await llm_service.generate_text(
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
+                novelai_model_override=novelai_model_override,
             )
             logger.info(
                 f"現実改変編集プロンプト生成完了: provider={result.provider}, cost={result.cost_usd}"
@@ -1001,6 +1090,8 @@ class GameService:
         attributes: list[str] | None = None,
         nsfw_mode: bool = False,
         language: str = "ja",
+        enable_multiple_people: bool = False,
+        novelai_model_override: str | None = None,
     ) -> AsyncGenerator[str, None]:
         """現実改変用心境をストリーミング生成 (LLM)
 
@@ -1027,6 +1118,7 @@ class GameService:
             pronoun=pronoun,
             attributes=attributes,
             nsfw_mode=nsfw_mode,
+            enable_multiple_people=enable_multiple_people,
         )
         from .conversation import get_language_rules
 
@@ -1037,6 +1129,7 @@ class GameService:
             user_prompt=user_prompt,
             language=language,
             error_context="現実改変心境ストリーミングエラー",
+            novelai_model_override=novelai_model_override,
         ):
             yield chunk
 
@@ -1067,6 +1160,7 @@ class GameService:
         enable_surroundings_image: bool = False,
         surroundings_include_people: bool = False,
         clothing_color_consistency: bool = False,
+        enable_multiple_people: bool = False,
     ) -> AsyncGenerator[StreamEvent, None]:
         """ストリーミング対応の着せ替えを実行
 
@@ -1213,7 +1307,10 @@ class GameService:
                 f"difficulty={effective_difficulty}, language={effective_language}"
             )
 
-            # ── self_mode: load user profile for profile-based text gen (US5 T026) ──
+            # NovelAI text model override from user settings
+            effective_novelai_text_model: str | None = user_settings.get(
+                "novelai_text_model"
+            )
             self_profile: dict | None = None
             if session.self_mode:
                 self_profile = await session_store.get_self_profile()
@@ -1252,6 +1349,7 @@ class GameService:
                         character,
                         self_profile,
                         base_tags=custom_base_tags,
+                        enable_multiple_people=enable_multiple_people,
                     )
 
                 logger.info("current_desc:%s", current_desc)
@@ -1274,6 +1372,7 @@ class GameService:
                         summary_result = await llm_service.generate_text(
                             system_prompt=SITUATION_SUMMARY_SYSTEM_PROMPT,
                             user_prompt=summary_user,
+                            novelai_model_override=effective_novelai_text_model,
                         )
                         previous_situation_summary = summary_result.content.strip()
                         logger.info(
@@ -1324,6 +1423,7 @@ class GameService:
                     transformation_count=session.transformation_count,
                     gender=action_gender,
                     previous_situation_summary=previous_situation_summary,
+                    enable_multiple_people=enable_multiple_people,
                 )
 
                 from .conversation import get_language_rules
@@ -1352,6 +1452,7 @@ class GameService:
                         nsfw_mode=effective_nsfw_mode,
                         language=effective_language,
                         clothing_color_consistency=clothing_color_consistency,
+                        enable_multiple_people=enable_multiple_people,
                     )
                     previous_prompt = current_desc  # 前回のafter_description
                     action_novelai_prompt = (
@@ -1361,31 +1462,19 @@ class GameService:
                             nsfw_mode=effective_nsfw_mode,
                             language=effective_language,
                             system_prompt_override=action_tag_system,
+                            novelai_model_override=effective_novelai_text_model,
                         )
                     )
 
                     # PoC: Parse JSON response for character/scene splitting
                     try:
-                        raw = action_novelai_prompt.strip()
-                        # Strip markdown code fence if present
-                        if raw.startswith("```"):
-                            raw = raw.split("\n", 1)[-1]
-                            if raw.endswith("```"):
-                                raw = raw[: -len("```")]
-                            raw = raw.strip()
-                        parsed = json.loads(raw)
-                        char_prompt = parsed.get("character", "").strip()
-                        scene_prompt = parsed.get("scene", "").strip()
-                        if char_prompt and scene_prompt:
-                            # Use scene as the base prompt, character as Character object
-                            action_image_prompt = scene_prompt
-                            action_characters = [
-                                {"prompt": char_prompt, "position": (0.5, 0.5)}
-                            ]
+                        result = _parse_novelai_prompt_json(action_novelai_prompt)
+                        if result:
+                            action_image_prompt, action_characters = result
                             logger.info(
-                                "Action prompt split OK: char_len=%d, scene_len=%d",
-                                len(char_prompt),
-                                len(scene_prompt),
+                                "Action prompt split OK: %d characters, scene_len=%d",
+                                len(action_characters),
+                                len(action_image_prompt),
                             )
                         else:
                             raise ValueError("Missing character or scene key")
@@ -1419,6 +1508,7 @@ class GameService:
                     action_image_prompt_result = await llm_service.generate_text(
                         system_prompt=action_edit_system,
                         user_prompt=action_edit_user,
+                        novelai_model_override=effective_novelai_text_model,
                     )
                     action_image_prompt = action_image_prompt_result.content.strip()
                     action_prompt_desc = action_image_prompt
@@ -1443,6 +1533,7 @@ class GameService:
                         async for chunk in llm_service.generate_feeling_stream(
                             system_prompt=act_system,
                             user_prompt=act_user,
+                            novelai_model_override=effective_novelai_text_model,
                         ):
                             action_text_chunks.append(chunk)
                             await action_event_queue.put(
@@ -1618,6 +1709,7 @@ class GameService:
                         reality_alter_descriptions=reality_alter_texts
                         if has_reality_attrs
                         else None,
+                        novelai_model_override=effective_novelai_text_model,
                     )
 
                     if surroundings_data is not None:
@@ -1707,6 +1799,7 @@ class GameService:
                         character,
                         self_profile,
                         base_tags=custom_base_tags_dress,
+                        enable_multiple_people=enable_multiple_people,
                     )
                 logger.info(
                     f"NovelAI Opus mode: previous_prompt={'yes' if previous_prompt else 'no'}"
@@ -1730,11 +1823,22 @@ class GameService:
             attributes = await session_store.get_session_attribute_texts(session.id)
             attribute_context = ""
             if attributes:
-                attribute_context = (
-                    "\n\n【対象キャラクターの属性】\n"
-                    + "\n".join(f"- {attr}" for attr in attributes)
-                    + "\n（これらの属性を画像生成時に考慮してください）"
-                )
+                reality_attrs = [a for a in attributes if a.startswith("[現実改変]")]
+                normal_attrs = [a for a in attributes if not a.startswith("[現実改変]")]
+                parts: list[str] = []
+                if normal_attrs:
+                    parts.append(
+                        "【対象キャラクターの属性】\n"
+                        + "\n".join(f"- {attr}" for attr in normal_attrs)
+                    )
+                if reality_attrs:
+                    parts.append(
+                        "【現実改変ルール（場面全体に適用 ― 全キャラクターに影響）】\n"
+                        + "\n".join(f"- {attr}" for attr in reality_attrs)
+                        + "\n（このルールは主人公だけでなく場面内の全員に適用してください）"
+                    )
+                if parts:
+                    attribute_context = "\n\n" + "\n\n".join(parts)
                 logger.info(f"Session attributes: {attributes}")
 
             # 3. 画像編集プロンプトを生成（変身タイプに応じて分岐）
@@ -1756,30 +1860,20 @@ class GameService:
                         nsfw_mode=effective_nsfw_mode,
                         language=effective_language,
                         clothing_color_consistency=clothing_color_consistency,
+                        enable_multiple_people=enable_multiple_people,
+                        novelai_model_override=effective_novelai_text_model,
                     )
                 )
 
                 # Phase2: JSONレスポンスをパースしてcharacter/sceneを分離
                 try:
-                    raw = generated_novelai_prompt.strip()
-                    # マークダウンコードフェンスを除去
-                    if raw.startswith("```"):
-                        raw = raw.split("\n", 1)[-1]
-                        if raw.endswith("```"):
-                            raw = raw[: -len("```")]
-                        raw = raw.strip()
-                    parsed = json.loads(raw)
-                    char_prompt = parsed.get("character", "").strip()
-                    scene_prompt = parsed.get("scene", "").strip()
-                    if char_prompt and scene_prompt:
-                        image_edit_prompt = scene_prompt
-                        dress_up_characters = [
-                            {"prompt": char_prompt, "position": (0.5, 0.5)}
-                        ]
+                    result = _parse_novelai_prompt_json(generated_novelai_prompt)
+                    if result:
+                        image_edit_prompt, dress_up_characters = result
                         logger.info(
-                            "Dress-up prompt split OK: char_len=%d, scene_len=%d",
-                            len(char_prompt),
-                            len(scene_prompt),
+                            "Dress-up prompt split OK: %d characters, scene_len=%d",
+                            len(dress_up_characters),
+                            len(image_edit_prompt),
                         )
                     else:
                         raise ValueError("Missing character or scene key")
@@ -1806,6 +1900,7 @@ class GameService:
                     current_description=before_desc,
                     nsfw_mode=effective_nsfw_mode,
                     image_provider=settings.image_provider,
+                    novelai_model_override=effective_novelai_text_model,
                 )
             else:
                 # 衣装変更用プロンプト生成（既存）
@@ -1819,6 +1914,7 @@ class GameService:
                     change_scope=change_scope,
                     custom_preserve_text=custom_preserve_text,
                     nsfw_mode=effective_nsfw_mode,
+                    novelai_model_override=effective_novelai_text_model,
                 )
 
             # T009: NovelAI専用 - 直接プロンプト指定とのマージ
@@ -1880,6 +1976,8 @@ class GameService:
                             self_profile=self_profile,
                             nsfw_mode=effective_nsfw_mode,
                             language=effective_language,
+                            enable_multiple_people=enable_multiple_people,
+                            novelai_model_override=effective_novelai_text_model,
                         ):
                             text_chunks.append(chunk)
                             await event_queue.put(
@@ -1896,6 +1994,8 @@ class GameService:
                             attributes=attributes,
                             nsfw_mode=effective_nsfw_mode,
                             language=effective_language,
+                            enable_multiple_people=enable_multiple_people,
+                            novelai_model_override=effective_novelai_text_model,
                         ):
                             text_chunks.append(chunk)
                             await event_queue.put(
@@ -1916,6 +2016,8 @@ class GameService:
                             personality=character.personality if character else "",
                             description=character.description if character else "",
                             used_openings=used_openings,
+                            enable_multiple_people=enable_multiple_people,
+                            novelai_model_override=effective_novelai_text_model,
                         ):
                             text_chunks.append(chunk)
                             await event_queue.put(
@@ -2233,6 +2335,38 @@ class GameService:
                 except Exception as e:
                     logger.warning(f"Achievement check failed: {e}")
 
+            # self_mode: self系実績のみ判定
+            if session.self_mode:
+                try:
+                    user_achievements = get_user_achievements()
+                    already_unlocked = {
+                        ua.achievement_id for ua in user_achievements if ua.unlocked
+                    }
+                    self_stats = get_global_stats()
+                    self_achievements = [
+                        a for a in ACHIEVEMENTS.values() if a.category == "self"
+                    ]
+                    for achievement in self_achievements:
+                        if achievement.id in already_unlocked:
+                            continue
+                        if check_achievement(achievement, self_stats):
+                            save_user_achievement(session.id, achievement.id)
+                            yield StreamEvent(
+                                type="achievement",
+                                data={
+                                    "achievement_id": achievement.id,
+                                    "name": achievement.name,
+                                    "description": achievement.description,
+                                    "icon": achievement.icon,
+                                    "category": achievement.category,
+                                },
+                            )
+                            logger.info(
+                                f"Self-mode achievement unlocked: {achievement.name}"
+                            )
+                except Exception as e:
+                    logger.warning(f"Self-mode achievement check failed: {e}")
+
             # 7. 現在の画像パスを更新
             await session_store.update_session(
                 session_id=session.id,
@@ -2274,6 +2408,7 @@ class GameService:
                     "transformation_count": transformation_count,
                     "before_desc": before_desc,
                     "after_desc": inferred_after_desc,
+                    "history_id": history.id,
                 },
             )
 
@@ -2558,6 +2693,7 @@ class GameService:
         recent_actions: list[tuple[str, str]] = []
         previous_situation_summary: str | None = None
         reality_alter_texts: list[str] = []
+        effective_novelai_text_model: str | None = None
 
         if session_id:
             try:
@@ -2569,6 +2705,9 @@ class GameService:
                     # ユーザー設定からnsfw_modeを取得
                     user_settings = await session_store.get_user_settings(session_id)
                     nsfw_mode = user_settings.get("nsfw_mode", False)
+                    effective_novelai_text_model = user_settings.get(
+                        "novelai_text_model"
+                    )
                     bloom = stats.bloom
                     transformation_count = session.transformation_count
 
@@ -2623,6 +2762,7 @@ class GameService:
                                 summary_result = await llm_service.generate_text(
                                     system_prompt=SITUATION_SUMMARY_SYSTEM_PROMPT,
                                     user_prompt=summary_user,
+                                    novelai_model_override=effective_novelai_text_model,
                                 )
                                 previous_situation_summary = (
                                     summary_result.content.strip()
@@ -2712,6 +2852,7 @@ class GameService:
                 current_description=current_description,
                 nsfw_mode=nsfw_mode,
                 image_provider=settings.image_provider,
+                novelai_model_override=effective_novelai_text_model,
             )
         else:
             image_edit_prompt, _ = await self._generate_image_edit_prompt(
@@ -2721,6 +2862,7 @@ class GameService:
                 change_scope=change_scope,
                 custom_preserve_text=custom_preserve_text,
                 nsfw_mode=nsfw_mode,
+                novelai_model_override=effective_novelai_text_model,
             )
 
         from .prompts import build_feeling_prompt, get_psychological_stage

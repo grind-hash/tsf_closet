@@ -5,13 +5,14 @@
  * セッション毎表示モード + アイテム詳細表示
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import MainLayout from "../layout/MainLayout";
 import GalleryCard from "./GalleryCard";
 import PlaySummaryModal from "./PlaySummaryModal";
 import { deleteGalleryItem } from "../../apis/gallery";
+import { useGame } from "../../contexts/GameContext";
 import { API_BASE } from "../../utils/api";
 import type { GalleryItem, GallerySession } from "../../types";
 import "./GalleryScreen.css";
@@ -23,11 +24,17 @@ interface GalleryScreenProps {
 export default function GalleryScreen({ onSelectItem }: GalleryScreenProps) {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
+  const location = useLocation();
+  const { restoreSessionById } = useGame();
 
-  // 表示モード: "sessions" = セッション一覧, "items" = アイテム一覧
-  const [displayMode, setDisplayMode] = useState<"sessions" | "items">(
-    "sessions",
-  );
+  // URLベースで表示モードを判定: /gallery/:sessionId → items, /gallery → sessions
+  const urlSessionId = useMemo(() => {
+    const match = location.pathname.match(/^\/gallery\/(.+)$/);
+    return match ? match[1] : null;
+  }, [location.pathname]);
+
+  const displayMode = urlSessionId ? "items" : "sessions";
+
   const [selectedSession, setSelectedSession] = useState<GallerySession | null>(
     null,
   );
@@ -130,13 +137,26 @@ export default function GalleryScreen({ onSelectItem }: GalleryScreenProps) {
     fetchSessions(1);
   }, [fetchSessions]);
 
-  // セッション選択時にアイテム読み込み
+  // URLのセッションIDが変わったらアイテム読み込み
   useEffect(() => {
-    if (selectedSession) {
+    if (urlSessionId) {
+      // sessionsから一致するものを探す
+      const found = sessions.find((s) => s.session_id === urlSessionId);
+      if (found) {
+        setSelectedSession(found);
+      } else {
+        // sessionsが未取得の場合もアイテムは読み込む
+        setSelectedSession(null);
+      }
       setItemsPage(1);
-      fetchItems(selectedSession.session_id, 1);
+      setItems([]);
+      fetchItems(urlSessionId, 1);
+    } else {
+      setSelectedSession(null);
+      setItems([]);
+      setItemsPage(1);
     }
-  }, [selectedSession, fetchItems]);
+  }, [urlSessionId, sessions, fetchItems]);
 
   // セッション追加読み込み
   const handleLoadMoreSessions = useCallback(() => {
@@ -156,19 +176,14 @@ export default function GalleryScreen({ onSelectItem }: GalleryScreenProps) {
     }
   }, [isLoading, itemsHasMore, itemsPage, selectedSession, fetchItems]);
 
-  // セッションを選択してアイテム表示
+  // セッションを選択してアイテム表示（URL遷移）
   const handleSessionClick = (session: GallerySession) => {
-    setSelectedSession(session);
-    setDisplayMode("items");
-    setItems([]);
+    navigate(`/gallery/${session.session_id}`);
   };
 
-  // セッション一覧に戻る
+  // セッション一覧に戻る（URL遷移）
   const handleBackToSessions = () => {
-    setDisplayMode("sessions");
-    setSelectedSession(null);
-    setItems([]);
-    setItemsPage(1);
+    navigate("/gallery");
   };
 
   // セッション削除
@@ -248,36 +263,26 @@ export default function GalleryScreen({ onSelectItem }: GalleryScreenProps) {
 
       // デフォルト: セッション復元してゲーム画面に遷移
       try {
-        const response = await fetch(
-          `${API_BASE}/game/sessions/${item.session_id}/restore`,
-          {
-            method: "POST",
-          },
-        );
-
-        if (!response.ok) {
+        const restored = await restoreSessionById(item.session_id);
+        if (!restored) {
           console.error("セッション復元に失敗しました");
           return;
         }
 
-        // ゲーム画面に遷移（セッションID付き）
-        navigate(`/play/${item.session_id}`);
+        // ゲーム画面に遷移（セッションID + historyId付き）
+        navigate(`/play/${item.session_id}?historyId=${item.id}`);
       } catch (err) {
         console.error("セッション復元エラー:", err);
       }
     },
-    [onSelectItem, navigate],
+    [onSelectItem, navigate, restoreSessionById],
   );
 
   // セッションをゲームで再開
   const handleResumeSession = async (session: GallerySession) => {
     try {
-      const response = await fetch(
-        `${API_BASE}/game/sessions/${session.session_id}/restore`,
-        { method: "POST" },
-      );
-
-      if (!response.ok) {
+      const restored = await restoreSessionById(session.session_id);
+      if (!restored) {
         console.error("セッション復元に失敗しました");
         return;
       }

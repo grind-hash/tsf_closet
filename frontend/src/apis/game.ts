@@ -33,8 +33,8 @@ export interface DeleteLatestHistoryResponse {
   deleted_history_id: string;
   restored_instruction: string;
   restored_instruction_type: string;
-  current_image_path: string;
-  restored_history_id: string;
+  current_image_path: string | null;
+  restored_history_id: string | null;
 }
 
 /**
@@ -76,6 +76,102 @@ export async function deleteLatestHistory(
     const error = await response.json().catch(() => ({}));
     throw new Error(
       error.detail?.message || `Delete failed: ${response.status}`,
+    );
+  }
+
+  return response.json();
+}
+
+// 会話テキスト削除 レスポンス
+export interface DeleteConversationResponse {
+  success: boolean;
+  deleted_count: number;
+  message: string;
+}
+
+/**
+ * 指定履歴IDに紐づく会話テキストのみを削除する（履歴レコードと画像は保持）
+ */
+export async function deleteConversation(
+  historyId: string,
+  sessionId: string,
+): Promise<DeleteConversationResponse> {
+  const params = new URLSearchParams({ session_id: sessionId });
+  const response = await fetch(
+    `${API_BASE}/game/conversation/${encodeURIComponent(historyId)}?${params}`,
+    {
+      method: "DELETE",
+    },
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail?.message || `Delete conversation failed: ${response.status}`,
+    );
+  }
+
+  return response.json();
+}
+
+// 個別会話メッセージ削除 レスポンス
+export interface DeleteConversationMessageResponse {
+  success: boolean;
+  deleted_conversation_id: string;
+}
+
+/**
+ * 個別の会話メッセージレコードを削除する（画像は無関係）
+ */
+export async function deleteConversationMessage(
+  conversationId: string,
+  sessionId: string,
+): Promise<DeleteConversationMessageResponse> {
+  const params = new URLSearchParams({ session_id: sessionId });
+  const response = await fetch(
+    `${API_BASE}/game/conversation/message/${encodeURIComponent(conversationId)}?${params}`,
+    {
+      method: "DELETE",
+    },
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail?.message ||
+        `Delete conversation message failed: ${response.status}`,
+    );
+  }
+
+  return response.json();
+}
+
+export interface DeleteHistoryEntryResponse {
+  success: boolean;
+  deleted_history_id: string;
+  restored_history_id: string;
+}
+
+/**
+ * 指定履歴IDの履歴エントリを完全削除する（History + 画像 + 会話テキスト）
+ */
+export async function deleteHistoryEntry(
+  historyId: string,
+  sessionId: string,
+): Promise<DeleteHistoryEntryResponse> {
+  const params = new URLSearchParams({ session_id: sessionId });
+  const response = await fetch(
+    `${API_BASE}/game/history/${encodeURIComponent(historyId)}?${params}`,
+    {
+      method: "DELETE",
+    },
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail?.message ||
+        `Delete history entry failed: ${response.status}`,
     );
   }
 
