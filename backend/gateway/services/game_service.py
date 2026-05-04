@@ -68,6 +68,11 @@ from ..routes.achievements_router import (
 from .achievement_classifier import classify_for_achievement
 from .anlas_service import get_anlas_balance
 from ..consts.language import normalize_language
+from ..databases.base import async_session_factory
+from .character_service import (
+    build_session_characters_prompt_section,
+    load_session_characters_for_prompt,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1412,6 +1417,20 @@ class GameService:
 
                 logger.info("action_gender=%s", action_gender)
 
+                # 005: マルチキャラクター在席時のプロンプト追加
+                multi_char_section: str | None = None
+                if enable_multiple_people:
+                    try:
+                        async with async_session_factory() as _mc_db:
+                            _mc_records = await load_session_characters_for_prompt(
+                                _mc_db, session_id
+                            )
+                        multi_char_section = (
+                            build_session_characters_prompt_section(_mc_records) or None
+                        )
+                    except Exception as _mc_exc:
+                        logger.debug("session_character fetch skipped: %s", _mc_exc)
+
                 act_system, act_user = build_action_prompt(
                     instruction=instruction,
                     current_description=current_desc,
@@ -1428,6 +1447,7 @@ class GameService:
                     lookback_count=settings_service.get_history_lookback_count(
                         session_id
                     ),
+                    session_characters_section=multi_char_section,
                 )
 
                 from .conversation import get_language_rules
@@ -1660,6 +1680,12 @@ class GameService:
                     await session_store.update_session(
                         session_id=session.id,
                         current_image_path=history.image_path,
+                    )
+
+                # 005 US2: アクション完了後の容姿差分自動更新（非同期 / 失敗は握り潰す）
+                if enable_multiple_people:
+                    asyncio.create_task(
+                        _async_apply_appearance_updates(session.id, instruction)
                     )
 
                 # ── T012: SSE events — image, cost, complete ──
@@ -2934,3 +2960,42 @@ class GameService:
 
 # グローバルサービスインスタンス
 game_service = GameService()
+
+
+async def _async_apply_appearance_updates(session_id: str, action_text: str) -> None:
+    """005 US2: Action 後にキャラクター容姿の差分を非同期で適用する。
+
+    失敗時はログに記録し、アクション応答へは伝播させない (FR-014)。
+    """
+    try:
+        # session_character の取得
+        async with async_session_factory() as db:
+            records = await load_session_characters_for_prompt(db, session_id)
+        if not records:
+            return
+
+        characters_payload = [
+            {
+                "id": r.id,
+                "name": r.name,
+                "appearance_natural": r.appearance_natural or "",
+                "appearance_tags": r.appearance_tags or "",
+            }
+            for r in records
+        ]
+
+        updates = await llm_service.infer_appearance_updates(
+            characters_payload, action_text
+        )
+        if not updates:
+            return
+
+        from .character_service import apply_appearance_updates
+
+        async with async_session_factory() as db:
+            await apply_appearance_updates(db, session_id, updates)
+            await db.commit()
+    except Exception as exc:
+        logger.warning(
+            "auto-appearance update skipped (session=%s): %s", session_id, exc
+        )

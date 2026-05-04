@@ -19,8 +19,18 @@ import type {
   SessionAttribute,
   ConversationMessage,
   SurroundingsImageState,
+  SessionCharacter,
 } from "../types";
 import { API_BASE } from "../utils/api";
+import {
+  applyPresetToSession,
+  createSessionCharacter as apiCreateSessionCharacter,
+  deleteSessionCharacter as apiDeleteSessionCharacter,
+  listSessionCharacters,
+  updateSessionCharacter as apiUpdateSessionCharacter,
+  type CreateSessionCharacterPayload,
+  type UpdateSessionCharacterPayload,
+} from "../apis/characters";
 
 interface GameState {
   sessionId: string | null;
@@ -42,6 +52,7 @@ interface GameState {
   transformationCount: number;
   lastGeneratedSeed: number | null;
   lastSurroundingsImage: SurroundingsImageState | null;
+  sessionCharacters: SessionCharacter[];
 }
 
 type GameAction =
@@ -94,6 +105,9 @@ type GameAction =
       type: "REMOVE_HISTORY_ENTRY";
       payload: { historyId: string; restoredHistoryId: string };
     }
+  | { type: "SET_SESSION_CHARACTERS"; payload: SessionCharacter[] }
+  | { type: "UPSERT_SESSION_CHARACTER"; payload: SessionCharacter }
+  | { type: "REMOVE_SESSION_CHARACTER"; payload: string }
   | { type: "CLEAR_SESSION" };
 
 const defaultState: GameState = {
@@ -116,6 +130,7 @@ const defaultState: GameState = {
   transformationCount: 0,
   lastGeneratedSeed: null,
   lastSurroundingsImage: null,
+  sessionCharacters: [],
 };
 
 function gameReducer(state: GameState, action: GameAction): GameState {
@@ -250,6 +265,29 @@ function gameReducer(state: GameState, action: GameAction): GameState {
     }
     case "CLEAR_SESSION":
       return { ...defaultState, characters: state.characters };
+    case "SET_SESSION_CHARACTERS":
+      return { ...state, sessionCharacters: action.payload };
+    case "UPSERT_SESSION_CHARACTER": {
+      const incoming = action.payload;
+      const idx = state.sessionCharacters.findIndex(
+        (c) => c.id === incoming.id,
+      );
+      const next =
+        idx >= 0
+          ? state.sessionCharacters.map((c) =>
+              c.id === incoming.id ? incoming : c,
+            )
+          : [...state.sessionCharacters, incoming];
+      next.sort((a, b) => a.slot_index - b.slot_index);
+      return { ...state, sessionCharacters: next };
+    }
+    case "REMOVE_SESSION_CHARACTER":
+      return {
+        ...state,
+        sessionCharacters: state.sessionCharacters.filter(
+          (c) => c.id !== action.payload,
+        ),
+      };
     default:
       return state;
   }
@@ -308,6 +346,16 @@ interface GameContextType {
   setLastGeneratedSeed: (seed: number | null) => void;
   setLastSurroundingsImage: (image: SurroundingsImageState | null) => void;
   removeHistoryEntry: (historyId: string, restoredHistoryId: string) => void;
+  loadSessionCharacters: () => Promise<void>;
+  addSessionCharacter: (
+    payload: CreateSessionCharacterPayload,
+  ) => Promise<SessionCharacter>;
+  updateSessionCharacterAction: (
+    characterId: string,
+    payload: UpdateSessionCharacterPayload,
+  ) => Promise<SessionCharacter>;
+  removeSessionCharacter: (characterId: string) => Promise<void>;
+  applyPresetToCurrentSession: (presetId: string) => Promise<SessionCharacter>;
 }
 
 const GameContext = createContext<GameContextType | null>(null);
@@ -705,6 +753,101 @@ export function GameProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  const loadSessionCharacters = useCallback(async () => {
+    if (!state.sessionId) {
+      return;
+    }
+    try {
+      const records = await listSessionCharacters(state.sessionId);
+      dispatch({ type: "SET_SESSION_CHARACTERS", payload: records });
+    } catch (error) {
+      console.error("Failed to load session characters", error);
+    }
+  }, [state.sessionId]);
+
+  const addSessionCharacter = useCallback(
+    async (
+      payload: CreateSessionCharacterPayload,
+    ): Promise<SessionCharacter> => {
+      if (!state.sessionId) {
+        throw new Error("session_inactive");
+      }
+      const created = await apiCreateSessionCharacter(state.sessionId, payload);
+      dispatch({ type: "UPSERT_SESSION_CHARACTER", payload: created });
+      // re-sync to capture position reassignments
+      try {
+        const records = await listSessionCharacters(state.sessionId);
+        dispatch({ type: "SET_SESSION_CHARACTERS", payload: records });
+      } catch {
+        // ignore
+      }
+      return created;
+    },
+    [state.sessionId],
+  );
+
+  const updateSessionCharacterAction = useCallback(
+    async (
+      characterId: string,
+      payload: UpdateSessionCharacterPayload,
+    ): Promise<SessionCharacter> => {
+      if (!state.sessionId) {
+        throw new Error("session_inactive");
+      }
+      const updated = await apiUpdateSessionCharacter(
+        state.sessionId,
+        characterId,
+        payload,
+      );
+      dispatch({ type: "UPSERT_SESSION_CHARACTER", payload: updated });
+      if (payload.slot_index !== undefined) {
+        try {
+          const records = await listSessionCharacters(state.sessionId);
+          dispatch({ type: "SET_SESSION_CHARACTERS", payload: records });
+        } catch {
+          // ignore
+        }
+      }
+      return updated;
+    },
+    [state.sessionId],
+  );
+
+  const removeSessionCharacter = useCallback(
+    async (characterId: string): Promise<void> => {
+      if (!state.sessionId) {
+        throw new Error("session_inactive");
+      }
+      await apiDeleteSessionCharacter(state.sessionId, characterId);
+      dispatch({ type: "REMOVE_SESSION_CHARACTER", payload: characterId });
+      try {
+        const records = await listSessionCharacters(state.sessionId);
+        dispatch({ type: "SET_SESSION_CHARACTERS", payload: records });
+      } catch {
+        // ignore
+      }
+    },
+    [state.sessionId],
+  );
+
+  const applyPresetToCurrentSession = useCallback(
+    async (presetId: string): Promise<SessionCharacter> => {
+      if (!state.sessionId) {
+        throw new Error("session_inactive");
+      }
+      const created = await applyPresetToSession(state.sessionId, presetId);
+      dispatch({ type: "UPSERT_SESSION_CHARACTER", payload: created });
+      try {
+        const records = await listSessionCharacters(state.sessionId);
+        dispatch({ type: "SET_SESSION_CHARACTERS", payload: records });
+      } catch {
+        // ignore
+      }
+      return created;
+    },
+    [state.sessionId],
+  );
+
   const addAttribute = useCallback(
     async (text: string): Promise<void> => {
       if (!state.sessionId) {
@@ -790,6 +933,11 @@ export function GameProvider({ children }: { children: ReactNode }) {
     setLastGeneratedSeed,
     setLastSurroundingsImage,
     removeHistoryEntry,
+    loadSessionCharacters,
+    addSessionCharacter,
+    updateSessionCharacterAction,
+    removeSessionCharacter,
+    applyPresetToCurrentSession,
   };
 
   return <GameContext.Provider value={value}>{children}</GameContext.Provider>;

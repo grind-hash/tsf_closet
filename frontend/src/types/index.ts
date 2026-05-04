@@ -473,3 +473,50 @@ export interface SurroundingsImageEvent {
   image: string;
   historyId: string;
 }
+
+// =============================================================================
+// Multi-character persistence (spec 005)
+// =============================================================================
+
+export type CharacterPosition =
+  | "left"
+  | "center-left"
+  | "center"
+  | "center-right"
+  | "right";
+
+// Note: AGENTS.md naming exception - backend returns snake_case fields,
+// so the frontend types follow snake_case as well for direct mapping.
+export interface SessionCharacter {
+  id: string;
+  session_id: string;
+  slot_index: number;
+  name: string;
+  appearance_natural: string;
+  appearance_tags: string;
+  position: CharacterPosition;
+  source_preset_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CharacterPreset {
+  id: string;
+  name: string;
+  appearance_natural: string;
+  appearance_tags: string;
+  default_position: CharacterPosition;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface GenerateTagsItem {
+  id: string;
+  name: string;
+  natural: string;
+}
+
+export interface GenerateTagsResultItem {
+  id: string;
+  tags: string;
+}

@@ -26,6 +26,7 @@ import { useLocation } from "react-router-dom";
 import MainLayout from "./layout/MainLayout";
 import RightPanel from "./layout/RightPanel";
 import CharacterStatePanel from "./panel/CharacterStatePanel";
+import CharacterPanel from "./panel/CharacterPanel";
 import ChatMessageList from "./chat/ChatMessageList";
 import ChatInput from "./chat/ChatInput";
 import WelcomeScreen from "./chat/WelcomeScreen";
@@ -728,9 +729,7 @@ export default function GamePlayScreen({
             ).length
           : 0;
         if (enabledRefCount > 0) {
-          if (
-            sessionStorage.getItem(ANLAS_WARN_SUPPRESSED_KEY) === "true"
-          ) {
+          if (sessionStorage.getItem(ANLAS_WARN_SUPPRESSED_KEY) === "true") {
             onTransform(
               message,
               undefined,
@@ -1283,6 +1282,7 @@ export default function GamePlayScreen({
                 transformationCount={gameState.transformationCount}
                 isTransforming={isTransforming}
               />
+              {settingsState.enableMultiplePeople && <CharacterPanel />}
               {/* US4: Seed display */}
               {lastGeneratedSeed !== null &&
                 lastGeneratedSeed !== undefined && (

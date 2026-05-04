@@ -684,6 +684,197 @@ class LLMService:
 
         return generated_prompt
 
+    async def generate_character_tags_batch(
+        self,
+        items: List[Dict[str, str]],
+        *,
+        provider_override: Optional[str] = None,
+    ) -> List[Dict[str, str]]:
+        """Batch generate NovelAI-compatible tag strings for N characters in one call.
+
+        Args:
+            items: list of ``{id, name, natural}`` dicts (1..4 entries).
+            provider_override: optional provider override.
+
+        Returns:
+            List of ``{id, tags}`` dicts. The ``id`` order matches input. If
+            the LLM returns malformed JSON, one retry is attempted; on second
+            failure :class:`LLMServiceError` is raised (mapped to HTTP 502
+            by the router).
+
+        See research.md R-001.
+        """
+        if not items:
+            return []
+        if len(items) > 4:
+            raise LLMServiceError("too_many_items")
+
+        system_prompt = (
+            "You convert natural-language character descriptions into "
+            "NovelAI-compatible Danbooru-style English tag strings. "
+            "Always respond with a single JSON object exactly matching "
+            'the schema: {"results": [{"id": <input id>, "tags": '
+            '"tag1, tag2, ..."}]} . The number of result entries MUST '
+            "equal the number of input items, and each id MUST be echoed "
+            "verbatim. Use lowercase, comma-separated tags only. Never "
+            "include any explanation or extra keys."
+        )
+        # Compose user prompt as JSON for stable parsing.
+        user_prompt = json.dumps({"items": items}, ensure_ascii=False)
+
+        async def _call_once() -> str:
+            result = await self.generate_feeling(
+                system_prompt,
+                user_prompt,
+                provider_override=provider_override,
+            )
+            return result.content
+
+        last_error: Optional[Exception] = None
+        for attempt in range(2):
+            try:
+                raw = await _call_once()
+                parsed = _parse_tag_batch_response(raw, items)
+                return parsed
+            except (json.JSONDecodeError, ValueError) as exc:
+                last_error = exc
+                logger.warning(
+                    "generate_character_tags_batch parse failure (attempt %d): %s",
+                    attempt + 1,
+                    exc,
+                )
+                continue
+            except Exception as exc:  # network etc.
+                last_error = exc
+                logger.warning(
+                    "generate_character_tags_batch transport failure (attempt %d): %s",
+                    attempt + 1,
+                    exc,
+                )
+                continue
+
+        raise LLMServiceError(f"batch_tag_generation_failed: {last_error!s}")
+
+    async def infer_appearance_updates(
+        self,
+        characters: List[Dict[str, str]],
+        action_text: str,
+        *,
+        provider_override: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Infer appearance diffs for N session characters after an action.
+
+        Args:
+            characters: list of dicts ``{id, name, appearance_natural,
+                appearance_tags}`` representing current state.
+            action_text: latest player instruction text.
+            provider_override: optional provider override.
+
+        Returns:
+            List of update dicts conforming to research R-002 schema:
+            ``{character_id, changed, appearance_natural?, appearance_tags?}``.
+            On any parse/transport failure returns an all-no-op list (per FR-014).
+        """
+        if not characters:
+            return []
+        system_prompt = (
+            "You analyze a player action and decide how each on-screen "
+            "character's appearance changed. Return strict JSON: "
+            '{"updates": [{"character_id": "<id>", "changed": <bool>, '
+            '"appearance_natural": "<full updated natural-language>", '
+            '"appearance_tags": "<full updated tag list>"}, ...]}. '
+            "If a character is unaffected, set changed=false and omit the "
+            "appearance_* fields. Always include one entry per input "
+            "character. Never explain. Never invent ids."
+        )
+        payload = {"characters": characters, "action": action_text}
+        user_prompt = json.dumps(payload, ensure_ascii=False)
+        try:
+            result = await self.generate_feeling(
+                system_prompt,
+                user_prompt,
+                provider_override=provider_override,
+            )
+            parsed = _parse_appearance_update_response(result.content, characters)
+            return parsed
+        except Exception as exc:  # noqa: BLE001 - best-effort fallback
+            logger.warning("infer_appearance_updates failure: %s", exc)
+            return [{"character_id": c["id"], "changed": False} for c in characters]
+
+
+def _parse_tag_batch_response(
+    raw: str, expected_items: List[Dict[str, str]]
+) -> List[Dict[str, str]]:
+    """Parse LLM JSON output for batch tag generation.
+
+    Raises ``ValueError`` on schema mismatch; ``json.JSONDecodeError`` on
+    non-JSON content. The caller catches both and may retry once.
+    """
+    cleaned = _strip_code_fence(raw)
+    data = json.loads(cleaned)
+    if not isinstance(data, dict) or "results" not in data:
+        raise ValueError("missing results key")
+    results = data["results"]
+    if not isinstance(results, list) or len(results) != len(expected_items):
+        raise ValueError("results length mismatch")
+    expected_ids = {item["id"] for item in expected_items}
+    out: List[Dict[str, str]] = []
+    for entry in results:
+        if not isinstance(entry, dict):
+            raise ValueError("non-dict result entry")
+        eid = entry.get("id")
+        tags = entry.get("tags", "")
+        if eid not in expected_ids:
+            raise ValueError(f"unknown id {eid}")
+        if not isinstance(tags, str):
+            raise ValueError("tags not string")
+        out.append({"id": str(eid), "tags": tags.strip()})
+    return out
+
+
+def _parse_appearance_update_response(
+    raw: str, expected_characters: List[Dict[str, str]]
+) -> List[Dict[str, Any]]:
+    """Parse LLM JSON output for appearance updates (R-002)."""
+    cleaned = _strip_code_fence(raw)
+    data = json.loads(cleaned)
+    if not isinstance(data, dict) or "updates" not in data:
+        raise ValueError("missing updates key")
+    updates = data["updates"]
+    if not isinstance(updates, list):
+        raise ValueError("updates not list")
+    valid_ids = {c["id"] for c in expected_characters}
+    out: List[Dict[str, Any]] = []
+    for entry in updates:
+        if not isinstance(entry, dict):
+            continue
+        cid = entry.get("character_id")
+        if cid not in valid_ids:
+            continue
+        result: Dict[str, Any] = {
+            "character_id": cid,
+            "changed": bool(entry.get("changed", False)),
+        }
+        if isinstance(entry.get("appearance_natural"), str):
+            result["appearance_natural"] = entry["appearance_natural"]
+        if isinstance(entry.get("appearance_tags"), str):
+            result["appearance_tags"] = entry["appearance_tags"]
+        out.append(result)
+    return out
+
+
+def _strip_code_fence(raw: str) -> str:
+    """Strip ```json ... ``` fences if present."""
+    text = raw.strip()
+    if text.startswith("```"):
+        # Remove opening fence (with optional language tag).
+        nl = text.find("\n")
+        if nl != -1:
+            text = text[nl + 1 :]
+        if text.endswith("```"):
+            text = text[:-3]
+    return text.strip()
+
 
 # グローバルインスタンス
 llm_service = LLMService()

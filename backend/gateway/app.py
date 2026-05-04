@@ -38,6 +38,7 @@ from .services.comfy import ComfyUIClient, ComfyUIError
 from .databases import close_database, init_database
 from .routes import (
     achievements_router,
+    character_router,
     gallery_router,
     game_router,
     settings_router,
@@ -260,6 +261,9 @@ app.include_router(achievements_router, prefix="/api")
 
 # 設定APIルーターを登録 (007-chat-interactive-ux)
 app.include_router(settings_router, prefix="/api")
+
+# マルチキャラ永続化ルーター (spec 005)
+app.include_router(character_router, prefix="/api")
 
 
 # 履歴画像配信エンドポイント

@@ -712,8 +712,128 @@ class GameStartResponse(BaseModel):
     """ゲーム開始レスポンス"""
 
     session_id: str = Field(..., description="新規セッションID")
-    difficulty: str = Field(..., description="選択された難易度")
-    initial_stats: SessionStatsResponse = Field(..., description="初期パラメータ")
+
+
+# =============================================================================
+# Multi-character persistence (spec 005)
+# =============================================================================
+
+
+CharacterPositionLiteral = Literal[
+    "left", "center-left", "center", "center-right", "right"
+]
+
+
+class SessionCharacterRead(BaseModel):
+    """Read model for SessionCharacter."""
+
+    id: str
+    session_id: str
+    slot_index: int
+    name: str
+    appearance_natural: str
+    appearance_tags: str
+    position: CharacterPositionLiteral
+    source_preset_id: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class SessionCharacterCreate(BaseModel):
+    """Create payload for adding a character to a session."""
+
+    name: str = Field(..., min_length=1, max_length=120)
+    appearance_natural: str = Field("", max_length=1000)
+    appearance_tags: str = Field("", max_length=2000)
+    position: CharacterPositionLiteral = "center"
+    slot_index: Optional[int] = Field(None, ge=0, le=3)
+    source_preset_id: Optional[str] = None
+
+
+class SessionCharacterUpdate(BaseModel):
+    """Partial update payload for an existing SessionCharacter."""
+
+    name: Optional[str] = Field(None, min_length=1, max_length=120)
+    appearance_natural: Optional[str] = Field(None, max_length=1000)
+    appearance_tags: Optional[str] = Field(None, max_length=2000)
+    position: Optional[CharacterPositionLiteral] = None
+    slot_index: Optional[int] = Field(None, ge=0, le=3)
+
+
+class CharacterPresetRead(BaseModel):
+    """Read model for CharacterPreset."""
+
+    id: str
+    name: str
+    appearance_natural: str
+    appearance_tags: str
+    default_position: CharacterPositionLiteral
+    created_at: datetime
+    updated_at: datetime
+
+
+class PresetCreateFromCharacter(BaseModel):
+    """Create a preset by copying an existing SessionCharacter."""
+
+    from_character_id: str
+    name: str = Field(..., min_length=1, max_length=120)
+
+
+class PresetCreateRaw(BaseModel):
+    """Create a preset directly from raw fields."""
+
+    name: str = Field(..., min_length=1, max_length=120)
+    appearance_natural: str = Field("", max_length=1000)
+    appearance_tags: str = Field("", max_length=2000)
+    default_position: CharacterPositionLiteral = "center"
+
+
+class CharacterPresetUpdate(BaseModel):
+    """Partial update payload for a preset."""
+
+    name: Optional[str] = Field(None, min_length=1, max_length=120)
+    appearance_natural: Optional[str] = Field(None, max_length=1000)
+    appearance_tags: Optional[str] = Field(None, max_length=2000)
+    default_position: Optional[CharacterPositionLiteral] = None
+
+
+class GenerateTagsItem(BaseModel):
+    """One natural-language input for batch tag generation."""
+
+    id: str = Field(..., min_length=1, max_length=64)
+    name: str = Field(..., min_length=1, max_length=120)
+    natural: str = Field(..., max_length=1000)
+
+
+class GenerateTagsRequest(BaseModel):
+    """Batch tag-generation request body."""
+
+    items: List[GenerateTagsItem] = Field(..., min_length=1, max_length=4)
+
+
+class GenerateTagsResultItem(BaseModel):
+    """One result entry for batch tag generation."""
+
+    id: str
+    tags: str
+
+
+class GenerateTagsResponse(BaseModel):
+    """Batch tag-generation response body."""
+
+    results: List[GenerateTagsResultItem]
+
+
+class SessionCharacterListResponse(BaseModel):
+    """Wrapper for GET /game/session/{id}/characters."""
+
+    characters: List[SessionCharacterRead]
+
+
+class CharacterPresetListResponse(BaseModel):
+    """Wrapper for GET /game/character-presets."""
+
+    presets: List[CharacterPresetRead]
 
 
 class GalleryEndingItem(BaseModel):
