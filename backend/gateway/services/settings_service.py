@@ -7,6 +7,11 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..consts.history_lookback import (
+    HISTORY_LOOKBACK_DEFAULT,
+    HISTORY_LOOKBACK_MAX,
+    HISTORY_LOOKBACK_MIN,
+)
 from ..consts.language import DEFAULT_LANGUAGE, normalize_language
 from ..databases.base import async_session_factory
 from ..databases.models import User
@@ -55,6 +60,26 @@ class SettingsService:
             del self._current_settings[session_id]
 
         return {"message": "Settings reset to defaults", "session_id": session_id}
+
+    def get_history_lookback_count(self, session_id: str = "default") -> int:
+        """Return the per-session history lookback count, clamped to [MIN, MAX].
+
+        Falls back to HISTORY_LOOKBACK_DEFAULT when the session has no
+        explicit value (e.g. legacy sessions or in-memory store reset).
+        """
+        current = self._current_settings.get(session_id)
+        if current is None:
+            return HISTORY_LOOKBACK_DEFAULT
+        value = getattr(current, "history_lookback_count", HISTORY_LOOKBACK_DEFAULT)
+        try:
+            ivalue = int(value)
+        except (TypeError, ValueError):
+            return HISTORY_LOOKBACK_DEFAULT
+        if ivalue < HISTORY_LOOKBACK_MIN:
+            return HISTORY_LOOKBACK_MIN
+        if ivalue > HISTORY_LOOKBACK_MAX:
+            return HISTORY_LOOKBACK_MAX
+        return ivalue
 
     @staticmethod
     def _default_user_settings() -> dict:

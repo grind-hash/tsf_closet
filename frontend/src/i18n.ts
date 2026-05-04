@@ -75,6 +75,9 @@ const resources = {
         enableMultiplePeople: "複数人表示（実験的）",
         enableMultiplePeopleDesc:
           "画像生成時に複数のキャラクターを表示できるようにします。ONにすると、指示に基づいてLLMが人数を自動判断します。",
+        historyLookbackCount: "履歴遡及件数",
+        historyLookbackCountDesc:
+          "プロンプト生成時に参照する直近の履歴件数（5〜20）。多いほど一貫性が増しますが、トークン消費が増えます。",
         novelaiTextModel: "NovelAI テキストモデル",
         novelaiTextModelDesc:
           "テキスト生成（心境・プロンプト拡張・会話など）に使用するNovelAIモデルを選択します。Opusプラン限定です。",
@@ -705,6 +708,9 @@ const resources = {
         enableMultiplePeople: "Multiple People (Experimental)",
         enableMultiplePeopleDesc:
           "Allow multiple characters in generated images. When enabled, the LLM determines the number of characters based on your instructions.",
+        historyLookbackCount: "History Lookback Count",
+        historyLookbackCountDesc:
+          "Number of recent history entries referenced when building prompts (5-20). Higher values improve consistency but consume more tokens.",
         novelaiTextModel: "NovelAI Text Model",
         novelaiTextModelDesc:
           "Select the NovelAI model for text generation (inner monologue, prompt expansion, chat, etc.). Opus plan only.",

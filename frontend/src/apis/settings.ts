@@ -5,6 +5,15 @@
 
 import { API_BASE } from "../utils/api";
 
+/**
+ * spec 004 (US4): Session-level settings persisted via /api/settings.
+ * Mirrors backend `SettingsModel` (subset relevant to the frontend).
+ */
+export interface Settings {
+  /** プロンプト生成時の履歴遡及件数 (5..20, default 10) */
+  history_lookback_count: number;
+}
+
 export interface SelfProfile {
   display_name: string;
   personality: string;

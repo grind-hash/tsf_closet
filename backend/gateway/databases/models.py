@@ -280,3 +280,37 @@ class PlaySummary(Base):
     )
 
     session: Mapped["Session"] = relationship(backref="play_summary")
+
+
+class ParameterChangeLog(Base):
+    """Per-stat parameter change record per history entry.
+
+    Used for traceability and revert-on-history-delete (spec 004).
+    """
+
+    __tablename__ = "parameter_change_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    session_id: Mapped[str] = mapped_column(
+        String,
+        ForeignKey("sessions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    history_id: Mapped[str] = mapped_column(
+        String,
+        ForeignKey("history.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    stat_name: Mapped[str] = mapped_column(String, nullable=False)
+    delta: Mapped[int] = mapped_column(Integer, nullable=False)
+    prev_value: Mapped[int] = mapped_column(Integer, nullable=False)
+    new_value: Mapped[int] = mapped_column(Integer, nullable=False)
+    reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        default=func.current_timestamp(), nullable=False
+    )
+
+    __table_args__ = (
+        Index("idx_pcl_history_id", "history_id"),
+        Index("idx_pcl_session_id", "session_id"),
+    )

@@ -7,9 +7,12 @@
 
 from __future__ import annotations
 
+import math
 import random
 import re
 from typing import TYPE_CHECKING
+
+from ..consts.history_lookback import HISTORY_LOOKBACK_DEFAULT
 
 if TYPE_CHECKING:
     from ..models import ConversationMessage, SessionStats
@@ -233,6 +236,7 @@ def build_conversation_prompt(
     transformation_count: int = 0,
     language: str = "ja",
     session_timeline: list[tuple[str, str]] | None = None,
+    lookback_count: int | None = None,
 ) -> tuple[str, str]:
     """会話プロンプトを構築
 
@@ -295,10 +299,17 @@ def build_conversation_prompt(
         + attribute_section
     )
 
+    # spec 004 (US4): lookback_count に従った遅及件数
+    effective_lookback = (
+        lookback_count if lookback_count is not None else HISTORY_LOOKBACK_DEFAULT
+    )
+    recent_lookback = effective_lookback  # 会話履歴は基準値をそのまま使用
+    timeline_lookback = math.ceil(effective_lookback * 1.6)
+
     # 会話履歴を構築
     history_text = ""
     if conversation_history:
-        recent_history = conversation_history[-6:]  # 直近6件
+        recent_history = conversation_history[-recent_lookback:]
         history_lines = []
         for msg in recent_history:
             if msg.role == "user":
@@ -317,7 +328,7 @@ def build_conversation_prompt(
             "conversation": "会話",
         }
         tl_lines = []
-        for itype, text in session_timeline[-8:]:
+        for itype, text in session_timeline[-timeline_lookback:]:
             label = _TYPE_LABELS.get(itype, itype)
             tl_lines.append(f"- [{label}] {text}")
         timeline_text = "\n".join(tl_lines)
