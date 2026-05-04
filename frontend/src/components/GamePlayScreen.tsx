@@ -59,6 +59,8 @@ import type {
 import "./GamePlayScreen.css";
 import "./chat/ChatContainer.css";
 
+const ANLAS_WARN_SUPPRESSED_KEY = "anlas_warn_suppressed";
+
 interface GamePlayScreenProps {
   onTransform: (
     instruction: string,
@@ -152,6 +154,7 @@ export default function GamePlayScreen({
       anlasTitle: t("gameplay.anlasTitle"),
       anlasCancel: t("gameplay.anlasCancel"),
       anlasProceed: t("gameplay.anlasProceed"),
+      anlasDoNotShowAgain: t("gameplay.anlasDoNotShowAgain"),
     }),
     [t],
   );
@@ -199,6 +202,7 @@ export default function GamePlayScreen({
     anlasCost: number;
     instructionType?: string;
   } | null>(null);
+  const [anlasDoNotShowAgain, setAnlasDoNotShowAgain] = useState(false);
 
   // Close export menu on outside click
   useEffect(() => {
@@ -722,6 +726,20 @@ export default function GamePlayScreen({
             ).length
           : 0;
         if (enabledRefCount > 0) {
+          if (
+            sessionStorage.getItem(ANLAS_WARN_SUPPRESSED_KEY) === "true"
+          ) {
+            onTransform(
+              message,
+              undefined,
+              changeSettings,
+              transformationType,
+              transformOptions,
+              backendInstructionType,
+            );
+            return;
+          }
+          setAnlasDoNotShowAgain(false);
           setAnlasConfirmPending({
             message,
             changeSettings,
@@ -913,7 +931,11 @@ export default function GamePlayScreen({
       transformOptions,
       instructionType: pendingInstructionType,
     } = anlasConfirmPending;
+    if (anlasDoNotShowAgain) {
+      sessionStorage.setItem(ANLAS_WARN_SUPPRESSED_KEY, "true");
+    }
     setAnlasConfirmPending(null);
+    setAnlasDoNotShowAgain(false);
     onTransform(
       message,
       undefined,
@@ -922,10 +944,11 @@ export default function GamePlayScreen({
       transformOptions,
       pendingInstructionType,
     );
-  }, [anlasConfirmPending, onTransform]);
+  }, [anlasConfirmPending, anlasDoNotShowAgain, onTransform]);
 
   const handleAnlasCancel = useCallback(() => {
     setAnlasConfirmPending(null);
+    setAnlasDoNotShowAgain(false);
   }, []);
 
   // メッセージ削除の確認ダイアログを表示
@@ -1424,6 +1447,32 @@ export default function GamePlayScreen({
               <strong>{anlasConfirmPending.anlasCost} Anlas</strong>{" "}
               を消費します。続行しますか？
             </p>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.5rem",
+                margin: "0 0 1rem",
+                fontSize: "0.85rem",
+                color: "var(--text-secondary, #aaa)",
+                cursor: "pointer",
+              }}
+              onClick={() => setAnlasDoNotShowAgain((v) => !v)}
+            >
+              <input
+                type="checkbox"
+                id="anlas-do-not-show-again"
+                checked={anlasDoNotShowAgain}
+                onChange={(e) => setAnlasDoNotShowAgain(e.target.checked)}
+                style={{ cursor: "pointer" }}
+              />
+              <label
+                htmlFor="anlas-do-not-show-again"
+                style={{ cursor: "pointer", userSelect: "none" }}
+              >
+                {uiText.anlasDoNotShowAgain}
+              </label>
+            </div>
             <div
               style={{
                 display: "flex",
