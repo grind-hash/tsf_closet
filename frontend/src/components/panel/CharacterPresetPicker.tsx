@@ -6,7 +6,10 @@
 
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { listCharacterPresets } from "../../apis/characters";
+import {
+  deleteCharacterPreset,
+  listCharacterPresets,
+} from "../../apis/characters";
 import { useGame } from "../../contexts/GameContext";
 import type { CharacterPreset } from "../../types";
 import "./CharacterPresetPicker.css";
@@ -22,6 +25,7 @@ export default function CharacterPresetPicker({ open, onClose }: Props) {
   const [presets, setPresets] = useState<CharacterPreset[]>([]);
   const [loading, setLoading] = useState(false);
   const [applyingId, setApplyingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -47,6 +51,27 @@ export default function CharacterPresetPicker({ open, onClose }: Props) {
   }, [open]);
 
   if (!open) return null;
+
+  const handleDelete = async (preset: CharacterPreset) => {
+    if (
+      !window.confirm(
+        t("character.preset.delete_confirm", "「{{name}}」を削除しますか？", {
+          name: preset.name,
+        }),
+      )
+    )
+      return;
+    setDeletingId(preset.id);
+    setError(null);
+    try {
+      await deleteCharacterPreset(preset.id);
+      setPresets((prev) => prev.filter((p) => p.id !== preset.id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "error");
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   const handleApply = async (preset: CharacterPreset) => {
     setApplyingId(preset.id);
@@ -116,16 +141,33 @@ export default function CharacterPresetPicker({ open, onClose }: Props) {
               >
                 {preset.name}
               </span>
-              <button
-                type="button"
-                className="character-preset-picker__apply"
-                disabled={applyingId === preset.id}
-                onClick={() => void handleApply(preset)}
-              >
-                {applyingId === preset.id
-                  ? t("character.preset.applying", "適用中…")
-                  : t("character.preset.apply", "適用")}
-              </button>
+              <div className="character-preset-picker__actions">
+                <button
+                  type="button"
+                  className="character-preset-picker__apply"
+                  disabled={
+                    applyingId === preset.id || deletingId === preset.id
+                  }
+                  onClick={() => void handleApply(preset)}
+                >
+                  {applyingId === preset.id
+                    ? t("character.preset.applying", "適用中…")
+                    : t("character.preset.apply", "適用")}
+                </button>
+                <button
+                  type="button"
+                  className="character-preset-picker__delete"
+                  disabled={
+                    deletingId === preset.id || applyingId === preset.id
+                  }
+                  onClick={() => void handleDelete(preset)}
+                  aria-label={t("character.panel.delete", "削除")}
+                >
+                  {deletingId === preset.id
+                    ? t("character.preset.deleting", "削除中…")
+                    : t("character.panel.delete", "削除")}
+                </button>
+              </div>
             </li>
           ))}
         </ul>

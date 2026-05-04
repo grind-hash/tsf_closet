@@ -114,3 +114,29 @@
   opacity: 0.4;
   cursor: not-allowed;
 }
+
+.character-preset-picker__actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.character-preset-picker__delete {
+  font-size: 11px;
+  padding: 4px 8px;
+  border: 1px solid rgba(233, 69, 96, 0.4);
+  background: rgba(233, 69, 96, 0.1);
+  color: #fca5a5;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.character-preset-picker__delete:hover:not(:disabled) {
+  background: rgba(233, 69, 96, 0.25);
+}
+
+.character-preset-picker__delete:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}

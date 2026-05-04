@@ -6,9 +6,13 @@
  * SettingsContext.enableMultiplePeople is true.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { createCharacterPreset } from "../../apis/characters";
+import {
+  createCharacterPreset,
+  listCharacterPresets,
+  updateCharacterPreset,
+} from "../../apis/characters";
 import { useGame } from "../../contexts/GameContext";
 import type { CharacterPosition, SessionCharacter } from "../../types";
 import CharacterPresetPicker from "./CharacterPresetPicker";
@@ -24,6 +28,94 @@ const POSITIONS: CharacterPosition[] = [
 
 const CHARACTER_LIMIT = 4;
 
+// ---------------------------------------------------------------------------
+// CharacterEditForm
+// IME 変換が途切れないよう、入力値はローカル state で管理し
+// onBlur 時のみ GameContext (API) へ永続化する。
+// ---------------------------------------------------------------------------
+interface CharacterEditFormProps {
+  character: SessionCharacter;
+  onPersist: (
+    id: string,
+    patch: Partial<
+      Pick<SessionCharacter, "name" | "appearance_natural" | "appearance_tags">
+    >,
+  ) => Promise<void>;
+  onSavePreset: (character: SessionCharacter) => void;
+  savingPresetId: string | null;
+}
+
+const CharacterEditForm = memo(function CharacterEditForm({
+  character,
+  onPersist,
+  onSavePreset,
+  savingPresetId,
+}: CharacterEditFormProps) {
+  const { t } = useTranslation();
+
+  // character.id が変わると親側の key={character.id} によってコンポーネントが
+  // 再マウントされるため、useState の初期値が正しく再設定される。
+  const [name, setName] = useState(character.name);
+  const [naturalText, setNaturalText] = useState(
+    character.appearance_natural ?? "",
+  );
+  const [tags, setTags] = useState(character.appearance_tags ?? "");
+
+  const persistName = () => {
+    if (name !== character.name) void onPersist(character.id, { name });
+  };
+  const persistNatural = () => {
+    if (naturalText !== (character.appearance_natural ?? ""))
+      void onPersist(character.id, { appearance_natural: naturalText });
+  };
+  const persistTags = () => {
+    if (tags !== (character.appearance_tags ?? ""))
+      void onPersist(character.id, { appearance_tags: tags });
+  };
+
+  return (
+    <div className="character-panel__row-edit">
+      <input
+        type="text"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        onBlur={persistName}
+        placeholder={t("character.field.name", "名前")}
+      />
+      <textarea
+        value={naturalText}
+        onChange={(e) => setNaturalText(e.target.value)}
+        onBlur={persistNatural}
+        placeholder={t("character.field.appearance_natural", "外見（自然文）")}
+      />
+      <textarea
+        value={tags}
+        onChange={(e) => setTags(e.target.value)}
+        onBlur={persistTags}
+        placeholder={t(
+          "character.field.appearance_tags",
+          "外見タグ (NovelAI 形式)",
+        )}
+      />
+      <button
+        type="button"
+        className="character-panel__btn"
+        onClick={() => void onSavePreset(character)}
+        disabled={savingPresetId === character.id}
+        data-testid="character-save-preset-button"
+      >
+        {savingPresetId === character.id
+          ? t("character.preset.saving", "保存中…")
+          : t("character.preset.save", "プリセット保存")}
+      </button>
+    </div>
+  );
+});
+
+// ---------------------------------------------------------------------------
+// CharacterAddForm
+// draft の更新でキャラクターリスト全体が再レンダリングされないよう分離する。
+// ---------------------------------------------------------------------------
 interface NewCharacterDraft {
   name: string;
   appearance_natural: string;
@@ -38,6 +130,110 @@ const emptyDraft: NewCharacterDraft = {
   position: "center",
 };
 
+interface CharacterAddFormProps {
+  onAdd: (draft: NewCharacterDraft) => Promise<void>;
+  disabled: boolean;
+}
+
+const CharacterAddForm = memo(function CharacterAddForm({
+  onAdd,
+  disabled,
+}: CharacterAddFormProps) {
+  const { t } = useTranslation();
+  const [draft, setDraft] = useState<NewCharacterDraft>(emptyDraft);
+  const [isAdding, setIsAdding] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleCreate = async () => {
+    setError(null);
+    if (!draft.name.trim()) {
+      setError(t("character.error.name_required", "名前を入力してください"));
+      return;
+    }
+    setIsAdding(true);
+    try {
+      await onAdd(draft);
+      setDraft(emptyDraft);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "error";
+      setError(
+        message === "character_limit_exceeded"
+          ? t("character.error.limit_exceeded", "登場人物は最大4人までです")
+          : message,
+      );
+    } finally {
+      setIsAdding(false);
+    }
+  };
+
+  return (
+    <div className="character-panel__add">
+      <input
+        type="text"
+        value={draft.name}
+        onChange={(e) =>
+          setDraft((prev) => ({ ...prev, name: e.target.value }))
+        }
+        placeholder={t("character.field.name", "名前")}
+        data-testid="character-new-name"
+      />
+      <textarea
+        value={draft.appearance_natural}
+        onChange={(e) =>
+          setDraft((prev) => ({
+            ...prev,
+            appearance_natural: e.target.value,
+          }))
+        }
+        placeholder={t("character.field.appearance_natural", "外見（自然文）")}
+      />
+      <textarea
+        value={draft.appearance_tags}
+        onChange={(e) =>
+          setDraft((prev) => ({
+            ...prev,
+            appearance_tags: e.target.value,
+          }))
+        }
+        placeholder={t(
+          "character.field.appearance_tags",
+          "外見タグ (NovelAI 形式)",
+        )}
+      />
+      <select
+        value={draft.position}
+        onChange={(e) =>
+          setDraft((prev) => ({
+            ...prev,
+            position: e.target.value as CharacterPosition,
+          }))
+        }
+      >
+        {POSITIONS.map((p) => (
+          <option key={p} value={p}>
+            {p}
+          </option>
+        ))}
+      </select>
+      {error && <div className="character-panel__error">{error}</div>}
+      <button
+        type="button"
+        className="character-panel__btn"
+        disabled={isAdding || disabled}
+        onClick={() => void handleCreate()}
+        data-testid="character-add-button"
+      >
+        {isAdding
+          ? t("character.panel.adding", "追加中…")
+          : t("character.panel.add", "追加")}
+      </button>
+    </div>
+  );
+});
+
+// ---------------------------------------------------------------------------
+// CharacterPanel (main)
+// ---------------------------------------------------------------------------
 export default function CharacterPanel() {
   const { t } = useTranslation();
   const {
@@ -48,12 +244,10 @@ export default function CharacterPanel() {
     removeSessionCharacter,
   } = useGame();
 
-  const [draft, setDraft] = useState<NewCharacterDraft>(emptyDraft);
-  const [isAdding, setIsAdding] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [savingPresetId, setSavingPresetId] = useState<string | null>(null);
+  const [listError, setListError] = useState<string | null>(null);
 
   useEffect(() => {
     if (state.sessionId) {
@@ -69,34 +263,17 @@ export default function CharacterPanel() {
 
   const reachedLimit = characters.length >= CHARACTER_LIMIT;
 
-  const handleCreate = async () => {
-    setError(null);
-    if (!draft.name.trim()) {
-      setError(t("character.error.name_required", "名前を入力してください"));
-      return;
-    }
-    setIsAdding(true);
-    try {
+  const handleAdd = useCallback(
+    async (draft: NewCharacterDraft) => {
       await addSessionCharacter({
         name: draft.name.trim(),
         appearance_natural: draft.appearance_natural,
         appearance_tags: draft.appearance_tags,
         position: draft.position,
       });
-      setDraft(emptyDraft);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "error";
-      if (message === "character_limit_exceeded") {
-        setError(
-          t("character.error.limit_exceeded", "登場人物は最大4人までです"),
-        );
-      } else {
-        setError(message);
-      }
-    } finally {
-      setIsAdding(false);
-    }
-  };
+    },
+    [addSessionCharacter],
+  );
 
   const handlePositionChange = async (
     character: SessionCharacter,
@@ -133,19 +310,53 @@ export default function CharacterPanel() {
       character.name,
     );
     if (!presetName || !presetName.trim()) return;
+    const trimmedName = presetName.trim();
     setSavingPresetId(character.id);
-    setError(null);
+    setListError(null);
     try {
-      await createCharacterPreset({
-        from_character_id: character.id,
-        name: presetName.trim(),
-      });
+      const existing = await listCharacterPresets();
+      const duplicate = existing.find((p) => p.name === trimmedName);
+      if (duplicate) {
+        const ok = window.confirm(
+          t(
+            "character.preset.overwrite_confirm",
+            "「{{name}}」という名前のプリセットが既に存在します。上書きしますか？",
+            { name: trimmedName },
+          ),
+        );
+        if (!ok) return;
+        await updateCharacterPreset(duplicate.id, {
+          appearance_natural: character.appearance_natural ?? undefined,
+          appearance_tags: character.appearance_tags ?? undefined,
+          default_position: character.position,
+        });
+      } else {
+        await createCharacterPreset({
+          from_character_id: character.id,
+          name: trimmedName,
+        });
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "error");
+      setListError(err instanceof Error ? err.message : "error");
     } finally {
       setSavingPresetId(null);
     }
   };
+
+  const handlePersistCharacter = useCallback(
+    async (
+      id: string,
+      patch: Partial<
+        Pick<
+          SessionCharacter,
+          "name" | "appearance_natural" | "appearance_tags"
+        >
+      >,
+    ) => {
+      await updateSessionCharacterAction(id, patch);
+    },
+    [updateSessionCharacterAction],
+  );
 
   if (!state.sessionId) {
     return null;
@@ -170,6 +381,8 @@ export default function CharacterPanel() {
           {t("character.preset.apply_button", "プリセット")}
         </button>
       </div>
+
+      {listError && <div className="character-panel__error">{listError}</div>}
 
       {characters.length === 0 ? (
         <div className="character-panel__empty">
@@ -234,53 +447,13 @@ export default function CharacterPanel() {
                 </button>
               </div>
               {editingId === character.id && (
-                <div className="character-panel__row-edit">
-                  <input
-                    type="text"
-                    value={character.name}
-                    onChange={(e) =>
-                      void updateSessionCharacterAction(character.id, {
-                        name: e.target.value,
-                      })
-                    }
-                    placeholder={t("character.field.name", "名前")}
-                  />
-                  <textarea
-                    value={character.appearance_natural || ""}
-                    onChange={(e) =>
-                      void updateSessionCharacterAction(character.id, {
-                        appearance_natural: e.target.value,
-                      })
-                    }
-                    placeholder={t(
-                      "character.field.appearance_natural",
-                      "外見（自然文）",
-                    )}
-                  />
-                  <textarea
-                    value={character.appearance_tags || ""}
-                    onChange={(e) =>
-                      void updateSessionCharacterAction(character.id, {
-                        appearance_tags: e.target.value,
-                      })
-                    }
-                    placeholder={t(
-                      "character.field.appearance_tags",
-                      "外見タグ (NovelAI 形式)",
-                    )}
-                  />
-                  <button
-                    type="button"
-                    className="character-panel__btn"
-                    onClick={() => void handleSaveAsPreset(character)}
-                    disabled={savingPresetId === character.id}
-                    data-testid="character-save-preset-button"
-                  >
-                    {savingPresetId === character.id
-                      ? t("character.preset.saving", "保存中…")
-                      : t("character.preset.save", "プリセット保存")}
-                  </button>
-                </div>
+                <CharacterEditForm
+                  key={character.id}
+                  character={character}
+                  onPersist={handlePersistCharacter}
+                  onSavePreset={handleSaveAsPreset}
+                  savingPresetId={savingPresetId}
+                />
               )}
             </div>
           ))}
@@ -288,71 +461,9 @@ export default function CharacterPanel() {
       )}
 
       {!reachedLimit && (
-        <div className="character-panel__add">
-          <input
-            type="text"
-            value={draft.name}
-            onChange={(e) =>
-              setDraft((prev) => ({ ...prev, name: e.target.value }))
-            }
-            placeholder={t("character.field.name", "名前")}
-            data-testid="character-new-name"
-          />
-          <textarea
-            value={draft.appearance_natural}
-            onChange={(e) =>
-              setDraft((prev) => ({
-                ...prev,
-                appearance_natural: e.target.value,
-              }))
-            }
-            placeholder={t(
-              "character.field.appearance_natural",
-              "外見（自然文）",
-            )}
-          />
-          <textarea
-            value={draft.appearance_tags}
-            onChange={(e) =>
-              setDraft((prev) => ({
-                ...prev,
-                appearance_tags: e.target.value,
-              }))
-            }
-            placeholder={t(
-              "character.field.appearance_tags",
-              "外見タグ (NovelAI 形式)",
-            )}
-          />
-          <select
-            value={draft.position}
-            onChange={(e) =>
-              setDraft((prev) => ({
-                ...prev,
-                position: e.target.value as CharacterPosition,
-              }))
-            }
-          >
-            {POSITIONS.map((p) => (
-              <option key={p} value={p}>
-                {p}
-              </option>
-            ))}
-          </select>
-          {error && <div className="character-panel__error">{error}</div>}
-          <button
-            type="button"
-            className="character-panel__btn"
-            disabled={isAdding}
-            onClick={() => void handleCreate()}
-            data-testid="character-add-button"
-          >
-            {isAdding
-              ? t("character.panel.adding", "追加中…")
-              : t("character.panel.add", "追加")}
-          </button>
-        </div>
+        <CharacterAddForm onAdd={handleAdd} disabled={reachedLimit} />
       )}
+
       <CharacterPresetPicker
         open={pickerOpen}
         onClose={() => setPickerOpen(false)}
