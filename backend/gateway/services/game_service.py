@@ -53,6 +53,7 @@ from .action_prompts import (
 )
 from .self_mode_prompts import build_self_mode_feeling_prompt
 from .session import session_store
+from .settings_service import settings_service
 from .tag_classifier import classify_tags, TransformationTags
 from .endings import judge_ending
 from ..routes.achievements_router import (
@@ -1424,6 +1425,9 @@ class GameService:
                     gender=action_gender,
                     previous_situation_summary=previous_situation_summary,
                     enable_multiple_people=enable_multiple_people,
+                    lookback_count=settings_service.get_history_lookback_count(
+                        session_id
+                    ),
                 )
 
                 from .conversation import get_language_rules
@@ -2206,6 +2210,35 @@ class GameService:
                 # 更新をDBに保存
                 await session_store.update_session_stats(new_stats)
 
+                # spec 004 (T010): stat 変動ログを (session_id, history_id) 単位で記録
+                # delta は clamp 後の実適用差分 (new_value - prev_value)。
+                # delta=0 はヘルパ側でスキップされる。
+                await session_store.record_parameter_change_log(
+                    session_id=session.id,
+                    history_id=history.id,
+                    stat_changes=[
+                        (
+                            "bloom",
+                            new_stats.bloom - stats.bloom,
+                            stats.bloom,
+                            new_stats.bloom,
+                        ),
+                        (
+                            "shame",
+                            new_stats.shame - stats.shame,
+                            stats.shame,
+                            new_stats.shame,
+                        ),
+                        (
+                            "adaptation",
+                            new_stats.adaptation - stats.adaptation,
+                            stats.adaptation,
+                            new_stats.adaptation,
+                        ),
+                    ],
+                    reason=instruction_type or "dress_up",
+                )
+
                 # statsイベントを送信 (T016)
                 yield StreamEvent(
                     type="stats",
@@ -2787,6 +2820,9 @@ class GameService:
                 transformation_count=transformation_count,
                 gender=gender,
                 previous_situation_summary=previous_situation_summary,
+                lookback_count=settings_service.get_history_lookback_count(
+                    session_id if session_id else "default"
+                ),
             )
 
             # 画像プロンプト（NovelAI Opus / その他で分岐）

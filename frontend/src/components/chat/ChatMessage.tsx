@@ -181,7 +181,7 @@ const ChatMessageItem = forwardRef<HTMLDivElement, ChatMessageProps>(
                 </svg>
               </button>
             )}
-          {isUser && isLatestUserMessage && state.selfMode && onEditMessage && (
+          {isUser && isLatestUserMessage && onEditMessage && (
             <button
               type="button"
               className="chat-message__action-btn chat-message__action-btn--edit"

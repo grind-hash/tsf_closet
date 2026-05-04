@@ -42,6 +42,7 @@ from ..models import (
     MaskSaveRequest,
 )
 from ..services.session import session_store
+from ..services.settings_service import settings_service
 from ..services.endings import ENDINGS
 from ..services.game_service import GameService
 from ..consts.language import normalize_language
@@ -1018,6 +1019,7 @@ async def chat_with_character(
             language=language,
             session_timeline=session_timeline,
             enable_multiple_people=enable_multiple_people,
+            lookback_count=settings_service.get_history_lookback_count(session_id),
         )
     else:
         system_prompt, user_prompt = build_conversation_prompt(
@@ -1032,6 +1034,7 @@ async def chat_with_character(
             transformation_count=session.transformation_count,
             language=language,
             session_timeline=session_timeline,
+            lookback_count=settings_service.get_history_lookback_count(session_id),
         )
 
     # LLMで応答を生成
@@ -1176,6 +1179,7 @@ async def chat_with_character_stream(
             language=language,
             session_timeline=session_timeline,
             enable_multiple_people=enable_multiple_people,
+            lookback_count=settings_service.get_history_lookback_count(session_id),
         )
     else:
         system_prompt, user_prompt = build_conversation_prompt(
@@ -1190,6 +1194,7 @@ async def chat_with_character_stream(
             transformation_count=session.transformation_count,
             language=language,
             session_timeline=session_timeline,
+            lookback_count=settings_service.get_history_lookback_count(session_id),
         )
 
     async def generate_stream():
@@ -1823,24 +1828,15 @@ async def delete_history_entry(
 @router.delete(
     "/session/{session_id}/latest-history",
     summary="最新履歴を削除",
-    description="セルフモード時のみ最新の履歴を削除し、1つ前の状態に復元する",
+    description="最新の履歴を削除し、1つ前の状態に復元する",
 )
 async def delete_latest_history(session_id: str) -> dict:
     """Delete the latest history entry and restore previous state."""
-    # Validate session exists and is self-mode
     session = await session_store.get_session_by_id(session_id)
     if session is None:
         raise HTTPException(
             status_code=404,
             detail={"error": "SESSION_NOT_FOUND", "message": "Session not found"},
-        )
-    if not session.self_mode:
-        raise HTTPException(
-            status_code=403,
-            detail={
-                "error": "NOT_SELF_MODE",
-                "message": "This operation is only allowed in self-mode",
-            },
         )
 
     result = await session_store.delete_latest_history(session_id)

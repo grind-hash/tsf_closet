@@ -28,6 +28,14 @@ export interface PreviewPromptResponse {
   surroundings_user_prompt?: string;
 }
 
+// spec 004: パラメータ逆適用情報
+export interface ParameterRevert {
+  stat_name: "bloom" | "shame" | "adaptation";
+  delta: number;
+  prev_value: number;
+  new_value: number;
+}
+
 // 最新履歴削除 レスポンス
 export interface DeleteLatestHistoryResponse {
   deleted_history_id: string;
@@ -35,6 +43,7 @@ export interface DeleteLatestHistoryResponse {
   restored_instruction_type: string;
   current_image_path: string | null;
   restored_history_id: string | null;
+  parameter_reverts?: ParameterRevert[];
 }
 
 /**
@@ -150,6 +159,7 @@ export interface DeleteHistoryEntryResponse {
   success: boolean;
   deleted_history_id: string;
   restored_history_id: string;
+  parameter_reverts?: ParameterRevert[];
 }
 
 /**

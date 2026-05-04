@@ -26,6 +26,7 @@ export default function SettingsScreen() {
     setLinkChatToImage,
     setEnableMultiplePeople,
     setNovelaiTextModel,
+    setHistoryLookbackCount,
     resetSettings,
   } = useSettings();
 
@@ -400,6 +401,34 @@ export default function SettingsScreen() {
                   className="settings-screen__toggle-input"
                 />
                 <span className="settings-screen__toggle-switch" />
+              </label>
+            </div>
+
+            <div className="settings-screen__item">
+              <label className="settings-screen__toggle">
+                <div className="settings-screen__toggle-info">
+                  <span className="settings-screen__item-label">
+                    {t("settings.historyLookbackCount")}
+                  </span>
+                  <span className="settings-screen__item-desc">
+                    {t("settings.historyLookbackCountDesc")}
+                  </span>
+                </div>
+                <input
+                  type="number"
+                  min={5}
+                  max={20}
+                  step={1}
+                  value={state.historyLookbackCount}
+                  onChange={(e) => {
+                    const v = Number.parseInt(e.target.value, 10);
+                    if (!Number.isNaN(v)) {
+                      setHistoryLookbackCount(v);
+                    }
+                  }}
+                  className="settings-screen__number-input"
+                  aria-label={t("settings.historyLookbackCount")}
+                />
               </label>
             </div>
 
