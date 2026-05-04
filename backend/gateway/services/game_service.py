@@ -70,6 +70,7 @@ from .anlas_service import get_anlas_balance
 from ..consts.language import normalize_language
 from ..databases.base import async_session_factory
 from .character_service import (
+    build_novelai_characters_section,
     build_session_characters_prompt_section,
     load_session_characters_for_prompt,
 )
@@ -1419,6 +1420,7 @@ class GameService:
 
                 # 005: マルチキャラクター在席時のプロンプト追加
                 multi_char_section: str | None = None
+                multi_char_image_section: str | None = None
                 if enable_multiple_people:
                     try:
                         async with async_session_factory() as _mc_db:
@@ -1427,6 +1429,9 @@ class GameService:
                             )
                         multi_char_section = (
                             build_session_characters_prompt_section(_mc_records) or None
+                        )
+                        multi_char_image_section = (
+                            build_novelai_characters_section(_mc_records) or None
                         )
                     except Exception as _mc_exc:
                         logger.debug("session_character fetch skipped: %s", _mc_exc)
@@ -1487,6 +1492,8 @@ class GameService:
                             language=effective_language,
                             system_prompt_override=action_tag_system,
                             novelai_model_override=effective_novelai_text_model,
+                            enable_multiple_people=enable_multiple_people,
+                            session_characters_section=multi_char_image_section,
                         )
                     )
 
@@ -1875,6 +1882,22 @@ class GameService:
             logger.info(f"Generating image edit prompt... (type={transformation_type})")
             is_reality = transformation_type == "reality"
 
+            # 005: マルチキャラクター在席時は登録済みキャラのタグを画像プロンプトに注入 (FR-010)
+            dress_up_multi_char_image_section: str | None = None
+            if enable_multiple_people:
+                try:
+                    async with async_session_factory() as _mc_db:
+                        _mc_records = await load_session_characters_for_prompt(
+                            _mc_db, session.id
+                        )
+                    dress_up_multi_char_image_section = (
+                        build_novelai_characters_section(_mc_records) or None
+                    )
+                except Exception as _mc_exc:
+                    logger.debug(
+                        "session_character fetch (dress-up) skipped: %s", _mc_exc
+                    )
+
             # T008: NovelAI Opusモード用のプロンプト生成
             generated_novelai_prompt: str | None = None
             prompt_gen_cost: float | None = None
@@ -1892,6 +1915,7 @@ class GameService:
                         clothing_color_consistency=clothing_color_consistency,
                         enable_multiple_people=enable_multiple_people,
                         novelai_model_override=effective_novelai_text_model,
+                        session_characters_section=dress_up_multi_char_image_section,
                     )
                 )
 

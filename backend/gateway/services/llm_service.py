@@ -625,6 +625,7 @@ class LLMService:
         clothing_color_consistency: bool = False,
         enable_multiple_people: bool = False,
         novelai_model_override: str | None = None,
+        session_characters_section: str | None = None,
     ) -> str:
         """NovelAI画像生成プロンプトを生成する (T006)
 
@@ -662,6 +663,7 @@ class LLMService:
             instruction=instruction,
             previous_prompt=previous_prompt,
             enable_multiple_people=enable_multiple_people,
+            session_characters_section=session_characters_section,
         )
 
         # NovelAI GLM-4.6を使用

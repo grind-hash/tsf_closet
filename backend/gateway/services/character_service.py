@@ -313,6 +313,48 @@ async def load_session_characters_for_prompt(
     return await fetch_session_characters(db, session_id)
 
 
+_POSITION_LABEL_EN = {
+    "left": "left",
+    "center-left": "center-left",
+    "center": "center",
+    "center-right": "center-right",
+    "right": "right",
+}
+
+
+def build_novelai_characters_section(
+    records: Sequence[SessionCharacter],
+) -> str:
+    """Build an English NovelAI-image prompt section from session-character records.
+
+    Returns an empty string when there are no records so callers can append
+    the result unconditionally (FR-010 / FR-012).
+    """
+    if not records:
+        return ""
+
+    sorted_records = sorted(records, key=lambda r: r.slot_index)
+    lines: list[str] = [
+        "",
+        "## Registered Characters (MUST appear in image, MUST use these tags as-is)",
+    ]
+    for idx, rec in enumerate(sorted_records, start=1):
+        position = _POSITION_LABEL_EN.get(rec.position, rec.position)
+        tags = (rec.appearance_tags or "").strip()
+        natural = (rec.appearance_natural or "").strip()
+        descriptor: list[str] = [f"position: {position}"]
+        if tags:
+            descriptor.append(f"tags: {tags}")
+        elif natural:
+            descriptor.append(f"appearance: {natural}")
+        lines.append(f"- Character {idx} ({rec.name}, {', '.join(descriptor)})")
+    lines.append(
+        "All listed characters MUST be present in the image alongside the main "
+        "subject; preserve their tags exactly."
+    )
+    return "\n".join(lines)
+
+
 __all__ = [
     "ALLOWED_POSITIONS",
     "CHARACTER_LIMIT",
@@ -320,6 +362,7 @@ __all__ = [
     "CharacterPresetService",
     "SessionCharacterService",
     "apply_appearance_updates",
+    "build_novelai_characters_section",
     "build_session_characters_prompt_section",
     "load_session_characters_for_prompt",
 ]
