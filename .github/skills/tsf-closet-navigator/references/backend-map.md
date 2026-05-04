@@ -1,6 +1,6 @@
 # バックエンド アーキテクチャマップ
 
-> 最終検証: 2026-03-22 | 更新条件: ルート、サービス、DBモデルの追加・リネーム・削除時
+> 最終検証: 2026-05-02 | 更新条件: ルート、サービス、DBモデルの追加・リネーム・削除時
 
 ## FastAPI アプリケーション
 
@@ -45,35 +45,42 @@
 | 32    | DELETE   | `/game/masks/preset/{id}`           | プリセットマスク削除                     |
 | 33    | GET      | `/game/anlas`                       | NovelAI Anlas 残高                       |
 | 34    | POST     | `/game/generate-base-tags`          | ベースタグ生成                           |
-| 35    | DELETE   | `/game/conversation/{history_id}`   | 指定履歴に紐づく会話テキストのみ削除     |
-| 36    | DELETE   | `/game/history/{history_id}`        | 履歴エントリを完全削除（画像・会話含む） |
-| 37    | DELETE   | `/game/session/{id}/latest-history` | 最新履歴の削除                           |
+| 35    | DELETE   | `/game/conversation/{history_id}`            | 指定履歴に紐づく会話テキストのみ削除     |
+| 36    | DELETE   | `/game/conversation/message/{conversation_id}` | 会話メッセージ単体を削除                |
+| 37    | DELETE   | `/game/history/{history_id}`                 | 履歴エントリを完全削除（画像・会話含む） |
+| 38    | DELETE   | `/game/session/{id}/latest-history`          | 最新履歴の削除                           |
 
 ### `/settings` — [backend/gateway/routes/settings_router.py](../../backend/gateway/routes/settings_router.py)
 
-| メソッド | パス                              | 目的                            |
-| -------- | --------------------------------- | ------------------------------- |
-| GET      | `/settings/user`                  | ユーザー設定取得                 |
-| PUT      | `/settings/user`                  | ユーザー設定更新                 |
-| GET      | `/settings/self-profile`          | セルフモードプロファイル取得     |
-| POST     | `/settings/self-profile/generate` | LLMによるプロファイル自動生成    |
-| PUT      | `/settings/self-profile`          | セルフモードプロファイル更新     |
+| メソッド | パス                              | 目的                                            |
+| -------- | --------------------------------- | ----------------------------------------------- |
+| GET      | `/settings`                       | アプリ設定（包括）取得                          |
+| PUT      | `/settings`                       | アプリ設定（包括）更新                          |
+| DELETE   | `/settings`                       | 設定リセット                                    |
+| GET      | `/settings/user`                  | ユーザー設定取得（旧: 互換用）                  |
+| PUT      | `/settings/user`                  | ユーザー設定更新（旧: 互換用）                  |
+| GET      | `/settings/self-profile`          | セルフモードプロファイル取得                    |
+| POST     | `/settings/self-profile/generate` | LLMによるプロファイル自動生成                   |
+| PUT      | `/settings/self-profile`          | セルフモードプロファイル更新                    |
 
 ### `/achievements` — [backend/gateway/routes/achievements_router.py](../../backend/gateway/routes/achievements_router.py)
 
-| メソッド | パス                     | 目的                  |
-| -------- | ------------------------ | --------------------- |
-| GET      | `/achievements`          | 実績一覧              |
-| GET      | `/achievements/{id}`     | 実績詳細              |
-| GET      | `/achievements/unlocked` | 解除済み実績一覧      |
+| メソッド | パス                 | 目的                                                  |
+| -------- | -------------------- | ----------------------------------------------------- |
+| GET      | `/achievements`      | 実績一覧（ユーザー進捗・解除日含む）                   |
+| GET      | `/achievements/{id}` | 実績詳細（ユーザー進捗・解除日含む）                   |
 
 ### `/gallery` — [backend/gateway/routes/gallery_router.py](../../backend/gateway/routes/gallery_router.py)
 
-| メソッド | パス            | 目的                    |
-| -------- | --------------- | ----------------------- |
-| GET      | `/gallery`      | ギャラリー（ページ付き） |
-| GET      | `/gallery/{id}` | ギャラリー項目詳細       |
-| DELETE   | `/gallery/{id}` | ギャラリー項目削除       |
+| メソッド | パス                                | 目的                                              |
+| -------- | ----------------------------------- | ------------------------------------------------- |
+| GET      | `/gallery/sessions`                 | セッション単位のギャラリー一覧（ページ付き）       |
+| GET      | `/gallery`                          | 履歴単位のギャラリー一覧（ページ付き）             |
+| GET      | `/gallery/{item_id}`                | ギャラリー項目詳細                                 |
+| DELETE   | `/gallery/sessions/{session_id}`    | セッション単位で一括削除                           |
+| DELETE   | `/gallery/{item_id}`                | ギャラリー項目（履歴）削除                         |
+| GET      | `/gallery/sessions/{id}/summary`    | プレイ要約取得（未生成は404）                     |
+| POST     | `/gallery/sessions/{id}/summary`    | LLMによるプレイ要約・タイトル生成                  |
 
 ## サービス
 
@@ -109,16 +116,19 @@
 
 ### テーブル
 
-| モデル                           | 主要フィールド                                                                                 |
-| -------------------------------- | --------------------------------------------------------------------------------------------- |
-| `User`                           | id, nsfw_mode, difficulty, language, self_profile_json                                        |
-| `Session`                        | id, user FK, character_id, active, transformation_count                                       |
-| `SessionStats`                   | session FK, bloom, shame, adaptation, passed_critical_points (JSON), difficulty, nsfw_mode    |
-| `History`                        | session FK, instruction, image_path, feeling_text, before/after descriptions, instruction_type|
-| `Conversation`                   | session FK, role, content, timestamp                                                          |
-| `Achievement` / `AchievedEnding` | ユーザーの解除済み項目（タイムスタンプ付き）                                                   |
-| `SessionAttribute`               | session FK, text（現実改変属性）                                                               |
-| `TransformationTag`              | history FK, costume_category, exposure_level, age_impression                                  |
+| モデル              | 主要フィールド                                                                                  |
+| ------------------- | ----------------------------------------------------------------------------------------------- |
+| `User`              | id, nsfw_mode, difficulty, language, self_profile_json 等                                       |
+| `Session`           | id, user FK, character_id, active, transformation_count                                         |
+| `SessionStats`      | session FK, bloom, shame, adaptation, passed_critical_points (JSON), difficulty, nsfw_mode      |
+| `History`           | session FK, instruction, image_path, feeling_text, before/after descriptions, instruction_type  |
+| `Conversation`      | session FK, role, content, timestamp                                                            |
+| `TransformationTag` | history FK, costume_category, exposure_level, age_impression                                    |
+| `SessionAttribute`  | session FK, text（現実改変属性）                                                                 |
+| `UserAchievement`   | id, achievement_id (unique), session_id?, achieved_at?, progress, created_at, updated_at       |
+| `AchievementCount`  | id, crossdress_count, gender_change_count, reality_alter_count, updated_at                      |
+| `AchievedEnding`    | エンディング解除レコード（タイムスタンプ付き）                                                  |
+| `PlaySummary`       | session FK (PK), title, summary, timeline_json, created_at, updated_at                          |
 
 ## 定数
 
