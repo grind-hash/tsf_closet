@@ -58,11 +58,12 @@ AGENTS.md の規約に従って変更を実装する（Context 優先の状態�
 
 ### 技術スタック
 
-- **フロントエンド**: React 19 + TypeScript 5.9 + Vite 7.2 + React Router 7 (ポート 3000)
-- **バックエンド**: FastAPI 0.115 + SQLAlchemy 2.0 + aiosqlite (ポート 8000)
-- **画像生成**: ComfyUI (inpaint/variation ワークフロー)
+- **フロントエンド**: React 19 + TypeScript 5.9 + Vite 7 + React Router 7 (ポート 3000)
+- **バックエンド**: FastAPI 0.115 + SQLAlchemy 2.0 (async) + aiosqlite (ポート 8000)
+- **画像生成**: ComfyUI (inpaint/variation ワークフロー) / OpenRouter マルチモーダル / NovelAI
 - **LLM**: OpenAI 互換 API (LiteLLM/OpenRouter/ローカル経由)
 - **ストリーミング**: Server-Sent Events (SSE) によるリアルタイムゲーム応答
+- **マイグレーション**: Alembic
 - **パッケージ管理**: uv (Python), npm (Node.js)
 
 ### コアディレクトリ
@@ -70,34 +71,37 @@ AGENTS.md の規約に従って変更を実装する（Context 優先の状態�
 ```
 backend/gateway/
   routes/          ← FastAPI ルーター（game, settings, achievements, gallery）
-  services/        ← ビジネスロジック（game_service, llm_service, image_generation 等）
+  services/        ← ビジネスロジック（game_service, llm_service, image_generation, summary_service 等）
   databases/       ← SQLAlchemy モデル + ORM クエリ
   models.py        ← Pydantic リクエスト/レスポンススキーマ
   consts/          ← 定数（言語コード等）
+backend/migrations/
+  versions/        ← Alembic マイグレーション履歴
 
 frontend/src/
   apis/            ← API クライアントモジュール（game, settings, achievements, gallery, anlas）
-  components/      ← React コンポーネント（chat/, settings/, gallery/, achievements/, ui/）
+  components/      ← React コンポーネント（chat/, settings/, gallery/, achievements/, endings/, layout/, panel/, notifications/, ui/）
   contexts/        ← 4つの Context: Game, Chat, Settings, Notification
-  hooks/           ← カスタム Hook（useSession, useSSE, useAchievements, useGallery）
+  hooks/           ← カスタム Hook（useSession, useSSE, useGameSSE, useAchievements, useGallery, useTagSuggest）
+  routes/          ← ルート定数 / ヘルパー (`getGameSessionPath`)
   types/           ← TypeScript 型定義（types/index.ts）
-  routes/          ← ルート定義
+  utils/           ← 汎用ユーティリティ（API_BASE 等）
 ```
 
 ### Context プロバイダ（フロントエンド状態管理）
 
-| Context             | Hook                | 主な状態                                                              |
-| ------------------- | ------------------- | --------------------------------------------------------------------- |
-| GameContext         | `useGame()`         | sessionId, currentImage, stats, history, attributes, ending, selfMode |
-| ChatContext         | `useChat()`         | messages, inputText, instructionType, isStreaming                     |
-| SettingsContext     | `useSettings()`     | difficulty, language, nsfwMode, imageProvider, changeSettings         |
-| NotificationContext | `useNotification()` | notifications[]                                                       |
+| Context             | Hook                | 主な状態                                                                                                                        |
+| ------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| GameContext         | `useGame()`         | sessionId, character(s), currentImage, stats, history, attributes, ending, selfMode, transformationCount, lastSurroundingsImage |
+| ChatContext         | `useChat()`         | messages, inputText, instructionType, attachedImage, isStreaming, pendingIdentities                                             |
+| SettingsContext     | `useSettings()`     | difficulty, language, nsfwMode, imageProvider, inpaintSettings, changeSettings, anlasBalance, totalCost, novelaiTier 他多数     |
+| NotificationContext | `useNotification()` | notifications[]、`showNotification` / `showAchievementNotification` ヘルパー                                                    |
 
 ### API エンドポイント概要
 
-| プレフィックス  | ルーター               | 主な操作                              |
-| --------------- | ---------------------- | ------------------------------------- |
-| `/game`         | game_router.py         | play (SSE), start, session/:id, reset |
-| `/settings`     | settings_router.py     | user GET/PUT, self-profile            |
-| `/achievements` | achievements_router.py | list, detail, unlocked                |
-| `/gallery`      | gallery_router.py      | list (paginated), detail, delete      |
+| プレフィックス  | ルーター               | 主な操作                                                             |
+| --------------- | ---------------------- | -------------------------------------------------------------------- |
+| `/game`         | game_router.py         | play (SSE), start, session/:id, masks, attributes, history削除 他    |
+| `/settings`     | settings_router.py     | settings GET/PUT/DELETE, user GET/PUT (互換), self-profile           |
+| `/achievements` | achievements_router.py | list (進捗含む), detail                                              |
+| `/gallery`      | gallery_router.py      | sessions list, items list (ページ), detail, delete, summary GET/POST |

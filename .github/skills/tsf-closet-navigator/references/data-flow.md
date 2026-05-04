@@ -1,20 +1,20 @@
 # データフローパターン
 
-> 最終検証: 2026-03-21 | 更新条件: 新しい統合パターンやデータ経路が追加された場合
+> 最終検証: 2026-05-02 | 更新条件: 新しい統合パターンやデータ経路が追加された場合
 
 ## メインゲームループ（変身処理）
 
 ```
 ユーザー入力 (ChatInput)
-  │  instructionType: dress_up | reality_change | conversation
+  │  instructionType: dress_up | reality_change | conversation | action など
   │  text: 指示テキスト
   │  attachedImage?: base64 (任意のマスク/参照画像)
   ▼
-useSSE.startStream()
-  │  POST /game/play/stream (SSE)
+[上位ラッパー] useGameSSE → useSSE.startPostStream()
+  │  POST /game/play/stream (SSE / fetch ストリーム)
   │  Body: { session_id, instruction, instruction_type, language,
   │          nsfw_mode, difficulty, change_settings, inpaint_settings,
-  │          mask_base64?, self_mode?, precise_references? }
+  │          mask_base64?, self_mode?, precise_references?, seed? }
   ▼
 [バックエンド] GameService.play_with_stream()
   │
@@ -25,11 +25,12 @@ useSSE.startStream()
   │     └─ llm_service.generate_feeling()
   │     └─ SSE: event=text, data=心境テキストのチャンク
   │
-  ├─ 3. 画像生成（ステップ2と並列）
+  ├─ 3. 画像生成（ステップ 2 と並列）
   │     ├─ ComfyUI inpaint (ローカル)
   │     ├─ OpenRouter マルチモーダル (Gemini等)
   │     └─ NovelAI (anlas経由)
-  │     └─ SSE: event=image, data={base64, historyId, seed}
+  │     └─ SSE: event=image, data={image, history_id, seed}
+  │     └─ SSE: event=surroundings_image (設定有効時)
   │
   ├─ 4. タグ分類（衣装/露出度/年齢印象）
   │     └─ tag_classifier.classify()
@@ -40,24 +41,29 @@ useSSE.startStream()
   ├─ 6. 臨界点チェック（25/50/75/100% の閾値）
   │     └─ SSE: event=critical (閾値を超えた場合)
   │
-  ├─ 7. 実績チェック
+  ├─ 7. 実績チェック / 現実改変属性追加
   │     └─ SSE: event=achievement (新規解除時)
+  │     └─ SSE: event=reality_attribute_added
   │
   ├─ 8. エンディングチェック
   │     └─ summary_service.check_ending()
   │     └─ SSE: event=ending (条件達成時)
   │
   └─ 9. 完了
+        └─ SSE: event=cost / event=anlas
         └─ SSE: event=complete, data={historyId, transformationCount}
   ▼
-[フロントエンド] useSSE コールバック
-  ├─ onText    → ChatContext.ADD_MESSAGE
-  ├─ onImage   → GameContext.SET_CURRENT_IMAGE + History 更新
-  ├─ onStats   → GameContext.UPDATE_STATS
-  ├─ onCritical→ 視覚エフェクト (ParameterBars アニメーション)
-  ├─ onAchievement → NotificationContext トースト通知
-  ├─ onEnding  → GameContext.SET_ENDING → EndingModal
-  └─ onComplete→ isTransforming=false, クリーンアップ
+[フロントエンド] useGameSSE (コールバックスイッチャー)
+  ├─ onText             → GameContext.appendFeelingText
+  ├─ onImage            → ChatContext.resolvePendingIdentity + GameContext.updateFromSSE → restoreActiveSession
+  ├─ onSurroundingsImage→ GameContext.setLastSurroundingsImage
+  ├─ onStats            → GameContext.updateStats
+  ├─ onCritical         → GameContext.appendFeelingText (名前/台詞を心境に追加)
+  ├─ onAchievement      → NotificationContext.showAchievementNotification
+  ├─ onRealityAttributeAdded → GameContext.addAttribute (+ 設定で通知)
+  ├─ onEnding           → GameContext.setEnding → EndingModal
+  ├─ onCost / onAnlas   → SettingsContext.addTotalCost / setAnlasBalance
+  └─ onComplete         → isTransforming=false、クリーンアップ
 ```
 
 ## セッションライフサイクル
@@ -84,13 +90,24 @@ GameContext.START_SESSION ディスパッチ
 
 ```
 SettingsScreen / SettingsContext
-  │  useSettings().updateDifficulty/updateLanguage/toggleNsfw/etc.
+  │  useSettings().setDifficulty / setLanguage / toggleNsfw / etc.
   ▼
-PUT /settings/user { difficulty, language, nsfw_mode, ... }
+PUT /settings { difficulty, language, nsfw_mode, image_provider, ... }
+  │  (旧クライアントとの互換のため PUT /settings/user も有効)
   ▼
 [バックエンド] settings_service → DB: User 行更新
   ▼
-SettingsContext ステート更新（ローカル）
+SettingsContext ステート更新（ローカル localStorage 同期も並行）
+```
+
+## プレイ要約生成フロー
+
+```
+ギャラリーセッション選択 → PlaySummaryModal
+  ├─ GET /gallery/sessions/{id}/summary
+  │    └─ 存在したら表示 (PlaySummary テーブルから)
+  └─ 未生成なら POST /gallery/sessions/{id}/summary
+        └─ LLM が History/Conversation を集約 → PlaySummary に保存 → 表示
 ```
 
 ## 画像生成パイプライン
@@ -145,14 +162,15 @@ GameService._generate_image_edit_prompt()
 
 ## DB 書き込みポイント
 
-| トリガー              | 書き込まれるテーブル                                            |
-| --------------------- | --------------------------------------------------------------- |
-| セッション開始        | Session, SessionStats                                           |
-| 各変身処理            | History, Conversation, TransformationTag, SessionStats (更新)   |
-| 属性追加              | SessionAttribute                                                |
-| 実績解除              | Achievement / AchievedEnding                                    |
-| 設定更新              | User                                                            |
-| マスク保存            | ファイルシステム (data/preset_masks/)                            |
+| トリガー                  | 書き込まれるテーブル                                                  |
+| ------------------------- | ------------------------------------------------------------------ |
+| セッション開始              | Session, SessionStats                                              |
+| 各変身処理              | History, Conversation, TransformationTag, SessionStats (更新)      |
+| 属性追加                  | SessionAttribute                                                   |
+| 実績解除 / 進捗更新       | UserAchievement, AchievementCount, AchievedEnding                  |
+| 設定更新                  | User                                                               |
+| プレイ要約生成            | PlaySummary                                                         |
+| マスク保存                | ファイルシステム (data/preset_masks/)                                  |
 
 ## 注意点 / 非自明なパターン
 

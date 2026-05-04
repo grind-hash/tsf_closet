@@ -1,6 +1,6 @@
 # 変更レシピ集
 
-> 最終検証: 2026-03-22 | 更新条件: 新しい変更パターンの発見やファイル構成の変更時
+> 最終検証: 2026-05-02 | 更新条件: 新しい変更パターンの発見やファイル構成の変更時
 
 クイックルックアップ: 「〇〇をしたい」→「このファイルを読む/変更する」
 
@@ -94,19 +94,19 @@
 | `frontend/src/components/layout/MainLayout.tsx`  | 2カラムレイアウトフレーム         |
 | `frontend/src/components/layout/RightPanel.tsx`  | 右サイドバー                      |
 
-補足: `ChatContainer.tsx` は現状のメイン導線では使われておらず、チャット領域の実装主体は `GamePlayScreen.tsx` です。
+補足: 旧 `ChatContainer.tsx` は削除済みで、チャット領域の実装主体は `GamePlayScreen.tsx`（`chat/ChatMessageList.tsx` + `chat/ChatInput.tsx` を直接配置）です。
 
 ### メッセージ削除 / 履歴削除の変更
 
-| レイヤー | ファイル                                         | 目的                                      |
-| -------- | ------------------------------------------------ | ----------------------------------------- |
-| FE UI    | `frontend/src/components/GamePlayScreen.tsx`     | 削除確認ダイアログ、削除後の画面同期       |
-| FE UI    | `frontend/src/components/chat/ChatMessage.tsx`   | 削除ボタンの表示条件                      |
-| FE API   | `frontend/src/apis/game.ts`                      | `deleteHistoryEntry`, `deleteLatestHistory` |
-| FE State | `frontend/src/contexts/GameContext.tsx`          | 履歴削除後の `history/currentImage` 更新   |
-| FE State | `frontend/src/contexts/ChatContext.tsx`          | メッセージID / `relatedHistoryId` 解決     |
-| BE Route | `backend/gateway/routes/game_router.py`          | `/game/history/{history_id}` などの削除API |
-| BE Logic | `backend/gateway/services/session.py`            | 履歴・画像・会話の実削除処理              |
+| レイヤー | ファイル                                         | 目的                                                          |
+| -------- | ------------------------------------------------ | ------------------------------------------------------------- |
+| FE UI    | `frontend/src/components/GamePlayScreen.tsx`     | 削除確認ダイアログ、削除後の画面同期                              |
+| FE UI    | `frontend/src/components/chat/ChatMessage.tsx`   | 削除ボタンの表示条件                                              |
+| FE API   | `frontend/src/apis/game.ts`                      | `deleteHistoryEntry`, `deleteLatestHistory`, `deleteConversation`, `deleteConversationMessage` |
+| FE State | `frontend/src/contexts/GameContext.tsx`          | 履歴削除後の `history/currentImage` 更新                          |
+| FE State | `frontend/src/contexts/ChatContext.tsx`          | メッセージID / `relatedHistoryId` 解決                              |
+| BE Route | `backend/gateway/routes/game_router.py`          | `/game/history/{id}`, `/game/conversation/{history_id}`, `/game/conversation/message/{conversation_id}` |
+| BE Logic | `backend/gateway/services/session.py` ほか       | 履歴・画像・会話の実削除処理                                  |
 
 ### フロントエンドから API 呼び出しの追加
 
@@ -120,9 +120,10 @@
 
 | ファイル                                     | 目的                                                 |
 | -------------------------------------------- | ---------------------------------------------------- |
-| `frontend/src/hooks/useSSE.ts`               | SSE イベント解析 + コールバック                        |
-| `frontend/src/components/GamePlayScreen.tsx` | コールバックの接続                                    |
-| 受信側 Context                               | `GameContext` / `ChatContext` / `NotificationContext` |
+| `frontend/src/hooks/useSSE.ts`               | 汎用 SSE イベント解析 + コールバック型定義                       |
+| `frontend/src/hooks/useGameSSE.ts`           | ゲーム用コールバックと Context のブリッジ                      |
+| `frontend/src/App.tsx` / `GamePlayScreen.tsx` | `useGameSSE()` の起動・停止                              |
+| 受信側 Context                              | `GameContext` / `ChatContext` / `SettingsContext` / `NotificationContext` |
 
 ### i18n 翻訳の追加
 
@@ -156,5 +157,5 @@
 | ------------- | --------------------------------- | -------------------------------------------- |
 | バックエンド   | 1. game_service でイベントを送出   | `backend/gateway/services/game_service.py`   |
 | フロントエンド | 2. コールバック型の追加            | `frontend/src/hooks/useSSE.ts`               |
-| フロントエンド | 3. コールバックの接続              | `frontend/src/components/GamePlayScreen.tsx` |
+| フロントエンド | 3. コールバックの接続              | `frontend/src/hooks/useGameSSE.ts`           |
 | フロントエンド | 4. Context で処理                  | 該当する Context ファイル                     |
