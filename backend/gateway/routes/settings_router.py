@@ -3,8 +3,13 @@ from __future__ import annotations
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
+from ..consts.history_lookback import (
+    HISTORY_LOOKBACK_DEFAULT,
+    HISTORY_LOOKBACK_MAX,
+    HISTORY_LOOKBACK_MIN,
+)
 from ..consts.language import DEFAULT_LANGUAGE, LanguageCode
 from ..services.settings_service import settings_service
 
@@ -65,6 +70,11 @@ class SettingsModel(BaseModel):
     right_panel_open: bool = False
     enable_surroundings_image: bool = False
     surroundings_include_people: bool = False
+    history_lookback_count: int = Field(
+        default=HISTORY_LOOKBACK_DEFAULT,
+        ge=HISTORY_LOOKBACK_MIN,
+        le=HISTORY_LOOKBACK_MAX,
+    )
 
 
 class SettingsResponse(BaseModel):
@@ -88,6 +98,9 @@ class SettingsUpdateRequest(BaseModel):
     right_panel_open: bool | None = None
     enable_surroundings_image: bool | None = None
     surroundings_include_people: bool | None = None
+    history_lookback_count: int | None = Field(
+        default=None, ge=HISTORY_LOOKBACK_MIN, le=HISTORY_LOOKBACK_MAX
+    )
 
 
 @router.get("", response_model=SettingsResponse)

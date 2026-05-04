@@ -55,6 +55,7 @@ import type {
   ChangeSettings,
   ConversationMessage,
   ChatMessage,
+  SessionStats,
 } from "../types";
 import "./GamePlayScreen.css";
 import "./chat/ChatContainer.css";
@@ -102,6 +103,7 @@ export default function GamePlayScreen({
     navigateNextHistory,
     navigateToHistoryById,
     removeHistoryEntry,
+    updateStats,
   } = useGame();
   const {
     state: chatState,
@@ -1031,6 +1033,16 @@ export default function GamePlayScreen({
 
         // GameContext の history からもエントリを除去（画像表示を更新）
         removeHistoryEntry(historyId, result.restored_history_id || "");
+
+        // parameter_reverts がある場合、フロントエンドの stats に反映する
+        if (result.parameter_reverts && result.parameter_reverts.length > 0) {
+          const statsUpdate: Partial<SessionStats> = {};
+          for (const revert of result.parameter_reverts) {
+            (statsUpdate as Record<string, number>)[revert.stat_name] =
+              revert.new_value;
+          }
+          updateStats(statsUpdate);
+        }
       } else if (conversationId) {
         // 会話のみメッセージ: ユーザーの会話レコードを削除
         await deleteConversationMessage(conversationId, sessionId || "");
@@ -1090,6 +1102,7 @@ export default function GamePlayScreen({
     setMessages,
     sessionId,
     removeHistoryEntry,
+    updateStats,
     chatHistory,
     setConversationHistory,
   ]);

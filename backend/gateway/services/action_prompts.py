@@ -7,6 +7,8 @@ psychological-stage pattern as reality_prompts.py (R-005).
 
 from __future__ import annotations
 
+from ..consts.history_lookback import HISTORY_LOOKBACK_DEFAULT
+
 
 def _get_action_stage(bloom: int) -> str:
     """Return a brief psychological-state description for the system prompt.
@@ -785,6 +787,7 @@ def build_action_prompt(
     gender: str = "man",
     previous_situation_summary: str | None = None,
     enable_multiple_people: bool = False,
+    lookback_count: int | None = None,
 ) -> tuple[str, str]:
     """Build system and user prompts for the action instruction type.
 
@@ -867,7 +870,10 @@ def build_action_prompt(
             "conversation": "会話",
         }
         lines: list[str] = []
-        for entry in recent_actions[-5:]:
+        effective_lookback = (
+            lookback_count if lookback_count is not None else HISTORY_LOOKBACK_DEFAULT
+        )
+        for entry in recent_actions[-effective_lookback:]:
             if isinstance(entry, tuple):
                 itype, text = entry
                 label = _TYPE_LABELS.get(itype, itype)

@@ -113,17 +113,34 @@ def test_action_prompt_recent_actions() -> None:
 
 
 def test_action_prompt_recent_actions_truncated_to_five() -> None:
+    """spec 004 (US4): lookback_count=5 で末尾 5 件のみ含むこと。"""
     actions = [f"action_{i}" for i in range(10)]
     _, user = build_action_prompt(
         instruction="next",
         current_description="outfit",
         recent_actions=actions,
         transformation_count=1,
+        lookback_count=5,
     )
     # Should only include last 5
     assert "action_5" in user
     assert "action_9" in user
     assert "action_0" not in user
+
+
+def test_action_prompt_recent_actions_default_lookback_ten() -> None:
+    """spec 004 (US4): lookback_count 未指定時はデフォルト 10 件まで含む。"""
+    actions = [f"act_{i}" for i in range(15)]
+    _, user = build_action_prompt(
+        instruction="next",
+        current_description="outfit",
+        recent_actions=actions,
+        transformation_count=1,
+    )
+    # Default lookback = HISTORY_LOOKBACK_DEFAULT (10)
+    assert "act_5" in user  # 末尾 10 件に含まれる
+    assert "act_14" in user
+    assert "act_4" not in user  # 範囲外
 
 
 def test_action_prompt_empty_description_fallback() -> None:

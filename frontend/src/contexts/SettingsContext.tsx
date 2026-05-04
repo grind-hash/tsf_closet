@@ -100,6 +100,9 @@ interface SettingsState {
   novelaiTextModel: string;
   // NovelAI subscription tier (null = unknown)
   novelaiTier: number | null;
+
+  // spec 004 (US4): プロンプト生成時に参照する履歴遡及件数 (5..20, default 10)
+  historyLookbackCount: number;
 }
 
 // アクション型
@@ -147,7 +150,8 @@ type SettingsAction =
   | { type: "SET_LINK_CHAT_TO_IMAGE"; payload: boolean }
   | { type: "SET_ENABLE_MULTIPLE_PEOPLE"; payload: boolean }
   | { type: "SET_NOVELAI_TEXT_MODEL"; payload: string }
-  | { type: "SET_NOVELAI_TIER"; payload: number | null };
+  | { type: "SET_NOVELAI_TIER"; payload: number | null }
+  | { type: "SET_HISTORY_LOOKBACK_COUNT"; payload: number };
 
 // デフォルト状態
 const defaultState: SettingsState = {
@@ -180,6 +184,7 @@ const defaultState: SettingsState = {
   enableMultiplePeople: false,
   novelaiTextModel: "glm-4-6",
   novelaiTier: null,
+  historyLookbackCount: 10,
 };
 
 // Reducer
@@ -301,6 +306,11 @@ function settingsReducer(
       return { ...state, novelaiTextModel: action.payload };
     case "SET_NOVELAI_TIER":
       return { ...state, novelaiTier: action.payload };
+    case "SET_HISTORY_LOOKBACK_COUNT":
+      return {
+        ...state,
+        historyLookbackCount: Math.max(5, Math.min(20, action.payload)),
+      };
     default:
       return state;
   }
@@ -355,6 +365,7 @@ interface SettingsContextType {
   setEnableMultiplePeople: (enabled: boolean) => void;
   setNovelaiTextModel: (model: string) => void;
   setNovelaiTier: (tier: number | null) => void;
+  setHistoryLookbackCount: (count: number) => void;
 }
 
 // Context作成
@@ -474,6 +485,28 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       }
     };
     fetchUserSettings();
+  }, []);
+
+  // spec 004 (US4): Load per-session settings (history_lookback_count etc.)
+  useEffect(() => {
+    const fetchSessionSettings = async () => {
+      try {
+        const res = await fetch("/api/settings");
+        if (res.ok) {
+          const data = await res.json();
+          const settings = data?.settings ?? data;
+          if (settings && typeof settings.history_lookback_count === "number") {
+            dispatch({
+              type: "SET_HISTORY_LOOKBACK_COUNT",
+              payload: settings.history_lookback_count,
+            });
+          }
+        }
+      } catch (error) {
+        console.warn("Failed to fetch session settings from backend:", error);
+      }
+    };
+    fetchSessionSettings();
   }, []);
 
   // Load self-profile from backend on init (US6)
@@ -774,6 +807,20 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "SET_NOVELAI_TIER", payload: tier });
   }, []);
 
+  const setHistoryLookbackCount = useCallback(async (count: number) => {
+    const clamped = Math.max(5, Math.min(20, Math.trunc(count)));
+    dispatch({ type: "SET_HISTORY_LOOKBACK_COUNT", payload: clamped });
+    try {
+      await fetch("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ history_lookback_count: clamped }),
+      });
+    } catch (error) {
+      console.error("Failed to save history_lookback_count to backend:", error);
+    }
+  }, []);
+
   const value: SettingsContextType = {
     state,
     setDifficulty,
@@ -815,6 +862,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setEnableMultiplePeople,
     setNovelaiTextModel,
     setNovelaiTier,
+    setHistoryLookbackCount,
   };
 
   return (

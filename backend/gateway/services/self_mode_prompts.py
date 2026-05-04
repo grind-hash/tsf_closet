@@ -7,6 +7,10 @@ profile (R-007).
 
 from __future__ import annotations
 
+import math
+
+from ..consts.history_lookback import HISTORY_LOOKBACK_DEFAULT
+
 
 SELF_MODE_SYSTEM_PROMPT = """あなたは物語の主人公の心の声を書く作家です。
 これは「自分自身」モードです。主人公は実在の人物の性格を反映しています。
@@ -233,6 +237,7 @@ def build_self_mode_conversation_prompt(
     language: str = "ja",
     session_timeline: list[tuple[str, str]] | None = None,
     enable_multiple_people: bool = False,
+    lookback_count: int | None = None,
 ) -> tuple[str, str]:
     """Build conversation prompt for self-mode using the user's personality profile.
 
@@ -285,10 +290,17 @@ def build_self_mode_conversation_prompt(
             "- 主人公の一人称ルールは引き続き厳守してください"
         )
 
+    # spec 004 (T029): 会話遡及 = ceil(lookback*1.2), session timeline = ceil(lookback*1.6)
+    effective_lookback = (
+        lookback_count if lookback_count is not None else HISTORY_LOOKBACK_DEFAULT
+    )
+    recent_lookback = math.ceil(effective_lookback * 1.2)
+    timeline_lookback = math.ceil(effective_lookback * 1.6)
+
     # Build conversation history text
     history_text = ""
     if conversation_history:
-        recent = conversation_history[-6:]
+        recent = conversation_history[-recent_lookback:]
         lines = []
         for msg in recent:
             role_label = "ユーザー" if msg.role == "user" else character_name
@@ -305,7 +317,7 @@ def build_self_mode_conversation_prompt(
             "conversation": "会話",
         }
         tl_lines = []
-        for itype, text in session_timeline[-8:]:
+        for itype, text in session_timeline[-timeline_lookback:]:
             label = _TYPE_LABELS.get(itype, itype)
             tl_lines.append(f"- [{label}] {text}")
         timeline_text = "\n".join(tl_lines)
