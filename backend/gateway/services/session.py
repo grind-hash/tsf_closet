@@ -942,6 +942,14 @@ class DatabaseSessionStore:
             }
             setattr(stats_row, log.stat_name, new_value)
 
+        # bloom が変化した場合、通過済み臨界点リストを再整合する。
+        # revert 後の bloom を下回る臨界点はリストから除去する。
+        if "bloom" in targets:
+            reverted_bloom = targets["bloom"]["new_value"]
+            current_points: list[int] = json.loads(stats_row.passed_critical_points)
+            updated_points = [p for p in current_points if p <= reverted_bloom]
+            stats_row.passed_critical_points = json.dumps(updated_points)
+
         # SessionStatsORM の変更は同一トランザクションで commit 時に永続化される。
         return list(targets.values())
 
