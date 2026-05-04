@@ -1828,24 +1828,15 @@ async def delete_history_entry(
 @router.delete(
     "/session/{session_id}/latest-history",
     summary="最新履歴を削除",
-    description="セルフモード時のみ最新の履歴を削除し、1つ前の状態に復元する",
+    description="最新の履歴を削除し、1つ前の状態に復元する",
 )
 async def delete_latest_history(session_id: str) -> dict:
     """Delete the latest history entry and restore previous state."""
-    # Validate session exists and is self-mode
     session = await session_store.get_session_by_id(session_id)
     if session is None:
         raise HTTPException(
             status_code=404,
             detail={"error": "SESSION_NOT_FOUND", "message": "Session not found"},
-        )
-    if not session.self_mode:
-        raise HTTPException(
-            status_code=403,
-            detail={
-                "error": "NOT_SELF_MODE",
-                "message": "This operation is only allowed in self-mode",
-            },
         )
 
     result = await session_store.delete_latest_history(session_id)

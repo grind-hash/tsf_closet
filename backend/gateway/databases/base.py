@@ -8,7 +8,7 @@ from __future__ import annotations
 from collections.abc import Generator
 from typing import AsyncGenerator
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
@@ -29,6 +29,14 @@ engine = create_async_engine(
     future=True,
 )
 
+
+@event.listens_for(engine.sync_engine, "connect")
+def _set_sqlite_pragma(dbapi_connection, connection_record):
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.close()
+
+
 async_session_factory = async_sessionmaker(
     engine,
     class_=AsyncSession,
@@ -40,6 +48,13 @@ sync_engine = create_engine(
     echo=False,
     future=True,
 )
+
+
+@event.listens_for(sync_engine, "connect")
+def _set_sqlite_pragma_sync(dbapi_connection, connection_record):
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.close()
 
 sync_session_factory = sessionmaker(
     bind=sync_engine,
