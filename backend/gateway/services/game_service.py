@@ -73,6 +73,8 @@ from .character_service import (
     build_novelai_characters_section,
     build_session_characters_prompt_section,
     load_session_characters_for_prompt,
+    resolve_protagonist_image_identity as _resolve_protagonist_image_identity,
+    upsert_protagonist_session_character,
 )
 
 logger = logging.getLogger(__name__)
@@ -1430,8 +1432,71 @@ class GameService:
                         multi_char_section = (
                             build_session_characters_prompt_section(_mc_records) or None
                         )
+                        protagonist_name, protagonist_tags = (
+                            _resolve_protagonist_image_identity(
+                                last_after_description=(
+                                    last_hist.after_description if last_hist else None
+                                ),
+                                character=character,
+                                self_profile=self_profile,
+                                custom_metadata=custom_metadata,
+                            )
+                        )
+                        # FR-010: 初期 upsert — DB に主人公レコードが未存在で
+                        # 解決されたタグがある場合、CharacterPanel 表示用に
+                        # プレースホルダーを作成する。今ターン終了後の
+                        # 事後 upsert で最新タグに上書きされる。
+                        has_protagonist = any(r.is_protagonist for r in _mc_records)
+                        if (
+                            not has_protagonist
+                            and protagonist_name
+                            and protagonist_tags
+                        ):
+                            try:
+                                async with async_session_factory() as _init_db:
+                                    await upsert_protagonist_session_character(
+                                        _init_db,
+                                        session_id,
+                                        name=protagonist_name,
+                                        appearance_tags=protagonist_tags,
+                                    )
+                                    await _init_db.commit()
+                                # 主人公追加後のレコードをリロード
+                                async with async_session_factory() as _mc_db2:
+                                    _mc_records = (
+                                        await load_session_characters_for_prompt(
+                                            _mc_db2, session_id
+                                        )
+                                    )
+                                logger.info(
+                                    "[FR-010 action] initial protagonist upsert ok"
+                                )
+                            except Exception as _init_exc:
+                                logger.warning(
+                                    "[FR-010 action] initial upsert failed: %s",
+                                    _init_exc,
+                                )
+                        logger.info(
+                            "[FR-010 action] enable_multi=%s, records=%d, "
+                            "last_hist=%s, protagonist_name=%r, "
+                            "protagonist_tags=%r",
+                            enable_multiple_people,
+                            len(_mc_records),
+                            "yes" if last_hist else "no",
+                            protagonist_name,
+                            (protagonist_tags or "")[:80],
+                        )
                         multi_char_image_section = (
-                            build_novelai_characters_section(_mc_records) or None
+                            build_novelai_characters_section(
+                                _mc_records,
+                                protagonist_name=protagonist_name,
+                                protagonist_tags=protagonist_tags,
+                            )
+                            or None
+                        )
+                        logger.info(
+                            "[FR-010 action] multi_char_image_section=%r",
+                            (multi_char_image_section or "")[:400],
                         )
                     except Exception as _mc_exc:
                         logger.debug("session_character fetch skipped: %s", _mc_exc)
@@ -1689,6 +1754,37 @@ class GameService:
                         current_image_path=history.image_path,
                     )
 
+                # FR-010: 今ターンの after_description から主人公タグを抽出して
+                # session_character を upsert する。プロンプト構築フェーズではなく
+                # add_history 直後に実行することで CharacterPanel は今ターンの見た目を反映する。
+                if enable_multiple_people:
+                    try:
+                        post_name, post_tags = _resolve_protagonist_image_identity(
+                            last_after_description=action_prompt_desc,
+                            character=character,
+                            self_profile=self_profile,
+                            custom_metadata=custom_metadata,
+                        )
+                        if post_name and post_tags:
+                            async with async_session_factory() as _post_db:
+                                await upsert_protagonist_session_character(
+                                    _post_db,
+                                    session.id,
+                                    name=post_name,
+                                    appearance_tags=post_tags,
+                                )
+                                await _post_db.commit()
+                            logger.info(
+                                "[FR-010 action] post-history upsert ok name=%r tags=%r",
+                                post_name,
+                                post_tags[:80],
+                            )
+                    except Exception as _post_exc:
+                        logger.warning(
+                            "[FR-010 action] post-history upsert failed: %s",
+                            _post_exc,
+                        )
+
                 # 005 US2: アクション完了後の容姿差分自動更新（非同期 / 失敗は握り潰す）
                 if enable_multiple_people:
                     asyncio.create_task(
@@ -1884,14 +1980,77 @@ class GameService:
 
             # 005: マルチキャラクター在席時は登録済みキャラのタグを画像プロンプトに注入 (FR-010)
             dress_up_multi_char_image_section: str | None = None
+            logger.info(
+                "[FR-010 dress-up] enable_multiple_people=%s",
+                enable_multiple_people,
+            )
             if enable_multiple_people:
                 try:
                     async with async_session_factory() as _mc_db:
                         _mc_records = await load_session_characters_for_prompt(
                             _mc_db, session.id
                         )
+                    _dress_last_hist = await session_store.get_latest_history(
+                        session.id
+                    )
+                    protagonist_name, protagonist_tags = (
+                        _resolve_protagonist_image_identity(
+                            last_after_description=(
+                                _dress_last_hist.after_description
+                                if _dress_last_hist
+                                else None
+                            ),
+                            character=character,
+                            self_profile=self_profile,
+                            custom_metadata=custom_metadata,
+                        )
+                    )
+                    # FR-010: 初期 upsert — DB に主人公レコードが未存在で
+                    # 解決されたタグがある場合、CharacterPanel 表示用に
+                    # プレースホルダーを作成する。今ターン終了後の
+                    # 事後 upsert で最新タグに上書きされる。
+                    has_protagonist = any(r.is_protagonist for r in _mc_records)
+                    if not has_protagonist and protagonist_name and protagonist_tags:
+                        try:
+                            async with async_session_factory() as _init_db:
+                                await upsert_protagonist_session_character(
+                                    _init_db,
+                                    session.id,
+                                    name=protagonist_name,
+                                    appearance_tags=protagonist_tags,
+                                )
+                                await _init_db.commit()
+                            async with async_session_factory() as _mc_db2:
+                                _mc_records = await load_session_characters_for_prompt(
+                                    _mc_db2, session.id
+                                )
+                            logger.info(
+                                "[FR-010 dress-up] initial protagonist upsert ok"
+                            )
+                        except Exception as _init_exc:
+                            logger.warning(
+                                "[FR-010 dress-up] initial upsert failed: %s",
+                                _init_exc,
+                            )
+                    logger.info(
+                        "[FR-010 dress-up] records=%d, last_hist=%s, "
+                        "protagonist_name=%r, protagonist_tags=%r",
+                        len(_mc_records),
+                        "yes" if _dress_last_hist else "no",
+                        protagonist_name,
+                        (protagonist_tags or "")[:80],
+                    )
                     dress_up_multi_char_image_section = (
-                        build_novelai_characters_section(_mc_records) or None
+                        build_novelai_characters_section(
+                            _mc_records,
+                            protagonist_name=protagonist_name,
+                            protagonist_tags=protagonist_tags,
+                        )
+                        or None
+                    )
+                    logger.info(
+                        "[FR-010 dress-up] dress_up_multi_char_image_section=%r",
+                        (dress_up_multi_char_image_section or "")[:400],
                     )
                 except Exception as _mc_exc:
                     logger.debug(
@@ -2174,6 +2333,39 @@ class GameService:
                 instruction_type=instruction_type or "dress_up",
                 seed=image_seed,
             )
+
+            # FR-010: 今ターンの after_description から主人公タグを抽出して
+            # session_character を upsert する。プロンプト構築フェーズではなく
+            # add_history 直後に実行することで CharacterPanel は今ターンの見た目を反映する。
+            # 現実改変ケースも Opus モードでは inferred_after_desc が
+            # generated_novelai_prompt (JSON) になるため同一パスで処理される。
+            if enable_multiple_people:
+                try:
+                    post_name, post_tags = _resolve_protagonist_image_identity(
+                        last_after_description=inferred_after_desc,
+                        character=character,
+                        self_profile=self_profile,
+                        custom_metadata=custom_metadata,
+                    )
+                    if post_name and post_tags:
+                        async with async_session_factory() as _post_db:
+                            await upsert_protagonist_session_character(
+                                _post_db,
+                                session.id,
+                                name=post_name,
+                                appearance_tags=post_tags,
+                            )
+                            await _post_db.commit()
+                        logger.info(
+                            "[FR-010 dress-up] post-history upsert ok name=%r tags=%r",
+                            post_name,
+                            post_tags[:80],
+                        )
+                except Exception as _post_exc:
+                    logger.warning(
+                        "[FR-010 dress-up] post-history upsert failed: %s",
+                        _post_exc,
+                    )
 
             # 5.1. タグ分類 (T023)
             tags = classify_tags(instruction)

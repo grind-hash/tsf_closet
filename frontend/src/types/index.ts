@@ -495,6 +495,9 @@ export interface SessionCharacter {
   appearance_natural: string;
   appearance_tags: string;
   position: CharacterPosition;
+  is_protagonist: boolean;
+  appearance_lock: boolean;
+  exclude_from_effects: boolean;
   source_preset_id: string | null;
   created_at: string;
   updated_at: string;

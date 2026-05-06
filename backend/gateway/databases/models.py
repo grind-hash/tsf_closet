@@ -278,6 +278,15 @@ class SessionCharacter(Base):
     appearance_natural: Mapped[str] = mapped_column(Text, default="", nullable=False)
     appearance_tags: Mapped[str] = mapped_column(Text, default="", nullable=False)
     position: Mapped[str] = mapped_column(String(16), default="center", nullable=False)
+    is_protagonist: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, server_default="0"
+    )
+    appearance_lock: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, server_default="0"
+    )
+    exclude_from_effects: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, server_default="0"
+    )
     source_preset_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         default=func.current_timestamp(), nullable=False

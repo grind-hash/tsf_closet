@@ -44,6 +44,22 @@ async def fetch_session_character(
     return result.scalar_one_or_none()
 
 
+async def fetch_protagonist_session_character(
+    db: AsyncSession, session_id: str
+) -> Optional[SessionCharacter]:
+    """Return the is_protagonist record for a session, or None."""
+    stmt = (
+        select(SessionCharacter)
+        .where(
+            SessionCharacter.session_id == session_id,
+            SessionCharacter.is_protagonist.is_(True),
+        )
+        .limit(1)
+    )
+    result = await db.execute(stmt)
+    return result.scalar_one_or_none()
+
+
 async def insert_session_character(
     db: AsyncSession,
     *,
@@ -54,6 +70,9 @@ async def insert_session_character(
     appearance_tags: str = "",
     position: str = "center",
     source_preset_id: Optional[str] = None,
+    is_protagonist: bool = False,
+    appearance_lock: bool = False,
+    exclude_from_effects: bool = False,
 ) -> SessionCharacter:
     """Insert one SessionCharacter and return the persisted instance."""
     record = SessionCharacter(
@@ -65,6 +84,9 @@ async def insert_session_character(
         appearance_tags=appearance_tags,
         position=position,
         source_preset_id=source_preset_id,
+        is_protagonist=is_protagonist,
+        appearance_lock=appearance_lock,
+        exclude_from_effects=exclude_from_effects,
     )
     db.add(record)
     await db.flush()
@@ -87,6 +109,9 @@ async def update_session_character(
         "position",
         "slot_index",
         "source_preset_id",
+        "is_protagonist",
+        "appearance_lock",
+        "exclude_from_effects",
     }
     for key, value in patch.items():
         if key in allowed and value is not None:

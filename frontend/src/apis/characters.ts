@@ -13,6 +13,7 @@ import {
   CHARACTERS_GENERATE_TAGS,
   SESSION_CHARACTER,
   SESSION_CHARACTERS,
+  SESSION_CHARACTERS_ENSURE_PROTAGONIST,
 } from "../constants/apiEndpoint";
 import type {
   CharacterPosition,
@@ -79,6 +80,16 @@ export async function listSessionCharacters(
   return data.characters;
 }
 
+export async function ensureProtagonistCharacter(
+  sessionId: string,
+): Promise<SessionCharacter[]> {
+  const data = await request<SessionCharacterListResponse>(
+    SESSION_CHARACTERS_ENSURE_PROTAGONIST(sessionId),
+    { method: "POST" },
+  );
+  return data.characters;
+}
+
 export interface CreateSessionCharacterPayload {
   name: string;
   appearance_natural?: string;
@@ -86,6 +97,8 @@ export interface CreateSessionCharacterPayload {
   position?: CharacterPosition;
   slot_index?: number;
   source_preset_id?: string | null;
+  appearance_lock?: boolean;
+  exclude_from_effects?: boolean;
 }
 
 export async function createSessionCharacter(
@@ -104,6 +117,8 @@ export interface UpdateSessionCharacterPayload {
   appearance_tags?: string;
   position?: CharacterPosition;
   slot_index?: number;
+  appearance_lock?: boolean;
+  exclude_from_effects?: boolean;
 }
 
 export async function updateSessionCharacter(

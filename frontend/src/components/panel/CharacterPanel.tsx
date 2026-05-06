@@ -14,6 +14,7 @@ import {
   updateCharacterPreset,
 } from "../../apis/characters";
 import { useGame } from "../../contexts/GameContext";
+import { useSettings } from "../../contexts/SettingsContext";
 import type { CharacterPosition, SessionCharacter } from "../../types";
 import CharacterPresetPicker from "./CharacterPresetPicker";
 import "./CharacterPanel.css";
@@ -38,7 +39,14 @@ interface CharacterEditFormProps {
   onPersist: (
     id: string,
     patch: Partial<
-      Pick<SessionCharacter, "name" | "appearance_natural" | "appearance_tags">
+      Pick<
+        SessionCharacter,
+        | "name"
+        | "appearance_natural"
+        | "appearance_tags"
+        | "appearance_lock"
+        | "exclude_from_effects"
+      >
     >,
   ) => Promise<void>;
   onSavePreset: (character: SessionCharacter) => void;
@@ -97,6 +105,40 @@ const CharacterEditForm = memo(function CharacterEditForm({
           "外見タグ (NovelAI 形式)",
         )}
       />
+      <label className="character-panel__check">
+        <input
+          type="checkbox"
+          checked={character.appearance_lock}
+          onChange={(e) =>
+            void onPersist(character.id, { appearance_lock: e.target.checked })
+          }
+          data-testid="character-appearance-lock"
+        />
+        <span>
+          {t(
+            "character.field.appearance_lock",
+            "外見ロック（結果で上書きしない）",
+          )}
+        </span>
+      </label>
+      <label className="character-panel__check">
+        <input
+          type="checkbox"
+          checked={character.exclude_from_effects}
+          onChange={(e) =>
+            void onPersist(character.id, {
+              exclude_from_effects: e.target.checked,
+            })
+          }
+          data-testid="character-exclude-from-effects"
+        />
+        <span>
+          {t(
+            "character.field.exclude_from_effects",
+            "効果対象外（指示の影響を受けない）",
+          )}
+        </span>
+      </label>
       <button
         type="button"
         className="character-panel__btn"
@@ -121,6 +163,8 @@ interface NewCharacterDraft {
   appearance_natural: string;
   appearance_tags: string;
   position: CharacterPosition;
+  appearance_lock: boolean;
+  exclude_from_effects: boolean;
 }
 
 const emptyDraft: NewCharacterDraft = {
@@ -128,6 +172,8 @@ const emptyDraft: NewCharacterDraft = {
   appearance_natural: "",
   appearance_tags: "",
   position: "center",
+  appearance_lock: false,
+  exclude_from_effects: false,
 };
 
 interface CharacterAddFormProps {
@@ -215,6 +261,42 @@ const CharacterAddForm = memo(function CharacterAddForm({
           </option>
         ))}
       </select>
+      <label className="character-panel__check">
+        <input
+          type="checkbox"
+          checked={draft.appearance_lock}
+          onChange={(e) =>
+            setDraft((prev) => ({
+              ...prev,
+              appearance_lock: e.target.checked,
+            }))
+          }
+        />
+        <span>
+          {t(
+            "character.field.appearance_lock",
+            "外見ロック（結果で上書きしない）",
+          )}
+        </span>
+      </label>
+      <label className="character-panel__check">
+        <input
+          type="checkbox"
+          checked={draft.exclude_from_effects}
+          onChange={(e) =>
+            setDraft((prev) => ({
+              ...prev,
+              exclude_from_effects: e.target.checked,
+            }))
+          }
+        />
+        <span>
+          {t(
+            "character.field.exclude_from_effects",
+            "効果対象外（指示の影響を受けない）",
+          )}
+        </span>
+      </label>
       {error && <div className="character-panel__error">{error}</div>}
       <button
         type="button"
@@ -243,6 +325,7 @@ export default function CharacterPanel() {
     updateSessionCharacterAction,
     removeSessionCharacter,
   } = useGame();
+  const { selfProfile } = useSettings();
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -257,11 +340,18 @@ export default function CharacterPanel() {
 
   const characters: SessionCharacter[] = useMemo(
     () =>
-      [...state.sessionCharacters].sort((a, b) => a.slot_index - b.slot_index),
+      [...state.sessionCharacters].sort((a, b) => {
+        if (a.is_protagonist && !b.is_protagonist) return -1;
+        if (!a.is_protagonist && b.is_protagonist) return 1;
+        return a.slot_index - b.slot_index;
+      }),
     [state.sessionCharacters],
   );
 
-  const reachedLimit = characters.length >= CHARACTER_LIMIT;
+  const nonProtagonistCount = characters.filter(
+    (c) => !c.is_protagonist,
+  ).length;
+  const reachedLimit = nonProtagonistCount >= CHARACTER_LIMIT;
 
   const handleAdd = useCallback(
     async (draft: NewCharacterDraft) => {
@@ -270,6 +360,8 @@ export default function CharacterPanel() {
         appearance_natural: draft.appearance_natural,
         appearance_tags: draft.appearance_tags,
         position: draft.position,
+        appearance_lock: draft.appearance_lock,
+        exclude_from_effects: draft.exclude_from_effects,
       });
     },
     [addSessionCharacter],
@@ -349,7 +441,11 @@ export default function CharacterPanel() {
       patch: Partial<
         Pick<
           SessionCharacter,
-          "name" | "appearance_natural" | "appearance_tags"
+          | "name"
+          | "appearance_natural"
+          | "appearance_tags"
+          | "appearance_lock"
+          | "exclude_from_effects"
         >
       >,
     ) => {
@@ -367,9 +463,16 @@ export default function CharacterPanel() {
       <div className="character-panel__header">
         <span className="character-panel__title">
           {t("character.panel.title", "登場人物")}
+          <span
+            className="feature-chip-new"
+            data-feature-version="v0.5.0"
+            style={{ marginLeft: "0.5rem" }}
+          >
+            New
+          </span>
         </span>
         <span className="character-panel__count">
-          {characters.length} / {CHARACTER_LIMIT}
+          {nonProtagonistCount} / {CHARACTER_LIMIT}
         </span>
         <button
           type="button"
@@ -398,27 +501,58 @@ export default function CharacterPanel() {
             >
               <div className="character-panel__row-header">
                 <span className="character-panel__slot">
-                  {character.slot_index + 1}.
+                  {character.is_protagonist
+                    ? t("character.panel.protagonist_badge", "主人公")
+                    : `${character.slot_index + 1}.`}
                 </span>
                 <span
                   className="character-panel__name"
                   title={character.appearance_natural || character.name}
                 >
-                  {character.name}
+                  {character.is_protagonist &&
+                  state.selfMode &&
+                  selfProfile?.display_name
+                    ? selfProfile.display_name
+                    : character.name}
                 </span>
-                <button
-                  type="button"
-                  className="character-panel__btn character-panel__btn--danger"
-                  onClick={() => void handleDelete(character)}
-                >
-                  {t("character.panel.delete", "削除")}
-                </button>
+                {character.appearance_lock && (
+                  <span
+                    className="character-panel__badge character-panel__badge--lock"
+                    title={t(
+                      "character.badge.appearance_lock",
+                      "外見ロック中：結果で上書きされません",
+                    )}
+                  >
+                    {t("character.badge.lock_short", "ロック")}
+                  </span>
+                )}
+                {character.exclude_from_effects && (
+                  <span
+                    className="character-panel__badge character-panel__badge--bystander"
+                    title={t(
+                      "character.badge.exclude_from_effects",
+                      "効果対象外：指示の影響を受けません",
+                    )}
+                  >
+                    {t("character.badge.bystander_short", "対象外")}
+                  </span>
+                )}
+                {!character.is_protagonist && (
+                  <button
+                    type="button"
+                    className="character-panel__btn character-panel__btn--danger"
+                    onClick={() => void handleDelete(character)}
+                  >
+                    {t("character.panel.delete", "削除")}
+                  </button>
+                )}
               </div>
               <div className="character-panel__row-controls">
                 <select
                   className="character-panel__position"
                   aria-label={t("character.field.position", "立ち位置")}
                   value={character.position}
+                  disabled={character.is_protagonist}
                   onChange={(e) =>
                     void handlePositionChange(
                       character,

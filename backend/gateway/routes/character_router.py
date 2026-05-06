@@ -70,6 +70,9 @@ def _serialize_character(record) -> SessionCharacterRead:
         appearance_natural=record.appearance_natural,
         appearance_tags=record.appearance_tags,
         position=record.position,  # type: ignore[arg-type]
+        is_protagonist=record.is_protagonist,
+        appearance_lock=getattr(record, "appearance_lock", False),
+        exclude_from_effects=getattr(record, "exclude_from_effects", False),
         source_preset_id=record.source_preset_id,
         created_at=record.created_at,
         updated_at=record.updated_at,
@@ -110,6 +113,76 @@ async def list_session_characters(
 
 
 @router.post(
+    "/session/{session_id}/characters/ensure-protagonist",
+    response_model=SessionCharacterListResponse,
+    summary="Ensure protagonist session_character exists (FR-010)",
+    description=(
+        "Idempotently create the protagonist record for the current session "
+        "when multi-person mode is active. Resolves identity from the "
+        "template character / self-profile / custom metadata (in that order) "
+        "and falls back to base_tags when no history JSON exists yet. "
+        "Returns the up-to-date character roster."
+    ),
+)
+async def ensure_protagonist_session_character(
+    session_id: str,
+) -> SessionCharacterListResponse:
+    from ..services.character_service import (
+        load_session_characters_for_prompt,
+        resolve_protagonist_image_identity,
+        upsert_protagonist_session_character,
+    )
+    from ..services.characters import character_manager
+    from ..services.game_service import game_service
+    from ..services.session import session_store
+
+    await _ensure_session_exists(session_id)
+
+    session = await session_store.get_session_by_id(session_id)
+    if session is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"detail": "session_not_found", "code": "session_not_found"},
+        )
+
+    character = None
+    if session.character_id:
+        character = character_manager.get_by_id(session.character_id)
+
+    self_profile: dict | None = None
+    if getattr(session, "self_mode", False):
+        self_profile = await session_store.get_self_profile()
+
+    custom_metadata = game_service._load_custom_session_metadata(session_id)
+    last_history = await session_store.get_latest_history(session_id)
+    last_after_description = last_history.after_description if last_history else None
+
+    name, tags = resolve_protagonist_image_identity(
+        last_after_description=last_after_description,
+        character=character,
+        self_profile=self_profile,
+        custom_metadata=custom_metadata,
+    )
+
+    async with async_session_factory() as db:
+        records = await load_session_characters_for_prompt(db, session_id)
+        has_protagonist = any(r.is_protagonist for r in records)
+        if not has_protagonist and name and tags:
+            await upsert_protagonist_session_character(
+                db,
+                session_id,
+                name=name,
+                appearance_tags=tags,
+            )
+            await db.commit()
+            records = await load_session_characters_for_prompt(db, session_id)
+
+    return SessionCharacterListResponse(
+        characters=[_serialize_character(r) for r in records],
+    )
+
+
+@router.post(
     "/session/{session_id}/characters",
     response_model=SessionCharacterRead,
     status_code=status.HTTP_201_CREATED,
@@ -131,6 +204,8 @@ async def create_session_character(
                 position=payload.position,
                 slot_index=payload.slot_index,
                 source_preset_id=payload.source_preset_id,
+                appearance_lock=payload.appearance_lock,
+                exclude_from_effects=payload.exclude_from_effects,
             )
         except CharacterLimitExceededError as exc:
             raise HTTPException(
@@ -191,6 +266,22 @@ async def delete_session_character_endpoint(
 ) -> None:
     await _ensure_session_exists(session_id)
     async with async_session_factory() as db:
+        from ..databases.character_repo import fetch_session_character
+
+        record = await fetch_session_character(db, character_id)
+        if record is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"detail": "character_not_found", "code": "character_not_found"},
+            )
+        if record.is_protagonist:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "detail": "cannot_delete_protagonist",
+                    "code": "cannot_delete_protagonist",
+                },
+            )
         ok = await SessionCharacterService.delete(db, character_id)
         if not ok:
             raise HTTPException(

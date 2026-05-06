@@ -1324,13 +1324,6 @@ export default function GamePlayScreen({
                     data-open={exportMenuOpen}
                   >
                     ↗ {t("chat.export.button")}
-                    <span
-                      className="feature-chip-new"
-                      data-feature-version="v0.4.0"
-                      style={{ marginLeft: "0.5rem" }}
-                    >
-                      New
-                    </span>
                   </button>
                   {exportMenuOpen && (
                     <div className="chat-export-header__menu">

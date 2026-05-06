@@ -31,7 +31,6 @@ function App() {
   // 007-chat-interactive-ux: React Router location
   const location = useLocation();
   const { state: settingsState } = useSettings();
-  console.log("[App] Current route:", location.pathname);
 
   // ルートに基づいて専用画面を表示（各画面は内部でMainLayoutを持つ）
   if (
@@ -74,13 +73,13 @@ function AppMain() {
     resetSession,
     setEnding,
     setError,
+    ensureProtagonistCharacter,
   } = useGame();
   const { t } = useTranslation();
   // 旧UI用: 新UIではWelcomeScreenが担当 (型定義用にscreen変数を使用)
   const [screen, setScreen] = useState<"character-select" | "game">(
     "character-select",
   );
-  console.log("[App] Current screen:", screen, "route:", location.pathname);
   const [showSessionList, setShowSessionList] = useState(false);
   const [providerLoading, setProviderLoading] = useState(true);
 
@@ -99,6 +98,21 @@ function AppMain() {
     }
     window.history.replaceState(null, "", getGameSessionPath(sessionId));
   }, []);
+
+  // FR-010: 複数人モード ON 時、セッションが確立されていれば
+  // 主人公の session_character レコードを冪等に確保する。
+  // セッション開始/再開直後やトグル OFF→ON 遷移時に発火し、
+  // プレイ前から CharacterPanel に主人公枠を表示する。
+  useEffect(() => {
+    if (!gameState.sessionId || !settingsState.enableMultiplePeople) {
+      return;
+    }
+    void ensureProtagonistCharacter();
+  }, [
+    gameState.sessionId,
+    settingsState.enableMultiplePeople,
+    ensureProtagonistCharacter,
+  ]);
 
   // 初期化: セッション復元を試みる（/play/new の場合は復元しない）
   useEffect(() => {

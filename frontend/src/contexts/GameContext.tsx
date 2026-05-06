@@ -26,6 +26,7 @@ import {
   applyPresetToSession,
   createSessionCharacter as apiCreateSessionCharacter,
   deleteSessionCharacter as apiDeleteSessionCharacter,
+  ensureProtagonistCharacter as apiEnsureProtagonistCharacter,
   listSessionCharacters,
   updateSessionCharacter as apiUpdateSessionCharacter,
   type CreateSessionCharacterPayload,
@@ -347,6 +348,7 @@ interface GameContextType {
   setLastSurroundingsImage: (image: SurroundingsImageState | null) => void;
   removeHistoryEntry: (historyId: string, restoredHistoryId: string) => void;
   loadSessionCharacters: () => Promise<void>;
+  ensureProtagonistCharacter: () => Promise<void>;
   addSessionCharacter: (
     payload: CreateSessionCharacterPayload,
   ) => Promise<SessionCharacter>;
@@ -765,6 +767,18 @@ export function GameProvider({ children }: { children: ReactNode }) {
     }
   }, [state.sessionId]);
 
+  const ensureProtagonistCharacter = useCallback(async () => {
+    if (!state.sessionId) {
+      return;
+    }
+    try {
+      const records = await apiEnsureProtagonistCharacter(state.sessionId);
+      dispatch({ type: "SET_SESSION_CHARACTERS", payload: records });
+    } catch (error) {
+      console.error("Failed to ensure protagonist character", error);
+    }
+  }, [state.sessionId]);
+
   const addSessionCharacter = useCallback(
     async (
       payload: CreateSessionCharacterPayload,
@@ -934,6 +948,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
     setLastSurroundingsImage,
     removeHistoryEntry,
     loadSessionCharacters,
+    ensureProtagonistCharacter,
     addSessionCharacter,
     updateSessionCharacterAction,
     removeSessionCharacter,

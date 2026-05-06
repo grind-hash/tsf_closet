@@ -734,6 +734,9 @@ class SessionCharacterRead(BaseModel):
     appearance_natural: str
     appearance_tags: str
     position: CharacterPositionLiteral
+    is_protagonist: bool = False
+    appearance_lock: bool = False
+    exclude_from_effects: bool = False
     source_preset_id: Optional[str] = None
     created_at: datetime
     updated_at: datetime
@@ -748,6 +751,8 @@ class SessionCharacterCreate(BaseModel):
     position: CharacterPositionLiteral = "center"
     slot_index: Optional[int] = Field(None, ge=0, le=3)
     source_preset_id: Optional[str] = None
+    appearance_lock: bool = False
+    exclude_from_effects: bool = False
 
 
 class SessionCharacterUpdate(BaseModel):
@@ -758,6 +763,8 @@ class SessionCharacterUpdate(BaseModel):
     appearance_tags: Optional[str] = Field(None, max_length=2000)
     position: Optional[CharacterPositionLiteral] = None
     slot_index: Optional[int] = Field(None, ge=0, le=3)
+    appearance_lock: Optional[bool] = None
+    exclude_from_effects: Optional[bool] = None
 
 
 class CharacterPresetRead(BaseModel):

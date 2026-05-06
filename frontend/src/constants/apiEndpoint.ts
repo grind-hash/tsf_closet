@@ -14,6 +14,11 @@ import { API_BASE } from "../utils/api";
 export const SESSION_CHARACTERS = (sessionId: string): string =>
   `${API_BASE}/game/session/${encodeURIComponent(sessionId)}/characters`;
 
+export const SESSION_CHARACTERS_ENSURE_PROTAGONIST = (
+  sessionId: string,
+): string =>
+  `${API_BASE}/game/session/${encodeURIComponent(sessionId)}/characters/ensure-protagonist`;
+
 export const SESSION_CHARACTER = (
   sessionId: string,
   characterId: string,

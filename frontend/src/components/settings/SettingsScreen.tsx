@@ -409,6 +409,13 @@ export default function SettingsScreen() {
                 <div className="settings-screen__toggle-info">
                   <span className="settings-screen__item-label">
                     {t("settings.historyLookbackCount")}
+                    <span
+                      className="feature-chip-new"
+                      data-feature-version="v0.5.0"
+                      style={{ marginLeft: "0.5rem" }}
+                    >
+                      New
+                    </span>
                   </span>
                   <span className="settings-screen__item-desc">
                     {t("settings.historyLookbackCountDesc")}
@@ -437,13 +444,6 @@ export default function SettingsScreen() {
                 <div className="settings-screen__toggle-info">
                   <span className="settings-screen__item-label">
                     {t("settings.enableMultiplePeople")}
-                    <span
-                      className="feature-chip-new"
-                      data-feature-version="v0.4.0"
-                      style={{ marginLeft: "0.5rem" }}
-                    >
-                      New
-                    </span>
                   </span>
                   <span className="settings-screen__item-desc">
                     {t("settings.enableMultiplePeopleDesc")}
@@ -464,13 +464,6 @@ export default function SettingsScreen() {
                 <div className="settings-screen__toggle-info">
                   <span className="settings-screen__item-label">
                     {t("settings.novelaiTextModel")}
-                    <span
-                      className="feature-chip-new"
-                      data-feature-version="v0.4.0"
-                      style={{ marginLeft: "0.5rem" }}
-                    >
-                      New
-                    </span>
                     <span
                       className="feature-chip-experimental"
                       data-feature-version="v0.5.0"
@@ -505,13 +498,6 @@ export default function SettingsScreen() {
                 <div className="settings-screen__toggle-info">
                   <span className="settings-screen__item-label">
                     {t("settings.linkChatToImage")}
-                    <span
-                      className="feature-chip-new"
-                      data-feature-version="v0.4.0"
-                      style={{ marginLeft: "0.5rem" }}
-                    >
-                      New
-                    </span>
                   </span>
                   <span className="settings-screen__item-desc">
                     {t("settings.linkChatToImageDesc")}
