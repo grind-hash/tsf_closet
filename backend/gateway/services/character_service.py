@@ -581,7 +581,7 @@ def resolve_protagonist_image_identity(
 
     name_candidates = (
         (custom_metadata.get("name") or "").strip(),
-        ((self_profile or {}).get("name") or "").strip(),
+        ((self_profile or {}).get("display_name") or "").strip(),
         ((getattr(character, "name", "") if character else "") or "").strip(),
     )
     name = next((c for c in name_candidates if c), "Protagonist")
