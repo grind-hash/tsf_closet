@@ -21,12 +21,18 @@ interface Props {
 
 export default function CharacterPresetPicker({ open, onClose }: Props) {
   const { t } = useTranslation();
-  const { applyPresetToCurrentSession } = useGame();
+  const { state, applyPresetToCurrentSession, updateSessionCharacterAction } =
+    useGame();
   const [presets, setPresets] = useState<CharacterPreset[]>([]);
   const [loading, setLoading] = useState(false);
   const [applyingId, setApplyingId] = useState<string | null>(null);
+  const [applyingProtagonistId, setApplyingProtagonistId] = useState<
+    string | null
+  >(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const protagonist = state.sessionCharacters.find((c) => c.is_protagonist);
 
   useEffect(() => {
     if (!open) return;
@@ -93,6 +99,36 @@ export default function CharacterPresetPicker({ open, onClose }: Props) {
     }
   };
 
+  const handleApplyToProtagonist = async (preset: CharacterPreset) => {
+    if (!protagonist) return;
+    if (
+      !window.confirm(
+        t(
+          "character.preset.apply_to_protagonist_confirm",
+          "「{{preset}}」を主人公「{{name}}」に上書き適用しますか？",
+          { preset: preset.name, name: protagonist.name },
+        ),
+      )
+    ) {
+      return;
+    }
+    setApplyingProtagonistId(preset.id);
+    setError(null);
+    try {
+      await updateSessionCharacterAction(protagonist.id, {
+        name: preset.name,
+        appearance_natural: preset.appearance_natural,
+        appearance_tags: preset.appearance_tags,
+        position: preset.default_position,
+      });
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "error");
+    } finally {
+      setApplyingProtagonistId(null);
+    }
+  };
+
   return (
     <div
       className="character-preset-picker__overlay"
@@ -146,7 +182,9 @@ export default function CharacterPresetPicker({ open, onClose }: Props) {
                   type="button"
                   className="character-preset-picker__apply"
                   disabled={
-                    applyingId === preset.id || deletingId === preset.id
+                    applyingId === preset.id ||
+                    applyingProtagonistId === preset.id ||
+                    deletingId === preset.id
                   }
                   onClick={() => void handleApply(preset)}
                 >
@@ -154,11 +192,36 @@ export default function CharacterPresetPicker({ open, onClose }: Props) {
                     ? t("character.preset.applying", "適用中…")
                     : t("character.preset.apply", "適用")}
                 </button>
+                {protagonist && (
+                  <button
+                    type="button"
+                    className="character-preset-picker__apply"
+                    disabled={
+                      applyingId === preset.id ||
+                      applyingProtagonistId === preset.id ||
+                      deletingId === preset.id
+                    }
+                    onClick={() => void handleApplyToProtagonist(preset)}
+                    title={t(
+                      "character.preset.apply_to_protagonist_title",
+                      "現在の主人公の外見をこのプリセットで上書きします",
+                    )}
+                  >
+                    {applyingProtagonistId === preset.id
+                      ? t("character.preset.applying", "適用中…")
+                      : t(
+                          "character.preset.apply_to_protagonist",
+                          "主人公に適用",
+                        )}
+                  </button>
+                )}
                 <button
                   type="button"
                   className="character-preset-picker__delete"
                   disabled={
-                    deletingId === preset.id || applyingId === preset.id
+                    deletingId === preset.id ||
+                    applyingId === preset.id ||
+                    applyingProtagonistId === preset.id
                   }
                   onClick={() => void handleDelete(preset)}
                   aria-label={t("character.panel.delete", "削除")}

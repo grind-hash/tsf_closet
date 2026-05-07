@@ -552,7 +552,6 @@ export default function CharacterPanel() {
                   className="character-panel__position"
                   aria-label={t("character.field.position", "立ち位置")}
                   value={character.position}
-                  disabled={character.is_protagonist}
                   onChange={(e) =>
                     void handlePositionChange(
                       character,
