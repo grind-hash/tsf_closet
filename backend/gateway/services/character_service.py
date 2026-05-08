@@ -588,6 +588,91 @@ def resolve_protagonist_image_identity(
     return (name, tags)
 
 
+async def restore_protagonist_appearance_from_history(
+    session_id: str,
+) -> bool:
+    """Reset the protagonist SessionCharacter's appearance to reflect the
+    latest remaining history after a delete/edit.
+
+    Resolution priority is delegated to
+    :func:`resolve_protagonist_image_identity`, which prefers
+    ``characters[0].tags`` extracted from the previous history's
+    ``after_description`` and falls back to base/self-profile tags when no
+    history JSON remains.
+
+    Skipped when:
+        - no protagonist record exists (multi-people mode never used),
+        - protagonist has ``appearance_lock`` or ``exclude_from_effects``,
+        - resolver returns no tags (no fallback available).
+
+    Returns ``True`` if the row was updated.
+    """
+    # Lazy imports to avoid circular dependencies (services -> routes etc.)
+    from ..databases.base import async_session_factory
+    from .characters import character_manager
+    from .game_service import game_service
+    from .session import session_store
+
+    async with async_session_factory() as db:
+        existing = await fetch_protagonist_session_character(db, session_id)
+        if existing is None:
+            return False
+        if getattr(existing, "appearance_lock", False) or getattr(
+            existing, "exclude_from_effects", False
+        ):
+            return False
+
+    session = await session_store.get_session_by_id(session_id)
+    if session is None:
+        return False
+
+    character = None
+    if getattr(session, "character_id", None):
+        character = character_manager.get_by_id(session.character_id)
+
+    self_profile: dict | None = None
+    if getattr(session, "self_mode", False):
+        self_profile = await session_store.get_self_profile()
+
+    custom_metadata = game_service._load_custom_session_metadata(session_id)
+    last_history = await session_store.get_latest_history(session_id)
+    last_after_description = last_history.after_description if last_history else None
+
+    name, tags = resolve_protagonist_image_identity(
+        last_after_description=last_after_description,
+        character=character,
+        self_profile=self_profile,
+        custom_metadata=custom_metadata,
+    )
+    if not tags:
+        return False
+
+    async with async_session_factory() as db:
+        existing = await fetch_protagonist_session_character(db, session_id)
+        if existing is None:
+            return False
+        if getattr(existing, "appearance_lock", False) or getattr(
+            existing, "exclude_from_effects", False
+        ):
+            return False
+        patch: dict = {}
+        if name and existing.name != name:
+            patch["name"] = name
+        if existing.appearance_tags != tags:
+            patch["appearance_tags"] = tags
+        if not patch:
+            return False
+        await update_session_character(db, existing.id, **patch)
+        await db.commit()
+        logger.info(
+            "Restored protagonist appearance after history change "
+            "(session=%s, tags_changed=%s)",
+            session_id,
+            "appearance_tags" in patch,
+        )
+        return True
+
+
 __all__ = [
     "ALLOWED_POSITIONS",
     "CHARACTER_LIMIT",
@@ -600,5 +685,6 @@ __all__ = [
     "extract_protagonist_tags_from_history",
     "load_session_characters_for_prompt",
     "resolve_protagonist_image_identity",
+    "restore_protagonist_appearance_from_history",
     "upsert_protagonist_session_character",
 ]
