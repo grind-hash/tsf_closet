@@ -1814,19 +1814,19 @@ async def delete_history_entry(
                 "message": "History not found in this session",
             },
         )
-    # 複数人モード使用中の主人公外見を位を最新履歴に復帰
+    # 複数人モード使用中の全キャラ克ターの外見を最新履歴に復帰
     try:
         from ..services.character_service import (
-            restore_protagonist_appearance_from_history,
+            restore_session_characters_appearance_from_history,
         )
 
-        await restore_protagonist_appearance_from_history(session_id)
+        await restore_session_characters_appearance_from_history(session_id)
     except Exception as exc:  # noqa: BLE001
         import logging
 
         logging.getLogger(__name__).warning(
-            "Failed to restore protagonist appearance after history delete "
-            "(session=%s, history=%s): %s",
+            "Failed to restore session characters appearance after history "
+            "delete (session=%s, history=%s): %s",
             session_id,
             history_id,
             exc,
@@ -1866,19 +1866,19 @@ async def delete_latest_history(session_id: str) -> dict:
             },
         )
 
-    # 複数人モード使用中の主人公外見を位を最新履歴に復帰
+    # 複数人モード使用中の全キャラ克ターの外見を最新履歴に復帰
     try:
         from ..services.character_service import (
-            restore_protagonist_appearance_from_history,
+            restore_session_characters_appearance_from_history,
         )
 
-        await restore_protagonist_appearance_from_history(session_id)
+        await restore_session_characters_appearance_from_history(session_id)
     except Exception as exc:  # noqa: BLE001
         import logging
 
         logging.getLogger(__name__).warning(
-            "Failed to restore protagonist appearance after latest-history "
-            "delete (session=%s): %s",
+            "Failed to restore session characters appearance after "
+            "latest-history delete (session=%s): %s",
             session_id,
             exc,
         )

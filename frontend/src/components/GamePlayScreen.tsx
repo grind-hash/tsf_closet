@@ -105,6 +105,7 @@ export default function GamePlayScreen({
     navigateToHistoryById,
     removeHistoryEntry,
     updateStats,
+    loadSessionCharacters,
   } = useGame();
   const {
     state: chatState,
@@ -1088,6 +1089,10 @@ export default function GamePlayScreen({
         }
       }
 
+      // 履歴削除に伴いバックエンドが SessionCharacter の外見を最新履歴に
+      // 復帰するため、フロント側のキャラクターパネル表示も再同期する。
+      void loadSessionCharacters();
+
       setDeleteMessageConfirm(null);
     } catch (err) {
       console.error("Failed to delete message:", err);
@@ -1104,6 +1109,7 @@ export default function GamePlayScreen({
     updateStats,
     chatHistory,
     setConversationHistory,
+    loadSessionCharacters,
   ]);
 
   // 最新メッセージ編集リクエスト（確認ダイアログを表示）
@@ -1177,6 +1183,10 @@ export default function GamePlayScreen({
         await onSessionStart();
       }
 
+      // 履歴削除に伴いバックエンドが SessionCharacter の外見を最新履歴に
+      // 復帰するため、フロント側のキャラクターパネル表示も再同期する。
+      void loadSessionCharacters();
+
       setEditMessageConfirm(null);
     } catch (err) {
       console.error("Failed to edit message:", err);
@@ -1194,6 +1204,7 @@ export default function GamePlayScreen({
     setInstructionType,
     setCurrentImage,
     onSessionStart,
+    loadSessionCharacters,
   ]);
 
   // インペイントトグル時のハンドラ

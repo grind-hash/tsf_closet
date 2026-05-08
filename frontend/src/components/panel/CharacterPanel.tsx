@@ -6,7 +6,7 @@
  * SettingsContext.enableMultiplePeople is true.
  */
 
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   createCharacterPreset,
@@ -68,6 +68,34 @@ const CharacterEditForm = memo(function CharacterEditForm({
     character.appearance_natural ?? "",
   );
   const [tags, setTags] = useState(character.appearance_tags ?? "");
+
+  // 再生成や履歴削除によりレコードの値が外部から更新された際、入力欄へ反映させる。
+  // 直前に同期した値を ref で保持し、ユーザーが編集中（ローカル値が直前の prop と異なる）
+  // の場合は上書きしないようにする。
+  const lastSyncedRef = useRef({
+    name: character.name,
+    natural: character.appearance_natural ?? "",
+    tags: character.appearance_tags ?? "",
+  });
+  useEffect(() => {
+    const nextName = character.name;
+    const nextNatural = character.appearance_natural ?? "";
+    const nextTags = character.appearance_tags ?? "";
+    const synced = lastSyncedRef.current;
+    if (nextName !== synced.name) {
+      // ユーザー編集中（local が直前 prop と一致しない）でなければ取り込む
+      setName((prev) => (prev === synced.name ? nextName : prev));
+      synced.name = nextName;
+    }
+    if (nextNatural !== synced.natural) {
+      setNaturalText((prev) => (prev === synced.natural ? nextNatural : prev));
+      synced.natural = nextNatural;
+    }
+    if (nextTags !== synced.tags) {
+      setTags((prev) => (prev === synced.tags ? nextTags : prev));
+      synced.tags = nextTags;
+    }
+  }, [character.name, character.appearance_natural, character.appearance_tags]);
 
   const persistName = () => {
     if (name !== character.name) void onPersist(character.id, { name });

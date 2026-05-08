@@ -480,34 +480,26 @@ def build_novelai_characters_section(
     return "\n".join(lines)
 
 
-def extract_protagonist_tags_from_history(
+def _parse_history_after_description_json(
     after_description: str | None,
-) -> str | None:
-    """Extract the protagonist appearance tags from a prior history entry.
+) -> dict | None:
+    """Parse the JSON payload from a stored ``after_description`` string.
 
-    When multi-character mode is active, ``after_description`` is stored as a
-    JSON document of the form ``{"characters": [{"tags": "...", ...}, ...],
-    "scene": "..."}``. The first entry in ``characters`` is conventionally the
-    protagonist; we return its ``tags`` field. Returns ``None`` for legacy
-    plain-text descriptions or any malformed payload (FR-010 protect existing
-    sessions).
+    Strips optional ``\u0060\u0060\u0060json`` fences and recovers from trailing prose by
+    extracting the first ``{...}`` block. Returns ``None`` for legacy plain-text
+    descriptions or any malformed payload.
     """
     if not after_description:
         return None
     text = after_description.strip()
-    # Strip optional ```json ... ``` code fences (single-line or multi-line).
     if text.startswith("```"):
-        # Remove leading fence with optional language tag.
-        # Handles both ``` followed by newline and ```json followed by space/newline.
         rest = text[3:]
-        # Drop optional language tag (e.g. "json") up to the first whitespace.
         idx = 0
         while idx < len(rest) and not rest[idx].isspace():
             idx += 1
         text = rest[idx:].lstrip()
         if text.endswith("```"):
             text = text[: -len("```")].rstrip()
-    # JSON object may be embedded with trailing prose; take the first {...} block.
     try:
         data = json.loads(text)
     except json.JSONDecodeError:
@@ -520,6 +512,42 @@ def extract_protagonist_tags_from_history(
         except json.JSONDecodeError:
             return None
     if not isinstance(data, dict):
+        return None
+    return data
+
+
+def extract_characters_from_history(
+    after_description: str | None,
+) -> list[dict] | None:
+    """Return the ``characters`` array from a multi-character history entry.
+
+    Returns ``None`` for single-character format ``{"character": "..."}`` or
+    any other shape. Used to restore non-protagonist appearance after a
+    history delete/edit.
+    """
+    data = _parse_history_after_description_json(after_description)
+    if data is None:
+        return None
+    characters = data.get("characters")
+    if not isinstance(characters, list) or not characters:
+        return None
+    return [c for c in characters if isinstance(c, dict)]
+
+
+def extract_protagonist_tags_from_history(
+    after_description: str | None,
+) -> str | None:
+    """Extract the protagonist appearance tags from a prior history entry.
+
+    When multi-character mode is active, ``after_description`` is stored as a
+    JSON document of the form ``{"characters": [{"tags": "...", ...}, ...],
+    "scene": "..."}``. The first entry in ``characters`` is conventionally the
+    protagonist; we return its ``tags`` field. Returns ``None`` for legacy
+    plain-text descriptions or any malformed payload (FR-010 protect existing
+    sessions).
+    """
+    data = _parse_history_after_description_json(after_description)
+    if data is None:
         return None
     # Multi-character format: {"characters": [{"tags": "...", ...}, ...]}
     characters = data.get("characters")
@@ -588,24 +616,33 @@ def resolve_protagonist_image_identity(
     return (name, tags)
 
 
-async def restore_protagonist_appearance_from_history(
+async def restore_session_characters_appearance_from_history(
     session_id: str,
-) -> bool:
-    """Reset the protagonist SessionCharacter's appearance to reflect the
-    latest remaining history after a delete/edit.
+) -> int:
+    """Reset SessionCharacter rows so they reflect the latest remaining
+    history after a delete/edit.
 
-    Resolution priority is delegated to
-    :func:`resolve_protagonist_image_identity`, which prefers
-    ``characters[0].tags`` extracted from the previous history's
-    ``after_description`` and falls back to base/self-profile tags when no
-    history JSON remains.
+    Protagonist (slot_index=0):
+        Resolution priority is delegated to
+        :func:`resolve_protagonist_image_identity`, which prefers
+        ``characters[0].tags`` extracted from the previous history's
+        ``after_description`` and falls back to base/self-profile tags when no
+        history JSON remains. Both ``name`` and ``appearance_tags`` may be
+        updated.
 
-    Skipped when:
-        - no protagonist record exists (multi-people mode never used),
-        - protagonist has ``appearance_lock`` or ``exclude_from_effects``,
-        - resolver returns no tags (no fallback available).
+    Non-protagonist rows (slot_index >= 1):
+        Restored only when the latest remaining history is a multi-character
+        JSON payload. ``slot_index`` is matched against the array index in
+        ``characters[i].tags``. If the payload is single-character format,
+        absent, or the index is missing, the row is left untouched (no
+        fallback exists for non-protagonist tags). Only ``appearance_tags``
+        is updated.
 
-    Returns ``True`` if the row was updated.
+    Per-row skip conditions (both protagonist and others):
+        - ``appearance_lock`` is True
+        - ``exclude_from_effects`` is True
+
+    Returns the number of rows actually mutated.
     """
     # Lazy imports to avoid circular dependencies (services -> routes etc.)
     from ..databases.base import async_session_factory
@@ -614,17 +651,13 @@ async def restore_protagonist_appearance_from_history(
     from .session import session_store
 
     async with async_session_factory() as db:
-        existing = await fetch_protagonist_session_character(db, session_id)
-        if existing is None:
-            return False
-        if getattr(existing, "appearance_lock", False) or getattr(
-            existing, "exclude_from_effects", False
-        ):
-            return False
+        records = await fetch_session_characters(db, session_id)
+        if not records:
+            return 0
 
     session = await session_store.get_session_by_id(session_id)
     if session is None:
-        return False
+        return 0
 
     character = None
     if getattr(session, "character_id", None):
@@ -638,39 +671,65 @@ async def restore_protagonist_appearance_from_history(
     last_history = await session_store.get_latest_history(session_id)
     last_after_description = last_history.after_description if last_history else None
 
-    name, tags = resolve_protagonist_image_identity(
+    history_characters = extract_characters_from_history(last_after_description)
+
+    # Resolve protagonist identity (with fallback) up-front.
+    protagonist_name, protagonist_tags = resolve_protagonist_image_identity(
         last_after_description=last_after_description,
         character=character,
         self_profile=self_profile,
         custom_metadata=custom_metadata,
     )
-    if not tags:
-        return False
 
+    updated_count = 0
     async with async_session_factory() as db:
-        existing = await fetch_protagonist_session_character(db, session_id)
-        if existing is None:
-            return False
-        if getattr(existing, "appearance_lock", False) or getattr(
-            existing, "exclude_from_effects", False
-        ):
-            return False
-        patch: dict = {}
-        if name and existing.name != name:
-            patch["name"] = name
-        if existing.appearance_tags != tags:
-            patch["appearance_tags"] = tags
-        if not patch:
-            return False
-        await update_session_character(db, existing.id, **patch)
-        await db.commit()
-        logger.info(
-            "Restored protagonist appearance after history change "
-            "(session=%s, tags_changed=%s)",
-            session_id,
-            "appearance_tags" in patch,
-        )
-        return True
+        records = await fetch_session_characters(db, session_id)
+        for rec in sorted(records, key=lambda r: r.slot_index):
+            if getattr(rec, "appearance_lock", False) or getattr(
+                rec, "exclude_from_effects", False
+            ):
+                continue
+
+            patch: dict = {}
+            if rec.is_protagonist:
+                if not protagonist_tags:
+                    continue
+                if protagonist_name and rec.name != protagonist_name:
+                    patch["name"] = protagonist_name
+                if rec.appearance_tags != protagonist_tags:
+                    patch["appearance_tags"] = protagonist_tags
+            else:
+                # Non-protagonist: only restore when multi-char JSON history
+                # provides an entry at the matching slot index.
+                if history_characters is None:
+                    continue
+                idx = rec.slot_index
+                if idx < 0 or idx >= len(history_characters):
+                    continue
+                entry = history_characters[idx]
+                tags = entry.get("tags") if isinstance(entry, dict) else None
+                if not isinstance(tags, str):
+                    continue
+                tags_stripped = tags.strip()
+                if not tags_stripped:
+                    continue
+                if rec.appearance_tags != tags_stripped:
+                    patch["appearance_tags"] = tags_stripped
+
+            if not patch:
+                continue
+            await update_session_character(db, rec.id, **patch)
+            updated_count += 1
+
+        if updated_count:
+            await db.commit()
+            logger.info(
+                "Restored session characters appearance after history change "
+                "(session=%s, updated=%d)",
+                session_id,
+                updated_count,
+            )
+    return updated_count
 
 
 __all__ = [
@@ -682,9 +741,10 @@ __all__ = [
     "apply_appearance_updates",
     "build_novelai_characters_section",
     "build_session_characters_prompt_section",
+    "extract_characters_from_history",
     "extract_protagonist_tags_from_history",
     "load_session_characters_for_prompt",
     "resolve_protagonist_image_identity",
-    "restore_protagonist_appearance_from_history",
+    "restore_session_characters_appearance_from_history",
     "upsert_protagonist_session_character",
 ]
