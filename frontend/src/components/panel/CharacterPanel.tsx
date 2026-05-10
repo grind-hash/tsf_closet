@@ -513,7 +513,7 @@ export default function CharacterPanel() {
             className="character-panel__feature-toggle"
             title={t(
               "character.panel.featureToggleHint",
-              "OFFにすると、複数人表示が有効でもこのパネルの登場人物情報を画像生成に使わず、いままでどおりの単一キャラクター出力になります。",
+              "OFFにすると、複数人表示自体はそのまま保ちつつ、このパネルの登場人物情報を画像プロンプトへ注入しなくなります（v0.5.0 以前の旧仕様・不安定ながら動作していた複数人表示の振る舞いに戻る）。",
             )}
           >
             <input

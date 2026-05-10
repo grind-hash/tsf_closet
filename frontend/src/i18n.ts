@@ -645,7 +645,7 @@ const resources = {
           empty: "まだ登場人物が登録されていません。",
           featureToggle: "有効",
           featureToggleHint:
-            "OFFにすると、複数人表示が有効でもこのパネルの登場人物情報を画像生成に使わず、いままでどおりの単一キャラクター出力になります。",
+            "OFFにすると、複数人表示自体はそのまま保ちつつ、このパネルの登場人物情報を画像プロンプトへ注入しなくなります（v0.5.0 以前の旧仕様・不安定ながら動作していた複数人表示の振る舞いに戻る）。",
         },
         field: {
           name: "名前",
@@ -1314,7 +1314,7 @@ const resources = {
           empty: "No characters registered yet.",
           featureToggle: "Enabled",
           featureToggleHint:
-            "When OFF, this panel's character data is not used for image generation even if Multiple People is enabled, falling back to single-character output.",
+            "When OFF, multi-person mode itself stays active, but this panel's character data is no longer injected into image prompts (rolls back to the pre-v0.5.0 multi-person behavior).",
         },
         field: {
           name: "Name",

@@ -248,6 +248,13 @@ class PlayStreamRequest(BaseModel):
         False,
         description="複数人表示を有効にする実験的機能",
     )
+    # CharacterPanel (session_characters) injection toggle.
+    # False の場合、複数人表示の GLM-4.6 ルール緩和はそのまま保ちつつ、
+    # session_characters パネルからのプロンプト注入をバイパスする（v0.5.0 以前の旧仕様）。
+    use_character_panel: bool = Field(
+        True,
+        description="登場人物パネルの情報を画像生成プロンプトに注入するか",
+    )
 
 
 @router.post(
@@ -298,6 +305,7 @@ async def play_game_stream(request: PlayStreamRequest) -> EventSourceResponse:
             surroundings_include_people=request.surroundings_include_people,
             clothing_color_consistency=request.clothing_color_consistency,
             enable_multiple_people=request.enable_multiple_people,
+            use_character_panel=request.use_character_panel,
         ):
             yield {
                 "event": event.type,

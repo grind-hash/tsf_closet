@@ -344,13 +344,13 @@ function AppMain() {
       if (settingsState.clothingColorConsistency) {
         body.clothing_color_consistency = true;
       }
-      // Multiple people experimental feature
-      if (
-        settingsState.enableMultiplePeople &&
-        settingsState.multiCharacterPanelEnabled
-      ) {
+      // Multiple people experimental feature.
+      // パネル OFF でも複数人表示自体は維持し、
+      // 画像プロンプトへの session_characters 注入のみ use_character_panel でゲートする。
+      if (settingsState.enableMultiplePeople) {
         body.enable_multiple_people = true;
       }
+      body.use_character_panel = settingsState.multiCharacterPanelEnabled;
       if (costumeImage) {
         body.costume_image = costumeImage;
       }

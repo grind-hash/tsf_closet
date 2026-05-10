@@ -1170,6 +1170,7 @@ class GameService:
         surroundings_include_people: bool = False,
         clothing_color_consistency: bool = False,
         enable_multiple_people: bool = False,
+        use_character_panel: bool = True,
     ) -> AsyncGenerator[StreamEvent, None]:
         """ストリーミング対応の着せ替えを実行
 
@@ -1423,7 +1424,7 @@ class GameService:
                 # 005: マルチキャラクター在席時のプロンプト追加
                 multi_char_section: str | None = None
                 multi_char_image_section: str | None = None
-                if enable_multiple_people:
+                if enable_multiple_people and use_character_panel:
                     try:
                         async with async_session_factory() as _mc_db:
                             _mc_records = await load_session_characters_for_prompt(
@@ -1757,7 +1758,7 @@ class GameService:
                 # FR-010: 今ターンの after_description から主人公タグを抽出して
                 # session_character を upsert する。プロンプト構築フェーズではなく
                 # add_history 直後に実行することで CharacterPanel は今ターンの見た目を反映する。
-                if enable_multiple_people:
+                if enable_multiple_people and use_character_panel:
                     try:
                         post_name, post_tags = _resolve_protagonist_image_identity(
                             last_after_description=action_prompt_desc,
@@ -1786,7 +1787,7 @@ class GameService:
                         )
 
                 # 005 US2: アクション完了後の容姿差分自動更新（非同期 / 失敗は握り潰す）
-                if enable_multiple_people:
+                if enable_multiple_people and use_character_panel:
                     asyncio.create_task(
                         _async_apply_appearance_updates(session.id, instruction)
                     )
@@ -1984,7 +1985,7 @@ class GameService:
                 "[FR-010 dress-up] enable_multiple_people=%s",
                 enable_multiple_people,
             )
-            if enable_multiple_people:
+            if enable_multiple_people and use_character_panel:
                 try:
                     async with async_session_factory() as _mc_db:
                         _mc_records = await load_session_characters_for_prompt(
@@ -2339,7 +2340,7 @@ class GameService:
             # add_history 直後に実行することで CharacterPanel は今ターンの見た目を反映する。
             # 現実改変ケースも Opus モードでは inferred_after_desc が
             # generated_novelai_prompt (JSON) になるため同一パスで処理される。
-            if enable_multiple_people:
+            if enable_multiple_people and use_character_panel:
                 try:
                     post_name, post_tags = _resolve_protagonist_image_identity(
                         last_after_description=inferred_after_desc,
