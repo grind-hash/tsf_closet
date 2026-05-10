@@ -643,6 +643,9 @@ const resources = {
           edit: "編集",
           close: "閉じる",
           empty: "まだ登場人物が登録されていません。",
+          featureToggle: "有効",
+          featureToggleHint:
+            "OFFにすると、複数人表示が有効でもこのパネルの登場人物情報を画像生成に使わず、いままでどおりの単一キャラクター出力になります。",
         },
         field: {
           name: "名前",
@@ -1309,6 +1312,9 @@ const resources = {
           edit: "Edit",
           close: "Close",
           empty: "No characters registered yet.",
+          featureToggle: "Enabled",
+          featureToggleHint:
+            "When OFF, this panel's character data is not used for image generation even if Multiple People is enabled, falling back to single-character output.",
         },
         field: {
           name: "Name",

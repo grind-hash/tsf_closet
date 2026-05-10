@@ -353,7 +353,12 @@ export default function CharacterPanel() {
     updateSessionCharacterAction,
     removeSessionCharacter,
   } = useGame();
-  const { selfProfile } = useSettings();
+  const {
+    selfProfile,
+    state: settingsState,
+    setMultiCharacterPanelEnabled,
+  } = useSettings();
+  const panelEnabled = settingsState.multiCharacterPanelEnabled;
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -489,146 +494,176 @@ export default function CharacterPanel() {
   return (
     <div className="character-panel" data-testid="character-panel">
       <div className="character-panel__header">
-        <span className="character-panel__title">
-          {t("character.panel.title", "登場人物")}
-          <span
-            className="feature-chip-new"
-            data-feature-version="v0.5.0"
-            style={{ marginLeft: "0.5rem" }}
-          >
+        <div className="character-panel__title-row">
+          <span className="character-panel__title">
+            {t("character.panel.title", "登場人物")}
+          </span>
+          <span className="feature-chip-new" data-feature-version="v0.5.0">
             New
           </span>
-        </span>
-        <span className="character-panel__count">
-          {nonProtagonistCount} / {CHARACTER_LIMIT}
-        </span>
-        <button
-          type="button"
-          className="character-panel__btn"
-          onClick={() => setPickerOpen(true)}
-          disabled={reachedLimit}
-          data-testid="character-apply-preset-button"
-        >
-          {t("character.preset.apply_button", "プリセット")}
-        </button>
+          <span
+            className="feature-chip-experimental"
+            data-feature-version="v0.5.0"
+          >
+            Experimental
+          </span>
+        </div>
+        <div className="character-panel__controls">
+          <label
+            className="character-panel__feature-toggle"
+            title={t(
+              "character.panel.featureToggleHint",
+              "OFFにすると、複数人表示が有効でもこのパネルの登場人物情報を画像生成に使わず、いままでどおりの単一キャラクター出力になります。",
+            )}
+          >
+            <input
+              type="checkbox"
+              checked={panelEnabled}
+              onChange={(e) => setMultiCharacterPanelEnabled(e.target.checked)}
+              data-testid="character-panel-feature-toggle"
+            />
+            <span>{t("character.panel.featureToggle", "有効")}</span>
+          </label>
+          <span className="character-panel__count">
+            {nonProtagonistCount} / {CHARACTER_LIMIT}
+          </span>
+          <button
+            type="button"
+            className="character-panel__btn"
+            onClick={() => setPickerOpen(true)}
+            disabled={reachedLimit || !panelEnabled}
+            data-testid="character-apply-preset-button"
+          >
+            {t("character.preset.apply_button", "プリセット")}
+          </button>
+        </div>
       </div>
 
-      {listError && <div className="character-panel__error">{listError}</div>}
+      <div
+        className={
+          panelEnabled
+            ? "character-panel__body"
+            : "character-panel__body character-panel__body--disabled"
+        }
+        aria-disabled={!panelEnabled}
+      >
+        {listError && <div className="character-panel__error">{listError}</div>}
 
-      {characters.length === 0 ? (
-        <div className="character-panel__empty">
-          {t("character.panel.empty", "まだ登場人物が登録されていません。")}
-        </div>
-      ) : (
-        <div className="character-panel__list">
-          {characters.map((character) => (
-            <div
-              key={character.id}
-              className="character-panel__row"
-              data-testid="character-row"
-            >
-              <div className="character-panel__row-header">
-                <span className="character-panel__slot">
-                  {character.is_protagonist
-                    ? t("character.panel.protagonist_badge", "主人公")
-                    : `${character.slot_index + 1}.`}
-                </span>
-                <span
-                  className="character-panel__name"
-                  title={character.appearance_natural || character.name}
-                >
-                  {character.is_protagonist &&
-                  state.selfMode &&
-                  selfProfile?.display_name
-                    ? selfProfile.display_name
-                    : character.name}
-                </span>
-                {character.appearance_lock && (
-                  <span
-                    className="character-panel__badge character-panel__badge--lock"
-                    title={t(
-                      "character.badge.appearance_lock",
-                      "外見ロック中：結果で上書きされません",
-                    )}
-                  >
-                    {t("character.badge.lock_short", "ロック")}
+        {characters.length === 0 ? (
+          <div className="character-panel__empty">
+            {t("character.panel.empty", "まだ登場人物が登録されていません。")}
+          </div>
+        ) : (
+          <div className="character-panel__list">
+            {characters.map((character) => (
+              <div
+                key={character.id}
+                className="character-panel__row"
+                data-testid="character-row"
+              >
+                <div className="character-panel__row-header">
+                  <span className="character-panel__slot">
+                    {character.is_protagonist
+                      ? t("character.panel.protagonist_badge", "主人公")
+                      : `${character.slot_index + 1}.`}
                   </span>
-                )}
-                {character.exclude_from_effects && (
                   <span
-                    className="character-panel__badge character-panel__badge--bystander"
-                    title={t(
-                      "character.badge.exclude_from_effects",
-                      "効果対象外：指示の影響を受けません",
-                    )}
+                    className="character-panel__name"
+                    title={character.appearance_natural || character.name}
                   >
-                    {t("character.badge.bystander_short", "対象外")}
+                    {character.is_protagonist &&
+                    state.selfMode &&
+                    selfProfile?.display_name
+                      ? selfProfile.display_name
+                      : character.name}
                   </span>
-                )}
-                {!character.is_protagonist && (
+                  {character.appearance_lock && (
+                    <span
+                      className="character-panel__badge character-panel__badge--lock"
+                      title={t(
+                        "character.badge.appearance_lock",
+                        "外見ロック中：結果で上書きされません",
+                      )}
+                    >
+                      {t("character.badge.lock_short", "ロック")}
+                    </span>
+                  )}
+                  {character.exclude_from_effects && (
+                    <span
+                      className="character-panel__badge character-panel__badge--bystander"
+                      title={t(
+                        "character.badge.exclude_from_effects",
+                        "効果対象外：指示の影響を受けません",
+                      )}
+                    >
+                      {t("character.badge.bystander_short", "対象外")}
+                    </span>
+                  )}
+                  {!character.is_protagonist && (
+                    <button
+                      type="button"
+                      className="character-panel__btn character-panel__btn--danger"
+                      onClick={() => void handleDelete(character)}
+                    >
+                      {t("character.panel.delete", "削除")}
+                    </button>
+                  )}
+                </div>
+                <div className="character-panel__row-controls">
+                  <select
+                    className="character-panel__position"
+                    aria-label={t("character.field.position", "立ち位置")}
+                    value={character.position}
+                    onChange={(e) =>
+                      void handlePositionChange(
+                        character,
+                        e.target.value as CharacterPosition,
+                      )
+                    }
+                  >
+                    {POSITIONS.map((p) => (
+                      <option key={p} value={p}>
+                        {p}
+                      </option>
+                    ))}
+                  </select>
                   <button
                     type="button"
-                    className="character-panel__btn character-panel__btn--danger"
-                    onClick={() => void handleDelete(character)}
+                    className="character-panel__btn"
+                    onClick={() =>
+                      setEditingId(
+                        editingId === character.id ? null : character.id,
+                      )
+                    }
                   >
-                    {t("character.panel.delete", "削除")}
+                    {editingId === character.id
+                      ? t("character.panel.close", "閉じる")
+                      : t("character.panel.edit", "編集")}
                   </button>
+                </div>
+                {editingId === character.id && (
+                  <CharacterEditForm
+                    key={character.id}
+                    character={character}
+                    onPersist={handlePersistCharacter}
+                    onSavePreset={handleSaveAsPreset}
+                    savingPresetId={savingPresetId}
+                  />
                 )}
               </div>
-              <div className="character-panel__row-controls">
-                <select
-                  className="character-panel__position"
-                  aria-label={t("character.field.position", "立ち位置")}
-                  value={character.position}
-                  onChange={(e) =>
-                    void handlePositionChange(
-                      character,
-                      e.target.value as CharacterPosition,
-                    )
-                  }
-                >
-                  {POSITIONS.map((p) => (
-                    <option key={p} value={p}>
-                      {p}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  className="character-panel__btn"
-                  onClick={() =>
-                    setEditingId(
-                      editingId === character.id ? null : character.id,
-                    )
-                  }
-                >
-                  {editingId === character.id
-                    ? t("character.panel.close", "閉じる")
-                    : t("character.panel.edit", "編集")}
-                </button>
-              </div>
-              {editingId === character.id && (
-                <CharacterEditForm
-                  key={character.id}
-                  character={character}
-                  onPersist={handlePersistCharacter}
-                  onSavePreset={handleSaveAsPreset}
-                  savingPresetId={savingPresetId}
-                />
-              )}
-            </div>
-          ))}
-        </div>
-      )}
+            ))}
+          </div>
+        )}
 
-      {!reachedLimit && (
-        <CharacterAddForm onAdd={handleAdd} disabled={reachedLimit} />
-      )}
+        {!reachedLimit && (
+          <CharacterAddForm onAdd={handleAdd} disabled={reachedLimit} />
+        )}
 
-      <CharacterPresetPicker
-        open={pickerOpen}
-        onClose={() => setPickerOpen(false)}
-      />
+        <CharacterPresetPicker
+          open={pickerOpen}
+          onClose={() => setPickerOpen(false)}
+        />
+      </div>
     </div>
   );
 }

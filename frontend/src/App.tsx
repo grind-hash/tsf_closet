@@ -104,13 +104,18 @@ function AppMain() {
   // セッション開始/再開直後やトグル OFF→ON 遷移時に発火し、
   // プレイ前から CharacterPanel に主人公枠を表示する。
   useEffect(() => {
-    if (!gameState.sessionId || !settingsState.enableMultiplePeople) {
+    if (
+      !gameState.sessionId ||
+      !settingsState.enableMultiplePeople ||
+      !settingsState.multiCharacterPanelEnabled
+    ) {
       return;
     }
     void ensureProtagonistCharacter();
   }, [
     gameState.sessionId,
     settingsState.enableMultiplePeople,
+    settingsState.multiCharacterPanelEnabled,
     ensureProtagonistCharacter,
   ]);
 
@@ -340,7 +345,10 @@ function AppMain() {
         body.clothing_color_consistency = true;
       }
       // Multiple people experimental feature
-      if (settingsState.enableMultiplePeople) {
+      if (
+        settingsState.enableMultiplePeople &&
+        settingsState.multiCharacterPanelEnabled
+      ) {
         body.enable_multiple_people = true;
       }
       if (costumeImage) {
@@ -414,6 +422,7 @@ function AppMain() {
       settingsState.surroundingsIncludePeople,
       settingsState.clothingColorConsistency,
       settingsState.enableMultiplePeople,
+      settingsState.multiCharacterPanelEnabled,
       settingsState.imageProvider,
     ],
   );
