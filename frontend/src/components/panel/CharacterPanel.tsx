@@ -69,6 +69,26 @@ const CharacterEditForm = memo(function CharacterEditForm({
   );
   const [tags, setTags] = useState(character.appearance_tags ?? "");
 
+  // 各フィールドの保存状態。フォーカスを外した（or チェックボックス変更）時点で
+  // バックエンドへ非同期保存されるため、ユーザーに保存有無を視覚的に伝える。
+  type SaveStatus = "saved" | "saving" | "dirty" | "error";
+  type FieldKey =
+    | "appearance_natural"
+    | "appearance_tags"
+    | "appearance_lock"
+    | "exclude_from_effects";
+  const [saveStatus, setSaveStatus] = useState<Record<FieldKey, SaveStatus>>({
+    appearance_natural: "saved",
+    appearance_tags: "saved",
+    appearance_lock: "saved",
+    exclude_from_effects: "saved",
+  });
+  const setFieldStatus = useCallback((field: FieldKey, status: SaveStatus) => {
+    setSaveStatus((prev) =>
+      prev[field] === status ? prev : { ...prev, [field]: status },
+    );
+  }, []);
+
   // 再生成や履歴削除によりレコードの値が外部から更新された際、入力欄へ反映させる。
   // 直前に同期した値を ref で保持し、ユーザーが編集中（ローカル値が直前の prop と異なる）
   // の場合は上書きしないようにする。
@@ -97,16 +117,82 @@ const CharacterEditForm = memo(function CharacterEditForm({
     }
   }, [character.name, character.appearance_natural, character.appearance_tags]);
 
+  const persistField = useCallback(
+    async (
+      field: FieldKey,
+      patch: Partial<
+        Pick<
+          SessionCharacter,
+          | "appearance_natural"
+          | "appearance_tags"
+          | "appearance_lock"
+          | "exclude_from_effects"
+        >
+      >,
+    ) => {
+      setFieldStatus(field, "saving");
+      try {
+        await onPersist(character.id, patch);
+        setFieldStatus(field, "saved");
+      } catch (err) {
+        console.error("Failed to persist character field", field, err);
+        setFieldStatus(field, "error");
+      }
+    },
+    [character.id, onPersist, setFieldStatus],
+  );
+
   const persistName = () => {
     if (name !== character.name) void onPersist(character.id, { name });
   };
   const persistNatural = () => {
-    if (naturalText !== (character.appearance_natural ?? ""))
-      void onPersist(character.id, { appearance_natural: naturalText });
+    if (naturalText !== (character.appearance_natural ?? "")) {
+      void persistField("appearance_natural", {
+        appearance_natural: naturalText,
+      });
+    } else {
+      // 値が変わっていなければ未保存状態を解消する
+      setFieldStatus("appearance_natural", "saved");
+    }
   };
   const persistTags = () => {
-    if (tags !== (character.appearance_tags ?? ""))
-      void onPersist(character.id, { appearance_tags: tags });
+    if (tags !== (character.appearance_tags ?? "")) {
+      void persistField("appearance_tags", { appearance_tags: tags });
+    } else {
+      setFieldStatus("appearance_tags", "saved");
+    }
+  };
+
+  const statusLabel = (status: SaveStatus): string => {
+    if (status === "saving")
+      return t("character.save_status.saving", "保存中…");
+    if (status === "dirty") return t("character.save_status.dirty", "未保存");
+    if (status === "error") return t("character.save_status.error", "保存失敗");
+    return t("character.save_status.saved", "保存済み");
+  };
+  const statusIcon = (status: SaveStatus): string => {
+    if (status === "saving") return "…";
+    if (status === "dirty") return "●";
+    if (status === "error") return "!";
+    return "✓";
+  };
+  const renderSaveStatus = (field: FieldKey) => {
+    const status = saveStatus[field];
+    const label = statusLabel(status);
+    return (
+      <span
+        className={`character-panel__save-status character-panel__save-status--${status}`}
+        role="status"
+        aria-live="polite"
+        aria-label={label}
+        title={label}
+        data-testid={`character-save-status-${field}`}
+      >
+        <span className="character-panel__save-status-icon" aria-hidden="true">
+          {statusIcon(status)}
+        </span>
+      </span>
+    );
   };
 
   return (
@@ -118,27 +204,54 @@ const CharacterEditForm = memo(function CharacterEditForm({
         onBlur={persistName}
         placeholder={t("character.field.name", "名前")}
       />
-      <textarea
-        value={naturalText}
-        onChange={(e) => setNaturalText(e.target.value)}
-        onBlur={persistNatural}
-        placeholder={t("character.field.appearance_natural", "外見（自然文）")}
-      />
-      <textarea
-        value={tags}
-        onChange={(e) => setTags(e.target.value)}
-        onBlur={persistTags}
-        placeholder={t(
-          "character.field.appearance_tags",
-          "外見タグ (NovelAI 形式)",
-        )}
-      />
+      <div className="character-panel__field">
+        <textarea
+          value={naturalText}
+          onChange={(e) => {
+            setNaturalText(e.target.value);
+            setFieldStatus(
+              "appearance_natural",
+              e.target.value === (character.appearance_natural ?? "")
+                ? "saved"
+                : "dirty",
+            );
+          }}
+          onBlur={persistNatural}
+          placeholder={t(
+            "character.field.appearance_natural",
+            "外見（自然文）",
+          )}
+        />
+        {renderSaveStatus("appearance_natural")}
+      </div>
+      <div className="character-panel__field">
+        <textarea
+          value={tags}
+          onChange={(e) => {
+            setTags(e.target.value);
+            setFieldStatus(
+              "appearance_tags",
+              e.target.value === (character.appearance_tags ?? "")
+                ? "saved"
+                : "dirty",
+            );
+          }}
+          onBlur={persistTags}
+          placeholder={t(
+            "character.field.appearance_tags",
+            "外見タグ (NovelAI 形式)",
+          )}
+        />
+        {renderSaveStatus("appearance_tags")}
+      </div>
       <label className="character-panel__check">
         <input
           type="checkbox"
           checked={character.appearance_lock}
           onChange={(e) =>
-            void onPersist(character.id, { appearance_lock: e.target.checked })
+            void persistField("appearance_lock", {
+              appearance_lock: e.target.checked,
+            })
           }
           data-testid="character-appearance-lock"
         />
@@ -148,13 +261,14 @@ const CharacterEditForm = memo(function CharacterEditForm({
             "外見ロック（結果で上書きしない）",
           )}
         </span>
+        {renderSaveStatus("appearance_lock")}
       </label>
       <label className="character-panel__check">
         <input
           type="checkbox"
           checked={character.exclude_from_effects}
           onChange={(e) =>
-            void onPersist(character.id, {
+            void persistField("exclude_from_effects", {
               exclude_from_effects: e.target.checked,
             })
           }
@@ -166,6 +280,7 @@ const CharacterEditForm = memo(function CharacterEditForm({
             "効果対象外（指示の影響を受けない）",
           )}
         </span>
+        {renderSaveStatus("exclude_from_effects")}
       </label>
       <button
         type="button"

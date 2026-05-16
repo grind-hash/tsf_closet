@@ -16,6 +16,8 @@ from typing import AsyncGenerator, Dict, List, Any, Optional
 
 import httpx
 
+from ..consts.character_limits import APPEARANCE_NATURAL_SOFT_LIMIT
+from ..consts.language import LanguageCode, normalize_language
 from ..settings.config import settings
 
 logger = logging.getLogger(__name__)
@@ -231,7 +233,8 @@ _NOVELAI_MODEL_PARAMS: Dict[str, Dict[str, Any]] = {
         "top_k": 250,
         "top_p": 0.95,
         "temperature": 0.85,
-        "stop": ["***", "\n["],
+        # 行頭の "***" のみ停止扱いにする (生成1トークン目が "***" になり空応答化する事象の回避)
+        "stop": ["\n***", "\n["],
     },
     "glm-4-6": {"top_k": 40, "top_p": 0.95, "temperature": 1.0},
 }
@@ -759,18 +762,22 @@ class LLMService:
 
     async def infer_appearance_updates(
         self,
-        characters: List[Dict[str, str]],
+        characters: List[Dict[str, Any]],
         action_text: str,
         *,
         provider_override: Optional[str] = None,
+        language: str = "ja",
     ) -> List[Dict[str, Any]]:
         """Infer appearance diffs for N session characters after an action.
 
         Args:
             characters: list of dicts ``{id, name, appearance_natural,
-                appearance_tags}`` representing current state.
+                appearance_tags, appearance_lock?, exclude_from_effects?}``
+                representing current state. lock/exclude が True のキャラは
+                changed=false を強制する。
             action_text: latest player instruction text.
             provider_override: optional provider override.
+            language: ``ja`` or ``en``. ``appearance_natural`` の出力言語を制約する。
 
         Returns:
             List of update dicts conforming to research R-002 schema:
@@ -779,17 +786,47 @@ class LLMService:
         """
         if not characters:
             return []
+        lang: LanguageCode = normalize_language(language)
+        if lang == "en":
+            language_rule = (
+                "Write appearance_natural in natural English only. "
+                "Never mix Japanese characters."
+            )
+        else:
+            language_rule = (
+                "appearance_natural は必ず自然な日本語のみで記述し、"
+                "英単語・英文を混在させないこと。"
+            )
+        soft_limit = APPEARANCE_NATURAL_SOFT_LIMIT
         system_prompt = (
             "You analyze a player action and decide how each on-screen "
             "character's appearance changed. Return strict JSON: "
             '{"updates": [{"character_id": "<id>", "changed": <bool>, '
             '"appearance_natural": "<full updated natural-language>", '
-            '"appearance_tags": "<full updated tag list>"}, ...]}. '
-            "If a character is unaffected, set changed=false and omit the "
-            "appearance_* fields. Always include one entry per input "
-            "character. Never explain. Never invent ids."
+            '"appearance_tags": "<full updated tag list>"}, ...]}.\n'
+            "Rules:\n"
+            "- If a character is unaffected, set changed=false and omit the "
+            "appearance_* fields.\n"
+            "- Always include exactly one entry per input character. "
+            "Never explain. Never invent ids.\n"
+            "- If an input character has appearance_lock=true or "
+            "exclude_from_effects=true, you MUST return changed=false for "
+            "that character and omit appearance_* fields (their appearance "
+            "must not change).\n"
+            "- appearance_natural must be the CURRENT total description "
+            "(a full replacement, NOT a diff appended to the previous "
+            f"value). Keep it concise: 1-2 sentences, at most {soft_limit} "
+            "characters. Do not enumerate every prior detail.\n"
+            "- appearance_tags must be a complete comma-separated tag list "
+            "for the CURRENT state, not a diff. Keep it tight; drop "
+            "redundant tags.\n"
+            f"- {language_rule}"
         )
-        payload = {"characters": characters, "action": action_text}
+        payload = {
+            "language": lang,
+            "characters": characters,
+            "action": action_text,
+        }
         user_prompt = json.dumps(payload, ensure_ascii=False)
         try:
             result = await self.generate_feeling(

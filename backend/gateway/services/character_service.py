@@ -26,6 +26,10 @@ from ..databases.character_repo import (
     update_session_character,
 )
 from ..databases.models import CharacterPreset, SessionCharacter
+from ..consts.character_limits import (
+    APPEARANCE_NATURAL_MAX_LEN,
+    APPEARANCE_TAGS_MAX_LEN,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -267,12 +271,43 @@ async def apply_appearance_updates(
         cid = entry.get("character_id")
         if not cid or cid not in by_id:
             continue
+        record = by_id[cid]
+        # 保護フラグが立っているキャラはサーバ側で無視する（LLM 指示違反への安全網）
+        if getattr(record, "appearance_lock", False) or getattr(
+            record, "exclude_from_effects", False
+        ):
+            logger.info(
+                "apply_appearance_updates: skip protected character "
+                "(id=%s, lock=%s, exclude=%s)",
+                cid,
+                getattr(record, "appearance_lock", False),
+                getattr(record, "exclude_from_effects", False),
+            )
+            continue
         patch: dict[str, Any] = {}
         nat = entry.get("appearance_natural")
         tags = entry.get("appearance_tags")
         if isinstance(nat, str) and nat != "":
+            if len(nat) > APPEARANCE_NATURAL_MAX_LEN:
+                logger.info(
+                    "apply_appearance_updates: truncate appearance_natural "
+                    "(id=%s, %d -> %d chars)",
+                    cid,
+                    len(nat),
+                    APPEARANCE_NATURAL_MAX_LEN,
+                )
+                nat = nat[:APPEARANCE_NATURAL_MAX_LEN].rstrip()
             patch["appearance_natural"] = nat
         if isinstance(tags, str) and tags != "":
+            if len(tags) > APPEARANCE_TAGS_MAX_LEN:
+                logger.info(
+                    "apply_appearance_updates: truncate appearance_tags "
+                    "(id=%s, %d -> %d chars)",
+                    cid,
+                    len(tags),
+                    APPEARANCE_TAGS_MAX_LEN,
+                )
+                tags = tags[:APPEARANCE_TAGS_MAX_LEN].rstrip().rstrip(",")
             patch["appearance_tags"] = tags
         if not patch:
             continue

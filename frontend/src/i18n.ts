@@ -653,6 +653,12 @@ const resources = {
           appearance_tags: "外見タグ (NovelAI 形式)",
           position: "立ち位置",
         },
+        save_status: {
+          saved: "保存済み",
+          saving: "保存中…",
+          dirty: "未保存",
+          error: "保存失敗",
+        },
         error: {
           name_required: "名前を入力してください",
           limit_exceeded: "登場人物は最大4人までです",
@@ -1321,6 +1327,12 @@ const resources = {
           appearance_natural: "Appearance (free text)",
           appearance_tags: "Appearance tags (NovelAI format)",
           position: "Position",
+        },
+        save_status: {
+          saved: "Saved",
+          saving: "Saving…",
+          dirty: "Unsaved",
+          error: "Save failed",
         },
         error: {
           name_required: "Please enter a name",

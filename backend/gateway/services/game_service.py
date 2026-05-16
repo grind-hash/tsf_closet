@@ -3191,18 +3191,29 @@ async def _async_apply_appearance_updates(session_id: str, action_text: str) -> 
         if not records:
             return
 
+        # 出力言語をユーザー設定から解決（取得失敗時は ja 既定）
+        try:
+            user_settings = await session_store.get_user_settings(session_id)
+            effective_language = normalize_language(user_settings.get("language"))
+        except Exception:  # noqa: BLE001 - 設定取得失敗は致命的でない
+            effective_language = normalize_language(None)
+
         characters_payload = [
             {
                 "id": r.id,
                 "name": r.name,
                 "appearance_natural": r.appearance_natural or "",
                 "appearance_tags": r.appearance_tags or "",
+                "appearance_lock": bool(getattr(r, "appearance_lock", False)),
+                "exclude_from_effects": bool(getattr(r, "exclude_from_effects", False)),
             }
             for r in records
         ]
 
         updates = await llm_service.infer_appearance_updates(
-            characters_payload, action_text
+            characters_payload,
+            action_text,
+            language=effective_language,
         )
         if not updates:
             return

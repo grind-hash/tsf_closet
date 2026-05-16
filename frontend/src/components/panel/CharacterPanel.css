@@ -287,6 +287,55 @@
   accent-color: var(--primary, #6c5ce7);
 }
 
+/* テキスト入力欄と保存状態インジケータをまとめるラッパ */
+.character-panel__field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.character-panel__field > textarea {
+  width: 100%;
+}
+
+/* 保存状態インジケータ（アイコンのみ・ツールチップで状態説明） */
+.character-panel__save-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  font-size: 11px;
+  line-height: 1;
+  align-self: flex-end;
+  user-select: none;
+  cursor: default;
+}
+
+.character-panel__check .character-panel__save-status {
+  margin-left: auto;
+}
+
+.character-panel__save-status-icon {
+  font-weight: 700;
+}
+
+.character-panel__save-status--saved {
+  color: rgba(76, 175, 80, 0.55);
+}
+
+.character-panel__save-status--saving {
+  color: var(--text-muted, rgba(255, 255, 255, 0.6));
+}
+
+.character-panel__save-status--dirty {
+  color: #f0ad4e;
+}
+
+.character-panel__save-status--error {
+  color: #e57373;
+}
+
 .character-panel__badge {
   display: inline-block;
   padding: 1px 5px;
