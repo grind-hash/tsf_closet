@@ -78,6 +78,14 @@ export function useGameSSE() {
       chat.setStreaming(false);
       game.setTransformationCount(transformationCount);
       game.setTransforming(false);
+      // FR-010: 複数人モード時、バックエンドが主人公レコードを
+      // 自動 upsert するため、CharacterPanel の表示を最新化する。
+      if (
+        settings.state.enableMultiplePeople &&
+        settings.state.multiCharacterPanelEnabled
+      ) {
+        void game.loadSessionCharacters();
+      }
     },
     onCost: (cost) => {
       settings.addTotalCost(cost);

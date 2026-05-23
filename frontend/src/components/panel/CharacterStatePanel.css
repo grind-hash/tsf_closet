@@ -11,8 +11,8 @@
   padding: 1rem;
   background-color: var(--card-bg, #16213e);
   border-radius: 12px;
-  height: 100%;
-  overflow-y: auto;
+  flex-shrink: 0;
+  overflow-y: visible;
 }
 
 /* キャラクター名 */

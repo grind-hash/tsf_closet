@@ -11,7 +11,7 @@
 # Options:
 #   -v, --version VERSION       パッケージバージョン (デフォルト: "dev")
 #   -o, --output-dir DIR        出力ディレクトリ (デフォルト: "./dist")
-#   -p, --python-version VER    Pythonバージョン (デフォルト: "3.12.3")
+#   -p, --python-version VER    Pythonバージョン (デフォルト: "3.12.10")
 #   -P, --provider PROVIDER     プロバイダー: novelai, selfhost, openrouter (デフォルト: novelai)
 #   --no-archive                tar.gzパッケージ作成をスキップ
 #   --skip-frontend             フロントエンドビルドをスキップ
@@ -31,7 +31,7 @@ set -euo pipefail
 
 VERSION="dev"
 OUTPUT_DIR="./dist"
-PYTHON_VERSION="3.12.3"
+PYTHON_VERSION="3.12.10"
 PROVIDER="novelai"
 NO_ARCHIVE=false
 SKIP_FRONTEND=false
@@ -208,14 +208,14 @@ else
         *) write_failure "未対応アーキテクチャ: $ARCH" 3 ;;
     esac
 
-    # Release tag format: 20240415 (date-based)
+    # Release tag format: 20250409 (date-based)
     # We use the install-only variant for smaller size
-    PBS_FILENAME="cpython-${PYTHON_VERSION}+20240415-${PBS_ARCH}-install_only_stripped.tar.gz"
-    PBS_URL="https://github.com/indygreg/python-build-standalone/releases/download/20240415/${PBS_FILENAME}"
+    PBS_FILENAME="cpython-${PYTHON_VERSION}+20250409-${PBS_ARCH}-install_only_stripped.tar.gz"
+    PBS_URL="https://github.com/indygreg/python-build-standalone/releases/download/20250409/${PBS_FILENAME}"
 
     # Fallback: try install_only (non-stripped) if stripped not available
-    PBS_FILENAME_FALLBACK="cpython-${PYTHON_VERSION}+20240415-${PBS_ARCH}-install_only.tar.gz"
-    PBS_URL_FALLBACK="https://github.com/indygreg/python-build-standalone/releases/download/20240415/${PBS_FILENAME_FALLBACK}"
+    PBS_FILENAME_FALLBACK="cpython-${PYTHON_VERSION}+20250409-${PBS_ARCH}-install_only.tar.gz"
+    PBS_URL_FALLBACK="https://github.com/indygreg/python-build-standalone/releases/download/20250409/${PBS_FILENAME_FALLBACK}"
 
     mkdir -p "$TEMP_DIR"
     PYTHON_ARCHIVE="$TEMP_DIR/$PBS_FILENAME"

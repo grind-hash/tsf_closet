@@ -31,7 +31,6 @@ function App() {
   // 007-chat-interactive-ux: React Router location
   const location = useLocation();
   const { state: settingsState } = useSettings();
-  console.log("[App] Current route:", location.pathname);
 
   // ルートに基づいて専用画面を表示（各画面は内部でMainLayoutを持つ）
   if (
@@ -74,13 +73,13 @@ function AppMain() {
     resetSession,
     setEnding,
     setError,
+    ensureProtagonistCharacter,
   } = useGame();
   const { t } = useTranslation();
   // 旧UI用: 新UIではWelcomeScreenが担当 (型定義用にscreen変数を使用)
   const [screen, setScreen] = useState<"character-select" | "game">(
     "character-select",
   );
-  console.log("[App] Current screen:", screen, "route:", location.pathname);
   const [showSessionList, setShowSessionList] = useState(false);
   const [providerLoading, setProviderLoading] = useState(true);
 
@@ -99,6 +98,26 @@ function AppMain() {
     }
     window.history.replaceState(null, "", getGameSessionPath(sessionId));
   }, []);
+
+  // FR-010: 複数人モード ON 時、セッションが確立されていれば
+  // 主人公の session_character レコードを冪等に確保する。
+  // セッション開始/再開直後やトグル OFF→ON 遷移時に発火し、
+  // プレイ前から CharacterPanel に主人公枠を表示する。
+  useEffect(() => {
+    if (
+      !gameState.sessionId ||
+      !settingsState.enableMultiplePeople ||
+      !settingsState.multiCharacterPanelEnabled
+    ) {
+      return;
+    }
+    void ensureProtagonistCharacter();
+  }, [
+    gameState.sessionId,
+    settingsState.enableMultiplePeople,
+    settingsState.multiCharacterPanelEnabled,
+    ensureProtagonistCharacter,
+  ]);
 
   // 初期化: セッション復元を試みる（/play/new の場合は復元しない）
   useEffect(() => {
@@ -325,10 +344,13 @@ function AppMain() {
       if (settingsState.clothingColorConsistency) {
         body.clothing_color_consistency = true;
       }
-      // Multiple people experimental feature
+      // Multiple people experimental feature.
+      // パネル OFF でも複数人表示自体は維持し、
+      // 画像プロンプトへの session_characters 注入のみ use_character_panel でゲートする。
       if (settingsState.enableMultiplePeople) {
         body.enable_multiple_people = true;
       }
+      body.use_character_panel = settingsState.multiCharacterPanelEnabled;
       if (costumeImage) {
         body.costume_image = costumeImage;
       }
@@ -400,6 +422,7 @@ function AppMain() {
       settingsState.surroundingsIncludePeople,
       settingsState.clothingColorConsistency,
       settingsState.enableMultiplePeople,
+      settingsState.multiCharacterPanelEnabled,
       settingsState.imageProvider,
     ],
   );

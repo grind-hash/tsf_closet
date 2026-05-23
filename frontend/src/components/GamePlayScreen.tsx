@@ -26,6 +26,7 @@ import { useLocation } from "react-router-dom";
 import MainLayout from "./layout/MainLayout";
 import RightPanel from "./layout/RightPanel";
 import CharacterStatePanel from "./panel/CharacterStatePanel";
+import CharacterPanel from "./panel/CharacterPanel";
 import ChatMessageList from "./chat/ChatMessageList";
 import ChatInput from "./chat/ChatInput";
 import WelcomeScreen from "./chat/WelcomeScreen";
@@ -104,6 +105,7 @@ export default function GamePlayScreen({
     navigateToHistoryById,
     removeHistoryEntry,
     updateStats,
+    loadSessionCharacters,
   } = useGame();
   const {
     state: chatState,
@@ -728,9 +730,7 @@ export default function GamePlayScreen({
             ).length
           : 0;
         if (enabledRefCount > 0) {
-          if (
-            sessionStorage.getItem(ANLAS_WARN_SUPPRESSED_KEY) === "true"
-          ) {
+          if (sessionStorage.getItem(ANLAS_WARN_SUPPRESSED_KEY) === "true") {
             onTransform(
               message,
               undefined,
@@ -1089,6 +1089,10 @@ export default function GamePlayScreen({
         }
       }
 
+      // 履歴削除に伴いバックエンドが SessionCharacter の外見を最新履歴に
+      // 復帰するため、フロント側のキャラクターパネル表示も再同期する。
+      void loadSessionCharacters();
+
       setDeleteMessageConfirm(null);
     } catch (err) {
       console.error("Failed to delete message:", err);
@@ -1105,6 +1109,7 @@ export default function GamePlayScreen({
     updateStats,
     chatHistory,
     setConversationHistory,
+    loadSessionCharacters,
   ]);
 
   // 最新メッセージ編集リクエスト（確認ダイアログを表示）
@@ -1178,6 +1183,10 @@ export default function GamePlayScreen({
         await onSessionStart();
       }
 
+      // 履歴削除に伴いバックエンドが SessionCharacter の外見を最新履歴に
+      // 復帰するため、フロント側のキャラクターパネル表示も再同期する。
+      void loadSessionCharacters();
+
       setEditMessageConfirm(null);
     } catch (err) {
       console.error("Failed to edit message:", err);
@@ -1195,6 +1204,7 @@ export default function GamePlayScreen({
     setInstructionType,
     setCurrentImage,
     onSessionStart,
+    loadSessionCharacters,
   ]);
 
   // インペイントトグル時のハンドラ
@@ -1283,6 +1293,7 @@ export default function GamePlayScreen({
                 transformationCount={gameState.transformationCount}
                 isTransforming={isTransforming}
               />
+              {settingsState.enableMultiplePeople && <CharacterPanel />}
               {/* US4: Seed display */}
               {lastGeneratedSeed !== null &&
                 lastGeneratedSeed !== undefined && (
@@ -1324,13 +1335,6 @@ export default function GamePlayScreen({
                     data-open={exportMenuOpen}
                   >
                     ↗ {t("chat.export.button")}
-                    <span
-                      className="feature-chip-new"
-                      data-feature-version="v0.4.0"
-                      style={{ marginLeft: "0.5rem" }}
-                    >
-                      New
-                    </span>
                   </button>
                   {exportMenuOpen && (
                     <div className="chat-export-header__menu">

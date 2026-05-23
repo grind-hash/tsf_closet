@@ -788,6 +788,7 @@ def build_action_prompt(
     previous_situation_summary: str | None = None,
     enable_multiple_people: bool = False,
     lookback_count: int | None = None,
+    session_characters_section: str | None = None,
 ) -> tuple[str, str]:
     """Build system and user prompts for the action instruction type.
 
@@ -913,5 +914,8 @@ def build_action_prompt(
             recent_actions_section=recent_actions_section,
             personality_section=personality_section,
         )
+
+    if session_characters_section:
+        user_prompt = f"{user_prompt}\n\n{session_characters_section}"
 
     return system_prompt, user_prompt

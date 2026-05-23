@@ -248,6 +248,13 @@ class PlayStreamRequest(BaseModel):
         False,
         description="複数人表示を有効にする実験的機能",
     )
+    # CharacterPanel (session_characters) injection toggle.
+    # False の場合、複数人表示の GLM-4.6 ルール緩和はそのまま保ちつつ、
+    # session_characters パネルからのプロンプト注入をバイパスする（v0.5.0 以前の旧仕様）。
+    use_character_panel: bool = Field(
+        True,
+        description="登場人物パネルの情報を画像生成プロンプトに注入するか",
+    )
 
 
 @router.post(
@@ -298,6 +305,7 @@ async def play_game_stream(request: PlayStreamRequest) -> EventSourceResponse:
             surroundings_include_people=request.surroundings_include_people,
             clothing_color_consistency=request.clothing_color_consistency,
             enable_multiple_people=request.enable_multiple_people,
+            use_character_panel=request.use_character_panel,
         ):
             yield {
                 "event": event.type,
@@ -1814,6 +1822,23 @@ async def delete_history_entry(
                 "message": "History not found in this session",
             },
         )
+    # 複数人モード使用中の全キャラ克ターの外見を最新履歴に復帰
+    try:
+        from ..services.character_service import (
+            restore_session_characters_appearance_from_history,
+        )
+
+        await restore_session_characters_appearance_from_history(session_id)
+    except Exception as exc:  # noqa: BLE001
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "Failed to restore session characters appearance after history "
+            "delete (session=%s, history=%s): %s",
+            session_id,
+            history_id,
+            exc,
+        )
     return {
         "success": True,
         **result,
@@ -1847,6 +1872,23 @@ async def delete_latest_history(session_id: str) -> dict:
                 "error": "NO_HISTORY",
                 "message": "No history to delete",
             },
+        )
+
+    # 複数人モード使用中の全キャラ克ターの外見を最新履歴に復帰
+    try:
+        from ..services.character_service import (
+            restore_session_characters_appearance_from_history,
+        )
+
+        await restore_session_characters_appearance_from_history(session_id)
+    except Exception as exc:  # noqa: BLE001
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "Failed to restore session characters appearance after "
+            "latest-history delete (session=%s): %s",
+            session_id,
+            exc,
         )
 
     return result

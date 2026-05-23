@@ -14,7 +14,6 @@ Recreates user_achievements with the corrected FK:
 
 from typing import Sequence, Union
 
-import sqlalchemy as sa
 from alembic import op
 
 revision: str = "013_fix_user_achievements_fk"

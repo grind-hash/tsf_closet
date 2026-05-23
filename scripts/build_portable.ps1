@@ -13,7 +13,7 @@
     出力ディレクトリ (デフォルト: "./dist")
 
 .PARAMETER PythonVersion
-    Python Embeddableバージョン (デフォルト: "3.12.3")
+    Python Embeddableバージョン (デフォルト: "3.12.13")
 
 .PARAMETER NoZip
     ZIPパッケージ作成をスキップ
@@ -42,7 +42,7 @@
 param(
     [string]$Version = "dev",
     [string]$OutputDir = "./dist",
-    [string]$PythonVersion = "3.12.3",
+    [string]$PythonVersion = "3.12.10",
     [ValidateSet("novelai", "selfhost", "openrouter")]
     [string]$Provider = "novelai",
     [switch]$NoZip,

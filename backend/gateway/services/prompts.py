@@ -1469,6 +1469,7 @@ def build_novelai_prompt_generation_user(
     instruction: str,
     previous_prompt: str | None = None,
     enable_multiple_people: bool = False,
+    session_characters_section: str | None = None,
 ) -> str:
     """NovelAIプロンプト生成用ユーザープロンプトを構築
 
@@ -1476,6 +1477,8 @@ def build_novelai_prompt_generation_user(
         instruction: ユーザーの指示
         previous_prompt: 前回生成したプロンプト（継続の場合）
         enable_multiple_people: 複数人表示モード
+        session_characters_section: 005 spec - 登録済み登場人物の英語タグセクション。
+            複数人モード時に LLM へ各キャラの位置・タグを明示するために付加する。
 
     Returns:
         構築されたユーザープロンプト文字列
@@ -1491,6 +1494,8 @@ def build_novelai_prompt_generation_user(
             "system prompt. If other people are involved, you MUST use the "
             '"characters" array format.',
         )
+    if session_characters_section:
+        result = f"{result}\n{session_characters_section}"
     return result
 
 

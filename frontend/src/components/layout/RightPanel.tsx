@@ -1024,13 +1024,6 @@ export default function RightPanel({
                 <label className="right-panel__label">
                   {t("settings.novelaiTextModel", "NovelAI Text Model")}
                   <span
-                    className="feature-chip-new"
-                    data-feature-version="v0.4.0"
-                    style={{ marginLeft: "0.5rem" }}
-                  >
-                    New
-                  </span>
-                  <span
                     className="feature-chip-experimental"
                     data-feature-version="v0.5.0"
                     style={{ marginLeft: "0.5rem" }}
@@ -1067,13 +1060,6 @@ export default function RightPanel({
               <div className="right-panel__form-group">
                 <h4 className="right-panel__section-title">
                   {t("rightPanel.sectionPromptBuilder")}
-                  <span
-                    className="feature-chip-new"
-                    data-feature-version="v0.3.0"
-                    style={{ marginLeft: "0.5rem" }}
-                  >
-                    New
-                  </span>
                 </h4>
                 <div
                   style={{

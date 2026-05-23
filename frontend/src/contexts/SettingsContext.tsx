@@ -96,6 +96,12 @@ interface SettingsState {
   // Multiple people in image generation (experimental)
   enableMultiplePeople: boolean;
 
+  // 【v0.5.0】複数人表示が有効でも、CharacterPanel の multi-character
+  // プロンプト注入をバイパスして「いままでどおり」の振る舞いをさせるトグル。
+  // true (既定) = SessionCharacters をプロンプトと enable_multiple_people
+  // ボディフラグに反映、false = バイパス（単一キャラ JSON 出力）。
+  multiCharacterPanelEnabled: boolean;
+
   // NovelAI text model selection (Opus only)
   novelaiTextModel: string;
   // NovelAI subscription tier (null = unknown)
@@ -149,6 +155,7 @@ type SettingsAction =
   | { type: "SET_CLOTHING_COLOR_CONSISTENCY"; payload: boolean }
   | { type: "SET_LINK_CHAT_TO_IMAGE"; payload: boolean }
   | { type: "SET_ENABLE_MULTIPLE_PEOPLE"; payload: boolean }
+  | { type: "SET_MULTI_CHARACTER_PANEL_ENABLED"; payload: boolean }
   | { type: "SET_NOVELAI_TEXT_MODEL"; payload: string }
   | { type: "SET_NOVELAI_TIER"; payload: number | null }
   | { type: "SET_HISTORY_LOOKBACK_COUNT"; payload: number };
@@ -182,6 +189,7 @@ const defaultState: SettingsState = {
   clothingColorConsistency: false,
   linkChatToImage: false,
   enableMultiplePeople: false,
+  multiCharacterPanelEnabled: true,
   novelaiTextModel: "glm-4-6",
   novelaiTier: null,
   historyLookbackCount: 10,
@@ -302,6 +310,8 @@ function settingsReducer(
       return { ...state, linkChatToImage: action.payload };
     case "SET_ENABLE_MULTIPLE_PEOPLE":
       return { ...state, enableMultiplePeople: action.payload };
+    case "SET_MULTI_CHARACTER_PANEL_ENABLED":
+      return { ...state, multiCharacterPanelEnabled: action.payload };
     case "SET_NOVELAI_TEXT_MODEL":
       return { ...state, novelaiTextModel: action.payload };
     case "SET_NOVELAI_TIER":
@@ -363,6 +373,7 @@ interface SettingsContextType {
   setClothingColorConsistency: (enabled: boolean) => void;
   setLinkChatToImage: (enabled: boolean) => void;
   setEnableMultiplePeople: (enabled: boolean) => void;
+  setMultiCharacterPanelEnabled: (enabled: boolean) => void;
   setNovelaiTextModel: (model: string) => void;
   setNovelaiTier: (tier: number | null) => void;
   setHistoryLookbackCount: (count: number) => void;
@@ -790,6 +801,13 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "SET_ENABLE_MULTIPLE_PEOPLE", payload: enabled });
   }, []);
 
+  const setMultiCharacterPanelEnabled = useCallback((enabled: boolean) => {
+    dispatch({
+      type: "SET_MULTI_CHARACTER_PANEL_ENABLED",
+      payload: enabled,
+    });
+  }, []);
+
   const setNovelaiTextModel = useCallback(async (model: string) => {
     dispatch({ type: "SET_NOVELAI_TEXT_MODEL", payload: model });
     try {
@@ -860,6 +878,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setClothingColorConsistency,
     setLinkChatToImage,
     setEnableMultiplePeople,
+    setMultiCharacterPanelEnabled,
     setNovelaiTextModel,
     setNovelaiTier,
     setHistoryLookbackCount,

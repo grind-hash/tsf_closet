@@ -46,6 +46,12 @@ export default function ChatInput({
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
+  // pointer:fine = mouse/trackpad; pointer:coarse = touch screen
+  // タッチデバイスでは Enter キーを送信ではなく改行として扱う
+  const hasPointerFine =
+    typeof window !== "undefined" &&
+    window.matchMedia("(pointer: fine)").matches;
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -69,8 +75,14 @@ export default function ChatInput({
   };
 
   // Enter送信（Shift+Enterで改行）
+  // タッチデバイス（pointer:coarse）では Enter を素通りさせて改行とする
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (
+      e.key === "Enter" &&
+      !e.shiftKey &&
+      !e.nativeEvent.isComposing &&
+      hasPointerFine
+    ) {
       e.preventDefault();
       handleSubmit(e);
     }
@@ -177,7 +189,11 @@ export default function ChatInput({
           value={state.inputText}
           onChange={handleTextChange}
           onKeyDown={handleKeyDown}
-          placeholder={t("chat.input.messagePlaceholder")}
+          placeholder={
+            hasPointerFine
+              ? t("chat.input.messagePlaceholder")
+              : t("chat.input.messagePlaceholderTouch", "指示を入力...")
+          }
           disabled={disabled}
           rows={1}
           aria-label={t("chat.input.messageInputAria")}

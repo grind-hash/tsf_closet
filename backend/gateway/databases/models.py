@@ -78,6 +78,9 @@ class Session(Base):
     attributes: Mapped[List["SessionAttribute"]] = relationship(
         back_populates="session", cascade="all, delete-orphan"
     )
+    session_characters: Mapped[List["SessionCharacter"]] = relationship(
+        back_populates="session", cascade="all, delete-orphan"
+    )
 
     __table_args__ = (
         Index("idx_sessions_user_id", "user_id"),
@@ -255,6 +258,78 @@ class UserAchievement(Base):
         Index("idx_user_achievements_achievement_id", "achievement_id"),
         Index("idx_user_achievements_achieved_at", "achieved_at"),
     )
+
+
+class SessionCharacter(Base):
+    """Per-session character record (spec 005).
+
+    Belongs to one Session. Cascade-deleted when session is removed.
+    Multiple characters per session (max 4 enforced at service layer).
+    """
+
+    __tablename__ = "session_character"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    session_id: Mapped[str] = mapped_column(
+        String, ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False
+    )
+    slot_index: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    appearance_natural: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    appearance_tags: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    position: Mapped[str] = mapped_column(String(16), default="center", nullable=False)
+    is_protagonist: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, server_default="0"
+    )
+    appearance_lock: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, server_default="0"
+    )
+    exclude_from_effects: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, server_default="0"
+    )
+    source_preset_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        default=func.current_timestamp(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        default=func.current_timestamp(),
+        onupdate=func.current_timestamp(),
+        nullable=False,
+    )
+
+    session: Mapped["Session"] = relationship(back_populates="session_characters")
+
+    __table_args__ = (
+        Index("idx_session_character_session_slot", "session_id", "slot_index"),
+    )
+
+
+class CharacterPreset(Base):
+    """Global character preset reusable across sessions (spec 005).
+
+    No FK relationship to SessionCharacter; deletion is independent.
+    """
+
+    __tablename__ = "character_preset"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    appearance_natural: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    appearance_tags: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    default_position: Mapped[str] = mapped_column(
+        String(16), default="center", nullable=False
+    )
+    tags_meta: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        default=func.current_timestamp(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        default=func.current_timestamp(),
+        onupdate=func.current_timestamp(),
+        nullable=False,
+    )
+
+    __table_args__ = (Index("idx_character_preset_name", "name"),)
 
 
 class PlaySummary(Base):
