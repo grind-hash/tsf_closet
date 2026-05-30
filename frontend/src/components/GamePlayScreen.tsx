@@ -50,8 +50,10 @@ import {
   exportAsPlainText,
   exportAsNovel,
   downloadFile,
+  downloadBlob,
 } from "../utils/exportChat";
 import type { ExportSessionInfo } from "../utils/exportChat";
+import { exportSessionMarkdown, exportSessionNovelHtml } from "../apis/gallery";
 import type {
   ChangeSettings,
   ConversationMessage,
@@ -231,7 +233,16 @@ export default function GamePlayScreen({
   }, [gameState.sessionId, gameState.character]);
 
   const handleExport = useCallback(
-    (format: "markdown" | "csv" | "json" | "clipboard" | "novel") => {
+    async (
+      format:
+        | "markdown"
+        | "csv"
+        | "json"
+        | "clipboard"
+        | "novel"
+        | "markdown_images"
+        | "novel_html_zip",
+    ) => {
       const info = buildExportSessionInfo();
       if (format === "clipboard") {
         const content = exportAsPlainText(chatState.messages, info);
@@ -270,10 +281,34 @@ export default function GamePlayScreen({
           );
           break;
         }
+        case "markdown_images": {
+          if (!gameState.sessionId) break;
+          try {
+            const { blob, filename } = await exportSessionMarkdown(
+              gameState.sessionId,
+            );
+            downloadBlob(blob, filename);
+          } catch (err) {
+            console.error("Markdown export failed", err);
+          }
+          break;
+        }
+        case "novel_html_zip": {
+          if (!gameState.sessionId) break;
+          try {
+            const { blob, filename } = await exportSessionNovelHtml(
+              gameState.sessionId,
+            );
+            downloadBlob(blob, filename);
+          } catch (err) {
+            console.error("Novel HTML export failed", err);
+          }
+          break;
+        }
       }
       setExportMenuOpen(false);
     },
-    [chatState.messages, buildExportSessionInfo],
+    [chatState.messages, buildExportSessionInfo, gameState.sessionId],
   );
 
   // チャット履歴を統合して復元（history + chatHistory を時系列順に統合）
@@ -1354,6 +1389,12 @@ export default function GamePlayScreen({
                       <hr />
                       <button onClick={() => handleExport("novel")}>
                         {t("chat.export.novel")}
+                      </button>
+                      <button onClick={() => handleExport("markdown_images")}>
+                        {t("chat.export.markdownWithImages")}
+                      </button>
+                      <button onClick={() => handleExport("novel_html_zip")}>
+                        {t("chat.export.novelHtmlZip")}
                       </button>
                     </div>
                   )}
