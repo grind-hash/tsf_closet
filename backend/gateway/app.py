@@ -449,7 +449,7 @@ async def get_novelai_subscription() -> Dict[str, Any]:
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.get(
-                "https://api.novelai.net/user/subscription",
+                "https://image.novelai.net/user/subscription",
                 headers={
                     "Authorization": f"Bearer {settings.novelai_api_key}",
                     "Content-Type": "application/json",
