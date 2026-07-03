@@ -104,7 +104,7 @@ class Settings:
     )
 
     # NovelAI 画像生成設定
-    novelai_api_key: str = os.getenv("NOVELAI_API_KEY", "")
+    novelai_api_key: str = os.getenv("NOVELAI_API_KEY", "").strip()
     # NSFWモード用（フル）モデル
     novelai_model: str = os.getenv("NOVELAI_MODEL", "nai-diffusion-4-5-full")
     novelai_inpaint_model: str = os.getenv(

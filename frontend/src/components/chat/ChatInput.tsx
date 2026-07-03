@@ -235,7 +235,7 @@ export default function ChatInput({
               ? t("chat.input.messagePlaceholder")
               : t("chat.input.messagePlaceholderTouch", "指示を入力...")
           }
-          disabled={disabled}
+          disabled={disabled || isSuggesting}
           rows={1}
           aria-label={t("chat.input.messageInputAria")}
         />
