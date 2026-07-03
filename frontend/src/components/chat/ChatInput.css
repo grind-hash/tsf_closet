@@ -86,7 +86,8 @@
   font-family: inherit;
   resize: none;
   min-height: 40px;
-  max-height: 150px;
+  max-height: 240px;
+  overflow-y: auto;
   line-height: 1.4;
 }
 
@@ -136,6 +137,71 @@
 .chat-input__attach-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* 過去メッセージから生成: チェックボックス */
+.chat-input__suggest-filter {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  color: var(--text-muted, #888);
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+}
+
+.chat-input__suggest-filter input[type="checkbox"] {
+  cursor: pointer;
+}
+
+.chat-input__suggest-filter input[type="checkbox"]:disabled {
+  cursor: not-allowed;
+}
+
+/* 過去メッセージから生成: ボタン */
+.chat-input__suggest-btn {
+  padding: 0.625rem;
+  background-color: var(--bg-color, #1a1a2e);
+  border: 1px solid var(--border-color, #333);
+  border-radius: 8px;
+  color: var(--text-color, #eee);
+  font-size: 1.2rem;
+  cursor: pointer;
+  transition:
+    background-color 0.2s,
+    border-color 0.2s;
+  min-width: 44px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.chat-input__suggest-btn:hover:not(:disabled) {
+  background-color: var(--hover-bg, #1f2f50);
+  border-color: var(--accent-color, #e94560);
+}
+
+.chat-input__suggest-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.chat-input__suggest-spinner {
+  display: inline-block;
+  width: 1rem;
+  height: 1rem;
+  border: 2px solid var(--border-color, #333);
+  border-top-color: var(--accent-color, #e94560);
+  border-radius: 50%;
+  animation: chat-input-suggest-spin 0.7s linear infinite;
+}
+
+@keyframes chat-input-suggest-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* 送信ボタン */
