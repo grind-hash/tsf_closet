@@ -18,6 +18,9 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { useChat } from "../../contexts/ChatContext";
+import { useGame } from "../../contexts/GameContext";
+import { useNotification } from "../../contexts/NotificationContext";
+import { suggestInstruction } from "../../apis/game";
 import type { InstructionType } from "../../types";
 import "./ChatInput.css";
 
@@ -32,9 +35,42 @@ export default function ChatInput({
   disabled = false,
   imageProvider,
 }: ChatInputProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { state, setInputText, setInstructionType, attachImage, clearInput } =
     useChat();
+  const { state: gameState } = useGame();
+  const { showNotification } = useNotification();
+
+  // 過去メッセージからの指示テキスト生成
+  const [isSuggesting, setIsSuggesting] = useState(false);
+  const [filterByType, setFilterByType] = useState(false);
+  const canFilterByType = state.instructionType !== "conversation";
+
+  const handleSuggestInstruction = async () => {
+    if (!gameState.sessionId || isSuggesting || disabled) return;
+    setIsSuggesting(true);
+    try {
+      const typeFilter =
+        filterByType && canFilterByType ? state.instructionType : "all";
+      const language = i18n.language?.startsWith("en") ? "en" : "ja";
+      const keyword = state.inputText.trim();
+      const suggestion = await suggestInstruction(
+        gameState.sessionId,
+        typeFilter,
+        language,
+        keyword,
+      );
+      setInputText(suggestion);
+    } catch {
+      showNotification(
+        "error",
+        t("chat.input.suggestError"),
+        t("chat.input.suggestErrorDetail"),
+      );
+    } finally {
+      setIsSuggesting(false);
+    }
+  };
 
   // Detect narrow viewport for short labels
   const [isNarrow, setIsNarrow] = useState(
@@ -61,6 +97,14 @@ export default function ChatInput({
       textareaRef.current.blur();
     }
   }, [disabled]);
+
+  // 生成ボタン等でプログラム的にtextareaの値が変わった場合も高さを自動調整する
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 240)}px`;
+  }, [state.inputText]);
 
   // 送信ハンドラ
   const handleSubmit = (e: FormEvent) => {
@@ -105,12 +149,9 @@ export default function ChatInput({
     attachImage(null);
   };
 
-  // テキストエリアの高さ自動調整
+  // テキストエリアの値変更（高さ調整はuseEffectで一元化）
   const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInputText(e.target.value);
-    // 高さをリセットしてから再計算
-    e.target.style.height = "auto";
-    e.target.style.height = `${Math.min(e.target.scrollHeight, 150)}px`;
   };
 
   const getInstructionTypeLabel = (type: InstructionType) => {
@@ -198,6 +239,34 @@ export default function ChatInput({
           rows={1}
           aria-label={t("chat.input.messageInputAria")}
         />
+
+        {/* 過去メッセージから指示テキストを生成 */}
+        <label
+          className="chat-input__suggest-filter"
+          title={t("chat.input.suggestFilterLabel")}
+        >
+          <input
+            type="checkbox"
+            checked={filterByType && canFilterByType}
+            disabled={!canFilterByType || disabled}
+            onChange={(e) => setFilterByType(e.target.checked)}
+          />
+          <span>{t("chat.input.suggestFilterLabel")}</span>
+        </label>
+        <button
+          type="button"
+          className="chat-input__suggest-btn"
+          onClick={handleSuggestInstruction}
+          disabled={disabled || isSuggesting || !gameState.sessionId}
+          aria-label={t("chat.input.suggestInstruction")}
+          title={t("chat.input.suggestInstruction")}
+        >
+          {isSuggesting ? (
+            <span className="chat-input__suggest-spinner" />
+          ) : (
+            "✨"
+          )}
+        </button>
 
         {/* File attach - hidden in NovelAI mode */}
         {imageProvider !== "novelai" && (

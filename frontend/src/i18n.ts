@@ -405,6 +405,11 @@ const resources = {
           messageInputAria: "メッセージ入力",
           attachImage: "画像を添付",
           send: "送信",
+          suggestInstruction: "過去から生成",
+          suggestFilterLabel: "選択中の種類のみ",
+          suggestError: "指示テキストの生成に失敗しました",
+          suggestErrorDetail:
+            "履歴が不足しているか、生成中にエラーが発生しました",
         },
         message: {
           roleYou: "あなた",
@@ -1082,6 +1087,11 @@ const resources = {
           messageInputAria: "Message input",
           attachImage: "Attach image",
           send: "Send",
+          suggestInstruction: "Generate from history",
+          suggestFilterLabel: "Selected type only",
+          suggestError: "Failed to generate instruction text",
+          suggestErrorDetail:
+            "Not enough history, or an error occurred during generation",
         },
         message: {
           roleYou: "You",

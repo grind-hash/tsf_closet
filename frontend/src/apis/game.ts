@@ -68,6 +68,41 @@ export async function previewPrompt(
   return response.json();
 }
 
+// 指示テキスト生成 レスポンス
+export interface SuggestInstructionResponse {
+  suggestion: string;
+}
+
+/**
+ * 過去のhistory/conversationと現在のセッション状態を踏まえ、
+ * 次に送信できる指示テキストをLLMで生成する（送信はしない）
+ */
+export async function suggestInstruction(
+  sessionId: string,
+  instructionType: InstructionType | "all",
+  language: string,
+  keyword?: string,
+): Promise<string> {
+  const response = await fetch(`${API_BASE}/game/suggest-instruction`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      session_id: sessionId,
+      instruction_type: instructionType === "all" ? null : instructionType,
+      keyword: keyword?.trim() ? keyword.trim() : null,
+      language,
+    }),
+  });
+
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(detail || `Suggest failed: ${response.status}`);
+  }
+
+  const data: SuggestInstructionResponse = await response.json();
+  return data.suggestion;
+}
+
 /**
  * 最新の履歴エントリを削除する
  */
