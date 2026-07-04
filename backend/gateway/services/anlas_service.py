@@ -16,7 +16,7 @@ from ..settings.config import settings
 
 logger = logging.getLogger(__name__)
 
-NOVELAI_USER_DATA_URL = "https://api.novelai.net/user/data"
+NOVELAI_USER_DATA_URL = "https://image.novelai.net/user/data"
 
 
 @dataclass
