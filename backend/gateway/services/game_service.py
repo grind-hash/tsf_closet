@@ -52,6 +52,7 @@ from .action_prompts import (
     get_action_novelai_prompt_generation_system,
 )
 from .self_mode_prompts import build_self_mode_feeling_prompt
+from .memory_prompts import build_memory_priority_instruction
 from .session import session_store
 from .settings_service import settings_service
 from .tag_classifier import classify_tags, TransformationTags
@@ -741,6 +742,22 @@ class GameService:
             logger.warning("Surroundings image generation failed: %s", e)
             return None, None, None
 
+    async def _get_memory_priority_suffix(self, language: str = "ja") -> str:
+        """保存済みメモリテキストから最優先指示ブロックを取得する。
+
+        メモリテキストが未設定の場合は空文字を返す。
+        着せ替え/現実改変/行動の画像編集プロンプトおよび心境モノローグ生成の
+        システムプロンプトに付与するために使用する。
+
+        Args:
+            language: 出力言語 ("ja" or "en")
+
+        Returns:
+            システムプロンプトに付与する追加指示ブロック（空文字の場合あり）
+        """
+        memory_text = await settings_service.get_memory_text()
+        return build_memory_priority_instruction(memory_text or "", language)
+
     async def _generate_image_edit_prompt(
         self,
         instruction: str,
@@ -772,8 +789,7 @@ class GameService:
             GameServiceError: プロンプト生成に失敗した場合
         """
         try:
-            print("-----------")
-            print(instruction, current_description)
+            memory_priority_suffix = await self._get_memory_priority_suffix()
             result = await llm_service.generate_image_edit_prompt(
                 instruction=instruction,
                 current_description=current_description,
@@ -782,11 +798,11 @@ class GameService:
                 custom_preserve_text=custom_preserve_text,
                 provider_override=settings.image_provider,
                 nsfw_mode=nsfw_mode,
+                extra_system_suffix=memory_priority_suffix,
             )
             logger.info(
                 f"画像編集プロンプト生成完了: provider={result.provider}, cost={result.cost_usd}"
             )
-            print(result.content)
             return result.content, result.cost_usd
         except Exception as e:
             # プロンプト生成に失敗した場合は、元の指示をそのまま使用
@@ -956,6 +972,7 @@ class GameService:
         from .conversation import get_language_rules
 
         system_prompt = f"{system_prompt}\n\n{get_language_rules(language)}"
+        system_prompt += await self._get_memory_priority_suffix(language)
 
         async for chunk in self._stream_feeling(
             system_prompt=system_prompt,
@@ -1038,6 +1055,7 @@ class GameService:
         from .conversation import get_language_rules
 
         system_prompt = f"{system_prompt}\n\n{get_language_rules(language)}"
+        system_prompt += await self._get_memory_priority_suffix(language)
 
         async for chunk in self._stream_feeling(
             system_prompt=system_prompt,
@@ -1072,6 +1090,7 @@ class GameService:
         """
         try:
             system_prompt = get_reality_edit_system_prompt(nsfw_mode, image_provider)
+            system_prompt += await self._get_memory_priority_suffix()
             user_prompt = build_reality_edit_prompt(
                 instruction=instruction,
                 current_description=current_description,
@@ -1132,6 +1151,7 @@ class GameService:
         from .conversation import get_language_rules
 
         system_prompt = f"{system_prompt}\n\n{get_language_rules(language)}"
+        system_prompt += await self._get_memory_priority_suffix(language)
 
         async for chunk in self._stream_feeling(
             system_prompt=system_prompt,
@@ -1524,6 +1544,7 @@ class GameService:
                 from .conversation import get_language_rules
 
                 act_system = f"{act_system}\n\n{get_language_rules(effective_language)}"
+                act_system += await self._get_memory_priority_suffix(effective_language)
 
                 # ── T007: NovelAI Opus mode detection for action ──
                 is_action_novelai_opus = settings.is_novelai_opus_mode
@@ -1596,6 +1617,9 @@ class GameService:
                     action_edit_system = get_action_image_edit_system_prompt(
                         image_provider=settings.image_provider,
                         nsfw_mode=effective_nsfw_mode,
+                    )
+                    action_edit_system += await self._get_memory_priority_suffix(
+                        effective_language
                     )
                     action_edit_user = build_action_image_edit_prompt(
                         instruction=instruction,
@@ -3067,6 +3091,7 @@ class GameService:
                     session_id if session_id else "default"
                 ),
             )
+            act_system += await self._get_memory_priority_suffix()
 
             # 画像プロンプト（NovelAI Opus / その他で分岐）
             image_edit_prompt = ""
@@ -3085,6 +3110,7 @@ class GameService:
                     image_provider=settings.image_provider,
                     nsfw_mode=nsfw_mode,
                 )
+                action_edit_system += await self._get_memory_priority_suffix()
                 image_edit_prompt = action_edit_system
 
             # 周辺画像プロンプトプレビュー（現実改変属性含む）

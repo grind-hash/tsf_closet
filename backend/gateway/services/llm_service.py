@@ -563,6 +563,7 @@ class LLMService:
         custom_preserve_text: str = "",
         provider_override: Optional[str] = None,
         nsfw_mode: bool = False,
+        extra_system_suffix: str = "",
     ) -> LLMResult:
         """画像編集プロンプトを生成する
 
@@ -574,6 +575,7 @@ class LLMService:
             custom_preserve_text: カスタム保持指示（自由記述）
             provider_override: プロバイダー指定（省略時は設定値）
             nsfw_mode: NSFWモードかどうか
+            extra_system_suffix: システムプロンプト末尾に付与する追加指示（メモリ優先指示等）
 
         Returns:
             LLMResult
@@ -587,6 +589,8 @@ class LLMService:
         system_prompt = get_image_edit_system_prompt(
             image_provider=provider, nsfw_mode=nsfw_mode
         )
+        if extra_system_suffix:
+            system_prompt = system_prompt + extra_system_suffix
         user_prompt = build_image_edit_prompt(
             instruction=instruction,
             current_description=current_description,
@@ -609,6 +613,7 @@ class LLMService:
                 change_scope=change_scope,
                 custom_preserve_text=custom_preserve_text,
                 provider=provider,
+                extra_system_suffix=extra_system_suffix,
             )
             return LLMResult(
                 content=content,

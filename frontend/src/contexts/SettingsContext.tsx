@@ -28,6 +28,7 @@ import {
 import { DEFAULT_LANGUAGE, type UiLanguage } from "../constants/language";
 import type { SelfProfile } from "../apis/settings";
 import { getSelfProfile as fetchSelfProfileApi } from "../apis/settings";
+import { getMemoryText as fetchMemoryTextApi } from "../apis/memory";
 import i18n from "../i18n";
 
 // 設定状態の型定義
@@ -109,6 +110,9 @@ interface SettingsState {
 
   // spec 004 (US4): プロンプト生成時に参照する履歴遡及件数 (5..20, default 10)
   historyLookbackCount: number;
+
+  // メモリ機能: ユーザーの好み・性的嗜好を保持するテキスト
+  memoryText: string | null;
 }
 
 // アクション型
@@ -158,7 +162,8 @@ type SettingsAction =
   | { type: "SET_MULTI_CHARACTER_PANEL_ENABLED"; payload: boolean }
   | { type: "SET_NOVELAI_TEXT_MODEL"; payload: string }
   | { type: "SET_NOVELAI_TIER"; payload: number | null }
-  | { type: "SET_HISTORY_LOOKBACK_COUNT"; payload: number };
+  | { type: "SET_HISTORY_LOOKBACK_COUNT"; payload: number }
+  | { type: "SET_MEMORY_TEXT"; payload: string | null };
 
 // デフォルト状態
 const defaultState: SettingsState = {
@@ -193,6 +198,7 @@ const defaultState: SettingsState = {
   novelaiTextModel: "glm-4-6",
   novelaiTier: null,
   historyLookbackCount: 10,
+  memoryText: null,
 };
 
 // Reducer
@@ -321,6 +327,8 @@ function settingsReducer(
         ...state,
         historyLookbackCount: Math.max(5, Math.min(20, action.payload)),
       };
+    case "SET_MEMORY_TEXT":
+      return { ...state, memoryText: action.payload };
     default:
       return state;
   }
@@ -377,6 +385,10 @@ interface SettingsContextType {
   setNovelaiTextModel: (model: string) => void;
   setNovelaiTier: (tier: number | null) => void;
   setHistoryLookbackCount: (count: number) => void;
+  // メモリ機能
+  memoryText: string | null;
+  setMemoryText: (memoryText: string | null) => void;
+  loadMemoryText: () => Promise<void>;
 }
 
 // Context作成
@@ -535,6 +547,19 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     loadProfile();
   }, []);
 
+  // メモリテキストをバックエンドから初期読み込み
+  useEffect(() => {
+    const loadMemory = async () => {
+      try {
+        const memoryText = await fetchMemoryTextApi();
+        dispatch({ type: "SET_MEMORY_TEXT", payload: memoryText });
+      } catch (error) {
+        console.warn("Failed to fetch memory text:", error);
+      }
+    };
+    loadMemory();
+  }, []);
+
   // 状態変更時にlocalStorageに保存（imageProviderは除外）
   // 初期化完了後のみ保存（初期状態での上書きを防ぐ）
   useEffect(() => {
@@ -549,6 +574,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         anlasBalance: _ignored5,
         novelaiTextModel: _ignored6,
         novelaiTier: _ignored7,
+        memoryText: _ignored8,
         ...rest
       } = state;
       /* eslint-enable @typescript-eslint/no-unused-vars */
@@ -839,6 +865,19 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const setMemoryText = useCallback((memoryText: string | null) => {
+    dispatch({ type: "SET_MEMORY_TEXT", payload: memoryText });
+  }, []);
+
+  const loadMemoryText = useCallback(async () => {
+    try {
+      const memoryText = await fetchMemoryTextApi();
+      dispatch({ type: "SET_MEMORY_TEXT", payload: memoryText });
+    } catch (error) {
+      console.warn("Failed to load memory text:", error);
+    }
+  }, []);
+
   const value: SettingsContextType = {
     state,
     setDifficulty,
@@ -882,6 +921,9 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setNovelaiTextModel,
     setNovelaiTier,
     setHistoryLookbackCount,
+    memoryText: state.memoryText,
+    setMemoryText,
+    loadMemoryText,
   };
 
   return (

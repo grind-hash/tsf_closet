@@ -138,6 +138,42 @@ const resources = {
           currentProfile: "現在のキャラ設定",
           editButton: "編集する",
         },
+        memory: {
+          sectionTitle: "メモリ",
+          description:
+            "直近のプレイセッションから要約・称号を生成し、好みのシチュエーションや性的嗜好をテキストとして学習します。保存されたメモリは、着せ替え・現実改変・行動の生成時に最優先の指示として扱われます。",
+          sessionCountLabel: "対象とする直近のセッション数",
+          sessionCountAll: "全件",
+          regenerateLabel: "生成済みの要約と称号も再生成する",
+          generateButton: "メモリを生成",
+          confirmTitle: "メモリ生成の確認",
+          confirmDescription:
+            "選択したセッションの要約・称号を一括生成し、その内容から好みのシチュエーションを分析してメモリテキストとして保存します。",
+          confirmRegenerateNote: "生成済みの要約・称号も再生成します。",
+          confirmEstimate:
+            "推定所要時間: 約{{minutes}}分（{{count}}件 × 約20秒）",
+          confirmStart: "生成を開始",
+          confirmCancel: "キャンセル",
+          progressTitle: "メモリ生成中...",
+          progressStatus: "{{processed}} / {{total}} 件処理済み",
+          progressCurrent: "処理中のセッション: {{sessionId}}",
+          progressCancel: "キャンセル",
+          progressCancelling: "キャンセル中...",
+          statusCompleted: "メモリの生成が完了しました",
+          statusCompletedWithErrors:
+            "メモリの生成が完了しました（一部のセッションでエラーが発生しました）",
+          statusFailed: "メモリの生成に失敗しました",
+          statusCancelled: "メモリの生成をキャンセルしました",
+          textAreaLabel: "メモリ内容（編集可能）",
+          textAreaPlaceholder:
+            "生成されたメモリがここに表示されます。自由に編集できます。",
+          saveButton: "メモリを保存",
+          saving: "保存中...",
+          saved: "メモリを保存しました",
+          saveError: "メモリの保存に失敗しました",
+          startError: "メモリ生成の開始に失敗しました",
+          statusFetchError: "進捗の取得に失敗しました",
+        },
       },
       common: {
         add: "追加",
@@ -819,6 +855,43 @@ const resources = {
           saveButton: "Save Settings",
           currentProfile: "Current Settings",
           editButton: "Edit",
+        },
+        memory: {
+          sectionTitle: "Memory",
+          description:
+            "Generate summaries and titles from recent play sessions and learn favored situations and sexual preferences as text. The saved memory is treated as the highest-priority instruction when generating dress-up, reality-alter, and action content.",
+          sessionCountLabel: "Number of recent sessions to include",
+          sessionCountAll: "All",
+          regenerateLabel: "Regenerate summaries and titles that already exist",
+          generateButton: "Generate Memory",
+          confirmTitle: "Confirm Memory Generation",
+          confirmDescription:
+            "This will batch-generate summaries and titles for the selected sessions, analyze the favored situations from them, and save the result as memory text.",
+          confirmRegenerateNote:
+            "Existing summaries and titles will also be regenerated.",
+          confirmEstimate:
+            "Estimated time: about {{minutes}} min ({{count}} sessions x ~20s)",
+          confirmStart: "Start Generation",
+          confirmCancel: "Cancel",
+          progressTitle: "Generating memory...",
+          progressStatus: "{{processed}} / {{total}} processed",
+          progressCurrent: "Processing session: {{sessionId}}",
+          progressCancel: "Cancel",
+          progressCancelling: "Cancelling...",
+          statusCompleted: "Memory generation completed",
+          statusCompletedWithErrors:
+            "Memory generation completed (some sessions had errors)",
+          statusFailed: "Memory generation failed",
+          statusCancelled: "Memory generation cancelled",
+          textAreaLabel: "Memory content (editable)",
+          textAreaPlaceholder:
+            "Generated memory will appear here. You can edit it freely.",
+          saveButton: "Save Memory",
+          saving: "Saving...",
+          saved: "Memory saved",
+          saveError: "Failed to save memory",
+          startError: "Failed to start memory generation",
+          statusFetchError: "Failed to fetch progress",
         },
       },
       common: {

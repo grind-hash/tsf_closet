@@ -33,6 +33,7 @@ class User(Base):
         String, default="glm-4-6", nullable=False, server_default="glm-4-6"
     )
     self_profile_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    memory_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     sessions: Mapped[List["Session"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
