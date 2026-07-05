@@ -25,7 +25,10 @@ from .litellm_client import LiteLLMClientError
 from .llm_service import LLMServiceError, llm_service
 from .memory_prompts import (
     build_memory_generation_user_prompt,
+    build_memory_merge_user_prompt,
+    chunk_summaries,
     get_memory_generation_system_prompt,
+    get_memory_merge_system_prompt,
 )
 from .settings_service import settings_service
 from .summary_service import summary_service
@@ -46,8 +49,13 @@ class MemoryJobState:
     regenerate_existing: bool
     language: str
     status: str = "running"  # running/completed/completed_with_errors/failed/cancelled
+    # summarizing(要約・称号生成中) / analyzing(メモリチャンク分析中) /
+    # merging(チャンク結果統合中) / done(完了)
+    phase: str = "summarizing"
     processed: int = 0
     current_session_id: str | None = None
+    memory_chunk_total: int = 0
+    memory_chunk_processed: int = 0
     errors: list[str] = field(default_factory=list)
     cancel_requested: bool = False
     started_at: datetime = field(default_factory=datetime.utcnow)
@@ -57,9 +65,12 @@ class MemoryJobState:
         return {
             "job_id": self.job_id,
             "status": self.status,
+            "phase": self.phase,
             "total": self.total,
             "processed": self.processed,
             "current_session_id": self.current_session_id,
+            "memory_chunk_total": self.memory_chunk_total,
+            "memory_chunk_processed": self.memory_chunk_processed,
             "errors": self.errors,
             "regenerate_existing": self.regenerate_existing,
             "started_at": self.started_at.isoformat(),
@@ -160,12 +171,15 @@ class MemoryJobService:
                 summaries = await self._collect_summaries(session_ids)
                 if summaries:
                     try:
-                        await self._generate_and_save_memory_text(summaries, language)
+                        await self._generate_and_save_memory_text(
+                            job, summaries, language
+                        )
                     except Exception as exc:  # noqa: BLE001
                         logger.error("Memory text generation failed: %s", exc)
                         job.errors.append(f"memory_text: {exc}")
                         job.status = "failed"
                 if job.status == "running":
+                    job.phase = "done"
                     job.status = "completed_with_errors" if job.errors else "completed"
         except Exception as exc:  # noqa: BLE001 - ジョブ全体の予期しない失敗
             logger.exception("Memory generation job %s failed", job_id)
@@ -209,14 +223,73 @@ class MemoryJobService:
         return summaries
 
     async def _generate_and_save_memory_text(
-        self, summaries: list[dict], language: str
+        self, job: MemoryJobState, summaries: list[dict], language: str
     ) -> None:
-        system_prompt = get_memory_generation_system_prompt(language)
-        user_prompt = build_memory_generation_user_prompt(summaries, language)
-        result = await llm_service.generate_text(system_prompt, user_prompt)
-        memory_text = result.content.strip()
+        """要約リストからメモリテキストを生成して保存する。
+
+        セッション数が多い場合、全要約を一度に1回のLLMリクエストに含めると
+        ユーザープロンプトが肥大化し、NovelAI等のAPIで400エラーになるため、
+        chunk_summaries で複数チャンクに分割して順次分析（多重度1）し、
+        チャンクが複数あれば最後に1回だけ統合（マージ）リクエストを行う。
+        進捗可視化のため、job.phase / memory_chunk_total / memory_chunk_processed を
+        逆登しながら更新する。
+        """
+        chunks = chunk_summaries(summaries)
+        job.memory_chunk_total = len(chunks)
+        job.memory_chunk_processed = 0
+        job.phase = "analyzing"
+        logger.info(
+            "Memory generation: %d summaries split into %d chunk(s)",
+            len(summaries),
+            len(chunks),
+        )
+
+        partial_texts: list[str] = []
+        for chunk in chunks:
+            if job.cancel_requested:
+                job.status = "cancelled"
+                return
+            system_prompt = get_memory_generation_system_prompt(language)
+            user_prompt = build_memory_generation_user_prompt(chunk, language)
+            partial_texts.append(
+                await self._generate_text_with_retry(system_prompt, user_prompt)
+            )
+            job.memory_chunk_processed += 1
+
+        if len(partial_texts) == 1:
+            memory_text = partial_texts[0]
+        else:
+            job.phase = "merging"
+            merge_system_prompt = get_memory_merge_system_prompt(language)
+            merge_user_prompt = build_memory_merge_user_prompt(partial_texts, language)
+            memory_text = await self._generate_text_with_retry(
+                merge_system_prompt, merge_user_prompt
+            )
+
         await settings_service.save_memory_text(memory_text)
-        logger.info("Memory text generated from %d summaries", len(summaries))
+        logger.info(
+            "Memory text generated from %d summaries across %d chunk(s)",
+            len(summaries),
+            len(chunks),
+        )
+
+    async def _generate_text_with_retry(
+        self, system_prompt: str, user_prompt: str
+    ) -> str:
+        """429検出時に1回だけリトライするLLMテキスト生成の共通ヘルパー。"""
+        try:
+            result = await llm_service.generate_text(system_prompt, user_prompt)
+            return result.content.strip()
+        except (LLMServiceError, LiteLLMClientError) as exc:
+            if "429" not in str(exc):
+                raise
+            logger.warning(
+                "429 detected during memory text generation, retrying once after %ss",
+                RETRY_WAIT_SECONDS,
+            )
+            await asyncio.sleep(RETRY_WAIT_SECONDS)
+            result = await llm_service.generate_text(system_prompt, user_prompt)
+            return result.content.strip()
 
 
 memory_job_service = MemoryJobService()

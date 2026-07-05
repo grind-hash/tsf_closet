@@ -34,9 +34,12 @@ class MemoryGenerateResponse(BaseModel):
 class MemoryJobStatusResponse(BaseModel):
     job_id: str
     status: str
+    phase: str
     total: int
     processed: int
     current_session_id: str | None
+    memory_chunk_total: int
+    memory_chunk_processed: int
     errors: list[str]
     regenerate_existing: bool
     started_at: str

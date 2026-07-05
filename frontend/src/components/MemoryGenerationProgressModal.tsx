@@ -90,33 +90,72 @@ export default function MemoryGenerationProgressModal({
 
   const total = status?.total ?? 0;
   const processed = status?.processed ?? 0;
-  const percent =
-    total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : 0;
+  const phase = status?.phase ?? "summarizing";
   const isTerminal = status ? TERMINAL_STATUSES.has(status.status) : false;
+  const isAnalyzing = !isTerminal && phase === "analyzing";
+  const isMerging = !isTerminal && phase === "merging";
+
+  const chunkTotal = status?.memory_chunk_total ?? 0;
+  const chunkProcessed = status?.memory_chunk_processed ?? 0;
+
+  const percent = isAnalyzing
+    ? chunkTotal > 0
+      ? Math.min(100, Math.round((chunkProcessed / chunkTotal) * 100))
+      : 0
+    : total > 0
+      ? Math.min(100, Math.round((processed / total) * 100))
+      : 0;
+
+  const phaseLabel = isMerging
+    ? t("settings.memory.phaseMerging")
+    : isAnalyzing
+      ? t("settings.memory.phaseAnalyzing")
+      : t("settings.memory.phaseSummarizing");
 
   return (
     <div className="memory-progress-overlay">
       <div className="memory-progress-modal">
         <h2>{t("settings.memory.progressTitle")}</h2>
 
+        {!isTerminal && <p className="memory-progress-phase">{phaseLabel}</p>}
+
         <div className="memory-progress-bar-track">
           <div
-            className="memory-progress-bar-fill"
-            style={{ width: `${percent}%` }}
+            className={
+              isMerging
+                ? "memory-progress-bar-fill memory-progress-bar-fill--indeterminate"
+                : "memory-progress-bar-fill"
+            }
+            style={isMerging ? undefined : { width: `${percent}%` }}
           />
         </div>
 
-        <p className="memory-progress-status">
-          {t("settings.memory.progressStatus", { processed, total })}
-        </p>
-
-        {status?.current_session_id && !isTerminal && (
-          <p className="memory-progress-current">
-            {t("settings.memory.progressCurrent", {
-              sessionId: status.current_session_id,
+        {isAnalyzing ? (
+          <p className="memory-progress-status">
+            {t("settings.memory.progressAnalyzing", {
+              processed: chunkProcessed,
+              total: chunkTotal,
             })}
           </p>
+        ) : isMerging ? (
+          <p className="memory-progress-status">
+            {t("settings.memory.progressMerging")}
+          </p>
+        ) : (
+          <p className="memory-progress-status">
+            {t("settings.memory.progressStatus", { processed, total })}
+          </p>
         )}
+
+        {status?.current_session_id &&
+          !isTerminal &&
+          phase === "summarizing" && (
+            <p className="memory-progress-current">
+              {t("settings.memory.progressCurrent", {
+                sessionId: status.current_session_id,
+              })}
+            </p>
+          )}
 
         {isTerminal && status && (
           <p

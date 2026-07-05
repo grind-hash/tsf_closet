@@ -30,6 +30,15 @@
   font-size: 1.3rem;
 }
 
+.memory-progress-phase {
+  color: #aaa;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  margin: 0 0 8px 0;
+  text-transform: uppercase;
+}
+
 .memory-progress-bar-track {
   background: rgba(255, 255, 255, 0.1);
   border-radius: 8px;
@@ -42,6 +51,23 @@
   background: linear-gradient(135deg, #4ecdc4 0%, #2ba39a 100%);
   height: 100%;
   transition: width 0.3s ease;
+}
+
+.memory-progress-bar-fill--indeterminate {
+  width: 40%;
+  animation: memory-progress-indeterminate 1.2s ease-in-out infinite;
+}
+
+@keyframes memory-progress-indeterminate {
+  0% {
+    margin-left: 0%;
+  }
+  50% {
+    margin-left: 60%;
+  }
+  100% {
+    margin-left: 0%;
+  }
 }
 
 .memory-progress-status {

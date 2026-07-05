@@ -141,7 +141,7 @@ const resources = {
         memory: {
           sectionTitle: "メモリ",
           description:
-            "直近のプレイセッションから要約・称号を生成し、好みのシチュエーションや性的嗜好をテキストとして学習します。保存されたメモリは、着せ替え・現実改変・行動の生成時に最優先の指示として扱われます。",
+            "直近のプレイセッションから要約・称号を生成し、好みのシチュエーションや性的嗜好をテキストとしてゲームに保存します。保存されたメモリは、着せ替え・現実改変・行動の生成時に最優先の指示として扱われ、より望ましいシチュエーションの生成ができる可能性があります。",
           sessionCountLabel: "対象とする直近のセッション数",
           sessionCountAll: "全件",
           regenerateLabel: "生成済みの要約と称号も再生成する",
@@ -155,7 +155,12 @@ const resources = {
           confirmStart: "生成を開始",
           confirmCancel: "キャンセル",
           progressTitle: "メモリ生成中...",
+          phaseSummarizing: "要約・称号を生成中",
+          phaseAnalyzing: "好み・性的嗜好を分析中",
+          phaseMerging: "分析結果を統合中",
           progressStatus: "{{processed}} / {{total}} 件処理済み",
+          progressAnalyzing: "{{processed}} / {{total}} チャンク処理済み",
+          progressMerging: "分析結果をまとめています...",
           progressCurrent: "処理中のセッション: {{sessionId}}",
           progressCancel: "キャンセル",
           progressCancelling: "キャンセル中...",
@@ -859,7 +864,7 @@ const resources = {
         memory: {
           sectionTitle: "Memory",
           description:
-            "Generate summaries and titles from recent play sessions and learn favored situations and sexual preferences as text. The saved memory is treated as the highest-priority instruction when generating dress-up, reality-alter, and action content.",
+            "Generates summaries and titles based on your most recent play sessions and saves your preferred scenarios and sexual preferences as text within the game. These saved preferences are treated as top-priority instructions when generating outfits, altering reality, and determining actions, potentially leading to the creation of more desirable scenarios.",
           sessionCountLabel: "Number of recent sessions to include",
           sessionCountAll: "All",
           regenerateLabel: "Regenerate summaries and titles that already exist",
@@ -874,7 +879,12 @@ const resources = {
           confirmStart: "Start Generation",
           confirmCancel: "Cancel",
           progressTitle: "Generating memory...",
+          phaseSummarizing: "Generating summaries and titles",
+          phaseAnalyzing: "Analyzing preferences",
+          phaseMerging: "Consolidating analysis results",
           progressStatus: "{{processed}} / {{total}} processed",
+          progressAnalyzing: "{{processed}} / {{total}} chunks processed",
+          progressMerging: "Consolidating the analysis results...",
           progressCurrent: "Processing session: {{sessionId}}",
           progressCancel: "Cancel",
           progressCancelling: "Cancelling...",

@@ -16,7 +16,7 @@ MEMORY_SYSTEM_PROMPT_JA = """\
 
 出力ルール:
 - 出力はプレーンテキストのみ（JSON化やMarkdown装飾は不要）
-- 400文字以内を目安に、ユーザーが好む展開・シチュエーション・性的嗜好を具体的に記述する
+- 300文字から400文字以内を目安に、ユーザーが好む展開・シチュエーション・性的嗜好を具体的に記述する
 - 複数セッションで繰り返し現れる傾向を優先して記述する
 - 一回限りの偶発的な行動は除外し、傾向として安定しているものを優先する
 - 断定口調で簡潔に書く（「〜を好む」「〜の展開を繰り返し選んでいる」等）
@@ -43,6 +43,60 @@ def get_memory_generation_system_prompt(language: str = "ja") -> str:
     if language == "en":
         return MEMORY_SYSTEM_PROMPT_EN
     return MEMORY_SYSTEM_PROMPT_JA
+
+
+# 1チャンクあたりのユーザープロンプトの目安文字数上限。
+# NovelAI等のLLM APIはリクエストサイズ上限があり、セッション数が多いと
+# ユーザープロンプトが数万文字に肥大化して400エラーになるため、
+# 安全側に寄せた保守的な値を設定する。
+MEMORY_CHUNK_CHAR_BUDGET = 6000
+
+
+def _estimate_entry_length(entry: dict) -> int:
+    """1セッション分の要約エントリがプロンプト中で占めるおおよその文字数を見積もる。"""
+    title = entry.get("title", "") or ""
+    summary = entry.get("summary", "") or ""
+    timeline = entry.get("timeline") or []
+    timeline_len = sum(
+        len(str(item.get("label", ""))) for item in timeline if isinstance(item, dict)
+    )
+    # 見出しや改行等の定型文分の余裕
+    return len(title) + len(summary) + timeline_len + 32
+
+
+def chunk_summaries(
+    summaries: list[dict],
+    char_budget: int = MEMORY_CHUNK_CHAR_BUDGET,
+) -> list[list[dict]]:
+    """要約リストを、1リクエストあたりの文字数がchar_budgetを超えないように分割する。
+
+    Args:
+        summaries: PlaySummary辞書のリスト
+        char_budget: 1チャンクあたりの目安文字数上限
+
+    Returns:
+        分割された要約リストのリスト（各要素が1回のLLM呼び出し分）
+    """
+    if not summaries:
+        return []
+
+    chunks: list[list[dict]] = []
+    current: list[dict] = []
+    current_len = 0
+
+    for entry in summaries:
+        entry_len = _estimate_entry_length(entry)
+        if current and current_len + entry_len > char_budget:
+            chunks.append(current)
+            current = []
+            current_len = 0
+        current.append(entry)
+        current_len += entry_len
+
+    if current:
+        chunks.append(current)
+
+    return chunks
 
 
 def build_memory_generation_user_prompt(
@@ -125,3 +179,63 @@ def build_memory_priority_instruction(memory_text: str, language: str = "ja") ->
         else MEMORY_PRIORITY_INSTRUCTION_TEMPLATE_JA
     )
     return template.format(memory_text=memory_text.strip())
+
+
+# =============================================================================
+# 部分分析結果の統合（マージ）用プロンプト
+# 要約件数が多く chunk_summaries で複数チャンクに分割された場合、
+# 各チャンクの分析結果（部分テキスト）をさらに1つに統合する際に使用する。
+# =============================================================================
+
+MEMORY_MERGE_SYSTEM_PROMPT_JA = """\
+あなたはTSFゲームのプレイ傾向分析結果を統合する編集者です。
+同一ユーザーの異なるセッション群からそれぞれ抽出された複数の部分的な分析結果を受け取り、
+重複を除きながら一つの一貫したテキストに統合してください。
+
+出力ルール:
+- 出力はプレーンテキストのみ（JSON化やMarkdown装飾は不要）
+- 300文字から400文字以内を目安に、複数の分析結果に共通する、あるいは特に顒著な傾向を優先してまとめる
+- 一部の分析結果にしか現れない些末な要素は省略してよい
+- 断定口調で簡潔に書く
+"""
+
+MEMORY_MERGE_SYSTEM_PROMPT_EN = """\
+You are an editor consolidating multiple partial play-tendency analyses
+of the same user (each extracted from a different group of sessions) into
+a single coherent text.
+
+Output rules:
+- Output must be plain text only (no JSON, no Markdown formatting)
+- Aim for around 400 characters or fewer, prioritizing tendencies that are
+  common across multiple analyses or especially prominent
+- Minor details that appear in only one analysis may be omitted
+- Write concisely in a declarative style
+"""
+
+
+def get_memory_merge_system_prompt(language: str = "ja") -> str:
+    """Get the system prompt used to merge partial memory analyses."""
+    if language == "en":
+        return MEMORY_MERGE_SYSTEM_PROMPT_EN
+    return MEMORY_MERGE_SYSTEM_PROMPT_JA
+
+
+def build_memory_merge_user_prompt(
+    partial_texts: list[str],
+    language: str = "ja",
+) -> str:
+    """Build the user prompt that merges several partial memory analyses.
+
+    Args:
+        partial_texts: List of partial memory texts (one per chunk)
+        language: "ja" or "en"
+    """
+    blocks = [f"[{i}]\n{text}" for i, text in enumerate(partial_texts, 1)]
+    joined = "\n\n".join(blocks)
+
+    if language == "en":
+        return (
+            "Consolidate the following partial analyses as described "
+            f"above:\n\n{joined}"
+        )
+    return f"以下の部分的な分析結果を、上記の指示に従って一つに統合してください:\n\n{joined}"

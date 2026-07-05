@@ -15,9 +15,12 @@ export interface MemoryJobStatus {
     | "completed_with_errors"
     | "failed"
     | "cancelled";
+  phase: "summarizing" | "analyzing" | "merging" | "done";
   total: number;
   processed: number;
   current_session_id: string | null;
+  memory_chunk_total: number;
+  memory_chunk_processed: number;
   errors: string[];
   regenerate_existing: boolean;
   started_at: string;
