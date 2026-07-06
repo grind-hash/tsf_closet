@@ -446,8 +446,8 @@ const resources = {
           messageInputAria: "メッセージ入力",
           attachImage: "画像を添付",
           send: "送信",
-          suggestInstruction: "過去から生成",
-          suggestFilterLabel: "選択中の種類のみ",
+          suggestInstruction: "履歴から提案",
+          suggestMemoryLabel: "メモリを反映",
           suggestError: "指示テキストの生成に失敗しました",
           suggestErrorDetail:
             "履歴が不足しているか、生成中にエラーが発生しました",
@@ -1170,8 +1170,8 @@ const resources = {
           messageInputAria: "Message input",
           attachImage: "Attach image",
           send: "Send",
-          suggestInstruction: "Generate from history",
-          suggestFilterLabel: "Selected type only",
+          suggestInstruction: "Suggest from history",
+          suggestMemoryLabel: "Include memory",
           suggestError: "Failed to generate instruction text",
           suggestErrorDetail:
             "Not enough history, or an error occurred during generation",

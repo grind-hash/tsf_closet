@@ -142,8 +142,16 @@
   cursor: not-allowed;
 }
 
-/* 過去メッセージから生成: チェックボックス */
-.chat-input__suggest-filter {
+/* オプションツールバー: テキスト入力行の直上に表示（メモリ反映チェック / 過去から生成ボタン） */
+.chat-input__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+/* メモリ反映チェックボックス */
+.chat-input__memory-toggle {
   display: flex;
   align-items: center;
   gap: 0.25rem;
@@ -152,35 +160,31 @@
   white-space: nowrap;
   cursor: pointer;
   user-select: none;
-  flex-shrink: 0;
 }
 
-.chat-input__suggest-filter input[type="checkbox"] {
+.chat-input__memory-toggle input[type="checkbox"] {
   cursor: pointer;
 }
 
-.chat-input__suggest-filter input[type="checkbox"]:disabled {
+.chat-input__memory-toggle input[type="checkbox"]:disabled {
   cursor: not-allowed;
 }
 
-/* 過去メッセージから生成: ボタン */
+/* 過去メッセージから生成: ボタン（ツールバー内、アイコン+ラベル表示） */
 .chat-input__suggest-btn {
-  padding: 0.625rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.7rem;
   background-color: var(--bg-color, #1a1a2e);
   border: 1px solid var(--border-color, #333);
-  border-radius: 8px;
+  border-radius: 999px;
   color: var(--text-color, #eee);
-  font-size: 1.2rem;
+  font-size: 0.75rem;
   cursor: pointer;
   transition:
     background-color 0.2s,
     border-color 0.2s;
-  min-width: 44px;
-  min-height: 44px;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
 
 .chat-input__suggest-btn:hover:not(:disabled) {
@@ -245,18 +249,16 @@
     font-size: 0.875rem;
   }
 
-  /* テキスト入力欄を圧迫しないよう、フィルタのラベルテキストを非表示にしチェックボックスのみにする */
-  .chat-input__suggest-filter span {
+  /* ツールバーを圧迫しないよう、メモリチェックのラベルテキストと生成ボタンのラベルを非表示にする */
+  .chat-input__memory-toggle span {
     display: none;
   }
 
-  .chat-input__suggest-filter {
-    gap: 0;
+  .chat-input__suggest-btn-label {
+    display: none;
   }
 
   .chat-input__suggest-btn {
-    min-width: 36px;
-    min-height: 36px;
-    padding: 0.4rem;
+    padding: 0.4rem 0.5rem;
   }
 }

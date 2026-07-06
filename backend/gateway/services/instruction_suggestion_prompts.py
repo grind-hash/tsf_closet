@@ -97,6 +97,15 @@ def _build_keyword_section(keyword: str | None, language: str) -> str:
     return f'ユーザー指定のキーワード/希望（生成する指示に必ず反映すること）: "{cleaned}"\n'
 
 
+def _build_memory_section(memory_text: str | None, language: str) -> str:
+    if not memory_text or not memory_text.strip():
+        return ""
+    cleaned = memory_text.strip()
+    if language == "en":
+        return f"User preference memory (long-term tendencies):\n{cleaned}\n"
+    return f"ユーザーの好み傾向メモリ（長期的な傾向）:\n{cleaned}\n"
+
+
 def build_instruction_suggestion_prompt(
     character_context: str,
     stats,
@@ -105,6 +114,7 @@ def build_instruction_suggestion_prompt(
     instruction_type_filter: str | None,
     language: str = "ja",
     keyword: str | None = None,
+    memory_text: str | None = None,
 ) -> tuple[str, str]:
     """Build system and user prompts for instruction suggestion generation.
 
@@ -116,6 +126,7 @@ def build_instruction_suggestion_prompt(
         instruction_type_filter: dress_up/reality_alter/action のいずれか、または None（全種類）
         language: "ja" or "en"
         keyword: ユーザーが入力欄に入力した自由テキスト/キーワード（任意）
+        memory_text: 保存済みメモリテキスト（ユーザーの嗜好傾向）、未使用/未設定の場合 None
 
     Returns:
         (system_prompt, user_prompt) tuple
@@ -149,6 +160,7 @@ def build_instruction_suggestion_prompt(
         _build_stats_section(stats, language),
         _build_attributes_section(attributes, language),
         _build_keyword_section(keyword, language),
+        _build_memory_section(memory_text, language),
     ]
     context_block = "\n".join(s for s in sections if s)
 

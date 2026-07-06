@@ -551,6 +551,10 @@ class SuggestInstructionRequest(BaseModel):
         description="生成に反映したいキーワード/自由入力テキスト（入力欄の内容等）",
         max_length=500,
     )
+    use_memory: bool = Field(
+        False,
+        description="保存済みメモリテキスト（ユーザーの嗜好傾向）を生成に反映するか",
+    )
     language: str = Field("ja", description="生成言語 (ja/en)")
 
 

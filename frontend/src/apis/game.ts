@@ -82,6 +82,7 @@ export async function suggestInstruction(
   instructionType: InstructionType | "all",
   language: string,
   keyword?: string,
+  useMemory?: boolean,
 ): Promise<string> {
   const response = await fetch(`${API_BASE}/game/suggest-instruction`, {
     method: "POST",
@@ -91,6 +92,7 @@ export async function suggestInstruction(
       instruction_type: instructionType === "all" ? null : instructionType,
       keyword: keyword?.trim() ? keyword.trim() : null,
       language,
+      use_memory: useMemory ?? false,
     }),
   });
 

@@ -30,6 +30,9 @@ interface ChatInputProps {
   imageProvider?: string;
 }
 
+// 「過去から生成」機能でメモリテキストを反映するかどうかのチェック状態を保存するlocalStorageキー
+const SUGGEST_USE_MEMORY_STORAGE_KEY = "chat_suggest_use_memory";
+
 export default function ChatInput({
   onSendMessage,
   disabled = false,
@@ -43,22 +46,27 @@ export default function ChatInput({
 
   // 過去メッセージからの指示テキスト生成
   const [isSuggesting, setIsSuggesting] = useState(false);
-  const [filterByType, setFilterByType] = useState(false);
-  const canFilterByType = state.instructionType !== "conversation";
+  const [useMemoryForSuggestion, setUseMemoryForSuggestion] = useState<boolean>(
+    () => localStorage.getItem(SUGGEST_USE_MEMORY_STORAGE_KEY) === "true",
+  );
+
+  const handleUseMemoryChange = (checked: boolean) => {
+    setUseMemoryForSuggestion(checked);
+    localStorage.setItem(SUGGEST_USE_MEMORY_STORAGE_KEY, String(checked));
+  };
 
   const handleSuggestInstruction = async () => {
     if (!gameState.sessionId || isSuggesting || disabled) return;
     setIsSuggesting(true);
     try {
-      const typeFilter =
-        filterByType && canFilterByType ? state.instructionType : "all";
       const language = i18n.language?.startsWith("en") ? "en" : "ja";
       const keyword = state.inputText.trim();
       const suggestion = await suggestInstruction(
         gameState.sessionId,
-        typeFilter,
+        "all",
         language,
         keyword,
+        useMemoryForSuggestion,
       );
       setInputText(suggestion);
     } catch {
@@ -198,6 +206,39 @@ export default function ChatInput({
         </div>
       )}
 
+      {/* オプションツールバー: メモリ反映チェック / 過去から生成ボタン */}
+      <div className="chat-input__toolbar">
+        <label
+          className="chat-input__memory-toggle"
+          title={t("chat.input.suggestMemoryLabel")}
+        >
+          <input
+            type="checkbox"
+            checked={useMemoryForSuggestion}
+            disabled={disabled}
+            onChange={(e) => handleUseMemoryChange(e.target.checked)}
+          />
+          <span>{t("chat.input.suggestMemoryLabel")}</span>
+        </label>
+        <button
+          type="button"
+          className="chat-input__suggest-btn"
+          onClick={handleSuggestInstruction}
+          disabled={disabled || isSuggesting || !gameState.sessionId}
+          aria-label={t("chat.input.suggestInstruction")}
+          title={t("chat.input.suggestInstruction")}
+        >
+          {isSuggesting ? (
+            <span className="chat-input__suggest-spinner" />
+          ) : (
+            <span aria-hidden="true">✨</span>
+          )}
+          <span className="chat-input__suggest-btn-label">
+            {t("chat.input.suggestInstruction")}
+          </span>
+        </button>
+      </div>
+
       <div className="chat-input__row">
         {/* 指示タイプ選択 */}
         <select
@@ -239,34 +280,6 @@ export default function ChatInput({
           rows={1}
           aria-label={t("chat.input.messageInputAria")}
         />
-
-        {/* 過去メッセージから指示テキストを生成 */}
-        <label
-          className="chat-input__suggest-filter"
-          title={t("chat.input.suggestFilterLabel")}
-        >
-          <input
-            type="checkbox"
-            checked={filterByType && canFilterByType}
-            disabled={!canFilterByType || disabled}
-            onChange={(e) => setFilterByType(e.target.checked)}
-          />
-          <span>{t("chat.input.suggestFilterLabel")}</span>
-        </label>
-        <button
-          type="button"
-          className="chat-input__suggest-btn"
-          onClick={handleSuggestInstruction}
-          disabled={disabled || isSuggesting || !gameState.sessionId}
-          aria-label={t("chat.input.suggestInstruction")}
-          title={t("chat.input.suggestInstruction")}
-        >
-          {isSuggesting ? (
-            <span className="chat-input__suggest-spinner" />
-          ) : (
-            "✨"
-          )}
-        </button>
 
         {/* File attach - hidden in NovelAI mode */}
         {imageProvider !== "novelai" && (

@@ -1108,6 +1108,7 @@ async def suggest_instruction(
             instruction_type=request.instruction_type,
             language=normalize_language(request.language),
             keyword=request.keyword,
+            use_memory=request.use_memory,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

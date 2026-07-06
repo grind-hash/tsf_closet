@@ -79,6 +79,7 @@ async def generate_instruction_suggestion(
     instruction_type: str | None,
     language: str = "ja",
     keyword: str | None = None,
+    use_memory: bool = False,
 ) -> str:
     """過去の履歴と現在のセッション状態から次の指示テキストを生成する。
 
@@ -87,6 +88,7 @@ async def generate_instruction_suggestion(
         instruction_type: dress_up/reality_alter/action のいずれか、または None/"all"（全種類統合）
         language: "ja" or "en"
         keyword: ユーザーが入力欄に入力した自由テキスト/キーワード（任意、生成に反映される）
+        use_memory: Trueの場合、保存済みメモリテキスト（ユーザーの嗜好傾向）を取得して生成に反映する
 
     Returns:
         生成された指示テキスト
@@ -96,6 +98,7 @@ async def generate_instruction_suggestion(
     """
     from .session import session_store
     from .llm_service import llm_service
+    from .settings_service import settings_service
     from .instruction_suggestion_prompts import build_instruction_suggestion_prompt
 
     session = await session_store.get_session_by_id(session_id)
@@ -116,6 +119,8 @@ async def generate_instruction_suggestion(
     if not timeline and not has_keyword:
         raise ValueError("no history available for suggestion")
 
+    memory_text = await settings_service.get_memory_text() if use_memory else None
+
     system_prompt, user_prompt = build_instruction_suggestion_prompt(
         character_context=character_context,
         stats=stats,
@@ -124,6 +129,7 @@ async def generate_instruction_suggestion(
         instruction_type_filter=type_filter,
         language=language,
         keyword=keyword,
+        memory_text=memory_text,
     )
 
     result = await llm_service.generate_text(
