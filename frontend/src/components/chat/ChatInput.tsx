@@ -25,7 +25,11 @@ import type { InstructionType } from "../../types";
 import "./ChatInput.css";
 
 interface ChatInputProps {
-  onSendMessage?: (message: string, instructionType: string) => void;
+  onSendMessage?: (
+    message: string,
+    instructionType: string,
+    useMemory: boolean,
+  ) => void;
   disabled?: boolean;
   imageProvider?: string;
 }
@@ -119,7 +123,11 @@ export default function ChatInput({
     e.preventDefault();
     if (!state.inputText.trim() || disabled) return;
 
-    onSendMessage?.(state.inputText.trim(), state.instructionType);
+    onSendMessage?.(
+      state.inputText.trim(),
+      state.instructionType,
+      useMemoryForSuggestion,
+    );
     clearInput();
 
     // テキストエリアにフォーカスを戻す

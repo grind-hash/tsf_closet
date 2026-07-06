@@ -376,6 +376,10 @@ class PlayRequest(BaseModel):
         None,
         description="指示タイプ (dress_up, reality_alter, action, conversation)",
     )
+    use_memory: bool = Field(
+        False,
+        description="保存済みメモリテキスト（ユーザーの嗜好傾向）を生成に反映するか",
+    )
     language: Optional[str] = Field(
         None, description="応答言語（ja/en、未指定時はユーザー設定を使用）"
     )

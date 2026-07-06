@@ -455,6 +455,7 @@ class GameService:
             instruction=request.instruction,
             current_description=before_desc,
             novelai_model_override=effective_novelai_text_model,
+            use_memory=request.use_memory,
         )
         logger.info("Image edit prompt: %s", image_edit_prompt[:100])
 
@@ -767,6 +768,7 @@ class GameService:
         custom_preserve_text: str = "",
         nsfw_mode: bool = False,
         novelai_model_override: str | None = None,
+        use_memory: bool = True,
     ) -> tuple[str, float | None]:
         """画像編集プロンプトを生成 (LLMService経由)
 
@@ -789,7 +791,9 @@ class GameService:
             GameServiceError: プロンプト生成に失敗した場合
         """
         try:
-            memory_priority_suffix = await self._get_memory_priority_suffix()
+            memory_priority_suffix = (
+                await self._get_memory_priority_suffix() if use_memory else ""
+            )
             result = await llm_service.generate_image_edit_prompt(
                 instruction=instruction,
                 current_description=current_description,
@@ -931,6 +935,7 @@ class GameService:
         used_openings: list[str] | None = None,
         enable_multiple_people: bool = False,
         novelai_model_override: str | None = None,
+        use_memory: bool = True,
     ) -> AsyncGenerator[str, None]:
         """LLM経由で心境テキストをストリーミング生成する。
 
@@ -972,7 +977,8 @@ class GameService:
         from .conversation import get_language_rules
 
         system_prompt = f"{system_prompt}\n\n{get_language_rules(language)}"
-        system_prompt += await self._get_memory_priority_suffix(language)
+        if use_memory:
+            system_prompt += await self._get_memory_priority_suffix(language)
 
         async for chunk in self._stream_feeling(
             system_prompt=system_prompt,
@@ -1027,6 +1033,7 @@ class GameService:
         language: str = "ja",
         enable_multiple_people: bool = False,
         novelai_model_override: str | None = None,
+        use_memory: bool = True,
     ) -> AsyncGenerator[str, None]:
         """自分自身モードの心境テキストをユーザーの性格プロフィールでストリーミング生成する。
 
@@ -1055,7 +1062,8 @@ class GameService:
         from .conversation import get_language_rules
 
         system_prompt = f"{system_prompt}\n\n{get_language_rules(language)}"
-        system_prompt += await self._get_memory_priority_suffix(language)
+        if use_memory:
+            system_prompt += await self._get_memory_priority_suffix(language)
 
         async for chunk in self._stream_feeling(
             system_prompt=system_prompt,
@@ -1073,6 +1081,7 @@ class GameService:
         nsfw_mode: bool = False,
         image_provider: str = "qwen",
         novelai_model_override: str | None = None,
+        use_memory: bool = True,
     ) -> tuple[str, float | None]:
         """現実改変用画像編集プロンプトを生成 (LLMService経由)
 
@@ -1090,7 +1099,8 @@ class GameService:
         """
         try:
             system_prompt = get_reality_edit_system_prompt(nsfw_mode, image_provider)
-            system_prompt += await self._get_memory_priority_suffix()
+            if use_memory:
+                system_prompt += await self._get_memory_priority_suffix()
             user_prompt = build_reality_edit_prompt(
                 instruction=instruction,
                 current_description=current_description,
@@ -1120,6 +1130,7 @@ class GameService:
         language: str = "ja",
         enable_multiple_people: bool = False,
         novelai_model_override: str | None = None,
+        use_memory: bool = True,
     ) -> AsyncGenerator[str, None]:
         """現実改変用心境をストリーミング生成 (LLM)
 
@@ -1151,7 +1162,8 @@ class GameService:
         from .conversation import get_language_rules
 
         system_prompt = f"{system_prompt}\n\n{get_language_rules(language)}"
-        system_prompt += await self._get_memory_priority_suffix(language)
+        if use_memory:
+            system_prompt += await self._get_memory_priority_suffix(language)
 
         async for chunk in self._stream_feeling(
             system_prompt=system_prompt,
@@ -1191,6 +1203,7 @@ class GameService:
         clothing_color_consistency: bool = False,
         enable_multiple_people: bool = False,
         use_character_panel: bool = True,
+        use_memory: bool = False,
     ) -> AsyncGenerator[StreamEvent, None]:
         """ストリーミング対応の着せ替えを実行
 
@@ -1544,7 +1557,10 @@ class GameService:
                 from .conversation import get_language_rules
 
                 act_system = f"{act_system}\n\n{get_language_rules(effective_language)}"
-                act_system += await self._get_memory_priority_suffix(effective_language)
+                if use_memory:
+                    act_system += await self._get_memory_priority_suffix(
+                        effective_language
+                    )
 
                 # ── T007: NovelAI Opus mode detection for action ──
                 is_action_novelai_opus = settings.is_novelai_opus_mode
@@ -1618,9 +1634,10 @@ class GameService:
                         image_provider=settings.image_provider,
                         nsfw_mode=effective_nsfw_mode,
                     )
-                    action_edit_system += await self._get_memory_priority_suffix(
-                        effective_language
-                    )
+                    if use_memory:
+                        action_edit_system += await self._get_memory_priority_suffix(
+                            effective_language
+                        )
                     action_edit_user = build_action_image_edit_prompt(
                         instruction=instruction,
                         current_description=vision_desc,
@@ -2139,6 +2156,7 @@ class GameService:
                     nsfw_mode=effective_nsfw_mode,
                     image_provider=settings.image_provider,
                     novelai_model_override=effective_novelai_text_model,
+                    use_memory=use_memory,
                 )
             else:
                 # 衣装変更用プロンプト生成（既存）
@@ -2153,6 +2171,7 @@ class GameService:
                     custom_preserve_text=custom_preserve_text,
                     nsfw_mode=effective_nsfw_mode,
                     novelai_model_override=effective_novelai_text_model,
+                    use_memory=use_memory,
                 )
 
             # T009: NovelAI専用 - 直接プロンプト指定とのマージ
@@ -2216,6 +2235,7 @@ class GameService:
                             language=effective_language,
                             enable_multiple_people=enable_multiple_people,
                             novelai_model_override=effective_novelai_text_model,
+                            use_memory=use_memory,
                         ):
                             text_chunks.append(chunk)
                             await event_queue.put(
@@ -2234,6 +2254,7 @@ class GameService:
                             language=effective_language,
                             enable_multiple_people=enable_multiple_people,
                             novelai_model_override=effective_novelai_text_model,
+                            use_memory=use_memory,
                         ):
                             text_chunks.append(chunk)
                             await event_queue.put(
@@ -2256,6 +2277,7 @@ class GameService:
                             used_openings=used_openings,
                             enable_multiple_people=enable_multiple_people,
                             novelai_model_override=effective_novelai_text_model,
+                            use_memory=use_memory,
                         ):
                             text_chunks.append(chunk)
                             await event_queue.put(

@@ -257,6 +257,10 @@ class PlayStreamRequest(BaseModel):
         True,
         description="登場人物パネルの情報を画像生成プロンプトに注入するか",
     )
+    use_memory: bool = Field(
+        False,
+        description="保存済みメモリテキスト（ユーザーの嗜好傾向）を生成に反映するか",
+    )
 
 
 @router.post(
@@ -308,6 +312,7 @@ async def play_game_stream(request: PlayStreamRequest) -> EventSourceResponse:
             clothing_color_consistency=request.clothing_color_consistency,
             enable_multiple_people=request.enable_multiple_people,
             use_character_panel=request.use_character_panel,
+            use_memory=request.use_memory,
         ):
             yield {
                 "event": event.type,
