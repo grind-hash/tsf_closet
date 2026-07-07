@@ -36,6 +36,8 @@ interface ChatInputProps {
 
 // 「過去から生成」機能でメモリテキストを反映するかどうかのチェック状態を保存するlocalStorageキー
 const SUGGEST_USE_MEMORY_STORAGE_KEY = "chat_suggest_use_memory";
+// 送信時の画像生成でメモリテキストを反映するかどうかのチェック状態を保存するlocalStorageキー
+const SEND_USE_MEMORY_FOR_IMAGE_STORAGE_KEY = "chat_send_use_memory_for_image";
 
 export default function ChatInput({
   onSendMessage,
@@ -53,10 +55,23 @@ export default function ChatInput({
   const [useMemoryForSuggestion, setUseMemoryForSuggestion] = useState<boolean>(
     () => localStorage.getItem(SUGGEST_USE_MEMORY_STORAGE_KEY) === "true",
   );
+  const [useMemoryForImageOnSend, setUseMemoryForImageOnSend] =
+    useState<boolean>(
+      () =>
+        localStorage.getItem(SEND_USE_MEMORY_FOR_IMAGE_STORAGE_KEY) === "true",
+    );
 
   const handleUseMemoryChange = (checked: boolean) => {
     setUseMemoryForSuggestion(checked);
     localStorage.setItem(SUGGEST_USE_MEMORY_STORAGE_KEY, String(checked));
+  };
+
+  const handleUseMemoryForImageOnSendChange = (checked: boolean) => {
+    setUseMemoryForImageOnSend(checked);
+    localStorage.setItem(
+      SEND_USE_MEMORY_FOR_IMAGE_STORAGE_KEY,
+      String(checked),
+    );
   };
 
   const handleSuggestInstruction = async () => {
@@ -123,10 +138,13 @@ export default function ChatInput({
     e.preventDefault();
     if (!state.inputText.trim() || disabled) return;
 
+    const shouldUseMemoryForSend =
+      useMemoryForSuggestion && useMemoryForImageOnSend;
+
     onSendMessage?.(
       state.inputText.trim(),
       state.instructionType,
-      useMemoryForSuggestion,
+      shouldUseMemoryForSend,
     );
     clearInput();
 
@@ -227,6 +245,32 @@ export default function ChatInput({
             onChange={(e) => handleUseMemoryChange(e.target.checked)}
           />
           <span>{t("chat.input.suggestMemoryLabel")}</span>
+        </label>
+        <label
+          className="chat-input__memory-toggle"
+          title={
+            useMemoryForSuggestion
+              ? t("chat.input.sendMemoryLabel")
+              : t("chat.input.sendMemoryDisabledHint")
+          }
+        >
+          <input
+            type="checkbox"
+            checked={useMemoryForImageOnSend}
+            disabled={disabled || !useMemoryForSuggestion}
+            onChange={(e) =>
+              handleUseMemoryForImageOnSendChange(e.target.checked)
+            }
+          />
+          <span
+            className={
+              !useMemoryForSuggestion
+                ? "chat-input__memory-toggle-text--disabled"
+                : undefined
+            }
+          >
+            {t("chat.input.sendMemoryLabel")}
+          </span>
         </label>
         <button
           type="button"

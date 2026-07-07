@@ -1586,6 +1586,11 @@ class GameService:
                         clothing_color_consistency=clothing_color_consistency,
                         enable_multiple_people=enable_multiple_people,
                     )
+                    action_memory_suffix = (
+                        await self._get_memory_priority_suffix(effective_language)
+                        if use_memory
+                        else ""
+                    )
                     previous_prompt = current_desc  # 前回のafter_description
                     action_novelai_prompt = (
                         await llm_service.generate_novelai_image_prompt(
@@ -1597,6 +1602,7 @@ class GameService:
                             novelai_model_override=effective_novelai_text_model,
                             enable_multiple_people=enable_multiple_people,
                             session_characters_section=multi_char_image_section,
+                            extra_system_suffix=action_memory_suffix,
                         )
                     )
 
@@ -2106,6 +2112,11 @@ class GameService:
             dress_up_characters: list[dict] | None = None
 
             if is_novelai_opus_mode:
+                dress_up_memory_suffix = (
+                    await self._get_memory_priority_suffix(effective_language)
+                    if use_memory
+                    else ""
+                )
                 # NovelAI GLM-4.6でプロンプト生成
                 generated_novelai_prompt = (
                     await llm_service.generate_novelai_image_prompt(
@@ -2117,6 +2128,7 @@ class GameService:
                         enable_multiple_people=enable_multiple_people,
                         novelai_model_override=effective_novelai_text_model,
                         session_characters_section=dress_up_multi_char_image_section,
+                        extra_system_suffix=dress_up_memory_suffix,
                     )
                 )
 

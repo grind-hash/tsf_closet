@@ -170,6 +170,10 @@
   cursor: not-allowed;
 }
 
+.chat-input__memory-toggle-text--disabled {
+  opacity: 0.6;
+}
+
 /* 過去メッセージから生成: ボタン（ツールバー内、アイコン+ラベル表示） */
 .chat-input__suggest-btn {
   display: inline-flex;

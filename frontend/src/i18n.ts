@@ -447,7 +447,10 @@ const resources = {
           attachImage: "画像を添付",
           send: "送信",
           suggestInstruction: "履歴から提案",
-          suggestMemoryLabel: "メモリを反映",
+          suggestMemoryLabel: "指示にメモリを反映",
+          sendMemoryLabel: "画像生成にもメモリを反映",
+          sendMemoryDisabledHint:
+            "先に「指示にメモリを反映」を有効にしてください",
           suggestError: "指示テキストの生成に失敗しました",
           suggestErrorDetail:
             "履歴が不足しているか、生成中にエラーが発生しました",
@@ -1171,7 +1174,9 @@ const resources = {
           attachImage: "Attach image",
           send: "Send",
           suggestInstruction: "Suggest from history",
-          suggestMemoryLabel: "Include memory",
+          suggestMemoryLabel: "Use memory for instruction",
+          sendMemoryLabel: "Also use memory for image generation",
+          sendMemoryDisabledHint: 'Enable "Use memory for instruction" first',
           suggestError: "Failed to generate instruction text",
           suggestErrorDetail:
             "Not enough history, or an error occurred during generation",
