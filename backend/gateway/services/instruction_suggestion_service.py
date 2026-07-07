@@ -105,6 +105,11 @@ async def generate_instruction_suggestion(
     if session is None:
         raise ValueError(f"session not found: {session_id}")
 
+    user_settings = await session_store.get_user_settings(
+        getattr(session, "user_id", "default-user")
+    )
+    effective_novelai_text_model: str | None = user_settings.get("novelai_text_model")
+
     stats = await session_store.get_session_stats(session_id)
     attributes = await session_store.get_session_attribute_texts(session_id)
     character_context = await _build_character_context(session, language)
@@ -135,6 +140,7 @@ async def generate_instruction_suggestion(
     result = await llm_service.generate_text(
         system_prompt=system_prompt,
         user_prompt=user_prompt,
+        novelai_model_override=effective_novelai_text_model,
     )
 
     suggestion = _strip_llm_wrapper(result.content)

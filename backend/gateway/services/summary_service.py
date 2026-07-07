@@ -51,6 +51,7 @@ class SummaryService:
         self,
         session_id: str,
         language: str = "ja",
+        novelai_model_override: str | None = None,
     ) -> dict:
         """Generate a new summary for a session using LLM.
 
@@ -76,7 +77,11 @@ class SummaryService:
         )
 
         # Call LLM
-        result = await llm_service.generate_text(system_prompt, user_prompt)
+        result = await llm_service.generate_text(
+            system_prompt,
+            user_prompt,
+            novelai_model_override=novelai_model_override,
+        )
         raw_content = result.content.strip()
 
         # Parse JSON from LLM response

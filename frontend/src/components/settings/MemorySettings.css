@@ -11,6 +11,13 @@
   margin: 0;
 }
 
+.memory-settings__hint {
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--text-muted, #888);
+  margin: 0;
+}
+
 .memory-settings__field {
   display: flex;
   flex-direction: column;

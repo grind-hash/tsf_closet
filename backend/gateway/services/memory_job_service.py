@@ -104,6 +104,7 @@ class MemoryJobService:
         self,
         session_limit: int | None,
         regenerate_existing: bool,
+        analysis_prompt: str | None = None,
         language: str = "ja",
     ) -> str:
         """メモリ生成バッチジョブを開始し、job_idを即座に返す。
@@ -119,7 +120,13 @@ class MemoryJobService:
         )
         self._jobs[job_id] = job
         asyncio.create_task(
-            self._run_job(job_id, session_limit, regenerate_existing, language)
+            self._run_job(
+                job_id,
+                session_limit,
+                regenerate_existing,
+                analysis_prompt,
+                language,
+            )
         )
         return job_id
 
@@ -141,10 +148,15 @@ class MemoryJobService:
         job_id: str,
         session_limit: int | None,
         regenerate_existing: bool,
+        analysis_prompt: str | None,
         language: str,
     ) -> None:
         job = self._jobs[job_id]
         try:
+            user_settings = await settings_service.get_user_settings()
+            effective_novelai_text_model: str | None = user_settings.get(
+                "novelai_text_model"
+            )
             session_ids = await self.get_recent_session_ids(session_limit)
             job.total = len(session_ids)
 
@@ -156,7 +168,10 @@ class MemoryJobService:
                 job.current_session_id = session_id
                 try:
                     await self._maybe_generate_summary(
-                        session_id, regenerate_existing, language
+                        session_id,
+                        regenerate_existing,
+                        language,
+                        effective_novelai_text_model,
                     )
                 except Exception as exc:  # noqa: BLE001 - 1セッション失敗でもバッチ継続
                     logger.warning(
@@ -172,7 +187,11 @@ class MemoryJobService:
                 if summaries:
                     try:
                         await self._generate_and_save_memory_text(
-                            job, summaries, language
+                            job,
+                            summaries,
+                            analysis_prompt,
+                            language,
+                            effective_novelai_text_model,
                         )
                     except Exception as exc:  # noqa: BLE001
                         logger.error("Memory text generation failed: %s", exc)
@@ -190,19 +209,34 @@ class MemoryJobService:
             job.finished_at = datetime.utcnow()
 
     async def _maybe_generate_summary(
-        self, session_id: str, regenerate_existing: bool, language: str
+        self,
+        session_id: str,
+        regenerate_existing: bool,
+        language: str,
+        novelai_model_override: str | None,
     ) -> None:
         if not regenerate_existing:
             existing = await summary_service.get_summary(session_id)
             if existing is not None:
                 return
-        await self._generate_summary_with_retry(session_id, language)
+        await self._generate_summary_with_retry(
+            session_id,
+            language,
+            novelai_model_override,
+        )
 
     async def _generate_summary_with_retry(
-        self, session_id: str, language: str
+        self,
+        session_id: str,
+        language: str,
+        novelai_model_override: str | None,
     ) -> None:
         try:
-            await summary_service.generate_summary(session_id, language)
+            await summary_service.generate_summary(
+                session_id,
+                language,
+                novelai_model_override=novelai_model_override,
+            )
         except (LLMServiceError, LiteLLMClientError) as exc:
             if "429" not in str(exc):
                 raise
@@ -212,7 +246,11 @@ class MemoryJobService:
                 RETRY_WAIT_SECONDS,
             )
             await asyncio.sleep(RETRY_WAIT_SECONDS)
-            await summary_service.generate_summary(session_id, language)
+            await summary_service.generate_summary(
+                session_id,
+                language,
+                novelai_model_override=novelai_model_override,
+            )
 
     async def _collect_summaries(self, session_ids: list[str]) -> list[dict]:
         summaries: list[dict] = []
@@ -223,7 +261,12 @@ class MemoryJobService:
         return summaries
 
     async def _generate_and_save_memory_text(
-        self, job: MemoryJobState, summaries: list[dict], language: str
+        self,
+        job: MemoryJobState,
+        summaries: list[dict],
+        analysis_prompt: str | None,
+        language: str,
+        novelai_model_override: str | None,
     ) -> None:
         """要約リストからメモリテキストを生成して保存する。
 
@@ -249,10 +292,18 @@ class MemoryJobService:
             if job.cancel_requested:
                 job.status = "cancelled"
                 return
-            system_prompt = get_memory_generation_system_prompt(language)
+            system_prompt = self._build_memory_analysis_system_prompt(
+                get_memory_generation_system_prompt(language),
+                analysis_prompt,
+                language,
+            )
             user_prompt = build_memory_generation_user_prompt(chunk, language)
             partial_texts.append(
-                await self._generate_text_with_retry(system_prompt, user_prompt)
+                await self._generate_text_with_retry(
+                    system_prompt,
+                    user_prompt,
+                    novelai_model_override,
+                )
             )
             job.memory_chunk_processed += 1
 
@@ -260,10 +311,16 @@ class MemoryJobService:
             memory_text = partial_texts[0]
         else:
             job.phase = "merging"
-            merge_system_prompt = get_memory_merge_system_prompt(language)
+            merge_system_prompt = self._build_memory_analysis_system_prompt(
+                get_memory_merge_system_prompt(language),
+                analysis_prompt,
+                language,
+            )
             merge_user_prompt = build_memory_merge_user_prompt(partial_texts, language)
             memory_text = await self._generate_text_with_retry(
-                merge_system_prompt, merge_user_prompt
+                merge_system_prompt,
+                merge_user_prompt,
+                novelai_model_override,
             )
 
         await settings_service.save_memory_text(memory_text)
@@ -273,12 +330,38 @@ class MemoryJobService:
             len(chunks),
         )
 
+    def _build_memory_analysis_system_prompt(
+        self,
+        base_prompt: str,
+        analysis_prompt: str | None,
+        language: str,
+    ) -> str:
+        """自由入力の分析指示を既定のメモリ分析プロンプトへ追加する。"""
+        if not analysis_prompt or not analysis_prompt.strip():
+            return base_prompt
+
+        cleaned_prompt = analysis_prompt.strip()
+        if language == "en":
+            return (
+                f"{base_prompt}\n\n"
+                "Additional user instruction for this analysis:\n"
+                f"{cleaned_prompt}"
+            )
+        return f"{base_prompt}\n\n追加の分析指示:\n{cleaned_prompt}"
+
     async def _generate_text_with_retry(
-        self, system_prompt: str, user_prompt: str
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        novelai_model_override: str | None,
     ) -> str:
         """429検出時に1回だけリトライするLLMテキスト生成の共通ヘルパー。"""
         try:
-            result = await llm_service.generate_text(system_prompt, user_prompt)
+            result = await llm_service.generate_text(
+                system_prompt,
+                user_prompt,
+                novelai_model_override=novelai_model_override,
+            )
             return result.content.strip()
         except (LLMServiceError, LiteLLMClientError) as exc:
             if "429" not in str(exc):
@@ -288,7 +371,11 @@ class MemoryJobService:
                 RETRY_WAIT_SECONDS,
             )
             await asyncio.sleep(RETRY_WAIT_SECONDS)
-            result = await llm_service.generate_text(system_prompt, user_prompt)
+            result = await llm_service.generate_text(
+                system_prompt,
+                user_prompt,
+                novelai_model_override=novelai_model_override,
+            )
             return result.content.strip()
 
 

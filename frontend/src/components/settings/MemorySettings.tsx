@@ -7,6 +7,7 @@
 
 import { useState, useCallback, useEffect } from "react";
 import { useTranslation } from "react-i18next";
+import { useGame } from "../../contexts/GameContext";
 import { useSettings } from "../../contexts/SettingsContext";
 import {
   getSessionTotalCount,
@@ -21,6 +22,7 @@ const SESSION_COUNT_OPTIONS = [10, 20, 30, 50, 100] as const;
 
 export default function MemorySettings() {
   const { t } = useTranslation();
+  const { state: gameState } = useGame();
   const { memoryText, setMemoryText, loadMemoryText } = useSettings();
 
   const [sessionCountOption, setSessionCountOption] = useState<string>("30");
@@ -31,9 +33,12 @@ export default function MemorySettings() {
   const [startError, setStartError] = useState<string | null>(null);
 
   const [draftText, setDraftText] = useState(memoryText ?? "");
+  const [analysisPrompt, setAnalysisPrompt] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  const enablePromptPreview = gameState.stats?.enablePromptPreview ?? false;
 
   useEffect(() => {
     setDraftText(memoryText ?? "");
@@ -63,6 +68,7 @@ export default function MemorySettings() {
       const { job_id } = await startMemoryGeneration(
         sessionLimit,
         regenerateExisting,
+        analysisPrompt,
       );
       setJobId(job_id);
     } catch (err) {
@@ -70,7 +76,7 @@ export default function MemorySettings() {
         err instanceof Error ? err.message : t("settings.memory.startError"),
       );
     }
-  }, [sessionLimit, regenerateExisting, t]);
+  }, [analysisPrompt, sessionLimit, regenerateExisting, t]);
 
   const handleJobFinished = useCallback(() => {
     void loadMemoryText();
@@ -125,6 +131,24 @@ export default function MemorySettings() {
         />
         {t("settings.memory.regenerateLabel")}
       </label>
+
+      {enablePromptPreview && (
+        <div className="memory-settings__field">
+          <label className="memory-settings__label">
+            {t("settings.memory.analysisPromptLabel")}
+          </label>
+          <p className="memory-settings__hint">
+            {t("settings.memory.analysisPromptDescription")}
+          </p>
+          <textarea
+            className="memory-settings__textarea"
+            value={analysisPrompt}
+            onChange={(e) => setAnalysisPrompt(e.target.value)}
+            placeholder={t("settings.memory.analysisPromptPlaceholder")}
+            rows={6}
+          />
+        </div>
+      )}
 
       <button
         type="button"

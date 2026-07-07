@@ -145,6 +145,11 @@ const resources = {
           sessionCountLabel: "対象とする直近のセッション数",
           sessionCountAll: "全件",
           regenerateLabel: "生成済みの要約と称号も再生成する",
+          analysisPromptLabel: "分析プロンプト（直接入力）",
+          analysisPromptDescription:
+            "プロンプトプレビューが有効な場合、好み分析の観点や口調、突っ込みなどを追加指示として自由に指定できます。",
+          analysisPromptPlaceholder:
+            "例: 長めに分析すること。好みの傾向だけでなく矛盾や反復も指摘すること。辛口で具体的に突っ込むこと。",
           generateButton: "メモリを生成",
           confirmTitle: "メモリ生成の確認",
           confirmDescription:
@@ -871,6 +876,11 @@ const resources = {
           sessionCountLabel: "Number of recent sessions to include",
           sessionCountAll: "All",
           regenerateLabel: "Regenerate summaries and titles that already exist",
+          analysisPromptLabel: "Analysis prompt (direct input)",
+          analysisPromptDescription:
+            "When prompt preview is enabled, you can add your own analysis instructions such as focus areas, tone, length, or sharper critique.",
+          analysisPromptPlaceholder:
+            "Example: Write a longer analysis. Point out contradictions and repeated patterns, not just preferences. Be direct and specific.",
           generateButton: "Generate Memory",
           confirmTitle: "Confirm Memory Generation",
           confirmDescription:

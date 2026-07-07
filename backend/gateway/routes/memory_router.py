@@ -24,6 +24,9 @@ class MemoryGenerateRequest(BaseModel):
     regenerate_existing: bool = Field(
         default=False, description="生成済みの要約・称号も再生成するか"
     )
+    analysis_prompt: str | None = Field(
+        default=None, description="メモリ分析時に追加適用する自由入力の指示"
+    )
     language: LanguageCode = DEFAULT_LANGUAGE
 
 
@@ -64,6 +67,7 @@ async def generate_memory(request: MemoryGenerateRequest) -> MemoryGenerateRespo
     job_id = memory_job_service.start_generation_job(
         session_limit=request.session_limit,
         regenerate_existing=request.regenerate_existing,
+        analysis_prompt=request.analysis_prompt,
         language=request.language,
     )
     return MemoryGenerateResponse(job_id=job_id)

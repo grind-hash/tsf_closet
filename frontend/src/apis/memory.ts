@@ -33,6 +33,7 @@ export interface MemoryJobStatus {
 export async function startMemoryGeneration(
   sessionLimit: number | null,
   regenerateExisting: boolean,
+  analysisPrompt?: string,
 ): Promise<{ job_id: string }> {
   const response = await fetch(`${API_BASE}/memory/generate`, {
     method: "POST",
@@ -40,6 +41,7 @@ export async function startMemoryGeneration(
     body: JSON.stringify({
       session_limit: sessionLimit,
       regenerate_existing: regenerateExisting,
+      analysis_prompt: analysisPrompt?.trim() ? analysisPrompt.trim() : null,
     }),
   });
   if (!response.ok) {
