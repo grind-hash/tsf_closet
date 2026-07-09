@@ -40,6 +40,8 @@ from ..models import (
     SessionListResponse,
     MaskListResponse,
     MaskSaveRequest,
+    SuggestInstructionRequest,
+    SuggestInstructionResponse,
 )
 from ..services.session import session_store
 from ..services.settings_service import settings_service
@@ -255,6 +257,10 @@ class PlayStreamRequest(BaseModel):
         True,
         description="登場人物パネルの情報を画像生成プロンプトに注入するか",
     )
+    use_memory: bool = Field(
+        False,
+        description="保存済みメモリテキスト（ユーザーの嗜好傾向）を生成に反映するか",
+    )
 
 
 @router.post(
@@ -306,6 +312,7 @@ async def play_game_stream(request: PlayStreamRequest) -> EventSourceResponse:
             clothing_color_consistency=request.clothing_color_consistency,
             enable_multiple_people=request.enable_multiple_people,
             use_character_panel=request.use_character_panel,
+            use_memory=request.use_memory,
         ):
             yield {
                 "event": event.type,
@@ -1084,6 +1091,36 @@ async def chat_with_character(
         "user_conversation_id": user_conv.id,
         "character_conversation_id": char_conv.id,
     }
+
+
+@router.post(
+    "/suggest-instruction",
+    response_model=SuggestInstructionResponse,
+    summary="過去メッセージから指示テキストを生成",
+    description="セッションの過去のhistory/conversationと現在の状態を踏まえ、次に送信できる指示テキストをLLMで生成する（送信はしない）",
+)
+async def suggest_instruction(
+    request: SuggestInstructionRequest,
+) -> SuggestInstructionResponse:
+    """過去の履歴を踏まえた指示テキストの生成"""
+    from ..services.instruction_suggestion_service import (
+        generate_instruction_suggestion,
+    )
+
+    try:
+        suggestion = await generate_instruction_suggestion(
+            session_id=request.session_id,
+            instruction_type=request.instruction_type,
+            language=normalize_language(request.language),
+            keyword=request.keyword,
+            use_memory=request.use_memory,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return SuggestInstructionResponse(suggestion=suggestion)
 
 
 @router.get(

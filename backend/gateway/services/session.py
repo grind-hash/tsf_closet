@@ -1222,6 +1222,58 @@ class DatabaseSessionStore:
         # (type, text) タプルを最大 limit 件返す
         return [(m[0], m[1]) for m in merged[:limit]]
 
+    async def get_recent_instructions(
+        self,
+        session_id: str,
+        instruction_types: list[str] | None = None,
+        limit: int = 30,
+    ) -> list[tuple[str, str]]:
+        """history + conversation から直近の指示を取得する（種類フィルタ対応）。
+
+        `get_session_timeline` とは異なり、created_at 降順で直近 `limit` 件を取得した後
+        時系列順（古い順）に並び替えて返す。指示テキスト生成機能のように直近の傾向を
+        優先したい用途向け。
+
+        Args:
+            session_id: セッションID
+            instruction_types: 指定時はこの集合の instruction_type のみを対象にする
+            limit: 取得件数上限
+
+        Returns:
+            (instruction_type, instruction_text) のタプルリスト。古い順に最大 limit 件。
+        """
+        async with async_session_factory() as db_session:
+            h_stmt = select(
+                HistoryORM.instruction_type,
+                HistoryORM.instruction,
+                HistoryORM.created_at,
+            ).where(HistoryORM.session_id == session_id)
+            h_rows = (await db_session.execute(h_stmt)).all()
+
+            c_stmt = select(
+                ConversationORM.instruction_type,
+                ConversationORM.content,
+                ConversationORM.created_at,
+            ).where(
+                ConversationORM.session_id == session_id,
+                ConversationORM.role == "user",
+            )
+            c_rows = (await db_session.execute(c_stmt)).all()
+
+        merged = [(r[0] or "unknown", r[1], r[2]) for r in h_rows] + [
+            (r[0] or "conversation", r[1], r[2]) for r in c_rows
+        ]
+
+        if instruction_types:
+            type_set = set(instruction_types)
+            merged = [m for m in merged if m[0] in type_set]
+
+        # created_at 降順で直近 limit 件を取り、古い順に戻す
+        merged.sort(key=lambda x: x[2], reverse=True)
+        recent = merged[:limit]
+        recent.reverse()
+        return [(m[0], m[1]) for m in recent]
+
     async def clear_conversation(
         self,
         session_id: str,

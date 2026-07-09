@@ -33,43 +33,80 @@ tavily-remote MCP を利用してライブラリ選定を行う際は、以下�
 - フロントエンドの型定義や変数定義は、基本的には**キャメルケース**の利用を想定しています
 - ただし、バックエンドや外部 API から受け取る値がスネークケースを前提としている場合、フロントエンド側の項目名はバックエンド側に準じることとし、**スネークケースで書くことを許容します**
 
-## UI/UX テスト (Constitution Principle II 準拠)
+## Copilot / Agent 作業効率化ガイドライン
 
-> **📋 Constitution Principle II**: UI/UX の変更は自動 E2E テストで検証してください (NON-NEGOTIABLE)
+### 基本方針
 
-- フロントエンド(React)の画面を修正した場合、playwright(MCP)で UI が適切に実装されているかどうかを確認すること
-- playwright の MCP を利用したタスクの後、ブラウザを閉じる必要はない
-- playwright の MCP を利用する場合、ウェイトなども playwright の MCP を利用すること
+* まず最小限の探索で、変更対象レイヤーと触る予定のファイルを特定してください。
+* リポジトリ全体を広く探索する前に、既存の実装パターンを1〜2箇所だけ確認してください。
+* 同じファイルを何度も全文読みしないでください。必要な関数・コンポーネント・型定義の周辺だけを確認してください。
+* 実装前に「触る予定のファイル一覧」と「想定する変更内容」を短く提示してください。
+* 実装は差分中心で行い、ユーザーが依頼していない大規模リファクタリングは避けてください。
 
-## MCP 利用ガイドライン
+### 探索範囲の制限
 
-- MCP が接続されている場合はその恩恵を最大限享受するように振る舞ってください
+* `.github/skills/tsf-closet-navigator/SKILL.md` は、対象領域が不明な場合のみ確認してください。
+* `backend-map.md` / `frontend-map.md` などの詳細資料は、対象ファイルが特定できない場合のみ参照してください。
+* 既存実装の確認は、同種パターンを最大2例までにしてください。
+* 3例以上を確認したくなった場合は、先に「なぜ追加調査が必要か」を短く説明してください。
+* grep/search は目的を明確にして実行し、曖昧な広域検索を繰り返さないでください。
 
-### ライブラリ・設定変更時の裏取り義務 (NON-NEGOTIABLE)
+### 実装計画の粒度
 
-> **⚠️ 重要**: 設定ファイルの構文変更やライブラリの API 変更を行う前に、**必ず公式ドキュメントで裏取りしてください**
+* 大きな機能は、以下の単位に分割してください。
 
-以下のケースでは、**変更を実施する前**に `tavily-remote` または `deepwiki` MCP で公式情報を確認してください：
+  1. Backend model / service / router
+  2. Frontend API / Context
+  3. UI component / i18n / CSS
+  4. Prompt injection / LLM integration
+  5. Validation
+* いきなり全体実装せず、まずMVPの差分を優先してください。
+* 「後で拡張できるが、今は不要」な要素はスコープ外として明記してください。
 
-1. **設定ファイルの構文・プロパティ変更**
-   - 例: Biome, ESLint, Prettier, tsconfig 等の設定変更
-   - 「このプロパティは非推奨」「この書き方が新しい形式」等の判断は、公式ドキュメントで確認してから行う
+### 検証範囲の制限
 
-2. **ライブラリのバージョンアップに伴う API 変更**
-   - Breaking Changes の有無を公式 Changelog/Migration Guide で確認
+* lint / format / test は、原則として変更ファイルに絞って実行してください。
+* 全体lint、全体test、広範囲E2Eは、以下の場合のみ実行してください。
 
-3. **「ベストプラクティス」として提案する場合**
-   - 公式ドキュメントまたは公式 GitHub の一次情報を根拠とすること
+  * 共有基盤を変更した場合
+  * Context / Router / DB migration など影響範囲が広い場合
+  * ユーザーが明示的に要求した場合
+* UI変更時のPlaywright確認は必要ですが、対象画面・対象操作・期待結果を絞って実行してください。
+* Playwrightで無関係な画面探索をしないでください。
 
-#### 確認手順
+### よく使う検証コマンド
 
-```
-1. tavily-remote: 公式ドキュメントサイトを include_domains で指定して検索
-   例: include_domains: ["biomejs.dev"], query: "Biome files configuration includes ignore"
+* Frontend lint:
+  `cd frontend; npx eslint <changed-files>`
 
-2. deepwiki: GitHub リポジトリのドキュメント構造を確認
-   例: repoName: "biomejs/biome", question: "How to configure file exclusion patterns?"
-```
+* Frontend format check:
+  `cd frontend; npx prettier --check <changed-files>`
+
+* Backend lint:
+  `cd backend; uv run ruff check <changed-files>`
+
+* Backend format:
+  `cd backend; uv run ruff format <changed-files>`
+
+* Backend import sanity:
+  `cd backend; uv run python -c "from gateway.routes import game_router; print('ok')"`
+
+### Alembic 注意
+
+* Alembicは必ず `backend` ディレクトリで実行してください。
+
+  * 正: `cd backend; uv run alembic revision --autogenerate -m migration_comment`
+  * 誤: リポジトリルートで `uv run alembic ...`
+* autogenerateで無関係な差分が大量に出た場合、目的の変更だけにmigrationを手で整理してください。
+* DB migrationを作成した場合は、upgrade / downgrade が目的の差分だけになっているか確認してください。
+
+### MCP利用方針
+
+* MCPは必要な場合に限定して使用してください。
+* 「接続されているから最大限使う」のではなく、公式情報確認・UI確認・外部仕様確認など、目的が明確な場合に使ってください。
+* ライブラリ・設定ファイル・外部API仕様を変更する場合は、公式情報を確認してください。
+* 既存プロジェクト内の実装パターンで判断できる場合、外部検索を優先しないでください。
+
 
 #### 禁止事項
 

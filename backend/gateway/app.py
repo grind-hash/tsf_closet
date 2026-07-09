@@ -41,6 +41,7 @@ from .routes import (
     character_router,
     gallery_router,
     game_router,
+    memory_router,
     settings_router,
 )
 from .settings.app_settings import Settings, configure_logging, settings
@@ -264,6 +265,9 @@ app.include_router(settings_router, prefix="/api")
 
 # マルチキャラ永続化ルーター (spec 005)
 app.include_router(character_router, prefix="/api")
+
+# メモリ機能ルーター（要約・称号バッチ生成 + 好み嗜好メモリ）
+app.include_router(memory_router, prefix="/api")
 
 
 # 履歴画像配信エンドポイント

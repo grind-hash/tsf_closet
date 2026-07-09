@@ -256,5 +256,54 @@ class SettingsService:
         logger.info("Saved self profile for user %s", user_id)
         return profile
 
+    async def get_memory_text(
+        self,
+        user_id: str = DEFAULT_USER_ID,
+    ) -> str | None:
+        """Return the stored memory text for the given user, or None."""
+        async with async_session_factory() as session:
+            result = await session.execute(select(User).where(User.id == user_id))
+            user = result.scalar_one_or_none()
+            if user is None or not user.memory_text:
+                return None
+            return user.memory_text
+
+    async def save_memory_text(
+        self,
+        memory_text: str,
+        user_id: str = DEFAULT_USER_ID,
+    ) -> str:
+        """Save the memory text (user preference/kink summary) to the user record.
+
+        Args:
+            memory_text: Free-form text describing the user's preferences
+            user_id: User identifier
+
+        Returns:
+            The saved memory text
+        """
+        async with async_session_factory() as session:
+            result = await session.execute(select(User).where(User.id == user_id))
+            user = result.scalar_one_or_none()
+
+            if user is None:
+                user = User(
+                    id=user_id,
+                    nsfw_mode=0,
+                    difficulty="normal",
+                    language=DEFAULT_LANGUAGE,
+                    memory_text=memory_text,
+                )
+                session.add(user)
+            else:
+                user.memory_text = memory_text
+
+            await session.commit()
+
+        logger.info(
+            "Saved memory text for user %s (%d chars)", user_id, len(memory_text)
+        )
+        return memory_text
+
 
 settings_service = SettingsService()

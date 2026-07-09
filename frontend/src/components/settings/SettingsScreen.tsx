@@ -7,6 +7,7 @@ import MainLayout from "../layout/MainLayout";
 import { useSettings } from "../../contexts/SettingsContext";
 import { useTranslation } from "react-i18next";
 import SelfProfileEditor from "./SelfProfileEditor";
+import MemorySettings from "./MemorySettings";
 import "./SettingsScreen.css";
 
 export default function SettingsScreen() {
@@ -258,6 +259,14 @@ export default function SettingsScreen() {
               {t("settings.selfProfile.sectionTitle")}
             </h2>
             <SelfProfileEditor />
+          </section>
+
+          {/* メモリ機能 */}
+          <section className="settings-screen__section">
+            <h2 className="settings-screen__section-title">
+              {t("settings.memory.sectionTitle")}
+            </h2>
+            <MemorySettings />
           </section>
 
           {/* 通知設定 */}

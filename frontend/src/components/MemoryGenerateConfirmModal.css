@@ -1,0 +1,90 @@
+/* Memory Generate Confirm Modal Styles */
+
+.memory-confirm-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.memory-confirm-modal {
+  background: linear-gradient(145deg, #1a1a2e 0%, #16213e 100%);
+  border: 1px solid #4ecdc4;
+  border-radius: 16px;
+  padding: 28px;
+  max-width: 460px;
+  width: 90%;
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(78, 205, 196, 0.2);
+}
+
+.memory-confirm-modal h2 {
+  color: #4ecdc4;
+  margin: 0 0 18px 0;
+  font-size: 1.3rem;
+}
+
+.memory-confirm-content {
+  color: #eee;
+  margin-bottom: 20px;
+  text-align: left;
+}
+
+.memory-confirm-content p {
+  margin: 8px 0;
+  line-height: 1.5;
+}
+
+.memory-confirm-note {
+  color: #ffb74d;
+  font-weight: 600;
+}
+
+.memory-confirm-estimate {
+  color: #4ecdc4;
+  font-weight: 600;
+}
+
+.memory-confirm-actions {
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+}
+
+.memory-confirm-actions button {
+  padding: 12px 28px;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.memory-confirm-cancel {
+  background: transparent;
+  border: 2px solid #666;
+  color: #aaa;
+}
+
+.memory-confirm-cancel:hover {
+  border-color: #888;
+  color: #fff;
+}
+
+.memory-confirm-start {
+  background: linear-gradient(135deg, #4ecdc4 0%, #2ba39a 100%);
+  border: none;
+  color: #0a0a12;
+}
+
+.memory-confirm-start:hover {
+  background: linear-gradient(135deg, #5fe0d7 0%, #4ecdc4 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(78, 205, 196, 0.4);
+}

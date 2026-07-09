@@ -23,6 +23,7 @@ import type {
 } from "../../types";
 import { previewPrompt, type PreviewPromptResponse } from "../../apis/game";
 import { generateUUID } from "../../utils/generateUUID";
+import MemorySettings from "../settings/MemorySettings";
 import "./RightPanel.css";
 
 interface RightPanelProps {
@@ -1676,6 +1677,14 @@ export default function RightPanel({
               </label>
             ))}
           </div>
+        </section>
+
+        {/* メモリ機能 */}
+        <section className="right-panel__section">
+          <h4 className="right-panel__section-title">
+            {t("settings.memory.sectionTitle")}
+          </h4>
+          <MemorySettings />
         </section>
 
         {/* 現在の設定サマリー */}

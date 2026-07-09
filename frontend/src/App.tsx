@@ -315,6 +315,7 @@ function AppMain() {
       },
       instructionType?: string,
       pendingToken?: string,
+      useMemory: boolean = false,
     ) => {
       void pendingToken;
       if (!gameState.sessionId || gameState.isTransforming) return;
@@ -329,6 +330,7 @@ function AppMain() {
       if (instructionType) {
         body.instruction_type = instructionType;
       }
+      body.use_memory = useMemory;
       // Include seed if specified in settings
       if (settingsState.seed !== null) {
         body.seed = settingsState.seed;

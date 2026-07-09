@@ -330,6 +330,7 @@ class LiteLLMClient:
         custom_preserve_text: str = "",
         *,
         provider: str = "selfhost",
+        extra_system_suffix: str = "",
     ) -> str:
         """画像編集用プロンプトを生成する (LLM)
 
@@ -342,6 +343,7 @@ class LiteLLMClient:
             preserve_elements: 保持する要素のリスト
             change_scope: 変更対象 (full, upper, lower, accessories, shoes)
             custom_preserve_text: カスタム保持指示（自由記述）
+            extra_system_suffix: システムプロンプト末尾に付与する追加指示（メモリ優先指示等）
 
         Returns:
             生成された英語プロンプト
@@ -368,6 +370,8 @@ class LiteLLMClient:
             if provider == "novelai"
             else IMAGE_EDIT_SYSTEM_PROMPT
         )
+        if extra_system_suffix:
+            system_prompt = system_prompt + extra_system_suffix
 
         payload = {
             "model": self.llm_model,

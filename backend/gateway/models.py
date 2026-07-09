@@ -376,6 +376,10 @@ class PlayRequest(BaseModel):
         None,
         description="指示タイプ (dress_up, reality_alter, action, conversation)",
     )
+    use_memory: bool = Field(
+        False,
+        description="保存済みメモリテキスト（ユーザーの嗜好傾向）を生成に反映するか",
+    )
     language: Optional[str] = Field(
         None, description="応答言語（ja/en、未指定時はユーザー設定を使用）"
     )
@@ -536,6 +540,32 @@ class ChatResponse(BaseModel):
     session_id: str = Field(..., description="セッションID")
     character_response: str = Field(..., description="キャラクターの応答")
     psychological_state: str = Field(..., description="現在の心理段階名")
+
+
+class SuggestInstructionRequest(BaseModel):
+    """過去メッセージからの指示テキスト生成リクエスト"""
+
+    session_id: str = Field(..., description="セッションID")
+    instruction_type: Optional[str] = Field(
+        None,
+        description="絞り込む指示タイプ (dress_up/reality_alter/action)。None/'all'は全種類を統合",
+    )
+    keyword: Optional[str] = Field(
+        None,
+        description="生成に反映したいキーワード/自由入力テキスト（入力欄の内容等）",
+        max_length=500,
+    )
+    use_memory: bool = Field(
+        False,
+        description="保存済みメモリテキスト（ユーザーの嗜好傾向）を生成に反映するか",
+    )
+    language: str = Field("ja", description="生成言語 (ja/en)")
+
+
+class SuggestInstructionResponse(BaseModel):
+    """過去メッセージからの指示テキスト生成レスポンス"""
+
+    suggestion: str = Field(..., description="生成された指示テキスト")
 
 
 class ConversationMessageResponse(BaseModel):

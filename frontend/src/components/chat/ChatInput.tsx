@@ -18,23 +18,86 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { useChat } from "../../contexts/ChatContext";
+import { useGame } from "../../contexts/GameContext";
+import { useNotification } from "../../contexts/NotificationContext";
+import { suggestInstruction } from "../../apis/game";
 import type { InstructionType } from "../../types";
 import "./ChatInput.css";
 
 interface ChatInputProps {
-  onSendMessage?: (message: string, instructionType: string) => void;
+  onSendMessage?: (
+    message: string,
+    instructionType: string,
+    useMemory: boolean,
+  ) => void;
   disabled?: boolean;
   imageProvider?: string;
 }
+
+// 「過去から生成」機能でメモリテキストを反映するかどうかのチェック状態を保存するlocalStorageキー
+const SUGGEST_USE_MEMORY_STORAGE_KEY = "chat_suggest_use_memory";
+// 送信時の画像生成でメモリテキストを反映するかどうかのチェック状態を保存するlocalStorageキー
+const SEND_USE_MEMORY_FOR_IMAGE_STORAGE_KEY = "chat_send_use_memory_for_image";
 
 export default function ChatInput({
   onSendMessage,
   disabled = false,
   imageProvider,
 }: ChatInputProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { state, setInputText, setInstructionType, attachImage, clearInput } =
     useChat();
+  const { state: gameState } = useGame();
+  const { showNotification } = useNotification();
+
+  // 過去メッセージからの指示テキスト生成
+  const [isSuggesting, setIsSuggesting] = useState(false);
+  const [useMemoryForSuggestion, setUseMemoryForSuggestion] = useState<boolean>(
+    () => localStorage.getItem(SUGGEST_USE_MEMORY_STORAGE_KEY) === "true",
+  );
+  const [useMemoryForImageOnSend, setUseMemoryForImageOnSend] =
+    useState<boolean>(
+      () =>
+        localStorage.getItem(SEND_USE_MEMORY_FOR_IMAGE_STORAGE_KEY) === "true",
+    );
+
+  const handleUseMemoryChange = (checked: boolean) => {
+    setUseMemoryForSuggestion(checked);
+    localStorage.setItem(SUGGEST_USE_MEMORY_STORAGE_KEY, String(checked));
+  };
+
+  const handleUseMemoryForImageOnSendChange = (checked: boolean) => {
+    setUseMemoryForImageOnSend(checked);
+    localStorage.setItem(
+      SEND_USE_MEMORY_FOR_IMAGE_STORAGE_KEY,
+      String(checked),
+    );
+  };
+
+  const handleSuggestInstruction = async () => {
+    if (!gameState.sessionId || isSuggesting || disabled) return;
+    setIsSuggesting(true);
+    try {
+      const language = i18n.language?.startsWith("en") ? "en" : "ja";
+      const keyword = state.inputText.trim();
+      const suggestion = await suggestInstruction(
+        gameState.sessionId,
+        "all",
+        language,
+        keyword,
+        useMemoryForSuggestion,
+      );
+      setInputText(suggestion);
+    } catch {
+      showNotification(
+        "error",
+        t("chat.input.suggestError"),
+        t("chat.input.suggestErrorDetail"),
+      );
+    } finally {
+      setIsSuggesting(false);
+    }
+  };
 
   // Detect narrow viewport for short labels
   const [isNarrow, setIsNarrow] = useState(
@@ -62,12 +125,27 @@ export default function ChatInput({
     }
   }, [disabled]);
 
+  // 生成ボタン等でプログラム的にtextareaの値が変わった場合も高さを自動調整する
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 240)}px`;
+  }, [state.inputText]);
+
   // 送信ハンドラ
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
     if (!state.inputText.trim() || disabled) return;
 
-    onSendMessage?.(state.inputText.trim(), state.instructionType);
+    const shouldUseMemoryForSend =
+      useMemoryForSuggestion && useMemoryForImageOnSend;
+
+    onSendMessage?.(
+      state.inputText.trim(),
+      state.instructionType,
+      shouldUseMemoryForSend,
+    );
     clearInput();
 
     // テキストエリアにフォーカスを戻す
@@ -105,12 +183,9 @@ export default function ChatInput({
     attachImage(null);
   };
 
-  // テキストエリアの高さ自動調整
+  // テキストエリアの値変更（高さ調整はuseEffectで一元化）
   const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInputText(e.target.value);
-    // 高さをリセットしてから再計算
-    e.target.style.height = "auto";
-    e.target.style.height = `${Math.min(e.target.scrollHeight, 150)}px`;
   };
 
   const getInstructionTypeLabel = (type: InstructionType) => {
@@ -157,6 +232,65 @@ export default function ChatInput({
         </div>
       )}
 
+      {/* オプションツールバー: メモリ反映チェック / 過去から生成ボタン */}
+      <div className="chat-input__toolbar">
+        <label
+          className="chat-input__memory-toggle"
+          title={t("chat.input.suggestMemoryLabel")}
+        >
+          <input
+            type="checkbox"
+            checked={useMemoryForSuggestion}
+            disabled={disabled}
+            onChange={(e) => handleUseMemoryChange(e.target.checked)}
+          />
+          <span>{t("chat.input.suggestMemoryLabel")}</span>
+        </label>
+        <label
+          className="chat-input__memory-toggle"
+          title={
+            useMemoryForSuggestion
+              ? t("chat.input.sendMemoryLabel")
+              : t("chat.input.sendMemoryDisabledHint")
+          }
+        >
+          <input
+            type="checkbox"
+            checked={useMemoryForImageOnSend}
+            disabled={disabled || !useMemoryForSuggestion}
+            onChange={(e) =>
+              handleUseMemoryForImageOnSendChange(e.target.checked)
+            }
+          />
+          <span
+            className={
+              !useMemoryForSuggestion
+                ? "chat-input__memory-toggle-text--disabled"
+                : undefined
+            }
+          >
+            {t("chat.input.sendMemoryLabel")}
+          </span>
+        </label>
+        <button
+          type="button"
+          className="chat-input__suggest-btn"
+          onClick={handleSuggestInstruction}
+          disabled={disabled || isSuggesting || !gameState.sessionId}
+          aria-label={t("chat.input.suggestInstruction")}
+          title={t("chat.input.suggestInstruction")}
+        >
+          {isSuggesting ? (
+            <span className="chat-input__suggest-spinner" />
+          ) : (
+            <span aria-hidden="true">✨</span>
+          )}
+          <span className="chat-input__suggest-btn-label">
+            {t("chat.input.suggestInstruction")}
+          </span>
+        </button>
+      </div>
+
       <div className="chat-input__row">
         {/* 指示タイプ選択 */}
         <select
@@ -194,7 +328,7 @@ export default function ChatInput({
               ? t("chat.input.messagePlaceholder")
               : t("chat.input.messagePlaceholderTouch", "指示を入力...")
           }
-          disabled={disabled}
+          disabled={disabled || isSuggesting}
           rows={1}
           aria-label={t("chat.input.messageInputAria")}
         />

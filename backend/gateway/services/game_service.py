@@ -52,6 +52,7 @@ from .action_prompts import (
     get_action_novelai_prompt_generation_system,
 )
 from .self_mode_prompts import build_self_mode_feeling_prompt
+from .memory_prompts import build_memory_priority_instruction
 from .session import session_store
 from .settings_service import settings_service
 from .tag_classifier import classify_tags, TransformationTags
@@ -454,6 +455,7 @@ class GameService:
             instruction=request.instruction,
             current_description=before_desc,
             novelai_model_override=effective_novelai_text_model,
+            use_memory=request.use_memory,
         )
         logger.info("Image edit prompt: %s", image_edit_prompt[:100])
 
@@ -741,6 +743,22 @@ class GameService:
             logger.warning("Surroundings image generation failed: %s", e)
             return None, None, None
 
+    async def _get_memory_priority_suffix(self, language: str = "ja") -> str:
+        """保存済みメモリテキストから最優先指示ブロックを取得する。
+
+        メモリテキストが未設定の場合は空文字を返す。
+        着せ替え/現実改変/行動の画像編集プロンプトおよび心境モノローグ生成の
+        システムプロンプトに付与するために使用する。
+
+        Args:
+            language: 出力言語 ("ja" or "en")
+
+        Returns:
+            システムプロンプトに付与する追加指示ブロック（空文字の場合あり）
+        """
+        memory_text = await settings_service.get_memory_text()
+        return build_memory_priority_instruction(memory_text or "", language)
+
     async def _generate_image_edit_prompt(
         self,
         instruction: str,
@@ -750,6 +768,7 @@ class GameService:
         custom_preserve_text: str = "",
         nsfw_mode: bool = False,
         novelai_model_override: str | None = None,
+        use_memory: bool = True,
     ) -> tuple[str, float | None]:
         """画像編集プロンプトを生成 (LLMService経由)
 
@@ -772,8 +791,9 @@ class GameService:
             GameServiceError: プロンプト生成に失敗した場合
         """
         try:
-            print("-----------")
-            print(instruction, current_description)
+            memory_priority_suffix = (
+                await self._get_memory_priority_suffix() if use_memory else ""
+            )
             result = await llm_service.generate_image_edit_prompt(
                 instruction=instruction,
                 current_description=current_description,
@@ -782,11 +802,11 @@ class GameService:
                 custom_preserve_text=custom_preserve_text,
                 provider_override=settings.image_provider,
                 nsfw_mode=nsfw_mode,
+                extra_system_suffix=memory_priority_suffix,
             )
             logger.info(
                 f"画像編集プロンプト生成完了: provider={result.provider}, cost={result.cost_usd}"
             )
-            print(result.content)
             return result.content, result.cost_usd
         except Exception as e:
             # プロンプト生成に失敗した場合は、元の指示をそのまま使用
@@ -915,6 +935,7 @@ class GameService:
         used_openings: list[str] | None = None,
         enable_multiple_people: bool = False,
         novelai_model_override: str | None = None,
+        use_memory: bool = True,
     ) -> AsyncGenerator[str, None]:
         """LLM経由で心境テキストをストリーミング生成する。
 
@@ -956,6 +977,8 @@ class GameService:
         from .conversation import get_language_rules
 
         system_prompt = f"{system_prompt}\n\n{get_language_rules(language)}"
+        if use_memory:
+            system_prompt += await self._get_memory_priority_suffix(language)
 
         async for chunk in self._stream_feeling(
             system_prompt=system_prompt,
@@ -1010,6 +1033,7 @@ class GameService:
         language: str = "ja",
         enable_multiple_people: bool = False,
         novelai_model_override: str | None = None,
+        use_memory: bool = True,
     ) -> AsyncGenerator[str, None]:
         """自分自身モードの心境テキストをユーザーの性格プロフィールでストリーミング生成する。
 
@@ -1038,6 +1062,8 @@ class GameService:
         from .conversation import get_language_rules
 
         system_prompt = f"{system_prompt}\n\n{get_language_rules(language)}"
+        if use_memory:
+            system_prompt += await self._get_memory_priority_suffix(language)
 
         async for chunk in self._stream_feeling(
             system_prompt=system_prompt,
@@ -1055,6 +1081,7 @@ class GameService:
         nsfw_mode: bool = False,
         image_provider: str = "qwen",
         novelai_model_override: str | None = None,
+        use_memory: bool = True,
     ) -> tuple[str, float | None]:
         """現実改変用画像編集プロンプトを生成 (LLMService経由)
 
@@ -1072,6 +1099,8 @@ class GameService:
         """
         try:
             system_prompt = get_reality_edit_system_prompt(nsfw_mode, image_provider)
+            if use_memory:
+                system_prompt += await self._get_memory_priority_suffix()
             user_prompt = build_reality_edit_prompt(
                 instruction=instruction,
                 current_description=current_description,
@@ -1101,6 +1130,7 @@ class GameService:
         language: str = "ja",
         enable_multiple_people: bool = False,
         novelai_model_override: str | None = None,
+        use_memory: bool = True,
     ) -> AsyncGenerator[str, None]:
         """現実改変用心境をストリーミング生成 (LLM)
 
@@ -1132,6 +1162,8 @@ class GameService:
         from .conversation import get_language_rules
 
         system_prompt = f"{system_prompt}\n\n{get_language_rules(language)}"
+        if use_memory:
+            system_prompt += await self._get_memory_priority_suffix(language)
 
         async for chunk in self._stream_feeling(
             system_prompt=system_prompt,
@@ -1171,6 +1203,7 @@ class GameService:
         clothing_color_consistency: bool = False,
         enable_multiple_people: bool = False,
         use_character_panel: bool = True,
+        use_memory: bool = False,
     ) -> AsyncGenerator[StreamEvent, None]:
         """ストリーミング対応の着せ替えを実行
 
@@ -1524,6 +1557,10 @@ class GameService:
                 from .conversation import get_language_rules
 
                 act_system = f"{act_system}\n\n{get_language_rules(effective_language)}"
+                if use_memory:
+                    act_system += await self._get_memory_priority_suffix(
+                        effective_language
+                    )
 
                 # ── T007: NovelAI Opus mode detection for action ──
                 is_action_novelai_opus = settings.is_novelai_opus_mode
@@ -1549,6 +1586,11 @@ class GameService:
                         clothing_color_consistency=clothing_color_consistency,
                         enable_multiple_people=enable_multiple_people,
                     )
+                    action_memory_suffix = (
+                        await self._get_memory_priority_suffix(effective_language)
+                        if use_memory
+                        else ""
+                    )
                     previous_prompt = current_desc  # 前回のafter_description
                     action_novelai_prompt = (
                         await llm_service.generate_novelai_image_prompt(
@@ -1560,6 +1602,7 @@ class GameService:
                             novelai_model_override=effective_novelai_text_model,
                             enable_multiple_people=enable_multiple_people,
                             session_characters_section=multi_char_image_section,
+                            extra_system_suffix=action_memory_suffix,
                         )
                     )
 
@@ -1597,6 +1640,10 @@ class GameService:
                         image_provider=settings.image_provider,
                         nsfw_mode=effective_nsfw_mode,
                     )
+                    if use_memory:
+                        action_edit_system += await self._get_memory_priority_suffix(
+                            effective_language
+                        )
                     action_edit_user = build_action_image_edit_prompt(
                         instruction=instruction,
                         current_description=vision_desc,
@@ -2065,6 +2112,11 @@ class GameService:
             dress_up_characters: list[dict] | None = None
 
             if is_novelai_opus_mode:
+                dress_up_memory_suffix = (
+                    await self._get_memory_priority_suffix(effective_language)
+                    if use_memory
+                    else ""
+                )
                 # NovelAI GLM-4.6でプロンプト生成
                 generated_novelai_prompt = (
                     await llm_service.generate_novelai_image_prompt(
@@ -2076,6 +2128,7 @@ class GameService:
                         enable_multiple_people=enable_multiple_people,
                         novelai_model_override=effective_novelai_text_model,
                         session_characters_section=dress_up_multi_char_image_section,
+                        extra_system_suffix=dress_up_memory_suffix,
                     )
                 )
 
@@ -2115,6 +2168,7 @@ class GameService:
                     nsfw_mode=effective_nsfw_mode,
                     image_provider=settings.image_provider,
                     novelai_model_override=effective_novelai_text_model,
+                    use_memory=use_memory,
                 )
             else:
                 # 衣装変更用プロンプト生成（既存）
@@ -2129,6 +2183,7 @@ class GameService:
                     custom_preserve_text=custom_preserve_text,
                     nsfw_mode=effective_nsfw_mode,
                     novelai_model_override=effective_novelai_text_model,
+                    use_memory=use_memory,
                 )
 
             # T009: NovelAI専用 - 直接プロンプト指定とのマージ
@@ -2192,6 +2247,7 @@ class GameService:
                             language=effective_language,
                             enable_multiple_people=enable_multiple_people,
                             novelai_model_override=effective_novelai_text_model,
+                            use_memory=use_memory,
                         ):
                             text_chunks.append(chunk)
                             await event_queue.put(
@@ -2210,6 +2266,7 @@ class GameService:
                             language=effective_language,
                             enable_multiple_people=enable_multiple_people,
                             novelai_model_override=effective_novelai_text_model,
+                            use_memory=use_memory,
                         ):
                             text_chunks.append(chunk)
                             await event_queue.put(
@@ -2232,6 +2289,7 @@ class GameService:
                             used_openings=used_openings,
                             enable_multiple_people=enable_multiple_people,
                             novelai_model_override=effective_novelai_text_model,
+                            use_memory=use_memory,
                         ):
                             text_chunks.append(chunk)
                             await event_queue.put(
@@ -3067,6 +3125,7 @@ class GameService:
                     session_id if session_id else "default"
                 ),
             )
+            act_system += await self._get_memory_priority_suffix()
 
             # 画像プロンプト（NovelAI Opus / その他で分岐）
             image_edit_prompt = ""
@@ -3085,6 +3144,7 @@ class GameService:
                     image_provider=settings.image_provider,
                     nsfw_mode=nsfw_mode,
                 )
+                action_edit_system += await self._get_memory_priority_suffix()
                 image_edit_prompt = action_edit_system
 
             # 周辺画像プロンプトプレビュー（現実改変属性含む）

@@ -81,6 +81,7 @@ interface GamePlayScreenProps {
     },
     instructionType?: string,
     pendingToken?: string,
+    useMemory?: boolean,
   ) => void;
   onResetCost: () => void;
   onSessionStart?: () => void;
@@ -207,6 +208,7 @@ export default function GamePlayScreen({
     transformOptions: Record<string, unknown> | undefined;
     anlasCost: number;
     instructionType?: string;
+    useMemory: boolean;
   } | null>(null);
   const [anlasDoNotShowAgain, setAnlasDoNotShowAgain] = useState(false);
 
@@ -554,7 +556,7 @@ export default function GamePlayScreen({
 
   // チャット送信ハンドラ
   const handleSendMessage = useCallback(
-    async (message: string, instructionType: string) => {
+    async (message: string, instructionType: string, useMemory: boolean) => {
       if (!sessionId || isTransforming) return;
 
       // ユーザーメッセージをチャットに追加
@@ -773,6 +775,8 @@ export default function GamePlayScreen({
               transformationType,
               transformOptions,
               backendInstructionType,
+              undefined,
+              useMemory,
             );
             return;
           }
@@ -786,6 +790,7 @@ export default function GamePlayScreen({
               | undefined,
             anlasCost: enabledRefCount * 5,
             instructionType: backendInstructionType,
+            useMemory,
           });
           return; // Wait for user confirmation
         }
@@ -798,6 +803,7 @@ export default function GamePlayScreen({
           transformOptions,
           backendInstructionType,
           tempToken,
+          useMemory,
         );
       }
     },
@@ -935,6 +941,7 @@ export default function GamePlayScreen({
         transformOptions,
         backendInstructionType,
         tempToken,
+        localStorage.getItem("chat_suggest_use_memory") === "true",
       );
 
       // 入力をクリア
@@ -967,6 +974,7 @@ export default function GamePlayScreen({
       transformationType,
       transformOptions,
       instructionType: pendingInstructionType,
+      useMemory,
     } = anlasConfirmPending;
     if (anlasDoNotShowAgain) {
       sessionStorage.setItem(ANLAS_WARN_SUPPRESSED_KEY, "true");
@@ -980,6 +988,8 @@ export default function GamePlayScreen({
       transformationType,
       transformOptions,
       pendingInstructionType,
+      undefined,
+      useMemory,
     );
   }, [anlasConfirmPending, anlasDoNotShowAgain, onTransform]);
 
