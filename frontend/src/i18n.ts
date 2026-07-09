@@ -424,6 +424,8 @@ const resources = {
           markdown: "Markdown (.md)",
           csv: "CSV (.csv)",
           json: "JSON (.json)",
+          markdownWithImages: "Markdown + 画像 (.md)",
+          novelHtmlZip: "小説形式 + 画像 (.zip)",
         },
         welcome: {
           title: "TSF Closetへようこそ",
@@ -1101,6 +1103,8 @@ const resources = {
           markdown: "Markdown (.md)",
           csv: "CSV (.csv)",
           json: "JSON (.json)",
+          markdownWithImages: "Markdown + Images (.md)",
+          novelHtmlZip: "Novel HTML + Images (.zip)",
         },
         welcome: {
           title: "Welcome to TSF Closet",

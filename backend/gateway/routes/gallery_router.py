@@ -11,8 +11,10 @@ from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import and_, delete, desc, func, or_, select
+from urllib.parse import quote
 
 from ..services.characters import CharacterManager
 from ..settings.config import settings
@@ -520,3 +522,66 @@ async def generate_session_summary(
             status_code=500,
             detail=f"Summary generation failed: {e}",
         )
+
+
+# ------------------------------------------------------------------
+# Export endpoints (chat history with images)
+# ------------------------------------------------------------------
+
+
+def _content_disposition(filename: str) -> str:
+    """Build a Content-Disposition header with UTF-8 fallback support."""
+    quoted = quote(filename, safe="")
+    return f"attachment; filename=\"{filename}\"; filename*=UTF-8''{quoted}"
+
+
+@router.get(
+    "/sessions/{session_id}/export/markdown",
+    summary="チャット履歴をMarkdownでエクスポート",
+    description="セッションのチャット履歴を画像base64埋め込みのMarkdownでダウンロード",
+)
+async def export_session_markdown(session_id: str) -> Response:
+    """Export chat history as Markdown (.md) with embedded JPEG images."""
+    from ..services.export_service import build_markdown_export
+
+    try:
+        content, filename = await build_markdown_export(session_id)
+    except LookupError:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "SESSION_NOT_FOUND", "message": "Session not found"},
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"Markdown export failed: {exc}")
+
+    return Response(
+        content=content,
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": _content_disposition(filename)},
+    )
+
+
+@router.get(
+    "/sessions/{session_id}/export/novel-html",
+    summary="チャット履歴を小説形式HTMLのzipでエクスポート",
+    description="HTML + CSS + 画像 を含むzipアーカイブとしてダウンロード",
+)
+async def export_session_novel_html(session_id: str) -> Response:
+    """Export chat history as a novel-style HTML zip archive."""
+    from ..services.export_service import build_novel_html_zip
+
+    try:
+        content, filename = await build_novel_html_zip(session_id)
+    except LookupError:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "SESSION_NOT_FOUND", "message": "Session not found"},
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"Novel HTML export failed: {exc}")
+
+    return Response(
+        content=content,
+        media_type="application/zip",
+        headers={"Content-Disposition": _content_disposition(filename)},
+    )

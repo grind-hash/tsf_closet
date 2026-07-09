@@ -190,3 +190,73 @@ export async function generateSessionSummary(
 
   return response.json();
 }
+
+// ----------------------------------------------------------------
+// Chat history export (Markdown / Novel HTML zip)
+// ----------------------------------------------------------------
+
+export interface ExportDownload {
+  blob: Blob;
+  filename: string;
+}
+
+function parseFilenameFromHeaders(headers: Headers, fallback: string): string {
+  const cd = headers.get("Content-Disposition");
+  if (!cd) return fallback;
+  // RFC 5987: filename*=UTF-8''<percent-encoded>
+  const starMatch = cd.match(/filename\*\s*=\s*UTF-8''([^;]+)/i);
+  if (starMatch) {
+    try {
+      return decodeURIComponent(starMatch[1].trim());
+    } catch {
+      // fall through to filename=
+    }
+  }
+  const quotedMatch = cd.match(/filename\s*=\s*"([^"]+)"/i);
+  if (quotedMatch) return quotedMatch[1];
+  const bareMatch = cd.match(/filename\s*=\s*([^;]+)/i);
+  if (bareMatch) return bareMatch[1].trim();
+  return fallback;
+}
+
+async function downloadExport(
+  url: string,
+  fallbackFilename: string,
+): Promise<ExportDownload> {
+  const response = await fetch(url);
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail?.message ||
+        error.detail ||
+        `Export failed: ${response.status}`,
+    );
+  }
+  const blob = await response.blob();
+  const filename = parseFilenameFromHeaders(response.headers, fallbackFilename);
+  return { blob, filename };
+}
+
+/**
+ * Download Markdown export (.md) with base64-embedded images.
+ */
+export async function exportSessionMarkdown(
+  sessionId: string,
+): Promise<ExportDownload> {
+  return downloadExport(
+    `${API_BASE}/gallery/sessions/${sessionId}/export/markdown`,
+    `chat_${sessionId.slice(0, 8)}.md`,
+  );
+}
+
+/**
+ * Download novel-style HTML zip (HTML + CSS + images).
+ */
+export async function exportSessionNovelHtml(
+  sessionId: string,
+): Promise<ExportDownload> {
+  return downloadExport(
+    `${API_BASE}/gallery/sessions/${sessionId}/export/novel-html`,
+    `chat_${sessionId.slice(0, 8)}_novel.zip`,
+  );
+}
