@@ -80,6 +80,7 @@ async def generate_instruction_suggestion(
     language: str = "ja",
     keyword: str | None = None,
     use_memory: bool = False,
+    use_play_memory: bool = False,
 ) -> str:
     """過去の履歴と現在のセッション状態から次の指示テキストを生成する。
 
@@ -120,6 +121,14 @@ async def generate_instruction_suggestion(
         raise ValueError("no history available for suggestion")
 
     memory_text = await settings_service.get_memory_text() if use_memory else None
+    if use_play_memory:
+        from .play_memory_service import play_memory_service
+
+        play_context = await play_memory_service.build_context(
+            session_id, enabled=True, language=language
+        )
+        if play_context:
+            memory_text = f"{play_context}\n\n{memory_text or ''}".strip()
 
     system_prompt, user_prompt = build_instruction_suggestion_prompt(
         character_context=character_context,

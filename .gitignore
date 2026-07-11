@@ -1,4 +1,6 @@
 specs/**
+!specs/006-session-play-memory/
+!specs/006-session-play-memory/**
 data/**
 .playwright-mcp/**
 

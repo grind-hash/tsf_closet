@@ -78,6 +78,9 @@ export function useGameSSE() {
       chat.setStreaming(false);
       game.setTransformationCount(transformationCount);
       game.setTransforming(false);
+      if (settings.state.playMemoryEnabled) {
+        void game.restoreActiveSession();
+      }
       // FR-010: 複数人モード時、バックエンドが主人公レコードを
       // 自動 upsert するため、CharacterPanel の表示を最新化する。
       if (

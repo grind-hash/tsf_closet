@@ -36,6 +36,7 @@ import ImageOverlay from "./ui/ImageOverlay";
 import { useGame } from "../contexts/GameContext";
 import { useChat } from "../contexts/ChatContext";
 import { useSettings } from "../contexts/SettingsContext";
+import { useNotification } from "../contexts/NotificationContext";
 import { API_BASE } from "../utils/api";
 import { generateUUID } from "../utils/generateUUID";
 import {
@@ -95,6 +96,7 @@ export default function GamePlayScreen({
   onSessionStart,
 }: GamePlayScreenProps) {
   const { t } = useTranslation();
+  const { showNotification } = useNotification();
   const location = useLocation();
   const isNewGameRoute = location.pathname === "/play/new";
 
@@ -109,6 +111,7 @@ export default function GamePlayScreen({
     removeHistoryEntry,
     updateStats,
     loadSessionCharacters,
+    restoreActiveSession,
   } = useGame();
   const {
     state: chatState,
@@ -610,6 +613,9 @@ export default function GamePlayScreen({
           if (settingsState.enableMultiplePeople) {
             params.set("enable_multiple_people", "true");
           }
+          if (settingsState.playMemoryEnabled) {
+            params.set("use_play_memory", "true");
+          }
           const response = await fetch(
             `${API_BASE}/game/chat/stream?${params.toString()}`,
           );
@@ -644,6 +650,15 @@ export default function GamePlayScreen({
                       if (data.character_conversation_id) {
                         charConversationId = data.character_conversation_id;
                       }
+                      if (data.play_memory_update === "failed") {
+                        showNotification(
+                          "warning",
+                          t("settings.playMemory.sectionTitle"),
+                          t("settings.playMemory.updateWarning"),
+                        );
+                      } else if (data.play_memory_update === "updated") {
+                        void restoreActiveSession();
+                      }
                     } else if (data.type === "error" && data.fallback) {
                       // エラー時はフォールバック応答を表示
                       fullResponse = data.fallback;
@@ -654,6 +669,15 @@ export default function GamePlayScreen({
                       }
                       if (data.character_conversation_id) {
                         charConversationId = data.character_conversation_id;
+                      }
+                      if (data.play_memory_update === "updated") {
+                        void restoreActiveSession();
+                      } else if (data.play_memory_update === "failed") {
+                        showNotification(
+                          "warning",
+                          t("settings.playMemory.sectionTitle"),
+                          t("settings.playMemory.updateWarning"),
+                        );
                       }
                     }
                   } catch {
@@ -827,6 +851,10 @@ export default function GamePlayScreen({
       settingsState.preciseReferences,
       settingsState.language,
       settingsState.enableMultiplePeople,
+      settingsState.playMemoryEnabled,
+      showNotification,
+      t,
+      restoreActiveSession,
     ],
   );
 

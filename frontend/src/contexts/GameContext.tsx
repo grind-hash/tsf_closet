@@ -22,6 +22,14 @@ import type {
   SessionCharacter,
 } from "../types";
 import { API_BASE } from "../utils/api";
+
+export interface PlayMemoryState {
+  systemEnabled: boolean;
+  userEnabled: boolean;
+  systemText: string | null;
+  userText: string | null;
+  systemUpdatedAt: string | null;
+}
 import {
   applyPresetToSession,
   createSessionCharacter as apiCreateSessionCharacter,
@@ -54,6 +62,7 @@ interface GameState {
   lastGeneratedSeed: number | null;
   lastSurroundingsImage: SurroundingsImageState | null;
   sessionCharacters: SessionCharacter[];
+  playMemory: PlayMemoryState;
 }
 
 type GameAction =
@@ -77,6 +86,7 @@ type GameAction =
         conversationHistory: ConversationMessage[];
         selfMode: boolean;
         transformationCount: number;
+        playMemory: PlayMemoryState;
       };
     }
   | { type: "SET_CHARACTERS"; payload: Character[] }
@@ -107,6 +117,7 @@ type GameAction =
       payload: { historyId: string; restoredHistoryId: string };
     }
   | { type: "SET_SESSION_CHARACTERS"; payload: SessionCharacter[] }
+  | { type: "SET_PLAY_MEMORY"; payload: PlayMemoryState }
   | { type: "UPSERT_SESSION_CHARACTER"; payload: SessionCharacter }
   | { type: "REMOVE_SESSION_CHARACTER"; payload: string }
   | { type: "CLEAR_SESSION" };
@@ -132,6 +143,13 @@ const defaultState: GameState = {
   lastGeneratedSeed: null,
   lastSurroundingsImage: null,
   sessionCharacters: [],
+  playMemory: {
+    systemEnabled: true,
+    userEnabled: true,
+    systemText: null,
+    userText: null,
+    systemUpdatedAt: null,
+  },
 };
 
 function gameReducer(state: GameState, action: GameAction): GameState {
@@ -154,6 +172,7 @@ function gameReducer(state: GameState, action: GameAction): GameState {
         transformationCount: 0,
         lastGeneratedSeed: null,
         lastSurroundingsImage: null,
+        playMemory: defaultState.playMemory,
       };
     case "RESTORE_SESSION":
       return {
@@ -169,6 +188,7 @@ function gameReducer(state: GameState, action: GameAction): GameState {
         conversationHistory: action.payload.conversationHistory,
         selfMode: action.payload.selfMode,
         transformationCount: action.payload.transformationCount,
+        playMemory: action.payload.playMemory,
         error: null,
       };
     case "SET_CHARACTERS":
@@ -268,6 +288,8 @@ function gameReducer(state: GameState, action: GameAction): GameState {
       return { ...defaultState, characters: state.characters };
     case "SET_SESSION_CHARACTERS":
       return { ...state, sessionCharacters: action.payload };
+    case "SET_PLAY_MEMORY":
+      return { ...state, playMemory: action.payload };
     case "UPSERT_SESSION_CHARACTER": {
       const incoming = action.payload;
       const idx = state.sessionCharacters.findIndex(
@@ -358,6 +380,12 @@ interface GameContextType {
   ) => Promise<SessionCharacter>;
   removeSessionCharacter: (characterId: string) => Promise<void>;
   applyPresetToCurrentSession: (presetId: string) => Promise<SessionCharacter>;
+  updatePlayMemory: (updates: {
+    system_enabled?: boolean;
+    user_enabled?: boolean;
+    user_text?: string | null;
+  }) => Promise<void>;
+  regeneratePlayMemory: (language: string) => Promise<void>;
 }
 
 const GameContext = createContext<GameContextType | null>(null);
@@ -425,6 +453,13 @@ function mapSessionResponse(data: {
   }>;
   self_mode?: boolean;
   character_id?: string | null;
+  play_memory?: {
+    system_enabled?: boolean;
+    user_enabled?: boolean;
+    system_text?: string | null;
+    user_text?: string | null;
+    system_updated_at?: string | null;
+  };
 }): GameAction & { type: "RESTORE_SESSION" } {
   const history = (data.history ?? []).map(mapHistoryItem);
   const currentImage = data.current_image_url
@@ -476,6 +511,13 @@ function mapSessionResponse(data: {
       })),
       selfMode: Boolean(data.self_mode),
       transformationCount: data.transformation_count ?? history.length,
+      playMemory: {
+        systemEnabled: data.play_memory?.system_enabled ?? true,
+        userEnabled: data.play_memory?.user_enabled ?? true,
+        systemText: data.play_memory?.system_text ?? null,
+        userText: data.play_memory?.user_text ?? null,
+        systemUpdatedAt: data.play_memory?.system_updated_at ?? null,
+      },
     },
   };
 }
@@ -535,6 +577,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
           conversationHistory: state.conversationHistory,
           selfMode: selfMode ?? false,
           transformationCount: history.length,
+          playMemory: defaultState.playMemory,
         },
       });
     },
@@ -912,6 +955,61 @@ export function GameProvider({ children }: { children: ReactNode }) {
     [state.sessionId],
   );
 
+  const updatePlayMemory = useCallback(
+    async (updates: {
+      system_enabled?: boolean;
+      user_enabled?: boolean;
+      user_text?: string | null;
+    }) => {
+      if (!state.sessionId) return;
+      const response = await fetch(
+        `${API_BASE}/game/sessions/${state.sessionId}/play-memory`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(updates),
+        },
+      );
+      if (!response.ok) throw new Error("プレイメモの保存に失敗しました");
+      const data = await response.json();
+      dispatch({
+        type: "SET_PLAY_MEMORY",
+        payload: {
+          systemEnabled: data.system_enabled,
+          userEnabled: data.user_enabled,
+          systemText: data.system_text,
+          userText: data.user_text,
+          systemUpdatedAt: data.system_updated_at,
+        },
+      });
+    },
+    [state.sessionId],
+  );
+
+  const regeneratePlayMemory = useCallback(
+    async (language: string) => {
+      if (!state.sessionId) return;
+      const params = new URLSearchParams({ language });
+      const response = await fetch(
+        `${API_BASE}/game/sessions/${state.sessionId}/play-memory/regenerate?${params}`,
+        { method: "POST" },
+      );
+      if (!response.ok) throw new Error("自動メモの再生成に失敗しました");
+      const data = await response.json();
+      dispatch({
+        type: "SET_PLAY_MEMORY",
+        payload: {
+          systemEnabled: data.system_enabled,
+          userEnabled: data.user_enabled,
+          systemText: data.system_text,
+          userText: data.user_text,
+          systemUpdatedAt: data.system_updated_at,
+        },
+      });
+    },
+    [state.sessionId],
+  );
+
   const value: GameContextType = {
     state,
     startSession,
@@ -953,6 +1051,8 @@ export function GameProvider({ children }: { children: ReactNode }) {
     updateSessionCharacterAction,
     removeSessionCharacter,
     applyPresetToCurrentSession,
+    updatePlayMemory,
+    regeneratePlayMemory,
   };
 
   return <GameContext.Provider value={value}>{children}</GameContext.Provider>;
