@@ -292,6 +292,13 @@ const resources = {
           modelDownloadBlocked:
             "モデルの自動ダウンロードがブロックされました。Cloudflare経由の場合は『モデルページをブラウザで開く』で取得し、保存後にモデルファイルパスを指定してインストールしてください。",
           operationFailed: "操作に失敗しました: {{message}}",
+          actionHealthCheck: "ヘルスチェック中",
+          linuxNoticeTitle: "Linux環境での実行について",
+          linuxManagedDesc:
+            "Linux環境では、音声合成エンジンはDocker Composeで管理します。アプリからの自動起動・停止は行いません。下のコマンドでコンテナを起動してから、ヘルスチェックで接続を確認してください。",
+          linuxHealthCheck: "ヘルスチェックを実行",
+          linuxModelRestartHint:
+            "モデルを配置した後、コンテナに反映させるには `{{command}}` で再起動してください。",
         },
       },
       common: {
@@ -316,6 +323,7 @@ const resources = {
         aivisEngineStopped: "停止中",
         aivisEngineStart: "起動",
         aivisEngineStop: "停止",
+        aivisEngineDockerManaged: "Docker管理（{{command}}）",
         sectionAttributes: "属性付与",
         sectionPreserve: "保持する要素",
         sectionLanguage: "言語",
@@ -1153,6 +1161,13 @@ const resources = {
           modelDownloadBlocked:
             "Automatic model download was blocked. If Cloudflare is in front, open the model page in your browser, download manually, then set model file path and run install.",
           operationFailed: "Operation failed: {{message}}",
+          actionHealthCheck: "Checking health",
+          linuxNoticeTitle: "Running on Linux",
+          linuxManagedDesc:
+            "On Linux, the speech synthesis engine is managed via Docker Compose. It cannot be started or stopped from the app. Start the container with the command below, then use the health check to confirm connectivity.",
+          linuxHealthCheck: "Run health check",
+          linuxModelRestartHint:
+            "After placing the model, restart the container with `{{command}}` to apply it.",
         },
       },
       common: {
@@ -1177,6 +1192,7 @@ const resources = {
         aivisEngineStopped: "Stopped",
         aivisEngineStart: "Start",
         aivisEngineStop: "Stop",
+        aivisEngineDockerManaged: "Docker managed ({{command}})",
         sectionAttributes: "Attributes",
         sectionPreserve: "Preserve Elements",
         sectionLanguage: "Language",

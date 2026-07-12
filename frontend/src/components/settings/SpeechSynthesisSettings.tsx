@@ -41,7 +41,10 @@ export default function SpeechSynthesisSettings() {
   const modelHubUrl =
     "https://hub.aivis-project.com/aivm-models/7fc08a41-b64d-456d-8b22-8e1284674775";
   const targetModelFileName = "zonoko.aivmx";
-  const modelPathDisplay = "%APPDATA%/AivisSpeech-Engine/Models";
+  const isLinux = statusInfo?.platform === "linux";
+  const dockerHint = statusInfo?.docker_hint ?? "docker compose up -d aivis";
+  const modelPathDisplay =
+    statusInfo?.default_model_dir ?? "%APPDATA%/AivisSpeech-Engine/Models";
 
   const setOperationFailed = useCallback(
     (error: unknown) => {
@@ -323,6 +326,22 @@ export default function SpeechSynthesisSettings() {
     }
   };
 
+  const handleHealthCheck = async () => {
+    setBusy(true);
+    try {
+      markAction("settings.speech.actionHealthCheck");
+      const status = await refreshStatus();
+      setStatusText(
+        `${t("settings.speech.status")}: ${status.engine_http} (${status.process})`,
+      );
+      setCurrentAction(t("settings.speech.actionIdle"));
+    } catch (error) {
+      setOperationFailed(error);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const engineReady =
     statusInfo?.engine_http === "ok" || statusInfo?.process === "running";
   const hasError = currentAction === t("settings.speech.actionFailed");
@@ -377,99 +396,131 @@ export default function SpeechSynthesisSettings() {
             </label>
           </div>
 
-          <div className="settings-screen__item">
-            <label className="settings-screen__toggle">
-              <div className="settings-screen__toggle-info">
-                <span className="settings-screen__item-label">
-                  {t("settings.speech.useGpu")}
-                </span>
-                <span className="settings-screen__item-desc">
-                  {t("settings.speech.useGpuDesc")}
-                </span>
+          {isLinux ? (
+            <div className="speech-settings__guide">
+              <p className="speech-settings__guide-title">
+                {t("settings.speech.linuxNoticeTitle")}
+              </p>
+              <p className="speech-settings__modal-text">
+                {t("settings.speech.linuxManagedDesc")}
+              </p>
+              <p className="speech-settings__modal-code">{dockerHint}</p>
+              <button
+                className="speech-settings__button"
+                type="button"
+                disabled={busy}
+                onClick={() => void handleHealthCheck()}
+              >
+                {busy ? (
+                  <span className="speech-settings__button-loading">
+                    <span
+                      className="speech-settings__spinner speech-settings__spinner--sm"
+                      aria-hidden="true"
+                    />
+                    {t("settings.speech.processing")}
+                  </span>
+                ) : (
+                  t("settings.speech.linuxHealthCheck")
+                )}
+              </button>
+            </div>
+          ) : (
+            <>
+              <div className="settings-screen__item">
+                <label className="settings-screen__toggle">
+                  <div className="settings-screen__toggle-info">
+                    <span className="settings-screen__item-label">
+                      {t("settings.speech.useGpu")}
+                    </span>
+                    <span className="settings-screen__item-desc">
+                      {t("settings.speech.useGpuDesc")}
+                    </span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={state.ttsUseGpu}
+                    onChange={(e) => {
+                      void setTtsUseGpu(e.target.checked);
+                      setShowGpuRestartHint(true);
+                    }}
+                    className="settings-screen__toggle-input"
+                  />
+                  <span className="settings-screen__toggle-switch" />
+                </label>
               </div>
-              <input
-                type="checkbox"
-                checked={state.ttsUseGpu}
-                onChange={(e) => {
-                  void setTtsUseGpu(e.target.checked);
-                  setShowGpuRestartHint(true);
-                }}
-                className="settings-screen__toggle-input"
-              />
-              <span className="settings-screen__toggle-switch" />
-            </label>
-          </div>
 
-          {showGpuRestartHint && (
-            <div className="speech-settings__restart-hint">
-              <span>{t("settings.speech.gpuRestartHint")}</span>
-              <button
-                className="speech-settings__button"
-                type="button"
-                disabled={busy}
-                onClick={() => void handleRestartEngine()}
-              >
-                {t("settings.speech.restartEngine")}
-              </button>
-            </div>
-          )}
+              {showGpuRestartHint && (
+                <div className="speech-settings__restart-hint">
+                  <span>{t("settings.speech.gpuRestartHint")}</span>
+                  <button
+                    className="speech-settings__button"
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void handleRestartEngine()}
+                  >
+                    {t("settings.speech.restartEngine")}
+                  </button>
+                </div>
+              )}
 
-          <div className="settings-screen__item">
-            <div className="settings-screen__item-header">
-              <span className="settings-screen__item-label">
-                {t("settings.speech.engineDir")}
-              </span>
-            </div>
-            <input
-              className="speech-settings__input"
-              type="text"
-              value={state.ttsEngineDir}
-              onChange={(e) => void setTtsEngineDir(e.target.value)}
-            />
-          </div>
-
-          <button
-            className="speech-settings__button speech-settings__button--primary speech-settings__button--block"
-            type="button"
-            disabled={busy}
-            onClick={() => void handlePrepareEngine()}
-          >
-            {busy ? (
-              <span className="speech-settings__button-loading">
-                <span
-                  className="speech-settings__spinner speech-settings__spinner--sm"
-                  aria-hidden="true"
+              <div className="settings-screen__item">
+                <div className="settings-screen__item-header">
+                  <span className="settings-screen__item-label">
+                    {t("settings.speech.engineDir")}
+                  </span>
+                </div>
+                <input
+                  className="speech-settings__input"
+                  type="text"
+                  value={state.ttsEngineDir}
+                  onChange={(e) => void setTtsEngineDir(e.target.value)}
                 />
-                {t("settings.speech.processing")}
-              </span>
-            ) : (
-              t("settings.speech.runEnginePreparation")
-            )}
-          </button>
+              </div>
 
-          <div className="speech-settings__engine-controls">
-            <span className="speech-settings__controls-label">
-              {t("settings.speech.engineControlsLabel")}
-            </span>
-            <div className="speech-settings__button-group">
               <button
-                className="speech-settings__button"
+                className="speech-settings__button speech-settings__button--primary speech-settings__button--block"
                 type="button"
                 disabled={busy}
-                onClick={() => void handleRestartEngine()}
+                onClick={() => void handlePrepareEngine()}
               >
-                {t("settings.speech.restartEngine")}
+                {busy ? (
+                  <span className="speech-settings__button-loading">
+                    <span
+                      className="speech-settings__spinner speech-settings__spinner--sm"
+                      aria-hidden="true"
+                    />
+                    {t("settings.speech.processing")}
+                  </span>
+                ) : (
+                  t("settings.speech.runEnginePreparation")
+                )}
               </button>
-              <button
-                className="speech-settings__button"
-                type="button"
-                disabled={busy}
-                onClick={() => void handleStopEngine()}
-              >
-                {t("settings.speech.stopEngine")}
-              </button>
-            </div>
-          </div>
+
+              <div className="speech-settings__engine-controls">
+                <span className="speech-settings__controls-label">
+                  {t("settings.speech.engineControlsLabel")}
+                </span>
+                <div className="speech-settings__button-group">
+                  <button
+                    className="speech-settings__button"
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void handleRestartEngine()}
+                  >
+                    {t("settings.speech.restartEngine")}
+                  </button>
+                  <button
+                    className="speech-settings__button"
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void handleStopEngine()}
+                  >
+                    {t("settings.speech.stopEngine")}
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </div>
 
@@ -550,24 +601,32 @@ export default function SpeechSynthesisSettings() {
               path: modelPathDisplay,
             })}
           </p>
-          <button
-            className="speech-settings__button speech-settings__button--primary"
-            type="button"
-            disabled={busy}
-            onClick={() => void handleConfirmModelPlaced()}
-          >
-            {busy ? (
-              <span className="speech-settings__button-loading">
-                <span
-                  className="speech-settings__spinner speech-settings__spinner--sm"
-                  aria-hidden="true"
-                />
-                {t("settings.speech.processing")}
-              </span>
-            ) : (
-              t("settings.speech.installModel")
-            )}
-          </button>
+          {isLinux ? (
+            <p className="speech-settings__modal-text">
+              {t("settings.speech.linuxModelRestartHint", {
+                command: "docker compose restart aivis",
+              })}
+            </p>
+          ) : (
+            <button
+              className="speech-settings__button speech-settings__button--primary"
+              type="button"
+              disabled={busy}
+              onClick={() => void handleConfirmModelPlaced()}
+            >
+              {busy ? (
+                <span className="speech-settings__button-loading">
+                  <span
+                    className="speech-settings__spinner speech-settings__spinner--sm"
+                    aria-hidden="true"
+                  />
+                  {t("settings.speech.processing")}
+                </span>
+              ) : (
+                t("settings.speech.installModel")
+              )}
+            </button>
+          )}
         </div>
       </div>
 

@@ -123,6 +123,12 @@
   cursor: default;
 }
 
+.right-panel__aivis-engine-hint {
+  font-size: 0.75rem;
+  color: var(--text-muted, #888);
+  text-align: right;
+}
+
 /* トグルスイッチ */
 .right-panel__toggle {
   display: flex;

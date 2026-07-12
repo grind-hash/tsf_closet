@@ -555,16 +555,25 @@ export default function RightPanel({
                   ? t("rightPanel.aivisEngineRunning")
                   : t("rightPanel.aivisEngineStopped")}
               </span>
-              <button
-                type="button"
-                className="right-panel__aivis-engine-btn"
-                disabled={aivisBusy}
-                onClick={() => void handleToggleAivisEngine()}
-              >
-                {aivisEngineReady
-                  ? t("rightPanel.aivisEngineStop")
-                  : t("rightPanel.aivisEngineStart")}
-              </button>
+              {aivisStatus?.platform === "linux" ? (
+                <span className="right-panel__aivis-engine-hint">
+                  {t("rightPanel.aivisEngineDockerManaged", {
+                    command:
+                      aivisStatus.docker_hint ?? "docker compose up -d aivis",
+                  })}
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  className="right-panel__aivis-engine-btn"
+                  disabled={aivisBusy}
+                  onClick={() => void handleToggleAivisEngine()}
+                >
+                  {aivisEngineReady
+                    ? t("rightPanel.aivisEngineStop")
+                    : t("rightPanel.aivisEngineStart")}
+                </button>
+              )}
             </div>
           </section>
         )}

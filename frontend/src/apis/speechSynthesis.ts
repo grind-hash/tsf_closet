@@ -9,6 +9,8 @@ export interface AivisStatus {
   default_engine_download_url: string;
   default_model_url: string;
   default_model_dir: string;
+  platform: "windows" | "linux" | "other";
+  docker_hint?: string;
 }
 
 export interface AivisSpeakerStyle {
@@ -157,6 +159,13 @@ export async function ensureAivisEngineRunning(
   const status = await getAivisStatus();
   if (status.process === "running" || status.engine_http === "ok") {
     return status;
+  }
+
+  if (status.platform === "linux") {
+    // Linux環境ではエンジンはDocker Composeで管理するため、アプリからは起動しない。
+    throw new Error(
+      `AivisSpeech engine is not reachable. Start it with \`${status.docker_hint ?? "docker compose up -d aivis"}\`.`,
+    );
   }
 
   await startAivisEngine({ engine_dir: engineDir, use_gpu: useGpu });

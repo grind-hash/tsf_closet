@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import socket
 import subprocess
 import sys
 import tempfile
@@ -28,7 +29,11 @@ class AivisSpeechService:
     @staticmethod
     def _ensure_windows() -> None:
         if sys.platform != "win32":
-            raise AivisSpeechError("AivisSpeech setup is supported only on Windows")
+            raise AivisSpeechError(
+                "This setup step is supported only on Windows. On Linux, start the "
+                "engine with `docker compose up -d aivis` instead and use the "
+                "health check to confirm it is reachable."
+            )
 
     @staticmethod
     def _expand_path(path_value: str) -> Path:
@@ -41,11 +46,15 @@ class AivisSpeechService:
     @staticmethod
     def _default_model_dir() -> Path:
         # Per AivisSpeech-Engine docs, the PyInstaller-built run.exe on Windows
-        # stores its data under %APPDATA%\AivisSpeech-Engine.
-        base = os.getenv("APPDATA")
-        if base:
-            return Path(base) / "AivisSpeech-Engine" / "Models"
-        return Path.home() / "AppData" / "Roaming" / "AivisSpeech-Engine" / "Models"
+        # stores its data under %APPDATA%\AivisSpeech-Engine. On Linux the engine
+        # runs via the `aivis` service in compose.yaml, which mounts its model
+        # directory from ~/.local/share/AivisSpeech-Engine on the host.
+        if sys.platform == "win32":
+            base = os.getenv("APPDATA")
+            if base:
+                return Path(base) / "AivisSpeech-Engine" / "Models"
+            return Path.home() / "AppData" / "Roaming" / "AivisSpeech-Engine" / "Models"
+        return Path.home() / ".local" / "share" / "AivisSpeech-Engine" / "Models"
 
     @staticmethod
     def _validate_download_url(url: str) -> None:
@@ -133,6 +142,16 @@ class AivisSpeechService:
     @staticmethod
     def _is_running(process: subprocess.Popen | None) -> bool:
         return process is not None and process.poll() is None
+
+    @staticmethod
+    def _is_port_open(host: str, port: int, timeout: float = 1.5) -> bool:
+        """Cross-platform TCP health check, used on Linux where the engine runs
+        in a Docker container (no local PID to inspect via netstat)."""
+        try:
+            with socket.create_connection((host, port), timeout=timeout):
+                return True
+        except OSError:
+            return False
 
     @staticmethod
     def _find_pid_on_port(port: int) -> int | None:
@@ -423,8 +442,18 @@ class AivisSpeechService:
 
     async def get_status(self) -> dict[str, Any]:
         tracked_running = self._is_running(self._engine_process)
-        pid_on_port = self._find_pid_on_port(10101)
-        process_status = "running" if tracked_running or pid_on_port else "stopped"
+
+        # netstat-based PID lookup only works on Windows. On Linux the engine
+        # runs inside the `aivis` Docker container, so fall back to a plain
+        # TCP health check against the published port instead.
+        if sys.platform == "win32":
+            pid_on_port = self._find_pid_on_port(10101)
+            port_open = pid_on_port is not None
+        else:
+            pid_on_port = None
+            port_open = self._is_port_open("127.0.0.1", 10101)
+
+        process_status = "running" if tracked_running or port_open else "stopped"
         endpoint = f"{settings.aivis_engine_base_url}/version"
 
         engine_http = "unreachable"
@@ -438,6 +467,13 @@ class AivisSpeechService:
         except Exception:
             engine_http = "unreachable"
 
+        if sys.platform == "win32":
+            platform_name = "windows"
+        elif sys.platform.startswith("linux"):
+            platform_name = "linux"
+        else:
+            platform_name = "other"
+
         return {
             "process": process_status,
             "pid": self._engine_process.pid if tracked_running else pid_on_port,
@@ -447,6 +483,8 @@ class AivisSpeechService:
             "default_engine_download_url": settings.aivis_engine_download_url,
             "default_model_url": settings.aivis_default_model_url,
             "default_model_dir": str(self._default_model_dir()),
+            "platform": platform_name,
+            "docker_hint": "docker compose up -d aivis",
         }
 
 
