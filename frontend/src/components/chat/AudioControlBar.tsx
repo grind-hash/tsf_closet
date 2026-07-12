@@ -124,6 +124,12 @@ export default function AudioControlBar() {
           {isLoading ? t("chat.audioBar.generating") : nowPlayingText}
         </div>
 
+        {audioPrefs.muted && (
+          <div className="audio-control-bar__muted-badge" role="status">
+            {t("chat.audioBar.mutedStatus")}
+          </div>
+        )}
+
         {isLoading && !settingsState.ttsUseGpu && (
           <div className="audio-control-bar__warning">
             {t("chat.audioBar.cpuWarning")}

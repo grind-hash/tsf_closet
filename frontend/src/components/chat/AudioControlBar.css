@@ -109,6 +109,16 @@
   color: #f59e0b;
 }
 
+.audio-control-bar__muted-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #f87171;
+  width: fit-content;
+}
+
 .audio-control-bar__extra {
   flex-shrink: 0;
   display: flex;
