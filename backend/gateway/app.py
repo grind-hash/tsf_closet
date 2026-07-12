@@ -38,6 +38,7 @@ from .services.comfy import ComfyUIClient, ComfyUIError
 from .databases import close_database, init_database
 from .routes import (
     achievements_router,
+    aivisspeech_router,
     character_router,
     gallery_router,
     game_router,
@@ -268,6 +269,9 @@ app.include_router(character_router, prefix="/api")
 
 # メモリ機能ルーター（要約・称号バッチ生成 + 好み嗜好メモリ）
 app.include_router(memory_router, prefix="/api")
+
+# AivisSpeech 連携ルーター
+app.include_router(aivisspeech_router, prefix="/api")
 
 
 # 履歴画像配信エンドポイント

@@ -1,7 +1,8 @@
 specs/**
 data/**
 .playwright-mcp/**
-
+!contrib/.gitkeep
+contrib/**
 poc_novelai/**/*.png
 poc_novelai/**/*.jpg
 

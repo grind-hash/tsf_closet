@@ -9,6 +9,7 @@ import {
   useReducer,
   useCallback,
   useRef,
+  useState,
   type ReactNode,
 } from "react";
 import type {
@@ -80,6 +81,25 @@ type ChatAction =
   | { type: "REPLACE_MESSAGE_ID"; payload: { oldId: string; newId: string } }
   | { type: "CLEAR_INPUT" }
   | { type: "CLEAR_MESSAGES" };
+
+// 音声再生状態（チャット欄下部のオーディオコントロールバー用）
+export type AudioPlaybackStatus = "idle" | "loading" | "playing" | "paused";
+
+export interface AudioPlaybackState {
+  messageId: string | null;
+  status: AudioPlaybackStatus;
+  currentTime: number;
+  duration: number;
+  error: string | null;
+}
+
+const defaultAudioPlayback: AudioPlaybackState = {
+  messageId: null,
+  status: "idle",
+  currentTime: 0,
+  duration: 0,
+  error: null,
+};
 
 // デフォルト状態
 const defaultState: ChatState = {
@@ -307,6 +327,14 @@ interface ChatContextType {
   clearInput: () => void;
   clearMessages: () => void;
   messageListRef: React.RefObject<HTMLDivElement | null>;
+  audioPlayback: AudioPlaybackState;
+  playMessageAudio: (
+    messageId: string,
+    fetchAudio: () => Promise<Blob>,
+  ) => Promise<void>;
+  toggleAudioPause: () => void;
+  stopAudio: () => void;
+  seekAudio: (time: number) => void;
 }
 
 // Context作成
@@ -316,6 +344,128 @@ const ChatContext = createContext<ChatContextType | null>(null);
 export function ChatProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(chatReducer, defaultState);
   const messageListRef = useRef<HTMLDivElement | null>(null);
+
+  const [audioPlayback, setAudioPlayback] =
+    useState<AudioPlaybackState>(defaultAudioPlayback);
+  const audioElementRef = useRef<HTMLAudioElement | null>(null);
+  const audioUrlRef = useRef<string | null>(null);
+  const audioRequestIdRef = useRef(0);
+
+  const revokeAudioUrl = useCallback(() => {
+    if (audioUrlRef.current) {
+      URL.revokeObjectURL(audioUrlRef.current);
+      audioUrlRef.current = null;
+    }
+  }, []);
+
+  const ensureAudioElement = useCallback(() => {
+    if (audioElementRef.current) {
+      return audioElementRef.current;
+    }
+
+    const audio = new Audio();
+    audio.addEventListener("timeupdate", () => {
+      setAudioPlayback((prev) => ({ ...prev, currentTime: audio.currentTime }));
+    });
+    audio.addEventListener("loadedmetadata", () => {
+      setAudioPlayback((prev) => ({
+        ...prev,
+        duration: Number.isFinite(audio.duration) ? audio.duration : 0,
+      }));
+    });
+    audio.addEventListener("play", () => {
+      setAudioPlayback((prev) => ({ ...prev, status: "playing" }));
+    });
+    audio.addEventListener("pause", () => {
+      setAudioPlayback((prev) =>
+        prev.status === "playing" ? { ...prev, status: "paused" } : prev,
+      );
+    });
+    audio.addEventListener("ended", () => {
+      revokeAudioUrl();
+      setAudioPlayback(defaultAudioPlayback);
+    });
+    audioElementRef.current = audio;
+    return audio;
+  }, [revokeAudioUrl]);
+
+  const playMessageAudio = useCallback(
+    async (messageId: string, fetchAudio: () => Promise<Blob>) => {
+      const requestId = ++audioRequestIdRef.current;
+      const audio = ensureAudioElement();
+      audio.pause();
+      revokeAudioUrl();
+      setAudioPlayback({
+        messageId,
+        status: "loading",
+        currentTime: 0,
+        duration: 0,
+        error: null,
+      });
+
+      try {
+        const blob = await fetchAudio();
+        // ロード中に停止または別メッセージの再生が開始されていたら結果を無視する
+        if (audioRequestIdRef.current !== requestId) {
+          return;
+        }
+        const url = URL.createObjectURL(blob);
+        audioUrlRef.current = url;
+        audio.src = url;
+        await audio.play();
+        setAudioPlayback({
+          messageId,
+          status: "playing",
+          currentTime: 0,
+          duration: 0,
+          error: null,
+        });
+      } catch (error) {
+        if (audioRequestIdRef.current !== requestId) {
+          return;
+        }
+        revokeAudioUrl();
+        setAudioPlayback({
+          messageId,
+          status: "idle",
+          currentTime: 0,
+          duration: 0,
+          error: String((error as Error)?.message ?? error),
+        });
+      }
+    },
+    [ensureAudioElement, revokeAudioUrl],
+  );
+
+  const toggleAudioPause = useCallback(() => {
+    const audio = audioElementRef.current;
+    if (!audio) {
+      return;
+    }
+    if (audio.paused) {
+      void audio.play();
+    } else {
+      audio.pause();
+    }
+  }, []);
+
+  const stopAudio = useCallback(() => {
+    audioRequestIdRef.current += 1;
+    const audio = audioElementRef.current;
+    if (audio) {
+      audio.pause();
+      audio.currentTime = 0;
+    }
+    revokeAudioUrl();
+    setAudioPlayback(defaultAudioPlayback);
+  }, [revokeAudioUrl]);
+
+  const seekAudio = useCallback((time: number) => {
+    const audio = audioElementRef.current;
+    if (audio) {
+      audio.currentTime = time;
+    }
+  }, []);
 
   const setMessages = useCallback((messages: ChatMessage[]) => {
     dispatch({ type: "SET_MESSAGES", payload: messages });
@@ -502,6 +652,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     clearInput,
     clearMessages,
     messageListRef,
+    audioPlayback,
+    playMessageAudio,
+    toggleAudioPause,
+    stopAudio,
+    seekAudio,
   };
 
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;

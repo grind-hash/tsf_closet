@@ -8,6 +8,7 @@ import { useSettings } from "../../contexts/SettingsContext";
 import { useTranslation } from "react-i18next";
 import SelfProfileEditor from "./SelfProfileEditor";
 import MemorySettings from "./MemorySettings";
+import SpeechSynthesisSettings from "./SpeechSynthesisSettings";
 import "./SettingsScreen.css";
 
 export default function SettingsScreen() {
@@ -267,6 +268,14 @@ export default function SettingsScreen() {
               {t("settings.memory.sectionTitle")}
             </h2>
             <MemorySettings />
+          </section>
+
+          {/* 音声合成 */}
+          <section className="settings-screen__section">
+            <h2 className="settings-screen__section-title">
+              {t("settings.speech.sectionTitle")}
+            </h2>
+            <SpeechSynthesisSettings />
           </section>
 
           {/* 通知設定 */}

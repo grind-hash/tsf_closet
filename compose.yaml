@@ -162,6 +162,23 @@ services:
       retries: 3
       start_period: 300s
 
+  aivis:
+    image: ghcr.io/aivis-project/aivisspeech-engine:nvidia-latest
+    ports:
+      - "10101:10101"
+    volumes:
+      - ~/.local/share/AivisSpeech-Engine:/home/user/.local/share/AivisSpeech-Engine-Dev
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+    networks:
+      - app-network
+
 # ========================================
 # Volumes
 # ========================================
