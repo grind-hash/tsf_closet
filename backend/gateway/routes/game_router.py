@@ -24,6 +24,8 @@ from ..models import (
     HistorySelectResponse,
     PlayRequest,
     PlayResponse,
+    PlayMemoryResponse,
+    PlayMemoryUpdateRequest,
     SessionResetResponse,
     SessionResponse,
     SessionStatsResponse,
@@ -261,6 +263,9 @@ class PlayStreamRequest(BaseModel):
         False,
         description="保存済みメモリテキスト（ユーザーの嗜好傾向）を生成に反映するか",
     )
+    use_play_memory: bool = Field(
+        False, description="セッション単位のプレイメモを生成に反映するか"
+    )
 
 
 @router.post(
@@ -313,7 +318,27 @@ async def play_game_stream(request: PlayStreamRequest) -> EventSourceResponse:
             enable_multiple_people=request.enable_multiple_people,
             use_character_panel=request.use_character_panel,
             use_memory=request.use_memory,
+            use_play_memory=request.use_play_memory,
         ):
+            if event.type == "complete" and request.use_play_memory:
+                from ..services.play_memory_service import play_memory_service
+
+                result_text = "\n".join(
+                    part
+                    for part in (
+                        str(event.data.get("after_desc", "")),
+                        str(event.data.get("feeling_text", "")),
+                    )
+                    if part
+                )
+                updated = await play_memory_service.update_rolling(
+                    event.data.get("session_id") or request.session_id or "",
+                    interaction_type=request.instruction_type or "dress_up",
+                    user_input=request.instruction,
+                    result_text=result_text,
+                    language=normalize_language(request.language),
+                )
+                event.data["play_memory_update"] = "updated" if updated else "failed"
             yield {
                 "event": event.type,
                 "data": json.dumps(event.data, ensure_ascii=False),
@@ -836,6 +861,42 @@ async def restore_session(session_id: str) -> SessionResponse:
     return response
 
 
+@router.patch("/sessions/{session_id}/play-memory", response_model=PlayMemoryResponse)
+async def update_play_memory(
+    session_id: str, request: PlayMemoryUpdateRequest
+) -> PlayMemoryResponse:
+    """プレイメモの個別トグルとユーザーメモを更新する。"""
+    updated = await session_store.update_play_memory(
+        session_id,
+        system_enabled=request.system_enabled,
+        user_enabled=request.user_enabled,
+        user_text=request.user_text,
+        update_user_text="user_text" in request.model_fields_set,
+    )
+    if updated is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    return updated
+
+
+@router.post(
+    "/sessions/{session_id}/play-memory/regenerate",
+    response_model=PlayMemoryResponse,
+)
+async def regenerate_play_memory(
+    session_id: str, language: str | None = Query(None)
+) -> PlayMemoryResponse:
+    """現在の全履歴から自動メモを再生成する。"""
+    from ..services.play_memory_service import play_memory_service
+
+    user_settings = await session_store.get_user_settings()
+    try:
+        return await play_memory_service.regenerate(
+            session_id, normalize_language(language or user_settings.get("language"))
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.get(
     "/gallery",
     response_model=GalleryResponse,
@@ -945,6 +1006,7 @@ async def chat_with_character(
     message: str = Query(..., min_length=1, max_length=500, description="メッセージ"),
     language: str | None = Query(None, description="応答言語 (ja/en)"),
     enable_multiple_people: bool = Query(False, description="複数人表示を有効にする"),
+    use_play_memory: bool = Query(False, description="プレイメモを有効にする"),
 ) -> dict:
     """キャラクターとの会話"""
     from ..services.conversation import (
@@ -1017,7 +1079,10 @@ async def chat_with_character(
     effective_novelai_text_model = user_settings.get("novelai_text_model")
 
     # セッション経緯を取得（着替・改変・行動・会話を時系列マージ）
-    session_timeline = await session_store.get_session_timeline(session_id, limit=30)
+    timeline_loader = getattr(session_store, "get_session_timeline", None)
+    session_timeline = (
+        await timeline_loader(session_id, limit=30) if timeline_loader else []
+    )
     # 新しい順 → 時系列順に反転
     session_timeline = list(reversed(session_timeline))
 
@@ -1051,6 +1116,12 @@ async def chat_with_character(
             session_timeline=session_timeline,
             lookback_count=settings_service.get_history_lookback_count(session_id),
         )
+    if use_play_memory:
+        from ..services.play_memory_service import play_memory_service
+
+        system_prompt += await play_memory_service.build_context(
+            session_id, enabled=True, language=language
+        )
 
     # LLMで応答を生成
     response_text = ""
@@ -1075,6 +1146,21 @@ async def chat_with_character(
     char_conv = await session_store.add_conversation(
         session_id, "character", response_text
     )
+    play_memory_update = "skipped"
+    if use_play_memory:
+        from ..services.play_memory_service import play_memory_service
+
+        play_memory_update = (
+            "updated"
+            if await play_memory_service.update_rolling(
+                session_id,
+                interaction_type="conversation",
+                user_input=message,
+                result_text=response_text,
+                language=language,
+            )
+            else "failed"
+        )
 
     # 心理段階名を取得
     if session.transformation_count == 0:
@@ -1088,8 +1174,9 @@ async def chat_with_character(
         "character_response": response_text,
         "psychological_state": stage_display,
         "language": language,
-        "user_conversation_id": user_conv.id,
-        "character_conversation_id": char_conv.id,
+        "user_conversation_id": getattr(user_conv, "id", None),
+        "character_conversation_id": getattr(char_conv, "id", None),
+        "play_memory_update": play_memory_update,
     }
 
 
@@ -1114,6 +1201,7 @@ async def suggest_instruction(
             language=normalize_language(request.language),
             keyword=request.keyword,
             use_memory=request.use_memory,
+            use_play_memory=request.use_play_memory,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -1133,6 +1221,7 @@ async def chat_with_character_stream(
     message: str = Query(..., min_length=1, max_length=500, description="メッセージ"),
     language: str | None = Query(None, description="応答言語 (ja/en)"),
     enable_multiple_people: bool = Query(False, description="複数人表示を有効にする"),
+    use_play_memory: bool = Query(False, description="プレイメモを有効にする"),
 ) -> StreamingResponse:
     """キャラクターとの会話（ストリーミング）"""
     import logging
@@ -1207,7 +1296,10 @@ async def chat_with_character_stream(
     effective_novelai_text_model = user_settings.get("novelai_text_model")
 
     # セッション経緯を取得（着替・改変・行動・会話を時系列マージ）
-    session_timeline = await session_store.get_session_timeline(session_id, limit=30)
+    timeline_loader = getattr(session_store, "get_session_timeline", None)
+    session_timeline = (
+        await timeline_loader(session_id, limit=30) if timeline_loader else []
+    )
     # 新しい順 → 時系列順に反転
     session_timeline = list(reversed(session_timeline))
 
@@ -1241,6 +1333,27 @@ async def chat_with_character_stream(
             session_timeline=session_timeline,
             lookback_count=settings_service.get_history_lookback_count(session_id),
         )
+    if use_play_memory:
+        from ..services.play_memory_service import play_memory_service
+
+        system_prompt += await play_memory_service.build_context(
+            session_id, enabled=True, language=language
+        )
+
+    async def update_conversation_memory(response_text: str) -> str:
+        """保存済み会話を自動メモへ反映する。"""
+        if not use_play_memory:
+            return "skipped"
+        from ..services.play_memory_service import play_memory_service
+
+        updated = await play_memory_service.update_rolling(
+            session_id,
+            interaction_type="conversation",
+            user_input=message,
+            result_text=response_text,
+            language=language,
+        )
+        return "updated" if updated else "failed"
 
     async def generate_stream():
         """ストリーミング応答を生成"""
@@ -1270,7 +1383,8 @@ async def chat_with_character_stream(
                         char_conv = await session_store.add_conversation(
                             session_id, "character", retry_text
                         )
-                        yield f"data: {json.dumps({'type': 'error', 'fallback': retry_text, 'language': language, 'user_conversation_id': user_conv.id, 'character_conversation_id': char_conv.id})}\n\n"
+                        memory_status = await update_conversation_memory(retry_text)
+                        yield f"data: {json.dumps({'type': 'error', 'fallback': retry_text, 'language': language, 'user_conversation_id': user_conv.id, 'character_conversation_id': char_conv.id, 'play_memory_update': memory_status})}\n\n"
                         return
                 except Exception:
                     pass
@@ -1279,16 +1393,18 @@ async def chat_with_character_stream(
                 char_conv = await session_store.add_conversation(
                     session_id, "character", fallback
                 )
-                yield f"data: {json.dumps({'type': 'error', 'fallback': fallback, 'language': language, 'user_conversation_id': user_conv.id, 'character_conversation_id': char_conv.id})}\n\n"
+                memory_status = await update_conversation_memory(fallback)
+                yield f"data: {json.dumps({'type': 'error', 'fallback': fallback, 'language': language, 'user_conversation_id': user_conv.id, 'character_conversation_id': char_conv.id, 'play_memory_update': memory_status})}\n\n"
                 return
 
             # キャラクター応答を保存
             char_conv = await session_store.add_conversation(
                 session_id, "character", full_response
             )
+            memory_status = await update_conversation_memory(full_response)
 
             # 完了イベント
-            yield f"data: {json.dumps({'type': 'done', 'full_response': full_response, 'language': language, 'user_conversation_id': user_conv.id, 'character_conversation_id': char_conv.id})}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'full_response': full_response, 'language': language, 'user_conversation_id': user_conv.id, 'character_conversation_id': char_conv.id, 'play_memory_update': memory_status})}\n\n"
 
         except Exception as e:
             logger.error(f"Chat stream error: {e}")
@@ -1465,9 +1581,19 @@ async def get_attributes(session_id: str) -> dict:
 async def preview_prompt(request: PlayRequest) -> dict:
     from ..services.game_service import game_service
 
+    instruction = request.instruction
+    if request.use_play_memory:
+        from ..services.play_memory_service import play_memory_service
+
+        instruction += await play_memory_service.build_context(
+            request.session_id,
+            enabled=True,
+            language=normalize_language(request.language),
+        )
+
     return await game_service.preview_prompts(
         session_id=request.session_id,
-        instruction=request.instruction,
+        instruction=instruction,
         transformation_type=request.transformation_type,
         preserve_elements=request.preserve_elements,
         change_scope=request.change_scope,

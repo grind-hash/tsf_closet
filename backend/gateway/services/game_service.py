@@ -1204,6 +1204,7 @@ class GameService:
         enable_multiple_people: bool = False,
         use_character_panel: bool = True,
         use_memory: bool = False,
+        use_play_memory: bool = False,
     ) -> AsyncGenerator[StreamEvent, None]:
         """ストリーミング対応の着せ替えを実行
 
@@ -1239,6 +1240,7 @@ class GameService:
             base_history_id,
             nsfw_mode_override,
         )
+        original_instruction = instruction
 
         try:
             # 1. セッション取得または作成
@@ -1345,6 +1347,14 @@ class GameService:
             effective_language = normalize_language(
                 language_override or user_settings.get("language")
             )
+            if use_play_memory:
+                from .play_memory_service import play_memory_service
+
+                instruction += await play_memory_service.build_context(
+                    session.id,
+                    enabled=True,
+                    language=effective_language,
+                )
             logger.info(
                 f"Effective settings from user: nsfw_mode={effective_nsfw_mode}, "
                 f"difficulty={effective_difficulty}, language={effective_language}"
@@ -1786,7 +1796,7 @@ class GameService:
                 # ── T013: Save to history with generated image ──
                 history = await session_store.add_history(
                     session_id=session.id,
-                    instruction=instruction,
+                    instruction=original_instruction,
                     image_data=final_action_image,
                     feeling_text=action_full_text,
                     before_description=current_desc,
@@ -1833,11 +1843,9 @@ class GameService:
                             _post_exc,
                         )
 
-                # 005 US2: アクション完了後の容姿差分自動更新（非同期 / 失敗は握り潰す）
+                # 005 US2: 完了通知前に容姿差分を更新し、後続のテキスト生成と直列化する
                 if enable_multiple_people and use_character_panel:
-                    asyncio.create_task(
-                        _async_apply_appearance_updates(session.id, instruction)
-                    )
+                    await _async_apply_appearance_updates(session.id, instruction)
 
                 # ── T012: SSE events — image, cost, complete ──
                 if action_image_data is not None:
@@ -1954,6 +1962,7 @@ class GameService:
                         "transformation_count": session.transformation_count,
                         "before_desc": current_desc,
                         "after_desc": action_prompt_desc,
+                        "feeling_text": action_full_text,
                         "history_id": history.id,
                     },
                 )
@@ -2384,7 +2393,7 @@ class GameService:
             # 5. 履歴に追加 (DatabaseSessionStore使用)
             history = await session_store.add_history(
                 session_id=session.id,
-                instruction=instruction,
+                instruction=original_instruction,
                 image_data=image_data,
                 feeling_text=full_text,
                 before_description=before_desc,
@@ -2427,7 +2436,7 @@ class GameService:
                     )
 
             # 5.1. タグ分類 (T023)
-            tags = classify_tags(instruction)
+            tags = classify_tags(original_instruction)
             await session_store.save_transformation_tag(
                 history_id=history.id,
                 costume_category=tags.costume_category,
@@ -2447,7 +2456,7 @@ class GameService:
 
             # 5.1.5 現実改変時: 指示文をセッション属性に自動追加
             if is_reality:
-                reality_attr_text = f"[現実改変] {instruction}"
+                reality_attr_text = f"[現実改変] {original_instruction}"
                 existing_attrs = await session_store.get_session_attribute_texts(
                     session.id
                 )
@@ -2742,6 +2751,7 @@ class GameService:
                     "transformation_count": transformation_count,
                     "before_desc": before_desc,
                     "after_desc": inferred_after_desc,
+                    "feeling_text": full_text,
                     "history_id": history.id,
                 },
             )
@@ -3240,7 +3250,7 @@ game_service = GameService()
 
 
 async def _async_apply_appearance_updates(session_id: str, action_text: str) -> None:
-    """005 US2: Action 後にキャラクター容姿の差分を非同期で適用する。
+    """005 US2: Action 後にキャラクター容姿の差分を適用する。
 
     失敗時はログに記録し、アクション応答へは伝播させない (FR-014)。
     """

@@ -24,6 +24,7 @@ import type {
 import { previewPrompt, type PreviewPromptResponse } from "../../apis/game";
 import { generateUUID } from "../../utils/generateUUID";
 import MemorySettings from "../settings/MemorySettings";
+import PlayMemorySettings from "../settings/PlayMemorySettings";
 import "./RightPanel.css";
 
 interface RightPanelProps {
@@ -162,6 +163,7 @@ export default function RightPanel({
         change_scope: settingsState.changeSettings.changeScope,
         custom_preserve_text:
           settingsState.changeSettings.customPreserveText || undefined,
+        use_play_memory: settingsState.playMemoryEnabled,
       });
       setPreviewResult(result);
       setEditedPrompt(result.image_edit_prompt);
@@ -177,6 +179,7 @@ export default function RightPanel({
     chatState.inputText,
     chatState.instructionType,
     settingsState.changeSettings,
+    settingsState.playMemoryEnabled,
   ]);
 
   // 編集済みプロンプトで送信
@@ -1679,7 +1682,16 @@ export default function RightPanel({
           </div>
         </section>
 
-        {/* メモリ機能 */}
+        {settingsState.playMemoryEnabled && (
+          <section className="right-panel__section">
+            <h4 className="right-panel__section-title">
+              {t("settings.playMemory.sectionTitle")}
+            </h4>
+            <PlayMemorySettings />
+          </section>
+        )}
+
+        {/* 好みメモリ機能 */}
         <section className="right-panel__section">
           <h4 className="right-panel__section-title">
             {t("settings.memory.sectionTitle")}

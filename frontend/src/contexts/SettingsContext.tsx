@@ -63,6 +63,7 @@ interface SettingsState {
   showAchievementNotifications: boolean;
   showRealityAttributeNotification: boolean;
   experimentalEndingEnabled: boolean;
+  playMemoryEnabled: boolean;
 
   // サウンド設定
   soundEnabled: boolean;
@@ -139,6 +140,7 @@ type SettingsAction =
   | { type: "SET_SHOW_ACHIEVEMENT_NOTIFICATIONS"; payload: boolean }
   | { type: "SET_SHOW_REALITY_ATTRIBUTE_NOTIFICATION"; payload: boolean }
   | { type: "SET_EXPERIMENTAL_ENDING_ENABLED"; payload: boolean }
+  | { type: "SET_PLAY_MEMORY_ENABLED"; payload: boolean }
   | { type: "SET_SOUND_ENABLED"; payload: boolean }
   | { type: "SET_SOUND_VOLUME"; payload: number }
   | { type: "TOGGLE_PANEL" }
@@ -182,6 +184,7 @@ const defaultState: SettingsState = {
   showAchievementNotifications: true,
   showRealityAttributeNotification: true,
   experimentalEndingEnabled: false,
+  playMemoryEnabled: false,
   soundEnabled: true,
   soundVolume: 0.5,
   rightPanelOpen: false,
@@ -269,6 +272,8 @@ function settingsReducer(
       return { ...state, showRealityAttributeNotification: action.payload };
     case "SET_EXPERIMENTAL_ENDING_ENABLED":
       return { ...state, experimentalEndingEnabled: action.payload };
+    case "SET_PLAY_MEMORY_ENABLED":
+      return { ...state, playMemoryEnabled: action.payload };
     case "SET_SOUND_ENABLED":
       return { ...state, soundEnabled: action.payload };
     case "SET_SOUND_VOLUME":
@@ -359,6 +364,7 @@ interface SettingsContextType {
   setShowAchievementNotifications: (show: boolean) => void;
   setShowRealityAttributeNotification: (show: boolean) => void;
   setExperimentalEndingEnabled: (enabled: boolean) => void;
+  setPlayMemoryEnabled: (enabled: boolean) => void;
   setSoundEnabled: (enabled: boolean) => void;
   setSoundVolume: (volume: number) => void;
   togglePanel: () => void;
@@ -747,6 +753,9 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const setExperimentalEndingEnabled = useCallback((enabled: boolean) => {
     dispatch({ type: "SET_EXPERIMENTAL_ENDING_ENABLED", payload: enabled });
   }, []);
+  const setPlayMemoryEnabled = useCallback((enabled: boolean) => {
+    dispatch({ type: "SET_PLAY_MEMORY_ENABLED", payload: enabled });
+  }, []);
 
   const setSoundEnabled = useCallback((enabled: boolean) => {
     dispatch({ type: "SET_SOUND_ENABLED", payload: enabled });
@@ -899,6 +908,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setShowAchievementNotifications,
     setShowRealityAttributeNotification,
     setExperimentalEndingEnabled,
+    setPlayMemoryEnabled,
     setSoundEnabled,
     setSoundVolume,
     togglePanel,

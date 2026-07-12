@@ -82,6 +82,17 @@
   margin: 0.25rem 0 0 0;
 }
 
+.settings-screen__play-memory-warning {
+  margin: 0.65rem 0 0;
+  padding: 0.6rem 0.75rem;
+  border-left: 3px solid #d99a36;
+  border-radius: 4px;
+  background: rgb(217 154 54 / 10%);
+  color: #d9a95b;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
 /* ラジオグループ */
 .settings-screen__radio-group {
   display: flex;
