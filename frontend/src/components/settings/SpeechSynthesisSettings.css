@@ -73,6 +73,21 @@
   background: color-mix(in oklab, var(--accent-color, #e94560) 20%, transparent);
 }
 
+.speech-settings__restart-hint {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  margin-top: -0.5rem;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  border-radius: 8px;
+  font-size: 0.8rem;
+  color: #f59e0b;
+}
+
+
 .speech-settings__button--block {
   display: block;
   width: 100%;

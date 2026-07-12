@@ -36,6 +36,7 @@ export default function SpeechSynthesisSettings() {
   const [setupStage, setSetupStage] = useState("initial");
   const [isModelGuideOpen, setIsModelGuideOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [showGpuRestartHint, setShowGpuRestartHint] = useState(false);
 
   const modelHubUrl =
     "https://hub.aivis-project.com/aivm-models/7fc08a41-b64d-456d-8b22-8e1284674775";
@@ -251,6 +252,7 @@ export default function SpeechSynthesisSettings() {
         }),
       );
       setCurrentAction(t("settings.speech.actionIdle"));
+      setShowGpuRestartHint(false);
     } catch (error) {
       setOperationFailed(error);
     } finally {
@@ -388,12 +390,29 @@ export default function SpeechSynthesisSettings() {
               <input
                 type="checkbox"
                 checked={state.ttsUseGpu}
-                onChange={(e) => void setTtsUseGpu(e.target.checked)}
+                onChange={(e) => {
+                  void setTtsUseGpu(e.target.checked);
+                  setShowGpuRestartHint(true);
+                }}
                 className="settings-screen__toggle-input"
               />
               <span className="settings-screen__toggle-switch" />
             </label>
           </div>
+
+          {showGpuRestartHint && (
+            <div className="speech-settings__restart-hint">
+              <span>{t("settings.speech.gpuRestartHint")}</span>
+              <button
+                className="speech-settings__button"
+                type="button"
+                disabled={busy}
+                onClick={() => void handleRestartEngine()}
+              >
+                {t("settings.speech.restartEngine")}
+              </button>
+            </div>
+          )}
 
           <div className="settings-screen__item">
             <div className="settings-screen__item-header">

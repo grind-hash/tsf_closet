@@ -8,7 +8,10 @@
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { useChat } from "../../contexts/ChatContext";
+import { useSettings } from "../../contexts/SettingsContext";
 import "./AudioControlBar.css";
+
+const PLAYBACK_RATE_OPTIONS = [0.75, 1, 1.25, 1.5, 2];
 
 function formatTime(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) {
@@ -28,7 +31,12 @@ export default function AudioControlBar() {
     toggleAudioPause,
     stopAudio,
     seekAudio,
+    audioPrefs,
+    setAudioVolume,
+    setAudioMuted,
+    setAudioPlaybackRate,
   } = useChat();
+  const { state: settingsState } = useSettings();
 
   const nowPlayingText = useMemo(() => {
     const message = chatState.messages.find(
@@ -116,6 +124,12 @@ export default function AudioControlBar() {
           {isLoading ? t("chat.audioBar.generating") : nowPlayingText}
         </div>
 
+        {isLoading && !settingsState.ttsUseGpu && (
+          <div className="audio-control-bar__warning">
+            {t("chat.audioBar.cpuWarning")}
+          </div>
+        )}
+
         {isLoading ? (
           <div className="audio-control-bar__progress audio-control-bar__progress--indeterminate">
             <div className="audio-control-bar__progress-fill" />
@@ -141,6 +155,74 @@ export default function AudioControlBar() {
             </span>
           </div>
         )}
+      </div>
+
+      <div className="audio-control-bar__extra">
+        <button
+          type="button"
+          className="audio-control-bar__btn audio-control-bar__btn--sm"
+          onClick={() => setAudioMuted(!audioPrefs.muted)}
+          aria-label={t(
+            audioPrefs.muted ? "chat.audioBar.unmute" : "chat.audioBar.mute",
+          )}
+          title={t(
+            audioPrefs.muted ? "chat.audioBar.unmute" : "chat.audioBar.mute",
+          )}
+        >
+          {audioPrefs.muted ? (
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+              <line x1="23" y1="9" x2="17" y2="15" />
+              <line x1="17" y1="9" x2="23" y2="15" />
+            </svg>
+          ) : (
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+              <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+            </svg>
+          )}
+        </button>
+        <input
+          type="range"
+          className="audio-control-bar__volume"
+          min={0}
+          max={1}
+          step={0.01}
+          value={audioPrefs.volume}
+          onChange={(e) => setAudioVolume(Number(e.target.value))}
+          aria-label={t("chat.audioBar.volume")}
+        />
+        <select
+          className="audio-control-bar__speed"
+          value={audioPrefs.playbackRate}
+          onChange={(e) => setAudioPlaybackRate(Number(e.target.value))}
+          aria-label={t("chat.audioBar.speed")}
+          title={t("chat.audioBar.speed")}
+        >
+          {PLAYBACK_RATE_OPTIONS.map((rate) => (
+            <option key={rate} value={rate}>
+              {rate}x
+            </option>
+          ))}
+        </select>
       </div>
     </div>
   );

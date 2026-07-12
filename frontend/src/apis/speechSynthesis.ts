@@ -146,6 +146,23 @@ export async function stopAivisEngine(): Promise<{
   return parseJsonOrThrow<{ status: string; pid?: number }>(res);
 }
 
+/**
+ * エンジンが起動していなければ起動する。再生・保存・スピーカー取得などの
+ * 実行前に呼び出すことで、エンジン停止時にユーザーが手動で起動し直す手間を省く。
+ */
+export async function ensureAivisEngineRunning(
+  engineDir: string,
+  useGpu: boolean,
+): Promise<AivisStatus> {
+  const status = await getAivisStatus();
+  if (status.process === "running" || status.engine_http === "ok") {
+    return status;
+  }
+
+  await startAivisEngine({ engine_dir: engineDir, use_gpu: useGpu });
+  return getAivisStatus();
+}
+
 export async function downloadAivisModel(payload: DownloadPayload): Promise<{
   path: string;
   size: string;

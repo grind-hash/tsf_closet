@@ -76,6 +76,53 @@
   letter-spacing: 0.05em;
 }
 
+/* 音声合成エンジン起動/停止 */
+.right-panel__aivis-engine {
+  background-color: var(--bg-color, #1a1a2e);
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+}
+
+.right-panel__aivis-engine-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.right-panel__aivis-engine-status {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.right-panel__aivis-engine-status--running {
+  color: #34d399;
+}
+
+.right-panel__aivis-engine-status--stopped {
+  color: var(--text-muted, #888);
+}
+
+.right-panel__aivis-engine-btn {
+  border: 1px solid var(--border-color, #333);
+  background: var(--bg-secondary, #1a1a2e);
+  color: var(--text-color, #eee);
+  border-radius: 8px;
+  padding: 0.4rem 0.75rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.right-panel__aivis-engine-btn:hover:not(:disabled) {
+  border-color: var(--accent-color, #e94560);
+  background: rgba(233, 69, 96, 0.12);
+}
+
+.right-panel__aivis-engine-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 /* トグルスイッチ */
 .right-panel__toggle {
   display: flex;

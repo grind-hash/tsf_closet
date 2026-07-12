@@ -10,7 +10,10 @@ import { useTranslation } from "react-i18next";
 import { useChat } from "../../contexts/ChatContext";
 import { useGame } from "../../contexts/GameContext";
 import { useSettings } from "../../contexts/SettingsContext";
-import { synthesizeSpeech } from "../../apis/speechSynthesis";
+import {
+  synthesizeSpeech,
+  ensureAivisEngineRunning,
+} from "../../apis/speechSynthesis";
 import type { ChatMessage } from "../../types";
 import "./ChatMessage.css";
 
@@ -90,6 +93,10 @@ const ChatMessageItem = forwardRef<HTMLDivElement, ChatMessageProps>(
 
       setDownloadBusy(true);
       try {
+        await ensureAivisEngineRunning(
+          settingsState.ttsEngineDir,
+          settingsState.ttsUseGpu,
+        );
         return await synthesizeSpeech({
           text: message.content,
           speaker_id: speakerId,
@@ -100,7 +107,13 @@ const ChatMessageItem = forwardRef<HTMLDivElement, ChatMessageProps>(
       } finally {
         setDownloadBusy(false);
       }
-    }, [message.content, resolveSpeakerId, t]);
+    }, [
+      message.content,
+      resolveSpeakerId,
+      settingsState.ttsEngineDir,
+      settingsState.ttsUseGpu,
+      t,
+    ]);
 
     const handlePlayAudio = useCallback(() => {
       // 既にこのメッセージを再生・一時停止中なら再生/一時停止を切り替えるだけ
@@ -115,9 +128,16 @@ const ChatMessageItem = forwardRef<HTMLDivElement, ChatMessageProps>(
         return;
       }
 
-      void playMessageAudio(message.id, () =>
-        synthesizeSpeech({ text: message.content, speaker_id: speakerId }),
-      );
+      void playMessageAudio(message.id, async () => {
+        await ensureAivisEngineRunning(
+          settingsState.ttsEngineDir,
+          settingsState.ttsUseGpu,
+        );
+        return synthesizeSpeech({
+          text: message.content,
+          speaker_id: speakerId,
+        });
+      });
     }, [
       isThisMessageAudio,
       isAudioPlaying,
@@ -127,6 +147,8 @@ const ChatMessageItem = forwardRef<HTMLDivElement, ChatMessageProps>(
       playMessageAudio,
       message.id,
       message.content,
+      settingsState.ttsEngineDir,
+      settingsState.ttsUseGpu,
       t,
     ]);
 

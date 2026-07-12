@@ -103,3 +103,39 @@
     left: 100%;
   }
 }
+
+.audio-control-bar__warning {
+  font-size: 0.7rem;
+  color: #f59e0b;
+}
+
+.audio-control-bar__extra {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.audio-control-bar__btn--sm {
+  width: 1.75rem;
+  height: 1.75rem;
+}
+
+.audio-control-bar__volume {
+  width: 4.5rem;
+  height: 4px;
+  accent-color: #60a5fa;
+  cursor: pointer;
+}
+
+.audio-control-bar__speed {
+  flex-shrink: 0;
+  background-color: rgba(255, 255, 255, 0.08);
+  color: var(--text-color, #eee);
+  border: 1px solid var(--border-color, #333);
+  border-radius: 6px;
+  font-size: 0.7rem;
+  padding: 0.15rem 0.25rem;
+  cursor: pointer;
+}
+

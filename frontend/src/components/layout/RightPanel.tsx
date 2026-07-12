@@ -22,6 +22,12 @@ import type {
   PreciseReferenceType,
 } from "../../types";
 import { previewPrompt, type PreviewPromptResponse } from "../../apis/game";
+import {
+  getAivisStatus,
+  startAivisEngine,
+  stopAivisEngine,
+  type AivisStatus,
+} from "../../apis/speechSynthesis";
 import { generateUUID } from "../../utils/generateUUID";
 import MemorySettings from "../settings/MemorySettings";
 import "./RightPanel.css";
@@ -92,6 +98,56 @@ export default function RightPanel({
   } = useSettings();
   const { state: gameState, addAttribute, removeAttribute } = useGame();
   const { state: chatState, setInputText } = useChat();
+
+  // 音声合成エンジンの状態・起動・停止（設定画面を開かずとも操作できるようにする）
+  const [aivisStatus, setAivisStatus] = useState<AivisStatus | null>(null);
+  const [aivisBusy, setAivisBusy] = useState(false);
+
+  useEffect(() => {
+    if (!settingsState.ttsEnabled) {
+      return;
+    }
+
+    let cancelled = false;
+    const refresh = async () => {
+      try {
+        const status = await getAivisStatus();
+        if (!cancelled) {
+          setAivisStatus(status);
+        }
+      } catch {
+        // プラシップボールのポーリングでの失敗は面面に出さず次回に委ねる
+      }
+    };
+    void refresh();
+    const intervalId = window.setInterval(() => void refresh(), 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [settingsState.ttsEnabled]);
+
+  const aivisEngineReady =
+    aivisStatus?.engine_http === "ok" || aivisStatus?.process === "running";
+
+  const handleToggleAivisEngine = useCallback(async () => {
+    setAivisBusy(true);
+    try {
+      if (aivisEngineReady) {
+        await stopAivisEngine();
+      } else {
+        await startAivisEngine({
+          engine_dir: settingsState.ttsEngineDir,
+          use_gpu: settingsState.ttsUseGpu,
+        });
+      }
+      setAivisStatus(await getAivisStatus());
+    } catch {
+      // エラー詳細は設定画面の詳細情報で確認できるため、ここでは簡易表示のみとする
+    } finally {
+      setAivisBusy(false);
+    }
+  }, [aivisEngineReady, settingsState.ttsEngineDir, settingsState.ttsUseGpu]);
 
   // プロンプトプレビュー状態
   const [previewResult, setPreviewResult] =
@@ -483,6 +539,36 @@ export default function RightPanel({
       </div>
 
       <div className="right-panel__content">
+        {/* 音声合成エンジンの起動・停止 */}
+        {settingsState.ttsEnabled && (
+          <section className="right-panel__section right-panel__aivis-engine">
+            <h4 className="right-panel__section-title">
+              {t("rightPanel.aivisEngineTitle")}
+            </h4>
+            <div className="right-panel__aivis-engine-row">
+              <span
+                className={`right-panel__aivis-engine-status right-panel__aivis-engine-status--${
+                  aivisEngineReady ? "running" : "stopped"
+                }`}
+              >
+                {aivisEngineReady
+                  ? t("rightPanel.aivisEngineRunning")
+                  : t("rightPanel.aivisEngineStopped")}
+              </span>
+              <button
+                type="button"
+                className="right-panel__aivis-engine-btn"
+                disabled={aivisBusy}
+                onClick={() => void handleToggleAivisEngine()}
+              >
+                {aivisEngineReady
+                  ? t("rightPanel.aivisEngineStop")
+                  : t("rightPanel.aivisEngineStart")}
+              </button>
+            </div>
+          </section>
+        )}
+
         {/* 属性付与セクション */}
         <section className="right-panel__section">
           <h4 className="right-panel__section-title">
