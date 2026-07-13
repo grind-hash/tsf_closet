@@ -32,6 +32,15 @@ class User(Base):
     novelai_text_model: Mapped[str] = mapped_column(
         String, default="glm-4-6", nullable=False, server_default="glm-4-6"
     )
+    tts_enabled: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    tts_use_gpu: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    tts_engine_dir: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    tts_model_dir: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    tts_speaker_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    tts_style_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    tts_output_format: Mapped[str] = mapped_column(
+        String, default="wav", nullable=False, server_default="wav"
+    )
     self_profile_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     memory_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 

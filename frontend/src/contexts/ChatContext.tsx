@@ -9,6 +9,7 @@ import {
   useReducer,
   useCallback,
   useRef,
+  useState,
   type ReactNode,
 } from "react";
 import type {
@@ -80,6 +81,75 @@ type ChatAction =
   | { type: "REPLACE_MESSAGE_ID"; payload: { oldId: string; newId: string } }
   | { type: "CLEAR_INPUT" }
   | { type: "CLEAR_MESSAGES" };
+
+// 音声再生状態（チャット欄下部のオーディオコントロールバー用）
+export type AudioPlaybackStatus = "idle" | "loading" | "playing" | "paused";
+
+export interface AudioPlaybackState {
+  messageId: string | null;
+  status: AudioPlaybackStatus;
+  currentTime: number;
+  duration: number;
+  error: string | null;
+}
+
+const defaultAudioPlayback: AudioPlaybackState = {
+  messageId: null,
+  status: "idle",
+  currentTime: 0,
+  duration: 0,
+  error: null,
+};
+
+// 音声再生の環境設定（ミュート/音量/再生速度）。センシティブな内容を読み上げる
+// 可能性があるため、初期状態は必ずミュートにし、localStorage に永続化する。
+const AUDIO_PREFS_STORAGE_KEY = "tsf_closet_audio_prefs";
+
+export interface AudioPreferences {
+  muted: boolean;
+  volume: number;
+  playbackRate: number;
+}
+
+const defaultAudioPreferences: AudioPreferences = {
+  muted: true,
+  volume: 0.8,
+  playbackRate: 1,
+};
+
+function loadAudioPreferences(): AudioPreferences {
+  try {
+    const raw = localStorage.getItem(AUDIO_PREFS_STORAGE_KEY);
+    if (!raw) {
+      return { ...defaultAudioPreferences };
+    }
+    const parsed = JSON.parse(raw) as Partial<AudioPreferences>;
+    return {
+      muted:
+        typeof parsed.muted === "boolean"
+          ? parsed.muted
+          : defaultAudioPreferences.muted,
+      volume:
+        typeof parsed.volume === "number"
+          ? Math.min(1, Math.max(0, parsed.volume))
+          : defaultAudioPreferences.volume,
+      playbackRate:
+        typeof parsed.playbackRate === "number"
+          ? Math.min(2, Math.max(0.5, parsed.playbackRate))
+          : defaultAudioPreferences.playbackRate,
+    };
+  } catch {
+    return { ...defaultAudioPreferences };
+  }
+}
+
+function saveAudioPreferences(prefs: AudioPreferences): void {
+  try {
+    localStorage.setItem(AUDIO_PREFS_STORAGE_KEY, JSON.stringify(prefs));
+  } catch {
+    // localStorage が利用できない環境では無視する
+  }
+}
 
 // デフォルト状態
 const defaultState: ChatState = {
@@ -307,6 +377,18 @@ interface ChatContextType {
   clearInput: () => void;
   clearMessages: () => void;
   messageListRef: React.RefObject<HTMLDivElement | null>;
+  audioPlayback: AudioPlaybackState;
+  playMessageAudio: (
+    messageId: string,
+    fetchAudio: () => Promise<Blob>,
+  ) => Promise<void>;
+  toggleAudioPause: () => void;
+  stopAudio: () => void;
+  seekAudio: (time: number) => void;
+  audioPrefs: AudioPreferences;
+  setAudioVolume: (volume: number) => void;
+  setAudioMuted: (muted: boolean) => void;
+  setAudioPlaybackRate: (rate: number) => void;
 }
 
 // Context作成
@@ -316,6 +398,181 @@ const ChatContext = createContext<ChatContextType | null>(null);
 export function ChatProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(chatReducer, defaultState);
   const messageListRef = useRef<HTMLDivElement | null>(null);
+
+  const [audioPlayback, setAudioPlayback] =
+    useState<AudioPlaybackState>(defaultAudioPlayback);
+  const audioElementRef = useRef<HTMLAudioElement | null>(null);
+  const audioUrlRef = useRef<string | null>(null);
+  const audioRequestIdRef = useRef(0);
+  const [audioPrefs, setAudioPrefsState] = useState<AudioPreferences>(() =>
+    loadAudioPreferences(),
+  );
+
+  const revokeAudioUrl = useCallback(() => {
+    if (audioUrlRef.current) {
+      URL.revokeObjectURL(audioUrlRef.current);
+      audioUrlRef.current = null;
+    }
+  }, []);
+
+  const ensureAudioElement = useCallback(() => {
+    if (audioElementRef.current) {
+      return audioElementRef.current;
+    }
+
+    const audio = new Audio();
+    audio.volume = audioPrefs.volume;
+    audio.muted = audioPrefs.muted;
+    audio.playbackRate = audioPrefs.playbackRate;
+    audio.addEventListener("timeupdate", () => {
+      setAudioPlayback((prev) => ({ ...prev, currentTime: audio.currentTime }));
+    });
+    audio.addEventListener("loadedmetadata", () => {
+      setAudioPlayback((prev) => ({
+        ...prev,
+        duration: Number.isFinite(audio.duration) ? audio.duration : 0,
+      }));
+    });
+    audio.addEventListener("play", () => {
+      setAudioPlayback((prev) => ({ ...prev, status: "playing" }));
+    });
+    audio.addEventListener("pause", () => {
+      setAudioPlayback((prev) =>
+        prev.status === "playing" ? { ...prev, status: "paused" } : prev,
+      );
+    });
+    audio.addEventListener("ended", () => {
+      // 再生完了で自動にバーを閉じない。先頭に巻き戻して paused にし、
+      // 音量/再生速度の調整や再生をそのまま行えるようにする。
+      audio.currentTime = 0;
+      setAudioPlayback((prev) => ({
+        ...prev,
+        status: "paused",
+        currentTime: 0,
+      }));
+    });
+    audioElementRef.current = audio;
+    return audio;
+  }, [audioPrefs]);
+
+  const playMessageAudio = useCallback(
+    async (messageId: string, fetchAudio: () => Promise<Blob>) => {
+      const requestId = ++audioRequestIdRef.current;
+      const audio = ensureAudioElement();
+      audio.pause();
+      revokeAudioUrl();
+      setAudioPlayback({
+        messageId,
+        status: "loading",
+        currentTime: 0,
+        duration: 0,
+        error: null,
+      });
+
+      try {
+        const blob = await fetchAudio();
+        // ロード中に停止または別メッセージの再生が開始されていたら結果を無視する
+        if (audioRequestIdRef.current !== requestId) {
+          return;
+        }
+        const url = URL.createObjectURL(blob);
+        audioUrlRef.current = url;
+        audio.src = url;
+        audio.volume = audioPrefs.volume;
+        audio.muted = audioPrefs.muted;
+        audio.playbackRate = audioPrefs.playbackRate;
+        await audio.play();
+        setAudioPlayback({
+          messageId,
+          status: "playing",
+          currentTime: 0,
+          duration: 0,
+          error: null,
+        });
+      } catch (error) {
+        if (audioRequestIdRef.current !== requestId) {
+          return;
+        }
+        revokeAudioUrl();
+        setAudioPlayback({
+          messageId,
+          status: "idle",
+          currentTime: 0,
+          duration: 0,
+          error: String((error as Error)?.message ?? error),
+        });
+      }
+    },
+    [ensureAudioElement, revokeAudioUrl, audioPrefs],
+  );
+
+  const toggleAudioPause = useCallback(() => {
+    const audio = audioElementRef.current;
+    if (!audio) {
+      return;
+    }
+    if (audio.paused) {
+      void audio.play();
+    } else {
+      audio.pause();
+    }
+  }, []);
+
+  const stopAudio = useCallback(() => {
+    audioRequestIdRef.current += 1;
+    const audio = audioElementRef.current;
+    if (audio) {
+      audio.pause();
+      audio.currentTime = 0;
+    }
+    revokeAudioUrl();
+    setAudioPlayback(defaultAudioPlayback);
+  }, [revokeAudioUrl]);
+
+  const seekAudio = useCallback((time: number) => {
+    const audio = audioElementRef.current;
+    if (audio) {
+      audio.currentTime = time;
+    }
+  }, []);
+
+  const setAudioVolume = useCallback((volume: number) => {
+    const clamped = Math.min(1, Math.max(0, volume));
+    const audio = audioElementRef.current;
+    if (audio) {
+      audio.volume = clamped;
+    }
+    setAudioPrefsState((prev) => {
+      const next = { ...prev, volume: clamped };
+      saveAudioPreferences(next);
+      return next;
+    });
+  }, []);
+
+  const setAudioMuted = useCallback((muted: boolean) => {
+    const audio = audioElementRef.current;
+    if (audio) {
+      audio.muted = muted;
+    }
+    setAudioPrefsState((prev) => {
+      const next = { ...prev, muted };
+      saveAudioPreferences(next);
+      return next;
+    });
+  }, []);
+
+  const setAudioPlaybackRate = useCallback((rate: number) => {
+    const clamped = Math.min(2, Math.max(0.5, rate));
+    const audio = audioElementRef.current;
+    if (audio) {
+      audio.playbackRate = clamped;
+    }
+    setAudioPrefsState((prev) => {
+      const next = { ...prev, playbackRate: clamped };
+      saveAudioPreferences(next);
+      return next;
+    });
+  }, []);
 
   const setMessages = useCallback((messages: ChatMessage[]) => {
     dispatch({ type: "SET_MESSAGES", payload: messages });
@@ -502,6 +759,15 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     clearInput,
     clearMessages,
     messageListRef,
+    audioPlayback,
+    playMessageAudio,
+    toggleAudioPause,
+    stopAudio,
+    seekAudio,
+    audioPrefs,
+    setAudioVolume,
+    setAudioMuted,
+    setAudioPlaybackRate,
   };
 
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;

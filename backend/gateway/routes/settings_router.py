@@ -31,6 +31,13 @@ class UserSettingsResponse(BaseModel):
     difficulty: str
     language: LanguageCode
     novelai_text_model: str = "glm-4-6"
+    tts_enabled: bool = False
+    tts_use_gpu: bool = False
+    tts_engine_dir: str | None = None
+    tts_model_dir: str | None = None
+    tts_speaker_id: str | None = None
+    tts_style_id: str | None = None
+    tts_output_format: Literal["wav"] = "wav"
 
 
 class UserSettingsUpdateRequest(BaseModel):
@@ -38,6 +45,13 @@ class UserSettingsUpdateRequest(BaseModel):
     difficulty: Literal["easy", "normal", "hard"] | None = None
     language: LanguageCode | None = None
     novelai_text_model: Literal["glm-4-6", "xialong-v1"] | None = None
+    tts_enabled: bool | None = None
+    tts_use_gpu: bool | None = None
+    tts_engine_dir: str | None = None
+    tts_model_dir: str | None = None
+    tts_speaker_id: str | None = None
+    tts_style_id: str | None = None
+    tts_output_format: Literal["wav"] | None = None
 
 
 class InpaintSettingsModel(BaseModel):
@@ -149,6 +163,13 @@ async def update_user_settings(
             difficulty=request.difficulty,
             language=request.language,
             novelai_text_model=request.novelai_text_model,
+            tts_enabled=request.tts_enabled,
+            tts_use_gpu=request.tts_use_gpu,
+            tts_engine_dir=request.tts_engine_dir,
+            tts_model_dir=request.tts_model_dir,
+            tts_speaker_id=request.tts_speaker_id,
+            tts_style_id=request.tts_style_id,
+            tts_output_format=request.tts_output_format,
         )
         return UserSettingsResponse(**updated)
     except Exception as exc:

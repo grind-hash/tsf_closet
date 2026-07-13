@@ -180,6 +180,27 @@ class Settings:
     )
     history_max_count: int = int(os.getenv("HISTORY_MAX_COUNT", "50"))
 
+    # AivisSpeech (Windows only)
+    aivis_engine_base_url: str = os.getenv(
+        "AIVIS_ENGINE_BASE_URL", "http://127.0.0.1:10101"
+    )
+    aivis_engine_download_url: str = os.getenv(
+        "AIVIS_ENGINE_DOWNLOAD_URL",
+        "https://github.com/Aivis-Project/AivisSpeech/releases/download/1.1.0-preview.4/AivisSpeech-Windows-x64-1.1.0-preview.4.zip",
+    )
+    aivis_default_model_url: str = os.getenv(
+        "AIVIS_DEFAULT_MODEL_URL",
+        "https://hub.aivis-project.com/aivm-models/7fc08a41-b64d-456d-8b22-8e1284674775",
+    )
+    aivis_download_timeout: float = float(os.getenv("AIVIS_DOWNLOAD_TIMEOUT", "300"))
+    aivis_max_download_bytes: int = int(
+        os.getenv("AIVIS_MAX_DOWNLOAD_BYTES", str(2 * 1024 * 1024 * 1024))
+    )
+    aivis_allowed_download_hosts: str = os.getenv(
+        "AIVIS_ALLOWED_DOWNLOAD_HOSTS",
+        "github.com,objects.githubusercontent.com,release-assets.githubusercontent.com,hub.aivis-project.com",
+    )
+
     def __post_init__(self) -> None:
         if self.multipart_max_part_size <= 0:
             raise ValueError("MULTIPART_MAX_PART_SIZE_BYTES must be a positive integer")

@@ -88,6 +88,13 @@ class SettingsService:
             "difficulty": "normal",
             "language": DEFAULT_LANGUAGE,
             "novelai_text_model": "glm-4-6",
+            "tts_enabled": False,
+            "tts_use_gpu": False,
+            "tts_engine_dir": None,
+            "tts_model_dir": None,
+            "tts_speaker_id": None,
+            "tts_style_id": None,
+            "tts_output_format": "wav",
         }
 
     @staticmethod
@@ -97,6 +104,13 @@ class SettingsService:
             "difficulty": user.difficulty or "normal",
             "language": normalize_language(user.language),
             "novelai_text_model": user.novelai_text_model or "glm-4-6",
+            "tts_enabled": bool(user.tts_enabled),
+            "tts_use_gpu": bool(user.tts_use_gpu),
+            "tts_engine_dir": user.tts_engine_dir,
+            "tts_model_dir": user.tts_model_dir,
+            "tts_speaker_id": user.tts_speaker_id,
+            "tts_style_id": user.tts_style_id,
+            "tts_output_format": user.tts_output_format or "wav",
         }
 
     async def _get_user_settings_with_session(
@@ -124,10 +138,29 @@ class SettingsService:
         difficulty: str | None = None,
         language: str | None = None,
         novelai_text_model: str | None = None,
+        tts_enabled: bool | None = None,
+        tts_use_gpu: bool | None = None,
+        tts_engine_dir: str | None = None,
+        tts_model_dir: str | None = None,
+        tts_speaker_id: str | None = None,
+        tts_style_id: str | None = None,
+        tts_output_format: str | None = None,
     ) -> dict:
         has_updates = any(
             value is not None
-            for value in (nsfw_mode, difficulty, language, novelai_text_model)
+            for value in (
+                nsfw_mode,
+                difficulty,
+                language,
+                novelai_text_model,
+                tts_enabled,
+                tts_use_gpu,
+                tts_engine_dir,
+                tts_model_dir,
+                tts_speaker_id,
+                tts_style_id,
+                tts_output_format,
+            )
         )
 
         async with async_session_factory() as session:
@@ -143,6 +176,9 @@ class SettingsService:
                     nsfw_mode=0,
                     difficulty="normal",
                     language=DEFAULT_LANGUAGE,
+                    tts_enabled=0,
+                    tts_use_gpu=0,
+                    tts_output_format="wav",
                 )
                 session.add(user)
 
@@ -154,6 +190,20 @@ class SettingsService:
                 user.language = normalize_language(language)
             if novelai_text_model is not None:
                 user.novelai_text_model = novelai_text_model
+            if tts_enabled is not None:
+                user.tts_enabled = 1 if tts_enabled else 0
+            if tts_use_gpu is not None:
+                user.tts_use_gpu = 1 if tts_use_gpu else 0
+            if tts_engine_dir is not None:
+                user.tts_engine_dir = tts_engine_dir.strip() or None
+            if tts_model_dir is not None:
+                user.tts_model_dir = tts_model_dir.strip() or None
+            if tts_speaker_id is not None:
+                user.tts_speaker_id = tts_speaker_id.strip() or None
+            if tts_style_id is not None:
+                user.tts_style_id = tts_style_id.strip() or None
+            if tts_output_format is not None:
+                user.tts_output_format = tts_output_format
 
             if has_updates:
                 await session.commit()

@@ -109,6 +109,15 @@ interface SettingsState {
   // NovelAI subscription tier (null = unknown)
   novelaiTier: number | null;
 
+  // Text-to-Speech (AivisSpeech)
+  ttsEnabled: boolean;
+  ttsUseGpu: boolean;
+  ttsEngineDir: string;
+  ttsModelDir: string;
+  ttsSpeakerId: string | null;
+  ttsStyleId: string | null;
+  ttsOutputFormat: "wav";
+
   // spec 004 (US4): プロンプト生成時に参照する履歴遡及件数 (5..20, default 10)
   historyLookbackCount: number;
 
@@ -164,6 +173,13 @@ type SettingsAction =
   | { type: "SET_MULTI_CHARACTER_PANEL_ENABLED"; payload: boolean }
   | { type: "SET_NOVELAI_TEXT_MODEL"; payload: string }
   | { type: "SET_NOVELAI_TIER"; payload: number | null }
+  | { type: "SET_TTS_ENABLED"; payload: boolean }
+  | { type: "SET_TTS_USE_GPU"; payload: boolean }
+  | { type: "SET_TTS_ENGINE_DIR"; payload: string }
+  | { type: "SET_TTS_MODEL_DIR"; payload: string }
+  | { type: "SET_TTS_SPEAKER_ID"; payload: string | null }
+  | { type: "SET_TTS_STYLE_ID"; payload: string | null }
+  | { type: "SET_TTS_OUTPUT_FORMAT"; payload: "wav" }
   | { type: "SET_HISTORY_LOOKBACK_COUNT"; payload: number }
   | { type: "SET_MEMORY_TEXT"; payload: string | null };
 
@@ -200,6 +216,13 @@ const defaultState: SettingsState = {
   multiCharacterPanelEnabled: true,
   novelaiTextModel: "glm-4-6",
   novelaiTier: null,
+  ttsEnabled: false,
+  ttsUseGpu: false,
+  ttsEngineDir: "contrib/AivisSpeech",
+  ttsModelDir: "%APPDATA%\\AivisSpeech-Engine\\Models",
+  ttsSpeakerId: null,
+  ttsStyleId: null,
+  ttsOutputFormat: "wav",
   historyLookbackCount: 10,
   memoryText: null,
 };
@@ -327,6 +350,20 @@ function settingsReducer(
       return { ...state, novelaiTextModel: action.payload };
     case "SET_NOVELAI_TIER":
       return { ...state, novelaiTier: action.payload };
+    case "SET_TTS_ENABLED":
+      return { ...state, ttsEnabled: action.payload };
+    case "SET_TTS_USE_GPU":
+      return { ...state, ttsUseGpu: action.payload };
+    case "SET_TTS_ENGINE_DIR":
+      return { ...state, ttsEngineDir: action.payload };
+    case "SET_TTS_MODEL_DIR":
+      return { ...state, ttsModelDir: action.payload };
+    case "SET_TTS_SPEAKER_ID":
+      return { ...state, ttsSpeakerId: action.payload };
+    case "SET_TTS_STYLE_ID":
+      return { ...state, ttsStyleId: action.payload };
+    case "SET_TTS_OUTPUT_FORMAT":
+      return { ...state, ttsOutputFormat: action.payload };
     case "SET_HISTORY_LOOKBACK_COUNT":
       return {
         ...state,
@@ -390,6 +427,13 @@ interface SettingsContextType {
   setMultiCharacterPanelEnabled: (enabled: boolean) => void;
   setNovelaiTextModel: (model: string) => void;
   setNovelaiTier: (tier: number | null) => void;
+  setTtsEnabled: (enabled: boolean) => void;
+  setTtsUseGpu: (enabled: boolean) => void;
+  setTtsEngineDir: (engineDir: string) => void;
+  setTtsModelDir: (modelDir: string) => void;
+  setTtsSpeakerId: (speakerId: string | null) => void;
+  setTtsStyleId: (styleId: string | null) => void;
+  setTtsOutputFormat: (format: "wav") => void;
   setHistoryLookbackCount: (count: number) => void;
   // メモリ機能
   memoryText: string | null;
@@ -506,6 +550,14 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
               difficulty: data.difficulty,
               language: data.language ?? DEFAULT_LANGUAGE,
               novelaiTextModel: data.novelai_text_model ?? "glm-4-6",
+              ttsEnabled: data.tts_enabled ?? false,
+              ttsUseGpu: data.tts_use_gpu ?? false,
+              ttsEngineDir: data.tts_engine_dir ?? "contrib/AivisSpeech",
+              ttsModelDir:
+                data.tts_model_dir ?? "%APPDATA%\\AivisSpeech-Engine\\Models",
+              ttsSpeakerId: data.tts_speaker_id ?? null,
+              ttsStyleId: data.tts_style_id ?? null,
+              ttsOutputFormat: data.tts_output_format ?? "wav",
             },
           });
         }
@@ -860,6 +912,97 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "SET_NOVELAI_TIER", payload: tier });
   }, []);
 
+  const setTtsEnabled = useCallback(async (enabled: boolean) => {
+    dispatch({ type: "SET_TTS_ENABLED", payload: enabled });
+    try {
+      await fetch("/api/settings/user", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tts_enabled: enabled }),
+      });
+    } catch (error) {
+      console.error("Failed to save tts_enabled to backend:", error);
+    }
+  }, []);
+
+  const setTtsUseGpu = useCallback(async (enabled: boolean) => {
+    dispatch({ type: "SET_TTS_USE_GPU", payload: enabled });
+    try {
+      await fetch("/api/settings/user", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tts_use_gpu: enabled }),
+      });
+    } catch (error) {
+      console.error("Failed to save tts_use_gpu to backend:", error);
+    }
+  }, []);
+
+  const setTtsEngineDir = useCallback(async (engineDir: string) => {
+    dispatch({ type: "SET_TTS_ENGINE_DIR", payload: engineDir });
+    try {
+      await fetch("/api/settings/user", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tts_engine_dir: engineDir }),
+      });
+    } catch (error) {
+      console.error("Failed to save tts_engine_dir to backend:", error);
+    }
+  }, []);
+
+  const setTtsModelDir = useCallback(async (modelDir: string) => {
+    dispatch({ type: "SET_TTS_MODEL_DIR", payload: modelDir });
+    try {
+      await fetch("/api/settings/user", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tts_model_dir: modelDir }),
+      });
+    } catch (error) {
+      console.error("Failed to save tts_model_dir to backend:", error);
+    }
+  }, []);
+
+  const setTtsSpeakerId = useCallback(async (speakerId: string | null) => {
+    dispatch({ type: "SET_TTS_SPEAKER_ID", payload: speakerId });
+    try {
+      await fetch("/api/settings/user", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tts_speaker_id: speakerId ?? "" }),
+      });
+    } catch (error) {
+      console.error("Failed to save tts_speaker_id to backend:", error);
+    }
+  }, []);
+
+  const setTtsStyleId = useCallback(async (styleId: string | null) => {
+    dispatch({ type: "SET_TTS_STYLE_ID", payload: styleId });
+    try {
+      await fetch("/api/settings/user", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tts_style_id: styleId ?? "" }),
+      });
+    } catch (error) {
+      console.error("Failed to save tts_style_id to backend:", error);
+    }
+  }, []);
+
+  const setTtsOutputFormat = useCallback(async (format: "wav") => {
+    dispatch({ type: "SET_TTS_OUTPUT_FORMAT", payload: format });
+    try {
+      await fetch("/api/settings/user", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tts_output_format: format }),
+      });
+    } catch (error) {
+      console.error("Failed to save tts_output_format to backend:", error);
+    }
+  }, []);
+
   const setHistoryLookbackCount = useCallback(async (count: number) => {
     const clamped = Math.max(5, Math.min(20, Math.trunc(count)));
     dispatch({ type: "SET_HISTORY_LOOKBACK_COUNT", payload: clamped });
@@ -930,6 +1073,13 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setMultiCharacterPanelEnabled,
     setNovelaiTextModel,
     setNovelaiTier,
+    setTtsEnabled,
+    setTtsUseGpu,
+    setTtsEngineDir,
+    setTtsModelDir,
+    setTtsSpeakerId,
+    setTtsStyleId,
+    setTtsOutputFormat,
     setHistoryLookbackCount,
     memoryText: state.memoryText,
     setMemoryText,

@@ -10,6 +10,10 @@ import { useTranslation } from "react-i18next";
 import { useChat } from "../../contexts/ChatContext";
 import { useGame } from "../../contexts/GameContext";
 import { useSettings } from "../../contexts/SettingsContext";
+import {
+  synthesizeSpeech,
+  ensureAivisEngineRunning,
+} from "../../apis/speechSynthesis";
 import type { ChatMessage } from "../../types";
 import "./ChatMessage.css";
 
@@ -36,10 +40,16 @@ const ChatMessageItem = forwardRef<HTMLDivElement, ChatMessageProps>(
   ) => {
     const { t, i18n } = useTranslation();
     const { state } = useGame();
-    const { state: chatState } = useChat();
-    const { selfProfile } = useSettings();
+    const {
+      state: chatState,
+      audioPlayback,
+      playMessageAudio,
+      toggleAudioPause,
+    } = useChat();
+    const { selfProfile, state: settingsState } = useSettings();
     const isBusy = state.isTransforming || chatState.isStreaming;
     const [copied, setCopied] = useState(false);
+    const [downloadBusy, setDownloadBusy] = useState(false);
     const copyTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
     const isUser = message.role === "user";
 
@@ -51,6 +61,112 @@ const ChatMessageItem = forwardRef<HTMLDivElement, ChatMessageProps>(
       });
     }, [message.content]);
     const isSystem = message.role === "system";
+    // 復元された会話メッセージは role: "system" になり、ライブメッセージのみが
+    // role: "character" になる。キャラクター側の全メッセージを対象にするため
+    // role !== "user" で判定する。
+    const canUseAudio = settingsState.ttsEnabled && !isUser;
+
+    const resolveSpeakerId = useCallback((): string | null => {
+      if (settingsState.ttsStyleId && settingsState.ttsStyleId.trim()) {
+        return settingsState.ttsStyleId;
+      }
+      if (settingsState.ttsSpeakerId && settingsState.ttsSpeakerId.trim()) {
+        return settingsState.ttsSpeakerId;
+      }
+      return null;
+    }, [settingsState.ttsSpeakerId, settingsState.ttsStyleId]);
+
+    const isThisMessageAudio = audioPlayback.messageId === message.id;
+    const isAudioLoading =
+      isThisMessageAudio && audioPlayback.status === "loading";
+    const isAudioPlaying =
+      isThisMessageAudio && audioPlayback.status === "playing";
+    const isAudioPaused =
+      isThisMessageAudio && audioPlayback.status === "paused";
+
+    const requestAudioBlob = useCallback(async (): Promise<Blob | null> => {
+      const speakerId = resolveSpeakerId();
+      if (!speakerId) {
+        alert(t("chat.message.audioError"));
+        return null;
+      }
+
+      setDownloadBusy(true);
+      try {
+        await ensureAivisEngineRunning(
+          settingsState.ttsEngineDir,
+          settingsState.ttsUseGpu,
+        );
+        return await synthesizeSpeech({
+          text: message.content,
+          speaker_id: speakerId,
+        });
+      } catch {
+        alert(t("chat.message.audioError"));
+        return null;
+      } finally {
+        setDownloadBusy(false);
+      }
+    }, [
+      message.content,
+      resolveSpeakerId,
+      settingsState.ttsEngineDir,
+      settingsState.ttsUseGpu,
+      t,
+    ]);
+
+    const handlePlayAudio = useCallback(() => {
+      // 既にこのメッセージを再生・一時停止中なら再生/一時停止を切り替えるだけ
+      if (isThisMessageAudio && (isAudioPlaying || isAudioPaused)) {
+        toggleAudioPause();
+        return;
+      }
+
+      const speakerId = resolveSpeakerId();
+      if (!speakerId) {
+        alert(t("chat.message.audioError"));
+        return;
+      }
+
+      void playMessageAudio(message.id, async () => {
+        await ensureAivisEngineRunning(
+          settingsState.ttsEngineDir,
+          settingsState.ttsUseGpu,
+        );
+        return synthesizeSpeech({
+          text: message.content,
+          speaker_id: speakerId,
+        });
+      });
+    }, [
+      isThisMessageAudio,
+      isAudioPlaying,
+      isAudioPaused,
+      toggleAudioPause,
+      resolveSpeakerId,
+      playMessageAudio,
+      message.id,
+      message.content,
+      settingsState.ttsEngineDir,
+      settingsState.ttsUseGpu,
+      t,
+    ]);
+
+    const handleDownloadAudio = useCallback(async () => {
+      const blob = await requestAudioBlob();
+      if (!blob) {
+        return;
+      }
+
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `message-${message.id}.wav`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    }, [message.id, requestAudioBlob]);
 
     const getRoleLabel = () => {
       switch (message.role) {
@@ -202,6 +318,73 @@ const ChatMessageItem = forwardRef<HTMLDivElement, ChatMessageProps>(
               >
                 <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
                 <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+              </svg>
+            </button>
+          )}
+          {canUseAudio && (
+            <button
+              type="button"
+              className={`chat-message__action-btn chat-message__action-btn--audio-play${
+                isAudioLoading ? " chat-message__action-btn--loading" : ""
+              }`}
+              onClick={handlePlayAudio}
+              disabled={isBusy}
+              aria-label={t(
+                isAudioPlaying
+                  ? "chat.message.audioPause"
+                  : "chat.message.audioPlay",
+              )}
+              title={t(
+                isAudioPlaying
+                  ? "chat.message.audioPause"
+                  : "chat.message.audioPlay",
+              )}
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                {isAudioLoading ? (
+                  <circle cx="12" cy="12" r="8" strokeDasharray="12 8" />
+                ) : isAudioPlaying ? (
+                  <>
+                    <line x1="7" y1="4" x2="7" y2="20" />
+                    <line x1="17" y1="4" x2="17" y2="20" />
+                  </>
+                ) : (
+                  <polygon points="5 3 19 12 5 21 5 3" />
+                )}
+              </svg>
+            </button>
+          )}
+          {canUseAudio && (
+            <button
+              type="button"
+              className="chat-message__action-btn chat-message__action-btn--audio-download"
+              onClick={() => void handleDownloadAudio()}
+              disabled={isBusy || downloadBusy}
+              aria-label={t("chat.message.audioDownload")}
+              title={t("chat.message.audioDownload")}
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
               </svg>
             </button>
           )}

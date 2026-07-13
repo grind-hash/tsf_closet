@@ -29,6 +29,7 @@ import CharacterStatePanel from "./panel/CharacterStatePanel";
 import CharacterPanel from "./panel/CharacterPanel";
 import ChatMessageList from "./chat/ChatMessageList";
 import ChatInput from "./chat/ChatInput";
+import AudioControlBar from "./chat/AudioControlBar";
 import WelcomeScreen from "./chat/WelcomeScreen";
 import InpaintModal from "./InpaintModal";
 import ImagePreviewModal from "./ImagePreviewModal";
@@ -1452,6 +1453,8 @@ export default function GamePlayScreen({
                   onEditMessage={handleRequestEditMessage}
                 />
               </div>
+
+              <AudioControlBar />
 
               {/* チャット入力 */}
               <div className="game-play-screen__input">
