@@ -77,7 +77,7 @@ function AppMain() {
   } = useGame();
   const { t } = useTranslation();
   // 旧UI用: 新UIではWelcomeScreenが担当 (型定義用にscreen変数を使用)
-  const [screen, setScreen] = useState<"character-select" | "game">(
+  const [, setScreen] = useState<"character-select" | "game">(
     "character-select",
   );
   const [showSessionList, setShowSessionList] = useState(false);
@@ -331,6 +331,7 @@ function AppMain() {
         body.instruction_type = instructionType;
       }
       body.use_memory = useMemory;
+      body.use_play_memory = settingsState.playMemoryEnabled;
       // Include seed if specified in settings
       if (settingsState.seed !== null) {
         body.seed = settingsState.seed;
@@ -426,6 +427,7 @@ function AppMain() {
       settingsState.enableMultiplePeople,
       settingsState.multiCharacterPanelEnabled,
       settingsState.imageProvider,
+      settingsState.playMemoryEnabled,
     ],
   );
 

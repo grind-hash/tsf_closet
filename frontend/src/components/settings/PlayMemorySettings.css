@@ -1,0 +1,29 @@
+.play-memory {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.play-memory__toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 600;
+}
+
+.play-memory__textarea {
+  min-height: 7rem;
+}
+
+.play-memory__textarea:read-only {
+  color: var(--text-muted, #888);
+  cursor: default;
+}
+
+.play-memory__button {
+  justify-self: start;
+}
+
+.play-memory__error {
+  margin: 0;
+  color: #c62828;
+}

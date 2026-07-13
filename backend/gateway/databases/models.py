@@ -66,6 +66,17 @@ class Session(Base):
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     self_mode: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    play_memory_system_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    play_memory_user_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    play_memory_system_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="1", nullable=False
+    )
+    play_memory_user_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="1", nullable=False
+    )
+    play_memory_system_updated_at: Mapped[Optional[datetime]] = mapped_column(
+        nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         default=func.current_timestamp(), nullable=False
     )

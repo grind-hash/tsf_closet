@@ -41,6 +41,7 @@ from ..models import (
     HistoryItem,
     PersistedHistory,
     PersistedSession,
+    PlayMemoryResponse,
     SessionAttributeResponse,
     SessionResponse,
     SessionStats,
@@ -104,6 +105,11 @@ class DatabaseSessionStore:
             created_at=_to_datetime(orm_session.created_at),
             updated_at=_to_datetime(orm_session.updated_at),
             self_mode=bool(getattr(orm_session, "self_mode", False)),
+            play_memory_system_text=orm_session.play_memory_system_text,
+            play_memory_user_text=orm_session.play_memory_user_text,
+            play_memory_system_enabled=bool(orm_session.play_memory_system_enabled),
+            play_memory_user_enabled=bool(orm_session.play_memory_user_enabled),
+            play_memory_system_updated_at=orm_session.play_memory_system_updated_at,
         )
 
     @staticmethod
@@ -279,6 +285,69 @@ class DatabaseSessionStore:
             )
             await db_session.execute(stmt)
             await db_session.commit()
+
+    async def get_play_memory(self, session_id: str) -> PlayMemoryResponse | None:
+        """セッションのプレイメモを取得する。"""
+        session = await self.get_session_by_id(session_id)
+        if session is None:
+            return None
+        return PlayMemoryResponse(
+            system_enabled=session.play_memory_system_enabled,
+            user_enabled=session.play_memory_user_enabled,
+            system_text=session.play_memory_system_text,
+            user_text=session.play_memory_user_text,
+            system_updated_at=(
+                session.play_memory_system_updated_at.isoformat()
+                if session.play_memory_system_updated_at
+                else None
+            ),
+        )
+
+    async def update_play_memory(
+        self,
+        session_id: str,
+        *,
+        system_enabled: bool | None = None,
+        user_enabled: bool | None = None,
+        user_text: str | None = None,
+        update_user_text: bool = False,
+    ) -> PlayMemoryResponse | None:
+        """ユーザーが変更可能なプレイメモ設定を更新する。"""
+        values: dict[str, object] = {"updated_at": datetime.now()}
+        if system_enabled is not None:
+            values["play_memory_system_enabled"] = system_enabled
+        if user_enabled is not None:
+            values["play_memory_user_enabled"] = user_enabled
+        if update_user_text:
+            values["play_memory_user_text"] = user_text
+        async with async_session_factory() as db_session:
+            result = await db_session.execute(
+                update(SessionORM).where(SessionORM.id == session_id).values(**values)
+            )
+            await db_session.commit()
+            if not result.rowcount:
+                return None
+        return await self.get_play_memory(session_id)
+
+    async def save_play_memory_system_text(
+        self, session_id: str, text: str
+    ) -> PlayMemoryResponse | None:
+        """自動生成したプレイメモを保存する。"""
+        now = datetime.now()
+        async with async_session_factory() as db_session:
+            result = await db_session.execute(
+                update(SessionORM)
+                .where(SessionORM.id == session_id)
+                .values(
+                    play_memory_system_text=text,
+                    play_memory_system_updated_at=now,
+                    updated_at=now,
+                )
+            )
+            await db_session.commit()
+            if not result.rowcount:
+                return None
+        return await self.get_play_memory(session_id)
 
     async def update_history_surroundings(
         self,
@@ -725,6 +794,17 @@ class DatabaseSessionStore:
             attributes=attributes,
             conversation_history=conversation_history,
             self_mode=session.self_mode,
+            play_memory=PlayMemoryResponse(
+                system_enabled=session.play_memory_system_enabled,
+                user_enabled=session.play_memory_user_enabled,
+                system_text=session.play_memory_system_text,
+                user_text=session.play_memory_user_text,
+                system_updated_at=(
+                    session.play_memory_system_updated_at.isoformat()
+                    if session.play_memory_system_updated_at
+                    else None
+                ),
+            ),
         )
 
     async def _cleanup_old_history(

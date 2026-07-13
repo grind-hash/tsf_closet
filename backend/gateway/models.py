@@ -380,6 +380,9 @@ class PlayRequest(BaseModel):
         False,
         description="保存済みメモリテキスト（ユーザーの嗜好傾向）を生成に反映するか",
     )
+    use_play_memory: bool = Field(
+        False, description="セッション単位のプレイメモを生成に反映するか"
+    )
     language: Optional[str] = Field(
         None, description="応答言語（ja/en、未指定時はユーザー設定を使用）"
     )
@@ -448,6 +451,24 @@ class SessionAttributeResponse(BaseModel):
     text: str = Field(..., description="属性テキスト")
 
 
+class PlayMemoryResponse(BaseModel):
+    """セッション単位のプレイメモ。"""
+
+    system_enabled: bool = True
+    user_enabled: bool = True
+    system_text: Optional[str] = None
+    user_text: Optional[str] = None
+    system_updated_at: Optional[str] = None
+
+
+class PlayMemoryUpdateRequest(BaseModel):
+    """プレイメモのユーザー変更可能項目。"""
+
+    system_enabled: Optional[bool] = None
+    user_enabled: Optional[bool] = None
+    user_text: Optional[str] = Field(None, max_length=4000)
+
+
 class SessionResponse(BaseModel):
     """セッション情報レスポンス"""
 
@@ -470,6 +491,7 @@ class SessionResponse(BaseModel):
         default_factory=list, description="Conversation history"
     )
     self_mode: bool = Field(False, description="Self mode enabled")
+    play_memory: PlayMemoryResponse = Field(default_factory=PlayMemoryResponse)
 
 
 class SessionSummary(BaseModel):
@@ -558,6 +580,9 @@ class SuggestInstructionRequest(BaseModel):
     use_memory: bool = Field(
         False,
         description="保存済みメモリテキスト（ユーザーの嗜好傾向）を生成に反映するか",
+    )
+    use_play_memory: bool = Field(
+        False, description="セッション単位のプレイメモを生成に反映するか"
     )
     language: str = Field("ja", description="生成言語 (ja/en)")
 
@@ -1001,6 +1026,11 @@ class PersistedSession:
     created_at: datetime
     updated_at: datetime
     self_mode: bool = False
+    play_memory_system_text: Optional[str] = None
+    play_memory_user_text: Optional[str] = None
+    play_memory_system_enabled: bool = True
+    play_memory_user_enabled: bool = True
+    play_memory_system_updated_at: Optional[datetime] = None
     history: List[PersistedHistory] = field(default_factory=list)
 
     @classmethod

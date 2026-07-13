@@ -21,6 +21,7 @@ export default function SettingsScreen() {
     setShowAchievementNotifications,
     setShowRealityAttributeNotification,
     setExperimentalEndingEnabled,
+    setPlayMemoryEnabled,
     setEnableSurroundingsImage,
     setSurroundingsIncludePeople,
     setClothingColorConsistency,
@@ -266,6 +267,13 @@ export default function SettingsScreen() {
           <section className="settings-screen__section">
             <h2 className="settings-screen__section-title">
               {t("settings.memory.sectionTitle")}
+              <span
+                className="feature-chip-new"
+                data-feature-version="v0.6.0"
+                style={{ marginLeft: "0.5rem" }}
+              >
+                New
+              </span>
             </h2>
             <MemorySettings />
           </section>
@@ -427,13 +435,6 @@ export default function SettingsScreen() {
                 <div className="settings-screen__toggle-info">
                   <span className="settings-screen__item-label">
                     {t("settings.historyLookbackCount")}
-                    <span
-                      className="feature-chip-new"
-                      data-feature-version="v0.5.0"
-                      style={{ marginLeft: "0.5rem" }}
-                    >
-                      New
-                    </span>
                   </span>
                   <span className="settings-screen__item-desc">
                     {t("settings.historyLookbackCountDesc")}
@@ -482,13 +483,6 @@ export default function SettingsScreen() {
                 <div className="settings-screen__toggle-info">
                   <span className="settings-screen__item-label">
                     {t("settings.novelaiTextModel")}
-                    <span
-                      className="feature-chip-experimental"
-                      data-feature-version="v0.5.0"
-                      style={{ marginLeft: "0.5rem" }}
-                    >
-                      Experimental
-                    </span>
                   </span>
                   <span className="settings-screen__item-desc">
                     {t("settings.novelaiTextModelDesc")}
@@ -529,6 +523,40 @@ export default function SettingsScreen() {
                 />
                 <span className="settings-screen__toggle-switch" />
               </label>
+            </div>
+
+            <div className="settings-screen__item">
+              <label className="settings-screen__toggle">
+                <div className="settings-screen__toggle-info">
+                  <span className="settings-screen__item-label">
+                    {t("settings.experimentalPlayMemory")}
+                    <span
+                      className="feature-chip-new"
+                      data-feature-version="v0.6.0"
+                      style={{ marginLeft: "0.5rem" }}
+                    >
+                      New
+                    </span>
+                  </span>
+                  <span className="settings-screen__item-desc">
+                    {t("settings.experimentalPlayMemoryDesc")}
+                  </span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={state.playMemoryEnabled}
+                  onChange={(event) =>
+                    setPlayMemoryEnabled(event.target.checked)
+                  }
+                  className="settings-screen__toggle-input"
+                />
+                <span className="settings-screen__toggle-switch" />
+              </label>
+              {state.playMemoryEnabled && (
+                <p className="settings-screen__play-memory-warning">
+                  {t("settings.experimentalPlayMemoryWarning")}
+                </p>
+              )}
             </div>
           </section>
 

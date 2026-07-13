@@ -60,6 +60,11 @@ const resources = {
         experimentalEnding: "エンディング",
         experimentalEndingDesc:
           "有効時のみエンディングメニューとエンディング通知を表示",
+        experimentalPlayMemory: "プレイメモ",
+        experimentalPlayMemoryDesc:
+          "セッションごとの経緯とユーザーメモを以後の生成へ反映します。",
+        experimentalPlayMemoryWarning:
+          "プレイメモを有効にすると、チャットごとに自動メモを生成するため、従来より完了まで5秒以上長くかかる場合があります。",
         experimentalSurroundings: "周囲状況画像の生成",
         experimentalSurroundingsDesc:
           "行動指示の後に周囲の状況を描写した画像を追加生成します。Opusプランでない場合は追加の Anlas を消費します。",
@@ -139,7 +144,7 @@ const resources = {
           editButton: "編集する",
         },
         memory: {
-          sectionTitle: "メモリ",
+          sectionTitle: "好みメモリ",
           description:
             "直近のプレイセッションから要約・称号を生成し、好みのシチュエーションや性的嗜好をテキストとしてゲームに保存します。保存されたメモリは、着せ替え・現実改変・行動の生成時に最優先の指示として扱われ、より望ましいシチュエーションの生成ができる可能性があります。",
           sessionCountLabel: "対象とする直近のセッション数",
@@ -178,6 +183,21 @@ const resources = {
           saveError: "メモリの保存に失敗しました",
           startError: "メモリ生成の開始に失敗しました",
           statusFetchError: "進捗の取得に失敗しました",
+        },
+        playMemory: {
+          sectionTitle: "プレイメモ",
+          system: "自動メモ",
+          user: "ユーザーメモ",
+          systemPlaceholder: "次のやり取りの完了後に自動生成されます。",
+          userPlaceholder: "このセッションで維持したい設定や希望を入力",
+          updatedAt: "更新: {{value}}",
+          regenerate: "自動メモを再生成",
+          regenerating: "自動メモを再生成中...",
+          save: "ユーザーメモを保存",
+          saving: "保存中...",
+          error: "プレイメモの操作に失敗しました",
+          updateWarning:
+            "今回の結果は保存されましたが、自動メモを更新できませんでした。",
         },
         speech: {
           sectionTitle: "音声合成 (AivisSpeech)",
@@ -933,6 +953,11 @@ const resources = {
         experimentalEnding: "Endings",
         experimentalEndingDesc:
           "Show ending menu and ending notification only when enabled",
+        experimentalPlayMemory: "Play Memory",
+        experimentalPlayMemoryDesc:
+          "Use session history and user notes as context for future generations.",
+        experimentalPlayMemoryWarning:
+          "When Play Memory is enabled, automatic memory is generated after each chat, so completion may take 5 seconds or more longer than before.",
         experimentalSurroundings: "Generate Surroundings Image",
         experimentalSurroundingsDesc:
           "Generate an additional image showing the surrounding environment after action instructions. Uses extra Anlas on non-Opus plans.",
@@ -1011,7 +1036,7 @@ const resources = {
           editButton: "Edit",
         },
         memory: {
-          sectionTitle: "Memory",
+          sectionTitle: "Preference Memory",
           description:
             "Generates summaries and titles based on your most recent play sessions and saves your preferred scenarios and sexual preferences as text within the game. These saved preferences are treated as top-priority instructions when generating outfits, altering reality, and determining actions, potentially leading to the creation of more desirable scenarios.",
           sessionCountLabel: "Number of recent sessions to include",
@@ -1051,6 +1076,22 @@ const resources = {
           saveError: "Failed to save memory",
           startError: "Failed to start memory generation",
           statusFetchError: "Failed to fetch progress",
+        },
+        playMemory: {
+          sectionTitle: "Play Memory",
+          system: "Automatic Memory",
+          user: "User Memory",
+          systemPlaceholder: "Generated after the next completed interaction.",
+          userPlaceholder:
+            "Enter settings or preferences to keep in this session",
+          updatedAt: "Updated: {{value}}",
+          regenerate: "Regenerate Automatic Memory",
+          regenerating: "Regenerating Automatic Memory...",
+          save: "Save User Memory",
+          saving: "Saving...",
+          error: "Failed to update play memory",
+          updateWarning:
+            "The result was saved, but the automatic memory could not be updated.",
         },
         speech: {
           sectionTitle: "Speech Synthesis (AivisSpeech)",

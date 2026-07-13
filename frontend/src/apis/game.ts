@@ -15,6 +15,7 @@ export interface PreviewPromptRequest {
   preserve_elements?: PreserveElement[];
   change_scope?: ChangeScope;
   custom_preserve_text?: string;
+  use_play_memory?: boolean;
 }
 
 // プロンプトプレビュー レスポンス
@@ -83,6 +84,7 @@ export async function suggestInstruction(
   language: string,
   keyword?: string,
   useMemory?: boolean,
+  usePlayMemory?: boolean,
 ): Promise<string> {
   const response = await fetch(`${API_BASE}/game/suggest-instruction`, {
     method: "POST",
@@ -93,6 +95,7 @@ export async function suggestInstruction(
       keyword: keyword?.trim() ? keyword.trim() : null,
       language,
       use_memory: useMemory ?? false,
+      use_play_memory: usePlayMemory ?? false,
     }),
   });
 

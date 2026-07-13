@@ -20,6 +20,7 @@ import { useTranslation } from "react-i18next";
 import { useChat } from "../../contexts/ChatContext";
 import { useGame } from "../../contexts/GameContext";
 import { useNotification } from "../../contexts/NotificationContext";
+import { useSettings } from "../../contexts/SettingsContext";
 import { suggestInstruction } from "../../apis/game";
 import type { InstructionType } from "../../types";
 import "./ChatInput.css";
@@ -48,6 +49,7 @@ export default function ChatInput({
   const { state, setInputText, setInstructionType, attachImage, clearInput } =
     useChat();
   const { state: gameState } = useGame();
+  const { state: settingsState } = useSettings();
   const { showNotification } = useNotification();
 
   // 過去メッセージからの指示テキスト生成
@@ -86,6 +88,7 @@ export default function ChatInput({
         language,
         keyword,
         useMemoryForSuggestion,
+        settingsState.playMemoryEnabled,
       );
       setInputText(suggestion);
     } catch {

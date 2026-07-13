@@ -111,6 +111,9 @@ export function useSSE(options: UseSSEOptions): UseSSEReturn {
             }
             break;
           case "complete":
+            if (data.play_memory_update === "failed" && options.onError) {
+              options.onError("プレイメモの自動更新に失敗しました");
+            }
             if (options.onComplete) {
               options.onComplete(
                 data.history_id ?? null,
