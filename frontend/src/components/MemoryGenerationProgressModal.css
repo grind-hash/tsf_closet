@@ -24,10 +24,51 @@
   box-shadow: 0 20px 60px rgba(78, 205, 196, 0.2);
 }
 
+.memory-progress-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
 .memory-progress-modal h2 {
   color: #4ecdc4;
-  margin: 0 0 18px 0;
+  margin: 0;
   font-size: 1.3rem;
+  text-align: left;
+}
+
+.memory-progress-download {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 2px 0;
+  border: none;
+  background: transparent;
+  color: #4ecdc4;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.memory-progress-download:hover:not(:disabled) {
+  color: #73e5dd;
+}
+
+.memory-progress-download:focus-visible {
+  outline: 2px solid #4ecdc4;
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+.memory-progress-download:disabled {
+  color: #777;
+  text-decoration: none;
+  cursor: not-allowed;
 }
 
 .memory-progress-phase {
@@ -146,4 +187,15 @@
 
 .memory-progress-close:hover {
   background: linear-gradient(135deg, #5fe0d7 0%, #4ecdc4 100%);
+}
+
+@media (max-width: 480px) {
+  .memory-progress-header {
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .memory-progress-download {
+    align-self: flex-end;
+  }
 }

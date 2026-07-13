@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -41,6 +42,18 @@ RETRY_WAIT_SECONDS = 5.0
 
 
 @dataclass
+class MemoryPromptSnapshot:
+    """LLMへ送信するプロンプトと処理結果のスナップショット"""
+
+    system_prompt: str
+    user_prompt: str
+    source_count: int
+    status: str = "pending"
+    response: str | None = None
+    error: str | None = None
+
+
+@dataclass
 class MemoryJobState:
     """メモリ生成ジョブの状態"""
 
@@ -60,6 +73,8 @@ class MemoryJobState:
     cancel_requested: bool = False
     started_at: datetime = field(default_factory=datetime.utcnow)
     finished_at: datetime | None = None
+    memory_prompt_snapshots: list[MemoryPromptSnapshot] = field(default_factory=list)
+    merge_prompt_snapshot: MemoryPromptSnapshot | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -135,6 +150,123 @@ class MemoryJobService:
             return False
         job.cancel_requested = True
         return True
+
+    def get_job_analysis_export(self, job_id: str) -> tuple[str, str] | None:
+        """ジョブのLLM分析用Markdownとファイル名を取得する。"""
+        job = self._jobs.get(job_id)
+        if job is None or not job.memory_prompt_snapshots:
+            return None
+        filename = (
+            f"memory-analysis-{job.started_at:%Y-%m-%d-%H%M%S}-{job.job_id[:8]}.md"
+        )
+        return self._build_analysis_export_markdown(job), filename
+
+    @staticmethod
+    def _markdown_code_block(text: str) -> str:
+        """内容中のバッククォートと衝突しないMarkdownコードブロックを作る。"""
+        runs = re.findall(r"`+", text)
+        fence_length = max(3, max((len(run) for run in runs), default=0) + 1)
+        fence = "`" * fence_length
+        separator = "" if text.endswith("\n") else "\n"
+        return f"{fence}text\n{text}{separator}{fence}"
+
+    def _build_analysis_export_markdown(self, job: MemoryJobState) -> str:
+        """記録済みプロンプトを外部LLM向けMarkdownへ変換する。"""
+        lines = [
+            "# Memory Generation LLM Analysis Data",
+            "",
+            "> This file contains play history and preference data. Handle and share it carefully.",
+            "",
+            "## Job",
+            "",
+            f"- Job ID: `{job.job_id}`",
+            f"- Language: `{job.language}`",
+            f"- Status: `{job.status}`",
+            f"- Phase: `{job.phase}`",
+            f"- Started at: `{job.started_at.isoformat()}`",
+            f"- Finished at: `{job.finished_at.isoformat() if job.finished_at else 'N/A'}`",
+            f"- Chunk progress: `{job.memory_chunk_processed} / {job.memory_chunk_total}`",
+            "",
+            "## Chunk requests",
+            "",
+        ]
+
+        for index, snapshot in enumerate(job.memory_prompt_snapshots, 1):
+            lines.extend(
+                [
+                    f"### Chunk {index} / {len(job.memory_prompt_snapshots)}",
+                    "",
+                    f"- Status: `{snapshot.status}`",
+                    f"- Source sessions: `{snapshot.source_count}`",
+                    "",
+                    "#### System Prompt",
+                    "",
+                    self._markdown_code_block(snapshot.system_prompt),
+                    "",
+                    "#### User Prompt",
+                    "",
+                    self._markdown_code_block(snapshot.user_prompt),
+                    "",
+                ]
+            )
+            if snapshot.response is not None:
+                lines.extend(
+                    [
+                        "#### Response",
+                        "",
+                        self._markdown_code_block(snapshot.response),
+                        "",
+                    ]
+                )
+            if snapshot.error is not None:
+                lines.extend(
+                    [
+                        "#### Error",
+                        "",
+                        self._markdown_code_block(snapshot.error),
+                        "",
+                    ]
+                )
+
+        if job.merge_prompt_snapshot is not None:
+            snapshot = job.merge_prompt_snapshot
+            lines.extend(
+                [
+                    "## Merge request",
+                    "",
+                    f"- Status: `{snapshot.status}`",
+                    f"- Source analyses: `{snapshot.source_count}`",
+                    "",
+                    "### System Prompt",
+                    "",
+                    self._markdown_code_block(snapshot.system_prompt),
+                    "",
+                    "### User Prompt",
+                    "",
+                    self._markdown_code_block(snapshot.user_prompt),
+                    "",
+                ]
+            )
+            if snapshot.response is not None:
+                lines.extend(
+                    [
+                        "### Response",
+                        "",
+                        self._markdown_code_block(snapshot.response),
+                        "",
+                    ]
+                )
+            if snapshot.error is not None:
+                lines.extend(
+                    [
+                        "### Error",
+                        "",
+                        self._markdown_code_block(snapshot.error),
+                        "",
+                    ]
+                )
+
+        return "\n".join(lines).rstrip() + "\n"
 
     async def _run_job(
         self,
@@ -237,6 +369,16 @@ class MemoryJobService:
         chunks = chunk_summaries(summaries)
         job.memory_chunk_total = len(chunks)
         job.memory_chunk_processed = 0
+        system_prompt = get_memory_generation_system_prompt(language)
+        job.memory_prompt_snapshots = [
+            MemoryPromptSnapshot(
+                system_prompt=system_prompt,
+                user_prompt=build_memory_generation_user_prompt(chunk, language),
+                source_count=len(chunk),
+            )
+            for chunk in chunks
+        ]
+        job.merge_prompt_snapshot = None
         job.phase = "analyzing"
         logger.info(
             "Memory generation: %d summaries split into %d chunk(s)",
@@ -245,26 +387,45 @@ class MemoryJobService:
         )
 
         partial_texts: list[str] = []
-        for chunk in chunks:
+        for snapshot in job.memory_prompt_snapshots:
             if job.cancel_requested:
                 job.status = "cancelled"
                 return
-            system_prompt = get_memory_generation_system_prompt(language)
-            user_prompt = build_memory_generation_user_prompt(chunk, language)
-            partial_texts.append(
-                await self._generate_text_with_retry(system_prompt, user_prompt)
-            )
+            snapshot.status = "sending"
+            try:
+                response = await self._generate_text_with_retry(
+                    snapshot.system_prompt, snapshot.user_prompt
+                )
+            except Exception as exc:
+                snapshot.status = "failed"
+                snapshot.error = str(exc)
+                raise
+            snapshot.status = "completed"
+            snapshot.response = response
+            partial_texts.append(response)
             job.memory_chunk_processed += 1
 
         if len(partial_texts) == 1:
             memory_text = partial_texts[0]
         else:
             job.phase = "merging"
-            merge_system_prompt = get_memory_merge_system_prompt(language)
-            merge_user_prompt = build_memory_merge_user_prompt(partial_texts, language)
-            memory_text = await self._generate_text_with_retry(
-                merge_system_prompt, merge_user_prompt
+            job.merge_prompt_snapshot = MemoryPromptSnapshot(
+                system_prompt=get_memory_merge_system_prompt(language),
+                user_prompt=build_memory_merge_user_prompt(partial_texts, language),
+                source_count=len(partial_texts),
             )
+            job.merge_prompt_snapshot.status = "sending"
+            try:
+                memory_text = await self._generate_text_with_retry(
+                    job.merge_prompt_snapshot.system_prompt,
+                    job.merge_prompt_snapshot.user_prompt,
+                )
+            except Exception as exc:
+                job.merge_prompt_snapshot.status = "failed"
+                job.merge_prompt_snapshot.error = str(exc)
+                raise
+            job.merge_prompt_snapshot.status = "completed"
+            job.merge_prompt_snapshot.response = memory_text
 
         await settings_service.save_memory_text(memory_text)
         logger.info(

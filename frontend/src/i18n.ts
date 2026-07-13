@@ -169,6 +169,15 @@ const resources = {
           progressCurrent: "処理中のセッション: {{sessionId}}",
           progressCancel: "キャンセル",
           progressCancelling: "キャンセル中...",
+          downloadAnalysis: "LLM分析用データ",
+          downloadAnalysisPreparing: "分析データ準備中...",
+          downloadAnalysisDownloading: "保存中...",
+          downloadAnalysisHint:
+            "各チャンクへ送信する指示と分析結果をダウンロードします。プレイ履歴や嗜好情報を含むため、共有先にご注意ください。",
+          downloadAnalysisPreparingHint:
+            "チャンクの準備完了後にダウンロードできます",
+          downloadAnalysisError:
+            "分析用データのダウンロードに失敗しました",
           statusCompleted: "メモリの生成が完了しました",
           statusCompletedWithErrors:
             "メモリの生成が完了しました（一部のセッションでエラーが発生しました）",
@@ -1062,6 +1071,14 @@ const resources = {
           progressCurrent: "Processing session: {{sessionId}}",
           progressCancel: "Cancel",
           progressCancelling: "Cancelling...",
+          downloadAnalysis: "LLM analysis data",
+          downloadAnalysisPreparing: "Preparing analysis data...",
+          downloadAnalysisDownloading: "Saving...",
+          downloadAnalysisHint:
+            "Download the instructions and results for each chunk. This file contains play history and preference data, so share it carefully.",
+          downloadAnalysisPreparingHint:
+            "Available after the chunks have been prepared",
+          downloadAnalysisError: "Failed to download analysis data",
           statusCompleted: "Memory generation completed",
           statusCompletedWithErrors:
             "Memory generation completed (some sessions had errors)",
