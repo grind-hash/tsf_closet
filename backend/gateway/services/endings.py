@@ -59,7 +59,7 @@ ENDINGS: Dict[str, Ending] = {
         id="resistance_limit",
         title="抵抗の限界エンド",
         description="最後まで抵抗し続けた",
-        condition_text="変身5回 + 開花度50未満",
+        condition_text="変身15回 + 開花度50未満",
         final_speech="負けない…絶対に負けないんだから…！",
         summary="度重なる変身にも関わらず、キャラクターは最後まで抵抗し続けました。"
         "心は折れず、元の自分を守り抜くことができました。"

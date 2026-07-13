@@ -29,6 +29,7 @@ NOVELAI_TEXT_MODEL_OPTIONS = ("glm-4-6", "xialong-v1")
 class UserSettingsResponse(BaseModel):
     nsfw_mode: bool
     difficulty: str
+    bloom_calc_method: str = "legacy"
     language: LanguageCode
     novelai_text_model: str = "glm-4-6"
     tts_enabled: bool = False
@@ -43,6 +44,7 @@ class UserSettingsResponse(BaseModel):
 class UserSettingsUpdateRequest(BaseModel):
     nsfw_mode: bool | None = None
     difficulty: Literal["easy", "normal", "hard"] | None = None
+    bloom_calc_method: Literal["legacy", "new"] | None = None
     language: LanguageCode | None = None
     novelai_text_model: Literal["glm-4-6", "xialong-v1"] | None = None
     tts_enabled: bool | None = None
@@ -161,6 +163,7 @@ async def update_user_settings(
         updated = await settings_service.update_user_settings(
             nsfw_mode=request.nsfw_mode,
             difficulty=request.difficulty,
+            bloom_calc_method=request.bloom_calc_method,
             language=request.language,
             novelai_text_model=request.novelai_text_model,
             tts_enabled=request.tts_enabled,

@@ -33,6 +33,12 @@ const resources = {
         normalDesc: "標準的な難易度",
         hard: "ハード",
         hardDesc: "変身の効果が激しい",
+        bloomCalcMethod: "開花度の計算方式",
+        bloomCalcMethodDesc: "変身による開花度の増え方を選びます",
+        bloomCalcLegacy: "従来方式",
+        bloomCalcLegacyDesc: "これまでと同じ増加バランス",
+        bloomCalcNew: "新方式",
+        bloomCalcNewDesc: "開花度が緩やかに増え、抵抗エンドに到達しやすい",
         nsfwMode: "NSFWモード",
         nsfwDesc: "成人向けコンテンツを有効化",
         language: "言語",
@@ -176,8 +182,7 @@ const resources = {
             "各チャンクへ送信する指示と分析結果をダウンロードします。プレイ履歴や嗜好情報を含むため、共有先にご注意ください。",
           downloadAnalysisPreparingHint:
             "チャンクの準備完了後にダウンロードできます",
-          downloadAnalysisError:
-            "分析用データのダウンロードに失敗しました",
+          downloadAnalysisError: "分析用データのダウンロードに失敗しました",
           statusCompleted: "メモリの生成が完了しました",
           statusCompletedWithErrors:
             "メモリの生成が完了しました（一部のセッションでエラーが発生しました）",
@@ -935,6 +940,13 @@ const resources = {
         normalDesc: "Standard difficulty",
         hard: "Hard",
         hardDesc: "Transformation effects are intense",
+        bloomCalcMethod: "Bloom Calculation Method",
+        bloomCalcMethodDesc: "Choose how bloom increases per transformation",
+        bloomCalcLegacy: "Legacy",
+        bloomCalcLegacyDesc: "Same growth balance as before",
+        bloomCalcNew: "New",
+        bloomCalcNewDesc:
+          "Bloom grows gently, making the resistance ending reachable",
         nsfwMode: "NSFW Mode",
         nsfwDesc: "Enable adult content",
         language: "Language",

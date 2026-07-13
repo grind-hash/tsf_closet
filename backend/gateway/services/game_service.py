@@ -187,6 +187,15 @@ ADAPTATION_BY_CATEGORY = {
     "other": 0,
 }
 
+# 新計算方式(new)の開花度倍率（難易度別）。
+# 従来方式(legacy)より小さくし、変身を重ねても開花度が緩やかに増える。
+# これにより resistance_limit (変身15回かつ開花度50未満) が到達可能になる。
+BLOOM_MULTIPLIER_NEW = {
+    "easy": 0.35,
+    "normal": 0.6,
+    "hard": 0.9,
+}
+
 
 def clamp(value: int, min_val: int, max_val: int) -> int:
     """値を範囲内にクランプ"""
@@ -196,12 +205,14 @@ def clamp(value: int, min_val: int, max_val: int) -> int:
 def calculate_parameter_change(
     tags: TransformationTags,
     stats: SessionStats,
+    bloom_calc_method: str = "legacy",
 ) -> Tuple[int, int, int]:
     """パラメータ変化量を計算する
 
     Args:
         tags: 変身タグ
         stats: 現在のセッション統計
+        bloom_calc_method: 開花度増分の計算方式 ("legacy" | "new")
 
     Returns:
         (bloom_delta, shame_delta, adaptation_delta) のタプル
@@ -212,14 +223,24 @@ def calculate_parameter_change(
     # 開花度計算
     base_bloom = BASE_CORRUPTION_EXPOSURE.get(tags.exposure_level, 4)
     category_bloom = BASE_CORRUPTION_CATEGORY.get(tags.costume_category, 1)
-    bloom_raw = base_bloom + category_bloom
+    bloom_base = base_bloom + category_bloom
 
     # 羞恥心が高いほど堕落しやすい（50を基準）
     shame_factor = stats.shame / 50.0
-    bloom_raw = int(bloom_raw * shame_factor)
 
-    # 難易度倍率を適用
-    bloom_delta = int(bloom_raw * preset.bloom_multiplier)
+    if bloom_calc_method == "new":
+        # 新計算方式: 羞恥による増幅を上限1.0に抑え、専用の緩やかな倍率を適用する。
+        # 変身回数を重ねても開花度が過度に上がらず、抵抗ルートが成立し得る。
+        shame_factor = min(shame_factor, 1.0)
+        bloom_multiplier = BLOOM_MULTIPLIER_NEW.get(
+            stats.difficulty, BLOOM_MULTIPLIER_NEW["normal"]
+        )
+    else:
+        # 従来方式(legacy): 難易度倍率をそのまま適用する。
+        bloom_multiplier = preset.bloom_multiplier
+
+    bloom_raw = int(bloom_base * shame_factor)
+    bloom_delta = int(bloom_raw * bloom_multiplier)
 
     # 羞恥心変化（ランダム要素あり）
     shame_delta = random.randint(-5, 10)
@@ -1343,6 +1364,9 @@ class GameService:
                 difficulty_override
                 if difficulty_override is not None
                 else user_settings["difficulty"]
+            )
+            effective_bloom_calc_method = user_settings.get(
+                "bloom_calc_method", "legacy"
             )
             effective_language = normalize_language(
                 language_override or user_settings.get("language")
@@ -2480,7 +2504,7 @@ class GameService:
                 old_bloom = stats.bloom
 
                 bloom_delta, shame_delta, adaptation_delta = calculate_parameter_change(
-                    tags, stats
+                    tags, stats, bloom_calc_method=effective_bloom_calc_method
                 )
 
                 # 現実改変の場合はパラメータ変動を増幅
