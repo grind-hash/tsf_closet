@@ -9,6 +9,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import {
   cancelMemoryGeneration,
+  downloadMemoryAnalysis,
   getMemoryGenerationStatus,
   type MemoryJobStatus,
 } from "../apis/memory";
@@ -37,6 +38,7 @@ export default function MemoryGenerationProgressModal({
   const { t } = useTranslation();
   const [status, setStatus] = useState<MemoryJobStatus | null>(null);
   const [isCancelling, setIsCancelling] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const onFinishedRef = useRef(onFinished);
   onFinishedRef.current = onFinished;
@@ -88,6 +90,18 @@ export default function MemoryGenerationProgressModal({
     }
   }, [jobId]);
 
+  const handleDownload = useCallback(async () => {
+    setIsDownloading(true);
+    setError(null);
+    try {
+      await downloadMemoryAnalysis(jobId);
+    } catch {
+      setError(t("settings.memory.downloadAnalysisError"));
+    } finally {
+      setIsDownloading(false);
+    }
+  }, [jobId, t]);
+
   const total = status?.total ?? 0;
   const processed = status?.processed ?? 0;
   const phase = status?.phase ?? "summarizing";
@@ -97,6 +111,7 @@ export default function MemoryGenerationProgressModal({
 
   const chunkTotal = status?.memory_chunk_total ?? 0;
   const chunkProcessed = status?.memory_chunk_processed ?? 0;
+  const canDownload = chunkTotal > 0;
 
   const percent = isAnalyzing
     ? chunkTotal > 0
@@ -115,7 +130,27 @@ export default function MemoryGenerationProgressModal({
   return (
     <div className="memory-progress-overlay">
       <div className="memory-progress-modal">
-        <h2>{t("settings.memory.progressTitle")}</h2>
+        <div className="memory-progress-header">
+          <h2>{t("settings.memory.progressTitle")}</h2>
+          <button
+            type="button"
+            className="memory-progress-download"
+            onClick={handleDownload}
+            disabled={!canDownload || isDownloading}
+            title={t(
+              canDownload
+                ? "settings.memory.downloadAnalysisHint"
+                : "settings.memory.downloadAnalysisPreparingHint",
+            )}
+          >
+            <span aria-hidden="true">⇩</span>
+            {isDownloading
+              ? t("settings.memory.downloadAnalysisDownloading")
+              : canDownload
+                ? t("settings.memory.downloadAnalysis")
+                : t("settings.memory.downloadAnalysisPreparing")}
+          </button>
+        </div>
 
         {!isTerminal && <p className="memory-progress-phase">{phaseLabel}</p>}
 

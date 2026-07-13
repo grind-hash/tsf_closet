@@ -64,6 +64,34 @@ export async function getMemoryGenerationStatus(
 }
 
 /**
+ * チャンク別のLLM分析用データをMarkdownとして保存する
+ */
+export async function downloadMemoryAnalysis(jobId: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/memory/generate/export/${jobId}`);
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(`Failed to download analysis data: ${detail}`);
+  }
+
+  const disposition = response.headers.get("Content-Disposition");
+  const filenameMatch = disposition?.match(/filename="?([^";]+)"?/i);
+  const filename =
+    filenameMatch?.[1] ?? `memory-analysis-${jobId.slice(0, 8)}.md`;
+  const objectUrl = URL.createObjectURL(await response.blob());
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = filename;
+
+  try {
+    document.body.appendChild(link);
+    link.click();
+  } finally {
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+  }
+}
+
+/**
  * メモリ生成バッチジョブのキャンセルを要求する
  */
 export async function cancelMemoryGeneration(jobId: string): Promise<void> {

@@ -7,7 +7,7 @@ and the memory text CRUD (get/save) used by the settings panel.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel, Field
 
 from ..consts.language import DEFAULT_LANGUAGE, LanguageCode
@@ -76,6 +76,27 @@ async def get_generate_status(job_id: str) -> MemoryJobStatusResponse:
     if status is None:
         raise HTTPException(status_code=404, detail="Job not found")
     return MemoryJobStatusResponse(**status)
+
+
+@router.get("/generate/export/{job_id}", response_class=Response)
+async def download_generate_analysis(job_id: str) -> Response:
+    """LLMへ送信したチャンク別プロンプトと結果をMarkdownで返す。"""
+    if memory_job_service.get_job_status(job_id) is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    export = memory_job_service.get_job_analysis_export(job_id)
+    if export is None:
+        raise HTTPException(status_code=409, detail="Analysis data is not ready")
+
+    content, filename = export
+    return Response(
+        content=content,
+        media_type="text/markdown",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 @router.post("/generate/cancel/{job_id}", response_model=MemoryCancelResponse)
