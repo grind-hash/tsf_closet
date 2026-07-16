@@ -789,6 +789,7 @@ def build_action_prompt(
     enable_multiple_people: bool = False,
     lookback_count: int | None = None,
     session_characters_section: str | None = None,
+    attributes: list[str] | None = None,
 ) -> tuple[str, str]:
     """Build system and user prompts for the action instruction type.
 
@@ -809,6 +810,8 @@ def build_action_prompt(
         transformation_count: Number of transformations so far (0 = pre-transform)
         gender: Original gender of the character ("man" or "woman")
         previous_situation_summary: LLM-generated summary of the previous action result
+        attributes: Session attribute texts. Entries prefixed with "[現実改変]"
+            are treated as world-state rules; the rest are character attributes.
 
     Returns:
         (system_prompt, user_prompt) tuple
@@ -852,6 +855,23 @@ def build_action_prompt(
             "- 他のキャラクターの名前はLLMが自由に決定してよい。\n"
             "- ただし主人公の一人称は必ず維持すること。"
         )
+
+    # セッション属性をシステムプロンプトに反映
+    if attributes:
+        reality_attrs = [a for a in attributes if a.startswith("[現実改変]")]
+        normal_attrs = [a for a in attributes if not a.startswith("[現実改変]")]
+        if normal_attrs:
+            system_prompt += (
+                "\n\n【キャラクターの特殊属性】\n"
+                + "\n".join(f"- {attr}" for attr in normal_attrs)
+                + "\n（これらの属性を心境表現・行動描写に反映してください）"
+            )
+        if reality_attrs:
+            system_prompt += (
+                "\n\n【現実改変ルール（場面全体に適用）】\n"
+                + "\n".join(f"- {attr}" for attr in reality_attrs)
+                + "\n（このルールは主人公だけでなく場面内の全員に適用してください）"
+            )
 
     # Build previous situation section
     previous_situation_section = ""

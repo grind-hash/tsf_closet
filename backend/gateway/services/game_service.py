@@ -1411,6 +1411,16 @@ class GameService:
                     session.id
                 )
 
+                # セッション属性を取得（テキスト・画像プロンプトの両方に反映）
+                action_attributes = await session_store.get_session_attribute_texts(
+                    session.id
+                )
+                action_attribute_context = self._build_attribute_context(
+                    action_attributes
+                )
+                if action_attributes:
+                    logger.info(f"Session attributes (action): {action_attributes}")
+
                 # コンテキスト用に現在の画像を説明（最新履歴のafter_descriptionを再利用）
                 last_hist = await session_store.get_latest_history(session.id)
                 current_desc = (
@@ -1586,6 +1596,7 @@ class GameService:
                         session_id
                     ),
                     session_characters_section=multi_char_section,
+                    attributes=action_attributes,
                 )
 
                 from .conversation import get_language_rules
@@ -1628,7 +1639,7 @@ class GameService:
                     previous_prompt = current_desc  # 前回のafter_description
                     action_novelai_prompt = (
                         await llm_service.generate_novelai_image_prompt(
-                            instruction=instruction,
+                            instruction=instruction + action_attribute_context,
                             previous_prompt=previous_prompt,
                             nsfw_mode=effective_nsfw_mode,
                             language=effective_language,
@@ -1679,7 +1690,7 @@ class GameService:
                             effective_language
                         )
                     action_edit_user = build_action_image_edit_prompt(
-                        instruction=instruction,
+                        instruction=instruction + action_attribute_context,
                         current_description=vision_desc,
                     )
                     # LLM経由で編集プロンプトを生成
@@ -1900,12 +1911,9 @@ class GameService:
                 surroundings_image_path: str | None = None
                 if enable_surroundings_image and settings.image_provider == "novelai":
                     logger.info("Generating surroundings image for action...")
-                    # Detect reality-change from session attributes
-                    action_attrs = await session_store.get_session_attribute_texts(
-                        session.id
-                    )
+                    # 現実改変属性を検出（既に取得済みの action_attributes を再利用）
                     reality_alter_texts = [
-                        a for a in action_attrs if a.startswith("[現実改変]")
+                        a for a in action_attributes if a.startswith("[現実改変]")
                     ]
                     has_reality_attrs = len(reality_alter_texts) > 0
                     (
@@ -2035,24 +2043,8 @@ class GameService:
 
             # 2.1 セッション属性を取得（プロンプトに反映）
             attributes = await session_store.get_session_attribute_texts(session.id)
-            attribute_context = ""
+            attribute_context = self._build_attribute_context(attributes)
             if attributes:
-                reality_attrs = [a for a in attributes if a.startswith("[現実改変]")]
-                normal_attrs = [a for a in attributes if not a.startswith("[現実改変]")]
-                parts: list[str] = []
-                if normal_attrs:
-                    parts.append(
-                        "【対象キャラクターの属性】\n"
-                        + "\n".join(f"- {attr}" for attr in normal_attrs)
-                    )
-                if reality_attrs:
-                    parts.append(
-                        "【現実改変ルール（場面全体に適用 ― 全キャラクターに影響）】\n"
-                        + "\n".join(f"- {attr}" for attr in reality_attrs)
-                        + "\n（このルールは主人公だけでなく場面内の全員に適用してください）"
-                    )
-                if parts:
-                    attribute_context = "\n\n" + "\n\n".join(parts)
                 logger.info(f"Session attributes: {attributes}")
 
             # 3. 画像編集プロンプトを生成（変身タイプに応じて分岐）
@@ -3092,7 +3084,7 @@ class GameService:
                     reality_alter_texts = [
                         a for a in (attributes or []) if a.startswith("[現実改変]")
                     ]
-                    instruction += self._format_attribute_context(attributes)
+                    instruction += self._build_attribute_context(attributes)
 
                     # self_mode の場合、プロフィールから性別・一人称を取得
                     if session.self_mode:
@@ -3258,15 +3250,31 @@ class GameService:
             "novelai_tag_prompt": None,
         }
 
-    def _format_attribute_context(self, attributes: list[str] | None) -> str:
-        """属性リストをコンテキスト文字列に整形"""
+    def _build_attribute_context(self, attributes: list[str] | None) -> str:
+        """属性リストをプロンプト用コンテキスト文字列に整形する。
+
+        "[現実改変]" プレフィックス属性は場面全体に適用される世界設定として、
+        それ以外はキャラクター固有の属性として、それぞれ別見出しで整形する。
+        """
         if not attributes:
             return ""
-        return (
-            "\n\n【対象キャラクターの属性】\n"
-            + "\n".join(f"- {attr}" for attr in attributes)
-            + "\n（これらの属性を画像生成時に考慮してください）"
-        )
+        reality_attrs = [a for a in attributes if a.startswith("[現実改変]")]
+        normal_attrs = [a for a in attributes if not a.startswith("[現実改変]")]
+        parts: list[str] = []
+        if normal_attrs:
+            parts.append(
+                "【対象キャラクターの属性】\n"
+                + "\n".join(f"- {attr}" for attr in normal_attrs)
+            )
+        if reality_attrs:
+            parts.append(
+                "【現実改変ルール（場面全体に適用 ― 全キャラクターに影響）】\n"
+                + "\n".join(f"- {attr}" for attr in reality_attrs)
+                + "\n（このルールは主人公だけでなく場面内の全員に適用してください）"
+            )
+        if not parts:
+            return ""
+        return "\n\n" + "\n\n".join(parts)
 
 
 # グローバルサービスインスタンス
