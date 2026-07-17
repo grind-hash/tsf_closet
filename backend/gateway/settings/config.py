@@ -193,6 +193,9 @@ class Settings:
         "https://hub.aivis-project.com/aivm-models/7fc08a41-b64d-456d-8b22-8e1284674775",
     )
     aivis_download_timeout: float = float(os.getenv("AIVIS_DOWNLOAD_TIMEOUT", "300"))
+    # CPUモードでの音声合成は数十秒〜数分かかることがあるため、GPUモードより長めの
+    # デフォルト値にしている。環境変数で調整可能。
+    aivis_synthesis_timeout: float = float(os.getenv("AIVIS_SYNTHESIS_TIMEOUT", "300"))
     aivis_max_download_bytes: int = int(
         os.getenv("AIVIS_MAX_DOWNLOAD_BYTES", str(2 * 1024 * 1024 * 1024))
     )

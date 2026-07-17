@@ -140,7 +140,7 @@
 
 .audio-control-bar__speed {
   flex-shrink: 0;
-  background-color: rgba(255, 255, 255, 0.08);
+  background-color: var(--bg-color, #1a1a2e);
   color: var(--text-color, #eee);
   border: 1px solid var(--border-color, #333);
   border-radius: 6px;
