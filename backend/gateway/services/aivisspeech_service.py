@@ -419,23 +419,46 @@ class AivisSpeechService:
         if not speaker.strip():
             raise AivisSpeechError("Speaker is required")
 
-        timeout = httpx.Timeout(90.0)
+        # audio_query はテキスト解析のみで軽量なため接続確認程度の短いタイムアウトに
+        # とどめ、synthesis は CPU モードで数分かかるケースがあるため長めの
+        # タイムアウトを設定する。値は AIVIS_SYNTHESIS_TIMEOUT で調整可能。
+        connect_timeout = 10.0
+        query_timeout = httpx.Timeout(30.0, connect=connect_timeout)
+        synth_timeout = httpx.Timeout(
+            settings.aivis_synthesis_timeout, connect=connect_timeout
+        )
         base = settings.aivis_engine_base_url
 
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            query_resp = await client.post(
-                f"{base}/audio_query",
-                params={"speaker": speaker, "text": text},
-            )
-            query_resp.raise_for_status()
-            audio_query = query_resp.json()
+        try:
+            async with httpx.AsyncClient(timeout=query_timeout) as client:
+                query_resp = await client.post(
+                    f"{base}/audio_query",
+                    params={"speaker": speaker, "text": text},
+                )
+                query_resp.raise_for_status()
+                audio_query = query_resp.json()
 
-            synth_resp = await client.post(
-                f"{base}/synthesis",
-                params={"speaker": speaker},
-                json=audio_query,
-            )
-            synth_resp.raise_for_status()
+            async with httpx.AsyncClient(timeout=synth_timeout) as client:
+                synth_resp = await client.post(
+                    f"{base}/synthesis",
+                    params={"speaker": speaker},
+                    json=audio_query,
+                )
+                synth_resp.raise_for_status()
+        except httpx.TimeoutException as exc:
+            raise AivisSpeechError(
+                "Speech synthesis timed out. On CPU mode, longer text can take "
+                "several minutes; try shorter text or increase "
+                "AIVIS_SYNTHESIS_TIMEOUT."
+            ) from exc
+        except httpx.HTTPStatusError as exc:
+            raise AivisSpeechError(
+                f"AivisSpeech engine returned an error: {exc.response.status_code}"
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise AivisSpeechError(
+                f"Failed to reach AivisSpeech engine: {exc}"
+            ) from exc
 
         content_type = synth_resp.headers.get("content-type", "audio/wav")
         return synth_resp.content, content_type

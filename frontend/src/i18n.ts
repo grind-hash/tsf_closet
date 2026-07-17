@@ -638,7 +638,7 @@ const resources = {
           mutedStatus: "現在ミュートです",
           volume: "音量",
           speed: "再生速度",
-          cpuWarning: "CPUモードのため、生成に1分以上かかる場合があります",
+          cpuWarning: "CPUモードのため、生成に5分以上かかる可能性があります",
         },
         list: {
           emptyLine1: "メッセージはまだありません。",
@@ -1546,7 +1546,7 @@ const resources = {
           mutedStatus: "Currently muted",
           volume: "Volume",
           speed: "Playback speed",
-          cpuWarning: "CPU mode may take over a minute to generate",
+          cpuWarning: "CPU mode may take 5 minutes or more to generate",
         },
         list: {
           emptyLine1: "No messages yet.",
