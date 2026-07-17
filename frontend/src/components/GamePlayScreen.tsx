@@ -53,6 +53,7 @@ import {
   exportAsNovel,
   downloadFile,
   downloadBlob,
+  formatBytes,
 } from "../utils/exportChat";
 import type { ExportSessionInfo } from "../utils/exportChat";
 import { exportSessionMarkdown, exportSessionNovelHtml } from "../apis/gallery";
@@ -187,6 +188,12 @@ export default function GamePlayScreen({
   // Export menu
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const exportMenuRef = useRef<HTMLDivElement>(null);
+  // 画像同梱エクスポート（Markdown / Novel HTML zip）のダウンロード進捗
+  const [exportProgress, setExportProgress] = useState<{
+    format: "markdown_images" | "novel_html_zip";
+    loaded: number;
+    total: number | null;
+  } | null>(null);
 
   // メッセージ削除確認モーダル
   const [deleteMessageConfirm, setDeleteMessageConfirm] = useState<{
@@ -289,25 +296,53 @@ export default function GamePlayScreen({
         }
         case "markdown_images": {
           if (!gameState.sessionId) break;
+          setExportMenuOpen(false);
+          setExportProgress({
+            format: "markdown_images",
+            loaded: 0,
+            total: null,
+          });
           try {
             const { blob, filename } = await exportSessionMarkdown(
               gameState.sessionId,
+              (loaded, total) =>
+                setExportProgress({
+                  format: "markdown_images",
+                  loaded,
+                  total,
+                }),
             );
             downloadBlob(blob, filename);
           } catch (err) {
             console.error("Markdown export failed", err);
+          } finally {
+            setExportProgress(null);
           }
           break;
         }
         case "novel_html_zip": {
           if (!gameState.sessionId) break;
+          setExportMenuOpen(false);
+          setExportProgress({
+            format: "novel_html_zip",
+            loaded: 0,
+            total: null,
+          });
           try {
             const { blob, filename } = await exportSessionNovelHtml(
               gameState.sessionId,
+              (loaded, total) =>
+                setExportProgress({
+                  format: "novel_html_zip",
+                  loaded,
+                  total,
+                }),
             );
             downloadBlob(blob, filename);
           } catch (err) {
             console.error("Novel HTML export failed", err);
+          } finally {
+            setExportProgress(null);
           }
           break;
         }
@@ -1402,11 +1437,52 @@ export default function GamePlayScreen({
               {/* Export header */}
               {chatState.messages.length > 0 && (
                 <div className="chat-export-header" ref={exportMenuRef}>
+                  {exportProgress && (
+                    <div
+                      className="chat-export-header__progress"
+                      role="status"
+                      aria-live="polite"
+                    >
+                      <span className="chat-export-header__progress-label">
+                        {exportProgress.format === "markdown_images"
+                          ? t("chat.export.markdownWithImages")
+                          : t("chat.export.novelHtmlZip")}{" "}
+                        {t("chat.export.exporting")}
+                      </span>
+                      <div className="chat-export-header__progress-bar">
+                        <div
+                          className="chat-export-header__progress-bar-fill"
+                          data-indeterminate={!exportProgress.total}
+                          style={
+                            exportProgress.total
+                              ? {
+                                  width: `${Math.min(
+                                    100,
+                                    (exportProgress.loaded /
+                                      exportProgress.total) *
+                                      100,
+                                  )}%`,
+                                }
+                              : undefined
+                          }
+                        />
+                      </div>
+                      <span className="chat-export-header__progress-text">
+                        {exportProgress.total
+                          ? `${Math.round(
+                              (exportProgress.loaded / exportProgress.total) *
+                                100,
+                            )}%`
+                          : formatBytes(exportProgress.loaded)}
+                      </span>
+                    </div>
+                  )}
                   <button
                     className="chat-export-header__btn"
                     onClick={() => setExportMenuOpen((prev) => !prev)}
                     title={t("chat.export.button")}
                     data-open={exportMenuOpen}
+                    disabled={!!exportProgress}
                   >
                     ↗ {t("chat.export.button")}
                   </button>

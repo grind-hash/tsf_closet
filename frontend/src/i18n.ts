@@ -653,6 +653,7 @@ const resources = {
           json: "JSON (.json)",
           markdownWithImages: "Markdown + 画像 (.md)",
           novelHtmlZip: "小説形式 + 画像 (.zip)",
+          exporting: "エクスポート中...",
         },
         welcome: {
           title: "TSF Closetへようこそ",
@@ -866,6 +867,8 @@ const resources = {
       character: {
         panel: {
           title: "登場人物",
+          description:
+            "この情報は、画像生成時のプロンプトにのみ反映されます（チャット応答の内容には反映されません）。",
           add: "追加",
           adding: "追加中…",
           delete: "削除",
@@ -1558,6 +1561,7 @@ const resources = {
           json: "JSON (.json)",
           markdownWithImages: "Markdown + Images (.md)",
           novelHtmlZip: "Novel HTML + Images (.zip)",
+          exporting: "Exporting...",
         },
         welcome: {
           title: "Welcome to TSF Closet",
@@ -1769,6 +1773,8 @@ const resources = {
       character: {
         panel: {
           title: "Characters",
+          description:
+            "Character data registered here is only reflected in image generation prompts (it does not affect chat responses).",
           add: "Add",
           adding: "Adding…",
           delete: "Delete",

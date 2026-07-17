@@ -42,6 +42,13 @@
   margin-left: auto;
 }
 
+.character-panel__description {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.6);
+}
+
 .character-panel__feature-toggle {
   display: inline-flex;
   align-items: center;
