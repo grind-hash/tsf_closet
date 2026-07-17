@@ -16,6 +16,7 @@ export default function SettingsScreen() {
   const {
     state,
     setDifficulty,
+    setBloomCalcMethod,
     setLanguage,
     setNsfwMode,
     setShowAchievementNotifications,
@@ -48,6 +49,19 @@ export default function SettingsScreen() {
       id: "hard",
       label: t("settings.hard"),
       description: t("settings.hardDesc"),
+    },
+  ] as const;
+
+  const bloomCalcMethodOptions = [
+    {
+      id: "legacy",
+      label: t("settings.bloomCalcLegacy"),
+      description: t("settings.bloomCalcLegacyDesc"),
+    },
+    {
+      id: "new",
+      label: t("settings.bloomCalcNew"),
+      description: t("settings.bloomCalcNewDesc"),
     },
   ] as const;
 
@@ -133,6 +147,38 @@ export default function SettingsScreen() {
                       value={option.id}
                       checked={state.difficulty === option.id}
                       onChange={() => setDifficulty(option.id)}
+                    />
+                    <div className="settings-screen__radio-content">
+                      <span className="settings-screen__radio-label">
+                        {option.label}
+                      </span>
+                      <span className="settings-screen__radio-desc">
+                        {option.description}
+                      </span>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="settings-screen__item">
+              <div className="settings-screen__item-header">
+                <span className="settings-screen__item-label">
+                  {t("settings.bloomCalcMethod")}
+                </span>
+                <span className="settings-screen__item-desc">
+                  {t("settings.bloomCalcMethodDesc")}
+                </span>
+              </div>
+              <div className="settings-screen__radio-group">
+                {bloomCalcMethodOptions.map((option) => (
+                  <label key={option.id} className="settings-screen__radio">
+                    <input
+                      type="radio"
+                      name="bloomCalcMethod"
+                      value={option.id}
+                      checked={state.bloomCalcMethod === option.id}
+                      onChange={() => setBloomCalcMethod(option.id)}
                     />
                     <div className="settings-screen__radio-content">
                       <span className="settings-screen__radio-label">

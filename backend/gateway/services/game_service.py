@@ -187,6 +187,15 @@ ADAPTATION_BY_CATEGORY = {
     "other": 0,
 }
 
+# 新計算方式(new)の開花度倍率（難易度別）。
+# 従来方式(legacy)より小さくし、変身を重ねても開花度が緩やかに増える。
+# これにより resistance_limit (変身15回かつ開花度50未満) が到達可能になる。
+BLOOM_MULTIPLIER_NEW = {
+    "easy": 0.35,
+    "normal": 0.6,
+    "hard": 0.9,
+}
+
 
 def clamp(value: int, min_val: int, max_val: int) -> int:
     """値を範囲内にクランプ"""
@@ -196,12 +205,14 @@ def clamp(value: int, min_val: int, max_val: int) -> int:
 def calculate_parameter_change(
     tags: TransformationTags,
     stats: SessionStats,
+    bloom_calc_method: str = "legacy",
 ) -> Tuple[int, int, int]:
     """パラメータ変化量を計算する
 
     Args:
         tags: 変身タグ
         stats: 現在のセッション統計
+        bloom_calc_method: 開花度増分の計算方式 ("legacy" | "new")
 
     Returns:
         (bloom_delta, shame_delta, adaptation_delta) のタプル
@@ -212,14 +223,24 @@ def calculate_parameter_change(
     # 開花度計算
     base_bloom = BASE_CORRUPTION_EXPOSURE.get(tags.exposure_level, 4)
     category_bloom = BASE_CORRUPTION_CATEGORY.get(tags.costume_category, 1)
-    bloom_raw = base_bloom + category_bloom
+    bloom_base = base_bloom + category_bloom
 
     # 羞恥心が高いほど堕落しやすい（50を基準）
     shame_factor = stats.shame / 50.0
-    bloom_raw = int(bloom_raw * shame_factor)
 
-    # 難易度倍率を適用
-    bloom_delta = int(bloom_raw * preset.bloom_multiplier)
+    if bloom_calc_method == "new":
+        # 新計算方式: 羞恥による増幅を上限1.0に抑え、専用の緩やかな倍率を適用する。
+        # 変身回数を重ねても開花度が過度に上がらず、抵抗ルートが成立し得る。
+        shame_factor = min(shame_factor, 1.0)
+        bloom_multiplier = BLOOM_MULTIPLIER_NEW.get(
+            stats.difficulty, BLOOM_MULTIPLIER_NEW["normal"]
+        )
+    else:
+        # 従来方式(legacy): 難易度倍率をそのまま適用する。
+        bloom_multiplier = preset.bloom_multiplier
+
+    bloom_raw = int(bloom_base * shame_factor)
+    bloom_delta = int(bloom_raw * bloom_multiplier)
 
     # 羞恥心変化（ランダム要素あり）
     shame_delta = random.randint(-5, 10)
@@ -1344,6 +1365,9 @@ class GameService:
                 if difficulty_override is not None
                 else user_settings["difficulty"]
             )
+            effective_bloom_calc_method = user_settings.get(
+                "bloom_calc_method", "legacy"
+            )
             effective_language = normalize_language(
                 language_override or user_settings.get("language")
             )
@@ -1386,6 +1410,16 @@ class GameService:
                 action_stats = await session_store.get_or_create_session_stats(
                     session.id
                 )
+
+                # セッション属性を取得（テキスト・画像プロンプトの両方に反映）
+                action_attributes = await session_store.get_session_attribute_texts(
+                    session.id
+                )
+                action_attribute_context = self._build_attribute_context(
+                    action_attributes
+                )
+                if action_attributes:
+                    logger.info(f"Session attributes (action): {action_attributes}")
 
                 # コンテキスト用に現在の画像を説明（最新履歴のafter_descriptionを再利用）
                 last_hist = await session_store.get_latest_history(session.id)
@@ -1562,6 +1596,7 @@ class GameService:
                         session_id
                     ),
                     session_characters_section=multi_char_section,
+                    attributes=action_attributes,
                 )
 
                 from .conversation import get_language_rules
@@ -1604,7 +1639,7 @@ class GameService:
                     previous_prompt = current_desc  # 前回のafter_description
                     action_novelai_prompt = (
                         await llm_service.generate_novelai_image_prompt(
-                            instruction=instruction,
+                            instruction=instruction + action_attribute_context,
                             previous_prompt=previous_prompt,
                             nsfw_mode=effective_nsfw_mode,
                             language=effective_language,
@@ -1655,7 +1690,7 @@ class GameService:
                             effective_language
                         )
                     action_edit_user = build_action_image_edit_prompt(
-                        instruction=instruction,
+                        instruction=instruction + action_attribute_context,
                         current_description=vision_desc,
                     )
                     # LLM経由で編集プロンプトを生成
@@ -1876,12 +1911,9 @@ class GameService:
                 surroundings_image_path: str | None = None
                 if enable_surroundings_image and settings.image_provider == "novelai":
                     logger.info("Generating surroundings image for action...")
-                    # Detect reality-change from session attributes
-                    action_attrs = await session_store.get_session_attribute_texts(
-                        session.id
-                    )
+                    # 現実改変属性を検出（既に取得済みの action_attributes を再利用）
                     reality_alter_texts = [
-                        a for a in action_attrs if a.startswith("[現実改変]")
+                        a for a in action_attributes if a.startswith("[現実改変]")
                     ]
                     has_reality_attrs = len(reality_alter_texts) > 0
                     (
@@ -2011,24 +2043,8 @@ class GameService:
 
             # 2.1 セッション属性を取得（プロンプトに反映）
             attributes = await session_store.get_session_attribute_texts(session.id)
-            attribute_context = ""
+            attribute_context = self._build_attribute_context(attributes)
             if attributes:
-                reality_attrs = [a for a in attributes if a.startswith("[現実改変]")]
-                normal_attrs = [a for a in attributes if not a.startswith("[現実改変]")]
-                parts: list[str] = []
-                if normal_attrs:
-                    parts.append(
-                        "【対象キャラクターの属性】\n"
-                        + "\n".join(f"- {attr}" for attr in normal_attrs)
-                    )
-                if reality_attrs:
-                    parts.append(
-                        "【現実改変ルール（場面全体に適用 ― 全キャラクターに影響）】\n"
-                        + "\n".join(f"- {attr}" for attr in reality_attrs)
-                        + "\n（このルールは主人公だけでなく場面内の全員に適用してください）"
-                    )
-                if parts:
-                    attribute_context = "\n\n" + "\n\n".join(parts)
                 logger.info(f"Session attributes: {attributes}")
 
             # 3. 画像編集プロンプトを生成（変身タイプに応じて分岐）
@@ -2480,7 +2496,7 @@ class GameService:
                 old_bloom = stats.bloom
 
                 bloom_delta, shame_delta, adaptation_delta = calculate_parameter_change(
-                    tags, stats
+                    tags, stats, bloom_calc_method=effective_bloom_calc_method
                 )
 
                 # 現実改変の場合はパラメータ変動を増幅
@@ -3068,7 +3084,7 @@ class GameService:
                     reality_alter_texts = [
                         a for a in (attributes or []) if a.startswith("[現実改変]")
                     ]
-                    instruction += self._format_attribute_context(attributes)
+                    instruction += self._build_attribute_context(attributes)
 
                     # self_mode の場合、プロフィールから性別・一人称を取得
                     if session.self_mode:
@@ -3234,15 +3250,31 @@ class GameService:
             "novelai_tag_prompt": None,
         }
 
-    def _format_attribute_context(self, attributes: list[str] | None) -> str:
-        """属性リストをコンテキスト文字列に整形"""
+    def _build_attribute_context(self, attributes: list[str] | None) -> str:
+        """属性リストをプロンプト用コンテキスト文字列に整形する。
+
+        "[現実改変]" プレフィックス属性は場面全体に適用される世界設定として、
+        それ以外はキャラクター固有の属性として、それぞれ別見出しで整形する。
+        """
         if not attributes:
             return ""
-        return (
-            "\n\n【対象キャラクターの属性】\n"
-            + "\n".join(f"- {attr}" for attr in attributes)
-            + "\n（これらの属性を画像生成時に考慮してください）"
-        )
+        reality_attrs = [a for a in attributes if a.startswith("[現実改変]")]
+        normal_attrs = [a for a in attributes if not a.startswith("[現実改変]")]
+        parts: list[str] = []
+        if normal_attrs:
+            parts.append(
+                "【対象キャラクターの属性】\n"
+                + "\n".join(f"- {attr}" for attr in normal_attrs)
+            )
+        if reality_attrs:
+            parts.append(
+                "【現実改変ルール（場面全体に適用 ― 全キャラクターに影響）】\n"
+                + "\n".join(f"- {attr}" for attr in reality_attrs)
+                + "\n（このルールは主人公だけでなく場面内の全員に適用してください）"
+            )
+        if not parts:
+            return ""
+        return "\n\n" + "\n\n".join(parts)
 
 
 # グローバルサービスインスタンス

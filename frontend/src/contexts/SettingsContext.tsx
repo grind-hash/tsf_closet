@@ -35,6 +35,8 @@ import i18n from "../i18n";
 interface SettingsState {
   // 難易度設定
   difficulty: "easy" | "normal" | "hard";
+  // 開花度増分の計算方式 (legacy=従来, new=緩やか)
+  bloomCalcMethod: "legacy" | "new";
   language: UiLanguage;
 
   // NSFWモード
@@ -128,6 +130,7 @@ interface SettingsState {
 // アクション型
 type SettingsAction =
   | { type: "SET_DIFFICULTY"; payload: "easy" | "normal" | "hard" }
+  | { type: "SET_BLOOM_CALC_METHOD"; payload: "legacy" | "new" }
   | { type: "SET_LANGUAGE"; payload: UiLanguage }
   | { type: "SET_NSFW_MODE"; payload: boolean }
   | { type: "TOGGLE_NSFW" }
@@ -186,6 +189,7 @@ type SettingsAction =
 // デフォルト状態
 const defaultState: SettingsState = {
   difficulty: "normal",
+  bloomCalcMethod: "legacy",
   language: DEFAULT_LANGUAGE,
   nsfwMode: false,
   imageProvider: "selfhost",
@@ -235,6 +239,8 @@ function settingsReducer(
   switch (action.type) {
     case "SET_DIFFICULTY":
       return { ...state, difficulty: action.payload };
+    case "SET_BLOOM_CALC_METHOD":
+      return { ...state, bloomCalcMethod: action.payload };
     case "SET_LANGUAGE":
       return { ...state, language: action.payload };
     case "SET_NSFW_MODE":
@@ -380,6 +386,7 @@ function settingsReducer(
 interface SettingsContextType {
   state: SettingsState;
   setDifficulty: (difficulty: "easy" | "normal" | "hard") => void;
+  setBloomCalcMethod: (method: "legacy" | "new") => void;
   setLanguage: (language: UiLanguage) => void;
   setNsfwMode: (enabled: boolean) => void;
   toggleNsfw: () => void;
@@ -548,6 +555,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
             payload: {
               nsfwMode: data.nsfw_mode,
               difficulty: data.difficulty,
+              bloomCalcMethod: data.bloom_calc_method ?? "legacy",
               language: data.language ?? DEFAULT_LANGUAGE,
               novelaiTextModel: data.novelai_text_model ?? "glm-4-6",
               ttsEnabled: data.tts_enabled ?? false,
@@ -683,6 +691,20 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     },
     [],
   );
+
+  const setBloomCalcMethod = useCallback(async (method: "legacy" | "new") => {
+    dispatch({ type: "SET_BLOOM_CALC_METHOD", payload: method });
+    // バックエンドに保存
+    try {
+      await fetch("/api/settings/user", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bloom_calc_method: method }),
+      });
+    } catch (error) {
+      console.error("Failed to save bloom_calc_method to backend:", error);
+    }
+  }, []);
 
   const setNsfwMode = useCallback(async (enabled: boolean) => {
     dispatch({ type: "SET_NSFW_MODE", payload: enabled });
@@ -1033,6 +1055,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const value: SettingsContextType = {
     state,
     setDifficulty,
+    setBloomCalcMethod,
     setLanguage,
     setNsfwMode,
     toggleNsfw,

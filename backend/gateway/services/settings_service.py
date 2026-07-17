@@ -86,6 +86,7 @@ class SettingsService:
         return {
             "nsfw_mode": False,
             "difficulty": "normal",
+            "bloom_calc_method": "legacy",
             "language": DEFAULT_LANGUAGE,
             "novelai_text_model": "glm-4-6",
             "tts_enabled": False,
@@ -102,6 +103,7 @@ class SettingsService:
         return {
             "nsfw_mode": bool(user.nsfw_mode),
             "difficulty": user.difficulty or "normal",
+            "bloom_calc_method": user.bloom_calc_method or "legacy",
             "language": normalize_language(user.language),
             "novelai_text_model": user.novelai_text_model or "glm-4-6",
             "tts_enabled": bool(user.tts_enabled),
@@ -136,6 +138,7 @@ class SettingsService:
         user_id: str = DEFAULT_USER_ID,
         nsfw_mode: bool | None = None,
         difficulty: str | None = None,
+        bloom_calc_method: str | None = None,
         language: str | None = None,
         novelai_text_model: str | None = None,
         tts_enabled: bool | None = None,
@@ -151,6 +154,7 @@ class SettingsService:
             for value in (
                 nsfw_mode,
                 difficulty,
+                bloom_calc_method,
                 language,
                 novelai_text_model,
                 tts_enabled,
@@ -186,6 +190,8 @@ class SettingsService:
                 user.nsfw_mode = 1 if nsfw_mode else 0
             if difficulty is not None:
                 user.difficulty = difficulty
+            if bloom_calc_method is not None:
+                user.bloom_calc_method = bloom_calc_method
             if language is not None:
                 user.language = normalize_language(language)
             if novelai_text_model is not None:

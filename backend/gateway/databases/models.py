@@ -28,6 +28,9 @@ class User(Base):
     )
     nsfw_mode: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     difficulty: Mapped[str] = mapped_column(String, default="normal", nullable=False)
+    bloom_calc_method: Mapped[str] = mapped_column(
+        String, default="legacy", nullable=False, server_default="legacy"
+    )
     language: Mapped[str] = mapped_column(String, default="ja", nullable=False)
     novelai_text_model: Mapped[str] = mapped_column(
         String, default="glm-4-6", nullable=False, server_default="glm-4-6"

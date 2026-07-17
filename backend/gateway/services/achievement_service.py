@@ -141,10 +141,13 @@ class AchievementService:
                 return
 
             now = datetime.now().isoformat()
+            # session_id is intentionally NULL: achievements are managed globally
+            # and "global_user" is not a real sessions row, which would violate the
+            # user_achievements.session_id foreign key when PRAGMA foreign_keys=ON.
             session.add(
                 UserAchievement(
                     id=str(uuid.uuid4()),
-                    session_id=GLOBAL_USER_ID,
+                    session_id=None,
                     achievement_id=achievement_id,
                     achieved_at=now,
                     progress=0,
