@@ -328,6 +328,13 @@ export default function SettingsScreen() {
           <section className="settings-screen__section">
             <h2 className="settings-screen__section-title">
               {t("settings.speech.sectionTitle")}
+              <span
+                className="feature-chip-new"
+                data-feature-version="v0.6.0"
+                style={{ marginLeft: "0.5rem" }}
+              >
+                New
+              </span>
             </h2>
             <SpeechSynthesisSettings />
           </section>

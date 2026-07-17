@@ -219,9 +219,15 @@ function parseFilenameFromHeaders(headers: Headers, fallback: string): string {
   return fallback;
 }
 
+export type ExportProgressCallback = (
+  loaded: number,
+  total: number | null,
+) => void;
+
 async function downloadExport(
   url: string,
   fallbackFilename: string,
+  onProgress?: ExportProgressCallback,
 ): Promise<ExportDownload> {
   const response = await fetch(url);
   if (!response.ok) {
@@ -232,8 +238,31 @@ async function downloadExport(
         `Export failed: ${response.status}`,
     );
   }
-  const blob = await response.blob();
   const filename = parseFilenameFromHeaders(response.headers, fallbackFilename);
+
+  // 進捗コールバックが無い、またはストリーム読み取りに対応していない場合は通常のblob取得
+  if (!onProgress || !response.body) {
+    const blob = await response.blob();
+    return { blob, filename };
+  }
+
+  const contentLengthHeader = response.headers.get("Content-Length");
+  const total = contentLengthHeader ? Number(contentLengthHeader) : null;
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let loaded = 0;
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (value) {
+      chunks.push(value);
+      loaded += value.length;
+      onProgress(loaded, total);
+    }
+  }
+
+  const blob = new Blob(chunks as BlobPart[]);
   return { blob, filename };
 }
 
@@ -242,10 +271,12 @@ async function downloadExport(
  */
 export async function exportSessionMarkdown(
   sessionId: string,
+  onProgress?: ExportProgressCallback,
 ): Promise<ExportDownload> {
   return downloadExport(
     `${API_BASE}/gallery/sessions/${sessionId}/export/markdown`,
     `chat_${sessionId.slice(0, 8)}.md`,
+    onProgress,
   );
 }
 
@@ -254,9 +285,11 @@ export async function exportSessionMarkdown(
  */
 export async function exportSessionNovelHtml(
   sessionId: string,
+  onProgress?: ExportProgressCallback,
 ): Promise<ExportDownload> {
   return downloadExport(
     `${API_BASE}/gallery/sessions/${sessionId}/export/novel-html`,
     `chat_${sessionId.slice(0, 8)}_novel.zip`,
+    onProgress,
   );
 }
