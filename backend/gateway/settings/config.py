@@ -184,6 +184,9 @@ class Settings:
     aivis_engine_base_url: str = os.getenv(
         "AIVIS_ENGINE_BASE_URL", "http://127.0.0.1:10101"
     )
+    aivis_engine_startup_timeout: float = float(
+        os.getenv("AIVIS_ENGINE_STARTUP_TIMEOUT", "300")
+    )
     aivis_engine_download_url: str = os.getenv(
         "AIVIS_ENGINE_DOWNLOAD_URL",
         "https://github.com/Aivis-Project/AivisSpeech/releases/download/1.1.0-preview.4/AivisSpeech-Windows-x64-1.1.0-preview.4.zip",

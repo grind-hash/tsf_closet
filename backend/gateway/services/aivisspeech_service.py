@@ -2,11 +2,15 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import socket
 import subprocess
 import sys
 import tempfile
+import unicodedata
+import wave
 import zipfile
+from io import BytesIO
 from pathlib import Path
 from typing import IO, Any
 from urllib.parse import urlparse
@@ -21,6 +25,8 @@ class AivisSpeechError(Exception):
 
 
 class AivisSpeechService:
+    SYNTHESIS_CHUNK_MAX_CHARS = 200
+
     def __init__(self) -> None:
         self._engine_process: subprocess.Popen | None = None
         self._engine_log_file: IO[str] | None = None
@@ -190,17 +196,26 @@ class AivisSpeechService:
 
         return None
 
-    def start_engine(self, engine_dir: str, use_gpu: bool = False) -> dict[str, Any]:
+    async def start_engine(
+        self, engine_dir: str, use_gpu: bool = False
+    ) -> dict[str, Any]:
         self._ensure_windows()
 
         if self._is_running(self._engine_process):
+            await self._wait_for_engine_ready()
+            assert self._engine_process is not None
             return {
                 "status": "already_running",
                 "pid": self._engine_process.pid,
             }
 
+        if self._engine_process is not None:
+            self._engine_process = None
+            self._close_engine_log()
+
         pid_on_port = self._find_pid_on_port(10101)
         if pid_on_port is not None:
+            await self._wait_for_engine_ready()
             return {
                 "status": "already_running_external",
                 "pid": pid_on_port,
@@ -238,22 +253,12 @@ class AivisSpeechService:
         self._engine_log_file = log_file
         self._engine_log_path = log_path
 
-        # Detect immediate failures (e.g. port in use, missing runtime).
-        try:
-            self._engine_process.wait(timeout=4.0)
-            exit_code = self._engine_process.returncode
-            self._engine_process = None
-            self._close_engine_log()
-            tail = self._read_log_tail(log_path)
-            raise AivisSpeechError(
-                f"run.exe exited immediately (code {exit_code}). Log tail: {tail}"
-            )
-        except subprocess.TimeoutExpired:
-            pass
+        process = self._engine_process
+        await self._wait_for_engine_ready()
 
         return {
             "status": "started",
-            "pid": self._engine_process.pid,
+            "pid": process.pid,
             "run_exe": str(run_exe),
             "log_path": str(log_path),
         }
@@ -276,6 +281,60 @@ class AivisSpeechService:
         if len(text) > max_chars:
             return text[-max_chars:]
         return text or "(empty log)"
+
+    async def _wait_for_engine_ready(self, timeout: float | None = None) -> None:
+        startup_timeout = (
+            settings.aivis_engine_startup_timeout if timeout is None else timeout
+        )
+        if startup_timeout <= 0:
+            raise AivisSpeechError("Engine startup timeout must be greater than zero")
+
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + startup_timeout
+        endpoint = f"{settings.aivis_engine_base_url}/version"
+        last_error = "health check not completed"
+
+        async with httpx.AsyncClient(timeout=httpx.Timeout(2.5)) as client:
+            while True:
+                process = self._engine_process
+                if process is not None and process.poll() is not None:
+                    exit_code = process.returncode
+                    self._engine_process = None
+                    self._close_engine_log()
+                    log_path = self._engine_log_path
+                    tail = (
+                        self._read_log_tail(log_path)
+                        if log_path is not None
+                        else "(no log available)"
+                    )
+                    raise AivisSpeechError(
+                        f"run.exe exited before the engine became ready "
+                        f"(code {exit_code}). Log tail: {tail}"
+                    )
+
+                try:
+                    response = await client.get(endpoint)
+                    if response.status_code < 400:
+                        return
+                    last_error = f"HTTP {response.status_code}"
+                except httpx.HTTPError as exc:
+                    last_error = f"{type(exc).__name__}: {exc}"
+
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    log_path = self._engine_log_path
+                    tail = (
+                        self._read_log_tail(log_path)
+                        if log_path is not None
+                        else "(no log available)"
+                    )
+                    raise AivisSpeechError(
+                        f"AivisSpeech Engine did not become ready within "
+                        f"{startup_timeout:g} seconds. Last health check: "
+                        f"{last_error}. Log tail: {tail}"
+                    )
+
+                await asyncio.sleep(min(0.5, remaining))
 
     async def stop_engine(self) -> dict[str, Any]:
         self._ensure_windows()
@@ -318,7 +377,7 @@ class AivisSpeechService:
     ) -> dict[str, Any]:
         await self.stop_engine()
         await asyncio.sleep(0.4)
-        return self.start_engine(engine_dir=engine_dir, use_gpu=use_gpu)
+        return await self.start_engine(engine_dir=engine_dir, use_gpu=use_gpu)
 
     async def download_model(
         self, url: str, target_dir: str | None = None
@@ -379,15 +438,23 @@ class AivisSpeechService:
         timeout = httpx.Timeout(120.0)
         endpoint = f"{settings.aivis_engine_base_url}/aivm_models/install"
 
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            with file_path.open("rb") as f:
-                response = await client.post(
-                    endpoint, files={"file": (file_path.name, f)}
-                )
-            if response.status_code >= 400:
-                raise AivisSpeechError(
-                    f"Model install failed ({response.status_code}): {response.text}"
-                )
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                with file_path.open("rb") as f:
+                    response = await client.post(
+                        endpoint, files={"file": (file_path.name, f)}
+                    )
+                if response.status_code >= 400:
+                    raise AivisSpeechError(
+                        f"Model install failed ({response.status_code}): "
+                        f"{response.text}"
+                    )
+        except httpx.TimeoutException as exc:
+            raise AivisSpeechError("Model install request timed out") from exc
+        except httpx.HTTPError as exc:
+            raise AivisSpeechError(
+                f"Failed to reach AivisSpeech Engine during model install: {exc}"
+            ) from exc
 
         payload: Any
         try:
@@ -413,8 +480,122 @@ class AivisSpeechService:
             raise AivisSpeechError("Unexpected speakers response format")
         return data
 
+    @staticmethod
+    def _normalize_synthesis_text(text: str) -> str:
+        normalized = text.strip()
+        while normalized:
+            category = unicodedata.category(normalized[0])
+            if not (category.startswith("S") or category in {"Cf", "Mn"}):
+                break
+            normalized = normalized[1:].lstrip()
+        return normalized
+
+    @staticmethod
+    def _split_long_synthesis_segment(segment: str, max_chars: int) -> list[str]:
+        pieces: list[str] = []
+        remaining = segment.strip()
+        separators = ("、", "，", ",", "；", ";", "：", ":", " ")
+
+        while len(remaining) > max_chars:
+            window = remaining[: max_chars + 1]
+            split_at = max(
+                (window.rfind(separator) + len(separator) for separator in separators),
+                default=0,
+            )
+            if split_at < max_chars // 2:
+                split_at = max_chars
+
+            piece = remaining[:split_at].strip()
+            if piece:
+                pieces.append(piece)
+            remaining = remaining[split_at:].strip()
+
+        if remaining:
+            pieces.append(remaining)
+        return pieces
+
+    @classmethod
+    def _split_synthesis_text(
+        cls, text: str, max_chars: int | None = None
+    ) -> list[str]:
+        chunk_limit = max_chars or cls.SYNTHESIS_CHUNK_MAX_CHARS
+        if chunk_limit <= 0:
+            raise AivisSpeechError("Synthesis chunk size must be greater than zero")
+
+        normalized = cls._normalize_synthesis_text(text)
+        if not normalized:
+            return []
+
+        segments = [
+            segment.strip()
+            for segment in re.split(r"(?<=[。！？!?])|\r?\n+", normalized)
+            if segment.strip()
+        ]
+        fragments = [
+            fragment
+            for segment in segments
+            for fragment in cls._split_long_synthesis_segment(segment, chunk_limit)
+        ]
+
+        chunks: list[str] = []
+        current = ""
+        for fragment in fragments:
+            candidate = f"{current}\n{fragment}" if current else fragment
+            if len(candidate) <= chunk_limit:
+                current = candidate
+                continue
+
+            if current:
+                chunks.append(current)
+            current = fragment
+
+        if current:
+            chunks.append(current)
+        return chunks
+
+    @staticmethod
+    def _merge_wav_chunks(chunks: list[bytes]) -> bytes:
+        if not chunks:
+            raise AivisSpeechError("No synthesized audio chunks were returned")
+
+        wav_format: tuple[int, int, int, str, str] | None = None
+        frames: list[bytes] = []
+
+        for index, chunk in enumerate(chunks, start=1):
+            try:
+                with wave.open(BytesIO(chunk), "rb") as reader:
+                    current_format = (
+                        reader.getnchannels(),
+                        reader.getsampwidth(),
+                        reader.getframerate(),
+                        reader.getcomptype(),
+                        reader.getcompname(),
+                    )
+                    if wav_format is None:
+                        wav_format = current_format
+                    elif current_format[:4] != wav_format[:4]:
+                        raise AivisSpeechError(
+                            f"Synthesized WAV format mismatch at chunk {index}"
+                        )
+                    frames.append(reader.readframes(reader.getnframes()))
+            except (EOFError, wave.Error) as exc:
+                raise AivisSpeechError(
+                    f"Invalid WAV data returned for chunk {index}: {exc}"
+                ) from exc
+
+        assert wav_format is not None
+        output = BytesIO()
+        with wave.open(output, "wb") as writer:
+            writer.setnchannels(wav_format[0])
+            writer.setsampwidth(wav_format[1])
+            writer.setframerate(wav_format[2])
+            writer.setcomptype(wav_format[3], wav_format[4])
+            writer.writeframes(b"".join(frames))
+        return output.getvalue()
+
     async def synthesize(self, text: str, speaker: str) -> tuple[bytes, str]:
-        if not text.strip():
+        chunks = self._split_synthesis_text(text)
+        if not chunks:
             raise AivisSpeechError("Text is required")
         if not speaker.strip():
             raise AivisSpeechError("Speaker is required")
@@ -427,40 +608,56 @@ class AivisSpeechService:
             settings.aivis_synthesis_timeout, connect=connect_timeout
         )
         base = settings.aivis_engine_base_url
+        wav_chunks: list[bytes] = []
+        total_chunks = len(chunks)
 
-        try:
-            async with httpx.AsyncClient(timeout=operation_timeout) as client:
-                query_resp = await client.post(
-                    f"{base}/audio_query",
-                    params={"speaker": speaker, "text": text},
-                )
-                query_resp.raise_for_status()
-                audio_query = query_resp.json()
+        async with httpx.AsyncClient(timeout=operation_timeout) as client:
+            for index, chunk in enumerate(chunks, start=1):
+                try:
+                    query_resp = await client.post(
+                        f"{base}/audio_query",
+                        params={"speaker": speaker, "text": chunk},
+                    )
+                    query_resp.raise_for_status()
+                    audio_query = query_resp.json()
 
-            async with httpx.AsyncClient(timeout=operation_timeout) as client:
-                synth_resp = await client.post(
-                    f"{base}/synthesis",
-                    params={"speaker": speaker},
-                    json=audio_query,
-                )
-                synth_resp.raise_for_status()
-        except httpx.TimeoutException as exc:
-            raise AivisSpeechError(
-                "Speech synthesis timed out. On CPU mode, longer text can take "
-                "several minutes; try shorter text or increase "
-                "AIVIS_SYNTHESIS_TIMEOUT."
-            ) from exc
-        except httpx.HTTPStatusError as exc:
-            raise AivisSpeechError(
-                f"AivisSpeech engine returned an error: {exc.response.status_code}"
-            ) from exc
-        except httpx.HTTPError as exc:
-            raise AivisSpeechError(
-                f"Failed to reach AivisSpeech engine: {exc}"
-            ) from exc
+                    synth_resp = await client.post(
+                        f"{base}/synthesis",
+                        params={"speaker": speaker},
+                        json=audio_query,
+                    )
+                    synth_resp.raise_for_status()
+                    content_type = synth_resp.headers.get(
+                        "content-type", "audio/wav"
+                    ).split(";", maxsplit=1)[0]
+                    if content_type.lower() not in {
+                        "audio/wav",
+                        "audio/wave",
+                        "audio/x-wav",
+                        "audio/vnd.wave",
+                    }:
+                        raise AivisSpeechError(
+                            f"Unexpected audio format for chunk {index}: {content_type}"
+                        )
+                    wav_chunks.append(synth_resp.content)
+                except httpx.TimeoutException as exc:
+                    raise AivisSpeechError(
+                        f"Speech synthesis chunk {index}/{total_chunks} timed out. "
+                        "On CPU mode, synthesis can take several minutes; increase "
+                        "AIVIS_SYNTHESIS_TIMEOUT if needed."
+                    ) from exc
+                except httpx.HTTPStatusError as exc:
+                    raise AivisSpeechError(
+                        f"AivisSpeech engine returned an error for chunk "
+                        f"{index}/{total_chunks}: {exc.response.status_code}"
+                    ) from exc
+                except httpx.HTTPError as exc:
+                    raise AivisSpeechError(
+                        f"Failed to reach AivisSpeech engine for chunk "
+                        f"{index}/{total_chunks}: {exc}"
+                    ) from exc
 
-        content_type = synth_resp.headers.get("content-type", "audio/wav")
-        return synth_resp.content, content_type
+        return self._merge_wav_chunks(wav_chunks), "audio/wav"
 
     async def get_status(self) -> dict[str, Any]:
         tracked_running = self._is_running(self._engine_process)

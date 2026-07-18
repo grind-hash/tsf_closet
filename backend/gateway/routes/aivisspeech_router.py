@@ -69,7 +69,7 @@ async def extract_engine(request: ExtractRequest) -> dict[str, str]:
 @router.post("/start-engine")
 async def start_engine(request: StartEngineRequest) -> dict[str, Any]:
     try:
-        return aivisspeech_service.start_engine(
+        return await aivisspeech_service.start_engine(
             engine_dir=request.engine_dir,
             use_gpu=request.use_gpu,
         )
