@@ -297,9 +297,18 @@ export default function SpeechSynthesisSettings() {
       markAction("settings.speech.actionInstallModel");
       await installAivisModel({ model_path: state.ttsModelDir });
       setSetupStage("model_installed");
+      setIsModelGuideOpen(false);
+
+      markAction("settings.speech.actionRestartEngine");
+      await restartAivisEngine({
+        engine_dir: state.ttsEngineDir,
+        use_gpu: state.ttsUseGpu,
+      });
+      await refreshStatus();
+
       setStatusText(t("settings.speech.modelInstalled"));
       setCurrentAction(t("settings.speech.actionIdle"));
-      setIsModelGuideOpen(false);
+      setShowGpuRestartHint(false);
     } catch (error) {
       setOperationFailed(error);
     } finally {
