@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import json
 import sys
 import zipfile
 from pathlib import Path
@@ -24,6 +25,20 @@ def _make_png(path: Path, color: tuple[int, int, int]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     img = Image.new("RGB", (64, 64), color)
     img.save(path, format="PNG")
+
+
+@pytest.mark.parametrize(
+    ("profile_json", "expected"),
+    [
+        (None, "主人公"),
+        ("{invalid", "主人公"),
+        (json.dumps({"display_name": "  テスト名  "}), "テスト名"),
+    ],
+)
+def test_resolve_self_display_name(profile_json: str | None, expected: str) -> None:
+    from gateway.services import export_service as export_mod
+
+    assert export_mod._resolve_self_display_name(profile_json) == expected
 
 
 @pytest.mark.asyncio
@@ -53,8 +68,10 @@ async def test_export_service_emits_markdown_and_zip(tmp_path: Path, monkeypatch
     monkeypatch.setattr(export_mod.settings, "history_images_dir", history_dir)
 
     img_rel = "history_images/hist1.png"
+    no_feeling_img_rel = "history_images/hist2.png"
     sur_rel = "history_images/hist1_sur.png"
     _make_png(data_dir / img_rel, (200, 100, 100))
+    _make_png(data_dir / no_feeling_img_rel, (100, 100, 200))
     _make_png(data_dir / sur_rel, (100, 200, 100))
 
     # Seed DB.
@@ -84,6 +101,24 @@ async def test_export_service_emits_markdown_and_zip(tmp_path: Path, monkeypatch
             )
         )
         db.add(
+            History(
+                id="hist2",
+                session_id=sess.id,
+                instruction="画質を改善",
+                image_path=no_feeling_img_rel,
+                feeling_text="(画質改善)",
+            )
+        )
+        db.add(
+            History(
+                id="hist3",
+                session_id=sess.id,
+                instruction="画像なしの履歴",
+                image_path="history_images/missing.png",
+                feeling_text="画像がない心境",
+            )
+        )
+        db.add(
             Conversation(
                 id="c1",
                 session_id=sess.id,
@@ -109,6 +144,7 @@ async def test_export_service_emits_markdown_and_zip(tmp_path: Path, monkeypatch
     assert md_name.endswith(".md")
     assert "sess-abc" in md_name
     text = md_bytes.decode("utf-8")
+    assert "# Character" in text
     # History-derived: user instruction and character feeling text must appear.
     assert "バニーガールに変身" in text
     assert "ドキドキする" in text
@@ -124,16 +160,106 @@ async def test_export_service_emits_markdown_and_zip(tmp_path: Path, monkeypatch
         names = set(zf.namelist())
         assert "index.html" in names
         assert "assets/style.css" in names
+        assert "assets/view.js" in names
         assert "assets/images/hist_hist1.jpg" in names
+        assert "assets/images/hist_hist2.jpg" in names
+        assert "assets/images/hist_hist3.jpg" not in names
         assert "assets/images/sur_hist1.jpg" in names
 
         html = zf.read("index.html").decode("utf-8")
+        assert "<title>Character -" in html
         assert "バニーガールに変身" in html
         assert "ドキドキする" in html
         assert "ええっ、こんな格好" in html
         assert "message--right" in html  # user bubble
         assert "message--left" in html  # character bubble
         assert 'src="assets/images/hist_hist1.jpg"' in html
+        assert 'data-view-target="chat-view"' in html
+        assert 'data-view-target="paired-view"' in html
+        assert 'id="paired-view"' in html
+
+        paired_html = html.split('id="paired-view"', maxsplit=1)[1].split(
+            "</main>", maxsplit=1
+        )[0]
+        assert paired_html.count('class="paired-card"') == 2
+        assert 'src="assets/images/hist_hist1.jpg"' in paired_html
+        assert 'src="assets/images/hist_hist2.jpg"' in paired_html
+        assert "ドキドキする" in paired_html
+        assert "バニーガールに変身" in paired_html
+        assert 'class="paired-entry__instruction"' in paired_html
+        assert "心境テキストはありません" in paired_html
+        assert "ええっ、こんな格好" not in paired_html
+        assert "sur_hist1.jpg" not in paired_html
+        assert "画像がない心境" not in paired_html
+
+        css = zf.read("assets/style.css").decode("utf-8")
+        assert "grid-template-columns: minmax(260px, 42%)" in css
+        assert "@media (max-width: 640px)" in css
+        script = zf.read("assets/view.js").decode("utf-8")
+        assert 'tab.setAttribute("aria-selected", String(isActive))' in script
+
+
+@pytest.mark.asyncio
+async def test_self_mode_export_uses_profile_display_name(tmp_path: Path, monkeypatch):
+    db_path = tmp_path / "self_mode.db"
+    engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}", future=True)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    test_session_factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    from gateway.services import export_service as export_mod
+
+    monkeypatch.setattr(export_mod, "async_session_factory", test_session_factory)
+
+    data_dir = tmp_path / "data"
+    history_dir = data_dir / "history_images"
+    monkeypatch.setattr(export_mod.settings, "history_images_dir", history_dir)
+
+    img_rel = "history_images/self.png"
+    _make_png(data_dir / img_rel, (120, 160, 200))
+
+    async with test_session_factory() as db:
+        db.add(
+            User(
+                id="self-user",
+                self_profile_json=json.dumps({"display_name": "ありす"}),
+            )
+        )
+        await db.commit()
+        db.add(
+            Session(
+                id="self-mode-session",
+                user_id="self-user",
+                character_id="nonexistent-preset",
+                current_image_path=img_rel,
+                transformation_count=1,
+                is_active=True,
+                self_mode=True,
+            )
+        )
+        db.add(
+            History(
+                id="self-history",
+                session_id="self-mode-session",
+                instruction="衣装を変更",
+                image_path=img_rel,
+                feeling_text="少し恥ずかしい",
+            )
+        )
+        await db.commit()
+
+    md_bytes, _ = await export_mod.build_markdown_export("self-mode-session")
+    markdown = md_bytes.decode("utf-8")
+    assert "# ありす" in markdown
+    assert "### ありす" in markdown
+
+    zip_bytes, _ = await export_mod.build_novel_html_zip("self-mode-session")
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+        html = zf.read("index.html").decode("utf-8")
+        assert "<title>ありす -" in html
+        assert "<figcaption>ありす</figcaption>" in html
+        assert "ありす ·" in html
+        assert ">Character ·" not in html
 
 
 @pytest.mark.asyncio
