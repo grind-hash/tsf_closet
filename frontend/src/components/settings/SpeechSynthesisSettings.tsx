@@ -294,6 +294,12 @@ export default function SpeechSynthesisSettings() {
   const handleConfirmModelPlaced = async () => {
     setBusy(true);
     try {
+      markAction("settings.speech.actionRestartEngine");
+      await restartAivisEngine({
+        engine_dir: state.ttsEngineDir,
+        use_gpu: state.ttsUseGpu,
+      });
+
       markAction("settings.speech.actionInstallModel");
       await installAivisModel({ model_path: state.ttsModelDir });
       setSetupStage("model_installed");
