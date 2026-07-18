@@ -329,11 +329,11 @@ export default function SettingsScreen() {
             <h2 className="settings-screen__section-title">
               {t("settings.speech.sectionTitle")}
               <span
-                className="feature-chip-new"
+                className="feature-chip-experimental"
                 data-feature-version="v0.6.0"
                 style={{ marginLeft: "0.5rem" }}
               >
-                New
+                Experimental
               </span>
             </h2>
             <SpeechSynthesisSettings />

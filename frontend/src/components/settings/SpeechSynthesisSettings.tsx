@@ -172,7 +172,7 @@ export default function SpeechSynthesisSettings() {
     setBusy(true);
     try {
       const status = await refreshStatus();
-      if (status.process === "running" || status.engine_http === "ok") {
+      if (status.engine_http === "ok") {
         setSetupStage("engine_started");
         setStatusText(t("settings.speech.engineAlreadyReady"));
         setCurrentAction(t("settings.speech.actionIdle"));
@@ -294,12 +294,6 @@ export default function SpeechSynthesisSettings() {
   const handleConfirmModelPlaced = async () => {
     setBusy(true);
     try {
-      markAction("settings.speech.actionRestartEngine");
-      await restartAivisEngine({
-        engine_dir: state.ttsEngineDir,
-        use_gpu: state.ttsUseGpu,
-      });
-
       markAction("settings.speech.actionInstallModel");
       await installAivisModel({ model_path: state.ttsModelDir });
       setSetupStage("model_installed");
