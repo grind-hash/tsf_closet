@@ -36,7 +36,7 @@ export default function SpeechSynthesisSettings() {
   const [setupStage, setSetupStage] = useState("initial");
   const [isModelGuideOpen, setIsModelGuideOpen] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [showGpuRestartHint, setShowGpuRestartHint] = useState(false);
+  const [showGpuChangeHint, setShowGpuChangeHint] = useState(false);
 
   const modelHubUrl =
     "https://hub.aivis-project.com/aivm-models/7fc08a41-b64d-456d-8b22-8e1284674775";
@@ -194,6 +194,7 @@ export default function SpeechSynthesisSettings() {
           }),
         );
         setCurrentAction(t("settings.speech.actionIdle"));
+        setShowGpuChangeHint(false);
         return;
       } catch {
         // Continue with full preparation when direct start is not available.
@@ -231,6 +232,7 @@ export default function SpeechSynthesisSettings() {
         }),
       );
       setCurrentAction(t("settings.speech.actionIdle"));
+      setShowGpuChangeHint(false);
     } catch (error) {
       setOperationFailed(error);
     } finally {
@@ -255,7 +257,7 @@ export default function SpeechSynthesisSettings() {
         }),
       );
       setCurrentAction(t("settings.speech.actionIdle"));
-      setShowGpuRestartHint(false);
+      setShowGpuChangeHint(false);
     } catch (error) {
       setOperationFailed(error);
     } finally {
@@ -308,7 +310,7 @@ export default function SpeechSynthesisSettings() {
 
       setStatusText(t("settings.speech.modelInstalled"));
       setCurrentAction(t("settings.speech.actionIdle"));
-      setShowGpuRestartHint(false);
+      setShowGpuChangeHint(false);
     } catch (error) {
       setOperationFailed(error);
     } finally {
@@ -450,7 +452,7 @@ export default function SpeechSynthesisSettings() {
                     checked={state.ttsUseGpu}
                     onChange={(e) => {
                       void setTtsUseGpu(e.target.checked);
-                      setShowGpuRestartHint(true);
+                      setShowGpuChangeHint(true);
                     }}
                     className="settings-screen__toggle-input"
                   />
@@ -458,17 +460,25 @@ export default function SpeechSynthesisSettings() {
                 </label>
               </div>
 
-              {showGpuRestartHint && (
+              {showGpuChangeHint && (
                 <div className="speech-settings__restart-hint">
-                  <span>{t("settings.speech.gpuRestartHint")}</span>
-                  <button
-                    className="speech-settings__button"
-                    type="button"
-                    disabled={busy}
-                    onClick={() => void handleRestartEngine()}
-                  >
-                    {t("settings.speech.restartEngine")}
-                  </button>
+                  <span>
+                    {t(
+                      statusInfo?.process === "running"
+                        ? "settings.speech.gpuRestartHint"
+                        : "settings.speech.gpuNextStartHint",
+                    )}
+                  </span>
+                  {statusInfo?.process === "running" && (
+                    <button
+                      className="speech-settings__button"
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void handleRestartEngine()}
+                    >
+                      {t("settings.speech.restartEngine")}
+                    </button>
+                  )}
                 </div>
               )}
 
