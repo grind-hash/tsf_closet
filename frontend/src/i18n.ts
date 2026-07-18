@@ -252,6 +252,8 @@ const resources = {
           restartEngine: "エンジンを再起動",
           gpuRestartHint:
             "CPU/GPU設定を変えました。変更を反映するにはエンジンの再起動が必要です。",
+          gpuNextStartHint:
+            "CPU/GPU設定を変更しました。次回のエンジン起動時に反映されます。",
           downloadModel: "モデルをダウンロード",
           installModel: "モデルをインストール",
           fetchSpeakers: "スピーカー一覧を取得",
@@ -1164,6 +1166,8 @@ const resources = {
           restartEngine: "Restart engine",
           gpuRestartHint:
             "CPU/GPU setting changed. Restart the engine to apply it.",
+          gpuNextStartHint:
+            "CPU/GPU setting changed. It will be applied the next time the engine starts.",
           downloadModel: "Download model",
           installModel: "Install model",
           fetchSpeakers: "Fetch speakers",
