@@ -10,15 +10,28 @@ from __future__ import annotations
 from ..consts.history_lookback import HISTORY_LOOKBACK_DEFAULT
 
 
-def _get_action_stage(bloom: int) -> str:
+def _get_action_stage(
+    bloom: int,
+    *,
+    gender_discomfort: bool = True,
+) -> str:
     """Return a brief psychological-state description for the system prompt.
 
     Args:
         bloom: Bloom value (0-100)
+        gender_discomfort: When False, do not frame the monologue as TSF
+            shame about a transformed body/outfit.
 
     Returns:
         A description of the character's current mental state
     """
+    if not gender_discomfort:
+        return (
+            "The protagonist is wearing clothes that feel natural for their "
+            "original gender. Do NOT write gender dysphoria, crossdressing shame, "
+            "or 'I want my old clothes back'. Focus on the place, purpose of the "
+            "action, mood, and ordinary social feelings."
+        )
     if bloom < 25:
         return (
             "The protagonist is still confused and embarrassed about their "
@@ -790,6 +803,7 @@ def build_action_prompt(
     lookback_count: int | None = None,
     session_characters_section: str | None = None,
     attributes: list[str] | None = None,
+    gender_discomfort: bool = True,
 ) -> tuple[str, str]:
     """Build system and user prompts for the action instruction type.
 
@@ -812,6 +826,7 @@ def build_action_prompt(
         previous_situation_summary: LLM-generated summary of the previous action result
         attributes: Session attribute texts. Entries prefixed with "[現実改変]"
             are treated as world-state rules; the rest are character attributes.
+        gender_discomfort: When False, suppress TSF shame framing even if bloom is high.
 
     Returns:
         (system_prompt, user_prompt) tuple
@@ -825,7 +840,7 @@ def build_action_prompt(
         else:
             system_prompt = PRE_TRANSFORM_ACTION_SYSTEM_PROMPT
     else:
-        stage_desc = _get_action_stage(bloom)
+        stage_desc = _get_action_stage(bloom, gender_discomfort=gender_discomfort)
         if nsfw_mode:
             system_prompt = ACTION_SYSTEM_PROMPT_NSFW_TEMPLATE.format(
                 stage_description=stage_desc,
@@ -833,6 +848,12 @@ def build_action_prompt(
         else:
             system_prompt = ACTION_SYSTEM_PROMPT_TEMPLATE.format(
                 stage_description=stage_desc,
+            )
+        if not gender_discomfort:
+            system_prompt += (
+                "\n\n重要: 主人公の服装は元の性別として自然です。"
+                "性別違和・女装/男装羞恥・「元の服に戻りたい」は書かないでください。"
+                "行動先での日常的な心境を描写してください。"
             )
 
     # Add personality section to system prompt

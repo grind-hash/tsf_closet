@@ -39,6 +39,9 @@ const resources = {
         bloomCalcLegacyDesc: "これまでと同じ増加バランス",
         bloomCalcNew: "新方式",
         bloomCalcNewDesc: "開花度が緩やかに増え、抵抗エンドに到達しやすい",
+        genderCongruenceLlm: "性別適合の高度な判定（LLM）",
+        genderCongruenceLlmDesc:
+          "会話の経緯から今の認識を踏まえ、スーツ等で不要な違和感心境を抑えます。追加のLLM呼び出しが発生します。オフ時もキーワード判定は有効です",
         nsfwMode: "NSFWモード",
         nsfwDesc: "成人向けコンテンツを有効化",
         language: "言語",
@@ -952,6 +955,9 @@ const resources = {
         bloomCalcNew: "New",
         bloomCalcNewDesc:
           "Bloom grows gently, making the resistance ending reachable",
+        genderCongruenceLlm: "Advanced gender-congruence judgment (LLM)",
+        genderCongruenceLlmDesc:
+          "Uses conversation context to suppress unnecessary gender-discomfort lines for natural outfits (e.g. suits). Adds an LLM call. Keyword rules still apply when off",
         nsfwMode: "NSFW Mode",
         nsfwDesc: "Enable adult content",
         language: "Language",

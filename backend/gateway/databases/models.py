@@ -31,6 +31,9 @@ class User(Base):
     bloom_calc_method: Mapped[str] = mapped_column(
         String, default="legacy", nullable=False, server_default="legacy"
     )
+    gender_congruence_llm_enabled: Mapped[int] = mapped_column(
+        Integer, default=0, nullable=False, server_default="0"
+    )
     language: Mapped[str] = mapped_column(String, default="ja", nullable=False)
     novelai_text_model: Mapped[str] = mapped_column(
         String, default="glm-4-6", nullable=False, server_default="glm-4-6"

@@ -67,6 +67,10 @@ from ..routes.achievements_router import (
     update_achievement_counts,
 )
 from .achievement_classifier import classify_for_achievement
+from .gender_congruence import (
+    GenderCongruenceResult,
+    evaluate_gender_congruence,
+)
 from .anlas_service import get_anlas_balance
 from ..consts.language import normalize_language
 from ..databases.base import async_session_factory
@@ -206,6 +210,7 @@ def calculate_parameter_change(
     tags: TransformationTags,
     stats: SessionStats,
     bloom_calc_method: str = "legacy",
+    gender_discomfort: bool = True,
 ) -> Tuple[int, int, int]:
     """パラメータ変化量を計算する
 
@@ -213,6 +218,7 @@ def calculate_parameter_change(
         tags: 変身タグ
         stats: 現在のセッション統計
         bloom_calc_method: 開花度増分の計算方式 ("legacy" | "new")
+        gender_discomfort: False のとき性別適合服装として開花増分を 0 にする
 
     Returns:
         (bloom_delta, shame_delta, adaptation_delta) のタプル
@@ -248,6 +254,11 @@ def calculate_parameter_change(
     # 順応度計算
     adaptation_raw = ADAPTATION_BY_CATEGORY.get(tags.costume_category, 0)
     adaptation_delta = int(adaptation_raw * preset.adaptation_multiplier)
+
+    # 元性別と違和感のない服装: 開花は増やさない。羞恥の大幅増も抑える
+    if not gender_discomfort:
+        bloom_delta = 0
+        shame_delta = min(shame_delta, 0)
 
     return bloom_delta, shame_delta, adaptation_delta
 
@@ -957,6 +968,7 @@ class GameService:
         enable_multiple_people: bool = False,
         novelai_model_override: str | None = None,
         use_memory: bool = True,
+        gender_congruence: GenderCongruenceResult | None = None,
     ) -> AsyncGenerator[str, None]:
         """LLM経由で心境テキストをストリーミング生成する。
 
@@ -976,6 +988,7 @@ class GameService:
             personality: キャラクターの性格テキスト
             description: キャラクターの説明テキスト
             used_openings: 最近使用した書き出し（重複排除用）
+            gender_congruence: 性別適合判定結果
 
         Yields:
             テキストチャンク
@@ -994,6 +1007,7 @@ class GameService:
             description=description,
             used_openings=used_openings,
             enable_multiple_people=enable_multiple_people,
+            gender_congruence=gender_congruence,
         )
         from .conversation import get_language_rules
 
@@ -1579,6 +1593,32 @@ class GameService:
                     except Exception as _mc_exc:
                         logger.debug("session_character fetch skipped: %s", _mc_exc)
 
+                # 行動時の性別適合（現在の服装 + 経緯）。self_mode 以外で適用
+                action_gender_discomfort = True
+                if not session.self_mode:
+                    action_use_llm = bool(
+                        user_settings.get("gender_congruence_llm_enabled", False)
+                    )
+                    action_congruence = await evaluate_gender_congruence(
+                        instruction=original_instruction,
+                        original_gender=action_gender,
+                        appearance_desc=current_desc or "",
+                        session_timeline=recent_actions or None,
+                        attributes=action_attributes,
+                        instruction_type="action",
+                        use_llm=action_use_llm,
+                        novelai_model_override=effective_novelai_text_model,
+                    )
+                    action_gender_discomfort = (
+                        action_congruence.should_feel_gender_discomfort
+                    )
+                    logger.info(
+                        "Gender congruence (action): fit=%s discomfort=%s source=%s",
+                        action_congruence.fit,
+                        action_gender_discomfort,
+                        action_congruence.source,
+                    )
+
                 act_system, act_user = build_action_prompt(
                     instruction=instruction,
                     current_description=current_desc,
@@ -1597,6 +1637,7 @@ class GameService:
                     ),
                     session_characters_section=multi_char_section,
                     attributes=action_attributes,
+                    gender_discomfort=action_gender_discomfort,
                 )
 
                 from .conversation import get_language_rules
@@ -2258,6 +2299,39 @@ class GameService:
             # テキスト収集用
             text_chunks: list[str] = []
 
+            # 性別適合判定（self_mode / 現実改変以外の着せ替えで使用）
+            # ルールは常時。LLM は設定 ON 時のみ（会話経緯込み）。
+            dress_up_congruence: GenderCongruenceResult | None = None
+            if not session.self_mode and not is_reality:
+                congruence_timeline: list[tuple[str, str]] = []
+                try:
+                    timeline_raw = await session_store.get_session_timeline(
+                        session.id, limit=30
+                    )
+                    congruence_timeline = list(reversed(timeline_raw))
+                except Exception:
+                    logger.debug("congruence timeline fetch skipped")
+                use_congruence_llm = bool(
+                    user_settings.get("gender_congruence_llm_enabled", False)
+                )
+                dress_up_congruence = await evaluate_gender_congruence(
+                    instruction=original_instruction,
+                    original_gender=gender,
+                    appearance_desc=before_desc,
+                    session_timeline=congruence_timeline,
+                    attributes=attributes,
+                    instruction_type="dress_up",
+                    use_llm=use_congruence_llm,
+                    novelai_model_override=effective_novelai_text_model,
+                )
+                logger.info(
+                    "Gender congruence (dress_up): fit=%s discomfort=%s source=%s reason=%s",
+                    dress_up_congruence.fit,
+                    dress_up_congruence.should_feel_gender_discomfort,
+                    dress_up_congruence.source,
+                    dress_up_congruence.reason,
+                )
+
             async def text_producer():
                 """テキストチャンクをキューに送信"""
                 try:
@@ -2315,6 +2389,7 @@ class GameService:
                             enable_multiple_people=enable_multiple_people,
                             novelai_model_override=effective_novelai_text_model,
                             use_memory=use_memory,
+                            gender_congruence=dress_up_congruence,
                         ):
                             text_chunks.append(chunk)
                             await event_queue.put(
@@ -2495,8 +2570,18 @@ class GameService:
                 stats = await session_store.get_or_create_session_stats(session.id)
                 old_bloom = stats.bloom
 
+                # 現実改変は服装適合で開花を止めない。通常着せ替えのみ discomfort を反映
+                gender_discomfort_for_params = True
+                if not is_reality and dress_up_congruence is not None:
+                    gender_discomfort_for_params = (
+                        dress_up_congruence.should_feel_gender_discomfort
+                    )
+
                 bloom_delta, shame_delta, adaptation_delta = calculate_parameter_change(
-                    tags, stats, bloom_calc_method=effective_bloom_calc_method
+                    tags,
+                    stats,
+                    bloom_calc_method=effective_bloom_calc_method,
+                    gender_discomfort=gender_discomfort_for_params,
                 )
 
                 # 現実改変の場合はパラメータ変動を増幅
@@ -2639,7 +2724,7 @@ class GameService:
                 try:
                     classification_result = await classify_for_achievement(
                         query=instruction,
-                        gender="man",  # デフォルトで男性（キャラクターの元の性別）
+                        gender=gender,
                     )
                     categories = list(classification_result.categories)
                     if is_reality and "REALITY_ALTER" not in categories:

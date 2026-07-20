@@ -152,3 +152,27 @@ def test_enhanced_prompt_first_transformation() -> None:
     # First transformation should use special stage
     assert system is not None
     assert user is not None
+
+
+def test_enhanced_prompt_gender_congruent_skips_discomfort() -> None:
+    from gateway.services.gender_congruence import GenderCongruenceResult
+
+    congruence = GenderCongruenceResult(
+        fit="congruent",
+        should_feel_gender_discomfort=False,
+        reason="test",
+        source="rule",
+    )
+    system, user = build_enhanced_feeling_prompt(
+        before_desc="casual",
+        after_desc="suit",
+        instruction="メンズスーツ",
+        bloom=10,
+        pronoun="僕",
+        transformation_count=1,
+        gender_congruence=congruence,
+    )
+    assert "元の性別として自然" in system
+    assert "抵抗と理屈" not in user
+    assert "着心地" in user or "第一印象" in user
+    # 禁止指示としての言及は可。強制構成の「抵抗と理屈」は使わない

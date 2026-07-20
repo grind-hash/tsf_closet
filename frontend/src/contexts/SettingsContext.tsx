@@ -37,6 +37,8 @@ interface SettingsState {
   difficulty: "easy" | "normal" | "hard";
   // 開花度増分の計算方式 (legacy=従来, new=緩やか)
   bloomCalcMethod: "legacy" | "new";
+  // 性別適合の高度判定 (LLM)。デフォルト OFF。OFF 時もルールベースは常時
+  genderCongruenceLlmEnabled: boolean;
   language: UiLanguage;
 
   // NSFWモード
@@ -131,6 +133,7 @@ interface SettingsState {
 type SettingsAction =
   | { type: "SET_DIFFICULTY"; payload: "easy" | "normal" | "hard" }
   | { type: "SET_BLOOM_CALC_METHOD"; payload: "legacy" | "new" }
+  | { type: "SET_GENDER_CONGRUENCE_LLM_ENABLED"; payload: boolean }
   | { type: "SET_LANGUAGE"; payload: UiLanguage }
   | { type: "SET_NSFW_MODE"; payload: boolean }
   | { type: "TOGGLE_NSFW" }
@@ -190,6 +193,7 @@ type SettingsAction =
 const defaultState: SettingsState = {
   difficulty: "normal",
   bloomCalcMethod: "legacy",
+  genderCongruenceLlmEnabled: false,
   language: DEFAULT_LANGUAGE,
   nsfwMode: false,
   imageProvider: "selfhost",
@@ -241,6 +245,8 @@ function settingsReducer(
       return { ...state, difficulty: action.payload };
     case "SET_BLOOM_CALC_METHOD":
       return { ...state, bloomCalcMethod: action.payload };
+    case "SET_GENDER_CONGRUENCE_LLM_ENABLED":
+      return { ...state, genderCongruenceLlmEnabled: action.payload };
     case "SET_LANGUAGE":
       return { ...state, language: action.payload };
     case "SET_NSFW_MODE":
@@ -387,6 +393,7 @@ interface SettingsContextType {
   state: SettingsState;
   setDifficulty: (difficulty: "easy" | "normal" | "hard") => void;
   setBloomCalcMethod: (method: "legacy" | "new") => void;
+  setGenderCongruenceLlmEnabled: (enabled: boolean) => void;
   setLanguage: (language: UiLanguage) => void;
   setNsfwMode: (enabled: boolean) => void;
   toggleNsfw: () => void;
@@ -556,6 +563,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
               nsfwMode: data.nsfw_mode,
               difficulty: data.difficulty,
               bloomCalcMethod: data.bloom_calc_method ?? "legacy",
+              genderCongruenceLlmEnabled:
+                data.gender_congruence_llm_enabled ?? false,
               language: data.language ?? DEFAULT_LANGUAGE,
               novelaiTextModel: data.novelai_text_model ?? "glm-4-6",
               ttsEnabled: data.tts_enabled ?? false,
@@ -705,6 +714,25 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       console.error("Failed to save bloom_calc_method to backend:", error);
     }
   }, []);
+
+  const setGenderCongruenceLlmEnabled = useCallback(
+    async (enabled: boolean) => {
+      dispatch({ type: "SET_GENDER_CONGRUENCE_LLM_ENABLED", payload: enabled });
+      try {
+        await fetch("/api/settings/user", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ gender_congruence_llm_enabled: enabled }),
+        });
+      } catch (error) {
+        console.error(
+          "Failed to save gender_congruence_llm_enabled to backend:",
+          error,
+        );
+      }
+    },
+    [],
+  );
 
   const setNsfwMode = useCallback(async (enabled: boolean) => {
     dispatch({ type: "SET_NSFW_MODE", payload: enabled });
@@ -1056,6 +1084,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     state,
     setDifficulty,
     setBloomCalcMethod,
+    setGenderCongruenceLlmEnabled,
     setLanguage,
     setNsfwMode,
     toggleNsfw,

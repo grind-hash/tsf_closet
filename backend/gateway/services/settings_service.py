@@ -87,6 +87,7 @@ class SettingsService:
             "nsfw_mode": False,
             "difficulty": "normal",
             "bloom_calc_method": "legacy",
+            "gender_congruence_llm_enabled": False,
             "language": DEFAULT_LANGUAGE,
             "novelai_text_model": "glm-4-6",
             "tts_enabled": False,
@@ -104,6 +105,9 @@ class SettingsService:
             "nsfw_mode": bool(user.nsfw_mode),
             "difficulty": user.difficulty or "normal",
             "bloom_calc_method": user.bloom_calc_method or "legacy",
+            "gender_congruence_llm_enabled": bool(
+                getattr(user, "gender_congruence_llm_enabled", 0)
+            ),
             "language": normalize_language(user.language),
             "novelai_text_model": user.novelai_text_model or "glm-4-6",
             "tts_enabled": bool(user.tts_enabled),
@@ -139,6 +143,7 @@ class SettingsService:
         nsfw_mode: bool | None = None,
         difficulty: str | None = None,
         bloom_calc_method: str | None = None,
+        gender_congruence_llm_enabled: bool | None = None,
         language: str | None = None,
         novelai_text_model: str | None = None,
         tts_enabled: bool | None = None,
@@ -155,6 +160,7 @@ class SettingsService:
                 nsfw_mode,
                 difficulty,
                 bloom_calc_method,
+                gender_congruence_llm_enabled,
                 language,
                 novelai_text_model,
                 tts_enabled,
@@ -192,6 +198,10 @@ class SettingsService:
                 user.difficulty = difficulty
             if bloom_calc_method is not None:
                 user.bloom_calc_method = bloom_calc_method
+            if gender_congruence_llm_enabled is not None:
+                user.gender_congruence_llm_enabled = (
+                    1 if gender_congruence_llm_enabled else 0
+                )
             if language is not None:
                 user.language = normalize_language(language)
             if novelai_text_model is not None:

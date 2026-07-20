@@ -17,6 +17,7 @@ export default function SettingsScreen() {
     state,
     setDifficulty,
     setBloomCalcMethod,
+    setGenderCongruenceLlmEnabled,
     setLanguage,
     setNsfwMode,
     setShowAchievementNotifications,
@@ -191,6 +192,28 @@ export default function SettingsScreen() {
                   </label>
                 ))}
               </div>
+            </div>
+
+            <div className="settings-screen__item">
+              <label className="settings-screen__toggle">
+                <div className="settings-screen__toggle-info">
+                  <span className="settings-screen__item-label">
+                    {t("settings.genderCongruenceLlm")}
+                  </span>
+                  <span className="settings-screen__item-desc">
+                    {t("settings.genderCongruenceLlmDesc")}
+                  </span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={state.genderCongruenceLlmEnabled}
+                  onChange={(e) =>
+                    setGenderCongruenceLlmEnabled(e.target.checked)
+                  }
+                  className="settings-screen__toggle-input"
+                />
+                <span className="settings-screen__toggle-switch" />
+              </label>
             </div>
 
             <div className="settings-screen__item">
