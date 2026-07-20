@@ -55,6 +55,25 @@ def test_man_maid_is_incongruent() -> None:
     assert result.should_feel_gender_discomfort is True
 
 
+def test_man_lingerie_is_incongruent() -> None:
+    result = evaluate_gender_congruence_rule("ランジェリーに着替える", "man")
+    assert result.fit == "incongruent"
+    assert result.should_feel_gender_discomfort is True
+
+
+def test_man_bunny_suit_is_incongruent() -> None:
+    result = evaluate_gender_congruence_rule("バニースーツを着せる", "man")
+    assert result.fit == "incongruent"
+    assert result.should_feel_gender_discomfort is True
+
+
+def test_man_onepi_abbrev_is_incongruent() -> None:
+    """ワンピース略語「ワンピ」も女性寄りとして拾う。"""
+    result = evaluate_gender_congruence_rule("タイトミニワンピに着替え", "man")
+    assert result.fit == "incongruent"
+    assert result.should_feel_gender_discomfort is True
+
+
 def test_woman_mens_suit_is_incongruent() -> None:
     result = evaluate_gender_congruence_rule("メンズスーツを着せる", "woman")
     assert result.fit == "incongruent"
