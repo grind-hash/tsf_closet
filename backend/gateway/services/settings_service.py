@@ -21,6 +21,13 @@ DEFAULT_USER_ID = "default-user"
 logger = logging.getLogger(__name__)
 
 
+def _normalize_feeling_mode_value(mode: str | None) -> str:
+    """feeling_mode を API 向けに正規化する。"""
+    from .gender_congruence import normalize_feeling_mode
+
+    return normalize_feeling_mode(mode)
+
+
 class SettingsService:
     def __init__(self) -> None:
         self._current_settings: dict[str, object] = {}
@@ -87,6 +94,7 @@ class SettingsService:
             "nsfw_mode": False,
             "difficulty": "normal",
             "bloom_calc_method": "legacy",
+            "feeling_mode": "legacy",  # legacy | gender_aware
             "gender_congruence_llm_enabled": False,
             "language": DEFAULT_LANGUAGE,
             "novelai_text_model": "glm-4-6",
@@ -105,6 +113,9 @@ class SettingsService:
             "nsfw_mode": bool(user.nsfw_mode),
             "difficulty": user.difficulty or "normal",
             "bloom_calc_method": user.bloom_calc_method or "legacy",
+            "feeling_mode": _normalize_feeling_mode_value(
+                getattr(user, "feeling_mode", None)
+            ),
             "gender_congruence_llm_enabled": bool(
                 getattr(user, "gender_congruence_llm_enabled", 0)
             ),
@@ -143,6 +154,7 @@ class SettingsService:
         nsfw_mode: bool | None = None,
         difficulty: str | None = None,
         bloom_calc_method: str | None = None,
+        feeling_mode: str | None = None,
         gender_congruence_llm_enabled: bool | None = None,
         language: str | None = None,
         novelai_text_model: str | None = None,
@@ -160,6 +172,7 @@ class SettingsService:
                 nsfw_mode,
                 difficulty,
                 bloom_calc_method,
+                feeling_mode,
                 gender_congruence_llm_enabled,
                 language,
                 novelai_text_model,
@@ -198,6 +211,20 @@ class SettingsService:
                 user.difficulty = difficulty
             if bloom_calc_method is not None:
                 user.bloom_calc_method = bloom_calc_method
+            if feeling_mode is not None:
+                from .gender_congruence import (
+                    VALID_FEELING_MODES,
+                    normalize_feeling_mode,
+                )
+
+                # new/experimental は誤って保存された別名として受け入れる
+                allowed = set(VALID_FEELING_MODES) | {"new", "experimental"}
+                if feeling_mode not in allowed:
+                    raise ValueError(
+                        f"Invalid feeling_mode: {feeling_mode}. "
+                        "Use 'legacy' or 'gender_aware'."
+                    )
+                user.feeling_mode = normalize_feeling_mode(feeling_mode)
             if gender_congruence_llm_enabled is not None:
                 user.gender_congruence_llm_enabled = (
                     1 if gender_congruence_llm_enabled else 0

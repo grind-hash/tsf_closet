@@ -39,9 +39,18 @@ const resources = {
         bloomCalcLegacyDesc: "これまでと同じ増加バランス",
         bloomCalcNew: "新方式",
         bloomCalcNewDesc: "開花度が緩やかに増え、抵抗エンドに到達しやすい",
+        feelingMode: "心境生成方式",
+        feelingModeDesc:
+          "着せ替え・行動時の心境テキストの作り方を選びます。既存プレイを変えずに従来どおりにしたい場合は「従来」のままにしてください",
+        feelingModeLegacy: "従来（TSF抵抗）",
+        feelingModeLegacyDesc:
+          "これまでどおり、変身への抵抗・羞恥・開花の心境を基本とします",
+        feelingModeGenderAware: "性別適合を考慮",
+        feelingModeGenderAwareDesc:
+          "メンズスーツやパジャマなど元の性別で自然な服装では、不要な違和感心境と開花増加を抑えます（キーワード判定）",
         genderCongruenceLlm: "性別適合の高度な判定（LLM）",
         genderCongruenceLlmDesc:
-          "会話の経緯から今の認識を踏まえ、スーツ等で不要な違和感心境を抑えます。追加のLLM呼び出しが発生します。オフ時もキーワード判定は有効です",
+          "「性別適合を考慮」選択時に有効。会話の経緯から今の認識も踏まえて判定します。追加のLLM呼び出しが発生します。オフ時はキーワード判定のみです",
         nsfwMode: "NSFWモード",
         nsfwDesc: "成人向けコンテンツを有効化",
         language: "言語",
@@ -955,9 +964,18 @@ const resources = {
         bloomCalcNew: "New",
         bloomCalcNewDesc:
           "Bloom grows gently, making the resistance ending reachable",
+        feelingMode: "Feeling Generation Mode",
+        feelingModeDesc:
+          "Choose how monologues are written after dress-up/actions. Keep Legacy if you want existing play unchanged",
+        feelingModeLegacy: "Legacy (TSF resistance)",
+        feelingModeLegacyDesc:
+          "Same as before: resistance, shame, and bloom-driven monologues",
+        feelingModeGenderAware: "Gender-aware",
+        feelingModeGenderAwareDesc:
+          "For outfits natural to the original gender (e.g. men's suit, pajamas), suppress unnecessary gender-discomfort lines and bloom gains (keyword rules)",
         genderCongruenceLlm: "Advanced gender-congruence judgment (LLM)",
         genderCongruenceLlmDesc:
-          "Uses conversation context to suppress unnecessary gender-discomfort lines for natural outfits (e.g. suits). Adds an LLM call. Keyword rules still apply when off",
+          "Available when Feeling Mode is Gender-aware. Uses conversation context for judgment. Adds an LLM call; keyword rules apply when off",
         nsfwMode: "NSFW Mode",
         nsfwDesc: "Enable adult content",
         language: "Language",

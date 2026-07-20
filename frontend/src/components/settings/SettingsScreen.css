@@ -71,6 +71,10 @@
 }
 
 .settings-screen__item-label {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem;
   font-size: 0.95rem;
   font-weight: 500;
   color: var(--text-color, #eee);
@@ -130,6 +134,10 @@
 }
 
 .settings-screen__radio-label {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.25rem;
   font-size: 0.95rem;
   color: var(--text-color, #eee);
 }

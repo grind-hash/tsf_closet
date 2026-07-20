@@ -11,6 +11,8 @@ from gateway.services.prompts import (
     classify_personality_type,
     select_opening,
     build_enhanced_feeling_prompt,
+    get_image_edit_system_prompt,
+    get_novelai_prompt_generation_system,
 )
 
 
@@ -152,6 +154,28 @@ def test_enhanced_prompt_first_transformation() -> None:
     # First transformation should use special stage
     assert system is not None
     assert user is not None
+
+
+def test_image_edit_system_prompt_suppresses_discomfort_cues() -> None:
+    suppressed = get_image_edit_system_prompt(
+        "novelai", nsfw_mode=True, suppress_gender_discomfort_cues=True
+    )
+    normal = get_image_edit_system_prompt(
+        "novelai", nsfw_mode=True, suppress_gender_discomfort_cues=False
+    )
+    assert "Gender-congruent outfit" in suppressed
+    assert "Gender-congruent outfit" not in normal
+    assert "Do NOT add embarrassed" in suppressed
+
+
+def test_novelai_prompt_system_suppresses_outfit_expression_bias() -> None:
+    suppressed = get_novelai_prompt_generation_system(
+        suppress_gender_discomfort_cues=True
+    )
+    normal = get_novelai_prompt_generation_system(suppress_gender_discomfort_cues=False)
+    assert "neutral/calm expression" in suppressed
+    assert "Add pose and expression tags appropriate for the outfit" in normal
+    assert "Add pose and expression tags appropriate for the outfit" not in suppressed
 
 
 def test_enhanced_prompt_gender_congruent_skips_discomfort() -> None:

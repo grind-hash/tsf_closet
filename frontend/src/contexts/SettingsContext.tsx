@@ -31,13 +31,29 @@ import { getSelfProfile as fetchSelfProfileApi } from "../apis/settings";
 import { getMemoryText as fetchMemoryTextApi } from "../apis/memory";
 import i18n from "../i18n";
 
+type FeelingMode = "legacy" | "gender_aware";
+
+/** API / 旧値を feelingMode に正規化する */
+function normalizeFeelingMode(raw: unknown): FeelingMode {
+  if (raw === "gender_aware") {
+    return "gender_aware";
+  }
+  // 誤って保存された new / experimental は gender_aware 扱い
+  if (raw === "new" || raw === "experimental") {
+    return "gender_aware";
+  }
+  return "legacy";
+}
+
 // 設定状態の型定義
 interface SettingsState {
   // 難易度設定
   difficulty: "easy" | "normal" | "hard";
   // 開花度増分の計算方式 (legacy=従来, new=緩やか)
   bloomCalcMethod: "legacy" | "new";
-  // 性別適合の高度判定 (LLM)。デフォルト OFF。OFF 時もルールベースは常時
+  // 心境生成方式 (legacy=従来TSF抵抗, gender_aware=性別適合を考慮)
+  feelingMode: "legacy" | "gender_aware";
+  // 性別適合の高度判定 (LLM)。feelingMode=gender_aware 時のみ有効。デフォルト OFF
   genderCongruenceLlmEnabled: boolean;
   language: UiLanguage;
 
@@ -133,6 +149,7 @@ interface SettingsState {
 type SettingsAction =
   | { type: "SET_DIFFICULTY"; payload: "easy" | "normal" | "hard" }
   | { type: "SET_BLOOM_CALC_METHOD"; payload: "legacy" | "new" }
+  | { type: "SET_FEELING_MODE"; payload: "legacy" | "gender_aware" }
   | { type: "SET_GENDER_CONGRUENCE_LLM_ENABLED"; payload: boolean }
   | { type: "SET_LANGUAGE"; payload: UiLanguage }
   | { type: "SET_NSFW_MODE"; payload: boolean }
@@ -193,6 +210,7 @@ type SettingsAction =
 const defaultState: SettingsState = {
   difficulty: "normal",
   bloomCalcMethod: "legacy",
+  feelingMode: "legacy",
   genderCongruenceLlmEnabled: false,
   language: DEFAULT_LANGUAGE,
   nsfwMode: false,
@@ -245,6 +263,8 @@ function settingsReducer(
       return { ...state, difficulty: action.payload };
     case "SET_BLOOM_CALC_METHOD":
       return { ...state, bloomCalcMethod: action.payload };
+    case "SET_FEELING_MODE":
+      return { ...state, feelingMode: action.payload };
     case "SET_GENDER_CONGRUENCE_LLM_ENABLED":
       return { ...state, genderCongruenceLlmEnabled: action.payload };
     case "SET_LANGUAGE":
@@ -393,6 +413,7 @@ interface SettingsContextType {
   state: SettingsState;
   setDifficulty: (difficulty: "easy" | "normal" | "hard") => void;
   setBloomCalcMethod: (method: "legacy" | "new") => void;
+  setFeelingMode: (mode: "legacy" | "gender_aware") => void;
   setGenderCongruenceLlmEnabled: (enabled: boolean) => void;
   setLanguage: (language: UiLanguage) => void;
   setNsfwMode: (enabled: boolean) => void;
@@ -563,6 +584,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
               nsfwMode: data.nsfw_mode,
               difficulty: data.difficulty,
               bloomCalcMethod: data.bloom_calc_method ?? "legacy",
+              feelingMode: normalizeFeelingMode(data.feeling_mode),
               genderCongruenceLlmEnabled:
                 data.gender_congruence_llm_enabled ?? false,
               language: data.language ?? DEFAULT_LANGUAGE,
@@ -714,6 +736,22 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       console.error("Failed to save bloom_calc_method to backend:", error);
     }
   }, []);
+
+  const setFeelingMode = useCallback(
+    async (mode: "legacy" | "gender_aware") => {
+      dispatch({ type: "SET_FEELING_MODE", payload: mode });
+      try {
+        await fetch("/api/settings/user", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ feeling_mode: mode }),
+        });
+      } catch (error) {
+        console.error("Failed to save feeling_mode to backend:", error);
+      }
+    },
+    [],
+  );
 
   const setGenderCongruenceLlmEnabled = useCallback(
     async (enabled: boolean) => {
@@ -1084,6 +1122,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     state,
     setDifficulty,
     setBloomCalcMethod,
+    setFeelingMode,
     setGenderCongruenceLlmEnabled,
     setLanguage,
     setNsfwMode,

@@ -17,6 +17,7 @@ export default function SettingsScreen() {
     state,
     setDifficulty,
     setBloomCalcMethod,
+    setFeelingMode,
     setGenderCongruenceLlmEnabled,
     setLanguage,
     setNsfwMode,
@@ -52,6 +53,19 @@ export default function SettingsScreen() {
       description: t("settings.hardDesc"),
     },
   ] as const;
+
+  const feelingModeOptions = [
+    {
+      id: "legacy" as const,
+      label: t("settings.feelingModeLegacy"),
+      description: t("settings.feelingModeLegacyDesc"),
+    },
+    {
+      id: "gender_aware" as const,
+      label: t("settings.feelingModeGenderAware"),
+      description: t("settings.feelingModeGenderAwareDesc"),
+    },
+  ];
 
   const bloomCalcMethodOptions = [
     {
@@ -195,7 +209,58 @@ export default function SettingsScreen() {
             </div>
 
             <div className="settings-screen__item">
-              <label className="settings-screen__toggle">
+              <div className="settings-screen__item-header">
+                <span className="settings-screen__item-label">
+                  {t("settings.feelingMode")}
+                  <span
+                    className="feature-chip-new"
+                    data-feature-version="v0.7.0"
+                  >
+                    New
+                  </span>
+                  <span
+                    className="feature-chip-experimental"
+                    data-feature-version="v0.7.0"
+                  >
+                    Experimental
+                  </span>
+                </span>
+                <span className="settings-screen__item-desc">
+                  {t("settings.feelingModeDesc")}
+                </span>
+              </div>
+              <div className="settings-screen__radio-group">
+                {feelingModeOptions.map((option) => (
+                  <label key={option.id} className="settings-screen__radio">
+                    <input
+                      type="radio"
+                      name="feelingMode"
+                      value={option.id}
+                      checked={state.feelingMode === option.id}
+                      onChange={() => setFeelingMode(option.id)}
+                    />
+                    <div className="settings-screen__radio-content">
+                      <span className="settings-screen__radio-label">
+                        {option.label}
+                      </span>
+                      <span className="settings-screen__radio-desc">
+                        {option.description}
+                      </span>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="settings-screen__item">
+              <label
+                className="settings-screen__toggle"
+                style={
+                  state.feelingMode !== "gender_aware"
+                    ? { opacity: 0.55 }
+                    : undefined
+                }
+              >
                 <div className="settings-screen__toggle-info">
                   <span className="settings-screen__item-label">
                     {t("settings.genderCongruenceLlm")}
@@ -207,6 +272,7 @@ export default function SettingsScreen() {
                 <input
                   type="checkbox"
                   checked={state.genderCongruenceLlmEnabled}
+                  disabled={state.feelingMode !== "gender_aware"}
                   onChange={(e) =>
                     setGenderCongruenceLlmEnabled(e.target.checked)
                   }

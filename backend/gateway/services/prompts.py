@@ -1156,25 +1156,46 @@ Structure to include:
 Output only the positive prompt in English. Do not output negative prompt or any explanation."""
 
 
+# 性別適合服装時: 恥ずかしさ・官能的ポーズが服の性別寄りのバイアスになるのを抑える
+GENDER_CONGRUENT_IMAGE_CUE_RULE = """
+
+## Gender-congruent outfit (IMPORTANT)
+This outfit is natural for the character's original gender. Apply ALL of the following:
+- Do NOT add embarrassed, blushing, shy posture, reluctant, seductive, or sensual expression/pose cues.
+- Use a neutral or calm expression and a natural everyday pose.
+- Do NOT reframe ordinary clothing (e.g. pajamas, suit) as sexy, revealing, frilly, or lingerie-like.
+- Prefer gender-neutral or original-gender clothing presentation (e.g. men's sleepwear for a male character when the instruction is just "pajamas").
+- Even if NSFW mode is on, do NOT inject cleavage, body-curve emphasis, transparent fabric, or "revealing" tags unless the user instruction explicitly asks for them.
+"""
+
+
 def get_image_edit_system_prompt(
-    image_provider: str = "qwen", nsfw_mode: bool = False
+    image_provider: str = "qwen",
+    nsfw_mode: bool = False,
+    suppress_gender_discomfort_cues: bool = False,
 ) -> str:
     """画像編集用システムプロンプトを取得
 
     Args:
         image_provider: 画像生成プロバイダー ("qwen" or "novelai")
         nsfw_mode: NSFWモードかどうか
+        suppress_gender_discomfort_cues: True のとき恥ずかしさ・官能ポーズ等を禁止
 
     Returns:
         システムプロンプト
     """
     if image_provider == "novelai":
         if nsfw_mode:
-            return IMAGE_EDIT_SYSTEM_PROMPT_NOVELAI_NSFW
-        return IMAGE_EDIT_SYSTEM_PROMPT_NOVELAI
+            base = IMAGE_EDIT_SYSTEM_PROMPT_NOVELAI_NSFW
+        else:
+            base = IMAGE_EDIT_SYSTEM_PROMPT_NOVELAI
+    else:
+        # デフォルト（Qwen用）
+        base = IMAGE_EDIT_SYSTEM_PROMPT
 
-    # デフォルト（Qwen用）
-    return IMAGE_EDIT_SYSTEM_PROMPT
+    if suppress_gender_discomfort_cues:
+        return base + GENDER_CONGRUENT_IMAGE_CUE_RULE
+    return base
 
 
 # NovelAI向け品質タグ定義 (T014)
@@ -1427,6 +1448,7 @@ def get_novelai_prompt_generation_system(
     instruction_language: str = "ja",
     clothing_color_consistency: bool = False,
     enable_multiple_people: bool = False,
+    suppress_gender_discomfort_cues: bool = False,
 ) -> str:
     """NovelAIプロンプト生成用システムプロンプトを取得
 
@@ -1435,6 +1457,7 @@ def get_novelai_prompt_generation_system(
         instruction_language: ユーザー指示の言語
         clothing_color_consistency: 服の色の一貫性ルールを追加するか
         enable_multiple_people: 複数人表示モード
+        suppress_gender_discomfort_cues: True のとき恥ずかしさ・官能ポーズ等を禁止
 
     Returns:
         システムプロンプト文字列
@@ -1451,6 +1474,17 @@ def get_novelai_prompt_generation_system(
         base = NOVELAI_PROMPT_GENERATION_SYSTEM_NSFW
     else:
         base = NOVELAI_PROMPT_GENERATION_SYSTEM
+
+    if suppress_gender_discomfort_cues:
+        # "appropriate for the outfit" が shy/sexy に寄るのを上書き
+        base = base.replace(
+            "   - Add pose and expression tags appropriate for the outfit.\n",
+            "   - Use neutral/calm expression and natural everyday pose. "
+            "Do NOT use embarrassed, blushing, shy, seductive, or sensual pose tags.\n"
+            "   - Do NOT make ordinary clothes (pajamas, suit, etc.) look frilly, "
+            "lingerie-like, sexy, or revealing unless the instruction explicitly asks.\n",
+        )
+        base = base + GENDER_CONGRUENT_IMAGE_CUE_RULE
 
     if clothing_color_consistency:
         clothing_rule = (

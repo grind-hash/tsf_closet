@@ -331,6 +331,8 @@ class LiteLLMClient:
         *,
         provider: str = "selfhost",
         extra_system_suffix: str = "",
+        nsfw_mode: bool = False,
+        suppress_gender_discomfort_cues: bool = False,
     ) -> str:
         """画像編集用プロンプトを生成する (LLM)
 
@@ -352,9 +354,8 @@ class LiteLLMClient:
             LiteLLMClientError: API呼び出しに失敗した場合
         """
         from .prompts import (
-            IMAGE_EDIT_SYSTEM_PROMPT,
-            IMAGE_EDIT_SYSTEM_PROMPT_NOVELAI,
             build_image_edit_prompt,
+            get_image_edit_system_prompt,
         )
 
         user_prompt = build_image_edit_prompt(
@@ -365,10 +366,10 @@ class LiteLLMClient:
             custom_preserve_text=custom_preserve_text,
         )
 
-        system_prompt = (
-            IMAGE_EDIT_SYSTEM_PROMPT_NOVELAI
-            if provider == "novelai"
-            else IMAGE_EDIT_SYSTEM_PROMPT
+        system_prompt = get_image_edit_system_prompt(
+            image_provider=provider,
+            nsfw_mode=nsfw_mode,
+            suppress_gender_discomfort_cues=suppress_gender_discomfort_cues,
         )
         if extra_system_suffix:
             system_prompt = system_prompt + extra_system_suffix

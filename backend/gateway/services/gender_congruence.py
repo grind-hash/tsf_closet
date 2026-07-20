@@ -3,6 +3,13 @@
 元の性別と現在の服装・認識状態から、TSF 的な性別違和感を感じるべきかを判定する。
 - ルールベース: 低遅延。設定 OFF 時の既定経路
 - 専用 LLM: 会話経緯・身体認識を含む高度判定。設定 ON 時のみ
+
+feeling_mode:
+- legacy: 従来のTSF抵抗心境（性別適合判定なし）
+- gender_aware: 性別適合を考慮（ルール。LLM は設定トグル時）
+
+誤って保存された別名:
+- new / experimental → gender_aware に正規化
 """
 
 from __future__ import annotations
@@ -15,13 +22,83 @@ from typing import Literal
 
 logger = logging.getLogger(__name__)
 
+FeelingMode = Literal["legacy", "gender_aware"]
+VALID_FEELING_MODES: frozenset[str] = frozenset({"legacy", "gender_aware"})
+# 誤って保存された別名の互換
+_FEELING_MODE_ALIASES: dict[str, FeelingMode] = {
+    "new": "gender_aware",
+    "experimental": "gender_aware",
+}
+
+
+def normalize_feeling_mode(mode: str | None) -> FeelingMode:
+    """feeling_mode を正規化する。不明値は legacy。"""
+    raw = (mode or "legacy").strip().lower()
+    if raw in _FEELING_MODE_ALIASES:
+        return _FEELING_MODE_ALIASES[raw]
+    if raw in VALID_FEELING_MODES:
+        return raw  # type: ignore[return-value]
+    return "legacy"
+
+
+def is_gender_aware_feeling_mode(mode: str | None) -> bool:
+    """性別適合心境を使うモードか。"""
+    return normalize_feeling_mode(mode) == "gender_aware"
+
+
+def should_use_congruence_llm(
+    mode: str | None,
+    llm_enabled: bool = False,
+) -> bool:
+    """性別適合 LLM 判定を使うか。
+
+    - gender_aware: 設定トグル ON のときのみ
+    - legacy: 使わない
+    """
+    if not is_gender_aware_feeling_mode(mode):
+        return False
+    return bool(llm_enabled)
+
+
 FitKind = Literal["congruent", "incongruent", "ambiguous"]
 BodyState = Literal["original", "altered", "unknown"]
 SocialRecognition = Literal["original", "opposite", "unknown"]
 SourceKind = Literal["rule", "llm", "fallback"]
 
+# 明示的な女性向けマーカー（他語と共起しても優先。例: レディーススーツ）
+EXPLICIT_FEMININE_MARKERS: list[str] = [
+    "レディース",
+    "レディス",
+    "女性用",
+    "女性向け",
+    "女物",
+    "女装",
+    "女体化",
+    "女性化",
+    "女子制服",
+    "女の子の服",
+    "スカートスーツ",
+    "ladies",
+    "women's",
+    "womens",
+    "female-only",
+]
+
+# 明示的な男性向けマーカー
+EXPLICIT_MASCULINE_MARKERS: list[str] = [
+    "メンズ",
+    "男性用",
+    "男性向け",
+    "男物",
+    "男装",
+    "mens",
+    "men's",
+    "male-only",
+]
+
 # 女性寄り（元が男性なら不適合、元が女性なら適合寄り）
 FEMININE_KEYWORDS: list[str] = [
+    *EXPLICIT_FEMININE_MARKERS,
     "スカート",
     "ワンピース",
     "ドレス",
@@ -40,8 +117,6 @@ FEMININE_KEYWORDS: list[str] = [
     "パンティ",
     "パンツィ",
     "下着",
-    "女装",
-    "女性用",
     "女の子",
     "少女",
     "リボン",
@@ -57,10 +132,6 @@ FEMININE_KEYWORDS: list[str] = [
     "チアリーダー",
     "ブルマ",
     "レオタード",
-    "女体化",
-    "女性化",
-    "女の子の服",
-    "女子制服",
     "skirt",
     "dress",
     "maid",
@@ -71,10 +142,10 @@ FEMININE_KEYWORDS: list[str] = [
 ]
 
 # 男性寄り
+# 注意: 裸の「スーツ」「suit」はレディーススーツにも部分一致するため弱語扱いにする
 MASCULINE_KEYWORDS: list[str] = [
-    "スーツ",
+    *EXPLICIT_MASCULINE_MARKERS,
     "メンズスーツ",
-    "メンズ",
     "ワイシャツ",
     "シャツ",
     "ネクタイ",
@@ -86,11 +157,8 @@ MASCULINE_KEYWORDS: list[str] = [
     "ジャケット",
     "ブレザー",
     "コート",
-    "ネクタイ",
     "革靴",
     "ローファー",
-    "男装",
-    "男性用",
     "男の子",
     "タキシード",
     "ビジネススーツ",
@@ -98,10 +166,12 @@ MASCULINE_KEYWORDS: list[str] = [
     "つなぎ",
     "スーツ姿",
     "mens suit",
-    "suit",
     "necktie",
     "slacks",
     "tuxedo",
+    # 弱い（共起語）
+    "スーツ",
+    "suit",
 ]
 
 # ユニセックス（どちらでも違和感が薄い）
@@ -125,8 +195,17 @@ UNISEX_KEYWORDS: list[str] = [
     "sweatshirt",
 ]
 
-# パンツは女性下着と衝突しやすいので男性単独判定から外し、明示メンズ時のみ
-_WEAK_MASCULINE = {"パンツ", "シャツ", "ジャケット", "ブレザー", "コート"}
+# 単独では性別を断定しにくい男性語
+_WEAK_MASCULINE = {
+    "パンツ",
+    "シャツ",
+    "ジャケット",
+    "ブレザー",
+    "コート",
+    "スーツ",
+    "suit",
+    "スーツ姿",
+}
 
 
 @dataclass(frozen=True)
@@ -146,10 +225,31 @@ CONGRUENCE_SYSTEM_PROMPT = """あなたはTSF着せ替えゲームの状況判�
 **今この瞬間に性別違和・女装/男装羞恥を感じるべきか**を判定してください。
 
 判定の観点:
-1. 今回の服装/状況は、元の性別として自然か
+1. 今回の服装そのものが、元の性別の衣服として自然か（最優先）
 2. 身体や自己認識は既に変質しているか（女体化・男体化など）
 3. 周囲の認識はどうか
 4. 服装だけが元性別に戻っても、身体変化が残っていれば違和感は残り得る
+
+【服装ラベルの厳守 — 絶対に守ること】
+- 「メンズ」「男性用」「mens」と付いた服 → 男性向け
+- 「レディース」「レディス」「女性用」「ladies」「women's」と付いた服 → 女性向け
+- 元が男性で「レディーススーツ」「レディース○○」は必ず女装 (fit=incongruent, discomfort=true)
+- 元が男性で「メンズスーツ」「メンズ○○」は自然 (fit=congruent, discomfort=false)
+- 「スーツ」単体は、元が男性なら男性用とみなしてよい。ただしレディース/女性用と併記されていれば女性向け
+- 「〜と見なせる」「だいたい同じ」で性別ラベルを打ち消してはいけない
+- ビジネス用途やフォーマルだからといって、レディース服を男性自然服に読み替えてはいけない
+
+例（元の性別=男性）:
+- 「メンズスーツ」→ congruent, discomfort=false
+- 「パジャマ」→ congruent, discomfort=false（性別中立）
+- 「レディーススーツ」→ incongruent, discomfort=true
+- 「スカート」→ incongruent, discomfort=true
+- 「メイド服」→ incongruent, discomfort=true
+
+例（元の性別=女性）:
+- 「ドレス」→ congruent, discomfort=false
+- 「レディーススーツ」→ congruent, discomfort=false
+- 「メンズスーツ」→ incongruent, discomfort=true
 
 出力は次の1行 JSON のみ（説明文禁止）:
 {"fit":"congruent|incongruent|ambiguous","discomfort":true|false,"body":"original|altered|unknown","social":"original|opposite|unknown","reason":"短い理由"}
@@ -159,7 +259,6 @@ CONGRUENCE_SYSTEM_PROMPT = """あなたはTSF着せ替えゲームの状況判�
 - fit=incongruent: 異性装・性転換後の服装など、性別違和感の対象
 - fit=ambiguous: 判断不能
 - discomfort=true のときのみ、心境に「おかしい/元に戻りたい」系を出してよい
-- メンズスーツ・パジャマなど元性別で自然な服装で、身体も元のままなら discomfort=false
 """
 
 
@@ -173,6 +272,10 @@ def _count_keyword_hits(text: str, keywords: list[str]) -> list[str]:
         if kw.casefold() in text:
             hits.append(kw)
     return hits
+
+
+def _has_explicit_markers(text: str, markers: list[str]) -> list[str]:
+    return _count_keyword_hits(text, markers)
 
 
 def evaluate_gender_congruence_rule(
@@ -196,6 +299,8 @@ def evaluate_gender_congruence_rule(
 
     combined = _normalize_text(f"{instruction}\n{appearance_desc}")
 
+    explicit_fem = _has_explicit_markers(combined, EXPLICIT_FEMININE_MARKERS)
+    explicit_masc = _has_explicit_markers(combined, EXPLICIT_MASCULINE_MARKERS)
     feminine_hits = _count_keyword_hits(combined, FEMININE_KEYWORDS)
     masculine_hits = _count_keyword_hits(combined, MASCULINE_KEYWORDS)
     unisex_hits = _count_keyword_hits(combined, UNISEX_KEYWORDS)
@@ -204,15 +309,51 @@ def evaluate_gender_congruence_rule(
     strong_masc = [h for h in masculine_hits if h not in _WEAK_MASCULINE]
     weak_masc = [h for h in masculine_hits if h in _WEAK_MASCULINE]
 
+    # 明示マーカーは最優先（レディーススーツ vs メンズスーツ）
+    if gender == "man" and explicit_fem:
+        return GenderCongruenceResult(
+            fit="incongruent",
+            should_feel_gender_discomfort=True,
+            body_state="unknown",
+            social_recognition="unknown",
+            reason=f"女性向け明示: {', '.join(explicit_fem[:5])}",
+            source="rule",
+        )
+    if gender == "woman" and explicit_masc:
+        return GenderCongruenceResult(
+            fit="incongruent",
+            should_feel_gender_discomfort=True,
+            body_state="unknown",
+            social_recognition="unknown",
+            reason=f"男性向け明示: {', '.join(explicit_masc[:5])}",
+            source="rule",
+        )
+    if gender == "man" and explicit_masc and not explicit_fem:
+        return GenderCongruenceResult(
+            fit="congruent",
+            should_feel_gender_discomfort=False,
+            body_state="original",
+            social_recognition="original",
+            reason=f"男性向け明示: {', '.join(explicit_masc[:5])}",
+            source="rule",
+        )
+    if gender == "woman" and explicit_fem and not explicit_masc:
+        return GenderCongruenceResult(
+            fit="congruent",
+            should_feel_gender_discomfort=False,
+            body_state="original",
+            social_recognition="original",
+            reason=f"女性向け明示: {', '.join(explicit_fem[:5])}",
+            source="rule",
+        )
+
     if gender == "man":
         incongruent_hits = feminine_hits
-        congruent_hits = strong_masc + unisex_hits
-        # メンズ明示があれば弱い語も適合寄り
-        if "メンズ" in combined or "男性用" in combined or "男装" in combined:
-            congruent_hits = masculine_hits + unisex_hits
+        # 裸のスーツ等は男性なら適合寄り（レディース明示は上で処理済み）
+        congruent_hits = strong_masc + unisex_hits + weak_masc
     else:
         incongruent_hits = strong_masc
-        if "メンズ" in combined or "男性用" in combined or "男装" in combined:
+        if explicit_masc:
             incongruent_hits = masculine_hits
         congruent_hits = feminine_hits + unisex_hits
         # 弱い男性語単独は woman では ambiguous に寄せる
@@ -254,6 +395,21 @@ def evaluate_gender_congruence_rule(
         reason="明確な性別手掛かりなし（安全側で違和感あり）",
         source="rule",
     )
+
+
+def rule_has_hard_gender_marker(
+    instruction: str,
+    original_gender: str = "man",
+    appearance_desc: str = "",
+) -> bool:
+    """明示的な性別マーカーがあり、ルールを LLM で上書きすべきでない場合 True。"""
+    gender = (original_gender or "man").lower()
+    combined = _normalize_text(f"{instruction}\n{appearance_desc}")
+    if gender == "man":
+        return bool(_has_explicit_markers(combined, EXPLICIT_FEMININE_MARKERS))
+    if gender == "woman":
+        return bool(_has_explicit_markers(combined, EXPLICIT_MASCULINE_MARKERS))
+    return False
 
 
 def parse_congruence_llm_response(raw: str) -> GenderCongruenceResult | None:
@@ -393,6 +549,18 @@ async def evaluate_gender_congruence(
     if not use_llm:
         return rule_result
 
+    # レディース/メンズ等の明示マーカーがあるときはルールを優先（LLMの誤読を防ぐ）
+    hard_marker = rule_has_hard_gender_marker(
+        instruction, original_gender, appearance_desc
+    )
+    if hard_marker and rule_result.fit in ("congruent", "incongruent"):
+        logger.info(
+            "Gender congruence: hard marker — prefer rule fit=%s reason=%s",
+            rule_result.fit,
+            rule_result.reason,
+        )
+        return rule_result
+
     try:
         from .llm_service import llm_service
         from ..settings.config import settings
@@ -421,6 +589,26 @@ async def evaluate_gender_congruence(
         )
         parsed = parse_congruence_llm_response(result.content)
         if parsed is not None:
+            # ルールが不適合確定なのに LLM が適合と言ったらルールを採用
+            if (
+                rule_result.fit == "incongruent"
+                and rule_result.should_feel_gender_discomfort
+                and not parsed.should_feel_gender_discomfort
+            ):
+                logger.warning(
+                    "Gender congruence LLM under-detected discomfort "
+                    "(rule incongruent, llm congruent). Prefer rule. llm_reason=%s",
+                    parsed.reason,
+                )
+                return GenderCongruenceResult(
+                    fit=rule_result.fit,
+                    should_feel_gender_discomfort=True,
+                    body_state=parsed.body_state,
+                    social_recognition=parsed.social_recognition,
+                    reason=f"rule_override: {rule_result.reason} (llm said: {parsed.reason})",
+                    source="fallback",
+                )
+
             logger.info(
                 "Gender congruence LLM: fit=%s discomfort=%s reason=%s",
                 parsed.fit,

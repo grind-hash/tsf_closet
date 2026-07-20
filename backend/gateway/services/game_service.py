@@ -70,6 +70,9 @@ from .achievement_classifier import classify_for_achievement
 from .gender_congruence import (
     GenderCongruenceResult,
     evaluate_gender_congruence,
+    is_gender_aware_feeling_mode,
+    normalize_feeling_mode,
+    should_use_congruence_llm,
 )
 from .anlas_service import get_anlas_balance
 from ..consts.language import normalize_language
@@ -801,6 +804,7 @@ class GameService:
         nsfw_mode: bool = False,
         novelai_model_override: str | None = None,
         use_memory: bool = True,
+        suppress_gender_discomfort_cues: bool = False,
     ) -> tuple[str, float | None]:
         """画像編集プロンプトを生成 (LLMService経由)
 
@@ -815,6 +819,7 @@ class GameService:
             change_scope: 変更対象 (full, upper, lower, accessories, shoes)
             custom_preserve_text: カスタム保持指示（自由記述）
             nsfw_mode: NSFWモードかどうか
+            suppress_gender_discomfort_cues: 性別適合時に恥ずかしさ・官能キューを抑止
 
         Returns:
             (生成された英語プロンプト, コスト(USD))
@@ -835,6 +840,7 @@ class GameService:
                 provider_override=settings.image_provider,
                 nsfw_mode=nsfw_mode,
                 extra_system_suffix=memory_priority_suffix,
+                suppress_gender_discomfort_cues=suppress_gender_discomfort_cues,
             )
             logger.info(
                 f"画像編集プロンプト生成完了: provider={result.provider}, cost={result.cost_usd}"
@@ -1593,11 +1599,17 @@ class GameService:
                     except Exception as _mc_exc:
                         logger.debug("session_character fetch skipped: %s", _mc_exc)
 
-                # 行動時の性別適合（現在の服装 + 経緯）。self_mode 以外で適用
+                # 行動時の性別適合。feeling_mode=gender_aware かつ self_mode 以外
                 action_gender_discomfort = True
-                if not session.self_mode:
-                    action_use_llm = bool(
-                        user_settings.get("gender_congruence_llm_enabled", False)
+                action_feeling_mode = normalize_feeling_mode(
+                    user_settings.get("feeling_mode", "legacy")
+                )
+                if not session.self_mode and is_gender_aware_feeling_mode(
+                    action_feeling_mode
+                ):
+                    action_use_llm = should_use_congruence_llm(
+                        action_feeling_mode,
+                        bool(user_settings.get("gender_congruence_llm_enabled", False)),
                     )
                     action_congruence = await evaluate_gender_congruence(
                         instruction=original_instruction,
@@ -2171,6 +2183,57 @@ class GameService:
                         "session_character fetch (dress-up) skipped: %s", _mc_exc
                     )
 
+            # 性別適合判定は feeling_mode=gender_aware のときのみ
+            # legacy は従来どおり（常にTSF抵抗心境・開花増分あり）
+            feeling_mode = normalize_feeling_mode(
+                user_settings.get("feeling_mode", "legacy")
+            )
+            gender_aware_feeling = is_gender_aware_feeling_mode(feeling_mode)
+            dress_up_congruence: GenderCongruenceResult | None = None
+            if gender_aware_feeling and not session.self_mode and not is_reality:
+                congruence_timeline: list[tuple[str, str]] = []
+                try:
+                    timeline_raw = await session_store.get_session_timeline(
+                        session.id, limit=30
+                    )
+                    congruence_timeline = list(reversed(timeline_raw))
+                except Exception:
+                    logger.debug("congruence timeline fetch skipped")
+                use_congruence_llm = should_use_congruence_llm(
+                    feeling_mode,
+                    bool(user_settings.get("gender_congruence_llm_enabled", False)),
+                )
+                dress_up_congruence = await evaluate_gender_congruence(
+                    instruction=original_instruction,
+                    original_gender=gender,
+                    appearance_desc=before_desc,
+                    session_timeline=congruence_timeline,
+                    attributes=attributes,
+                    instruction_type="dress_up",
+                    use_llm=use_congruence_llm,
+                    novelai_model_override=effective_novelai_text_model,
+                )
+                logger.info(
+                    "Gender congruence (dress_up): mode=%s fit=%s discomfort=%s "
+                    "source=%s llm=%s reason=%s",
+                    feeling_mode,
+                    dress_up_congruence.fit,
+                    dress_up_congruence.should_feel_gender_discomfort,
+                    dress_up_congruence.source,
+                    use_congruence_llm,
+                    dress_up_congruence.reason,
+                )
+            else:
+                logger.info(
+                    "Feeling mode=%s — skip gender congruence for dress_up",
+                    feeling_mode,
+                )
+
+            suppress_gender_image_cues = (
+                dress_up_congruence is not None
+                and not dress_up_congruence.should_feel_gender_discomfort
+            )
+
             # T008: NovelAI Opusモード用のプロンプト生成
             generated_novelai_prompt: str | None = None
             prompt_gen_cost: float | None = None
@@ -2195,6 +2258,7 @@ class GameService:
                         novelai_model_override=effective_novelai_text_model,
                         session_characters_section=dress_up_multi_char_image_section,
                         extra_system_suffix=dress_up_memory_suffix,
+                        suppress_gender_discomfort_cues=suppress_gender_image_cues,
                     )
                 )
 
@@ -2250,6 +2314,7 @@ class GameService:
                     nsfw_mode=effective_nsfw_mode,
                     novelai_model_override=effective_novelai_text_model,
                     use_memory=use_memory,
+                    suppress_gender_discomfort_cues=suppress_gender_image_cues,
                 )
 
             # T009: NovelAI専用 - 直接プロンプト指定とのマージ
@@ -2298,39 +2363,6 @@ class GameService:
 
             # テキスト収集用
             text_chunks: list[str] = []
-
-            # 性別適合判定（self_mode / 現実改変以外の着せ替えで使用）
-            # ルールは常時。LLM は設定 ON 時のみ（会話経緯込み）。
-            dress_up_congruence: GenderCongruenceResult | None = None
-            if not session.self_mode and not is_reality:
-                congruence_timeline: list[tuple[str, str]] = []
-                try:
-                    timeline_raw = await session_store.get_session_timeline(
-                        session.id, limit=30
-                    )
-                    congruence_timeline = list(reversed(timeline_raw))
-                except Exception:
-                    logger.debug("congruence timeline fetch skipped")
-                use_congruence_llm = bool(
-                    user_settings.get("gender_congruence_llm_enabled", False)
-                )
-                dress_up_congruence = await evaluate_gender_congruence(
-                    instruction=original_instruction,
-                    original_gender=gender,
-                    appearance_desc=before_desc,
-                    session_timeline=congruence_timeline,
-                    attributes=attributes,
-                    instruction_type="dress_up",
-                    use_llm=use_congruence_llm,
-                    novelai_model_override=effective_novelai_text_model,
-                )
-                logger.info(
-                    "Gender congruence (dress_up): fit=%s discomfort=%s source=%s reason=%s",
-                    dress_up_congruence.fit,
-                    dress_up_congruence.should_feel_gender_discomfort,
-                    dress_up_congruence.source,
-                    dress_up_congruence.reason,
-                )
 
             async def text_producer():
                 """テキストチャンクをキューに送信"""
