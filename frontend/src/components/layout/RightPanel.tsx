@@ -255,6 +255,7 @@ export default function RightPanel({
   );
   const attributeInputRef = useRef<HTMLInputElement>(null);
   const preciseRefInputRef = useRef<HTMLInputElement>(null);
+  const preciseRefDragDepthRef = useRef(0);
 
   // 属性プリセット
   const [attributePresets, setAttributePresets] = useState<AttributePreset[]>(
@@ -478,53 +479,133 @@ export default function RightPanel({
 
   // Validation error for precise reference files
   const [preciseRefError, setPreciseRefError] = useState<string | null>(null);
+  const [isPreciseRefDragging, setIsPreciseRefDragging] = useState(false);
 
-  // Precise reference image file handler with validation
-  const handlePreciseRefFileChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const files = e.target.files;
-      if (!files) return;
+  // 精密参照画像を検証し、元の順序を保って追加する
+  const addPreciseRefFiles = useCallback(
+    async (files: File[]) => {
       setPreciseRefError(null);
 
-      for (const file of Array.from(files)) {
-        // MIME type check
+      const validFiles: File[] = [];
+      let firstValidationError: string | null = null;
+      let hasMaxCountError = false;
+      let remainingSlots = Math.max(
+        0,
+        6 - settingsState.preciseReferences.length,
+      );
+
+      for (const file of files) {
         if (!ALLOWED_MIME_TYPES.includes(file.type)) {
-          setPreciseRefError(
-            t("rightPanel.preciseRefTypeError", { name: file.name }),
-          );
+          firstValidationError ??= t("rightPanel.preciseRefTypeError", {
+            name: file.name,
+          });
           continue;
         }
-        // File size check
+
         if (file.size > MAX_FILE_SIZE_BYTES) {
-          setPreciseRefError(
-            t("rightPanel.preciseRefSizeError", { name: file.name }),
-          );
+          firstValidationError ??= t("rightPanel.preciseRefSizeError", {
+            name: file.name,
+          });
           continue;
         }
-        // Max 6 references check (FR-017)
-        if (settingsState.preciseReferences.length >= 6) {
-          setPreciseRefError(t("rightPanel.preciseRefMaxError"));
+
+        if (remainingSlots === 0) {
+          hasMaxCountError = true;
           continue;
         }
-        const reader = new FileReader();
-        reader.onload = () => {
-          const dataUrl = reader.result as string;
+
+        validFiles.push(file);
+        remainingSlots -= 1;
+      }
+
+      const imageDataList = await Promise.all(
+        validFiles.map(
+          (file) =>
+            new Promise<string | null>((resolve) => {
+              const reader = new FileReader();
+              reader.onload = () =>
+                resolve(
+                  typeof reader.result === "string" ? reader.result : null,
+                );
+              reader.onerror = () => resolve(null);
+              reader.readAsDataURL(file);
+            }),
+        ),
+      );
+
+      validFiles.forEach((file, index) => {
+        const imageData = imageDataList[index];
+        if (imageData) {
           addPreciseReference({
             id: generateUUID(),
-            imageData: dataUrl,
+            imageData,
             fileName: file.name,
             type: "character&style",
             strength: 0.6,
             fidelity: 1.0,
             enabled: true,
           });
-        };
-        reader.readAsDataURL(file);
+        }
+      });
+
+      if (hasMaxCountError) {
+        setPreciseRefError(t("rightPanel.preciseRefMaxError"));
+      } else if (firstValidationError) {
+        setPreciseRefError(firstValidationError);
       }
-      // Reset input so the same file can be re-selected
-      e.target.value = "";
     },
     [addPreciseReference, settingsState.preciseReferences.length, t],
+  );
+
+  const handlePreciseRefFileChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = e.target.files;
+      if (!files) return;
+      void addPreciseRefFiles(Array.from(files));
+      e.target.value = "";
+    },
+    [addPreciseRefFiles],
+  );
+
+  const handlePreciseRefDragEnter = useCallback(
+    (e: React.DragEvent<HTMLButtonElement>) => {
+      e.preventDefault();
+      preciseRefDragDepthRef.current += 1;
+      setIsPreciseRefDragging(true);
+    },
+    [],
+  );
+
+  const handlePreciseRefDragOver = useCallback(
+    (e: React.DragEvent<HTMLButtonElement>) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "copy";
+    },
+    [],
+  );
+
+  const handlePreciseRefDragLeave = useCallback(
+    (e: React.DragEvent<HTMLButtonElement>) => {
+      e.preventDefault();
+      preciseRefDragDepthRef.current = Math.max(
+        0,
+        preciseRefDragDepthRef.current - 1,
+      );
+      if (preciseRefDragDepthRef.current === 0) {
+        setIsPreciseRefDragging(false);
+      }
+    },
+    [],
+  );
+
+  const handlePreciseRefDrop = useCallback(
+    (e: React.DragEvent<HTMLButtonElement>) => {
+      e.preventDefault();
+      preciseRefDragDepthRef.current = 0;
+      setIsPreciseRefDragging(false);
+      void addPreciseRefFiles(Array.from(e.dataTransfer.files));
+    },
+    [addPreciseRefFiles],
   );
 
   return (
@@ -1382,11 +1463,27 @@ export default function RightPanel({
               />
               <button
                 type="button"
-                className="right-panel__btn-secondary"
+                className={`right-panel__precise-ref-drop-zone ${
+                  isPreciseRefDragging ? "is-dragging" : ""
+                }`}
                 onClick={() => preciseRefInputRef.current?.click()}
-                style={{ width: "100%", marginBottom: "0.5rem" }}
+                onDragEnter={handlePreciseRefDragEnter}
+                onDragOver={handlePreciseRefDragOver}
+                onDragLeave={handlePreciseRefDragLeave}
+                onDrop={handlePreciseRefDrop}
+                aria-label={t("rightPanel.addReferenceImage")}
+                data-testid="precise-ref-drop-zone"
               >
-                {t("rightPanel.addReferenceImage")}
+                {isPreciseRefDragging ? (
+                  t("rightPanel.preciseRefDropActive")
+                ) : (
+                  <>
+                    <span>{t("rightPanel.addReferenceImage")}</span>
+                    <span className="right-panel__precise-ref-drop-hint">
+                      {t("rightPanel.preciseRefDropHint")}
+                    </span>
+                  </>
+                )}
               </button>
 
               {preciseRefError && (

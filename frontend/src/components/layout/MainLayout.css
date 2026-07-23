@@ -92,6 +92,8 @@
   .main-layout {
     grid-template-columns: 60px 1fr;
     grid-template-areas: "sidemenu content";
+    height: 100dvh;
+    max-height: 100dvh;
   }
 
   /* モバイルでは右パネルを表示してもグリッドは2カラムのまま維持 */
@@ -110,7 +112,7 @@
     top: 0;
     right: -100%;
     width: 100%;
-    height: 100vh;
+    height: 100dvh;
     z-index: 200;
     transition: right 0.3s ease;
   }

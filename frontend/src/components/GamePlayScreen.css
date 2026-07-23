@@ -230,6 +230,18 @@
     gap: 0.5rem;
   }
 
+  .game-play-screen__left-panel {
+    flex: 0 0 min(56vh, 520px);
+    flex-basis: min(56dvh, 520px);
+    max-height: min(56vh, 520px);
+    max-height: min(56dvh, 520px);
+  }
+
+  .game-play-screen__chat-area {
+    flex: 1 1 auto;
+    min-height: 120px;
+  }
+
   .game-play-screen__feeling {
     max-height: 80px;
     font-size: 0.85rem;
