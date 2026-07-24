@@ -65,7 +65,10 @@ async function mockActiveSession(page: Page) {
   });
 }
 
-async function expectPrimaryControlsVisible(page: Page) {
+async function expectImageAndChatVisible(
+  page: Page,
+  minimumImageHeight: number,
+) {
   const leftPanel = page.locator(".game-play-screen__left-panel");
   const chatArea = page.locator(".game-play-screen__chat-area");
   const imageButton = page.locator(".character-state-panel__image-btn");
@@ -75,36 +78,29 @@ async function expectPrimaryControlsVisible(page: Page) {
 
   await expect(leftPanel).toBeVisible();
   await expect(imageButton).toBeVisible();
-  await expect(historyStrip).toBeVisible();
-  await expect(historyNav).toBeVisible();
+  await expect(historyStrip).toBeAttached();
+  await expect(historyNav).toBeAttached();
   await expect(chatInput).toBeVisible();
 
-  const [leftBox, chatBox, imageBox, stripBox, navBox, inputBox] =
-    await Promise.all([
-      leftPanel.boundingBox(),
-      chatArea.boundingBox(),
-      imageButton.boundingBox(),
-      historyStrip.boundingBox(),
-      historyNav.boundingBox(),
-      chatInput.boundingBox(),
-    ]);
+  const [leftBox, chatBox, imageBox, inputBox] = await Promise.all([
+    leftPanel.boundingBox(),
+    chatArea.boundingBox(),
+    imageButton.boundingBox(),
+    chatInput.boundingBox(),
+  ]);
 
   expect(leftBox).not.toBeNull();
   expect(chatBox).not.toBeNull();
   expect(imageBox).not.toBeNull();
-  expect(stripBox).not.toBeNull();
-  expect(navBox).not.toBeNull();
   expect(inputBox).not.toBeNull();
 
-  if (!leftBox || !chatBox || !imageBox || !stripBox || !navBox || !inputBox) {
+  if (!leftBox || !chatBox || !imageBox || !inputBox) {
     return;
   }
 
-  expect(imageBox.height).toBeGreaterThan(100);
-  expect(stripBox.y + stripBox.height).toBeLessThanOrEqual(
-    leftBox.y + leftBox.height + 1,
-  );
-  expect(navBox.y + navBox.height).toBeLessThanOrEqual(
+  expect(imageBox.height).toBeGreaterThan(minimumImageHeight);
+  expect(imageBox.y).toBeGreaterThanOrEqual(leftBox.y);
+  expect(imageBox.y + imageBox.height).toBeLessThanOrEqual(
     leftBox.y + leftBox.height + 1,
   );
   expect(leftBox.y + leftBox.height).toBeLessThanOrEqual(chatBox.y + 1);
@@ -116,6 +112,13 @@ async function expectPrimaryControlsVisible(page: Page) {
     "object-fit",
     "contain",
   );
+  await expect
+    .poll(() =>
+      leftPanel.evaluate(
+        (element) => element.scrollHeight > element.clientHeight,
+      ),
+    )
+    .toBe(true);
 }
 
 test.describe("モバイルの画像・チャット同時表示", () => {
@@ -123,20 +126,30 @@ test.describe("モバイルの画像・チャット同時表示", () => {
     await mockActiveSession(page);
   });
 
-  test("412x915で画像、履歴、チャット入力が初期表示内に収まる", async ({
+  test("412x915で大きな画像とチャット入力が初期表示内に収まる", async ({
     page,
   }, testInfo) => {
     await page.setViewportSize({ width: 412, height: 915 });
     await page.goto(`/play/${sessionId}`);
 
     await expect(page.locator(".game-play-screen")).toBeVisible();
-    await expectPrimaryControlsVisible(page);
+    await expectImageAndChatVisible(page, 300);
+
+    await page.screenshot({ path: testInfo.outputPath("pixel7-layout.png") });
 
     const leftPanel = page.locator(".game-play-screen__left-panel");
-    const initialScrollTop = await leftPanel.evaluate((element) =>
+    const historyStrip = page.locator(".character-state-panel__history-strip");
+    await historyStrip.evaluate((element) =>
+      element.scrollIntoView({ block: "center" }),
+    );
+    await expect(historyStrip).toBeInViewport();
+    await expect(
+      page.locator(".character-state-panel__nav-full"),
+    ).toBeInViewport();
+
+    const navigationScrollTop = await leftPanel.evaluate((element) =>
       Math.round(element.scrollTop),
     );
-    const historyStrip = page.locator(".character-state-panel__history-strip");
     const navButtons = page.locator(
       ".character-state-panel__nav-full .character-state-panel__nav-btn",
     );
@@ -170,10 +183,8 @@ test.describe("モバイルの画像・チャット同時表示", () => {
         .poll(() =>
           leftPanel.evaluate((element) => Math.round(element.scrollTop)),
         )
-        .toBe(initialScrollTop);
+        .toBe(navigationScrollTop);
     }
-
-    await page.screenshot({ path: testInfo.outputPath("pixel7-layout.png") });
   });
 
   test("375x667でも画像をトリミングせずチャット入力を維持する", async ({
@@ -183,7 +194,7 @@ test.describe("モバイルの画像・チャット同時表示", () => {
     await page.goto(`/play/${sessionId}`);
 
     await expect(page.locator(".game-play-screen")).toBeVisible();
-    await expectPrimaryControlsVisible(page);
+    await expectImageAndChatVisible(page, 200);
   });
 
   for (const viewport of [

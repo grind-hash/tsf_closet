@@ -345,98 +345,97 @@ export default function CharacterStatePanel({
               </p>
             </div>
           )}
-
-          {/* 変身経過サムネイル */}
-          {history.length > 1 && (
-            <div
-              ref={historyStripRef}
-              className="character-state-panel__history-strip"
-            >
-              {history.map((item, index) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  className={`character-state-panel__history-thumb ${
-                    index === currentHistoryIndex ? "is-active" : ""
-                  }`}
-                  data-history-index={index}
-                  onClick={() => handleThumbnailClick(index)}
-                  aria-label={t("characterPanel.transformHistory", {
-                    index: index + 1,
-                  })}
-                  title={
-                    item.instruction ||
-                    t("characterPanel.transformHistory", { index: index + 1 })
-                  }
-                >
-                  <img
-                    src={item.imageUrl}
-                    alt={t("characterPanel.transformHistory", {
-                      index: index + 1,
-                    })}
-                    loading="lazy"
-                  />
-                  <span className="character-state-panel__history-thumb-num">
-                    {index + 1}
-                  </span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* 履歴ナビゲーション（4ボタン） - 常に表示 */}
-        <div className="character-state-panel__nav-full">
-          <button
-            type="button"
-            className="character-state-panel__nav-btn"
-            onClick={() => handleThumbnailClick(0)}
-            disabled={history.length === 0 || currentHistoryIndex === 0}
-            aria-label={t("characterPanel.navFirstAria")}
-            title={t("characterPanel.navFirstTitle")}
-          >
-            «
-          </button>
-          <button
-            type="button"
-            className="character-state-panel__nav-btn"
-            onClick={() => handleHistoryNavigate("prev")}
-            disabled={history.length === 0 || !canNavigatePrev}
-            aria-label={t("characterPanel.navPrevAria")}
-            title={t("characterPanel.navPrevTitle")}
-          >
-            ‹
-          </button>
-          <span className="character-state-panel__nav-count">
-            {history.length > 0
-              ? `${currentHistoryIndex + 1} / ${history.length}`
-              : "0 / 0"}
-          </span>
-          <button
-            type="button"
-            className="character-state-panel__nav-btn"
-            onClick={() => handleHistoryNavigate("next")}
-            disabled={history.length === 0 || !canNavigateNext}
-            aria-label={t("characterPanel.navNextAria")}
-            title={t("characterPanel.navNextTitle")}
-          >
-            ›
-          </button>
-          <button
-            type="button"
-            className="character-state-panel__nav-btn"
-            onClick={() => handleThumbnailClick(history.length - 1)}
-            disabled={
-              history.length === 0 || currentHistoryIndex === history.length - 1
-            }
-            aria-label={t("characterPanel.navLastAria")}
-            title={t("characterPanel.navLastTitle")}
-          >
-            »
-          </button>
         </div>
       </div>
 
+      {/* 変身経過サムネイル */}
+      {history.length > 1 && (
+        <div
+          ref={historyStripRef}
+          className="character-state-panel__history-strip"
+        >
+          {history.map((item, index) => (
+            <button
+              key={item.id}
+              type="button"
+              className={`character-state-panel__history-thumb ${
+                index === currentHistoryIndex ? "is-active" : ""
+              }`}
+              data-history-index={index}
+              onClick={() => handleThumbnailClick(index)}
+              aria-label={t("characterPanel.transformHistory", {
+                index: index + 1,
+              })}
+              title={
+                item.instruction ||
+                t("characterPanel.transformHistory", { index: index + 1 })
+              }
+            >
+              <img
+                src={item.imageUrl}
+                alt={t("characterPanel.transformHistory", {
+                  index: index + 1,
+                })}
+                loading="lazy"
+              />
+              <span className="character-state-panel__history-thumb-num">
+                {index + 1}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* 履歴ナビゲーション（4ボタン） - 常に表示 */}
+      <div className="character-state-panel__nav-full">
+        <button
+          type="button"
+          className="character-state-panel__nav-btn"
+          onClick={() => handleThumbnailClick(0)}
+          disabled={history.length === 0 || currentHistoryIndex === 0}
+          aria-label={t("characterPanel.navFirstAria")}
+          title={t("characterPanel.navFirstTitle")}
+        >
+          «
+        </button>
+        <button
+          type="button"
+          className="character-state-panel__nav-btn"
+          onClick={() => handleHistoryNavigate("prev")}
+          disabled={history.length === 0 || !canNavigatePrev}
+          aria-label={t("characterPanel.navPrevAria")}
+          title={t("characterPanel.navPrevTitle")}
+        >
+          ‹
+        </button>
+        <span className="character-state-panel__nav-count">
+          {history.length > 0
+            ? `${currentHistoryIndex + 1} / ${history.length}`
+            : "0 / 0"}
+        </span>
+        <button
+          type="button"
+          className="character-state-panel__nav-btn"
+          onClick={() => handleHistoryNavigate("next")}
+          disabled={history.length === 0 || !canNavigateNext}
+          aria-label={t("characterPanel.navNextAria")}
+          title={t("characterPanel.navNextTitle")}
+        >
+          ›
+        </button>
+        <button
+          type="button"
+          className="character-state-panel__nav-btn"
+          onClick={() => handleThumbnailClick(history.length - 1)}
+          disabled={
+            history.length === 0 || currentHistoryIndex === history.length - 1
+          }
+          aria-label={t("characterPanel.navLastAria")}
+          title={t("characterPanel.navLastTitle")}
+        >
+          »
+        </button>
+      </div>
       {/* インペイントトグル - NovelAIのみ表示 (FR-017準拠) */}
       {isNovelAI && (
         <div className="character-state-panel__inpaint-toggle">

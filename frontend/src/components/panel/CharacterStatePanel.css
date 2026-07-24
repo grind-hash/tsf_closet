@@ -850,12 +850,11 @@
     grid-template-areas:
       "nsfw"
       "name"
-      "media"
-      "nav";
-    grid-template-rows: auto auto minmax(0, 1fr) auto;
+      "media";
+    grid-template-rows: auto auto minmax(0, 1fr);
     gap: 0.5rem;
-    height: calc(min(56vh, 520px) - 2rem);
-    height: calc(min(56dvh, 520px) - 2rem);
+    height: calc(min(56vh, 520px) - 1.5rem);
+    height: calc(min(56dvh, 520px) - 1.5rem);
     min-height: 0;
   }
 
@@ -869,8 +868,6 @@
 
   .character-state-panel__image-container {
     grid-area: media;
-    display: grid;
-    grid-template-rows: minmax(0, 1fr) auto;
     width: 100%;
     min-height: 0;
   }
@@ -911,7 +908,6 @@
   }
 
   .character-state-panel__nav-full {
-    grid-area: nav;
     padding: 0.375rem;
   }
 }
