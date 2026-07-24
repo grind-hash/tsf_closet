@@ -152,6 +152,7 @@ export default function GamePlayScreen({
   const imageProvider = settingsState.imageProvider;
   const lastGeneratedSeed = gameState.lastGeneratedSeed;
   const anlasBalance = settingsState.anlasBalance;
+  const [isMobileAnlasExpanded, setIsMobileAnlasExpanded] = useState(false);
 
   // 右パネル開閉状態はSettingsContext経由でlocalStorageに保存
   const showRightPanel = settingsState.rightPanelOpen;
@@ -1369,24 +1370,48 @@ export default function GamePlayScreen({
         )}
         {/* US5: Anlas balance display (NovelAI only) */}
         {imageProvider === "novelai" && anlasBalance && (
-          <div className="game-play-screen__anlas-bar">
-            <span className="game-play-screen__anlas-label">
-              Anlas: {anlasBalance.totalAnlas.toLocaleString()}
-            </span>
-            <span
-              className="game-play-screen__anlas-detail"
-              title={t(
-                "gameplay.anlasBreakdown",
-                "Fixed: {{fixed}}, Purchased: {{purchased}}",
-                {
-                  fixed: anlasBalance.fixedAnlas.toLocaleString(),
-                  purchased: anlasBalance.purchasedAnlas.toLocaleString(),
-                },
-              )}
+          <div
+            className={`game-play-screen__anlas-bar${
+              isMobileAnlasExpanded ? " is-expanded" : ""
+            }`}
+          >
+            <button
+              type="button"
+              className="game-play-screen__anlas-toggle"
+              aria-expanded={isMobileAnlasExpanded}
+              aria-controls="mobile-anlas-balance"
+              onClick={() => setIsMobileAnlasExpanded((expanded) => !expanded)}
             >
-              ({anlasBalance.fixedAnlas.toLocaleString()} +{" "}
-              {anlasBalance.purchasedAnlas.toLocaleString()})
-            </span>
+              <span>Anlas</span>
+              <span
+                className="game-play-screen__anlas-toggle-icon"
+                aria-hidden="true"
+              >
+                ▾
+              </span>
+            </button>
+            <div
+              id="mobile-anlas-balance"
+              className="game-play-screen__anlas-content"
+            >
+              <span className="game-play-screen__anlas-label">
+                Anlas: {anlasBalance.totalAnlas.toLocaleString()}
+              </span>
+              <span
+                className="game-play-screen__anlas-detail"
+                title={t(
+                  "gameplay.anlasBreakdown",
+                  "Fixed: {{fixed}}, Purchased: {{purchased}}",
+                  {
+                    fixed: anlasBalance.fixedAnlas.toLocaleString(),
+                    purchased: anlasBalance.purchasedAnlas.toLocaleString(),
+                  },
+                )}
+              >
+                ({anlasBalance.fixedAnlas.toLocaleString()} +{" "}
+                {anlasBalance.purchasedAnlas.toLocaleString()})
+              </span>
+            </div>
           </div>
         )}
         {!isSessionActive ? (

@@ -197,6 +197,109 @@ test.describe("モバイルの画像・チャット同時表示", () => {
     await expectImageAndChatVisible(page, 200);
   });
 
+  test("412x915でAnlasとNSFWを折りたたんで表示領域を広げる", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 412, height: 915 });
+    await page.goto(`/play/${sessionId}`);
+
+    const anlasToggle = page.locator(".game-play-screen__anlas-toggle");
+    const anlasContent = page.locator(".game-play-screen__anlas-content");
+    const nsfwToggle = page.locator(
+      ".character-state-panel__nsfw-section-toggle",
+    );
+    const nsfwContent = page.locator(".character-state-panel__nsfw-content");
+    const screenContent = page.locator(".game-play-screen__content");
+    const imageButton = page.locator(".character-state-panel__image-btn");
+
+    await expect(anlasToggle).toBeVisible();
+    await expect(nsfwToggle).toBeVisible();
+    await expect(anlasToggle).toHaveAttribute("aria-expanded", "false");
+    await expect(nsfwToggle).toHaveAttribute("aria-expanded", "false");
+    await expect(anlasContent).toBeHidden();
+    await expect(nsfwContent).toBeHidden();
+
+    const collapsedScreenHeight = await screenContent.evaluate(
+      (element) => element.getBoundingClientRect().height,
+    );
+    await anlasToggle.click();
+    await expect(anlasToggle).toHaveAttribute("aria-expanded", "true");
+    await expect(anlasContent).toBeVisible();
+    await expect
+      .poll(() =>
+        screenContent.evaluate(
+          (element) => element.getBoundingClientRect().height,
+        ),
+      )
+      .toBeLessThan(collapsedScreenHeight);
+    await anlasToggle.click();
+    await expect(anlasContent).toBeHidden();
+
+    const collapsedImageHeight = await imageButton.evaluate(
+      (element) => element.getBoundingClientRect().height,
+    );
+    await nsfwToggle.click();
+    await expect(nsfwToggle).toHaveAttribute("aria-expanded", "true");
+    await expect(nsfwContent).toBeVisible();
+    await expect
+      .poll(() =>
+        imageButton.evaluate(
+          (element) => element.getBoundingClientRect().height,
+        ),
+      )
+      .toBeLessThan(collapsedImageHeight);
+    await nsfwToggle.click();
+    await expect(nsfwContent).toBeHidden();
+    await expect(page.locator(".chat-input__textarea")).toBeVisible();
+  });
+
+  test("412x915でページ全体に余剰スクロール領域を作らない", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 412, height: 915 });
+    await page.goto(`/play/${sessionId}`);
+
+    await expect(page.locator(".game-play-screen")).toBeVisible();
+
+    const viewportMetrics = await page.evaluate(() => {
+      const root = document.getElementById("root");
+      const app = document.querySelector<HTMLElement>(".app");
+      const layout = document.querySelector<HTMLElement>(".main-layout");
+
+      if (!root || !app || !layout) {
+        throw new Error("レイアウト要素を取得できませんでした");
+      }
+
+      return {
+        viewportHeight: window.innerHeight,
+        documentClientHeight: document.documentElement.clientHeight,
+        documentScrollHeight: document.documentElement.scrollHeight,
+        rootHeight: root.getBoundingClientRect().height,
+        appHeight: app.getBoundingClientRect().height,
+        layoutHeight: layout.getBoundingClientRect().height,
+        bodyOverflow: getComputedStyle(document.body).overflow,
+      };
+    });
+
+    expect(viewportMetrics.documentScrollHeight).toBe(
+      viewportMetrics.documentClientHeight,
+    );
+    expect(viewportMetrics.bodyOverflow).toBe("hidden");
+
+    for (const height of [
+      viewportMetrics.rootHeight,
+      viewportMetrics.appHeight,
+      viewportMetrics.layoutHeight,
+    ]) {
+      expect(
+        Math.abs(height - viewportMetrics.viewportHeight),
+      ).toBeLessThanOrEqual(1);
+    }
+
+    await page.evaluate(() => window.scrollTo(0, 100));
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+  });
+
   for (const viewport of [
     { name: "900x800", width: 900, height: 800, direction: "column" },
     { name: "1280x800", width: 1280, height: 800, direction: "row" },
@@ -217,6 +320,18 @@ test.describe("モバイルの画像・チャット同時表示", () => {
       await expect(page.locator(".chat-input__textarea")).toBeVisible();
       await expect(content).toHaveCSS("flex-direction", viewport.direction);
       await expect(primary).toHaveCSS("display", "contents");
+      await expect(
+        page.locator(".game-play-screen__anlas-toggle"),
+      ).toBeHidden();
+      await expect(
+        page.locator(".character-state-panel__nsfw-section-toggle"),
+      ).toBeHidden();
+      await expect(
+        page.locator(".game-play-screen__anlas-content"),
+      ).toBeVisible();
+      await expect(
+        page.locator(".character-state-panel__nsfw-content"),
+      ).toBeVisible();
 
       const leftBox = await leftPanel.boundingBox();
       expect(leftBox).not.toBeNull();

@@ -51,6 +51,7 @@ export default function CharacterStatePanel({
   } = useGame();
   const { scrollToMessage, highlightMessage, state: chatState } = useChat();
   const { state: settingsState, toggleInpaint, toggleNsfw } = useSettings();
+  const [isMobileNsfwExpanded, setIsMobileNsfwExpanded] = useState(false);
 
   // 属性入力状態
   const [showAttributeInput, setShowAttributeInput] = useState(false);
@@ -292,19 +293,43 @@ export default function CharacterStatePanel({
       <div className="character-state-panel__primary">
         {/* NSFWモードトグル（左上） */}
         {showNsfwToggle && (
-          <div className="character-state-panel__nsfw-toggle">
-            <label className="character-state-panel__toggle character-state-panel__toggle--nsfw">
-              <span className="character-state-panel__toggle-label">
-                🔞 NSFW
+          <div
+            className={`character-state-panel__nsfw-toggle${
+              isMobileNsfwExpanded ? " is-expanded" : ""
+            }`}
+          >
+            <button
+              type="button"
+              className="character-state-panel__nsfw-section-toggle"
+              aria-expanded={isMobileNsfwExpanded}
+              aria-controls="mobile-nsfw-setting"
+              onClick={() => setIsMobileNsfwExpanded((expanded) => !expanded)}
+            >
+              <span>🔞 NSFW</span>
+              <span
+                className="character-state-panel__nsfw-toggle-icon"
+                aria-hidden="true"
+              >
+                ▾
               </span>
-              <input
-                type="checkbox"
-                checked={settingsState.nsfwMode}
-                onChange={() => toggleNsfw()}
-                className="character-state-panel__toggle-input"
-              />
-              <span className="character-state-panel__toggle-switch character-state-panel__toggle-switch--nsfw" />
-            </label>
+            </button>
+            <div
+              id="mobile-nsfw-setting"
+              className="character-state-panel__nsfw-content"
+            >
+              <label className="character-state-panel__toggle character-state-panel__toggle--nsfw">
+                <span className="character-state-panel__toggle-label">
+                  🔞 NSFW
+                </span>
+                <input
+                  type="checkbox"
+                  checked={settingsState.nsfwMode}
+                  onChange={() => toggleNsfw()}
+                  className="character-state-panel__toggle-input"
+                />
+                <span className="character-state-panel__toggle-switch character-state-panel__toggle-switch--nsfw" />
+              </label>
+            </div>
           </div>
         )}
 
