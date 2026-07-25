@@ -383,6 +383,10 @@ class PlayRequest(BaseModel):
     use_play_memory: bool = Field(
         False, description="セッション単位のプレイメモを生成に反映するか"
     )
+    respect_clothing_layers: bool = Field(
+        False,
+        description="外衣による下着・身体属性の被覆を画像と心境で考慮するか",
+    )
     language: Optional[str] = Field(
         None, description="応答言語（ja/en、未指定時はユーザー設定を使用）"
     )

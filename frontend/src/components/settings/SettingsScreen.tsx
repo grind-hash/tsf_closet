@@ -28,6 +28,7 @@ export default function SettingsScreen() {
     setEnableSurroundingsImage,
     setSurroundingsIncludePeople,
     setClothingColorConsistency,
+    setRespectClothingLayers,
     setFontFamily,
     setLinkChatToImage,
     setEnableMultiplePeople,
@@ -566,6 +567,26 @@ export default function SettingsScreen() {
                   onChange={(e) =>
                     setClothingColorConsistency(e.target.checked)
                   }
+                  className="settings-screen__toggle-input"
+                />
+                <span className="settings-screen__toggle-switch" />
+              </label>
+            </div>
+
+            <div className="settings-screen__item">
+              <label className="settings-screen__toggle">
+                <div className="settings-screen__toggle-info">
+                  <span className="settings-screen__item-label">
+                    {t("settings.respectClothingLayers")}
+                  </span>
+                  <span className="settings-screen__item-desc">
+                    {t("settings.respectClothingLayersDesc")}
+                  </span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={state.respectClothingLayers}
+                  onChange={(e) => setRespectClothingLayers(e.target.checked)}
                   className="settings-screen__toggle-input"
                 />
                 <span className="settings-screen__toggle-switch" />

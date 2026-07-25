@@ -93,6 +93,7 @@ export default function RightPanel({
     setEnableSurroundingsImage,
     setSurroundingsIncludePeople,
     setClothingColorConsistency,
+    setRespectClothingLayers,
     setShowRealityAttributeNotification,
     setEnableMultiplePeople,
     setNovelaiTextModel,
@@ -220,6 +221,7 @@ export default function RightPanel({
         custom_preserve_text:
           settingsState.changeSettings.customPreserveText || undefined,
         use_play_memory: settingsState.playMemoryEnabled,
+        respect_clothing_layers: settingsState.respectClothingLayers,
       });
       setPreviewResult(result);
       setEditedPrompt(result.image_edit_prompt);
@@ -233,6 +235,7 @@ export default function RightPanel({
   }, [
     gameState.sessionId,
     chatState.inputText,
+    settingsState.respectClothingLayers,
     chatState.instructionType,
     settingsState.changeSettings,
     settingsState.playMemoryEnabled,
@@ -910,6 +913,51 @@ export default function RightPanel({
           </div>
         </section>
 
+        {/* 衣装レイヤー考慮トグル */}
+        <section className="right-panel__section">
+          <div className="right-panel__form-group">
+            <label className="right-panel__toggle">
+              <span className="right-panel__toggle-label">
+                {t(
+                  "rightPanel.respectClothingLayers",
+                  "Respect Clothing Layers",
+                )}
+              </span>
+              <input
+                type="checkbox"
+                checked={settingsState.respectClothingLayers}
+                onChange={(e) => setRespectClothingLayers(e.target.checked)}
+                className="right-panel__toggle-input"
+              />
+              <span className="right-panel__toggle-switch" />
+            </label>
+            <div style={{ marginTop: "0.25rem" }}>
+              <span
+                className="feature-chip-experimental"
+                data-feature-version="v0.6.0"
+              >
+                Experimental
+              </span>
+            </div>
+            <small className="right-panel__hint">
+              {t(
+                "rightPanel.respectClothingLayersHint",
+                "Keeps underwear and covered body attributes hidden beneath normally worn outer clothing.",
+              )}
+            </small>
+            {settingsState.respectClothingLayers && (
+              <small
+                className="right-panel__hint"
+                style={{
+                  marginTop: "0.25rem",
+                  color: "var(--text-warning, #e0a050)",
+                }}
+              >
+                {t("rightPanel.respectClothingLayersException")}
+              </small>
+            )}
+          </div>
+        </section>
         {/* NovelAI詳細設定 - NovelAIのみ表示（インペイントトグルはCharacterStatePanelに移動済み） */}
         {isNovelAI && (
           <section className="right-panel__section">

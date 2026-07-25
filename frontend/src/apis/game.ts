@@ -16,6 +16,7 @@ export interface PreviewPromptRequest {
   change_scope?: ChangeScope;
   custom_preserve_text?: string;
   use_play_memory?: boolean;
+  respect_clothing_layers?: boolean;
 }
 
 // プロンプトプレビュー レスポンス

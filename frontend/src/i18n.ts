@@ -92,6 +92,9 @@ const resources = {
         experimentalClothingColor: "服の色の一貫性を保つ",
         experimentalClothingColorDesc:
           "変身時に服の色を必ず指定し、行動時に色が変わらないようにします。",
+        respectClothingLayers: "衣装の重なりを考慮",
+        respectClothingLayersDesc:
+          "通常着用中の外衣で、下着や覆われた身体属性が見えないようにします。透ける素材やめくれ・脱衣を明示した場合は、その指定範囲を反映します。",
         linkChatToImage: "画像とチャットを連動",
         linkChatToImageDesc:
           "画像履歴をめくるとき、対応するチャットメッセージまでスクロールします。",
@@ -455,6 +458,11 @@ const resources = {
           "有効にすると、プロンプト生成時に服の色の一貫性を保つルールが追加されます。",
         clothingColorConsistencyTradeoff:
           "※ 「誰が・どの衣装で・どこで・何を・どうする」のように、具体的な指示が必要になります。下のプロンプトビルダーをご活用ください。",
+        respectClothingLayers: "衣装の重なりを考慮",
+        respectClothingLayersHint:
+          "通常着用中の外衣を優先し、下着や覆われた身体属性を画像へ露出させません。心境では存在や布越しの感触として扱います。",
+        respectClothingLayersException:
+          "※ 透ける素材、服を開ける・めくる・ずらす・脱ぐなどを明示した場合は、その指定範囲の見え方を反映します。",
         enableMultiplePeople: "複数人表示（実験的）",
         enableMultiplePeopleHint:
           "画像生成時に複数のキャラクターを表示できるようにします。ONにすると、指示に基づいてLLMが人数を自動判断します。",
@@ -1019,6 +1027,9 @@ const resources = {
         experimentalClothingColor: "Clothing Color Consistency",
         experimentalClothingColorDesc:
           "Always specify clothing colors during transformation and preserve them during actions.",
+        respectClothingLayers: "Respect Clothing Layers",
+        respectClothingLayersDesc:
+          "Keep underwear and covered body attributes hidden beneath normally worn outer clothing. Explicit sheer fabric, lifted clothing, or undressing instructions remain visible in the requested area.",
         linkChatToImage: "Link Chat to Image",
         linkChatToImageDesc:
           "Scroll to the corresponding chat message when navigating image history.",
@@ -1380,6 +1391,11 @@ const resources = {
           "When enabled, adds rules to prompt generation to maintain clothing color consistency.",
         clothingColorConsistencyTradeoff:
           '* Requires specific instructions like "who, wearing what, where, doing what". Use the prompt builder below.',
+        respectClothingLayers: "Respect Clothing Layers",
+        respectClothingLayersHint:
+          "Prioritize normally worn outer clothing and keep underwear or covered body attributes out of the visible image. Feelings may acknowledge their presence or sensation through fabric.",
+        respectClothingLayersException:
+          "* Explicit sheer fabric, opening, lifting, pulling aside, or undressing instructions remain visible only in the requested area.",
         enableMultiplePeople: "Multiple People (Experimental)",
         enableMultiplePeopleHint:
           "Allow multiple characters in generated images. When enabled, the LLM determines the number of characters based on your instructions.",

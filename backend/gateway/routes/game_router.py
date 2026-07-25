@@ -247,6 +247,10 @@ class PlayStreamRequest(BaseModel):
         False,
         description="服の色の一貫性を保つ実験的機能",
     )
+    respect_clothing_layers: bool = Field(
+        False,
+        description="外衣による下着・身体属性の被覆を画像と心境で考慮する",
+    )
     # Multiple people in image generation toggle
     enable_multiple_people: bool = Field(
         False,
@@ -315,6 +319,7 @@ async def play_game_stream(request: PlayStreamRequest) -> EventSourceResponse:
             enable_surroundings_image=request.enable_surroundings_image,
             surroundings_include_people=request.surroundings_include_people,
             clothing_color_consistency=request.clothing_color_consistency,
+            respect_clothing_layers=request.respect_clothing_layers,
             enable_multiple_people=request.enable_multiple_people,
             use_character_panel=request.use_character_panel,
             use_memory=request.use_memory,
@@ -1599,6 +1604,7 @@ async def preview_prompt(request: PlayRequest) -> dict:
         change_scope=request.change_scope,
         custom_preserve_text=request.custom_preserve_text,
         instruction_type=request.instruction_type,
+        respect_clothing_layers=request.respect_clothing_layers,
     )
 
 

@@ -112,6 +112,9 @@ interface SettingsState {
   // Clothing color consistency (experimental)
   clothingColorConsistency: boolean;
 
+  // 衣装レイヤーの可視性を考慮する
+  respectClothingLayers: boolean;
+
   // Chat-to-image linking: scroll chat on image navigation
   linkChatToImage: boolean;
 
@@ -191,6 +194,7 @@ type SettingsAction =
   | { type: "SET_SURROUNDINGS_INCLUDE_PEOPLE"; payload: boolean }
   | { type: "SET_FONT_FAMILY"; payload: string }
   | { type: "SET_CLOTHING_COLOR_CONSISTENCY"; payload: boolean }
+  | { type: "SET_RESPECT_CLOTHING_LAYERS"; payload: boolean }
   | { type: "SET_LINK_CHAT_TO_IMAGE"; payload: boolean }
   | { type: "SET_ENABLE_MULTIPLE_PEOPLE"; payload: boolean }
   | { type: "SET_MULTI_CHARACTER_PANEL_ENABLED"; payload: boolean }
@@ -237,6 +241,7 @@ const defaultState: SettingsState = {
   surroundingsIncludePeople: false,
   fontFamily: "system",
   clothingColorConsistency: false,
+  respectClothingLayers: false,
   linkChatToImage: false,
   enableMultiplePeople: false,
   multiCharacterPanelEnabled: true,
@@ -372,6 +377,8 @@ function settingsReducer(
       return { ...state, fontFamily: action.payload };
     case "SET_CLOTHING_COLOR_CONSISTENCY":
       return { ...state, clothingColorConsistency: action.payload };
+    case "SET_RESPECT_CLOTHING_LAYERS":
+      return { ...state, respectClothingLayers: action.payload };
     case "SET_LINK_CHAT_TO_IMAGE":
       return { ...state, linkChatToImage: action.payload };
     case "SET_ENABLE_MULTIPLE_PEOPLE":
@@ -458,6 +465,7 @@ interface SettingsContextType {
   setFontFamily: (fontFamily: string) => void;
   setClothingColorConsistency: (enabled: boolean) => void;
   setLinkChatToImage: (enabled: boolean) => void;
+  setRespectClothingLayers: (enabled: boolean) => void;
   setEnableMultiplePeople: (enabled: boolean) => void;
   setMultiCharacterPanelEnabled: (enabled: boolean) => void;
   setNovelaiTextModel: (model: string) => void;
@@ -968,6 +976,9 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "SET_CLOTHING_COLOR_CONSISTENCY", payload: enabled });
   }, []);
 
+  const setRespectClothingLayers = useCallback((enabled: boolean) => {
+    dispatch({ type: "SET_RESPECT_CLOTHING_LAYERS", payload: enabled });
+  }, []);
   const setLinkChatToImage = useCallback((enabled: boolean) => {
     dispatch({ type: "SET_LINK_CHAT_TO_IMAGE", payload: enabled });
   }, []);
@@ -1161,6 +1172,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setClothingColorConsistency,
     setLinkChatToImage,
     setEnableMultiplePeople,
+    setRespectClothingLayers,
     setMultiCharacterPanelEnabled,
     setNovelaiTextModel,
     setNovelaiTier,

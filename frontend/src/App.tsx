@@ -347,6 +347,10 @@ function AppMain() {
       if (settingsState.clothingColorConsistency) {
         body.clothing_color_consistency = true;
       }
+      if (settingsState.respectClothingLayers) {
+        body.respect_clothing_layers = true;
+      }
+
       // Multiple people experimental feature.
       // パネル OFF でも複数人表示自体は維持し、
       // 画像プロンプトへの session_characters 注入のみ use_character_panel でゲートする。
@@ -424,6 +428,7 @@ function AppMain() {
       settingsState.enableSurroundingsImage,
       settingsState.surroundingsIncludePeople,
       settingsState.clothingColorConsistency,
+      settingsState.respectClothingLayers,
       settingsState.enableMultiplePeople,
       settingsState.multiCharacterPanelEnabled,
       settingsState.imageProvider,
