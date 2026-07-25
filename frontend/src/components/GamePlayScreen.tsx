@@ -40,6 +40,7 @@ import { useSettings } from "../contexts/SettingsContext";
 import { useNotification } from "../contexts/NotificationContext";
 import { API_BASE } from "../utils/api";
 import { generateUUID } from "../utils/generateUUID";
+import { isHistoryLookbackEnabled } from "../utils/historyLookback";
 import {
   deleteLatestHistory,
   deleteHistoryEntry,
@@ -380,10 +381,7 @@ export default function GamePlayScreen({
           createdAt: h.timestamp,
           relatedHistoryId: h.id,
           instructionType: (h.instructionType || "dress_up") as
-            | "dress_up"
-            | "reality_alter"
-            | "conversation"
-            | "action",
+            "dress_up" | "reality_alter" | "conversation" | "action",
         });
         // US2: Attach surroundings image to the character's feeling text message
         if (h.feelingText && h.feelingText !== "(画質改善)") {
@@ -413,10 +411,7 @@ export default function GamePlayScreen({
           instructionType:
             msg.role === "user"
               ? ((msg.instruction_type || "conversation") as
-                  | "dress_up"
-                  | "reality_alter"
-                  | "conversation"
-                  | "action")
+                  "dress_up" | "reality_alter" | "conversation" | "action")
               : undefined,
           attachedImageUrl: undefined,
           isStreaming: false,
@@ -610,10 +605,7 @@ export default function GamePlayScreen({
         createdAt: now,
         pendingToken: tempToken,
         instructionType: instructionType as
-          | "dress_up"
-          | "reality_alter"
-          | "conversation"
-          | "action",
+          "dress_up" | "reality_alter" | "conversation" | "action",
       };
       addMessage(userMsg);
       upsertPendingIdentity({
@@ -646,6 +638,12 @@ export default function GamePlayScreen({
             session_id: sessionId,
             message: message,
             language: settingsState.language,
+            use_history_lookback: String(
+              isHistoryLookbackEnabled(
+                settingsState.historyLookbackTargets,
+                "conversation",
+              ),
+            ),
           });
           if (settingsState.enableMultiplePeople) {
             params.set("enable_multiple_people", "true");
@@ -847,8 +845,7 @@ export default function GamePlayScreen({
             changeSettings,
             transformationType,
             transformOptions: transformOptions as
-              | Record<string, unknown>
-              | undefined,
+              Record<string, unknown> | undefined,
             anlasCost: enabledRefCount * 5,
             instructionType: backendInstructionType,
             useMemory,
@@ -889,6 +886,7 @@ export default function GamePlayScreen({
       settingsState.language,
       settingsState.enableMultiplePeople,
       settingsState.playMemoryEnabled,
+      settingsState.historyLookbackTargets,
       showNotification,
       t,
       restoreActiveSession,
@@ -956,9 +954,7 @@ export default function GamePlayScreen({
         createdAt: now,
         pendingToken: tempToken,
         instructionType: instructionType as
-          | "dress_up"
-          | "reality_alter"
-          | "action",
+          "dress_up" | "reality_alter" | "action",
       };
       addMessage(userMsg);
       upsertPendingIdentity({
@@ -1271,10 +1267,7 @@ export default function GamePlayScreen({
       if (result.restored_instruction_type) {
         setInstructionType(
           result.restored_instruction_type as
-            | "dress_up"
-            | "reality_alter"
-            | "conversation"
-            | "action",
+            "dress_up" | "reality_alter" | "conversation" | "action",
         );
       }
 

@@ -104,6 +104,13 @@ const resources = {
         historyLookbackCount: "履歴遡及件数",
         historyLookbackCountDesc:
           "プロンプト生成時に参照する直近の履歴件数（5〜20）。多いほど一貫性が増しますが、トークン消費が増えます。",
+        historyLookbackTargets: "履歴遡及を利用する対象",
+        historyLookbackTargetsDesc:
+          "選択した操作のプロンプトに、指定件数の直近の指示・発言を反映します。",
+        historyLookbackTargetAction: "行動",
+        historyLookbackTargetConversation: "会話",
+        historyLookbackTargetDressUp: "着せ替え",
+        historyLookbackTargetRealityAlter: "現実改変",
         novelaiTextModel: "NovelAI テキストモデル",
         novelaiTextModelDesc:
           "テキスト生成（心境・プロンプト拡張・会話など）に使用するNovelAIモデルを選択します。Opusプラン限定です。",
@@ -1039,6 +1046,13 @@ const resources = {
         historyLookbackCount: "History Lookback Count",
         historyLookbackCountDesc:
           "Number of recent history entries referenced when building prompts (5-20). Higher values improve consistency but consume more tokens.",
+        historyLookbackTargets: "Use History Lookback For",
+        historyLookbackTargetsDesc:
+          "Include the configured number of recent instructions and messages in prompts for the selected operations.",
+        historyLookbackTargetAction: "Action",
+        historyLookbackTargetConversation: "Conversation",
+        historyLookbackTargetDressUp: "Dress Up",
+        historyLookbackTargetRealityAlter: "Reality Alteration",
         novelaiTextModel: "NovelAI Text Model",
         novelaiTextModelDesc:
           "Select the NovelAI model for text generation (inner monologue, prompt expansion, chat, etc.). Opus plan only.",

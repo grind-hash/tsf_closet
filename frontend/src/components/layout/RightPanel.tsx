@@ -29,6 +29,7 @@ import {
   type AivisStatus,
 } from "../../apis/speechSynthesis";
 import { generateUUID } from "../../utils/generateUUID";
+import { isHistoryLookbackEnabled } from "../../utils/historyLookback";
 import MemorySettings from "../settings/MemorySettings";
 import PlayMemorySettings from "../settings/PlayMemorySettings";
 import "./RightPanel.css";
@@ -222,6 +223,10 @@ export default function RightPanel({
           settingsState.changeSettings.customPreserveText || undefined,
         use_play_memory: settingsState.playMemoryEnabled,
         respect_clothing_layers: settingsState.respectClothingLayers,
+        use_history_lookback: isHistoryLookbackEnabled(
+          settingsState.historyLookbackTargets,
+          instructionType,
+        ),
       });
       setPreviewResult(result);
       setEditedPrompt(result.image_edit_prompt);
@@ -239,6 +244,7 @@ export default function RightPanel({
     chatState.instructionType,
     settingsState.changeSettings,
     settingsState.playMemoryEnabled,
+    settingsState.historyLookbackTargets,
   ]);
 
   // 編集済みプロンプトで送信

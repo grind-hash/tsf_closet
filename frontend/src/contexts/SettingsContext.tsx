@@ -30,6 +30,11 @@ import type { SelfProfile } from "../apis/settings";
 import { getSelfProfile as fetchSelfProfileApi } from "../apis/settings";
 import { getMemoryText as fetchMemoryTextApi } from "../apis/memory";
 import i18n from "../i18n";
+import {
+  DEFAULT_HISTORY_LOOKBACK_TARGETS,
+  normalizeHistoryLookbackTargets,
+  type HistoryLookbackTargets,
+} from "../utils/historyLookback";
 
 type FeelingMode = "legacy" | "gender_aware";
 
@@ -143,6 +148,7 @@ interface SettingsState {
 
   // spec 004 (US4): プロンプト生成時に参照する履歴遡及件数 (5..20, default 10)
   historyLookbackCount: number;
+  historyLookbackTargets: HistoryLookbackTargets;
 
   // メモリ機能: ユーザーの好み・性的嗜好を保持するテキスト
   memoryText: string | null;
@@ -208,6 +214,10 @@ type SettingsAction =
   | { type: "SET_TTS_STYLE_ID"; payload: string | null }
   | { type: "SET_TTS_OUTPUT_FORMAT"; payload: "wav" }
   | { type: "SET_HISTORY_LOOKBACK_COUNT"; payload: number }
+  | {
+      type: "SET_HISTORY_LOOKBACK_TARGET";
+      payload: { target: InstructionType; enabled: boolean };
+    }
   | { type: "SET_MEMORY_TEXT"; payload: string | null };
 
 // デフォルト状態
@@ -255,6 +265,7 @@ const defaultState: SettingsState = {
   ttsStyleId: null,
   ttsOutputFormat: "wav",
   historyLookbackCount: 10,
+  historyLookbackTargets: { ...DEFAULT_HISTORY_LOOKBACK_TARGETS },
   memoryText: null,
 };
 
@@ -408,6 +419,14 @@ function settingsReducer(
         ...state,
         historyLookbackCount: Math.max(5, Math.min(20, action.payload)),
       };
+    case "SET_HISTORY_LOOKBACK_TARGET":
+      return {
+        ...state,
+        historyLookbackTargets: {
+          ...state.historyLookbackTargets,
+          [action.payload.target]: action.payload.enabled,
+        },
+      };
     case "SET_MEMORY_TEXT":
       return { ...state, memoryText: action.payload };
     default:
@@ -478,6 +497,7 @@ interface SettingsContextType {
   setTtsStyleId: (styleId: string | null) => void;
   setTtsOutputFormat: (format: "wav") => void;
   setHistoryLookbackCount: (count: number) => void;
+  setHistoryLookbackTarget: (target: InstructionType, enabled: boolean) => void;
   // メモリ機能
   memoryText: string | null;
   setMemoryText: (memoryText: string | null) => void;
@@ -507,6 +527,9 @@ function loadInitialState(initial: SettingsState): SettingsState {
       return {
         ...initial,
         ...filtered,
+        historyLookbackTargets: normalizeHistoryLookbackTargets(
+          filtered.historyLookbackTargets,
+        ),
         totalCost:
           typeof rest.totalCost === "number"
             ? rest.totalCost
@@ -545,9 +568,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         if (res.ok) {
           const data = await res.json();
           const provider = data.image_provider as
-            | "selfhost"
-            | "openrouter"
-            | "novelai";
+            "selfhost" | "openrouter" | "novelai";
           if (
             provider === "openrouter" ||
             provider === "novelai" ||
@@ -1116,6 +1137,16 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const setHistoryLookbackTarget = useCallback(
+    (target: InstructionType, enabled: boolean) => {
+      dispatch({
+        type: "SET_HISTORY_LOOKBACK_TARGET",
+        payload: { target, enabled },
+      });
+    },
+    [],
+  );
+
   const setMemoryText = useCallback((memoryText: string | null) => {
     dispatch({ type: "SET_MEMORY_TEXT", payload: memoryText });
   }, []);
@@ -1184,6 +1215,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setTtsStyleId,
     setTtsOutputFormat,
     setHistoryLookbackCount,
+    setHistoryLookbackTarget,
     memoryText: state.memoryText,
     setMemoryText,
     loadMemoryText,

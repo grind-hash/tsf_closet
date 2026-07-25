@@ -6,8 +6,9 @@
 
 from __future__ import annotations
 
-import json
 import base64
+import json
+import math
 import uuid
 from datetime import datetime
 from typing import AsyncGenerator, Literal, Optional
@@ -270,6 +271,10 @@ class PlayStreamRequest(BaseModel):
     use_play_memory: bool = Field(
         False, description="セッション単位のプレイメモを生成に反映するか"
     )
+    use_history_lookback: Optional[bool] = Field(
+        None,
+        description="履歴遡及を利用するか（未指定時は操作種別の既定値を使用）",
+    )
 
 
 @router.post(
@@ -324,6 +329,7 @@ async def play_game_stream(request: PlayStreamRequest) -> EventSourceResponse:
             use_character_panel=request.use_character_panel,
             use_memory=request.use_memory,
             use_play_memory=request.use_play_memory,
+            use_history_lookback=request.use_history_lookback,
         ):
             if event.type == "complete" and request.use_play_memory:
                 from ..services.play_memory_service import play_memory_service
@@ -1012,6 +1018,7 @@ async def chat_with_character(
     language: str | None = Query(None, description="応答言語 (ja/en)"),
     enable_multiple_people: bool = Query(False, description="複数人表示を有効にする"),
     use_play_memory: bool = Query(False, description="プレイメモを有効にする"),
+    use_history_lookback: bool | None = Query(None, description="履歴遡及を利用するか"),
 ) -> dict:
     """キャラクターとの会話"""
     from ..services.conversation import (
@@ -1023,6 +1030,7 @@ async def chat_with_character(
     from ..services.llm_service import llm_service
     from ..services.conversation_service import conversation_service
     from ..services.characters import character_manager
+    from ..services.history_context import resolve_history_lookback_enabled
 
     # セッションを取得
     session = await session_store.get_session_by_id(session_id)
@@ -1040,8 +1048,20 @@ async def chat_with_character(
     if stats is None:
         stats = await session_store.create_session_stats(session_id)
 
-    # 会話履歴を取得
-    conversation_history = await session_store.get_conversation_history(session_id)
+    lookback_enabled = resolve_history_lookback_enabled(
+        use_history_lookback, instruction_type="conversation"
+    )
+    lookback_count = settings_service.get_history_lookback_count(session_id)
+    conversation_limit = (
+        math.ceil(lookback_count * 1.2)
+        if getattr(session, "self_mode", False)
+        else lookback_count
+    )
+    conversation_history = (
+        await session_store.get_conversation_history(session_id, conversation_limit)
+        if lookback_enabled
+        else []
+    )
 
     # キャラクター情報を取得
     character_name = "キャラクター"
@@ -1072,25 +1092,23 @@ async def chat_with_character(
         latest = history[-1]
         current_outfit_desc = latest.after_description or ""
 
-    # ユーザーメッセージを保存
-    user_conv = await session_store.add_conversation(
-        session_id, "user", message, instruction_type="conversation"
-    )
-
     # 属性を取得
     attributes = await session_store.get_session_attribute_texts(session_id)
     user_settings = await session_store.get_user_settings()
     language = normalize_language(language or user_settings.get("language"))
     effective_novelai_text_model = user_settings.get("novelai_text_model")
 
-    # セッション経緯を取得（着替・改変・行動・会話を時系列マージ）
-    timeline_loader = getattr(session_store, "get_session_timeline", None)
+    timeline_limit = math.ceil(lookback_count * 1.6)
     session_timeline = (
-        await timeline_loader(session_id, limit=30) if timeline_loader else []
+        await session_store.get_recent_instructions(session_id, limit=timeline_limit)
+        if lookback_enabled
+        else []
     )
-    # 新しい順 → 時系列順に反転
-    session_timeline = list(reversed(session_timeline))
 
+    # 現在の発言を過去履歴へ含めないよう、タイムライン取得後に保存する
+    user_conv = await session_store.add_conversation(
+        session_id, "user", message, instruction_type="conversation"
+    )
     # プロンプトを構築（self_mode はプロフィールベース、通常はステージベース）
     if getattr(session, "self_mode", False) and self_profile:
         from ..services.self_mode_prompts import build_self_mode_conversation_prompt
@@ -1104,7 +1122,7 @@ async def chat_with_character(
             language=language,
             session_timeline=session_timeline,
             enable_multiple_people=enable_multiple_people,
-            lookback_count=settings_service.get_history_lookback_count(session_id),
+            lookback_count=lookback_count,
         )
     else:
         system_prompt, user_prompt = build_conversation_prompt(
@@ -1119,7 +1137,7 @@ async def chat_with_character(
             transformation_count=session.transformation_count,
             language=language,
             session_timeline=session_timeline,
-            lookback_count=settings_service.get_history_lookback_count(session_id),
+            lookback_count=lookback_count,
         )
     if use_play_memory:
         from ..services.play_memory_service import play_memory_service
@@ -1227,6 +1245,7 @@ async def chat_with_character_stream(
     language: str | None = Query(None, description="応答言語 (ja/en)"),
     enable_multiple_people: bool = Query(False, description="複数人表示を有効にする"),
     use_play_memory: bool = Query(False, description="プレイメモを有効にする"),
+    use_history_lookback: bool | None = Query(None, description="履歴遡及を利用するか"),
 ) -> StreamingResponse:
     """キャラクターとの会話（ストリーミング）"""
     import logging
@@ -1238,6 +1257,7 @@ async def chat_with_character_stream(
     from ..services.llm_service import llm_service
     from ..services.conversation_service import conversation_service
     from ..services.characters import character_manager
+    from ..services.history_context import resolve_history_lookback_enabled
 
     logger = logging.getLogger(__name__)
 
@@ -1257,8 +1277,20 @@ async def chat_with_character_stream(
     if stats is None:
         stats = await session_store.create_session_stats(session_id)
 
-    # 会話履歴を取得
-    conversation_history = await session_store.get_conversation_history(session_id)
+    lookback_enabled = resolve_history_lookback_enabled(
+        use_history_lookback, instruction_type="conversation"
+    )
+    lookback_count = settings_service.get_history_lookback_count(session_id)
+    conversation_limit = (
+        math.ceil(lookback_count * 1.2)
+        if getattr(session, "self_mode", False)
+        else lookback_count
+    )
+    conversation_history = (
+        await session_store.get_conversation_history(session_id, conversation_limit)
+        if lookback_enabled
+        else []
+    )
 
     # キャラクター情報を取得
     character_name = "キャラクター"
@@ -1289,25 +1321,23 @@ async def chat_with_character_stream(
         latest = history[-1]
         current_outfit_desc = latest.after_description or ""
 
-    # ユーザーメッセージを保存
-    user_conv = await session_store.add_conversation(
-        session_id, "user", message, instruction_type="conversation"
-    )
-
     # 属性を取得
     attributes = await session_store.get_session_attribute_texts(session_id)
     user_settings = await session_store.get_user_settings()
     language = normalize_language(language or user_settings.get("language"))
     effective_novelai_text_model = user_settings.get("novelai_text_model")
 
-    # セッション経緯を取得（着替・改変・行動・会話を時系列マージ）
-    timeline_loader = getattr(session_store, "get_session_timeline", None)
+    timeline_limit = math.ceil(lookback_count * 1.6)
     session_timeline = (
-        await timeline_loader(session_id, limit=30) if timeline_loader else []
+        await session_store.get_recent_instructions(session_id, limit=timeline_limit)
+        if lookback_enabled
+        else []
     )
-    # 新しい順 → 時系列順に反転
-    session_timeline = list(reversed(session_timeline))
 
+    # 現在の発言を過去履歴へ含めないよう、タイムライン取得後に保存する
+    user_conv = await session_store.add_conversation(
+        session_id, "user", message, instruction_type="conversation"
+    )
     # プロンプトを構築（self_mode はプロフィールベース、通常はステージベース）
     if getattr(session, "self_mode", False) and self_profile:
         from ..services.self_mode_prompts import build_self_mode_conversation_prompt
@@ -1321,7 +1351,7 @@ async def chat_with_character_stream(
             language=language,
             session_timeline=session_timeline,
             enable_multiple_people=enable_multiple_people,
-            lookback_count=settings_service.get_history_lookback_count(session_id),
+            lookback_count=lookback_count,
         )
     else:
         system_prompt, user_prompt = build_conversation_prompt(
@@ -1336,7 +1366,7 @@ async def chat_with_character_stream(
             transformation_count=session.transformation_count,
             language=language,
             session_timeline=session_timeline,
-            lookback_count=settings_service.get_history_lookback_count(session_id),
+            lookback_count=lookback_count,
         )
     if use_play_memory:
         from ..services.play_memory_service import play_memory_service
@@ -1605,6 +1635,7 @@ async def preview_prompt(request: PlayRequest) -> dict:
         custom_preserve_text=request.custom_preserve_text,
         instruction_type=request.instruction_type,
         respect_clothing_layers=request.respect_clothing_layers,
+        use_history_lookback=request.use_history_lookback,
     )
 
 

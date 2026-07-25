@@ -22,6 +22,7 @@ import SettingsScreen from "./components/settings/SettingsScreen";
 // MainLayout は各画面コンポーネント内で使用
 import type { ChangeSettings, NovelAISubscriptionResponse } from "./types";
 import { DEFAULT_INPAINT_SETTINGS } from "./types";
+import { isHistoryLookbackEnabled } from "./utils/historyLookback";
 import "./App.css";
 
 // 007-chat-interactive-ux: Context hooks
@@ -172,9 +173,7 @@ function AppMain() {
         ["selfhost", "openrouter", "novelai"].includes(cachedProvider)
       ) {
         detectedProvider = cachedProvider as
-          | "selfhost"
-          | "openrouter"
-          | "novelai";
+          "selfhost" | "openrouter" | "novelai";
         setProviderLoading(false);
       } else {
         try {
@@ -330,6 +329,10 @@ function AppMain() {
       if (instructionType) {
         body.instruction_type = instructionType;
       }
+      body.use_history_lookback = isHistoryLookbackEnabled(
+        settingsState.historyLookbackTargets,
+        instructionType,
+      );
       body.use_memory = useMemory;
       body.use_play_memory = settingsState.playMemoryEnabled;
       // Include seed if specified in settings
@@ -433,6 +436,7 @@ function AppMain() {
       settingsState.multiCharacterPanelEnabled,
       settingsState.imageProvider,
       settingsState.playMemoryEnabled,
+      settingsState.historyLookbackTargets,
     ],
   );
 

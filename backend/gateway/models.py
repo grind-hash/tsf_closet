@@ -383,6 +383,10 @@ class PlayRequest(BaseModel):
     use_play_memory: bool = Field(
         False, description="セッション単位のプレイメモを生成に反映するか"
     )
+    use_history_lookback: Optional[bool] = Field(
+        None,
+        description="履歴遡及を利用するか（未指定時は操作種別の既定値を使用）",
+    )
     respect_clothing_layers: bool = Field(
         False,
         description="外衣による下着・身体属性の被覆を画像と心境で考慮するか",

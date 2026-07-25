@@ -17,6 +17,7 @@ export interface PreviewPromptRequest {
   custom_preserve_text?: string;
   use_play_memory?: boolean;
   respect_clothing_layers?: boolean;
+  use_history_lookback?: boolean;
 }
 
 // プロンプトプレビュー レスポンス

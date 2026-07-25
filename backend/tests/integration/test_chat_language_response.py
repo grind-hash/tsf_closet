@@ -20,7 +20,10 @@ class StubSessionStore:
     async def create_session_stats(self, session_id: str):
         return SimpleNamespace(bloom=40, nsfw_mode=False)
 
-    async def get_conversation_history(self, session_id: str):
+    async def get_conversation_history(self, session_id: str, limit: int = 20):
+        return []
+
+    async def get_recent_instructions(self, session_id: str, limit: int = 20):
         return []
 
     async def get_history(self, session_id: str):

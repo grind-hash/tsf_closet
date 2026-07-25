@@ -9,7 +9,24 @@ import { useTranslation } from "react-i18next";
 import SelfProfileEditor from "./SelfProfileEditor";
 import MemorySettings from "./MemorySettings";
 import SpeechSynthesisSettings from "./SpeechSynthesisSettings";
+import type { InstructionType } from "../../types";
 import "./SettingsScreen.css";
+
+const HISTORY_LOOKBACK_TARGETS: Array<{
+  value: InstructionType;
+  labelKey: string;
+}> = [
+  { value: "action", labelKey: "settings.historyLookbackTargetAction" },
+  {
+    value: "conversation",
+    labelKey: "settings.historyLookbackTargetConversation",
+  },
+  { value: "dress_up", labelKey: "settings.historyLookbackTargetDressUp" },
+  {
+    value: "reality_alter",
+    labelKey: "settings.historyLookbackTargetRealityAlter",
+  },
+];
 
 export default function SettingsScreen() {
   const { t } = useTranslation();
@@ -34,6 +51,7 @@ export default function SettingsScreen() {
     setEnableMultiplePeople,
     setNovelaiTextModel,
     setHistoryLookbackCount,
+    setHistoryLookbackTarget,
     resetSettings,
   } = useSettings();
 
@@ -619,6 +637,37 @@ export default function SettingsScreen() {
                   aria-label={t("settings.historyLookbackCount")}
                 />
               </label>
+            </div>
+
+            <div className="settings-screen__item">
+              <fieldset className="settings-screen__checkbox-fieldset">
+                <legend className="settings-screen__item-label">
+                  {t("settings.historyLookbackTargets")}
+                </legend>
+                <p className="settings-screen__item-desc">
+                  {t("settings.historyLookbackTargetsDesc")}
+                </p>
+                <div className="settings-screen__checkbox-group">
+                  {HISTORY_LOOKBACK_TARGETS.map((target) => (
+                    <label
+                      key={target.value}
+                      className="settings-screen__checkbox"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={state.historyLookbackTargets[target.value]}
+                        onChange={(event) =>
+                          setHistoryLookbackTarget(
+                            target.value,
+                            event.target.checked,
+                          )
+                        }
+                      />
+                      <span>{t(target.labelKey)}</span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
             </div>
 
             <div className="settings-screen__item">

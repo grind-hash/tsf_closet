@@ -1240,15 +1240,16 @@ class DatabaseSessionStore:
         session_id: str,
         limit: int = 20,
     ) -> list[ConversationMessage]:
-        """会話履歴を取得"""
+        """直近の会話履歴を時系列順で取得する。"""
         async with async_session_factory() as db_session:
             stmt = (
                 select(ConversationORM)
                 .where(ConversationORM.session_id == session_id)
-                .order_by(ConversationORM.created_at.asc(), ConversationORM.id.asc())
+                .order_by(ConversationORM.created_at.desc(), ConversationORM.id.desc())
                 .limit(limit)
             )
             rows = (await db_session.execute(stmt)).scalars().all()
+            rows.reverse()
             return [
                 ConversationMessage(
                     id=row.id,
