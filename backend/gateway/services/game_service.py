@@ -56,6 +56,12 @@ from .memory_prompts import build_memory_priority_instruction
 from .clothing_layers import (
     append_clothing_layer_feeling_rule,
     append_clothing_layer_image_rule,
+    clothing_layer_negative_suffix,
+    ensure_characters_worn_under_layers,
+    ensure_worn_under_layers,
+    merge_negative_prompt,
+    strip_characters_worn_under_layers,
+    strip_worn_under_layers_for_image,
 )
 from .history_context import (
     build_history_context,
@@ -655,6 +661,67 @@ class GameService:
             logger.warning("Failed to get Anlas balance: %s", e)
             return None
 
+    def _prepare_clothing_layer_image_payload(
+        self,
+        prompt: str,
+        characters: list[dict] | None,
+        *,
+        previous_prompt: str | None,
+        instruction: str,
+        respect_clothing_layers: bool,
+        negative_prompt: str | None,
+    ) -> tuple[str, str, list[dict] | None, list[dict] | None, str | None]:
+        """衣装レイヤーON時に visual / inventory を分離し、送信用と履歴用を返す。
+
+        Returns:
+            (state_prompt, image_prompt, state_characters, image_characters, negative)
+        """
+        state_prompt = prompt or ""
+        state_characters = characters
+        if respect_clothing_layers:
+            state_prompt = ensure_worn_under_layers(
+                state_prompt,
+                previous_prompt,
+                respect_clothing_layers=True,
+                instruction=instruction,
+            )
+            state_characters = ensure_characters_worn_under_layers(
+                characters,
+                previous_prompt,
+                respect_clothing_layers=True,
+                instruction=instruction,
+            )
+
+        # negative 判定は visual 有無を見るため、state 全文（characters 含む）を渡す
+        negative_source_parts: list[str] = []
+        if state_characters:
+            for char in state_characters:
+                prompt_text = char.get("prompt")
+                if isinstance(prompt_text, str) and prompt_text.strip():
+                    negative_source_parts.append(prompt_text)
+        if state_prompt.strip():
+            negative_source_parts.append(state_prompt)
+        negative_source = (
+            "\n".join(negative_source_parts) if negative_source_parts else ""
+        )
+
+        layer_negative = clothing_layer_negative_suffix(
+            negative_source,
+            respect_clothing_layers=respect_clothing_layers,
+            instruction=instruction,
+        )
+        merged_negative = merge_negative_prompt(negative_prompt, layer_negative)
+
+        image_prompt = strip_worn_under_layers_for_image(state_prompt)
+        image_characters = strip_characters_worn_under_layers(state_characters)
+        return (
+            state_prompt,
+            image_prompt,
+            state_characters,
+            image_characters,
+            merged_negative,
+        )
+
     async def _generate_image(
         self,
         image_bytes: bytes,
@@ -677,7 +744,7 @@ class GameService:
 
         Args:
             image_bytes: 入力画像
-            instruction: 着せ替え指示
+            instruction: 着せ替え指示（画像APIへ渡す最終プロンプト）
             costume_image_bytes: 参照衣装画像（オプション）
             nsfw_mode: NSFWモード (Trueの場合NSFWワークフローを使用)
             character_references: 精密参照画像パラメータのリスト（NovelAI専用）
@@ -696,9 +763,13 @@ class GameService:
             workflow_path = settings.get_workflow_path(workflow_name)
             logger.info(f"Using workflow: {workflow_name} ({workflow_path})")
 
+            # 保険: 呼び出し側で strip 漏れがあっても inventory 行は画像へ送らない
+            image_prompt = strip_worn_under_layers_for_image(instruction)
+            image_characters = strip_characters_worn_under_layers(characters)
+
             result = await self._image_service.edit_image(
                 image_bytes=image_bytes,
-                prompt=instruction,
+                prompt=image_prompt,
                 reference_image_bytes=costume_image_bytes,
                 mask_bytes=mask_bytes,
                 workflow_path=workflow_path,
@@ -708,7 +779,7 @@ class GameService:
                 nsfw_mode=nsfw_mode,
                 character_references=character_references,
                 seed=seed,
-                characters=characters,
+                characters=image_characters,
             )
             if not result.images:
                 raise GameServiceError("画像が生成されませんでした")
@@ -1845,6 +1916,31 @@ class GameService:
                         action_image_prompt, effective_nsfw_mode
                     )
 
+                action_image_api_prompt = action_image_prompt
+                action_image_api_characters = action_characters
+                action_negative_prompt = negative_prompt
+                (
+                    action_image_prompt,
+                    action_image_api_prompt,
+                    action_characters,
+                    action_image_api_characters,
+                    action_negative_prompt,
+                ) = self._prepare_clothing_layer_image_payload(
+                    action_image_prompt,
+                    action_characters,
+                    previous_prompt=current_desc,
+                    instruction=original_instruction,
+                    respect_clothing_layers=respect_clothing_layers_for_image,
+                    negative_prompt=negative_prompt,
+                )
+                # 履歴用: inventory 付き状態を保持
+                if action_characters and isinstance(
+                    action_characters[0].get("prompt"), str
+                ):
+                    action_prompt_desc = action_characters[0]["prompt"]
+                else:
+                    action_prompt_desc = action_image_prompt
+
                 # ── T011: Parallel text + image generation ──
                 action_event_queue: asyncio.Queue[StreamEvent | None] = asyncio.Queue()
                 action_text_chunks: list[str] = []
@@ -1878,15 +1974,15 @@ class GameService:
                     try:
                         after_img, img_cost, img_seed = await self._generate_image(
                             before_image,
-                            action_image_prompt,
+                            action_image_api_prompt,
                             nsfw_mode=effective_nsfw_mode,
                             mask_bytes=mask_bytes,
                             inpaint_strength=action_inpaint_strength,
                             inpaint_noise=inpaint_noise,
-                            negative_prompt=negative_prompt,
+                            negative_prompt=action_negative_prompt,
                             character_references=character_references,
                             seed=seed,
-                            characters=action_characters,
+                            characters=action_image_api_characters,
                         )
                         logger.info(
                             "Action image generated: %d bytes, cost=%s, seed=%s",
@@ -2441,14 +2537,52 @@ class GameService:
                     final_prompt, effective_nsfw_mode
                 )
 
+            # 衣装レイヤー: visual と着用インベントリを分離（履歴は inventory 付きを保持）
+            dress_image_prompt = final_prompt
+            dress_image_characters = dress_up_characters
+            dress_negative_prompt = negative_prompt
+            (
+                final_prompt,
+                dress_image_prompt,
+                dress_up_characters,
+                dress_image_characters,
+                dress_negative_prompt,
+            ) = self._prepare_clothing_layer_image_payload(
+                final_prompt,
+                dress_up_characters,
+                previous_prompt=previous_prompt,
+                instruction=original_instruction,
+                respect_clothing_layers=respect_clothing_layers_for_image,
+                negative_prompt=negative_prompt,
+            )
+
             # 4. 真の並列処理: asyncio.Queue を使ってイベントを統合
             # T010: NovelAI Opusモードでは生成プロンプトをafter_descとして使用
-            if is_novelai_opus_mode and generated_novelai_prompt:
-                inferred_after_desc = generated_novelai_prompt
+            # レイヤーON時は inventory 付き character/state プロンプトを優先して状態継続する
+            if is_novelai_opus_mode:
+                if (
+                    dress_up_characters
+                    and isinstance(dress_up_characters[0].get("prompt"), str)
+                    and dress_up_characters[0]["prompt"].strip()
+                ):
+                    inferred_after_desc = dress_up_characters[0]["prompt"]
+                elif final_prompt.strip():
+                    inferred_after_desc = final_prompt
+                elif generated_novelai_prompt:
+                    inferred_after_desc = generated_novelai_prompt
+                else:
+                    inferred_after_desc = f"{instruction}に変身した姿"
             elif is_reality:
                 inferred_after_desc = f"「{instruction}」という現実改変により変化した姿"
             else:
                 inferred_after_desc = f"{instruction}に変身した姿"
+                if respect_clothing_layers_for_image and final_prompt.strip():
+                    # 非Opusでも inventory 行があれば心境入力へ載せる
+                    inferred_after_desc = (
+                        f"{inferred_after_desc}\n\n{final_prompt}"
+                        if "WORN_UNDER_LAYERS:" in final_prompt
+                        else inferred_after_desc
+                    )
 
             # イベントキューを作成
             event_queue: asyncio.Queue[StreamEvent | None] = asyncio.Queue()
@@ -2548,16 +2682,16 @@ class GameService:
                 try:
                     after_image, image_cost, img_seed = await self._generate_image(
                         before_image,
-                        final_prompt,
+                        dress_image_prompt,
                         costume_image_bytes,
                         nsfw_mode=effective_nsfw_mode,
                         mask_bytes=mask_bytes,
                         inpaint_strength=inpaint_strength,
                         inpaint_noise=inpaint_noise,
-                        negative_prompt=negative_prompt,
+                        negative_prompt=dress_negative_prompt,
                         character_references=character_references,
                         seed=seed,
-                        characters=dress_up_characters,
+                        characters=dress_image_characters,
                     )
                     logger.info(
                         "Image generated: %d bytes, cost: %s",
