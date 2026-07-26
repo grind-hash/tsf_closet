@@ -28,8 +28,13 @@ def test_image_rule_defines_coverage_and_explicit_exceptions() -> None:
     assert "body/anatomy, underwear, inner garments, outer garments" in result
     assert "pubic hair" in result
     assert "chiffon" in result
-    assert "CURRENT user instruction explicitly requests" in result
+    assert "CURRENT user instruction explicitly" in result
     assert "normal properly worn state" in result
+    assert "Covered does NOT mean removed" in result
+    assert "KEEP existing underwear" in result
+    assert "KEEP undergarment tags" in result
+    assert "Never imply braless" in result
+    assert "Omit covered underwear" not in result
 
 
 def test_feeling_rule_is_noop_when_disabled() -> None:
@@ -45,6 +50,9 @@ def test_feeling_rule_keeps_hidden_elements_as_sensation_only() -> None:
     assert "布越しの感触" in result
     assert "「見えている」「露出している」" in result
     assert "陰毛の詳細が見えるとは描写しない" in result
+    assert "今も着用中として扱う" in result
+    assert "全身の着替え置換と解釈してはいけない" in result
+    assert "下着なし直着" in result
 
 
 def test_request_models_default_to_disabled() -> None:
