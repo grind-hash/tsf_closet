@@ -13,8 +13,8 @@
  */
 
 import type { ReactNode } from "react";
-import SideMenu from "./SideMenu";
 import { useTranslation } from "react-i18next";
+import SideMenu from "./SideMenu";
 import "./MainLayout.css";
 
 interface MainLayoutProps {

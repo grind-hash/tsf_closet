@@ -398,6 +398,8 @@ export interface GallerySession {
   last_timestamp: string;
   self_mode?: boolean;
   has_summary?: boolean;
+  /** 検索ヒット時の代表スニペット */
+  match_snippet?: string | null;
 }
 
 /**

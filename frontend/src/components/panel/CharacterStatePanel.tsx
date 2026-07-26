@@ -11,10 +11,10 @@
  * - パラメータ表示 (bloom, shame, adaptation)
  */
 
-import { useState, useRef, useEffect, type ChangeEvent } from "react";
+import { type ChangeEvent, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useGame } from "../../contexts/GameContext";
 import { useChat } from "../../contexts/ChatContext";
+import { useGame } from "../../contexts/GameContext";
 import { useSettings } from "../../contexts/SettingsContext";
 import type { AttributePreset } from "../../types";
 import "./CharacterStatePanel.css";
@@ -121,6 +121,9 @@ export default function CharacterStatePanel({
   useEffect(() => {
     const strip = historyStripRef.current;
     if (!strip) return;
+
+    // 履歴件数変化でもサムネ位置を再評価する
+    void history.length;
 
     const activeThumbnail = strip.querySelector<HTMLElement>(
       `[data-history-index="${currentHistoryIndex}"]`,

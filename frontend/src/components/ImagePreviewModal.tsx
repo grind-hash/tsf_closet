@@ -3,7 +3,7 @@
  * T027-T032: キャラクター画像クリックで拡大表示
  */
 
-import { useEffect, useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import "./ImagePreviewModal.css";
 

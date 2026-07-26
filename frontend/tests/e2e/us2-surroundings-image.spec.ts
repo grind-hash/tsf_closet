@@ -5,7 +5,7 @@
  * - Clicking thumbnail opens fullscreen overlay
  * - Landscape aspect ratio (1216:832) maintained
  */
-import { test, expect } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 
 test.describe("US2: Surroundings image display", () => {
   test("chat message structure supports surroundings image", async ({
@@ -98,10 +98,7 @@ test.describe("US2: Surroundings image display", () => {
             return false;
           });
           if (hasOverlay) return true;
-        } catch {
-          // Cross-origin stylesheet access denied
-          continue;
-        }
+        } catch {}
       }
       return false;
     });

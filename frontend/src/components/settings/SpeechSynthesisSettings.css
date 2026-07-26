@@ -70,7 +70,11 @@
 
 .speech-settings__button--primary {
   border-color: var(--accent-color, #e94560);
-  background: color-mix(in oklab, var(--accent-color, #e94560) 20%, transparent);
+  background: color-mix(
+    in oklab,
+    var(--accent-color, #e94560) 20%,
+    transparent
+  );
 }
 
 .speech-settings__restart-hint {
@@ -86,7 +90,6 @@
   font-size: 0.8rem;
   color: #f59e0b;
 }
-
 
 .speech-settings__button--block {
   display: block;
@@ -125,7 +128,8 @@
   display: inline-block;
   width: 1.1rem;
   height: 1.1rem;
-  border: 2px solid color-mix(in oklab, var(--text-color, #eee) 30%, transparent);
+  border: 2px solid
+    color-mix(in oklab, var(--text-color, #eee) 30%, transparent);
   border-top-color: var(--accent-color, #e94560);
   border-radius: 50%;
   animation: speech-settings-spin 0.7s linear infinite;

@@ -260,8 +260,6 @@
   color: var(--text-color, #eee);
 }
 
-
-
 .character-panel__error {
   color: #fca5a5;
   font-size: 11px;
@@ -285,7 +283,7 @@
   user-select: none;
 }
 
-.character-panel__check input[type='checkbox'] {
+.character-panel__check input[type="checkbox"] {
   width: 14px;
   height: 14px;
   margin: 0;

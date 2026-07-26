@@ -5,14 +5,14 @@
  * 好み・性的嗜好をテキスト化して保持するメモリ機能の設定UI。
  */
 
-import { useState, useCallback, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useSettings } from "../../contexts/SettingsContext";
 import {
   getSessionTotalCount,
   saveMemoryText,
   startMemoryGeneration,
 } from "../../apis/memory";
+import { useSettings } from "../../contexts/SettingsContext";
 import MemoryGenerateConfirmModal from "../MemoryGenerateConfirmModal";
 import MemoryGenerationProgressModal from "../MemoryGenerationProgressModal";
 import "./MemorySettings.css";

@@ -5,21 +5,21 @@
  * with LLM-generated title and summary.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useTranslation } from "react-i18next";
 import {
-  ReactFlow,
-  type Node,
-  type Edge,
   Background,
   Controls,
-  Position,
+  type Edge,
   MarkerType,
+  type Node,
+  Position,
+  ReactFlow,
 } from "@xyflow/react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import "@xyflow/react/dist/style.css";
 import {
-  getSessionSummary,
   generateSessionSummary,
+  getSessionSummary,
   type PlaySummaryResponse,
 } from "../../apis/gallery";
 import SharePreviewCard from "./SharePreviewCard";

@@ -6,7 +6,7 @@
  * NOTE: This test uses visual snapshot comparisons.
  * Run `npx playwright test --update-snapshots` to generate baseline images.
  */
-import { test, expect } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 
 const viewports = [
   { name: "desktop", width: 1280, height: 800 },

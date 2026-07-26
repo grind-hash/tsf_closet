@@ -9,7 +9,7 @@
  * 注: 本テストは live スタック（フロント:3000 / バック:8000）が必要。
  */
 
-import { test, expect } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 
 const APP_URL = "http://localhost:3000";
 

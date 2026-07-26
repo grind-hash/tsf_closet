@@ -15,55 +15,55 @@
  */
 
 import React, {
-  useState,
   useCallback,
   useEffect,
   useMemo,
   useRef,
+  useState,
 } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation } from "react-router-dom";
-import MainLayout from "./layout/MainLayout";
-import RightPanel from "./layout/RightPanel";
-import CharacterStatePanel from "./panel/CharacterStatePanel";
-import CharacterPanel from "./panel/CharacterPanel";
-import ChatMessageList from "./chat/ChatMessageList";
-import ChatInput from "./chat/ChatInput";
-import AudioControlBar from "./chat/AudioControlBar";
-import WelcomeScreen from "./chat/WelcomeScreen";
-import InpaintModal from "./InpaintModal";
-import ImagePreviewModal from "./ImagePreviewModal";
-import ImageOverlay from "./ui/ImageOverlay";
-import { useGame } from "../contexts/GameContext";
-import { useChat } from "../contexts/ChatContext";
-import { useSettings } from "../contexts/SettingsContext";
-import { useNotification } from "../contexts/NotificationContext";
-import { API_BASE } from "../utils/api";
-import { generateUUID } from "../utils/generateUUID";
-import { isHistoryLookbackEnabled } from "../utils/historyLookback";
-import {
-  deleteLatestHistory,
-  deleteHistoryEntry,
-  deleteConversationMessage,
-} from "../apis/game";
-import {
-  exportAsMarkdown,
-  exportAsCsv,
-  exportAsJson,
-  exportAsPlainText,
-  exportAsNovel,
-  downloadFile,
-  downloadBlob,
-  formatBytes,
-} from "../utils/exportChat";
-import type { ExportSessionInfo } from "../utils/exportChat";
 import { exportSessionMarkdown, exportSessionNovelHtml } from "../apis/gallery";
+import {
+  deleteConversationMessage,
+  deleteHistoryEntry,
+  deleteLatestHistory,
+} from "../apis/game";
+import { useChat } from "../contexts/ChatContext";
+import { useGame } from "../contexts/GameContext";
+import { useNotification } from "../contexts/NotificationContext";
+import { useSettings } from "../contexts/SettingsContext";
 import type {
   ChangeSettings,
-  ConversationMessage,
   ChatMessage,
+  ConversationMessage,
   SessionStats,
 } from "../types";
+import { API_BASE } from "../utils/api";
+import type { ExportSessionInfo } from "../utils/exportChat";
+import {
+  downloadBlob,
+  downloadFile,
+  exportAsCsv,
+  exportAsJson,
+  exportAsMarkdown,
+  exportAsNovel,
+  exportAsPlainText,
+  formatBytes,
+} from "../utils/exportChat";
+import { generateUUID } from "../utils/generateUUID";
+import { isHistoryLookbackEnabled } from "../utils/historyLookback";
+import AudioControlBar from "./chat/AudioControlBar";
+import ChatInput from "./chat/ChatInput";
+import ChatMessageList from "./chat/ChatMessageList";
+import WelcomeScreen from "./chat/WelcomeScreen";
+import ImagePreviewModal from "./ImagePreviewModal";
+import InpaintModal from "./InpaintModal";
+import MainLayout from "./layout/MainLayout";
+import RightPanel from "./layout/RightPanel";
+import CharacterPanel from "./panel/CharacterPanel";
+import CharacterStatePanel from "./panel/CharacterStatePanel";
+import ImageOverlay from "./ui/ImageOverlay";
 import "./GamePlayScreen.css";
 import "./chat/ChatContainer.css";
 
@@ -91,7 +91,6 @@ interface GamePlayScreenProps {
   onSessionStart?: () => void;
 }
 
-/* eslint-disable @typescript-eslint/no-unused-vars */
 // 未使用の props と変数は将来のリファクタリングで使用予定
 export default function GamePlayScreen({
   onTransform,
@@ -381,7 +380,10 @@ export default function GamePlayScreen({
           createdAt: h.timestamp,
           relatedHistoryId: h.id,
           instructionType: (h.instructionType || "dress_up") as
-            "dress_up" | "reality_alter" | "conversation" | "action",
+            | "dress_up"
+            | "reality_alter"
+            | "conversation"
+            | "action",
         });
         // US2: Attach surroundings image to the character's feeling text message
         if (h.feelingText && h.feelingText !== "(画質改善)") {
@@ -411,7 +413,10 @@ export default function GamePlayScreen({
           instructionType:
             msg.role === "user"
               ? ((msg.instruction_type || "conversation") as
-                  "dress_up" | "reality_alter" | "conversation" | "action")
+                  | "dress_up"
+                  | "reality_alter"
+                  | "conversation"
+                  | "action")
               : undefined,
           attachedImageUrl: undefined,
           isStreaming: false,
@@ -605,7 +610,10 @@ export default function GamePlayScreen({
         createdAt: now,
         pendingToken: tempToken,
         instructionType: instructionType as
-          "dress_up" | "reality_alter" | "conversation" | "action",
+          | "dress_up"
+          | "reality_alter"
+          | "conversation"
+          | "action",
       };
       addMessage(userMsg);
       upsertPendingIdentity({
@@ -845,7 +853,8 @@ export default function GamePlayScreen({
             changeSettings,
             transformationType,
             transformOptions: transformOptions as
-              Record<string, unknown> | undefined,
+              | Record<string, unknown>
+              | undefined,
             anlasCost: enabledRefCount * 5,
             instructionType: backendInstructionType,
             useMemory,
@@ -954,7 +963,9 @@ export default function GamePlayScreen({
         createdAt: now,
         pendingToken: tempToken,
         instructionType: instructionType as
-          "dress_up" | "reality_alter" | "action",
+          | "dress_up"
+          | "reality_alter"
+          | "action",
       };
       addMessage(userMsg);
       upsertPendingIdentity({
@@ -1267,7 +1278,10 @@ export default function GamePlayScreen({
       if (result.restored_instruction_type) {
         setInstructionType(
           result.restored_instruction_type as
-            "dress_up" | "reality_alter" | "conversation" | "action",
+            | "dress_up"
+            | "reality_alter"
+            | "conversation"
+            | "action",
         );
       }
 
@@ -1819,4 +1833,3 @@ export default function GamePlayScreen({
     </MainLayout>
   );
 }
-/* eslint-enable @typescript-eslint/no-unused-vars */

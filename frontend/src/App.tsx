@@ -1,27 +1,26 @@
-import { useState, useEffect, useCallback } from "react";
-import { useLocation } from "react-router-dom";
+import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useGameSSE } from "./hooks/useGameSSE";
-import { useSettings } from "./contexts/SettingsContext";
-import { getGameSessionPath } from "./routes";
-import { API_BASE } from "./utils/api";
-
-import GamePlayScreen from "./components/GamePlayScreen";
-import EndingModal from "./components/EndingModal";
-import SessionListModal from "./components/SessionListModal";
-import NovelAIWarningModal from "./components/NovelAIWarningModal";
-import ApiKeyConsentModal from "./components/ApiKeyConsentModal";
-import { hasApiKeyConsent } from "./components/apiKeyConsentStorage";
+import { useLocation } from "react-router-dom";
 import { fetchAnlasBalance } from "./apis/anlas";
-import NotificationContainer from "./components/notifications/NotificationContainer";
+import ApiKeyConsentModal from "./components/ApiKeyConsentModal";
+import AchievementsScreen from "./components/achievements/AchievementsScreen";
+import { hasApiKeyConsent } from "./components/apiKeyConsentStorage";
+import EndingModal from "./components/EndingModal";
+import EndingsScreen from "./components/endings/EndingsScreen";
+import GamePlayScreen from "./components/GamePlayScreen";
 // 007-chat-interactive-ux: ルートベースの画面コンポーネント
 import GalleryScreen from "./components/gallery/GalleryScreen";
-import AchievementsScreen from "./components/achievements/AchievementsScreen";
-import EndingsScreen from "./components/endings/EndingsScreen";
+import NovelAIWarningModal from "./components/NovelAIWarningModal";
+import NotificationContainer from "./components/notifications/NotificationContainer";
+import SessionListModal from "./components/SessionListModal";
 import SettingsScreen from "./components/settings/SettingsScreen";
+import { useSettings } from "./contexts/SettingsContext";
+import { useGameSSE } from "./hooks/useGameSSE";
+import { getGameSessionPath } from "./routes";
 // MainLayout は各画面コンポーネント内で使用
 import type { ChangeSettings, NovelAISubscriptionResponse } from "./types";
 import { DEFAULT_INPAINT_SETTINGS } from "./types";
+import { API_BASE } from "./utils/api";
 import { isHistoryLookbackEnabled } from "./utils/historyLookback";
 import "./App.css";
 
@@ -121,6 +120,8 @@ function AppMain() {
   ]);
 
   // 初期化: セッション復元を試みる（/play/new の場合は復元しない）
+  // マウント時のみ実行する意図的な空依存配列
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 初期化はマウント時のみ
   useEffect(() => {
     const init = async () => {
       await loadCharacters();
@@ -173,7 +174,9 @@ function AppMain() {
         ["selfhost", "openrouter", "novelai"].includes(cachedProvider)
       ) {
         detectedProvider = cachedProvider as
-          "selfhost" | "openrouter" | "novelai";
+          | "selfhost"
+          | "openrouter"
+          | "novelai";
         setProviderLoading(false);
       } else {
         try {
@@ -247,7 +250,6 @@ function AppMain() {
       // selfhost/openrouterの場合はNovelAIチェック不要
     };
     init();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // NovelAI APIキー同意後のサブスクリプションチェック + Anlas取得

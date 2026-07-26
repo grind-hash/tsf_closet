@@ -69,14 +69,16 @@ export function exportAsCsv(
     msg.content,
   ]);
 
-  const escape = (v: string) => {
+  const escapeCsvField = (v: string) => {
     if (v.includes('"') || v.includes(",") || v.includes("\n")) {
       return `"${v.replace(/"/g, '""')}"`;
     }
     return v;
   };
 
-  const csvLines = [header, ...rows].map((r) => r.map(escape).join(","));
+  const csvLines = [header, ...rows].map((r) =>
+    r.map(escapeCsvField).join(","),
+  );
   return BOM + csvLines.join("\n");
 }
 

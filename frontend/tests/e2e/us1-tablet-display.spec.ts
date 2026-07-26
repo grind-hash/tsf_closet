@@ -5,7 +5,7 @@
  * - Chat input coexists with character panel
  * - Image tap opens fullscreen preview
  */
-import { test, expect } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 
 test.describe("US1: Tablet viewport character display", () => {
   const tabletViewports = [

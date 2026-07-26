@@ -10,18 +10,18 @@
  */
 
 import {
-  useRef,
-  useEffect,
-  useState,
   type FormEvent,
   type KeyboardEvent,
+  useEffect,
+  useRef,
+  useState,
 } from "react";
 import { useTranslation } from "react-i18next";
+import { suggestInstruction } from "../../apis/game";
 import { useChat } from "../../contexts/ChatContext";
 import { useGame } from "../../contexts/GameContext";
 import { useNotification } from "../../contexts/NotificationContext";
 import { useSettings } from "../../contexts/SettingsContext";
-import { suggestInstruction } from "../../apis/game";
 import type { InstructionType } from "../../types";
 import "./ChatInput.css";
 
@@ -132,6 +132,8 @@ export default function ChatInput({
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
+    // inputText 変更をトリガーに高さを再計算する
+    void state.inputText;
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, 240)}px`;
   }, [state.inputText]);

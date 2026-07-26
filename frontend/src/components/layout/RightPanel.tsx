@@ -11,23 +11,23 @@
  * T127-T130: Context経由で状態を取得
  */
 
-import { useState, useRef, useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useSettings } from "../../contexts/SettingsContext";
-import { useGame } from "../../contexts/GameContext";
-import { useChat } from "../../contexts/ChatContext";
-import type {
-  PreserveElement,
-  ChangeScope,
-  PreciseReferenceType,
-} from "../../types";
-import { previewPrompt, type PreviewPromptResponse } from "../../apis/game";
+import { type PreviewPromptResponse, previewPrompt } from "../../apis/game";
 import {
+  type AivisStatus,
   getAivisStatus,
   startAivisEngine,
   stopAivisEngine,
-  type AivisStatus,
 } from "../../apis/speechSynthesis";
+import { useChat } from "../../contexts/ChatContext";
+import { useGame } from "../../contexts/GameContext";
+import { useSettings } from "../../contexts/SettingsContext";
+import type {
+  ChangeScope,
+  PreciseReferenceType,
+  PreserveElement,
+} from "../../types";
 import { generateUUID } from "../../utils/generateUUID";
 import { isHistoryLookbackEnabled } from "../../utils/historyLookback";
 import MemorySettings from "../settings/MemorySettings";
@@ -1076,7 +1076,7 @@ export default function RightPanel({
                       return;
                     }
                     const num = parseInt(raw, 10);
-                    if (!isNaN(num) && num >= 0 && num <= 999999999) {
+                    if (!Number.isNaN(num) && num >= 0 && num <= 999999999) {
                       setSeed(num);
                     }
                   }}

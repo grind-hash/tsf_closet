@@ -3,13 +3,13 @@
  * 007-chat-interactive-ux
  */
 
-import MainLayout from "../layout/MainLayout";
-import { useSettings } from "../../contexts/SettingsContext";
 import { useTranslation } from "react-i18next";
-import SelfProfileEditor from "./SelfProfileEditor";
-import MemorySettings from "./MemorySettings";
-import SpeechSynthesisSettings from "./SpeechSynthesisSettings";
+import { useSettings } from "../../contexts/SettingsContext";
 import type { InstructionType } from "../../types";
+import MainLayout from "../layout/MainLayout";
+import MemorySettings from "./MemorySettings";
+import SelfProfileEditor from "./SelfProfileEditor";
+import SpeechSynthesisSettings from "./SpeechSynthesisSettings";
 import "./SettingsScreen.css";
 
 const HISTORY_LOOKBACK_TARGETS: Array<{

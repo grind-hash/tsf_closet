@@ -6,13 +6,13 @@
  * キャラクター選択を行い、ゲームセッションを開始する。
  */
 
-import { useState, useRef, useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
-import type { Character } from "../../types";
 import { useGame } from "../../contexts/GameContext";
 import { useSettings } from "../../contexts/SettingsContext";
 import { ROUTES } from "../../routes";
+import type { Character } from "../../types";
 import { API_BASE } from "../../utils/api";
 import {
   getImageDimensions,

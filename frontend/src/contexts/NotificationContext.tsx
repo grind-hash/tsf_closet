@@ -5,10 +5,10 @@
 
 import {
   createContext,
+  type ReactNode,
+  useCallback,
   useContext,
   useReducer,
-  useCallback,
-  type ReactNode,
 } from "react";
 import type { Achievement } from "../types";
 
@@ -174,7 +174,6 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 }
 
 // Custom Hook
-// eslint-disable-next-line react-refresh/only-export-components
 export function useNotification(): NotificationContextType {
   const context = useContext(NotificationContext);
   if (!context) {

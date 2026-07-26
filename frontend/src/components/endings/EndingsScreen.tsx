@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import MainLayout from "../layout/MainLayout";
 import { API_BASE } from "../../utils/api";
+import MainLayout from "../layout/MainLayout";
 import "./EndingsScreen.css";
 
 interface EndingItem {

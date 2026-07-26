@@ -3,13 +3,13 @@
  * Supports both GET (EventSource) and POST (fetch API) methods.
  */
 
-import { useRef, useCallback } from "react";
+import { useCallback, useRef } from "react";
 import type {
-  SSEStatsData,
-  SSEEndingData,
-  SSECriticalData,
-  SSEAchievementData,
   AnlasBalance,
+  SSEAchievementData,
+  SSECriticalData,
+  SSEEndingData,
+  SSEStatsData,
 } from "../types";
 
 export interface UseSSEOptions {

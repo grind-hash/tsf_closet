@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 
 test("play stream request includes selected language", async ({ page }) => {
   await page.addInitScript(() => {

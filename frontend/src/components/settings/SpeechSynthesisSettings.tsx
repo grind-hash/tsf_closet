@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useSettings } from "../../contexts/SettingsContext";
 import {
+  type AivisSpeaker,
   type AivisStatus,
   downloadAivisEngine,
   extractAivisEngine,
@@ -12,8 +12,8 @@ import {
   restartAivisEngine,
   startAivisEngine,
   stopAivisEngine,
-  type AivisSpeaker,
 } from "../../apis/speechSynthesis";
+import { useSettings } from "../../contexts/SettingsContext";
 import "./SpeechSynthesisSettings.css";
 
 export default function SpeechSynthesisSettings() {
@@ -143,7 +143,7 @@ export default function SpeechSynthesisSettings() {
   }, [refreshStatus]);
 
   useEffect(() => {
-    if (!statusInfo || statusInfo.process !== "running") {
+    if (statusInfo?.process !== "running") {
       return;
     }
     if (!state.ttsSpeakerId && !state.ttsStyleId) {

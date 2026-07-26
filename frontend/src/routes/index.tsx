@@ -7,11 +7,9 @@
  * 将来的にRouterProviderに移行する際に使用します。
  */
 
-/* eslint-disable react-refresh/only-export-components */
-
-import GalleryScreen from "../components/gallery/GalleryScreen";
 import AchievementsScreen from "../components/achievements/AchievementsScreen";
 import EndingsScreen from "../components/endings/EndingsScreen";
+import GalleryScreen from "../components/gallery/GalleryScreen";
 import SettingsScreen from "../components/settings/SettingsScreen";
 
 /**
@@ -45,6 +43,6 @@ export const getGameSessionPath = (sessionId: string): string =>
   `/play/${sessionId}`;
 
 // 画面コンポーネントのエクスポート（App.tsxで使用）
-export { GalleryScreen, EndingsScreen, AchievementsScreen, SettingsScreen };
+export { AchievementsScreen, EndingsScreen, GalleryScreen, SettingsScreen };
 
 export type RouteKey = keyof typeof ROUTES;

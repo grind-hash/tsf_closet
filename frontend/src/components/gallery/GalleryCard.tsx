@@ -3,8 +3,8 @@
  * 007-chat-interactive-ux
  */
 
-import type { GalleryItem } from "../../types";
 import { useTranslation } from "react-i18next";
+import type { GalleryItem } from "../../types";
 import { API_BASE } from "../../utils/api";
 import "./GalleryCard.css";
 

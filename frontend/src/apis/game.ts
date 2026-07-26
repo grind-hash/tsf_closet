@@ -3,8 +3,8 @@
  * プロンプトプレビュー・最新履歴削除など
  */
 
+import type { ChangeScope, InstructionType, PreserveElement } from "../types";
 import { API_BASE } from "../utils/api";
-import type { InstructionType, PreserveElement, ChangeScope } from "../types";
 
 // プロンプトプレビュー リクエスト
 export interface PreviewPromptRequest {

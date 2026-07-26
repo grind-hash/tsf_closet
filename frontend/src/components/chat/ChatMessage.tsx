@@ -7,13 +7,13 @@
 
 import { forwardRef, useCallback, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import {
+  ensureAivisEngineRunning,
+  synthesizeSpeech,
+} from "../../apis/speechSynthesis";
 import { useChat } from "../../contexts/ChatContext";
 import { useGame } from "../../contexts/GameContext";
 import { useSettings } from "../../contexts/SettingsContext";
-import {
-  synthesizeSpeech,
-  ensureAivisEngineRunning,
-} from "../../apis/speechSynthesis";
 import type { ChatMessage } from "../../types";
 import "./ChatMessage.css";
 
@@ -67,10 +67,10 @@ const ChatMessageItem = forwardRef<HTMLDivElement, ChatMessageProps>(
     const canUseAudio = settingsState.ttsEnabled && !isUser;
 
     const resolveSpeakerId = useCallback((): string | null => {
-      if (settingsState.ttsStyleId && settingsState.ttsStyleId.trim()) {
+      if (settingsState.ttsStyleId?.trim()) {
         return settingsState.ttsStyleId;
       }
-      if (settingsState.ttsSpeakerId && settingsState.ttsSpeakerId.trim()) {
+      if (settingsState.ttsSpeakerId?.trim()) {
         return settingsState.ttsSpeakerId;
       }
       return null;

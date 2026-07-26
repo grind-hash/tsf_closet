@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 
 test.describe("Action mode (US4)", () => {
   test("instruction type selector includes 'action' option", async ({

@@ -5,35 +5,35 @@
 
 import {
   createContext,
-  useContext,
-  useReducer,
-  useCallback,
-  useEffect,
-  useRef,
   type ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useReducer,
+  useRef,
 } from "react";
+import { getMemoryText as fetchMemoryTextApi } from "../apis/memory";
+import type { SelfProfile } from "../apis/settings";
+import { getSelfProfile as fetchSelfProfileApi } from "../apis/settings";
+import { DEFAULT_LANGUAGE, type UiLanguage } from "../constants/language";
+import i18n from "../i18n";
 import type {
-  InpaintSettings,
-  InpaintMaskState,
+  AnlasBalance,
   ChangeSettings,
+  InpaintMaskState,
+  InpaintSettings,
   InstructionType,
   PreciseReference,
-  AnlasBalance,
 } from "../types";
 import {
   DEFAULT_CHANGE_SETTINGS,
   DEFAULT_INPAINT_MASK_STATE,
   DEFAULT_INPAINT_SETTINGS,
 } from "../types";
-import { DEFAULT_LANGUAGE, type UiLanguage } from "../constants/language";
-import type { SelfProfile } from "../apis/settings";
-import { getSelfProfile as fetchSelfProfileApi } from "../apis/settings";
-import { getMemoryText as fetchMemoryTextApi } from "../apis/memory";
-import i18n from "../i18n";
 import {
   DEFAULT_HISTORY_LOOKBACK_TARGETS,
-  normalizeHistoryLookbackTargets,
   type HistoryLookbackTargets,
+  normalizeHistoryLookbackTargets,
 } from "../utils/historyLookback";
 
 type FeelingMode = "legacy" | "gender_aware";
@@ -519,10 +519,8 @@ function loadInitialState(initial: SettingsState): SettingsState {
     if (saved) {
       const parsed = JSON.parse(saved);
       // imageProviderはバックエンドから取得するため除外
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { imageProvider: _ignored, ...rest } = parsed;
       // novelaiTextModelとnovelaiTierはバックエンド/API経由のため除外
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { novelaiTextModel: _nai, novelaiTier: _tier, ...filtered } = rest;
       return {
         ...initial,
@@ -568,7 +566,9 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         if (res.ok) {
           const data = await res.json();
           const provider = data.image_provider as
-            "selfhost" | "openrouter" | "novelai";
+            | "selfhost"
+            | "openrouter"
+            | "novelai";
           if (
             provider === "openrouter" ||
             provider === "novelai" ||
@@ -691,7 +691,6 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!isInitializedRef.current) return;
     try {
-      /* eslint-disable @typescript-eslint/no-unused-vars */
       const {
         imageProvider: _ignored,
         preciseReferences: _ignored2,
@@ -703,7 +702,6 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         memoryText: _ignored8,
         ...rest
       } = state;
-      /* eslint-enable @typescript-eslint/no-unused-vars */
       localStorage.setItem(STORAGE_KEY, JSON.stringify(rest));
       localStorage.setItem("api_total_cost", String(state.totalCost));
     } catch (error) {
@@ -1229,7 +1227,6 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
 }
 
 // Custom Hook
-// eslint-disable-next-line react-refresh/only-export-components
 export function useSettings(): SettingsContextType {
   const context = useContext(SettingsContext);
   if (!context) {

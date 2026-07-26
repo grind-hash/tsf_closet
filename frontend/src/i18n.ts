@@ -819,6 +819,11 @@ const resources = {
         deleteItemAction: "削除する",
         deleteItemError: "アイテムの削除に失敗しました",
         selfModeChip: "自分自身",
+        searchPlaceholder: "やり取りをキーワード検索…",
+        searchAria: "セッションのやり取りを検索",
+        searchClear: "検索をクリア",
+        searchNoResults: "「{{query}}」に一致するセッションはありません",
+        searchNoResultsHint: "別のキーワードで試してみてください",
       },
       achievements: {
         title: "実績",
@@ -1757,6 +1762,11 @@ const resources = {
         deleteItemAction: "Delete",
         deleteItemError: "Failed to delete item",
         selfModeChip: "Self",
+        searchPlaceholder: "Search conversations by keyword…",
+        searchAria: "Search session conversations",
+        searchClear: "Clear search",
+        searchNoResults: 'No sessions match "{{query}}"',
+        searchNoResultsHint: "Try a different keyword",
       },
       achievements: {
         title: "Achievements",

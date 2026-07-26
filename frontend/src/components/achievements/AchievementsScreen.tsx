@@ -3,12 +3,12 @@
  * 007-chat-interactive-ux
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import MainLayout from "../layout/MainLayout";
-import AchievementCard from "./AchievementCard";
 import type { Achievement } from "../../types";
 import { API_BASE } from "../../utils/api";
+import MainLayout from "../layout/MainLayout";
+import AchievementCard from "./AchievementCard";
 import "./AchievementsScreen.css";
 
 interface AchievementsScreenProps {

@@ -1,9 +1,9 @@
 import { useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { useGame } from "../contexts/GameContext";
 import { useChat } from "../contexts/ChatContext";
-import { useSettings } from "../contexts/SettingsContext";
+import { useGame } from "../contexts/GameContext";
 import { useNotification } from "../contexts/NotificationContext";
+import { useSettings } from "../contexts/SettingsContext";
 import { useSSE } from "./useSSE";
 
 export function useGameSSE() {

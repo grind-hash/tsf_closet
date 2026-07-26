@@ -3,14 +3,14 @@
  * US6 - Personality profile auto-generation and manual editing
  */
 
-import { useState, useCallback } from "react";
+import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useSettings } from "../../contexts/SettingsContext";
 import {
   generateSelfProfile,
-  saveSelfProfile,
   type SelfProfile,
+  saveSelfProfile,
 } from "../../apis/settings";
+import { useSettings } from "../../contexts/SettingsContext";
 import "./SelfProfileEditor.css";
 
 const REACTION_STYLES = [

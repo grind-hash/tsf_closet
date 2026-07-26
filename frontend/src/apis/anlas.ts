@@ -1,5 +1,5 @@
-import { API_BASE } from "../utils/api";
 import type { AnlasBalance } from "../types";
+import { API_BASE } from "../utils/api";
 
 interface AnlasBalanceResponse {
   fixed_anlas: number | null;

@@ -5,21 +5,21 @@
 
 import {
   createContext,
-  useContext,
-  useReducer,
-  useCallback,
-  useEffect,
   type ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useReducer,
 } from "react";
 import type {
-  SessionStats,
-  HistoryItem,
   Character,
-  Ending,
-  SessionAttribute,
   ConversationMessage,
-  SurroundingsImageState,
+  Ending,
+  HistoryItem,
+  SessionAttribute,
   SessionCharacter,
+  SessionStats,
+  SurroundingsImageState,
 } from "../types";
 import { API_BASE } from "../utils/api";
 
@@ -30,14 +30,15 @@ export interface PlayMemoryState {
   userText: string | null;
   systemUpdatedAt: string | null;
 }
+
 import {
-  applyPresetToSession,
   createSessionCharacter as apiCreateSessionCharacter,
   deleteSessionCharacter as apiDeleteSessionCharacter,
   ensureProtagonistCharacter as apiEnsureProtagonistCharacter,
-  listSessionCharacters,
   updateSessionCharacter as apiUpdateSessionCharacter,
+  applyPresetToSession,
   type CreateSessionCharacterPayload,
+  listSessionCharacters,
   type UpdateSessionCharacterPayload,
 } from "../apis/characters";
 
@@ -1058,7 +1059,6 @@ export function GameProvider({ children }: { children: ReactNode }) {
   return <GameContext.Provider value={value}>{children}</GameContext.Provider>;
 }
 
-// eslint-disable-next-line react-refresh/only-export-components
 export function useGame(): GameContextType {
   const context = useContext(GameContext);
   if (!context) {

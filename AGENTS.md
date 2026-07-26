@@ -25,7 +25,8 @@ tavily-remote MCP を利用してライブラリ選定を行う際は、以下�
 
 ## コード品質 (Constitution Principle III 準拠)
 
-- フロントエンド(React)の Linterは **ESLint** Formatter は**Prettier を利用し、warn や error とならないよう適切に対応してください**
+- フロントエンド(React)の Linter/Formatter は **Biome** を利用し、warn や error とならないよう適切に対応してください
+- Markdown の Formatter のみ **Prettier** を利用してください（Biome は Markdown 非対応）
 - バックエンド(Python)の Formatter は**Ruff を利用してください**
 
 ## 命名規則
@@ -76,11 +77,14 @@ tavily-remote MCP を利用してライブラリ選定を行う際は、以下�
 
 ### よく使う検証コマンド
 
-* Frontend lint:
-  `cd frontend; npx eslint <changed-files>`
+* Frontend lint / format check:
+  `cd frontend; npx @biomejs/biome check <changed-files>`
 
-* Frontend format check:
-  `cd frontend; npx prettier --check <changed-files>`
+* Frontend lint / format fix:
+  `cd frontend; npx @biomejs/biome check --write <changed-files>`
+
+* Frontend Markdown format check:
+  `cd frontend; npx prettier --check <changed-md-files>`
 
 * Backend lint:
   `cd backend; uv run ruff check <changed-files>`
