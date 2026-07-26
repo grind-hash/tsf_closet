@@ -15,7 +15,12 @@ from sqlalchemy import select, delete
 from ..databases.base import async_session_factory
 from ..databases.models import PlaySummary as PlaySummaryORM
 from .session import session_store
-from .summary_prompts import build_summary_user_prompt, get_summary_system_prompt
+from .summary_prompts import (
+    build_branch_situation_user_prompt,
+    build_summary_user_prompt,
+    get_branch_situation_system_prompt,
+    get_summary_system_prompt,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -154,6 +159,55 @@ class SummaryService:
                 )
 
         return title, summary, timeline
+
+    async def generate_branch_situation_summary(
+        self,
+        timeline: list[tuple[str, str]],
+        appearance_description: str | None = None,
+        language: str = "ja",
+        fallback_instruction: str | None = None,
+    ) -> str:
+        """Generate a situation summary for branching a new session.
+
+        Does not persist to play_summaries. On LLM failure, returns a short
+        fallback string so session creation can continue.
+        """
+        from .llm_service import llm_service
+
+        system_prompt = get_branch_situation_system_prompt(language)
+        user_prompt = build_branch_situation_user_prompt(
+            timeline,
+            appearance_description=appearance_description,
+            language=language,
+        )
+
+        try:
+            result = await llm_service.generate_text(system_prompt, user_prompt)
+            text = (result.content or "").strip()
+            # Strip accidental code fences / quotes
+            if text.startswith("```"):
+                lines = text.split("\n")
+                if lines[-1].strip() == "```":
+                    lines = lines[1:-1]
+                else:
+                    lines = lines[1:]
+                text = "\n".join(lines).strip()
+            if len(text) > 400:
+                text = text[:400].rstrip() + "…"
+            if text:
+                return text
+        except Exception as exc:
+            logger.warning("Branch situation summary generation failed: %s", exc)
+
+        base = (fallback_instruction or "").strip()
+        if base and base not in ("初期状態", "(初期状態)"):
+            short = base if len(base) <= 120 else base[:120].rstrip() + "…"
+            if language == "en":
+                return f"Continuing from: {short}"
+            return f"この状態から再開: {short}"
+        if language == "en":
+            return "Continuing from the selected image state."
+        return "選択した画像の状態から再開する。"
 
 
 summary_service = SummaryService()

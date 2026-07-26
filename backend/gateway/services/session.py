@@ -31,9 +31,11 @@ from ..databases.models import (
 from ..databases.parameter_change_log_repo import (
     StatChange,
     fetch_change_logs_by_history,
+    fetch_change_logs_by_session,
     insert_change_logs,
 )
 from ..models import (
+    CRITICAL_POINTS,
     AchievedEnding,
     Character,
     ConversationMessage,
@@ -348,6 +350,32 @@ class DatabaseSessionStore:
             if not result.rowcount:
                 return None
         return await self.get_play_memory(session_id)
+
+    async def copy_play_memory(
+        self,
+        source_session_id: str,
+        target_session_id: str,
+    ) -> bool:
+        """プレイメモ（自動・ユーザー本文と有効フラグ）を別セッションへコピーする。"""
+        source = await self.get_session_by_id(source_session_id)
+        if source is None:
+            return False
+        now = datetime.now()
+        async with async_session_factory() as db_session:
+            result = await db_session.execute(
+                update(SessionORM)
+                .where(SessionORM.id == target_session_id)
+                .values(
+                    play_memory_system_text=source.play_memory_system_text,
+                    play_memory_user_text=source.play_memory_user_text,
+                    play_memory_system_enabled=source.play_memory_system_enabled,
+                    play_memory_user_enabled=source.play_memory_user_enabled,
+                    play_memory_system_updated_at=source.play_memory_system_updated_at,
+                    updated_at=now,
+                )
+            )
+            await db_session.commit()
+            return bool(result.rowcount and result.rowcount > 0)
 
     async def update_history_surroundings(
         self,
@@ -1275,16 +1303,38 @@ class DatabaseSessionStore:
             (instruction_type, instruction_text) のタプルリスト。
             created_at 昇順（古い順 = 時系列順）で最大 limit 件。
         """
+        return await self.get_session_timeline_until(
+            session_id,
+            until_created_at=None,
+            limit=limit,
+        )
+
+    async def get_session_timeline_until(
+        self,
+        session_id: str,
+        until_created_at: datetime | None = None,
+        limit: int = 30,
+    ) -> list[tuple[str, str]]:
+        """history + conversation を時系列マージし、任意の時刻以前に制限する。
+
+        Args:
+            session_id: 対象セッション
+            until_created_at: 指定時はこの時刻以前のみ（分岐点サマリー用）
+            limit: 最大件数（古い順の先頭から）
+
+        Returns:
+            (instruction_type, instruction_text) のタプルリスト。古い順。
+        """
         async with async_session_factory() as db_session:
-            # 履歴テーブル: 着替・現実改変・行動
             h_stmt = select(
                 HistoryORM.instruction_type,
                 HistoryORM.instruction,
                 HistoryORM.created_at,
             ).where(HistoryORM.session_id == session_id)
+            if until_created_at is not None:
+                h_stmt = h_stmt.where(HistoryORM.created_at <= until_created_at)
             h_rows = (await db_session.execute(h_stmt)).all()
 
-            # 会話テーブル: ユーザー発言のみ
             c_stmt = select(
                 ConversationORM.instruction_type,
                 ConversationORM.content,
@@ -1293,15 +1343,123 @@ class DatabaseSessionStore:
                 ConversationORM.session_id == session_id,
                 ConversationORM.role == "user",
             )
+            if until_created_at is not None:
+                c_stmt = c_stmt.where(ConversationORM.created_at <= until_created_at)
             c_rows = (await db_session.execute(c_stmt)).all()
 
-        # created_at 昇順でマージソート（古い順 = 時系列順）
         merged = [(r[0] or "unknown", r[1], r[2]) for r in h_rows] + [
             (r[0] or "conversation", r[1], r[2]) for r in c_rows
         ]
         merged.sort(key=lambda x: x[2], reverse=False)
-        # (type, text) タプルを最大 limit 件返す
         return [(m[0], m[1]) for m in merged[:limit]]
+
+    def resolve_history_image_file(self, history: PersistedHistory) -> Path | None:
+        """履歴に紐づく画像ファイルパスを解決する。"""
+        candidates: list[Path] = []
+        if history.image_path:
+            raw = Path(history.image_path)
+            candidates.append(raw)
+            candidates.append(settings.history_images_dir.parent / history.image_path)
+            candidates.append(self._history_images_dir / raw.name)
+        candidates.append(self.get_history_image_path(history.id))
+        for path in candidates:
+            try:
+                if path.is_file():
+                    return path
+            except OSError:
+                continue
+        return None
+
+    async def reconstruct_stats_at_history(
+        self,
+        session_id: str,
+        history_id: str,
+        *,
+        difficulty: str = "normal",
+        nsfw_mode: bool = False,
+    ) -> SessionStats:
+        """parameter_change_log から分岐点時点の stats を再構築する。
+
+        ログが無い場合は難易度初期値にフォールバックする。
+        """
+        baseline = SessionStats.create_with_difficulty(
+            session_id, difficulty, nsfw_mode
+        )
+        source = await self.get_history_by_id(history_id)
+        if source is None or source.session_id != session_id:
+            return baseline
+
+        history_rows = await self.get_history(session_id)
+        allowed_ids: set[str] = set()
+        for row in history_rows:
+            allowed_ids.add(row.id)
+            if row.id == history_id:
+                break
+        else:
+            # 到達できなくても source 自体は含める
+            allowed_ids.add(history_id)
+
+        async with async_session_factory() as db_session:
+            logs = await fetch_change_logs_by_session(db_session, session_id)
+
+        values = {
+            "bloom": baseline.bloom,
+            "shame": baseline.shame,
+            "adaptation": baseline.adaptation,
+        }
+        applied = 0
+        for log in logs:
+            if log.history_id not in allowed_ids:
+                continue
+            if log.stat_name in values:
+                values[log.stat_name] = int(log.new_value)
+                applied += 1
+
+        if applied == 0:
+            logger.info(
+                "No parameter_change_log for session %s up to history %s; "
+                "using difficulty defaults",
+                session_id,
+                history_id,
+            )
+
+        bloom = max(0, min(100, values["bloom"]))
+        shame = max(0, min(100, values["shame"]))
+        adaptation = max(-50, min(50, values["adaptation"]))
+        passed = [cp.threshold for cp in CRITICAL_POINTS if bloom >= cp.threshold]
+
+        return SessionStats(
+            session_id=session_id,
+            bloom=bloom,
+            shame=shame,
+            adaptation=adaptation,
+            passed_critical_points=passed,
+            difficulty=difficulty,
+            nsfw_mode=nsfw_mode,
+        )
+
+    async def count_transformations_until(
+        self,
+        session_id: str,
+        history_id: str,
+    ) -> int:
+        """分岐点以前の dress_up / reality_alter 件数を数える。"""
+        transform_types = {"dress_up", "reality_alter", "reality"}
+        count = 0
+        for row in await self.get_history(session_id):
+            itype = (row.instruction_type or "").strip()
+            if itype in transform_types:
+                count += 1
+            elif itype == "" and row.instruction not in (
+                "初期状態",
+                "(初期状態)",
+            ):
+                # 古いデータで type が空の変身履歴は件数に含める
+                if row.instruction and not row.instruction.startswith("("):
+                    count += 1
+            if row.id == history_id:
+                break
+        return count
 
     async def get_recent_instructions(
         self,

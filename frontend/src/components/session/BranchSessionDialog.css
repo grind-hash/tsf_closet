@@ -1,0 +1,128 @@
+.branch-session-dialog__overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+  padding: 1rem;
+}
+
+.branch-session-dialog {
+  width: min(420px, 100%);
+  background: var(--panel-bg, #1e1e28);
+  color: var(--text-primary, #f5f5f7);
+  border: 1px solid var(--border-color, #3a3a4a);
+  border-radius: 12px;
+  padding: 1.25rem 1.35rem;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+}
+
+.branch-session-dialog h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.branch-session-dialog__message {
+  margin: 0 0 0.5rem;
+  line-height: 1.5;
+  font-size: 0.95rem;
+}
+
+.branch-session-dialog__hint {
+  margin: 0 0 1rem;
+  color: var(--text-secondary, #a0a0b0);
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+.branch-session-dialog__checkbox-row {
+  display: flex;
+  gap: 0.65rem;
+  align-items: flex-start;
+  margin-bottom: 1rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.branch-session-dialog__checkbox-row input {
+  margin-top: 0.2rem;
+  flex-shrink: 0;
+}
+
+.branch-session-dialog__checkbox-label {
+  display: block;
+  font-weight: 600;
+}
+
+.branch-session-dialog__checkbox-desc {
+  display: block;
+  margin-top: 0.25rem;
+  color: var(--text-secondary, #a0a0b0);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.branch-session-dialog__error {
+  margin: 0 0 0.75rem;
+  color: #ff8a8a;
+  font-size: 0.85rem;
+}
+
+.branch-session-dialog__loading {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.85rem;
+  font-size: 0.9rem;
+  color: var(--text-secondary, #c8c8d8);
+}
+
+.branch-session-dialog__spinner {
+  width: 1rem;
+  height: 1rem;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  border-top-color: #9b8cff;
+  border-radius: 50%;
+  animation: branch-session-spin 0.8s linear infinite;
+}
+
+@keyframes branch-session-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.branch-session-dialog__actions {
+  display: flex;
+  gap: 0.6rem;
+  justify-content: flex-end;
+}
+
+.branch-session-dialog__confirm,
+.branch-session-dialog__cancel {
+  border-radius: 8px;
+  border: 1px solid transparent;
+  padding: 0.45rem 0.9rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.branch-session-dialog__confirm {
+  background: #6c5ce7;
+  color: #fff;
+}
+
+.branch-session-dialog__confirm:disabled,
+.branch-session-dialog__cancel:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.branch-session-dialog__cancel {
+  background: transparent;
+  border-color: var(--border-color, #4a4a5a);
+  color: var(--text-primary, #f5f5f7);
+}

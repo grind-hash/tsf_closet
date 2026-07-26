@@ -13,10 +13,13 @@
 
 import { type ChangeEvent, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router-dom";
 import { useChat } from "../../contexts/ChatContext";
 import { useGame } from "../../contexts/GameContext";
 import { useSettings } from "../../contexts/SettingsContext";
+import { getGameSessionPath } from "../../routes";
 import type { AttributePreset } from "../../types";
+import BranchSessionDialog from "../session/BranchSessionDialog";
 import "./CharacterStatePanel.css";
 
 // 属性プリセット用のlocalStorageキー（RightPanelと共通）
@@ -41,6 +44,7 @@ export default function CharacterStatePanel({
   showNsfwToggle = true,
 }: CharacterStatePanelProps) {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const {
     state,
     navigateHistory,
@@ -48,10 +52,19 @@ export default function CharacterStatePanel({
     navigateNextHistory,
     addAttribute,
     removeAttribute,
+    startSessionFromHistory,
   } = useGame();
-  const { scrollToMessage, highlightMessage, state: chatState } = useChat();
+  const {
+    scrollToMessage,
+    highlightMessage,
+    clearMessages,
+    state: chatState,
+  } = useChat();
   const { state: settingsState, toggleInpaint, toggleNsfw } = useSettings();
   const [isMobileNsfwExpanded, setIsMobileNsfwExpanded] = useState(false);
+  const [branchDialogOpen, setBranchDialogOpen] = useState(false);
+  const [branchLoading, setBranchLoading] = useState(false);
+  const [branchError, setBranchError] = useState<string | null>(null);
 
   // 属性入力状態
   const [showAttributeInput, setShowAttributeInput] = useState(false);
@@ -116,6 +129,31 @@ export default function CharacterStatePanel({
   const history = Array.isArray(rawHistory) ? rawHistory : [];
   const isNovelAI = settingsState.imageProvider === "novelai";
   const historyStripRef = useRef<HTMLDivElement>(null);
+  const selectedHistory = history[currentHistoryIndex] ?? null;
+
+  const handleBranchConfirm = async (options: {
+    inheritStats: boolean;
+    selfMode: boolean;
+  }) => {
+    if (!selectedHistory?.id) return;
+    setBranchLoading(true);
+    setBranchError(null);
+    try {
+      const result = await startSessionFromHistory(selectedHistory.id, {
+        inheritStats: options.inheritStats,
+        selfMode: options.selfMode,
+      });
+      clearMessages();
+      setBranchDialogOpen(false);
+      navigate(getGameSessionPath(result.session_id));
+    } catch (err) {
+      setBranchError(
+        err instanceof Error ? err.message : t("branchSession.failed"),
+      );
+    } finally {
+      setBranchLoading(false);
+    }
+  };
 
   // 選択中のサムネイルが横方向の表示範囲外に出た場合だけ中央へ寄せる
   useEffect(() => {
@@ -464,6 +502,38 @@ export default function CharacterStatePanel({
           »
         </button>
       </div>
+
+      {selectedHistory && (
+        <div className="character-state-panel__branch-row">
+          <button
+            type="button"
+            className="character-state-panel__branch-btn"
+            onClick={() => {
+              setBranchError(null);
+              setBranchDialogOpen(true);
+            }}
+            disabled={isTransforming || branchLoading}
+            title={t("branchSession.buttonTitle")}
+          >
+            {t("branchSession.button")}
+          </button>
+        </div>
+      )}
+
+      <BranchSessionDialog
+        isOpen={branchDialogOpen}
+        isLoading={branchLoading}
+        errorMessage={branchError}
+        defaultSelfMode={Boolean(state.selfMode)}
+        onConfirm={handleBranchConfirm}
+        onCancel={() => {
+          if (!branchLoading) {
+            setBranchDialogOpen(false);
+            setBranchError(null);
+          }
+        }}
+      />
+
       {/* インペイントトグル - NovelAIのみ表示 (FR-017準拠) */}
       {isNovelAI && (
         <div className="character-state-panel__inpaint-toggle">

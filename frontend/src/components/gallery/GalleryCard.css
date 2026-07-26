@@ -57,6 +57,29 @@
   color: white;
 }
 
+.gallery-card__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
+
+.gallery-card__branch-btn {
+  flex-shrink: 0;
+  border: 1px solid rgba(155, 140, 255, 0.4);
+  background: rgba(108, 92, 231, 0.15);
+  color: var(--text-color, #eee);
+  border-radius: 4px;
+  padding: 0.15rem 0.35rem;
+  font-size: 0.68rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.gallery-card__branch-btn:hover {
+  background: rgba(108, 92, 231, 0.3);
+}
+
 /* 削除ボタン (info 内の meta-row 右端) */
 .gallery-card__delete-btn {
   flex-shrink: 0;

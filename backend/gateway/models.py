@@ -502,6 +502,30 @@ class SessionResponse(BaseModel):
     play_memory: PlayMemoryResponse = Field(default_factory=PlayMemoryResponse)
 
 
+class BranchSessionRequest(BaseModel):
+    """履歴画像から新規セッションを分岐開始するリクエスト"""
+
+    inherit_stats: bool = Field(
+        True,
+        description="開花度・羞恥・適応などのパラメータを分岐点から引き継ぐか",
+    )
+    self_mode: Optional[bool] = Field(
+        None,
+        description=(
+            "新規セッションの自分自身モード。未指定時は分岐元セッションの値を引き継ぐ"
+        ),
+    )
+
+
+class BranchSessionResponse(SessionResponse):
+    """分岐開始レスポンス（SessionResponse + メタ情報）"""
+
+    branch_summary: str = Field("", description="初期historyに入れた状況サマリー")
+    source_session_id: Optional[str] = Field(None, description="分岐元セッションID")
+    source_history_id: Optional[str] = Field(None, description="分岐元履歴ID")
+    inherit_stats: bool = Field(True, description="パラメータ引き継ぎの適用値")
+
+
 class SessionSummary(BaseModel):
     """セッション概要（一覧表示用）"""
 

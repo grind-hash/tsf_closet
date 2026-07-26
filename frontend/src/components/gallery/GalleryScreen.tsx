@@ -9,11 +9,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router-dom";
 import { deleteGalleryItem, fetchGallerySessions } from "../../apis/gallery";
+import { useChat } from "../../contexts/ChatContext";
 import { useGame } from "../../contexts/GameContext";
 import { useInfiniteScroll } from "../../hooks/useInfiniteScroll";
+import { getGameSessionPath } from "../../routes";
 import type { GalleryItem, GallerySession } from "../../types";
 import { API_BASE } from "../../utils/api";
 import MainLayout from "../layout/MainLayout";
+import BranchSessionDialog from "../session/BranchSessionDialog";
 import GalleryCard from "./GalleryCard";
 import PlaySummaryModal from "./PlaySummaryModal";
 import "./GalleryScreen.css";
@@ -26,7 +29,11 @@ export default function GalleryScreen({ onSelectItem }: GalleryScreenProps) {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
-  const { restoreSessionById } = useGame();
+  const { restoreSessionById, startSessionFromHistory } = useGame();
+  const { clearMessages } = useChat();
+  const [branchTarget, setBranchTarget] = useState<GalleryItem | null>(null);
+  const [branchLoading, setBranchLoading] = useState(false);
+  const [branchError, setBranchError] = useState<string | null>(null);
 
   // URLベースで表示モードを判定: /gallery/:sessionId → items, /gallery → sessions
   const urlSessionId = useMemo(() => {
@@ -610,6 +617,10 @@ export default function GalleryScreen({ onSelectItem }: GalleryScreenProps) {
                         item={item}
                         onClick={() => handleItemClick(item)}
                         onDelete={(i) => setDeleteItemConfirm(i)}
+                        onBranchSession={(i) => {
+                          setBranchError(null);
+                          setBranchTarget(i);
+                        }}
                       />
                     ))}
                   </div>
@@ -764,6 +775,43 @@ export default function GalleryScreen({ onSelectItem }: GalleryScreenProps) {
               s.session_id === sid ? { ...s, has_summary: true } : s,
             ),
           );
+        }}
+      />
+
+      <BranchSessionDialog
+        isOpen={branchTarget !== null}
+        isLoading={branchLoading}
+        errorMessage={branchError}
+        defaultSelfMode={Boolean(
+          selectedSession?.self_mode ??
+            sessions.find((s) => s.session_id === branchTarget?.session_id)
+              ?.self_mode,
+        )}
+        onConfirm={async (options) => {
+          if (!branchTarget) return;
+          setBranchLoading(true);
+          setBranchError(null);
+          try {
+            const result = await startSessionFromHistory(branchTarget.id, {
+              inheritStats: options.inheritStats,
+              selfMode: options.selfMode,
+            });
+            clearMessages();
+            setBranchTarget(null);
+            navigate(getGameSessionPath(result.session_id));
+          } catch (err) {
+            setBranchError(
+              err instanceof Error ? err.message : t("branchSession.failed"),
+            );
+          } finally {
+            setBranchLoading(false);
+          }
+        }}
+        onCancel={() => {
+          if (!branchLoading) {
+            setBranchTarget(null);
+            setBranchError(null);
+          }
         }}
       />
     </MainLayout>

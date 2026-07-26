@@ -12,12 +12,14 @@ interface GalleryCardProps {
   item: GalleryItem;
   onClick?: () => void;
   onDelete?: (item: GalleryItem) => void;
+  onBranchSession?: (item: GalleryItem) => void;
 }
 
 export default function GalleryCard({
   item,
   onClick,
   onDelete,
+  onBranchSession,
 }: GalleryCardProps) {
   const { t, i18n } = useTranslation();
   // 日時をフォーマット
@@ -73,32 +75,48 @@ export default function GalleryCard({
           <span className="gallery-card__date">
             {formatDate(item.timestamp)}
           </span>
-          {onDelete && (
-            <button
-              type="button"
-              className="gallery-card__delete-btn"
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete(item);
-              }}
-              aria-label={t("gallery.deleteItemTitle")}
-              title={t("gallery.deleteItemTitle")}
-            >
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
+          <div className="gallery-card__actions">
+            {onBranchSession && (
+              <button
+                type="button"
+                className="gallery-card__branch-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onBranchSession(item);
+                }}
+                aria-label={t("branchSession.buttonTitle")}
+                title={t("branchSession.buttonTitle")}
               >
-                <polyline points="3 6 5 6 21 6" />
-                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-              </svg>
-            </button>
-          )}
+                {t("branchSession.shortButton")}
+              </button>
+            )}
+            {onDelete && (
+              <button
+                type="button"
+                className="gallery-card__delete-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete(item);
+                }}
+                aria-label={t("gallery.deleteItemTitle")}
+                title={t("gallery.deleteItemTitle")}
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <polyline points="3 6 5 6 21 6" />
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                </svg>
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>

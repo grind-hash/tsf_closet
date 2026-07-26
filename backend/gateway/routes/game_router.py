@@ -20,6 +20,8 @@ from sse_starlette.sse import EventSourceResponse
 
 from ..services.characters import character_manager
 from ..models import (
+    BranchSessionRequest,
+    BranchSessionResponse,
     CharacterListResponse,
     ErrorResponse,
     HistorySelectResponse,
@@ -759,6 +761,60 @@ async def select_history_as_base(history_id: str) -> HistorySelectResponse:
         message="ベース画像を選択しました",
         current_image_path=image_path,
     )
+
+
+@router.post(
+    "/history/{history_id}/branch-session",
+    response_model=BranchSessionResponse,
+    responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+    summary="履歴画像から新規セッション分岐",
+    description=(
+        "指定履歴の画像状態から新規セッションを開始する。"
+        "分岐点までの状況サマリーを LLM で生成し、初期 history に格納する。"
+        "inherit_stats で開花度等のパラメータ引き継ぎ、"
+        "self_mode で自分自身モードの継続/解除を選択できる。"
+    ),
+)
+async def branch_session_from_history(
+    history_id: str,
+    request: BranchSessionRequest | None = None,
+) -> BranchSessionResponse:
+    """既存履歴の状態から新規セッションを分岐開始する"""
+    from ..services.session_branch_service import (
+        SessionBranchError,
+        branch_session_from_history as do_branch,
+    )
+
+    body = request or BranchSessionRequest()
+    try:
+        return await do_branch(
+            history_id,
+            inherit_stats=body.inherit_stats,
+            self_mode=body.self_mode,
+        )
+    except SessionBranchError as exc:
+        status = (
+            404
+            if exc.code
+            in {
+                "history_not_found",
+                "session_not_found",
+                "image_not_found",
+            }
+            else 400
+        )
+        raise HTTPException(
+            status_code=status,
+            detail={"error": exc.code, "message": exc.message},
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": "branch_failed",
+                "message": f"セッション分岐に失敗しました: {exc}",
+            },
+        ) from exc
 
 
 # =============================================================================

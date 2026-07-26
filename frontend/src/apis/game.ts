@@ -229,3 +229,59 @@ export async function deleteHistoryEntry(
 
   return response.json();
 }
+
+/** 履歴画像から新規セッション分岐のレスポンス（SessionResponse 互換 + メタ） */
+export interface BranchSessionResponse {
+  session_id: string;
+  character_id?: string | null;
+  current_image_url: string;
+  transformation_count?: number;
+  history?: Array<Record<string, unknown>>;
+  stats?: Record<string, unknown> | null;
+  attributes?: Array<{ id: string; text?: string; attribute_text?: string }>;
+  conversation_history?: Array<Record<string, unknown>>;
+  self_mode?: boolean;
+  play_memory?: Record<string, unknown>;
+  branch_summary?: string;
+  source_session_id?: string | null;
+  source_history_id?: string | null;
+  inherit_stats?: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+/**
+ * 指定履歴の画像状態から新規セッションを分岐開始する。
+ * 状況サマリー生成のため待ちが発生しうる。
+ */
+export async function branchSessionFromHistory(
+  historyId: string,
+  options?: { inheritStats?: boolean; selfMode?: boolean },
+): Promise<BranchSessionResponse> {
+  const response = await fetch(
+    `${API_BASE}/game/history/${encodeURIComponent(historyId)}/branch-session`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        inherit_stats: options?.inheritStats ?? true,
+        // 明示指定時のみ送る（未指定ならバックエンドが分岐元を引き継ぐ）
+        ...(options?.selfMode !== undefined
+          ? { self_mode: options.selfMode }
+          : {}),
+      }),
+    },
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    const detail = error.detail;
+    const message =
+      (typeof detail === "object" && detail?.message) ||
+      (typeof detail === "string" ? detail : null) ||
+      `Branch session failed: ${response.status}`;
+    throw new Error(message);
+  }
+
+  return response.json();
+}
