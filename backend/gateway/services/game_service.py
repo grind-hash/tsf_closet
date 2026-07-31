@@ -14,7 +14,7 @@ import logging
 import random
 from dataclasses import dataclass
 from pathlib import Path
-from typing import AsyncGenerator, Optional, Tuple
+from typing import Any, AsyncGenerator, Optional, Tuple
 
 from .characters import character_manager
 from .comfy import ComfyUIClient
@@ -92,6 +92,7 @@ from .anlas_service import get_anlas_balance
 from ..consts.language import normalize_language
 from ..databases.base import async_session_factory
 from .character_service import (
+    apply_character_prompt_tags,
     build_novelai_characters_section,
     build_session_characters_prompt_section,
     load_session_characters_for_prompt,
@@ -2053,7 +2054,9 @@ class GameService:
                         action_image_error,
                     )
                     # 前回の画像を現在の画像として維持（変更なし）
+                    # 未確定の生成タグも破棄し、CharacterPanel を誤更新しない
                     action_prompt_desc = current_desc
+                    action_characters = None
                 elif action_image_data is not None:
                     final_action_image = action_image_data
 
@@ -2076,40 +2079,20 @@ class GameService:
                         current_image_path=history.image_path,
                     )
 
-                # FR-010: 今ターンの after_description から主人公タグを抽出して
-                # session_character を upsert する。プロンプト構築フェーズではなく
-                # add_history 直後に実行することで CharacterPanel は今ターンの見た目を反映する。
+                # FR-010 / FR-013: 確定タグ直書き + 容姿自然文の自動更新
+                # プロンプト構築フェーズではなく add_history 直後に実行し、
+                # CharacterPanel に今ターンの見た目を反映する。
                 if enable_multiple_people and use_character_panel:
-                    try:
-                        post_name, post_tags = _resolve_protagonist_image_identity(
-                            last_after_description=action_prompt_desc,
-                            character=character,
-                            self_profile=self_profile,
-                            custom_metadata=custom_metadata,
-                        )
-                        if post_name and post_tags:
-                            async with async_session_factory() as _post_db:
-                                await upsert_protagonist_session_character(
-                                    _post_db,
-                                    session.id,
-                                    name=post_name,
-                                    appearance_tags=post_tags,
-                                )
-                                await _post_db.commit()
-                            logger.info(
-                                "[FR-010 action] post-history upsert ok name=%r tags=%r",
-                                post_name,
-                                post_tags[:80],
-                            )
-                    except Exception as _post_exc:
-                        logger.warning(
-                            "[FR-010 action] post-history upsert failed: %s",
-                            _post_exc,
-                        )
-
-                # 005 US2: 完了通知前に容姿差分を更新し、後続のテキスト生成と直列化する
-                if enable_multiple_people and use_character_panel:
-                    await _async_apply_appearance_updates(session.id, instruction)
+                    await _sync_session_characters_after_turn(
+                        session_id=session.id,
+                        after_description=action_prompt_desc,
+                        character_prompts=action_characters,
+                        instruction_text=instruction,
+                        character=character,
+                        self_profile=self_profile,
+                        custom_metadata=custom_metadata,
+                        log_label="action",
+                    )
 
                 # ── T012: SSE events — image, cost, complete ──
                 if action_image_data is not None:
@@ -2770,38 +2753,22 @@ class GameService:
                 seed=image_seed,
             )
 
-            # FR-010: 今ターンの after_description から主人公タグを抽出して
-            # session_character を upsert する。プロンプト構築フェーズではなく
-            # add_history 直後に実行することで CharacterPanel は今ターンの見た目を反映する。
-            # 現実改変ケースも Opus モードでは inferred_after_desc が
-            # generated_novelai_prompt (JSON) になるため同一パスで処理される。
+            # FR-010 / FR-013: 確定タグ直書き + 容姿自然文の自動更新
+            # プロンプト構築フェーズではなく add_history 直後に実行し、
+            # CharacterPanel に今ターンの見た目を反映する。
+            # 現実改変ケースも Opus では inferred_after_desc / dress_up_characters
+            # から同一パスで処理される。
             if enable_multiple_people and use_character_panel:
-                try:
-                    post_name, post_tags = _resolve_protagonist_image_identity(
-                        last_after_description=inferred_after_desc,
-                        character=character,
-                        self_profile=self_profile,
-                        custom_metadata=custom_metadata,
-                    )
-                    if post_name and post_tags:
-                        async with async_session_factory() as _post_db:
-                            await upsert_protagonist_session_character(
-                                _post_db,
-                                session.id,
-                                name=post_name,
-                                appearance_tags=post_tags,
-                            )
-                            await _post_db.commit()
-                        logger.info(
-                            "[FR-010 dress-up] post-history upsert ok name=%r tags=%r",
-                            post_name,
-                            post_tags[:80],
-                        )
-                except Exception as _post_exc:
-                    logger.warning(
-                        "[FR-010 dress-up] post-history upsert failed: %s",
-                        _post_exc,
-                    )
+                await _sync_session_characters_after_turn(
+                    session_id=session.id,
+                    after_description=inferred_after_desc,
+                    character_prompts=dress_up_characters,
+                    instruction_text=original_instruction,
+                    character=character,
+                    self_profile=self_profile,
+                    custom_metadata=custom_metadata,
+                    log_label="dress-up",
+                )
 
             # 5.1. タグ分類 (T023)
             tags = classify_tags(original_instruction)
@@ -3675,8 +3642,80 @@ class GameService:
 game_service = GameService()
 
 
+async def _sync_session_characters_after_turn(
+    *,
+    session_id: str,
+    after_description: str | None,
+    character_prompts: list[dict] | None,
+    instruction_text: str,
+    character: Any | None,
+    self_profile: dict | None,
+    custom_metadata: dict | None,
+    log_label: str,
+) -> None:
+    """Persist post-turn appearance onto session_character rows (FR-010 / FR-013).
+
+    1. Prefer confirmed Opus character prompts as appearance_tags source of truth.
+    2. Fall back to resolving tags from after_description / base identity.
+    3. Best-effort LLM update for appearance_natural (and residual tag diffs).
+
+    Failures are logged and never raised to the caller.
+    """
+    try:
+        post_name, post_tags = _resolve_protagonist_image_identity(
+            last_after_description=after_description,
+            character=character,
+            self_profile=self_profile,
+            custom_metadata=custom_metadata,
+        )
+        # Confirmed character prompt overrides extract/fallback when present.
+        if (
+            character_prompts
+            and isinstance(character_prompts[0], dict)
+            and isinstance(character_prompts[0].get("prompt"), str)
+            and character_prompts[0]["prompt"].strip()
+        ):
+            post_tags = character_prompts[0]["prompt"].strip()
+
+        async with async_session_factory() as db:
+            if post_name and post_tags:
+                await upsert_protagonist_session_character(
+                    db,
+                    session_id,
+                    name=post_name,
+                    appearance_tags=post_tags,
+                )
+            if character_prompts:
+                applied = await apply_character_prompt_tags(
+                    db, session_id, character_prompts
+                )
+                if applied:
+                    logger.info(
+                        "[FR-010 %s] applied character prompt tags to %d row(s)",
+                        log_label,
+                        applied,
+                    )
+            await db.commit()
+
+        if post_name and post_tags:
+            logger.info(
+                "[FR-010 %s] post-history upsert ok name=%r tags=%r",
+                log_label,
+                post_name,
+                post_tags[:80],
+            )
+    except Exception as exc:  # noqa: BLE001 - best-effort panel sync
+        logger.warning(
+            "[FR-010 %s] post-history upsert failed: %s",
+            log_label,
+            exc,
+        )
+
+    await _async_apply_appearance_updates(session_id, instruction_text)
+
+
 async def _async_apply_appearance_updates(session_id: str, action_text: str) -> None:
-    """005 US2: Action 後にキャラクター容姿の差分を適用する。
+    """005 US2: Action / dress-up 後にキャラクター容姿の差分を適用する。
 
     失敗時はログに記録し、アクション応答へは伝播させない (FR-014)。
     """
