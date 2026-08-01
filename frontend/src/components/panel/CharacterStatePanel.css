@@ -61,6 +61,43 @@
   border-radius: 12px;
 }
 
+.character-state-panel__favorite-btn {
+  position: absolute;
+  top: 0.55rem;
+  left: 0.55rem;
+  z-index: 3;
+  width: 2.1rem;
+  height: 2.1rem;
+  border: none;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #f5d76e;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    background-color 0.15s,
+    transform 0.15s;
+}
+
+.character-state-panel__favorite-btn:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.75);
+  transform: scale(1.06);
+}
+
+.character-state-panel__favorite-btn:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
+.character-state-panel__favorite-btn.is-active {
+  color: #ffd54f;
+  text-shadow: 0 0 8px rgba(255, 213, 79, 0.55);
+}
+
 .character-state-panel__no-image {
   width: 280px;
   height: 380px;

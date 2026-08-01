@@ -90,6 +90,9 @@ interface SettingsState {
   experimentalEndingEnabled: boolean;
   playMemoryEnabled: boolean;
 
+  // お気に入り一覧からの削除時に確認ダイアログを表示する (spec 009)
+  confirmFavoriteRemove: boolean;
+
   // サウンド設定
   soundEnabled: boolean;
   soundVolume: number;
@@ -182,6 +185,7 @@ type SettingsAction =
   | { type: "SET_SHOW_REALITY_ATTRIBUTE_NOTIFICATION"; payload: boolean }
   | { type: "SET_EXPERIMENTAL_ENDING_ENABLED"; payload: boolean }
   | { type: "SET_PLAY_MEMORY_ENABLED"; payload: boolean }
+  | { type: "SET_CONFIRM_FAVORITE_REMOVE"; payload: boolean }
   | { type: "SET_SOUND_ENABLED"; payload: boolean }
   | { type: "SET_SOUND_VOLUME"; payload: number }
   | { type: "TOGGLE_PANEL" }
@@ -241,6 +245,7 @@ const defaultState: SettingsState = {
   showRealityAttributeNotification: true,
   experimentalEndingEnabled: false,
   playMemoryEnabled: false,
+  confirmFavoriteRemove: true,
   soundEnabled: true,
   soundVolume: 0.5,
   rightPanelOpen: false,
@@ -345,6 +350,8 @@ function settingsReducer(
       return { ...state, experimentalEndingEnabled: action.payload };
     case "SET_PLAY_MEMORY_ENABLED":
       return { ...state, playMemoryEnabled: action.payload };
+    case "SET_CONFIRM_FAVORITE_REMOVE":
+      return { ...state, confirmFavoriteRemove: action.payload };
     case "SET_SOUND_ENABLED":
       return { ...state, soundEnabled: action.payload };
     case "SET_SOUND_VOLUME":
@@ -463,6 +470,7 @@ interface SettingsContextType {
   setShowRealityAttributeNotification: (show: boolean) => void;
   setExperimentalEndingEnabled: (enabled: boolean) => void;
   setPlayMemoryEnabled: (enabled: boolean) => void;
+  setConfirmFavoriteRemove: (enabled: boolean) => void;
   setSoundEnabled: (enabled: boolean) => void;
   setSoundVolume: (volume: number) => void;
   togglePanel: () => void;
@@ -923,6 +931,9 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const setPlayMemoryEnabled = useCallback((enabled: boolean) => {
     dispatch({ type: "SET_PLAY_MEMORY_ENABLED", payload: enabled });
   }, []);
+  const setConfirmFavoriteRemove = useCallback((enabled: boolean) => {
+    dispatch({ type: "SET_CONFIRM_FAVORITE_REMOVE", payload: enabled });
+  }, []);
 
   const setSoundEnabled = useCallback((enabled: boolean) => {
     dispatch({ type: "SET_SOUND_ENABLED", payload: enabled });
@@ -1183,6 +1194,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setShowRealityAttributeNotification,
     setExperimentalEndingEnabled,
     setPlayMemoryEnabled,
+    setConfirmFavoriteRemove,
     setSoundEnabled,
     setSoundVolume,
     togglePanel,

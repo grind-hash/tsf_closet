@@ -420,3 +420,35 @@ class ParameterChangeLog(Base):
         Index("idx_pcl_history_id", "history_id"),
         Index("idx_pcl_session_id", "session_id"),
     )
+
+
+class FavoriteOutfit(Base):
+    """履歴画像へのお気に入りブックマーク（衣装スナップショット）."""
+
+    __tablename__ = "favorite_outfits"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    history_id: Mapped[str] = mapped_column(
+        String, ForeignKey("history.id", ondelete="CASCADE"), nullable=False
+    )
+    session_id: Mapped[str] = mapped_column(
+        String, ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False
+    )
+    label: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        default=func.current_timestamp(), nullable=False
+    )
+
+    __table_args__ = (
+        Index(
+            "idx_favorite_outfits_user_history",
+            "user_id",
+            "history_id",
+            unique=True,
+        ),
+        Index("idx_favorite_outfits_user_created", "user_id", "created_at"),
+        Index("idx_favorite_outfits_history_id", "history_id"),
+    )

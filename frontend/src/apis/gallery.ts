@@ -145,6 +145,7 @@ function convertGalleryItem(item: Record<string, unknown>): GalleryItem {
       ? String(item.costume_category)
       : null,
     exposure_level: item.exposure_level ? String(item.exposure_level) : null,
+    is_favorited: Boolean(item.is_favorited),
   };
 }
 

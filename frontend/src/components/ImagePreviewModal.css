@@ -71,6 +71,41 @@
   background-color: rgba(255, 255, 255, 0.3);
 }
 
+.image-preview-modal__favorite {
+  position: absolute;
+  top: -40px;
+  right: 48px;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 50%;
+  background-color: rgba(255, 255, 255, 0.15);
+  color: #f5d76e;
+  font-size: 1.2rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    background-color 0.2s,
+    transform 0.15s;
+}
+
+.image-preview-modal__favorite:hover:not(:disabled) {
+  background-color: rgba(255, 255, 255, 0.3);
+  transform: scale(1.05);
+}
+
+.image-preview-modal__favorite:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
+.image-preview-modal__favorite.is-active {
+  color: #ffd54f;
+  text-shadow: 0 0 10px rgba(255, 213, 79, 0.55);
+}
+
 /* ナビゲーションボタン */
 .image-preview-modal__nav {
   position: absolute;

@@ -38,6 +38,93 @@
   color: var(--text-muted, #888);
 }
 
+.gallery-screen__tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  flex-shrink: 0;
+}
+
+.gallery-screen__tab {
+  border: 1px solid var(--border-color, #333);
+  background: var(--card-bg, #16213e);
+  color: var(--text-muted, #aaa);
+  border-radius: 999px;
+  padding: 0.35rem 0.9rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition:
+    background-color 0.15s,
+    color 0.15s,
+    border-color 0.15s;
+}
+
+.gallery-screen__tab:hover {
+  color: var(--text-color, #eee);
+  border-color: rgba(233, 69, 96, 0.45);
+}
+
+.gallery-screen__tab.is-active {
+  color: #fff;
+  background: rgba(233, 69, 96, 0.28);
+  border-color: rgba(233, 69, 96, 0.7);
+}
+
+.gallery-screen__favorite-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.gallery-screen__label-btn {
+  align-self: stretch;
+  border: 1px solid rgba(245, 215, 110, 0.35);
+  background: rgba(245, 215, 110, 0.08);
+  color: #f5d76e;
+  border-radius: 8px;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.gallery-screen__label-btn:hover {
+  background: rgba(245, 215, 110, 0.16);
+}
+
+.gallery-screen__label-hint {
+  margin: 0 0 0.75rem;
+  font-size: 0.85rem;
+  color: var(--text-muted, #aaa);
+}
+
+.gallery-screen__label-input {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 1rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid var(--border-color, #333);
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--text-color, #eee);
+  font-size: 0.95rem;
+}
+
+.gallery-screen__dont-show-again {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin: 0.85rem 0 0.25rem;
+  font-size: 0.85rem;
+  color: var(--text-muted, #aaa);
+  cursor: pointer;
+  user-select: none;
+}
+
+.gallery-screen__dont-show-again input {
+  margin-top: 0.15rem;
+  flex-shrink: 0;
+}
+
 /* フリーワード検索 */
 .gallery-screen__search {
   display: flex;

@@ -17,6 +17,11 @@ interface ImagePreviewModalProps {
   onNext?: () => void;
   hasPrev?: boolean;
   hasNext?: boolean;
+  /** お気に入り対象の履歴ID（未指定時は☆非表示） */
+  historyId?: string | null;
+  isFavorited?: boolean;
+  favoriteBusy?: boolean;
+  onToggleFavorite?: () => void;
 }
 
 export default function ImagePreviewModal({
@@ -28,9 +33,14 @@ export default function ImagePreviewModal({
   onNext,
   hasPrev = false,
   hasNext = false,
+  historyId = null,
+  isFavorited = false,
+  favoriteBusy = false,
+  onToggleFavorite,
 }: ImagePreviewModalProps) {
   const { t } = useTranslation();
   const resolvedAlt = alt || t("imagePreview.imageAlt");
+  const canFavorite = Boolean(historyId && onToggleFavorite);
 
   // Swipe detection for mobile
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
@@ -116,6 +126,24 @@ export default function ImagePreviewModal({
         >
           ✕
         </button>
+
+        {canFavorite && (
+          <button
+            type="button"
+            className={`image-preview-modal__favorite${isFavorited ? " is-active" : ""}`}
+            onClick={onToggleFavorite}
+            disabled={favoriteBusy}
+            aria-pressed={isFavorited}
+            aria-label={
+              isFavorited ? t("favorites.removeAria") : t("favorites.addAria")
+            }
+            title={
+              isFavorited ? t("favorites.removeTitle") : t("favorites.addTitle")
+            }
+          >
+            {isFavorited ? "★" : "☆"}
+          </button>
+        )}
 
         {/* 左ナビゲーションボタン */}
         {onPrev && (

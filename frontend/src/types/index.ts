@@ -383,6 +383,8 @@ export interface GalleryItem {
   timestamp: string;
   costume_category: string | null;
   exposure_level: string | null;
+  /** お気に入り登録済みか (spec 009) */
+  is_favorited?: boolean;
 }
 
 /**

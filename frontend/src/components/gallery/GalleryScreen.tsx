@@ -8,9 +8,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router-dom";
+import {
+  type FavoriteItem,
+  fetchFavorites,
+  toggleFavorite,
+  updateFavoriteLabel,
+} from "../../apis/favorites";
 import { deleteGalleryItem, fetchGallerySessions } from "../../apis/gallery";
 import { useChat } from "../../contexts/ChatContext";
 import { useGame } from "../../contexts/GameContext";
+import { useSettings } from "../../contexts/SettingsContext";
 import { useInfiniteScroll } from "../../hooks/useInfiniteScroll";
 import { getGameSessionPath } from "../../routes";
 import type { GalleryItem, GallerySession } from "../../types";
@@ -20,6 +27,22 @@ import BranchSessionDialog from "../session/BranchSessionDialog";
 import GalleryCard from "./GalleryCard";
 import PlaySummaryModal from "./PlaySummaryModal";
 import "./GalleryScreen.css";
+
+function favoriteToGalleryItem(fav: FavoriteItem): GalleryItem {
+  return {
+    id: fav.history_id,
+    session_id: fav.session_id,
+    image_url: fav.image_url,
+    instruction: fav.instruction,
+    feeling_text: null,
+    before_description: null,
+    after_description: null,
+    timestamp: fav.history_created_at || fav.created_at,
+    costume_category: fav.costume_category,
+    exposure_level: null,
+    is_favorited: true,
+  };
+}
 
 interface GalleryScreenProps {
   onSelectItem?: (item: GalleryItem) => void;
@@ -31,17 +54,28 @@ export default function GalleryScreen({ onSelectItem }: GalleryScreenProps) {
   const location = useLocation();
   const { restoreSessionById, startSessionFromHistory } = useGame();
   const { clearMessages } = useChat();
+  const { state: settingsState, setConfirmFavoriteRemove } = useSettings();
   const [branchTarget, setBranchTarget] = useState<GalleryItem | null>(null);
   const [branchLoading, setBranchLoading] = useState(false);
   const [branchError, setBranchError] = useState<string | null>(null);
+  const [removeConfirmTarget, setRemoveConfirmTarget] =
+    useState<FavoriteItem | null>(null);
+  const [dontShowRemoveConfirm, setDontShowRemoveConfirm] = useState(false);
+  const [isRemovingFavorite, setIsRemovingFavorite] = useState(false);
 
-  // URLベースで表示モードを判定: /gallery/:sessionId → items, /gallery → sessions
+  // URLベースで表示モードを判定: /gallery/:sessionId → items, /gallery → sessions|favorites
   const urlSessionId = useMemo(() => {
     const match = location.pathname.match(/^\/gallery\/(.+)$/);
     return match ? match[1] : null;
   }, [location.pathname]);
 
-  const displayMode = urlSessionId ? "items" : "sessions";
+  const [listTab, setListTab] = useState<"sessions" | "favorites">("sessions");
+
+  const displayMode: "sessions" | "items" | "favorites" = urlSessionId
+    ? "items"
+    : listTab === "favorites"
+      ? "favorites"
+      : "sessions";
 
   const [selectedSession, setSelectedSession] = useState<GallerySession | null>(
     null,
@@ -58,6 +92,18 @@ export default function GalleryScreen({ onSelectItem }: GalleryScreenProps) {
   const [itemsPage, setItemsPage] = useState(1);
   const [itemsHasMore, setItemsHasMore] = useState(false);
   const [itemsTotal, setItemsTotal] = useState(0);
+
+  // お気に入り一覧 (spec 009)
+  const [favorites, setFavorites] = useState<FavoriteItem[]>([]);
+  const [favoritesPage, setFavoritesPage] = useState(1);
+  const [favoritesHasMore, setFavoritesHasMore] = useState(false);
+  const [favoritesTotal, setFavoritesTotal] = useState(0);
+  const [favoriteBusyId, setFavoriteBusyId] = useState<string | null>(null);
+  const [labelEditTarget, setLabelEditTarget] = useState<FavoriteItem | null>(
+    null,
+  );
+  const [labelEditValue, setLabelEditValue] = useState("");
+  const [labelSaving, setLabelSaving] = useState(false);
 
   // 共通状態
   const [isLoading, setIsLoading] = useState(true);
@@ -166,12 +212,45 @@ export default function GalleryScreen({ onSelectItem }: GalleryScreenProps) {
     [t],
   );
 
+  const loadFavorites = useCallback(
+    async (pageNum: number) => {
+      try {
+        loadingRef.current = true;
+        setIsLoading(true);
+        setError(null);
+        const data = await fetchFavorites(pageNum, pageSize);
+        setFavorites((prev) =>
+          pageNum === 1 ? data.items : [...prev, ...data.items],
+        );
+        setFavoritesHasMore(data.has_more);
+        setFavoritesTotal(data.total);
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : t("gallery.genericError"),
+        );
+      } finally {
+        loadingRef.current = false;
+        setIsLoading(false);
+      }
+    },
+    [t],
+  );
+
   // 初回・検索語変更時の読み込み（ページをリセット）
   useEffect(() => {
+    if (listTab !== "sessions" || urlSessionId) return;
     setSessionsPage(1);
     setSessions([]);
     void fetchSessions(1, searchQuery);
-  }, [fetchSessions, searchQuery]);
+  }, [fetchSessions, searchQuery, listTab, urlSessionId]);
+
+  // お気に入りタブ読み込み
+  useEffect(() => {
+    if (listTab !== "favorites" || urlSessionId) return;
+    setFavoritesPage(1);
+    setFavorites([]);
+    void loadFavorites(1);
+  }, [listTab, urlSessionId, loadFavorites]);
 
   // URLのセッションIDが変わったらアイテム読み込み
   useEffect(() => {
@@ -227,6 +306,123 @@ export default function GalleryScreen({ onSelectItem }: GalleryScreenProps) {
     fetchItems,
   ]);
 
+  const handleLoadMoreFavorites = useCallback(() => {
+    if (loadingRef.current || isLoading || !favoritesHasMore) {
+      return;
+    }
+    const nextPage = favoritesPage + 1;
+    setFavoritesPage(nextPage);
+    void loadFavorites(nextPage);
+  }, [isLoading, favoritesHasMore, favoritesPage, loadFavorites]);
+
+  const handleToggleFavoriteItem = useCallback(
+    async (item: GalleryItem) => {
+      if (favoriteBusyId) return;
+      setFavoriteBusyId(item.id);
+      try {
+        const next = await toggleFavorite(item.id, Boolean(item.is_favorited));
+        setItems((prev) =>
+          prev.map((i) =>
+            i.id === item.id ? { ...i, is_favorited: next } : i,
+          ),
+        );
+        if (!next) {
+          setFavorites((prev) => prev.filter((f) => f.history_id !== item.id));
+          setFavoritesTotal((n) => Math.max(0, n - 1));
+        }
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : t("favorites.toggleError"),
+        );
+      } finally {
+        setFavoriteBusyId(null);
+      }
+    },
+    [favoriteBusyId, t],
+  );
+
+  const removeFavoriteFromList = useCallback(
+    async (fav: FavoriteItem) => {
+      if (favoriteBusyId) return;
+      setFavoriteBusyId(fav.history_id);
+      setIsRemovingFavorite(true);
+      try {
+        await toggleFavorite(fav.history_id, true);
+        setFavorites((prev) => prev.filter((f) => f.id !== fav.id));
+        setFavoritesTotal((n) => Math.max(0, n - 1));
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : t("favorites.toggleError"),
+        );
+        throw err;
+      } finally {
+        setFavoriteBusyId(null);
+        setIsRemovingFavorite(false);
+      }
+    },
+    [favoriteBusyId, t],
+  );
+
+  const handleToggleFavoriteFromList = useCallback(
+    (fav: FavoriteItem) => {
+      if (favoriteBusyId || isRemovingFavorite) return;
+      if (settingsState.confirmFavoriteRemove) {
+        setDontShowRemoveConfirm(false);
+        setRemoveConfirmTarget(fav);
+        return;
+      }
+      void removeFavoriteFromList(fav);
+    },
+    [
+      favoriteBusyId,
+      isRemovingFavorite,
+      removeFavoriteFromList,
+      settingsState.confirmFavoriteRemove,
+    ],
+  );
+
+  const handleConfirmRemoveFavorite = useCallback(async () => {
+    if (!removeConfirmTarget) return;
+    try {
+      if (dontShowRemoveConfirm) {
+        setConfirmFavoriteRemove(false);
+      }
+      await removeFavoriteFromList(removeConfirmTarget);
+      setRemoveConfirmTarget(null);
+      setDontShowRemoveConfirm(false);
+    } catch {
+      // エラーは removeFavoriteFromList 側で表示済み。ダイアログは残して再試行可能にする
+    }
+  }, [
+    dontShowRemoveConfirm,
+    removeConfirmTarget,
+    removeFavoriteFromList,
+    setConfirmFavoriteRemove,
+  ]);
+
+  const handleSaveFavoriteLabel = useCallback(async () => {
+    if (!labelEditTarget) return;
+    setLabelSaving(true);
+    try {
+      const trimmed = labelEditValue.trim();
+      const updated = await updateFavoriteLabel(
+        labelEditTarget.id,
+        trimmed.length > 0 ? trimmed : null,
+      );
+      setFavorites((prev) =>
+        prev.map((f) => (f.id === updated.id ? updated : f)),
+      );
+      setLabelEditTarget(null);
+      setLabelEditValue("");
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : t("favorites.labelSaveError"),
+      );
+    } finally {
+      setLabelSaving(false);
+    }
+  }, [labelEditTarget, labelEditValue, t]);
+
   // 無限スクロール（もっと見るボタンと併用）
   const sessionsSentinelRef = useInfiniteScroll({
     enabled:
@@ -242,6 +438,16 @@ export default function GalleryScreen({ onSelectItem }: GalleryScreenProps) {
     enabled:
       displayMode === "items" && itemsHasMore && !isLoading && items.length > 0,
     onLoadMore: handleLoadMoreItems,
+    root: contentEl,
+  });
+
+  const favoritesSentinelRef = useInfiniteScroll({
+    enabled:
+      displayMode === "favorites" &&
+      favoritesHasMore &&
+      !isLoading &&
+      favorites.length > 0,
+    onLoadMore: handleLoadMoreFavorites,
     root: contentEl,
   });
 
@@ -400,17 +606,45 @@ export default function GalleryScreen({ onSelectItem }: GalleryScreenProps) {
             <h1 className="gallery-screen__title">
               {displayMode === "sessions"
                 ? t("gallery.title")
-                : selectedSession?.character_name || t("gallery.sessionDetail")}
+                : displayMode === "favorites"
+                  ? t("favorites.title")
+                  : selectedSession?.character_name ||
+                    t("gallery.sessionDetail")}
             </h1>
           </div>
           <div className="gallery-screen__controls">
             <span className="gallery-screen__count">
               {displayMode === "sessions"
                 ? `${sessionsTotal} ${t("gallery.sessionsSuffix")}`
-                : `${itemsTotal} ${t("gallery.itemsSuffix")}`}
+                : displayMode === "favorites"
+                  ? `${favoritesTotal} ${t("favorites.countSuffix")}`
+                  : `${itemsTotal} ${t("gallery.itemsSuffix")}`}
             </span>
           </div>
         </header>
+
+        {displayMode !== "items" && (
+          <div className="gallery-screen__tabs" role="tablist">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={listTab === "sessions"}
+              className={`gallery-screen__tab${listTab === "sessions" ? " is-active" : ""}`}
+              onClick={() => setListTab("sessions")}
+            >
+              {t("gallery.tabSessions")}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={listTab === "favorites"}
+              className={`gallery-screen__tab${listTab === "favorites" ? " is-active" : ""}`}
+              onClick={() => setListTab("favorites")}
+            >
+              {t("gallery.tabFavorites")}
+            </button>
+          </div>
+        )}
 
         {/* セッション一覧時のみフリーワード検索 */}
         {displayMode === "sessions" && (
@@ -454,12 +688,17 @@ export default function GalleryScreen({ onSelectItem }: GalleryScreenProps) {
               <p>{error}</p>
               <button
                 type="button"
-                onClick={() =>
-                  displayMode === "sessions"
-                    ? fetchSessions(1, searchQuery)
-                    : selectedSession &&
-                      fetchItems(selectedSession.session_id, 1)
-                }
+                onClick={() => {
+                  if (displayMode === "sessions") {
+                    void fetchSessions(1, searchQuery);
+                  } else if (displayMode === "favorites") {
+                    void loadFavorites(1);
+                  } else if (urlSessionId) {
+                    void fetchItems(urlSessionId, 1);
+                  } else if (selectedSession) {
+                    void fetchItems(selectedSession.session_id, 1);
+                  }
+                }}
               >
                 {t("gallery.retry")}
               </button>
@@ -621,6 +860,8 @@ export default function GalleryScreen({ onSelectItem }: GalleryScreenProps) {
                           setBranchError(null);
                           setBranchTarget(i);
                         }}
+                        onToggleFavorite={handleToggleFavoriteItem}
+                        favoriteBusy={favoriteBusyId === item.id}
                       />
                     ))}
                   </div>
@@ -649,9 +890,88 @@ export default function GalleryScreen({ onSelectItem }: GalleryScreenProps) {
             </>
           )}
 
+          {/* お気に入り一覧 */}
+          {displayMode === "favorites" && !error && (
+            <>
+              {favorites.length === 0 && !isLoading && (
+                <div className="gallery-screen__empty">
+                  <p>{t("favorites.empty")}</p>
+                  <p>{t("favorites.emptyHint")}</p>
+                </div>
+              )}
+
+              {favorites.length > 0 && (
+                <>
+                  <div className="gallery-screen__cards">
+                    {favorites.map((fav) => {
+                      const item = favoriteToGalleryItem(fav);
+                      return (
+                        <div
+                          key={fav.id}
+                          className="gallery-screen__favorite-wrap"
+                        >
+                          <GalleryCard
+                            item={item}
+                            favoriteLabel={fav.label}
+                            onClick={() => {
+                              navigate(
+                                `/gallery/${fav.session_id}?historyId=${fav.history_id}`,
+                              );
+                            }}
+                            onBranchSession={() => {
+                              setBranchError(null);
+                              setBranchTarget(item);
+                            }}
+                            onToggleFavorite={() =>
+                              void handleToggleFavoriteFromList(fav)
+                            }
+                            favoriteBusy={favoriteBusyId === fav.history_id}
+                          />
+                          <button
+                            type="button"
+                            className="gallery-screen__label-btn"
+                            onClick={() => {
+                              setLabelEditTarget(fav);
+                              setLabelEditValue(fav.label || "");
+                            }}
+                          >
+                            {fav.label
+                              ? t("favorites.editLabel")
+                              : t("favorites.addLabel")}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {favoritesHasMore && (
+                    <div className="gallery-screen__load-more">
+                      <div
+                        ref={favoritesSentinelRef}
+                        className="gallery-screen__scroll-sentinel"
+                        aria-hidden="true"
+                      />
+                      <button
+                        type="button"
+                        className="gallery-screen__load-more-btn"
+                        onClick={handleLoadMoreFavorites}
+                        disabled={isLoading}
+                      >
+                        {isLoading
+                          ? t("gallery.loading")
+                          : t("gallery.loadMore")}
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
+            </>
+          )}
+
           {isLoading &&
             ((displayMode === "sessions" && sessions.length === 0) ||
-              (displayMode === "items" && items.length === 0)) && (
+              (displayMode === "items" && items.length === 0) ||
+              (displayMode === "favorites" && favorites.length === 0)) && (
               <div className="gallery-screen__loading">
                 <span className="gallery-screen__spinner" />
                 <p>{t("gallery.loading")}</p>
@@ -754,6 +1074,129 @@ export default function GalleryScreen({ onSelectItem }: GalleryScreenProps) {
                   type="button"
                   onClick={() => setDeleteItemConfirm(null)}
                   disabled={isDeleting}
+                  className="gallery-screen__delete-modal-cancel"
+                >
+                  {t("gallery.cancel")}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* お気に入り一覧からの削除確認 */}
+        {removeConfirmTarget && (
+          <div
+            className="gallery-screen__delete-modal-overlay"
+            onClick={() => !isRemovingFavorite && setRemoveConfirmTarget(null)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape" && !isRemovingFavorite) {
+                setRemoveConfirmTarget(null);
+              }
+            }}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="favorite-remove-modal-title"
+          >
+            <div
+              className="gallery-screen__delete-modal"
+              onClick={(e) => e.stopPropagation()}
+              onKeyDown={() => {}}
+              role="document"
+            >
+              <h2 id="favorite-remove-modal-title">
+                {t("favorites.removeConfirmTitle")}
+              </h2>
+              <p>{t("favorites.removeConfirmMessage")}</p>
+              {(removeConfirmTarget.label ||
+                removeConfirmTarget.instruction) && (
+                <p className="gallery-screen__delete-modal-warning">
+                  {removeConfirmTarget.label || removeConfirmTarget.instruction}
+                </p>
+              )}
+              <label className="gallery-screen__dont-show-again">
+                <input
+                  type="checkbox"
+                  checked={dontShowRemoveConfirm}
+                  onChange={(e) => setDontShowRemoveConfirm(e.target.checked)}
+                  disabled={isRemovingFavorite}
+                />
+                <span>{t("favorites.removeConfirmDontShow")}</span>
+              </label>
+              <div className="gallery-screen__delete-modal-actions">
+                <button
+                  type="button"
+                  onClick={() => void handleConfirmRemoveFavorite()}
+                  disabled={isRemovingFavorite}
+                  className="gallery-screen__delete-modal-confirm"
+                >
+                  {isRemovingFavorite
+                    ? t("gallery.deleting")
+                    : t("favorites.removeConfirmAction")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRemoveConfirmTarget(null);
+                    setDontShowRemoveConfirm(false);
+                  }}
+                  disabled={isRemovingFavorite}
+                  className="gallery-screen__delete-modal-cancel"
+                >
+                  {t("favorites.removeConfirmCancel")}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* お気に入りラベル編集 */}
+        {labelEditTarget && (
+          <div
+            className="gallery-screen__delete-modal-overlay"
+            onClick={() => !labelSaving && setLabelEditTarget(null)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape" && !labelSaving) setLabelEditTarget(null);
+            }}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="favorite-label-modal-title"
+          >
+            <div
+              className="gallery-screen__delete-modal"
+              onClick={(e) => e.stopPropagation()}
+              onKeyDown={() => {}}
+              role="document"
+            >
+              <h2 id="favorite-label-modal-title">
+                {t("favorites.labelModalTitle")}
+              </h2>
+              <p className="gallery-screen__label-hint">
+                {t("favorites.labelHint")}
+              </p>
+              <input
+                type="text"
+                className="gallery-screen__label-input"
+                value={labelEditValue}
+                maxLength={80}
+                onChange={(e) => setLabelEditValue(e.target.value)}
+                placeholder={t("favorites.labelPlaceholder")}
+                autoFocus
+              />
+              <div className="gallery-screen__delete-modal-actions">
+                <button
+                  type="button"
+                  onClick={() => void handleSaveFavoriteLabel()}
+                  disabled={labelSaving}
+                  className="gallery-screen__delete-modal-confirm"
+                >
+                  {labelSaving
+                    ? t("favorites.labelSaving")
+                    : t("favorites.labelSave")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLabelEditTarget(null)}
+                  disabled={labelSaving}
                   className="gallery-screen__delete-modal-cancel"
                 >
                   {t("gallery.cancel")}

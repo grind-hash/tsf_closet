@@ -124,6 +124,9 @@ const resources = {
         fontFamily: "フォント",
         fontFamilyDesc: "アプリ全体の表示フォントを変更します",
         fontPreview: "あいうえおABCDEFG 0123456789 変身×着せ替え",
+        confirmFavoriteRemove: "お気に入り削除の確認",
+        confirmFavoriteRemoveDesc:
+          "お気に入り一覧から外すときに確認メッセージを表示します。「次回から表示しない」でオフにした場合も、ここで再度オンにできます",
         fontSystem: "システムフォント",
         fontSystemDesc: "OS標準のUIフォントを使用",
         fontBrowserDefault: "ブラウザのデフォルト",
@@ -551,8 +554,7 @@ const resources = {
         dialogTitle: "別セッションを開始",
         dialogMessage:
           "選択中の画像の状態から、新しいセッションを開始します。元のセッションは残ります。",
-        dialogWaitHint:
-          "状況サマリーの生成に少し時間がかかることがあります。",
+        dialogWaitHint: "状況サマリーの生成に少し時間がかかることがあります。",
         selfModeLabel: "自分自身モードで開始",
         selfModeDesc:
           "分岐元が自分自身モードのときは初期ON。OFFにすると通常モードへ切り替えます。",
@@ -844,6 +846,34 @@ const resources = {
         searchClear: "検索をクリア",
         searchNoResults: "「{{query}}」に一致するセッションはありません",
         searchNoResultsHint: "別のキーワードで試してみてください",
+        tabSessions: "セッション",
+        tabFavorites: "お気に入り",
+      },
+      favorites: {
+        title: "お気に入り衣装",
+        countSuffix: "件",
+        empty: "まだお気に入りがありません",
+        emptyHint:
+          "ギャラリーの画像やプレイ中のプレビューで ☆ を付けると、ここに集まります",
+        addAria: "お気に入りに追加",
+        removeAria: "お気に入りから外す",
+        addTitle: "お気に入りに追加",
+        removeTitle: "お気に入りから外す",
+        toggleError: "お気に入りの更新に失敗しました",
+        addLabel: "ラベルを付ける",
+        editLabel: "ラベルを編集",
+        labelModalTitle: "お気に入りラベル",
+        labelHint: "後から見つけやすい短いメモを付けられます（80文字以内）",
+        labelPlaceholder: "例: 白ドレス・開花60",
+        labelSave: "保存",
+        labelSaving: "保存中...",
+        labelSaveError: "ラベルの保存に失敗しました",
+        removeConfirmTitle: "お気に入りから外しますか？",
+        removeConfirmMessage:
+          "一覧から外します。画像本体は消えません。あとからギャラリーで再度 ☆ を付けられます。",
+        removeConfirmAction: "外す",
+        removeConfirmCancel: "キャンセル",
+        removeConfirmDontShow: "次回からは表示しない",
       },
       achievements: {
         title: "実績",
@@ -1090,6 +1120,9 @@ const resources = {
         displaySection: "Display",
         fontFamily: "Font",
         fontFamilyDesc: "Change the app-wide display font",
+        confirmFavoriteRemove: "Confirm favorite removal",
+        confirmFavoriteRemoveDesc:
+          "Show a confirmation when removing items from the favorites list. If you chose “Don’t show again”, you can re-enable it here",
         fontPreview: "The quick brown fox jumps あいうえお 0123456789",
         fontSystem: "System Font",
         fontSystemDesc: "Use the OS system UI font",
@@ -1516,8 +1549,7 @@ const resources = {
         dialogTitle: "Start a new session",
         dialogMessage:
           "Start a new session from the selected image state. The original session will be kept.",
-        dialogWaitHint:
-          "Generating a situation summary may take a moment.",
+        dialogWaitHint: "Generating a situation summary may take a moment.",
         selfModeLabel: "Start in Self Mode",
         selfModeDesc:
           "Defaults to ON when the source session is Self Mode. Turn OFF to switch to normal mode.",
@@ -1807,6 +1839,34 @@ const resources = {
         searchClear: "Clear search",
         searchNoResults: 'No sessions match "{{query}}"',
         searchNoResultsHint: "Try a different keyword",
+        tabSessions: "Sessions",
+        tabFavorites: "Favorites",
+      },
+      favorites: {
+        title: "Favorite Outfits",
+        countSuffix: "items",
+        empty: "No favorites yet",
+        emptyHint:
+          "Star images in the gallery or in the play preview to collect them here",
+        addAria: "Add to favorites",
+        removeAria: "Remove from favorites",
+        addTitle: "Add to favorites",
+        removeTitle: "Remove from favorites",
+        toggleError: "Failed to update favorite",
+        addLabel: "Add label",
+        editLabel: "Edit label",
+        labelModalTitle: "Favorite label",
+        labelHint: "Add a short memo so you can find it later (max 80 chars)",
+        labelPlaceholder: "e.g. white dress, bloom ~60",
+        labelSave: "Save",
+        labelSaving: "Saving...",
+        labelSaveError: "Failed to save label",
+        removeConfirmTitle: "Remove from favorites?",
+        removeConfirmMessage:
+          "This removes it from the list only. The image itself stays, and you can star it again from the gallery later.",
+        removeConfirmAction: "Remove",
+        removeConfirmCancel: "Cancel",
+        removeConfirmDontShow: "Don’t show this again",
       },
       achievements: {
         title: "Achievements",

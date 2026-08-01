@@ -204,6 +204,7 @@ class GalleryItem(BaseModel):
     timestamp: str
     costume_category: str | None
     exposure_level: str | None
+    is_favorited: bool = False
 
 
 class GallerySession(BaseModel):
@@ -419,6 +420,15 @@ async def get_gallery(
             .offset(offset)
         )
         rows = (await db_session.execute(stmt)).scalars().all()
+        history_ids = [row.id for row in rows]
+        from ..services.favorite_service import FavoriteOutfitService
+        from ..services.session import DEFAULT_USER_ID
+
+        favorited_ids = await FavoriteOutfitService.favorited_history_ids(
+            db_session,
+            history_ids=history_ids,
+            user_id=DEFAULT_USER_ID,
+        )
 
     items = [
         GalleryItem(
@@ -432,6 +442,7 @@ async def get_gallery(
             timestamp=_to_iso(row.created_at),
             costume_category=None,
             exposure_level=None,
+            is_favorited=row.id in favorited_ids,
         )
         for row in rows
     ]
@@ -464,6 +475,15 @@ async def get_gallery_item(item_id: str):
         if not row:
             raise HTTPException(status_code=404, detail="Item not found")
 
+        from ..services.favorite_service import FavoriteOutfitService
+        from ..services.session import DEFAULT_USER_ID
+
+        is_favorited = await FavoriteOutfitService.is_favorited(
+            db_session,
+            history_id=row.id,
+            user_id=DEFAULT_USER_ID,
+        )
+
         item = GalleryItem(
             id=row.id,
             session_id=row.session_id,
@@ -475,6 +495,7 @@ async def get_gallery_item(item_id: str):
             timestamp=_to_iso(row.created_at),
             costume_category=None,
             exposure_level=None,
+            is_favorited=is_favorited,
         )
 
         prev_stmt = (

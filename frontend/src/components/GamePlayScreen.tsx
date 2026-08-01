@@ -23,6 +23,7 @@ import React, {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation } from "react-router-dom";
+import { fetchFavorites, toggleFavorite } from "../apis/favorites";
 import { exportSessionMarkdown, exportSessionNovelHtml } from "../apis/gallery";
 import {
   deleteConversationMessage,
@@ -180,6 +181,10 @@ export default function GamePlayScreen({
 
   // T031: 画像拡大プレビューモーダル
   const [showImagePreviewModal, setShowImagePreviewModal] = useState(false);
+  const [favoritedHistoryIds, setFavoritedHistoryIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [favoriteBusy, setFavoriteBusy] = useState(false);
 
   // US2: 周囲状況画像拡大モーダル
   const [surroundingsOverlayUrl, setSurroundingsOverlayUrl] = useState<
@@ -352,6 +357,37 @@ export default function GamePlayScreen({
     },
     [chatState.messages, buildExportSessionInfo, gameState.sessionId],
   );
+
+  // お気に入り履歴IDをセッション開始時に読み込む (spec 009)
+  useEffect(() => {
+    if (!sessionId || isNewGameRoute) {
+      setFavoritedHistoryIds(new Set());
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const ids = new Set<string>();
+        let page = 1;
+        while (page <= 20) {
+          const data = await fetchFavorites(page, 100);
+          for (const item of data.items) {
+            ids.add(item.history_id);
+          }
+          if (!data.has_more) break;
+          page += 1;
+        }
+        if (!cancelled) {
+          setFavoritedHistoryIds(ids);
+        }
+      } catch {
+        // お気に入り取得失敗はプレビューの初期状態にのみ影響するため握りつぶす
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId, isNewGameRoute]);
 
   // チャット履歴を統合して復元（history + chatHistory を時系列順に統合）
   // /play/new の場合は新規ゲームなので復元しない
@@ -910,6 +946,40 @@ export default function GamePlayScreen({
     }
   }, [currentImageUrl]);
 
+  const currentHistoryId =
+    gameState.history[gameState.currentHistoryIndex]?.id ?? null;
+  const isCurrentHistoryFavorited = Boolean(
+    currentHistoryId && favoritedHistoryIds.has(currentHistoryId),
+  );
+
+  const handleToggleFavorite = useCallback(async () => {
+    const historyId = gameState.history[gameState.currentHistoryIndex]?.id;
+    if (!historyId || favoriteBusy) return;
+    const currently = favoritedHistoryIds.has(historyId);
+    setFavoriteBusy(true);
+    try {
+      const next = await toggleFavorite(historyId, currently);
+      setFavoritedHistoryIds((prev) => {
+        const copy = new Set(prev);
+        if (next) {
+          copy.add(historyId);
+        } else {
+          copy.delete(historyId);
+        }
+        return copy;
+      });
+    } catch (err) {
+      console.error("Failed to toggle favorite:", err);
+    } finally {
+      setFavoriteBusy(false);
+    }
+  }, [
+    favoriteBusy,
+    favoritedHistoryIds,
+    gameState.currentHistoryIndex,
+    gameState.history,
+  ]);
+
   // 画像ナビゲーション時のチャットスクロール
   const scrollToCurrentHistoryMessage = useCallback(
     (historyIndex: number) => {
@@ -1433,6 +1503,10 @@ export default function GamePlayScreen({
                 onOpenInpaintModal={() => setShowInpaintModal(true)}
                 transformationCount={gameState.transformationCount}
                 isTransforming={isTransforming}
+                canFavorite={Boolean(currentHistoryId)}
+                isFavorited={isCurrentHistoryFavorited}
+                favoriteBusy={favoriteBusy}
+                onToggleFavorite={handleToggleFavorite}
               />
               {settingsState.enableMultiplePeople && <CharacterPanel />}
               {/* US4: Seed display */}
@@ -1616,6 +1690,10 @@ export default function GamePlayScreen({
         onNext={handleNextWithScroll}
         hasPrev={gameState.currentHistoryIndex > 0}
         hasNext={gameState.currentHistoryIndex < gameState.history.length - 1}
+        historyId={currentHistoryId}
+        isFavorited={isCurrentHistoryFavorited}
+        favoriteBusy={favoriteBusy}
+        onToggleFavorite={handleToggleFavorite}
       />
       {/* Anlas cost confirmation dialog for precise references */}
       {anlasConfirmPending && (

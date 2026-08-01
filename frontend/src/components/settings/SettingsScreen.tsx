@@ -47,6 +47,7 @@ export default function SettingsScreen() {
     setClothingColorConsistency,
     setRespectClothingLayers,
     setFontFamily,
+    setConfirmFavoriteRemove,
     setLinkChatToImage,
     setEnableMultiplePeople,
     setNovelaiTextModel,
@@ -382,6 +383,26 @@ export default function SettingsScreen() {
               <p className="settings-screen__font-preview">
                 {t("settings.fontPreview")}
               </p>
+            </div>
+
+            <div className="settings-screen__item">
+              <label className="settings-screen__toggle">
+                <div className="settings-screen__toggle-info">
+                  <span className="settings-screen__item-label">
+                    {t("settings.confirmFavoriteRemove")}
+                  </span>
+                  <span className="settings-screen__item-desc">
+                    {t("settings.confirmFavoriteRemoveDesc")}
+                  </span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={state.confirmFavoriteRemove}
+                  onChange={(e) => setConfirmFavoriteRemove(e.target.checked)}
+                  className="settings-screen__toggle-input"
+                />
+                <span className="settings-screen__toggle-switch" />
+              </label>
             </div>
           </section>
 

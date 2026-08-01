@@ -33,6 +33,11 @@ interface CharacterStatePanelProps {
   isTransforming?: boolean;
   /** NSFWトグルを表示するか（デフォルト: true） */
   showNsfwToggle?: boolean;
+  /** 現在画像をお気に入り登録できるか（履歴があるとき） */
+  canFavorite?: boolean;
+  isFavorited?: boolean;
+  favoriteBusy?: boolean;
+  onToggleFavorite?: () => void;
 }
 
 export default function CharacterStatePanel({
@@ -42,6 +47,10 @@ export default function CharacterStatePanel({
   transformationCount = 0,
   isTransforming = false,
   showNsfwToggle = true,
+  canFavorite = false,
+  isFavorited = false,
+  favoriteBusy = false,
+  onToggleFavorite,
 }: CharacterStatePanelProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -398,6 +407,29 @@ export default function CharacterStatePanel({
             <div className="character-state-panel__no-image">
               <span>{t("characterPanel.noImage")}</span>
             </div>
+          )}
+
+          {canFavorite && onToggleFavorite && currentImage && (
+            <button
+              type="button"
+              className={`character-state-panel__favorite-btn${isFavorited ? " is-active" : ""}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleFavorite();
+              }}
+              disabled={favoriteBusy || isTransforming}
+              aria-pressed={isFavorited}
+              aria-label={
+                isFavorited ? t("favorites.removeAria") : t("favorites.addAria")
+              }
+              title={
+                isFavorited
+                  ? t("favorites.removeTitle")
+                  : t("favorites.addTitle")
+              }
+            >
+              {isFavorited ? "★" : "☆"}
+            </button>
           )}
 
           {/* 変身中/行動中オーバーレイ */}

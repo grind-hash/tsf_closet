@@ -1,6 +1,6 @@
 /**
  * GalleryCard - ギャラリーカードコンポーネント
- * 007-chat-interactive-ux
+ * 007-chat-interactive-ux / 009-favorite-outfit-snapshots
  */
 
 import { useTranslation } from "react-i18next";
@@ -13,6 +13,10 @@ interface GalleryCardProps {
   onClick?: () => void;
   onDelete?: (item: GalleryItem) => void;
   onBranchSession?: (item: GalleryItem) => void;
+  onToggleFavorite?: (item: GalleryItem) => void;
+  favoriteBusy?: boolean;
+  /** お気に入り一覧向けのラベル表示 */
+  favoriteLabel?: string | null;
 }
 
 export default function GalleryCard({
@@ -20,9 +24,13 @@ export default function GalleryCard({
   onClick,
   onDelete,
   onBranchSession,
+  onToggleFavorite,
+  favoriteBusy = false,
+  favoriteLabel,
 }: GalleryCardProps) {
   const { t, i18n } = useTranslation();
-  // 日時をフォーマット
+  const isFavorited = Boolean(item.is_favorited);
+
   const formatDate = (timestamp: string) => {
     try {
       const date = new Date(timestamp);
@@ -65,9 +73,34 @@ export default function GalleryCard({
             {item.costume_category}
           </span>
         )}
+        {onToggleFavorite && (
+          <button
+            type="button"
+            className={`gallery-card__favorite-btn${isFavorited ? " is-active" : ""}`}
+            disabled={favoriteBusy}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleFavorite(item);
+            }}
+            aria-label={
+              isFavorited ? t("favorites.removeAria") : t("favorites.addAria")
+            }
+            title={
+              isFavorited ? t("favorites.removeTitle") : t("favorites.addTitle")
+            }
+            aria-pressed={isFavorited}
+          >
+            {isFavorited ? "★" : "☆"}
+          </button>
+        )}
       </div>
 
       <div className="gallery-card__info">
+        {favoriteLabel ? (
+          <p className="gallery-card__favorite-label" title={favoriteLabel}>
+            {favoriteLabel}
+          </p>
+        ) : null}
         <p className="gallery-card__instruction">
           {item.instruction || t("gallery.noInstruction")}
         </p>
