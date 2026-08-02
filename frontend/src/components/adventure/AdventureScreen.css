@@ -50,20 +50,37 @@
   font-size: 1.1rem;
 }
 
-.adventure-setup,
+.adventure-card,
 .adventure-runs {
   padding: 28px 0;
   border-bottom: 1px solid #30373d;
 }
 
-.adventure-setup__fields {
+.adventure-card {
   display: grid;
-  grid-template-columns: minmax(180px, 0.8fr) minmax(300px, 1.2fr);
-  gap: 18px 24px;
+  gap: 16px;
 }
 
-.adventure-setup label,
-.adventure-setup fieldset {
+.adventure-card__hint {
+  margin: -12px 0 0;
+  color: #aeb7bf;
+  font-size: 0.82rem;
+}
+
+.adventure-source-select {
+  display: grid;
+  gap: 8px;
+  max-width: 420px;
+}
+
+.adventure-source-summary {
+  margin: -8px 0 0;
+  color: #cbd2d7;
+  font-size: 0.82rem;
+}
+
+.adventure-card label,
+.adventure-card fieldset {
   display: grid;
   gap: 8px;
   margin: 0;
@@ -71,15 +88,15 @@
   border: 0;
 }
 
-.adventure-setup label > span,
-.adventure-setup legend {
+.adventure-card label > span,
+.adventure-card legend {
   color: #bbc3ca;
   font-size: 0.84rem;
   font-weight: 700;
 }
 
-.adventure-setup select,
-.adventure-setup textarea,
+.adventure-card select,
+.adventure-card textarea,
 .adventure-controls textarea {
   width: 100%;
   box-sizing: border-box;
@@ -90,20 +107,85 @@
   font: inherit;
 }
 
-.adventure-setup select {
+.adventure-card select {
   min-height: 42px;
   padding: 0 10px;
 }
 
-.adventure-setup textarea,
+.adventure-card textarea,
 .adventure-controls textarea {
   padding: 10px 12px;
   resize: vertical;
 }
 
-.adventure-setup-generator,
-.adventure-setup-details {
-  grid-column: 1 / -1;
+.adventure-mode-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.adventure-mode-cards button,
+.adventure-preset-cards button {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid #4a535c;
+  border-radius: 6px;
+  color: #e9edf0;
+  background: #242b31;
+  text-align: left;
+  cursor: pointer;
+}
+
+.adventure-mode-cards button strong,
+.adventure-preset-cards button strong {
+  font-size: 0.92rem;
+}
+
+.adventure-mode-cards button span,
+.adventure-preset-cards button span,
+.adventure-preset-cards button small {
+  color: #aeb7bf;
+  font-size: 0.76rem;
+}
+
+.adventure-mode-cards button.is-active,
+.adventure-preset-cards button.is-active {
+  border-color: #efb85a;
+  background: rgb(239 184 90 / 12%);
+}
+
+.adventure-mode-cards button.is-active strong,
+.adventure-preset-cards button.is-active strong {
+  color: #efb85a;
+}
+
+.adventure-preset-cards {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.adventure-mission-flow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin: 0;
+  padding: 0;
+  color: #aeb7bf;
+  font-size: 0.78rem;
+  list-style: none;
+  counter-reset: adventure-mission-flow;
+}
+
+.adventure-mission-flow li {
+  counter-increment: adventure-mission-flow;
+}
+
+.adventure-mission-flow li::before {
+  content: counter(adventure-mission-flow) ". ";
+  color: #efb85a;
+  font-weight: 700;
 }
 
 .adventure-setup-generator {
@@ -122,23 +204,27 @@
   cursor: pointer;
 }
 
+.adventure-setup-details-wrapper > summary {
+  color: #bbc3ca;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
 .adventure-setup-details {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
+  margin-top: 12px;
 }
 
 .adventure-setup-details label:last-child {
   grid-column: 1 / -1;
 }
 
-.adventure-setup__mission,
-.adventure-template-list {
-  grid-column: 1 / -1;
-}
-
-.adventure-start-modes {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+.adventure-disabled-reason {
+  margin: 0;
+  color: #efb85a;
+  font-size: 0.8rem;
 }
 
 .adventure-template-list {
@@ -243,8 +329,8 @@
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
   gap: 10px;
+  min-height: 170px;
   max-height: 300px;
-  margin: 22px 0;
   overflow: auto;
 }
 
@@ -324,6 +410,70 @@ button:disabled {
   margin: 5px 0;
   color: #aeb7bf;
   font-size: 0.82rem;
+}
+
+.adventure-run-item__title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.adventure-run-badge {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  border: 1px solid #4a535c;
+  border-radius: 999px;
+  color: #d6dce1;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.adventure-run-badge--active {
+  border-color: #efb85a;
+  color: #efb85a;
+}
+
+.adventure-run-badge--success {
+  border-color: #5fbf7a;
+  color: #5fbf7a;
+}
+
+.adventure-run-badge--partial {
+  border-color: #6fa8c9;
+  color: #6fa8c9;
+}
+
+.adventure-run-badge--failure {
+  border-color: #e58a90;
+  color: #e58a90;
+}
+
+.adventure-run-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.adventure-run-progress__bar {
+  flex: 1 1 auto;
+  height: 6px;
+  border-radius: 999px;
+  background: #30373d;
+  overflow: hidden;
+}
+
+.adventure-run-progress__bar > span {
+  display: block;
+  height: 100%;
+  background: #efb85a;
+}
+
+.adventure-run-progress__label {
+  flex: 0 0 auto;
+  color: #aeb7bf;
+  font-size: 0.75rem;
 }
 
 .adventure-run-item__actions {
@@ -991,7 +1141,6 @@ button:disabled {
     padding: 20px 14px 40px;
   }
 
-  .adventure-setup__fields,
   .adventure-setup-details {
     grid-template-columns: 1fr;
   }
@@ -1009,7 +1158,9 @@ button:disabled {
     gap: 2px;
   }
 
-  .adventure-segments {
+  .adventure-segments,
+  .adventure-mode-cards,
+  .adventure-preset-cards {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 

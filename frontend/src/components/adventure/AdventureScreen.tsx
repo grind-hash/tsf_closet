@@ -50,10 +50,11 @@ function AdventureHub() {
   const [scenarioPickerOpen, setScenarioPickerOpen] = useState(false);
   const [scenarioPickerTab, setScenarioPickerTab] = useState<
     "authored" | "played"
-  >("played");
+  >("authored");
   const [scenarioSetting, setScenarioSetting] = useState("");
   const [scenarioObjective, setScenarioObjective] = useState("");
   const [scenarioConstraints, setScenarioConstraints] = useState("");
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [creating, setCreating] = useState(false);
 
   useEffect(() => {
@@ -88,6 +89,18 @@ function AdventureHub() {
   );
   const selectedReplayRun = runs.find((run) => run.id === selectedReplayRunId);
   const selectedScenario = selectedReplayRun ?? selectedTemplate;
+  const selectedScenarioPreset =
+    selectedReplayRun?.preset ?? selectedTemplate?.preset;
+
+  const sortedRuns = useMemo(
+    () =>
+      [...runs].sort((a, b) => {
+        if (a.status === "active" && b.status !== "active") return -1;
+        if (b.status === "active" && a.status !== "active") return 1;
+        return (b.updated_at ?? "").localeCompare(a.updated_at ?? "");
+      }),
+    [runs],
+  );
 
   useEffect(() => {
     if (!scenarioPickerOpen) return;
@@ -105,15 +118,7 @@ function AdventureHub() {
   };
 
   const openScenarioPicker = () => {
-    setScenarioPickerTab(
-      selectedReplayRunId
-        ? "played"
-        : selectedTemplateId
-          ? "authored"
-          : runs.length > 0
-            ? "played"
-            : "authored",
-    );
+    setScenarioPickerTab(selectedReplayRunId ? "played" : "authored");
     setScenarioPickerOpen(true);
   };
   const handleGenerateSetup = async () => {
@@ -127,9 +132,19 @@ function AdventureHub() {
       setScenarioSetting(generated.setting);
       setScenarioObjective(generated.objective);
       setScenarioConstraints(generated.constraints.join("\n"));
+      setDetailsOpen(true);
     } catch {
       return;
     }
+  };
+
+  const startDisabledReason = (): string | null => {
+    if (!sourceSessionId) return t("adventure.disabledReason.noSession");
+    if (startMode === "generated" && !scenarioObjective.trim())
+      return t("adventure.disabledReason.noObjective");
+    if (startMode === "authored" && !selectedScenario)
+      return t("adventure.disabledReason.noScenario");
+    return null;
   };
 
   const handleCreate = async () => {
@@ -163,6 +178,8 @@ function AdventureHub() {
     }
   };
 
+  const disabledReason = startDisabledReason();
+
   return (
     <MainLayout>
       <div className="adventure-hub">
@@ -183,83 +200,168 @@ function AdventureHub() {
           </button>
         )}
 
-        <section className="adventure-setup">
-          <h2>{t("adventure.newRun")}</h2>
-          <div className="adventure-setup__fields">
-            <label>
-              <span>{t("adventure.sourceSession")}</span>
-              <select
-                value={sourceSessionId}
-                disabled={setupGenerating || loading}
-                onChange={(event) => setSourceSessionId(event.target.value)}
+        <section className="adventure-card adventure-card--source">
+          <h2>{t("adventure.stepSource")}</h2>
+          <p className="adventure-card__hint">
+            {t("adventure.stepSourceHint")}
+          </p>
+          <label className="adventure-source-select">
+            <span>{t("adventure.sourceSession")}</span>
+            <select
+              value={sourceSessionId}
+              disabled={setupGenerating || loading}
+              onChange={(event) => setSourceSessionId(event.target.value)}
+            >
+              {sessions.map((session) => (
+                <option key={session.session_id} value={session.session_id}>
+                  {session.character_name ?? t("adventure.unnamedCharacter")} ·{" "}
+                  {session.item_count}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          {selectedSession && (
+            <>
+              <div
+                className="adventure-source-grid"
+                role="group"
+                aria-label={t("adventure.sourceState")}
               >
-                {sessions.map((session) => (
-                  <option key={session.session_id} value={session.session_id}>
-                    {session.character_name ?? t("adventure.unnamedCharacter")}{" "}
-                    · {session.item_count}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <fieldset>
-              <legend>{t("adventure.startMode")}</legend>
-              <div className="adventure-segments adventure-start-modes">
                 <button
                   type="button"
                   disabled={setupGenerating || loading}
-                  className={startMode === "generated" ? "is-active" : ""}
-                  onClick={() => setStartMode("generated")}
-                  aria-pressed={startMode === "generated"}
-                >
-                  {t("adventure.startModes.generated")}
-                </button>
-                <button
-                  type="button"
-                  disabled={setupGenerating || loading}
-                  className={startMode === "authored" ? "is-active" : ""}
+                  className={!sourceHistoryId ? "is-selected" : ""}
                   onClick={() => {
-                    setStartMode("authored");
-                    openScenarioPicker();
+                    setSourceHistoryId(undefined);
+                    clearGeneratedSetup();
                   }}
-                  aria-pressed={startMode === "authored"}
                 >
-                  {t("adventure.startModes.authored")}
+                  <img
+                    src={mediaUrl(selectedSession.thumbnail_url)}
+                    alt={t("adventure.currentState")}
+                  />
+                  <span>{t("adventure.currentState")}</span>
                 </button>
-              </div>
-            </fieldset>
-            {startMode === "generated" ? (
-              <>
-                <fieldset className="adventure-setup__mission">
-                  <legend>{t("adventure.preset")}</legend>
-                  <div className="adventure-segments">
-                    {PRESETS.map((value) => (
-                      <button
-                        type="button"
-                        key={value}
-                        disabled={setupGenerating || loading}
-                        className={preset === value ? "is-active" : ""}
-                        onClick={() => {
-                          setPreset(value);
-                          clearGeneratedSetup();
-                        }}
-                        aria-pressed={preset === value}
-                      >
-                        {t(`adventure.presets.${value}`)}
-                      </button>
-                    ))}
-                  </div>
-                </fieldset>
-                <div className="adventure-setup-generator">
+                {historyItems.map((item) => (
                   <button
                     type="button"
-                    disabled={!sourceSessionId || setupGenerating || loading}
-                    onClick={() => void handleGenerateSetup()}
+                    key={item.id}
+                    disabled={setupGenerating || loading}
+                    className={sourceHistoryId === item.id ? "is-selected" : ""}
+                    onClick={() => {
+                      setSourceHistoryId(item.id);
+                      clearGeneratedSetup();
+                    }}
                   >
-                    {setupGenerating
-                      ? t("adventure.generatingSetup")
-                      : t("adventure.generateSetup")}
+                    <img
+                      src={mediaUrl(item.image_url)}
+                      alt={item.instruction}
+                    />
+                    <span>{item.instruction}</span>
                   </button>
+                ))}
+              </div>
+              <p className="adventure-source-summary">
+                {t("adventure.selectedSourceSummary", {
+                  name:
+                    selectedSession.character_name ??
+                    t("adventure.unnamedCharacter"),
+                  state: sourceHistoryId
+                    ? (historyItems.find((item) => item.id === sourceHistoryId)
+                        ?.instruction ?? t("adventure.currentState"))
+                    : t("adventure.currentState"),
+                })}
+              </p>
+            </>
+          )}
+        </section>
+
+        <section className="adventure-card adventure-card--mission">
+          <h2>{t("adventure.stepMission")}</h2>
+          <p className="adventure-card__hint">
+            {t("adventure.stepMissionHint")}
+          </p>
+
+          <fieldset className="adventure-start-mode-cards">
+            <legend>{t("adventure.startMode")}</legend>
+            <div className="adventure-mode-cards">
+              <button
+                type="button"
+                disabled={setupGenerating || loading}
+                className={startMode === "generated" ? "is-active" : ""}
+                onClick={() => setStartMode("generated")}
+                aria-pressed={startMode === "generated"}
+              >
+                <strong>{t("adventure.startModes.generated")}</strong>
+                <span>{t("adventure.startModeHints.generated")}</span>
+              </button>
+              <button
+                type="button"
+                disabled={setupGenerating || loading}
+                className={startMode === "authored" ? "is-active" : ""}
+                onClick={() => {
+                  setStartMode("authored");
+                  openScenarioPicker();
+                }}
+                aria-pressed={startMode === "authored"}
+              >
+                <strong>{t("adventure.startModes.authored")}</strong>
+                <span>{t("adventure.startModeHints.authored")}</span>
+              </button>
+            </div>
+          </fieldset>
+
+          {startMode === "generated" ? (
+            <>
+              <fieldset className="adventure-setup__mission">
+                <legend>{t("adventure.preset")}</legend>
+                <div className="adventure-preset-cards">
+                  {PRESETS.map((value) => (
+                    <button
+                      type="button"
+                      key={value}
+                      disabled={setupGenerating || loading}
+                      className={preset === value ? "is-active" : ""}
+                      onClick={() => {
+                        setPreset(value);
+                        clearGeneratedSetup();
+                        setDetailsOpen(false);
+                      }}
+                      aria-pressed={preset === value}
+                    >
+                      <strong>{t(`adventure.presets.${value}`)}</strong>
+                      <span>{t(`adventure.presetHints.${value}`)}</span>
+                      <small>{t(`adventure.presetExamples.${value}`)}</small>
+                    </button>
+                  ))}
                 </div>
+              </fieldset>
+
+              <ol className="adventure-mission-flow">
+                <li>{t("adventure.missionFlow.step1")}</li>
+                <li>{t("adventure.missionFlow.step2")}</li>
+                <li>{t("adventure.missionFlow.step3")}</li>
+              </ol>
+
+              <div className="adventure-setup-generator">
+                <button
+                  type="button"
+                  disabled={!sourceSessionId || setupGenerating || loading}
+                  onClick={() => void handleGenerateSetup()}
+                >
+                  {setupGenerating
+                    ? t("adventure.generatingSetup")
+                    : t("adventure.generateSetup")}
+                </button>
+              </div>
+
+              <details
+                className="adventure-setup-details-wrapper"
+                open={detailsOpen}
+                onToggle={(event) => setDetailsOpen(event.currentTarget.open)}
+              >
+                <summary>{t("adventure.detailsToggle")}</summary>
                 <div className="adventure-setup-details">
                   <label>
                     <span>{t("adventure.setting")}</span>
@@ -298,86 +400,51 @@ function AdventureHub() {
                     />
                   </label>
                 </div>
-              </>
-            ) : (
-              <div className="adventure-selected-scenario">
-                <span>{t("adventure.selectedScenario")}</span>
-                {selectedScenario ? (
-                  <>
-                    <strong>{selectedScenario.title}</strong>
-                    <p>{selectedScenario.objective}</p>
-                    <small>
-                      {selectedReplayRun
-                        ? t("adventure.scenarioTabs.played")
-                        : t("adventure.scenarioTabs.authored")}
-                    </small>
-                  </>
-                ) : (
-                  <p>{t("adventure.noScenarioSelected")}</p>
-                )}
-                <button
-                  type="button"
-                  disabled={loading}
-                  onClick={openScenarioPicker}
-                >
-                  {selectedScenario
-                    ? t("adventure.chooseScenarioAgain")
-                    : t("adventure.selectScenario")}
-                </button>
-              </div>
-            )}
-          </div>
-
-          {selectedSession && (
-            <div
-              className="adventure-source-grid"
-              role="group"
-              aria-label={t("adventure.sourceState")}
-            >
+              </details>
+            </>
+          ) : (
+            <div className="adventure-selected-scenario">
+              <span>{t("adventure.selectedScenario")}</span>
+              {selectedScenario ? (
+                <>
+                  <strong>{selectedScenario.title}</strong>
+                  <p>{selectedScenario.objective}</p>
+                  <small>
+                    {selectedReplayRun
+                      ? t("adventure.scenarioTabs.played")
+                      : t("adventure.scenarioTabs.authored")}
+                    {selectedScenarioPreset &&
+                      ` · ${t("adventure.presetFromScenario")}: ${t(
+                        `adventure.presets.${selectedScenarioPreset}`,
+                      )}`}
+                  </small>
+                </>
+              ) : (
+                <p>{t("adventure.noScenarioSelected")}</p>
+              )}
               <button
                 type="button"
-                disabled={setupGenerating || loading}
-                className={!sourceHistoryId ? "is-selected" : ""}
-                onClick={() => {
-                  setSourceHistoryId(undefined);
-                  clearGeneratedSetup();
-                }}
+                disabled={loading}
+                onClick={openScenarioPicker}
               >
-                <img
-                  src={mediaUrl(selectedSession.thumbnail_url)}
-                  alt={t("adventure.currentState")}
-                />
-                <span>{t("adventure.currentState")}</span>
+                {selectedScenario
+                  ? t("adventure.chooseScenarioAgain")
+                  : t("adventure.selectScenario")}
               </button>
-              {historyItems.map((item) => (
-                <button
-                  type="button"
-                  key={item.id}
-                  disabled={setupGenerating || loading}
-                  className={sourceHistoryId === item.id ? "is-selected" : ""}
-                  onClick={() => {
-                    setSourceHistoryId(item.id);
-                    clearGeneratedSetup();
-                  }}
-                >
-                  <img src={mediaUrl(item.image_url)} alt={item.instruction} />
-                  <span>{item.instruction}</span>
-                </button>
-              ))}
             </div>
+          )}
+
+          {disabledReason && (
+            <p className="adventure-disabled-reason" role="status">
+              {disabledReason}
+            </p>
           )}
 
           <button
             type="button"
             className="adventure-primary"
             disabled={
-              !sourceSessionId ||
-              loading ||
-              setupGenerating ||
-              creating ||
-              (startMode === "generated"
-                ? !scenarioObjective.trim()
-                : !selectedScenario)
+              loading || setupGenerating || creating || !!disabledReason
             }
             onClick={() => void handleCreate()}
           >
@@ -391,16 +458,31 @@ function AdventureHub() {
             <p className="adventure-empty">{t("adventure.noRuns")}</p>
           ) : (
             <div className="adventure-run-list">
-              {runs.map((run) => (
+              {sortedRuns.map((run) => (
                 <article key={run.id} className="adventure-run-item">
                   <img src={run.current_image_url} alt={run.title} />
                   <div>
-                    <strong>{run.title}</strong>
+                    <div className="adventure-run-item__title-row">
+                      <strong>{run.title}</strong>
+                      <span
+                        className={`adventure-run-badge adventure-run-badge--${run.status}`}
+                      >
+                        {t(`adventure.status.${run.status}`)}
+                      </span>
+                    </div>
                     <p>{run.objective}</p>
-                    <span>
-                      {run.turn_count}/{run.max_turns} ·{" "}
-                      {t(`adventure.status.${run.status}`)}
-                    </span>
+                    <div className="adventure-run-progress">
+                      <span className="adventure-run-progress__bar">
+                        <span
+                          style={{
+                            width: `${Math.min(100, (run.turn_count / run.max_turns) * 100)}%`,
+                          }}
+                        />
+                      </span>
+                      <span className="adventure-run-progress__label">
+                        {run.turn_count}/{run.max_turns}
+                      </span>
+                    </div>
                   </div>
                   <div className="adventure-run-item__actions">
                     <button
@@ -476,37 +558,52 @@ function AdventureHub() {
             </div>
             <div className="adventure-scenario-modal__list">
               {scenarioPickerTab === "authored" ? (
-                templates.map((template) => (
-                  <button
-                    type="button"
-                    key={template.id}
-                    className={
-                      selectedTemplateId === template.id && !selectedReplayRunId
-                        ? "is-selected"
-                        : ""
-                    }
-                    onClick={() => {
-                      setSelectedTemplateId(template.id);
-                      setSelectedReplayRunId("");
-                      setStartMode("authored");
-                      setScenarioPickerOpen(false);
-                    }}
-                  >
-                    <span className="adventure-template-item__title">
-                      <strong>{template.title}</strong>
-                      <small>{t("adventure.matureScenario")}</small>
-                    </span>
-                    <span>{template.synopsis}</span>
-                    <span className="adventure-scenario-option__detail">
-                      <b>{t("adventure.goal")}</b>
-                      <span>{template.objective}</span>
-                    </span>
-                    <span className="adventure-scenario-option__detail">
-                      <b>{t("adventure.constraints")}</b>
-                      <span>{template.constraints.join(" / ")}</span>
-                    </span>
-                  </button>
-                ))
+                templates.length === 0 ? (
+                  <p className="adventure-empty">
+                    {t("adventure.noTemplates")}
+                  </p>
+                ) : (
+                  templates.map((template) => (
+                    <button
+                      type="button"
+                      key={template.id}
+                      className={
+                        selectedTemplateId === template.id &&
+                        !selectedReplayRunId
+                          ? "is-selected"
+                          : ""
+                      }
+                      onClick={() => {
+                        setSelectedTemplateId(template.id);
+                        setSelectedReplayRunId("");
+                        setStartMode("authored");
+                        setScenarioPickerOpen(false);
+                      }}
+                    >
+                      <span className="adventure-template-item__title">
+                        <strong>{template.title}</strong>
+                        {template.content_rating === "mature" && (
+                          <small>{t("adventure.matureScenario")}</small>
+                        )}
+                      </span>
+                      <span>{template.synopsis}</span>
+                      <span className="adventure-scenario-option__meta">
+                        {t("adventure.templateMeta", {
+                          turns: template.max_turns,
+                          preset: t(`adventure.presets.${template.preset}`),
+                        })}
+                      </span>
+                      <span className="adventure-scenario-option__detail">
+                        <b>{t("adventure.goal")}</b>
+                        <span>{template.objective}</span>
+                      </span>
+                      <span className="adventure-scenario-option__detail">
+                        <b>{t("adventure.constraints")}</b>
+                        <span>{template.constraints.join(" / ")}</span>
+                      </span>
+                    </button>
+                  ))
+                )
               ) : runs.length === 0 ? (
                 <p className="adventure-empty">
                   {t("adventure.noPlayedScenarios")}
