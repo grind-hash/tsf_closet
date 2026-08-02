@@ -8,6 +8,7 @@ import {
 } from "react";
 import {
   type AdventureCreateRequest,
+  type AdventureImageRegenerateOptions,
   type AdventureRun,
   type AdventureSetup,
   type AdventureSetupRequest,
@@ -24,6 +25,8 @@ import {
   streamAdventureTurn,
 } from "../apis/adventure";
 
+export type AdventurePhase = "narrative" | "clue_check" | "image_generation";
+
 interface AdventureContextValue {
   runs: AdventureRun[];
   templates: AdventureTemplate[];
@@ -31,7 +34,9 @@ interface AdventureContextValue {
   loading: boolean;
   setupGenerating: boolean;
   streaming: boolean;
-  phase: string | null;
+  phase: AdventurePhase | null;
+  streamingNarrative: string;
+  pendingUserInput: string | null;
   error: string | null;
   loadRuns: () => Promise<void>;
   loadTemplates: () => Promise<void>;
@@ -43,7 +48,7 @@ interface AdventureContextValue {
     input: string,
     inputKind: "choice" | "free_text",
   ) => Promise<void>;
-  regenerateImage: () => Promise<void>;
+  regenerateImage: (options?: AdventureImageRegenerateOptions) => Promise<void>;
   clearError: () => void;
 }
 
@@ -56,7 +61,9 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(false);
   const [setupGenerating, setSetupGenerating] = useState(false);
   const [streaming, setStreaming] = useState(false);
-  const [phase, setPhase] = useState<string | null>(null);
+  const [phase, setPhase] = useState<AdventurePhase | null>(null);
+  const [streamingNarrative, setStreamingNarrative] = useState("");
+  const [pendingUserInput, setPendingUserInput] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const loadRuns = useCallback(async () => {
@@ -139,7 +146,9 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       if (!activeRun || streaming) return;
       const runId = activeRun.id;
       setStreaming(true);
-      setPhase("judging");
+      setPhase("narrative");
+      setStreamingNarrative("");
+      setPendingUserInput(input);
       setError(null);
       try {
         await streamAdventureTurn(
@@ -151,9 +160,16 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
           },
           (event) => {
             if (event.type === "status") {
-              setPhase(String(event.data.phase ?? ""));
+              setPhase((event.data.phase as AdventurePhase) ?? null);
+            } else if (event.type === "narrative_chunk") {
+              const chunk = String(event.data.chunk ?? "");
+              if (chunk) setStreamingNarrative((current) => current + chunk);
+            } else if (event.type === "narrative_done") {
+              setStreamingNarrative(String(event.data.narrative ?? ""));
             } else if (event.type === "turn") {
               const turn = event.data as unknown as AdventureTurn;
+              setStreamingNarrative("");
+              setPendingUserInput(null);
               setActiveRun((current) =>
                 current
                   ? {
@@ -193,38 +209,55 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       } finally {
         setStreaming(false);
         setPhase(null);
+        setStreamingNarrative("");
+        setPendingUserInput(null);
       }
     },
     [activeRun, streaming],
   );
 
-  const regenerateImage = useCallback(async () => {
-    if (!activeRun || streaming) return;
-    setStreaming(true);
-    setPhase("image_generation");
-    setError(null);
-    try {
-      await streamAdventureImage(activeRun.id, (event) => {
-        if (event.type === "status") {
-          setPhase(String(event.data.phase ?? ""));
-        } else if (event.type === "image") {
-          const imageUrl = normalizeAdventureImageUrl(event.data.image_url);
-          if (imageUrl) {
-            setActiveRun((current) =>
-              current ? { ...current, current_image_url: imageUrl } : current,
-            );
+  const regenerateImage = useCallback(
+    async (options?: AdventureImageRegenerateOptions) => {
+      if (!activeRun || streaming) return;
+      setStreaming(true);
+      setPhase("image_generation");
+      setError(null);
+      try {
+        await streamAdventureImage(activeRun.id, options ?? null, (event) => {
+          if (event.type === "status") {
+            setPhase((event.data.phase as AdventurePhase) ?? null);
+          } else if (event.type === "image") {
+            const imageUrl = normalizeAdventureImageUrl(event.data.image_url);
+            if (imageUrl) {
+              setActiveRun((current) =>
+                current
+                  ? {
+                      ...current,
+                      current_image_url: imageUrl,
+                      current_image_prompt: options
+                        ? {
+                            scene_tags: options.scene_tags,
+                            player_tags: options.player_tags,
+                            npc_tags: options.npc_tags,
+                          }
+                        : current.current_image_prompt,
+                    }
+                  : current,
+              );
+            }
+          } else if (event.type === "error") {
+            setError(String(event.data.message ?? "Image generation failed"));
           }
-        } else if (event.type === "error") {
-          setError(String(event.data.message ?? "Image generation failed"));
-        }
-      });
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
-    } finally {
-      setStreaming(false);
-      setPhase(null);
-    }
-  }, [activeRun, streaming]);
+        });
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : String(caught));
+      } finally {
+        setStreaming(false);
+        setPhase(null);
+      }
+    },
+    [activeRun, streaming],
+  );
 
   const value = useMemo<AdventureContextValue>(
     () => ({
@@ -235,6 +268,8 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       setupGenerating,
       streaming,
       phase,
+      streamingNarrative,
+      pendingUserInput,
       error,
       loadRuns,
       loadTemplates,
@@ -254,6 +289,8 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       setupGenerating,
       streaming,
       phase,
+      streamingNarrative,
+      pendingUserInput,
       error,
       loadRuns,
       loadTemplates,

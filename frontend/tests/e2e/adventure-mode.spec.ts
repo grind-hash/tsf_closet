@@ -36,6 +36,11 @@ function runPayload(turnCount = 0) {
       { id: "c", label: "裏口を探す" },
     ],
     current_image_url: IMAGE,
+    current_image_prompt: {
+      scene_tags: "masquerade ball entrance, night, chandelier",
+      player_tags: "1girl, silver gown, masquerade mask",
+      npc_tags: ["receptionist, formal suit"],
+    },
     turns: hasTurn
       ? [
           {
@@ -201,7 +206,7 @@ async function mockAdventureApis(
       };
       await route.fulfill({
         contentType: "text/event-stream",
-        body: `event: status\ndata: {"phase":"judging"}\n\nevent: turn\ndata: ${JSON.stringify(turn)}\n\n`,
+        body: `event: status\ndata: {"phase":"narrative"}\n\nevent: narrative_chunk\ndata: {"text":"受付係の手元に銀色の封蜡が見えた。"}\n\nevent: narrative_done\ndata: {"narrative":"受付係の手元に銀色の封蜡が見えた。"}\n\nevent: status\ndata: {"phase":"clue_check"}\n\nevent: turn\ndata: ${JSON.stringify(turn)}\n\nevent: complete\ndata: {"status":"complete"}\n\n`,
       });
     },
   );
@@ -446,12 +451,16 @@ test("manual image regeneration shows a stage loading indicator", async ({
   await page.goto("/adventure/run-1");
 
   await page.getByRole("button", { name: "現在の場面画像を再生成" }).click();
+  await expect(page.getByLabel("場面（背景・構図・照明）")).toHaveValue(
+    "masquerade ball entrance, night, chandelier",
+  );
+  await page.getByRole("button", { name: "この内容で再生成" }).click();
   await expect(page.getByRole("status")).toContainText("場面画像を生成中");
   releaseImage?.();
   await expect(page.getByRole("status")).toBeHidden();
 });
 
-test("turn submission shows a stage loading indicator while judging", async ({
+test("turn submission streams the narrative before the clue check", async ({
   page,
 }) => {
   await enableAdventure(page);
@@ -465,14 +474,14 @@ test("turn submission shows a stage loading indicator while judging", async ({
       });
       await route.fulfill({
         contentType: "text/event-stream",
-        body: `event: status\ndata: {"phase":"judging"}\n\nevent: complete\ndata: {"status":"complete"}\n\n`,
+        body: `event: status\ndata: {"phase":"clue_check"}\n\nevent: complete\ndata: {"status":"complete"}\n\n`,
       });
     },
   );
   await page.goto("/adventure/run-1");
 
   await page.getByRole("button", { name: "受付を観察する" }).click();
-  await expect(page.getByRole("status")).toContainText("次の展開を判定中...");
+  await expect(page.getByRole("status")).toContainText("物語を生成中...");
   await expect(page.locator(".adventure-progress")).toBeHidden();
   releaseTurn?.();
   await expect(page.getByRole("status")).toBeHidden();

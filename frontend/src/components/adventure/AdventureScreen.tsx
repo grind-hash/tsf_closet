@@ -8,6 +8,7 @@ import type { GalleryItem, GallerySession } from "../../types";
 import { API_BASE } from "../../utils/api";
 import ImagePreviewModal from "../ImagePreviewModal";
 import MainLayout from "../layout/MainLayout";
+import AdventureImagePromptModal from "./AdventureImagePromptModal";
 import "./AdventureScreen.css";
 
 const PRESETS: AdventurePreset[] = [
@@ -348,8 +349,12 @@ function AdventureHub() {
                 <button
                   type="button"
                   disabled={!sourceSessionId || setupGenerating || loading}
+                  aria-busy={setupGenerating}
                   onClick={() => void handleGenerateSetup()}
                 >
+                  {setupGenerating && (
+                    <span className="adventure-setup-generator__spinner" />
+                  )}
                   {setupGenerating
                     ? t("adventure.generatingSetup")
                     : t("adventure.generateSetup")}
@@ -672,6 +677,8 @@ function AdventurePlay({ runId }: { runId: string }) {
     loading,
     streaming,
     phase,
+    streamingNarrative,
+    pendingUserInput,
     error,
     loadRun,
     submitTurn,
@@ -685,6 +692,7 @@ function AdventurePlay({ runId }: { runId: string }) {
     null,
   );
   const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [promptModalOpen, setPromptModalOpen] = useState(false);
 
   useEffect(() => {
     void loadRun(runId).catch(() => navigate("/adventure"));
@@ -694,6 +702,11 @@ function AdventurePlay({ runId }: { runId: string }) {
     if (!activeRun) return;
     transcriptEndRef.current?.scrollIntoView({ block: "nearest" });
   }, [activeRun]);
+
+  useEffect(() => {
+    if (!streamingNarrative) return;
+    transcriptEndRef.current?.scrollIntoView({ block: "nearest" });
+  }, [streamingNarrative]);
 
   const frames = useMemo<AdventureStageFrame[]>(() => {
     if (!activeRun) return [];
@@ -742,9 +755,7 @@ function AdventurePlay({ runId }: { runId: string }) {
     );
   }
 
-  const isJudging = streaming && phase === "judging";
-  const isGeneratingImage = streaming && phase === "image_generation";
-  const isStageLoading = isJudging || isGeneratingImage;
+  const isStageLoading = streaming && phase !== null;
   const isViewingPast = selectedFrameIndex !== null;
   const effectiveIndex =
     selectedFrameIndex ?? (frames.length > 0 ? frames.length - 1 : -1);
@@ -819,11 +830,7 @@ function AdventurePlay({ runId }: { runId: string }) {
               {isStageLoading && !isViewingPast && (
                 <div className="adventure-stage__loading" role="status">
                   <span className="adventure-stage__loading-spinner" />
-                  <strong>
-                    {t(
-                      `adventure.phase.${isGeneratingImage ? "image_generation" : "judging"}`,
-                    )}
-                  </strong>
+                  <strong>{t(`adventure.phase.${phase}`)}</strong>
                 </div>
               )}
               {isViewingPast && (
@@ -840,7 +847,7 @@ function AdventurePlay({ runId }: { runId: string }) {
               <button
                 type="button"
                 className="adventure-stage__regenerate"
-                onClick={() => void regenerateImage()}
+                onClick={() => setPromptModalOpen(true)}
                 disabled={streaming || isViewingPast}
                 title={t("adventure.regenerateImage")}
                 aria-label={t("adventure.regenerateImage")}
@@ -924,12 +931,28 @@ function AdventurePlay({ runId }: { runId: string }) {
                     <p>{turn.narrative}</p>
                   </article>
                 ))}
+                {pendingUserInput !== null && (
+                  <article className="adventure-transcript__entry is-streaming">
+                    <div className="adventure-transcript__action">
+                      <span>
+                        {t("adventure.turn", {
+                          number: activeRun.turn_count + 1,
+                        })}
+                      </span>
+                      <p>{pendingUserInput}</p>
+                    </div>
+                    <p>
+                      {streamingNarrative}
+                      <span className="adventure-transcript__caret" />
+                    </p>
+                  </article>
+                )}
                 <div ref={transcriptEndRef} />
               </div>
               {streaming && !isStageLoading && (
                 <div className="adventure-progress">
                   <span />
-                  {t(`adventure.phase.${phase ?? "judging"}`)}
+                  {t(`adventure.phase.${phase ?? "narrative"}`)}
                 </div>
               )}
             </div>
@@ -1011,6 +1034,16 @@ function AdventurePlay({ runId }: { runId: string }) {
             </>
           )
         }
+      />
+
+      <AdventureImagePromptModal
+        isOpen={promptModalOpen}
+        prompt={activeRun.current_image_prompt}
+        onClose={() => setPromptModalOpen(false)}
+        onSubmit={(options) => {
+          setPromptModalOpen(false);
+          void regenerateImage(options);
+        }}
       />
     </MainLayout>
   );

@@ -11,7 +11,11 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
-from ..services.adventure_service import AdventureError, adventure_service
+from ..services.adventure_service import (
+    AdventureError,
+    AdventureImagePromptOutput,
+    adventure_service,
+)
 
 router = APIRouter(prefix="/adventure", tags=["Adventure"])
 
@@ -38,6 +42,13 @@ class AdventureTurnRequest(BaseModel):
     client_turn_id: str = Field(min_length=1, max_length=80)
     user_input: str = Field(min_length=1, max_length=1000)
     input_kind: Literal["choice", "free_text"] = "free_text"
+
+
+class AdventureImageRequest(BaseModel):
+    scene_tags: str = Field(default="", max_length=1800)
+    player_tags: str = Field(default="", max_length=1200)
+    npc_tags: list[str] = Field(default_factory=list, max_length=3)
+    redraw_from_reference: bool = True
 
 
 def _http_error(error: AdventureError) -> HTTPException:
@@ -111,62 +122,16 @@ async def delete_run(run_id: str) -> None:
 async def play_turn(run_id: str, request: AdventureTurnRequest) -> EventSourceResponse:
     async def event_generator() -> AsyncGenerator[dict, None]:
         try:
-            yield {
-                "event": "status",
-                "data": json.dumps({"phase": "judging"}, ensure_ascii=False),
-            }
-            (
-                turn,
-                visual_changed,
-                clothing_changed,
-            ) = await adventure_service.process_turn(
+            async for event in adventure_service.stream_turn(
                 run_id=run_id,
                 client_turn_id=request.client_turn_id,
                 user_input=request.user_input,
                 input_kind=request.input_kind,
-            )
-            yield {"event": "turn", "data": json.dumps(turn, ensure_ascii=False)}
-            if visual_changed:
+            ):
                 yield {
-                    "event": "status",
-                    "data": json.dumps(
-                        {"phase": "image_generation"}, ensure_ascii=False
-                    ),
+                    "event": event["event"],
+                    "data": json.dumps(event["data"], ensure_ascii=False),
                 }
-                try:
-                    image = await adventure_service.generate_image(
-                        run_id,
-                        turn["id"],
-                        redraw_from_reference=clothing_changed,
-                    )
-                    yield {
-                        "event": "image",
-                        "data": json.dumps(image, ensure_ascii=False),
-                    }
-                except AdventureError as image_error:
-                    yield {
-                        "event": "error",
-                        "data": json.dumps(
-                            {
-                                "code": image_error.code,
-                                "message": str(image_error),
-                                "phase": "image_generation",
-                                "retryable": True,
-                            },
-                            ensure_ascii=False,
-                        ),
-                    }
-            yield {
-                "event": "complete",
-                "data": json.dumps(
-                    {
-                        "status": turn.get("run_status", "active"),
-                        "ending_title": turn.get("ending_title"),
-                        "ending_summary": turn.get("ending_summary"),
-                    },
-                    ensure_ascii=False,
-                ),
-            }
         except AdventureError as error:
             yield {
                 "event": "error",
@@ -174,7 +139,7 @@ async def play_turn(run_id: str, request: AdventureTurnRequest) -> EventSourceRe
                     {
                         "code": error.code,
                         "message": str(error),
-                        "phase": "judging",
+                        "phase": "narrative",
                         "retryable": error.code == "invalid_model_output",
                     },
                     ensure_ascii=False,
@@ -185,7 +150,20 @@ async def play_turn(run_id: str, request: AdventureTurnRequest) -> EventSourceRe
 
 
 @router.post("/runs/{run_id}/image/stream")
-async def regenerate_image(run_id: str) -> EventSourceResponse:
+async def regenerate_image(
+    run_id: str, request: AdventureImageRequest | None = None
+) -> EventSourceResponse:
+    options = request or AdventureImageRequest()
+    prompt_override = (
+        AdventureImagePromptOutput(
+            scene_tags=options.scene_tags,
+            player_tags=options.player_tags,
+            npc_tags=[tag for tag in options.npc_tags if tag.strip()],
+        )
+        if options.scene_tags.strip() and options.player_tags.strip()
+        else None
+    )
+
     async def event_generator() -> AsyncGenerator[dict, None]:
         try:
             yield {
@@ -193,7 +171,9 @@ async def regenerate_image(run_id: str) -> EventSourceResponse:
                 "data": json.dumps({"phase": "image_generation"}, ensure_ascii=False),
             }
             image = await adventure_service.generate_image(
-                run_id, redraw_from_reference=True
+                run_id,
+                redraw_from_reference=options.redraw_from_reference,
+                prompt_override=prompt_override,
             )
             yield {"event": "image", "data": json.dumps(image, ensure_ascii=False)}
             yield {

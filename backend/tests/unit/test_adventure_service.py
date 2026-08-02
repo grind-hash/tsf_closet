@@ -526,7 +526,10 @@ async def test_clothing_redraw_does_not_reuse_previous_outfit_image(
         turn_count=1,
     )
     persisted_run = SimpleNamespace(
-        id="run-1", current_image_path=str(current_path), updated_at=None
+        id="run-1",
+        current_image_path=str(current_path),
+        updated_at=None,
+        state_json="{}",
     )
 
     class FakeDatabase:
@@ -538,6 +541,9 @@ async def test_clothing_redraw_does_not_reuse_previous_outfit_image(
 
         async def get(self, model, _record_id):
             return persisted_run if model is AdventureRun else None
+
+        async def scalar(self, _statement):
+            return None
 
         async def commit(self):
             return None

@@ -17,6 +17,16 @@ export interface AdventureMilestone {
   label: string;
 }
 
+export interface AdventureImagePrompt {
+  scene_tags: string;
+  player_tags: string;
+  npc_tags: string[];
+}
+
+export interface AdventureImageRegenerateOptions extends AdventureImagePrompt {
+  redraw_from_reference: boolean;
+}
+
 export interface AdventureTurn {
   id: string;
   turn_number: number;
@@ -58,6 +68,7 @@ export interface AdventureRun {
   opening_image_url: string;
   choices: AdventureChoice[];
   current_image_url: string;
+  current_image_prompt: AdventureImagePrompt | null;
   turns: AdventureTurn[];
   created_at: string | null;
   updated_at: string | null;
@@ -97,7 +108,14 @@ export interface AdventureCreateRequest extends AdventureSetupRequest {
 }
 
 export interface AdventureStreamEvent {
-  type: "status" | "turn" | "image" | "complete" | "error";
+  type:
+    | "status"
+    | "narrative_chunk"
+    | "narrative_done"
+    | "turn"
+    | "image"
+    | "complete"
+    | "error";
   data: Record<string, unknown>;
 }
 
@@ -237,11 +255,16 @@ export async function streamAdventureTurn(
 
 export async function streamAdventureImage(
   runId: string,
+  options: AdventureImageRegenerateOptions | null,
   onEvent: (event: AdventureStreamEvent) => void,
 ): Promise<void> {
   const response = await fetch(
     `${API_BASE}/adventure/runs/${runId}/image/stream`,
-    { method: "POST" },
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(options ?? { redraw_from_reference: true }),
+    },
   );
   await readSse(response, onEvent);
 }
@@ -249,4 +272,3 @@ export async function streamAdventureImage(
 export function normalizeAdventureImageUrl(url: unknown): string | null {
   return typeof url === "string" ? withApiBase(url) : null;
 }
-

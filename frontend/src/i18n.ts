@@ -121,6 +121,19 @@ const resources = {
         send: "送信",
         regenerateImage: "現在の場面画像を再生成",
         viewFullScreen: "場面画像を拡大表示",
+        imagePrompt: {
+          title: "場面画像のプロンプトを編集して再生成",
+          hint: "直前の生成に使われたプロンプトです。不要な表現を削って再生成できます。",
+          sceneTags: "場面（背景・構図・照明）",
+          playerTags: "主人公（外見・服装）",
+          npcTags: "NPC（1行に1人、最大3人）",
+          npcHint: "例: security guard, middle-aged man, uniform",
+          redrawFromReference: "現在画像を無視して描き直す",
+          redrawHint:
+            "オフにすると現在の場面画像を下地として使い、構図を保ったまま修正します。",
+          submit: "この内容で再生成",
+          cancel: "キャンセル",
+        },
         turnStrip: {
           opening: "開始",
           backToLatest: "最新の場面へ",
@@ -128,6 +141,8 @@ const resources = {
           thumbAlt: "手番 {{number}} の場面",
         },
         phase: {
+          narrative: "物語を生成中...",
+          clue_check: "手掛かりを確認中...",
           judging: "次の展開を判定中...",
           image_generation: "場面画像を生成中...",
         },
@@ -1264,6 +1279,19 @@ const resources = {
         send: "Send",
         regenerateImage: "Regenerate the current scene image",
         viewFullScreen: "View the scene image in full screen",
+        imagePrompt: {
+          title: "Edit the scene image prompt and regenerate",
+          hint: "This is the prompt used for the latest generation. Remove unwanted wording and regenerate.",
+          sceneTags: "Scene (background, composition, lighting)",
+          playerTags: "Protagonist (appearance, clothing)",
+          npcTags: "NPCs (one per line, up to 3)",
+          npcHint: "e.g. security guard, middle-aged man, uniform",
+          redrawFromReference: "Ignore the current image and redraw",
+          redrawHint:
+            "When off, the current scene image is used as a base so the composition is preserved.",
+          submit: "Regenerate with these settings",
+          cancel: "Cancel",
+        },
         turnStrip: {
           opening: "Opening",
           backToLatest: "Back to latest scene",
@@ -1271,6 +1299,8 @@ const resources = {
           thumbAlt: "Scene of turn {{number}}",
         },
         phase: {
+          narrative: "Writing the next scene...",
+          clue_check: "Checking for clues...",
           judging: "Resolving the next scene...",
           image_generation: "Generating the scene image...",
         },
