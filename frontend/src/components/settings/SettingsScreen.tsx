@@ -41,6 +41,7 @@ export default function SettingsScreen() {
     setShowAchievementNotifications,
     setShowRealityAttributeNotification,
     setExperimentalEndingEnabled,
+    setExperimentalAdventureEnabled,
     setPlayMemoryEnabled,
     setEnableSurroundingsImage,
     setSurroundingsIncludePeople,
@@ -539,6 +540,28 @@ export default function SettingsScreen() {
                   checked={state.experimentalEndingEnabled}
                   onChange={(e) =>
                     setExperimentalEndingEnabled(e.target.checked)
+                  }
+                  className="settings-screen__toggle-input"
+                />
+                <span className="settings-screen__toggle-switch" />
+              </label>
+            </div>
+
+            <div className="settings-screen__item">
+              <label className="settings-screen__toggle">
+                <div className="settings-screen__toggle-info">
+                  <span className="settings-screen__item-label">
+                    {t("settings.experimentalAdventure")}
+                  </span>
+                  <span className="settings-screen__item-desc">
+                    {t("settings.experimentalAdventureDesc")}
+                  </span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={state.experimentalAdventureEnabled}
+                  onChange={(e) =>
+                    setExperimentalAdventureEnabled(e.target.checked)
                   }
                   className="settings-screen__toggle-input"
                 />

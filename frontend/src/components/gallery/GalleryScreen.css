@@ -38,6 +38,22 @@
   color: var(--text-muted, #888);
 }
 
+.gallery-screen__compare-btn {
+  padding: 0.4rem 0.75rem;
+  background-color: var(--accent-color, #e94560);
+  border: none;
+  border-radius: 6px;
+  color: white;
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.gallery-screen__compare-btn:hover {
+  background-color: #d83c54;
+}
+
 .gallery-screen__tabs {
   display: flex;
   gap: 0.5rem;

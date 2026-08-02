@@ -36,6 +36,8 @@ export const ROUTES = {
   ENDINGS: "/endings",
   ACHIEVEMENTS: "/achievements",
   SETTINGS: "/settings",
+  ADVENTURE: "/adventure",
+  ADVENTURE_RUN: "/adventure/:runId",
 } as const;
 
 // セッションID付きのゲームURLを生成するヘルパー

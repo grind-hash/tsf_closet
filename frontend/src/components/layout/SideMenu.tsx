@@ -28,6 +28,7 @@ interface MenuItem {
 const getMenuItems = (
   t: (key: string) => string,
   showEndingMenu: boolean,
+  showAdventureMenu: boolean,
 ): MenuItem[] => {
   return [
     {
@@ -44,6 +45,17 @@ const getMenuItems = (
       path: ROUTES.GALLERY,
       description: t("menu.galleryDesc"),
     },
+    ...(showAdventureMenu
+      ? [
+          {
+            id: "adventure",
+            label: t("menu.adventure"),
+            icon: "A",
+            path: ROUTES.ADVENTURE,
+            description: t("menu.adventureDesc"),
+          },
+        ]
+      : []),
     ...(showEndingMenu
       ? [
           {
@@ -81,7 +93,11 @@ export default function SideMenu() {
   const { state: settingsState } = useSettings();
 
   // メニュー項目を取得
-  const menuItems = getMenuItems(t, settingsState.experimentalEndingEnabled);
+  const menuItems = getMenuItems(
+    t,
+    settingsState.experimentalEndingEnabled,
+    settingsState.experimentalAdventureEnabled,
+  );
 
   // プレイ中のゲームがあるかどうか
   const hasActiveGame = gameState.isActive && gameState.sessionId;

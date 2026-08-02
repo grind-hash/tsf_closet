@@ -19,6 +19,7 @@ import httpx
 from ..consts.character_limits import APPEARANCE_NATURAL_SOFT_LIMIT
 from ..consts.language import LanguageCode, normalize_language
 from ..settings.config import settings
+from .model_execution_gate import model_execution_gate
 
 logger = logging.getLogger(__name__)
 
@@ -328,35 +329,48 @@ class NovelAILLMClient:
         }
 
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                async with client.stream(
-                    "POST",
-                    f"{self.base_url}/chat/completions",
-                    headers=self._get_headers(),
-                    json=payload,
-                ) as response:
-                    response.raise_for_status()
-                    async for line in response.aiter_lines():
-                        if not line:
-                            continue
-                        if line.startswith("data: "):
-                            data_str = line[6:]
-                            if data_str.strip() == "[DONE]":
-                                break
-                            try:
-                                data = json.loads(data_str)
-                                choices = data.get("choices", [])
-                                if choices:
-                                    delta = choices[0].get("delta", {})
-                                    content = delta.get("content")
-                                    if content:
-                                        yield content
-                                    # finish_reason=stopで終了
-                                    if choices[0].get("finish_reason") == "stop":
-                                        break
-                            except json.JSONDecodeError:
-                                logger.warning(f"NovelAI SSE parse error: {data_str}")
+            async with model_execution_gate.hold("text", "novelai", effective_model):
+                async with httpx.AsyncClient(timeout=self.timeout) as client:
+                    async with client.stream(
+                        "POST",
+                        f"{self.base_url}/chat/completions",
+                        headers=self._get_headers(),
+                        json=payload,
+                    ) as response:
+                        response.raise_for_status()
+                        async for line in response.aiter_lines():
+                            if not line:
                                 continue
+                            if line.startswith("data: "):
+                                data_str = line[6:]
+                                if data_str.strip() == "[DONE]":
+                                    break
+                                try:
+                                    data = json.loads(data_str)
+                                    choices = data.get("choices", [])
+                                    if choices:
+                                        delta = choices[0].get("delta", {})
+                                        content = delta.get("content")
+                                        if content:
+                                            yield content
+                                        finish_reason = choices[0].get("finish_reason")
+                                        if finish_reason:
+                                            log = (
+                                                logger.info
+                                                if finish_reason == "stop"
+                                                else logger.warning
+                                            )
+                                            log(
+                                                "NovelAI LLM stream finished: model=%s reason=%s",
+                                                effective_model,
+                                                finish_reason,
+                                            )
+                                            break
+                                except json.JSONDecodeError:
+                                    logger.warning(
+                                        f"NovelAI SSE parse error: {data_str}"
+                                    )
+                                    continue
         except httpx.TimeoutException as e:
             logger.error(f"NovelAI LLM timeout: {e}")
             raise LLMServiceError(f"NovelAI API timeout: {e}") from e

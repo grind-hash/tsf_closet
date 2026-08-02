@@ -1,0 +1,152 @@
+{
+  "id": "princess_locked_room",
+  "version": 1,
+  "preset": "escape",
+  "content_rating": "mature",
+  "max_turns": 8,
+  "title": {
+    "ja": "プリンセスにならないと出られない部屋",
+    "en": "The Room That Only a Princess Can Leave"
+  },
+  "synopsis": {
+    "ja": "寒い密室で、下着、ドレス、ティアラを揃え、扉の採点を100点にして脱出する。",
+    "en": "Complete a princess outfit in a freezing locked room and earn a perfect door score to escape."
+  },
+  "setting": {
+    "ja": "見知らぬ寒い密室。壁一面にドレスや女性用の衣類が並び、出口の扉が採点装置になっている。",
+    "en": "An unfamiliar freezing room lined with dresses and women's clothing, where the exit door judges the player's outfit."
+  },
+  "objective": {
+    "ja": "必要な衣装と品物を身につけて扉の採点を100点にし、開いた扉から退出する",
+    "en": "Wear every required garment and item, earn 100 points from the door, and leave through it."
+  },
+  "constraints": {
+    "ja": [
+      "部屋は非常に寒く、8手以内に脱出条件を満たす必要がある",
+      "利用できる衣類は女性用の下着、ドレス、装身具に限られる",
+      "最後の条件は扉の文章と採点結果から推理する必要がある"
+    ],
+    "en": [
+      "The room is freezing and the exit condition must be met within eight turns",
+      "Only women's underwear, dresses, and accessories are available",
+      "The final requirement must be inferred from the door text and its score"
+    ]
+  },
+  "milestones": {
+    "ja": [
+      { "id": "read_rule", "label": "扉の脱出条件を確認する" },
+      { "id": "complete_outfit", "label": "プリンセス衣装一式を完成させる" },
+      { "id": "perfect_score", "label": "不足条件を満たして100点を獲得する" }
+    ],
+    "en": [
+      { "id": "read_rule", "label": "Read the door's exit conditions" },
+      { "id": "complete_outfit", "label": "Complete the princess outfit" },
+      { "id": "perfect_score", "label": "Meet the hidden condition and earn 100 points" }
+    ]
+  },
+  "opening_premise": {
+    "ja": "プレイヤーは見知らぬ寒い部屋で目を覚ます。寝間着はなく、衣服を身につけていない。周囲には女性用の下着、ドレス、装身具、生理用品が並ぶ。扉には、プリンセスの装いを完成させなければ出られず、ナプキンも忘れないようにという文章がある。プレイヤーが何を着るかはまだ決めない。",
+    "en": "The player wakes in an unfamiliar freezing room without their sleepwear or any clothing. Women's underwear, dresses, accessories, and sanitary products line the room. The exit says that a complete princess outfit is required and specifically warns not to forget a sanitary pad. Do not decide what the player wears."
+  },
+  "guidance": "This is an authored wardrobe escape puzzle. Never decide that the player feels shame, resistance, acceptance, or loss of identity. Only equip or remove an item when the player explicitly chooses that action. The sanitary pad is an exit item and does not imply menstruation. The player's body remains unchanged until all required items are explicitly equipped and the door is checked again. A magical princess transformation is allowed only at that deterministic trigger. Stop the opening before any voluntary dressing action.",
+  "start_state": {
+    "clothing": "none",
+    "allow_clothing_changes": true,
+    "appearance_policy": "preserve_until_rule_event"
+  },
+  "rule": {
+    "type": "equipment_score",
+    "items": [
+      {
+        "id": "panties",
+        "aliases": ["ショーツ", "パンティ", "下着", "panties", "underwear"],
+        "labels": { "ja": "ショーツ", "en": "panties" }
+      },
+      {
+        "id": "bra",
+        "aliases": ["ブラジャー", "ブラ", "下着", "bra", "underwear"],
+        "labels": { "ja": "ブラジャー", "en": "bra" }
+      },
+      {
+        "id": "dress",
+        "aliases": ["プリンセスドレス", "ドレス", "dress"],
+        "labels": { "ja": "エレガントなプリンセスドレス", "en": "elegant princess dress" }
+      },
+      {
+        "id": "tiara",
+        "aliases": ["ティアラ", "冠", "tiara", "crown"],
+        "labels": { "ja": "ティアラ", "en": "tiara" }
+      },
+      {
+        "id": "sanitary_pad",
+        "aliases": ["生理用ナプキン", "ナプキン", "生理用品", "sanitary pad", "pad"],
+        "labels": { "ja": "ナプキン", "en": "sanitary pad" },
+        "implies": ["panties"]
+      }
+    ],
+    "base_outfit": ["panties", "bra", "dress", "tiara"],
+    "required_items": ["panties", "bra", "dress", "tiara", "sanitary_pad"],
+    "read_rule_patterns": [
+      "(?:扉|ドア|文章|張り紙|条件).*(?:読む|読ん|調べ|確認)",
+      "(?:read|inspect|check).*(?:door|sign|rule)"
+    ],
+    "goal_subject_patterns": ["(?:扉|ドア|door)"],
+    "goal_action_patterns": ["(?:向か|前に行|判定|採点|開け|確認|調べ|approach|check|open)"],
+    "scores": { "incomplete": 0, "almost": 90, "success": 100 },
+    "milestone_ids": {
+      "rule_read": "read_rule",
+      "base_outfit": "complete_outfit",
+      "success": "perfect_score"
+    },
+    "empty_clothing": {
+      "ja": "衣服を身につけていない",
+      "en": "not wearing any clothing"
+    },
+    "events": {
+      "almost_complete": {
+        "narrative_suffix": {
+          "ja": "ドラムロールの後、甲高い声が響く。『惜しい！90点！あと少しで完成だね』",
+          "en": "After a drumroll, a high voice calls, 'So close! 90 points! Just a little more!'"
+        },
+        "clues": {
+          "ja": ["扉の文章はナプキンも忘れないよう要求している"],
+          "en": ["The door text explicitly says not to forget a sanitary pad"]
+        },
+        "choices": {
+          "ja": [
+            { "id": "reread_rule", "label": "扉の文章をもう一度読む" },
+            { "id": "inspect_products", "label": "生理用品の棚を詳しく調べる" },
+            { "id": "review_outfit", "label": "身につけた品を確認する" }
+          ],
+          "en": [
+            { "id": "reread_rule", "label": "Read the door text again" },
+            { "id": "inspect_products", "label": "Inspect the sanitary products" },
+            { "id": "review_outfit", "label": "Review the equipped items" }
+          ]
+        }
+      },
+      "perfect_score": {
+        "narrative_suffix": {
+          "ja": "『100点満点！それでは夜会にご招待！』という声とともに魔法が弾け、髪が伸び、鏡には美しいプリンセスの姿が映る。扉の先には夜会へ続く廊下が開いた。",
+          "en": "'A perfect 100! Welcome to the ball!' Magic bursts through the room. The player's hair lengthens, the mirror reveals a beautiful princess, and the door opens onto a corridor leading to the ball."
+        },
+        "ending_status": "success",
+        "ending_title": {
+          "ja": "100点満点のプリンセス",
+          "en": "A Perfect-Score Princess"
+        },
+        "ending_summary": {
+          "ja": "必要な品をすべて身につけ、プリンセスの姿となって扉を開いた。",
+          "en": "Every required item was worn, the princess transformation completed, and the exit opened."
+        },
+        "appearance_transform": {
+          "remove_tags": ["1boy", "boy", "male", "man", "male focus"],
+          "replace_patterns": [
+            { "pattern": "\\bshort\\b", "replacement": "long", "count": 1 }
+          ],
+          "ensure_tags": ["1girl", "long hair", "beautiful princess", "feminine body"]
+        }
+      }
+    }
+  }
+}

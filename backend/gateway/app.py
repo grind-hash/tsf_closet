@@ -37,6 +37,7 @@ from starlette.datastructures import FormData
 from .services.comfy import ComfyUIClient, ComfyUIError
 from .databases import close_database, init_database
 from .routes import (
+    adventure_router,
     achievements_router,
     aivisspeech_router,
     character_router,
@@ -255,6 +256,9 @@ def setup_static_files(application: FastAPI) -> None:
 
 # ゲームAPIルーターを登録 (prefix="/api"でフロントエンドルートと競合回避)
 app.include_router(game_router, prefix="/api")
+
+# 独立アドベンチャーモード
+app.include_router(adventure_router, prefix="/api")
 
 # ギャラリーAPIルーターを登録 (007-chat-interactive-ux)
 app.include_router(gallery_router, prefix="/api")
