@@ -3,14 +3,14 @@
  */
 
 import { useCallback } from "react";
-import type {
-  SessionStats,
-  HistoryItem,
-  Character,
-  SessionAttribute,
-  ConversationMessage,
-} from "../types";
 import { useGame } from "../contexts/GameContext";
+import type {
+  Character,
+  ConversationMessage,
+  HistoryItem,
+  SessionAttribute,
+  SessionStats,
+} from "../types";
 import { API_BASE } from "../utils/api";
 
 export interface UseSessionReturn {

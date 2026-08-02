@@ -24,6 +24,19 @@ body {
   min-height: 100vh;
 }
 
+@media (max-width: 768px) {
+  html,
+  body,
+  #root {
+    width: 100%;
+    height: 100vh;
+    height: 100dvh;
+    min-height: 100vh;
+    min-height: 100dvh;
+    overflow: hidden;
+  }
+}
+
 a {
   color: #667eea;
   text-decoration: none;

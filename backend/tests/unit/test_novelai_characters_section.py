@@ -138,10 +138,23 @@ def test_extract_protagonist_tags_handles_single_line_code_fence() -> None:
     )
 
 
-def test_extract_protagonist_tags_returns_none_for_plain_text() -> None:
-    # Legacy after_description (single-character mode) is plain text.
-    legacy = "masterpiece, best quality, 1boy, solo, short black hair, blue eyes"
-    assert extract_protagonist_tags_from_history(legacy) is None
+def test_extract_protagonist_tags_accepts_plain_novelai_tag_list() -> None:
+    # Opus JSON-split success path stores character[0].prompt as after_description.
+    plain = "masterpiece, best quality, 1boy, solo, short black hair, blue eyes"
+    assert extract_protagonist_tags_from_history(plain) == plain
+
+
+def test_extract_protagonist_tags_accepts_plain_1girl_list() -> None:
+    plain = "1girl, long blonde hair, school uniform, blue eyes"
+    assert extract_protagonist_tags_from_history(plain) == plain
+
+
+def test_extract_protagonist_tags_returns_none_for_japanese_narrative() -> None:
+    # Non-Opus dress-up history is free-text and must not be treated as tags.
+    narrative = "セーラー服に変身した姿"
+    assert extract_protagonist_tags_from_history(narrative) is None
+    reality = "「性別が逆転する」という現実改変により変化した姿"
+    assert extract_protagonist_tags_from_history(reality) is None
 
 
 def test_extract_protagonist_tags_returns_none_for_empty_characters() -> None:

@@ -11,6 +11,8 @@ from gateway.services.prompts import (
     classify_personality_type,
     select_opening,
     build_enhanced_feeling_prompt,
+    get_image_edit_system_prompt,
+    get_novelai_prompt_generation_system,
 )
 
 
@@ -152,3 +154,49 @@ def test_enhanced_prompt_first_transformation() -> None:
     # First transformation should use special stage
     assert system is not None
     assert user is not None
+
+
+def test_image_edit_system_prompt_suppresses_discomfort_cues() -> None:
+    suppressed = get_image_edit_system_prompt(
+        "novelai", nsfw_mode=True, suppress_gender_discomfort_cues=True
+    )
+    normal = get_image_edit_system_prompt(
+        "novelai", nsfw_mode=True, suppress_gender_discomfort_cues=False
+    )
+    assert "Gender-congruent outfit" in suppressed
+    assert "Gender-congruent outfit" not in normal
+    assert "Do NOT add embarrassed" in suppressed
+
+
+def test_novelai_prompt_system_suppresses_outfit_expression_bias() -> None:
+    suppressed = get_novelai_prompt_generation_system(
+        suppress_gender_discomfort_cues=True
+    )
+    normal = get_novelai_prompt_generation_system(suppress_gender_discomfort_cues=False)
+    assert "neutral/calm expression" in suppressed
+    assert "Add pose and expression tags appropriate for the outfit" in normal
+    assert "Add pose and expression tags appropriate for the outfit" not in suppressed
+
+
+def test_enhanced_prompt_gender_congruent_skips_discomfort() -> None:
+    from gateway.services.gender_congruence import GenderCongruenceResult
+
+    congruence = GenderCongruenceResult(
+        fit="congruent",
+        should_feel_gender_discomfort=False,
+        reason="test",
+        source="rule",
+    )
+    system, user = build_enhanced_feeling_prompt(
+        before_desc="casual",
+        after_desc="suit",
+        instruction="メンズスーツ",
+        bloom=10,
+        pronoun="僕",
+        transformation_count=1,
+        gender_congruence=congruence,
+    )
+    assert "元の性別として自然" in system
+    assert "抵抗と理屈" not in user
+    assert "着心地" in user or "第一印象" in user
+    # 禁止指示としての言及は可。強制構成の「抵抗と理屈」は使わない

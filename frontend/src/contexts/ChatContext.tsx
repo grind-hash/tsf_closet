@@ -5,12 +5,12 @@
 
 import {
   createContext,
+  type ReactNode,
+  useCallback,
   useContext,
   useReducer,
-  useCallback,
   useRef,
   useState,
-  type ReactNode,
 } from "react";
 import type {
   ChatMessage,
@@ -774,7 +774,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 }
 
 // Custom Hook
-// eslint-disable-next-line react-refresh/only-export-components
 export function useChat(): ChatContextType {
   const context = useContext(ChatContext);
   if (!context) {

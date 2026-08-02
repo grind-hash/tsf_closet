@@ -15,54 +15,56 @@
  */
 
 import React, {
-  useState,
   useCallback,
   useEffect,
   useMemo,
   useRef,
+  useState,
 } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation } from "react-router-dom";
-import MainLayout from "./layout/MainLayout";
-import RightPanel from "./layout/RightPanel";
-import CharacterStatePanel from "./panel/CharacterStatePanel";
-import CharacterPanel from "./panel/CharacterPanel";
-import ChatMessageList from "./chat/ChatMessageList";
-import ChatInput from "./chat/ChatInput";
-import AudioControlBar from "./chat/AudioControlBar";
-import WelcomeScreen from "./chat/WelcomeScreen";
-import InpaintModal from "./InpaintModal";
-import ImagePreviewModal from "./ImagePreviewModal";
-import ImageOverlay from "./ui/ImageOverlay";
-import { useGame } from "../contexts/GameContext";
-import { useChat } from "../contexts/ChatContext";
-import { useSettings } from "../contexts/SettingsContext";
-import { useNotification } from "../contexts/NotificationContext";
-import { API_BASE } from "../utils/api";
-import { generateUUID } from "../utils/generateUUID";
-import {
-  deleteLatestHistory,
-  deleteHistoryEntry,
-  deleteConversationMessage,
-} from "../apis/game";
-import {
-  exportAsMarkdown,
-  exportAsCsv,
-  exportAsJson,
-  exportAsPlainText,
-  exportAsNovel,
-  downloadFile,
-  downloadBlob,
-  formatBytes,
-} from "../utils/exportChat";
-import type { ExportSessionInfo } from "../utils/exportChat";
+import { fetchFavorites, toggleFavorite } from "../apis/favorites";
 import { exportSessionMarkdown, exportSessionNovelHtml } from "../apis/gallery";
+import {
+  deleteConversationMessage,
+  deleteHistoryEntry,
+  deleteLatestHistory,
+} from "../apis/game";
+import { useChat } from "../contexts/ChatContext";
+import { useGame } from "../contexts/GameContext";
+import { useNotification } from "../contexts/NotificationContext";
+import { useSettings } from "../contexts/SettingsContext";
 import type {
   ChangeSettings,
-  ConversationMessage,
   ChatMessage,
+  ConversationMessage,
   SessionStats,
 } from "../types";
+import { API_BASE } from "../utils/api";
+import type { ExportSessionInfo } from "../utils/exportChat";
+import {
+  downloadBlob,
+  downloadFile,
+  exportAsCsv,
+  exportAsJson,
+  exportAsMarkdown,
+  exportAsNovel,
+  exportAsPlainText,
+  formatBytes,
+} from "../utils/exportChat";
+import { generateUUID } from "../utils/generateUUID";
+import { isHistoryLookbackEnabled } from "../utils/historyLookback";
+import AudioControlBar from "./chat/AudioControlBar";
+import ChatInput from "./chat/ChatInput";
+import ChatMessageList from "./chat/ChatMessageList";
+import WelcomeScreen from "./chat/WelcomeScreen";
+import ImagePreviewModal from "./ImagePreviewModal";
+import InpaintModal from "./InpaintModal";
+import MainLayout from "./layout/MainLayout";
+import RightPanel from "./layout/RightPanel";
+import CharacterPanel from "./panel/CharacterPanel";
+import CharacterStatePanel from "./panel/CharacterStatePanel";
+import ImageOverlay from "./ui/ImageOverlay";
 import "./GamePlayScreen.css";
 import "./chat/ChatContainer.css";
 
@@ -90,7 +92,6 @@ interface GamePlayScreenProps {
   onSessionStart?: () => void;
 }
 
-/* eslint-disable @typescript-eslint/no-unused-vars */
 // 未使用の props と変数は将来のリファクタリングで使用予定
 export default function GamePlayScreen({
   onTransform,
@@ -152,6 +153,7 @@ export default function GamePlayScreen({
   const imageProvider = settingsState.imageProvider;
   const lastGeneratedSeed = gameState.lastGeneratedSeed;
   const anlasBalance = settingsState.anlasBalance;
+  const [isMobileAnlasExpanded, setIsMobileAnlasExpanded] = useState(false);
 
   // 右パネル開閉状態はSettingsContext経由でlocalStorageに保存
   const showRightPanel = settingsState.rightPanelOpen;
@@ -179,6 +181,10 @@ export default function GamePlayScreen({
 
   // T031: 画像拡大プレビューモーダル
   const [showImagePreviewModal, setShowImagePreviewModal] = useState(false);
+  const [favoritedHistoryIds, setFavoritedHistoryIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [favoriteBusy, setFavoriteBusy] = useState(false);
 
   // US2: 周囲状況画像拡大モーダル
   const [surroundingsOverlayUrl, setSurroundingsOverlayUrl] = useState<
@@ -351,6 +357,37 @@ export default function GamePlayScreen({
     },
     [chatState.messages, buildExportSessionInfo, gameState.sessionId],
   );
+
+  // お気に入り履歴IDをセッション開始時に読み込む (spec 009)
+  useEffect(() => {
+    if (!sessionId || isNewGameRoute) {
+      setFavoritedHistoryIds(new Set());
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const ids = new Set<string>();
+        let page = 1;
+        while (page <= 20) {
+          const data = await fetchFavorites(page, 100);
+          for (const item of data.items) {
+            ids.add(item.history_id);
+          }
+          if (!data.has_more) break;
+          page += 1;
+        }
+        if (!cancelled) {
+          setFavoritedHistoryIds(ids);
+        }
+      } catch {
+        // お気に入り取得失敗はプレビューの初期状態にのみ影響するため握りつぶす
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId, isNewGameRoute]);
 
   // チャット履歴を統合して復元（history + chatHistory を時系列順に統合）
   // /play/new の場合は新規ゲームなので復元しない
@@ -645,6 +682,12 @@ export default function GamePlayScreen({
             session_id: sessionId,
             message: message,
             language: settingsState.language,
+            use_history_lookback: String(
+              isHistoryLookbackEnabled(
+                settingsState.historyLookbackTargets,
+                "conversation",
+              ),
+            ),
           });
           if (settingsState.enableMultiplePeople) {
             params.set("enable_multiple_people", "true");
@@ -888,6 +931,7 @@ export default function GamePlayScreen({
       settingsState.language,
       settingsState.enableMultiplePeople,
       settingsState.playMemoryEnabled,
+      settingsState.historyLookbackTargets,
       showNotification,
       t,
       restoreActiveSession,
@@ -901,6 +945,40 @@ export default function GamePlayScreen({
       setShowImagePreviewModal(true);
     }
   }, [currentImageUrl]);
+
+  const currentHistoryId =
+    gameState.history[gameState.currentHistoryIndex]?.id ?? null;
+  const isCurrentHistoryFavorited = Boolean(
+    currentHistoryId && favoritedHistoryIds.has(currentHistoryId),
+  );
+
+  const handleToggleFavorite = useCallback(async () => {
+    const historyId = gameState.history[gameState.currentHistoryIndex]?.id;
+    if (!historyId || favoriteBusy) return;
+    const currently = favoritedHistoryIds.has(historyId);
+    setFavoriteBusy(true);
+    try {
+      const next = await toggleFavorite(historyId, currently);
+      setFavoritedHistoryIds((prev) => {
+        const copy = new Set(prev);
+        if (next) {
+          copy.add(historyId);
+        } else {
+          copy.delete(historyId);
+        }
+        return copy;
+      });
+    } catch (err) {
+      console.error("Failed to toggle favorite:", err);
+    } finally {
+      setFavoriteBusy(false);
+    }
+  }, [
+    favoriteBusy,
+    favoritedHistoryIds,
+    gameState.currentHistoryIndex,
+    gameState.history,
+  ]);
 
   // 画像ナビゲーション時のチャットスクロール
   const scrollToCurrentHistoryMessage = useCallback(
@@ -1369,24 +1447,48 @@ export default function GamePlayScreen({
         )}
         {/* US5: Anlas balance display (NovelAI only) */}
         {imageProvider === "novelai" && anlasBalance && (
-          <div className="game-play-screen__anlas-bar">
-            <span className="game-play-screen__anlas-label">
-              Anlas: {anlasBalance.totalAnlas.toLocaleString()}
-            </span>
-            <span
-              className="game-play-screen__anlas-detail"
-              title={t(
-                "gameplay.anlasBreakdown",
-                "Fixed: {{fixed}}, Purchased: {{purchased}}",
-                {
-                  fixed: anlasBalance.fixedAnlas.toLocaleString(),
-                  purchased: anlasBalance.purchasedAnlas.toLocaleString(),
-                },
-              )}
+          <div
+            className={`game-play-screen__anlas-bar${
+              isMobileAnlasExpanded ? " is-expanded" : ""
+            }`}
+          >
+            <button
+              type="button"
+              className="game-play-screen__anlas-toggle"
+              aria-expanded={isMobileAnlasExpanded}
+              aria-controls="mobile-anlas-balance"
+              onClick={() => setIsMobileAnlasExpanded((expanded) => !expanded)}
             >
-              ({anlasBalance.fixedAnlas.toLocaleString()} +{" "}
-              {anlasBalance.purchasedAnlas.toLocaleString()})
-            </span>
+              <span>Anlas</span>
+              <span
+                className="game-play-screen__anlas-toggle-icon"
+                aria-hidden="true"
+              >
+                ▾
+              </span>
+            </button>
+            <div
+              id="mobile-anlas-balance"
+              className="game-play-screen__anlas-content"
+            >
+              <span className="game-play-screen__anlas-label">
+                Anlas: {anlasBalance.totalAnlas.toLocaleString()}
+              </span>
+              <span
+                className="game-play-screen__anlas-detail"
+                title={t(
+                  "gameplay.anlasBreakdown",
+                  "Fixed: {{fixed}}, Purchased: {{purchased}}",
+                  {
+                    fixed: anlasBalance.fixedAnlas.toLocaleString(),
+                    purchased: anlasBalance.purchasedAnlas.toLocaleString(),
+                  },
+                )}
+              >
+                ({anlasBalance.fixedAnlas.toLocaleString()} +{" "}
+                {anlasBalance.purchasedAnlas.toLocaleString()})
+              </span>
+            </div>
           </div>
         )}
         {!isSessionActive ? (
@@ -1401,6 +1503,10 @@ export default function GamePlayScreen({
                 onOpenInpaintModal={() => setShowInpaintModal(true)}
                 transformationCount={gameState.transformationCount}
                 isTransforming={isTransforming}
+                canFavorite={Boolean(currentHistoryId)}
+                isFavorited={isCurrentHistoryFavorited}
+                favoriteBusy={favoriteBusy}
+                onToggleFavorite={handleToggleFavorite}
               />
               {settingsState.enableMultiplePeople && <CharacterPanel />}
               {/* US4: Seed display */}
@@ -1584,6 +1690,10 @@ export default function GamePlayScreen({
         onNext={handleNextWithScroll}
         hasPrev={gameState.currentHistoryIndex > 0}
         hasNext={gameState.currentHistoryIndex < gameState.history.length - 1}
+        historyId={currentHistoryId}
+        isFavorited={isCurrentHistoryFavorited}
+        favoriteBusy={favoriteBusy}
+        onToggleFavorite={handleToggleFavorite}
       />
       {/* Anlas cost confirmation dialog for precise references */}
       {anlasConfirmPending && (
@@ -1801,4 +1911,3 @@ export default function GamePlayScreen({
     </MainLayout>
   );
 }
-/* eslint-enable @typescript-eslint/no-unused-vars */

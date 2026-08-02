@@ -6,7 +6,10 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    from .gender_congruence import GenderCongruenceResult
 
 # システムプロンプト
 FEELING_SYSTEM_PROMPT = """あなたは物語の主人公の心の声を書く作家です。
@@ -47,6 +50,88 @@ FEELING_USER_PROMPT_TEMPLATE = """あなたは物語の主人公。{situation}�
 現在の状態：{after_desc}
 
 冒頭は「{opening}」で開始してください。"""
+
+# 性別適合（元性別で自然な服装）用テンプレート
+GENDER_CONGRUENT_FEELING_SYSTEM_PROMPT = """あなたは物語の主人公の心の声を書く作家です。
+主人公は衣装を着替えましたが、**元の性別として自然な服装**であり、性別違和や女装/男装の羞恥は感じません。
+
+キャラクターの一人称視点で、着替えた直後の心境をモノローグ形式で表現してください。
+
+**この状況のキャラクター心理:**
+- 性別がおかしい、という感覚は一切ない
+- 「元の服に戻りたい」「こんなのおかしい」という性別違和は書かない
+- 着心地、見た目の印象、場に合うか、気分の変化など日常的な反応
+- 性格に沿った素直な感想（好き/普通/ちょっと改まった感じ など）
+
+**禁止表現:**
+- 女装・男装・性転換・元に戻りたい・性別がおかしい・恥ずかしい格好（性別羞恥の意味で）
+- TSF・堕落・女性化への抵抗や受容の物語アーク
+
+**文字数指示: 300〜500文字で詳細に描写してください。**
+自然な日本語で、感情豊かに書いてください。
+
+**一人称ルール（厳守）**: ユーザープロンプトで指定された一人称を必ず使ってください。「僕」「俺」「私」など勝手に変えてはいけません。"""
+
+GENDER_CONGRUENT_FEELING_USER_PROMPT_TEMPLATE = """あなたは物語の主人公。{situation}直後の心境を、モノローグで書いてください。
+
+条件：
+- 一人称は必ず「{pronoun}」を使用（厳守。他のいかなる一人称にも変えないこと）
+- 相手のセリフは禁止
+- 性別違和・女装羞恥・「元に戻りたい」は絶対に書かない
+- 構成は以下の順で、各2〜3文ずつ。合計300〜500文字
+
+1. 着替えた直後の第一印象（見た目・雰囲気）
+2. 着心地や動きやすさなど身体感覚（性別羞恥ではない）
+3. この服装への率直な評価（場に合うか、好きか、普通か）
+4. 今の気分や次にどうしたいか（日常的な範囲）
+
+直前の状態：{before_desc}
+現在の状態：{after_desc}
+
+冒頭は「{opening}」で開始してください。"""
+
+GENDER_CONGRUENT_OPENINGS: dict[str, list[str]] = {
+    "default": [
+        "おっと…まあ、普通の服だな…",
+        "ん、着替えか。なるほど…",
+        "ふむ、この格好か…",
+        "ああ、こういう服ね…",
+        "よし、着替えた…",
+        "うん、悪くない感じだ…",
+        "まあ、普段着みたいなものか…",
+        "着心地はどうだろう…",
+        "この雰囲気、落ち着くな…",
+        "とりあえず着てみた、と…",
+    ],
+    "bold": [
+        "へえ、普通の服か。悪くないな。",
+        "ふん、これくらいなら問題ないだろ。",
+        "ま、スーツとか普通だよな。",
+        "よし、決まりだ。次いこうぜ。",
+        "このくらい着慣れてるっての。",
+    ],
+    "gentle": [
+        "ふふ…落ち着いた服装ですね…",
+        "ああ…自然な感じがします…",
+        "着心地、悪くないかも…",
+        "穏やかな気分になれる服だな…",
+        "このくらいなら安心できます…",
+    ],
+    "cheerful": [
+        "おっ、いいじゃんこの服！",
+        "着替え完了！ノリいい感じ！",
+        "うんうん、これ普通に好きかも！",
+        "よし、決まった！出かけるぞ！",
+        "なかなかキマってるんじゃない？",
+    ],
+    "shy": [
+        "えっと…普通の服、だよね…",
+        "うん…これなら大丈夫…かな…",
+        "ちょっと改まってるけど…普通…",
+        "誰かに見られても…まあ普通…",
+        "落ち着ける服でよかった…",
+    ],
+}
 
 # デフォルトの開始セリフ
 DEFAULT_OPENINGS = [
@@ -870,6 +955,7 @@ def build_enhanced_feeling_prompt(
     description: str = "",
     used_openings: list[str] | None = None,
     enable_multiple_people: bool = False,
+    gender_congruence: "GenderCongruenceResult | None" = None,
 ) -> tuple[str, str]:
     """Build an enhanced feeling prompt with psychological stage and personality.
 
@@ -889,27 +975,43 @@ def build_enhanced_feeling_prompt(
         personality: Character personality text
         description: Character description text
         used_openings: Recently used opening lines for dedup
+        gender_congruence: Optional gender-congruence judgment. When
+            should_feel_gender_discomfort is False, uses a non-TSF monologue.
 
     Returns:
         (system_prompt, user_prompt) tuple
     """
-    # 初回変身（transformation_count == 0）の場合は特別なプロンプトを使用
-    if transformation_count == 0:
-        stage = FIRST_TRANSFORMATION_STAGE
-    else:
-        stage = get_psychological_stage(bloom, nsfw_mode)
-
     personality_type = classify_personality_type(personality, description)
-    opening = select_opening(
-        openings=stage["openings"],
-        personality_type=personality_type,
-        pronoun=pronoun,
-        used_openings=used_openings,
-    )
     situation = f"「{instruction}」という指示で衣装が変更された"
+    use_congruent = (
+        gender_congruence is not None
+        and not gender_congruence.should_feel_gender_discomfort
+    )
 
-    # Build system prompt with optional personality section (R-002)
-    system_prompt = stage["system_prompt"]
+    if use_congruent:
+        system_prompt = GENDER_CONGRUENT_FEELING_SYSTEM_PROMPT
+        opening = select_opening(
+            openings=GENDER_CONGRUENT_OPENINGS,
+            personality_type=personality_type,
+            pronoun=pronoun,
+            used_openings=used_openings,
+        )
+        user_template = GENDER_CONGRUENT_FEELING_USER_PROMPT_TEMPLATE
+    else:
+        # 初回変身（transformation_count == 0）の場合は特別なプロンプトを使用
+        if transformation_count == 0:
+            stage = FIRST_TRANSFORMATION_STAGE
+        else:
+            stage = get_psychological_stage(bloom, nsfw_mode)
+        system_prompt = stage["system_prompt"]
+        opening = select_opening(
+            openings=stage["openings"],
+            personality_type=personality_type,
+            pronoun=pronoun,
+            used_openings=used_openings,
+        )
+        user_template = FEELING_USER_PROMPT_TEMPLATE
+
     if personality:
         truncated = personality[:500] if len(personality) > 500 else personality
         personality_section = f"\n\n【このキャラクターの性格】\n- 性格: {truncated}\n"
@@ -940,7 +1042,7 @@ def build_enhanced_feeling_prompt(
         )
 
     user_prompt = (
-        FEELING_USER_PROMPT_TEMPLATE.format(
+        user_template.format(
             situation=situation,
             pronoun=pronoun,
             before_desc=before_desc,
@@ -1054,25 +1156,46 @@ Structure to include:
 Output only the positive prompt in English. Do not output negative prompt or any explanation."""
 
 
+# 性別適合服装時: 恥ずかしさ・官能的ポーズが服の性別寄りのバイアスになるのを抑える
+GENDER_CONGRUENT_IMAGE_CUE_RULE = """
+
+## Gender-congruent outfit (IMPORTANT)
+This outfit is natural for the character's original gender. Apply ALL of the following:
+- Do NOT add embarrassed, blushing, shy posture, reluctant, seductive, or sensual expression/pose cues.
+- Use a neutral or calm expression and a natural everyday pose.
+- Do NOT reframe ordinary clothing (e.g. pajamas, suit) as sexy, revealing, frilly, or lingerie-like.
+- Prefer gender-neutral or original-gender clothing presentation (e.g. men's sleepwear for a male character when the instruction is just "pajamas").
+- Even if NSFW mode is on, do NOT inject cleavage, body-curve emphasis, transparent fabric, or "revealing" tags unless the user instruction explicitly asks for them.
+"""
+
+
 def get_image_edit_system_prompt(
-    image_provider: str = "qwen", nsfw_mode: bool = False
+    image_provider: str = "qwen",
+    nsfw_mode: bool = False,
+    suppress_gender_discomfort_cues: bool = False,
 ) -> str:
     """画像編集用システムプロンプトを取得
 
     Args:
         image_provider: 画像生成プロバイダー ("qwen" or "novelai")
         nsfw_mode: NSFWモードかどうか
+        suppress_gender_discomfort_cues: True のとき恥ずかしさ・官能ポーズ等を禁止
 
     Returns:
         システムプロンプト
     """
     if image_provider == "novelai":
         if nsfw_mode:
-            return IMAGE_EDIT_SYSTEM_PROMPT_NOVELAI_NSFW
-        return IMAGE_EDIT_SYSTEM_PROMPT_NOVELAI
+            base = IMAGE_EDIT_SYSTEM_PROMPT_NOVELAI_NSFW
+        else:
+            base = IMAGE_EDIT_SYSTEM_PROMPT_NOVELAI
+    else:
+        # デフォルト（Qwen用）
+        base = IMAGE_EDIT_SYSTEM_PROMPT
 
-    # デフォルト（Qwen用）
-    return IMAGE_EDIT_SYSTEM_PROMPT
+    if suppress_gender_discomfort_cues:
+        return base + GENDER_CONGRUENT_IMAGE_CUE_RULE
+    return base
 
 
 # NovelAI向け品質タグ定義 (T014)
@@ -1325,6 +1448,7 @@ def get_novelai_prompt_generation_system(
     instruction_language: str = "ja",
     clothing_color_consistency: bool = False,
     enable_multiple_people: bool = False,
+    suppress_gender_discomfort_cues: bool = False,
 ) -> str:
     """NovelAIプロンプト生成用システムプロンプトを取得
 
@@ -1333,6 +1457,7 @@ def get_novelai_prompt_generation_system(
         instruction_language: ユーザー指示の言語
         clothing_color_consistency: 服の色の一貫性ルールを追加するか
         enable_multiple_people: 複数人表示モード
+        suppress_gender_discomfort_cues: True のとき恥ずかしさ・官能ポーズ等を禁止
 
     Returns:
         システムプロンプト文字列
@@ -1349,6 +1474,17 @@ def get_novelai_prompt_generation_system(
         base = NOVELAI_PROMPT_GENERATION_SYSTEM_NSFW
     else:
         base = NOVELAI_PROMPT_GENERATION_SYSTEM
+
+    if suppress_gender_discomfort_cues:
+        # "appropriate for the outfit" が shy/sexy に寄るのを上書き
+        base = base.replace(
+            "   - Add pose and expression tags appropriate for the outfit.\n",
+            "   - Use neutral/calm expression and natural everyday pose. "
+            "Do NOT use embarrassed, blushing, shy, seductive, or sensual pose tags.\n"
+            "   - Do NOT make ordinary clothes (pajamas, suit, etc.) look frilly, "
+            "lingerie-like, sexy, or revealing unless the instruction explicitly asks.\n",
+        )
+        base = base + GENDER_CONGRUENT_IMAGE_CUE_RULE
 
     if clothing_color_consistency:
         clothing_rule = (

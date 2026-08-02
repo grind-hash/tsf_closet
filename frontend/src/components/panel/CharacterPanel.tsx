@@ -549,7 +549,7 @@ export default function CharacterPanel() {
       t("character.preset.save_prompt", "プリセット名を入力"),
       character.name,
     );
-    if (!presetName || !presetName.trim()) return;
+    if (!presetName?.trim()) return;
     const trimmedName = presetName.trim();
     setSavingPresetId(character.id);
     setListError(null);

@@ -5,31 +5,50 @@
 
 import {
   createContext,
-  useContext,
-  useReducer,
-  useCallback,
-  useEffect,
-  useRef,
   type ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useReducer,
+  useRef,
 } from "react";
+import { getMemoryText as fetchMemoryTextApi } from "../apis/memory";
+import type { SelfProfile } from "../apis/settings";
+import { getSelfProfile as fetchSelfProfileApi } from "../apis/settings";
+import { DEFAULT_LANGUAGE, type UiLanguage } from "../constants/language";
+import i18n from "../i18n";
 import type {
-  InpaintSettings,
-  InpaintMaskState,
+  AnlasBalance,
   ChangeSettings,
+  InpaintMaskState,
+  InpaintSettings,
   InstructionType,
   PreciseReference,
-  AnlasBalance,
 } from "../types";
 import {
   DEFAULT_CHANGE_SETTINGS,
   DEFAULT_INPAINT_MASK_STATE,
   DEFAULT_INPAINT_SETTINGS,
 } from "../types";
-import { DEFAULT_LANGUAGE, type UiLanguage } from "../constants/language";
-import type { SelfProfile } from "../apis/settings";
-import { getSelfProfile as fetchSelfProfileApi } from "../apis/settings";
-import { getMemoryText as fetchMemoryTextApi } from "../apis/memory";
-import i18n from "../i18n";
+import {
+  DEFAULT_HISTORY_LOOKBACK_TARGETS,
+  type HistoryLookbackTargets,
+  normalizeHistoryLookbackTargets,
+} from "../utils/historyLookback";
+
+type FeelingMode = "legacy" | "gender_aware";
+
+/** API / 旧値を feelingMode に正規化する */
+function normalizeFeelingMode(raw: unknown): FeelingMode {
+  if (raw === "gender_aware") {
+    return "gender_aware";
+  }
+  // 誤って保存された new / experimental は gender_aware 扱い
+  if (raw === "new" || raw === "experimental") {
+    return "gender_aware";
+  }
+  return "legacy";
+}
 
 // 設定状態の型定義
 interface SettingsState {
@@ -37,6 +56,10 @@ interface SettingsState {
   difficulty: "easy" | "normal" | "hard";
   // 開花度増分の計算方式 (legacy=従来, new=緩やか)
   bloomCalcMethod: "legacy" | "new";
+  // 心境生成方式 (legacy=従来TSF抵抗, gender_aware=性別適合を考慮)
+  feelingMode: "legacy" | "gender_aware";
+  // 性別適合の高度判定 (LLM)。feelingMode=gender_aware 時のみ有効。デフォルト OFF
+  genderCongruenceLlmEnabled: boolean;
   language: UiLanguage;
 
   // NSFWモード
@@ -67,6 +90,9 @@ interface SettingsState {
   experimentalEndingEnabled: boolean;
   playMemoryEnabled: boolean;
 
+  // お気に入り一覧からの削除時に確認ダイアログを表示する (spec 009)
+  confirmFavoriteRemove: boolean;
+
   // サウンド設定
   soundEnabled: boolean;
   soundVolume: number;
@@ -93,6 +119,9 @@ interface SettingsState {
 
   // Clothing color consistency (experimental)
   clothingColorConsistency: boolean;
+
+  // 衣装レイヤーの可視性を考慮する
+  respectClothingLayers: boolean;
 
   // Chat-to-image linking: scroll chat on image navigation
   linkChatToImage: boolean;
@@ -122,6 +151,7 @@ interface SettingsState {
 
   // spec 004 (US4): プロンプト生成時に参照する履歴遡及件数 (5..20, default 10)
   historyLookbackCount: number;
+  historyLookbackTargets: HistoryLookbackTargets;
 
   // メモリ機能: ユーザーの好み・性的嗜好を保持するテキスト
   memoryText: string | null;
@@ -131,6 +161,8 @@ interface SettingsState {
 type SettingsAction =
   | { type: "SET_DIFFICULTY"; payload: "easy" | "normal" | "hard" }
   | { type: "SET_BLOOM_CALC_METHOD"; payload: "legacy" | "new" }
+  | { type: "SET_FEELING_MODE"; payload: "legacy" | "gender_aware" }
+  | { type: "SET_GENDER_CONGRUENCE_LLM_ENABLED"; payload: boolean }
   | { type: "SET_LANGUAGE"; payload: UiLanguage }
   | { type: "SET_NSFW_MODE"; payload: boolean }
   | { type: "TOGGLE_NSFW" }
@@ -153,6 +185,7 @@ type SettingsAction =
   | { type: "SET_SHOW_REALITY_ATTRIBUTE_NOTIFICATION"; payload: boolean }
   | { type: "SET_EXPERIMENTAL_ENDING_ENABLED"; payload: boolean }
   | { type: "SET_PLAY_MEMORY_ENABLED"; payload: boolean }
+  | { type: "SET_CONFIRM_FAVORITE_REMOVE"; payload: boolean }
   | { type: "SET_SOUND_ENABLED"; payload: boolean }
   | { type: "SET_SOUND_VOLUME"; payload: number }
   | { type: "TOGGLE_PANEL" }
@@ -171,6 +204,7 @@ type SettingsAction =
   | { type: "SET_SURROUNDINGS_INCLUDE_PEOPLE"; payload: boolean }
   | { type: "SET_FONT_FAMILY"; payload: string }
   | { type: "SET_CLOTHING_COLOR_CONSISTENCY"; payload: boolean }
+  | { type: "SET_RESPECT_CLOTHING_LAYERS"; payload: boolean }
   | { type: "SET_LINK_CHAT_TO_IMAGE"; payload: boolean }
   | { type: "SET_ENABLE_MULTIPLE_PEOPLE"; payload: boolean }
   | { type: "SET_MULTI_CHARACTER_PANEL_ENABLED"; payload: boolean }
@@ -184,12 +218,18 @@ type SettingsAction =
   | { type: "SET_TTS_STYLE_ID"; payload: string | null }
   | { type: "SET_TTS_OUTPUT_FORMAT"; payload: "wav" }
   | { type: "SET_HISTORY_LOOKBACK_COUNT"; payload: number }
+  | {
+      type: "SET_HISTORY_LOOKBACK_TARGET";
+      payload: { target: InstructionType; enabled: boolean };
+    }
   | { type: "SET_MEMORY_TEXT"; payload: string | null };
 
 // デフォルト状態
 const defaultState: SettingsState = {
   difficulty: "normal",
   bloomCalcMethod: "legacy",
+  feelingMode: "legacy",
+  genderCongruenceLlmEnabled: false,
   language: DEFAULT_LANGUAGE,
   nsfwMode: false,
   imageProvider: "selfhost",
@@ -205,6 +245,7 @@ const defaultState: SettingsState = {
   showRealityAttributeNotification: true,
   experimentalEndingEnabled: false,
   playMemoryEnabled: false,
+  confirmFavoriteRemove: true,
   soundEnabled: true,
   soundVolume: 0.5,
   rightPanelOpen: false,
@@ -215,6 +256,7 @@ const defaultState: SettingsState = {
   surroundingsIncludePeople: false,
   fontFamily: "system",
   clothingColorConsistency: false,
+  respectClothingLayers: false,
   linkChatToImage: false,
   enableMultiplePeople: false,
   multiCharacterPanelEnabled: true,
@@ -228,6 +270,7 @@ const defaultState: SettingsState = {
   ttsStyleId: null,
   ttsOutputFormat: "wav",
   historyLookbackCount: 10,
+  historyLookbackTargets: { ...DEFAULT_HISTORY_LOOKBACK_TARGETS },
   memoryText: null,
 };
 
@@ -241,6 +284,10 @@ function settingsReducer(
       return { ...state, difficulty: action.payload };
     case "SET_BLOOM_CALC_METHOD":
       return { ...state, bloomCalcMethod: action.payload };
+    case "SET_FEELING_MODE":
+      return { ...state, feelingMode: action.payload };
+    case "SET_GENDER_CONGRUENCE_LLM_ENABLED":
+      return { ...state, genderCongruenceLlmEnabled: action.payload };
     case "SET_LANGUAGE":
       return { ...state, language: action.payload };
     case "SET_NSFW_MODE":
@@ -303,6 +350,8 @@ function settingsReducer(
       return { ...state, experimentalEndingEnabled: action.payload };
     case "SET_PLAY_MEMORY_ENABLED":
       return { ...state, playMemoryEnabled: action.payload };
+    case "SET_CONFIRM_FAVORITE_REMOVE":
+      return { ...state, confirmFavoriteRemove: action.payload };
     case "SET_SOUND_ENABLED":
       return { ...state, soundEnabled: action.payload };
     case "SET_SOUND_VOLUME":
@@ -346,6 +395,8 @@ function settingsReducer(
       return { ...state, fontFamily: action.payload };
     case "SET_CLOTHING_COLOR_CONSISTENCY":
       return { ...state, clothingColorConsistency: action.payload };
+    case "SET_RESPECT_CLOTHING_LAYERS":
+      return { ...state, respectClothingLayers: action.payload };
     case "SET_LINK_CHAT_TO_IMAGE":
       return { ...state, linkChatToImage: action.payload };
     case "SET_ENABLE_MULTIPLE_PEOPLE":
@@ -375,6 +426,14 @@ function settingsReducer(
         ...state,
         historyLookbackCount: Math.max(5, Math.min(20, action.payload)),
       };
+    case "SET_HISTORY_LOOKBACK_TARGET":
+      return {
+        ...state,
+        historyLookbackTargets: {
+          ...state.historyLookbackTargets,
+          [action.payload.target]: action.payload.enabled,
+        },
+      };
     case "SET_MEMORY_TEXT":
       return { ...state, memoryText: action.payload };
     default:
@@ -387,6 +446,8 @@ interface SettingsContextType {
   state: SettingsState;
   setDifficulty: (difficulty: "easy" | "normal" | "hard") => void;
   setBloomCalcMethod: (method: "legacy" | "new") => void;
+  setFeelingMode: (mode: "legacy" | "gender_aware") => void;
+  setGenderCongruenceLlmEnabled: (enabled: boolean) => void;
   setLanguage: (language: UiLanguage) => void;
   setNsfwMode: (enabled: boolean) => void;
   toggleNsfw: () => void;
@@ -409,6 +470,7 @@ interface SettingsContextType {
   setShowRealityAttributeNotification: (show: boolean) => void;
   setExperimentalEndingEnabled: (enabled: boolean) => void;
   setPlayMemoryEnabled: (enabled: boolean) => void;
+  setConfirmFavoriteRemove: (enabled: boolean) => void;
   setSoundEnabled: (enabled: boolean) => void;
   setSoundVolume: (volume: number) => void;
   togglePanel: () => void;
@@ -430,6 +492,7 @@ interface SettingsContextType {
   setFontFamily: (fontFamily: string) => void;
   setClothingColorConsistency: (enabled: boolean) => void;
   setLinkChatToImage: (enabled: boolean) => void;
+  setRespectClothingLayers: (enabled: boolean) => void;
   setEnableMultiplePeople: (enabled: boolean) => void;
   setMultiCharacterPanelEnabled: (enabled: boolean) => void;
   setNovelaiTextModel: (model: string) => void;
@@ -442,6 +505,7 @@ interface SettingsContextType {
   setTtsStyleId: (styleId: string | null) => void;
   setTtsOutputFormat: (format: "wav") => void;
   setHistoryLookbackCount: (count: number) => void;
+  setHistoryLookbackTarget: (target: InstructionType, enabled: boolean) => void;
   // メモリ機能
   memoryText: string | null;
   setMemoryText: (memoryText: string | null) => void;
@@ -463,14 +527,15 @@ function loadInitialState(initial: SettingsState): SettingsState {
     if (saved) {
       const parsed = JSON.parse(saved);
       // imageProviderはバックエンドから取得するため除外
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { imageProvider: _ignored, ...rest } = parsed;
       // novelaiTextModelとnovelaiTierはバックエンド/API経由のため除外
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { novelaiTextModel: _nai, novelaiTier: _tier, ...filtered } = rest;
       return {
         ...initial,
         ...filtered,
+        historyLookbackTargets: normalizeHistoryLookbackTargets(
+          filtered.historyLookbackTargets,
+        ),
         totalCost:
           typeof rest.totalCost === "number"
             ? rest.totalCost
@@ -556,6 +621,9 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
               nsfwMode: data.nsfw_mode,
               difficulty: data.difficulty,
               bloomCalcMethod: data.bloom_calc_method ?? "legacy",
+              feelingMode: normalizeFeelingMode(data.feeling_mode),
+              genderCongruenceLlmEnabled:
+                data.gender_congruence_llm_enabled ?? false,
               language: data.language ?? DEFAULT_LANGUAGE,
               novelaiTextModel: data.novelai_text_model ?? "glm-4-6",
               ttsEnabled: data.tts_enabled ?? false,
@@ -631,7 +699,6 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!isInitializedRef.current) return;
     try {
-      /* eslint-disable @typescript-eslint/no-unused-vars */
       const {
         imageProvider: _ignored,
         preciseReferences: _ignored2,
@@ -643,7 +710,6 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         memoryText: _ignored8,
         ...rest
       } = state;
-      /* eslint-enable @typescript-eslint/no-unused-vars */
       localStorage.setItem(STORAGE_KEY, JSON.stringify(rest));
       localStorage.setItem("api_total_cost", String(state.totalCost));
     } catch (error) {
@@ -705,6 +771,41 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       console.error("Failed to save bloom_calc_method to backend:", error);
     }
   }, []);
+
+  const setFeelingMode = useCallback(
+    async (mode: "legacy" | "gender_aware") => {
+      dispatch({ type: "SET_FEELING_MODE", payload: mode });
+      try {
+        await fetch("/api/settings/user", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ feeling_mode: mode }),
+        });
+      } catch (error) {
+        console.error("Failed to save feeling_mode to backend:", error);
+      }
+    },
+    [],
+  );
+
+  const setGenderCongruenceLlmEnabled = useCallback(
+    async (enabled: boolean) => {
+      dispatch({ type: "SET_GENDER_CONGRUENCE_LLM_ENABLED", payload: enabled });
+      try {
+        await fetch("/api/settings/user", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ gender_congruence_llm_enabled: enabled }),
+        });
+      } catch (error) {
+        console.error(
+          "Failed to save gender_congruence_llm_enabled to backend:",
+          error,
+        );
+      }
+    },
+    [],
+  );
 
   const setNsfwMode = useCallback(async (enabled: boolean) => {
     dispatch({ type: "SET_NSFW_MODE", payload: enabled });
@@ -830,6 +931,9 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const setPlayMemoryEnabled = useCallback((enabled: boolean) => {
     dispatch({ type: "SET_PLAY_MEMORY_ENABLED", payload: enabled });
   }, []);
+  const setConfirmFavoriteRemove = useCallback((enabled: boolean) => {
+    dispatch({ type: "SET_CONFIRM_FAVORITE_REMOVE", payload: enabled });
+  }, []);
 
   const setSoundEnabled = useCallback((enabled: boolean) => {
     dispatch({ type: "SET_SOUND_ENABLED", payload: enabled });
@@ -902,6 +1006,9 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "SET_CLOTHING_COLOR_CONSISTENCY", payload: enabled });
   }, []);
 
+  const setRespectClothingLayers = useCallback((enabled: boolean) => {
+    dispatch({ type: "SET_RESPECT_CLOTHING_LAYERS", payload: enabled });
+  }, []);
   const setLinkChatToImage = useCallback((enabled: boolean) => {
     dispatch({ type: "SET_LINK_CHAT_TO_IMAGE", payload: enabled });
   }, []);
@@ -1039,6 +1146,16 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const setHistoryLookbackTarget = useCallback(
+    (target: InstructionType, enabled: boolean) => {
+      dispatch({
+        type: "SET_HISTORY_LOOKBACK_TARGET",
+        payload: { target, enabled },
+      });
+    },
+    [],
+  );
+
   const setMemoryText = useCallback((memoryText: string | null) => {
     dispatch({ type: "SET_MEMORY_TEXT", payload: memoryText });
   }, []);
@@ -1056,6 +1173,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     state,
     setDifficulty,
     setBloomCalcMethod,
+    setFeelingMode,
+    setGenderCongruenceLlmEnabled,
     setLanguage,
     setNsfwMode,
     toggleNsfw,
@@ -1075,6 +1194,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setShowRealityAttributeNotification,
     setExperimentalEndingEnabled,
     setPlayMemoryEnabled,
+    setConfirmFavoriteRemove,
     setSoundEnabled,
     setSoundVolume,
     togglePanel,
@@ -1093,6 +1213,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setClothingColorConsistency,
     setLinkChatToImage,
     setEnableMultiplePeople,
+    setRespectClothingLayers,
     setMultiCharacterPanelEnabled,
     setNovelaiTextModel,
     setNovelaiTier,
@@ -1104,6 +1225,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setTtsStyleId,
     setTtsOutputFormat,
     setHistoryLookbackCount,
+    setHistoryLookbackTarget,
     memoryText: state.memoryText,
     setMemoryText,
     loadMemoryText,
@@ -1117,7 +1239,6 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
 }
 
 // Custom Hook
-// eslint-disable-next-line react-refresh/only-export-components
 export function useSettings(): SettingsContextType {
   const context = useContext(SettingsContext);
   if (!context) {

@@ -1,7 +1,9 @@
+# Prettier is used only for Markdown (Biome handles other formats)
+**/*
+!**/*.md
+!**/*.mdx
 node_modules/
 dist/
 build/
 coverage/
-package-lock.json
-yarn.lock
-pnpm-lock.yaml
+test-results/

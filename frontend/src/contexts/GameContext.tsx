@@ -5,21 +5,21 @@
 
 import {
   createContext,
-  useContext,
-  useReducer,
-  useCallback,
-  useEffect,
   type ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useReducer,
 } from "react";
 import type {
-  SessionStats,
-  HistoryItem,
   Character,
-  Ending,
-  SessionAttribute,
   ConversationMessage,
-  SurroundingsImageState,
+  Ending,
+  HistoryItem,
+  SessionAttribute,
   SessionCharacter,
+  SessionStats,
+  SurroundingsImageState,
 } from "../types";
 import { API_BASE } from "../utils/api";
 
@@ -30,16 +30,21 @@ export interface PlayMemoryState {
   userText: string | null;
   systemUpdatedAt: string | null;
 }
+
 import {
-  applyPresetToSession,
   createSessionCharacter as apiCreateSessionCharacter,
   deleteSessionCharacter as apiDeleteSessionCharacter,
   ensureProtagonistCharacter as apiEnsureProtagonistCharacter,
-  listSessionCharacters,
   updateSessionCharacter as apiUpdateSessionCharacter,
+  applyPresetToSession,
   type CreateSessionCharacterPayload,
+  listSessionCharacters,
   type UpdateSessionCharacterPayload,
 } from "../apis/characters";
+import {
+  branchSessionFromHistory as apiBranchSessionFromHistory,
+  type BranchSessionResponse,
+} from "../apis/game";
 
 interface GameState {
   sessionId: string | null;
@@ -335,6 +340,14 @@ interface GameContextType {
   loadCharacters: () => Promise<void>;
   restoreActiveSession: () => Promise<boolean>;
   restoreSessionById: (sessionId: string) => Promise<boolean>;
+  /**
+   * 履歴画像から新規セッションを分岐開始する。
+   * 成功時は Game 状態を差し替え、session_id を返す。
+   */
+  startSessionFromHistory: (
+    historyId: string,
+    options?: { inheritStats?: boolean; selfMode?: boolean },
+  ) => Promise<BranchSessionResponse>;
   resetSession: () => Promise<void>;
   updateStats: (stats: Partial<SessionStats>) => void;
   updateFromSSE: (data: {
@@ -635,6 +648,30 @@ export function GameProvider({ children }: { children: ReactNode }) {
       return false;
     }
   }, []);
+
+  const startSessionFromHistory = useCallback(
+    async (
+      historyId: string,
+      options?: { inheritStats?: boolean; selfMode?: boolean },
+    ): Promise<BranchSessionResponse> => {
+      const data = await apiBranchSessionFromHistory(historyId, options);
+      dispatch(
+        mapSessionResponse(
+          data as Parameters<typeof mapSessionResponse>[0] & {
+            session_id: string;
+          },
+        ),
+      );
+      try {
+        const records = await listSessionCharacters(data.session_id);
+        dispatch({ type: "SET_SESSION_CHARACTERS", payload: records });
+      } catch {
+        dispatch({ type: "SET_SESSION_CHARACTERS", payload: [] });
+      }
+      return data;
+    },
+    [],
+  );
 
   const resetSession = useCallback(async () => {
     try {
@@ -1017,6 +1054,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
     loadCharacters,
     restoreActiveSession,
     restoreSessionById,
+    startSessionFromHistory,
     resetSession,
     updateStats,
     updateFromSSE,
@@ -1058,7 +1096,6 @@ export function GameProvider({ children }: { children: ReactNode }) {
   return <GameContext.Provider value={value}>{children}</GameContext.Provider>;
 }
 
-// eslint-disable-next-line react-refresh/only-export-components
 export function useGame(): GameContextType {
   const context = useContext(GameContext);
   if (!context) {

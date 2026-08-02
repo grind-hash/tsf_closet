@@ -3,7 +3,7 @@
  * NovelAI APIキーの利用用途を説明し、同意を取得する
  */
 
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import "./ApiKeyConsentModal.css";
 import { saveApiKeyConsent } from "./apiKeyConsentStorage";

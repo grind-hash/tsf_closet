@@ -5,7 +5,7 @@
  * - Seed input field accepts values
  * - Seed value included in API requests
  */
-import { test, expect } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 
 test.describe("US4: Seed value display", () => {
   test("seed display area exists in play screen", async ({ page }) => {

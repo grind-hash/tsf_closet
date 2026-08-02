@@ -26,7 +26,7 @@
 - React/TypeScript の型安全性を最優先し、strict モードを維持する（MUST）。
 - `any` 型の使用は極力避け、必要時は明確な理由を残す（SHOULD）。
 - 型エラー・lint エラーは無視せず、根本原因を解消する（MUST）。
-- フロントエンドの Linter/Formatter は ESLint/Prettier、バックエンドの整形は Ruff を用い、警告/エラーをゼロに保つ（MUST）。
+- フロントエンドの Linter/Formatter は Biome、Markdown の整形は Prettier、バックエンドの整形は Ruff を用い、警告/エラーをゼロに保つ（MUST）。
 
 ### IV. API 設計とエラーハンドリング
 
@@ -48,7 +48,8 @@
 - Node.js: Volta で管理（推奨バージョン: 24）
 - フロントエンド（React）: port 3000
 - バックエンド（FastAPI）: port 8000
-- Markdown Formatter: Prettier
+- Frontend Linter/Formatter: Biome
+- Markdown Formatter: Prettier（Biome 非対応のため）
 
 ## Deployment & Dependencies
 
@@ -69,4 +70,4 @@
 - すべての PR・レビューで本憲章への準拠を確認する（MUST）。
 - 本憲章の改定は、変更理由・影響範囲・移行方針を明記した上で実施する（MUST）。
 
-**Version**: 1.0.0 | **Ratified**: 2026-01-20 | **Last Amended**: 2026-02-14
+**Version**: 1.1.0 | **Ratified**: 2026-01-20 | **Last Amended**: 2026-07-26

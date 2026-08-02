@@ -14,7 +14,7 @@ import logging
 import random
 from dataclasses import dataclass
 from pathlib import Path
-from typing import AsyncGenerator, Optional, Tuple
+from typing import Any, AsyncGenerator, Optional, Tuple
 
 from .characters import character_manager
 from .comfy import ComfyUIClient
@@ -53,6 +53,20 @@ from .action_prompts import (
 )
 from .self_mode_prompts import build_self_mode_feeling_prompt
 from .memory_prompts import build_memory_priority_instruction
+from .clothing_layers import (
+    append_clothing_layer_feeling_rule,
+    append_clothing_layer_image_rule,
+    clothing_layer_negative_suffix,
+    ensure_characters_worn_under_layers,
+    ensure_worn_under_layers,
+    merge_negative_prompt,
+    strip_characters_worn_under_layers,
+    strip_worn_under_layers_for_image,
+)
+from .history_context import (
+    build_history_context,
+    resolve_history_lookback_enabled,
+)
 from .session import session_store
 from .settings_service import settings_service
 from .tag_classifier import classify_tags, TransformationTags
@@ -67,10 +81,18 @@ from ..routes.achievements_router import (
     update_achievement_counts,
 )
 from .achievement_classifier import classify_for_achievement
+from .gender_congruence import (
+    GenderCongruenceResult,
+    evaluate_gender_congruence,
+    is_gender_aware_feeling_mode,
+    normalize_feeling_mode,
+    should_use_congruence_llm,
+)
 from .anlas_service import get_anlas_balance
 from ..consts.language import normalize_language
 from ..databases.base import async_session_factory
 from .character_service import (
+    apply_character_prompt_tags,
     build_novelai_characters_section,
     build_session_characters_prompt_section,
     load_session_characters_for_prompt,
@@ -206,6 +228,7 @@ def calculate_parameter_change(
     tags: TransformationTags,
     stats: SessionStats,
     bloom_calc_method: str = "legacy",
+    gender_discomfort: bool = True,
 ) -> Tuple[int, int, int]:
     """パラメータ変化量を計算する
 
@@ -213,6 +236,7 @@ def calculate_parameter_change(
         tags: 変身タグ
         stats: 現在のセッション統計
         bloom_calc_method: 開花度増分の計算方式 ("legacy" | "new")
+        gender_discomfort: False のとき性別適合服装として開花増分を 0 にする
 
     Returns:
         (bloom_delta, shame_delta, adaptation_delta) のタプル
@@ -248,6 +272,11 @@ def calculate_parameter_change(
     # 順応度計算
     adaptation_raw = ADAPTATION_BY_CATEGORY.get(tags.costume_category, 0)
     adaptation_delta = int(adaptation_raw * preset.adaptation_multiplier)
+
+    # 元性別と違和感のない服装: 開花は増やさない。羞恥の大幅増も抑える
+    if not gender_discomfort:
+        bloom_delta = 0
+        shame_delta = min(shame_delta, 0)
 
     return bloom_delta, shame_delta, adaptation_delta
 
@@ -458,6 +487,21 @@ class GameService:
         session = await self._get_or_create_session(request)
         logger.debug("Session: %s", session.session_id)
 
+        history_context = ""
+        history_enabled = resolve_history_lookback_enabled(
+            request.use_history_lookback,
+            instruction_type=request.instruction_type,
+            transformation_type=request.transformation_type,
+        )
+        if history_enabled and request.instruction_type != "action":
+            lookback_count = settings_service.get_history_lookback_count(
+                session.session_id
+            )
+            recent_history = await session_store.get_recent_instructions(
+                session.session_id, limit=lookback_count
+            )
+            history_context = build_history_context(recent_history)
+
         # ユーザー設定からNovelAIテキストモデルを取得
         user_settings = await session_store.get_user_settings(session.session_id)
         effective_novelai_text_model = user_settings.get("novelai_text_model")
@@ -477,6 +521,8 @@ class GameService:
             current_description=before_desc,
             novelai_model_override=effective_novelai_text_model,
             use_memory=request.use_memory,
+            respect_clothing_layers=request.respect_clothing_layers,
+            history_context=history_context,
         )
         logger.info("Image edit prompt: %s", image_edit_prompt[:100])
 
@@ -500,6 +546,8 @@ class GameService:
                 instruction=request.instruction,
                 pronoun=pronoun,
                 novelai_model_override=effective_novelai_text_model,
+                respect_clothing_layers=request.respect_clothing_layers,
+                history_context=history_context,
             )
         )
 
@@ -614,6 +662,67 @@ class GameService:
             logger.warning("Failed to get Anlas balance: %s", e)
             return None
 
+    def _prepare_clothing_layer_image_payload(
+        self,
+        prompt: str,
+        characters: list[dict] | None,
+        *,
+        previous_prompt: str | None,
+        instruction: str,
+        respect_clothing_layers: bool,
+        negative_prompt: str | None,
+    ) -> tuple[str, str, list[dict] | None, list[dict] | None, str | None]:
+        """衣装レイヤーON時に visual / inventory を分離し、送信用と履歴用を返す。
+
+        Returns:
+            (state_prompt, image_prompt, state_characters, image_characters, negative)
+        """
+        state_prompt = prompt or ""
+        state_characters = characters
+        if respect_clothing_layers:
+            state_prompt = ensure_worn_under_layers(
+                state_prompt,
+                previous_prompt,
+                respect_clothing_layers=True,
+                instruction=instruction,
+            )
+            state_characters = ensure_characters_worn_under_layers(
+                characters,
+                previous_prompt,
+                respect_clothing_layers=True,
+                instruction=instruction,
+            )
+
+        # negative 判定は visual 有無を見るため、state 全文（characters 含む）を渡す
+        negative_source_parts: list[str] = []
+        if state_characters:
+            for char in state_characters:
+                prompt_text = char.get("prompt")
+                if isinstance(prompt_text, str) and prompt_text.strip():
+                    negative_source_parts.append(prompt_text)
+        if state_prompt.strip():
+            negative_source_parts.append(state_prompt)
+        negative_source = (
+            "\n".join(negative_source_parts) if negative_source_parts else ""
+        )
+
+        layer_negative = clothing_layer_negative_suffix(
+            negative_source,
+            respect_clothing_layers=respect_clothing_layers,
+            instruction=instruction,
+        )
+        merged_negative = merge_negative_prompt(negative_prompt, layer_negative)
+
+        image_prompt = strip_worn_under_layers_for_image(state_prompt)
+        image_characters = strip_characters_worn_under_layers(state_characters)
+        return (
+            state_prompt,
+            image_prompt,
+            state_characters,
+            image_characters,
+            merged_negative,
+        )
+
     async def _generate_image(
         self,
         image_bytes: bytes,
@@ -636,7 +745,7 @@ class GameService:
 
         Args:
             image_bytes: 入力画像
-            instruction: 着せ替え指示
+            instruction: 着せ替え指示（画像APIへ渡す最終プロンプト）
             costume_image_bytes: 参照衣装画像（オプション）
             nsfw_mode: NSFWモード (Trueの場合NSFWワークフローを使用)
             character_references: 精密参照画像パラメータのリスト（NovelAI専用）
@@ -655,9 +764,13 @@ class GameService:
             workflow_path = settings.get_workflow_path(workflow_name)
             logger.info(f"Using workflow: {workflow_name} ({workflow_path})")
 
+            # 保険: 呼び出し側で strip 漏れがあっても inventory 行は画像へ送らない
+            image_prompt = strip_worn_under_layers_for_image(instruction)
+            image_characters = strip_characters_worn_under_layers(characters)
+
             result = await self._image_service.edit_image(
                 image_bytes=image_bytes,
-                prompt=instruction,
+                prompt=image_prompt,
                 reference_image_bytes=costume_image_bytes,
                 mask_bytes=mask_bytes,
                 workflow_path=workflow_path,
@@ -667,7 +780,7 @@ class GameService:
                 nsfw_mode=nsfw_mode,
                 character_references=character_references,
                 seed=seed,
-                characters=characters,
+                characters=image_characters,
             )
             if not result.images:
                 raise GameServiceError("画像が生成されませんでした")
@@ -790,6 +903,9 @@ class GameService:
         nsfw_mode: bool = False,
         novelai_model_override: str | None = None,
         use_memory: bool = True,
+        respect_clothing_layers: bool = False,
+        suppress_gender_discomfort_cues: bool = False,
+        history_context: str = "",
     ) -> tuple[str, float | None]:
         """画像編集プロンプトを生成 (LLMService経由)
 
@@ -804,6 +920,7 @@ class GameService:
             change_scope: 変更対象 (full, upper, lower, accessories, shoes)
             custom_preserve_text: カスタム保持指示（自由記述）
             nsfw_mode: NSFWモードかどうか
+            suppress_gender_discomfort_cues: 性別適合時に恥ずかしさ・官能キューを抑止
 
         Returns:
             (生成された英語プロンプト, コスト(USD))
@@ -815,8 +932,12 @@ class GameService:
             memory_priority_suffix = (
                 await self._get_memory_priority_suffix() if use_memory else ""
             )
+            memory_priority_suffix = append_clothing_layer_image_rule(
+                memory_priority_suffix, respect_clothing_layers
+            )
+
             result = await llm_service.generate_image_edit_prompt(
-                instruction=instruction,
+                instruction=instruction + history_context,
                 current_description=current_description,
                 preserve_elements=preserve_elements,
                 change_scope=change_scope,
@@ -824,6 +945,7 @@ class GameService:
                 provider_override=settings.image_provider,
                 nsfw_mode=nsfw_mode,
                 extra_system_suffix=memory_priority_suffix,
+                suppress_gender_discomfort_cues=suppress_gender_discomfort_cues,
             )
             logger.info(
                 f"画像編集プロンプト生成完了: provider={result.provider}, cost={result.cost_usd}"
@@ -834,7 +956,7 @@ class GameService:
             logger.warning(
                 "Prompt generation failed, using original instruction: %s", e
             )
-            return instruction, None
+            return instruction + history_context, None
 
     def _merge_prompts(self, base_prompt: str, override_prompt: str) -> str:
         """ベースプロンプトとオーバーライドプロンプトをマージする (T009)
@@ -900,6 +1022,8 @@ class GameService:
         instruction: str,
         pronoun: str,
         novelai_model_override: str | None = None,
+        respect_clothing_layers: bool = False,
+        history_context: str = "",
     ) -> tuple[str, float | None]:
         """心境を生成 (LLMService経由)
 
@@ -925,10 +1049,13 @@ class GameService:
             instruction=instruction,
             pronoun=pronoun,
         )
+        user_prompt += history_context
 
         try:
             result = await llm_service.generate_feeling(
-                system_prompt=FEELING_SYSTEM_PROMPT,
+                system_prompt=append_clothing_layer_feeling_rule(
+                    FEELING_SYSTEM_PROMPT, respect_clothing_layers
+                ),
                 user_prompt=user_prompt,
                 novelai_model_override=novelai_model_override,
                 max_tokens=1024,
@@ -957,6 +1084,9 @@ class GameService:
         enable_multiple_people: bool = False,
         novelai_model_override: str | None = None,
         use_memory: bool = True,
+        respect_clothing_layers: bool = False,
+        gender_congruence: GenderCongruenceResult | None = None,
+        history_context: str = "",
     ) -> AsyncGenerator[str, None]:
         """LLM経由で心境テキストをストリーミング生成する。
 
@@ -976,6 +1106,7 @@ class GameService:
             personality: キャラクターの性格テキスト
             description: キャラクターの説明テキスト
             used_openings: 最近使用した書き出し（重複排除用）
+            gender_congruence: 性別適合判定結果
 
         Yields:
             テキストチャンク
@@ -994,13 +1125,18 @@ class GameService:
             description=description,
             used_openings=used_openings,
             enable_multiple_people=enable_multiple_people,
+            gender_congruence=gender_congruence,
         )
+        user_prompt += history_context
         from .conversation import get_language_rules
 
         system_prompt = f"{system_prompt}\n\n{get_language_rules(language)}"
         if use_memory:
             system_prompt += await self._get_memory_priority_suffix(language)
 
+        system_prompt = append_clothing_layer_feeling_rule(
+            system_prompt, respect_clothing_layers
+        )
         async for chunk in self._stream_feeling(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
@@ -1055,6 +1191,8 @@ class GameService:
         enable_multiple_people: bool = False,
         novelai_model_override: str | None = None,
         use_memory: bool = True,
+        respect_clothing_layers: bool = False,
+        history_context: str = "",
     ) -> AsyncGenerator[str, None]:
         """自分自身モードの心境テキストをユーザーの性格プロフィールでストリーミング生成する。
 
@@ -1080,12 +1218,16 @@ class GameService:
             nsfw_mode=nsfw_mode,
             enable_multiple_people=enable_multiple_people,
         )
+        user_prompt += history_context
         from .conversation import get_language_rules
 
         system_prompt = f"{system_prompt}\n\n{get_language_rules(language)}"
         if use_memory:
             system_prompt += await self._get_memory_priority_suffix(language)
 
+        system_prompt = append_clothing_layer_feeling_rule(
+            system_prompt, respect_clothing_layers
+        )
         async for chunk in self._stream_feeling(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
@@ -1103,6 +1245,8 @@ class GameService:
         image_provider: str = "qwen",
         novelai_model_override: str | None = None,
         use_memory: bool = True,
+        respect_clothing_layers: bool = False,
+        history_context: str = "",
     ) -> tuple[str, float | None]:
         """現実改変用画像編集プロンプトを生成 (LLMService経由)
 
@@ -1122,8 +1266,11 @@ class GameService:
             system_prompt = get_reality_edit_system_prompt(nsfw_mode, image_provider)
             if use_memory:
                 system_prompt += await self._get_memory_priority_suffix()
+            system_prompt = append_clothing_layer_image_rule(
+                system_prompt, respect_clothing_layers
+            )
             user_prompt = build_reality_edit_prompt(
-                instruction=instruction,
+                instruction=instruction + history_context,
                 current_description=current_description,
                 nsfw_mode=nsfw_mode,
             )
@@ -1152,6 +1299,8 @@ class GameService:
         enable_multiple_people: bool = False,
         novelai_model_override: str | None = None,
         use_memory: bool = True,
+        respect_clothing_layers: bool = False,
+        history_context: str = "",
     ) -> AsyncGenerator[str, None]:
         """現実改変用心境をストリーミング生成 (LLM)
 
@@ -1180,12 +1329,16 @@ class GameService:
             nsfw_mode=nsfw_mode,
             enable_multiple_people=enable_multiple_people,
         )
+        user_prompt += history_context
         from .conversation import get_language_rules
 
         system_prompt = f"{system_prompt}\n\n{get_language_rules(language)}"
         if use_memory:
             system_prompt += await self._get_memory_priority_suffix(language)
 
+        system_prompt = append_clothing_layer_feeling_rule(
+            system_prompt, respect_clothing_layers
+        )
         async for chunk in self._stream_feeling(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
@@ -1225,7 +1378,9 @@ class GameService:
         enable_multiple_people: bool = False,
         use_character_panel: bool = True,
         use_memory: bool = False,
+        respect_clothing_layers: bool = False,
         use_play_memory: bool = False,
+        use_history_lookback: bool | None = None,
     ) -> AsyncGenerator[StreamEvent, None]:
         """ストリーミング対応の着せ替えを実行
 
@@ -1262,6 +1417,9 @@ class GameService:
             nsfw_mode_override,
         )
         original_instruction = instruction
+        respect_clothing_layers_for_image = respect_clothing_layers and not bool(
+            prompt_override and prompt_override.strip()
+        )
 
         try:
             # 1. セッション取得または作成
@@ -1275,6 +1433,14 @@ class GameService:
                 character_image=character_image,
             )
             logger.debug("Session: %s", session.id if session else "new")
+            history_lookback_enabled = resolve_history_lookback_enabled(
+                use_history_lookback,
+                instruction_type=instruction_type,
+                transformation_type=transformation_type,
+            )
+            history_lookback_count = settings_service.get_history_lookback_count(
+                session.id
+            )
 
             # 履歴からのベース画像選択
             if base_history_id:
@@ -1472,14 +1638,13 @@ class GameService:
 
                 # 履歴+会話をマージしたタイムラインから最近の指示を取得
                 recent_actions: list[tuple[str, str]] = []
-                try:
-                    timeline = await session_store.get_session_timeline(
-                        session.id, limit=30
-                    )
-                    # 新しい順 → 時系列順に反転
-                    recent_actions = list(reversed(timeline))
-                except Exception:
-                    logger.debug("セッションタイムラインの取得に失敗")
+                if history_lookback_enabled:
+                    try:
+                        recent_actions = await session_store.get_recent_instructions(
+                            session.id, limit=history_lookback_count
+                        )
+                    except Exception:
+                        logger.debug("セッションタイムラインの取得に失敗")
 
                 # アクションテキストプロンプトを構築
                 #   - self_mode: 自分自身プロフィールの性格を使用
@@ -1579,6 +1744,38 @@ class GameService:
                     except Exception as _mc_exc:
                         logger.debug("session_character fetch skipped: %s", _mc_exc)
 
+                # 行動時の性別適合。feeling_mode=gender_aware かつ self_mode 以外
+                action_gender_discomfort = True
+                action_feeling_mode = normalize_feeling_mode(
+                    user_settings.get("feeling_mode", "legacy")
+                )
+                if not session.self_mode and is_gender_aware_feeling_mode(
+                    action_feeling_mode
+                ):
+                    action_use_llm = should_use_congruence_llm(
+                        action_feeling_mode,
+                        bool(user_settings.get("gender_congruence_llm_enabled", False)),
+                    )
+                    action_congruence = await evaluate_gender_congruence(
+                        instruction=original_instruction,
+                        original_gender=action_gender,
+                        appearance_desc=current_desc or "",
+                        session_timeline=recent_actions or None,
+                        attributes=action_attributes,
+                        instruction_type="action",
+                        use_llm=action_use_llm,
+                        novelai_model_override=effective_novelai_text_model,
+                    )
+                    action_gender_discomfort = (
+                        action_congruence.should_feel_gender_discomfort
+                    )
+                    logger.info(
+                        "Gender congruence (action): fit=%s discomfort=%s source=%s",
+                        action_congruence.fit,
+                        action_gender_discomfort,
+                        action_congruence.source,
+                    )
+
                 act_system, act_user = build_action_prompt(
                     instruction=instruction,
                     current_description=current_desc,
@@ -1592,11 +1789,10 @@ class GameService:
                     gender=action_gender,
                     previous_situation_summary=previous_situation_summary,
                     enable_multiple_people=enable_multiple_people,
-                    lookback_count=settings_service.get_history_lookback_count(
-                        session_id
-                    ),
+                    lookback_count=history_lookback_count,
                     session_characters_section=multi_char_section,
                     attributes=action_attributes,
+                    gender_discomfort=action_gender_discomfort,
                 )
 
                 from .conversation import get_language_rules
@@ -1607,6 +1803,9 @@ class GameService:
                         effective_language
                     )
 
+                act_system = append_clothing_layer_feeling_rule(
+                    act_system, respect_clothing_layers
+                )
                 # ── T007: NovelAI Opus mode detection for action ──
                 is_action_novelai_opus = settings.is_novelai_opus_mode
 
@@ -1637,6 +1836,9 @@ class GameService:
                         else ""
                     )
                     previous_prompt = current_desc  # 前回のafter_description
+                    action_memory_suffix = append_clothing_layer_image_rule(
+                        action_memory_suffix, respect_clothing_layers_for_image
+                    )
                     action_novelai_prompt = (
                         await llm_service.generate_novelai_image_prompt(
                             instruction=instruction + action_attribute_context,
@@ -1689,6 +1891,9 @@ class GameService:
                         action_edit_system += await self._get_memory_priority_suffix(
                             effective_language
                         )
+                    action_edit_system = append_clothing_layer_image_rule(
+                        action_edit_system, respect_clothing_layers_for_image
+                    )
                     action_edit_user = build_action_image_edit_prompt(
                         instruction=instruction + action_attribute_context,
                         current_description=vision_desc,
@@ -1711,6 +1916,31 @@ class GameService:
                     action_image_prompt = self._enhance_novelai_prompt(
                         action_image_prompt, effective_nsfw_mode
                     )
+
+                action_image_api_prompt = action_image_prompt
+                action_image_api_characters = action_characters
+                action_negative_prompt = negative_prompt
+                (
+                    action_image_prompt,
+                    action_image_api_prompt,
+                    action_characters,
+                    action_image_api_characters,
+                    action_negative_prompt,
+                ) = self._prepare_clothing_layer_image_payload(
+                    action_image_prompt,
+                    action_characters,
+                    previous_prompt=current_desc,
+                    instruction=original_instruction,
+                    respect_clothing_layers=respect_clothing_layers_for_image,
+                    negative_prompt=negative_prompt,
+                )
+                # 履歴用: inventory 付き状態を保持
+                if action_characters and isinstance(
+                    action_characters[0].get("prompt"), str
+                ):
+                    action_prompt_desc = action_characters[0]["prompt"]
+                else:
+                    action_prompt_desc = action_image_prompt
 
                 # ── T011: Parallel text + image generation ──
                 action_event_queue: asyncio.Queue[StreamEvent | None] = asyncio.Queue()
@@ -1745,15 +1975,15 @@ class GameService:
                     try:
                         after_img, img_cost, img_seed = await self._generate_image(
                             before_image,
-                            action_image_prompt,
+                            action_image_api_prompt,
                             nsfw_mode=effective_nsfw_mode,
                             mask_bytes=mask_bytes,
                             inpaint_strength=action_inpaint_strength,
                             inpaint_noise=inpaint_noise,
-                            negative_prompt=negative_prompt,
+                            negative_prompt=action_negative_prompt,
                             character_references=character_references,
                             seed=seed,
-                            characters=action_characters,
+                            characters=action_image_api_characters,
                         )
                         logger.info(
                             "Action image generated: %d bytes, cost=%s, seed=%s",
@@ -1824,7 +2054,9 @@ class GameService:
                         action_image_error,
                     )
                     # 前回の画像を現在の画像として維持（変更なし）
+                    # 未確定の生成タグも破棄し、CharacterPanel を誤更新しない
                     action_prompt_desc = current_desc
+                    action_characters = None
                 elif action_image_data is not None:
                     final_action_image = action_image_data
 
@@ -1847,40 +2079,20 @@ class GameService:
                         current_image_path=history.image_path,
                     )
 
-                # FR-010: 今ターンの after_description から主人公タグを抽出して
-                # session_character を upsert する。プロンプト構築フェーズではなく
-                # add_history 直後に実行することで CharacterPanel は今ターンの見た目を反映する。
+                # FR-010 / FR-013: 確定タグ直書き + 容姿自然文の自動更新
+                # プロンプト構築フェーズではなく add_history 直後に実行し、
+                # CharacterPanel に今ターンの見た目を反映する。
                 if enable_multiple_people and use_character_panel:
-                    try:
-                        post_name, post_tags = _resolve_protagonist_image_identity(
-                            last_after_description=action_prompt_desc,
-                            character=character,
-                            self_profile=self_profile,
-                            custom_metadata=custom_metadata,
-                        )
-                        if post_name and post_tags:
-                            async with async_session_factory() as _post_db:
-                                await upsert_protagonist_session_character(
-                                    _post_db,
-                                    session.id,
-                                    name=post_name,
-                                    appearance_tags=post_tags,
-                                )
-                                await _post_db.commit()
-                            logger.info(
-                                "[FR-010 action] post-history upsert ok name=%r tags=%r",
-                                post_name,
-                                post_tags[:80],
-                            )
-                    except Exception as _post_exc:
-                        logger.warning(
-                            "[FR-010 action] post-history upsert failed: %s",
-                            _post_exc,
-                        )
-
-                # 005 US2: 完了通知前に容姿差分を更新し、後続のテキスト生成と直列化する
-                if enable_multiple_people and use_character_panel:
-                    await _async_apply_appearance_updates(session.id, instruction)
+                    await _sync_session_characters_after_turn(
+                        session_id=session.id,
+                        after_description=action_prompt_desc,
+                        character_prompts=action_characters,
+                        instruction_text=instruction,
+                        character=character,
+                        self_profile=self_profile,
+                        custom_metadata=custom_metadata,
+                        log_label="action",
+                    )
 
                 # ── T012: SSE events — image, cost, complete ──
                 if action_image_data is not None:
@@ -2050,6 +2262,22 @@ class GameService:
             # 3. 画像編集プロンプトを生成（変身タイプに応じて分岐）
             logger.info(f"Generating image edit prompt... (type={transformation_type})")
             is_reality = transformation_type == "reality"
+            transformation_history_context = ""
+            if history_lookback_enabled:
+                try:
+                    recent_history = await session_store.get_recent_instructions(
+                        session.id, limit=history_lookback_count
+                    )
+                    transformation_history_context = build_history_context(
+                        recent_history
+                    )
+                except Exception:
+                    logger.debug("変身用セッションタイムラインの取得に失敗")
+            image_history_context = (
+                ""
+                if prompt_override and prompt_override.strip()
+                else transformation_history_context
+            )
 
             # 005: マルチキャラクター在席時は登録済みキャラのタグを画像プロンプトに注入 (FR-010)
             dress_up_multi_char_image_section: str | None = None
@@ -2130,6 +2358,57 @@ class GameService:
                         "session_character fetch (dress-up) skipped: %s", _mc_exc
                     )
 
+            # 性別適合判定は feeling_mode=gender_aware のときのみ
+            # legacy は従来どおり（常にTSF抵抗心境・開花増分あり）
+            feeling_mode = normalize_feeling_mode(
+                user_settings.get("feeling_mode", "legacy")
+            )
+            gender_aware_feeling = is_gender_aware_feeling_mode(feeling_mode)
+            dress_up_congruence: GenderCongruenceResult | None = None
+            if gender_aware_feeling and not session.self_mode and not is_reality:
+                congruence_timeline: list[tuple[str, str]] = []
+                try:
+                    timeline_raw = await session_store.get_session_timeline(
+                        session.id, limit=30
+                    )
+                    congruence_timeline = list(reversed(timeline_raw))
+                except Exception:
+                    logger.debug("congruence timeline fetch skipped")
+                use_congruence_llm = should_use_congruence_llm(
+                    feeling_mode,
+                    bool(user_settings.get("gender_congruence_llm_enabled", False)),
+                )
+                dress_up_congruence = await evaluate_gender_congruence(
+                    instruction=original_instruction,
+                    original_gender=gender,
+                    appearance_desc=before_desc,
+                    session_timeline=congruence_timeline,
+                    attributes=attributes,
+                    instruction_type="dress_up",
+                    use_llm=use_congruence_llm,
+                    novelai_model_override=effective_novelai_text_model,
+                )
+                logger.info(
+                    "Gender congruence (dress_up): mode=%s fit=%s discomfort=%s "
+                    "source=%s llm=%s reason=%s",
+                    feeling_mode,
+                    dress_up_congruence.fit,
+                    dress_up_congruence.should_feel_gender_discomfort,
+                    dress_up_congruence.source,
+                    use_congruence_llm,
+                    dress_up_congruence.reason,
+                )
+            else:
+                logger.info(
+                    "Feeling mode=%s — skip gender congruence for dress_up",
+                    feeling_mode,
+                )
+
+            suppress_gender_image_cues = (
+                dress_up_congruence is not None
+                and not dress_up_congruence.should_feel_gender_discomfort
+            )
+
             # T008: NovelAI Opusモード用のプロンプト生成
             generated_novelai_prompt: str | None = None
             prompt_gen_cost: float | None = None
@@ -2143,9 +2422,14 @@ class GameService:
                     else ""
                 )
                 # NovelAI GLM-4.6でプロンプト生成
+                dress_up_memory_suffix = append_clothing_layer_image_rule(
+                    dress_up_memory_suffix, respect_clothing_layers_for_image
+                )
                 generated_novelai_prompt = (
                     await llm_service.generate_novelai_image_prompt(
-                        instruction=instruction + attribute_context,
+                        instruction=(
+                            instruction + attribute_context + image_history_context
+                        ),
                         previous_prompt=previous_prompt,
                         nsfw_mode=effective_nsfw_mode,
                         language=effective_language,
@@ -2154,6 +2438,7 @@ class GameService:
                         novelai_model_override=effective_novelai_text_model,
                         session_characters_section=dress_up_multi_char_image_section,
                         extra_system_suffix=dress_up_memory_suffix,
+                        suppress_gender_discomfort_cues=suppress_gender_image_cues,
                     )
                 )
 
@@ -2194,6 +2479,8 @@ class GameService:
                     image_provider=settings.image_provider,
                     novelai_model_override=effective_novelai_text_model,
                     use_memory=use_memory,
+                    respect_clothing_layers=respect_clothing_layers_for_image,
+                    history_context=image_history_context,
                 )
             else:
                 # 衣装変更用プロンプト生成（既存）
@@ -2209,6 +2496,9 @@ class GameService:
                     nsfw_mode=effective_nsfw_mode,
                     novelai_model_override=effective_novelai_text_model,
                     use_memory=use_memory,
+                    suppress_gender_discomfort_cues=suppress_gender_image_cues,
+                    respect_clothing_layers=respect_clothing_layers_for_image,
+                    history_context=image_history_context,
                 )
 
             # T009: NovelAI専用 - 直接プロンプト指定とのマージ
@@ -2230,14 +2520,52 @@ class GameService:
                     final_prompt, effective_nsfw_mode
                 )
 
+            # 衣装レイヤー: visual と着用インベントリを分離（履歴は inventory 付きを保持）
+            dress_image_prompt = final_prompt
+            dress_image_characters = dress_up_characters
+            dress_negative_prompt = negative_prompt
+            (
+                final_prompt,
+                dress_image_prompt,
+                dress_up_characters,
+                dress_image_characters,
+                dress_negative_prompt,
+            ) = self._prepare_clothing_layer_image_payload(
+                final_prompt,
+                dress_up_characters,
+                previous_prompt=previous_prompt,
+                instruction=original_instruction,
+                respect_clothing_layers=respect_clothing_layers_for_image,
+                negative_prompt=negative_prompt,
+            )
+
             # 4. 真の並列処理: asyncio.Queue を使ってイベントを統合
             # T010: NovelAI Opusモードでは生成プロンプトをafter_descとして使用
-            if is_novelai_opus_mode and generated_novelai_prompt:
-                inferred_after_desc = generated_novelai_prompt
+            # レイヤーON時は inventory 付き character/state プロンプトを優先して状態継続する
+            if is_novelai_opus_mode:
+                if (
+                    dress_up_characters
+                    and isinstance(dress_up_characters[0].get("prompt"), str)
+                    and dress_up_characters[0]["prompt"].strip()
+                ):
+                    inferred_after_desc = dress_up_characters[0]["prompt"]
+                elif final_prompt.strip():
+                    inferred_after_desc = final_prompt
+                elif generated_novelai_prompt:
+                    inferred_after_desc = generated_novelai_prompt
+                else:
+                    inferred_after_desc = f"{instruction}に変身した姿"
             elif is_reality:
                 inferred_after_desc = f"「{instruction}」という現実改変により変化した姿"
             else:
                 inferred_after_desc = f"{instruction}に変身した姿"
+                if respect_clothing_layers_for_image and final_prompt.strip():
+                    # 非Opusでも inventory 行があれば心境入力へ載せる
+                    inferred_after_desc = (
+                        f"{inferred_after_desc}\n\n{final_prompt}"
+                        if "WORN_UNDER_LAYERS:" in final_prompt
+                        else inferred_after_desc
+                    )
 
             # イベントキューを作成
             event_queue: asyncio.Queue[StreamEvent | None] = asyncio.Queue()
@@ -2273,6 +2601,8 @@ class GameService:
                             enable_multiple_people=enable_multiple_people,
                             novelai_model_override=effective_novelai_text_model,
                             use_memory=use_memory,
+                            respect_clothing_layers=respect_clothing_layers,
+                            history_context=transformation_history_context,
                         ):
                             text_chunks.append(chunk)
                             await event_queue.put(
@@ -2292,6 +2622,8 @@ class GameService:
                             enable_multiple_people=enable_multiple_people,
                             novelai_model_override=effective_novelai_text_model,
                             use_memory=use_memory,
+                            respect_clothing_layers=respect_clothing_layers,
+                            history_context=transformation_history_context,
                         ):
                             text_chunks.append(chunk)
                             await event_queue.put(
@@ -2315,6 +2647,9 @@ class GameService:
                             enable_multiple_people=enable_multiple_people,
                             novelai_model_override=effective_novelai_text_model,
                             use_memory=use_memory,
+                            gender_congruence=dress_up_congruence,
+                            respect_clothing_layers=respect_clothing_layers,
+                            history_context=transformation_history_context,
                         ):
                             text_chunks.append(chunk)
                             await event_queue.put(
@@ -2330,16 +2665,16 @@ class GameService:
                 try:
                     after_image, image_cost, img_seed = await self._generate_image(
                         before_image,
-                        final_prompt,
+                        dress_image_prompt,
                         costume_image_bytes,
                         nsfw_mode=effective_nsfw_mode,
                         mask_bytes=mask_bytes,
                         inpaint_strength=inpaint_strength,
                         inpaint_noise=inpaint_noise,
-                        negative_prompt=negative_prompt,
+                        negative_prompt=dress_negative_prompt,
                         character_references=character_references,
                         seed=seed,
-                        characters=dress_up_characters,
+                        characters=dress_image_characters,
                     )
                     logger.info(
                         "Image generated: %d bytes, cost: %s",
@@ -2418,38 +2753,22 @@ class GameService:
                 seed=image_seed,
             )
 
-            # FR-010: 今ターンの after_description から主人公タグを抽出して
-            # session_character を upsert する。プロンプト構築フェーズではなく
-            # add_history 直後に実行することで CharacterPanel は今ターンの見た目を反映する。
-            # 現実改変ケースも Opus モードでは inferred_after_desc が
-            # generated_novelai_prompt (JSON) になるため同一パスで処理される。
+            # FR-010 / FR-013: 確定タグ直書き + 容姿自然文の自動更新
+            # プロンプト構築フェーズではなく add_history 直後に実行し、
+            # CharacterPanel に今ターンの見た目を反映する。
+            # 現実改変ケースも Opus では inferred_after_desc / dress_up_characters
+            # から同一パスで処理される。
             if enable_multiple_people and use_character_panel:
-                try:
-                    post_name, post_tags = _resolve_protagonist_image_identity(
-                        last_after_description=inferred_after_desc,
-                        character=character,
-                        self_profile=self_profile,
-                        custom_metadata=custom_metadata,
-                    )
-                    if post_name and post_tags:
-                        async with async_session_factory() as _post_db:
-                            await upsert_protagonist_session_character(
-                                _post_db,
-                                session.id,
-                                name=post_name,
-                                appearance_tags=post_tags,
-                            )
-                            await _post_db.commit()
-                        logger.info(
-                            "[FR-010 dress-up] post-history upsert ok name=%r tags=%r",
-                            post_name,
-                            post_tags[:80],
-                        )
-                except Exception as _post_exc:
-                    logger.warning(
-                        "[FR-010 dress-up] post-history upsert failed: %s",
-                        _post_exc,
-                    )
+                await _sync_session_characters_after_turn(
+                    session_id=session.id,
+                    after_description=inferred_after_desc,
+                    character_prompts=dress_up_characters,
+                    instruction_text=original_instruction,
+                    character=character,
+                    self_profile=self_profile,
+                    custom_metadata=custom_metadata,
+                    log_label="dress-up",
+                )
 
             # 5.1. タグ分類 (T023)
             tags = classify_tags(original_instruction)
@@ -2495,8 +2814,18 @@ class GameService:
                 stats = await session_store.get_or_create_session_stats(session.id)
                 old_bloom = stats.bloom
 
+                # 現実改変は服装適合で開花を止めない。通常着せ替えのみ discomfort を反映
+                gender_discomfort_for_params = True
+                if not is_reality and dress_up_congruence is not None:
+                    gender_discomfort_for_params = (
+                        dress_up_congruence.should_feel_gender_discomfort
+                    )
+
                 bloom_delta, shame_delta, adaptation_delta = calculate_parameter_change(
-                    tags, stats, bloom_calc_method=effective_bloom_calc_method
+                    tags,
+                    stats,
+                    bloom_calc_method=effective_bloom_calc_method,
+                    gender_discomfort=gender_discomfort_for_params,
                 )
 
                 # 現実改変の場合はパラメータ変動を増幅
@@ -2639,7 +2968,7 @@ class GameService:
                 try:
                     classification_result = await classify_for_achievement(
                         query=instruction,
-                        gender="man",  # デフォルトで男性（キャラクターの元の性別）
+                        gender=gender,
                     )
                     categories = list(classification_result.categories)
                     if is_reality and "REALITY_ALTER" not in categories:
@@ -3034,6 +3363,8 @@ class GameService:
         change_scope: str = "full",
         custom_preserve_text: str = "",
         instruction_type: str | None = None,
+        respect_clothing_layers: bool = False,
+        use_history_lookback: bool | None = None,
     ) -> dict:
         """プロンプトのプレビューを生成する
 
@@ -3054,6 +3385,15 @@ class GameService:
         previous_situation_summary: str | None = None
         reality_alter_texts: list[str] = []
         effective_novelai_text_model: str | None = None
+        history_context = ""
+        history_lookback_enabled = resolve_history_lookback_enabled(
+            use_history_lookback,
+            instruction_type=instruction_type,
+            transformation_type=transformation_type,
+        )
+        history_lookback_count = settings_service.get_history_lookback_count(
+            session_id if session_id else "default"
+        )
 
         if session_id:
             try:
@@ -3094,16 +3434,22 @@ class GameService:
                             pronoun = self_profile.get("pronoun", pronoun)
                             personality = self_profile.get("personality", "")
 
-                    # action プレビュー用: タイムラインと前回サマリー
-                    if instruction_type == "action":
+                    if history_lookback_enabled:
                         try:
-                            timeline = await session_store.get_session_timeline(
-                                session_id, limit=30
+                            recent_history = (
+                                await session_store.get_recent_instructions(
+                                    session_id, limit=history_lookback_count
+                                )
                             )
-                            recent_actions = list(reversed(timeline))
+                            if instruction_type == "action":
+                                recent_actions = recent_history
+                            else:
+                                history_context = build_history_context(recent_history)
                         except Exception:
                             pass
 
+                    # action プレビュー用: 前回サマリー
+                    if instruction_type == "action":
                         last_hist = await session_store.get_latest_history(session_id)
                         if (
                             last_hist
@@ -3147,12 +3493,13 @@ class GameService:
                 transformation_count=transformation_count,
                 gender=gender,
                 previous_situation_summary=previous_situation_summary,
-                lookback_count=settings_service.get_history_lookback_count(
-                    session_id if session_id else "default"
-                ),
+                lookback_count=history_lookback_count,
             )
             act_system += await self._get_memory_priority_suffix()
 
+            act_system = append_clothing_layer_feeling_rule(
+                act_system, respect_clothing_layers
+            )
             # 画像プロンプト（NovelAI Opus / その他で分岐）
             image_edit_prompt = ""
             novelai_tag_prompt: str | None = None
@@ -3163,6 +3510,9 @@ class GameService:
                     if hasattr(settings, "language")
                     else "ja",
                 )
+                action_tag_system = append_clothing_layer_image_rule(
+                    action_tag_system, respect_clothing_layers
+                )
                 novelai_tag_prompt = action_tag_system
                 image_edit_prompt = "(NovelAI Opus: タグはLLMが動的生成)"
             else:
@@ -3171,6 +3521,9 @@ class GameService:
                     nsfw_mode=nsfw_mode,
                 )
                 action_edit_system += await self._get_memory_priority_suffix()
+                action_edit_system = append_clothing_layer_image_rule(
+                    action_edit_system, respect_clothing_layers
+                )
                 image_edit_prompt = action_edit_system
 
             # 周辺画像プロンプトプレビュー（現実改変属性含む）
@@ -3218,6 +3571,8 @@ class GameService:
                 nsfw_mode=nsfw_mode,
                 image_provider=settings.image_provider,
                 novelai_model_override=effective_novelai_text_model,
+                respect_clothing_layers=respect_clothing_layers,
+                history_context=history_context,
             )
         else:
             image_edit_prompt, _ = await self._generate_image_edit_prompt(
@@ -3228,6 +3583,8 @@ class GameService:
                 custom_preserve_text=custom_preserve_text,
                 nsfw_mode=nsfw_mode,
                 novelai_model_override=effective_novelai_text_model,
+                respect_clothing_layers=respect_clothing_layers,
+                history_context=history_context,
             )
 
         from .prompts import build_feeling_prompt, get_psychological_stage
@@ -3235,12 +3592,16 @@ class GameService:
         stage = get_psychological_stage(bloom, nsfw_mode)
         system_prompt = stage["system_prompt"]
 
+        system_prompt = append_clothing_layer_feeling_rule(
+            system_prompt, respect_clothing_layers
+        )
         user_prompt = build_feeling_prompt(
             before_desc=current_description or "着せ替え前の状態",
             after_desc=f"{instruction}に変身した姿",
             instruction=instruction,
             pronoun=pronoun,
         )
+        user_prompt += history_context
 
         return {
             "image_edit_prompt": image_edit_prompt,
@@ -3281,8 +3642,80 @@ class GameService:
 game_service = GameService()
 
 
+async def _sync_session_characters_after_turn(
+    *,
+    session_id: str,
+    after_description: str | None,
+    character_prompts: list[dict] | None,
+    instruction_text: str,
+    character: Any | None,
+    self_profile: dict | None,
+    custom_metadata: dict | None,
+    log_label: str,
+) -> None:
+    """Persist post-turn appearance onto session_character rows (FR-010 / FR-013).
+
+    1. Prefer confirmed Opus character prompts as appearance_tags source of truth.
+    2. Fall back to resolving tags from after_description / base identity.
+    3. Best-effort LLM update for appearance_natural (and residual tag diffs).
+
+    Failures are logged and never raised to the caller.
+    """
+    try:
+        post_name, post_tags = _resolve_protagonist_image_identity(
+            last_after_description=after_description,
+            character=character,
+            self_profile=self_profile,
+            custom_metadata=custom_metadata,
+        )
+        # Confirmed character prompt overrides extract/fallback when present.
+        if (
+            character_prompts
+            and isinstance(character_prompts[0], dict)
+            and isinstance(character_prompts[0].get("prompt"), str)
+            and character_prompts[0]["prompt"].strip()
+        ):
+            post_tags = character_prompts[0]["prompt"].strip()
+
+        async with async_session_factory() as db:
+            if post_name and post_tags:
+                await upsert_protagonist_session_character(
+                    db,
+                    session_id,
+                    name=post_name,
+                    appearance_tags=post_tags,
+                )
+            if character_prompts:
+                applied = await apply_character_prompt_tags(
+                    db, session_id, character_prompts
+                )
+                if applied:
+                    logger.info(
+                        "[FR-010 %s] applied character prompt tags to %d row(s)",
+                        log_label,
+                        applied,
+                    )
+            await db.commit()
+
+        if post_name and post_tags:
+            logger.info(
+                "[FR-010 %s] post-history upsert ok name=%r tags=%r",
+                log_label,
+                post_name,
+                post_tags[:80],
+            )
+    except Exception as exc:  # noqa: BLE001 - best-effort panel sync
+        logger.warning(
+            "[FR-010 %s] post-history upsert failed: %s",
+            log_label,
+            exc,
+        )
+
+    await _async_apply_appearance_updates(session_id, instruction_text)
+
+
 async def _async_apply_appearance_updates(session_id: str, action_text: str) -> None:
-    """005 US2: Action 後にキャラクター容姿の差分を適用する。
+    """005 US2: Action / dress-up 後にキャラクター容姿の差分を適用する。
 
     失敗時はログに記録し、アクション応答へは伝播させない (FR-014)。
     """

@@ -40,6 +40,7 @@ from .routes import (
     achievements_router,
     aivisspeech_router,
     character_router,
+    favorites_router,
     gallery_router,
     game_router,
     memory_router,
@@ -257,6 +258,9 @@ app.include_router(game_router, prefix="/api")
 
 # ギャラリーAPIルーターを登録 (007-chat-interactive-ux)
 app.include_router(gallery_router, prefix="/api")
+
+# お気に入り衣装スナップショット (spec 009)
+app.include_router(favorites_router, prefix="/api")
 
 # 実績APIルーターを登録 (007-chat-interactive-ux)
 app.include_router(achievements_router, prefix="/api")

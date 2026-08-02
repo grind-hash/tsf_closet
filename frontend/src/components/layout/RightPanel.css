@@ -526,6 +526,54 @@
   background-color: var(--hover-bg, #1f2f50);
 }
 
+.right-panel__precise-ref-drop-zone {
+  width: 100%;
+  min-height: 72px;
+  margin-bottom: 0.5rem;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  background-color: transparent;
+  border: 1px dashed var(--border-color, #555);
+  border-radius: 6px;
+  color: var(--text-color, #eee);
+  font: inherit;
+  cursor: pointer;
+  transition:
+    background-color 0.2s,
+    border-color 0.2s,
+    color 0.2s;
+}
+
+.right-panel__precise-ref-drop-zone:hover,
+.right-panel__precise-ref-drop-zone:focus-visible {
+  background-color: var(--hover-bg, #1f2f50);
+  border-color: var(--primary-color, #6c8cff);
+}
+
+.right-panel__precise-ref-drop-zone:focus-visible {
+  outline: 2px solid var(--primary-color, #6c8cff);
+  outline-offset: 2px;
+}
+
+.right-panel__precise-ref-drop-zone.is-dragging {
+  background-color: color-mix(
+    in srgb,
+    var(--primary-color, #6c8cff) 18%,
+    transparent
+  );
+  border-color: var(--primary-color, #6c8cff);
+  color: var(--primary-color, #8da6ff);
+}
+
+.right-panel__precise-ref-drop-hint {
+  color: var(--text-muted, #888);
+  font-size: 0.75rem;
+}
+
 /* モーダル */
 .right-panel__modal-overlay {
   position: fixed;

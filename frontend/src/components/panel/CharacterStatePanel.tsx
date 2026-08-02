@@ -11,12 +11,15 @@
  * - パラメータ表示 (bloom, shame, adaptation)
  */
 
-import { useState, useRef, useEffect, type ChangeEvent } from "react";
+import { type ChangeEvent, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useGame } from "../../contexts/GameContext";
+import { useNavigate } from "react-router-dom";
 import { useChat } from "../../contexts/ChatContext";
+import { useGame } from "../../contexts/GameContext";
 import { useSettings } from "../../contexts/SettingsContext";
+import { getGameSessionPath } from "../../routes";
 import type { AttributePreset } from "../../types";
+import BranchSessionDialog from "../session/BranchSessionDialog";
 import "./CharacterStatePanel.css";
 
 // 属性プリセット用のlocalStorageキー（RightPanelと共通）
@@ -30,6 +33,11 @@ interface CharacterStatePanelProps {
   isTransforming?: boolean;
   /** NSFWトグルを表示するか（デフォルト: true） */
   showNsfwToggle?: boolean;
+  /** 現在画像をお気に入り登録できるか（履歴があるとき） */
+  canFavorite?: boolean;
+  isFavorited?: boolean;
+  favoriteBusy?: boolean;
+  onToggleFavorite?: () => void;
 }
 
 export default function CharacterStatePanel({
@@ -39,8 +47,13 @@ export default function CharacterStatePanel({
   transformationCount = 0,
   isTransforming = false,
   showNsfwToggle = true,
+  canFavorite = false,
+  isFavorited = false,
+  favoriteBusy = false,
+  onToggleFavorite,
 }: CharacterStatePanelProps) {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const {
     state,
     navigateHistory,
@@ -48,9 +61,19 @@ export default function CharacterStatePanel({
     navigateNextHistory,
     addAttribute,
     removeAttribute,
+    startSessionFromHistory,
   } = useGame();
-  const { scrollToMessage, highlightMessage, state: chatState } = useChat();
+  const {
+    scrollToMessage,
+    highlightMessage,
+    clearMessages,
+    state: chatState,
+  } = useChat();
   const { state: settingsState, toggleInpaint, toggleNsfw } = useSettings();
+  const [isMobileNsfwExpanded, setIsMobileNsfwExpanded] = useState(false);
+  const [branchDialogOpen, setBranchDialogOpen] = useState(false);
+  const [branchLoading, setBranchLoading] = useState(false);
+  const [branchError, setBranchError] = useState<string | null>(null);
 
   // 属性入力状態
   const [showAttributeInput, setShowAttributeInput] = useState(false);
@@ -114,6 +137,61 @@ export default function CharacterStatePanel({
   // historyが配列でない場合のフォールバック
   const history = Array.isArray(rawHistory) ? rawHistory : [];
   const isNovelAI = settingsState.imageProvider === "novelai";
+  const historyStripRef = useRef<HTMLDivElement>(null);
+  const selectedHistory = history[currentHistoryIndex] ?? null;
+
+  const handleBranchConfirm = async (options: {
+    inheritStats: boolean;
+    selfMode: boolean;
+  }) => {
+    if (!selectedHistory?.id) return;
+    setBranchLoading(true);
+    setBranchError(null);
+    try {
+      const result = await startSessionFromHistory(selectedHistory.id, {
+        inheritStats: options.inheritStats,
+        selfMode: options.selfMode,
+      });
+      clearMessages();
+      setBranchDialogOpen(false);
+      navigate(getGameSessionPath(result.session_id));
+    } catch (err) {
+      setBranchError(
+        err instanceof Error ? err.message : t("branchSession.failed"),
+      );
+    } finally {
+      setBranchLoading(false);
+    }
+  };
+
+  // 選択中のサムネイルが横方向の表示範囲外に出た場合だけ中央へ寄せる
+  useEffect(() => {
+    const strip = historyStripRef.current;
+    if (!strip) return;
+
+    // 履歴件数変化でもサムネ位置を再評価する
+    void history.length;
+
+    const activeThumbnail = strip.querySelector<HTMLElement>(
+      `[data-history-index="${currentHistoryIndex}"]`,
+    );
+    if (!activeThumbnail) return;
+
+    const visibleLeft = strip.scrollLeft;
+    const visibleRight = visibleLeft + strip.clientWidth;
+    const thumbnailLeft = activeThumbnail.offsetLeft;
+    const thumbnailRight = thumbnailLeft + activeThumbnail.offsetWidth;
+
+    if (thumbnailLeft >= visibleLeft && thumbnailRight <= visibleRight) {
+      return;
+    }
+
+    strip.scrollTo({
+      left:
+        thumbnailLeft - (strip.clientWidth - activeThumbnail.offsetWidth) / 2,
+      behavior: "smooth",
+    });
+  }, [currentHistoryIndex, history.length]);
 
   // 属性追加ハンドラー
   const handleAddAttribute = async () => {
@@ -262,94 +340,149 @@ export default function CharacterStatePanel({
 
   return (
     <div className="character-state-panel">
-      {/* NSFWモードトグル（左上） */}
-      {showNsfwToggle && (
-        <div className="character-state-panel__nsfw-toggle">
-          <label className="character-state-panel__toggle character-state-panel__toggle--nsfw">
-            <span className="character-state-panel__toggle-label">🔞 NSFW</span>
-            <input
-              type="checkbox"
-              checked={settingsState.nsfwMode}
-              onChange={() => toggleNsfw()}
-              className="character-state-panel__toggle-input"
-            />
-            <span className="character-state-panel__toggle-switch character-state-panel__toggle-switch--nsfw" />
-          </label>
-        </div>
-      )}
-
-      {/* キャラクター名 */}
-      {character && (
-        <h2 className="character-state-panel__name">{character.name}</h2>
-      )}
-
-      {/* キャラクター画像 */}
-      <div className="character-state-panel__image-container">
-        {currentImage ? (
-          <button
-            type="button"
-            className="character-state-panel__image-btn"
-            onClick={onImageClick}
-            aria-label={t("characterPanel.expandImage")}
+      <div className="character-state-panel__primary">
+        {/* NSFWモードトグル（左上） */}
+        {showNsfwToggle && (
+          <div
+            className={`character-state-panel__nsfw-toggle${
+              isMobileNsfwExpanded ? " is-expanded" : ""
+            }`}
           >
-            <img
-              src={currentImage}
-              alt={character?.name || t("characterPanel.characterAlt")}
-              className="character-state-panel__image"
-            />
-          </button>
-        ) : (
-          <div className="character-state-panel__no-image">
-            <span>{t("characterPanel.noImage")}</span>
+            <button
+              type="button"
+              className="character-state-panel__nsfw-section-toggle"
+              aria-expanded={isMobileNsfwExpanded}
+              aria-controls="mobile-nsfw-setting"
+              onClick={() => setIsMobileNsfwExpanded((expanded) => !expanded)}
+            >
+              <span>🔞 NSFW</span>
+              <span
+                className="character-state-panel__nsfw-toggle-icon"
+                aria-hidden="true"
+              >
+                ▾
+              </span>
+            </button>
+            <div
+              id="mobile-nsfw-setting"
+              className="character-state-panel__nsfw-content"
+            >
+              <label className="character-state-panel__toggle character-state-panel__toggle--nsfw">
+                <span className="character-state-panel__toggle-label">
+                  🔞 NSFW
+                </span>
+                <input
+                  type="checkbox"
+                  checked={settingsState.nsfwMode}
+                  onChange={() => toggleNsfw()}
+                  className="character-state-panel__toggle-input"
+                />
+                <span className="character-state-panel__toggle-switch character-state-panel__toggle-switch--nsfw" />
+              </label>
+            </div>
           </div>
         )}
 
-        {/* 変身中/行動中オーバーレイ */}
-        {isTransforming && (
-          <div className="character-state-panel__loading-overlay">
-            <div className="character-state-panel__spinner" />
-            <p>
-              {chatState.instructionType === "action"
-                ? t("characterPanel.acting")
-                : t("characterPanel.transforming")}
-            </p>
-          </div>
+        {/* キャラクター名 */}
+        {character && (
+          <h2 className="character-state-panel__name">{character.name}</h2>
         )}
 
-        {/* 変身経過サムネイル */}
-        {history.length > 1 && (
-          <div className="character-state-panel__history-strip">
-            {history.map((item, index) => (
-              <button
-                key={item.id}
-                type="button"
-                className={`character-state-panel__history-thumb ${
-                  index === currentHistoryIndex ? "is-active" : ""
-                }`}
-                onClick={() => handleThumbnailClick(index)}
-                aria-label={t("characterPanel.transformHistory", {
+        {/* キャラクター画像 */}
+        <div className="character-state-panel__image-container">
+          {currentImage ? (
+            <button
+              type="button"
+              className="character-state-panel__image-btn"
+              onClick={onImageClick}
+              aria-label={t("characterPanel.expandImage")}
+            >
+              <img
+                src={currentImage}
+                alt={character?.name || t("characterPanel.characterAlt")}
+                className="character-state-panel__image"
+              />
+            </button>
+          ) : (
+            <div className="character-state-panel__no-image">
+              <span>{t("characterPanel.noImage")}</span>
+            </div>
+          )}
+
+          {canFavorite && onToggleFavorite && currentImage && (
+            <button
+              type="button"
+              className={`character-state-panel__favorite-btn${isFavorited ? " is-active" : ""}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleFavorite();
+              }}
+              disabled={favoriteBusy || isTransforming}
+              aria-pressed={isFavorited}
+              aria-label={
+                isFavorited ? t("favorites.removeAria") : t("favorites.addAria")
+              }
+              title={
+                isFavorited
+                  ? t("favorites.removeTitle")
+                  : t("favorites.addTitle")
+              }
+            >
+              {isFavorited ? "★" : "☆"}
+            </button>
+          )}
+
+          {/* 変身中/行動中オーバーレイ */}
+          {isTransforming && (
+            <div className="character-state-panel__loading-overlay">
+              <div className="character-state-panel__spinner" />
+              <p>
+                {chatState.instructionType === "action"
+                  ? t("characterPanel.acting")
+                  : t("characterPanel.transforming")}
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* 変身経過サムネイル */}
+      {history.length > 1 && (
+        <div
+          ref={historyStripRef}
+          className="character-state-panel__history-strip"
+        >
+          {history.map((item, index) => (
+            <button
+              key={item.id}
+              type="button"
+              className={`character-state-panel__history-thumb ${
+                index === currentHistoryIndex ? "is-active" : ""
+              }`}
+              data-history-index={index}
+              onClick={() => handleThumbnailClick(index)}
+              aria-label={t("characterPanel.transformHistory", {
+                index: index + 1,
+              })}
+              title={
+                item.instruction ||
+                t("characterPanel.transformHistory", { index: index + 1 })
+              }
+            >
+              <img
+                src={item.imageUrl}
+                alt={t("characterPanel.transformHistory", {
                   index: index + 1,
                 })}
-                title={
-                  item.instruction ||
-                  t("characterPanel.transformHistory", { index: index + 1 })
-                }
-              >
-                <img
-                  src={item.imageUrl}
-                  alt={t("characterPanel.transformHistory", {
-                    index: index + 1,
-                  })}
-                  loading="lazy"
-                />
-                <span className="character-state-panel__history-thumb-num">
-                  {index + 1}
-                </span>
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
+                loading="lazy"
+              />
+              <span className="character-state-panel__history-thumb-num">
+                {index + 1}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* 履歴ナビゲーション（4ボタン） - 常に表示 */}
       <div className="character-state-panel__nav-full">
@@ -401,6 +534,37 @@ export default function CharacterStatePanel({
           »
         </button>
       </div>
+
+      {selectedHistory && (
+        <div className="character-state-panel__branch-row">
+          <button
+            type="button"
+            className="character-state-panel__branch-btn"
+            onClick={() => {
+              setBranchError(null);
+              setBranchDialogOpen(true);
+            }}
+            disabled={isTransforming || branchLoading}
+            title={t("branchSession.buttonTitle")}
+          >
+            {t("branchSession.button")}
+          </button>
+        </div>
+      )}
+
+      <BranchSessionDialog
+        isOpen={branchDialogOpen}
+        isLoading={branchLoading}
+        errorMessage={branchError}
+        defaultSelfMode={Boolean(state.selfMode)}
+        onConfirm={handleBranchConfirm}
+        onCancel={() => {
+          if (!branchLoading) {
+            setBranchDialogOpen(false);
+            setBranchError(null);
+          }
+        }}
+      />
 
       {/* インペイントトグル - NovelAIのみ表示 (FR-017準拠) */}
       {isNovelAI && (

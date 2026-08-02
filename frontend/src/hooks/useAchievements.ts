@@ -3,12 +3,12 @@
  * 007-chat-interactive-ux
  */
 
-import { useState, useCallback, useEffect } from "react";
-import type { Achievement } from "../types";
+import { useCallback, useEffect, useState } from "react";
 import {
-  fetchAchievementsList,
   fetchAchievementDetail,
+  fetchAchievementsList,
 } from "../apis/achievements";
+import type { Achievement } from "../types";
 
 interface AchievementWithStatus extends Achievement {
   unlocked: boolean;

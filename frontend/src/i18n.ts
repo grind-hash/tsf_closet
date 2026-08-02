@@ -39,6 +39,18 @@ const resources = {
         bloomCalcLegacyDesc: "これまでと同じ増加バランス",
         bloomCalcNew: "新方式",
         bloomCalcNewDesc: "開花度が緩やかに増え、抵抗エンドに到達しやすい",
+        feelingMode: "心境生成方式",
+        feelingModeDesc:
+          "着せ替え・行動時の心境テキストの作り方を選びます。既存プレイを変えずに従来どおりにしたい場合は「従来」のままにしてください",
+        feelingModeLegacy: "従来（TSF抵抗）",
+        feelingModeLegacyDesc:
+          "これまでどおり、変身への抵抗・羞恥・開花の心境を基本とします",
+        feelingModeGenderAware: "性別適合を考慮",
+        feelingModeGenderAwareDesc:
+          "メンズスーツやパジャマなど元の性別で自然な服装では、不要な違和感心境と開花増加を抑えます（キーワード判定）",
+        genderCongruenceLlm: "性別適合の高度な判定（LLM）",
+        genderCongruenceLlmDesc:
+          "「性別適合を考慮」選択時に有効。会話の経緯から今の認識も踏まえて判定します。追加のLLM呼び出しが発生します。オフ時はキーワード判定のみです",
         nsfwMode: "NSFWモード",
         nsfwDesc: "成人向けコンテンツを有効化",
         language: "言語",
@@ -80,6 +92,9 @@ const resources = {
         experimentalClothingColor: "服の色の一貫性を保つ",
         experimentalClothingColorDesc:
           "変身時に服の色を必ず指定し、行動時に色が変わらないようにします。",
+        respectClothingLayers: "衣装の重なりを考慮",
+        respectClothingLayersDesc:
+          "通常着用中の外衣で、下着や覆われた身体属性が見えないようにします。透ける素材やめくれ・脱衣を明示した場合は、その指定範囲を反映します。",
         linkChatToImage: "画像とチャットを連動",
         linkChatToImageDesc:
           "画像履歴をめくるとき、対応するチャットメッセージまでスクロールします。",
@@ -89,6 +104,13 @@ const resources = {
         historyLookbackCount: "履歴遡及件数",
         historyLookbackCountDesc:
           "プロンプト生成時に参照する直近の履歴件数（5〜20）。多いほど一貫性が増しますが、トークン消費が増えます。",
+        historyLookbackTargets: "履歴遡及を利用する対象",
+        historyLookbackTargetsDesc:
+          "選択した操作のプロンプトに、指定件数の直近の指示・発言を反映します。",
+        historyLookbackTargetAction: "行動",
+        historyLookbackTargetConversation: "会話",
+        historyLookbackTargetDressUp: "着せ替え",
+        historyLookbackTargetRealityAlter: "現実改変",
         novelaiTextModel: "NovelAI テキストモデル",
         novelaiTextModelDesc:
           "テキスト生成（心境・プロンプト拡張・会話など）に使用するNovelAIモデルを選択します。Opusプラン限定です。",
@@ -102,6 +124,9 @@ const resources = {
         fontFamily: "フォント",
         fontFamilyDesc: "アプリ全体の表示フォントを変更します",
         fontPreview: "あいうえおABCDEFG 0123456789 変身×着せ替え",
+        confirmFavoriteRemove: "お気に入り削除の確認",
+        confirmFavoriteRemoveDesc:
+          "お気に入り一覧から外すときに確認メッセージを表示します。「次回から表示しない」でオフにした場合も、ここで再度オンにできます",
         fontSystem: "システムフォント",
         fontSystemDesc: "OS標準のUIフォントを使用",
         fontBrowserDefault: "ブラウザのデフォルト",
@@ -398,6 +423,8 @@ const resources = {
         preciseReferences: "精密参照画像:",
         preciseReferenceAnlas: "参照画像1枚あたり +5 Anlas",
         addReferenceImage: "📎 参照画像を追加",
+        preciseRefDropHint: "または画像をここにドロップ",
+        preciseRefDropActive: "ここに画像をドロップ",
         toggleEnabledTitle: "有効/無効",
         referenceType: "参照種類:",
         referenceTypeCharacterStyle: "キャラクター＆絵柄",
@@ -441,6 +468,11 @@ const resources = {
           "有効にすると、プロンプト生成時に服の色の一貫性を保つルールが追加されます。",
         clothingColorConsistencyTradeoff:
           "※ 「誰が・どの衣装で・どこで・何を・どうする」のように、具体的な指示が必要になります。下のプロンプトビルダーをご活用ください。",
+        respectClothingLayers: "衣装の重なりを考慮",
+        respectClothingLayersHint:
+          "通常着用中の外衣を優先し、下着や覆われた身体属性を画像へ露出させません。心境では存在や布越しの感触として扱います。",
+        respectClothingLayersException:
+          "※ 透ける素材、服を開ける・めくる・ずらす・脱ぐなどを明示した場合は、その指定範囲の見え方を反映します。",
         enableMultiplePeople: "複数人表示（実験的）",
         enableMultiplePeopleHint:
           "画像生成時に複数のキャラクターを表示できるようにします。ONにすると、指示に基づいてLLMが人数を自動判断します。",
@@ -514,6 +546,25 @@ const resources = {
         adaptationCute: "可愛い",
         selfModeLabel: "自分自身モード",
         selfModeDesc: "パラメータ追跡は無効です",
+      },
+      branchSession: {
+        button: "ここから別セッション開始",
+        buttonTitle: "この画像の状態から新規セッションを開始",
+        shortButton: "分岐",
+        dialogTitle: "別セッションを開始",
+        dialogMessage:
+          "選択中の画像の状態から、新しいセッションを開始します。元のセッションは残ります。",
+        dialogWaitHint: "状況サマリーの生成に少し時間がかかることがあります。",
+        selfModeLabel: "自分自身モードで開始",
+        selfModeDesc:
+          "分岐元が自分自身モードのときは初期ON。OFFにすると通常モードへ切り替えます。",
+        inheritStatsLabel: "開花度などのパラメータを引き継ぐ",
+        inheritStatsDesc:
+          "ON: 分岐点の開花度・羞恥・適応を再現します。OFF: 難易度は維持し、パラメータは初期値から始めます。",
+        confirm: "開始する",
+        cancel: "キャンセル",
+        loading: "状況を要約して新規セッションを開始しています…",
+        failed: "別セッションの開始に失敗しました",
       },
       attributeSection: {
         title: "属性付与（任意）",
@@ -790,6 +841,39 @@ const resources = {
         deleteItemAction: "削除する",
         deleteItemError: "アイテムの削除に失敗しました",
         selfModeChip: "自分自身",
+        searchPlaceholder: "やり取りをキーワード検索…",
+        searchAria: "セッションのやり取りを検索",
+        searchClear: "検索をクリア",
+        searchNoResults: "「{{query}}」に一致するセッションはありません",
+        searchNoResultsHint: "別のキーワードで試してみてください",
+        tabSessions: "セッション",
+        tabFavorites: "お気に入り",
+      },
+      favorites: {
+        title: "お気に入り衣装",
+        countSuffix: "件",
+        empty: "まだお気に入りがありません",
+        emptyHint:
+          "ギャラリーの画像やプレイ中のプレビューで ☆ を付けると、ここに集まります",
+        addAria: "お気に入りに追加",
+        removeAria: "お気に入りから外す",
+        addTitle: "お気に入りに追加",
+        removeTitle: "お気に入りから外す",
+        toggleError: "お気に入りの更新に失敗しました",
+        addLabel: "ラベルを付ける",
+        editLabel: "ラベルを編集",
+        labelModalTitle: "お気に入りラベル",
+        labelHint: "後から見つけやすい短いメモを付けられます（80文字以内）",
+        labelPlaceholder: "例: 白ドレス・開花60",
+        labelSave: "保存",
+        labelSaving: "保存中...",
+        labelSaveError: "ラベルの保存に失敗しました",
+        removeConfirmTitle: "お気に入りから外しますか？",
+        removeConfirmMessage:
+          "一覧から外します。画像本体は消えません。あとからギャラリーで再度 ☆ を付けられます。",
+        removeConfirmAction: "外す",
+        removeConfirmCancel: "キャンセル",
+        removeConfirmDontShow: "次回からは表示しない",
       },
       achievements: {
         title: "実績",
@@ -952,6 +1036,18 @@ const resources = {
         bloomCalcNew: "New",
         bloomCalcNewDesc:
           "Bloom grows gently, making the resistance ending reachable",
+        feelingMode: "Feeling Generation Mode",
+        feelingModeDesc:
+          "Choose how monologues are written after dress-up/actions. Keep Legacy if you want existing play unchanged",
+        feelingModeLegacy: "Legacy (TSF resistance)",
+        feelingModeLegacyDesc:
+          "Same as before: resistance, shame, and bloom-driven monologues",
+        feelingModeGenderAware: "Gender-aware",
+        feelingModeGenderAwareDesc:
+          "For outfits natural to the original gender (e.g. men's suit, pajamas), suppress unnecessary gender-discomfort lines and bloom gains (keyword rules)",
+        genderCongruenceLlm: "Advanced gender-congruence judgment (LLM)",
+        genderCongruenceLlmDesc:
+          "Available when Feeling Mode is Gender-aware. Uses conversation context for judgment. Adds an LLM call; keyword rules apply when off",
         nsfwMode: "NSFW Mode",
         nsfwDesc: "Enable adult content",
         language: "Language",
@@ -993,6 +1089,9 @@ const resources = {
         experimentalClothingColor: "Clothing Color Consistency",
         experimentalClothingColorDesc:
           "Always specify clothing colors during transformation and preserve them during actions.",
+        respectClothingLayers: "Respect Clothing Layers",
+        respectClothingLayersDesc:
+          "Keep underwear and covered body attributes hidden beneath normally worn outer clothing. Explicit sheer fabric, lifted clothing, or undressing instructions remain visible in the requested area.",
         linkChatToImage: "Link Chat to Image",
         linkChatToImageDesc:
           "Scroll to the corresponding chat message when navigating image history.",
@@ -1002,6 +1101,13 @@ const resources = {
         historyLookbackCount: "History Lookback Count",
         historyLookbackCountDesc:
           "Number of recent history entries referenced when building prompts (5-20). Higher values improve consistency but consume more tokens.",
+        historyLookbackTargets: "Use History Lookback For",
+        historyLookbackTargetsDesc:
+          "Include the configured number of recent instructions and messages in prompts for the selected operations.",
+        historyLookbackTargetAction: "Action",
+        historyLookbackTargetConversation: "Conversation",
+        historyLookbackTargetDressUp: "Dress Up",
+        historyLookbackTargetRealityAlter: "Reality Alteration",
         novelaiTextModel: "NovelAI Text Model",
         novelaiTextModelDesc:
           "Select the NovelAI model for text generation (inner monologue, prompt expansion, chat, etc.). Opus plan only.",
@@ -1014,6 +1120,9 @@ const resources = {
         displaySection: "Display",
         fontFamily: "Font",
         fontFamilyDesc: "Change the app-wide display font",
+        confirmFavoriteRemove: "Confirm favorite removal",
+        confirmFavoriteRemoveDesc:
+          "Show a confirmation when removing items from the favorites list. If you chose “Don’t show again”, you can re-enable it here",
         fontPreview: "The quick brown fox jumps あいうえお 0123456789",
         fontSystem: "System Font",
         fontSystemDesc: "Use the OS system UI font",
@@ -1309,6 +1418,8 @@ const resources = {
         preciseReferences: "Precise Reference Images:",
         preciseReferenceAnlas: "+5 Anlas per reference image",
         addReferenceImage: "📎 Add Reference Image",
+        preciseRefDropHint: "or drop images here",
+        preciseRefDropActive: "Drop images here",
         toggleEnabledTitle: "Enable/Disable",
         referenceType: "Reference Type:",
         referenceTypeCharacterStyle: "Character & Style",
@@ -1352,6 +1463,11 @@ const resources = {
           "When enabled, adds rules to prompt generation to maintain clothing color consistency.",
         clothingColorConsistencyTradeoff:
           '* Requires specific instructions like "who, wearing what, where, doing what". Use the prompt builder below.',
+        respectClothingLayers: "Respect Clothing Layers",
+        respectClothingLayersHint:
+          "Prioritize normally worn outer clothing and keep underwear or covered body attributes out of the visible image. Feelings may acknowledge their presence or sensation through fabric.",
+        respectClothingLayersException:
+          "* Explicit sheer fabric, opening, lifting, pulling aside, or undressing instructions remain visible only in the requested area.",
         enableMultiplePeople: "Multiple People (Experimental)",
         enableMultiplePeopleHint:
           "Allow multiple characters in generated images. When enabled, the LLM determines the number of characters based on your instructions.",
@@ -1425,6 +1541,25 @@ const resources = {
         adaptationCute: "Cute",
         selfModeLabel: "Self Mode",
         selfModeDesc: "Parameter tracking is disabled",
+      },
+      branchSession: {
+        button: "Start new session from here",
+        buttonTitle: "Start a new session from this image state",
+        shortButton: "Branch",
+        dialogTitle: "Start a new session",
+        dialogMessage:
+          "Start a new session from the selected image state. The original session will be kept.",
+        dialogWaitHint: "Generating a situation summary may take a moment.",
+        selfModeLabel: "Start in Self Mode",
+        selfModeDesc:
+          "Defaults to ON when the source session is Self Mode. Turn OFF to switch to normal mode.",
+        inheritStatsLabel: "Carry over bloom and other stats",
+        inheritStatsDesc:
+          "ON: reconstruct bloom/shame/adaptation at the branch point. OFF: keep difficulty, reset stats to initial values.",
+        confirm: "Start",
+        cancel: "Cancel",
+        loading: "Summarizing the situation and starting a new session…",
+        failed: "Failed to start a branched session",
       },
       attributeSection: {
         title: "Attributes (Optional)",
@@ -1699,6 +1834,39 @@ const resources = {
         deleteItemAction: "Delete",
         deleteItemError: "Failed to delete item",
         selfModeChip: "Self",
+        searchPlaceholder: "Search conversations by keyword…",
+        searchAria: "Search session conversations",
+        searchClear: "Clear search",
+        searchNoResults: 'No sessions match "{{query}}"',
+        searchNoResultsHint: "Try a different keyword",
+        tabSessions: "Sessions",
+        tabFavorites: "Favorites",
+      },
+      favorites: {
+        title: "Favorite Outfits",
+        countSuffix: "items",
+        empty: "No favorites yet",
+        emptyHint:
+          "Star images in the gallery or in the play preview to collect them here",
+        addAria: "Add to favorites",
+        removeAria: "Remove from favorites",
+        addTitle: "Add to favorites",
+        removeTitle: "Remove from favorites",
+        toggleError: "Failed to update favorite",
+        addLabel: "Add label",
+        editLabel: "Edit label",
+        labelModalTitle: "Favorite label",
+        labelHint: "Add a short memo so you can find it later (max 80 chars)",
+        labelPlaceholder: "e.g. white dress, bloom ~60",
+        labelSave: "Save",
+        labelSaving: "Saving...",
+        labelSaveError: "Failed to save label",
+        removeConfirmTitle: "Remove from favorites?",
+        removeConfirmMessage:
+          "This removes it from the list only. The image itself stays, and you can star it again from the gallery later.",
+        removeConfirmAction: "Remove",
+        removeConfirmCancel: "Cancel",
+        removeConfirmDontShow: "Don’t show this again",
       },
       achievements: {
         title: "Achievements",

@@ -79,3 +79,77 @@ def get_summary_system_prompt(language: str = "ja") -> str:
     if language == "en":
         return SUMMARY_SYSTEM_PROMPT_EN
     return SUMMARY_SYSTEM_PROMPT_JA
+
+
+# ---------------------------------------------------------------------------
+# Branch-session situation summary (not PlaySummary diary format)
+# ---------------------------------------------------------------------------
+
+BRANCH_SITUATION_SYSTEM_PROMPT_JA = """\
+あなたはTSFゲーム（変身・着せ替えゲーム）の状況を引き継ぐためのライターです。
+プレイヤーが途中の画像状態から新規セッションを開始するため、分岐点までの経緯を状況要約してください。
+
+出力ルール:
+- 状況要約のみを出力する（JSON・見出し・前置き・箇条書き記号は不要）
+- 200文字以内、1〜3文程度
+- 含める: ここまでの経緯、場所・状況、心理状態、重要な関係性
+- 含めない: 外見や服装の詳細タグ列挙（別途管理）、開花度などの数値、分岐点より後の出来事の捏造
+- 新規プレイの「初期状態」文として自然に読める文体にする
+"""
+
+BRANCH_SITUATION_SYSTEM_PROMPT_EN = """\
+You write situation handoff text for a TSF (transformation/dress-up) game.
+The player will start a new session from a mid-play image, so summarize the situation up to the branch point.
+
+Output rules:
+- Output only the situation summary (no JSON, headings, preamble, or bullet markers)
+- Max about 200 characters, 1-3 sentences
+- Include: what led here, location/situation, mindset, important relationships
+- Exclude: detailed appearance/clothing tag lists (managed separately), numeric stats, events after the branch point
+- Write it so it can replace an "initial state" blurb for a new session
+"""
+
+
+def get_branch_situation_system_prompt(language: str = "ja") -> str:
+    if language == "en":
+        return BRANCH_SITUATION_SYSTEM_PROMPT_EN
+    return BRANCH_SITUATION_SYSTEM_PROMPT_JA
+
+
+def build_branch_situation_user_prompt(
+    timeline: list[tuple[str, str]],
+    appearance_description: str | None = None,
+    language: str = "ja",
+) -> str:
+    """Build user prompt for branch-point situation summary."""
+    if timeline:
+        lines = [
+            f"{i}. [{itype}] {text}" for i, (itype, text) in enumerate(timeline, 1)
+        ]
+        action_list = "\n".join(lines)
+    else:
+        action_list = (
+            "(no actions recorded)" if language == "en" else "（行動履歴なし）"
+        )
+
+    appearance = (appearance_description or "").strip()
+    if language == "en":
+        parts = [
+            "Summarize the situation up to this branch point for continuing play.",
+            "",
+            f"Play history:\n{action_list}",
+        ]
+        if appearance:
+            parts.extend(
+                ["", f"Appearance / scene description at branch point:\n{appearance}"]
+            )
+        return "\n".join(parts)
+
+    parts = [
+        "以下は分岐点までのプレイ履歴です。新規セッション開始用の状況要約を作成してください。",
+        "",
+        f"プレイ履歴:\n{action_list}",
+    ]
+    if appearance:
+        parts.extend(["", f"分岐点の外見・場面説明:\n{appearance}"])
+    return "\n".join(parts)

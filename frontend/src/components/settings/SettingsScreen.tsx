@@ -3,13 +3,30 @@
  * 007-chat-interactive-ux
  */
 
-import MainLayout from "../layout/MainLayout";
-import { useSettings } from "../../contexts/SettingsContext";
 import { useTranslation } from "react-i18next";
-import SelfProfileEditor from "./SelfProfileEditor";
+import { useSettings } from "../../contexts/SettingsContext";
+import type { InstructionType } from "../../types";
+import MainLayout from "../layout/MainLayout";
 import MemorySettings from "./MemorySettings";
+import SelfProfileEditor from "./SelfProfileEditor";
 import SpeechSynthesisSettings from "./SpeechSynthesisSettings";
 import "./SettingsScreen.css";
+
+const HISTORY_LOOKBACK_TARGETS: Array<{
+  value: InstructionType;
+  labelKey: string;
+}> = [
+  { value: "action", labelKey: "settings.historyLookbackTargetAction" },
+  {
+    value: "conversation",
+    labelKey: "settings.historyLookbackTargetConversation",
+  },
+  { value: "dress_up", labelKey: "settings.historyLookbackTargetDressUp" },
+  {
+    value: "reality_alter",
+    labelKey: "settings.historyLookbackTargetRealityAlter",
+  },
+];
 
 export default function SettingsScreen() {
   const { t } = useTranslation();
@@ -17,6 +34,8 @@ export default function SettingsScreen() {
     state,
     setDifficulty,
     setBloomCalcMethod,
+    setFeelingMode,
+    setGenderCongruenceLlmEnabled,
     setLanguage,
     setNsfwMode,
     setShowAchievementNotifications,
@@ -26,11 +45,14 @@ export default function SettingsScreen() {
     setEnableSurroundingsImage,
     setSurroundingsIncludePeople,
     setClothingColorConsistency,
+    setRespectClothingLayers,
     setFontFamily,
+    setConfirmFavoriteRemove,
     setLinkChatToImage,
     setEnableMultiplePeople,
     setNovelaiTextModel,
     setHistoryLookbackCount,
+    setHistoryLookbackTarget,
     resetSettings,
   } = useSettings();
 
@@ -51,6 +73,19 @@ export default function SettingsScreen() {
       description: t("settings.hardDesc"),
     },
   ] as const;
+
+  const feelingModeOptions = [
+    {
+      id: "legacy" as const,
+      label: t("settings.feelingModeLegacy"),
+      description: t("settings.feelingModeLegacyDesc"),
+    },
+    {
+      id: "gender_aware" as const,
+      label: t("settings.feelingModeGenderAware"),
+      description: t("settings.feelingModeGenderAwareDesc"),
+    },
+  ];
 
   const bloomCalcMethodOptions = [
     {
@@ -194,6 +229,80 @@ export default function SettingsScreen() {
             </div>
 
             <div className="settings-screen__item">
+              <div className="settings-screen__item-header">
+                <span className="settings-screen__item-label">
+                  {t("settings.feelingMode")}
+                  <span
+                    className="feature-chip-new"
+                    data-feature-version="v0.7.0"
+                  >
+                    New
+                  </span>
+                  <span
+                    className="feature-chip-experimental"
+                    data-feature-version="v0.7.0"
+                  >
+                    Experimental
+                  </span>
+                </span>
+                <span className="settings-screen__item-desc">
+                  {t("settings.feelingModeDesc")}
+                </span>
+              </div>
+              <div className="settings-screen__radio-group">
+                {feelingModeOptions.map((option) => (
+                  <label key={option.id} className="settings-screen__radio">
+                    <input
+                      type="radio"
+                      name="feelingMode"
+                      value={option.id}
+                      checked={state.feelingMode === option.id}
+                      onChange={() => setFeelingMode(option.id)}
+                    />
+                    <div className="settings-screen__radio-content">
+                      <span className="settings-screen__radio-label">
+                        {option.label}
+                      </span>
+                      <span className="settings-screen__radio-desc">
+                        {option.description}
+                      </span>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="settings-screen__item">
+              <label
+                className="settings-screen__toggle"
+                style={
+                  state.feelingMode !== "gender_aware"
+                    ? { opacity: 0.55 }
+                    : undefined
+                }
+              >
+                <div className="settings-screen__toggle-info">
+                  <span className="settings-screen__item-label">
+                    {t("settings.genderCongruenceLlm")}
+                  </span>
+                  <span className="settings-screen__item-desc">
+                    {t("settings.genderCongruenceLlmDesc")}
+                  </span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={state.genderCongruenceLlmEnabled}
+                  disabled={state.feelingMode !== "gender_aware"}
+                  onChange={(e) =>
+                    setGenderCongruenceLlmEnabled(e.target.checked)
+                  }
+                  className="settings-screen__toggle-input"
+                />
+                <span className="settings-screen__toggle-switch" />
+              </label>
+            </div>
+
+            <div className="settings-screen__item">
               <label className="settings-screen__toggle">
                 <div className="settings-screen__toggle-info">
                   <span className="settings-screen__item-label">
@@ -274,6 +383,26 @@ export default function SettingsScreen() {
               <p className="settings-screen__font-preview">
                 {t("settings.fontPreview")}
               </p>
+            </div>
+
+            <div className="settings-screen__item">
+              <label className="settings-screen__toggle">
+                <div className="settings-screen__toggle-info">
+                  <span className="settings-screen__item-label">
+                    {t("settings.confirmFavoriteRemove")}
+                  </span>
+                  <span className="settings-screen__item-desc">
+                    {t("settings.confirmFavoriteRemoveDesc")}
+                  </span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={state.confirmFavoriteRemove}
+                  onChange={(e) => setConfirmFavoriteRemove(e.target.checked)}
+                  className="settings-screen__toggle-input"
+                />
+                <span className="settings-screen__toggle-switch" />
+              </label>
             </div>
           </section>
 
@@ -487,6 +616,26 @@ export default function SettingsScreen() {
               <label className="settings-screen__toggle">
                 <div className="settings-screen__toggle-info">
                   <span className="settings-screen__item-label">
+                    {t("settings.respectClothingLayers")}
+                  </span>
+                  <span className="settings-screen__item-desc">
+                    {t("settings.respectClothingLayersDesc")}
+                  </span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={state.respectClothingLayers}
+                  onChange={(e) => setRespectClothingLayers(e.target.checked)}
+                  className="settings-screen__toggle-input"
+                />
+                <span className="settings-screen__toggle-switch" />
+              </label>
+            </div>
+
+            <div className="settings-screen__item">
+              <label className="settings-screen__toggle">
+                <div className="settings-screen__toggle-info">
+                  <span className="settings-screen__item-label">
                     {t("settings.historyLookbackCount")}
                   </span>
                   <span className="settings-screen__item-desc">
@@ -509,6 +658,37 @@ export default function SettingsScreen() {
                   aria-label={t("settings.historyLookbackCount")}
                 />
               </label>
+            </div>
+
+            <div className="settings-screen__item">
+              <fieldset className="settings-screen__checkbox-fieldset">
+                <legend className="settings-screen__item-label">
+                  {t("settings.historyLookbackTargets")}
+                </legend>
+                <p className="settings-screen__item-desc">
+                  {t("settings.historyLookbackTargetsDesc")}
+                </p>
+                <div className="settings-screen__checkbox-group">
+                  {HISTORY_LOOKBACK_TARGETS.map((target) => (
+                    <label
+                      key={target.value}
+                      className="settings-screen__checkbox"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={state.historyLookbackTargets[target.value]}
+                        onChange={(event) =>
+                          setHistoryLookbackTarget(
+                            target.value,
+                            event.target.checked,
+                          )
+                        }
+                      />
+                      <span>{t(target.labelKey)}</span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
             </div>
 
             <div className="settings-screen__item">

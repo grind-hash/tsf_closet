@@ -383,6 +383,8 @@ export interface GalleryItem {
   timestamp: string;
   costume_category: string | null;
   exposure_level: string | null;
+  /** お気に入り登録済みか (spec 009) */
+  is_favorited?: boolean;
 }
 
 /**
@@ -398,6 +400,8 @@ export interface GallerySession {
   last_timestamp: string;
   self_mode?: boolean;
   has_summary?: boolean;
+  /** 検索ヒット時の代表スニペット */
+  match_snippet?: string | null;
 }
 
 /**

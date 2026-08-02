@@ -1,10 +1,10 @@
 /**
  * GalleryCard - ギャラリーカードコンポーネント
- * 007-chat-interactive-ux
+ * 007-chat-interactive-ux / 009-favorite-outfit-snapshots
  */
 
-import type { GalleryItem } from "../../types";
 import { useTranslation } from "react-i18next";
+import type { GalleryItem } from "../../types";
 import { API_BASE } from "../../utils/api";
 import "./GalleryCard.css";
 
@@ -12,15 +12,25 @@ interface GalleryCardProps {
   item: GalleryItem;
   onClick?: () => void;
   onDelete?: (item: GalleryItem) => void;
+  onBranchSession?: (item: GalleryItem) => void;
+  onToggleFavorite?: (item: GalleryItem) => void;
+  favoriteBusy?: boolean;
+  /** お気に入り一覧向けのラベル表示 */
+  favoriteLabel?: string | null;
 }
 
 export default function GalleryCard({
   item,
   onClick,
   onDelete,
+  onBranchSession,
+  onToggleFavorite,
+  favoriteBusy = false,
+  favoriteLabel,
 }: GalleryCardProps) {
   const { t, i18n } = useTranslation();
-  // 日時をフォーマット
+  const isFavorited = Boolean(item.is_favorited);
+
   const formatDate = (timestamp: string) => {
     try {
       const date = new Date(timestamp);
@@ -63,9 +73,34 @@ export default function GalleryCard({
             {item.costume_category}
           </span>
         )}
+        {onToggleFavorite && (
+          <button
+            type="button"
+            className={`gallery-card__favorite-btn${isFavorited ? " is-active" : ""}`}
+            disabled={favoriteBusy}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleFavorite(item);
+            }}
+            aria-label={
+              isFavorited ? t("favorites.removeAria") : t("favorites.addAria")
+            }
+            title={
+              isFavorited ? t("favorites.removeTitle") : t("favorites.addTitle")
+            }
+            aria-pressed={isFavorited}
+          >
+            {isFavorited ? "★" : "☆"}
+          </button>
+        )}
       </div>
 
       <div className="gallery-card__info">
+        {favoriteLabel ? (
+          <p className="gallery-card__favorite-label" title={favoriteLabel}>
+            {favoriteLabel}
+          </p>
+        ) : null}
         <p className="gallery-card__instruction">
           {item.instruction || t("gallery.noInstruction")}
         </p>
@@ -73,32 +108,48 @@ export default function GalleryCard({
           <span className="gallery-card__date">
             {formatDate(item.timestamp)}
           </span>
-          {onDelete && (
-            <button
-              type="button"
-              className="gallery-card__delete-btn"
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete(item);
-              }}
-              aria-label={t("gallery.deleteItemTitle")}
-              title={t("gallery.deleteItemTitle")}
-            >
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
+          <div className="gallery-card__actions">
+            {onBranchSession && (
+              <button
+                type="button"
+                className="gallery-card__branch-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onBranchSession(item);
+                }}
+                aria-label={t("branchSession.buttonTitle")}
+                title={t("branchSession.buttonTitle")}
               >
-                <polyline points="3 6 5 6 21 6" />
-                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-              </svg>
-            </button>
-          )}
+                {t("branchSession.shortButton")}
+              </button>
+            )}
+            {onDelete && (
+              <button
+                type="button"
+                className="gallery-card__delete-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete(item);
+                }}
+                aria-label={t("gallery.deleteItemTitle")}
+                title={t("gallery.deleteItemTitle")}
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <polyline points="3 6 5 6 21 6" />
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                </svg>
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>

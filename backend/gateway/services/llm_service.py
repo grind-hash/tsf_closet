@@ -564,6 +564,7 @@ class LLMService:
         provider_override: Optional[str] = None,
         nsfw_mode: bool = False,
         extra_system_suffix: str = "",
+        suppress_gender_discomfort_cues: bool = False,
     ) -> LLMResult:
         """画像編集プロンプトを生成する
 
@@ -576,6 +577,7 @@ class LLMService:
             provider_override: プロバイダー指定（省略時は設定値）
             nsfw_mode: NSFWモードかどうか
             extra_system_suffix: システムプロンプト末尾に付与する追加指示（メモリ優先指示等）
+            suppress_gender_discomfort_cues: 性別適合時に恥ずかしさ・官能キューを抑止
 
         Returns:
             LLMResult
@@ -587,7 +589,9 @@ class LLMService:
 
         provider = provider_override or settings.feeling_provider
         system_prompt = get_image_edit_system_prompt(
-            image_provider=provider, nsfw_mode=nsfw_mode
+            image_provider=provider,
+            nsfw_mode=nsfw_mode,
+            suppress_gender_discomfort_cues=suppress_gender_discomfort_cues,
         )
         if extra_system_suffix:
             system_prompt = system_prompt + extra_system_suffix
@@ -614,6 +618,8 @@ class LLMService:
                 custom_preserve_text=custom_preserve_text,
                 provider=provider,
                 extra_system_suffix=extra_system_suffix,
+                nsfw_mode=nsfw_mode,
+                suppress_gender_discomfort_cues=suppress_gender_discomfort_cues,
             )
             return LLMResult(
                 content=content,
@@ -635,6 +641,7 @@ class LLMService:
         novelai_model_override: str | None = None,
         session_characters_section: str | None = None,
         extra_system_suffix: str = "",
+        suppress_gender_discomfort_cues: bool = False,
     ) -> str:
         """NovelAI画像生成プロンプトを生成する (T006)
 
@@ -651,23 +658,28 @@ class LLMService:
                 指定された場合、デフォルトのシステムプロンプトを置き換える。
             gender: キャラクターの元の性別（"man" または "woman"）
             extra_system_suffix: システムプロンプト末尾に付与する追加指示（メモリ優先指示等）
+            suppress_gender_discomfort_cues: 性別適合時に恥ずかしさ・官能キューを抑止
 
         Returns:
             NovelAI用タグプロンプト（カンマ区切り）
         """
         from .prompts import (
+            GENDER_CONGRUENT_IMAGE_CUE_RULE,
             build_novelai_prompt_generation_user,
             get_novelai_prompt_generation_system,
         )
 
         if system_prompt_override:
             system_prompt = system_prompt_override
+            if suppress_gender_discomfort_cues:
+                system_prompt = system_prompt + GENDER_CONGRUENT_IMAGE_CUE_RULE
         else:
             system_prompt = get_novelai_prompt_generation_system(
                 nsfw_mode=nsfw_mode,
                 instruction_language=language,
                 clothing_color_consistency=clothing_color_consistency,
                 enable_multiple_people=enable_multiple_people,
+                suppress_gender_discomfort_cues=suppress_gender_discomfort_cues,
             )
         if extra_system_suffix:
             system_prompt = system_prompt + extra_system_suffix
@@ -826,6 +838,12 @@ class LLMService:
             "(a full replacement, NOT a diff appended to the previous "
             f"value). Keep it concise: 1-2 sentences, at most {soft_limit} "
             "characters. Do not enumerate every prior detail.\n"
+            "- appearance_tags in the input may already be the post-change "
+            "image tags. Prefer updating appearance_natural to match the "
+            "current look; only change appearance_tags when they clearly "
+            "conflict with the action or natural description. When you keep "
+            "tags, still set changed=true if natural was updated, and return "
+            "the current tags as-is or omit appearance_tags.\n"
             "- appearance_tags must be a complete comma-separated tag list "
             "for the CURRENT state, not a diff. Keep it tight; drop "
             "redundant tags.\n"

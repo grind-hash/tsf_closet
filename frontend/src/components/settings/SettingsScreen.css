@@ -71,6 +71,10 @@
 }
 
 .settings-screen__item-label {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem;
   font-size: 0.95rem;
   font-weight: 500;
   color: var(--text-color, #eee);
@@ -129,7 +133,50 @@
   gap: 0.125rem;
 }
 
+/* 履歴遡及対象チェックボックス */
+.settings-screen__checkbox-fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.settings-screen__checkbox-group {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.settings-screen__checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.65rem 0.75rem;
+  background-color: var(--bg-color, #1a1a2e);
+  border: 1px solid var(--border-color, #333);
+  border-radius: 8px;
+  color: var(--text-color, #eee);
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.settings-screen__checkbox:hover {
+  border-color: var(--accent-color, #e94560);
+}
+
+.settings-screen__checkbox input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--accent-color, #e94560);
+}
+
 .settings-screen__radio-label {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.25rem;
   font-size: 0.95rem;
   color: var(--text-color, #eee);
 }
@@ -327,5 +374,9 @@
 
   .settings-screen__content {
     max-width: none;
+  }
+
+  .settings-screen__checkbox-group {
+    grid-template-columns: 1fr;
   }
 }

@@ -30,6 +30,8 @@ class UserSettingsResponse(BaseModel):
     nsfw_mode: bool
     difficulty: str
     bloom_calc_method: str = "legacy"
+    feeling_mode: str = "legacy"
+    gender_congruence_llm_enabled: bool = False
     language: LanguageCode
     novelai_text_model: str = "glm-4-6"
     tts_enabled: bool = False
@@ -45,6 +47,9 @@ class UserSettingsUpdateRequest(BaseModel):
     nsfw_mode: bool | None = None
     difficulty: Literal["easy", "normal", "hard"] | None = None
     bloom_calc_method: Literal["legacy", "new"] | None = None
+    # new/experimental は誤保存互換。正規化後は legacy | gender_aware
+    feeling_mode: Literal["legacy", "gender_aware", "new", "experimental"] | None = None
+    gender_congruence_llm_enabled: bool | None = None
     language: LanguageCode | None = None
     novelai_text_model: Literal["glm-4-6", "xialong-v1"] | None = None
     tts_enabled: bool | None = None
@@ -164,6 +169,8 @@ async def update_user_settings(
             nsfw_mode=request.nsfw_mode,
             difficulty=request.difficulty,
             bloom_calc_method=request.bloom_calc_method,
+            feeling_mode=request.feeling_mode,
+            gender_congruence_llm_enabled=request.gender_congruence_llm_enabled,
             language=request.language,
             novelai_text_model=request.novelai_text_model,
             tts_enabled=request.tts_enabled,

@@ -2,7 +2,7 @@
  * SessionListModal - displays past session history for browsing
  */
 
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { SessionSummary } from "../types";
 import "./SessionListModal.css";
@@ -24,9 +24,10 @@ export default function SessionListModal({
   const [offset, setOffset] = useState(0);
   const limit = 12;
 
+  // offset 変更で再取得する。fetchSessions は同コンポーネント内の関数なので依存に含めない
+  // biome-ignore lint/correctness/useExhaustiveDependencies: offset 駆動の一覧再取得
   useEffect(() => {
     fetchSessions();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [offset]);
 
   const fetchSessions = async () => {

@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { startFirstCharacterGame } from "./helpers/gameplay";
 
 test("inpaint OFF clears mask configured state", async ({ page }) => {

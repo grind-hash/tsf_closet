@@ -17,7 +17,9 @@ from gateway.databases.models import Session as SessionORM, User
 from gateway.services.character_service import (
     SessionCharacterService,
     apply_appearance_updates,
+    apply_character_prompt_tags,
     build_session_characters_prompt_section,
+    upsert_protagonist_session_character,
 )
 from gateway.services.llm_service import LLMService
 
@@ -140,6 +142,79 @@ def test_build_prompt_section_includes_position_and_appearance():
     assert "Bob" in text
     assert "blonde, gown" in text
     assert "金髪" in text
+
+
+@pytest.mark.asyncio
+async def test_apply_character_prompt_tags_updates_protagonist_and_support(
+    tmp_path: Path,
+):
+    factory = await _setup(tmp_path)
+    async with factory() as db:
+        await upsert_protagonist_session_character(
+            db,
+            "sess-1",
+            name="Protagonist",
+            appearance_tags="1boy, old tags",
+        )
+        await SessionCharacterService.create_in_session(
+            db,
+            "sess-1",
+            name="Support",
+            appearance_tags="1girl, old support",
+            position="left",
+        )
+        await db.commit()
+
+    async with factory() as db:
+        n = await apply_character_prompt_tags(
+            db,
+            "sess-1",
+            [
+                {"prompt": "1girl, school uniform, blonde hair"},
+                {"prompt": "1boy, suit, black hair"},
+            ],
+        )
+        await db.commit()
+    assert n == 2
+
+    async with factory() as db:
+        records = {
+            r.name: r
+            for r in await SessionCharacterService.list_for_session(db, "sess-1")
+        }
+    assert (
+        records["Protagonist"].appearance_tags == "1girl, school uniform, blonde hair"
+    )
+    assert records["Support"].appearance_tags == "1boy, suit, black hair"
+
+
+@pytest.mark.asyncio
+async def test_apply_character_prompt_tags_respects_appearance_lock(tmp_path: Path):
+    factory = await _setup(tmp_path)
+    async with factory() as db:
+        await upsert_protagonist_session_character(
+            db,
+            "sess-1",
+            name="Protagonist",
+            appearance_tags="1boy, locked",
+        )
+        # lock after create (upsert helper does not accept lock kwargs)
+        records = list(await SessionCharacterService.list_for_session(db, "sess-1"))
+        await SessionCharacterService.update(db, records[0].id, appearance_lock=True)
+        await db.commit()
+
+    async with factory() as db:
+        n = await apply_character_prompt_tags(
+            db,
+            "sess-1",
+            [{"prompt": "1girl, should not apply"}],
+        )
+        await db.commit()
+    assert n == 0
+
+    async with factory() as db:
+        records = list(await SessionCharacterService.list_for_session(db, "sess-1"))
+    assert records[0].appearance_tags == "1boy, locked"
 
 
 @pytest.mark.asyncio

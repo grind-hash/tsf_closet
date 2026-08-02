@@ -5,7 +5,7 @@
  * 完了/失敗/キャンセル完了時に onFinished を呼び出す。
  */
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   cancelMemoryGeneration,
@@ -43,6 +43,8 @@ export default function MemoryGenerationProgressModal({
   const onFinishedRef = useRef(onFinished);
   onFinishedRef.current = onFinished;
 
+  // jobId 変更時のみポーリングを張り直す（t の参照変化では再実行しない）
+  // biome-ignore lint/correctness/useExhaustiveDependencies: ポーリングは jobId 単位
   useEffect(() => {
     let cancelled = false;
     let intervalId: ReturnType<typeof setInterval> | null = null;
@@ -78,7 +80,6 @@ export default function MemoryGenerationProgressModal({
       cancelled = true;
       if (intervalId) clearInterval(intervalId);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobId]);
 
   const handleCancel = useCallback(async () => {

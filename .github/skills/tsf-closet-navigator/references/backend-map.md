@@ -25,6 +25,7 @@
 | 10    | GET      | `/game/custom-characters`           | カスタムキャラクター一覧                  |
 | 11    | DELETE   | `/game/session`                     | セッションリセット                       |
 | 12    | POST     | `/game/history/{id}/select`         | 履歴項目の選択                           |
+| 12b   | POST     | `/game/history/{id}/branch-session` | 履歴画像から新規セッション分岐（状況サマリー生成） |
 | 13    | GET      | `/game/sessions`                    | セッション一覧（ページネーション）        |
 | 14    | GET      | `/game/sessions/{id}`               | セッション詳細                           |
 | 15    | POST     | `/game/sessions/{id}/restore`       | セッション復元                           |
@@ -93,8 +94,9 @@
 | `achievement_service.py`    |                         | 実績解除条件の判定                                                 |
 | `achievement_classifier.py` |                         | 指示テキスト → 実績カテゴリの分類                                  |
 | `settings_service.py`       |                         | ユーザー設定 CRUD                                                  |
-| `summary_service.py`        |                         | エンディング条件の評価                                             |
-| `session.py`                |                         | インメモリセッション状態ストア                                     |
+| `summary_service.py`        |                         | プレイ要約・分岐用状況サマリー生成                                 |
+| `session_branch_service.py` |                         | 履歴画像からの新規セッション分岐オーケストレーション               |
+| `session.py`                |                         | セッション/履歴ストア（timeline_until・stats再構築含む）           |
 | `characters.py`             |                         | キャラクターメタデータ（一覧、選択、初期化）                       |
 | `comfy.py`                  |                         | ComfyUI APIクライアント（ワークフロー実行）                        |
 | `litellm_client.py`         |                         | ローカルLLM用 LiteLLM 統合                                        |

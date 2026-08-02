@@ -21,11 +21,11 @@ import "@fontsource/roboto-mono/400.css";
 import "@fontsource/roboto-mono/500.css";
 import "@fontsource/roboto-mono/700.css";
 
+import { ChatProvider } from "./contexts/ChatContext";
+import { GameProvider } from "./contexts/GameContext";
+import { NotificationProvider } from "./contexts/NotificationContext";
 // Context Providers
 import { SettingsProvider } from "./contexts/SettingsContext";
-import { NotificationProvider } from "./contexts/NotificationContext";
-import { GameProvider } from "./contexts/GameContext";
-import { ChatProvider } from "./contexts/ChatContext";
 
 /**
  * アプリケーションのエントリポイント

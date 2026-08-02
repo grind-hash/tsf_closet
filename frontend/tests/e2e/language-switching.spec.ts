@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 
 test("language switch updates key labels", async ({ page }) => {
   await page.addInitScript(() => {

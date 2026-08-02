@@ -7,10 +7,10 @@
  * @see specs/006-novelai-prompt-enhancement
  */
 
-import { useState, useCallback } from "react";
+import { useCallback, useState } from "react";
 import type { TagSuggestion, TagSuggestResponse } from "../types";
-import { prepareTagSearchQuery } from "../utils/katakanaToHiragana";
 import { API_BASE } from "../utils/api";
+import { prepareTagSearchQuery } from "../utils/katakanaToHiragana";
 
 export type TagSuggestState = "idle" | "loading" | "success" | "error";
 

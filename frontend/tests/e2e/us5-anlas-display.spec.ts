@@ -5,7 +5,7 @@
  * - Balance hidden when using other providers
  * - Note: Actual balance update after image generation requires live backend
  */
-import { test, expect } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 
 test.describe("US5: Anlas balance display", () => {
   test("anlas display element exists in UI structure", async ({ page }) => {

@@ -243,6 +243,58 @@ class CharacterPresetService:
 # ---------------------------------------------------------------------------
 
 
+async def apply_character_prompt_tags(
+    db: AsyncSession,
+    session_id: str,
+    character_prompts: Sequence[dict[str, Any]],
+) -> int:
+    """Write confirmed image-generation character prompts into session rows.
+
+    ``character_prompts`` is the Opus-split list of
+    ``{"prompt": "<tags>", "position": ...}`` (index 0 = protagonist).
+    Rows with ``appearance_lock`` / ``exclude_from_effects`` are skipped.
+    Non-protagonist rows are matched by ``slot_index`` (0-based).
+
+    Returns the number of rows updated.
+    """
+    if not character_prompts:
+        return 0
+    records = await fetch_session_characters(db, session_id)
+    if not records:
+        return 0
+    by_slot = {r.slot_index: r for r in records}
+    protagonist = next((r for r in records if r.is_protagonist), None)
+    written = 0
+
+    for idx, entry in enumerate(character_prompts):
+        if not isinstance(entry, dict):
+            continue
+        tags = entry.get("prompt")
+        if not isinstance(tags, str):
+            continue
+        tags_stripped = tags.strip()
+        if not tags_stripped:
+            continue
+
+        target: SessionCharacter | None = None
+        if idx == 0 and protagonist is not None:
+            target = protagonist
+        else:
+            target = by_slot.get(idx)
+
+        if target is None:
+            continue
+        if getattr(target, "appearance_lock", False) or getattr(
+            target, "exclude_from_effects", False
+        ):
+            continue
+        if (target.appearance_tags or "") == tags_stripped:
+            continue
+        await update_session_character(db, target.id, appearance_tags=tags_stripped)
+        written += 1
+    return written
+
+
 async def apply_appearance_updates(
     db: AsyncSession,
     session_id: str,
@@ -569,38 +621,101 @@ def extract_characters_from_history(
     return [c for c in characters if isinstance(c, dict)]
 
 
+def _looks_like_novelai_tag_list(text: str) -> bool:
+    """Heuristic: treat comma-separated NovelAI-style prompts as tag lists.
+
+    Used when ``after_description`` stores the character prompt string directly
+    (Opus JSON-split success path) rather than a JSON envelope.
+    """
+    stripped = text.strip()
+    if not stripped or len(stripped) < 8:
+        return False
+    # Japanese free-text history (non-Opus dress-up) is not tags.
+    narrative_markers = (
+        "に変身した姿",
+        "という現実改変",
+        "により変化した姿",
+        "transformed appearance",
+        "after transforming",
+    )
+    if any(marker in stripped for marker in narrative_markers):
+        return False
+    # Narrative Japanese sentences without tag separators are not tags.
+    if "。" in stripped or "、" in stripped:
+        return False
+    lower = stripped.lower()
+    has_subject = any(
+        token in lower
+        for token in (
+            "1girl",
+            "1boy",
+            "1other",
+            "2girls",
+            "2boys",
+            "solo",
+            "multiple girls",
+            "multiple boys",
+        )
+    )
+    comma_count = stripped.count(",")
+    if has_subject and comma_count >= 1:
+        return True
+    # Quality-tag heavy prompts without explicit 1girl/1boy still count.
+    if comma_count >= 2 and any(
+        token in lower
+        for token in (
+            "masterpiece",
+            "best quality",
+            "amazing quality",
+            "very aesthetic",
+        )
+    ):
+        return True
+    return False
+
+
 def extract_protagonist_tags_from_history(
     after_description: str | None,
 ) -> str | None:
     """Extract the protagonist appearance tags from a prior history entry.
 
-    When multi-character mode is active, ``after_description`` is stored as a
-    JSON document of the form ``{"characters": [{"tags": "...", ...}, ...],
-    "scene": "..."}``. The first entry in ``characters`` is conventionally the
-    protagonist; we return its ``tags`` field. Returns ``None`` for legacy
-    plain-text descriptions or any malformed payload (FR-010 protect existing
-    sessions).
+    Supported shapes:
+    1. Multi-character JSON:
+       ``{"characters": [{"tags": "...", ...}, ...], "scene": "..."}``
+    2. Single-character JSON:
+       ``{"character": "...", "scene": "..."}``
+    3. Plain NovelAI tag list (character prompt stored as ``after_description``
+       after a successful Opus JSON split).
+
+    Returns ``None`` for Japanese narrative descriptions or malformed payloads.
     """
-    data = _parse_history_after_description_json(after_description)
-    if data is None:
+    if not after_description:
         return None
-    # Multi-character format: {"characters": [{"tags": "...", ...}, ...]}
-    characters = data.get("characters")
-    if isinstance(characters, list) and characters:
-        first = characters[0]
-        if isinstance(first, dict):
-            tags = first.get("tags")
-            if isinstance(tags, str):
-                tags_stripped = tags.strip()
-                if tags_stripped:
-                    return tags_stripped
-    # Single-character format: {"character": "...", "scene": "..."}
-    # 単一キャラ format でも主人公タグとして扱う (FR-010 dress-up bug fix)
-    single = data.get("character")
-    if isinstance(single, str):
-        single_stripped = single.strip()
-        if single_stripped:
-            return single_stripped
+    data = _parse_history_after_description_json(after_description)
+    if data is not None:
+        # Multi-character format: {"characters": [{"tags": "...", ...}, ...]}
+        characters = data.get("characters")
+        if isinstance(characters, list) and characters:
+            first = characters[0]
+            if isinstance(first, dict):
+                tags = first.get("tags")
+                if isinstance(tags, str):
+                    tags_stripped = tags.strip()
+                    if tags_stripped:
+                        return tags_stripped
+        # Single-character format: {"character": "...", "scene": "..."}
+        # 単一キャラ format でも主人公タグとして扱う (FR-010 dress-up bug fix)
+        single = data.get("character")
+        if isinstance(single, str):
+            single_stripped = single.strip()
+            if single_stripped:
+                return single_stripped
+        return None
+
+    # Opus success path stores character prompt as a plain tag string.
+    plain = after_description.strip()
+    if _looks_like_novelai_tag_list(plain):
+        return plain
     return None
 
 
@@ -774,6 +889,7 @@ __all__ = [
     "CharacterPresetService",
     "SessionCharacterService",
     "apply_appearance_updates",
+    "apply_character_prompt_tags",
     "build_novelai_characters_section",
     "build_session_characters_prompt_section",
     "extract_characters_from_history",

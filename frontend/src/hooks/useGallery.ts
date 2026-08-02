@@ -3,9 +3,9 @@
  * 007-chat-interactive-ux
  */
 
-import { useState, useCallback, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { fetchGalleryItem, fetchGalleryList } from "../apis/gallery";
 import type { GalleryItem } from "../types";
-import { fetchGalleryList, fetchGalleryItem } from "../apis/gallery";
 
 interface UseGalleryOptions {
   pageSize?: number;

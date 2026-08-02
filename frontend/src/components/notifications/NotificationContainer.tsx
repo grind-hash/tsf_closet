@@ -3,8 +3,8 @@
  * 007-chat-interactive-ux
  */
 
-import { useNotification } from "../../contexts/NotificationContext";
 import { useTranslation } from "react-i18next";
+import { useNotification } from "../../contexts/NotificationContext";
 import { useSettings } from "../../contexts/SettingsContext";
 import AchievementToast from "../achievements/AchievementToast";
 import "./NotificationContainer.css";

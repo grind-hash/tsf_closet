@@ -3,8 +3,8 @@
  * 007-chat-interactive-ux
  */
 
-import type { Achievement } from "../../types";
 import { useTranslation } from "react-i18next";
+import type { Achievement } from "../../types";
 import "./AchievementCard.css";
 
 interface AchievementCardProps {

@@ -3,7 +3,7 @@
  * 007-chat-interactive-ux
  */
 
-import type { GalleryItem } from "../types";
+import type { GalleryItem, GallerySession } from "../types";
 import { API_BASE } from "../utils/api";
 
 // レスポンス型
@@ -25,6 +25,42 @@ interface DeleteItemResponse {
   success: boolean;
   deleted_count: number;
   message: string;
+}
+
+export interface GallerySessionsResponse {
+  sessions: GallerySession[];
+  total: number;
+  page: number;
+  page_size: number;
+  has_more: boolean;
+}
+
+/**
+ * ギャラリーのセッション一覧を取得（q 指定時はやり取りを横断検索）
+ */
+export async function fetchGallerySessions(
+  page: number = 1,
+  pageSize: number = 20,
+  q?: string,
+): Promise<GallerySessionsResponse> {
+  const params = new URLSearchParams({
+    page: String(page),
+    page_size: String(pageSize),
+  });
+
+  const query = q?.trim();
+  if (query) {
+    params.append("q", query);
+  }
+
+  const response = await fetch(`${API_BASE}/gallery/sessions?${params}`);
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(error || "セッション一覧の取得に失敗しました");
+  }
+
+  return response.json();
 }
 
 /**
@@ -109,6 +145,7 @@ function convertGalleryItem(item: Record<string, unknown>): GalleryItem {
       ? String(item.costume_category)
       : null,
     exposure_level: item.exposure_level ? String(item.exposure_level) : null,
+    is_favorited: Boolean(item.is_favorited),
   };
 }
 

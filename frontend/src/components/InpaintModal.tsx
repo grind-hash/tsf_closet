@@ -3,14 +3,14 @@
  * マスク描画、履歴/プリセット選択、パラメータ設定を集約
  */
 
-import { useState, useRef, useEffect, useCallback } from "react";
 import type React from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   ReactSketchCanvas,
   type ReactSketchCanvasRef,
 } from "react-sketch-canvas";
-import type { MaskInfo, InpaintSettings, MaskListResponse } from "../types";
+import type { InpaintSettings, MaskInfo, MaskListResponse } from "../types";
 import { DEFAULT_INPAINT_SETTINGS } from "../types";
 import { API_BASE } from "../utils/api";
 import "./InpaintModal.css";
@@ -76,6 +76,7 @@ export default function InpaintModal({
   const maskCanvasRef = useRef<ReactSketchCanvasRef>(null);
 
   // モーダルが開いたときに設定を初期化
+  // biome-ignore lint/correctness/useExhaustiveDependencies: loadMaskList は安定したローカル関数
   useEffect(() => {
     if (isOpen) {
       setSettings(initialSettings ?? DEFAULT_INPAINT_SETTINGS);

@@ -190,7 +190,7 @@ function drawShareCard(
 
       // Badge background
       roundRect(ctx, curX, curY, badgeW, badgeH, 6);
-      ctx.fillStyle = color + "22";
+      ctx.fillStyle = `${color}22`;
       ctx.fill();
       ctx.strokeStyle = color;
       ctx.lineWidth = 1.5;

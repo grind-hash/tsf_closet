@@ -11,24 +11,25 @@
  * T127-T130: Context経由で状態を取得
  */
 
-import { useState, useRef, useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useSettings } from "../../contexts/SettingsContext";
-import { useGame } from "../../contexts/GameContext";
-import { useChat } from "../../contexts/ChatContext";
-import type {
-  PreserveElement,
-  ChangeScope,
-  PreciseReferenceType,
-} from "../../types";
-import { previewPrompt, type PreviewPromptResponse } from "../../apis/game";
+import { type PreviewPromptResponse, previewPrompt } from "../../apis/game";
 import {
+  type AivisStatus,
   getAivisStatus,
   startAivisEngine,
   stopAivisEngine,
-  type AivisStatus,
 } from "../../apis/speechSynthesis";
+import { useChat } from "../../contexts/ChatContext";
+import { useGame } from "../../contexts/GameContext";
+import { useSettings } from "../../contexts/SettingsContext";
+import type {
+  ChangeScope,
+  PreciseReferenceType,
+  PreserveElement,
+} from "../../types";
 import { generateUUID } from "../../utils/generateUUID";
+import { isHistoryLookbackEnabled } from "../../utils/historyLookback";
 import MemorySettings from "../settings/MemorySettings";
 import PlayMemorySettings from "../settings/PlayMemorySettings";
 import "./RightPanel.css";
@@ -93,6 +94,7 @@ export default function RightPanel({
     setEnableSurroundingsImage,
     setSurroundingsIncludePeople,
     setClothingColorConsistency,
+    setRespectClothingLayers,
     setShowRealityAttributeNotification,
     setEnableMultiplePeople,
     setNovelaiTextModel,
@@ -220,6 +222,11 @@ export default function RightPanel({
         custom_preserve_text:
           settingsState.changeSettings.customPreserveText || undefined,
         use_play_memory: settingsState.playMemoryEnabled,
+        respect_clothing_layers: settingsState.respectClothingLayers,
+        use_history_lookback: isHistoryLookbackEnabled(
+          settingsState.historyLookbackTargets,
+          instructionType,
+        ),
       });
       setPreviewResult(result);
       setEditedPrompt(result.image_edit_prompt);
@@ -233,9 +240,11 @@ export default function RightPanel({
   }, [
     gameState.sessionId,
     chatState.inputText,
+    settingsState.respectClothingLayers,
     chatState.instructionType,
     settingsState.changeSettings,
     settingsState.playMemoryEnabled,
+    settingsState.historyLookbackTargets,
   ]);
 
   // 編集済みプロンプトで送信
@@ -255,6 +264,7 @@ export default function RightPanel({
   );
   const attributeInputRef = useRef<HTMLInputElement>(null);
   const preciseRefInputRef = useRef<HTMLInputElement>(null);
+  const preciseRefDragDepthRef = useRef(0);
 
   // 属性プリセット
   const [attributePresets, setAttributePresets] = useState<AttributePreset[]>(
@@ -478,53 +488,133 @@ export default function RightPanel({
 
   // Validation error for precise reference files
   const [preciseRefError, setPreciseRefError] = useState<string | null>(null);
+  const [isPreciseRefDragging, setIsPreciseRefDragging] = useState(false);
 
-  // Precise reference image file handler with validation
-  const handlePreciseRefFileChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const files = e.target.files;
-      if (!files) return;
+  // 精密参照画像を検証し、元の順序を保って追加する
+  const addPreciseRefFiles = useCallback(
+    async (files: File[]) => {
       setPreciseRefError(null);
 
-      for (const file of Array.from(files)) {
-        // MIME type check
+      const validFiles: File[] = [];
+      let firstValidationError: string | null = null;
+      let hasMaxCountError = false;
+      let remainingSlots = Math.max(
+        0,
+        6 - settingsState.preciseReferences.length,
+      );
+
+      for (const file of files) {
         if (!ALLOWED_MIME_TYPES.includes(file.type)) {
-          setPreciseRefError(
-            t("rightPanel.preciseRefTypeError", { name: file.name }),
-          );
+          firstValidationError ??= t("rightPanel.preciseRefTypeError", {
+            name: file.name,
+          });
           continue;
         }
-        // File size check
+
         if (file.size > MAX_FILE_SIZE_BYTES) {
-          setPreciseRefError(
-            t("rightPanel.preciseRefSizeError", { name: file.name }),
-          );
+          firstValidationError ??= t("rightPanel.preciseRefSizeError", {
+            name: file.name,
+          });
           continue;
         }
-        // Max 6 references check (FR-017)
-        if (settingsState.preciseReferences.length >= 6) {
-          setPreciseRefError(t("rightPanel.preciseRefMaxError"));
+
+        if (remainingSlots === 0) {
+          hasMaxCountError = true;
           continue;
         }
-        const reader = new FileReader();
-        reader.onload = () => {
-          const dataUrl = reader.result as string;
+
+        validFiles.push(file);
+        remainingSlots -= 1;
+      }
+
+      const imageDataList = await Promise.all(
+        validFiles.map(
+          (file) =>
+            new Promise<string | null>((resolve) => {
+              const reader = new FileReader();
+              reader.onload = () =>
+                resolve(
+                  typeof reader.result === "string" ? reader.result : null,
+                );
+              reader.onerror = () => resolve(null);
+              reader.readAsDataURL(file);
+            }),
+        ),
+      );
+
+      validFiles.forEach((file, index) => {
+        const imageData = imageDataList[index];
+        if (imageData) {
           addPreciseReference({
             id: generateUUID(),
-            imageData: dataUrl,
+            imageData,
             fileName: file.name,
             type: "character&style",
             strength: 0.6,
             fidelity: 1.0,
             enabled: true,
           });
-        };
-        reader.readAsDataURL(file);
+        }
+      });
+
+      if (hasMaxCountError) {
+        setPreciseRefError(t("rightPanel.preciseRefMaxError"));
+      } else if (firstValidationError) {
+        setPreciseRefError(firstValidationError);
       }
-      // Reset input so the same file can be re-selected
-      e.target.value = "";
     },
     [addPreciseReference, settingsState.preciseReferences.length, t],
+  );
+
+  const handlePreciseRefFileChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = e.target.files;
+      if (!files) return;
+      void addPreciseRefFiles(Array.from(files));
+      e.target.value = "";
+    },
+    [addPreciseRefFiles],
+  );
+
+  const handlePreciseRefDragEnter = useCallback(
+    (e: React.DragEvent<HTMLButtonElement>) => {
+      e.preventDefault();
+      preciseRefDragDepthRef.current += 1;
+      setIsPreciseRefDragging(true);
+    },
+    [],
+  );
+
+  const handlePreciseRefDragOver = useCallback(
+    (e: React.DragEvent<HTMLButtonElement>) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "copy";
+    },
+    [],
+  );
+
+  const handlePreciseRefDragLeave = useCallback(
+    (e: React.DragEvent<HTMLButtonElement>) => {
+      e.preventDefault();
+      preciseRefDragDepthRef.current = Math.max(
+        0,
+        preciseRefDragDepthRef.current - 1,
+      );
+      if (preciseRefDragDepthRef.current === 0) {
+        setIsPreciseRefDragging(false);
+      }
+    },
+    [],
+  );
+
+  const handlePreciseRefDrop = useCallback(
+    (e: React.DragEvent<HTMLButtonElement>) => {
+      e.preventDefault();
+      preciseRefDragDepthRef.current = 0;
+      setIsPreciseRefDragging(false);
+      void addPreciseRefFiles(Array.from(e.dataTransfer.files));
+    },
+    [addPreciseRefFiles],
   );
 
   return (
@@ -829,6 +919,51 @@ export default function RightPanel({
           </div>
         </section>
 
+        {/* 衣装レイヤー考慮トグル */}
+        <section className="right-panel__section">
+          <div className="right-panel__form-group">
+            <label className="right-panel__toggle">
+              <span className="right-panel__toggle-label">
+                {t(
+                  "rightPanel.respectClothingLayers",
+                  "Respect Clothing Layers",
+                )}
+              </span>
+              <input
+                type="checkbox"
+                checked={settingsState.respectClothingLayers}
+                onChange={(e) => setRespectClothingLayers(e.target.checked)}
+                className="right-panel__toggle-input"
+              />
+              <span className="right-panel__toggle-switch" />
+            </label>
+            <div style={{ marginTop: "0.25rem" }}>
+              <span
+                className="feature-chip-experimental"
+                data-feature-version="v0.6.0"
+              >
+                Experimental
+              </span>
+            </div>
+            <small className="right-panel__hint">
+              {t(
+                "rightPanel.respectClothingLayersHint",
+                "Keeps underwear and covered body attributes hidden beneath normally worn outer clothing.",
+              )}
+            </small>
+            {settingsState.respectClothingLayers && (
+              <small
+                className="right-panel__hint"
+                style={{
+                  marginTop: "0.25rem",
+                  color: "var(--text-warning, #e0a050)",
+                }}
+              >
+                {t("rightPanel.respectClothingLayersException")}
+              </small>
+            )}
+          </div>
+        </section>
         {/* NovelAI詳細設定 - NovelAIのみ表示（インペイントトグルはCharacterStatePanelに移動済み） */}
         {isNovelAI && (
           <section className="right-panel__section">
@@ -941,7 +1076,7 @@ export default function RightPanel({
                       return;
                     }
                     const num = parseInt(raw, 10);
-                    if (!isNaN(num) && num >= 0 && num <= 999999999) {
+                    if (!Number.isNaN(num) && num >= 0 && num <= 999999999) {
                       setSeed(num);
                     }
                   }}
@@ -1382,11 +1517,27 @@ export default function RightPanel({
               />
               <button
                 type="button"
-                className="right-panel__btn-secondary"
+                className={`right-panel__precise-ref-drop-zone ${
+                  isPreciseRefDragging ? "is-dragging" : ""
+                }`}
                 onClick={() => preciseRefInputRef.current?.click()}
-                style={{ width: "100%", marginBottom: "0.5rem" }}
+                onDragEnter={handlePreciseRefDragEnter}
+                onDragOver={handlePreciseRefDragOver}
+                onDragLeave={handlePreciseRefDragLeave}
+                onDrop={handlePreciseRefDrop}
+                aria-label={t("rightPanel.addReferenceImage")}
+                data-testid="precise-ref-drop-zone"
               >
-                {t("rightPanel.addReferenceImage")}
+                {isPreciseRefDragging ? (
+                  t("rightPanel.preciseRefDropActive")
+                ) : (
+                  <>
+                    <span>{t("rightPanel.addReferenceImage")}</span>
+                    <span className="right-panel__precise-ref-drop-hint">
+                      {t("rightPanel.preciseRefDropHint")}
+                    </span>
+                  </>
+                )}
               </button>
 
               {preciseRefError && (
