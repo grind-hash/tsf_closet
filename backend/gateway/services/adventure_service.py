@@ -562,6 +562,7 @@ Return one JSON object only, matching this schema:
 {{"visual_state":{{"location":"...","appearance":"...","clothing":"...","surroundings":"...","main_characters":[{{"name":"...","description":"...","clothing":"...","action":"..."}}]}},"scene_tags":"...","player_tags":"...","npc_tags":["..."]}}
 Write visual_state values in {response_language}. Write scene_tags, player_tags, and npc_tags as concise English comma-separated tags.
 Derive visual_state from previous_visual_state, changing only what the narrative states. Treat required_visual_appearance as an immutable identity signature: copy its hair color, hair length, hairstyle, eye color, and body features exactly into visual_state.appearance, and never replace or supplement those traits unless authored_template_resolution explicitly triggers that change. The player only puts on, removes, or changes clothing when player_input explicitly chose that action; otherwise keep previous_visual_state.clothing unchanged. Unless layering was explicitly requested, a new garment replaces the previous outfit. Keep visual_state concrete enough to illustrate the main characters, their clothing, and the surrounding location. main_characters contains NPCs, never the player.
+When previous_image_tags is provided, treat it as the wording a human editor deliberately chose: reuse its scene_tags, player_tags, and npc_tags as the starting point and edit them only where visual_state or the narrative now requires a change, preserving the rest of the original wording and phrasing style. When previous_image_tags is absent, write the tags from scratch.
 scene_tags contains only environment, camera, composition, lighting, and the observable interaction; it must not contain any character's gender, body, face, hair, or clothing. player_tags describes only the player from visual_state.appearance and visual_state.clothing. The player is always the primary subject in the center foreground. visual_state.clothing is authoritative and must never be replaced with an NPC outfit. npc_tags must contain one entry per NPC in main_characters, in the same order, describing only that NPC; every NPC is a secondary subject placed to the side or behind the player. Never merge player and NPC attributes. Do not add text, UI, split panels, or unstated changes."""
 
     async def _generate_structured_output(
@@ -636,6 +637,7 @@ scene_tags contains only environment, camera, composition, lighting, and the obs
         appearance_lock: str,
         language: str,
         text_model: str,
+        previous_image_tags: dict[str, Any] | None = None,
     ) -> AdventureVisualOutput:
         return await self._generate_structured_output(
             AdventureVisualOutput,
@@ -648,6 +650,7 @@ scene_tags contains only environment, camera, composition, lighting, and the obs
                         "authored_template_resolution", {}
                     ),
                     "previous_visual_state": previous_visual,
+                    "previous_image_tags": previous_image_tags,
                     "required_visual_appearance": appearance_lock,
                 },
                 ensure_ascii=False,
@@ -1594,6 +1597,7 @@ The objective must name a concrete target and an observable end condition that c
                         appearance_lock=appearance_lock,
                         language=run.language,
                         text_model=run.text_model,
+                        previous_image_tags=state.get("last_image_prompt"),
                     )
                 except Exception as error:
                     logger.warning("Adventure visual generation failed: %s", error)
