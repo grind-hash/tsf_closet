@@ -133,6 +133,36 @@ export async function deleteLatestHistory(
   return response.json();
 }
 
+export interface StandingPortraitResponse {
+  image: string;
+  cost_usd: number | null;
+}
+
+/**
+ * 現在の姿を全身立ち絵として再生成する（履歴には保存されない）
+ */
+export async function generateStandingPortrait(
+  sessionId: string,
+  nsfwMode?: boolean,
+): Promise<StandingPortraitResponse> {
+  const params = new URLSearchParams({ session_id: sessionId });
+  if (nsfwMode !== undefined) {
+    params.set("nsfw_mode", String(nsfwMode));
+  }
+  const response = await fetch(`${API_BASE}/game/standing-portrait?${params}`, {
+    method: "POST",
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.detail?.message || `Standing portrait failed: ${response.status}`,
+    );
+  }
+
+  return response.json();
+}
+
 // 会話テキスト削除 レスポンス
 export interface DeleteConversationResponse {
   success: boolean;

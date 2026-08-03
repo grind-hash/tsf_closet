@@ -3,6 +3,7 @@
  * T027-T032: キャラクター画像クリックで拡大表示
  */
 
+import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import "./ImagePreviewModal.css";
@@ -22,6 +23,8 @@ interface ImagePreviewModalProps {
   isFavorited?: boolean;
   favoriteBusy?: boolean;
   onToggleFavorite?: () => void;
+  /** 画像下に表示する補足情報（未指定時は非表示） */
+  caption?: ReactNode;
 }
 
 export default function ImagePreviewModal({
@@ -37,6 +40,7 @@ export default function ImagePreviewModal({
   isFavorited = false,
   favoriteBusy = false,
   onToggleFavorite,
+  caption,
 }: ImagePreviewModalProps) {
   const { t } = useTranslation();
   const resolvedAlt = alt || t("imagePreview.imageAlt");
@@ -163,6 +167,10 @@ export default function ImagePreviewModal({
           alt={resolvedAlt}
           className="image-preview-modal__image"
         />
+
+        {caption && (
+          <div className="image-preview-modal__caption">{caption}</div>
+        )}
 
         {/* 右ナビゲーションボタン */}
         {onNext && (

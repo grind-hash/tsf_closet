@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useLocation } from "react-router-dom";
+import { Navigate, useLocation } from "react-router-dom";
 import { fetchAnlasBalance } from "./apis/anlas";
 import ApiKeyConsentModal from "./components/ApiKeyConsentModal";
 import AchievementsScreen from "./components/achievements/AchievementsScreen";
+import AdventureScreen from "./components/adventure/AdventureScreen";
 import { hasApiKeyConsent } from "./components/apiKeyConsentStorage";
 import EndingModal from "./components/EndingModal";
 import EndingsScreen from "./components/endings/EndingsScreen";
@@ -14,6 +15,7 @@ import NovelAIWarningModal from "./components/NovelAIWarningModal";
 import NotificationContainer from "./components/notifications/NotificationContainer";
 import SessionListModal from "./components/SessionListModal";
 import SettingsScreen from "./components/settings/SettingsScreen";
+import { AdventureProvider } from "./contexts/AdventureContext";
 import { useSettings } from "./contexts/SettingsContext";
 import { useGameSSE } from "./hooks/useGameSSE";
 import { getGameSessionPath } from "./routes";
@@ -50,6 +52,16 @@ function App() {
   }
   if (location.pathname === "/settings") {
     return <SettingsScreen />;
+  }
+  if (location.pathname.startsWith("/adventure")) {
+    if (!settingsState.experimentalAdventureEnabled) {
+      return <Navigate to="/play/new" replace />;
+    }
+    return (
+      <AdventureProvider>
+        <AdventureScreen />
+      </AdventureProvider>
+    );
   }
 
   // デフォルト: 新UIゲーム画面（/、/play、/play/new）

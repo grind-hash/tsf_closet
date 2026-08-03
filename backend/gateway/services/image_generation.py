@@ -18,6 +18,7 @@ import httpx
 from PIL import Image, ImageFilter
 
 from .comfy import ComfyUIClient, ComfyUIResult
+from .model_execution_gate import model_execution_gate
 from ..settings.config import settings
 from novelai import AsyncNovelAI
 from novelai.types import Character, CharacterReference, GenerateImageParams, I2iParams
@@ -424,6 +425,8 @@ class NovelAIImageClient:
         character_references: Optional[List[Dict[str, Any]]] = None,
         seed: Optional[int] = None,
         characters: Optional[List[Dict[str, Any]]] = None,
+        size_override: Optional[str] = None,
+        model_override: Optional[str] = None,
     ) -> ImageGenerationResult:
         """画像生成 / 画像変換 (i2i)"""
         client = await self._get_client()
@@ -522,8 +525,15 @@ class NovelAIImageClient:
 
         # モデル・アクション選択（PoC準拠）
         use_inpaint = normalized_mask is not None
-        model_to_use = self.inpaint_model if use_inpaint else self.model
-        action_to_use = self.inpaint_action if use_inpaint else "img2img"
+        model_to_use = (
+            self.inpaint_model if use_inpaint else model_override or self.model
+        )
+        if use_inpaint:
+            action_to_use = self.inpaint_action
+        elif i2i_params is not None:
+            action_to_use = "img2img"
+        else:
+            action_to_use = "generate"
         logger.info(
             f"[Inpaint Debug] use_inpaint={use_inpaint}, model={model_to_use}, action={action_to_use}, strength={strength}"
         )
@@ -571,7 +581,7 @@ class NovelAIImageClient:
         params = GenerateImageParams(
             prompt=self._format_prompt(prompt, multiple_people=multiple_people),
             model=self.model,
-            size=self.size,
+            size=size_override or self.size,
             steps=self.steps,
             scale=self.scale,
             uc_preset=self.uc_preset,  # uc_presetは文字列リテラルでOK
@@ -587,7 +597,7 @@ class NovelAIImageClient:
         )
 
         try:
-            # 高レベルAPIは action=generate 固定のため、明示的に img2img に切り替える
+            # 入力画像とマスクの有無に応じたactionをリクエスト直前に確定する
             req = await async_convert_user_params_to_api_request(params, client)
             # ここでモデルとアクションを上書きする（リクエスト直前）
             req.model = model_to_use
@@ -776,6 +786,8 @@ class ImageGenerationService:
         character_references: Optional[List[Dict[str, Any]]] = None,
         seed: Optional[int] = None,
         characters: Optional[List[Dict[str, Any]]] = None,
+        size_override: Optional[str] = None,
+        novelai_model_override: Optional[str] = None,
         **comfy_kwargs: Any,
     ) -> ImageGenerationResult:
         """画像を生成する
@@ -801,25 +813,41 @@ class ImageGenerationService:
 
         if provider == "openrouter":
             client = self._get_openrouter_client()
-            return await client.generate(
-                prompt=prompt,
-                image_bytes=image_bytes,
-                reference_image_bytes=reference_image_bytes,
-            )
+            async with model_execution_gate.hold(
+                "image", provider, settings.openrouter_image_model
+            ):
+                return await client.generate(
+                    prompt=prompt,
+                    image_bytes=image_bytes,
+                    reference_image_bytes=reference_image_bytes,
+                )
         if provider == "novelai":
-            client = self._get_novelai_client(nsfw_mode=nsfw_mode)
-            return await client.generate(
-                prompt=prompt,
-                image_bytes=image_bytes,
-                reference_image_bytes=reference_image_bytes,
-                mask_bytes=mask_bytes,
-                negative_prompt_override=negative_prompt,
-                inpaint_strength_override=i2i_strength_override,
-                noise_override=i2i_noise_override,
-                character_references=character_references,
-                seed=seed,
-                characters=characters,
+            effective_nsfw_mode = nsfw_mode
+            if novelai_model_override == settings.novelai_model:
+                effective_nsfw_mode = True
+            elif novelai_model_override == settings.novelai_curated_model:
+                effective_nsfw_mode = False
+            client = self._get_novelai_client(nsfw_mode=effective_nsfw_mode)
+            effective_model = (
+                client.inpaint_model
+                if mask_bytes
+                else novelai_model_override or client.model
             )
+            async with model_execution_gate.hold("image", provider, effective_model):
+                return await client.generate(
+                    prompt=prompt,
+                    image_bytes=image_bytes,
+                    reference_image_bytes=reference_image_bytes,
+                    mask_bytes=mask_bytes,
+                    negative_prompt_override=negative_prompt,
+                    inpaint_strength_override=i2i_strength_override,
+                    noise_override=i2i_noise_override,
+                    character_references=character_references,
+                    seed=seed,
+                    characters=characters,
+                    size_override=size_override,
+                    model_override=novelai_model_override,
+                )
         else:
             # セルフホスト (ComfyUI)
             client = self._get_comfy_client()
@@ -832,11 +860,12 @@ class ImageGenerationService:
                     "Use edit_image() instead or provide image_bytes."
                 )
 
-            result: ComfyUIResult = await client.image_edit(
-                image_bytes=image_bytes,
-                prompt=prompt,
-                **comfy_kwargs,
-            )
+            async with model_execution_gate.hold("image", provider, "comfyui"):
+                result: ComfyUIResult = await client.image_edit(
+                    image_bytes=image_bytes,
+                    prompt=prompt,
+                    **comfy_kwargs,
+                )
             return ImageGenerationResult(images=result.images, provider="selfhost")
 
     async def edit_image(
@@ -854,6 +883,7 @@ class ImageGenerationService:
         character_references: Optional[List[Dict[str, Any]]] = None,
         seed: Optional[int] = None,
         characters: Optional[List[Dict[str, Any]]] = None,
+        size_override: Optional[str] = None,
         **comfy_kwargs: Any,
     ) -> ImageGenerationResult:
         """画像を編集する
@@ -883,6 +913,7 @@ class ImageGenerationService:
             character_references=character_references,
             seed=seed,
             characters=characters,
+            size_override=size_override,
             **comfy_kwargs,
         )
 
@@ -917,13 +948,14 @@ class ImageGenerationService:
             )
 
         client = self._get_novelai_client(nsfw_mode=nsfw_mode)
-        return await client.generate_scenery(
-            prompt=prompt,
-            size=size,
-            negative_prompt_override=negative_prompt,
-            seed=seed,
-            include_people=include_people,
-        )
+        async with model_execution_gate.hold("image", "novelai", client.model):
+            return await client.generate_scenery(
+                prompt=prompt,
+                size=size,
+                negative_prompt_override=negative_prompt,
+                seed=seed,
+                include_people=include_people,
+            )
 
     async def health_check(self) -> Dict[str, bool]:
         """各プロバイダーの接続状態を確認

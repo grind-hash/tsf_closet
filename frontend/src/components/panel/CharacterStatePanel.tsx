@@ -19,6 +19,7 @@ import { useGame } from "../../contexts/GameContext";
 import { useSettings } from "../../contexts/SettingsContext";
 import { getGameSessionPath } from "../../routes";
 import type { AttributePreset } from "../../types";
+import ComparisonSliderModal from "../gallery/ComparisonSliderModal";
 import BranchSessionDialog from "../session/BranchSessionDialog";
 import "./CharacterStatePanel.css";
 
@@ -74,6 +75,7 @@ export default function CharacterStatePanel({
   const [branchDialogOpen, setBranchDialogOpen] = useState(false);
   const [branchLoading, setBranchLoading] = useState(false);
   const [branchError, setBranchError] = useState<string | null>(null);
+  const [comparisonOpen, setComparisonOpen] = useState(false);
 
   // 属性入力状態
   const [showAttributeInput, setShowAttributeInput] = useState(false);
@@ -551,6 +553,25 @@ export default function CharacterStatePanel({
           </button>
         </div>
       )}
+
+      {state.sessionId && history.length > 1 && (
+        <div className="character-state-panel__branch-row">
+          <button
+            type="button"
+            className="character-state-panel__branch-btn"
+            onClick={() => setComparisonOpen(true)}
+            disabled={isTransforming}
+          >
+            {t("gallery.comparison.openButton")}
+          </button>
+        </div>
+      )}
+
+      <ComparisonSliderModal
+        isOpen={comparisonOpen}
+        sessionId={state.sessionId}
+        onClose={() => setComparisonOpen(false)}
+      />
 
       <BranchSessionDialog
         isOpen={branchDialogOpen}

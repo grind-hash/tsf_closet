@@ -1589,6 +1589,40 @@ async def improve_quality_stream(
     return EventSourceResponse(event_generator())
 
 
+@router.post(
+    "/standing-portrait",
+    summary="立ち絵再生成",
+    description="現在の姿を、初期立ち絵と同じ構図の全身立ち絵として再生成する（履歴には保存しない）",
+    responses={400: {"model": ErrorResponse}},
+)
+async def generate_standing_portrait(
+    session_id: str = Query(..., description="セッションID"),
+    nsfw_mode: bool | None = Query(
+        None, description="現在選択中のNSFW設定（指定時はこの値を優先）"
+    ),
+) -> dict:
+    """立ち絵を再生成して base64 で返す"""
+    import base64
+
+    from ..services.game_service import GameServiceError, game_service
+
+    try:
+        image_bytes, cost_usd = await game_service.generate_standing_portrait(
+            session_id=session_id,
+            nsfw_mode=nsfw_mode,
+        )
+    except GameServiceError as e:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "standing_portrait_failed", "message": str(e)},
+        ) from e
+
+    return {
+        "image": base64.b64encode(image_bytes).decode("utf-8"),
+        "cost_usd": cost_usd,
+    }
+
+
 # =============================================================================
 # 属性付与 (Attribute Assignment)
 # =============================================================================

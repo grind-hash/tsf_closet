@@ -60,6 +60,9 @@ class User(Base):
     achieved_endings: Mapped[List["AchievedEnding"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
+    adventure_runs: Mapped[List["AdventureRun"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 class Session(Base):
@@ -262,6 +265,87 @@ class SessionAttribute(Base):
     session: Mapped["Session"] = relationship(back_populates="attributes")
 
     __table_args__ = (Index("idx_session_attributes_session_id", "session_id"),)
+
+
+class AdventureRun(Base):
+    __tablename__ = "adventure_runs"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    source_session_id: Mapped[Optional[str]] = mapped_column(
+        String, ForeignKey("sessions.id", ondelete="SET NULL"), nullable=True
+    )
+    source_history_id: Mapped[Optional[str]] = mapped_column(
+        String, ForeignKey("history.id", ondelete="SET NULL"), nullable=True
+    )
+    preset: Mapped[str] = mapped_column(String, nullable=False)
+    title: Mapped[str] = mapped_column(String, nullable=False)
+    objective: Mapped[str] = mapped_column(Text, nullable=False)
+    constraints_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    snapshot_json: Mapped[str] = mapped_column(Text, nullable=False)
+    state_json: Mapped[str] = mapped_column(Text, nullable=False)
+    current_image_path: Mapped[str] = mapped_column(Text, nullable=False)
+    initial_image_path: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String, default="active", nullable=False)
+    turn_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    max_turns: Mapped[int] = mapped_column(Integer, default=8, nullable=False)
+    ending_title: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    ending_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    language: Mapped[str] = mapped_column(String, default="ja", nullable=False)
+    nsfw_mode: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    text_model: Mapped[str] = mapped_column(String, nullable=False)
+    image_provider: Mapped[str] = mapped_column(String, nullable=False)
+    image_model: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        default=func.current_timestamp(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        default=func.current_timestamp(),
+        onupdate=func.current_timestamp(),
+        nullable=False,
+    )
+
+    user: Mapped["User"] = relationship(back_populates="adventure_runs")
+    turns: Mapped[List["AdventureTurn"]] = relationship(
+        back_populates="run", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        Index("idx_adventure_runs_user_updated", "user_id", "updated_at"),
+        Index("idx_adventure_runs_source_session", "source_session_id"),
+    )
+
+
+class AdventureTurn(Base):
+    __tablename__ = "adventure_turns"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    run_id: Mapped[str] = mapped_column(
+        String, ForeignKey("adventure_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    client_turn_id: Mapped[str] = mapped_column(String, nullable=False)
+    turn_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    user_input: Mapped[str] = mapped_column(Text, nullable=False)
+    input_kind: Mapped[str] = mapped_column(String, nullable=False)
+    narrative: Mapped[str] = mapped_column(Text, nullable=False)
+    choices_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    state_delta_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    image_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    image_status: Mapped[str] = mapped_column(
+        String, default="not_requested", nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        default=func.current_timestamp(), nullable=False
+    )
+
+    run: Mapped["AdventureRun"] = relationship(back_populates="turns")
+
+    __table_args__ = (
+        Index("idx_adventure_turns_run_number", "run_id", "turn_number", unique=True),
+        Index("idx_adventure_turns_client", "run_id", "client_turn_id", unique=True),
+    )
 
 
 class AchievementCount(Base):

@@ -24,6 +24,7 @@ import type { GalleryItem, GallerySession } from "../../types";
 import { API_BASE } from "../../utils/api";
 import MainLayout from "../layout/MainLayout";
 import BranchSessionDialog from "../session/BranchSessionDialog";
+import ComparisonSliderModal from "./ComparisonSliderModal";
 import GalleryCard from "./GalleryCard";
 import PlaySummaryModal from "./PlaySummaryModal";
 import "./GalleryScreen.css";
@@ -117,6 +118,9 @@ export default function GalleryScreen({ onSelectItem }: GalleryScreenProps) {
 
   // Play Summary modal
   const [summarySessionId, setSummarySessionId] = useState<string | null>(null);
+
+  // Before/After 比較モーダル (spec 010)
+  const [isComparisonOpen, setIsComparisonOpen] = useState(false);
 
   // フリーワード検索（入力値とデバウンス後の実クエリを分離）
   const [searchInput, setSearchInput] = useState("");
@@ -613,6 +617,15 @@ export default function GalleryScreen({ onSelectItem }: GalleryScreenProps) {
             </h1>
           </div>
           <div className="gallery-screen__controls">
+            {displayMode === "items" && items.length > 1 && (
+              <button
+                type="button"
+                className="gallery-screen__compare-btn"
+                onClick={() => setIsComparisonOpen(true)}
+              >
+                {t("gallery.comparison.openButton")}
+              </button>
+            )}
             <span className="gallery-screen__count">
               {displayMode === "sessions"
                 ? `${sessionsTotal} ${t("gallery.sessionsSuffix")}`
@@ -1219,6 +1232,13 @@ export default function GalleryScreen({ onSelectItem }: GalleryScreenProps) {
             ),
           );
         }}
+      />
+
+      {/* Before/After 比較モーダル (spec 010) */}
+      <ComparisonSliderModal
+        isOpen={isComparisonOpen}
+        sessionId={urlSessionId}
+        onClose={() => setIsComparisonOpen(false)}
       />
 
       <BranchSessionDialog

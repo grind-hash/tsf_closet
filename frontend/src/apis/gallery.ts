@@ -100,6 +100,28 @@ export async function fetchGalleryList(
 }
 
 /**
+ * 変身前後比較用に、セッション内の全アイテムを時系列昇順で取得
+ * 先頭要素が起点（初期状態）の画像に相当する
+ */
+export async function fetchSessionFrames(
+  sessionId: string,
+): Promise<GalleryItem[]> {
+  const maxPageSize = 100;
+  const items: GalleryItem[] = [];
+  let page = 1;
+  let hasMore = true;
+  while (hasMore) {
+    const data = await fetchGalleryList(page, maxPageSize, sessionId);
+    items.push(...data.items);
+    hasMore = data.has_more;
+    page += 1;
+  }
+  return items.sort(
+    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
+  );
+}
+
+/**
  * ギャラリーアイテムの詳細を取得
  */
 export async function fetchGalleryItem(

@@ -218,6 +218,22 @@ BLOOM_MULTIPLIER_NEW = {
     "hard": 0.9,
 }
 
+# 立ち絵再生成の構図基準。変身後は女性想定のため女性立ち絵を固定で使う
+STANDING_PORTRAIT_REFERENCE_CHARACTER_ID = "char2"
+
+# 立ち絵構図を固定するDanbooru系タグ。プロバイダ共通で付与する
+STANDING_PORTRAIT_COMPOSITION_TAGS = (
+    "solo, full body, standing, looking at viewer, arms at sides, "
+    "straight-on, feet visible, simple background, white background"
+)
+
+# 立ち絵では避けたい構図・トリミング
+STANDING_PORTRAIT_NEGATIVE_PROMPT = (
+    "cropped, close-up, upper body, portrait, bust shot, cowboy shot, "
+    "out of frame, cut off, multiple views, sitting, from behind, "
+    "complex background, scenery"
+)
+
 
 def clamp(value: int, min_val: int, max_val: int) -> int:
     """値を範囲内にクランプ"""
@@ -3353,6 +3369,94 @@ class GameService:
         except Exception as e:
             logger.exception("Quality improvement error: %s", e)
             yield StreamEvent(type="error", data={"message": str(e)})
+
+    async def generate_standing_portrait(
+        self,
+        session_id: str,
+        nsfw_mode: bool | None = None,
+    ) -> tuple[bytes, float | None]:
+        """現在の姿を、初期立ち絵と同じ構図の全身立ち絵として再生成する
+
+        履歴には保存せず、生成結果のみを返す（おまけ機能）。
+
+        Args:
+            session_id: セッションID
+
+        Returns:
+            (生成された画像, API料金USD)
+
+        Raises:
+            GameServiceError: セッション・画像が見つからない、または生成に失敗した場合
+        """
+        session = await session_store.get_session_by_id(session_id)
+        if session is None:
+            raise GameServiceError(f"セッションが見つかりません: {session_id}")
+
+        current_image_bytes: bytes | None = None
+        if session.current_image_path:
+            resolved = self._resolve_image_path(session.current_image_path)
+            if resolved:
+                current_image_bytes = resolved.read_bytes()
+
+        if current_image_bytes is None:
+            raise GameServiceError("現在の画像が見つかりません")
+
+        if nsfw_mode is None:
+            stats = await session_store.get_session_stats(session_id)
+            effective_nsfw_mode = bool(stats.nsfw_mode) if stats else False
+        else:
+            effective_nsfw_mode = nsfw_mode
+
+        # 構図の基準となる立ち絵。変身後は女性想定のため常に char2 を参照する
+        reference_character = character_manager.get_by_id(
+            STANDING_PORTRAIT_REFERENCE_CHARACTER_ID
+        )
+        if reference_character is None:
+            raise GameServiceError("立ち絵の参照キャラクターが見つかりません")
+        try:
+            reference_image_bytes = character_manager.get_image_bytes(
+                reference_character
+            )
+        except FileNotFoundError as e:
+            raise GameServiceError(f"立ち絵の参照画像が見つかりません: {e}") from e
+
+        # NovelAI Opusモードでは Vision LLM が使えないため、
+        # 直近履歴に保存された生成プロンプト(after_description)を現在の姿の記述として使う
+        describe_cost: float | None = None
+        if settings.is_novelai_opus_mode:
+            latest_history = await session_store.get_latest_history(session_id)
+            current_description = (
+                latest_history.after_description if latest_history else None
+            )
+            if not current_description:
+                raise GameServiceError("NovelAIモードでは、変身履歴が1件以上必要です")
+            instruction = self._enhance_novelai_prompt(
+                f"{current_description}, {STANDING_PORTRAIT_COMPOSITION_TAGS}",
+                effective_nsfw_mode,
+            )
+        else:
+            current_description, describe_cost = await self._describe_image(
+                current_image_bytes, nsfw_mode=effective_nsfw_mode
+            )
+            instruction = (
+                "Redraw this character as a full body standing reference sheet, "
+                "keeping the exact same camera framing, character scale, and centered "
+                "composition as the input image. "
+                "Replace the appearance and outfit with the following: "
+                f"{current_description}. "
+                f"Composition tags: {STANDING_PORTRAIT_COMPOSITION_TAGS}. "
+                "High quality, detailed anime illustration."
+            )
+
+        new_image, image_cost, _seed = await self._generate_image(
+            reference_image_bytes,
+            instruction,
+            nsfw_mode=effective_nsfw_mode,
+            negative_prompt=STANDING_PORTRAIT_NEGATIVE_PROMPT,
+        )
+
+        total_cost = sum(c for c in [image_cost, describe_cost] if c is not None)
+        return new_image, total_cost or None
 
     async def preview_prompts(
         self,
