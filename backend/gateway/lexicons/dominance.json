@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "category": "dominance",
+  "cap": 25,
+  "mode": "extend",
+  "keywords": {
+    "ja": [
+      "主導",
+      "押し倒",
+      "組み敷い",
+      "支配",
+      "従わせ",
+      "命じ",
+      "見下ろし",
+      "追い詰め",
+      "リード",
+      "翻弄",
+      "焦らし",
+      "手玉に",
+      "屈服させ",
+      "主導権"
+    ],
+    "en": [
+      "dominated",
+      "pinned",
+      "took control",
+      "commanded",
+      "teased relentlessly",
+      "looked down at",
+      "cornered",
+      "in control"
+    ]
+  }
+}

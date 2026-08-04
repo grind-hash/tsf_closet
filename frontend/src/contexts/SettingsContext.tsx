@@ -89,6 +89,7 @@ interface SettingsState {
   showRealityAttributeNotification: boolean;
   experimentalEndingEnabled: boolean;
   experimentalAdventureEnabled: boolean;
+  experimentalBloomerEnabled: boolean;
   playMemoryEnabled: boolean;
 
   // お気に入り一覧からの削除時に確認ダイアログを表示する (spec 009)
@@ -186,6 +187,7 @@ type SettingsAction =
   | { type: "SET_SHOW_REALITY_ATTRIBUTE_NOTIFICATION"; payload: boolean }
   | { type: "SET_EXPERIMENTAL_ENDING_ENABLED"; payload: boolean }
   | { type: "SET_EXPERIMENTAL_ADVENTURE_ENABLED"; payload: boolean }
+  | { type: "SET_EXPERIMENTAL_BLOOMER_ENABLED"; payload: boolean }
   | { type: "SET_PLAY_MEMORY_ENABLED"; payload: boolean }
   | { type: "SET_CONFIRM_FAVORITE_REMOVE"; payload: boolean }
   | { type: "SET_SOUND_ENABLED"; payload: boolean }
@@ -247,6 +249,7 @@ const defaultState: SettingsState = {
   showRealityAttributeNotification: true,
   experimentalEndingEnabled: false,
   experimentalAdventureEnabled: false,
+  experimentalBloomerEnabled: false,
   playMemoryEnabled: false,
   confirmFavoriteRemove: true,
   soundEnabled: true,
@@ -353,6 +356,8 @@ function settingsReducer(
       return { ...state, experimentalEndingEnabled: action.payload };
     case "SET_EXPERIMENTAL_ADVENTURE_ENABLED":
       return { ...state, experimentalAdventureEnabled: action.payload };
+    case "SET_EXPERIMENTAL_BLOOMER_ENABLED":
+      return { ...state, experimentalBloomerEnabled: action.payload };
     case "SET_PLAY_MEMORY_ENABLED":
       return { ...state, playMemoryEnabled: action.payload };
     case "SET_CONFIRM_FAVORITE_REMOVE":
@@ -475,6 +480,7 @@ interface SettingsContextType {
   setShowRealityAttributeNotification: (show: boolean) => void;
   setExperimentalEndingEnabled: (enabled: boolean) => void;
   setExperimentalAdventureEnabled: (enabled: boolean) => void;
+  setExperimentalBloomerEnabled: (enabled: boolean) => void;
   setPlayMemoryEnabled: (enabled: boolean) => void;
   setConfirmFavoriteRemove: (enabled: boolean) => void;
   setSoundEnabled: (enabled: boolean) => void;
@@ -937,6 +943,9 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const setExperimentalAdventureEnabled = useCallback((enabled: boolean) => {
     dispatch({ type: "SET_EXPERIMENTAL_ADVENTURE_ENABLED", payload: enabled });
   }, []);
+  const setExperimentalBloomerEnabled = useCallback((enabled: boolean) => {
+    dispatch({ type: "SET_EXPERIMENTAL_BLOOMER_ENABLED", payload: enabled });
+  }, []);
   const setPlayMemoryEnabled = useCallback((enabled: boolean) => {
     dispatch({ type: "SET_PLAY_MEMORY_ENABLED", payload: enabled });
   }, []);
@@ -1203,6 +1212,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setShowRealityAttributeNotification,
     setExperimentalEndingEnabled,
     setExperimentalAdventureEnabled,
+    setExperimentalBloomerEnabled,
     setPlayMemoryEnabled,
     setConfirmFavoriteRemove,
     setSoundEnabled,

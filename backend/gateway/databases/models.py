@@ -10,7 +10,15 @@ import json
 from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import Boolean, ForeignKey, Index, Integer, String, Text, func
+from sqlalchemy import (
+    Boolean,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base
@@ -61,6 +69,9 @@ class User(Base):
         back_populates="user", cascade="all, delete-orphan"
     )
     adventure_runs: Mapped[List["AdventureRun"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    bloomer_runs: Mapped[List["BloomerRun"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
 
@@ -535,4 +546,104 @@ class FavoriteOutfit(Base):
         ),
         Index("idx_favorite_outfits_user_created", "user_id", "created_at"),
         Index("idx_favorite_outfits_history_id", "history_id"),
+    )
+
+
+class BloomerRun(Base):
+    """TSF Bloomer の育成セッション (1キャラ = 1ラン)."""
+
+    __tablename__ = "bloomer_runs"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    # session | preset
+    origin: Mapped[str] = mapped_column(String, default="preset", nullable=False)
+    source_session_id: Mapped[Optional[str]] = mapped_column(
+        String, ForeignKey("sessions.id", ondelete="SET NULL"), nullable=True
+    )
+    # images/characters/characters.json の id（char1 等）。DB プリセットとは別体系のため FK なし
+    character_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    name: Mapped[str] = mapped_column(String(60), nullable=False)
+
+    # 育成状態
+    day: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    max_days: Mapped[int] = mapped_column(Integer, default=7, nullable=False)
+    actions_left: Mapped[int] = mapped_column(Integer, default=4, nullable=False)
+    stage: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    nsfw_stage: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    # ゲージ (0-100)
+    mood: Mapped[int] = mapped_column(Integer, default=60, nullable=False)
+    stamina: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
+    trust: Mapped[int] = mapped_column(Integer, default=10, nullable=False)
+
+    # 6軸素質・成長 (JSON)
+    axes_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    growth_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+
+    # 衣装管理 (JSON: list[str] の所持品、装備中)
+    wardrobe_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    equipped_outfit: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+
+    # 節目の選択履歴 (JSON: {day: choice_key})
+    decisions_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+
+    # active | ended
+    status: Mapped[str] = mapped_column(String, default="active", nullable=False)
+    ending_key: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+
+    # 画像パス
+    initial_image_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    current_image_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        default=func.current_timestamp(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        default=func.current_timestamp(),
+        onupdate=func.current_timestamp(),
+        nullable=False,
+    )
+
+    user: Mapped["User"] = relationship(back_populates="bloomer_runs")
+    events: Mapped[List["BloomerEvent"]] = relationship(
+        back_populates="run",
+        cascade="all, delete-orphan",
+        order_by="BloomerEvent.created_at",
+    )
+
+    __table_args__ = (
+        Index("idx_bloomer_runs_user_updated", "user_id", "updated_at"),
+        Index("idx_bloomer_runs_user_status", "user_id", "status"),
+    )
+
+
+class BloomerEvent(Base):
+    """育成中の 1 アクション / 節目 / ステージアップ / エンディングのログ."""
+
+    __tablename__ = "bloomer_events"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    run_id: Mapped[str] = mapped_column(
+        String, ForeignKey("bloomer_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    day: Mapped[int] = mapped_column(Integer, nullable=False)
+    # action | refusal | milestone | stage_up | ending
+    kind: Mapped[str] = mapped_column(String, nullable=False)
+    action_key: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    # JSON: 効果差分 (mood, trust, stamina, axes など)
+    payload_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    narration: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    image_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        default=func.current_timestamp(), nullable=False
+    )
+
+    run: Mapped["BloomerRun"] = relationship(back_populates="events")
+
+    __table_args__ = (
+        Index("idx_bloomer_events_run_created", "run_id", "created_at"),
+        Index("idx_bloomer_events_run_day", "run_id", "day"),
     )

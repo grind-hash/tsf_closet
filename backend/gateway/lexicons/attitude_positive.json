@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "category": "attitude_positive",
+  "cap": 6,
+  "mode": "extend",
+  "keywords": {
+    "ja": [
+      "憧れ",
+      "好き",
+      "楽しみ",
+      "望んで",
+      "積極的",
+      "前向き",
+      "受け入れ",
+      "わくわく",
+      "興味津々",
+      "歓迎"
+    ],
+    "en": [
+      "eager",
+      "excited",
+      "welcomes",
+      "embraces",
+      "curious",
+      "positive",
+      "enthusiastic",
+      "looking forward"
+    ]
+  }
+}

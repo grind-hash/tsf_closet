@@ -29,6 +29,7 @@ const getMenuItems = (
   t: (key: string) => string,
   showEndingMenu: boolean,
   showAdventureMenu: boolean,
+  showBloomerMenu: boolean,
 ): MenuItem[] => {
   return [
     {
@@ -53,6 +54,17 @@ const getMenuItems = (
             icon: "A",
             path: ROUTES.ADVENTURE,
             description: t("menu.adventureDesc"),
+          },
+        ]
+      : []),
+    ...(showBloomerMenu
+      ? [
+          {
+            id: "bloomer",
+            label: t("menu.bloomer"),
+            icon: "🌸",
+            path: ROUTES.BLOOMER,
+            description: t("menu.bloomerDesc"),
           },
         ]
       : []),
@@ -97,6 +109,7 @@ export default function SideMenu() {
     t,
     settingsState.experimentalEndingEnabled,
     settingsState.experimentalAdventureEnabled,
+    settingsState.experimentalBloomerEnabled,
   );
 
   // プレイ中のゲームがあるかどうか

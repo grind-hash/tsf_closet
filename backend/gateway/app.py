@@ -40,6 +40,7 @@ from .routes import (
     adventure_router,
     achievements_router,
     aivisspeech_router,
+    bloomer_router,
     character_router,
     favorites_router,
     gallery_router,
@@ -259,6 +260,9 @@ app.include_router(game_router, prefix="/api")
 
 # 独立アドベンチャーモード
 app.include_router(adventure_router, prefix="/api")
+
+# TSF Bloomer 育成モード
+app.include_router(bloomer_router, prefix="/api")
 
 # ギャラリーAPIルーターを登録 (007-chat-interactive-ux)
 app.include_router(gallery_router, prefix="/api")

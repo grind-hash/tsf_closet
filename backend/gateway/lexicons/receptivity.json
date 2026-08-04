@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "category": "receptivity",
+  "cap": 40,
+  "mode": "extend",
+  "keywords": {
+    "ja": [
+      "受け入れ",
+      "委ね",
+      "ゆだね",
+      "身を任せ",
+      "身をまかせ",
+      "素直に",
+      "抵抗せず",
+      "逆らわず",
+      "甘えて",
+      "溶け",
+      "蕩け",
+      "とろけ",
+      "嬉しそう",
+      "幸せそう",
+      "満たされた",
+      "心地よ",
+      "安心し"
+    ],
+    "en": [
+      "accepted",
+      "surrendered to",
+      "gave in",
+      "welcomed",
+      "melted into",
+      "blissful",
+      "content",
+      "without resisting",
+      "let herself"
+    ]
+  }
+}

@@ -6,6 +6,7 @@ import ApiKeyConsentModal from "./components/ApiKeyConsentModal";
 import AchievementsScreen from "./components/achievements/AchievementsScreen";
 import AdventureScreen from "./components/adventure/AdventureScreen";
 import { hasApiKeyConsent } from "./components/apiKeyConsentStorage";
+import BloomerScreen from "./components/bloomer/BloomerScreen";
 import EndingModal from "./components/EndingModal";
 import EndingsScreen from "./components/endings/EndingsScreen";
 import GamePlayScreen from "./components/GamePlayScreen";
@@ -16,6 +17,7 @@ import NotificationContainer from "./components/notifications/NotificationContai
 import SessionListModal from "./components/SessionListModal";
 import SettingsScreen from "./components/settings/SettingsScreen";
 import { AdventureProvider } from "./contexts/AdventureContext";
+import { BloomerProvider } from "./contexts/BloomerContext";
 import { useSettings } from "./contexts/SettingsContext";
 import { useGameSSE } from "./hooks/useGameSSE";
 import { getGameSessionPath } from "./routes";
@@ -61,6 +63,16 @@ function App() {
       <AdventureProvider>
         <AdventureScreen />
       </AdventureProvider>
+    );
+  }
+  if (location.pathname.startsWith("/bloomer")) {
+    if (!settingsState.experimentalBloomerEnabled) {
+      return <Navigate to="/play/new" replace />;
+    }
+    return (
+      <BloomerProvider>
+        <BloomerScreen />
+      </BloomerProvider>
     );
   }
 

@@ -38,6 +38,8 @@ export const ROUTES = {
   SETTINGS: "/settings",
   ADVENTURE: "/adventure",
   ADVENTURE_RUN: "/adventure/:runId",
+  BLOOMER: "/bloomer",
+  BLOOMER_RUN: "/bloomer/:runId",
 } as const;
 
 // セッションID付きのゲームURLを生成するヘルパー

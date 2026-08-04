@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "category": "initiative",
+  "cap": 30,
+  "mode": "extend",
+  "keywords": {
+    "ja": [
+      "自分から",
+      "自ら",
+      "ねだ",
+      "おねだり",
+      "せがん",
+      "誘っ",
+      "誘い",
+      "招き入れ",
+      "迎え入れ",
+      "跨がっ",
+      "跨っ",
+      "またが",
+      "抱いてほしい",
+      "抱いて欲しい",
+      "もっと欲し",
+      "手を引い",
+      "上に乗っ",
+      "積極的に"
+    ],
+    "en": [
+      "begged for",
+      "asked for more",
+      "invited him",
+      "took the lead",
+      "straddled",
+      "pulled him closer",
+      "on her own",
+      "initiated"
+    ]
+  }
+}

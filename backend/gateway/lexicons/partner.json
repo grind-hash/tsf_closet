@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "category": "partner",
+  "cap": 24,
+  "mode": "extend",
+  "keywords": {
+    "ja": [
+      "フィアンセ",
+      "婚約者",
+      "許嫁",
+      "いいなずけ",
+      "恋人",
+      "旦那様",
+      "旦那",
+      "夫",
+      "彼氏",
+      "ご主人様",
+      "パートナー",
+      "番"
+    ],
+    "en": [
+      "fiance",
+      "fiancé",
+      "betrothed",
+      "lover",
+      "husband",
+      "boyfriend",
+      "master",
+      "partner",
+      "mate"
+    ]
+  }
+}

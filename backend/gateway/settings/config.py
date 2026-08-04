@@ -178,6 +178,10 @@ class Settings:
     preset_masks_dir: Path = _resolve_path(
         os.getenv("PRESET_MASKS_DIR", "data/preset_masks")
     )
+    # Bloomer ユーザー辞書配置先 (同梱辞書は gateway/lexicons)
+    bloomer_lexicon_dir: Path = _resolve_path(
+        os.getenv("BLOOMER_LEXICON_DIR", "data/bloomer_lexicon")
+    )
     history_max_count: int = int(os.getenv("HISTORY_MAX_COUNT", "50"))
 
     # AivisSpeech (Windows only)

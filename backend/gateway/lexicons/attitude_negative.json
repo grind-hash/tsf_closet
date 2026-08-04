@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "category": "attitude_negative",
+  "cap": 6,
+  "mode": "extend",
+  "keywords": {
+    "ja": [
+      "抵抗",
+      "嫌",
+      "怖",
+      "不安",
+      "戸惑",
+      "拒否",
+      "恥ずかし",
+      "苦手",
+      "躊躇",
+      "抗い"
+    ],
+    "en": [
+      "reluctant",
+      "afraid",
+      "anxious",
+      "uneasy",
+      "resists",
+      "ashamed",
+      "hesitant",
+      "unwilling"
+    ]
+  }
+}

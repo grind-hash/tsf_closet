@@ -1,0 +1,1323 @@
+/* BloomerHub */
+.bloomer-hub {
+  padding: 1.5rem;
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.bloomer-hub__title {
+  font-size: 1.4rem;
+  font-weight: 700;
+  margin-bottom: 1.5rem;
+}
+
+.bloomer-hub__section-title {
+  font-size: 1rem;
+  font-weight: 600;
+  margin-bottom: 0.75rem;
+  color: var(--text-secondary, #888);
+}
+
+.bloomer-hub__error {
+  background: var(--error-bg, #fee2e2);
+  color: var(--error-text, #b91c1c);
+  border-radius: 6px;
+  padding: 0.6rem 1rem;
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.bloomer-hub__error-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1.1rem;
+  color: inherit;
+}
+
+.bloomer-hub__create {
+  margin-bottom: 2rem;
+}
+
+/* 起点タブ */
+.bloomer-hub__origin-tabs {
+  display: flex;
+  gap: 0.4rem;
+  margin-bottom: 1rem;
+}
+
+.bloomer-hub__origin-tab {
+  padding: 0.35rem 0.8rem;
+  border: 1px solid var(--border, #ccc);
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: var(--text-secondary, #888);
+}
+
+.bloomer-hub__origin-tab--active {
+  background: var(--accent, #7c5cbf);
+  border-color: var(--accent, #7c5cbf);
+  color: #fff;
+}
+
+/* キャラカード */
+.bloomer-hub__char-list {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+.bloomer-hub__char-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 0.6rem 0.9rem;
+  border: 2px solid var(--border, #ddd);
+  border-radius: 8px;
+  background: var(--surface, #fafafa);
+  cursor: pointer;
+  text-align: left;
+  min-width: 120px;
+  transition: border-color 0.15s;
+}
+
+.bloomer-hub__char-card--selected {
+  border-color: var(--accent, #7c5cbf);
+  background: var(--surface-alt, #f8f4ff);
+}
+
+.bloomer-hub__char-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.bloomer-hub__char-desc {
+  font-size: 0.78rem;
+  color: var(--text-secondary, #888);
+  margin-top: 0.2rem;
+}
+
+/* セッションカード */
+.bloomer-hub__session-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  max-height: 200px;
+  overflow-y: auto;
+  margin-bottom: 1rem;
+}
+
+.bloomer-hub__session-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.75rem;
+  border: 2px solid var(--border, #ddd);
+  border-radius: 6px;
+  background: var(--surface, #fafafa);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s;
+}
+
+.bloomer-hub__session-card--selected {
+  border-color: var(--accent, #7c5cbf);
+  background: var(--surface-alt, #f8f4ff);
+}
+
+.bloomer-hub__session-name {
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.bloomer-hub__session-meta {
+  font-size: 0.78rem;
+  color: var(--text-secondary, #aaa);
+}
+
+.bloomer-hub__create-row {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.bloomer-hub__name-input {
+  flex: 1;
+  min-width: 160px;
+  padding: 0.4rem 0.75rem;
+  border: 1px solid var(--border, #ccc);
+  border-radius: 6px;
+  font-size: 0.9rem;
+  background: var(--input-bg, #fff);
+  color: var(--text, #111);
+}
+
+.bloomer-hub__create-btn {
+  padding: 0.4rem 1rem;
+  background: var(--accent, #7c5cbf);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.bloomer-hub__create-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.bloomer-hub__loading,
+.bloomer-hub__empty {
+  color: var(--text-secondary, #888);
+  font-size: 0.9rem;
+}
+
+.bloomer-hub__run-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.bloomer-hub__run-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--border, #ddd);
+  border-radius: 8px;
+  background: var(--surface, #fff);
+}
+
+.bloomer-hub__run-item--ended {
+  opacity: 0.65;
+}
+
+.bloomer-hub__run-name {
+  flex: 1;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--accent, #7c5cbf);
+}
+
+.bloomer-hub__run-meta {
+  font-size: 0.82rem;
+  color: var(--text-secondary, #888);
+}
+
+.bloomer-hub__run-ended {
+  color: var(--text-secondary, #aaa);
+}
+
+.bloomer-hub__run-delete {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1.1rem;
+  color: var(--text-secondary, #aaa);
+  line-height: 1;
+}
+
+/* BloomerRoom */
+.bloomer-room {
+  padding: 1rem 1.5rem;
+  max-width: 720px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.bloomer-room__error {
+  background: var(--error-bg, #fee2e2);
+  color: var(--error-text, #b91c1c);
+  border-radius: 6px;
+  padding: 0.6rem 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.bloomer-room__header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.bloomer-room__back-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1.2rem;
+  color: var(--text-secondary, #888);
+  padding: 0 0.25rem;
+  line-height: 1;
+}
+
+.bloomer-room__back-btn:hover {
+  color: var(--accent, #7c5cbf);
+}
+
+.bloomer-room__name {
+  font-size: 1.2rem;
+  font-weight: 700;
+  margin: 0;
+}
+
+.bloomer-room__day,
+.bloomer-room__stage,
+.bloomer-room__actions-left {
+  font-size: 0.85rem;
+  color: var(--text-secondary, #888);
+}
+
+/* ポートレート + ナレーション 横並び */
+.bloomer-room__top {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 1rem;
+  align-items: start;
+}
+
+@media (max-width: 560px) {
+  .bloomer-room__top {
+    grid-template-columns: 1fr;
+  }
+}
+
+.bloomer-room__portrait-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.bloomer-room__portrait {
+  width: 200px;
+  height: 200px;
+  object-fit: cover;
+  border-radius: 10px;
+  border: 2px solid var(--border, #ddd);
+}
+
+.bloomer-room__portrait-placeholder {
+  width: 200px;
+  height: 200px;
+  border-radius: 10px;
+  border: 2px dashed var(--border, #ccc);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary, #aaa);
+  font-size: 0.9rem;
+}
+
+.bloomer-room__regen-btn {
+  padding: 0.25rem 0.7rem;
+  font-size: 0.78rem;
+  background: var(--surface, #f3f3f3);
+  border: 1px solid var(--border, #ccc);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.bloomer-room__regen-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ナレーション */
+.bloomer-room__narration-area {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-height: 100px;
+}
+
+.bloomer-room__narration {
+  padding: 0.75rem 1rem;
+  background: var(--surface-alt, #f8f4ff);
+  border-left: 3px solid var(--accent, #7c5cbf);
+  border-radius: 4px;
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+.bloomer-room__narration--refused {
+  border-left-color: #e8906a;
+  background: #fff5f0;
+}
+
+.bloomer-room__narration--idle {
+  border-left-color: var(--border, #ddd);
+  background: var(--surface, #f9f9f9);
+  color: var(--text-secondary, #aaa);
+  font-style: italic;
+}
+
+.bloomer-room__narration p,
+.bloomer-room__nightly p,
+.bloomer-room__stage-up p {
+  margin: 0;
+}
+
+.bloomer-room__nightly {
+  padding: 0.6rem 0.9rem;
+  background: var(--surface-alt, #f8f4ff);
+  border-left: 3px solid #8ade8a;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.bloomer-room__stage-up {
+  padding: 0.6rem 0.9rem;
+  background: #fffbea;
+  border-left: 3px solid #f5c518;
+  border-radius: 4px;
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+/* ゲージ */
+.bloomer-room__gauges {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.bloomer-gauge {
+  display: grid;
+  grid-template-columns: 5rem 1fr 3.5rem;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.bloomer-gauge__label {
+  font-size: 0.82rem;
+  color: var(--text-secondary, #888);
+}
+
+.bloomer-gauge__track {
+  height: 8px;
+  background: var(--border, #e5e5e5);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.bloomer-gauge__fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.bloomer-gauge__value {
+  font-size: 0.8rem;
+  text-align: right;
+  color: var(--text-secondary, #888);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.2rem;
+}
+
+.bloomer-gauge__delta {
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.bloomer-gauge__delta--up {
+  color: #16a34a;
+}
+
+.bloomer-gauge__delta--down {
+  color: #dc2626;
+}
+
+/* 6軸 */
+.bloomer-room__axes-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem 1.5rem;
+}
+
+.bloomer-room__axes {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.3rem 1rem;
+  flex: 1 1 220px;
+}
+
+.bloomer-room__axis {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.82rem;
+}
+
+.bloomer-room__axis-label {
+  color: var(--text-secondary, #888);
+}
+
+.bloomer-room__axis-value {
+  font-weight: 600;
+}
+
+.stat-radar-chart {
+  flex: 0 0 auto;
+}
+
+.stat-radar-chart__grid {
+  fill: none;
+  stroke: var(--border, #ccc);
+  stroke-width: 1;
+}
+
+.stat-radar-chart__axis-line {
+  stroke: var(--border, #ccc);
+  stroke-width: 1;
+}
+
+.stat-radar-chart__series {
+  fill-opacity: 0.35;
+  stroke-width: 2;
+}
+
+.stat-radar-chart__label {
+  fill: var(--text-secondary, #888);
+  font-size: 11px;
+}
+
+/* アクション */
+.bloomer-room__actions-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.bloomer-room__action-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.bloomer-room__action-btn {
+  padding: 0.4rem 0.85rem;
+  border: 1px solid var(--border, #ccc);
+  border-radius: 8px;
+  background: var(--surface, #fafafa);
+  cursor: pointer;
+  font-size: 0.88rem;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+}
+
+.bloomer-room__action-btn:hover:not(:disabled) {
+  border-color: var(--accent, #7c5cbf);
+  background: var(--surface-alt, #f8f4ff);
+}
+
+.bloomer-room__action-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.bloomer-room__action-btn--talk {
+  border-color: var(--accent, #7c5cbf);
+  color: var(--accent, #7c5cbf);
+  font-weight: 600;
+}
+
+.bloomer-room__action-btn--indulge {
+  border-color: #e8906a;
+  color: #c05a30;
+}
+
+/* 会話テキスト入力 */
+.bloomer-room__talk-input {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.75rem;
+  background: var(--surface-alt, #f8f4ff);
+  border: 1px solid var(--accent, #7c5cbf);
+  border-radius: 8px;
+}
+
+.bloomer-room__talk-textarea {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border, #ccc);
+  border-radius: 6px;
+  font-size: 0.9rem;
+  resize: none;
+  font-family: inherit;
+  background: var(--input-bg, #fff);
+  color: var(--text, #111);
+  box-sizing: border-box;
+}
+
+.bloomer-room__talk-controls {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+.bloomer-room__talk-cancel {
+  padding: 0.3rem 0.7rem;
+  background: none;
+  border: 1px solid var(--border, #ccc);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.bloomer-room__talk-send {
+  padding: 0.3rem 0.9rem;
+  background: var(--accent, #7c5cbf);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.bloomer-room__talk-send:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.bloomer-room__day-controls {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.bloomer-room__wardrobe-btn {
+  padding: 0.38rem 0.85rem;
+  background: var(--surface, #f3f3f3);
+  border: 1px solid var(--border, #ccc);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.bloomer-room__advance-btn {
+  padding: 0.38rem 1rem;
+  background: var(--accent, #7c5cbf);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.bloomer-room__advance-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.bloomer-room__ending {
+  padding: 1rem;
+  background: var(--surface-alt, #f8f4ff);
+  border-radius: 10px;
+  text-align: center;
+}
+
+.bloomer-room__ending h3 {
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+}
+
+.bloomer-room__ending-narration {
+  font-size: 0.9rem;
+  line-height: 1.6;
+  margin-bottom: 0.5rem;
+}
+
+.bloomer-room__ending-key {
+  font-size: 0.82rem;
+  color: var(--text-secondary, #aaa);
+}
+
+/* モーダル共通 */
+.bloomer-modal__overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+}
+
+.bloomer-modal {
+  background: var(--surface, #fff);
+  border-radius: 12px;
+  padding: 1.5rem;
+  max-width: 480px;
+  width: 90%;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+}
+
+.bloomer-modal--wardrobe {
+  max-width: 400px;
+}
+
+.bloomer-modal__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.bloomer-modal__title {
+  font-size: 1rem;
+  font-weight: 700;
+  margin: 0;
+}
+
+.bloomer-modal__close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1.2rem;
+  color: var(--text-secondary, #888);
+}
+
+.bloomer-modal__subtitle {
+  font-size: 0.88rem;
+  color: var(--text-secondary, #888);
+  margin-bottom: 1rem;
+}
+
+.bloomer-modal__choices {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.bloomer-modal__choice-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--border, #ccc);
+  border-radius: 8px;
+  background: var(--surface, #fafafa);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s;
+}
+
+.bloomer-modal__choice-btn:hover:not(:disabled) {
+  border-color: var(--accent, #7c5cbf);
+}
+
+.bloomer-modal__choice-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.bloomer-modal__choice-label {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.bloomer-modal__choice-hint {
+  font-size: 0.78rem;
+  color: var(--text-secondary, #888);
+}
+
+/* ワードローブ */
+.bloomer-wardrobe__list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.bloomer-wardrobe__item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border, #ddd);
+  border-radius: 6px;
+}
+
+.bloomer-wardrobe__item--equipped {
+  border-color: var(--accent, #7c5cbf);
+  background: var(--surface-alt, #f8f4ff);
+}
+
+.bloomer-wardrobe__name {
+  flex: 1;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.bloomer-wardrobe__equipped-badge {
+  font-size: 0.75rem;
+  color: var(--accent, #7c5cbf);
+  font-weight: 400;
+}
+
+.bloomer-wardrobe__tags {
+  font-size: 0.75rem;
+  color: var(--text-secondary, #aaa);
+  flex: 1;
+}
+
+.bloomer-wardrobe__equip-btn {
+  padding: 0.25rem 0.6rem;
+  font-size: 0.8rem;
+  background: var(--accent, #7c5cbf);
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.bloomer-hub {
+  padding: 1.5rem;
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.bloomer-hub__title {
+  font-size: 1.4rem;
+  font-weight: 700;
+  margin-bottom: 1.5rem;
+}
+
+.bloomer-hub__section-title {
+  font-size: 1rem;
+  font-weight: 600;
+  margin-bottom: 0.75rem;
+  color: var(--text-secondary, #888);
+}
+
+.bloomer-hub__error {
+  background: var(--error-bg, #fee2e2);
+  color: var(--error-text, #b91c1c);
+  border-radius: 6px;
+  padding: 0.6rem 1rem;
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.bloomer-hub__error-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1.1rem;
+  color: inherit;
+}
+
+.bloomer-hub__create {
+  margin-bottom: 2rem;
+}
+
+.bloomer-hub__create-row {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.bloomer-hub__name-input {
+  flex: 1;
+  min-width: 160px;
+  padding: 0.4rem 0.75rem;
+  border: 1px solid var(--border, #ccc);
+  border-radius: 6px;
+  font-size: 0.9rem;
+  background: var(--input-bg, #fff);
+  color: var(--text, #111);
+}
+
+.bloomer-hub__origin-select {
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--border, #ccc);
+  border-radius: 6px;
+  background: var(--input-bg, #fff);
+  color: var(--text, #111);
+  font-size: 0.9rem;
+}
+
+.bloomer-hub__create-btn {
+  padding: 0.4rem 1rem;
+  background: var(--accent, #7c5cbf);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.bloomer-hub__create-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.bloomer-hub__loading,
+.bloomer-hub__empty {
+  color: var(--text-secondary, #888);
+  font-size: 0.9rem;
+}
+
+.bloomer-hub__run-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.bloomer-hub__run-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--border, #ddd);
+  border-radius: 8px;
+  background: var(--surface, #fff);
+}
+
+.bloomer-hub__run-item--ended {
+  opacity: 0.65;
+}
+
+.bloomer-hub__run-name {
+  flex: 1;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--accent, #7c5cbf);
+}
+
+.bloomer-hub__run-meta {
+  font-size: 0.82rem;
+  color: var(--text-secondary, #888);
+}
+
+.bloomer-hub__run-ended {
+  color: var(--text-secondary, #aaa);
+}
+
+.bloomer-hub__run-delete {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1.1rem;
+  color: var(--text-secondary, #aaa);
+  line-height: 1;
+}
+
+/* BloomerRoom */
+.bloomer-room {
+  padding: 1rem 1.5rem;
+  max-width: 720px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.bloomer-room__error {
+  background: var(--error-bg, #fee2e2);
+  color: var(--error-text, #b91c1c);
+  border-radius: 6px;
+  padding: 0.6rem 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.bloomer-room__header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.bloomer-room__name {
+  font-size: 1.3rem;
+  font-weight: 700;
+  margin: 0;
+}
+
+.bloomer-room__day,
+.bloomer-room__stage,
+.bloomer-room__actions {
+  font-size: 0.85rem;
+  color: var(--text-secondary, #888);
+}
+
+.bloomer-room__portrait-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.bloomer-room__portrait {
+  width: 280px;
+  height: 280px;
+  object-fit: cover;
+  border-radius: 12px;
+  border: 2px solid var(--border, #ddd);
+}
+
+.bloomer-room__portrait-placeholder {
+  width: 280px;
+  height: 280px;
+  border-radius: 12px;
+  border: 2px dashed var(--border, #ccc);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary, #aaa);
+  font-size: 0.9rem;
+}
+
+.bloomer-room__regen-btn {
+  padding: 0.3rem 0.8rem;
+  font-size: 0.82rem;
+  background: var(--surface, #f3f3f3);
+  border: 1px solid var(--border, #ccc);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.bloomer-room__regen-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ゲージ */
+.bloomer-room__gauges {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.bloomer-gauge {
+  display: grid;
+  grid-template-columns: 5.5rem 1fr 2.5rem;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.bloomer-gauge__label {
+  font-size: 0.82rem;
+  color: var(--text-secondary, #888);
+}
+
+.bloomer-gauge__track {
+  height: 8px;
+  background: var(--border, #e5e5e5);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.bloomer-gauge__fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.bloomer-gauge__value {
+  font-size: 0.8rem;
+  text-align: right;
+  color: var(--text-secondary, #888);
+}
+
+/* 6軸 */
+.bloomer-room__axes {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.35rem 1rem;
+}
+
+.bloomer-room__axis {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.82rem;
+}
+
+.bloomer-room__axis-label {
+  color: var(--text-secondary, #888);
+}
+
+.bloomer-room__axis-value {
+  font-weight: 600;
+}
+
+/* アクション */
+.bloomer-room__actions-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.bloomer-room__action-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.bloomer-room__action-btn {
+  padding: 0.45rem 0.9rem;
+  border: 1px solid var(--border, #ccc);
+  border-radius: 8px;
+  background: var(--surface, #fafafa);
+  cursor: pointer;
+  font-size: 0.88rem;
+  transition: background 0.15s;
+}
+
+.bloomer-room__action-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.bloomer-room__action-btn--indulge {
+  border-color: var(--accent, #7c5cbf);
+  color: var(--accent, #7c5cbf);
+}
+
+.bloomer-room__day-controls {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.bloomer-room__wardrobe-btn {
+  padding: 0.4rem 0.9rem;
+  background: var(--surface, #f3f3f3);
+  border: 1px solid var(--border, #ccc);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.88rem;
+}
+
+.bloomer-room__advance-btn {
+  padding: 0.4rem 1rem;
+  background: var(--accent, #7c5cbf);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.bloomer-room__advance-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.bloomer-room__nightly,
+.bloomer-room__stage-up {
+  padding: 0.65rem 0.9rem;
+  background: var(--surface-alt, #f8f4ff);
+  border-left: 3px solid var(--accent, #7c5cbf);
+  border-radius: 4px;
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.bloomer-room__ending {
+  padding: 1rem;
+  background: var(--surface-alt, #f8f4ff);
+  border-radius: 10px;
+  text-align: center;
+}
+
+.bloomer-room__ending h3 {
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+}
+
+.bloomer-room__ending-narration {
+  font-size: 0.9rem;
+  line-height: 1.6;
+  margin-bottom: 0.5rem;
+}
+
+.bloomer-room__ending-key {
+  font-size: 0.82rem;
+  color: var(--text-secondary, #aaa);
+}
+
+/* モーダル共通 */
+.bloomer-modal__overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+}
+
+.bloomer-modal {
+  background: var(--surface, #fff);
+  border-radius: 12px;
+  padding: 1.5rem;
+  max-width: 480px;
+  width: 90%;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+}
+
+.bloomer-modal--wardrobe {
+  max-width: 400px;
+}
+
+.bloomer-modal__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.bloomer-modal__title {
+  font-size: 1rem;
+  font-weight: 700;
+  margin: 0;
+}
+
+.bloomer-modal__close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1.2rem;
+  color: var(--text-secondary, #888);
+}
+
+.bloomer-modal__subtitle {
+  font-size: 0.88rem;
+  color: var(--text-secondary, #888);
+  margin-bottom: 1rem;
+}
+
+.bloomer-modal__choices {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.bloomer-modal__choice-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--border, #ccc);
+  border-radius: 8px;
+  background: var(--surface, #fafafa);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s;
+}
+
+.bloomer-modal__choice-btn:hover:not(:disabled) {
+  border-color: var(--accent, #7c5cbf);
+}
+
+.bloomer-modal__choice-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.bloomer-modal__choice-label {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.bloomer-modal__choice-hint {
+  font-size: 0.78rem;
+  color: var(--text-secondary, #888);
+}
+
+/* ワードローブ */
+.bloomer-wardrobe__list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.bloomer-wardrobe__item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border, #ddd);
+  border-radius: 6px;
+}
+
+.bloomer-wardrobe__item--equipped {
+  border-color: var(--accent, #7c5cbf);
+  background: var(--surface-alt, #f8f4ff);
+}
+
+.bloomer-wardrobe__name {
+  flex: 1;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.bloomer-wardrobe__equipped-badge {
+  font-size: 0.75rem;
+  color: var(--accent, #7c5cbf);
+  font-weight: 400;
+}
+
+.bloomer-wardrobe__tags {
+  font-size: 0.75rem;
+  color: var(--text-secondary, #aaa);
+  flex: 1;
+}
+
+.bloomer-wardrobe__equip-btn {
+  padding: 0.25rem 0.6rem;
+  font-size: 0.8rem;
+  background: var(--accent, #7c5cbf);
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}

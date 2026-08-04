@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "category": "resistance",
+  "cap": 30,
+  "mode": "extend",
+  "keywords": {
+    "ja": [
+      "抵抗",
+      "拒ん",
+      "拒否",
+      "嫌がっ",
+      "いやがっ",
+      "戸惑",
+      "ためら",
+      "躊躇",
+      "逃げ出",
+      "振りほど",
+      "振り払",
+      "耐え",
+      "こらえ",
+      "堪え",
+      "我慢",
+      "顔を背け",
+      "目を逸ら",
+      "身をよじ"
+    ],
+    "en": [
+      "resisted",
+      "refused",
+      "hesitated",
+      "pulled away",
+      "flinched",
+      "endured",
+      "held back",
+      "looked away",
+      "struggled against"
+    ]
+  }
+}
