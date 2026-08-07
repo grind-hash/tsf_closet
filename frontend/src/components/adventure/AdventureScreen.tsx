@@ -22,8 +22,54 @@ function mediaUrl(url: string): string {
   return url.startsWith("/") ? `${API_BASE}${url}` : url;
 }
 
+const LAST_INSTRUCTION_PREVIEW_LEN = 24;
+
+function formatSessionDate(iso: string, locale: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleDateString(locale.startsWith("en") ? "en-US" : "ja-JP", {
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+  });
+}
+
+function truncateText(text: string, maxLen: number): string {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLen) return normalized;
+  return `${normalized.slice(0, maxLen)}…`;
+}
+
+function formatSourceSessionOption(
+  session: GallerySession,
+  t: (key: string, options?: Record<string, string | number>) => string,
+  locale: string,
+): string {
+  const name = session.character_name ?? t("adventure.unnamedCharacter");
+  const date = formatSessionDate(session.first_timestamp, locale);
+  const unit = t("gallery.itemsUnit");
+  const preview = session.last_instruction
+    ? truncateText(session.last_instruction, LAST_INSTRUCTION_PREVIEW_LEN)
+    : "";
+  if (preview) {
+    return t("adventure.sourceSessionOption", {
+      name,
+      count: session.item_count,
+      unit,
+      date,
+      preview,
+    });
+  }
+  return t("adventure.sourceSessionOptionNoPreview", {
+    name,
+    count: session.item_count,
+    unit,
+    date,
+  });
+}
+
 function AdventureHub() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const {
     runs,
@@ -215,8 +261,7 @@ function AdventureHub() {
             >
               {sessions.map((session) => (
                 <option key={session.session_id} value={session.session_id}>
-                  {session.character_name ?? t("adventure.unnamedCharacter")} ·{" "}
-                  {session.item_count}
+                  {formatSourceSessionOption(session, t, i18n.language)}
                 </option>
               ))}
             </select>
@@ -238,11 +283,15 @@ function AdventureHub() {
                     clearGeneratedSetup();
                   }}
                 >
-                  <img
-                    src={mediaUrl(selectedSession.thumbnail_url)}
-                    alt={t("adventure.currentState")}
-                  />
-                  <span>{t("adventure.currentState")}</span>
+                  <span className="adventure-source-grid__thumb">
+                    <img
+                      src={mediaUrl(selectedSession.thumbnail_url)}
+                      alt={t("adventure.currentState")}
+                    />
+                  </span>
+                  <span className="adventure-source-grid__label">
+                    {t("adventure.currentState")}
+                  </span>
                 </button>
                 {historyItems.map((item) => (
                   <button
@@ -255,11 +304,15 @@ function AdventureHub() {
                       clearGeneratedSetup();
                     }}
                   >
-                    <img
-                      src={mediaUrl(item.image_url)}
-                      alt={item.instruction}
-                    />
-                    <span>{item.instruction}</span>
+                    <span className="adventure-source-grid__thumb">
+                      <img
+                        src={mediaUrl(item.image_url)}
+                        alt={item.instruction}
+                      />
+                    </span>
+                    <span className="adventure-source-grid__label">
+                      {item.instruction}
+                    </span>
                   </button>
                 ))}
               </div>

@@ -38,6 +38,9 @@ const resources = {
         sourceState: "開始状態",
         currentState: "現在の状態",
         selectedSourceSummary: "選択中: {{name}} ・ {{state}}",
+        sourceSessionOption:
+          "{{name}} · {{count}}{{unit}} · {{date}} · {{preview}}",
+        sourceSessionOptionNoPreview: "{{name}} · {{count}}{{unit}} · {{date}}",
         unnamedCharacter: "名前未設定",
         startMode: "開始方式",
         startModes: {
@@ -1195,6 +1198,10 @@ const resources = {
         sourceState: "Starting State",
         currentState: "Current State",
         selectedSourceSummary: "Selected: {{name}} · {{state}}",
+        sourceSessionOption:
+          "{{name}} · {{count}} {{unit}} · {{date}} · {{preview}}",
+        sourceSessionOptionNoPreview:
+          "{{name}} · {{count}} {{unit}} · {{date}}",
         unnamedCharacter: "Unnamed Character",
         startMode: "Start Mode",
         startModes: {

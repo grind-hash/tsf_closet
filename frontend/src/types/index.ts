@@ -402,6 +402,8 @@ export interface GallerySession {
   has_summary?: boolean;
   /** 検索ヒット時の代表スニペット */
   match_snippet?: string | null;
+  /** 最新 History の指示テキスト（セッション識別用） */
+  last_instruction?: string | null;
 }
 
 /**

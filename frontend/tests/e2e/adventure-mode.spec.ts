@@ -106,6 +106,7 @@ async function mockAdventureApis(
             item_count: 1,
             first_timestamp: "2026-08-01T00:00:00",
             last_timestamp: "2026-08-01T00:00:00",
+            last_instruction: "赤いドレスを着て街を歩く",
           },
         ],
         total: 1,
