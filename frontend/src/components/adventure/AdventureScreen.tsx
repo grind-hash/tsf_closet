@@ -736,6 +736,7 @@ function AdventurePlay({ runId }: { runId: string }) {
     loadRun,
     submitTurn,
     regenerateImage,
+    regenerateChoices,
     clearError,
   } = useAdventure();
   const [input, setInput] = useState("");
@@ -1023,18 +1024,39 @@ function AdventurePlay({ runId }: { runId: string }) {
 
             {activeRun.status === "active" ? (
               <div className="adventure-controls">
-                <div className="adventure-choices">
-                  {activeRun.choices.map((choice) => (
-                    <button
-                      type="button"
-                      key={choice.id}
-                      disabled={streaming}
-                      onClick={() => submit(choice.label, "choice")}
-                    >
-                      {choice.label}
-                    </button>
-                  ))}
+                <div className="adventure-choices-header">
+                  <button
+                    type="button"
+                    className="adventure-choices__regenerate"
+                    onClick={() => void regenerateChoices()}
+                    disabled={streaming}
+                    title={t("adventure.regenerateChoices")}
+                  >
+                    {streaming && phase === "clue_check"
+                      ? t("adventure.regeneratingChoices")
+                      : t("adventure.regenerateChoices")}
+                  </button>
                 </div>
+                <div className="adventure-choices">
+                  {activeRun.choices
+                    .filter((choice) => choice.label.trim().length > 0)
+                    .map((choice) => (
+                      <button
+                        type="button"
+                        key={choice.id}
+                        disabled={streaming}
+                        onClick={() => submit(choice.label, "choice")}
+                      >
+                        {choice.label}
+                      </button>
+                    ))}
+                </div>
+                {activeRun.choices.filter((choice) => choice.label.trim())
+                  .length === 0 && (
+                  <p className="adventure-choices__empty">
+                    {t("adventure.emptyChoices")}
+                  </p>
+                )}
                 <form
                   onSubmit={(event) => {
                     event.preventDefault();

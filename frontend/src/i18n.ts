@@ -123,6 +123,10 @@ const resources = {
         freeInput: "行動や会話を自由に入力",
         send: "送信",
         regenerateImage: "現在の場面画像を再生成",
+        regenerateChoices: "選択肢を再生成",
+        regeneratingChoices: "選択肢を生成中...",
+        emptyChoices:
+          "選択肢がありません。再生成するか、自由入力を使ってください。",
         viewFullScreen: "場面画像を拡大表示",
         imagePrompt: {
           title: "場面画像のプロンプトを編集して再生成",
@@ -1285,6 +1289,10 @@ const resources = {
         freeInput: "Enter an action or dialogue",
         send: "Send",
         regenerateImage: "Regenerate the current scene image",
+        regenerateChoices: "Regenerate choices",
+        regeneratingChoices: "Generating choices...",
+        emptyChoices:
+          "No choices available. Regenerate them or use free input.",
         viewFullScreen: "View the scene image in full screen",
         imagePrompt: {
           title: "Edit the scene image prompt and regenerate",

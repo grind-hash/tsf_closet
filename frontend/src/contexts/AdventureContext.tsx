@@ -21,6 +21,7 @@ import {
   fetchAdventureTemplates,
   generateAdventureSetup,
   normalizeAdventureImageUrl,
+  regenerateAdventureChoices,
   streamAdventureImage,
   streamAdventureTurn,
 } from "../apis/adventure";
@@ -49,6 +50,7 @@ interface AdventureContextValue {
     inputKind: "choice" | "free_text",
   ) => Promise<void>;
   regenerateImage: (options?: AdventureImageRegenerateOptions) => Promise<void>;
+  regenerateChoices: () => Promise<void>;
   clearError: () => void;
 }
 
@@ -259,6 +261,25 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
     [activeRun, streaming],
   );
 
+  const regenerateChoices = useCallback(async () => {
+    if (!activeRun || streaming || activeRun.status !== "active") return;
+    const runId = activeRun.id;
+    setStreaming(true);
+    setPhase("clue_check");
+    setError(null);
+    try {
+      const choices = await regenerateAdventureChoices(runId);
+      setActiveRun((current) =>
+        current && current.id === runId ? { ...current, choices } : current,
+      );
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setStreaming(false);
+      setPhase(null);
+    }
+  }, [activeRun, streaming]);
+
   const value = useMemo<AdventureContextValue>(
     () => ({
       runs,
@@ -279,6 +300,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       removeRun,
       submitTurn,
       regenerateImage,
+      regenerateChoices,
       clearError: () => setError(null),
     }),
     [
@@ -300,6 +322,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       removeRun,
       submitTurn,
       regenerateImage,
+      regenerateChoices,
     ],
   );
 

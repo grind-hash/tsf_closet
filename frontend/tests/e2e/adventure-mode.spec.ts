@@ -71,7 +71,7 @@ function authoredRunPayload(turnCount = 0) {
     ...runPayload(turnCount),
     scenario_template_id: "princess_locked_room",
     preset: "escape",
-    title: "プリンセスにならないと出られない部屋",
+    title: "女装してプリンセスにならないと出られない部屋",
     objective:
       "必要な衣装と品物を身につけて扉の採点を100点にし、開いた扉から退出する",
   };
@@ -128,7 +128,7 @@ async function mockAdventureApis(
           {
             id: "princess_locked_room",
             preset: "escape",
-            title: "プリンセスにならないと出られない部屋",
+            title: "女装してプリンセスにならないと出られない部屋",
             synopsis:
               "寒い密室で指定された衣装と品物をそろえ、扉の採点を突破する。",
             setting: "見知らぬ寒い密室",
@@ -290,7 +290,7 @@ test("create an adventure from an authored scenario", async ({ page }) => {
   ).toBeLessThanOrEqual(1);
   await dialog.getByRole("tab", { name: "作品シナリオ" }).click();
   const scenario = page.getByRole("button", {
-    name: /プリンセスにならないと出られない部屋/,
+    name: /女装してプリンセスにならないと出られない部屋/,
   });
   await expect(scenario).toBeVisible();
   await expect(
@@ -366,7 +366,7 @@ test("scenario creation shows a full-screen loading overlay", async ({
   await page.getByRole("button", { name: "シナリオを選ぶ" }).click();
   await page
     .getByRole("button", {
-      name: /プリンセスにならないと出られない部屋/,
+      name: /女装してプリンセスにならないと出られない部屋/,
     })
     .click();
   await page.getByRole("button", { name: "シナリオを開始" }).click();

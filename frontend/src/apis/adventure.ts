@@ -269,6 +269,16 @@ export async function streamAdventureImage(
   await readSse(response, onEvent);
 }
 
+export async function regenerateAdventureChoices(
+  runId: string,
+): Promise<AdventureChoice[]> {
+  const payload = await requestJson<{ choices: AdventureChoice[] }>(
+    `${API_BASE}/adventure/runs/${runId}/choices/regenerate`,
+    { method: "POST" },
+  );
+  return payload.choices;
+}
+
 export function normalizeAdventureImageUrl(url: unknown): string | null {
   return typeof url === "string" ? withApiBase(url) : null;
 }

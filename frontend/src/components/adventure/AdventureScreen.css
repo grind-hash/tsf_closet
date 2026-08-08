@@ -978,6 +978,28 @@ button:disabled {
   border-top: 1px solid #394149;
 }
 
+.adventure-choices-header {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+
+.adventure-choices__regenerate {
+  min-height: 32px;
+  padding: 4px 10px;
+  border: 1px solid #4a535c;
+  border-radius: 6px;
+  color: #cbd2d7;
+  background: #1c2228;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.adventure-choices__regenerate:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .adventure-choices {
   display: grid;
   gap: 8px;
@@ -989,6 +1011,12 @@ button:disabled {
   min-height: 44px;
   padding: 8px 12px;
   text-align: left;
+}
+
+.adventure-choices__empty {
+  margin: 0 0 12px;
+  color: #efb85a;
+  font-size: 0.8rem;
 }
 
 .adventure-controls form {

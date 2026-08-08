@@ -8,6 +8,31 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
+class ScenarioVisualStyle(BaseModel):
+    """作品シナリオ固有の背景ビジュアル固定値。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    location: dict[str, str]
+    surroundings: dict[str, str]
+    scene_tags: str = Field(min_length=1, max_length=1800)
+
+    @model_validator(mode="after")
+    def validate_localizations(self) -> "ScenarioVisualStyle":
+        for field_name in ("location", "surroundings"):
+            value = getattr(self, field_name)
+            if "ja" not in value or "en" not in value:
+                raise ValueError(f"visual_style.{field_name} にはjaとenが必要です")
+            if (
+                not str(value.get("ja") or "").strip()
+                or not str(value.get("en") or "").strip()
+            ):
+                raise ValueError(f"visual_style.{field_name} が空です")
+        if not self.scene_tags.strip():
+            raise ValueError("visual_style.scene_tags が空です")
+        return self
+
+
 class ScenarioTemplateDefinition(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -24,6 +49,7 @@ class ScenarioTemplateDefinition(BaseModel):
     milestones: dict[str, list[dict[str, str]]]
     opening_premise: dict[str, str]
     guidance: str
+    visual_style: ScenarioVisualStyle | None = None
     start_state: dict[str, Any]
     rule: dict[str, Any]
 

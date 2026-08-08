@@ -118,6 +118,14 @@ async def delete_run(run_id: str) -> None:
         raise _http_error(error) from error
 
 
+@router.post("/runs/{run_id}/choices/regenerate")
+async def regenerate_choices(run_id: str) -> dict:
+    try:
+        return await adventure_service.regenerate_choices(run_id)
+    except AdventureError as error:
+        raise _http_error(error) from error
+
+
 @router.post("/runs/{run_id}/turns/stream")
 async def play_turn(run_id: str, request: AdventureTurnRequest) -> EventSourceResponse:
     async def event_generator() -> AsyncGenerator[dict, None]:
