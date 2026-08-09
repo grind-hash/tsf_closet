@@ -91,6 +91,8 @@ interface SettingsState {
   experimentalEndingEnabled: boolean;
   experimentalAdventureEnabled: boolean;
   playMemoryEnabled: boolean;
+  playMemorySystemEnabled: boolean;
+  playMemoryUserEnabled: boolean;
 
   // お気に入り一覧からの削除時に確認ダイアログを表示する (spec 009)
   confirmFavoriteRemove: boolean;
@@ -188,6 +190,8 @@ type SettingsAction =
   | { type: "SET_EXPERIMENTAL_ENDING_ENABLED"; payload: boolean }
   | { type: "SET_EXPERIMENTAL_ADVENTURE_ENABLED"; payload: boolean }
   | { type: "SET_PLAY_MEMORY_ENABLED"; payload: boolean }
+  | { type: "SET_PLAY_MEMORY_SYSTEM_ENABLED"; payload: boolean }
+  | { type: "SET_PLAY_MEMORY_USER_ENABLED"; payload: boolean }
   | { type: "SET_CONFIRM_FAVORITE_REMOVE"; payload: boolean }
   | { type: "SET_SOUND_ENABLED"; payload: boolean }
   | { type: "SET_SOUND_VOLUME"; payload: number }
@@ -249,6 +253,8 @@ const defaultState: SettingsState = {
   experimentalEndingEnabled: false,
   experimentalAdventureEnabled: false,
   playMemoryEnabled: false,
+  playMemorySystemEnabled: true,
+  playMemoryUserEnabled: true,
   confirmFavoriteRemove: true,
   soundEnabled: true,
   soundVolume: 0.5,
@@ -356,6 +362,10 @@ function settingsReducer(
       return { ...state, experimentalAdventureEnabled: action.payload };
     case "SET_PLAY_MEMORY_ENABLED":
       return { ...state, playMemoryEnabled: action.payload };
+    case "SET_PLAY_MEMORY_SYSTEM_ENABLED":
+      return { ...state, playMemorySystemEnabled: action.payload };
+    case "SET_PLAY_MEMORY_USER_ENABLED":
+      return { ...state, playMemoryUserEnabled: action.payload };
     case "SET_CONFIRM_FAVORITE_REMOVE":
       return { ...state, confirmFavoriteRemove: action.payload };
     case "SET_SOUND_ENABLED":
@@ -477,6 +487,8 @@ interface SettingsContextType {
   setExperimentalEndingEnabled: (enabled: boolean) => void;
   setExperimentalAdventureEnabled: (enabled: boolean) => void;
   setPlayMemoryEnabled: (enabled: boolean) => void;
+  setPlayMemorySystemEnabled: (enabled: boolean) => void;
+  setPlayMemoryUserEnabled: (enabled: boolean) => void;
   setConfirmFavoriteRemove: (enabled: boolean) => void;
   setSoundEnabled: (enabled: boolean) => void;
   setSoundVolume: (volume: number) => void;
@@ -944,6 +956,12 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const setPlayMemoryEnabled = useCallback((enabled: boolean) => {
     dispatch({ type: "SET_PLAY_MEMORY_ENABLED", payload: enabled });
   }, []);
+  const setPlayMemorySystemEnabled = useCallback((enabled: boolean) => {
+    dispatch({ type: "SET_PLAY_MEMORY_SYSTEM_ENABLED", payload: enabled });
+  }, []);
+  const setPlayMemoryUserEnabled = useCallback((enabled: boolean) => {
+    dispatch({ type: "SET_PLAY_MEMORY_USER_ENABLED", payload: enabled });
+  }, []);
   const setConfirmFavoriteRemove = useCallback((enabled: boolean) => {
     dispatch({ type: "SET_CONFIRM_FAVORITE_REMOVE", payload: enabled });
   }, []);
@@ -1208,6 +1226,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setExperimentalEndingEnabled,
     setExperimentalAdventureEnabled,
     setPlayMemoryEnabled,
+    setPlayMemorySystemEnabled,
+    setPlayMemoryUserEnabled,
     setConfirmFavoriteRemove,
     setSoundEnabled,
     setSoundVolume,

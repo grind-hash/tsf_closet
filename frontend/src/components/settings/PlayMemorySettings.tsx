@@ -10,13 +10,15 @@ export default function PlayMemorySettings() {
   const { state, updatePlayMemory, regeneratePlayMemory } = useGame();
   const memory = state.playMemory;
   const [draft, setDraft] = useState(memory.userText ?? "");
-  const [busy, setBusy] = useState<"save" | "regenerate" | null>(null);
+  const [busy, setBusy] = useState<"save" | "regenerate" | "toggle" | null>(
+    null,
+  );
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => setDraft(memory.userText ?? ""), [memory.userText]);
 
   const run = async (
-    kind: "save" | "regenerate",
+    kind: "save" | "regenerate" | "toggle",
     action: () => Promise<void>,
   ) => {
     setBusy(kind);
@@ -39,8 +41,11 @@ export default function PlayMemorySettings() {
         <input
           type="checkbox"
           checked={memory.systemEnabled}
+          disabled={busy !== null}
           onChange={(event) =>
-            void updatePlayMemory({ system_enabled: event.target.checked })
+            void run("toggle", () =>
+              updatePlayMemory({ system_enabled: event.target.checked }),
+            )
           }
         />
       </label>
@@ -76,8 +81,11 @@ export default function PlayMemorySettings() {
         <input
           type="checkbox"
           checked={memory.userEnabled}
+          disabled={busy !== null}
           onChange={(event) =>
-            void updatePlayMemory({ user_enabled: event.target.checked })
+            void run("toggle", () =>
+              updatePlayMemory({ user_enabled: event.target.checked }),
+            )
           }
         />
       </label>

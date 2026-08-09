@@ -25,13 +25,30 @@ function createHistory(feelingText = "対応する生成文 2") {
   ];
 }
 
-async function mockPlaySession(page: Page, initialHistory = createHistory()) {
+async function mockPlaySession(
+  page: Page,
+  initialHistory = createHistory(),
+  preferences = { systemEnabled: true, userEnabled: true },
+) {
   let activeHistory = [...initialHistory];
+  const syncPayloads: Array<{
+    system_enabled: boolean;
+    user_enabled: boolean;
+  }> = [];
+  let failNextPlayMemorySync = false;
 
-  await page.addInitScript(() => {
+  await page.addInitScript((savedPreferences) => {
     window.localStorage.setItem("novelai_api_key_consent", "true");
     window.localStorage.setItem("novelai_opus_confirmed", "true");
-  });
+    window.localStorage.setItem(
+      "app_settings",
+      JSON.stringify({
+        playMemoryEnabled: true,
+        playMemorySystemEnabled: savedPreferences.systemEnabled,
+        playMemoryUserEnabled: savedPreferences.userEnabled,
+      }),
+    );
+  }, preferences);
 
   await page.route("**/api/game/characters", async (route) => {
     await route.fulfill({ status: 200, json: { characters: [] } });
@@ -54,6 +71,27 @@ async function mockPlaySession(page: Page, initialHistory = createHistory()) {
         stats: { bloom: 10, shame: 20, adaptation: 5, nsfw_mode: false },
         attributes: [],
         conversation_history: [],
+      },
+    });
+  });
+  await page.route("**/api/game/sessions/*/play-memory", async (route) => {
+    const payload = route.request().postDataJSON() as {
+      system_enabled: boolean;
+      user_enabled: boolean;
+    };
+    syncPayloads.push(payload);
+    if (failNextPlayMemorySync) {
+      failNextPlayMemorySync = false;
+      await route.fulfill({ status: 500, json: { detail: "sync failed" } });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      json: {
+        ...payload,
+        system_text: "セッション内の自動メモ",
+        user_text: "セッション内のユーザーメモ",
+        system_updated_at: null,
       },
     });
   });
@@ -100,14 +138,30 @@ async function mockPlaySession(page: Page, initialHistory = createHistory()) {
       ].join("\n"),
     });
   });
+  return {
+    syncPayloads,
+    failNextPlayMemorySync: () => {
+      failNextPlayMemorySync = true;
+    },
+  };
 }
 
 test("メイン画像プレビューで画像と対応文を左右表示し履歴移動へ追従する", async ({
   page,
 }) => {
-  await mockPlaySession(page);
+  const { syncPayloads } = await mockPlaySession(page, createHistory(), {
+    systemEnabled: false,
+    userEnabled: true,
+  });
   await page.setViewportSize({ width: 1200, height: 800 });
   await page.goto(`/play/${sessionId}`);
+
+  await expect
+    .poll(() => syncPayloads.at(-1))
+    .toEqual({
+      system_enabled: false,
+      user_enabled: true,
+    });
 
   await page.locator(".character-state-panel__image-btn").click();
   const content = page.locator(".image-preview-modal__content--side");
@@ -115,6 +169,9 @@ test("メイン画像プレビューで画像と対応文を左右表示し履�
   const caption = page.locator(".image-preview-modal__caption--side");
   await expect(content).toBeVisible();
   await expect(content).toHaveCSS("display", "grid");
+  await expect(content).toHaveCSS("align-items", "start");
+  await expect(content).toHaveCSS("border-top-style", "solid");
+  await expect(content).toHaveCSS("background-color", "rgba(10, 14, 22, 0.88)");
   await expect(caption).toContainText("夜の街で赤いドレスに変える");
   await expect(caption).toContainText("対応する生成文 2");
 
@@ -126,11 +183,49 @@ test("メイン画像プレビューで画像と対応文を左右表示し履�
   expect(captionBox).not.toBeNull();
   if (imageBox && captionBox) {
     expect(imageBox.x + imageBox.width).toBeLessThanOrEqual(captionBox.x);
+    expect(Math.abs(imageBox.y - captionBox.y)).toBeLessThanOrEqual(1);
   }
 
   await page.locator(".image-preview-modal__nav--prev").click();
   await expect(caption).toContainText("最初の指示");
   await expect(caption).toContainText("対応する生成文 1");
+
+  await content.click({ position: { x: 8, y: 8 } });
+  await expect(content).toBeVisible();
+  await page
+    .locator(".image-preview-modal__overlay")
+    .click({ position: { x: 4, y: 4 } });
+  await expect(content).toBeHidden();
+});
+
+test("個別メモ設定の保存失敗時はチェックとlocalStorageを変更しない", async ({
+  page,
+}) => {
+  const controls = await mockPlaySession(page);
+  await page.setViewportSize({ width: 1200, height: 800 });
+  await page.goto(`/play/${sessionId}`);
+  await expect.poll(() => controls.syncPayloads.length).toBeGreaterThan(0);
+
+  await page.getByRole("button", { name: /パネルを開く|Open panel/i }).click();
+  const systemToggle = page
+    .locator(".play-memory__toggle")
+    .filter({ hasText: /自動メモ|Automatic Memory/i })
+    .getByRole("checkbox");
+  await expect(systemToggle).toBeChecked();
+
+  controls.failNextPlayMemorySync();
+  await systemToggle.click();
+
+  await expect(page.locator(".play-memory__error")).toBeVisible();
+  await expect(systemToggle).toBeChecked();
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const raw = window.localStorage.getItem("app_settings");
+        return raw ? JSON.parse(raw).playMemorySystemEnabled : undefined;
+      }),
+    )
+    .toBe(true);
 });
 
 test("モバイルでは上下配置になり空の生成文を明示する", async ({ page }) => {
