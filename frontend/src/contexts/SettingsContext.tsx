@@ -32,6 +32,7 @@ import {
 } from "../types";
 import {
   DEFAULT_HISTORY_LOOKBACK_TARGETS,
+  type HistoryLookbackTarget,
   type HistoryLookbackTargets,
   normalizeHistoryLookbackTargets,
 } from "../utils/historyLookback";
@@ -222,7 +223,7 @@ type SettingsAction =
   | { type: "SET_HISTORY_LOOKBACK_COUNT"; payload: number }
   | {
       type: "SET_HISTORY_LOOKBACK_TARGET";
-      payload: { target: InstructionType; enabled: boolean };
+      payload: { target: HistoryLookbackTarget; enabled: boolean };
     }
   | { type: "SET_MEMORY_TEXT"; payload: string | null };
 
@@ -511,7 +512,10 @@ interface SettingsContextType {
   setTtsStyleId: (styleId: string | null) => void;
   setTtsOutputFormat: (format: "wav") => void;
   setHistoryLookbackCount: (count: number) => void;
-  setHistoryLookbackTarget: (target: InstructionType, enabled: boolean) => void;
+  setHistoryLookbackTarget: (
+    target: HistoryLookbackTarget,
+    enabled: boolean,
+  ) => void;
   // メモリ機能
   memoryText: string | null;
   setMemoryText: (memoryText: string | null) => void;
@@ -1156,7 +1160,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const setHistoryLookbackTarget = useCallback(
-    (target: InstructionType, enabled: boolean) => {
+    (target: HistoryLookbackTarget, enabled: boolean) => {
       dispatch({
         type: "SET_HISTORY_LOOKBACK_TARGET",
         payload: { target, enabled },

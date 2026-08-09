@@ -394,6 +394,14 @@ test("play screen fits a mobile viewport without horizontal overflow", async ({
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/adventure/run-1");
   await expect(page.locator(".adventure-play")).toBeVisible();
+  await page.locator(".adventure-stage__image-button").click();
+  const previewContent = page.locator(".image-preview-modal__content");
+  await expect(previewContent).toBeVisible();
+  await expect(previewContent).not.toHaveClass(
+    /image-preview-modal__content--side/,
+  );
+  await expect(page.locator(".image-preview-modal__caption")).toBeVisible();
+  await page.getByRole("button", { name: "閉じる" }).click();
   const overflow = await page.evaluate(
     () =>
       document.documentElement.scrollWidth -

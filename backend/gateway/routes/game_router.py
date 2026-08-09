@@ -194,7 +194,10 @@ class PlayStreamRequest(BaseModel):
     # 007-chat-interactive-ux: 指示タイプ（チャット表示用）
     instruction_type: Optional[str] = Field(
         None,
-        description="指示タイプ (dress_up=着せ替え, reality_alter=現実改変, conversation=会話)",
+        description=(
+            "指示タイプ (dress_up=着せ替え, reality_alter=現実改変, "
+            "conversation=会話, action=行動, image_only=画像のみ)"
+        ),
     )
     # NovelAI専用フィールド
     mask_image: Optional[str] = Field(

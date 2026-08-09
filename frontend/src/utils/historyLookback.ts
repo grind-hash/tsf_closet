@@ -1,6 +1,7 @@
 import type { InstructionType } from "../types";
 
-export type HistoryLookbackTargets = Record<InstructionType, boolean>;
+export type HistoryLookbackTarget = Exclude<InstructionType, "image_only">;
+export type HistoryLookbackTargets = Record<HistoryLookbackTarget, boolean>;
 
 export const DEFAULT_HISTORY_LOOKBACK_TARGETS: HistoryLookbackTargets = {
   action: true,
@@ -16,7 +17,7 @@ export function normalizeHistoryLookbackTargets(
     return { ...DEFAULT_HISTORY_LOOKBACK_TARGETS };
   }
 
-  const saved = value as Partial<Record<InstructionType, unknown>>;
+  const saved = value as Partial<Record<HistoryLookbackTarget, unknown>>;
   return {
     action:
       typeof saved.action === "boolean"
@@ -45,7 +46,7 @@ export function isHistoryLookbackEnabled(
     return DEFAULT_HISTORY_LOOKBACK_TARGETS.dress_up;
   }
   if (instructionType in targets) {
-    return targets[instructionType as InstructionType];
+    return targets[instructionType as HistoryLookbackTarget];
   }
   return false;
 }

@@ -441,7 +441,9 @@ export default function CharacterStatePanel({
               <p>
                 {chatState.instructionType === "action"
                   ? t("characterPanel.acting")
-                  : t("characterPanel.transforming")}
+                  : chatState.instructionType === "image_only"
+                    ? t("characterPanel.generatingImage")
+                    : t("characterPanel.transforming")}
               </p>
             </div>
           )}

@@ -67,6 +67,10 @@ from .history_context import (
     build_history_context,
     resolve_history_lookback_enabled,
 )
+from .image_only_prompts import (
+    build_image_only_edit_prompt,
+    get_image_only_edit_system_prompt,
+)
 from .session import session_store
 from .settings_service import settings_service
 from .tag_classifier import classify_tags, TransformationTags
@@ -974,6 +978,55 @@ class GameService:
             )
             return instruction + history_context, None
 
+    async def _generate_image_only_edit_prompt(
+        self,
+        instruction: str,
+        current_description: str,
+        nsfw_mode: bool = False,
+        novelai_model_override: str | None = None,
+        use_memory: bool = False,
+        respect_clothing_layers: bool = False,
+        session_characters_section: str = "",
+        language: str = "ja",
+    ) -> tuple[str, float | None]:
+        """自由な自然言語指示から画像編集プロンプトを生成する。"""
+        system_prompt = get_image_only_edit_system_prompt(
+            settings.image_provider,
+            nsfw_mode,
+        )
+        memory_priority_suffix = (
+            await self._get_memory_priority_suffix(language) if use_memory else ""
+        )
+        system_prompt += append_clothing_layer_image_rule(
+            memory_priority_suffix,
+            respect_clothing_layers,
+        )
+        user_prompt = build_image_only_edit_prompt(
+            instruction=instruction,
+            current_description=current_description,
+        )
+        if session_characters_section:
+            user_prompt = f"{user_prompt}\n\n{session_characters_section}"
+
+        try:
+            result = await llm_service.generate_text(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                novelai_model_override=novelai_model_override,
+            )
+            logger.info(
+                "画像のみプロンプト生成完了: provider=%s, cost=%s",
+                result.provider,
+                result.cost_usd,
+            )
+            return result.content.strip(), result.cost_usd
+        except Exception as e:
+            logger.warning(
+                "Image-only prompt generation failed, using original instruction: %s",
+                e,
+            )
+            return instruction, None
+
     def _merge_prompts(self, base_prompt: str, override_prompt: str) -> str:
         """ベースプロンプトとオーバーライドプロンプトをマージする (T009)
 
@@ -1529,10 +1582,6 @@ class GameService:
                     f"[Inpaint Debug] Final mask_bytes: {len(mask_bytes) if mask_bytes else 0} bytes"
                 )
 
-            # 現在のstatsを取得 (T059: 開花度ベースの心理段階)
-            current_stats = await session_store.get_or_create_session_stats(session.id)
-            current_bloom = current_stats.bloom
-
             # ユーザー設定を取得（DB永続化されたnsfw_mode, difficulty）
             user_settings = await session_store.get_user_settings()
 
@@ -1553,14 +1602,19 @@ class GameService:
             effective_language = normalize_language(
                 language_override or user_settings.get("language")
             )
+            play_memory_context = ""
             if use_play_memory:
                 from .play_memory_service import play_memory_service
 
-                instruction += await play_memory_service.build_context(
+                play_memory_context = await play_memory_service.build_context(
                     session.id,
                     enabled=True,
                     language=effective_language,
                 )
+                instruction += play_memory_context
+            image_instruction = original_instruction
+            if use_memory:
+                image_instruction += play_memory_context
             logger.info(
                 f"Effective settings from user: nsfw_mode={effective_nsfw_mode}, "
                 f"difficulty={effective_difficulty}, language={effective_language}"
@@ -1581,6 +1635,234 @@ class GameService:
                 if self_profile:
                     gender = self_profile.get("gender", gender)
                     pronoun = self_profile.get("pronoun", pronoun)
+
+            # 画像のみモード: 心境・ゲーム状態を生成せず画像履歴だけを更新する
+            if instruction_type == "image_only":
+                logger.info("Image-only mode: generating an image without narrative")
+
+                last_hist = await session_store.get_latest_history(session.id)
+                previous_description = (
+                    last_hist.after_description
+                    if last_hist and last_hist.after_description
+                    else self._build_initial_prompt(
+                        gender,
+                        character,
+                        self_profile,
+                        base_tags=custom_metadata.get("base_tags", ""),
+                        enable_multiple_people=enable_multiple_people,
+                    )
+                )
+
+                describe_cost: float | None = None
+                if settings.is_novelai_opus_mode:
+                    current_description = previous_description
+                else:
+                    current_description, describe_cost = await self._describe_image(
+                        before_image,
+                        effective_nsfw_mode,
+                    )
+
+                attributes = await session_store.get_session_attribute_texts(session.id)
+                attribute_context = self._build_attribute_context(attributes)
+
+                session_characters_section = ""
+                novelai_characters_section: str | None = None
+                if enable_multiple_people and use_character_panel:
+                    try:
+                        async with async_session_factory() as image_only_db:
+                            character_records = (
+                                await load_session_characters_for_prompt(
+                                    image_only_db,
+                                    session.id,
+                                )
+                            )
+                        session_characters_section = (
+                            build_session_characters_prompt_section(character_records)
+                        )
+                        protagonist_name, protagonist_tags = (
+                            _resolve_protagonist_image_identity(
+                                last_after_description=(
+                                    last_hist.after_description if last_hist else None
+                                ),
+                                character=character,
+                                self_profile=self_profile,
+                                custom_metadata=custom_metadata,
+                            )
+                        )
+                        novelai_characters_section = (
+                            build_novelai_characters_section(
+                                character_records,
+                                protagonist_name=protagonist_name,
+                                protagonist_tags=protagonist_tags,
+                            )
+                            or None
+                        )
+                    except Exception as exc:
+                        logger.debug(
+                            "session_character fetch (image-only) skipped: %s",
+                            exc,
+                        )
+
+                prompt_gen_cost: float | None = None
+                image_only_characters: list[dict] | None = None
+                if settings.is_novelai_opus_mode:
+                    image_only_system = get_action_novelai_prompt_generation_system(
+                        nsfw_mode=effective_nsfw_mode,
+                        language=effective_language,
+                        clothing_color_consistency=clothing_color_consistency,
+                        enable_multiple_people=enable_multiple_people,
+                    )
+                    memory_suffix = (
+                        await self._get_memory_priority_suffix(effective_language)
+                        if use_memory
+                        else ""
+                    )
+                    memory_suffix = append_clothing_layer_image_rule(
+                        memory_suffix,
+                        respect_clothing_layers_for_image,
+                    )
+                    generated_prompt = await llm_service.generate_novelai_image_prompt(
+                        instruction=image_instruction + attribute_context,
+                        previous_prompt=previous_description,
+                        nsfw_mode=effective_nsfw_mode,
+                        language=effective_language,
+                        system_prompt_override=image_only_system,
+                        novelai_model_override=effective_novelai_text_model,
+                        enable_multiple_people=enable_multiple_people,
+                        session_characters_section=novelai_characters_section,
+                        extra_system_suffix=memory_suffix,
+                    )
+                    try:
+                        parsed_prompt = _parse_novelai_prompt_json(generated_prompt)
+                        if parsed_prompt:
+                            image_edit_prompt, image_only_characters = parsed_prompt
+                        else:
+                            raise ValueError("Missing character or scene key")
+                    except (json.JSONDecodeError, ValueError, KeyError) as exc:
+                        logger.warning(
+                            "Image-only prompt split failed, using flat prompt: %s",
+                            exc,
+                        )
+                        image_edit_prompt = generated_prompt
+                else:
+                    (
+                        image_edit_prompt,
+                        prompt_gen_cost,
+                    ) = await self._generate_image_only_edit_prompt(
+                        instruction=image_instruction + attribute_context,
+                        current_description=current_description,
+                        nsfw_mode=effective_nsfw_mode,
+                        novelai_model_override=effective_novelai_text_model,
+                        use_memory=use_memory,
+                        respect_clothing_layers=respect_clothing_layers_for_image,
+                        session_characters_section=session_characters_section,
+                        language=effective_language,
+                    )
+
+                final_prompt = image_edit_prompt
+                if prompt_override and prompt_override.strip():
+                    if settings.image_provider == "novelai":
+                        final_prompt = self._merge_prompts(
+                            image_edit_prompt,
+                            prompt_override.strip(),
+                        )
+                    else:
+                        final_prompt = prompt_override.strip()
+                if settings.image_provider == "novelai":
+                    final_prompt = self._enhance_novelai_prompt(
+                        final_prompt,
+                        effective_nsfw_mode,
+                    )
+
+                image_api_prompt = final_prompt
+                image_api_characters = image_only_characters
+                image_negative_prompt = negative_prompt
+                (
+                    final_prompt,
+                    image_api_prompt,
+                    image_only_characters,
+                    image_api_characters,
+                    image_negative_prompt,
+                ) = self._prepare_clothing_layer_image_payload(
+                    final_prompt,
+                    image_only_characters,
+                    previous_prompt=previous_description,
+                    instruction=original_instruction,
+                    respect_clothing_layers=respect_clothing_layers_for_image,
+                    negative_prompt=negative_prompt,
+                )
+
+                after_description = final_prompt
+                if image_only_characters and isinstance(
+                    image_only_characters[0].get("prompt"), str
+                ):
+                    after_description = image_only_characters[0]["prompt"]
+
+                image_data, image_cost, image_seed = await self._generate_image(
+                    before_image,
+                    image_api_prompt,
+                    nsfw_mode=effective_nsfw_mode,
+                    mask_bytes=mask_bytes,
+                    inpaint_strength=inpaint_strength,
+                    inpaint_noise=inpaint_noise,
+                    negative_prompt=image_negative_prompt,
+                    character_references=character_references,
+                    seed=seed,
+                    characters=image_api_characters,
+                )
+
+                history = await session_store.add_history(
+                    session_id=session.id,
+                    instruction=original_instruction,
+                    image_data=image_data,
+                    feeling_text="",
+                    before_description=current_description,
+                    after_description=after_description,
+                    instruction_type="image_only",
+                    seed=image_seed,
+                )
+                await session_store.update_session(
+                    session_id=session.id,
+                    current_image_path=history.image_path,
+                )
+
+                image_b64 = base64.b64encode(image_data).decode("utf-8")
+                yield StreamEvent(
+                    type="image",
+                    data={
+                        "image": image_b64,
+                        "history_id": history.id,
+                        "seed": image_seed,
+                    },
+                )
+
+                total_api_cost = sum(
+                    cost
+                    for cost in (image_cost, describe_cost, prompt_gen_cost)
+                    if cost is not None
+                )
+                if total_api_cost > 0:
+                    yield StreamEvent(
+                        type="cost",
+                        data={"cost_usd": total_api_cost},
+                    )
+
+                anlas_event = await self._get_anlas_event()
+                if anlas_event:
+                    yield anlas_event
+
+                yield StreamEvent(
+                    type="complete",
+                    data={
+                        "session_id": session.id,
+                        "transformation_count": session.transformation_count,
+                        "before_desc": current_description,
+                        "after_desc": after_description,
+                        "feeling_text": "",
+                        "history_id": history.id,
+                    },
+                )
+                return
 
             # ── action mode: scene-change image + text, skip params/tags ──
             if instruction_type == "action":
@@ -1857,7 +2139,7 @@ class GameService:
                     )
                     action_novelai_prompt = (
                         await llm_service.generate_novelai_image_prompt(
-                            instruction=instruction + action_attribute_context,
+                            instruction=(image_instruction + action_attribute_context),
                             previous_prompt=previous_prompt,
                             nsfw_mode=effective_nsfw_mode,
                             language=effective_language,
@@ -1911,7 +2193,7 @@ class GameService:
                         action_edit_system, respect_clothing_layers_for_image
                     )
                     action_edit_user = build_action_image_edit_prompt(
-                        instruction=instruction + action_attribute_context,
+                        instruction=image_instruction + action_attribute_context,
                         current_description=vision_desc,
                     )
                     # LLM経由で編集プロンプトを生成
@@ -2149,7 +2431,7 @@ class GameService:
                         surroundings_cost,
                         surroundings_seed,
                     ) = await self._generate_surroundings_image(
-                        instruction=instruction,
+                        instruction=image_instruction,
                         before_description=current_desc,
                         after_description=action_prompt_desc,
                         nsfw_mode=effective_nsfw_mode,
@@ -2227,6 +2509,10 @@ class GameService:
                     },
                 )
                 return
+
+            # 現在のstatsを取得 (T059: 開花度ベースの心理段階)
+            current_stats = await session_store.get_or_create_session_stats(session.id)
+            current_bloom = current_stats.bloom
 
             # 現在の変身回数を取得（初回変身判定用）
             current_transformation_count = session.transformation_count
@@ -2444,7 +2730,9 @@ class GameService:
                 generated_novelai_prompt = (
                     await llm_service.generate_novelai_image_prompt(
                         instruction=(
-                            instruction + attribute_context + image_history_context
+                            image_instruction
+                            + attribute_context
+                            + image_history_context
                         ),
                         previous_prompt=previous_prompt,
                         nsfw_mode=effective_nsfw_mode,
@@ -2489,7 +2777,7 @@ class GameService:
                     image_edit_prompt,
                     prompt_gen_cost,
                 ) = await self._generate_reality_edit_prompt(
-                    instruction=instruction + attribute_context,
+                    instruction=image_instruction + attribute_context,
                     current_description=before_desc,
                     nsfw_mode=effective_nsfw_mode,
                     image_provider=settings.image_provider,
@@ -2504,7 +2792,7 @@ class GameService:
                     image_edit_prompt,
                     prompt_gen_cost,
                 ) = await self._generate_image_edit_prompt(
-                    instruction=instruction + attribute_context,
+                    instruction=image_instruction + attribute_context,
                     current_description=before_desc,
                     preserve_elements=preserve_elements,
                     change_scope=change_scope,

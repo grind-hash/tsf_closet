@@ -202,7 +202,7 @@ class TestStreamFeeling:
         """Normal path: chunks from LLM are yielded."""
         chunks_sent = ["Hello", " world"]
 
-        async def fake_stream(system_prompt, user_prompt):
+        async def fake_stream(system_prompt, user_prompt, **_kwargs):
             for c in chunks_sent:
                 yield c
 
@@ -231,7 +231,7 @@ class TestStreamFeeling:
         """system_prompt passed to LLM includes language rules."""
         captured_system = []
 
-        async def fake_stream(system_prompt, user_prompt):
+        async def fake_stream(system_prompt, user_prompt, **_kwargs):
             captured_system.append(system_prompt)
             return
             yield  # make it a generator
@@ -264,7 +264,7 @@ class TestStreamFeeling:
         """On LLM error with ja, yield Japanese fallback."""
         from gateway.services.llm_service import LLMServiceError
 
-        async def fake_stream(system_prompt, user_prompt):
+        async def fake_stream(system_prompt, user_prompt, **_kwargs):
             raise LLMServiceError("test error")
             yield  # make it a generator
 
@@ -299,7 +299,7 @@ class TestStreamFeelingRefactored:
     async def test_yields_chunks(self, monkeypatch):
         chunks = ["Hello", " World"]
 
-        async def fake_stream(system_prompt, user_prompt):
+        async def fake_stream(system_prompt, user_prompt, **_kwargs):
             for c in chunks:
                 yield c
 
@@ -325,7 +325,7 @@ class TestStreamFeelingRefactored:
     async def test_error_fallback_ja(self, monkeypatch):
         from gateway.services.llm_service import LLMServiceError
 
-        async def fake_stream(system_prompt, user_prompt):
+        async def fake_stream(system_prompt, user_prompt, **_kwargs):
             raise LLMServiceError("fail")
             yield
 
@@ -351,7 +351,7 @@ class TestStreamFeelingRefactored:
     async def test_error_fallback_en(self, monkeypatch):
         from gateway.services.llm_service import LLMServiceError
 
-        async def fake_stream(system_prompt, user_prompt):
+        async def fake_stream(system_prompt, user_prompt, **_kwargs):
             raise LLMServiceError("fail")
             yield
 
@@ -474,7 +474,7 @@ class TestStreamFeelingErrorFallback:
         """On LLM error with en, yield English fallback."""
         from gateway.services.llm_service import LLMServiceError
 
-        async def fake_stream(system_prompt, user_prompt):
+        async def fake_stream(system_prompt, user_prompt, **_kwargs):
             raise LLMServiceError("test error")
             yield
 
@@ -503,7 +503,7 @@ class TestStreamFeelingErrorFallback:
         """Self-mode stream yields chunks correctly."""
         chunks_sent = ["Self", " chunk"]
 
-        async def fake_stream(system_prompt, user_prompt):
+        async def fake_stream(system_prompt, user_prompt, **_kwargs):
             for c in chunks_sent:
                 yield c
 
@@ -532,7 +532,7 @@ class TestStreamFeelingErrorFallback:
         """Reality mode error yields Japanese fallback."""
         from gateway.services.llm_service import LLMServiceError
 
-        async def fake_stream(system_prompt, user_prompt):
+        async def fake_stream(system_prompt, user_prompt, **_kwargs):
             raise LLMServiceError("test error")
             yield
 

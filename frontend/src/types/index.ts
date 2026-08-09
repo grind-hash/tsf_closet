@@ -329,7 +329,8 @@ export type InstructionType =
   | "dress_up"
   | "reality_alter"
   | "conversation"
-  | "action";
+  | "action"
+  | "image_only";
 
 /**
  * 指示タイプのラベル (日本語)
@@ -339,6 +340,7 @@ export const INSTRUCTION_TYPE_LABELS: Record<InstructionType, string> = {
   reality_alter: "現実改変",
   conversation: "会話",
   action: "行動",
+  image_only: "画像のみ",
 };
 
 /**

@@ -5,7 +5,7 @@
 
 import { useTranslation } from "react-i18next";
 import { useSettings } from "../../contexts/SettingsContext";
-import type { InstructionType } from "../../types";
+import type { HistoryLookbackTarget } from "../../utils/historyLookback";
 import MainLayout from "../layout/MainLayout";
 import MemorySettings from "./MemorySettings";
 import SelfProfileEditor from "./SelfProfileEditor";
@@ -13,7 +13,7 @@ import SpeechSynthesisSettings from "./SpeechSynthesisSettings";
 import "./SettingsScreen.css";
 
 const HISTORY_LOOKBACK_TARGETS: Array<{
-  value: InstructionType;
+  value: HistoryLookbackTarget;
   labelKey: string;
 }> = [
   { value: "action", labelKey: "settings.historyLookbackTargetAction" },
