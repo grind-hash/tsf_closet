@@ -42,6 +42,7 @@ export default function SettingsScreen() {
     setShowRealityAttributeNotification,
     setExperimentalEndingEnabled,
     setExperimentalAdventureEnabled,
+    setAdventureEnableCompositeScene,
     setPlayMemoryEnabled,
     setEnableSurroundingsImage,
     setSurroundingsIncludePeople,
@@ -568,6 +569,30 @@ export default function SettingsScreen() {
                 <span className="settings-screen__toggle-switch" />
               </label>
             </div>
+
+            {state.experimentalAdventureEnabled && (
+              <div className="settings-screen__item">
+                <label className="settings-screen__toggle">
+                  <div className="settings-screen__toggle-info">
+                    <span className="settings-screen__item-label">
+                      {t("settings.adventureEnableCompositeScene")}
+                    </span>
+                    <span className="settings-screen__item-desc">
+                      {t("settings.adventureEnableCompositeSceneDesc")}
+                    </span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={state.adventureEnableCompositeScene}
+                    onChange={(e) =>
+                      setAdventureEnableCompositeScene(e.target.checked)
+                    }
+                    className="settings-screen__toggle-input"
+                  />
+                  <span className="settings-screen__toggle-switch" />
+                </label>
+              </div>
+            )}
 
             <div className="settings-screen__item">
               <label className="settings-screen__toggle">

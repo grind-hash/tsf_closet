@@ -118,6 +118,9 @@ interface SettingsState {
   // Include reactive bystanders in surroundings image
   surroundingsIncludePeople: boolean;
 
+  // Adventureモード: 新規Run作成フォームの「背景と人物を同時に描く」初期値（Run単位で上書き可能）
+  adventureEnableCompositeScene: boolean;
+
   // Font family setting
   fontFamily: string;
 
@@ -209,6 +212,7 @@ type SettingsAction =
   | { type: "SET_SEED"; payload: number | null }
   | { type: "SET_ENABLE_SURROUNDINGS_IMAGE"; payload: boolean }
   | { type: "SET_SURROUNDINGS_INCLUDE_PEOPLE"; payload: boolean }
+  | { type: "SET_ADVENTURE_ENABLE_COMPOSITE_SCENE"; payload: boolean }
   | { type: "SET_FONT_FAMILY"; payload: string }
   | { type: "SET_CLOTHING_COLOR_CONSISTENCY"; payload: boolean }
   | { type: "SET_RESPECT_CLOTHING_LAYERS"; payload: boolean }
@@ -264,6 +268,7 @@ const defaultState: SettingsState = {
   seed: null,
   enableSurroundingsImage: false,
   surroundingsIncludePeople: false,
+  adventureEnableCompositeScene: false,
   fontFamily: "system",
   clothingColorConsistency: false,
   respectClothingLayers: false,
@@ -407,6 +412,8 @@ function settingsReducer(
       return { ...state, enableSurroundingsImage: action.payload };
     case "SET_SURROUNDINGS_INCLUDE_PEOPLE":
       return { ...state, surroundingsIncludePeople: action.payload };
+    case "SET_ADVENTURE_ENABLE_COMPOSITE_SCENE":
+      return { ...state, adventureEnableCompositeScene: action.payload };
     case "SET_FONT_FAMILY":
       return { ...state, fontFamily: action.payload };
     case "SET_CLOTHING_COLOR_CONSISTENCY":
@@ -508,6 +515,7 @@ interface SettingsContextType {
   setSeed: (seed: number | null) => void;
   setEnableSurroundingsImage: (enabled: boolean) => void;
   setSurroundingsIncludePeople: (enabled: boolean) => void;
+  setAdventureEnableCompositeScene: (enabled: boolean) => void;
   setFontFamily: (fontFamily: string) => void;
   setClothingColorConsistency: (enabled: boolean) => void;
   setLinkChatToImage: (enabled: boolean) => void;
@@ -1029,6 +1037,13 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "SET_SURROUNDINGS_INCLUDE_PEOPLE", payload: enabled });
   }, []);
 
+  const setAdventureEnableCompositeScene = useCallback((enabled: boolean) => {
+    dispatch({
+      type: "SET_ADVENTURE_ENABLE_COMPOSITE_SCENE",
+      payload: enabled,
+    });
+  }, []);
+
   const setFontFamily = useCallback((fontFamily: string) => {
     dispatch({ type: "SET_FONT_FAMILY", payload: fontFamily });
   }, []);
@@ -1243,6 +1258,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setSeed,
     setEnableSurroundingsImage,
     setSurroundingsIncludePeople,
+    setAdventureEnableCompositeScene,
     setFontFamily,
     setClothingColorConsistency,
     setLinkChatToImage,

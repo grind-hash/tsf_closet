@@ -41,6 +41,19 @@ function runPayload(turnCount = 0) {
       player_tags: "1girl, silver gown, masquerade mask",
       npc_tags: ["receptionist, formal suit"],
     },
+    use_precise_reference: false,
+    enable_composite_scene: false,
+    opening_image_url: IMAGE,
+    background_image_url: IMAGE,
+    portrait_image_url: IMAGE,
+    opening_portrait_url: IMAGE,
+    visual_state: {
+      location: "舞踏会の入口",
+      appearance: "銀髪の令嬢",
+      clothing: "銀色のドレス",
+      surroundings: "シャンデリアの輝くホール",
+      main_characters: [],
+    },
     turns: hasTurn
       ? [
           {
@@ -50,6 +63,7 @@ function runPayload(turnCount = 0) {
             user_input: "受付を観察する",
             input_kind: "choice",
             narrative: "受付係の手元に銀色の封蝋が見えた。",
+            location: "舞踏会の受付",
             choices: [
               { id: "a", label: "封蝋について尋ねる" },
               { id: "b", label: "列の後方へ回る" },
@@ -57,6 +71,8 @@ function runPayload(turnCount = 0) {
             ],
             image_url: null,
             image_status: "not_requested",
+            portrait_image_url: IMAGE,
+            portrait_status: "completed",
             created_at: "2026-08-01T00:00:00",
           },
         ]
@@ -231,7 +247,7 @@ test("create and play an adventure from a session state", async ({ page }) => {
   await expect(
     page.getByRole("heading", { name: "TSFシナリオ" }),
   ).toBeVisible();
-  await expect(page.getByRole("button", { name: "潜入" })).toHaveAttribute(
+  await expect(page.getByRole("button", { name: /^潜入/ })).toHaveAttribute(
     "aria-pressed",
     "true",
   );
@@ -257,11 +273,22 @@ test("create and play an adventure from a session state", async ({ page }) => {
   await expect(
     page.getByText("受付係の手元に銀色の封蝋が見えた。"),
   ).toBeVisible();
-  await expect(page.getByText("銀色の封蝋", { exact: true })).toBeVisible();
+  await expect(page.getByText("舞踏会の受付")).toBeVisible();
+
+  await page.getByRole("button", { name: "ログ", exact: true }).click();
+  const logPanel = page.getByRole("dialog", { name: "これまでの物語" });
+  await expect(logPanel).toContainText(
+    "変身後の姿で舞踏会の入口に立っている。",
+  );
+  await expect(logPanel).toContainText("手番 1・選んだ行動");
+  await page.getByRole("button", { name: "ログを閉じる" }).first().click();
+  await expect(logPanel).toBeHidden();
+
+  await page.getByRole("button", { name: /^手掛かり/ }).click();
+  const cluePanel = page.getByRole("dialog", { name: "手掛かり" });
   await expect(
-    page.getByText("変身後の姿で舞踏会の入口に立っている。"),
+    cluePanel.getByText("銀色の封蝋", { exact: true }),
   ).toBeVisible();
-  await expect(page.getByText("手番 1・選んだ行動")).toBeVisible();
 });
 
 test("create an adventure from an authored scenario", async ({ page }) => {
@@ -414,6 +441,28 @@ test("play screen fits a mobile viewport without horizontal overflow", async ({
   });
 });
 
+test("play screen fits a short landscape viewport", async ({ page }) => {
+  await enableAdventure(page);
+  await mockAdventureApis(page);
+  await page.setViewportSize({ width: 740, height: 420 });
+  await page.goto("/adventure/run-1");
+  await expect(page.locator(".adventure-play")).toBeVisible();
+  await expect(page.locator(".adventure-messagebox")).toBeVisible();
+  await expect(page.getByRole("button", { name: /^1/ })).toBeVisible();
+
+  const overflow = await page.evaluate(() => ({
+    x:
+      document.documentElement.scrollWidth -
+      document.documentElement.clientWidth,
+    y:
+      document.documentElement.scrollHeight -
+      document.documentElement.clientHeight,
+  }));
+  expect(overflow.x).toBeLessThanOrEqual(1);
+  expect(overflow.y).toBeLessThanOrEqual(1);
+  await page.screenshot({ path: "test-results/adventure-landscape.png" });
+});
+
 test("saved adventures remain reachable in a short mobile viewport", async ({
   page,
 }) => {
@@ -494,4 +543,39 @@ test("turn submission streams the narrative before the clue check", async ({
   await expect(page.locator(".adventure-progress")).toBeHidden();
   releaseTurn?.();
   await expect(page.getByRole("status")).toBeHidden();
+});
+
+test("finished run shows the result overlay", async ({ page }) => {
+  await enableAdventure(page);
+  await mockAdventureApis(page);
+  await page.route("**/api/adventure/runs/run-1", async (route) => {
+    await route.fulfill({
+      json: {
+        ...runPayload(1),
+        status: "success",
+        turn_count: 3,
+        remaining_turns: 0,
+        ending_title: "封蝋の主",
+        ending_summary: "差出人の正体を掴み、静かに会場を後にした。",
+        completed_milestones: ["gain_access", "secure_target", "leave_safely"],
+        choices: [],
+      },
+    });
+  });
+  await page.goto("/adventure/run-1");
+
+  const result = page.getByRole("dialog", { name: "封蝋の主" });
+  await expect(result).toBeVisible();
+  await expect(result).toContainText("成功");
+  await expect(result).toContainText(
+    "差出人の正体を掴み、静かに会場を後にした。",
+  );
+  await expect(result).toContainText("到達手番");
+  await expect(result).toContainText("安全に離脱");
+
+  await page.getByRole("button", { name: "ログを読む" }).click();
+  await expect(result).toBeHidden();
+  await expect(
+    page.getByRole("dialog", { name: "これまでの物語" }),
+  ).toBeVisible();
 });

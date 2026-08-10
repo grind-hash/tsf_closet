@@ -925,6 +925,7 @@ class ImageGenerationService:
         seed: Optional[int] = None,
         nsfw_mode: bool = True,
         include_people: bool = False,
+        provider_override: Optional[ProviderType] = None,
     ) -> ImageGenerationResult:
         """Generate background / scenery image (NovelAI txt2img, US2)
 
@@ -935,6 +936,7 @@ class ImageGenerationService:
             seed: Image generation seed
             nsfw_mode: NSFW mode
             include_people: If True, allow anonymous bystanders
+            provider_override: 一時的にプロバイダーを変更（例: Adventureモードの常時NovelAI利用）
 
         Returns:
             ImageGenerationResult
@@ -942,7 +944,8 @@ class ImageGenerationService:
         Raises:
             ValueError: Not supported on non-NovelAI providers
         """
-        if self._default_provider != "novelai":
+        effective_provider = provider_override or self._default_provider
+        if effective_provider != "novelai":
             raise ValueError(
                 "Scenery generation is only supported with NovelAI provider"
             )

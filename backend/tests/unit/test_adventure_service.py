@@ -24,6 +24,9 @@ from gateway.services.adventure_service import (
     SCENARIO_TEMPLATES,
     _apply_visual_style_to_state,
     _authored_scene_tags,
+    _equipment_score_choices,
+    _equipment_wear_choice_label,
+    _last_equipment_action,
     _merge_scene_tags,
     _sanitize_choices,
     _template_visual_style,
@@ -810,6 +813,9 @@ def test_serialize_run_repairs_blank_choice_labels() -> None:
         ),
         image_path=None,
         image_status="not_requested",
+        portrait_image_path=None,
+        portrait_status="not_requested",
+        state_delta_json="{}",
         created_at=None,
     )
 
@@ -848,6 +854,8 @@ async def test_regenerate_choices_updates_only_choices(monkeypatch) -> None:
         ),
         image_path=None,
         image_status="not_requested",
+        portrait_image_path=None,
+        portrait_status="not_requested",
         created_at=None,
     )
     state = {
@@ -1068,13 +1076,432 @@ async def test_clothing_redraw_does_not_reuse_previous_outfit_image(
     assert image_kwargs["size_override"] == "landscape"
     assert image_kwargs["nsfw_mode"] is False
     assert image_kwargs["novelai_model_override"] == "nai-diffusion-4-5-curated"
-    assert image_kwargs["character_references"][0]["type"] == "character"
-    assert image_kwargs["character_references"][0]["strength"] == 0.35
-    assert image_kwargs["character_references"][0]["fidelity"] == 0.55
+    # 既定は精密参照OFF。character_references を付けない
+    assert image_kwargs["character_references"] is None
     assert "navy evening dress" in image_kwargs["characters"][0]["prompt"]
     assert image_kwargs["characters"][0]["position"] == (0.55, 0.5)
     assert "security guard uniform" in image_kwargs["characters"][1]["prompt"]
     assert image_kwargs["characters"][1]["position"] == (0.18, 0.5)
+
+
+@pytest.mark.asyncio
+async def test_adventure_image_generation_uses_precise_reference_when_enabled(
+    monkeypatch, tmp_path
+) -> None:
+    service = AdventureService()
+    service._images_dir = tmp_path
+    run_dir = tmp_path / "run-1"
+    run_dir.mkdir()
+    current_path = run_dir / "current.png"
+    initial_path = run_dir / "initial.png"
+    current_path.write_bytes(b"current")
+    initial_path.write_bytes(b"initial")
+    run = SimpleNamespace(
+        id="run-1",
+        state_json=(
+            '{"use_precise_reference": true, "visual_state":{"location":"売り場",'
+            '"appearance":"黒髪","clothing":"紺色のドレス","surroundings":"婦人服売り場",'
+            '"main_characters":[]}}'
+        ),
+        current_image_path=str(current_path),
+        initial_image_path=str(initial_path),
+        text_model="glm-4-6",
+        image_model="nai-diffusion-4-5-full",
+        nsfw_mode=False,
+        turn_count=1,
+    )
+    persisted_run = SimpleNamespace(
+        id="run-1",
+        current_image_path=str(current_path),
+        updated_at=None,
+        state_json="{}",
+    )
+
+    class FakeDatabase:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, _exc_type, _exc, _traceback):
+            return None
+
+        async def get(self, model, _record_id):
+            return persisted_run if model is AdventureRun else None
+
+        async def scalar(self, _statement):
+            return None
+
+        async def commit(self):
+            return None
+
+    generate_image = AsyncMock(return_value=SimpleNamespace(images=[b"generated"]))
+    monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.session_store.get_user_settings",
+        AsyncMock(return_value={"nsfw_mode": False, "language": "ja"}),
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.llm_service.generate_text",
+        AsyncMock(
+            return_value=SimpleNamespace(
+                content=make_image_prompt_content(with_guard=False)
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.image_service.generate_image",
+        generate_image,
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.async_session_factory", FakeDatabase
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.settings.novelai_model",
+        "nai-diffusion-4-5-full",
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.settings.novelai_curated_model",
+        "nai-diffusion-4-5-curated",
+    )
+
+    await service.generate_image("run-1", redraw_from_reference=True)
+
+    image_kwargs = generate_image.await_args.kwargs
+    assert image_kwargs["character_references"] is not None
+    assert image_kwargs["character_references"][0]["type"] == "character"
+    assert image_kwargs["character_references"][0]["strength"] == 0.35
+    assert image_kwargs["character_references"][0]["fidelity"] == 0.55
+    assert image_kwargs["character_references"][0]["image"] == b"initial"
+
+
+@pytest.mark.asyncio
+async def test_update_run_settings_toggles_precise_reference(monkeypatch) -> None:
+    service = AdventureService()
+    state = {
+        "use_precise_reference": False,
+        "choices": [
+            {"id": "a", "label": "調べる"},
+            {"id": "b", "label": "話す"},
+            {"id": "c", "label": "進む"},
+        ],
+        "clues": [],
+        "milestones": [],
+        "completed_milestones": [],
+        "opening_narrative": "開始",
+        "visual_state": {"location": "room", "appearance": "1girl"},
+    }
+    run = SimpleNamespace(
+        id="run-1",
+        source_session_id=None,
+        source_history_id=None,
+        preset="escape",
+        title="テスト",
+        objective="脱出",
+        constraints_json="[]",
+        status="active",
+        turn_count=0,
+        max_turns=8,
+        ending_title=None,
+        ending_summary=None,
+        language="ja",
+        current_image_path="current.png",
+        initial_image_path="initial.png",
+        snapshot_json="{}",
+        created_at=None,
+        updated_at=None,
+        state_json=__import__("json").dumps(state, ensure_ascii=False),
+        turns=[],
+    )
+    persisted = SimpleNamespace(
+        id="run-1",
+        state_json=run.state_json,
+        updated_at=None,
+    )
+
+    class FakeDatabase:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, _exc_type, _exc, _traceback):
+            return None
+
+        async def get(self, model, record_id):
+            if model is AdventureRun and record_id == "run-1":
+                return persisted
+            return None
+
+        async def commit(self):
+            return None
+
+    monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.async_session_factory", FakeDatabase
+    )
+
+    result = await service.update_run_settings(
+        "run-1", use_precise_reference=True, enable_composite_scene=True
+    )
+
+    assert result["use_precise_reference"] is True
+    assert result["enable_composite_scene"] is True
+    saved = __import__("json").loads(persisted.state_json)
+    assert saved["use_precise_reference"] is True
+    assert saved["enable_composite_scene"] is True
+
+
+@pytest.mark.asyncio
+async def test_generate_portrait_uses_portrait_size_and_no_characters(
+    monkeypatch, tmp_path
+) -> None:
+    service = AdventureService()
+    service._images_dir = tmp_path
+    run_dir = tmp_path / "run-1"
+    run_dir.mkdir()
+    initial_path = run_dir / "initial.png"
+    initial_path.write_bytes(b"initial")
+    run = SimpleNamespace(
+        id="run-1",
+        state_json=(
+            '{"use_precise_reference": false, "visual_state":{"location":"売り場",'
+            '"appearance":"黒髪","clothing":"紺色のドレス","surroundings":"婦人服売り場",'
+            '"main_characters":[]}}'
+        ),
+        current_image_path=str(initial_path),
+        initial_image_path=str(initial_path),
+        text_model="glm-4-6",
+        image_model="nai-diffusion-4-5-full",
+        nsfw_mode=False,
+        turn_count=1,
+    )
+    persisted_run = SimpleNamespace(
+        id="run-1",
+        portrait_image_path=None,
+        updated_at=None,
+        state_json="{}",
+    )
+
+    class FakeDatabase:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, _exc_type, _exc, _traceback):
+            return None
+
+        async def get(self, model, _record_id):
+            return persisted_run if model is AdventureRun else None
+
+        async def scalar(self, _statement):
+            return None
+
+        async def commit(self):
+            return None
+
+    generate_image = AsyncMock(return_value=SimpleNamespace(images=[b"portrait"]))
+    monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.session_store.get_user_settings",
+        AsyncMock(return_value={"nsfw_mode": False, "language": "ja"}),
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.llm_service.generate_text",
+        AsyncMock(
+            return_value=SimpleNamespace(
+                content=make_image_prompt_content(with_guard=True)
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.image_service.generate_image",
+        generate_image,
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.async_session_factory", FakeDatabase
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.settings.novelai_model",
+        "nai-diffusion-4-5-full",
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.settings.novelai_curated_model",
+        "nai-diffusion-4-5-curated",
+    )
+
+    portrait_path, _ = await service._generate_portrait_unlocked(
+        "run-1", None, redraw_from_reference=True, turn_number=1
+    )
+
+    image_kwargs = generate_image.await_args.kwargs
+    assert image_kwargs["image_bytes"] is None
+    assert image_kwargs["characters"] is None
+    assert image_kwargs["size_override"] == "portrait"
+    assert image_kwargs["character_references"] is None
+    assert portrait_path.name.startswith("portrait-1-")
+    assert persisted_run.portrait_image_path == str(portrait_path)
+
+
+@pytest.mark.asyncio
+async def test_generate_portrait_uses_precise_reference_when_enabled(
+    monkeypatch, tmp_path
+) -> None:
+    service = AdventureService()
+    service._images_dir = tmp_path
+    run_dir = tmp_path / "run-1"
+    run_dir.mkdir()
+    initial_path = run_dir / "initial.png"
+    initial_path.write_bytes(b"initial")
+    run = SimpleNamespace(
+        id="run-1",
+        state_json=(
+            '{"use_precise_reference": true, "visual_state":{"location":"売り場",'
+            '"appearance":"黒髪","clothing":"紺色のドレス","surroundings":"婦人服売り場",'
+            '"main_characters":[]}}'
+        ),
+        current_image_path=str(initial_path),
+        initial_image_path=str(initial_path),
+        text_model="glm-4-6",
+        image_model="nai-diffusion-4-5-full",
+        nsfw_mode=False,
+        turn_count=1,
+    )
+    persisted_run = SimpleNamespace(
+        id="run-1",
+        portrait_image_path=None,
+        updated_at=None,
+        state_json="{}",
+    )
+
+    class FakeDatabase:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, _exc_type, _exc, _traceback):
+            return None
+
+        async def get(self, model, _record_id):
+            return persisted_run if model is AdventureRun else None
+
+        async def scalar(self, _statement):
+            return None
+
+        async def commit(self):
+            return None
+
+    generate_image = AsyncMock(return_value=SimpleNamespace(images=[b"portrait"]))
+    monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.session_store.get_user_settings",
+        AsyncMock(return_value={"nsfw_mode": False, "language": "ja"}),
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.llm_service.generate_text",
+        AsyncMock(
+            return_value=SimpleNamespace(
+                content=make_image_prompt_content(with_guard=False)
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.image_service.generate_image",
+        generate_image,
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.async_session_factory", FakeDatabase
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.settings.novelai_model",
+        "nai-diffusion-4-5-full",
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.settings.novelai_curated_model",
+        "nai-diffusion-4-5-curated",
+    )
+
+    await service._generate_portrait_unlocked(
+        "run-1", None, redraw_from_reference=True, turn_number=1
+    )
+
+    image_kwargs = generate_image.await_args.kwargs
+    assert image_kwargs["character_references"] is not None
+    assert image_kwargs["character_references"][0]["image"] == b"initial"
+    assert image_kwargs["character_references"][0]["strength"] == 0.35
+
+
+@pytest.mark.asyncio
+async def test_generate_background_image_persists_path_once(
+    monkeypatch, tmp_path
+) -> None:
+    service = AdventureService()
+    service._images_dir = tmp_path
+    run_dir = tmp_path / "run-1"
+    run_dir.mkdir()
+    run = SimpleNamespace(id="run-1")
+    persisted_run = SimpleNamespace(
+        id="run-1", background_image_path=None, updated_at=None
+    )
+
+    class FakeDatabase:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, _exc_type, _exc, _traceback):
+            return None
+
+        async def get(self, model, _record_id):
+            return persisted_run if model is AdventureRun else None
+
+        async def commit(self):
+            return None
+
+    generate_scenery = AsyncMock(return_value=SimpleNamespace(images=[b"bg"]))
+    monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.image_service.generate_scenery",
+        generate_scenery,
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.async_session_factory", FakeDatabase
+    )
+
+    background_path = await service._generate_background_image_unlocked(
+        "run-1", scene_tags="scenery tags", nsfw_mode=False
+    )
+
+    scenery_kwargs = generate_scenery.await_args.kwargs
+    assert scenery_kwargs["provider_override"] == "novelai"
+    assert scenery_kwargs["include_people"] is False
+    assert background_path.name == "background.png"
+    assert persisted_run.background_image_path == str(background_path)
+
+
+def test_serialize_run_defaults_enable_composite_scene_true_for_legacy_runs() -> None:
+    """state_json に enable_composite_scene が無い旧runは合成モード扱いとする。"""
+    service = AdventureService()
+    run = SimpleNamespace(
+        id="run-legacy",
+        source_session_id=None,
+        source_history_id=None,
+        preset="escape",
+        title="テスト",
+        objective="脱出する",
+        constraints_json="[]",
+        status="active",
+        turn_count=0,
+        max_turns=8,
+        ending_title=None,
+        ending_summary=None,
+        language="ja",
+        current_image_path="current.png",
+        initial_image_path="initial.png",
+        snapshot_json="{}",
+        created_at=None,
+        updated_at=None,
+        state_json="{}",
+    )
+
+    payload = service._serialize_run(run, [], include_snapshot=False)
+
+    assert payload["enable_composite_scene"] is True
+    assert payload["background_image_url"] is None
+    assert payload["portrait_image_url"] is None
 
 
 @pytest.mark.asyncio
@@ -1445,3 +1872,148 @@ async def test_source_deletion_keeps_adventure_run_and_run_deletion_removes_turn
         )
 
     await engine.dispose()
+
+
+def test_equipment_score_choices_initial_prefers_wear_and_explore() -> None:
+    template = SCENARIO_TEMPLATES["princess_locked_room"]
+    state = {
+        "template_state": {
+            "worn_items": [],
+            "flags": {},
+            "score": 0,
+            "rule_read": False,
+        }
+    }
+    choices = _equipment_score_choices(template, state, "ja")
+    assert choices is not None
+    assert len(choices) == 3
+    assert choices[0]["label"] == "ショーツを履く"
+    assert choices[1]["label"] == "ブラジャーをつける"
+    assert choices[2]["label"] == "扉の文章を読む"
+    assert all("調べる" not in item["label"] for item in choices[:2])
+
+
+def test_equipment_score_choices_after_rule_read_uses_look_around() -> None:
+    template = SCENARIO_TEMPLATES["princess_locked_room"]
+    state = {
+        "template_state": {
+            "worn_items": ["panties", "bra"],
+            "flags": {"rule_read": True},
+            "score": 0,
+            "rule_read": True,
+        }
+    }
+    choices = _equipment_score_choices(template, state, "ja")
+    assert choices is not None
+    labels = [item["label"] for item in choices]
+    assert labels[0] == "エレガントなプリンセスドレスを着る"
+    assert labels[1] == "ティアラをつける"
+    assert labels[2] == "部屋を見回す"
+
+
+def test_equipment_score_choices_almost_complete_offers_pad_and_door() -> None:
+    template = SCENARIO_TEMPLATES["princess_locked_room"]
+    state = {
+        "template_state": {
+            "worn_items": ["panties", "bra", "dress", "tiara"],
+            "flags": {"rule_read": True},
+            "score": 90,
+            "rule_read": True,
+        }
+    }
+    choices = _equipment_score_choices(template, state, "ja")
+    assert choices is not None
+    labels = [item["label"] for item in choices]
+    assert labels[0] == "ナプキンをつける"
+    assert "扉" in labels[1] and "採点" in labels[1]
+    assert labels[2] == "部屋を見回す"
+
+
+def test_equipment_wear_labels_match_equipment_action_parser() -> None:
+    template = SCENARIO_TEMPLATES["princess_locked_room"]
+    for item in template["rule"]["items"]:
+        item_id = item["id"]
+        label = item["labels"]["ja"]
+        choice_label = _equipment_wear_choice_label(item_id, label, "ja")
+        aliases = tuple(item["aliases"])
+        assert _last_equipment_action(choice_label, aliases) == "wear", choice_label
+
+
+def test_enforce_template_output_keeps_authored_event_choices() -> None:
+    service = AdventureService()
+    template = SCENARIO_TEMPLATES["princess_locked_room"]
+    state = {
+        "template_state": {
+            "worn_items": ["panties", "bra", "dress", "tiara"],
+            "flags": {"rule_read": True},
+            "score": 90,
+            "rule_read": True,
+        },
+        "appearance_lock": "1boy, short hair",
+    }
+    output = AdventureDirectorOutput(
+        narrative="扉が反応した。",
+        choices=[
+            AdventureChoice(id="a", label="LLMの選択肢A"),
+            AdventureChoice(id="b", label="LLMの選択肢B"),
+            AdventureChoice(id="c", label="LLMの選択肢C"),
+        ],
+        visual_state=AdventureVisualState(
+            location="豪邸の衣装部屋",
+            appearance="1boy, short hair",
+            clothing="ドレス",
+        ),
+    )
+    resolution = {
+        "event": "almost_complete",
+        "goal_checked": True,
+        "worn_items": ["panties", "bra", "dress", "tiara"],
+        "score": 90,
+    }
+    service._enforce_template_output(template, state, output, resolution, "ja")
+    labels = [choice.label for choice in output.choices]
+    assert labels == [
+        "扉の文章をもう一度読む",
+        "生理用品の棚を詳しく調べる",
+        "身につけた品を確認する",
+    ]
+
+
+def test_enforce_template_output_overrides_llm_with_equipment_choices() -> None:
+    service = AdventureService()
+    template = SCENARIO_TEMPLATES["princess_locked_room"]
+    state = {
+        "template_state": {
+            "worn_items": [],
+            "flags": {},
+            "score": 0,
+            "rule_read": False,
+        },
+        "appearance_lock": "1boy, short hair",
+    }
+    output = AdventureDirectorOutput(
+        narrative="部屋で目を覚ました。",
+        choices=[
+            AdventureChoice(id="a", label="ドレスを調べる"),
+            AdventureChoice(id="b", label="下着を調べる"),
+            AdventureChoice(id="c", label="鏡を見る"),
+        ],
+        visual_state=AdventureVisualState(
+            location="豪邸の衣装部屋",
+            appearance="1boy, short hair",
+            clothing="衣服を身につけていない",
+        ),
+    )
+    resolution = {
+        "event": "continue",
+        "goal_checked": False,
+        "worn_items": [],
+        "score": 0,
+    }
+    service._enforce_template_output(template, state, output, resolution, "ja")
+    labels = [choice.label for choice in output.choices]
+    assert labels == [
+        "ショーツを履く",
+        "ブラジャーをつける",
+        "扉の文章を読む",
+    ]

@@ -106,6 +106,19 @@ const resources = {
           noScenario: "シナリオを選択してください",
         },
         start: "シナリオを開始",
+        imageGenOptions: "画像生成オプション",
+        imageSettings: "画像生成設定",
+        preciseReference: "精密参照画像を使う",
+        preciseReferenceHint:
+          "OFFが既定です。ONにすると開始画像をNovelAI精密参照に使い、参照1枚あたりAnlasを追加消費します。顔の固定が強まります。",
+        preciseReferencePlayHint:
+          "次回の画像生成から反映されます。ONにすると参照1枚あたりAnlasを追加消費します。",
+        enableCompositeScene: "背景と人物を同時に描く",
+        enableCompositeSceneHint:
+          "OFFが既定です。既定では背景は開始時に1回だけ生成し、行動に応じて左上のポートレートのみ更新します。ONにすると、ポートレート更新後に背景を含む合成シーンも直列で再生成し、Anlas消費が増えます。",
+        enableCompositeScenePlayHint:
+          "次回のターンから反映されます。ONの間は毎ターンで合成シーンも直列生成されるためAnlas消費が増えます。",
+        portraitAlt: "主人公のポートレート",
         preparing: "シナリオを準備中...",
         preparingTitle: "シナリオを準備しています",
         preparingDetail:
@@ -120,6 +133,25 @@ const resources = {
         openingScene: "開始場面",
         turn: "手番 {{number}}・選んだ行動",
         clues: "手掛かり",
+        milestones: "進行目標",
+        milestoneDone: "達成済み",
+        cast: "登場人物",
+        result: {
+          turns: "到達手番",
+          readLog: "ログを読む",
+          replay: "同じシナリオをもう一度",
+          backToHub: "シナリオ一覧へ戻る",
+          close: "リザルトを閉じる",
+        },
+        currentLocation: "現在地",
+        yourAction: "あなたの行動",
+        log: {
+          open: "ログ",
+          openHint: "これまでの物語を読む（L）",
+          title: "これまでの物語",
+          close: "ログを閉じる",
+        },
+        freeInputToggle: "自由に行動する",
         freeInput: "行動や会話を自由に入力",
         send: "送信",
         regenerateImage: "現在の場面画像を再生成",
@@ -218,6 +250,9 @@ const resources = {
         experimentalAdventure: "TSFシナリオ",
         experimentalAdventureDesc:
           "変身後の状態から独立したノベルゲームを開始できるメニューを表示します",
+        adventureEnableCompositeScene: "背景と人物を同時に描く（既定）",
+        adventureEnableCompositeSceneDesc:
+          "新規シナリオ作成時の初期値です。ONの場合、左上ポートレート更新後に背景を含む合成シーンも直列で再生成し、Anlas消費が増えます。作成画面でターンごとに上書きできます。",
         experimentalPlayMemory: "プレイメモ",
         experimentalPlayMemoryDesc:
           "セッションごとの経緯とユーザーメモを以後の生成へ反映します。",
@@ -1278,6 +1313,19 @@ const resources = {
           noScenario: "Select a scenario",
         },
         start: "Start Scenario",
+        imageGenOptions: "Image Generation Options",
+        imageSettings: "Image Generation Settings",
+        preciseReference: "Use precise character reference",
+        preciseReferenceHint:
+          "Off by default. When on, the starting image is used as a NovelAI character reference and costs extra Anlas per reference, while face consistency improves.",
+        preciseReferencePlayHint:
+          "Applies from the next image generation. When on, each reference costs extra Anlas.",
+        enableCompositeScene: "Draw background and character together",
+        enableCompositeSceneHint:
+          "Off by default. By default, the background is generated once at the start, and only the top-left portrait updates as you act. When on, the full composite scene (including background) is also regenerated in series after each portrait update, using more Anlas.",
+        enableCompositeScenePlayHint:
+          "Applies from the next turn. While on, the composite scene is also generated in series every turn, using more Anlas.",
+        portraitAlt: "Protagonist portrait",
         preparing: "Preparing scenario...",
         preparingTitle: "Preparing the scenario",
         preparingDetail:
@@ -1292,6 +1340,25 @@ const resources = {
         openingScene: "Opening Scene",
         turn: "Turn {{number}} · Chosen action",
         clues: "Clues",
+        milestones: "Milestones",
+        milestoneDone: "Completed",
+        cast: "Characters",
+        result: {
+          turns: "Turns played",
+          readLog: "Read the log",
+          replay: "Play this scenario again",
+          backToHub: "Back to scenarios",
+          close: "Close the result",
+        },
+        currentLocation: "Location",
+        yourAction: "Your action",
+        log: {
+          open: "Log",
+          openHint: "Read the story so far (L)",
+          title: "Story so far",
+          close: "Close the log",
+        },
+        freeInputToggle: "Act freely",
         freeInput: "Enter an action or dialogue",
         send: "Send",
         regenerateImage: "Regenerate the current scene image",
@@ -1391,6 +1458,10 @@ const resources = {
         experimentalAdventure: "TSF Scenario",
         experimentalAdventureDesc:
           "Show the separate visual-novel mode that starts from a transformed state",
+        adventureEnableCompositeScene:
+          "Draw background and character together (default)",
+        adventureEnableCompositeSceneDesc:
+          "Default for new Adventure scenarios. When on, the full composite scene (background + character) is also regenerated in series after each portrait update, costing extra Anlas. Can be overridden per scenario on the creation screen.",
         experimentalPlayMemory: "Play Memory",
         experimentalPlayMemoryDesc:
           "Use session history and user notes as context for future generations.",

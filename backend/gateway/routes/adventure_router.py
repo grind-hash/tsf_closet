@@ -36,6 +36,15 @@ class AdventureCreateRequest(BaseModel):
     scenario_constraints: list[str] = Field(default_factory=list, max_length=4)
     scenario_template_id: str | None = Field(default=None, max_length=80)
     replay_run_id: str | None = Field(default=None, max_length=80)
+    # 既定OFF: ユーザーが明示ONしない限り精密参照でAnlasを消費しない
+    use_precise_reference: bool = False
+    # 既定OFF: OFF時は左上ポートレートのみ更新し、背景合成シーンは初回のみ生成
+    enable_composite_scene: bool = False
+
+
+class AdventureSettingsUpdateRequest(BaseModel):
+    use_precise_reference: bool
+    enable_composite_scene: bool
 
 
 class AdventureTurnRequest(BaseModel):
@@ -92,6 +101,8 @@ async def create_run(request: AdventureCreateRequest) -> dict:
             scenario_constraints=request.scenario_constraints,
             scenario_template_id=request.scenario_template_id,
             replay_run_id=request.replay_run_id,
+            use_precise_reference=request.use_precise_reference,
+            enable_composite_scene=request.enable_composite_scene,
         )
     except AdventureError as error:
         raise _http_error(error) from error
@@ -122,6 +133,20 @@ async def delete_run(run_id: str) -> None:
 async def regenerate_choices(run_id: str) -> dict:
     try:
         return await adventure_service.regenerate_choices(run_id)
+    except AdventureError as error:
+        raise _http_error(error) from error
+
+
+@router.patch("/runs/{run_id}/settings")
+async def update_run_settings(
+    run_id: str, request: AdventureSettingsUpdateRequest
+) -> dict:
+    try:
+        return await adventure_service.update_run_settings(
+            run_id,
+            use_precise_reference=request.use_precise_reference,
+            enable_composite_scene=request.enable_composite_scene,
+        )
     except AdventureError as error:
         raise _http_error(error) from error
 

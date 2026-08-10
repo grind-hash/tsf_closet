@@ -24,6 +24,7 @@ import {
   regenerateAdventureChoices,
   streamAdventureImage,
   streamAdventureTurn,
+  updateAdventureRunSettings,
 } from "../apis/adventure";
 
 export type AdventurePhase = "narrative" | "clue_check" | "image_generation";
@@ -51,6 +52,10 @@ interface AdventureContextValue {
   ) => Promise<void>;
   regenerateImage: (options?: AdventureImageRegenerateOptions) => Promise<void>;
   regenerateChoices: () => Promise<void>;
+  updateSettings: (settings: {
+    use_precise_reference: boolean;
+    enable_composite_scene: boolean;
+  }) => Promise<void>;
   clearError: () => void;
 }
 
@@ -182,6 +187,10 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
                       remaining_turns:
                         turn.remaining_turns ?? current.remaining_turns,
                       clues: turn.clues ?? current.clues,
+                      completed_milestones:
+                        turn.completed_milestones ??
+                        current.completed_milestones,
+                      visual_state: turn.visual_state ?? current.visual_state,
                       status: turn.run_status ?? current.status,
                       ending_title: turn.ending_title ?? current.ending_title,
                       ending_summary:
@@ -195,6 +204,17 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
                 setActiveRun((current) =>
                   current
                     ? { ...current, current_image_url: imageUrl }
+                    : current,
+                );
+              }
+            } else if (event.type === "portrait_image") {
+              const portraitUrl = normalizeAdventureImageUrl(
+                event.data.image_url,
+              );
+              if (portraitUrl) {
+                setActiveRun((current) =>
+                  current
+                    ? { ...current, portrait_image_url: portraitUrl }
                     : current,
                 );
               }
@@ -280,6 +300,40 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
     }
   }, [activeRun, streaming]);
 
+  const updateSettings = useCallback(
+    async (settings: {
+      use_precise_reference: boolean;
+      enable_composite_scene: boolean;
+    }) => {
+      if (!activeRun) return;
+      const runId = activeRun.id;
+      setError(null);
+      try {
+        const updated = await updateAdventureRunSettings(runId, settings);
+        setActiveRun((current) =>
+          current && current.id === runId
+            ? { ...current, ...updated, turns: current.turns }
+            : current,
+        );
+        setRuns((current) =>
+          current.map((run) =>
+            run.id === runId
+              ? {
+                  ...run,
+                  use_precise_reference: updated.use_precise_reference,
+                  enable_composite_scene: updated.enable_composite_scene,
+                }
+              : run,
+          ),
+        );
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : String(caught));
+        throw caught;
+      }
+    },
+    [activeRun],
+  );
+
   const value = useMemo<AdventureContextValue>(
     () => ({
       runs,
@@ -301,6 +355,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       submitTurn,
       regenerateImage,
       regenerateChoices,
+      updateSettings,
       clearError: () => setError(null),
     }),
     [
@@ -323,6 +378,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       submitTurn,
       regenerateImage,
       regenerateChoices,
+      updateSettings,
     ],
   );
 
