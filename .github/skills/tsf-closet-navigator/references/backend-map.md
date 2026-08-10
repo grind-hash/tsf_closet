@@ -1,137 +1,148 @@
 # バックエンド アーキテクチャマップ
 
-> 最終検証: 2026-05-02 | 更新条件: ルート、サービス、DBモデルの追加・リネーム・削除時
+> 最終検証: 2026-08-10 | 対象: `backend/gateway`、`backend/migrations`
 
-## FastAPI アプリケーション
+## FastAPI 構成
 
-- **エントリーポイント**: `backend/gateway/app.py` — CORS ミドルウェア、静的ファイル、DBライフサイクル、ルーターマウント
-- **モデル (Pydantic)**: `backend/gateway/models.py` — リクエスト/レスポンススキーマ
+- エントリーポイント: `backend/gateway/app.py`
+- APIモデル: `backend/gateway/models.py`
+- ルーター公開: `backend/gateway/routes/__init__.py`
+- DBモデル: `backend/gateway/databases/models.py`
+- DB初期化・セッション: `backend/gateway/databases/base.py`、`database.py`、`orm.py`
+- Alembic: `backend/migrations/versions/`
+- すべての `routes/*_router.py` は `app.py` で `/api` を付けてマウントされる。
 
-## API ルート
+## ルーター
 
-### `/game` — [backend/gateway/routes/game_router.py](../../backend/gateway/routes/game_router.py)
+| 実パス | ファイル | 主な責務 |
+| --- | --- | --- |
+| `/api/game` | `routes/game_router.py` | セッション、プレイSSE、会話、履歴、画像、属性、プレイメモ、プロンプト、指示候補 |
+| `/api/game` | `routes/character_router.py` | セッション人物、主人公確保、人物プリセット、人物タグ生成 |
+| `/api/adventure` | `routes/adventure_router.py` | シナリオテンプレート、Run、ターンSSE、画像再生成 |
+| `/api/gallery` | `routes/gallery_router.py` | セッション/履歴一覧、検索、詳細、削除、要約、Markdown/HTMLエクスポート |
+| `/api/favorites` | `routes/favorites_router.py` | お気に入り一覧、追加、ラベル変更、削除 |
+| `/api/achievements` | `routes/achievements_router.py` | 実績一覧と詳細 |
+| `/api/settings` | `routes/settings_router.py` | 設定、互換ユーザー設定、セルフプロフィール |
+| `/api/memory` | `routes/memory_router.py` | ユーザーメモ本文、生成ジョブ、状態、取消、分析エクスポート |
+| `/api/aivisspeech` | `routes/aivisspeech_router.py` | エンジン/モデル管理、話者一覧、音声合成 |
 
-| #     | メソッド | パス                                | 目的                                    |
-| ----- | -------- | ----------------------------------- | --------------------------------------- |
-| 1     | GET      | `/game/characters`                  | キャラクター一覧                         |
-| 2     | GET      | `/game/session/{id}`                | セッション状態取得                       |
-| 3     | POST     | `/game/play`                        | 変身実行（非ストリーミング）              |
-| 4     | POST     | `/game/play/stream`                 | 変身実行（SSE ストリーム）               |
-| 5     | GET      | `/game/session`                     | 現在のアクティブセッション取得            |
-| 6     | GET      | `/game/session/image/{id}`          | セッション PNG 画像取得                  |
-| 7     | GET      | `/game/difficulties`                | 難易度プリセット一覧                     |
-| 8     | POST     | `/game/start`                       | 新規セッション開始                       |
-| 9     | POST     | `/game/start-custom`                | カスタム画像でセッション開始              |
-| 10    | GET      | `/game/custom-characters`           | カスタムキャラクター一覧                  |
-| 11    | DELETE   | `/game/session`                     | セッションリセット                       |
-| 12    | POST     | `/game/history/{id}/select`         | 履歴項目の選択                           |
-| 12b   | POST     | `/game/history/{id}/branch-session` | 履歴画像から新規セッション分岐（状況サマリー生成） |
-| 13    | GET      | `/game/sessions`                    | セッション一覧（ページネーション）        |
-| 14    | GET      | `/game/sessions/{id}`               | セッション詳細                           |
-| 15    | POST     | `/game/sessions/{id}/restore`       | セッション復元                           |
-| 16    | GET      | `/game/gallery`                     | ギャラリー一覧                           |
-| 17    | GET      | `/game/endings`                     | エンディング一覧                         |
-| 18    | GET      | `/game/ending/{id}`                 | エンディング詳細                         |
-| 19    | POST     | `/game/chat`                        | キャラクターチャット                     |
-| 20    | GET      | `/game/chat/stream`                 | キャラクターチャット（ストリーミング）    |
-| 21    | GET      | `/game/conversation/{id}`           | 会話履歴取得                             |
-| 22    | GET      | `/game/improve-quality/stream`      | 画像再生成（SSE）                        |
-| 23    | POST     | `/game/attributes`                  | 現実改変属性の追加                       |
-| 24    | DELETE   | `/game/attributes/{id}`             | 属性の削除                               |
-| 25    | GET      | `/game/attributes/{id}`             | セッション属性の取得                     |
-| 26    | POST     | `/game/preview/prompt`              | プロンプトプレビュー                     |
-| 27    | GET      | `/game/masks`                       | マスク一覧（システム/履歴/プリセット）   |
-| 28    | POST     | `/game/masks`                       | マスク保存                               |
-| 29-31 | GET      | `/game/masks/{type}/{id}`           | マスク画像取得                           |
-| 32    | DELETE   | `/game/masks/preset/{id}`           | プリセットマスク削除                     |
-| 33    | GET      | `/game/anlas`                       | NovelAI Anlas 残高                       |
-| 34    | POST     | `/game/generate-base-tags`          | ベースタグ生成                           |
-| 35    | DELETE   | `/game/conversation/{history_id}`            | 指定履歴に紐づく会話テキストのみ削除     |
-| 36    | DELETE   | `/game/conversation/message/{conversation_id}` | 会話メッセージ単体を削除                |
-| 37    | DELETE   | `/game/history/{history_id}`                 | 履歴エントリを完全削除（画像・会話含む） |
-| 38    | DELETE   | `/game/session/{id}/latest-history`          | 最新履歴の削除                           |
+### `game_router.py` の主要操作
 
-### `/settings` — [backend/gateway/routes/settings_router.py](../../backend/gateway/routes/settings_router.py)
+| 操作 | パス |
+| --- | --- |
+| キャラクター一覧、セッション取得/開始/復元/削除 | `/characters`、`/session/{id}`、`/start`、`/start-custom`、`/sessions/{id}/restore`、`DELETE /session` |
+| 通常プレイ | `POST /play`、`POST /play/stream` |
+| 履歴選択・分岐・削除 | `/history/{id}/select`、`/history/{id}/branch-session`、`DELETE /history/{id}`、`DELETE /session/{id}/latest-history` |
+| 会話 | `/chat`、`/chat/stream`、`/conversation/{id}`、会話単体/履歴単位削除 |
+| プレイメモ | `PATCH /sessions/{id}/play-memory`、`POST /sessions/{id}/play-memory/regenerate` |
+| 指示支援 | `POST /suggest-instruction`、`POST /preview/prompt`、`POST /generate-base-tags` |
+| 画像支援 | `/improve-quality/stream`、`POST /standing-portrait`、`/masks`、`/anlas` |
+| 現実改変属性 | `POST /attributes`、`GET/DELETE /attributes/{id}` |
 
-| メソッド | パス                              | 目的                                            |
-| -------- | --------------------------------- | ----------------------------------------------- |
-| GET      | `/settings`                       | アプリ設定（包括）取得                          |
-| PUT      | `/settings`                       | アプリ設定（包括）更新                          |
-| DELETE   | `/settings`                       | 設定リセット                                    |
-| GET      | `/settings/user`                  | ユーザー設定取得（旧: 互換用）                  |
-| PUT      | `/settings/user`                  | ユーザー設定更新（旧: 互換用）                  |
-| GET      | `/settings/self-profile`          | セルフモードプロファイル取得                    |
-| POST     | `/settings/self-profile/generate` | LLMによるプロファイル自動生成                   |
-| PUT      | `/settings/self-profile`          | セルフモードプロファイル更新                    |
+### 複数人物とプリセット
 
-### `/achievements` — [backend/gateway/routes/achievements_router.py](../../backend/gateway/routes/achievements_router.py)
+`character_router.py` は `/api/game` 配下に次を追加する。
 
-| メソッド | パス                 | 目的                                                  |
-| -------- | -------------------- | ----------------------------------------------------- |
-| GET      | `/achievements`      | 実績一覧（ユーザー進捗・解除日含む）                   |
-| GET      | `/achievements/{id}` | 実績詳細（ユーザー進捗・解除日含む）                   |
+- `/session/{session_id}/characters`: セッション人物の一覧・追加
+- `/session/{session_id}/characters/ensure-protagonist`: 主人公レコードの冪等確保
+- `/session/{session_id}/characters/{character_id}`: 更新・削除
+- `/session/{session_id}/characters/from-preset/{preset_id}`: プリセット適用
+- `/characters/generate-tags`: 複数人物タグの一括生成
+- `/character-presets`: プリセット CRUD
 
-### `/gallery` — [backend/gateway/routes/gallery_router.py](../../backend/gateway/routes/gallery_router.py)
+### Adventure
 
-| メソッド | パス                                | 目的                                              |
-| -------- | ----------------------------------- | ------------------------------------------------- |
-| GET      | `/gallery/sessions`                 | セッション単位のギャラリー一覧（ページ付き）       |
-| GET      | `/gallery`                          | 履歴単位のギャラリー一覧（ページ付き）             |
-| GET      | `/gallery/{item_id}`                | ギャラリー項目詳細                                 |
-| DELETE   | `/gallery/sessions/{session_id}`    | セッション単位で一括削除                           |
-| DELETE   | `/gallery/{item_id}`                | ギャラリー項目（履歴）削除                         |
-| GET      | `/gallery/sessions/{id}/summary`    | プレイ要約取得（未生成は404）                     |
-| POST     | `/gallery/sessions/{id}/summary`    | LLMによるプレイ要約・タイトル生成                  |
+- `GET /templates`
+- `POST /setup/generate`
+- `POST/GET /runs`、`GET/DELETE /runs/{run_id}`
+- `POST /runs/{run_id}/turns/stream`
+- `POST /runs/{run_id}/image/stream`
+- `POST /runs/{run_id}/choices/regenerate`
+- `PATCH /runs/{run_id}/settings`
+- `GET /images/{run_id}/{filename}`
+
+### FastAPI アプリ直下の互換/補助API
+
+| パス | 目的 |
+| --- | --- |
+| `/health` | プロバイダーを含むヘルス情報 |
+| `/api/history/images/{history_id}` | 履歴画像取得 |
+| `/api/history/surroundings/{history_id}` | 情景画像取得 |
+| `/novelai/subscription`、`/novelai/suggest-tags` | NovelAI補助 |
+| `/v1/images/edits`、`/v1/images/variations` | OpenAI互換画像API |
 
 ## サービス
 
-| ファイル                    | クラス/モジュール        | 主な責務                                                          |
-| --------------------------- | ----------------------- | ----------------------------------------------------------------- |
-| `game_service.py`           | `GameService`           | メインプレイループ: 指示 → LLM → 画像生成 → SSE レスポンス        |
-| `llm_service.py`            | `LLMService`            | LLM API呼び出し（OpenAI/OpenRouter/LiteLLM）                      |
-| `image_generation.py`       | `OpenRouterImageClient` | OpenRouter/Gemini マルチモーダル経由の画像生成                     |
-| `conversation_service.py`   |                         | セッション毎のチャット履歴管理                                     |
-| `achievement_service.py`    |                         | 実績解除条件の判定                                                 |
-| `achievement_classifier.py` |                         | 指示テキスト → 実績カテゴリの分類                                  |
-| `settings_service.py`       |                         | ユーザー設定 CRUD                                                  |
-| `summary_service.py`        |                         | プレイ要約・分岐用状況サマリー生成                                 |
-| `session_branch_service.py` |                         | 履歴画像からの新規セッション分岐オーケストレーション               |
-| `session.py`                |                         | セッション/履歴ストア（timeline_until・stats再構築含む）           |
-| `characters.py`             |                         | キャラクターメタデータ（一覧、選択、初期化）                       |
-| `comfy.py`                  |                         | ComfyUI APIクライアント（ワークフロー実行）                        |
-| `litellm_client.py`         |                         | ローカルLLM用 LiteLLM 統合                                        |
-| `anlas_service.py`          |                         | NovelAI Anlas（トークン）残高                                      |
-| `tag_classifier.py`         |                         | NLPタグ付け（衣装/露出度/年齢印象）                                |
-| `action_prompts.py`         |                         | 着せ替え指示プロンプトテンプレート                                  |
-| `reality_prompts.py`        |                         | 現実改変プロンプトテンプレート                                     |
-| `self_mode_prompts.py`      |                         | セルフモードプロンプトテンプレート                                  |
-| `summary_prompts.py`        |                         | サマリー/エンディングプロンプトテンプレート                        |
-| `prompts.py`                |                         | 共通プロンプトユーティリティ                                       |
-| `endings.py`                |                         | エンディング定義データ                                             |
-| `conversation.py`           |                         | 会話データ構造                                                     |
+### ゲームと生成
 
-## データベース (SQLAlchemy)
+| ファイル | 主な責務 |
+| --- | --- |
+| `game_service.py` | 指示タイプ分岐、心境/画像生成、永続化、パラメータ、SSE |
+| `llm_service.py` | OpenRouter/NovelAI/互換LLM呼び出し |
+| `image_generation.py` | OpenRouter/NovelAI画像生成とプロバイダー共通化 |
+| `comfy.py` | selfhost ComfyUI クライアント |
+| `litellm_client.py` | LiteLLM 統合 |
+| `model_execution_gate.py` | モデル実行の直列化/排他制御 |
+| `history_context.py` | 指示タイプ別の履歴遡及と時系列コンテキスト |
+| `clothing_layers.py` | 衣装レイヤー可視性ルール |
+| `gender_congruence.py` | 性別適合のルール/LLM判定 |
 
-- **モデル定義**: `backend/gateway/databases/models.py`
-- **ORM/エンジン**: `backend/gateway/databases/orm.py` (base.py の再エクスポート)
-- **マイグレーション**: `backend/migrations/versions/` (Alembic)
+### プロンプト
 
-### テーブル
+| ファイル | 対象 |
+| --- | --- |
+| `prompts.py` | 着せ替え、心境、NovelAI、共通画像プロンプト |
+| `reality_prompts.py` | 現実改変 |
+| `self_mode_prompts.py` | セルフモード |
+| `image_only_prompts.py` | `image_only` 専用画像指示 |
+| `instruction_suggestion_prompts.py` | 指示候補 |
+| `memory_prompts.py` | ユーザーメモ生成/統合 |
+| `summary_prompts.py` | 要約と分岐状況 |
 
-| モデル              | 主要フィールド                                                                                  |
-| ------------------- | ----------------------------------------------------------------------------------------------- |
-| `User`              | id, nsfw_mode, difficulty, language, self_profile_json 等                                       |
-| `Session`           | id, user FK, character_id, active, transformation_count                                         |
-| `SessionStats`      | session FK, bloom, shame, adaptation, passed_critical_points (JSON), difficulty, nsfw_mode      |
-| `History`           | session FK, instruction, image_path, feeling_text, before/after descriptions, instruction_type  |
-| `Conversation`      | session FK, role, content, timestamp                                                            |
-| `TransformationTag` | history FK, costume_category, exposure_level, age_impression                                    |
-| `SessionAttribute`  | session FK, text（現実改変属性）                                                                 |
-| `UserAchievement`   | id, achievement_id (unique), session_id?, achieved_at?, progress, created_at, updated_at       |
-| `AchievementCount`  | id, crossdress_count, gender_change_count, reality_alter_count, updated_at                      |
-| `AchievedEnding`    | エンディング解除レコード（タイムスタンプ付き）                                                  |
-| `PlaySummary`       | session FK (PK), title, summary, timeline_json, created_at, updated_at                          |
+### セッション、メモリ、人物
 
-## 定数
+| ファイル | 主な責務 |
+| --- | --- |
+| `session.py` | Session/History/Conversation のストアと復元 |
+| `session_branch_service.py` | 履歴地点からのセッション分岐 |
+| `play_memory_service.py` | セッション単位の自動/ユーザープレイメモ |
+| `memory_job_service.py` | ユーザー単位メモリ生成ジョブと監査スナップショット |
+| `character_service.py` | SessionCharacter、CharacterPreset、人物外見同期 |
+| `characters.py` | テンプレートキャラクターメタデータ |
+| `conversation_service.py` | 会話管理 |
+| `settings_service.py` | User設定 |
 
-- `backend/gateway/consts/language.py`: `LanguageCode` enum (ja/en)、正規化、デフォルト=ja
+### 独立機能
+
+| ファイル | 主な責務 |
+| --- | --- |
+| `adventure_service.py` | Run作成、ディレクター/解決、ターン、画像、実効画像の直列化 |
+| `adventure_template_loader.py` | `scenarios/*.json` の検証とローカライズ |
+| `favorite_service.py` | FavoriteOutfit CRUD |
+| `export_service.py` | MarkdownとNovel HTML ZIP生成 |
+| `summary_service.py` | プレイ要約 |
+| `aivisspeech_service.py` | AivisSpeechの導入、起動、合成、WAV結合 |
+| `achievement_service.py`、`achievement_classifier.py` | 実績判定と分類 |
+| `tag_classifier.py` | 変身タグ分類 |
+
+## 永続化モデル
+
+| モデル | 主なデータ |
+| --- | --- |
+| `User` | UI/生成/TTS/メモリ設定 |
+| `Session` | 現在画像、active、変身回数、セッションプレイメモ |
+| `History` | 指示、指示タイプ、画像、情景画像、心境、前後記述、seed |
+| `SessionStats` | bloom、shame、adaptation、臨界点、難易度 |
+| `Conversation` | セッション会話 |
+| `TransformationTag` | 衣装、露出、年齢印象 |
+| `SessionAttribute` | 現実改変属性 |
+| `AdventureRun` | シナリオ状態、現在/初期/背景/立ち絵画像、設定 |
+| `AdventureTurn` | 入力、語り、状態差分、画像、立ち絵、画像状態 |
+| `SessionCharacter` | セッション人物の外見、位置、ロック、主人公フラグ |
+| `CharacterPreset` | 再利用可能な人物定義 |
+| `FavoriteOutfit` | UserとHistoryを結ぶお気に入り |
+| `PlaySummary` | セッション要約とタイムライン |
+| `UserAchievement`、`AchievementCount`、`AchievedEnding` | 実績/エンディング進捗 |
+| `ParameterChangeLog` | パラメータ変更監査 |
+
+DB変更では `backend` で Alembic を実行する。既存SQLiteを使うテストでは外部キー設定を確認し、永続化の真偽はレスポンスだけでなくDB行でも検証する。

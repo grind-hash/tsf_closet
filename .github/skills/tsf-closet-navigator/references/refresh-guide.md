@@ -1,74 +1,99 @@
 # リファレンス更新ガイド
 
-このガイドは、ナビゲーターのリファレンスファイルが古くなった場合に再生成するために使用する。
+このスキルをソースコードの現状へ追従させる。最終検証日は 2026-08-10。
 
-## 更新するタイミング
+## 更新条件
 
-- 大規模リファクタリング（ファイルリネーム、ディレクトリ構成変更）の後
-- 最終検証以降に多数の新機能が追加された場合
-- リファレンスファイルの「最終検証」日付が 2 週間以上前の場合（直近検証日: 2026-05-02）
-- エージェントが参照先のファイルパスが存在しないと報告した場合
+- ルーター、サービス、DBモデル、Context、Hook、APIモジュール、画面を追加・削除・改名した。
+- REST/SSE、プロンプト、メモリ、永続化の責務境界を変更した。
+- 記載パスが存在しない、または最終検証から2週間以上経過した。
+- スキルを参照した探索が、マップ不足のため広域検索へ戻った。
 
-## 更新手順
+## クイック更新
 
-### クイック検証（推奨: 構造変更の都度）
+構造変更が限定される場合は、対応する1ファイルだけを更新する。
 
-ファイルの追加/削除/リネームを行った後、影響のあるリファレンスのみ更新する:
+| 変更 | 更新先 |
+| --- | --- |
+| Backend router/service/model | `backend-map.md` |
+| Frontend route/context/hook/API/component | `frontend-map.md` |
+| REST/SSE/DB書込/プロンプト経路 | `data-flow.md` |
+| 再利用できる変更・検証手順 | `modification-recipes.md` |
 
-1. **バックエンドルートやサービスの新規/削除** → `references/backend-map.md` を編集
-2. **フロントエンドコンポーネント、Context、Hook の新規/削除** → `references/frontend-map.md` を編集
-3. **新しいデータフローパターン** → `references/data-flow.md` を編集
-4. **新しい変更レシピの発見** → `references/modification-recipes.md` を編集
+## フル再検証
 
-編集したファイルの先頭にある `最終検証` 日付を更新すること。
+### 1. 差分境界を決める
 
-### フル再生成（リファレンスが全体的に古くなった場合）
-
-Explore サブエージェントに以下のプロンプトを使用して各リファレンスを再生成する:
-
-#### バックエンドマップ
-
-```
-backend/gateway/ のバックエンドアーキテクチャを調査してください。以下を報告:
-1. routes/*.py の全ルート（HTTPメソッド、パス、目的）
-2. 全サービス（クラス名 + 公開メソッド + 1行の目的説明）
-3. 全DBモデルと主要フィールド
-4. 全定数定義
-Markdownリファレンステーブル形式で出力。ベースパス: c:\source\tech_study2026\tsf_closet_base\
+```powershell
+git status --short
+git log -1 --format="%H %cI %s" -- .github/skills/tsf-closet-navigator
+git diff --name-status <last-skill-commit>..HEAD -- backend/gateway frontend/src backend/tests frontend/tests
 ```
 
-#### フロントエンドマップ
+既存の未コミット変更を所有者不明のまま編集しない。
 
-```
-frontend/src/ のフロントエンドを調査してください。以下を報告:
-1. App.tsx のルーティング構成
-2. 全 Context プロバイダ: 状態フィールド + アクション型
-3. 全カスタム Hook: 名前 + 目的
-4. 全 API モジュール: エクスポート関数 + エンドポイント
-5. コンポーネントツリー（ファイル名 + 1行の目的説明）
-6. types/index.ts の型定義（名前 + 主要フィールド）
-ベースパス: c:\source\tech_study2026\tsf_closet_base\
+### 2. Backendを棚卸しする
+
+```powershell
+rg --files backend/gateway/routes backend/gateway/services backend/gateway/databases
+rg -n "^router =|^@router\.|^class " backend/gateway/routes backend/gateway/services backend/gateway/databases/models.py
+rg -n "include_router|^@app\." backend/gateway/app.py
 ```
 
-#### データフロー
+次をソースで確認する。
 
+1. `routes/__init__.py` と `app.py` の全ルーターマウント
+2. 各routerのprefixと主要操作
+3. 新規/削除サービスの責務
+4. SQLAlchemyモデル、repo、migration
+5. 通常ゲーム、Adventure、メモリ、人物、エクスポートの境界
+
+### 3. Frontendを棚卸しする
+
+```powershell
+rg --files frontend/src/apis frontend/src/contexts frontend/src/hooks frontend/src/components
+rg -n "export (async )?(function|const)|export interface|export type" frontend/src/apis frontend/src/hooks
+rg -n "interface .*State|interface .*Context|export function use" frontend/src/contexts
+rg -n "ROUTES|pathname|Provider" frontend/src/App.tsx frontend/src/main.tsx frontend/src/routes/index.tsx
 ```
-tsf_closet_base のメインゲームループのデータフローをトレースしてください:
-1. ChatInput → SSE → バックエンド → 画像生成 → フロントエンド更新のユーザー指示フロー
-2. 存在する SSE イベントとそのトリガー
-3. セッションライフサイクル（作成 → プレイ → 終了）
-ベースパス: c:\source\tech_study2026\tsf_closet_base\
+
+次をソースで確認する。
+
+1. `main.tsx` のProvider順序と `App.tsx` の画面分岐
+2. 全Contextの責務と公開アクション
+3. API/Hook/主要コンポーネントの追加・削除
+4. 指示タイプと設定既定値
+5. 対応するunit/E2E
+
+### 4. データフローを照合する
+
+- `ChatInput` → `App.tsx` → `useGameSSE` → `/api/game/play/stream` → `GameService` → Context
+- `PlayMemorySettings` → `GameContext` → play-memory endpoint → `Session.play_memory_*`
+- `AdventureScreen` → `AdventureContext` → `apis/adventure.ts` → Adventure SSE → `AdventureService`
+- `CharacterPanel` → `apis/characters.ts` → `SessionCharacter` → 画像プロンプト
+- `GalleryScreen` → gallery/favorites/export endpoint → 永続化モデル
+
+### 5. 日付と互換入口を更新する
+
+- 実際に再確認した参照だけ `最終検証` 日付を更新する。
+- `.claude/skills/tsf-closet-navigator/SKILL.md` が `.github/skills/tsf-closet-navigator/SKILL.md` を正規情報源として案内していることを確認する。
+- `SKILL.md` のfrontmatterは `name` と `description` を基本とし、両環境で不要な専用フィールドを追加しない。
+
+## 検証
+
+```powershell
+# Agent Skills構文
+$env:PYTHONUTF8 = "1"
+$skillValidator = Join-Path $env:USERPROFILE ".codex/skills/.system/skill-creator/scripts/quick_validate.py"
+uv run --project backend python $skillValidator .github/skills/tsf-closet-navigator
+uv run --project backend python $skillValidator .claude/skills/tsf-closet-navigator
+
+# Markdownと差分
+cd frontend
+npx prettier --check ../.github/skills/tsf-closet-navigator/**/*.md ../.claude/skills/tsf-closet-navigator/**/*.md
+cd ..
+git diff --check
+git diff -- .github/skills/tsf-closet-navigator .claude/skills/tsf-closet-navigator
 ```
 
-再生成後、すべての `最終検証` 日付を更新すること。
-
-## セルフメンテナンスチェックリスト
-
-このスキルを使用して変更タスクを完了した際、以下を自問すること:
-
-- [ ] backend-map または frontend-map に載せるべき新しいファイルを追加したか？
-- [ ] 新しいルート、Context、Hook、またはコンポーネントを作成したか？
-- [ ] 新しいデータフローパターンを導入したか？
-- [ ] ドキュメント化されていない有用な変更レシピを発見したか？
-
-いずれかに該当する場合、タスク完了前にリファレンスを更新すること。
+`quick_validate.py` の場所が利用環境に存在しない場合は、frontmatter、フォルダ名、相対リンクを手動検証し、その制約を報告する。

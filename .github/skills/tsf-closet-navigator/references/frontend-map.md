@@ -1,173 +1,139 @@
 # フロントエンド アーキテクチャマップ
 
-> 最終検証: 2026-05-02 | 更新条件: コンポーネント、Context、Hook、APIモジュールの追加・リネーム・削除時
+> 最終検証: 2026-08-10 | 対象: `frontend/src`、`frontend/tests/e2e`
 
-## ルーティング (App.tsx + routes/index.tsx)
+## 起動とルーティング
 
-ルーティングは `main.tsx` の `BrowserRouter` 下で `App.tsx` が `useLocation()` により画面を切り替える方式。ルート定数とヘルパー `getGameSessionPath()` は `frontend/src/routes/index.tsx` に集約されている。
+- `main.tsx`: `BrowserRouter` と全体 Context を提供する。
+- `App.tsx`: `useLocation()` で画面を切り替える。通常ゲームのSSE送信ボディもここで組み立てる。
+- `routes/index.tsx`: パス定数と `getGameSessionPath()` を定義する。RouterProviderはまだ使用しない。
 
-| パス               | コンポーネント            | 備考                                        |
-| ------------------ | ------------------------ | ------------------------------------------- |
-| `/`                | AppMain → GamePlayScreen | デフォルト: メインゲーム画面                  |
-| `/play/:sessionId` | AppMain → GamePlayScreen | セッション指定                                 |
-| `/play/new`        | AppMain → GamePlayScreen | 新規セッション（復元なし）                   |
-| `/gallery`         | GalleryScreen            | `/gallery/:sessionId` もマッチ               |
-| `/endings`         | EndingsScreen            | `experimentalEndingEnabled` フラグで制御     |
-| `/achievements`    | AchievementsScreen       |                                             |
-| `/settings`        | SettingsScreen           |                                             |
+| パス | 画面 | 備考 |
+| --- | --- | --- |
+| `/`、`/play`、`/play/new`、`/play/:sessionId` | `GamePlayScreen` | 通常ゲーム、新規開始、復元 |
+| `/gallery`、`/gallery/:sessionId` | `GalleryScreen` | セッション/履歴/お気に入り |
+| `/endings` | `EndingsScreen` | 実験設定で有効化 |
+| `/achievements` | `AchievementsScreen` | 実績一覧 |
+| `/settings` | `SettingsScreen` | 設定、メモリ、TTS |
+| `/adventure`、`/adventure/:runId` | `AdventureScreen` | 実験設定で有効化、専用Provider |
 
-## Context プロバイダ
+## Context
 
-### GameContext (`useGame()`)
+### 全体Provider
 
-- **ファイル**: `frontend/src/contexts/GameContext.tsx`
-- **状態**: sessionId, isActive, character, characters[], currentImage, currentHistoryIndex, stats, history[], attributes[], conversationHistory[], ending, selfMode, isTransforming, isLoading, error, feelingText, transformationCount, lastGeneratedSeed, lastSurroundingsImage
-- **アクション**: START_SESSION, RESTORE_SESSION, SET_CHARACTERS, UPDATE_STATS, ADD_HISTORY_ITEM, SET_HISTORY, SET_CURRENT_IMAGE, SET_ENDING, NAVIGATE_HISTORY, SET_TRANSFORMING, SET_LOADING, SET_ERROR, SET_ATTRIBUTES, ADD_ATTRIBUTE, REMOVE_ATTRIBUTE, SET_SELF_MODE, SET_CONVERSATION_HISTORY, APPEND_FEELING_TEXT, SET_FEELING_TEXT, SET_TRANSFORMATION_COUNT, SET_LAST_GENERATED_SEED, SET_LAST_SURROUNDINGS_IMAGE, REMOVE_HISTORY_ENTRY, CLEAR_SESSION
+`main.tsx` は外側から `SettingsProvider` → `NotificationProvider` → `GameProvider` → `ChatProvider` の順に提供する。
 
-### ChatContext (`useChat()`)
+| Context | Hook | 主な状態/責務 |
+| --- | --- | --- |
+| `SettingsContext` | `useSettings()` | 言語、難易度、生成プロバイダー、inpaint、履歴遡及、プレイメモ設定、複数人物、TTS、Adventure等の設定と保存 |
+| `NotificationContext` | `useNotification()` | 通知キューと実績通知 |
+| `GameContext` | `useGame()` | Session、History、画像、stats、属性、会話復元、SessionCharacter、セッションプレイメモ |
+| `ChatContext` | `useChat()` | メッセージ、入力、指示タイプ、添付、一時ID、ストリーミング、音声再生状態 |
 
-- **ファイル**: `frontend/src/contexts/ChatContext.tsx`
-- **状態**: messages[], inputText, instructionType, attachedImage, isStreaming, highlightedMessageId, scrollToMessageId, pendingIdentities[], messageListRef
-- **アクション**: SET_MESSAGES, ADD_MESSAGE, UPDATE_MESSAGE, APPEND_TO_MESSAGE, SET_MESSAGE_STREAMING, SET_INPUT_TEXT, SET_INSTRUCTION_TYPE, SET_ATTACHED_IMAGE, SET_STREAMING, SET_HIGHLIGHTED_MESSAGE, SET_SCROLL_TO_MESSAGE, UPSERT_PENDING_IDENTITY, ATTACH_FEELING_MESSAGE, RESOLVE_PENDING_IDENTITY, FINALIZE_PENDING_IDENTITY, FAIL_PENDING_IDENTITY, REPLACE_MESSAGE_ID, CLEAR_INPUT, CLEAR_MESSAGES
-- **補助**: `getLatestPendingIdentity()`, `resolvePendingIdentity(tempToken, historyId)` などをヘルパーとして公開
+### Adventure専用Provider
 
-### SettingsContext (`useSettings()`)
+`App.tsx` は `/adventure` 配下だけを `AdventureProvider` で包む。
 
-- **ファイル**: `frontend/src/contexts/SettingsContext.tsx`
-- **状態**: difficulty, language, nsfwMode, imageProvider, totalCost, showCost, anlasBalance, defaultInstructionType, inpaintSettings, inpaintEnabled, inpaintMask, changeSettings, showAchievementNotifications, showRealityAttributeNotification, experimentalEndingEnabled, soundEnabled, soundVolume, rightPanelOpen, preciseReferences, selfProfile, seed, enableSurroundingsImage, surroundingsIncludePeople, fontFamily, clothingColorConsistency, linkChatToImage, enableMultiplePeople, novelaiTextModel, novelaiTier
-- **アクション**: SET_DIFFICULTY, SET_LANGUAGE, SET_NSFW_MODE / TOGGLE_NSFW, SET_IMAGE_PROVIDER, SET_TOTAL_COST / ADD_TOTAL_COST / RESET_TOTAL_COST, SET_SHOW_COST, SET_ANLAS_BALANCE, SET_DEFAULT_INSTRUCTION_TYPE, SET_INPAINT_SETTINGS, SET_INPAINT_ENABLED, SET_INPAINT_MASK, SET_CHANGE_SETTINGS ほか設定ごとの SET_/TOGGLE_ アクション多数
-- **補助**: 初期化時に `localStorage` とサーバー設定をマージし、`PUT /settings` への永続化を担当
+`AdventureContext` は Run/Template、activeRun、セットアップ生成、ターン/画像ストリーム、フェーズ、逐次ナラティブ、エラーを管理する。通常ゲームの `GameContext` や `useGameSSE` に統合しない。
 
-### NotificationContext (`useNotification()`)
+## 主な設定境界
 
-- **ファイル**: `frontend/src/contexts/NotificationContext.tsx`
-- **状態**: notifications[], maxNotifications
-- **アクション**: ADD_NOTIFICATION, REMOVE_NOTIFICATION, CLEAR_ALL_NOTIFICATIONS
-- **ヘルパー**: `showNotification(...)`, `showAchievementNotification(...)`
+`SettingsContext` の追加機能は既定値と保存先を確認して変更する。
 
-## カスタム Hook
+- `experimentalAdventureEnabled`: Adventure画面のゲート
+- `playMemoryEnabled`、`playMemorySystemEnabled`、`playMemoryUserEnabled`: セッションプレイメモ
+- `historyLookbackCount`、`historyLookbackTargets`: 指示タイプ別の履歴遡及
+- `respectClothingLayers`: 衣装レイヤー可視性。既定OFF
+- `enableMultiplePeople`: 複数人画像生成
+- `multiCharacterPanelEnabled`: SessionCharacterのプロンプト反映
+- `adventureEnableCompositeScene`: Adventureの背景/人物合成初期値
+- `tts*`: AivisSpeech設定
+- `memoryText`: ユーザー単位の長期メモリ本文
 
-| Hook              | ファイル                   | 目的                                                                                                       |
-| ----------------- | -------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `useSession`      | `hooks/useSession.ts`      | セッション CRUD、キャラクター読込、SSE更新ハンドラ                                                               |
-| `useSSE`          | `hooks/useSSE.ts`          | 汎用 SSE イベントパーサ (GET=EventSource / POST=fetch)。コールバック`onText/onImage/onStats/...`               |
-| `useGameSSE`      | `hooks/useGameSSE.ts`      | `useSSE` をゲーム Context と統合した上位ラッパー。`App.tsx`/`GamePlayScreen` はこちらを利用             |
-| `useAchievements` | `hooks/useAchievements.ts` | 実績一覧/詳細の取得                                                                                         |
-| `useGallery`      | `hooks/useGallery.ts`      | ギャラリーページネーション、詳細、削除                                                                       |
-| `useTagSuggest`   | `hooks/useTagSuggest.ts`   | タグ候補/分類                                                                                               |
+## Hook
 
-### useSSE イベント一覧
+| Hook | 目的 |
+| --- | --- |
+| `useSession` | セッション開始/復元、キャラクター読込、GameContext更新 |
+| `useSSE` | GET/POST SSEの解析、停止、エラー処理 |
+| `useGameSSE` | 通常ゲームSSEを4つの全体Contextへ接続 |
+| `useAchievements` | 実績一覧/詳細取得 |
+| `useGallery` | ギャラリーの検索、ページング、削除 |
+| `useInfiniteScroll` | IntersectionObserverによる追加読込 |
+| `useTagSuggest` | タグ候補取得 |
+| `useTransparentImage` | 透過画像の読込とフォールバック |
 
-| イベント                  | コールバック                                          | データ                     |
-| ------------------------- | ---------------------------------------------------- | -------------------------- |
-| `text`                    | `onText(chunk)`                                      | テキストチャンク（逐次）    |
-| `image`                   | `onImage(base64, historyId, seed?)`                  | 生成画像                    |
-| `surroundings_image`      | `onSurroundingsImage(base64, historyId, seed?)`      | 情景画像                    |
-| `stats`                   | `onStats({bloom, shame, adaptation})`                | 更新されたステータス        |
-| `critical`                | `onCritical({threshold, name, effect_type, speech})` | 臨界点イベント              |
-| `ending`                  | `onEnding({ending_id, title, ...})`                  | ゲームエンディング          |
-| `achievement`             | `onAchievement({achievement_id, name, ...})`         | 実績解除                    |
-| `complete`                | `onComplete(historyId, transformationCount)`         | ストリーム完了              |
-| `cost`                    | `onCost(cost)`                                       | API コスト                  |
-| `anlas`                   | `onAnlas(balance)`                                   | NovelAI 残高更新            |
-| `reality_attribute_added` | `onRealityAttributeAdded({id, text})`                | 新規属性追加                |
-| `error`                   | `onError(message)`                                   | エラー                      |
+## APIモジュール
 
-## API モジュール
+| ファイル | 主な公開操作 |
+| --- | --- |
+| `apis/game.ts` | プロンプトプレビュー、指示候補、立ち絵、削除、履歴分岐 |
+| `apis/adventure.ts` | Template/Run CRUD、セットアップ、ターン/画像SSE、設定、URL正規化 |
+| `apis/characters.ts` | SessionCharacter、主人公確保、Preset、人物タグ |
+| `apis/favorites.ts` | お気に入り一覧、追加、ラベル変更、削除、toggle |
+| `apis/gallery.ts` | セッション/履歴、フレーム、詳細、削除、要約、エクスポート |
+| `apis/memory.ts` | ユーザーメモ本文、生成ジョブ、状態、取消、分析DL |
+| `apis/settings.ts` | セルフプロフィール生成/保存/取得 |
+| `apis/speechSynthesis.ts` | AivisSpeech導入、起動、話者、合成 |
+| `apis/achievements.ts` | 実績一覧/詳細 |
+| `apis/anlas.ts` | NovelAI Anlas残高 |
 
-| モジュール   | ファイル               | 主なエクスポート                                                                                                                       |
-| ------------ | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| game         | `apis/game.ts`         | `previewPrompt()`, `deleteLatestHistory()`, `deleteConversation()`, `deleteConversationMessage()`, `deleteHistoryEntry()`            |
-| settings     | `apis/settings.ts`     | `getSelfProfile()`, `generateSelfProfile()`, `saveSelfProfile()`（`/settings` 本体は `SettingsContext` が直接 fetch）         |
-| achievements | `apis/achievements.ts` | `fetchAchievementsList()`, `fetchAchievementDetail()`                                                                                |
-| gallery      | `apis/gallery.ts`      | `fetchGalleryList()`, `fetchGalleryItem()`, `deleteGalleryItem()`, `getSessionSummary()`, `generateSessionSummary()`                  |
-| anlas        | `apis/anlas.ts`        | `fetchAnlasBalance()`                                                                                                                |
+## UI構成
 
-## コンポーネントツリー
-
-```
+```text
 components/
-├── GamePlayScreen.tsx         ← メインゲーム画面（画像 + チャット + パネル）
-├── HistoryPanel.tsx           ← 変身履歴サイドバー
-├── ParameterBars.tsx          ← ステータス表示（bloom/shame/adaptation）
-├── AttributeSection.tsx       ← 現実改変属性リスト
-├── EndingModal.tsx            ← ゲームエンディングオーバーレイ
-├── SessionListModal.tsx       ← セッション一覧/復元
-├── InpaintModal.tsx           ← マスクベース画像編集
-├── ImagePreviewModal.tsx      ← フルサイズ画像ビューア
-├── NovelAIWarningModal.tsx    ← NovelAI サブスクリプション警告
-├── ApiKeyConsentModal.tsx     ← APIキー同意ダイアログ
-├── CustomImageSizeWarningModal.tsx
-│
-├── chat/
-│   ├── ChatInput.tsx          ← ユーザー入力（テキスト + 指示タイプ選択 + 添付画像）
-│   ├── ChatMessage.tsx        ← 単一メッセージバブル（削除ボタン含む）
-│   ├── ChatMessageList.tsx    ← メッセージリストスクロールコンテナ
-│   └── WelcomeScreen.tsx      ← キャラクター選択 / セッション開始
-│   (注: ChatContainer.tsx は削除済み。チャット領域は GamePlayScreen が直接構成)
-│
-├── layout/
-│   ├── MainLayout.tsx         ← 2カラムレイアウトフレーム
-│   ├── RightPanel.tsx         ← 右サイドバー（履歴 + 属性）
-│   └── SideMenu.tsx           ← ナビゲーションサイドバー
-│
-├── settings/
-│   ├── SettingsScreen.tsx     ← 設定ページ
-│   └── SelfProfileEditor.tsx  ← セルフモード性格エディタ
-│
-├── gallery/
-│   ├── GalleryScreen.tsx      ← ギャラリーページ（セッション / 履歴両ビューを持つ）
-│   ├── GalleryCard.tsx        ← ギャラリーサムネイル
-│   ├── GalleryList.tsx        ← ギャラリーグリッド
-│   ├── PlaySummaryModal.tsx   ← セッションサマリーオーバーレイ（LLM生成要約）
-│   └── SharePreviewCard.tsx   ← 共有画像プレビュー
-│
-├── achievements/
-│   ├── AchievementsScreen.tsx ← 実績ページ
-│   ├── AchievementCard.tsx    ← 実績カード表示
-│   └── AchievementToast.tsx   ← 実績解除トースト通知
-│
-├── endings/
-│   └── EndingsScreen.tsx      ← エンディングコレクションページ
-│
-├── panel/
-│   └── CharacterStatePanel.tsx ← キャラクター状態パネル
-│
-├── notifications/
-│   └── NotificationContainer.tsx ← トースト通知レイヤー
-│
-└── ui/
-    └── ImageOverlay.tsx       ← 画像ローディングオーバーレイ
+  GamePlayScreen.tsx          通常ゲームの画像、履歴、チャット統合
+  ImagePreviewModal.tsx       履歴画像と対応テキストのプレビュー
+  HistoryPanel.tsx            履歴ナビゲーション
+  AttributeSection.tsx        現実改変属性
+  InpaintModal.tsx            マスク編集
+  SessionListModal.tsx        セッション一覧/復元
+  session/BranchSessionDialog.tsx
+
+  chat/
+    WelcomeScreen.tsx         キャラクター/モード選択
+    ChatInput.tsx             指示と送信タイプ選択、添付
+    ChatMessageList.tsx       メッセージ一覧
+    ChatMessage.tsx           表示、削除、音声操作
+    AudioControlBar.tsx       TTS再生
+
+  adventure/
+    AdventureScreen.tsx       セットアップ、Run、ターン履歴、画像
+    AdventureImagePromptModal.tsx
+
+  gallery/
+    GalleryScreen.tsx         セッション/履歴/お気に入り表示と検索
+    GalleryCard.tsx
+    ComparisonSliderModal.tsx 画像比較
+    PlaySummaryModal.tsx
+    SharePreviewCard.tsx
+
+  panel/
+    CharacterStatePanel.tsx   通常ゲームの人物状態
+    CharacterPanel.tsx        複数人物編集
+    CharacterPresetPicker.tsx
+
+  settings/
+    SettingsScreen.tsx
+    PlayMemorySettings.tsx    セッションプレイメモ設定
+    MemorySettings.tsx        ユーザーメモ生成/編集
+    SpeechSynthesisSettings.tsx
+    SelfProfileEditor.tsx
 ```
 
-## 型定義 (`types/index.ts`)
+## 主要型
 
-主要型の一覧。完全なフィールドセットはソースを参照。
+- `InstructionType`: `dress_up | reality_alter | conversation | action | image_only`
+- `HistoryItem`: 指示、画像、心境、前後記述、タグ、seed、情景画像
+- `SessionCharacter` / `CharacterPreset`: 複数人物と再利用定義
+- `PlayMemoryState`: セッションの自動/ユーザーメモ本文とON/OFF
+- `ChatMessage` / `PendingMessageIdentity`: 履歴ID確定前後のメッセージ対応
+- `AdventureRun` / `AdventureTurn` / `AdventureImagePrompt`: Adventure API契約
+- `HistoryLookbackTargets`: 指示タイプごとの履歴遡及対象
 
-| 型                            | 用途                                                                                                       |
-| ----------------------------- | --------------------------------------------------------------------------------------------------------- |
-| `SessionStats`                | bloom, shame, adaptation, passedCriticalPoints[], difficulty, nsfwMode                                    |
-| `HistoryItem`                 | id, instruction, imageUrl, feelingText, before/after descriptions, instructionType, タグ三要素, seed       |
-| `Character` / `Ending`        | キャラクター・エンディングメタデータ                                                                       |
-| `DifficultyPreset`            | 難易度プリセット                                                                                              |
-| `ChatMessage`                 | id, role, content, createdAt, instructionType, relatedHistoryId, isStreaming, isFeelingText, surroundingsImageUrl |
-| `PendingMessageIdentity`      | tempToken と historyId の仮をぶしトークンマッピング（ストリーミング中の ID 解決に使用）                  |
-| `InstructionType`             | `dress_up` \| `reality_alter` \| `reality_change` \| `conversation` \| `action` など（ソース参照）          |
-| `ChangeSettings`              | preserveElements[], changeScope, customPreserveText                                                       |
-| `InpaintSettings`             | enabled, brushSize, eraserMode, i2iStrength, maskStrength, invertMask, negativePrompt, promptOverride     |
-| `InpaintMaskState`            | base64マスクとメタデータ                                                                                     |
-| `PreciseReference`            | 精密参照画像 (character/style/character&style)                                                            |
-| `SessionAttribute`            | id, text                                                                                                  |
-| `ConversationMessage`         | id, role, content, createdAt, instruction_type                                                            |
-| `SessionSummary`              | sessionId, characterId, characterName, thumbnailUrl, transformationCount, isActive, createdAt             |
-| `GalleryItem` / `GallerySession` | ギャラリー一覧表示データ                                                                                  |
-| `MaskInfo` / `MaskListResponse` / `MaskPreset` | マスク関連                                                                                       |
-| `SSEStatsData` / `SSEEndingData` / `SSECriticalData` / `SSEAchievementData` / `SurroundingsImageEvent` | SSEイベントペイロード |
-| `Achievement` / `UserAchievementStatus`        | 実績データ                                                                                                |
-| `AnlasBalance`                | NovelAI Anlas 残高                                                                                         |
+## i18n、CSS、テスト
 
-## 国際化
-
-- **設定**: `frontend/src/i18n.ts` — react-i18next セットアップ
-- **ファイル**: `frontend/src/assets/` (ロケール)
-- **対応言語**: ja / en
+- i18nは `frontend/src/i18n.ts` に日本語/英語リソースを持つ。新規UI文字列は両言語を更新する。
+- 各大規模画面は隣接CSSを持つ。既存レイアウトを保ち、変更画面だけ確認する。
+- Context単体テストは `frontend/src/contexts/tests/`、E2Eは `frontend/tests/e2e/`。
+- 主な対象E2E: `action-mode.spec.ts`、`image-only-preview.spec.ts`、`adventure-mode.spec.ts`、`adventure-portrait-alpha.spec.ts`。
