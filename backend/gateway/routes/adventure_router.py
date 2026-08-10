@@ -50,7 +50,8 @@ class AdventureSettingsUpdateRequest(BaseModel):
 class AdventureTurnRequest(BaseModel):
     client_turn_id: str = Field(min_length=1, max_length=80)
     user_input: str = Field(min_length=1, max_length=1000)
-    input_kind: Literal["choice", "free_text"] = "free_text"
+    # reality_alter はサーバ側で「現実改変：〜」を検出したときにも設定される
+    input_kind: Literal["choice", "free_text", "reality_alter"] = "free_text"
 
 
 class AdventureImageRequest(BaseModel):

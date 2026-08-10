@@ -772,6 +772,64 @@ def _strip_json_fence(value: str) -> str:
     return text[start : end + 1] if start >= 0 and end > start else text
 
 
+# プレイヤーが手番中に宣言する現実改変。通常ゲームのセッション属性とは独立に、
+# Run の state へ蓄積して以降の全ターン判定へ渡す。
+# 括弧形式（通常ゲームの属性表記）はコロン省略可。素の語形はコロン必須にして、
+# 「現実改変について尋ねる」のような通常の行動を誤検出しない。
+_REALITY_DECLARATION_PATTERN = re.compile(
+    r"^\s*(?:"
+    r"\[\s*(?:現実改変|reality(?:[ _-]?alteration)?)\s*\]\s*[:：]?"
+    r"|(?:現実改変|reality(?:[ _-]?alteration)?)\s*[:：]"
+    r")\s*(?P<rule>.+)",
+    re.IGNORECASE | re.DOTALL,
+)
+_MAX_REALITY_RULES = 12
+_MAX_REALITY_RULE_LENGTH = 300
+
+# 全ターン判定へ共通で載せる現実改変の扱い。宣言済みルールが空でも無害。
+_REALITY_RULES_INSTRUCTION = (
+    "reality_rules is a list of world-alteration rules the player has declared. "
+    "Treat every entry as an absolute, already-established fact of this world that "
+    "applies to the entire scene and to every character in it, not as an intention, "
+    "a request, or something that might fail. They override ordinary social "
+    "expectations, NPC suspicion, and scenario constraints wherever they conflict. "
+    "No NPC questions, doubts, objects to, is alarmed by, reports, restrains, or "
+    "escalates any behaviour that a rule covers, however extreme or sexual that "
+    "behaviour is; they react as if it were entirely unremarkable. Behaviour covered "
+    "by a rule must never by itself set ending_status to failure, block the "
+    "objective, or make the mission impossible to continue, and must never be "
+    "narrated as being noticed as strange. The player may deliberately exploit these "
+    "rules to advance: an action that a rule makes possible can legitimately reveal "
+    "clues, complete milestones, and satisfy the objective. The mission may still end "
+    "in failure for reasons no rule covers, such as running out of turns or acting "
+    "against the objective itself. When reality_rule_declared_this_turn is set, the "
+    "player's input declared that rule this turn: narrate the world already conforming "
+    "to it, keep ending_status as continue, and never treat the declaration itself as "
+    "a suspicious act."
+)
+
+
+def _detect_reality_declaration(user_input: str) -> str | None:
+    """「現実改変：〜」形式の宣言ならルール本文を返す。宣言でなければ None。"""
+    match = _REALITY_DECLARATION_PATTERN.match(user_input or "")
+    if match is None:
+        return None
+    rule = " ".join(match.group("rule").split()).strip()
+    if not rule:
+        return None
+    return rule[:_MAX_REALITY_RULE_LENGTH]
+
+
+def _append_reality_rule(state: dict[str, Any], rule: str) -> list[str]:
+    """宣言されたルールを state へ追記し、更新後の一覧を返す。"""
+    rules = [str(item) for item in state.get("reality_rules", []) if str(item).strip()]
+    if rule not in rules:
+        rules.append(rule)
+    rules = rules[-_MAX_REALITY_RULES:]
+    state["reality_rules"] = rules
+    return rules
+
+
 _CLOTHING_TAG_PATTERN = re.compile(
     r"\b(?:dress|skirt|shirt|top|pants|shorts|uniform|jacket|coat|suit|"
     r"leotard|lingerie|underwear|bra|panties|swimsuit|kimono|clothes|"
@@ -908,7 +966,8 @@ class AdventureService:
         return f"""You are the director of a short objective-based adventure game.
 Return one JSON object only, in {response_language}, matching this schema:
 {{"narrative":"...","choices":[{{"id":"...","label":"..."}},{{"id":"...","label":"..."}},{{"id":"...","label":"..."}}],"discovered_clues":[],"completed_milestones":[],"visual_state":{{"location":"...","appearance":"...","clothing":"...","surroundings":"...","main_characters":[{{"name":"...","description":"...","clothing":"...","action":"..."}}]}},"ending_status":"continue|success|partial|failure","ending_title":null,"ending_summary":null}}
-Keep narrative under 800 characters and the entire JSON response compact. Never decide the player's feelings, consent, past wishes, bodily sensations, or voluntary actions unless the player's input explicitly states them. If the player's action objectively makes the mission impossible to continue, return a concise failure ending instead of refusing, truncating, or leaving the JSON incomplete. Describe observable events and NPC actions. Do not introduce an unrequested body transformation. Never grant the player another person's memories, personal knowledge, relationships, habits, skills, credentials, passwords, or authentication information unless the supplied source facts explicitly state them. A copied appearance or name does not imply copied memory or competence. Treat source_snapshot.appearance and required_visual_appearance as an immutable identity signature. Copy its hair color, hair length, hairstyle, eye color, and body features exactly into visual_state.appearance; never replace or supplement those traits. Do not change the player's physical appearance unless scenario_capabilities or authored_template_resolution explicitly allows and triggers that change. Clothing may be offered, found, or discussed, but the player only puts on, removes, or changes clothing when their input explicitly chooses that action. When the player explicitly chooses to put on clothing, visual_state.clothing must show that garment as currently worn in the same turn. Unless the input explicitly requests layering, the new garment replaces the previous outfit instead of being worn over it. If the source snapshot explicitly establishes a transformed sex or body, it may create practical disguise or role opportunities without inventing further changes. Keep visual_state concrete enough to illustrate the main characters, their clothing, and the surrounding location. When authored_visual_style is provided, set visual_state.location and visual_state.surroundings from it and never describe the room as a basement, locker room, warehouse, or cold industrial cell. completed_milestones must contain milestone ID strings only, never objects. Complete milestones only when the narrated action actually earns them. When authored_template_resolution is provided, treat it as authoritative and never narrate a score, transformation, unlocked exit, or ending beyond its event."""
+Keep narrative under 800 characters and the entire JSON response compact. Never decide the player's feelings, consent, past wishes, bodily sensations, or voluntary actions unless the player's input explicitly states them. If the player's action objectively makes the mission impossible to continue, return a concise failure ending instead of refusing, truncating, or leaving the JSON incomplete. Describe observable events and NPC actions. Do not introduce an unrequested body transformation. Never grant the player another person's memories, personal knowledge, relationships, habits, skills, credentials, passwords, or authentication information unless the supplied source facts explicitly state them. A copied appearance or name does not imply copied memory or competence. Treat source_snapshot.appearance and required_visual_appearance as an immutable identity signature. Copy its hair color, hair length, hairstyle, eye color, and body features exactly into visual_state.appearance; never replace or supplement those traits. Do not change the player's physical appearance unless scenario_capabilities or authored_template_resolution explicitly allows and triggers that change. Clothing may be offered, found, or discussed, but the player only puts on, removes, or changes clothing when their input explicitly chooses that action. When the player explicitly chooses to put on clothing, visual_state.clothing must show that garment as currently worn in the same turn. Unless the input explicitly requests layering, the new garment replaces the previous outfit instead of being worn over it. If the source snapshot explicitly establishes a transformed sex or body, it may create practical disguise or role opportunities without inventing further changes. Keep visual_state concrete enough to illustrate the main characters, their clothing, and the surrounding location. When authored_visual_style is provided, set visual_state.location and visual_state.surroundings from it and never describe the room as a basement, locker room, warehouse, or cold industrial cell. completed_milestones must contain milestone ID strings only, never objects. Complete milestones only when the narrated action actually earns them. When authored_template_resolution is provided, treat it as authoritative and never narrate a score, transformation, unlocked exit, or ending beyond its event.
+{_REALITY_RULES_INSTRUCTION}"""
 
     async def _generate_director_output(
         self,
@@ -972,14 +1031,16 @@ Return JSON only and keep the entire response under 1200 characters. Do not repe
         response_language = "Japanese" if language == "ja" else "English"
         return f"""You are the director of a short objective-based adventure game.
 Write only the narrative for the next scene, as plain prose in {response_language}. Do not output JSON, markdown, headings, choices, labels, or commentary.
-Keep the narrative under 800 characters. Never decide the player's feelings, consent, past wishes, bodily sensations, or voluntary actions unless the player's input explicitly states them. If the player's action objectively makes the mission impossible to continue, narrate a concise failure ending instead of refusing or truncating. Describe observable events and NPC actions. Do not introduce an unrequested body transformation. Never grant the player another person's memories, personal knowledge, relationships, habits, skills, credentials, passwords, or authentication information unless the supplied source facts explicitly state them. A copied appearance or name does not imply copied memory or competence. Treat state.appearance_lock and required_visual_appearance as an immutable identity signature, and never change the player's hair color, hair length, hairstyle, eye color, or body features unless scenario_guidance or authored_template_resolution explicitly allows and triggers that change. Clothing may be offered, found, or discussed, but the player only puts on, removes, or changes clothing when their input explicitly chooses that action. Unless the input explicitly requests layering, a new garment replaces the previous outfit instead of being worn over it. If the source snapshot explicitly establishes a transformed sex or body, it may create practical disguise or role opportunities without inventing further changes. When authored_template_resolution is provided, treat it as authoritative and never narrate a score, transformation, unlocked exit, or ending beyond its event."""
+Keep the narrative under 800 characters. Never decide the player's feelings, consent, past wishes, bodily sensations, or voluntary actions unless the player's input explicitly states them. If the player's action objectively makes the mission impossible to continue, narrate a concise failure ending instead of refusing or truncating. Describe observable events and NPC actions. Do not introduce an unrequested body transformation. Never grant the player another person's memories, personal knowledge, relationships, habits, skills, credentials, passwords, or authentication information unless the supplied source facts explicitly state them. A copied appearance or name does not imply copied memory or competence. Treat state.appearance_lock and required_visual_appearance as an immutable identity signature, and never change the player's hair color, hair length, hairstyle, eye color, or body features unless scenario_guidance or authored_template_resolution explicitly allows and triggers that change. Clothing may be offered, found, or discussed, but the player only puts on, removes, or changes clothing when their input explicitly chooses that action. Unless the input explicitly requests layering, a new garment replaces the previous outfit instead of being worn over it. If the source snapshot explicitly establishes a transformed sex or body, it may create practical disguise or role opportunities without inventing further changes. When authored_template_resolution is provided, treat it as authoritative and never narrate a score, transformation, unlocked exit, or ending beyond its event.
+{_REALITY_RULES_INSTRUCTION}"""
 
     def _resolution_system_prompt(self, language: str) -> str:
         response_language = "Japanese" if language == "ja" else "English"
         return f"""You resolve the mechanical outcome of one adventure turn that has already been narrated.
 Return one JSON object only, in {response_language}, matching this schema:
 {{"choices":[{{"id":"...","label":"..."}},{{"id":"...","label":"..."}},{{"id":"...","label":"..."}}],"discovered_clues":[],"completed_milestones":[],"ending_status":"continue|success|partial|failure","ending_title":null,"ending_summary":null}}
-Base every value strictly on the supplied narrative and game state, and never invent events the narrative does not contain. choices must offer exactly three distinct actions the player could take next. discovered_clues must contain only new information the narrative actually revealed, and must not repeat state.clues. completed_milestones must contain milestone ID strings only, never objects, and only when the narrated action actually earns them. Keep ending_status as continue unless the narrative itself concludes the mission, and fill ending_title and ending_summary only in that case. Never decide the player's feelings, consent, or voluntary actions. When authored_template_resolution is provided, treat it as authoritative and never report a score, transformation, or ending beyond its event. Keep the entire response compact."""
+Base every value strictly on the supplied narrative and game state, and never invent events the narrative does not contain. choices must offer exactly three distinct actions the player could take next. discovered_clues must contain only new information the narrative actually revealed, and must not repeat state.clues. completed_milestones must contain milestone ID strings only, never objects, and only when the narrated action actually earns them. Keep ending_status as continue unless the narrative itself concludes the mission, and fill ending_title and ending_summary only in that case. Never decide the player's feelings, consent, or voluntary actions. When authored_template_resolution is provided, treat it as authoritative and never report a score, transformation, or ending beyond its event. Keep the entire response compact.
+{_REALITY_RULES_INSTRUCTION}"""
 
     def _visual_system_prompt(self, language: str) -> str:
         response_language = "Japanese" if language == "ja" else "English"
@@ -1368,6 +1429,8 @@ The objective must name a concrete target and an observable end condition that c
             "clues": [],
             "setting": setting,
             "constraints": constraints,
+            # プレイ中に「現実改変：〜」で宣言された世界ルール
+            "reality_rules": [],
             "appearance_lock": appearance,
             "scenario_template_id": scenario_template_id,
             "replayed_from_run_id": replay_run_id,
@@ -1526,6 +1589,7 @@ The objective must name a concrete target and an observable end condition that c
                     "state": state,
                     "recent_turns": previous_turns[-7:],
                     "player_input": last_input,
+                    "reality_rules": list(state.get("reality_rules", [])),
                     "required_visual_appearance": appearance_lock,
                 }
                 try:
@@ -2083,6 +2147,11 @@ The objective must name a concrete target and an observable end condition that c
                 raise AdventureError("run_completed", "このシナリオは終了しています")
 
             state = _json_load(run.state_json, {})
+            # 宣言はこの手番から有効にする
+            declared_rule = _detect_reality_declaration(user_input)
+            if declared_rule:
+                _append_reality_rule(state, declared_rule)
+                input_kind = "reality_alter"
             template_id = state.get("scenario_template_id")
             template = SCENARIO_TEMPLATES.get(str(template_id))
             template_resolution = self._resolve_template_action(
@@ -2107,6 +2176,8 @@ The objective must name a concrete target and an observable end condition that c
                     "state": state,
                     "recent_turns": previous_turns[-7:],
                     "player_input": user_input,
+                    "reality_rules": list(state.get("reality_rules", [])),
+                    "reality_rule_declared_this_turn": declared_rule,
                 },
                 ensure_ascii=False,
             )
@@ -2214,6 +2285,12 @@ The objective must name a concrete target and an observable end condition that c
                 raise AdventureError("run_completed", "このシナリオは終了しています")
 
             state = _json_load(run.state_json, {})
+            # 宣言はこの手番から有効にする
+            declared_rule = _detect_reality_declaration(user_input)
+            if declared_rule:
+                _append_reality_rule(state, declared_rule)
+                input_kind = "reality_alter"
+            reality_rules = list(state.get("reality_rules", []))
             template = SCENARIO_TEMPLATES.get(str(state.get("scenario_template_id")))
             template_resolution = self._resolve_template_action(
                 template, state, user_input
@@ -2242,6 +2319,8 @@ The objective must name a concrete target and an observable end condition that c
                 "state": lean_state,
                 "recent_turns": previous_turns[-7:],
                 "player_input": user_input,
+                "reality_rules": reality_rules,
+                "reality_rule_declared_this_turn": declared_rule,
                 "required_visual_appearance": appearance_lock,
             }
             visual_turn_context = {
@@ -3314,6 +3393,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             "ending_title": run.ending_title,
             "ending_summary": run.ending_summary,
             "clues": state.get("clues", []),
+            "reality_rules": state.get("reality_rules", []),
             "milestones": state.get("milestones", []),
             "completed_milestones": state.get("completed_milestones", []),
             "visual_state": _sanitize_visual_state(state.get("visual_state")),

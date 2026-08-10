@@ -47,7 +47,7 @@ export interface AdventureTurn {
   turn_number: number;
   client_turn_id: string;
   user_input: string;
-  input_kind: "choice" | "free_text";
+  input_kind: "choice" | "free_text" | "reality_alter";
   narrative: string;
   /** このターン時点の現在地。旧ターンでは null */
   location: string | null;
@@ -84,6 +84,8 @@ export interface AdventureRun {
   ending_title: string | null;
   ending_summary: string | null;
   clues: string[];
+  /** プレイ中に「現実改変：〜」で宣言された世界ルール。旧runでは未定義 */
+  reality_rules?: string[];
   milestones: AdventureMilestone[];
   completed_milestones: string[];
   /** 現在地・登場人物などの最新ビジュアル状態。開始直後は null のことがある */
@@ -290,7 +292,7 @@ export async function streamAdventureTurn(
   body: {
     client_turn_id: string;
     user_input: string;
-    input_kind: "choice" | "free_text";
+    input_kind: "choice" | "free_text" | "reality_alter";
   },
   onEvent: (event: AdventureStreamEvent) => void,
 ): Promise<void> {

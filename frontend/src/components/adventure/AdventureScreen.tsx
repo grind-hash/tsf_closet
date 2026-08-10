@@ -28,6 +28,10 @@ const LAST_INSTRUCTION_PREVIEW_LEN = 24;
 
 const PORTRAIT_ALPHA_OPTIONS = { threshold: 12, featherRadius: 1.8 };
 
+// 現実改変の宣言記法。判定はサーバ側 _detect_reality_declaration と揃える
+const REALITY_DECLARATION_PATTERN =
+  /^\s*(?:\[\s*(?:現実改変|reality(?:[ _-]?alteration)?)\s*\]\s*[:：]?|(?:現実改変|reality(?:[ _-]?alteration)?)\s*[:：])\s*\S/i;
+
 function formatSessionDate(iso: string, locale: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
@@ -824,7 +828,9 @@ function AdventurePlay({ runId }: { runId: string }) {
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [logOpen, setLogOpen] = useState(false);
   const [messageWindowHidden, setMessageWindowHidden] = useState(false);
-  const [hudPanel, setHudPanel] = useState<"milestones" | "clues" | null>(null);
+  const [hudPanel, setHudPanel] = useState<
+    "milestones" | "clues" | "realityRules" | null
+  >(null);
   const [resultDismissed, setResultDismissed] = useState(false);
 
   useEffect(() => {
@@ -930,11 +936,16 @@ function AdventurePlay({ runId }: { runId: string }) {
   }, [frames.length]);
 
   const submit = useCallback(
-    (value: string, kind: "choice" | "free_text") => {
+    (value: string, kind: "choice" | "free_text" | "reality_alter") => {
       const trimmed = value.trim();
       if (!trimmed || streaming || activeRun?.status !== "active") return;
       setInput("");
-      void submitTurn(trimmed, kind);
+      // 「現実改変：〜」はサーバ側でも検出されるが、送信種別も合わせておく
+      const effectiveKind =
+        kind === "free_text" && REALITY_DECLARATION_PATTERN.test(trimmed)
+          ? "reality_alter"
+          : kind;
+      void submitTurn(trimmed, effectiveKind);
     },
     [activeRun?.status, streaming, submitTurn],
   );
@@ -1078,6 +1089,8 @@ function AdventurePlay({ runId }: { runId: string }) {
     (choice) => choice.label.trim().length > 0,
   );
   const completedMilestones = new Set(activeRun.completed_milestones);
+  // 「現実改変：〜」で宣言され、以降の判定に効いている世界ルール
+  const realityRules = activeRun.reality_rules ?? [];
   const cast = activeRun.visual_state?.main_characters ?? [];
   const resultImageUrl = isCompositeMode
     ? (activeRun.current_image_url ?? activeRun.portrait_image_url)
@@ -1169,6 +1182,21 @@ function AdventurePlay({ runId }: { runId: string }) {
                 <span>{t("adventure.clues")}</span>
                 <strong>{activeRun.clues.length}</strong>
               </button>
+              {realityRules.length > 0 && (
+                <button
+                  type="button"
+                  className={`adventure-hud__chip${hudPanel === "realityRules" ? " is-open" : ""}`}
+                  aria-expanded={hudPanel === "realityRules"}
+                  onClick={() =>
+                    setHudPanel((current) =>
+                      current === "realityRules" ? null : "realityRules",
+                    )
+                  }
+                >
+                  <span>{t("adventure.realityRules")}</span>
+                  <strong>{realityRules.length}</strong>
+                </button>
+              )}
             </div>
             {hudPanel && (
               <div
@@ -1192,6 +1220,17 @@ function AdventurePlay({ runId }: { runId: string }) {
                       );
                     })}
                   </ul>
+                ) : hudPanel === "realityRules" ? (
+                  <>
+                    <p className="adventure-hud__note">
+                      {t("adventure.realityRulesHint")}
+                    </p>
+                    <ul className="adventure-hud__clues">
+                      {realityRules.map((rule) => (
+                        <li key={rule}>{rule}</li>
+                      ))}
+                    </ul>
+                  </>
                 ) : (
                   <ul className="adventure-hud__clues">
                     {activeRun.clues.map((clue) => (
@@ -1448,6 +1487,7 @@ function AdventurePlay({ runId }: { runId: string }) {
                     onChange={(event) => setInput(event.target.value)}
                     placeholder={t("adventure.freeInput")}
                     aria-label={t("adventure.freeInput")}
+                    title={t("adventure.freeInputHint")}
                     enterKeyHint="send"
                   />
                   <button

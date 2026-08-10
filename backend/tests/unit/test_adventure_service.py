@@ -363,6 +363,67 @@ def test_lean_state_for_llm_strips_image_fields() -> None:
     assert "opening_image_path" not in lean
 
 
+def test_detect_reality_declaration_accepts_player_notation() -> None:
+    from gateway.services.adventure_service import _detect_reality_declaration
+
+    rule = _detect_reality_declaration(
+        "現実改変：僕のあらゆる行動（わいせつ行為も含む）は、"
+        "あらゆる人に疑問に思われなくなる"
+    )
+    assert (
+        rule
+        == (
+            "現実改変：僕のあらゆる行動（わいせつ行為も含む）は、"
+            "あらゆる人に疑問に思われなくなる"
+        ).split("：", 1)[1]
+    )
+    assert _detect_reality_declaration("[現実改変] 誰も咎めない") == "誰も咎めない"
+    assert _detect_reality_declaration("reality: nobody objects") == "nobody objects"
+
+
+def test_detect_reality_declaration_ignores_plain_actions() -> None:
+    from gateway.services.adventure_service import _detect_reality_declaration
+
+    assert _detect_reality_declaration("受付を観察する") is None
+    assert _detect_reality_declaration("現実改変について尋ねる") is None
+    assert _detect_reality_declaration("現実改変：   ") is None
+    assert _detect_reality_declaration("") is None
+
+
+def test_append_reality_rule_dedupes_and_caps() -> None:
+    from gateway.services.adventure_service import (
+        _MAX_REALITY_RULES,
+        _append_reality_rule,
+    )
+
+    state: dict[str, object] = {}
+    _append_reality_rule(state, "誰も咎めない")
+    _append_reality_rule(state, "誰も咎めない")
+    assert state["reality_rules"] == ["誰も咎めない"]
+
+    for index in range(_MAX_REALITY_RULES + 3):
+        _append_reality_rule(state, f"ルール{index}")
+    rules = state["reality_rules"]
+    assert isinstance(rules, list)
+    assert len(rules) == _MAX_REALITY_RULES
+    assert "誰も咎めない" not in rules
+    assert rules[-1] == f"ルール{_MAX_REALITY_RULES + 2}"
+
+
+def test_turn_judgement_prompts_carry_reality_rule_policy() -> None:
+    service = AdventureService()
+
+    prompts = (
+        service._director_system_prompt("ja"),
+        service._narrative_system_prompt("ja"),
+        service._resolution_system_prompt("ja"),
+    )
+    for prompt in prompts:
+        assert "reality_rules" in prompt
+        # ルールが覆う行動だけでBadEndにしない、という判定方針が載っていること
+        assert "must never by itself set ending_status to failure" in prompt
+
+
 def test_equipment_image_tags_include_worn_dress() -> None:
     from gateway.services.adventure_service import _equipment_image_tags
 

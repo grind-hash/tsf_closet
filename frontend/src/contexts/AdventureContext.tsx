@@ -48,7 +48,7 @@ interface AdventureContextValue {
   removeRun: (runId: string) => Promise<void>;
   submitTurn: (
     input: string,
-    inputKind: "choice" | "free_text",
+    inputKind: "choice" | "free_text" | "reality_alter",
   ) => Promise<void>;
   regenerateImage: (options?: AdventureImageRegenerateOptions) => Promise<void>;
   regenerateChoices: () => Promise<void>;
@@ -149,7 +149,10 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const submitTurn = useCallback(
-    async (input: string, inputKind: "choice" | "free_text") => {
+    async (
+      input: string,
+      inputKind: "choice" | "free_text" | "reality_alter",
+    ) => {
       if (!activeRun || streaming) return;
       const runId = activeRun.id;
       setStreaming(true);

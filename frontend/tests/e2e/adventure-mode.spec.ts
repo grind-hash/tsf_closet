@@ -605,6 +605,23 @@ test("turn submission streams the narrative before the clue check", async ({
   await expect(page.getByRole("status")).toBeHidden();
 });
 
+test("declared reality rules are surfaced in the HUD", async ({ page }) => {
+  const RULE = "僕のあらゆる行動は、あらゆる人に疑問に思われなくなる";
+  await enableAdventure(page);
+  await mockAdventureApis(page);
+  await page.route("**/api/adventure/runs/run-1", async (route) => {
+    await route.fulfill({ json: { ...runPayload(1), reality_rules: [RULE] } });
+  });
+  await page.goto("/adventure/run-1");
+
+  const chip = page.getByRole("button", { name: /現実改変/ });
+  await expect(chip).toBeVisible();
+  await chip.click();
+  const popover = page.getByRole("dialog", { name: "現実改変" });
+  await expect(popover).toContainText(RULE);
+  await expect(popover).toContainText("以降のすべての判定に適用");
+});
+
 test("finished run shows the result overlay", async ({ page }) => {
   await enableAdventure(page);
   await mockAdventureApis(page);

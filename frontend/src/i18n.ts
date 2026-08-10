@@ -135,6 +135,9 @@ const resources = {
         turn: "手番 {{number}}・選んだ行動",
         turnNumber: "手番 {{number}}",
         clues: "手掛かり",
+        realityRules: "現実改変",
+        realityRulesHint:
+          "宣言済みの世界ルールです。以降のすべての判定に適用され、ルールが覆う行動だけでミッション失敗にはなりません。",
         milestones: "進行目標",
         milestoneDone: "達成済み",
         cast: "登場人物",
@@ -163,6 +166,8 @@ const resources = {
           title: "行動",
         },
         freeInput: "行動や会話を自由に入力",
+        freeInputHint:
+          "行動や会話をそのまま入力できます。「現実改変：〜」で始めると、以降のすべての判定に適用される世界ルールとして登録されます。",
         send: "送信",
         regenerateImage: "現在の場面画像を再生成",
         regenerateChoices: "選択肢を再生成",
@@ -183,6 +188,7 @@ const resources = {
           inputKind: {
             choice: "選択肢",
             free_text: "自由入力",
+            reality_alter: "現実改変",
           },
         },
         imagePrompt: {
@@ -1367,6 +1373,9 @@ const resources = {
         turn: "Turn {{number}} · Chosen action",
         turnNumber: "Turn {{number}}",
         clues: "Clues",
+        realityRules: "Reality",
+        realityRulesHint:
+          "Declared world rules. They apply to every later judgement, and behaviour they cover alone never fails the mission.",
         milestones: "Milestones",
         milestoneDone: "Completed",
         cast: "Characters",
@@ -1395,6 +1404,8 @@ const resources = {
           title: "Actions",
         },
         freeInput: "Enter an action or dialogue",
+        freeInputHint:
+          'Type any action or line of dialogue. Starting with "reality: " registers a world rule that applies to every later judgement.',
         send: "Send",
         regenerateImage: "Regenerate the current scene image",
         regenerateChoices: "Regenerate choices",
@@ -1415,6 +1426,7 @@ const resources = {
           inputKind: {
             choice: "Choice",
             free_text: "Free input",
+            reality_alter: "Reality alteration",
           },
         },
         imagePrompt: {

@@ -869,6 +869,14 @@ button:disabled {
   border-radius: 4px;
   color: #cbd2d7;
   font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+
+.adventure-hud__note {
+  margin: 0 0 8px;
+  color: #aeb7bf;
+  font-size: 0.72rem;
+  line-height: 1.5;
 }
 
 .adventure-cast {
