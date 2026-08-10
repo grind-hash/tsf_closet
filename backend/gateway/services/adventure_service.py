@@ -3052,9 +3052,11 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 redraw_from_reference=redraw_from_reference,
                 prompt_override=prompt_override,
             )
+            # 立ち絵はフロント側で背景を透過するため、必ず白背景で生成させる。
             player_prompt = _enhance_adventure_prompt(
                 image_prompt.player_tags
-                + ", solo, full body standing portrait, plain simple background",
+                + ", solo, full body standing portrait, simple background,"
+                " white background, no shadow",
                 nsfw_mode=nsfw_mode,
             )
             character_references = None

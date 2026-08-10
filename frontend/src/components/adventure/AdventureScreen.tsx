@@ -26,6 +26,8 @@ function mediaUrl(url: string): string {
 
 const LAST_INSTRUCTION_PREVIEW_LEN = 24;
 
+const PORTRAIT_ALPHA_OPTIONS = { threshold: 12, featherRadius: 1.8 };
+
 function formatSessionDate(iso: string, locale: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
@@ -807,6 +809,7 @@ function AdventurePlay({ runId }: { runId: string }) {
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [logOpen, setLogOpen] = useState(false);
   const [freeInputOpen, setFreeInputOpen] = useState(false);
+  const [messageWindowHidden, setMessageWindowHidden] = useState(false);
   const [hudPanel, setHudPanel] = useState<"milestones" | "clues" | null>(null);
   const [resultDismissed, setResultDismissed] = useState(false);
 
@@ -908,10 +911,15 @@ function AdventurePlay({ runId }: { runId: string }) {
         setLogOpen(false);
         setImageSettingsOpen(false);
         setHudPanel(null);
+        setMessageWindowHidden(false);
         return;
       }
       if (event.key === "l" || event.key === "L") {
         setLogOpen((current) => !current);
+        return;
+      }
+      if (event.key === "h" || event.key === "H") {
+        setMessageWindowHidden((current) => !current);
         return;
       }
       if (logOpen) return;
@@ -933,9 +941,16 @@ function AdventurePlay({ runId }: { runId: string }) {
     }
     return activeRun.portrait_image_url ?? activeRun.opening_portrait_url;
   }, [activeRun, frames, selectedFrameIndex]);
-  const { url: transparentPortraitUrl } = useTransparentImage(portraitSource);
+  // 生成画像の白背景はわずかに灰色に振れるため、既定より広めの許容差で抜く。
+  const { url: transparentPortraitUrl } = useTransparentImage(
+    portraitSource,
+    true,
+    PORTRAIT_ALPHA_OPTIONS,
+  );
   const { url: transparentResultUrl } = useTransparentImage(
     activeRun?.enable_composite_scene ? null : activeRun?.portrait_image_url,
+    true,
+    PORTRAIT_ALPHA_OPTIONS,
   );
 
   if (loading || !activeRun || activeRun.id !== runId) {
@@ -1237,7 +1252,24 @@ function AdventurePlay({ runId }: { runId: string }) {
             </div>
           </section>
 
-          <section className="adventure-messagebox" aria-live="polite">
+          {messageWindowHidden && (
+            <button
+              type="button"
+              className="adventure-window-restore"
+              onClick={() => setMessageWindowHidden(false)}
+              title={t("adventure.window.showHint")}
+            >
+              {t("adventure.window.show")}
+            </button>
+          )}
+
+          <section
+            className={`adventure-messagebox${
+              messageWindowHidden ? " is-hidden" : ""
+            }`}
+            aria-live="polite"
+            aria-hidden={messageWindowHidden}
+          >
             <div className="adventure-messagebox__meta">
               <button
                 type="button"
@@ -1246,6 +1278,15 @@ function AdventurePlay({ runId }: { runId: string }) {
                 title={t("adventure.log.openHint")}
               >
                 {t("adventure.log.open")}
+              </button>
+              <button
+                type="button"
+                className="adventure-messagebox__hide-button"
+                onClick={() => setMessageWindowHidden(true)}
+                title={t("adventure.window.hideHint")}
+                tabIndex={messageWindowHidden ? -1 : undefined}
+              >
+                {t("adventure.window.hide")}
               </button>
             </div>
 
