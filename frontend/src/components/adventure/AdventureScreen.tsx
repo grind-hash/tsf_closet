@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router-dom";
-import type { AdventurePreset } from "../../apis/adventure";
+import type { AdventurePreset, AdventureTurn } from "../../apis/adventure";
 import { fetchGalleryList, fetchGallerySessions } from "../../apis/gallery";
 import { useAdventure } from "../../contexts/AdventureContext";
 import { useSettings } from "../../contexts/SettingsContext";
@@ -772,8 +772,18 @@ function AdventureHub() {
 interface AdventureStageFrame {
   key: string;
   turnNumber: number;
+  /** ステージ／サムネイル用の代表画像 */
   imageUrl: string;
+  /** imageUrl が合成シーンか立ち絵かを示す */
+  kind: "composite" | "portrait";
+  /** 非合成モードのラン共通背景。合成モードでは null */
+  backgroundUrl: string | null;
+  /** この手番の立ち絵（白背景の元画像）。無ければ null */
+  portraitUrl: string | null;
+  /** この手番の合成シーン。非合成モードでは null */
+  sceneUrl: string | null;
   userInput: string | null;
+  inputKind: AdventureTurn["input_kind"] | null;
   narrative: string;
   location: string | null;
 }
@@ -803,12 +813,16 @@ function AdventurePlay({ runId }: { runId: string }) {
   const [selectedFrameIndex, setSelectedFrameIndex] = useState<number | null>(
     null,
   );
-  const [lightboxOpen, setLightboxOpen] = useState(false);
+  // モーダル内のナビゲーションはモーダル内で完結させる（ステージ側の
+  // selectedFrameIndex には触れない）ため、専用のインデックスを持つ
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const [lightboxView, setLightboxView] = useState<
+    "scene" | "background" | "portrait"
+  >("scene");
   const [promptModalOpen, setPromptModalOpen] = useState(false);
   const [imageSettingsOpen, setImageSettingsOpen] = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [logOpen, setLogOpen] = useState(false);
-  const [freeInputOpen, setFreeInputOpen] = useState(false);
   const [messageWindowHidden, setMessageWindowHidden] = useState(false);
   const [hudPanel, setHudPanel] = useState<"milestones" | "clues" | null>(null);
   const [resultDismissed, setResultDismissed] = useState(false);
@@ -831,13 +845,20 @@ function AdventurePlay({ runId }: { runId: string }) {
   const frames = useMemo<AdventureStageFrame[]>(() => {
     if (!activeRun) return [];
     const list: AdventureStageFrame[] = [];
+    const runBackground =
+      activeRun.background_image_url ?? activeRun.current_image_url ?? null;
     if (activeRun.enable_composite_scene) {
       if (activeRun.opening_image_url) {
         list.push({
           key: "opening",
           turnNumber: 0,
           imageUrl: activeRun.opening_image_url,
+          kind: "composite",
+          backgroundUrl: null,
+          portraitUrl: activeRun.opening_portrait_url ?? null,
+          sceneUrl: activeRun.opening_image_url,
           userInput: null,
+          inputKind: null,
           narrative: activeRun.opening_narrative,
           location: null,
         });
@@ -848,7 +869,12 @@ function AdventurePlay({ runId }: { runId: string }) {
           key: turn.id,
           turnNumber: turn.turn_number,
           imageUrl: turn.image_url,
+          kind: "composite",
+          backgroundUrl: null,
+          portraitUrl: turn.portrait_image_url,
+          sceneUrl: turn.image_url,
           userInput: turn.user_input,
+          inputKind: turn.input_kind,
           narrative: turn.narrative,
           location: turn.location,
         });
@@ -859,7 +885,12 @@ function AdventurePlay({ runId }: { runId: string }) {
           key: "opening",
           turnNumber: 0,
           imageUrl: activeRun.opening_portrait_url,
+          kind: "portrait",
+          backgroundUrl: runBackground,
+          portraitUrl: activeRun.opening_portrait_url,
+          sceneUrl: null,
           userInput: null,
+          inputKind: null,
           narrative: activeRun.opening_narrative,
           location: null,
         });
@@ -870,7 +901,12 @@ function AdventurePlay({ runId }: { runId: string }) {
           key: turn.id,
           turnNumber: turn.turn_number,
           imageUrl: turn.portrait_image_url,
+          kind: "portrait",
+          backgroundUrl: runBackground,
+          portraitUrl: turn.portrait_image_url,
+          sceneUrl: null,
           userInput: turn.user_input,
+          inputKind: turn.input_kind,
           narrative: turn.narrative,
           location: turn.location,
         });
@@ -906,14 +942,20 @@ function AdventurePlay({ runId }: { runId: string }) {
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
-      if (target?.closest("input, textarea, select")) return;
+      const inField = Boolean(target?.closest("input, textarea, select"));
       if (event.key === "Escape") {
+        // 常設の自由入力欄からショートカット層へ戻る唯一の手段
+        if (inField) {
+          target?.blur();
+          return;
+        }
         setLogOpen(false);
         setImageSettingsOpen(false);
         setHudPanel(null);
         setMessageWindowHidden(false);
         return;
       }
+      if (inField) return;
       if (event.key === "l" || event.key === "L") {
         setLogOpen((current) => !current);
         return;
@@ -953,6 +995,23 @@ function AdventurePlay({ runId }: { runId: string }) {
     PORTRAIT_ALPHA_OPTIONS,
   );
 
+  const lightboxFrame =
+    lightboxIndex !== null ? frames[lightboxIndex] : undefined;
+  const canShowBackground = Boolean(lightboxFrame?.backgroundUrl);
+  const canShowPortrait = Boolean(lightboxFrame?.portraitUrl);
+  // 非合成モードのシーン表示は、ステージと同じく背景に白抜きの立ち絵を重ねる
+  const needsComposite =
+    lightboxView === "scene" &&
+    lightboxFrame?.kind === "portrait" &&
+    Boolean(lightboxFrame.backgroundUrl);
+  // ステージ用の transparentPortraitUrl はモーダルと別フレームを指しうるので流用しない。
+  // 同一 src なら utils/imageAlpha のモジュールキャッシュに当たるため追加コストは無い。
+  const { url: lightboxPortraitUrl } = useTransparentImage(
+    needsComposite ? lightboxFrame?.portraitUrl : null,
+    true,
+    PORTRAIT_ALPHA_OPTIONS,
+  );
+
   if (loading || !activeRun || activeRun.id !== runId) {
     return (
       <MainLayout>
@@ -977,10 +1036,28 @@ function AdventurePlay({ runId }: { runId: string }) {
     : backgroundUrl;
   const displayedPortraitUrl = transparentPortraitUrl;
 
+  // ターンストリップ専用。モーダルの送りはここを通さない
   const goToFrame = (index: number) => {
     if (index < 0 || index >= frames.length) return;
     setSelectedFrameIndex(index === frames.length - 1 ? null : index);
   };
+
+  // モーダル内だけを動かす。送り先に存在しないタブへ着地しないようシーンへ戻す
+  const openLightboxFrame = (index: number) => {
+    if (index < 0 || index >= frames.length) return;
+    setLightboxIndex(index);
+    setLightboxView("scene");
+  };
+
+  const lightboxImageUrl =
+    lightboxView === "portrait"
+      ? (lightboxFrame?.portraitUrl ?? null)
+      : lightboxView === "background"
+        ? (lightboxFrame?.backgroundUrl ?? null)
+        : (lightboxFrame?.sceneUrl ??
+          lightboxFrame?.backgroundUrl ??
+          lightboxFrame?.imageUrl ??
+          null);
 
   const latestTurn = activeRun.turns.at(-1) ?? null;
   const isStreamingNarrative = pendingUserInput !== null;
@@ -1143,7 +1220,7 @@ function AdventurePlay({ runId }: { runId: string }) {
               <button
                 type="button"
                 className="adventure-stage__image-button"
-                onClick={() => setLightboxOpen(true)}
+                onClick={() => openLightboxFrame(effectiveIndex)}
                 disabled={frames.length === 0}
                 aria-label={t("adventure.viewFullScreen")}
               >
@@ -1268,7 +1345,7 @@ function AdventurePlay({ runId }: { runId: string }) {
               messageWindowHidden ? " is-hidden" : ""
             }`}
             aria-live="polite"
-            aria-hidden={messageWindowHidden}
+            inert={messageWindowHidden}
           >
             <div className="adventure-messagebox__meta">
               <button
@@ -1290,13 +1367,14 @@ function AdventurePlay({ runId }: { runId: string }) {
               </button>
             </div>
 
+            {activeAction && (
+              <p className="adventure-messagebox__action">
+                <span>{t("adventure.yourAction")}</span>
+                {activeAction}
+              </p>
+            )}
+
             <div className="adventure-messagebox__text" ref={messageTextRef}>
-              {activeAction && (
-                <p className="adventure-messagebox__action">
-                  <span>{t("adventure.yourAction")}</span>
-                  {activeAction}
-                </p>
-              )}
               <p className="adventure-messagebox__narrative">
                 {activeNarrative}
                 {isStreamingNarrative && (
@@ -1313,12 +1391,30 @@ function AdventurePlay({ runId }: { runId: string }) {
 
             {activeRun.status === "active" ? (
               <div className="adventure-controls">
+                <div className="adventure-controls__header">
+                  <span className="adventure-controls__title">
+                    {t("adventure.actionPanel.title")}
+                  </span>
+                  <button
+                    type="button"
+                    className="adventure-choices__regenerate"
+                    onClick={() => void regenerateChoices()}
+                    disabled={streaming}
+                    title={t("adventure.regenerateChoices")}
+                  >
+                    {streaming && phase === "clue_check"
+                      ? t("adventure.regeneratingChoices")
+                      : t("adventure.regenerateChoices")}
+                  </button>
+                </div>
+
                 <div className="adventure-choices">
                   {availableChoices.map((choice, index) => (
                     <button
                       type="button"
                       key={choice.id}
                       disabled={streaming}
+                      title={choice.label}
                       onClick={() => submit(choice.label, "choice")}
                     >
                       <span className="adventure-choices__key">
@@ -1333,47 +1429,35 @@ function AdventurePlay({ runId }: { runId: string }) {
                     {t("adventure.emptyChoices")}
                   </p>
                 )}
-                <div className="adventure-controls__actions">
+
+                {/* 自由入力は既定の操作なので常設。streaming中も入力自体は許可し
+                    （無効化するとフォーカスが外れて次の数字キーが選択肢送信になる）、
+                    送信は submit() 側のガードとボタンの disabled で止める */}
+                <form
+                  className="adventure-freeinput"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    submit(input, "free_text");
+                  }}
+                >
+                  <input
+                    type="text"
+                    className="adventure-freeinput__field"
+                    value={input}
+                    maxLength={1000}
+                    onChange={(event) => setInput(event.target.value)}
+                    placeholder={t("adventure.freeInput")}
+                    aria-label={t("adventure.freeInput")}
+                    enterKeyHint="send"
+                  />
                   <button
-                    type="button"
-                    className="adventure-choices__regenerate"
-                    onClick={() => void regenerateChoices()}
-                    disabled={streaming}
-                    title={t("adventure.regenerateChoices")}
+                    type="submit"
+                    className="adventure-freeinput__submit"
+                    disabled={!input.trim() || streaming}
                   >
-                    {streaming && phase === "clue_check"
-                      ? t("adventure.regeneratingChoices")
-                      : t("adventure.regenerateChoices")}
+                    {t("adventure.send")}
                   </button>
-                  <button
-                    type="button"
-                    className="adventure-controls__free-toggle"
-                    onClick={() => setFreeInputOpen((current) => !current)}
-                    aria-expanded={freeInputOpen}
-                  >
-                    {t("adventure.freeInputToggle")}
-                  </button>
-                </div>
-                {freeInputOpen && (
-                  <form
-                    onSubmit={(event) => {
-                      event.preventDefault();
-                      submit(input, "free_text");
-                    }}
-                  >
-                    <textarea
-                      value={input}
-                      rows={2}
-                      maxLength={1000}
-                      disabled={streaming}
-                      onChange={(event) => setInput(event.target.value)}
-                      placeholder={t("adventure.freeInput")}
-                    />
-                    <button type="submit" disabled={!input.trim() || streaming}>
-                      {t("adventure.send")}
-                    </button>
-                  </form>
-                )}
+                </form>
               </div>
             ) : (
               <div className={`adventure-ending is-${activeRun.status}`}>
@@ -1545,7 +1629,9 @@ function AdventurePlay({ runId }: { runId: string }) {
                       title={
                         frame.turnNumber === 0
                           ? t("adventure.turnStrip.opening")
-                          : t("adventure.turn", { number: frame.turnNumber })
+                          : t("adventure.turnNumber", {
+                              number: frame.turnNumber,
+                            })
                       }
                     >
                       <img
@@ -1571,25 +1657,119 @@ function AdventurePlay({ runId }: { runId: string }) {
       )}
 
       <ImagePreviewModal
-        isOpen={lightboxOpen}
-        imageUrl={selectedFrame?.imageUrl ?? null}
-        onClose={() => setLightboxOpen(false)}
-        alt={activeRun.title}
-        onPrev={() => goToFrame(effectiveIndex - 1)}
-        onNext={() => goToFrame(effectiveIndex + 1)}
-        hasPrev={effectiveIndex > 0}
-        hasNext={effectiveIndex < frames.length - 1}
+        isOpen={lightboxFrame !== undefined}
+        imageUrl={lightboxImageUrl}
+        onClose={() => setLightboxIndex(null)}
+        alt={t("adventure.preview.sceneAlt")}
+        onPrev={() => openLightboxFrame((lightboxIndex ?? 0) - 1)}
+        onNext={() => openLightboxFrame((lightboxIndex ?? 0) + 1)}
+        hasPrev={lightboxIndex !== null && lightboxIndex > 0}
+        hasNext={lightboxIndex !== null && lightboxIndex < frames.length - 1}
+        captionPlacement="side"
+        media={
+          needsComposite && lightboxFrame?.backgroundUrl ? (
+            <div className="adventure-scene-preview">
+              <img
+                className="adventure-scene-preview__background"
+                src={lightboxFrame.backgroundUrl}
+                alt={t("adventure.preview.backgroundAlt")}
+              />
+              {lightboxPortraitUrl && (
+                <img
+                  className="adventure-scene-preview__portrait"
+                  src={lightboxPortraitUrl}
+                  alt={t("adventure.portraitAlt")}
+                />
+              )}
+            </div>
+          ) : undefined
+        }
         caption={
-          selectedFrame && (
-            <>
-              <strong>
-                {selectedFrame.turnNumber === 0
-                  ? t("adventure.turnStrip.opening")
-                  : t("adventure.turn", { number: selectedFrame.turnNumber })}
-              </strong>
-              {selectedFrame.userInput && <p>{selectedFrame.userInput}</p>}
-              <p>{selectedFrame.narrative}</p>
-            </>
+          lightboxFrame && (
+            <div className="image-preview-modal__detail">
+              {(canShowBackground || canShowPortrait) && (
+                <div
+                  className="adventure-preview__views"
+                  role="group"
+                  aria-label={t("adventure.preview.viewSwitch")}
+                >
+                  <button
+                    type="button"
+                    aria-pressed={lightboxView === "scene"}
+                    onClick={() => setLightboxView("scene")}
+                  >
+                    {t("adventure.preview.viewScene")}
+                  </button>
+                  {canShowBackground && (
+                    <button
+                      type="button"
+                      aria-pressed={lightboxView === "background"}
+                      onClick={() => setLightboxView("background")}
+                    >
+                      {t("adventure.preview.viewBackground")}
+                    </button>
+                  )}
+                  {canShowPortrait && (
+                    <button
+                      type="button"
+                      aria-pressed={lightboxView === "portrait"}
+                      onClick={() => setLightboxView("portrait")}
+                    >
+                      {t("adventure.preview.viewPortrait")}
+                    </button>
+                  )}
+                </div>
+              )}
+
+              <section className="image-preview-modal__detail-section">
+                <h2 className="image-preview-modal__detail-label">
+                  {t("adventure.preview.turnLabel")}
+                </h2>
+                <p className="image-preview-modal__detail-text">
+                  {lightboxFrame.turnNumber === 0
+                    ? t("adventure.turnStrip.opening")
+                    : `${lightboxFrame.turnNumber} / ${activeRun.max_turns}`}
+                </p>
+              </section>
+
+              {lightboxFrame.userInput && (
+                <section className="image-preview-modal__detail-section">
+                  <h2 className="image-preview-modal__detail-label">
+                    {t("adventure.preview.actionLabel")}
+                    {lightboxFrame.inputKind && (
+                      <span className="adventure-preview__kind">
+                        {t(
+                          `adventure.preview.inputKind.${lightboxFrame.inputKind}`,
+                        )}
+                      </span>
+                    )}
+                  </h2>
+                  <p className="image-preview-modal__detail-text">
+                    {lightboxFrame.userInput}
+                  </p>
+                </section>
+              )}
+
+              <section className="image-preview-modal__detail-section">
+                <h2 className="image-preview-modal__detail-label">
+                  {t("adventure.preview.narrativeLabel")}
+                </h2>
+                <p className="image-preview-modal__detail-text">
+                  {lightboxFrame.narrative}
+                </p>
+              </section>
+
+              {lightboxFrame.location && (
+                <section className="image-preview-modal__detail-section">
+                  <h2 className="image-preview-modal__detail-label">
+                    {t("adventure.currentLocation")}
+                  </h2>
+                  <p className="image-preview-modal__detail-text">
+                    {lightboxFrame.location}
+                  </p>
+                </section>
+              )}
+            </div>
           )
         }
       />

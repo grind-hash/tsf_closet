@@ -424,10 +424,15 @@ test("play screen fits a mobile viewport without horizontal overflow", async ({
   await page.locator(".adventure-stage__image-button").click();
   const previewContent = page.locator(".image-preview-modal__content");
   await expect(previewContent).toBeVisible();
-  await expect(previewContent).not.toHaveClass(
+  // 場面詳細ビューなので常にサイドキャプション（狭い画面では縦積みにフォールバック）
+  await expect(previewContent).toHaveClass(
     /image-preview-modal__content--side/,
   );
-  await expect(page.locator(".image-preview-modal__caption")).toBeVisible();
+  await expect(
+    page.locator(".image-preview-modal__caption--side"),
+  ).toBeVisible();
+  await expect(previewContent).toContainText("物語");
+  await expect(page.getByRole("button", { name: "シーン" })).toBeVisible();
   await page.getByRole("button", { name: "閉じる" }).click();
   const overflow = await page.evaluate(
     () =>
@@ -439,6 +444,61 @@ test("play screen fits a mobile viewport without horizontal overflow", async ({
     path: "test-results/adventure-mobile.png",
     fullPage: true,
   });
+});
+
+test("narration keeps room next to the action panel", async ({ page }) => {
+  await enableAdventure(page);
+  await mockAdventureApis(page);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/adventure/run-1");
+  await expect(page.locator(".adventure-messagebox")).toBeVisible();
+
+  const text = page.locator(".adventure-messagebox__text");
+  const box = await text.boundingBox();
+  expect(box?.height ?? 0).toBeGreaterThan(160);
+  const clipped = await text.evaluate(
+    (el) => el.scrollHeight - el.clientHeight,
+  );
+  expect(clipped).toBeLessThanOrEqual(1);
+
+  // 自由入力はトグルの奥ではなく常設
+  await expect(
+    page.getByRole("textbox", { name: "行動や会話を自由に入力" }),
+  ).toBeVisible();
+
+  await page.screenshot({ path: "test-results/adventure-desktop.png" });
+});
+
+test("scene detail modal navigates without moving the stage", async ({
+  page,
+}) => {
+  await enableAdventure(page);
+  await mockAdventureApis(page);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/adventure/run-1");
+  // 手番を1つ進めてフレームを2枚にする
+  await page.getByRole("button", { name: "受付を観察する" }).click();
+  await expect(page.locator(".adventure-messagebox__action")).toContainText(
+    "受付を観察する",
+  );
+
+  await page.locator(".adventure-stage__image-button").click();
+  const previewContent = page.locator(".image-preview-modal__content");
+  await expect(previewContent).toBeVisible();
+  await expect(previewContent).toContainText("手番");
+  await expect(previewContent).toContainText("1 / 8");
+  await expect(previewContent).toContainText("選んだ行動");
+  await expect(page.getByRole("button", { name: "背景" })).toBeVisible();
+  // 出現アニメーション（0.2s）の完了を待ってから撮る
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: "test-results/adventure-scene-modal.png" });
+
+  // ‹ で開始場面へ戻ってもステージ側は最新のまま
+  await page.getByRole("button", { name: "前の画像" }).click();
+  await expect(previewContent).toContainText("開始");
+  await expect(page.locator(".adventure-stage__past-banner")).toBeHidden();
+  await page.getByRole("button", { name: "閉じる" }).click();
+  await expect(page.locator(".adventure-stage__past-banner")).toBeHidden();
 });
 
 test("play screen fits a short landscape viewport", async ({ page }) => {

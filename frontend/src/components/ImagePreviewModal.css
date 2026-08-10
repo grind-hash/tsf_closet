@@ -36,6 +36,33 @@
   animation: imagePreviewScaleIn 0.2s ease-out;
 }
 
+/*
+ * 画像下キャプション時の枠崩れ対策。
+ * __content は shrink-to-fit なので、長文キャプションの max-content 幅に
+ * 引きずられて 90vw まで広がり（画像が左端に寄って右が巨大な余白になる）、
+ * さらに画像 + キャプション + 余白が 90vh を超えても clip されず画面外へ出る。
+ * __close / __nav は枠外に置かれているため overflow: hidden は使えない。
+ */
+.image-preview-modal__content--captioned {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  width: min(90vw, 720px);
+}
+
+.image-preview-modal__content--captioned .image-preview-modal__image {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: calc(60vh - 48px);
+  margin-inline: auto;
+}
+
+.image-preview-modal__content--captioned .image-preview-modal__caption {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-wrap: anywhere;
+}
+
 .image-preview-modal__content--side {
   width: min(1200px, calc(100vw - 144px));
   display: grid;
@@ -116,8 +143,10 @@
   white-space: pre-wrap;
 }
 
+/* media に位置指定された合成プレビューを渡しても操作ボタンが埋もれないようにする */
 .image-preview-modal__close {
   position: absolute;
+  z-index: 2;
   top: -40px;
   right: 0;
   width: 36px;
@@ -140,6 +169,7 @@
 
 .image-preview-modal__favorite {
   position: absolute;
+  z-index: 2;
   top: -40px;
   right: 48px;
   width: 36px;
@@ -176,6 +206,7 @@
 /* ナビゲーションボタン */
 .image-preview-modal__nav {
   position: absolute;
+  z-index: 2;
   top: 50%;
   transform: translateY(-50%);
   width: 48px;
