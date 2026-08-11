@@ -62,6 +62,43 @@ const DEFAULT_NARRATION_PRONOUN = "僕";
 const NARRATION_PRONOUN_SUGGESTIONS = ["僕", "俺", "私", "わたし", "あたし"];
 const NARRATION_PRONOUN_MAX_LENGTH = 10;
 
+// セットアップで選んだ語りと画像オプションは次回の作成時にも引き継ぐ。
+// 精密参照はAnlasを追加消費するため保存対象に含めず、常に既定OFFから始める
+const SETUP_PREFS_STORAGE_KEY = "adventure_setup_prefs";
+
+type AdventureSetupPrefs = {
+  narrationVoice: AdventureNarrationVoice;
+  narrationPronoun: string;
+  enableCompositeScene: boolean;
+};
+
+function readSetupPrefs(): Partial<AdventureSetupPrefs> {
+  try {
+    const saved = localStorage.getItem(SETUP_PREFS_STORAGE_KEY);
+    if (!saved) return {};
+    const parsed: unknown = JSON.parse(saved);
+    if (!parsed || typeof parsed !== "object") return {};
+    return parsed as Partial<AdventureSetupPrefs>;
+  } catch {
+    return {};
+  }
+}
+
+function normalizeNarrationVoice(
+  value: unknown,
+): AdventureNarrationVoice | null {
+  return NARRATION_VOICES.includes(value as AdventureNarrationVoice)
+    ? (value as AdventureNarrationVoice)
+    : null;
+}
+
+function normalizeNarrationPronoun(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return trimmed.slice(0, NARRATION_PRONOUN_MAX_LENGTH);
+}
+
 type RunFilter = "all" | AdventureStatus;
 
 const RUN_FILTERS: RunFilter[] = [
@@ -162,20 +199,42 @@ function AdventureHub() {
     String(DEFAULT_MAX_TURNS),
   );
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const [narrationVoice, setNarrationVoice] =
-    useState<AdventureNarrationVoice>("second_person");
+  // localStorageの読み出しは初回マウント時の一度だけに限定する
+  const [savedSetupPrefs] = useState(readSetupPrefs);
+  const [narrationVoice, setNarrationVoice] = useState<AdventureNarrationVoice>(
+    () =>
+      normalizeNarrationVoice(savedSetupPrefs.narrationVoice) ??
+      "second_person",
+  );
   const [narrationPronoun, setNarrationPronoun] = useState(
-    DEFAULT_NARRATION_PRONOUN,
+    () =>
+      normalizeNarrationPronoun(savedSetupPrefs.narrationPronoun) ??
+      DEFAULT_NARRATION_PRONOUN,
   );
   const [runFilter, setRunFilter] = useState<RunFilter>("all");
   const [creating, setCreating] = useState(false);
   const { state: settingsState } = useSettings();
   // 精密参照は既定OFF。ユーザーが明示的にONした場合のみAnlas追加消費
   const [usePreciseReference, setUsePreciseReference] = useState(false);
-  // グローバル設定を初期値とし、作成フォームで上書き可能
-  const [enableCompositeScene, setEnableCompositeScene] = useState(
-    settingsState.adventureEnableCompositeScene,
+  // 前回の選択があればそれを優先し、未保存ならグローバル設定を初期値とする
+  const [enableCompositeScene, setEnableCompositeScene] = useState(() =>
+    typeof savedSetupPrefs.enableCompositeScene === "boolean"
+      ? savedSetupPrefs.enableCompositeScene
+      : settingsState.adventureEnableCompositeScene,
   );
+
+  useEffect(() => {
+    const prefs: AdventureSetupPrefs = {
+      narrationVoice,
+      narrationPronoun: narrationPronoun.trim() || DEFAULT_NARRATION_PRONOUN,
+      enableCompositeScene,
+    };
+    try {
+      localStorage.setItem(SETUP_PREFS_STORAGE_KEY, JSON.stringify(prefs));
+    } catch {
+      // プライベートモード等で保存できなくてもフォーム操作は継続する
+    }
+  }, [narrationVoice, narrationPronoun, enableCompositeScene]);
 
   useEffect(() => {
     void loadRuns();
