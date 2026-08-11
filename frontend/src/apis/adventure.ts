@@ -54,7 +54,7 @@ export interface AdventureTurn {
   choices: AdventureChoice[];
   image_url: string | null;
   image_status: string;
-  /** 左上ポートレートのこのターン時点の画像 */
+  /** 中央の立ち絵のこのターン時点の画像 */
   portrait_image_url: string | null;
   portrait_status: string;
   created_at: string | null;
@@ -99,9 +99,11 @@ export interface AdventureRun {
   use_precise_reference: boolean;
   /** 既定false。trueのときのみポートレート更新後に合成シーンも直列で再生成する */
   enable_composite_scene: boolean;
+  /** 衣装レイヤー考慮。trueのとき外衣に覆われた下着を画像タグから外す */
+  respect_clothing_layers: boolean;
   /** 開始時に一度だけ生成される背景。非合成モードの固定背景として使用 */
   background_image_url: string | null;
-  /** 現在の左上ポートレート（最新ターン分） */
+  /** 現在の中央の立ち絵（最新ターン分） */
   portrait_image_url: string | null;
   /** 開始時ポートレート（ターンストリップの先頭用） */
   opening_portrait_url: string | null;
@@ -126,6 +128,8 @@ export interface AdventureSetupRequest {
   source_session_id: string;
   source_history_id?: string;
   preset: AdventurePreset;
+  /** 自動生成タイプのターン数。未指定なら15。作品シナリオ・リプレイでは無視される */
+  scenario_max_turns?: number;
 }
 
 export interface AdventureSetup {
@@ -145,11 +149,15 @@ export interface AdventureCreateRequest extends AdventureSetupRequest {
   use_precise_reference?: boolean;
   /** 既定false。ON時のみ合成シーンも生成する */
   enable_composite_scene?: boolean;
+  /** 設定画面の「服の重なりを考慮」をそのまま引き継ぐ */
+  respect_clothing_layers?: boolean;
 }
 
 export interface AdventureSettingsUpdateRequest {
   use_precise_reference: boolean;
   enable_composite_scene: boolean;
+  /** 未指定なら run 側の既存値を維持する */
+  respect_clothing_layers?: boolean;
 }
 
 export interface AdventureStreamEvent {
@@ -175,6 +183,7 @@ function normalizeRun(run: AdventureRun): AdventureRun {
     ...run,
     use_precise_reference: Boolean(run.use_precise_reference),
     enable_composite_scene: Boolean(run.enable_composite_scene),
+    respect_clothing_layers: Boolean(run.respect_clothing_layers),
     current_image_url: withApiBase(run.current_image_url) ?? "",
     opening_image_url:
       withApiBase(run.opening_image_url) ??

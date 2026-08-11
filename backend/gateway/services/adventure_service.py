@@ -26,10 +26,20 @@ from pydantic import (
 from sqlalchemy import delete, select
 from sqlalchemy.orm import selectinload
 
+from ..consts.adventure_turns import (
+    ADVENTURE_TURNS_DEFAULT,
+    ADVENTURE_TURNS_MAX,
+    ADVENTURE_TURNS_MIN,
+)
 from ..databases.base import async_session_factory
 from ..databases.models import AdventureRun, AdventureTurn
 from ..settings.config import settings
 from .character_service import extract_protagonist_tags_from_history
+from .clothing_layers import (
+    CLOTHING_LAYER_COVERED_NEGATIVE,
+    merge_negative_prompt,
+    peel_undergarment_tags,
+)
 from .image_generation import image_service
 from .adventure_template_loader import SCENARIO_TEMPLATES, template_localized
 from .llm_service import llm_service
@@ -432,16 +442,51 @@ _EQUIPMENT_IMAGE_TAGS: dict[str, str] = {
 }
 
 
+# Adventure の構造化JSON出力向けの衣装レイヤールール。
+# clothing_layers.CLOTHING_LAYER_IMAGE_RULE は WORN_UNDER_LAYERS 行の出力を要求し、
+# JSONスキーマと衝突するため、ここではタグ配置の指示だけを与える。
+_CLOTHING_LAYER_TAG_RULE = """
+Clothing layers are persistent state, not visibility. An outer garment covers the underwear beneath it without removing it, so keep worn underwear in visual_state.clothing even when it cannot be seen. In NovelAI tags, bra, panties, underwear, and lingerie mean the undergarment is VISIBLE: when the player wears an outer garment such as a dress or gown over them, omit those words from player_tags entirely and describe only the outer garment. Put them into player_tags only when the narrative explicitly lifts, opens, removes, or sees through the outer garment, and then only for the exposed area. When the intent is ambiguous, prefer the covered wording."""
+
+# 下着を覆う外衣の装備ID。着用済みなら下着タグを positive から外す。
+_EQUIPMENT_OUTER_ITEMS: frozenset[str] = frozenset({"dress"})
+
+# 外衣に覆われる内側の装備ID。
+_EQUIPMENT_UNDER_ITEMS: frozenset[str] = frozenset({"panties", "bra", "sanitary_pad"})
+
+
+def _equipment_layers_covered(
+    worn_items: set[str] | list[str], respect_clothing_layers: bool
+) -> bool:
+    """外衣を着ていて下着が覆われている状態かを返す。"""
+    if not respect_clothing_layers:
+        return False
+    worn = {str(item) for item in worn_items}
+    return bool(worn & _EQUIPMENT_OUTER_ITEMS) and bool(worn & _EQUIPMENT_UNDER_ITEMS)
+
+
 def _equipment_image_tags(
-    template: dict[str, Any] | None, worn_items: set[str] | list[str]
+    template: dict[str, Any] | None,
+    worn_items: set[str] | list[str],
+    *,
+    respect_clothing_layers: bool = False,
 ) -> str:
+    """装備済みアイテムの画像用タグを返す。
+
+    respect_clothing_layers が有効で外衣を着ている場合、下着アイテムのタグは
+    positive から除外する。NovelAI では bra / panties 等のタグが
+    「下着が見えている」意味になり、ドレスの上から下着が描かれてしまうため。
+    """
     if not template or not worn_items:
         return ""
     worn = {str(item) for item in worn_items}
+    covered = _equipment_layers_covered(worn, respect_clothing_layers)
     tags: list[str] = []
     for item in template.get("rule", {}).get("items", []):
         item_id = str(item.get("id") or "")
         if item_id not in worn:
+            continue
+        if covered and item_id in _EQUIPMENT_UNDER_ITEMS:
             continue
         tag = _EQUIPMENT_IMAGE_TAGS.get(item_id)
         if tag:
@@ -451,6 +496,18 @@ def _equipment_image_tags(
         if en_label and en_label.lower() not in ",".join(tags).lower():
             tags.append(f"wearing {en_label}")
     return ", ".join(dict.fromkeys(tags))
+
+
+def _apply_clothing_layers_to_player_tags(
+    player_tags: str, *, covered: bool
+) -> tuple[str, str | None]:
+    """覆い状態なら player_tags から下着タグを剥がし、(タグ, extra negative) を返す。"""
+    if not covered:
+        return player_tags, None
+    kept, peeled = peel_undergarment_tags(player_tags)
+    if not peeled:
+        return player_tags, CLOTHING_LAYER_COVERED_NEGATIVE
+    return kept, CLOTHING_LAYER_COVERED_NEGATIVE
 
 
 # equipment_score の決定論選択肢用。露出済み衣類の「調べる」を避け、着用動詞で進行させる。
@@ -642,6 +699,11 @@ def _sanitize_visual_state(value: Any) -> dict[str, Any] | None:
         "surroundings": str(value.get("surroundings") or ""),
         "main_characters": characters[:5],
     }
+
+
+def clamp_generated_max_turns(value: int) -> int:
+    """Keep an auto-generated run's turn budget inside the supported range."""
+    return max(ADVENTURE_TURNS_MIN, min(ADVENTURE_TURNS_MAX, int(value)))
 
 
 PRESETS: dict[str, dict[str, Any]] = {
@@ -1042,15 +1104,18 @@ Return one JSON object only, in {response_language}, matching this schema:
 Base every value strictly on the supplied narrative and game state, and never invent events the narrative does not contain. choices must offer exactly three distinct actions the player could take next. discovered_clues must contain only new information the narrative actually revealed, and must not repeat state.clues. completed_milestones must contain milestone ID strings only, never objects, and only when the narrated action actually earns them. Keep ending_status as continue unless the narrative itself concludes the mission, and fill ending_title and ending_summary only in that case. Never decide the player's feelings, consent, or voluntary actions. When authored_template_resolution is provided, treat it as authoritative and never report a score, transformation, or ending beyond its event. Keep the entire response compact.
 {_REALITY_RULES_INSTRUCTION}"""
 
-    def _visual_system_prompt(self, language: str) -> str:
+    def _visual_system_prompt(
+        self, language: str, *, respect_clothing_layers: bool = False
+    ) -> str:
         response_language = "Japanese" if language == "ja" else "English"
+        layer_rule = _CLOTHING_LAYER_TAG_RULE if respect_clothing_layers else ""
         return f"""You update the visual state of an adventure scene and convert it into NovelAI image tags.
 Return one JSON object only, matching this schema:
 {{"visual_state":{{"location":"...","appearance":"...","clothing":"...","surroundings":"...","main_characters":[{{"name":"...","description":"...","clothing":"...","action":"..."}}]}},"scene_tags":"...","player_tags":"...","npc_tags":["..."]}}
 Write visual_state values in {response_language}. Write scene_tags, player_tags, and npc_tags as concise English comma-separated tags.
 Derive visual_state from previous_visual_state, changing only what the narrative states. Treat required_visual_appearance as an immutable identity signature: copy its hair color, hair length, hairstyle, eye color, and body features exactly into visual_state.appearance, and never replace or supplement those traits unless authored_template_resolution explicitly triggers that change. The player only puts on, removes, or changes clothing when player_input explicitly chose that action; otherwise keep previous_visual_state.clothing unchanged. Unless layering was explicitly requested, a new garment replaces the previous outfit. Keep visual_state concrete enough to illustrate the main characters, their clothing, and the surrounding location. main_characters contains NPCs, never the player.
 When previous_image_tags is provided, treat it as the wording a human editor deliberately chose: reuse its scene_tags, player_tags, and npc_tags as the starting point and edit them only where visual_state or the narrative now requires a change, preserving the rest of the original wording and phrasing style. When previous_image_tags is absent, write the tags from scratch.
-scene_tags contains only environment, camera, composition, lighting, and the observable interaction; it must not contain any character's gender, body, face, hair, or clothing. player_tags describes only the player from visual_state.appearance and visual_state.clothing. The player is always the primary subject in the center foreground. visual_state.clothing is authoritative and must never be replaced with an NPC outfit. npc_tags must contain one entry per NPC in main_characters, in the same order, describing only that NPC; every NPC is a secondary subject placed to the side or behind the player. Never merge player and NPC attributes. Do not add text, UI, split panels, or unstated changes. When authored_scene_tags is provided, reuse those environment tags as the base of scene_tags and only append concrete changes required by the narrative. When authored_visual_style is provided, keep visual_state.location and visual_state.surroundings aligned with it unless the narrative explicitly moves the scene to a new place after a successful exit."""
+scene_tags contains only environment, camera, composition, lighting, and the observable interaction; it must not contain any character's gender, body, face, hair, or clothing. player_tags describes only the player from visual_state.appearance and visual_state.clothing. The player is always the primary subject in the center foreground. visual_state.clothing is authoritative and must never be replaced with an NPC outfit. npc_tags must contain one entry per NPC in main_characters, in the same order, describing only that NPC; every NPC is a secondary subject placed to the side or behind the player. Never merge player and NPC attributes. Do not add text, UI, split panels, or unstated changes. When authored_scene_tags is provided, reuse those environment tags as the base of scene_tags and only append concrete changes required by the narrative. When authored_visual_style is provided, keep visual_state.location and visual_state.surroundings aligned with it unless the narrative explicitly moves the scene to a new place after a successful exit.{layer_rule}"""
 
     async def _generate_structured_output(
         self,
@@ -1128,12 +1193,15 @@ scene_tags contains only environment, camera, composition, lighting, and the obs
         language: str,
         text_model: str,
         previous_image_tags: dict[str, Any] | None = None,
+        respect_clothing_layers: bool = False,
     ) -> AdventureVisualOutput:
         authored_scene_tags = str(turn_context.get("authored_scene_tags") or "").strip()
         authored_visual_style = turn_context.get("authored_visual_style")
         visual_output = await self._generate_structured_output(
             AdventureVisualOutput,
-            system_prompt=self._visual_system_prompt(language),
+            system_prompt=self._visual_system_prompt(
+                language, respect_clothing_layers=respect_clothing_layers
+            ),
             user_prompt=json.dumps(
                 {
                     "narrative": narrative,
@@ -1160,17 +1228,25 @@ scene_tags contains only environment, camera, composition, lighting, and the obs
             )
         return visual_output
 
-    def _setup_system_prompt(self, language: str) -> str:
+    def _setup_system_prompt(
+        self, language: str, max_turns: int = ADVENTURE_TURNS_DEFAULT
+    ) -> str:
         response_language = "Japanese" if language == "ja" else "English"
-        return f"""You design a concise setup for an eight-turn objective-based adventure game.
+        turns = clamp_generated_max_turns(max_turns)
+        return f"""You design a concise setup for a {turns}-turn objective-based adventure game.
 Return one JSON object only, in {response_language}, matching this schema:
 {{"setting":"...","objective":"...","constraints":["...","..."]}}
-The objective must name a concrete target and an observable end condition that can be judged as achieved or failed within eight turns. Do not use vague goals such as succeed, investigate the situation, or reach the objective. The setting, objective, and constraints must fit the selected mission preset and supplied character snapshot. Constraints must create actionable complications without dictating the player's feelings, consent, memories, bodily sensations, or voluntary actions. Do not introduce another body transformation or assign physical traits that conflict with source_snapshot.appearance. For a disguise mission, generate the transformed person's name and role while keeping the supplied appearance exactly; the player does not have that person's memories, relationships, habits, skills, credentials, passwords, or authentication information."""
+The objective must name a concrete target and an observable end condition that can be judged as achieved or failed within {turns} turns. Scale the scope of the objective to that turn budget: a longer budget should leave room for searching for clues and scouting the surroundings, not add unrelated sub-goals. Do not use vague goals such as succeed, investigate the situation, or reach the objective. The setting, objective, and constraints must fit the selected mission preset and supplied character snapshot. Constraints must create actionable complications without dictating the player's feelings, consent, memories, bodily sensations, or voluntary actions. Do not introduce another body transformation or assign physical traits that conflict with source_snapshot.appearance. For a disguise mission, generate the transformed person's name and role while keeping the supplied appearance exactly; the player does not have that person's memories, relationships, habits, skills, credentials, passwords, or authentication information."""
 
     async def _generate_setup_output(
-        self, *, prompt: str, language: str, text_model: str
+        self,
+        *,
+        prompt: str,
+        language: str,
+        text_model: str,
+        max_turns: int = ADVENTURE_TURNS_DEFAULT,
     ) -> AdventureSetupOutput:
-        system_prompt = self._setup_system_prompt(language)
+        system_prompt = self._setup_system_prompt(language, max_turns)
         raw = await llm_service.generate_text(
             system_prompt,
             prompt,
@@ -1213,10 +1289,12 @@ The objective must name a concrete target and an observable end condition that c
         source_session_id: str,
         source_history_id: str | None,
         preset: str,
+        max_turns: int = ADVENTURE_TURNS_DEFAULT,
     ) -> dict[str, Any]:
         preset_config = PRESETS.get(preset)
         if preset_config is None:
             raise AdventureError("invalid_preset", "シナリオ種別が不正です")
+        turn_budget = clamp_generated_max_turns(max_turns)
 
         snapshot, _, appearance, _ = await self._build_snapshot(
             source_session_id, source_history_id
@@ -1230,6 +1308,7 @@ The objective must name a concrete target and an observable end condition that c
             {
                 "task": "Generate one mission setup for the selected preset.",
                 "preset": preset,
+                "max_turns": turn_budget,
                 "mission_definition": {
                     "title": preset_config["title"],
                     "default_objective": preset_config["objective"],
@@ -1243,7 +1322,10 @@ The objective must name a concrete target and an observable end condition that c
             ensure_ascii=False,
         )
         generated = await self._generate_setup_output(
-            prompt=prompt, language=language, text_model=text_model
+            prompt=prompt,
+            language=language,
+            text_model=text_model,
+            max_turns=turn_budget,
         )
         return generated.model_dump()
 
@@ -1277,8 +1359,10 @@ The objective must name a concrete target and an observable end condition that c
         scenario_constraints: list[str] | None = None,
         scenario_template_id: str | None = None,
         replay_run_id: str | None = None,
+        scenario_max_turns: int = ADVENTURE_TURNS_DEFAULT,
         use_precise_reference: bool = False,
         enable_composite_scene: bool = False,
+        respect_clothing_layers: bool = False,
     ) -> dict[str, Any]:
         replay_run = None
         replay_state: dict[str, Any] = {}
@@ -1359,7 +1443,7 @@ The objective must name a concrete target and an observable end condition that c
             ]
             milestones = list(preset_config["milestones"])
             title = str(preset_config["title"])
-            max_turns = 8
+            max_turns = clamp_generated_max_turns(scenario_max_turns)
             scenario_guidance = str(preset_config["guidance"])
             opening_premise = ""
 
@@ -1372,6 +1456,8 @@ The objective must name a concrete target and an observable end condition that c
                 "preset": effective_preset,
                 "setting": setting,
                 "objective": objective,
+                # 導入部の尺をターン予算に合わせるため、開始時点でも予算を渡す
+                "max_turns": max_turns,
                 "constraints": constraints,
                 "milestones": milestones,
                 "scenario_guidance": scenario_guidance,
@@ -1441,8 +1527,10 @@ The objective must name a concrete target and an observable end condition that c
             "choices": opening_choices,
             # 精密参照はユーザー明示ONのみ。未設定・旧runはOFF扱い。
             "use_precise_reference": bool(use_precise_reference),
-            # 合成シーン生成はユーザー明示ONのみ。OFF時は左上ポートレートのみ更新
+            # 合成シーン生成はユーザー明示ONのみ。OFF時は中央の立ち絵のみ更新
             "enable_composite_scene": bool(enable_composite_scene),
+            # 衣装レイヤー考慮。ONなら外衣に覆われた下着を画像タグから外す
+            "respect_clothing_layers": bool(respect_clothing_layers),
         }
         if authored_scene_tags:
             state["authored_scene_tags"] = authored_scene_tags
@@ -2395,6 +2483,9 @@ The objective must name a concrete target and an observable end condition that c
                         language=run.language,
                         text_model=run.text_model,
                         previous_image_tags=state.get("last_image_prompt"),
+                        respect_clothing_layers=bool(
+                            state.get("respect_clothing_layers")
+                        ),
                     )
                 except Exception as error:
                     logger.warning("Adventure visual generation failed: %s", error)
@@ -2746,10 +2837,13 @@ The objective must name a concrete target and an observable end condition that c
         text_model: str,
         *,
         authored_scene_tags: str = "",
+        respect_clothing_layers: bool = False,
     ) -> AdventureImagePromptOutput:
         system_prompt = """Convert a visual_state into NovelAI image tags.
 Return one JSON object only: {"scene_tags":"...","player_tags":"...","npc_tags":["..."]}.
 All values must be concise English comma-separated tags. scene_tags contains only environment, camera, composition, lighting, and the observable interaction; it must not contain any character's gender, body, face, hair, or clothing. player_tags describes only the player from visual_state.appearance and visual_state.clothing. The player is always the primary subject in the center foreground. visual_state.clothing is authoritative and must never be replaced with an NPC outfit. main_characters contains NPCs, not the player. npc_tags must contain one entry per important NPC in the same order, describing only that NPC; every NPC is a secondary subject placed to the side or behind the player. Never merge player and NPC attributes. Do not add text, UI, split panels, or unstated changes. When authored_scene_tags is provided, reuse those environment tags as the base of scene_tags and only append concrete changes required by visual_state."""
+        if respect_clothing_layers:
+            system_prompt += _CLOTHING_LAYER_TAG_RULE
         payload = {
             "visual_state": visual_state,
             "authored_scene_tags": authored_scene_tags or None,
@@ -2839,6 +2933,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         authored_scene_tags = _authored_scene_tags(template=template, state=state)
         current_path = Path(run.current_image_path)
         initial_path = Path(run.initial_image_path)
+        respect_clothing_layers = bool(state.get("respect_clothing_layers"))
         if not current_path.is_file() or not initial_path.is_file():
             raise AdventureError(
                 "image_not_found", "アドベンチャー画像が見つかりません"
@@ -2855,14 +2950,23 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                     visual_state,
                     run.text_model,
                     authored_scene_tags=authored_scene_tags,
+                    respect_clothing_layers=respect_clothing_layers,
                 )
             template_state = state.get("template_state") or {}
             worn_items = template_state.get("worn_items") or []
-            equipment_tags = _equipment_image_tags(template, worn_items)
+            equipment_tags = _equipment_image_tags(
+                template, worn_items, respect_clothing_layers=respect_clothing_layers
+            )
             if equipment_tags:
                 image_prompt.player_tags = _merge_player_tags(
                     image_prompt.player_tags, equipment_tags
                 )
+            covered = _equipment_layers_covered(worn_items, respect_clothing_layers)
+            image_prompt.player_tags, extra_negative = (
+                _apply_clothing_layers_to_player_tags(
+                    image_prompt.player_tags, covered=covered
+                )
+            )
             outfit_changed = redraw_from_reference or bool(equipment_tags)
             # 装備ありのターンは初期画像の服装を引きずらないよう参照を弱める
             if "dress" in {str(item) for item in worn_items}:
@@ -2930,6 +3034,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 scene_prompt,
                 image_bytes=source_image,
                 provider_override="novelai",
+                negative_prompt=merge_negative_prompt(None, extra_negative or ""),
                 nsfw_mode=nsfw_mode,
                 character_references=character_references,
                 characters=characters,
@@ -3017,14 +3122,15 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         *,
         redraw_from_reference: bool,
         prompt_override: AdventureImagePromptOutput | None,
-    ) -> tuple[AdventureImagePromptOutput, bool, bool, bool]:
-        """画像プロンプトと生成条件（服装変化・NSFW・精密参照）をまとめて算出する。
+    ) -> tuple[AdventureImagePromptOutput, bool, bool, bool, str | None]:
+        """画像プロンプトと生成条件（服装変化・NSFW・精密参照・追加negative）を算出する。
 
         ポートレート生成・合成シーン生成の両方から共通で使う準備処理。
         """
         visual_state = state.get("visual_state", {})
         template = SCENARIO_TEMPLATES.get(str(state.get("scenario_template_id") or ""))
         authored_scene_tags = _authored_scene_tags(template=template, state=state)
+        respect_clothing_layers = bool(state.get("respect_clothing_layers"))
         if prompt_override is not None:
             image_prompt = prompt_override
             if authored_scene_tags:
@@ -3033,15 +3139,26 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 )
         else:
             image_prompt = await self._generate_image_prompt_output(
-                visual_state, run.text_model, authored_scene_tags=authored_scene_tags
+                visual_state,
+                run.text_model,
+                authored_scene_tags=authored_scene_tags,
+                respect_clothing_layers=respect_clothing_layers,
             )
         template_state = state.get("template_state") or {}
         worn_items = template_state.get("worn_items") or []
-        equipment_tags = _equipment_image_tags(template, worn_items)
+        equipment_tags = _equipment_image_tags(
+            template, worn_items, respect_clothing_layers=respect_clothing_layers
+        )
         if equipment_tags:
             image_prompt.player_tags = _merge_player_tags(
                 image_prompt.player_tags, equipment_tags
             )
+        covered = _equipment_layers_covered(worn_items, respect_clothing_layers)
+        image_prompt.player_tags, extra_negative = (
+            _apply_clothing_layers_to_player_tags(
+                image_prompt.player_tags, covered=covered
+            )
+        )
         outfit_changed = redraw_from_reference or bool(equipment_tags)
         if "dress" in {str(item) for item in worn_items}:
             outfit_changed = True
@@ -3051,7 +3168,13 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         else:
             nsfw_mode = bool(run.nsfw_mode)
         use_precise_reference = bool(state.get("use_precise_reference"))
-        return image_prompt, outfit_changed, nsfw_mode, use_precise_reference
+        return (
+            image_prompt,
+            outfit_changed,
+            nsfw_mode,
+            use_precise_reference,
+            extra_negative,
+        )
 
     async def _generate_background_image_unlocked(
         self,
@@ -3100,7 +3223,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         prompt_override: AdventureImagePromptOutput | None = None,
         turn_number: int | None = None,
     ) -> tuple[Path, str | None]:
-        """呼び出し側が既に run ロックを保持している前提で左上ポートレートを生成する。"""
+        """呼び出し側が既に run ロックを保持している前提で中央の立ち絵を生成する。"""
         run = await self.get_run_orm(run_id)
         effective_turn_number = run.turn_count if turn_number is None else turn_number
         effective_turn_id = turn_id
@@ -3125,6 +3248,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 outfit_changed,
                 nsfw_mode,
                 use_precise_reference,
+                extra_negative,
             ) = await self._prepare_image_prompt(
                 run,
                 state,
@@ -3157,6 +3281,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 player_prompt,
                 image_bytes=None,
                 provider_override="novelai",
+                negative_prompt=merge_negative_prompt(None, extra_negative or ""),
                 nsfw_mode=nsfw_mode,
                 character_references=character_references,
                 characters=None,
@@ -3214,6 +3339,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 _outfit_changed,
                 nsfw_mode,
                 _use_precise_reference,
+                _extra_negative,
             ) = await self._prepare_image_prompt(
                 run,
                 state,
@@ -3330,6 +3456,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         *,
         use_precise_reference: bool,
         enable_composite_scene: bool,
+        respect_clothing_layers: bool | None = None,
     ) -> dict[str, Any]:
         """実行中シナリオの画像設定を更新する（次回生成から反映）。"""
         async with self._run_locks[run_id]:
@@ -3337,6 +3464,8 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             state = _json_load(run.state_json, {})
             state["use_precise_reference"] = bool(use_precise_reference)
             state["enable_composite_scene"] = bool(enable_composite_scene)
+            if respect_clothing_layers is not None:
+                state["respect_clothing_layers"] = bool(respect_clothing_layers)
             async with async_session_factory() as db:
                 persisted = await db.get(AdventureRun, run.id)
                 if persisted is None:
@@ -3410,6 +3539,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             "use_precise_reference": bool(state.get("use_precise_reference")),
             # 旧 run でキー未設定なら合成モード扱い（current_image_path に既に合成画像が入っている）
             "enable_composite_scene": bool(state.get("enable_composite_scene", True)),
+            "respect_clothing_layers": bool(state.get("respect_clothing_layers")),
             "background_image_url": (
                 self.image_url(run.id, Path(run.background_image_path))
                 if getattr(run, "background_image_path", None)

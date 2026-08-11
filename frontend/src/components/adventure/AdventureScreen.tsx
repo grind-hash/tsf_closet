@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router-dom";
-import type { AdventurePreset, AdventureTurn } from "../../apis/adventure";
+import type {
+  AdventurePreset,
+  AdventureStatus,
+  AdventureTurn,
+} from "../../apis/adventure";
 import { fetchGalleryList, fetchGallerySessions } from "../../apis/gallery";
 import { useAdventure } from "../../contexts/AdventureContext";
 import { useSettings } from "../../contexts/SettingsContext";
@@ -25,6 +29,37 @@ function mediaUrl(url: string): string {
 }
 
 const LAST_INSTRUCTION_PREVIEW_LEN = 24;
+
+// 自動生成ミッションのターン数。backend/gateway/consts/adventure_turns.py と揃える
+const DEFAULT_MAX_TURNS = 15;
+const MIN_MAX_TURNS = 5;
+const MAX_MAX_TURNS = 30;
+
+function clampMaxTurns(value: number): number {
+  if (!Number.isFinite(value)) return DEFAULT_MAX_TURNS;
+  return Math.min(MAX_MAX_TURNS, Math.max(MIN_MAX_TURNS, Math.round(value)));
+}
+
+// 主人公ドックは他のHUDパネルと排他にせず、開いたままプレイできるようにする
+const PROTAGONIST_DOCK_STORAGE_KEY = "adventure_protagonist_dock_open";
+
+function readProtagonistDockOpen(): boolean {
+  try {
+    return localStorage.getItem(PROTAGONIST_DOCK_STORAGE_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+type RunFilter = "all" | AdventureStatus;
+
+const RUN_FILTERS: RunFilter[] = [
+  "all",
+  "active",
+  "success",
+  "partial",
+  "failure",
+];
 
 const PORTRAIT_ALPHA_OPTIONS = { threshold: 12, featherRadius: 1.8 };
 
@@ -111,7 +146,12 @@ function AdventureHub() {
   const [scenarioSetting, setScenarioSetting] = useState("");
   const [scenarioObjective, setScenarioObjective] = useState("");
   const [scenarioConstraints, setScenarioConstraints] = useState("");
+  // 入力途中の桁削除を許すため文字列で保持し、送信時とblur時にクランプする
+  const [scenarioMaxTurns, setScenarioMaxTurns] = useState(
+    String(DEFAULT_MAX_TURNS),
+  );
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [runFilter, setRunFilter] = useState<RunFilter>("all");
   const [creating, setCreating] = useState(false);
   const { state: settingsState } = useSettings();
   // 精密参照は既定OFF。ユーザーが明示的にONした場合のみAnlas追加消費
@@ -172,6 +212,26 @@ function AdventureHub() {
     [runs],
   );
 
+  const runCounts = useMemo(() => {
+    const counts: Record<RunFilter, number> = {
+      all: runs.length,
+      active: 0,
+      success: 0,
+      partial: 0,
+      failure: 0,
+    };
+    for (const run of runs) counts[run.status] += 1;
+    return counts;
+  }, [runs]);
+
+  const filteredRuns = useMemo(
+    () =>
+      runFilter === "all"
+        ? sortedRuns
+        : sortedRuns.filter((run) => run.status === runFilter),
+    [sortedRuns, runFilter],
+  );
+
   useEffect(() => {
     if (!scenarioPickerOpen) return;
     const closeOnEscape = (event: KeyboardEvent) => {
@@ -181,11 +241,16 @@ function AdventureHub() {
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [scenarioPickerOpen]);
 
+  // ターン数は生成物ではなくユーザーが決めた生成条件なので、ここではリセットしない
   const clearGeneratedSetup = () => {
     setScenarioSetting("");
     setScenarioObjective("");
     setScenarioConstraints("");
   };
+
+  const effectiveMaxTurns = clampMaxTurns(
+    Number.parseInt(scenarioMaxTurns, 10),
+  );
 
   const openScenarioPicker = () => {
     setScenarioPickerTab(selectedReplayRunId ? "played" : "authored");
@@ -198,6 +263,7 @@ function AdventureHub() {
         source_session_id: sourceSessionId,
         source_history_id: sourceHistoryId,
         preset,
+        scenario_max_turns: effectiveMaxTurns,
       });
       setScenarioSetting(generated.setting);
       setScenarioObjective(generated.objective);
@@ -239,8 +305,11 @@ function AdventureHub() {
             : [],
         scenario_template_id: authoredTemplate?.id,
         replay_run_id: selectedReplayRun?.id,
+        scenario_max_turns:
+          startMode === "generated" ? effectiveMaxTurns : undefined,
         use_precise_reference: usePreciseReference,
         enable_composite_scene: enableCompositeScene,
+        respect_clothing_layers: settingsState.respectClothingLayers,
       });
       navigate(`/adventure/${run.id}`);
     } catch {
@@ -424,6 +493,31 @@ function AdventureHub() {
               </ol>
 
               <div className="adventure-setup-generator">
+                {/* ヒントは label の外に出す。label 内に入れると入力の
+                    アクセシブル名にヒント全文が混ざる */}
+                <label className="adventure-setup-turns">
+                  <span className="adventure-setup-turns__label">
+                    {t("adventure.maxTurns")}
+                  </span>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min={MIN_MAX_TURNS}
+                    max={MAX_MAX_TURNS}
+                    step={1}
+                    value={scenarioMaxTurns}
+                    disabled={setupGenerating || loading || creating}
+                    onChange={(event) =>
+                      setScenarioMaxTurns(event.target.value)
+                    }
+                    onBlur={() =>
+                      setScenarioMaxTurns(String(effectiveMaxTurns))
+                    }
+                  />
+                  <span className="adventure-setup-turns__unit">
+                    {t("adventure.maxTurnsUnit")}
+                  </span>
+                </label>
                 <button
                   type="button"
                   disabled={!sourceSessionId || setupGenerating || loading}
@@ -437,6 +531,12 @@ function AdventureHub() {
                     ? t("adventure.generatingSetup")
                     : t("adventure.generateSetup")}
                 </button>
+                <small className="adventure-setup-turns__hint">
+                  {t("adventure.maxTurnsHint", {
+                    min: MIN_MAX_TURNS,
+                    max: MAX_MAX_TURNS,
+                  })}
+                </small>
               </div>
 
               <details
@@ -521,32 +621,36 @@ function AdventureHub() {
             <summary>{t("adventure.imageGenOptions")}</summary>
             <div className="adventure-setup-details adventure-image-gen-options">
               <label className="adventure-precise-toggle">
+                <span className="adventure-precise-toggle__info">
+                  <strong>{t("adventure.preciseReference")}</strong>
+                  <small>{t("adventure.preciseReferenceHint")}</small>
+                </span>
                 <input
                   type="checkbox"
+                  className="adventure-precise-toggle__input"
                   checked={usePreciseReference}
                   disabled={setupGenerating || loading || creating}
                   onChange={(event) =>
                     setUsePreciseReference(event.target.checked)
                   }
                 />
-                <span>
-                  <strong>{t("adventure.preciseReference")}</strong>
-                  <small>{t("adventure.preciseReferenceHint")}</small>
-                </span>
+                <span className="adventure-precise-toggle__switch" />
               </label>
               <label className="adventure-precise-toggle">
+                <span className="adventure-precise-toggle__info">
+                  <strong>{t("adventure.enableCompositeScene")}</strong>
+                  <small>{t("adventure.enableCompositeSceneHint")}</small>
+                </span>
                 <input
                   type="checkbox"
+                  className="adventure-precise-toggle__input"
                   checked={enableCompositeScene}
                   disabled={setupGenerating || loading || creating}
                   onChange={(event) =>
                     setEnableCompositeScene(event.target.checked)
                   }
                 />
-                <span>
-                  <strong>{t("adventure.enableCompositeScene")}</strong>
-                  <small>{t("adventure.enableCompositeSceneHint")}</small>
-                </span>
+                <span className="adventure-precise-toggle__switch" />
               </label>
             </div>
           </details>
@@ -570,12 +674,47 @@ function AdventureHub() {
         </section>
 
         <section className="adventure-runs">
-          <h2>{t("adventure.savedRuns")}</h2>
+          <div className="adventure-runs__header">
+            <h2>{t("adventure.savedRuns")}</h2>
+            <span className="adventure-runs__count">
+              {t("adventure.savedRunsCount", { count: runs.length })}
+            </span>
+          </div>
+          {runs.length > 0 && (
+            <div
+              className="adventure-run-filters"
+              role="group"
+              aria-label={t("adventure.runFilterLabel")}
+            >
+              {RUN_FILTERS.map((value) => (
+                <button
+                  type="button"
+                  key={value}
+                  className={`adventure-run-filters__chip adventure-run-filters__chip--${value}${
+                    runFilter === value ? " is-active" : ""
+                  }`}
+                  aria-pressed={runFilter === value}
+                  // 0件でも選択中なら押せるままにし、抜け出せない状態を作らない
+                  disabled={runCounts[value] === 0 && runFilter !== value}
+                  onClick={() => setRunFilter(value)}
+                >
+                  {value === "all"
+                    ? t("adventure.runFilterAll")
+                    : t(`adventure.status.${value}`)}
+                  <span className="adventure-run-filters__count">
+                    {runCounts[value]}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
           {runs.length === 0 ? (
             <p className="adventure-empty">{t("adventure.noRuns")}</p>
+          ) : filteredRuns.length === 0 ? (
+            <p className="adventure-empty">{t("adventure.noRunsForFilter")}</p>
           ) : (
             <div className="adventure-run-list">
-              {sortedRuns.map((run) => (
+              {filteredRuns.map((run) => (
                 <article key={run.id} className="adventure-run-item">
                   <img src={run.current_image_url} alt={run.title} />
                   <div>
@@ -810,6 +949,8 @@ function AdventurePlay({ runId }: { runId: string }) {
     updateSettings,
     clearError,
   } = useAdventure();
+  const { state: settingsState } = useSettings();
+  const respectClothingLayers = settingsState.respectClothingLayers;
   const [input, setInput] = useState("");
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const turnStripEndRef = useRef<HTMLDivElement>(null);
@@ -831,6 +972,9 @@ function AdventurePlay({ runId }: { runId: string }) {
   const [hudPanel, setHudPanel] = useState<
     "milestones" | "clues" | "realityRules" | null
   >(null);
+  const [protagonistDockOpen, setProtagonistDockOpen] = useState(
+    readProtagonistDockOpen,
+  );
   const [resultDismissed, setResultDismissed] = useState(false);
 
   useEffect(() => {
@@ -841,6 +985,18 @@ function AdventurePlay({ runId }: { runId: string }) {
     if (!logOpen) return;
     transcriptEndRef.current?.scrollIntoView({ block: "end" });
   }, [logOpen]);
+
+  // 衣装レイヤー考慮は Adventure 専用トグルを持たず、設定画面の値を唯一の入力とする。
+  // 実行中の run に差分があれば次回生成へ反映されるよう同期する。
+  useEffect(() => {
+    if (!activeRun) return;
+    if (activeRun.respect_clothing_layers === respectClothingLayers) return;
+    void updateSettings({
+      use_precise_reference: activeRun.use_precise_reference,
+      enable_composite_scene: activeRun.enable_composite_scene,
+      respect_clothing_layers: respectClothingLayers,
+    }).catch(() => undefined);
+  }, [activeRun, respectClothingLayers, updateSettings]);
 
   useEffect(() => {
     if (!streamingNarrative) return;
@@ -1005,6 +1161,25 @@ function AdventurePlay({ runId }: { runId: string }) {
     true,
     PORTRAIT_ALPHA_OPTIONS,
   );
+  const toggleProtagonistDock = useCallback(() => {
+    setProtagonistDockOpen((current) => {
+      const next = !current;
+      try {
+        localStorage.setItem(PROTAGONIST_DOCK_STORAGE_KEY, String(next));
+      } catch {
+        // プライベートモード等で保存できなくても表示自体は切り替える
+      }
+      return next;
+    });
+  }, []);
+
+  // 主人公ドックは常に最新状態を見せる。過去フレーム閲覧中でも
+  // 追従しないよう、ステージ用の portraitSource とは別に最新分を解決する。
+  const { url: currentPortraitUrl } = useTransparentImage(
+    activeRun?.portrait_image_url ?? activeRun?.opening_portrait_url ?? null,
+    true,
+    PORTRAIT_ALPHA_OPTIONS,
+  );
 
   const lightboxFrame =
     lightboxIndex !== null ? frames[lightboxIndex] : undefined;
@@ -1054,10 +1229,13 @@ function AdventurePlay({ runId }: { runId: string }) {
   };
 
   // モーダル内だけを動かす。送り先に存在しないタブへ着地しないようシーンへ戻す
-  const openLightboxFrame = (index: number) => {
+  const openLightboxFrame = (
+    index: number,
+    view: "scene" | "background" | "portrait" = "scene",
+  ) => {
     if (index < 0 || index >= frames.length) return;
     setLightboxIndex(index);
-    setLightboxView("scene");
+    setLightboxView(view);
   };
 
   const lightboxImageUrl =
@@ -1133,7 +1311,7 @@ function AdventurePlay({ runId }: { runId: string }) {
             {activeLocation && (
               <span className="adventure-hud__location" title={activeLocation}>
                 <b>{t("adventure.currentLocation")}</b>
-                {activeLocation}
+                <span>{activeLocation}</span>
               </span>
             )}
             <div className="adventure-hud__metrics">
@@ -1197,6 +1375,27 @@ function AdventurePlay({ runId }: { runId: string }) {
                   <strong>{realityRules.length}</strong>
                 </button>
               )}
+              <button
+                type="button"
+                className={`adventure-hud__chip adventure-hud__chip--protagonist${
+                  protagonistDockOpen ? " is-open" : ""
+                }`}
+                aria-pressed={protagonistDockOpen}
+                title={t("adventure.protagonistToggleHint")}
+                disabled={!currentPortraitUrl && !activeRun.visual_state}
+                onClick={toggleProtagonistDock}
+              >
+                <span>{t("adventure.protagonist")}</span>
+                {currentPortraitUrl ? (
+                  <img
+                    className="adventure-hud__chip-thumb"
+                    src={currentPortraitUrl}
+                    alt=""
+                  />
+                ) : (
+                  <strong>-</strong>
+                )}
+              </button>
             </div>
             {hudPanel && (
               <div
@@ -1242,16 +1441,73 @@ function AdventurePlay({ runId }: { runId: string }) {
             )}
           </div>
 
-          {cast.length > 0 && (
-            <ul className="adventure-cast" aria-label={t("adventure.cast")}>
-              {cast.map((member) => (
-                <li key={member.name}>
-                  <strong>{member.name}</strong>
-                  {member.action && <span>{member.action}</span>}
-                </li>
-              ))}
-            </ul>
-          )}
+          {/*
+            登場人物と主人公ドックは同じ左レールに積む。別々の絶対配置にすると
+            ドックの高さ次第で重なるため、レール内で上下に振り分ける。
+          */}
+          <div className="adventure-left-rail" aria-hidden={false}>
+            {cast.length > 0 && (
+              <ul className="adventure-cast" aria-label={t("adventure.cast")}>
+                {cast.map((member) => (
+                  <li key={member.name}>
+                    <strong>{member.name}</strong>
+                    {member.action && <span>{member.action}</span>}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {protagonistDockOpen && (
+              <aside
+                className="adventure-protagonist-dock"
+                aria-label={t("adventure.protagonist")}
+              >
+                <div className="adventure-protagonist-dock__head">
+                  <strong>{t("adventure.protagonist")}</strong>
+                  <button
+                    type="button"
+                    className="adventure-protagonist-dock__close"
+                    aria-label={t("adventure.protagonistHide")}
+                    title={t("adventure.protagonistHide")}
+                    onClick={toggleProtagonistDock}
+                  >
+                    ✕
+                  </button>
+                </div>
+                {currentPortraitUrl && (
+                  <button
+                    type="button"
+                    className="adventure-protagonist-dock__figure"
+                    disabled={frames.length === 0}
+                    title={t("adventure.viewFullScreen")}
+                    onClick={() =>
+                      openLightboxFrame(frames.length - 1, "portrait")
+                    }
+                  >
+                    <img
+                      src={currentPortraitUrl}
+                      alt={t("adventure.portraitAlt")}
+                    />
+                  </button>
+                )}
+                <dl className="adventure-protagonist-dock__facts">
+                  <div>
+                    <dt>{t("adventure.protagonistAppearance")}</dt>
+                    <dd>
+                      {activeRun.visual_state?.appearance ||
+                        t("adventure.protagonistUnknown")}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>{t("adventure.protagonistClothing")}</dt>
+                    <dd>
+                      {activeRun.visual_state?.clothing ||
+                        t("adventure.protagonistUnknown")}
+                    </dd>
+                  </div>
+                </dl>
+              </aside>
+            )}
+          </div>
           <section className="adventure-stage" aria-busy={isStageLoading}>
             <div
               className={`adventure-stage__frame ${isCompositeMode ? "is-composite" : "is-background"}`}
@@ -1318,8 +1574,13 @@ function AdventurePlay({ runId }: { runId: string }) {
               {imageSettingsOpen && (
                 <div className="adventure-image-settings-popover">
                   <label className="adventure-precise-toggle">
+                    <span className="adventure-precise-toggle__info">
+                      <strong>{t("adventure.preciseReference")}</strong>
+                      <small>{t("adventure.preciseReferencePlayHint")}</small>
+                    </span>
                     <input
                       type="checkbox"
+                      className="adventure-precise-toggle__input"
                       checked={activeRun.use_precise_reference}
                       disabled={streaming || settingsSaving}
                       onChange={(event) => {
@@ -1334,14 +1595,18 @@ function AdventurePlay({ runId }: { runId: string }) {
                           .finally(() => setSettingsSaving(false));
                       }}
                     />
-                    <span>
-                      <strong>{t("adventure.preciseReference")}</strong>
-                      <small>{t("adventure.preciseReferencePlayHint")}</small>
-                    </span>
+                    <span className="adventure-precise-toggle__switch" />
                   </label>
                   <label className="adventure-precise-toggle">
+                    <span className="adventure-precise-toggle__info">
+                      <strong>{t("adventure.enableCompositeScene")}</strong>
+                      <small>
+                        {t("adventure.enableCompositeScenePlayHint")}
+                      </small>
+                    </span>
                     <input
                       type="checkbox"
+                      className="adventure-precise-toggle__input"
                       checked={activeRun.enable_composite_scene}
                       disabled={streaming || settingsSaving}
                       onChange={(event) => {
@@ -1356,12 +1621,7 @@ function AdventurePlay({ runId }: { runId: string }) {
                           .finally(() => setSettingsSaving(false));
                       }}
                     />
-                    <span>
-                      <strong>{t("adventure.enableCompositeScene")}</strong>
-                      <small>
-                        {t("adventure.enableCompositeScenePlayHint")}
-                      </small>
-                    </span>
+                    <span className="adventure-precise-toggle__switch" />
                   </label>
                 </div>
               )}
@@ -1400,9 +1660,10 @@ function AdventurePlay({ runId }: { runId: string }) {
                 className="adventure-messagebox__hide-button"
                 onClick={() => setMessageWindowHidden(true)}
                 title={t("adventure.window.hideHint")}
+                aria-label={t("adventure.window.hide")}
                 tabIndex={messageWindowHidden ? -1 : undefined}
               >
-                {t("adventure.window.hide")}
+                ✕
               </button>
             </div>
 

@@ -55,6 +55,7 @@ interface AdventureContextValue {
   updateSettings: (settings: {
     use_precise_reference: boolean;
     enable_composite_scene: boolean;
+    respect_clothing_layers?: boolean;
   }) => Promise<void>;
   clearError: () => void;
 }
@@ -307,6 +308,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
     async (settings: {
       use_precise_reference: boolean;
       enable_composite_scene: boolean;
+      respect_clothing_layers?: boolean;
     }) => {
       if (!activeRun) return;
       const runId = activeRun.id;
@@ -325,6 +327,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
                   ...run,
                   use_precise_reference: updated.use_precise_reference,
                   enable_composite_scene: updated.enable_composite_scene,
+                  respect_clothing_layers: updated.respect_clothing_layers,
                 }
               : run,
           ),

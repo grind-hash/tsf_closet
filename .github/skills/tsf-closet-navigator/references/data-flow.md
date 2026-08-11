@@ -138,6 +138,10 @@ Adventureのイベントは `status`、`narrative_chunk`、`narrative_done`、`t
 
 ターン表示では新規画像がないターンも、開始画像または直前の実効画像を時系列に引き継ぐ。Runの現在画像と開始画像の用途を混同しない。
 
+自動生成タイプのターン数は `scenario_max_turns` として `POST /adventure/setup/generate` と `POST /adventure/runs` の両方へ送り、`AdventureRun.max_turns` に保存する。境界値は `gateway/consts/adventure_turns.py` が唯一の情報源で、既定15手・5〜30手。作品シナリオはテンプレJSON、リプレイは元runの値を引き継ぐため、この項目は自動生成分岐だけに効く。`_setup_system_prompt` の英文と開始シーンのディレクタープロンプトにも同じ手数を渡し、生成されるゴール文面の尺と一致させる。
+
+Adventureの画像設定は run の `state_json` に持つ。`use_precise_reference`、`enable_composite_scene`、`respect_clothing_layers` を `POST /runs` と `PATCH /runs/{id}/settings` で設定し、`_prepare_image_prompt` と `_generate_image_unlocked` が state から読む。`respect_clothing_layers` は設定画面のグローバル値をAdventureScreenが同期し、ON時は外衣に覆われた装備下着タグを positive から外して被覆用 negative を足す。
+
 ## ギャラリー、お気に入り、エクスポート
 
 ```text

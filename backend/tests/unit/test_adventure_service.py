@@ -6,6 +6,11 @@ import pytest
 from sqlalchemy import delete, event, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from gateway.consts.adventure_turns import (
+    ADVENTURE_TURNS_DEFAULT,
+    ADVENTURE_TURNS_MAX,
+    ADVENTURE_TURNS_MIN,
+)
 from gateway.databases.models import (
     AdventureRun,
     AdventureTurn,
@@ -30,6 +35,7 @@ from gateway.services.adventure_service import (
     _merge_scene_tags,
     _sanitize_choices,
     _template_visual_style,
+    clamp_generated_max_turns,
 )
 from gateway.services.session import DEFAULT_USER_ID
 
@@ -210,6 +216,65 @@ async def test_generate_setup_uses_selected_mission_preset(
     assert setup["objective"] == "8手以内に保管庫から青い契約書を確保して正門を出る"
     assert len(setup["constraints"]) == 2
     assert "observable end condition" in service._setup_system_prompt("ja")
+    assert prompt["max_turns"] == ADVENTURE_TURNS_DEFAULT
+
+
+@pytest.mark.asyncio
+async def test_generate_setup_passes_requested_turn_budget(
+    monkeypatch, tmp_path
+) -> None:
+    service = AdventureService()
+    generated = AsyncMock(
+        return_value=SimpleNamespace(
+            content=__import__("json").dumps(
+                {
+                    "setting": "閉館後の企業資料館",
+                    "objective": "25手以内に保管庫から青い契約書を確保して正門を出る",
+                    "constraints": ["警備員が巡回している"],
+                },
+                ensure_ascii=False,
+            )
+        )
+    )
+    monkeypatch.setattr(
+        service,
+        "_build_snapshot",
+        AsyncMock(
+            return_value=(
+                {"attributes": ["変身後の姿"]},
+                tmp_path / "source.png",
+                "変身後の姿",
+                False,
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.session_store.get_user_settings",
+        AsyncMock(return_value={"language": "ja", "novelai_text_model": "glm-4-6"}),
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.llm_service.generate_text", generated
+    )
+
+    await service.generate_setup(
+        source_session_id="session-1",
+        source_history_id=None,
+        preset="infiltration",
+        max_turns=25,
+    )
+
+    prompt = __import__("json").loads(generated.await_args.args[1])
+    system_prompt = generated.await_args.args[0]
+    assert prompt["max_turns"] == 25
+    assert "a 25-turn objective-based adventure game" in system_prompt
+    assert "within 25 turns" in system_prompt
+    assert "eight" not in system_prompt
+
+
+def test_generated_turn_budget_is_clamped_to_supported_range() -> None:
+    assert clamp_generated_max_turns(99) == ADVENTURE_TURNS_MAX
+    assert clamp_generated_max_turns(1) == ADVENTURE_TURNS_MIN
+    assert clamp_generated_max_turns(ADVENTURE_TURNS_DEFAULT) == ADVENTURE_TURNS_DEFAULT
 
 
 @pytest.mark.asyncio
@@ -432,6 +497,64 @@ def test_equipment_image_tags_include_worn_dress() -> None:
     assert "wearing dress" in tags or "princess" in tags.lower()
     assert "bra" in tags.lower()
     assert "tiara" not in tags.lower()
+
+
+def test_equipment_image_tags_hide_underwear_under_dress_when_layers_respected() -> (
+    None
+):
+    from gateway.services.adventure_service import _equipment_image_tags
+
+    template = SCENARIO_TEMPLATES["princess_locked_room"]
+    worn = ["panties", "bra", "dress", "sanitary_pad"]
+    tags = _equipment_image_tags(template, worn, respect_clothing_layers=True)
+    assert "dress" in tags.lower()
+    assert "bra" not in tags.lower()
+    assert "panties" not in tags.lower()
+    assert "sanitary" not in tags.lower()
+
+
+def test_equipment_image_tags_keep_underwear_without_outer_garment() -> None:
+    from gateway.services.adventure_service import _equipment_image_tags
+
+    template = SCENARIO_TEMPLATES["princess_locked_room"]
+    tags = _equipment_image_tags(
+        template, ["panties", "bra"], respect_clothing_layers=True
+    )
+    assert "bra" in tags.lower()
+    assert "panties" in tags.lower()
+
+
+def test_covered_underwear_is_peeled_from_player_tags_with_negative() -> None:
+    from gateway.services.adventure_service import (
+        _apply_clothing_layers_to_player_tags,
+        _equipment_layers_covered,
+    )
+
+    covered = _equipment_layers_covered(["panties", "bra", "dress"], True)
+    assert covered is True
+    tags, negative = _apply_clothing_layers_to_player_tags(
+        "1girl, white bra, white panties, princess dress, tiara", covered=covered
+    )
+    assert "bra" not in tags.lower()
+    assert "panties" not in tags.lower()
+    assert "princess dress" in tags
+    assert negative is not None
+    assert "visible bra" in negative
+
+
+def test_clothing_layers_are_ignored_when_setting_is_off() -> None:
+    from gateway.services.adventure_service import (
+        _apply_clothing_layers_to_player_tags,
+        _equipment_layers_covered,
+    )
+
+    covered = _equipment_layers_covered(["panties", "bra", "dress"], False)
+    assert covered is False
+    tags, negative = _apply_clothing_layers_to_player_tags(
+        "1girl, white bra, princess dress", covered=covered
+    )
+    assert "white bra" in tags
+    assert negative is None
 
 
 def test_door_check_without_tiara_stays_incomplete_and_lists_missing() -> None:

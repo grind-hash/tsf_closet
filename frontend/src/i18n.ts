@@ -92,6 +92,10 @@ const resources = {
           step3: "内容を確認・編集して開始",
         },
         detailsToggle: "舞台・ゴール・制約を直接入力する",
+        maxTurns: "ターン数",
+        maxTurnsUnit: "手",
+        maxTurnsHint:
+          "{{min}}〜{{max}}手。多いほど手掛かりの探索や周辺の調査に余裕が生まれます。そのぶん場面画像の生成回数とプレイ時間は増えます。自動生成するゴールもこの手数に合わせた規模になります",
         generateSetup: "ミッション案を自動生成",
         generatingSetup: "ミッション案を生成中...",
         setting: "舞台",
@@ -115,15 +119,19 @@ const resources = {
           "次回の画像生成から反映されます。ONにすると参照1枚あたりAnlasを追加消費します。",
         enableCompositeScene: "背景と人物を同時に描く",
         enableCompositeSceneHint:
-          "OFFが既定です。既定では背景は開始時に1回だけ生成し、行動に応じて左上のポートレートのみ更新します。ONにすると、ポートレート更新後に背景を含む合成シーンも直列で再生成し、Anlas消費が増えます。",
+          "OFFが既定です。既定では背景は開始時に1回だけ生成し、行動に応じて中央の立ち絵のみ更新します。ONにすると、立ち絵の更新後に背景を含む合成シーンも直列で再生成するため、1ターンあたりの画像生成が2回になり待ち時間が長くなります。",
         enableCompositeScenePlayHint:
-          "次回のターンから反映されます。ONの間は毎ターンで合成シーンも直列生成されるためAnlas消費が増えます。",
+          "次回のターンから反映されます。ONの間は毎ターン、立ち絵に加えて合成シーンも直列生成されるため待ち時間が長くなります。",
         portraitAlt: "主人公のポートレート",
         preparing: "シナリオを準備中...",
         preparingTitle: "シナリオを準備しています",
         preparingDetail:
           "開始場面の物語と画像を生成中です。完了までそのままお待ちください。",
         noRuns: "保存されたシナリオはありません",
+        noRunsForFilter: "この条件に一致するシナリオはありません",
+        savedRunsCount: "{{count}}件",
+        runFilterLabel: "シナリオの絞り込み",
+        runFilterAll: "すべて",
         resume: "再開",
         delete: "削除",
         deleteConfirm: "このシナリオを削除しますか？",
@@ -140,6 +148,12 @@ const resources = {
           "宣言済みの世界ルールです。以降のすべての判定に適用され、ルールが覆う行動だけでミッション失敗にはなりません。",
         milestones: "進行目標",
         milestoneDone: "達成済み",
+        protagonist: "主人公",
+        protagonistToggleHint: "主人公の状態パネルを表示／非表示",
+        protagonistHide: "主人公パネルを閉じる",
+        protagonistAppearance: "外見",
+        protagonistClothing: "服装",
+        protagonistUnknown: "まだ情報がありません",
         cast: "登場人物",
         result: {
           turns: "到達手番",
@@ -283,7 +297,7 @@ const resources = {
           "変身後の状態から独立したノベルゲームを開始できるメニューを表示します",
         adventureEnableCompositeScene: "背景と人物を同時に描く（既定）",
         adventureEnableCompositeSceneDesc:
-          "新規シナリオ作成時の初期値です。ONの場合、左上ポートレート更新後に背景を含む合成シーンも直列で再生成し、Anlas消費が増えます。作成画面でターンごとに上書きできます。",
+          "新規シナリオ作成時の初期値です。ONの場合、中央の立ち絵の更新後に背景を含む合成シーンも直列で再生成するため、1ターンあたりの画像生成が2回になり待ち時間が長くなります。作成画面でシナリオごとに上書きできます。",
         experimentalPlayMemory: "プレイメモ",
         experimentalPlayMemoryDesc:
           "セッションごとの経緯とユーザーメモを以後の生成へ反映します。",
@@ -1329,6 +1343,10 @@ const resources = {
           step3: "Review, edit, and start",
         },
         detailsToggle: "Enter the setting, goal, and constraints manually",
+        maxTurns: "Turns",
+        maxTurnsUnit: "turns",
+        maxTurnsHint:
+          "{{min}}-{{max}} turns. More turns leave room to search for clues and scout the surroundings, at the cost of more scene image generations and a longer playthrough. The generated goal is scaled to this budget.",
         generateSetup: "Generate Mission Setup",
         generatingSetup: "Generating mission setup...",
         setting: "Setting",
@@ -1353,15 +1371,19 @@ const resources = {
           "Applies from the next image generation. When on, each reference costs extra Anlas.",
         enableCompositeScene: "Draw background and character together",
         enableCompositeSceneHint:
-          "Off by default. By default, the background is generated once at the start, and only the top-left portrait updates as you act. When on, the full composite scene (including background) is also regenerated in series after each portrait update, using more Anlas.",
+          "Off by default. By default, the background is generated once at the start, and only the centered character sprite updates as you act. When on, the full composite scene (including background) is also regenerated in series after each sprite update, so each turn runs two image generations and takes longer.",
         enableCompositeScenePlayHint:
-          "Applies from the next turn. While on, the composite scene is also generated in series every turn, using more Anlas.",
+          "Applies from the next turn. While on, every turn generates the composite scene in series after the character sprite, so turns take longer.",
         portraitAlt: "Protagonist portrait",
         preparing: "Preparing scenario...",
         preparingTitle: "Preparing the scenario",
         preparingDetail:
           "Generating the opening story and scene image. Please wait until it is ready.",
         noRuns: "No saved scenarios",
+        noRunsForFilter: "No scenarios match this filter",
+        savedRunsCount: "{{count}} saved",
+        runFilterLabel: "Filter scenarios",
+        runFilterAll: "All",
         resume: "Resume",
         delete: "Delete",
         deleteConfirm: "Delete this scenario?",
@@ -1378,6 +1400,12 @@ const resources = {
           "Declared world rules. They apply to every later judgement, and behaviour they cover alone never fails the mission.",
         milestones: "Milestones",
         milestoneDone: "Completed",
+        protagonist: "Protagonist",
+        protagonistToggleHint: "Show or hide the protagonist state panel",
+        protagonistHide: "Close the protagonist panel",
+        protagonistAppearance: "Appearance",
+        protagonistClothing: "Clothing",
+        protagonistUnknown: "Not available yet",
         cast: "Characters",
         result: {
           turns: "Turns played",
@@ -1523,7 +1551,7 @@ const resources = {
         adventureEnableCompositeScene:
           "Draw background and character together (default)",
         adventureEnableCompositeSceneDesc:
-          "Default for new Adventure scenarios. When on, the full composite scene (background + character) is also regenerated in series after each portrait update, costing extra Anlas. Can be overridden per scenario on the creation screen.",
+          "Default for new Adventure scenarios. When on, the full composite scene (background + character) is also regenerated in series after each sprite update, so each turn runs two image generations and takes longer. Can be overridden per scenario on the creation screen.",
         experimentalPlayMemory: "Play Memory",
         experimentalPlayMemoryDesc:
           "Use session history and user notes as context for future generations.",

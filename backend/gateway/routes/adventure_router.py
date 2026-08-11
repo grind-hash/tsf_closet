@@ -11,6 +11,11 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
+from ..consts.adventure_turns import (
+    ADVENTURE_TURNS_DEFAULT,
+    ADVENTURE_TURNS_MAX,
+    ADVENTURE_TURNS_MIN,
+)
 from ..services.adventure_service import (
     AdventureError,
     AdventureImagePromptOutput,
@@ -24,6 +29,13 @@ class AdventureSetupGenerateRequest(BaseModel):
     source_session_id: str = Field(min_length=1)
     source_history_id: str | None = None
     preset: Literal["infiltration", "escape", "negotiation", "disguise"]
+    # 自動生成のゴール文面は「N手以内に〜」という尺で書かれるため、
+    # 案の生成時点でもターン予算を渡す
+    scenario_max_turns: int = Field(
+        default=ADVENTURE_TURNS_DEFAULT,
+        ge=ADVENTURE_TURNS_MIN,
+        le=ADVENTURE_TURNS_MAX,
+    )
 
 
 class AdventureCreateRequest(BaseModel):
@@ -36,15 +48,26 @@ class AdventureCreateRequest(BaseModel):
     scenario_constraints: list[str] = Field(default_factory=list, max_length=4)
     scenario_template_id: str | None = Field(default=None, max_length=80)
     replay_run_id: str | None = Field(default=None, max_length=80)
+    # 自動生成タイプのみで使用。作品シナリオはテンプレJSON、
+    # リプレイは元 run の max_turns を引き継ぐ
+    scenario_max_turns: int = Field(
+        default=ADVENTURE_TURNS_DEFAULT,
+        ge=ADVENTURE_TURNS_MIN,
+        le=ADVENTURE_TURNS_MAX,
+    )
     # 既定OFF: ユーザーが明示ONしない限り精密参照でAnlasを消費しない
     use_precise_reference: bool = False
-    # 既定OFF: OFF時は左上ポートレートのみ更新し、背景合成シーンは初回のみ生成
+    # 既定OFF: OFF時は中央の立ち絵のみ更新し、背景合成シーンは初回のみ生成
     enable_composite_scene: bool = False
+    # 衣装レイヤー考慮。ONなら外衣に覆われた下着を画像タグから除外する
+    respect_clothing_layers: bool = False
 
 
 class AdventureSettingsUpdateRequest(BaseModel):
     use_precise_reference: bool
     enable_composite_scene: bool
+    # 未指定なら既存の run 設定を維持する
+    respect_clothing_layers: bool | None = None
 
 
 class AdventureTurnRequest(BaseModel):
@@ -84,6 +107,7 @@ async def generate_setup(request: AdventureSetupGenerateRequest) -> dict:
             source_session_id=request.source_session_id,
             source_history_id=request.source_history_id,
             preset=request.preset,
+            max_turns=request.scenario_max_turns,
         )
     except AdventureError as error:
         raise _http_error(error) from error
@@ -102,8 +126,10 @@ async def create_run(request: AdventureCreateRequest) -> dict:
             scenario_constraints=request.scenario_constraints,
             scenario_template_id=request.scenario_template_id,
             replay_run_id=request.replay_run_id,
+            scenario_max_turns=request.scenario_max_turns,
             use_precise_reference=request.use_precise_reference,
             enable_composite_scene=request.enable_composite_scene,
+            respect_clothing_layers=request.respect_clothing_layers,
         )
     except AdventureError as error:
         raise _http_error(error) from error
@@ -147,6 +173,7 @@ async def update_run_settings(
             run_id,
             use_precise_reference=request.use_precise_reference,
             enable_composite_scene=request.enable_composite_scene,
+            respect_clothing_layers=request.respect_clothing_layers,
         )
     except AdventureError as error:
         raise _http_error(error) from error
