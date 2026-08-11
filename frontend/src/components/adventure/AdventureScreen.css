@@ -264,11 +264,68 @@
   grid-column: 1 / -1;
 }
 
-.adventure-image-gen-options {
+.adventure-image-gen-options,
+.adventure-story-options {
   grid-column: 1 / -1;
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.adventure-narration-voice__cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.adventure-narration-voice__cards button {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid #4a535c;
+  border-radius: 8px;
+  background: #1a2026;
+  text-align: left;
+  cursor: pointer;
+}
+
+.adventure-narration-voice__cards button.is-active {
+  border-color: #efb85a;
+  background: #24211a;
+}
+
+.adventure-narration-voice__cards strong {
+  color: #f4f6f8;
+  font-size: 0.88rem;
+}
+
+.adventure-narration-voice__cards small {
+  color: #aeb7bf;
+  font-size: 0.74rem;
+  line-height: 1.5;
+}
+
+.adventure-narration-voice__hint {
+  margin: 0;
+  color: #aeb7bf;
+  font-size: 0.75rem;
+}
+
+.adventure-card .adventure-narration-pronoun {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.adventure-narration-pronoun input {
+  width: 7em;
+  min-height: 40px;
+  padding: 0 10px;
+  border: 1px solid #4a535c;
+  border-radius: 6px;
+  color: #e9edf0;
+  background: #242b31;
+  font-size: 0.95rem;
 }
 
 .adventure-image-gen-options .adventure-precise-toggle {
@@ -2813,6 +2870,10 @@ button:disabled {
   .adventure-mode-cards,
   .adventure-preset-cards {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .adventure-narration-voice__cards {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .adventure-run-item {

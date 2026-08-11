@@ -11,6 +11,12 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
+from ..consts.adventure_narration import (
+    NARRATION_PRONOUN_DEFAULT,
+    NARRATION_PRONOUN_MAX_LENGTH,
+    NARRATION_VOICE_DEFAULT,
+    NarrationVoice,
+)
 from ..consts.adventure_turns import (
     ADVENTURE_TURNS_DEFAULT,
     ADVENTURE_TURNS_MAX,
@@ -54,6 +60,14 @@ class AdventureCreateRequest(BaseModel):
         default=ADVENTURE_TURNS_DEFAULT,
         ge=ADVENTURE_TURNS_MIN,
         le=ADVENTURE_TURNS_MAX,
+    )
+    # 語りの人称。既定は従来どおりの二人称
+    narration_voice: NarrationVoice = NARRATION_VOICE_DEFAULT
+    # first_person のときだけ使う一人称語
+    narration_pronoun: str = Field(
+        default=NARRATION_PRONOUN_DEFAULT,
+        min_length=1,
+        max_length=NARRATION_PRONOUN_MAX_LENGTH,
     )
     # 既定OFF: ユーザーが明示ONしない限り精密参照でAnlasを消費しない
     use_precise_reference: bool = False
@@ -127,6 +141,8 @@ async def create_run(request: AdventureCreateRequest) -> dict:
             scenario_template_id=request.scenario_template_id,
             replay_run_id=request.replay_run_id,
             scenario_max_turns=request.scenario_max_turns,
+            narration_voice=request.narration_voice,
+            narration_pronoun=request.narration_pronoun,
             use_precise_reference=request.use_precise_reference,
             enable_composite_scene=request.enable_composite_scene,
             respect_clothing_layers=request.respect_clothing_layers,

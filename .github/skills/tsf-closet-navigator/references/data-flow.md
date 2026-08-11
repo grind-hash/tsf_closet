@@ -140,6 +140,10 @@ Adventureのイベントは `status`、`narrative_chunk`、`narrative_done`、`t
 
 自動生成タイプのターン数は `scenario_max_turns` として `POST /adventure/setup/generate` と `POST /adventure/runs` の両方へ送り、`AdventureRun.max_turns` に保存する。境界値は `gateway/consts/adventure_turns.py` が唯一の情報源で、既定15手・5〜30手。作品シナリオはテンプレJSON、リプレイは元runの値を引き継ぐため、この項目は自動生成分岐だけに効く。`_setup_system_prompt` の英文と開始シーンのディレクタープロンプトにも同じ手数を渡し、生成されるゴール文面の尺と一致させる。
 
+語りの人称は run の `state_json` に `narration_voice`（`second_person` 既定 / `third_person` / `first_person`）と `narration_pronoun` で持ち、境界値は `gateway/consts/adventure_narration.py` が唯一の情報源。`_director_system_prompt`、`_narrative_system_prompt`、`_resolution_system_prompt`、修復プロンプト、`_clothing_narrative_suffix` の5箇所へ渡す。人称指示は同意・主体性のガード文を必ず伴い、`_lean_state_for_llm` では user prompt から除外する。旧 run はキー欠落時に二人称へ倒す。
+
+作品シナリオの装備判定 `_last_equipment_action` は、エイリアス前後を走査して最も近い着脱動詞を帰属させる。他アイテムの語で走査を打ち切るが、並列助詞（と／や／and）で繋がる場合と、直後が修飾助詞（の／に等）の場合は境界にしない。長い語に内包されただけの一致（「ヘッドドレス」中の「ドレス」）は数えない。画像側では未装備アイテムを `_equipment_negative_tags` で negative に出し、`_strip_unworn_equipment_tags` で player_tags からも除く。外衣着用時は下着 negative を出さない（`CLOTHING_LAYER_COVERED_NEGATIVE` と矛盾するため）。
+
 Adventureの画像設定は run の `state_json` に持つ。`use_precise_reference`、`enable_composite_scene`、`respect_clothing_layers` を `POST /runs` と `PATCH /runs/{id}/settings` で設定し、`_prepare_image_prompt` と `_generate_image_unlocked` が state から読む。`respect_clothing_layers` は設定画面のグローバル値をAdventureScreenが同期し、ON時は外衣に覆われた装備下着タグを positive から外して被覆用 negative を足す。
 
 ## ギャラリー、お気に入り、エクスポート

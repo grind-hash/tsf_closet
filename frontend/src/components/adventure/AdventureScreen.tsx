@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router-dom";
 import type {
+  AdventureNarrationVoice,
   AdventurePreset,
   AdventureStatus,
   AdventureTurn,
@@ -50,6 +51,16 @@ function readProtagonistDockOpen(): boolean {
     return false;
   }
 }
+
+// backend/gateway/consts/adventure_narration.py と揃える
+const NARRATION_VOICES: AdventureNarrationVoice[] = [
+  "second_person",
+  "third_person",
+  "first_person",
+];
+const DEFAULT_NARRATION_PRONOUN = "僕";
+const NARRATION_PRONOUN_SUGGESTIONS = ["僕", "俺", "私", "わたし", "あたし"];
+const NARRATION_PRONOUN_MAX_LENGTH = 10;
 
 type RunFilter = "all" | AdventureStatus;
 
@@ -151,6 +162,11 @@ function AdventureHub() {
     String(DEFAULT_MAX_TURNS),
   );
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [narrationVoice, setNarrationVoice] =
+    useState<AdventureNarrationVoice>("second_person");
+  const [narrationPronoun, setNarrationPronoun] = useState(
+    DEFAULT_NARRATION_PRONOUN,
+  );
   const [runFilter, setRunFilter] = useState<RunFilter>("all");
   const [creating, setCreating] = useState(false);
   const { state: settingsState } = useSettings();
@@ -307,6 +323,8 @@ function AdventureHub() {
         replay_run_id: selectedReplayRun?.id,
         scenario_max_turns:
           startMode === "generated" ? effectiveMaxTurns : undefined,
+        narration_voice: narrationVoice,
+        narration_pronoun: narrationPronoun.trim() || DEFAULT_NARRATION_PRONOUN,
         use_precise_reference: usePreciseReference,
         enable_composite_scene: enableCompositeScene,
         respect_clothing_layers: settingsState.respectClothingLayers,
@@ -616,6 +634,65 @@ function AdventureHub() {
               </button>
             </div>
           )}
+
+          <details className="adventure-setup-details-wrapper">
+            <summary>{t("adventure.storyOptions")}</summary>
+            <div className="adventure-setup-details adventure-story-options">
+              <fieldset className="adventure-narration-voice">
+                <legend>{t("adventure.narrationVoice")}</legend>
+                <div className="adventure-narration-voice__cards">
+                  {NARRATION_VOICES.map((value) => (
+                    <button
+                      type="button"
+                      key={value}
+                      disabled={setupGenerating || loading || creating}
+                      className={narrationVoice === value ? "is-active" : ""}
+                      aria-pressed={narrationVoice === value}
+                      onClick={() => setNarrationVoice(value)}
+                    >
+                      <strong>{t(`adventure.narrationVoices.${value}`)}</strong>
+                      <small>
+                        {t(`adventure.narrationVoiceExamples.${value}`, {
+                          pronoun:
+                            narrationPronoun.trim() ||
+                            DEFAULT_NARRATION_PRONOUN,
+                        })}
+                      </small>
+                    </button>
+                  ))}
+                </div>
+                <p className="adventure-narration-voice__hint">
+                  {t("adventure.narrationVoiceHint")}
+                </p>
+              </fieldset>
+              {narrationVoice === "first_person" && (
+                <label className="adventure-narration-pronoun">
+                  <span>{t("adventure.narrationPronoun")}</span>
+                  <input
+                    type="text"
+                    list="adventure-narration-pronoun-options"
+                    maxLength={NARRATION_PRONOUN_MAX_LENGTH}
+                    value={narrationPronoun}
+                    disabled={setupGenerating || loading || creating}
+                    onChange={(event) =>
+                      setNarrationPronoun(event.target.value)
+                    }
+                    onBlur={() =>
+                      setNarrationPronoun(
+                        (current) =>
+                          current.trim() || DEFAULT_NARRATION_PRONOUN,
+                      )
+                    }
+                  />
+                  <datalist id="adventure-narration-pronoun-options">
+                    {NARRATION_PRONOUN_SUGGESTIONS.map((value) => (
+                      <option key={value} value={value} />
+                    ))}
+                  </datalist>
+                </label>
+              )}
+            </div>
+          </details>
 
           <details className="adventure-setup-details-wrapper">
             <summary>{t("adventure.imageGenOptions")}</summary>

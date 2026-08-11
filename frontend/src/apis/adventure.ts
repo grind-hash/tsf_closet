@@ -6,6 +6,11 @@ export type AdventurePreset =
   | "negotiation"
   | "disguise";
 export type AdventureStatus = "active" | "success" | "partial" | "failure";
+/** 物語の語りの人称。second_person が従来どおりの既定 */
+export type AdventureNarrationVoice =
+  | "second_person"
+  | "third_person"
+  | "first_person";
 
 export interface AdventureChoice {
   id: string;
@@ -101,6 +106,10 @@ export interface AdventureRun {
   enable_composite_scene: boolean;
   /** 衣装レイヤー考慮。trueのとき外衣に覆われた下着を画像タグから外す */
   respect_clothing_layers: boolean;
+  /** 物語の語りの人称。旧runは second_person 扱い */
+  narration_voice: AdventureNarrationVoice;
+  /** first_person のときに使う一人称語 */
+  narration_pronoun: string;
   /** 開始時に一度だけ生成される背景。非合成モードの固定背景として使用 */
   background_image_url: string | null;
   /** 現在の中央の立ち絵（最新ターン分） */
@@ -151,6 +160,10 @@ export interface AdventureCreateRequest extends AdventureSetupRequest {
   enable_composite_scene?: boolean;
   /** 設定画面の「服の重なりを考慮」をそのまま引き継ぐ */
   respect_clothing_layers?: boolean;
+  /** 未指定なら second_person（従来どおりの語り口） */
+  narration_voice?: AdventureNarrationVoice;
+  /** first_person のときだけ使う。未指定なら「僕」 */
+  narration_pronoun?: string;
 }
 
 export interface AdventureSettingsUpdateRequest {
@@ -184,6 +197,9 @@ function normalizeRun(run: AdventureRun): AdventureRun {
     use_precise_reference: Boolean(run.use_precise_reference),
     enable_composite_scene: Boolean(run.enable_composite_scene),
     respect_clothing_layers: Boolean(run.respect_clothing_layers),
+    // 旧runやモック応答にキーが無くても表示側が undefined を掴まないようにする
+    narration_voice: run.narration_voice ?? "second_person",
+    narration_pronoun: run.narration_pronoun || "僕",
     current_image_url: withApiBase(run.current_image_url) ?? "",
     opening_image_url:
       withApiBase(run.opening_image_url) ??

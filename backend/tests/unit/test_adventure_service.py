@@ -30,8 +30,11 @@ from gateway.services.adventure_service import (
     _apply_visual_style_to_state,
     _authored_scene_tags,
     _equipment_score_choices,
+    _equipment_negative_tags,
     _equipment_wear_choice_label,
     _last_equipment_action,
+    _equipment_clothing_state_tags,
+    _strip_clothing_tags_for_equipment_scenario,
     _merge_scene_tags,
     _sanitize_choices,
     _template_visual_style,
@@ -489,6 +492,89 @@ def test_turn_judgement_prompts_carry_reality_rule_policy() -> None:
         assert "must never by itself set ending_status to failure" in prompt
 
 
+def _narration_prompts(service: AdventureService, **kwargs: str) -> tuple[str, ...]:
+    return (
+        service._director_system_prompt("ja", **kwargs),
+        service._narrative_system_prompt("ja", **kwargs),
+        service._resolution_system_prompt("ja", **kwargs),
+    )
+
+
+def test_narration_voice_defaults_to_second_person() -> None:
+    service = AdventureService()
+    for prompt in _narration_prompts(service):
+        assert "NARRATION VOICE:" in prompt
+        assert "in the second person" in prompt
+
+
+@pytest.mark.parametrize(
+    ("voice", "marker"),
+    [
+        ("second_person", "in the second person"),
+        ("third_person", "in the third person"),
+        ("first_person", "in the first person"),
+    ],
+)
+def test_narration_voice_switches_grammatical_person(voice: str, marker: str) -> None:
+    service = AdventureService()
+    for prompt in _narration_prompts(service, narration_voice=voice):
+        assert marker in prompt
+
+
+def test_first_person_narration_pins_the_configured_pronoun() -> None:
+    service = AdventureService()
+    for prompt in _narration_prompts(
+        service, narration_voice="first_person", narration_pronoun="俺"
+    ):
+        assert "「俺」" in prompt
+        assert "never substituting a different first-person pronoun" in prompt
+
+
+def test_unknown_narration_voice_falls_back_to_second_person() -> None:
+    service = AdventureService()
+    assert "in the second person" in service._narrative_system_prompt(
+        "ja", narration_voice="bogus"
+    )
+
+
+def test_narration_voice_keeps_agency_guard_in_every_mode() -> None:
+    """人称を変えても同意・主体性のガードを弱めないこと。"""
+    service = AdventureService()
+    for voice in ("second_person", "third_person", "first_person"):
+        for prompt in _narration_prompts(service, narration_voice=voice):
+            assert "consent" in prompt
+            assert "any voluntary action that the" in prompt
+
+
+def test_resolution_prompt_keeps_choice_labels_voice_free() -> None:
+    service = AdventureService()
+    prompt = service._resolution_system_prompt("ja", narration_voice="first_person")
+    assert "choices[].label must remain a short neutral action phrase" in prompt
+
+
+@pytest.mark.parametrize(
+    ("voice", "pronoun", "expected"),
+    [
+        ("second_person", "僕", "君は赤いドレスを着用した。"),
+        ("first_person", "俺", "俺は赤いドレスを着用した。"),
+        # 変身で性別が変わりうるため三人称では主語を補わない
+        ("third_person", "僕", "赤いドレスを着用した。"),
+    ],
+)
+def test_clothing_narrative_suffix_follows_narration_voice(
+    voice: str, pronoun: str, expected: str
+) -> None:
+    service = AdventureService()
+    suffix = service._clothing_narrative_suffix(
+        "赤いドレス",
+        "",
+        "ja",
+        narration_voice=voice,
+        narration_pronoun=pronoun,
+    )
+    assert suffix == expected
+
+
 def test_equipment_image_tags_include_worn_dress() -> None:
     from gateway.services.adventure_service import _equipment_image_tags
 
@@ -604,6 +690,145 @@ def test_tiara_aliases_include_headdress() -> None:
     door = service._resolve_template_action(template, state, "扉の採点を確認する")
     assert door["event"] == "perfect_score"
     assert door["score"] == 100
+
+
+def test_equipment_negative_tags_target_only_unworn_items() -> None:
+    template = SCENARIO_TEMPLATES["princess_locked_room"]
+    negative = _equipment_negative_tags(template, ["bra"])
+    # 未装備の下着・ドレス・ティアラは打ち消す
+    assert "panties" in negative
+    assert "gown" in negative
+    assert "tiara" in negative
+    # 装備中のブラは打ち消さない。総称語も混ぜない
+    assert "bra" not in negative.split(", ")
+    assert "underwear" not in negative
+    assert "lingerie" not in negative
+
+
+def test_equipment_negative_tags_skip_underwear_under_outer_garment() -> None:
+    """外衣を着ているときは下着 negative を出さない。
+
+    CLOTHING_LAYER_COVERED_NEGATIVE が `no panties` を含むため、
+    同じプロンプトに `panties` を足すと自己矛盾になる。
+    """
+    template = SCENARIO_TEMPLATES["princess_locked_room"]
+    negative = _equipment_negative_tags(template, ["bra", "dress"])
+    assert "panties" not in negative
+    assert "tiara" in negative
+
+
+def test_equipment_negative_tags_ignore_non_equipment_templates() -> None:
+    assert _equipment_negative_tags(None, ["bra"]) == ""
+
+
+def test_equipment_scenario_drops_llm_clothing_tags() -> None:
+    """装備採点シナリオでは LLM が書いた服装タグを残さない。
+
+    元セッションの私服がそのまま画像へ出てしまうため。
+    """
+    template = SCENARIO_TEMPLATES["princess_locked_room"]
+    stripped = _strip_clothing_tags_for_equipment_scenario(
+        template,
+        "1girl, black bob hair, white shirt, blue jacket, black pants, panties",
+    )
+    tokens = stripped.split(", ")
+    assert tokens == ["1girl", "black bob hair"]
+
+
+def test_equipment_scenario_clothing_strip_ignores_other_scenarios() -> None:
+    tags = "1girl, white shirt"
+    assert _strip_clothing_tags_for_equipment_scenario(None, tags) == tags
+
+
+def test_equipment_scenario_clothing_strip_keeps_original_when_all_removed() -> None:
+    """player_tags は min_length=1。全消しになる入力では元を返す。"""
+    template = SCENARIO_TEMPLATES["princess_locked_room"]
+    assert (
+        _strip_clothing_tags_for_equipment_scenario(template, "panties, bra")
+        == "panties, bra"
+    )
+
+
+def test_equipment_scenario_states_exposure_with_danbooru_tags() -> None:
+    """「ブラだけ」は分布外なので、bottomless で状態そのものを指示する。"""
+    template = SCENARIO_TEMPLATES["princess_locked_room"]
+    assert "nude" in _equipment_clothing_state_tags(template, [])
+    assert "bottomless" in _equipment_clothing_state_tags(template, ["bra"])
+    assert "topless" in _equipment_clothing_state_tags(template, ["panties"])
+    # 上下そろっていれば露出指示は不要
+    assert _equipment_clothing_state_tags(template, ["bra", "panties"]) == ""
+    # 外衣で覆われていれば露出指示は出さない
+    assert _equipment_clothing_state_tags(template, ["bra", "dress"]) == ""
+    assert _equipment_clothing_state_tags(None, []) == ""
+
+
+def _resolve_equipment_actions(text: str) -> dict[str, str]:
+    """princess_locked_room の全アイテムに対する着脱判定をまとめて返す。"""
+    items = SCENARIO_TEMPLATES["princess_locked_room"]["rule"]["items"]
+    alias_by_item = {item["id"]: tuple(item["aliases"]) for item in items}
+    actions: dict[str, str] = {}
+    for item_id, aliases in alias_by_item.items():
+        own = set(aliases)
+        other = tuple(
+            alias
+            for other_id, other_aliases in alias_by_item.items()
+            if other_id != item_id
+            for alias in other_aliases
+            if alias not in own
+        )
+        action = _last_equipment_action(text, aliases, other_aliases=other)
+        if action:
+            actions[item_id] = action
+    return actions
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        # 選んだ衣類だけが装備される
+        ("ブラジャーをつける", {"bra": "wear"}),
+        ("ショーツを履く", {"panties": "wear"}),
+        # 動詞は最も近いエイリアスへ帰属する（以前は「脱いで」が無視されていた）
+        ("ショーツを脱いでブラジャーをつける", {"panties": "remove", "bra": "wear"}),
+        # 他アイテムの語を越えて動詞を拾わない
+        ("ショーツは後回しにして、まずブラジャーをつける", {"bra": "wear"}),
+        # 英語は動詞が名詞の前に来る
+        ("Put on bra", {"bra": "wear"}),
+        ("Put on panties", {"panties": "wear"}),
+        ("Put on tiara", {"tiara": "wear"}),
+        # 長い語に内包されただけの一致は数えない（ヘッドドレスの「ドレス」）
+        ("ヘッドドレスを身につける", {"tiara": "wear"}),
+        # 修飾・場所として言及された衣類は着脱対象ではない
+        ("ドレスの上からティアラをつける", {"tiara": "wear"}),
+        # 並列表現は動詞を共有する
+        (
+            "ショーツとブラジャーを身につけ、ドレスを着用してティアラをかぶる",
+            {
+                "panties": "wear",
+                "bra": "wear",
+                "dress": "wear",
+                "tiara": "wear",
+            },
+        ),
+        # 共有エイリアス「下着」は両方に効く（意図した挙動）
+        ("下着をつける", {"panties": "wear", "bra": "wear"}),
+        ("扉の文章をもう一度読む", {}),
+    ],
+)
+def test_equipment_action_attribution(text: str, expected: dict[str, str]) -> None:
+    assert _resolve_equipment_actions(text) == expected
+
+
+def test_equipment_wear_labels_do_not_match_other_items() -> None:
+    """着用選択肢ラベルが、自分以外のアイテムを装備させないこと。"""
+    template = SCENARIO_TEMPLATES["princess_locked_room"]
+    for language in ("ja", "en"):
+        for item in template["rule"]["items"]:
+            item_id = item["id"]
+            label = item["labels"][language]
+            choice_label = _equipment_wear_choice_label(item_id, label, language)
+            actions = _resolve_equipment_actions(choice_label)
+            assert actions == {item_id: "wear"}, (language, choice_label, actions)
 
 
 def test_princess_room_requires_hidden_item_before_transformation() -> None:
@@ -1686,6 +1911,9 @@ def test_serialize_run_defaults_enable_composite_scene_true_for_legacy_runs() ->
     assert payload["enable_composite_scene"] is True
     assert payload["background_image_url"] is None
     assert payload["portrait_image_url"] is None
+    # 人称も旧runでは従来どおりの二人称へ倒す
+    assert payload["narration_voice"] == "second_person"
+    assert payload["narration_pronoun"] == "僕"
 
 
 @pytest.mark.asyncio
@@ -1782,6 +2010,11 @@ async def test_princess_room_image_generation_merges_authored_scene_tags(
     assert "crystal chandelier" in scene_prompt
     assert scene_prompt.startswith(authored.split(",")[0])
     assert generate_image.await_args.kwargs["nsfw_mode"] is True
+    negative = generate_image.await_args.kwargs["negative_prompt"] or ""
+    # 未装備アイテムを打ち消す negative が載ること
+    assert "panties" in negative
+    # 追加 negative を渡してもプロバイダ既定の品質UCが消えないこと
+    assert "lowres" in negative
 
 
 @pytest.mark.asyncio

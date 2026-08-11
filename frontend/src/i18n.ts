@@ -110,6 +110,21 @@ const resources = {
           noScenario: "シナリオを選択してください",
         },
         start: "シナリオを開始",
+        storyOptions: "物語の演出",
+        narrationVoice: "語りの人称",
+        narrationVoiceHint:
+          "物語文の主語をどう書くかを選びます。開始後は変更できません。",
+        narrationVoices: {
+          second_person: "二人称",
+          third_person: "三人称",
+          first_person: "一人称",
+        },
+        narrationVoiceExamples: {
+          second_person: "例: あなたは二人に声をかけた",
+          third_person: "例: 黒髪ボブの彼女は二人に声をかけた",
+          first_person: "例: {{pronoun}}は二人に声をかけた",
+        },
+        narrationPronoun: "一人称",
         imageGenOptions: "画像生成オプション",
         imageSettings: "画像生成設定",
         preciseReference: "精密参照画像を使う",
@@ -1362,6 +1377,22 @@ const resources = {
           noScenario: "Select a scenario",
         },
         start: "Start Scenario",
+        storyOptions: "Story Presentation",
+        narrationVoice: "Narration Voice",
+        narrationVoiceHint:
+          "Chooses how the narration refers to the player character. It cannot be changed after the scenario starts.",
+        narrationVoices: {
+          second_person: "Second person",
+          third_person: "Third person",
+          first_person: "First person",
+        },
+        narrationVoiceExamples: {
+          second_person: "e.g. You called out to the two of them",
+          third_person:
+            "e.g. The black-haired girl called out to the two of them",
+          first_person: "e.g. I called out to the two of them",
+        },
+        narrationPronoun: "Pronoun",
         imageGenOptions: "Image Generation Options",
         imageSettings: "Image Generation Settings",
         preciseReference: "Use precise character reference",

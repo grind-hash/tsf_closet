@@ -26,6 +26,12 @@ from pydantic import (
 from sqlalchemy import delete, select
 from sqlalchemy.orm import selectinload
 
+from ..consts.adventure_narration import (
+    NARRATION_PRONOUN_DEFAULT,
+    NARRATION_PRONOUN_MAX_LENGTH,
+    NARRATION_VOICE_DEFAULT,
+    NARRATION_VOICES,
+)
 from ..consts.adventure_turns import (
     ADVENTURE_TURNS_DEFAULT,
     ADVENTURE_TURNS_MAX,
@@ -38,7 +44,9 @@ from .character_service import extract_protagonist_tags_from_history
 from .clothing_layers import (
     CLOTHING_LAYER_COVERED_NEGATIVE,
     merge_negative_prompt,
+    normalize_tag_for_match,
     peel_undergarment_tags,
+    split_tag_tokens,
 )
 from .image_generation import image_service
 from .adventure_template_loader import SCENARIO_TEMPLATES, template_localized
@@ -413,6 +421,9 @@ def _lean_state_for_llm(state: dict[str, Any]) -> dict[str, Any]:
         "last_image_prompt",
         "authored_scene_tags",
         "opening_image_path",
+        # 人称指示はシステムプロンプト側に載るため、user prompt へは流さない
+        "narration_voice",
+        "narration_pronoun",
     }
     return {key: value for key, value in state.items() if key not in omit}
 
@@ -453,6 +464,10 @@ _EQUIPMENT_OUTER_ITEMS: frozenset[str] = frozenset({"dress"})
 
 # 外衣に覆われる内側の装備ID。
 _EQUIPMENT_UNDER_ITEMS: frozenset[str] = frozenset({"panties", "bra", "sanitary_pad"})
+
+# 露出状態タグ（bottomless / topless）の判定用に上下を分ける。
+_EQUIPMENT_UPPER_UNDER_ITEMS: frozenset[str] = frozenset({"bra"})
+_EQUIPMENT_LOWER_UNDER_ITEMS: frozenset[str] = frozenset({"panties", "sanitary_pad"})
 
 
 def _equipment_layers_covered(
@@ -496,6 +511,110 @@ def _equipment_image_tags(
         if en_label and en_label.lower() not in ",".join(tags).lower():
             tags.append(f"wearing {en_label}")
     return ", ".join(dict.fromkeys(tags))
+
+
+# 未装備アイテムを打ち消す negative。装備済みアイテムのタグと語が重ならないよう、
+# underwear / lingerie のような総称語は使わない（clothing_layers._UNDERGARMENT_HINTS）。
+_EQUIPMENT_NEGATIVE_TAGS: dict[str, str] = {
+    # 下着はモデルが強く補完してくるため重みを上げる。
+    # underwear / lingerie のような総称語は着用中の相方まで消すので使わない。
+    "panties": "1.5::panties::, panty, thong, briefs, boyshorts",
+    "bra": "1.5::bra::, sports bra, bikini top",
+    "dress": "dress, gown, ball gown, evening gown",
+    "tiara": "tiara, crown, diadem, headdress",
+    # 服の下で見えないため negative を出す意味がない
+    "sanitary_pad": "",
+}
+
+
+def _unworn_equipment_items(
+    template: dict[str, Any] | None, worn_items: set[str] | list[str]
+) -> list[dict[str, Any]]:
+    """equipment_score テンプレートで、まだ装備していないアイテムを返す。
+
+    外衣を着ている場合、覆われる下着は「見えない」だけで矛盾しないため対象外にする。
+    CLOTHING_LAYER_COVERED_NEGATIVE が `no panties` を negative に含めるので、
+    ここで `panties` を negative に足すと自己矛盾になる。
+    """
+    rule = template.get("rule", {}) if template else {}
+    if rule.get("type") != "equipment_score":
+        return []
+    worn = {str(item) for item in worn_items}
+    outer_worn = bool(worn & _EQUIPMENT_OUTER_ITEMS)
+    unworn: list[dict[str, Any]] = []
+    for item in rule.get("items", []):
+        item_id = str(item.get("id") or "")
+        if not item_id or item_id in worn:
+            continue
+        if outer_worn and item_id in _EQUIPMENT_UNDER_ITEMS:
+            continue
+        unworn.append(item)
+    return unworn
+
+
+def _equipment_negative_tags(
+    template: dict[str, Any] | None, worn_items: set[str] | list[str]
+) -> str:
+    """未装備アイテムを描かせないための negative タグを返す。"""
+    tags: list[str] = []
+    for item in _unworn_equipment_items(template, worn_items):
+        item_id = str(item.get("id") or "")
+        tag = _EQUIPMENT_NEGATIVE_TAGS.get(item_id)
+        if tag is None:
+            labels = item.get("labels") or {}
+            tag = str(labels.get("en") or "").strip()
+        if tag:
+            tags.extend(part.strip() for part in tag.split(",") if part.strip())
+    return ", ".join(dict.fromkeys(tags))
+
+
+def _strip_clothing_tags_for_equipment_scenario(
+    template: dict[str, Any] | None, player_tags: str
+) -> str:
+    """equipment_score シナリオの player_tags から服装タグを一括で外す。
+
+    このルールでは着ている物が worn_items だけで決まるのに、player_tags は
+    visual_state が補正される前に LLM が書くため、元セッションの私服などが
+    そのまま残りうる。服装は決定論のタグで置き直す。
+    """
+    rule = template.get("rule", {}) if template else {}
+    if rule.get("type") != "equipment_score" or not player_tags.strip():
+        return player_tags
+    kept = [
+        token
+        for token in split_tag_tokens(player_tags)
+        if not _CLOTHING_TAG_PATTERN.search(normalize_tag_for_match(token))
+    ]
+    # player_tags は min_length=1。全部消える入力では元をそのまま返す。
+    return ", ".join(kept) if kept else player_tags
+
+
+def _equipment_clothing_state_tags(
+    template: dict[str, Any] | None, worn_items: set[str] | list[str]
+) -> str:
+    """今の露出状態を表すタグを返す。
+
+    「ブラだけ」のような状態は学習分布から外れており、negative で下衣を消すだけ
+    では下着を描き足されてしまう。Danbooru 語彙の bottomless / topless で
+    「上だけ着ている」状態そのものを指示する方が確実に効く。
+    服装タグを外したままにもできないので、裸の場合も明示する。
+    """
+    rule = template.get("rule", {}) if template else {}
+    if rule.get("type") != "equipment_score":
+        return ""
+    worn = {str(item) for item in worn_items}
+    if worn & _EQUIPMENT_OUTER_ITEMS:
+        # 外衣で覆われていれば露出状態を指示する必要はない
+        return ""
+    upper_worn = bool(worn & _EQUIPMENT_UPPER_UNDER_ITEMS)
+    lower_worn = bool(worn & _EQUIPMENT_LOWER_UNDER_ITEMS)
+    if upper_worn and not lower_worn:
+        return "1.4::bottomless::, no panties, bare hips"
+    if lower_worn and not upper_worn:
+        return "1.4::topless::, no bra, bare chest"
+    if not upper_worn and not lower_worn and rule.get("empty_clothing"):
+        return "1.4::completely nude::, no clothes"
+    return ""
 
 
 def _apply_clothing_layers_to_player_tags(
@@ -766,29 +885,131 @@ PRESETS: dict[str, dict[str, Any]] = {
 }
 
 
-def _last_equipment_action(value: str, aliases: tuple[str, ...]) -> str | None:
-    lowered = value.lower()
-    wear_pattern = re.compile(
-        r"(?:着る|着用|身につけ|身に着け|履く|履い|つける|つけ|付ける|付け|貼る|貼り|装着|"
-        r"かぶる|被る|使用|put on|wear|attach|apply)",
-        re.IGNORECASE,
-    )
-    remove_pattern = re.compile(
-        r"(?:脱ぐ|脱い|外す|外し|下げる|remove|take off)", re.IGNORECASE
-    )
-    actions: list[tuple[int, str]] = []
+_EQUIPMENT_WEAR_PATTERN = re.compile(
+    r"(?:着る|着用|身につけ|身に着け|履く|履い|つける|つけ|付ける|付け|貼る|貼り|装着|"
+    r"かぶる|被る|使用|put on|wear|attach|apply)",
+    re.IGNORECASE,
+)
+_EQUIPMENT_REMOVE_PATTERN = re.compile(
+    r"(?:脱ぐ|脱い|外す|外し|下げる|remove|take off)", re.IGNORECASE
+)
+# エイリアス前後の走査幅。日本語は名詞の後ろ、英語は名詞の前に動詞が来る。
+_EQUIPMENT_ACTION_WINDOW = 60
+
+# 「AとBを身につける」のように動詞を共有する並列表現。境界として扱わない。
+_EQUIPMENT_LIST_JOINER = re.compile(
+    r"[\s、,，・/&]*(?:と|や|および|and)?[\s、,，・/&]*"
+)
+
+# 「ナプキンをショーツの内側に貼る」の「ショーツの」のように、直後が修飾・場所を
+# 示す助詞なら、その語は着脱動詞の対象ではないので境界にしない。
+_EQUIPMENT_MODIFIER_PARTICLE = re.compile(r"^(?:の|に|へ|で|から|より|まで)")
+
+
+def _alias_spans(lowered: str, aliases: tuple[str, ...]) -> list[tuple[int, int]]:
+    """小文字化済み文字列から、いずれかのエイリアスに一致する範囲を返す。"""
+    spans: list[tuple[int, int]] = []
     for alias in aliases:
-        for item_match in re.finditer(re.escape(alias.lower()), lowered):
-            window = lowered[item_match.start() : item_match.start() + 60]
-            actions.extend(
-                (item_match.start() + match.start(), "wear")
-                for match in wear_pattern.finditer(window)
-            )
-            actions.extend(
-                (item_match.start() + match.start(), "remove")
-                for match in remove_pattern.finditer(window)
-            )
-    return max(actions)[1] if actions else None
+        cleaned = alias.lower().strip()
+        if not cleaned:
+            continue
+        spans.extend(
+            (match.start(), match.end())
+            for match in re.finditer(re.escape(cleaned), lowered)
+        )
+    return spans
+
+
+def _last_equipment_action(
+    value: str,
+    aliases: tuple[str, ...],
+    *,
+    other_aliases: tuple[str, ...] = (),
+) -> str | None:
+    """入力からこのアイテムに対する着脱操作を判定する。
+
+    エイリアス出現位置の前後を見て、最も近い着脱動詞をそのエイリアスへ帰属させる。
+    走査範囲は other_aliases（他アイテムの語）で打ち切り、隣の衣類に付いた動詞を
+    取り違えないようにする。
+    """
+    lowered = value.lower()
+    own_spans = _alias_spans(lowered, aliases)
+    if not own_spans:
+        return None
+    other_spans = [
+        span for span in _alias_spans(lowered, other_aliases) if span not in own_spans
+    ]
+    # 「ヘッドドレス」の中の「ドレス」のように、他アイテムのより長い語に
+    # 内包されているだけの一致は自分の出現として数えない。
+    own_spans = [
+        (start, end)
+        for start, end in own_spans
+        if not any(
+            other_start <= start
+            and end <= other_end
+            and (other_end - other_start) > (end - start)
+            for other_start, other_end in other_spans
+        )
+    ]
+    if not own_spans:
+        return None
+    # 「ドレスの上からティアラをつける」の「ドレスの」のように、直後が修飾・場所の
+    # 助詞なら着脱の対象ではない。全出現が修飾なら、このアイテムは操作されていない。
+    direct_spans = [
+        (start, end)
+        for start, end in own_spans
+        if not _EQUIPMENT_MODIFIER_PARTICLE.match(lowered[end:])
+    ]
+    if not direct_spans:
+        return None
+    own_spans = direct_spans
+
+    def _is_joined(gap_start: int, gap_end: int) -> bool:
+        """並列助詞だけで隔てられているなら境界として扱わない。"""
+        if gap_start >= gap_end:
+            return True
+        return _EQUIPMENT_LIST_JOINER.fullmatch(lowered[gap_start:gap_end]) is not None
+
+    def _is_boundary(other_start: int, other_end: int) -> bool:
+        """他アイテムの語を走査の打ち切り位置として扱うか。"""
+        return not _EQUIPMENT_MODIFIER_PARTICLE.match(lowered[other_end:])
+
+    # (エイリアスからの距離, 出現位置, 種別) の最小をアイテム全体の判定とする
+    best: tuple[int, int, str] | None = None
+    for start, end in own_spans:
+        # 他アイテムの語を越えない範囲へ窓を狭める
+        left_bound = max(
+            [0, start - _EQUIPMENT_ACTION_WINDOW]
+            + [
+                other_end
+                for other_start, other_end in other_spans
+                if other_end <= start
+                and not _is_joined(other_end, start)
+                and _is_boundary(other_start, other_end)
+            ]
+        )
+        right_bound = min(
+            [len(lowered), end + _EQUIPMENT_ACTION_WINDOW]
+            + [
+                other_start
+                for other_start, other_end in other_spans
+                if other_start >= end
+                and not _is_joined(end, other_start)
+                and _is_boundary(other_start, other_end)
+            ]
+        )
+        window = lowered[left_bound:right_bound]
+        for pattern, action in (
+            (_EQUIPMENT_WEAR_PATTERN, "wear"),
+            (_EQUIPMENT_REMOVE_PATTERN, "remove"),
+        ):
+            for match in pattern.finditer(window):
+                position = left_bound + match.start()
+                distance = start - position if position < start else position - end
+                candidate = (max(distance, 0), position, action)
+                if best is None or candidate < best:
+                    best = candidate
+    return best[2] if best else None
 
 
 def _transform_appearance(appearance: str, config: dict[str, Any]) -> str:
@@ -869,6 +1090,75 @@ _REALITY_RULES_INSTRUCTION = (
     "to it, keep ending_status as continue, and never treat the declaration itself as "
     "a suspicious act."
 )
+
+
+# 人称を切り替えても、同意・主体性のガードは弱めない。どの人称でも同じ文を添える。
+_NARRATION_VOICE_GUARD = (
+    "Choosing this grammatical person changes only the grammatical subject and "
+    "viewpoint of the prose. It grants no additional authority over the player "
+    "character and overrides no other rule: you must still never state or imply the "
+    "player character's feelings, emotions, opinions, preferences, comfort, consent, "
+    "refusal, wishes, memories, intentions, plans, or any voluntary action that the "
+    "player's input did not explicitly state. Earlier entries in recent_turns may use "
+    "a different narration voice; ignore their voice and follow this rule."
+)
+
+_NARRATION_VOICE_RULES: dict[str, str] = {
+    "second_person": (
+        "Write the player character in the second person, addressing them directly as "
+        '"you" (in Japanese, 「あなた」 or 「君」). '
+    ),
+    "third_person": (
+        "Write the player character in the third person, as a character observed from "
+        "outside rather than an addressee. Refer to them with third-person pronouns "
+        "and, where a noun phrase reads better, a short descriptive phrase built only "
+        "from traits already present in required_visual_appearance — for example "
+        '「黒髪ボブの彼女」. Never address the player as "you"/「あなた」/「君」 and '
+        "never use a first-person pronoun for them. Narrate only what an outside "
+        "observer could see or hear. "
+    ),
+}
+
+
+def normalize_narration_pronoun(value: str | None) -> str:
+    """一人称語を1語に正規化する。システムプロンプトへ入るため改行等を落とす。"""
+    cleaned = re.sub(r"\s+", "", str(value or ""))[:NARRATION_PRONOUN_MAX_LENGTH]
+    return cleaned or NARRATION_PRONOUN_DEFAULT
+
+
+def normalize_narration_voice(value: str | None) -> str:
+    """未知の値や旧 run の欠落は既定の二人称へ倒す。"""
+    voice = str(value or "")
+    return voice if voice in NARRATION_VOICES else NARRATION_VOICE_DEFAULT
+
+
+def _narration_voice_instruction(voice: str, pronoun: str) -> str:
+    """語りの人称指示を返す。プロンプト末尾に置いて直近性を効かせる。"""
+    voice = normalize_narration_voice(voice)
+    if voice == "first_person":
+        rule = (
+            "Write the player character in the first person, as their own account of "
+            f"the scene, using the pronoun 「{normalize_narration_pronoun(pronoun)}」 "
+            "for every self-reference and never substituting a different first-person "
+            "pronoun. First person permits exactly two additions and nothing more: "
+            "(1) the character's physical actions that follow directly from the "
+            "player's input, and (2) what the character can perceive with their senses "
+            "at this instant. Do not write interior monologue, deliberation, "
+            "self-commentary, reaction, or judgement. If a sentence would require the "
+            "character to want, decide, feel, agree to, refuse, or remember something, "
+            "drop the sentence and narrate the external event instead. "
+        )
+    else:
+        rule = _NARRATION_VOICE_RULES[voice]
+    return "NARRATION VOICE: " + rule + _NARRATION_VOICE_GUARD
+
+
+def _narration_from_state(state: dict[str, Any]) -> tuple[str, str]:
+    """run の state から (人称, 一人称語) を取り出す。旧 run は既定へ倒す。"""
+    return (
+        normalize_narration_voice(state.get("narration_voice")),
+        normalize_narration_pronoun(state.get("narration_pronoun")),
+    )
 
 
 def _detect_reality_declaration(user_input: str) -> str | None:
@@ -1023,13 +1313,21 @@ class AdventureService:
         }
         return snapshot, image_path, appearance, nsfw_mode
 
-    def _director_system_prompt(self, language: str) -> str:
+    def _director_system_prompt(
+        self,
+        language: str,
+        *,
+        narration_voice: str = NARRATION_VOICE_DEFAULT,
+        narration_pronoun: str = NARRATION_PRONOUN_DEFAULT,
+    ) -> str:
         response_language = "Japanese" if language == "ja" else "English"
+        voice_rule = _narration_voice_instruction(narration_voice, narration_pronoun)
         return f"""You are the director of a short objective-based adventure game.
 Return one JSON object only, in {response_language}, matching this schema:
 {{"narrative":"...","choices":[{{"id":"...","label":"..."}},{{"id":"...","label":"..."}},{{"id":"...","label":"..."}}],"discovered_clues":[],"completed_milestones":[],"visual_state":{{"location":"...","appearance":"...","clothing":"...","surroundings":"...","main_characters":[{{"name":"...","description":"...","clothing":"...","action":"..."}}]}},"ending_status":"continue|success|partial|failure","ending_title":null,"ending_summary":null}}
 Keep narrative under 800 characters and the entire JSON response compact. Never decide the player's feelings, consent, past wishes, bodily sensations, or voluntary actions unless the player's input explicitly states them. If the player's action objectively makes the mission impossible to continue, return a concise failure ending instead of refusing, truncating, or leaving the JSON incomplete. Describe observable events and NPC actions. Do not introduce an unrequested body transformation. Never grant the player another person's memories, personal knowledge, relationships, habits, skills, credentials, passwords, or authentication information unless the supplied source facts explicitly state them. A copied appearance or name does not imply copied memory or competence. Treat source_snapshot.appearance and required_visual_appearance as an immutable identity signature. Copy its hair color, hair length, hairstyle, eye color, and body features exactly into visual_state.appearance; never replace or supplement those traits. Do not change the player's physical appearance unless scenario_capabilities or authored_template_resolution explicitly allows and triggers that change. Clothing may be offered, found, or discussed, but the player only puts on, removes, or changes clothing when their input explicitly chooses that action. When the player explicitly chooses to put on clothing, visual_state.clothing must show that garment as currently worn in the same turn. Unless the input explicitly requests layering, the new garment replaces the previous outfit instead of being worn over it. If the source snapshot explicitly establishes a transformed sex or body, it may create practical disguise or role opportunities without inventing further changes. Keep visual_state concrete enough to illustrate the main characters, their clothing, and the surrounding location. When authored_visual_style is provided, set visual_state.location and visual_state.surroundings from it and never describe the room as a basement, locker room, warehouse, or cold industrial cell. completed_milestones must contain milestone ID strings only, never objects. Complete milestones only when the narrated action actually earns them. When authored_template_resolution is provided, treat it as authoritative and never narrate a score, transformation, unlocked exit, or ending beyond its event.
-{_REALITY_RULES_INSTRUCTION}"""
+{_REALITY_RULES_INSTRUCTION}
+{voice_rule}"""
 
     async def _generate_director_output(
         self,
@@ -1038,8 +1336,14 @@ Keep narrative under 800 characters and the entire JSON response compact. Never 
         language: str,
         text_model: str,
         fallback_appearance: str = "",
+        narration_voice: str = NARRATION_VOICE_DEFAULT,
+        narration_pronoun: str = NARRATION_PRONOUN_DEFAULT,
     ) -> AdventureDirectorOutput:
-        system_prompt = self._director_system_prompt(language)
+        system_prompt = self._director_system_prompt(
+            language,
+            narration_voice=narration_voice,
+            narration_pronoun=narration_pronoun,
+        )
         raw = await llm_service.generate_text(
             system_prompt,
             prompt,
@@ -1058,7 +1362,8 @@ Keep narrative under 800 characters and the entire JSON response compact. Never 
         except ValidationError as first_error:
             response_language = "Japanese" if language == "ja" else "English"
             repair_system_prompt = f"""Repair invalid adventure output as one new compact JSON object in {response_language}.
-Return JSON only and keep the entire response under 1200 characters. Do not repeat or continue the source verbatim. Preserve only facts already present. Keep narrative under 500 characters. If the source describes an action that objectively ends the mission, preserve ending_status as failure and provide a short ending_summary. Required minimum shape: {{"narrative":"...","visual_state":{{"location":"...","appearance":"...","clothing":"..."}},"ending_status":"continue|success|partial|failure","ending_title":null,"ending_summary":null}}."""
+Return JSON only and keep the entire response under 1200 characters. Do not repeat or continue the source verbatim. Preserve only facts already present. Keep narrative under 500 characters. If the source describes an action that objectively ends the mission, preserve ending_status as failure and provide a short ending_summary. Required minimum shape: {{"narrative":"...","visual_state":{{"location":"...","appearance":"...","clothing":"..."}},"ending_status":"continue|success|partial|failure","ending_title":null,"ending_summary":null}}.
+{_narration_voice_instruction(narration_voice, narration_pronoun)}"""
             repair_prompt = "Invalid source output:\n\n" + raw.content
             repaired = await llm_service.generate_text(
                 repair_system_prompt,
@@ -1089,20 +1394,41 @@ Return JSON only and keep the entire response under 1200 characters. Do not repe
                     "物語生成結果を解析できませんでした。もう一度お試しください",
                 ) from second_error
 
-    def _narrative_system_prompt(self, language: str) -> str:
+    def _narrative_system_prompt(
+        self,
+        language: str,
+        *,
+        narration_voice: str = NARRATION_VOICE_DEFAULT,
+        narration_pronoun: str = NARRATION_PRONOUN_DEFAULT,
+    ) -> str:
         response_language = "Japanese" if language == "ja" else "English"
+        voice_rule = _narration_voice_instruction(narration_voice, narration_pronoun)
         return f"""You are the director of a short objective-based adventure game.
 Write only the narrative for the next scene, as plain prose in {response_language}. Do not output JSON, markdown, headings, choices, labels, or commentary.
 Keep the narrative under 800 characters. Never decide the player's feelings, consent, past wishes, bodily sensations, or voluntary actions unless the player's input explicitly states them. If the player's action objectively makes the mission impossible to continue, narrate a concise failure ending instead of refusing or truncating. Describe observable events and NPC actions. Do not introduce an unrequested body transformation. Never grant the player another person's memories, personal knowledge, relationships, habits, skills, credentials, passwords, or authentication information unless the supplied source facts explicitly state them. A copied appearance or name does not imply copied memory or competence. Treat state.appearance_lock and required_visual_appearance as an immutable identity signature, and never change the player's hair color, hair length, hairstyle, eye color, or body features unless scenario_guidance or authored_template_resolution explicitly allows and triggers that change. Clothing may be offered, found, or discussed, but the player only puts on, removes, or changes clothing when their input explicitly chooses that action. Unless the input explicitly requests layering, a new garment replaces the previous outfit instead of being worn over it. If the source snapshot explicitly establishes a transformed sex or body, it may create practical disguise or role opportunities without inventing further changes. When authored_template_resolution is provided, treat it as authoritative and never narrate a score, transformation, unlocked exit, or ending beyond its event.
-{_REALITY_RULES_INSTRUCTION}"""
+{_REALITY_RULES_INSTRUCTION}
+{voice_rule}"""
 
-    def _resolution_system_prompt(self, language: str) -> str:
+    def _resolution_system_prompt(
+        self,
+        language: str,
+        *,
+        narration_voice: str = NARRATION_VOICE_DEFAULT,
+        narration_pronoun: str = NARRATION_PRONOUN_DEFAULT,
+    ) -> str:
         response_language = "Japanese" if language == "ja" else "English"
+        # 選択肢ラベルは行動フレーズなので、人称を載せない旨を併記する
+        voice_rule = (
+            _narration_voice_instruction(narration_voice, narration_pronoun)
+            + " choices[].label must remain a short neutral action phrase with no "
+            "narration voice, no pronoun, and no first-person or second-person subject."
+        )
         return f"""You resolve the mechanical outcome of one adventure turn that has already been narrated.
 Return one JSON object only, in {response_language}, matching this schema:
 {{"choices":[{{"id":"...","label":"..."}},{{"id":"...","label":"..."}},{{"id":"...","label":"..."}}],"discovered_clues":[],"completed_milestones":[],"ending_status":"continue|success|partial|failure","ending_title":null,"ending_summary":null}}
 Base every value strictly on the supplied narrative and game state, and never invent events the narrative does not contain. choices must offer exactly three distinct actions the player could take next. discovered_clues must contain only new information the narrative actually revealed, and must not repeat state.clues. completed_milestones must contain milestone ID strings only, never objects, and only when the narrated action actually earns them. Keep ending_status as continue unless the narrative itself concludes the mission, and fill ending_title and ending_summary only in that case. Never decide the player's feelings, consent, or voluntary actions. When authored_template_resolution is provided, treat it as authoritative and never report a score, transformation, or ending beyond its event. Keep the entire response compact.
-{_REALITY_RULES_INSTRUCTION}"""
+{_REALITY_RULES_INSTRUCTION}
+{voice_rule}"""
 
     def _visual_system_prompt(
         self, language: str, *, respect_clothing_layers: bool = False
@@ -1167,10 +1493,16 @@ scene_tags contains only environment, camera, composition, lighting, and the obs
         turn_context: dict[str, Any],
         language: str,
         text_model: str,
+        narration_voice: str = NARRATION_VOICE_DEFAULT,
+        narration_pronoun: str = NARRATION_PRONOUN_DEFAULT,
     ) -> AdventureResolutionOutput:
         return await self._generate_structured_output(
             AdventureResolutionOutput,
-            system_prompt=self._resolution_system_prompt(language),
+            system_prompt=self._resolution_system_prompt(
+                language,
+                narration_voice=narration_voice,
+                narration_pronoun=narration_pronoun,
+            ),
             user_prompt=json.dumps(
                 {**turn_context, "narrative": narrative}, ensure_ascii=False
             ),
@@ -1360,10 +1692,14 @@ The objective must name a concrete target and an observable end condition that c
         scenario_template_id: str | None = None,
         replay_run_id: str | None = None,
         scenario_max_turns: int = ADVENTURE_TURNS_DEFAULT,
+        narration_voice: str = NARRATION_VOICE_DEFAULT,
+        narration_pronoun: str = NARRATION_PRONOUN_DEFAULT,
         use_precise_reference: bool = False,
         enable_composite_scene: bool = False,
         respect_clothing_layers: bool = False,
     ) -> dict[str, Any]:
+        narration_voice = normalize_narration_voice(narration_voice)
+        narration_pronoun = normalize_narration_pronoun(narration_pronoun)
         replay_run = None
         replay_state: dict[str, Any] = {}
         if replay_run_id:
@@ -1474,6 +1810,8 @@ The objective must name a concrete target and an observable end condition that c
             prompt=prompt,
             language=language,
             text_model=text_model,
+            narration_voice=narration_voice,
+            narration_pronoun=narration_pronoun,
             fallback_appearance=appearance
             or str(snapshot.get("appearance") or "")
             or "Preserve the source image appearance",
@@ -1531,6 +1869,9 @@ The objective must name a concrete target and an observable end condition that c
             "enable_composite_scene": bool(enable_composite_scene),
             # 衣装レイヤー考慮。ONなら外衣に覆われた下着を画像タグから外す
             "respect_clothing_layers": bool(respect_clothing_layers),
+            # 語りの人称。旧runは既定の二人称として扱う
+            "narration_voice": narration_voice,
+            "narration_pronoun": narration_pronoun,
         }
         if authored_scene_tags:
             state["authored_scene_tags"] = authored_scene_tags
@@ -1624,6 +1965,7 @@ The objective must name a concrete target and an observable end condition that c
                 raise AdventureError("run_completed", "このシナリオは終了しています")
 
             state = _json_load(run.state_json, {})
+            narration_voice, narration_pronoun = _narration_from_state(state)
             turns = sorted(run.turns, key=lambda item: item.turn_number)
             latest_turn = turns[-1] if turns else None
             narrative = (
@@ -1686,6 +2028,8 @@ The objective must name a concrete target and an observable end condition that c
                         turn_context=turn_context,
                         language=run.language,
                         text_model=run.text_model,
+                        narration_voice=narration_voice,
+                        narration_pronoun=narration_pronoun,
                     )
                     choices = _sanitize_choices(
                         [choice.model_dump() for choice in resolution.choices],
@@ -1835,20 +2179,38 @@ The objective must name a concrete target and an observable end condition that c
         return clothing or None
 
     def _clothing_narrative_suffix(
-        self, clothing: str | None, narrative: str, language: str
+        self,
+        clothing: str | None,
+        narrative: str,
+        language: str,
+        *,
+        narration_voice: str = NARRATION_VOICE_DEFAULT,
+        narration_pronoun: str = NARRATION_PRONOUN_DEFAULT,
     ) -> str:
         if not clothing:
             return ""
+        voice = normalize_narration_voice(narration_voice)
         if language == "ja":
             if re.search(r"(?:着た|着ている|着用した|着替えた)", narrative):
                 return ""
-            return f"君は{clothing}を着用した。"
+            if voice == "first_person":
+                subject = f"{normalize_narration_pronoun(narration_pronoun)}は"
+            elif voice == "third_person":
+                # 変身で性別が変わりうるため主語は補わず省略する
+                subject = ""
+            else:
+                subject = "君は"
+            return f"{subject}{clothing}を着用した。"
         if re.search(
             r"\b(?:put on|wearing|wore|changed into)\b",
             narrative,
             flags=re.IGNORECASE,
         ):
             return ""
+        if voice == "first_person":
+            return f"I put on {clothing}."
+        if voice == "third_person":
+            return f"They put on {clothing}."
         return f"You put on {clothing}."
 
     def _enforce_explicit_clothing_action(
@@ -1858,6 +2220,8 @@ The objective must name a concrete target and an observable end condition that c
         language: str,
         *,
         apply_narrative_suffix: bool = True,
+        narration_voice: str = NARRATION_VOICE_DEFAULT,
+        narration_pronoun: str = NARRATION_PRONOUN_DEFAULT,
     ) -> bool:
         clothing = self._explicit_clothing_from_input(user_input, language)
         if not clothing:
@@ -1866,7 +2230,11 @@ The objective must name a concrete target and an observable end condition that c
         output.visual_state.clothing = clothing
         if apply_narrative_suffix:
             suffix = self._clothing_narrative_suffix(
-                clothing, output.narrative, language
+                clothing,
+                output.narrative,
+                language,
+                narration_voice=narration_voice,
+                narration_pronoun=narration_pronoun,
             )
             if suffix:
                 output.narrative = f"{output.narrative.rstrip()}\n\n{suffix}"
@@ -1893,12 +2261,30 @@ The objective must name a concrete target and an observable end condition that c
         )
         worn_items = set(template_state.get("worn_items", []))
         item_actions: dict[str, str] = {}
+        alias_by_item: dict[str, tuple[str, ...]] = {}
         for item in rule.get("items", []):
             item_id = str(item.get("id") or "")
             aliases = tuple(str(alias) for alias in item.get("aliases", []))
+            if item_id and aliases:
+                alias_by_item[item_id] = aliases
+        for item in rule.get("items", []):
+            item_id = str(item.get("id") or "")
+            aliases = alias_by_item.get(item_id)
             if not item_id or not aliases:
                 continue
-            action = _last_equipment_action(user_input, aliases)
+            # 他アイテムの語で走査を打ち切り、隣の衣類の動詞を拾わないようにする。
+            # 共有エイリアス（例: 「下着」）は境界にせず、両方の判定に残す。
+            own = set(aliases)
+            other_aliases = tuple(
+                alias
+                for other_id, other in alias_by_item.items()
+                if other_id != item_id
+                for alias in other
+                if alias not in own
+            )
+            action = _last_equipment_action(
+                user_input, aliases, other_aliases=other_aliases
+            )
             if action == "wear":
                 worn_items.add(item_id)
                 worn_items.update(str(value) for value in item.get("implies", []))
@@ -2235,6 +2621,7 @@ The objective must name a concrete target and an observable end condition that c
                 raise AdventureError("run_completed", "このシナリオは終了しています")
 
             state = _json_load(run.state_json, {})
+            narration_voice, narration_pronoun = _narration_from_state(state)
             # 宣言はこの手番から有効にする
             declared_rule = _detect_reality_declaration(user_input)
             if declared_rule:
@@ -2273,6 +2660,8 @@ The objective must name a concrete target and an observable end condition that c
                 prompt=prompt,
                 language=run.language,
                 text_model=run.text_model,
+                narration_voice=narration_voice,
+                narration_pronoun=narration_pronoun,
                 fallback_appearance=str(
                     state.get("appearance_lock")
                     or state.get("visual_state", {}).get("appearance")
@@ -2284,7 +2673,13 @@ The objective must name a concrete target and an observable end condition that c
                     template, state, output, template_resolution, run.language
                 )
             else:
-                self._enforce_explicit_clothing_action(output, user_input, run.language)
+                self._enforce_explicit_clothing_action(
+                    output,
+                    user_input,
+                    run.language,
+                    narration_voice=narration_voice,
+                    narration_pronoun=narration_pronoun,
+                )
             turn_number = run.turn_count + 1
             next_state, next_status, visual_changed, clothing_changed = (
                 self._merge_output(run, output, turn_number, state_override=state)
@@ -2373,6 +2768,7 @@ The objective must name a concrete target and an observable end condition that c
                 raise AdventureError("run_completed", "このシナリオは終了しています")
 
             state = _json_load(run.state_json, {})
+            narration_voice, narration_pronoun = _narration_from_state(state)
             # 宣言はこの手番から有効にする
             declared_rule = _detect_reality_declaration(user_input)
             if declared_rule:
@@ -2422,7 +2818,11 @@ The objective must name a concrete target and an observable end condition that c
             yield {"event": "status", "data": {"phase": "narrative"}}
             narrative = ""
             async for chunk in llm_service.generate_feeling_stream(
-                self._narrative_system_prompt(run.language),
+                self._narrative_system_prompt(
+                    run.language,
+                    narration_voice=narration_voice,
+                    narration_pronoun=narration_pronoun,
+                ),
                 json.dumps(turn_context, ensure_ascii=False),
                 provider_override="novelai",
                 novelai_model_override=run.text_model,
@@ -2449,7 +2849,11 @@ The objective must name a concrete target and an observable end condition that c
                 )
                 if template
                 else self._clothing_narrative_suffix(
-                    explicit_clothing, narrative, run.language
+                    explicit_clothing,
+                    narrative,
+                    run.language,
+                    narration_voice=narration_voice,
+                    narration_pronoun=narration_pronoun,
                 )
             )
             if suffix:
@@ -2467,6 +2871,8 @@ The objective must name a concrete target and an observable end condition that c
                         turn_context=turn_context,
                         language=run.language,
                         text_model=run.text_model,
+                        narration_voice=narration_voice,
+                        narration_pronoun=narration_pronoun,
                     )
                     await queue.put(("resolution", resolution))
                 except Exception as error:
@@ -2509,6 +2915,13 @@ The objective must name a concrete target and an observable end condition that c
                     "clothing", ""
                 ) != next_visual.get("clothing", "")
                 item_actions = bool(template_resolution.get("item_actions"))
+                # このターンで確定した装備。DBへの永続化はターン終了後なので、
+                # 画像生成には state 経由ではなく解決結果をそのまま渡す。
+                resolved_worn_items = (
+                    [str(item) for item in template_resolution.get("worn_items", [])]
+                    if template
+                    else None
+                )
                 should_generate_image = (
                     clothing_changed
                     or item_actions
@@ -2528,6 +2941,7 @@ The objective must name a concrete target and an observable end condition that c
                         redraw_from_reference=clothing_changed or item_actions,
                         prompt_override=visual,
                         turn_number=run.turn_count + 1,
+                        worn_items_override=resolved_worn_items,
                     )
                     await queue.put(("portrait", portrait_path))
                 except Exception as error:
@@ -2556,6 +2970,7 @@ The objective must name a concrete target and an observable end condition that c
                         character_reference_image_override=portrait_path.read_bytes()
                         if portrait_path is not None
                         else None,
+                        worn_items_override=resolved_worn_items,
                     )
                     await queue.put(("image", image_path))
                 except Exception as error:
@@ -2913,6 +3328,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         turn_number: int | None = None,
         source_image_override: bytes | None = None,
         character_reference_image_override: bytes | None = None,
+        worn_items_override: list[str] | None = None,
     ) -> tuple[Path, str | None]:
         """呼び出し側が既に run ロックを保持している前提で画像を生成する。"""
         run = await self.get_run_orm(run_id)
@@ -2928,54 +3344,26 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 )
                 effective_turn_id = latest_turn.id if latest_turn else None
         state = _json_load(run.state_json, {})
-        visual_state = state.get("visual_state", {})
-        template = SCENARIO_TEMPLATES.get(str(state.get("scenario_template_id") or ""))
-        authored_scene_tags = _authored_scene_tags(template=template, state=state)
         current_path = Path(run.current_image_path)
         initial_path = Path(run.initial_image_path)
-        respect_clothing_layers = bool(state.get("respect_clothing_layers"))
         if not current_path.is_file() or not initial_path.is_file():
             raise AdventureError(
                 "image_not_found", "アドベンチャー画像が見つかりません"
             )
         try:
-            if prompt_override is not None:
-                image_prompt = prompt_override
-                if authored_scene_tags:
-                    image_prompt.scene_tags = _merge_scene_tags(
-                        authored_scene_tags, image_prompt.scene_tags
-                    )
-            else:
-                image_prompt = await self._generate_image_prompt_output(
-                    visual_state,
-                    run.text_model,
-                    authored_scene_tags=authored_scene_tags,
-                    respect_clothing_layers=respect_clothing_layers,
-                )
-            template_state = state.get("template_state") or {}
-            worn_items = template_state.get("worn_items") or []
-            equipment_tags = _equipment_image_tags(
-                template, worn_items, respect_clothing_layers=respect_clothing_layers
+            (
+                image_prompt,
+                outfit_changed,
+                nsfw_mode,
+                use_precise_reference,
+                extra_negative,
+            ) = await self._prepare_image_prompt(
+                run,
+                state,
+                redraw_from_reference=redraw_from_reference,
+                prompt_override=prompt_override,
+                worn_items_override=worn_items_override,
             )
-            if equipment_tags:
-                image_prompt.player_tags = _merge_player_tags(
-                    image_prompt.player_tags, equipment_tags
-                )
-            covered = _equipment_layers_covered(worn_items, respect_clothing_layers)
-            image_prompt.player_tags, extra_negative = (
-                _apply_clothing_layers_to_player_tags(
-                    image_prompt.player_tags, covered=covered
-                )
-            )
-            outfit_changed = redraw_from_reference or bool(equipment_tags)
-            # 装備ありのターンは初期画像の服装を引きずらないよう参照を弱める
-            if "dress" in {str(item) for item in worn_items}:
-                outfit_changed = True
-            user_settings = await session_store.get_user_settings()
-            if "nsfw_mode" in user_settings:
-                nsfw_mode = bool(user_settings.get("nsfw_mode"))
-            else:
-                nsfw_mode = bool(run.nsfw_mode)
             player_prompt = _enhance_adventure_prompt(
                 image_prompt.player_tags
                 + ", main protagonist, primary focus, center foreground",
@@ -3004,7 +3392,6 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 if source_image_override is not None
                 else (None if outfit_changed else current_path.read_bytes())
             )
-            use_precise_reference = bool(state.get("use_precise_reference"))
             character_references = None
             if use_precise_reference:
                 char_strength = 0.35 if outfit_changed else 0.85
@@ -3034,7 +3421,11 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 scene_prompt,
                 image_bytes=source_image,
                 provider_override="novelai",
-                negative_prompt=merge_negative_prompt(None, extra_negative or ""),
+                # 追加negativeを渡すと provider 側の既定UCが置き換わるため、
+                # 品質系の基本negativeを土台にして結合する
+                negative_prompt=merge_negative_prompt(
+                    settings.novelai_negative_prompt, extra_negative or ""
+                ),
                 nsfw_mode=nsfw_mode,
                 character_references=character_references,
                 characters=characters,
@@ -3122,6 +3513,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         *,
         redraw_from_reference: bool,
         prompt_override: AdventureImagePromptOutput | None,
+        worn_items_override: list[str] | None = None,
     ) -> tuple[AdventureImagePromptOutput, bool, bool, bool, str | None]:
         """画像プロンプトと生成条件（服装変化・NSFW・精密参照・追加negative）を算出する。
 
@@ -3144,11 +3536,26 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 authored_scene_tags=authored_scene_tags,
                 respect_clothing_layers=respect_clothing_layers,
             )
-        template_state = state.get("template_state") or {}
-        worn_items = template_state.get("worn_items") or []
+        # 画像生成は state を DB から読み直すため、ターン中は永続化前の古い
+        # worn_items を掴む。呼び出し側が確定値を持つ場合はそちらを優先する。
+        if worn_items_override is not None:
+            worn_items: list[str] = [str(item) for item in worn_items_override]
+        else:
+            template_state = state.get("template_state") or {}
+            worn_items = list(template_state.get("worn_items") or [])
+        # 装備採点シナリオでは worn_items が唯一の服装情報。LLM が書いた服装タグは
+        # 補正前の visual_state 由来なので落とし、装備タグで置き直す。
+        image_prompt.player_tags = _strip_clothing_tags_for_equipment_scenario(
+            template, image_prompt.player_tags
+        )
         equipment_tags = _equipment_image_tags(
             template, worn_items, respect_clothing_layers=respect_clothing_layers
         )
+        nude_tags = _equipment_clothing_state_tags(template, worn_items)
+        if nude_tags:
+            image_prompt.player_tags = _merge_player_tags(
+                image_prompt.player_tags, nude_tags
+            )
         if equipment_tags:
             image_prompt.player_tags = _merge_player_tags(
                 image_prompt.player_tags, equipment_tags
@@ -3158,6 +3565,9 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             _apply_clothing_layers_to_player_tags(
                 image_prompt.player_tags, covered=covered
             )
+        )
+        extra_negative = merge_negative_prompt(
+            extra_negative, _equipment_negative_tags(template, worn_items)
         )
         outfit_changed = redraw_from_reference or bool(equipment_tags)
         if "dress" in {str(item) for item in worn_items}:
@@ -3222,6 +3632,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         redraw_from_reference: bool = False,
         prompt_override: AdventureImagePromptOutput | None = None,
         turn_number: int | None = None,
+        worn_items_override: list[str] | None = None,
     ) -> tuple[Path, str | None]:
         """呼び出し側が既に run ロックを保持している前提で中央の立ち絵を生成する。"""
         run = await self.get_run_orm(run_id)
@@ -3254,6 +3665,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 state,
                 redraw_from_reference=redraw_from_reference,
                 prompt_override=prompt_override,
+                worn_items_override=worn_items_override,
             )
             # 立ち絵はフロント側で背景を透過するため、必ず白背景で生成させる。
             player_prompt = _enhance_adventure_prompt(
@@ -3281,7 +3693,11 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 player_prompt,
                 image_bytes=None,
                 provider_override="novelai",
-                negative_prompt=merge_negative_prompt(None, extra_negative or ""),
+                # 追加negativeを渡すと provider 側の既定UCが置き換わるため、
+                # 品質系の基本negativeを土台にして結合する
+                negative_prompt=merge_negative_prompt(
+                    settings.novelai_negative_prompt, extra_negative or ""
+                ),
                 nsfw_mode=nsfw_mode,
                 character_references=character_references,
                 characters=None,
@@ -3540,6 +3956,11 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             # 旧 run でキー未設定なら合成モード扱い（current_image_path に既に合成画像が入っている）
             "enable_composite_scene": bool(state.get("enable_composite_scene", True)),
             "respect_clothing_layers": bool(state.get("respect_clothing_layers")),
+            # 旧 run は既定の二人称・「僕」へ倒す
+            "narration_voice": normalize_narration_voice(state.get("narration_voice")),
+            "narration_pronoun": normalize_narration_pronoun(
+                state.get("narration_pronoun")
+            ),
             "background_image_url": (
                 self.image_url(run.id, Path(run.background_image_path))
                 if getattr(run, "background_image_path", None)
