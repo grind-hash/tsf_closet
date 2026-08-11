@@ -23,6 +23,7 @@ from gateway.services.adventure_service import (
     AdventureChoice,
     AdventureDirectorOutput,
     AdventureError,
+    AdventureImagePromptOutput,
     AdventureService,
     AdventureVisualState,
     PRESETS,
@@ -760,6 +761,70 @@ def test_equipment_scenario_states_exposure_with_danbooru_tags() -> None:
     # 外衣で覆われていれば露出指示は出さない
     assert _equipment_clothing_state_tags(template, ["bra", "dress"]) == ""
     assert _equipment_clothing_state_tags(None, []) == ""
+
+
+def test_equipment_scenario_drops_previous_exposure_state_tags() -> None:
+    """前ターンの露出状態タグを引き継いだ player_tags から除去する。
+
+    previous_image_tags 経由で LLM が topless 等を再利用してくるため、
+    残すと上下そろった装備でも wearing bra が打ち消される。
+    """
+    template = SCENARIO_TEMPLATES["princess_locked_room"]
+    stripped = _strip_clothing_tags_for_equipment_scenario(
+        template,
+        "1girl, black bob hair, 1.4::topless::, no bra, bare chest, "
+        "bottomless, bare hips, completely nude, braless, wearing panties",
+    )
+    assert stripped.split(", ") == ["1girl", "black bob hair"]
+
+
+@pytest.mark.asyncio
+async def test_prepare_image_prompt_keeps_override_unmutated(monkeypatch) -> None:
+    """prompt_override は last_image_prompt として保存されるため書き換えない。
+
+    変換後を保存すると次ターンの previous_image_tags 経由で
+    露出状態タグが LLM 出力へ再入し、装備タグを打ち消してしまう。
+    """
+    service = AdventureService()
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.session_store.get_user_settings",
+        AsyncMock(return_value={}),
+    )
+    run = SimpleNamespace(text_model=None, nsfw_mode=False)
+    state = {
+        "scenario_template_id": "princess_locked_room",
+        "template_state": {"worn_items": ["bra"]},
+        "visual_state": {},
+    }
+    original_player_tags = "1girl, black bob hair, 1.4::topless::, bare chest"
+    override = AdventureImagePromptOutput(
+        scene_tags="castle room",
+        player_tags=original_player_tags,
+    )
+
+    (
+        image_prompt,
+        _outfit_changed,
+        _nsfw_mode,
+        _use_precise_reference,
+        _extra_negative,
+        raw_image_prompt,
+    ) = await service._prepare_image_prompt(
+        run,
+        state,
+        redraw_from_reference=False,
+        prompt_override=override,
+        worn_items_override=["bra", "panties"],
+    )
+
+    # 保存用の raw は override そのもので、変換の影響を受けない
+    assert raw_image_prompt is override
+    assert override.player_tags == original_player_tags
+    # 変換後は前ターンの露出タグが落ち、確定した装備タグへ置き換わる
+    assert "topless" not in image_prompt.player_tags
+    assert "bare chest" not in image_prompt.player_tags
+    assert "wearing bra" in image_prompt.player_tags
+    assert "wearing panties" in image_prompt.player_tags
 
 
 def _resolve_equipment_actions(text: str) -> dict[str, str]:

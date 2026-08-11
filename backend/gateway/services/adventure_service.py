@@ -568,14 +568,28 @@ def _equipment_negative_tags(
     return ", ".join(dict.fromkeys(tags))
 
 
+# _equipment_clothing_state_tags が出力する露出状態語と、LLM がその同義で書く語。
+# 前ターンの last_image_prompt 経由で LLM が引き継いでくるため、装備採点シナリオでは
+# 服装タグと同様に毎ターン全て落とし、worn_items から権威ある状態タグを付け直す。
+_EXPOSURE_STATE_TAG_PATTERN = re.compile(
+    r"\b(?:bottomless|topless|braless|pantiless|pantyless|nude|naked|"
+    r"undressed|unclothed|"
+    r"bare (?:chest|breasts?|hips?|butt|bottom|body|torso)|"
+    r"exposed (?:chest|breasts?|nipples?|crotch|hips?))\b",
+    re.IGNORECASE,
+)
+
+
 def _strip_clothing_tags_for_equipment_scenario(
     template: dict[str, Any] | None, player_tags: str
 ) -> str:
-    """equipment_score シナリオの player_tags から服装タグを一括で外す。
+    """equipment_score シナリオの player_tags から服装・露出状態タグを一括で外す。
 
     このルールでは着ている物が worn_items だけで決まるのに、player_tags は
     visual_state が補正される前に LLM が書くため、元セッションの私服などが
-    そのまま残りうる。服装は決定論のタグで置き直す。
+    そのまま残りうる。前ターンの露出状態タグ（topless 等）も previous_image_tags
+    経由で引き継がれ、新しい装備タグを打ち消してしまう。
+    服装と露出状態は決定論のタグで置き直す。
     """
     rule = template.get("rule", {}) if template else {}
     if rule.get("type") != "equipment_score" or not player_tags.strip():
@@ -584,6 +598,7 @@ def _strip_clothing_tags_for_equipment_scenario(
         token
         for token in split_tag_tokens(player_tags)
         if not _CLOTHING_TAG_PATTERN.search(normalize_tag_for_match(token))
+        and not _EXPOSURE_STATE_TAG_PATTERN.search(normalize_tag_for_match(token))
     ]
     # player_tags は min_length=1。全部消える入力では元をそのまま返す。
     return ", ".join(kept) if kept else player_tags
@@ -3357,6 +3372,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 nsfw_mode,
                 use_precise_reference,
                 extra_negative,
+                raw_image_prompt,
             ) = await self._prepare_image_prompt(
                 run,
                 state,
@@ -3461,7 +3477,10 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             persisted_run.current_image_path = str(image_path)
             persisted_run.updated_at = datetime.now()
             persisted_state = _json_load(persisted_run.state_json, {})
-            persisted_state["last_image_prompt"] = _image_prompt_payload(image_prompt)
+            # 決定論変換後ではなく LLM 出力を保存する（_prepare_image_prompt 参照）
+            persisted_state["last_image_prompt"] = _image_prompt_payload(
+                raw_image_prompt
+            )
             if effective_turn_number == 0:
                 persisted_state["opening_image_path"] = str(image_path)
             persisted_run.state_json = json.dumps(persisted_state, ensure_ascii=False)
@@ -3514,28 +3533,42 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         redraw_from_reference: bool,
         prompt_override: AdventureImagePromptOutput | None,
         worn_items_override: list[str] | None = None,
-    ) -> tuple[AdventureImagePromptOutput, bool, bool, bool, str | None]:
+    ) -> tuple[
+        AdventureImagePromptOutput,
+        bool,
+        bool,
+        bool,
+        str | None,
+        AdventureImagePromptOutput,
+    ]:
         """画像プロンプトと生成条件（服装変化・NSFW・精密参照・追加negative）を算出する。
 
         ポートレート生成・合成シーン生成の両方から共通で使う準備処理。
+        末尾の raw_image_prompt は決定論変換前の LLM 出力。last_image_prompt には
+        こちらを保存する。変換後を保存すると、次ターンの previous_image_tags 経由で
+        露出状態タグや装備タグが LLM 出力へ再入し、状態変化後も残留するため。
         """
         visual_state = state.get("visual_state", {})
         template = SCENARIO_TEMPLATES.get(str(state.get("scenario_template_id") or ""))
         authored_scene_tags = _authored_scene_tags(template=template, state=state)
         respect_clothing_layers = bool(state.get("respect_clothing_layers"))
         if prompt_override is not None:
-            image_prompt = prompt_override
+            raw_image_prompt = prompt_override
+            # 呼び出し側の prompt_override を last_image_prompt として保存する経路が
+            # あるため、決定論変換は複製に対して行い、元は書き換えない。
+            image_prompt = prompt_override.model_copy(deep=True)
             if authored_scene_tags:
                 image_prompt.scene_tags = _merge_scene_tags(
                     authored_scene_tags, image_prompt.scene_tags
                 )
         else:
-            image_prompt = await self._generate_image_prompt_output(
+            raw_image_prompt = await self._generate_image_prompt_output(
                 visual_state,
                 run.text_model,
                 authored_scene_tags=authored_scene_tags,
                 respect_clothing_layers=respect_clothing_layers,
             )
+            image_prompt = raw_image_prompt.model_copy(deep=True)
         # 画像生成は state を DB から読み直すため、ターン中は永続化前の古い
         # worn_items を掴む。呼び出し側が確定値を持つ場合はそちらを優先する。
         if worn_items_override is not None:
@@ -3584,6 +3617,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             nsfw_mode,
             use_precise_reference,
             extra_negative,
+            raw_image_prompt,
         )
 
     async def _generate_background_image_unlocked(
@@ -3660,6 +3694,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 nsfw_mode,
                 use_precise_reference,
                 extra_negative,
+                raw_image_prompt,
             ) = await self._prepare_image_prompt(
                 run,
                 state,
@@ -3733,7 +3768,10 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             persisted_run.portrait_image_path = str(portrait_path)
             persisted_run.updated_at = datetime.now()
             persisted_state = _json_load(persisted_run.state_json, {})
-            persisted_state["last_image_prompt"] = _image_prompt_payload(image_prompt)
+            # 決定論変換後ではなく LLM 出力を保存する（_prepare_image_prompt 参照）
+            persisted_state["last_image_prompt"] = _image_prompt_payload(
+                raw_image_prompt
+            )
             if effective_turn_number == 0:
                 persisted_state["opening_portrait_path"] = str(portrait_path)
             persisted_run.state_json = json.dumps(persisted_state, ensure_ascii=False)
@@ -3750,12 +3788,16 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         async with self._run_locks[run_id]:
             run = await self.get_run_orm(run_id)
             state = _json_load(run.state_json, {})
+            # 決定論変換は各生成メソッド内で再適用されるため、後続へは変換前の
+            # LLM 出力を渡す。変換後を渡すと turn 0 の last_image_prompt に
+            # 露出状態タグ等が保存され、次ターンの LLM へ再入する。
             (
-                image_prompt,
+                _prepared_prompt,
                 _outfit_changed,
                 nsfw_mode,
                 _use_precise_reference,
                 _extra_negative,
+                image_prompt,
             ) = await self._prepare_image_prompt(
                 run,
                 state,

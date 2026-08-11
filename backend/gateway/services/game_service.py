@@ -75,15 +75,6 @@ from .session import session_store
 from .settings_service import settings_service
 from .tag_classifier import classify_tags, TransformationTags
 from .endings import judge_ending
-from ..routes.achievements_router import (
-    ACHIEVEMENTS,
-    check_achievement,
-    check_achievements,
-    save_user_achievement,
-    get_user_achievements,
-    get_global_stats,
-    update_achievement_counts,
-)
 from .achievement_classifier import classify_for_achievement
 from .gender_congruence import (
     GenderCongruenceResult,
@@ -3267,6 +3258,18 @@ class GameService:
                                 "is_new": ending_result.is_new,
                             },
                         )
+
+                # 実績ヘルパーはルーター側にあり、モジュールレベルで import すると
+                # routes パッケージ経由で game_router と循環するため遅延 import する
+                from ..routes.achievements_router import (
+                    ACHIEVEMENTS,
+                    check_achievement,
+                    check_achievements,
+                    save_user_achievement,
+                    get_user_achievements,
+                    get_global_stats,
+                    update_achievement_counts,
+                )
 
                 # 6.1.5 実績分類処理 - テキスト生成完了後に変身指示を分類してカウント更新
                 try:

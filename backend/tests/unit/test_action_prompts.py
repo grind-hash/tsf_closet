@@ -282,9 +282,10 @@ def test_build_action_image_edit_prompt_preserves_person() -> None:
 
 
 def test_get_action_novelai_prompt_generation_system_sfw() -> None:
+    # 7f9c9bb でシーン変更特化から ACTION 指示全般のプロンプトへ書き換えられた
     result = get_action_novelai_prompt_generation_system(nsfw_mode=False)
-    assert "SCENE CHANGE" in result.upper() or "scene change" in result.lower()
-    assert "English" not in result.split("Instruction Language")[0] or True
+    assert "ACTION instructions" in result
+    assert "Adult content" not in result
 
 
 def test_get_action_novelai_prompt_generation_system_nsfw() -> None:

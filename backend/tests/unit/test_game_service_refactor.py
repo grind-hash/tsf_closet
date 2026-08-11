@@ -10,6 +10,7 @@ Refactoring target functions:
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -196,6 +197,15 @@ class TestStreamFeeling:
     2. Iterate llm_service.generate_feeling_stream
     3. On error, yield fallback text based on language
     """
+
+    @pytest.fixture(autouse=True)
+    def _mock_memory_text(self, monkeypatch):
+        # use_memory 既定 True の経路が settings_service 経由で DB へ到達するため、
+        # 未初期化 DB でも動くようメモリテキスト取得をモックする
+        monkeypatch.setattr(
+            "gateway.services.game_service.settings_service.get_memory_text",
+            AsyncMock(return_value=""),
+        )
 
     @pytest.mark.asyncio
     async def test_yields_chunks_from_llm(self, monkeypatch):
@@ -468,6 +478,15 @@ class TestIsNovelaiOpusModeRefactored:
 
 class TestStreamFeelingErrorFallback:
     """Remaining feeling stream error/mode tests."""
+
+    @pytest.fixture(autouse=True)
+    def _mock_memory_text(self, monkeypatch):
+        # use_memory 既定 True の経路が settings_service 経由で DB へ到達するため、
+        # 未初期化 DB でも動くようメモリテキスト取得をモックする
+        monkeypatch.setattr(
+            "gateway.services.game_service.settings_service.get_memory_text",
+            AsyncMock(return_value=""),
+        )
 
     @pytest.mark.asyncio
     async def test_error_fallback_en(self, monkeypatch):
