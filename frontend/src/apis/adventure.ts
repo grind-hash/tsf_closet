@@ -109,6 +109,8 @@ export interface AdventureTurn {
   ending_summary?: string | null;
   /** romance のみ。ターン確定時点の公開シミュ状態 */
   sim?: AdventureSim | null;
+  /** romance のみ。ターン確定時点の攻略対象の様子。無ければ null */
+  partner_note?: string | null;
 }
 
 export interface AdventureRun {
@@ -155,8 +157,12 @@ export interface AdventureRun {
   portrait_image_url: string | null;
   /** 開始時ポートレート（ターンストリップの先頭用） */
   opening_portrait_url: string | null;
+  /** romance のみ。非合成モードで並置表示する攻略対象の立ち絵 */
+  partner_portrait_url?: string | null;
   /** romance のみ。他プリセットでは未定義 */
   sim?: AdventureSim | null;
+  /** romance のみ。開幕(手番0)時点の公開シミュ状態 */
+  opening_sim?: AdventureSim | null;
   turns: AdventureTurn[];
   created_at: string | null;
   updated_at: string | null;
@@ -227,6 +233,7 @@ export interface AdventureStreamEvent {
     | "turn"
     | "image"
     | "portrait_image"
+    | "partner_image"
     | "complete"
     | "error";
   data: Record<string, unknown>;
@@ -247,6 +254,8 @@ function normalizeRun(run: AdventureRun): AdventureRun {
     narration_voice: run.narration_voice ?? "second_person",
     narration_pronoun: run.narration_pronoun || "僕",
     sim: run.sim ?? null,
+    opening_sim: run.opening_sim ?? null,
+    partner_portrait_url: withApiBase(run.partner_portrait_url ?? null),
     current_image_url: withApiBase(run.current_image_url) ?? "",
     opening_image_url:
       withApiBase(run.opening_image_url) ??

@@ -32,6 +32,8 @@ interface ImagePreviewModalProps {
    * 未指定時は従来どおり imageUrl の <img> を描画する。
    */
   media?: ReactNode;
+  /** ルート要素へ追加するテーマ用クラス（呼び出し側スタイルでの上書き用） */
+  className?: string;
 }
 
 export default function ImagePreviewModal({
@@ -50,6 +52,7 @@ export default function ImagePreviewModal({
   caption,
   captionPlacement = "below",
   media,
+  className,
 }: ImagePreviewModalProps) {
   const { t } = useTranslation();
   const resolvedAlt = alt || t("imagePreview.imageAlt");
@@ -125,7 +128,7 @@ export default function ImagePreviewModal({
 
   return (
     <div
-      className="image-preview-modal__overlay"
+      className={`image-preview-modal__overlay${className ? ` ${className}` : ""}`}
       onClick={handleOverlayClick}
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}

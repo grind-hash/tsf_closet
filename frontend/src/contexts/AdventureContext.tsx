@@ -259,6 +259,18 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
                     : current,
                 );
               }
+            } else if (event.type === "partner_image") {
+              // romance の攻略対象立ち絵(非合成モードのみ配信される)
+              const partnerUrl = normalizeAdventureImageUrl(
+                event.data.image_url,
+              );
+              if (partnerUrl) {
+                setActiveRun((current) =>
+                  current
+                    ? { ...current, partner_portrait_url: partnerUrl }
+                    : current,
+                );
+              }
             } else if (event.type === "error") {
               setError(
                 String(event.data.message ?? "Adventure request failed"),

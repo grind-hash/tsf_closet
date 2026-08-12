@@ -6,6 +6,10 @@ import pytest
 from sqlalchemy import delete, event, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from gateway.consts.adventure_romance import (
+    ROMANCE_AFFECTION_START,
+    ROMANCE_INITIAL_MONEY,
+)
 from gateway.consts.adventure_turns import (
     ADVENTURE_TURNS_DEFAULT,
     ADVENTURE_TURNS_MAX,
@@ -338,7 +342,7 @@ async def test_generate_setup_uses_selected_mission_preset(
         "_build_snapshot",
         AsyncMock(
             return_value=(
-                {"attributes": ["変身後の姿"]},
+                {"attributes": ["変身後の姿"], "character_name": "水瀬ユウヤ"},
                 tmp_path / "source.png",
                 "変身後の姿",
                 False,
@@ -359,6 +363,11 @@ async def test_generate_setup_uses_selected_mission_preset(
 
     prompt = __import__("json").loads(generated.await_args.args[1])
     assert prompt["preset"] == preset
+    if preset == "romance":
+        # 変身前の主人公名(character_name)を攻略対象の名前として流用させない
+        assert "character_name" not in prompt["source_snapshot"]
+    else:
+        assert prompt["source_snapshot"]["character_name"] == "水瀬ユウヤ"
     assert (
         prompt["mission_definition"]["default_objective"]
         == PRESETS[preset]["objective"]
@@ -1382,6 +1391,157 @@ def test_director_output_preserves_resolution_choice_models() -> None:
         {"id": "door", "label": "扉を読む"},
         {"id": "pad", "label": "棚を確認する"},
     ]
+
+
+def make_serializable_turn(state_delta: dict) -> SimpleNamespace:
+    return SimpleNamespace(
+        id="turn-1",
+        run_id="run-1",
+        turn_number=1,
+        client_turn_id="c1",
+        user_input="話しかける",
+        input_kind="choice",
+        narrative="彼女は微笑んだ。",
+        choices_json=__import__("json").dumps(
+            [
+                {"id": "a", "label": "続ける"},
+                {"id": "b", "label": "様子を見る"},
+                {"id": "c", "label": "移動する"},
+            ],
+            ensure_ascii=False,
+        ),
+        image_path=None,
+        image_status="not_requested",
+        portrait_image_path=None,
+        portrait_status="not_requested",
+        state_delta_json=__import__("json").dumps(state_delta, ensure_ascii=False),
+        created_at=None,
+    )
+
+
+def test_serialize_turn_exposes_romance_sim_and_partner_note() -> None:
+    service = AdventureService()
+    turn = make_serializable_turn(
+        {
+            "visual_state": {
+                "location": "ロビーカフェ",
+                "appearance": "主人公の姿",
+                "main_characters": [
+                    {
+                        "name": "アリシア",
+                        "description": "グラスを受け取り微笑んでいる",
+                        "clothing": "競泳水着",
+                    }
+                ],
+            },
+            "sim": {
+                "total_days": 7,
+                "affection": 12,
+                "money": 5000,
+                "partner_name": "アリシア",
+                "job": {"name": "カフェ", "wage": 3000},
+                "gift_catalog": [],
+                "hidden_preferences": {
+                    "liked_gift_ids": ["g1"],
+                    "disliked_gift_ids": [],
+                    "likes_hint": "甘いもの",
+                    "dislikes_hint": "辛いもの",
+                },
+                "given_gifts": [],
+                "confessed": False,
+            },
+        }
+    )
+
+    payload = service._serialize_turn(turn)
+
+    assert payload["sim"]["partner_name"] == "アリシア"
+    assert payload["sim"]["affection"] == 12
+    assert payload["sim"]["stage"] == "stranger"
+    assert "hidden_preferences" not in payload["sim"]
+    assert payload["partner_note"] == "グラスを受け取り微笑んでいる"
+
+
+def test_serialize_turn_omits_sim_for_mission_turns() -> None:
+    service = AdventureService()
+    turn = make_serializable_turn(
+        {
+            "visual_state": {
+                "location": "倉庫",
+                "appearance": "変装した姿",
+                "main_characters": [],
+            }
+        }
+    )
+
+    payload = service._serialize_turn(turn)
+
+    assert "sim" not in payload
+    assert "partner_note" not in payload
+
+
+def test_serialize_run_includes_romance_opening_sim() -> None:
+    service = AdventureService()
+    run = SimpleNamespace(
+        id="run-romance",
+        source_session_id=None,
+        source_history_id=None,
+        preset="romance",
+        title="恋愛シミュレーション",
+        objective="交際を始める",
+        constraints_json="[]",
+        status="active",
+        turn_count=3,
+        max_turns=14,
+        ending_title=None,
+        ending_summary=None,
+        language="ja",
+        current_image_path="current.png",
+        initial_image_path="initial.png",
+        snapshot_json="{}",
+        created_at=None,
+        updated_at=None,
+        state_json=__import__("json").dumps(
+            {
+                "opening_narrative": "書店で出会った。",
+                "opening_image_path": "initial.png",
+                "choices": [
+                    {"id": "a", "label": "話しかける"},
+                    {"id": "b", "label": "本棚を眺める"},
+                    {"id": "c", "label": "店を出る"},
+                ],
+                "clues": [],
+                "milestones": [],
+                "completed_milestones": [],
+                "sim": {
+                    "total_days": 7,
+                    "affection": 40,
+                    "money": 12000,
+                    "partner_name": "美咲",
+                    "job": {"name": "カフェ", "wage": 3000},
+                    "gift_catalog": [],
+                    "hidden_preferences": {
+                        "liked_gift_ids": [],
+                        "disliked_gift_ids": [],
+                    },
+                    "given_gifts": ["g1"],
+                    "confessed": False,
+                },
+            },
+            ensure_ascii=False,
+        ),
+    )
+
+    payload = service._serialize_run(run, [], include_snapshot=False)
+
+    # 現在値はそのまま、開幕ビューは開始定数から再構成される
+    assert payload["sim"]["affection"] == 40
+    assert payload["opening_sim"]["affection"] == ROMANCE_AFFECTION_START
+    assert payload["opening_sim"]["money"] == ROMANCE_INITIAL_MONEY
+    assert payload["opening_sim"]["day"] == 1
+    assert payload["opening_sim"]["slot"] == "day"
+    assert payload["opening_sim"]["given_gift_ids"] == []
+    assert "hidden_preferences" not in payload["opening_sim"]
 
 
 def test_serialize_run_repairs_blank_choice_labels() -> None:

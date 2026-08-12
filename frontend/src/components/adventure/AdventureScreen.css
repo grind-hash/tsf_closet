@@ -3433,3 +3433,156 @@ button:disabled {
   gap: 10px;
   margin-bottom: 14px;
 }
+
+/* romance 非合成モード: 主人公と攻略対象の立ち絵を左右に並置する */
+.adventure-stage__portrait--paired {
+  left: 30%;
+  height: 88%;
+  max-width: 46%;
+}
+
+.adventure-stage__portrait--partner {
+  left: 70%;
+  max-width: 46%;
+}
+
+/*
+ * romance: ターン詳細モーダルをローズトーンへ差し替える。
+ * overlay ルートの adventure-preview--romance でスコープし、
+ * ミッション系やギャラリーのモーダルは変えない。
+ */
+.adventure-preview--romance .image-preview-modal__caption {
+  border: 1px solid rgb(240 143 183 / 30%);
+  background: linear-gradient(165deg, rgb(52 24 38 / 94%), rgb(22 13 20 / 94%));
+  box-shadow: 0 6px 24px rgb(240 143 183 / 12%);
+}
+
+.adventure-preview--romance .image-preview-modal__detail-label {
+  color: #ff9ec7;
+}
+
+.adventure-preview--romance .image-preview-modal__detail-text {
+  color: #f3e3ea;
+}
+
+.adventure-preview--romance .adventure-preview__views button {
+  border-color: rgb(240 143 183 / 35%);
+  color: #d8b7c6;
+  background: rgb(34 20 28 / 94%);
+}
+
+.adventure-preview--romance
+  .adventure-preview__views
+  button[aria-pressed="true"] {
+  border-color: #ff9ec7;
+  color: #ff9ec7;
+  background: rgb(255 158 199 / 12%);
+}
+
+.adventure-preview--romance .adventure-preview__kind {
+  color: #ff9ec7;
+  background: rgb(255 158 199 / 14%);
+}
+
+/* 攻略対象カード: 名前 + ハート付き好感度ゲージ + 関係段階 + その時の様子 */
+.adventure-preview-partner {
+  padding: 12px 14px;
+  border: 1px solid rgb(240 143 183 / 28%);
+  border-radius: 12px;
+  background: linear-gradient(160deg, rgb(56 26 41 / 80%), rgb(24 15 22 / 80%));
+}
+
+.adventure-preview-partner__name {
+  margin: 0 0 8px;
+  color: #ffd7e8;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.adventure-preview-partner__affection {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.adventure-preview-partner__heart {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  fill: #ff5fa2;
+  filter: drop-shadow(0 0 3px rgb(255 95 162 / 55%));
+}
+
+.adventure-preview-partner__affection strong {
+  color: #ff9ec7;
+  font-size: 1rem;
+}
+
+.adventure-preview-partner__affection strong i {
+  color: #d8b7c6;
+  font-size: 0.72rem;
+  font-style: normal;
+}
+
+.adventure-preview-partner__gauge {
+  flex: 1;
+  min-width: 60px;
+  height: 5px;
+  border-radius: 999px;
+  background: rgb(96 46 66 / 90%);
+  overflow: hidden;
+}
+
+.adventure-preview-partner__gauge i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #ffb1d0, #ff5fa2);
+  box-shadow: 0 0 6px rgb(255 95 162 / 60%);
+}
+
+.adventure-preview-partner__stage {
+  flex: 0 0 auto;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 0.66rem;
+  font-style: normal;
+  line-height: 1.6;
+}
+
+.adventure-preview-partner__affection.is-stranger
+  .adventure-preview-partner__stage {
+  color: #cdb9c4;
+  background: rgb(205 185 196 / 12%);
+}
+
+.adventure-preview-partner__affection.is-friend
+  .adventure-preview-partner__stage {
+  color: #8fe3b0;
+  background: rgb(143 227 176 / 14%);
+}
+
+.adventure-preview-partner__affection.is-aware
+  .adventure-preview-partner__stage {
+  color: #ffd58a;
+  background: rgb(255 213 138 / 16%);
+}
+
+.adventure-preview-partner__affection.is-mutual
+  .adventure-preview-partner__stage {
+  color: #ff9ec7;
+  background: rgb(255 158 199 / 18%);
+}
+
+/* romance 非合成モード: モーダルのシーン表示もステージと同じ二人構図にする */
+.adventure-scene-preview__portrait--paired {
+  left: 30%;
+  height: 88%;
+  max-width: 46%;
+}
+
+.adventure-scene-preview__portrait--partner {
+  left: 70%;
+  max-width: 46%;
+}

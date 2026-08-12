@@ -1,6 +1,10 @@
+import { fileURLToPath } from "node:url";
 import { expect, type Page, test } from "@playwright/test";
 
 const IMAGE = "/mock-scene.png";
+const IMAGE_PATH = fileURLToPath(
+  new URL("../../../backend/images/characters/char1_v2.png", import.meta.url),
+);
 // AdventureScreen.tsx の主人公セレクト特殊値と揃える
 const ROMANCE_PLAYER_SESSION_VALUE = "__session__";
 
@@ -72,6 +76,7 @@ function romanceRunPayload(
     background_image_url: IMAGE,
     portrait_image_url: IMAGE,
     opening_portrait_url: IMAGE,
+    partner_portrait_url: "/mock-partner.png",
     visual_state: {
       location: "商店街の書店",
       appearance: "制服姿の主人公",
@@ -80,6 +85,7 @@ function romanceRunPayload(
       main_characters: [],
     },
     sim: simPayload(),
+    opening_sim: simPayload(),
     turns: [],
     created_at: "2026-08-01T00:00:00",
     updated_at: "2026-08-01T00:00:00",
@@ -113,6 +119,12 @@ async function mockRomanceApis(
     runAfterTurn: null,
   };
   let turnTaken = false;
+  await page.route("**/api/mock-scene.png", async (route) => {
+    await route.fulfill({ path: IMAGE_PATH, contentType: "image/png" });
+  });
+  await page.route("**/api/mock-partner.png", async (route) => {
+    await route.fulfill({ path: IMAGE_PATH, contentType: "image/png" });
+  });
   await page.route("**/api/gallery/sessions?*", async (route) => {
     await route.fulfill({
       json: {
@@ -278,6 +290,8 @@ test("start a romance run with day select and show the romance HUD", async ({
   await expect(page.getByText("5,000")).toBeVisible();
   // 手掛かりチップは「ヒント」に差し替わる
   await expect(page.getByRole("button", { name: /^ヒント/ })).toBeVisible();
+  // 非合成モードでは攻略対象の立ち絵も並置表示される
+  await expect(page.getByAltText("攻略対象の立ち絵")).toBeVisible();
   // 行動ボタン行。告白は好感度不足のため出ない
   await expect(page.getByRole("button", { name: "バイトする" })).toBeVisible();
   await expect(
@@ -285,6 +299,71 @@ test("start a romance run with day select and show the romance HUD", async ({
   ).toBeVisible();
   await expect(page.getByRole("button", { name: "属性を付与" })).toBeVisible();
   await expect(page.getByRole("button", { name: "想いを告げる" })).toBeHidden();
+});
+
+test("show heroine info in the romance turn detail modal", async ({ page }) => {
+  await enableAdventure(page);
+  const runWithTurn = romanceRunPayload(2, {
+    turns: [
+      {
+        id: "turn-1",
+        turn_number: 2,
+        client_turn_id: "c1",
+        user_input: "特製ドリンクを渡す",
+        input_kind: "choice",
+        narrative: "彼女は嬉しそうに受け取った。",
+        location: "商店街の書店",
+        choices: [
+          { id: "a", label: "感想を聞く" },
+          { id: "b", label: "隣に座る" },
+          { id: "c", label: "店を出る" },
+        ],
+        image_url: null,
+        image_status: "not_requested",
+        portrait_image_url: IMAGE,
+        portrait_status: "completed",
+        created_at: "2026-08-01T00:10:00",
+        // ターン確定時点の公開シミュ状態（run GET の turns に載る）
+        sim: simPayload({ day: 2, slot: "day", affection: 13 }),
+        partner_note: "グラスを受け取り、口元に微笑みを浮かべている",
+      },
+    ],
+  });
+  await mockRomanceApis(page, runWithTurn);
+  await page.goto("/adventure/run-1");
+
+  await page.locator(".adventure-stage__image-button").click();
+
+  // モーダルは romance テーマでスコープされる
+  const modal = page.locator(".image-preview-modal__overlay");
+  await expect(modal).toHaveClass(/adventure-preview--romance/);
+  // 攻略対象カード: 名前・好感度・関係段階・その時の様子
+  await expect(modal.getByRole("heading", { name: "攻略対象" })).toBeVisible();
+  await expect(modal.getByText("美咲", { exact: true })).toBeVisible();
+  await expect(modal.getByText("13/100")).toBeVisible();
+  await expect(modal.getByText("知り合い", { exact: true })).toBeVisible();
+  await expect(
+    modal.getByText("グラスを受け取り、口元に微笑みを浮かべている"),
+  ).toBeVisible();
+  // 手番は Day 表記になる: 手番2 = Day1 夜
+  await expect(modal.getByText("Day 1/7 夜（2/14手）")).toBeVisible();
+
+  // 切替チップから相手の立ち絵ビューへ移動できる（最新フレームのみ）
+  const partnerChip = modal.getByRole("button", { name: "攻略対象" });
+  await expect(partnerChip).toBeVisible();
+  await partnerChip.click();
+  await expect(modal.locator(".image-preview-modal__image")).toHaveAttribute(
+    "src",
+    /mock-partner\.png/,
+  );
+
+  // 開幕フレームでも開始時点(好感度10)のカードを表示する。
+  // 立ち絵は最新1枚のみ保持のため、過去フレームではチップが消える
+  await page.locator(".image-preview-modal__nav--prev").click();
+  await expect(partnerChip).toBeHidden();
+  await expect(modal.getByText("開始", { exact: true })).toBeVisible();
+  await expect(modal.getByText("美咲", { exact: true })).toBeVisible();
+  await expect(modal.getByText("10/100")).toBeVisible();
 });
 
 test("player can be a transformed state from a session", async ({ page }) => {

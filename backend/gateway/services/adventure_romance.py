@@ -387,6 +387,22 @@ def apply_romance_outcome(
     output.ending_status = "success" if confessed_success else "continue"
 
 
+def opening_sim_view(sim: dict[str, Any]) -> dict[str, Any]:
+    """開幕(手番0)時点の公開ビュー。
+
+    開始値(好感度・所持金・贈答/告白なし)は定数のため、進行後の sim からも
+    正確に再構成できる。相手・カタログ・バイトはターンで変化しない。
+    """
+    opening = {
+        **sim,
+        "affection": ROMANCE_AFFECTION_START,
+        "money": ROMANCE_INITIAL_MONEY,
+        "given_gifts": [],
+        "confessed": False,
+    }
+    return public_sim_view(opening, 0)
+
+
 def public_sim_view(sim: dict[str, Any], turn_count: int) -> dict[str, Any]:
     """hidden_preferences を除いた公開ビュー。day/slot は次に行動する枠を示す。"""
     total_days = int(sim.get("total_days") or 0)
@@ -494,4 +510,4 @@ def romance_setup_system_prompt(language: str, days: int) -> str:
     return f"""You design the setup of a {days}-day romance simulation where the player tries to start dating one partner character.
 Return one JSON object only, in {response_language}, matching this schema:
 {{"partner_name":"...","partner_profile":"...","relationship_origin":"...","job_name":"...","gift_catalog":[{{"name":"...","price":1500,"tier":"budget|standard|luxury"}}],"liked_gift_names":["..."],"disliked_gift_names":["..."],"likes_hint":"...","dislikes_hint":"..."}}
-The partner is the character shown in source_snapshot; keep their appearance and situation consistent with it. The player is a separate person courting that partner; never treat the snapshot character as the player. partner_profile describes personality, daily life, and how they speak. relationship_origin describes how the player and the partner currently know each other, at an acquaintance level that can grow into dating within {days} days. job_name is a part-time job the player can work at, where the partner occasionally appears. gift_catalog must contain 8 to 12 concrete purchasable gifts with prices inside their tier band: budget 500-2000, standard 2001-6000, luxury 6001-15000. liked_gift_names and disliked_gift_names must each pick exactly 2 or 3 names verbatim from gift_catalog, reflecting the partner's personality. likes_hint and dislikes_hint describe those tastes indirectly, as hints the partner might drop in conversation, without naming the exact gifts. Keep every value concise."""
+The partner is the character shown in source_snapshot; keep their appearance and situation consistent with it. source_snapshot deliberately contains no name for the partner: when the supplied setting or objective already names the partner, reuse that name as partner_name; otherwise invent a fitting new name from their appearance. Never use player_name as the partner's name. The player is a separate person courting that partner; never treat the snapshot character as the player. partner_profile describes personality, daily life, and how they speak. relationship_origin describes how the player and the partner currently know each other, at an acquaintance level that can grow into dating within {days} days. job_name is a part-time job the player can work at, where the partner occasionally appears. gift_catalog must contain 8 to 12 concrete purchasable gifts with prices inside their tier band: budget 500-2000, standard 2001-6000, luxury 6001-15000. liked_gift_names and disliked_gift_names must each pick exactly 2 or 3 names verbatim from gift_catalog, reflecting the partner's personality. likes_hint and dislikes_hint describe those tastes indirectly, as hints the partner might drop in conversation, without naming the exact gifts. Keep every value concise."""

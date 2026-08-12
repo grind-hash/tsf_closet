@@ -5,6 +5,7 @@ import type {
   AdventureInputKind,
   AdventureNarrationVoice,
   AdventurePreset,
+  AdventureSim,
   AdventureStatus,
   AdventureTurn,
 } from "../../apis/adventure";
@@ -73,6 +74,7 @@ function clampMaxTurns(value: number): number {
 const ADVENTURE_PROGRESS_BUDGET_MS = {
   clue_check: 12_000,
   portrait: 18_000,
+  partner: 18_000,
   composite: 20_000,
   image_single: 20_000,
 } as const;
@@ -1347,6 +1349,22 @@ interface AdventureStageFrame {
   inputKind: AdventureTurn["input_kind"] | null;
   narrative: string;
   location: string | null;
+  /** romance のみ。この手番確定時点の公開シミュ状態 */
+  sim: AdventureSim | null;
+  /** romance のみ。この手番の攻略対象の様子 */
+  partnerNote: string | null;
+}
+
+/** backend の romance_day_slot と同じ導出。奇数手番=昼、偶数手番=夜 */
+function romanceDaySlot(turnNumber: number): {
+  day: number;
+  slot: "day" | "night";
+} {
+  const number = Math.max(1, turnNumber);
+  return {
+    day: Math.ceil(number / 2),
+    slot: number % 2 === 1 ? "day" : "night",
+  };
 }
 
 function AdventurePlay({ runId }: { runId: string }) {
@@ -1381,7 +1399,7 @@ function AdventurePlay({ runId }: { runId: string }) {
   // selectedFrameIndex には触れない）ため、専用のインデックスを持つ
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [lightboxView, setLightboxView] = useState<
-    "scene" | "background" | "portrait"
+    "scene" | "background" | "portrait" | "partner"
   >("scene");
   const [promptModalOpen, setPromptModalOpen] = useState(false);
   // romance 専用モーダル（ギフトショップ・属性付与）
@@ -1464,6 +1482,8 @@ function AdventurePlay({ runId }: { runId: string }) {
           inputKind: null,
           narrative: activeRun.opening_narrative,
           location: null,
+          sim: activeRun.opening_sim ?? null,
+          partnerNote: null,
         });
       }
       for (const turn of activeRun.turns) {
@@ -1480,6 +1500,8 @@ function AdventurePlay({ runId }: { runId: string }) {
           inputKind: turn.input_kind,
           narrative: turn.narrative,
           location: turn.location,
+          sim: turn.sim ?? null,
+          partnerNote: turn.partner_note ?? null,
         });
       }
     } else {
@@ -1496,6 +1518,8 @@ function AdventurePlay({ runId }: { runId: string }) {
           inputKind: null,
           narrative: activeRun.opening_narrative,
           location: null,
+          sim: activeRun.opening_sim ?? null,
+          partnerNote: null,
         });
       }
       for (const turn of activeRun.turns) {
@@ -1512,6 +1536,8 @@ function AdventurePlay({ runId }: { runId: string }) {
           inputKind: turn.input_kind,
           narrative: turn.narrative,
           location: turn.location,
+          sim: turn.sim ?? null,
+          partnerNote: turn.partner_note ?? null,
         });
       }
     }
@@ -1606,6 +1632,14 @@ function AdventurePlay({ runId }: { runId: string }) {
     true,
     PORTRAIT_ALPHA_OPTIONS,
   );
+  // romance 非合成モードの攻略対象立ち絵。常に最新の1枚だけを表示する
+  const { url: transparentPartnerUrl } = useTransparentImage(
+    activeRun?.preset === "romance" && !activeRun?.enable_composite_scene
+      ? (activeRun?.partner_portrait_url ?? null)
+      : null,
+    true,
+    PORTRAIT_ALPHA_OPTIONS,
+  );
   const toggleProtagonistDock = useCallback(() => {
     setProtagonistDockOpen((current) => {
       const next = !current;
@@ -1628,8 +1662,19 @@ function AdventurePlay({ runId }: { runId: string }) {
 
   const lightboxFrame =
     lightboxIndex !== null ? frames[lightboxIndex] : undefined;
+  // romance のターン詳細用。開幕フレーム(手番0)には日付が無い
+  const lightboxDaySlot =
+    lightboxFrame && lightboxFrame.turnNumber > 0
+      ? romanceDaySlot(lightboxFrame.turnNumber)
+      : null;
   const canShowBackground = Boolean(lightboxFrame?.backgroundUrl);
   const canShowPortrait = Boolean(lightboxFrame?.portraitUrl);
+  // romance: 攻略対象の立ち絵は最新1枚のみ保持のため、最新フレームでだけ切替可能
+  const canShowPartner =
+    activeRun?.preset === "romance" &&
+    Boolean(activeRun?.partner_portrait_url) &&
+    lightboxIndex !== null &&
+    lightboxIndex === frames.length - 1;
   // 非合成モードのシーン表示は、ステージと同じく背景に白抜きの立ち絵を重ねる
   const needsComposite =
     lightboxView === "scene" &&
@@ -1646,6 +1691,7 @@ function AdventurePlay({ runId }: { runId: string }) {
   // 実進捗が取れないため、サブ工程statusと見なし所要時間で進捗バーを描く。
   // narrativeフェーズはテキスト自体が進捗になるため対象外（スピナー維持）。
   const enableCompositeScene = activeRun?.enable_composite_scene ?? false;
+  const isRomancePreset = activeRun?.preset === "romance";
   const progressSegments = useMemo<TimedProgressSegment[] | null>(() => {
     if (!streaming || phase === null || phase === "narrative") return null;
     if (pendingUserInput !== null) {
@@ -1661,6 +1707,12 @@ function AdventurePlay({ runId }: { runId: string }) {
           key: "composite",
           budgetMs: ADVENTURE_PROGRESS_BUDGET_MS.composite,
         });
+      } else if (isRomancePreset) {
+        // 非合成 romance は主人公の後に攻略対象の立ち絵を直列生成する
+        segments.push({
+          key: "partner",
+          budgetMs: ADVENTURE_PROGRESS_BUDGET_MS.partner,
+        });
       }
       return segments;
     }
@@ -1673,7 +1725,13 @@ function AdventurePlay({ runId }: { runId: string }) {
       ];
     }
     return null;
-  }, [streaming, phase, pendingUserInput, enableCompositeScene]);
+  }, [
+    streaming,
+    phase,
+    pendingUserInput,
+    enableCompositeScene,
+    isRomancePreset,
+  ]);
   const progressActiveKey = useMemo(() => {
     if (!progressSegments) return null;
     if (pendingUserInput !== null) {
@@ -1729,14 +1787,16 @@ function AdventurePlay({ runId }: { runId: string }) {
   };
 
   const lightboxImageUrl =
-    lightboxView === "portrait"
-      ? (lightboxFrame?.portraitUrl ?? null)
-      : lightboxView === "background"
-        ? (lightboxFrame?.backgroundUrl ?? null)
-        : (lightboxFrame?.sceneUrl ??
-          lightboxFrame?.backgroundUrl ??
-          lightboxFrame?.imageUrl ??
-          null);
+    lightboxView === "partner"
+      ? (activeRun?.partner_portrait_url ?? null)
+      : lightboxView === "portrait"
+        ? (lightboxFrame?.portraitUrl ?? null)
+        : lightboxView === "background"
+          ? (lightboxFrame?.backgroundUrl ?? null)
+          : (lightboxFrame?.sceneUrl ??
+            lightboxFrame?.backgroundUrl ??
+            lightboxFrame?.imageUrl ??
+            null);
 
   const latestTurn = activeRun.turns.at(-1) ?? null;
   const isStreamingNarrative = pendingUserInput !== null;
@@ -2104,9 +2164,21 @@ function AdventurePlay({ runId }: { runId: string }) {
               {displayedPortraitUrl && (
                 <img
                   key={displayedPortraitUrl}
-                  className="adventure-stage__portrait"
+                  className={`adventure-stage__portrait${
+                    transparentPartnerUrl && !isViewingPast
+                      ? " adventure-stage__portrait--paired"
+                      : ""
+                  }`}
                   src={displayedPortraitUrl}
                   alt={t("adventure.portraitAlt")}
+                />
+              )}
+              {transparentPartnerUrl && !isViewingPast && (
+                <img
+                  key={transparentPartnerUrl}
+                  className="adventure-stage__portrait adventure-stage__portrait--partner"
+                  src={transparentPartnerUrl}
+                  alt={t("adventure.romance.partnerPortraitAlt")}
                 />
               )}
               {isStageLoading && !isViewingPast && (
@@ -2604,9 +2676,14 @@ function AdventurePlay({ runId }: { runId: string }) {
 
       <ImagePreviewModal
         isOpen={lightboxFrame !== undefined}
+        className={sim ? "adventure-preview--romance" : undefined}
         imageUrl={lightboxImageUrl}
         onClose={() => setLightboxIndex(null)}
-        alt={t("adventure.preview.sceneAlt")}
+        alt={
+          lightboxView === "partner"
+            ? t("adventure.romance.partnerPortraitAlt")
+            : t("adventure.preview.sceneAlt")
+        }
         onPrev={() => openLightboxFrame((lightboxIndex ?? 0) - 1)}
         onNext={() => openLightboxFrame((lightboxIndex ?? 0) + 1)}
         hasPrev={lightboxIndex !== null && lightboxIndex > 0}
@@ -2622,9 +2699,20 @@ function AdventurePlay({ runId }: { runId: string }) {
               />
               {lightboxPortraitUrl && (
                 <img
-                  className="adventure-scene-preview__portrait"
+                  className={`adventure-scene-preview__portrait${
+                    canShowPartner && transparentPartnerUrl
+                      ? " adventure-scene-preview__portrait--paired"
+                      : ""
+                  }`}
                   src={lightboxPortraitUrl}
                   alt={t("adventure.portraitAlt")}
+                />
+              )}
+              {canShowPartner && transparentPartnerUrl && (
+                <img
+                  className="adventure-scene-preview__portrait adventure-scene-preview__portrait--partner"
+                  src={transparentPartnerUrl}
+                  alt={t("adventure.romance.partnerPortraitAlt")}
                 />
               )}
             </div>
@@ -2633,7 +2721,7 @@ function AdventurePlay({ runId }: { runId: string }) {
         caption={
           lightboxFrame && (
             <div className="image-preview-modal__detail">
-              {(canShowBackground || canShowPortrait) && (
+              {(canShowBackground || canShowPortrait || canShowPartner) && (
                 <div
                   className="adventure-preview__views"
                   role="group"
@@ -2664,7 +2752,59 @@ function AdventurePlay({ runId }: { runId: string }) {
                       {t("adventure.preview.viewPortrait")}
                     </button>
                   )}
+                  {canShowPartner && (
+                    <button
+                      type="button"
+                      aria-pressed={lightboxView === "partner"}
+                      onClick={() => setLightboxView("partner")}
+                    >
+                      {t("adventure.romance.partnerLabel")}
+                    </button>
+                  )}
                 </div>
+              )}
+
+              {sim && lightboxFrame.sim && (
+                <section className="image-preview-modal__detail-section adventure-preview-partner">
+                  <h2 className="image-preview-modal__detail-label">
+                    {t("adventure.romance.partnerLabel")}
+                  </h2>
+                  <p className="adventure-preview-partner__name">
+                    {lightboxFrame.sim.partner_name}
+                  </p>
+                  <div
+                    className={`adventure-preview-partner__affection is-${lightboxFrame.sim.stage}`}
+                    title={t(
+                      `adventure.romance.stages.${lightboxFrame.sim.stage}`,
+                    )}
+                  >
+                    <svg
+                      className="adventure-preview-partner__heart"
+                      viewBox="0 0 24 24"
+                      aria-hidden
+                    >
+                      <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
+                    </svg>
+                    <strong>
+                      {lightboxFrame.sim.affection}
+                      <i>/100</i>
+                    </strong>
+                    <span
+                      className="adventure-preview-partner__gauge"
+                      aria-hidden
+                    >
+                      <i style={{ width: `${lightboxFrame.sim.affection}%` }} />
+                    </span>
+                    <em className="adventure-preview-partner__stage">
+                      {t(`adventure.romance.stages.${lightboxFrame.sim.stage}`)}
+                    </em>
+                  </div>
+                  {lightboxFrame.partnerNote && (
+                    <p className="image-preview-modal__detail-text">
+                      {lightboxFrame.partnerNote}
+                    </p>
+                  )}
+                </section>
               )}
 
               <section className="image-preview-modal__detail-section">
@@ -2674,7 +2814,17 @@ function AdventurePlay({ runId }: { runId: string }) {
                 <p className="image-preview-modal__detail-text">
                   {lightboxFrame.turnNumber === 0
                     ? t("adventure.turnStrip.opening")
-                    : `${lightboxFrame.turnNumber} / ${activeRun.max_turns}`}
+                    : sim && lightboxDaySlot
+                      ? t("adventure.romance.previewTurn", {
+                          day: lightboxDaySlot.day,
+                          total: sim.total_days,
+                          slot: t(
+                            `adventure.romance.slot.${lightboxDaySlot.slot}`,
+                          ),
+                          turn: lightboxFrame.turnNumber,
+                          max: activeRun.max_turns,
+                        })
+                      : `${lightboxFrame.turnNumber} / ${activeRun.max_turns}`}
                 </p>
               </section>
 

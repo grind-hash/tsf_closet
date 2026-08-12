@@ -66,6 +66,7 @@ from .adventure_romance import (
     apply_romance_outcome,
     clamp_romance_max_turns,
     init_romance_state,
+    opening_sim_view,
     public_sim_view,
     resolve_romance_action,
     romance_setup_system_prompt,
@@ -522,6 +523,9 @@ def _lean_state_for_llm(state: dict[str, Any]) -> dict[str, Any]:
         "last_image_prompt",
         "authored_scene_tags",
         "opening_image_path",
+        # romance の相手立ち絵まわりのファイルパスは LLM に不要
+        "partner_image_path",
+        "partner_portrait_path",
         # 人称指示はシステムプロンプト側に載るため、user prompt へは流さない
         "narration_voice",
         "narration_pronoun",
@@ -1054,6 +1058,48 @@ _ROMANCE_ENDING_TITLES: dict[str, str] = {
 def _default_ending_title(preset: str, status: str) -> str | None:
     titles = _ROMANCE_ENDING_TITLES if preset == "romance" else _MISSION_ENDING_TITLES
     return titles.get(status)
+
+
+def _romance_prompt_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
+    """romance の攻略対象素材として LLM へ渡す snapshot。
+
+    character_name はそのセッションの変身前の主人公名であり、変身後の姿である
+    攻略対象の名前ではないため除外する(相手の名前は LLM が新しく考える)。
+    """
+    return {key: value for key, value in snapshot.items() if key != "character_name"}
+
+
+def _romance_partner_visual_entry(
+    main_characters: list[Any], npc_tags: list[str], partner_name: str
+) -> tuple[dict[str, str] | None, str]:
+    """main_characters から攻略対象のエントリと対応する npc_tags を探す。
+
+    エントリは dict / Pydantic モデルの両方を受け付ける(state 保存値と
+    LLM 出力の両方から呼ばれるため)。
+    """
+    name_key = str(partner_name or "").strip()
+    if not name_key:
+        return None, ""
+    for index, member in enumerate(main_characters):
+        if isinstance(member, dict):
+            member_name = str(member.get("name") or "").strip()
+            description = str(member.get("description") or "")
+            clothing = str(member.get("clothing") or "")
+        else:
+            member_name = str(getattr(member, "name", "") or "").strip()
+            description = str(getattr(member, "description", "") or "")
+            clothing = str(getattr(member, "clothing", "") or "")
+        if not member_name:
+            continue
+        if name_key in member_name or member_name in name_key:
+            entry = {
+                "name": member_name,
+                "description": description,
+                "clothing": clothing,
+            }
+            tags = npc_tags[index] if index < len(npc_tags) else ""
+            return entry, tags
+    return None, ""
 
 
 _EQUIPMENT_WEAR_PATTERN = re.compile(
@@ -1770,7 +1816,7 @@ scene_tags contains only environment, camera, composition, lighting, and the obs
             return f"""You design a concise setup for a {days}-day romance simulation in which the player aims to start dating one partner character.
 Return one JSON object only, in {response_language}, matching this schema:
 {{"setting":"...","objective":"...","constraints":["...","..."]}}
-The partner is the character shown in source_snapshot; keep their appearance and situation consistent with it. The player is a separate person courting that partner; never treat the snapshot character as the player. The setting describes where the player and the partner cross paths in daily life. The objective must name the partner and state that the player starts dating them within {days} days. Constraints must create romantic complications such as rivals, schedules, shyness, or circumstances, without dictating the player's feelings, consent, memories, bodily sensations, or voluntary actions. Do not introduce another body transformation or assign physical traits that conflict with source_snapshot.appearance."""
+The partner is the character shown in source_snapshot; keep their appearance and situation consistent with it. source_snapshot deliberately contains no name for the partner: invent a fitting new name from their appearance and situation, and use that name in the objective. Never name the partner after the player. The player is a separate person courting that partner; never treat the snapshot character as the player. The setting describes where the player and the partner cross paths in daily life. The objective must name the partner and state that the player starts dating them within {days} days. Constraints must create romantic complications such as rivals, schedules, shyness, or circumstances, without dictating the player's feelings, consent, memories, bodily sensations, or voluntary actions. Do not introduce another body transformation or assign physical traits that conflict with source_snapshot.appearance."""
         turns = clamp_generated_max_turns(max_turns)
         return f"""You design a concise setup for a {turns}-turn objective-based adventure game.
 Return one JSON object only, in {response_language}, matching this schema:
@@ -1859,7 +1905,9 @@ The objective must name a concrete target and an observable end condition that c
                     "milestones": preset_config["milestones"],
                     "guidance": preset_config["guidance"],
                 },
-                "source_snapshot": snapshot,
+                "source_snapshot": _romance_prompt_snapshot(snapshot)
+                if preset == "romance"
+                else snapshot,
                 "required_visual_appearance": appearance
                 or "Preserve the source image appearance",
             },
@@ -2013,6 +2061,7 @@ The objective must name a concrete target and an observable end condition that c
         # 1回だけ生成する。/setup/generate のレスポンスには載せない
         romance_setup: RomanceSetupOutput | None = None
         romance_partner_appearance = ""
+        romance_partner_image: Path | None = None
         romance_player_name = ""
         romance_player_ref = ""
         if effective_preset == "romance":
@@ -2057,7 +2106,7 @@ The objective must name a concrete target and an observable end condition that c
                         "setting": setting,
                         "objective": objective,
                         "constraints": constraints,
-                        "source_snapshot": snapshot,
+                        "source_snapshot": _romance_prompt_snapshot(snapshot),
                         "player_name": romance_player_name,
                     },
                     ensure_ascii=False,
@@ -2070,8 +2119,10 @@ The objective must name a concrete target and an observable end condition that c
                 ),
             )
             # 開始セッションの人物は攻略対象。主人公の開始画像と外見ロックは
-            # 選択した主人公(テンプレキャラまたはセッション時点)へ差し替える
+            # 選択した主人公(テンプレキャラまたはセッション時点)へ差し替え、
+            # 相手の元画像は立ち絵生成の参照用に控える
             romance_partner_appearance = appearance
+            romance_partner_image = source_image
             appearance = player_appearance
             source_image = player_image
 
@@ -2092,7 +2143,9 @@ The objective must name a concrete target and an observable end condition that c
                 "authored_opening_premise": opening_premise,
                 "authored_visual_style": visual_style,
                 "scenario_capabilities": start_state,
-                "source_snapshot": snapshot,
+                "source_snapshot": _romance_prompt_snapshot(snapshot)
+                if romance_setup is not None
+                else snapshot,
                 "required_visual_appearance": appearance
                 or "Preserve the source image appearance",
                 # 開幕描写に相手と関係性を織り込む(隠し好みは渡さない)
@@ -2151,6 +2204,14 @@ The objective must name a concrete target and an observable end condition that c
             source_suffix = ".png"
         initial_path = run_dir / f"initial{source_suffix}"
         shutil.copyfile(source_image, initial_path)
+        # romance では攻略対象の元画像も保存し、相手立ち絵の精密参照に使う
+        partner_reference_path: Path | None = None
+        if romance_partner_image is not None and romance_partner_image.is_file():
+            partner_suffix = romance_partner_image.suffix.lower()
+            if partner_suffix not in {".png", ".jpg", ".jpeg", ".webp"}:
+                partner_suffix = ".png"
+            partner_reference_path = run_dir / f"partner_initial{partner_suffix}"
+            shutil.copyfile(romance_partner_image, partner_reference_path)
         opening_choices = [choice.model_dump() for choice in opening.choices]
         state = {
             "milestones": milestones,
@@ -2186,6 +2247,8 @@ The objective must name a concrete target and an observable end condition that c
                 player_name=romance_player_name,
                 player_character_id=romance_player_ref,
             )
+            if partner_reference_path is not None:
+                state["partner_image_path"] = str(partner_reference_path)
         if authored_scene_tags:
             state["authored_scene_tags"] = authored_scene_tags
         if template:
@@ -3261,7 +3324,10 @@ The objective must name a concrete target and an observable end condition that c
                     return
                 # step 情報はフロントのプログレスバー用。phase は既存契約を維持する
                 enable_composite = bool(state.get("enable_composite_scene"))
-                image_step_count = 2 if enable_composite else 1
+                # 非合成 romance は主人公+攻略対象の2枚を直列生成する
+                image_step_count = (
+                    2 if (enable_composite or romance_sim is not None) else 1
+                )
                 await queue.put(
                     (
                         "status",
@@ -3294,6 +3360,55 @@ The objective must name a concrete target and an observable end condition that c
                     await queue.put(("portrait_error", error))
 
                 if not enable_composite:
+                    # 非合成モードの romance では、攻略対象の立ち絵を並置表示する。
+                    # 主人公と同様に毎ターン生成し、そのターンの表情・服装を反映する
+                    if romance_sim is not None:
+                        partner_name = str(romance_sim.get("partner_name") or "")
+                        partner_entry, partner_tags = _romance_partner_visual_entry(
+                            list(visual.visual_state.main_characters),
+                            list(visual.npc_tags),
+                            partner_name,
+                        )
+                        if not partner_tags:
+                            clothing = (
+                                partner_entry["clothing"] if partner_entry else ""
+                            )
+                            partner_tags = ", ".join(
+                                part
+                                for part in (
+                                    str(romance_sim.get("partner_appearance") or ""),
+                                    clothing,
+                                )
+                                if part
+                            )
+                        if partner_tags:
+                            await queue.put(
+                                (
+                                    "status",
+                                    {
+                                        "phase": "image_generation",
+                                        "step": "partner",
+                                        "step_index": 2,
+                                        "step_count": image_step_count,
+                                    },
+                                )
+                            )
+                            try:
+                                partner_path = await (
+                                    self._generate_partner_portrait_unlocked(
+                                        run.id,
+                                        partner_tags=partner_tags,
+                                        turn_number=run.turn_count + 1,
+                                        seed_override=turn_seed,
+                                    )
+                                )
+                                await queue.put(("partner_portrait", partner_path))
+                            except Exception as error:
+                                # 相手立ち絵の失敗はターン進行を止めない
+                                logger.warning(
+                                    "Adventure partner portrait generation failed: %s",
+                                    error,
+                                )
                     await queue.put(("image_skipped", None))
                     return
                 await queue.put(
@@ -3380,6 +3495,14 @@ The objective must name a concrete target and an observable end condition that c
                         portrait_done = True
                     elif kind == "portrait_skipped":
                         portrait_done = True
+                    elif kind == "partner_portrait":
+                        # romance の攻略対象立ち絵(非合成モードのみ)
+                        yield {
+                            "event": "partner_image",
+                            "data": {
+                                "image_url": self.image_url(run.id, payload),
+                            },
+                        }
                     elif kind == "image":
                         image_path = payload
                         image_done = True
@@ -3550,10 +3673,8 @@ The objective must name a concrete target and an observable end condition that c
                 run.preset, next_status
             )
             result["ending_summary"] = next_state.get("ending_summary")
-            if romance_resolution is not None:
-                sim_state = next_state.get("sim")
-                if isinstance(sim_state, dict):
-                    result["sim"] = public_sim_view(sim_state, turn_number)
+            # romance の sim / partner_note は _serialize_turn が
+            # state_delta_json から復元して載せる
 
             yield {"event": "turn", "data": result}
             if image_path is not None:
@@ -4130,6 +4251,76 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             await db.commit()
         return portrait_path, effective_turn_id
 
+    async def _generate_partner_portrait_unlocked(
+        self,
+        run_id: str,
+        *,
+        partner_tags: str,
+        turn_number: int,
+        seed_override: int | None = None,
+    ) -> Path:
+        """romance の攻略対象の立ち絵を生成する(非合成モードの並置表示用)。
+
+        主人公の立ち絵と同じく白背景で生成し、フロント側で透過する。
+        最新の1枚だけを state["partner_portrait_path"] に保持する。
+        """
+        run = await self.get_run_orm(run_id)
+        state = _json_load(run.state_json, {})
+        nsfw_mode = bool(run.nsfw_mode)
+        prompt = _enhance_adventure_prompt(
+            partner_tags + ", solo, full body standing portrait, simple background,"
+            " white background, no shadow",
+            nsfw_mode=nsfw_mode,
+        )
+        character_references = None
+        reference_path = Path(str(state.get("partner_image_path") or ""))
+        if bool(state.get("use_precise_reference")) and reference_path.is_file():
+            # 参照は開始セッションの元画像。服装は変化し得るため弱めに参照する
+            char_strength, char_fidelity = _character_reference_strength(
+                outfit_changed=True, has_fresh_portrait=False
+            )
+            character_references = [
+                {
+                    "image": reference_path.read_bytes(),
+                    "type": "character",
+                    "strength": char_strength,
+                    "fidelity": char_fidelity,
+                }
+            ]
+        effective_image_model = (
+            settings.novelai_model if nsfw_mode else settings.novelai_curated_model
+        )
+        result = await image_service.generate_image(
+            prompt,
+            image_bytes=None,
+            provider_override="novelai",
+            negative_prompt=settings.novelai_negative_prompt,
+            nsfw_mode=nsfw_mode,
+            character_references=character_references,
+            characters=None,
+            seed=seed_override,
+            size_override="portrait",
+            novelai_model_override=effective_image_model,
+        )
+        if not result.images:
+            raise AdventureError(
+                "image_generation_failed", "相手の立ち絵が生成されませんでした"
+            )
+        filename = f"partner-{turn_number}-{uuid.uuid4().hex[:8]}.png"
+        partner_path = self._images_dir / run.id / filename
+        partner_path.parent.mkdir(parents=True, exist_ok=True)
+        partner_path.write_bytes(result.images[0])
+        async with async_session_factory() as db:
+            persisted_run = await db.get(AdventureRun, run.id)
+            if persisted_run is None:
+                raise AdventureError("run_not_found", "アドベンチャーが見つかりません")
+            persisted_state = _json_load(persisted_run.state_json, {})
+            persisted_state["partner_portrait_path"] = str(partner_path)
+            persisted_run.state_json = json.dumps(persisted_state, ensure_ascii=False)
+            persisted_run.updated_at = datetime.now()
+            await db.commit()
+        return partner_path
+
     async def _generate_opening_visuals(self, run_id: str) -> None:
         """Run作成直後に、背景1回・ポートレート・（設定時のみ）合成シーンを直列生成する。"""
         async with self._run_locks[run_id]:
@@ -4164,6 +4355,41 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 turn_number=0,
                 seed_override=opening_seed,
             )
+            # romance では攻略対象の立ち絵も開幕時に用意する(非合成モードの
+            # 並置表示用。合成へ切り替えた場合もそのまま無害)
+            sim_state = state.get("sim")
+            if isinstance(sim_state, dict):
+                partner_entry, partner_tags = _romance_partner_visual_entry(
+                    list(state.get("visual_state", {}).get("main_characters") or []),
+                    list(image_prompt.npc_tags),
+                    str(sim_state.get("partner_name") or ""),
+                )
+                if not partner_tags:
+                    clothing = partner_entry["clothing"] if partner_entry else ""
+                    partner_tags = ", ".join(
+                        part
+                        for part in (
+                            str(sim_state.get("partner_appearance") or ""),
+                            clothing,
+                        )
+                        if part
+                    )
+                if partner_tags:
+                    try:
+                        await self._generate_partner_portrait_unlocked(
+                            run_id,
+                            partner_tags=partner_tags,
+                            turn_number=0,
+                            seed_override=opening_seed,
+                        )
+                    except Exception:
+                        logger.exception(
+                            "Adventure opening partner portrait failed: run_id=%s",
+                            run_id,
+                        )
+                    # 立ち絵生成が state を更新するため読み直す
+                    run = await self.get_run_orm(run_id)
+                    state = _json_load(run.state_json, {})
             enable_composite_scene = bool(state.get("enable_composite_scene"))
             if enable_composite_scene:
                 await self._generate_image_unlocked(
@@ -4232,10 +4458,9 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             if turn.portrait_image_path
             else fallback_portrait_path
         )
-        turn_visual = _sanitize_visual_state(
-            _json_load(turn.state_delta_json, {}).get("visual_state")
-        )
-        return {
+        state_delta = _json_load(turn.state_delta_json, {})
+        turn_visual = _sanitize_visual_state(state_delta.get("visual_state"))
+        result = {
             "id": turn.id,
             "turn_number": turn.turn_number,
             "client_turn_id": turn.client_turn_id,
@@ -4258,6 +4483,20 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             "portrait_status": turn.portrait_status,
             "created_at": turn.created_at.isoformat() if turn.created_at else None,
         }
+        # romance ではターン確定時点の公開シミュ状態と攻略対象の様子を返す。
+        # state_delta は当該ターン適用後の全 state のため、隠し好みは
+        # public_sim_view で除外する
+        sim_state = state_delta.get("sim")
+        if isinstance(sim_state, dict) and sim_state:
+            result["sim"] = public_sim_view(sim_state, turn.turn_number)
+            partner_entry, _ = _romance_partner_visual_entry(
+                list((turn_visual or {}).get("main_characters") or []),
+                [],
+                str(sim_state.get("partner_name") or ""),
+            )
+            note = str((partner_entry or {}).get("description") or "").strip()
+            result["partner_note"] = note or None
+        return result
 
     async def update_run_settings(
         self,
@@ -4377,6 +4616,14 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         sim_state = state.get("sim")
         if run.preset == "romance" and isinstance(sim_state, dict):
             response["sim"] = public_sim_view(sim_state, run.turn_count)
+            # 開幕フレーム(手番0)の表示用。開始値は定数から再構成する
+            response["opening_sim"] = opening_sim_view(sim_state)
+            partner_portrait = Path(str(state.get("partner_portrait_path") or ""))
+            response["partner_portrait_url"] = (
+                self.image_url(run.id, partner_portrait)
+                if partner_portrait.is_file()
+                else None
+            )
         if include_snapshot:
             response["snapshot"] = _json_load(run.snapshot_json, {})
         return response

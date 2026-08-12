@@ -100,6 +100,9 @@ const resources = {
           playerFromSession: "セッションの姿を使う",
           playerSession: "主人公にするセッション",
           playerState: "主人公の姿（時点）",
+          partnerPortraitAlt: "攻略対象の立ち絵",
+          partnerLabel: "攻略対象",
+          previewTurn: "Day {{day}}/{{total}} {{slot}}（{{turn}}/{{max}}手）",
           dayCounter: "Day {{day}}/{{total}}",
           dayCounterHint: "現在の日付と時間帯。1日は昼・夜の2枠です",
           slot: {
@@ -318,6 +321,7 @@ const resources = {
         },
         phaseStep: {
           portrait: "立ち絵を生成中...",
+          partner: "攻略対象の立ち絵を生成中...",
           composite: "場面を合成中...",
         },
         anlasDetail: "固定: {{fixed}} / 購入: {{purchased}}",
@@ -1442,6 +1446,9 @@ const resources = {
           playerFromSession: "Use a session state",
           playerSession: "Session for your character",
           playerState: "Your appearance (point in time)",
+          partnerPortraitAlt: "Partner portrait",
+          partnerLabel: "Love interest",
+          previewTurn: "Day {{day}}/{{total}} {{slot}} (turn {{turn}}/{{max}})",
           dayCounter: "Day {{day}}/{{total}}",
           dayCounterHint: "Current day and time slot. Each day has two slots.",
           slot: {
@@ -1663,6 +1670,7 @@ const resources = {
         },
         phaseStep: {
           portrait: "Generating the character portrait...",
+          partner: "Generating the love interest's portrait...",
           composite: "Compositing the scene...",
         },
         anlasDetail: "Fixed: {{fixed}} / Purchased: {{purchased}}",
