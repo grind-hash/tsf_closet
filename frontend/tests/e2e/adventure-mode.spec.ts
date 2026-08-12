@@ -223,7 +223,7 @@ async function mockAdventureApis(
       };
       await route.fulfill({
         contentType: "text/event-stream",
-        body: `event: status\ndata: {"phase":"narrative"}\n\nevent: narrative_chunk\ndata: {"text":"受付係の手元に銀色の封蜡が見えた。"}\n\nevent: narrative_done\ndata: {"narrative":"受付係の手元に銀色の封蜡が見えた。"}\n\nevent: status\ndata: {"phase":"clue_check"}\n\nevent: turn\ndata: ${JSON.stringify(turn)}\n\nevent: complete\ndata: {"status":"complete"}\n\n`,
+        body: `event: status\ndata: {"phase":"narrative"}\n\nevent: narrative_chunk\ndata: {"text":"受付係の手元に銀色の封蜡が見えた。"}\n\nevent: narrative_done\ndata: {"narrative":"受付係の手元に銀色の封蜡が見えた。"}\n\nevent: status\ndata: {"phase":"clue_check"}\n\nevent: status\ndata: {"phase":"image_generation","step":"portrait","step_index":1,"step_count":2}\n\nevent: status\ndata: {"phase":"image_generation","step":"composite","step_index":2,"step_count":2}\n\nevent: turn\ndata: ${JSON.stringify(turn)}\n\nevent: complete\ndata: {"status":"complete"}\n\n`,
       });
     },
   );

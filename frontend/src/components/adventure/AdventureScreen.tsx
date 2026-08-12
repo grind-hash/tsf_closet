@@ -7,11 +7,16 @@ import type {
   AdventureStatus,
   AdventureTurn,
 } from "../../apis/adventure";
+import { fetchAnlasBalance } from "../../apis/anlas";
 import { fetchGalleryList, fetchGallerySessions } from "../../apis/gallery";
 import { useAdventure } from "../../contexts/AdventureContext";
 import { useSettings } from "../../contexts/SettingsContext";
+import {
+  type TimedProgressSegment,
+  useTimedProgress,
+} from "../../hooks/useTimedProgress";
 import { useTransparentImage } from "../../hooks/useTransparentImage";
-import type { GalleryItem, GallerySession } from "../../types";
+import type { AnlasBalance, GalleryItem, GallerySession } from "../../types";
 import { API_BASE } from "../../utils/api";
 import ImagePreviewModal from "../ImagePreviewModal";
 import MainLayout from "../layout/MainLayout";
@@ -40,6 +45,14 @@ function clampMaxTurns(value: number): number {
   if (!Number.isFinite(value)) return DEFAULT_MAX_TURNS;
   return Math.min(MAX_MAX_TURNS, Math.max(MIN_MAX_TURNS, Math.round(value)));
 }
+
+// 進捗バーの見なし所要時間(ms)。実測に合わせて調整する
+const ADVENTURE_PROGRESS_BUDGET_MS = {
+  clue_check: 12_000,
+  portrait: 18_000,
+  composite: 20_000,
+  image_single: 20_000,
+} as const;
 
 // 主人公ドックは他のHUDパネルと排他にせず、開いたままプレイできるようにする
 const PROTAGONIST_DOCK_STORAGE_KEY = "adventure_protagonist_dock_open";
@@ -1075,6 +1088,7 @@ function AdventurePlay({ runId }: { runId: string }) {
     loading,
     streaming,
     phase,
+    phaseStep,
     streamingNarrative,
     pendingUserInput,
     error,
@@ -1112,10 +1126,29 @@ function AdventurePlay({ runId }: { runId: string }) {
     readProtagonistDockOpen,
   );
   const [resultDismissed, setResultDismissed] = useState(false);
+  const [anlasBalance, setAnlasBalance] = useState<AnlasBalance | null>(null);
 
   useEffect(() => {
     void loadRun(runId).catch(() => navigate("/adventure"));
   }, [loadRun, navigate, runId]);
+
+  // 精密参照ONのrunではAnlasを消費するため残高を表示する。
+  // streamingがfalseへ戻るたび（＝各ストリーム完了後）に再取得する。
+  const usePreciseReference = activeRun?.use_precise_reference ?? false;
+  useEffect(() => {
+    if (!usePreciseReference) {
+      setAnlasBalance(null);
+      return;
+    }
+    if (streaming) return;
+    let cancelled = false;
+    void fetchAnlasBalance().then((balance) => {
+      if (!cancelled) setAnlasBalance(balance);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [usePreciseReference, streaming]);
 
   useEffect(() => {
     if (!logOpen) return;
@@ -1334,6 +1367,48 @@ function AdventurePlay({ runId }: { runId: string }) {
     PORTRAIT_ALPHA_OPTIONS,
   );
 
+  // 実進捗が取れないため、サブ工程statusと見なし所要時間で進捗バーを描く。
+  // narrativeフェーズはテキスト自体が進捗になるため対象外（スピナー維持）。
+  const enableCompositeScene = activeRun?.enable_composite_scene ?? false;
+  const progressSegments = useMemo<TimedProgressSegment[] | null>(() => {
+    if (!streaming || phase === null || phase === "narrative") return null;
+    if (pendingUserInput !== null) {
+      const segments: TimedProgressSegment[] = [
+        {
+          key: "clue_check",
+          budgetMs: ADVENTURE_PROGRESS_BUDGET_MS.clue_check,
+        },
+        { key: "portrait", budgetMs: ADVENTURE_PROGRESS_BUDGET_MS.portrait },
+      ];
+      if (enableCompositeScene) {
+        segments.push({
+          key: "composite",
+          budgetMs: ADVENTURE_PROGRESS_BUDGET_MS.composite,
+        });
+      }
+      return segments;
+    }
+    if (phase === "image_generation") {
+      return [
+        {
+          key: "image_single",
+          budgetMs: ADVENTURE_PROGRESS_BUDGET_MS.image_single,
+        },
+      ];
+    }
+    return null;
+  }, [streaming, phase, pendingUserInput, enableCompositeScene]);
+  const progressActiveKey = useMemo(() => {
+    if (!progressSegments) return null;
+    if (pendingUserInput !== null) {
+      if (phase === "clue_check") return "clue_check";
+      if (phase === "image_generation") return phaseStep?.step ?? "portrait";
+      return null;
+    }
+    return phase === "image_generation" ? "image_single" : null;
+  }, [progressSegments, pendingUserInput, phase, phaseStep]);
+  const stageProgress = useTimedProgress(progressSegments, progressActiveKey);
+
   if (loading || !activeRun || activeRun.id !== runId) {
     return (
       <MainLayout>
@@ -1343,6 +1418,9 @@ function AdventurePlay({ runId }: { runId: string }) {
   }
 
   const isStageLoading = streaming && phase !== null;
+  const phaseLabel = phaseStep
+    ? t(`adventure.phaseStep.${phaseStep.step}`)
+    : t(`adventure.phase.${phase ?? "narrative"}`);
   const isViewingPast = selectedFrameIndex !== null;
   const isCompositeMode = activeRun.enable_composite_scene;
   const effectiveIndex =
@@ -1464,6 +1542,18 @@ function AdventurePlay({ runId }: { runId: string }) {
                   <i style={{ width: `${turnRatio}%` }} />
                 </span>
               </div>
+              {activeRun.use_precise_reference && anlasBalance && (
+                <div
+                  className="adventure-hud__anlas"
+                  title={t("adventure.anlasDetail", {
+                    fixed: anlasBalance.fixedAnlas.toLocaleString(),
+                    purchased: anlasBalance.purchasedAnlas.toLocaleString(),
+                  })}
+                >
+                  <span>Anlas</span>
+                  <strong>{anlasBalance.totalAnlas.toLocaleString()}</strong>
+                </div>
+              )}
               {activeRun.milestones.length > 0 && (
                 <button
                   type="button"
@@ -1672,8 +1762,18 @@ function AdventurePlay({ runId }: { runId: string }) {
               )}
               {isStageLoading && !isViewingPast && (
                 <div className="adventure-stage__loading" role="status">
-                  <span className="adventure-stage__loading-spinner" />
-                  <strong>{t(`adventure.phase.${phase}`)}</strong>
+                  {progressSegments && progressActiveKey ? (
+                    <span className="adventure-progressbar" aria-hidden>
+                      <i
+                        style={{
+                          width: `${Math.round(stageProgress * 100)}%`,
+                        }}
+                      />
+                    </span>
+                  ) : (
+                    <span className="adventure-stage__loading-spinner" />
+                  )}
+                  <strong>{phaseLabel}</strong>
                 </div>
               )}
               {isViewingPast && (
@@ -1820,7 +1920,7 @@ function AdventurePlay({ runId }: { runId: string }) {
               {streaming && !isStageLoading && (
                 <div className="adventure-progress">
                   <span />
-                  {t(`adventure.phase.${phase ?? "narrative"}`)}
+                  {phaseLabel}
                 </div>
               )}
             </div>

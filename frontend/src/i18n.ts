@@ -245,6 +245,11 @@ const resources = {
           judging: "次の展開を判定中...",
           image_generation: "場面画像を生成中...",
         },
+        phaseStep: {
+          portrait: "立ち絵を生成中...",
+          composite: "場面を合成中...",
+        },
+        anlasDetail: "固定: {{fixed}} / 購入: {{purchased}}",
         status: {
           active: "進行中",
           success: "成功",
@@ -1513,6 +1518,11 @@ const resources = {
           judging: "Resolving the next scene...",
           image_generation: "Generating the scene image...",
         },
+        phaseStep: {
+          portrait: "Generating the character portrait...",
+          composite: "Compositing the scene...",
+        },
+        anlasDetail: "Fixed: {{fixed}} / Purchased: {{purchased}}",
         status: {
           active: "Active",
           success: "Success",

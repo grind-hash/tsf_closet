@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import random
 import re
 import shutil
 import uuid
@@ -14,6 +15,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal, TypeVar
 
+from annotated_types import MaxLen
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -184,6 +186,37 @@ class AdventureError(RuntimeError):
         self.code = code
 
 
+def _truncate_overlong_text(value: str, limit: int) -> str:
+    """上限超過の文字列を区切りを保って上限以内へ切り詰める。"""
+    truncated = value[:limit]
+    boundary = max(truncated.rfind(","), truncated.rfind("、"))
+    if boundary >= limit // 2:
+        truncated = truncated[:boundary]
+    result = truncated.rstrip(" ,、。")
+    return result or value[:limit]
+
+
+def _clamp_to_declared_max(
+    model: type[BaseModel], value: Any, field_name: str | None
+) -> Any:
+    """フィールド宣言の max_length を超える文字列を検証エラーにせず切り詰める。
+
+    LLM 出力が長すぎるだけでターン全体の画像生成を失わないための保険。
+    """
+    if not isinstance(value, str) or not field_name:
+        return value
+    field = model.model_fields.get(field_name)
+    if field is None:
+        return value
+    limit = next(
+        (item.max_length for item in field.metadata if isinstance(item, MaxLen)),
+        None,
+    )
+    if limit is None or len(value) <= limit:
+        return value
+    return _truncate_overlong_text(value, limit)
+
+
 class AdventureChoice(BaseModel):
     id: str = Field(min_length=1, max_length=40)
     label: str = Field(min_length=1, max_length=160)
@@ -200,19 +233,31 @@ class AdventureVisualCharacter(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     name: str = Field(default="", max_length=160)
-    description: str = Field(default="", max_length=800)
-    clothing: str = Field(default="", max_length=600)
-    action: str = Field(default="", max_length=400)
+    description: str = Field(default="", max_length=1200)
+    clothing: str = Field(default="", max_length=1200)
+    action: str = Field(default="", max_length=800)
+
+    @field_validator("name", "description", "clothing", "action", mode="before")
+    @classmethod
+    def clamp_overlong_text(cls, value: Any, info: ValidationInfo) -> Any:
+        return _clamp_to_declared_max(cls, value, info.field_name)
 
 
 class AdventureVisualState(BaseModel):
     location: str = Field(min_length=1, max_length=200)
-    appearance: str = Field(min_length=1, max_length=600)
-    clothing: str = Field(default="", max_length=600)
-    surroundings: str = Field(default="", max_length=800)
+    appearance: str = Field(min_length=1, max_length=1200)
+    clothing: str = Field(default="", max_length=1200)
+    surroundings: str = Field(default="", max_length=1600)
     main_characters: list[AdventureVisualCharacter] = Field(
         default_factory=list, max_length=5
     )
+
+    @field_validator(
+        "location", "appearance", "clothing", "surroundings", mode="before"
+    )
+    @classmethod
+    def clamp_overlong_text(cls, value: Any, info: ValidationInfo) -> Any:
+        return _clamp_to_declared_max(cls, value, info.field_name)
 
     @model_validator(mode="before")
     @classmethod
@@ -287,6 +332,11 @@ class AdventureImagePromptOutput(BaseModel):
     scene_tags: str = Field(min_length=1, max_length=1800)
     player_tags: str = Field(min_length=1, max_length=1200)
     npc_tags: list[str] = Field(default_factory=list, max_length=3)
+
+    @field_validator("scene_tags", "player_tags", mode="before")
+    @classmethod
+    def clamp_overlong_text(cls, value: Any, info: ValidationInfo) -> Any:
+        return _clamp_to_declared_max(cls, value, info.field_name)
 
 
 class AdventureResolutionOutput(BaseModel):
@@ -774,6 +824,31 @@ def _equipment_score_choices(
     if len(choices) != 3:
         return None
     return choices
+
+
+def _character_reference_strength(
+    *, outfit_changed: bool, has_fresh_portrait: bool
+) -> tuple[float, float]:
+    """character reference の (strength, fidelity) を返す。
+
+    参照画像が旧衣装の初期画像である場合のみ、衣装変更時に弱参照へ落とす。
+    このターンの新衣装で描いた直後の立ち絵を参照する場合は弱めない。
+    """
+    if has_fresh_portrait or not outfit_changed:
+        return 0.85, 1.0
+    return 0.35, 0.55
+
+
+def _compose_scene_base_tags(image_prompt: AdventureImagePromptOutput) -> str:
+    """合成シーンの base プロンプト用タグを組み立てる。
+
+    solo シーンでは NPC への衣装ブリードが起きないため、立ち絵と同様に
+    base プロンプトでも主人公の衣装タグを先頭で明示し、character
+    サブプロンプトのみの場合より衣装の一致率を上げる。
+    """
+    if image_prompt.npc_tags:
+        return image_prompt.scene_tags
+    return _merge_player_tags(image_prompt.player_tags, image_prompt.scene_tags)
 
 
 def _merge_player_tags(base: str, extra: str) -> str:
@@ -1483,8 +1558,9 @@ scene_tags contains only environment, camera, composition, lighting, and the obs
             repaired = await llm_service.generate_text(
                 system_prompt,
                 "Repair the following output into one valid compact JSON object for "
-                "the required schema. Return JSON only and do not add new facts.\n\n"
-                + raw.content,
+                "the required schema. Return JSON only and do not add new facts. "
+                "Respect every string length limit in the schema; when a value is "
+                "too long, shorten it by dropping trailing details.\n\n" + raw.content,
                 provider_override="novelai",
                 novelai_model_override=text_model,
             )
@@ -2947,7 +3023,22 @@ The objective must name a concrete target and an observable end condition that c
                     await queue.put(("portrait_skipped", None))
                     await queue.put(("image_skipped", None))
                     return
-                await queue.put(("status", {"phase": "image_generation"}))
+                # step 情報はフロントのプログレスバー用。phase は既存契約を維持する
+                enable_composite = bool(state.get("enable_composite_scene"))
+                image_step_count = 2 if enable_composite else 1
+                await queue.put(
+                    (
+                        "status",
+                        {
+                            "phase": "image_generation",
+                            "step": "portrait",
+                            "step_index": 1,
+                            "step_count": image_step_count,
+                        },
+                    )
+                )
+                # 立ち絵と合成シーンで同一シードを使い、衣装の描画差を抑える
+                turn_seed = random.randint(0, 999_999_999)
                 portrait_path: Path | None = None
                 try:
                     portrait_path, _ = await self._generate_portrait_unlocked(
@@ -2957,6 +3048,7 @@ The objective must name a concrete target and an observable end condition that c
                         prompt_override=visual,
                         turn_number=run.turn_count + 1,
                         worn_items_override=resolved_worn_items,
+                        seed_override=turn_seed,
                     )
                     await queue.put(("portrait", portrait_path))
                 except Exception as error:
@@ -2965,9 +3057,20 @@ The objective must name a concrete target and an observable end condition that c
                     )
                     await queue.put(("portrait_error", error))
 
-                if not bool(state.get("enable_composite_scene")):
+                if not enable_composite:
                     await queue.put(("image_skipped", None))
                     return
+                await queue.put(
+                    (
+                        "status",
+                        {
+                            "phase": "image_generation",
+                            "step": "composite",
+                            "step_index": 2,
+                            "step_count": image_step_count,
+                        },
+                    )
+                )
                 try:
                     background_path_str = getattr(run, "background_image_path", None)
                     background_bytes = (
@@ -2986,6 +3089,7 @@ The objective must name a concrete target and an observable end condition that c
                         if portrait_path is not None
                         else None,
                         worn_items_override=resolved_worn_items,
+                        seed_override=turn_seed,
                     )
                     await queue.put(("image", image_path))
                 except Exception as error:
@@ -3344,6 +3448,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         source_image_override: bytes | None = None,
         character_reference_image_override: bytes | None = None,
         worn_items_override: list[str] | None = None,
+        seed_override: int | None = None,
     ) -> tuple[Path, str | None]:
         """呼び出し側が既に run ロックを保持している前提で画像を生成する。"""
         run = await self.get_run_orm(run_id)
@@ -3410,8 +3515,10 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             )
             character_references = None
             if use_precise_reference:
-                char_strength = 0.35 if outfit_changed else 0.85
-                char_fidelity = 0.55 if outfit_changed else 1.0
+                char_strength, char_fidelity = _character_reference_strength(
+                    outfit_changed=outfit_changed,
+                    has_fresh_portrait=character_reference_image_override is not None,
+                )
                 reference_bytes = (
                     character_reference_image_override
                     if character_reference_image_override is not None
@@ -3426,7 +3533,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                     }
                 ]
             scene_prompt = _enhance_adventure_prompt(
-                image_prompt.scene_tags
+                _compose_scene_base_tags(image_prompt)
                 + ", visual novel scene, protagonist in foreground, supporting NPCs secondary",
                 nsfw_mode=nsfw_mode,
             )
@@ -3445,6 +3552,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 nsfw_mode=nsfw_mode,
                 character_references=character_references,
                 characters=characters,
+                seed=seed_override,
                 size_override="landscape",
                 novelai_model_override=effective_image_model,
             )
@@ -3667,6 +3775,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         prompt_override: AdventureImagePromptOutput | None = None,
         turn_number: int | None = None,
         worn_items_override: list[str] | None = None,
+        seed_override: int | None = None,
     ) -> tuple[Path, str | None]:
         """呼び出し側が既に run ロックを保持している前提で中央の立ち絵を生成する。"""
         run = await self.get_run_orm(run_id)
@@ -3711,8 +3820,10 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             )
             character_references = None
             if use_precise_reference:
-                char_strength = 0.35 if outfit_changed else 0.85
-                char_fidelity = 0.55 if outfit_changed else 1.0
+                # 参照は常に旧衣装の初期画像なので fresh portrait 扱いにしない
+                char_strength, char_fidelity = _character_reference_strength(
+                    outfit_changed=outfit_changed, has_fresh_portrait=False
+                )
                 character_references = [
                     {
                         "image": initial_path.read_bytes(),
@@ -3736,6 +3847,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 nsfw_mode=nsfw_mode,
                 character_references=character_references,
                 characters=None,
+                seed=seed_override,
                 size_override="portrait",
                 novelai_model_override=effective_image_model,
             )
@@ -3807,12 +3919,15 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             background_path = await self._generate_background_image_unlocked(
                 run_id, scene_tags=image_prompt.scene_tags, nsfw_mode=nsfw_mode
             )
+            # 立ち絵と合成シーンで同一シードを使い、衣装の描画差を抑える
+            opening_seed = random.randint(0, 999_999_999)
             portrait_path, _ = await self._generate_portrait_unlocked(
                 run_id,
                 None,
                 redraw_from_reference=True,
                 prompt_override=image_prompt,
                 turn_number=0,
+                seed_override=opening_seed,
             )
             enable_composite_scene = bool(state.get("enable_composite_scene"))
             if enable_composite_scene:
@@ -3824,6 +3939,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                     turn_number=0,
                     source_image_override=background_path.read_bytes(),
                     character_reference_image_override=portrait_path.read_bytes(),
+                    seed_override=opening_seed,
                 )
             else:
                 async with async_session_factory() as db:

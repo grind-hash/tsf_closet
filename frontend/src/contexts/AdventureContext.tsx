@@ -29,6 +29,14 @@ import {
 
 export type AdventurePhase = "narrative" | "clue_check" | "image_generation";
 
+export type AdventureImageStep = "portrait" | "composite";
+
+export interface AdventurePhaseStep {
+  step: AdventureImageStep;
+  index: number;
+  count: number;
+}
+
 interface AdventureContextValue {
   runs: AdventureRun[];
   templates: AdventureTemplate[];
@@ -37,6 +45,7 @@ interface AdventureContextValue {
   setupGenerating: boolean;
   streaming: boolean;
   phase: AdventurePhase | null;
+  phaseStep: AdventurePhaseStep | null;
   streamingNarrative: string;
   pendingUserInput: string | null;
   error: string | null;
@@ -62,6 +71,18 @@ interface AdventureContextValue {
 
 const AdventureContext = createContext<AdventureContextValue | null>(null);
 
+function parsePhaseStep(
+  data: Record<string, unknown>,
+): AdventurePhaseStep | null {
+  const step = data.step;
+  if (step !== "portrait" && step !== "composite") return null;
+  return {
+    step,
+    index: Number(data.step_index ?? 1),
+    count: Number(data.step_count ?? 1),
+  };
+}
+
 export function AdventureProvider({ children }: { children: ReactNode }) {
   const [runs, setRuns] = useState<AdventureRun[]>([]);
   const [templates, setTemplates] = useState<AdventureTemplate[]>([]);
@@ -70,6 +91,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
   const [setupGenerating, setSetupGenerating] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const [phase, setPhase] = useState<AdventurePhase | null>(null);
+  const [phaseStep, setPhaseStep] = useState<AdventurePhaseStep | null>(null);
   const [streamingNarrative, setStreamingNarrative] = useState("");
   const [pendingUserInput, setPendingUserInput] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -158,6 +180,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       const runId = activeRun.id;
       setStreaming(true);
       setPhase("narrative");
+      setPhaseStep(null);
       setStreamingNarrative("");
       setPendingUserInput(input);
       setError(null);
@@ -172,9 +195,16 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
           (event) => {
             if (event.type === "status") {
               setPhase((event.data.phase as AdventurePhase) ?? null);
+              setPhaseStep(parsePhaseStep(event.data));
             } else if (event.type === "narrative_chunk") {
               const chunk = String(event.data.chunk ?? "");
-              if (chunk) setStreamingNarrative((current) => current + chunk);
+              if (chunk) {
+                // narrative_done はstrip済み全文を送るため、蓄積が空の間だけ
+                // 先頭空白を除去してストリーム表示との差分をなくす
+                setStreamingNarrative((current) =>
+                  current ? current + chunk : chunk.replace(/^\s+/, ""),
+                );
+              }
             } else if (event.type === "narrative_done") {
               setStreamingNarrative(String(event.data.narrative ?? ""));
             } else if (event.type === "turn") {
@@ -235,6 +265,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       } finally {
         setStreaming(false);
         setPhase(null);
+        setPhaseStep(null);
         setStreamingNarrative("");
         setPendingUserInput(null);
       }
@@ -247,11 +278,13 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       if (!activeRun || streaming) return;
       setStreaming(true);
       setPhase("image_generation");
+      setPhaseStep(null);
       setError(null);
       try {
         await streamAdventureImage(activeRun.id, options ?? null, (event) => {
           if (event.type === "status") {
             setPhase((event.data.phase as AdventurePhase) ?? null);
+            setPhaseStep(parsePhaseStep(event.data));
           } else if (event.type === "image") {
             const imageUrl = normalizeAdventureImageUrl(event.data.image_url);
             if (imageUrl) {
@@ -280,6 +313,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       } finally {
         setStreaming(false);
         setPhase(null);
+        setPhaseStep(null);
       }
     },
     [activeRun, streaming],
@@ -349,6 +383,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       setupGenerating,
       streaming,
       phase,
+      phaseStep,
       streamingNarrative,
       pendingUserInput,
       error,
@@ -372,6 +407,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       setupGenerating,
       streaming,
       phase,
+      phaseStep,
       streamingNarrative,
       pendingUserInput,
       error,

@@ -36,6 +36,8 @@ from gateway.services.adventure_service import (
     _last_equipment_action,
     _equipment_clothing_state_tags,
     _strip_clothing_tags_for_equipment_scenario,
+    _character_reference_strength,
+    _compose_scene_base_tags,
     _merge_scene_tags,
     _sanitize_choices,
     _template_visual_style,
@@ -2073,7 +2075,10 @@ async def test_princess_room_image_generation_merges_authored_scene_tags(
     scene_prompt = generate_image.await_args.args[0]
     assert "luxurious palace dressing room" in scene_prompt
     assert "crystal chandelier" in scene_prompt
-    assert scene_prompt.startswith(authored.split(",")[0])
+    # solo シーンでは主人公タグが base プロンプト先頭に来て、
+    # authored シーンタグはその後ろに保持される
+    assert scene_prompt.startswith("1girl")
+    assert scene_prompt.index("1girl") < scene_prompt.index(authored.split(",")[0])
     assert generate_image.await_args.kwargs["nsfw_mode"] is True
     negative = generate_image.await_args.kwargs["negative_prompt"] or ""
     # 未装備アイテムを打ち消す negative が載ること
@@ -2499,3 +2504,59 @@ def test_enforce_template_output_overrides_llm_with_equipment_choices() -> None:
         "ブラジャーをつける",
         "扉の文章を読む",
     ]
+
+
+def test_character_reference_strength_keeps_fresh_portrait_strong() -> None:
+    # このターンの新衣装で描いた立ち絵を参照する場合は衣装変更でも弱めない
+    assert _character_reference_strength(
+        outfit_changed=True, has_fresh_portrait=True
+    ) == (0.85, 1.0)
+
+
+def test_character_reference_strength_weakens_only_initial_reference() -> None:
+    # 旧衣装の初期画像を参照する場合のみ、衣装変更時に弱参照へ落とす
+    assert _character_reference_strength(
+        outfit_changed=True, has_fresh_portrait=False
+    ) == (0.35, 0.55)
+    assert _character_reference_strength(
+        outfit_changed=False, has_fresh_portrait=False
+    ) == (0.85, 1.0)
+
+
+def test_scene_base_tags_merge_player_outfit_only_when_solo() -> None:
+    solo_prompt = AdventureImagePromptOutput(
+        scene_tags="luxury hall, night, warm lighting",
+        player_tags="mature woman, navy evening dress",
+        npc_tags=[],
+    )
+    merged = _compose_scene_base_tags(solo_prompt)
+    assert merged.startswith("mature woman, navy evening dress")
+    assert "luxury hall, night, warm lighting" in merged
+
+    with_npc = AdventureImagePromptOutput(
+        scene_tags="luxury hall, night, warm lighting",
+        player_tags="mature woman, navy evening dress",
+        npc_tags=["security guard uniform"],
+    )
+    assert _compose_scene_base_tags(with_npc) == "luxury hall, night, warm lighting"
+
+
+def test_visual_state_clamps_overlong_appearance_instead_of_failing() -> None:
+    # LLMが上限超過の文字列を返しても検証エラーでターンを失わず、切り詰めて通す
+    long_appearance = ", ".join(f"tag{i:03d}" for i in range(300))
+    state = AdventureVisualState(location="部屋", appearance=long_appearance)
+    assert 0 < len(state.appearance) <= 1200
+    assert state.appearance.startswith("tag000")
+    assert not state.appearance.endswith(",")
+
+
+def test_visual_state_keeps_text_within_limit_unchanged() -> None:
+    state = AdventureVisualState(location="部屋", appearance="1girl, short hair")
+    assert state.appearance == "1girl, short hair"
+
+
+def test_image_prompt_output_clamps_overlong_player_tags() -> None:
+    long_tags = ", ".join(f"tag{i:03d}" for i in range(300))
+    prompt = AdventureImagePromptOutput(scene_tags="room", player_tags=long_tags)
+    assert 0 < len(prompt.player_tags) <= 1200
+    assert prompt.player_tags.startswith("tag000")

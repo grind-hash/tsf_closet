@@ -1942,13 +1942,15 @@ class AnlasBalanceResponse(BaseModel):
     "/anlas",
     response_model=AnlasBalanceResponse,
     summary="Anlas残高取得",
-    description="NovelAIのAnlas残高を取得する。NovelAI以外のプロバイダー使用時はnullを返す。",
+    description="NovelAIのAnlas残高を取得する。NovelAI APIキー未設定時はnullを返す。",
 )
 async def get_anlas_balance() -> AnlasBalanceResponse:
     """Get the current Anlas balance from NovelAI."""
     from ..settings.config import settings as app_settings
 
-    if app_settings.image_provider.lower() != "novelai":
+    # AdventureモードはグローバルproviderにかかわらずNovelAIを強制するため、
+    # provider設定ではなくAPIキーの有無でゲートする
+    if not app_settings.novelai_api_key:
         return AnlasBalanceResponse()
 
     try:

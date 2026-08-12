@@ -1021,6 +1021,28 @@ button:disabled {
   transition: width 0.3s ease;
 }
 
+.adventure-hud__anlas {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  min-width: 66px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: rgb(13 17 20 / 78%);
+}
+
+.adventure-hud__anlas > span {
+  color: #aeb7bf;
+  font-size: 0.62rem;
+}
+
+.adventure-hud__anlas strong {
+  color: #99bbee;
+  font-family: monospace;
+  font-size: 1rem;
+  line-height: 1;
+}
+
 .adventure-hud__chip {
   display: grid;
   justify-items: center;
@@ -1386,6 +1408,22 @@ button:disabled {
 
 .adventure-stage__loading strong {
   font-size: 0.9rem;
+}
+
+.adventure-progressbar {
+  display: block;
+  width: min(260px, 60%);
+  height: 6px;
+  border-radius: 999px;
+  background: #39424a;
+  overflow: hidden;
+}
+
+.adventure-progressbar i {
+  display: block;
+  height: 100%;
+  background: #efb85a;
+  transition: width 0.2s linear;
 }
 
 .adventure-stage__past-banner {
