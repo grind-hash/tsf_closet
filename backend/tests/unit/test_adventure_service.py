@@ -48,6 +48,7 @@ from gateway.services.adventure_service import (
     _character_reference_strength,
     _compose_scene_base_tags,
     _merge_scene_tags,
+    _romance_template_player_appearance,
     _sanitize_choices,
     _template_visual_style,
     clamp_generated_max_turns,
@@ -241,6 +242,41 @@ def test_romance_prompts_carry_romance_guidance_only_when_enabled() -> None:
     romance_visual_prompt = service._visual_system_prompt("ja", romance=True)
     assert "partner is an NPC" in romance_visual_prompt
     assert "partner is an NPC" not in service._visual_system_prompt("ja")
+    # 主人公が別性別で描かれないよう、player_tags へ性別トークンの復唱を要求する
+    assert "sex tokens" in romance_visual_prompt
+
+
+def test_romance_template_player_appearance_adds_gender_tags() -> None:
+    boy = SimpleNamespace(
+        base_tags="short black hair, black eyes, white t-shirt, black shorts",
+        description="普通の男の子。",
+        gender="man",
+    )
+    girl = SimpleNamespace(
+        base_tags="brown hair, medium hair, shorts",
+        description="",
+        gender="woman",
+    )
+    already_tagged = SimpleNamespace(
+        base_tags="1girl, twin tails",
+        description="",
+        gender="man",
+    )
+    unknown_gender = SimpleNamespace(
+        base_tags="silver hair",
+        description="",
+        gender="",
+    )
+
+    assert _romance_template_player_appearance(boy) == (
+        "male, 1boy, short black hair, black eyes, white t-shirt, black shorts"
+    )
+    assert _romance_template_player_appearance(girl) == (
+        "female, 1girl, brown hair, medium hair, shorts"
+    )
+    # 既に性別トークンを含む場合は二重に足さない
+    assert _romance_template_player_appearance(already_tagged) == "1girl, twin tails"
+    assert _romance_template_player_appearance(unknown_gender) == "silver hair"
 
 
 def test_romance_overrides_llm_milestone_and_ending_claims() -> None:

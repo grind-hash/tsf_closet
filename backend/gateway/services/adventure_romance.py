@@ -475,11 +475,13 @@ ROMANCE_NARRATIVE_GUIDANCE = (
 ROMANCE_VISUAL_GUIDANCE = (
     "This scene is from a romance simulation. The player is the primary "
     "subject as usual and required_visual_appearance is the player's identity "
-    "signature. The romance partner is an NPC whose appearance is "
-    "state.sim.partner_appearance plus any changes declared through "
-    "reality_rules: when the partner is present in the scene, include them in "
-    "main_characters and npc_tags with that appearance, and never merge the "
-    "partner's hair, face, body, or clothing into player_tags or "
+    "signature. player_tags must restate the player's sex tokens from that "
+    "signature (for example male, 1boy or female, 1girl) so the player is "
+    "never drawn as a different sex. The romance partner is an NPC whose "
+    "appearance is state.sim.partner_appearance plus any changes declared "
+    "through reality_rules: when the partner is present in the scene, include "
+    "them in main_characters and npc_tags with that appearance, and never "
+    "merge the partner's hair, face, body, or clothing into player_tags or "
     "visual_state.appearance."
 )
 
