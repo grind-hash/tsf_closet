@@ -97,6 +97,9 @@ const resources = {
           playerHint:
             "恋愛シミュレーションで操作する自分のキャラクター。選択は次回にも保存されます",
           playerLoading: "読み込み中...",
+          playerFromSession: "セッションの姿を使う",
+          playerSession: "主人公にするセッション",
+          playerState: "主人公の姿（時点）",
           dayCounter: "Day {{day}}/{{total}}",
           dayCounterHint: "現在の日付と時間帯。1日は昼・夜の2枠です",
           slot: {
@@ -1436,6 +1439,9 @@ const resources = {
           playerHint:
             "The character you play as in the romance simulation. The choice is remembered for next time.",
           playerLoading: "Loading...",
+          playerFromSession: "Use a session state",
+          playerSession: "Session for your character",
+          playerState: "Your appearance (point in time)",
           dayCounter: "Day {{day}}/{{total}}",
           dayCounterHint: "Current day and time slot. Each day has two slots.",
           slot: {

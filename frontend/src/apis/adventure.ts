@@ -207,6 +207,9 @@ export interface AdventureCreateRequest extends AdventureSetupRequest {
   narration_pronoun?: string;
   /** romance の主人公テンプレートキャラクター。未指定なら既定(char1) */
   romance_player_character_id?: string;
+  /** romance の主人公を特定セッション時点の変身状態にする場合に指定 */
+  romance_player_session_id?: string;
+  romance_player_history_id?: string;
 }
 
 export interface AdventureSettingsUpdateRequest {

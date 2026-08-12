@@ -77,6 +77,10 @@ class AdventureCreateRequest(BaseModel):
     respect_clothing_layers: bool = False
     # romance の主人公テンプレートキャラクター。未指定なら既定(char1)
     romance_player_character_id: str | None = Field(default=None, max_length=40)
+    # romance の主人公を特定セッション時点の変身状態にする場合に指定。
+    # session_id があればテンプレートキャラクターより優先される
+    romance_player_session_id: str | None = Field(default=None, max_length=80)
+    romance_player_history_id: str | None = Field(default=None, max_length=80)
 
 
 class AdventureSettingsUpdateRequest(BaseModel):
@@ -154,6 +158,8 @@ async def create_run(request: AdventureCreateRequest) -> dict:
             enable_composite_scene=request.enable_composite_scene,
             respect_clothing_layers=request.respect_clothing_layers,
             romance_player_character_id=request.romance_player_character_id,
+            romance_player_session_id=request.romance_player_session_id,
+            romance_player_history_id=request.romance_player_history_id,
         )
     except AdventureError as error:
         raise _http_error(error) from error

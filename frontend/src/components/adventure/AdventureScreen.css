@@ -3426,3 +3426,10 @@ button:disabled {
   border-color: #ff9ec7;
   background: rgb(40 22 32 / 92%);
 }
+
+/* romance: 主人公を「セッションの姿」にする場合のセッション/時点ピッカー */
+.adventure-romance-player-source {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 14px;
+}

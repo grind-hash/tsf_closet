@@ -1,6 +1,8 @@
 import { expect, type Page, test } from "@playwright/test";
 
 const IMAGE = "/mock-scene.png";
+// AdventureScreen.tsx の主人公セレクト特殊値と揃える
+const ROMANCE_PLAYER_SESSION_VALUE = "__session__";
 
 function simPayload(overrides: Record<string, unknown> = {}) {
   return {
@@ -97,6 +99,7 @@ async function enableAdventure(page: Page) {
 
 interface RomanceMockState {
   streamBodies: Record<string, unknown>[];
+  createBodies: Record<string, unknown>[];
   runAfterTurn: Record<string, unknown> | null;
 }
 
@@ -104,7 +107,11 @@ async function mockRomanceApis(
   page: Page,
   initialRun: Record<string, unknown> = romanceRunPayload(),
 ): Promise<RomanceMockState> {
-  const state: RomanceMockState = { streamBodies: [], runAfterTurn: null };
+  const state: RomanceMockState = {
+    streamBodies: [],
+    createBodies: [],
+    runAfterTurn: null,
+  };
   let turnTaken = false;
   await page.route("**/api/gallery/sessions?*", async (route) => {
     await route.fulfill({
@@ -129,7 +136,21 @@ async function mockRomanceApis(
   });
   await page.route("**/api/gallery?*", async (route) => {
     await route.fulfill({
-      json: { items: [], total: 0, page: 1, page_size: 50, has_more: false },
+      json: {
+        items: [
+          {
+            id: "h1",
+            session_id: "session-1",
+            image_url: IMAGE,
+            instruction: "猫耳メイドに変身",
+            timestamp: "2026-08-01T00:00:00",
+          },
+        ],
+        total: 1,
+        page: 1,
+        page_size: 50,
+        has_more: false,
+      },
     });
   });
   await page.route("**/api/adventure/templates", async (route) => {
@@ -173,15 +194,10 @@ async function mockRomanceApis(
   });
   await page.route("**/api/adventure/runs", async (route) => {
     if (route.request().method() === "POST") {
-      const request = route.request().postDataJSON() as {
-        preset: string;
-        scenario_max_turns: number;
-        romance_player_character_id?: string;
-      };
-      expect(request.preset).toBe("romance");
-      expect(request.scenario_max_turns).toBe(14);
-      // 主人公(自分)は既定で char1 を送る
-      expect(request.romance_player_character_id).toBe("char1");
+      // 送信ボディはテスト側で検証する
+      state.createBodies.push(
+        route.request().postDataJSON() as Record<string, unknown>,
+      );
       await route.fulfill({ status: 201, json: initialRun });
     } else {
       await route.fulfill({ json: { runs: [] } });
@@ -231,7 +247,7 @@ test("start a romance run with day select and show the romance HUD", async ({
   page,
 }) => {
   await enableAdventure(page);
-  await mockRomanceApis(page);
+  const state = await mockRomanceApis(page);
   await page.goto("/adventure");
 
   await page.getByRole("button", { name: /^恋愛シミュレーション/ }).click();
@@ -249,6 +265,12 @@ test("start a romance run with day select and show the romance HUD", async ({
   await page.getByRole("button", { name: "シナリオを開始" }).click();
 
   await expect(page).toHaveURL(/\/adventure\/run-1$/);
+  // 主人公(自分)は既定でテンプレキャラ char1 を送る
+  expect(state.createBodies[0]).toMatchObject({
+    preset: "romance",
+    scenario_max_turns: 14,
+    romance_player_character_id: "char1",
+  });
   // romance HUD: Day/時間帯・好感度・所持金
   await expect(page.getByText("Day 1/7")).toBeVisible();
   await expect(page.getByText("好感度")).toBeVisible();
@@ -263,6 +285,34 @@ test("start a romance run with day select and show the romance HUD", async ({
   ).toBeVisible();
   await expect(page.getByRole("button", { name: "属性を付与" })).toBeVisible();
   await expect(page.getByRole("button", { name: "想いを告げる" })).toBeHidden();
+});
+
+test("player can be a transformed state from a session", async ({ page }) => {
+  await enableAdventure(page);
+  const state = await mockRomanceApis(page);
+  await page.goto("/adventure");
+
+  await page.getByRole("button", { name: /^恋愛シミュレーション/ }).click();
+  await page
+    .getByLabel(/主人公（自分）/)
+    .selectOption(ROMANCE_PLAYER_SESSION_VALUE);
+  // 主人公セッションと時点ピッカーが現れ、変身時点を選べる
+  const playerSource = page.locator(".adventure-romance-player-source");
+  await expect(playerSource.getByLabel(/主人公にするセッション/)).toHaveValue(
+    "session-1",
+  );
+  await playerSource.getByRole("button", { name: "猫耳メイドに変身" }).click();
+  await page.getByRole("button", { name: "ミッション案を自動生成" }).click();
+  await page.getByRole("button", { name: "シナリオを開始" }).click();
+
+  await expect(page).toHaveURL(/\/adventure\/run-1$/);
+  expect(state.createBodies[0]).toMatchObject({
+    romance_player_session_id: "session-1",
+    romance_player_history_id: "h1",
+  });
+  expect(state.createBodies[0]).not.toHaveProperty(
+    "romance_player_character_id",
+  );
 });
 
 test("gift shop purchase sends input_kind gift with gift_id", async ({

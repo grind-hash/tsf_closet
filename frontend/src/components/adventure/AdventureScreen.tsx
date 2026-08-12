@@ -61,6 +61,8 @@ const ROMANCE_DAY_OPTIONS = Array.from(
 );
 // romance の主人公既定キャラクター。backend/gateway/consts/adventure_romance.py と揃える
 const ROMANCE_DEFAULT_PLAYER_ID = "char1";
+// 主人公セレクトで「セッションの姿を使う」を表す特殊値
+const ROMANCE_PLAYER_SESSION_VALUE = "__session__";
 
 function clampMaxTurns(value: number): number {
   if (!Number.isFinite(value)) return DEFAULT_MAX_TURNS;
@@ -104,8 +106,10 @@ type AdventureSetupPrefs = {
   narrationVoice: AdventureNarrationVoice;
   narrationPronoun: string;
   enableCompositeScene: boolean;
-  /** romance の主人公(自分)。選択したら次回作成時にも引き継ぐ */
+  /** romance の主人公(自分)。テンプレキャラID または __session__。次回にも引き継ぐ */
   romancePlayerCharacterId: string;
+  /** 主人公を「セッションの姿」にしたときのセッションID */
+  romancePlayerSessionId: string;
 };
 
 function readSetupPrefs(): Partial<AdventureSetupPrefs> {
@@ -268,6 +272,17 @@ function AdventureHub() {
       : ROMANCE_DEFAULT_PLAYER_ID;
   });
   const [playerCharacters, setPlayerCharacters] = useState<Character[]>([]);
+  // 主人公を「セッションの姿」にする場合の対象セッションと時点
+  const [romancePlayerSessionId, setRomancePlayerSessionId] = useState(() => {
+    const saved = savedSetupPrefs.romancePlayerSessionId;
+    return typeof saved === "string" ? saved : "";
+  });
+  const [romancePlayerHistoryId, setRomancePlayerHistoryId] = useState<
+    string | undefined
+  >();
+  const [playerHistoryItems, setPlayerHistoryItems] = useState<GalleryItem[]>(
+    [],
+  );
 
   useEffect(() => {
     const prefs: AdventureSetupPrefs = {
@@ -275,13 +290,47 @@ function AdventureHub() {
       narrationPronoun: narrationPronoun.trim() || DEFAULT_NARRATION_PRONOUN,
       enableCompositeScene,
       romancePlayerCharacterId: romancePlayerId,
+      romancePlayerSessionId,
     };
     try {
       localStorage.setItem(SETUP_PREFS_STORAGE_KEY, JSON.stringify(prefs));
     } catch {
       // プライベートモード等で保存できなくてもフォーム操作は継続する
     }
-  }, [narrationVoice, narrationPronoun, enableCompositeScene, romancePlayerId]);
+  }, [
+    narrationVoice,
+    narrationPronoun,
+    enableCompositeScene,
+    romancePlayerId,
+    romancePlayerSessionId,
+  ]);
+
+  // セッションの姿モードでは、保存されたセッションが見つからなければ先頭へ倒す
+  useEffect(() => {
+    if (romancePlayerId !== ROMANCE_PLAYER_SESSION_VALUE) return;
+    if (sessions.length === 0) return;
+    if (
+      !sessions.some((session) => session.session_id === romancePlayerSessionId)
+    ) {
+      setRomancePlayerSessionId(sessions[0].session_id);
+    }
+  }, [romancePlayerId, sessions, romancePlayerSessionId]);
+
+  // 主人公セッションの履歴(時点)一覧。セッションが変わったら時点選択をリセット
+  useEffect(() => {
+    if (
+      romancePlayerId !== ROMANCE_PLAYER_SESSION_VALUE ||
+      !romancePlayerSessionId
+    ) {
+      setPlayerHistoryItems([]);
+      setRomancePlayerHistoryId(undefined);
+      return;
+    }
+    setRomancePlayerHistoryId(undefined);
+    void fetchGalleryList(1, 50, romancePlayerSessionId).then((response) =>
+      setPlayerHistoryItems(response.items),
+    );
+  }, [romancePlayerId, romancePlayerSessionId]);
 
   // 主人公候補は romance を選んだときだけ読み込む
   useEffect(() => {
@@ -332,6 +381,9 @@ function AdventureHub() {
 
   const selectedSession = sessions.find(
     (session) => session.session_id === sourceSessionId,
+  );
+  const romancePlayerSession = sessions.find(
+    (session) => session.session_id === romancePlayerSessionId,
   );
   const selectedTemplate = templates.find(
     (template) => template.id === selectedTemplateId,
@@ -461,8 +513,22 @@ function AdventureHub() {
         enable_composite_scene: enableCompositeScene,
         respect_clothing_layers: settingsState.respectClothingLayers,
         romance_player_character_id:
-          startMode === "generated" && preset === "romance"
+          startMode === "generated" &&
+          preset === "romance" &&
+          romancePlayerId !== ROMANCE_PLAYER_SESSION_VALUE
             ? romancePlayerId
+            : undefined,
+        romance_player_session_id:
+          startMode === "generated" &&
+          preset === "romance" &&
+          romancePlayerId === ROMANCE_PLAYER_SESSION_VALUE
+            ? romancePlayerSessionId || undefined
+            : undefined,
+        romance_player_history_id:
+          startMode === "generated" &&
+          preset === "romance" &&
+          romancePlayerId === ROMANCE_PLAYER_SESSION_VALUE
+            ? romancePlayerHistoryId
             : undefined,
       });
       navigate(`/adventure/${run.id}`);
@@ -687,7 +753,7 @@ function AdventureHub() {
                         }
                       >
                         {playerCharacters.length === 0 ? (
-                          <option value={romancePlayerId}>
+                          <option value={ROMANCE_DEFAULT_PLAYER_ID}>
                             {t("adventure.romance.playerLoading")}
                           </option>
                         ) : (
@@ -697,6 +763,9 @@ function AdventureHub() {
                             </option>
                           ))
                         )}
+                        <option value={ROMANCE_PLAYER_SESSION_VALUE}>
+                          {t("adventure.romance.playerFromSession")}
+                        </option>
                       </select>
                     </label>
                   </>
@@ -750,6 +819,84 @@ function AdventureHub() {
                       })}
                 </small>
               </div>
+
+              {preset === "romance" &&
+                romancePlayerId === ROMANCE_PLAYER_SESSION_VALUE && (
+                  <div className="adventure-romance-player-source">
+                    <label className="adventure-source-select">
+                      <span>{t("adventure.romance.playerSession")}</span>
+                      <select
+                        value={romancePlayerSessionId}
+                        disabled={setupGenerating || loading || creating}
+                        onChange={(event) =>
+                          setRomancePlayerSessionId(event.target.value)
+                        }
+                      >
+                        {sessions.map((session) => (
+                          <option
+                            key={session.session_id}
+                            value={session.session_id}
+                          >
+                            {formatSourceSessionOption(
+                              session,
+                              t,
+                              i18n.language,
+                            )}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    {romancePlayerSession && (
+                      <div
+                        className="adventure-source-grid"
+                        role="group"
+                        aria-label={t("adventure.romance.playerState")}
+                      >
+                        <button
+                          type="button"
+                          disabled={setupGenerating || loading || creating}
+                          className={
+                            !romancePlayerHistoryId ? "is-selected" : ""
+                          }
+                          onClick={() => setRomancePlayerHistoryId(undefined)}
+                        >
+                          <span className="adventure-source-grid__thumb">
+                            <img
+                              src={mediaUrl(romancePlayerSession.thumbnail_url)}
+                              alt={t("adventure.currentState")}
+                            />
+                          </span>
+                          <span className="adventure-source-grid__label">
+                            {t("adventure.currentState")}
+                          </span>
+                        </button>
+                        {playerHistoryItems.map((item) => (
+                          <button
+                            type="button"
+                            key={item.id}
+                            disabled={setupGenerating || loading || creating}
+                            className={
+                              romancePlayerHistoryId === item.id
+                                ? "is-selected"
+                                : ""
+                            }
+                            onClick={() => setRomancePlayerHistoryId(item.id)}
+                          >
+                            <span className="adventure-source-grid__thumb">
+                              <img
+                                src={mediaUrl(item.image_url)}
+                                alt={item.instruction}
+                              />
+                            </span>
+                            <span className="adventure-source-grid__label">
+                              {item.instruction}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
 
               <details
                 className="adventure-setup-details-wrapper"

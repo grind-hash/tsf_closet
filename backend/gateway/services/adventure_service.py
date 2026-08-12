@@ -1465,9 +1465,14 @@ class AdventureService:
                 nsfw_mode=stats.nsfw_mode,
             )
         nsfw_mode = bool(stats.nsfw_mode) if stats else False
+        # 旧テスト用モック等で character_id が無くても snapshot 構築は続行する
+        source_character = character_manager.get_by_id(
+            str(getattr(source_session, "character_id", "") or "")
+        )
         snapshot = {
             "source_session_id": source_session_id,
             "source_history_id": source_history_id,
+            "character_name": source_character.name if source_character else None,
             "appearance": appearance,
             "clothing": starting_clothing,
             "attributes": attributes,
@@ -1906,6 +1911,8 @@ The objective must name a concrete target and an observable end condition that c
         enable_composite_scene: bool = False,
         respect_clothing_layers: bool = False,
         romance_player_character_id: str | None = None,
+        romance_player_session_id: str | None = None,
+        romance_player_history_id: str | None = None,
     ) -> dict[str, Any]:
         narration_voice = normalize_narration_voice(narration_voice)
         narration_pronoun = normalize_narration_pronoun(narration_pronoun)
@@ -2005,18 +2012,40 @@ The objective must name a concrete target and an observable end condition that c
         # 恋愛シミュレーションの相手・バイト・カタログ・隠し好みはサーバ側で
         # 1回だけ生成する。/setup/generate のレスポンスには載せない
         romance_setup: RomanceSetupOutput | None = None
-        romance_player = None
         romance_partner_appearance = ""
+        romance_player_name = ""
+        romance_player_ref = ""
         if effective_preset == "romance":
-            player_id = (
-                str(romance_player_character_id or "").strip()
-                or ROMANCE_PLAYER_DEFAULT_CHARACTER_ID
-            )
-            romance_player = character_manager.get_by_id(player_id)
-            if romance_player is None:
-                raise AdventureError(
-                    "invalid_player_character", "主人公キャラクターが見つかりません"
+            # 主人公(自分)を解決する。セッション指定があればその時点の変身状態、
+            # なければテンプレートキャラクター(既定 char1)を使う
+            if romance_player_session_id:
+                (
+                    player_snapshot,
+                    player_image,
+                    player_appearance,
+                    _,
+                ) = await self._build_snapshot(
+                    romance_player_session_id, romance_player_history_id
                 )
+                romance_player_name = str(player_snapshot.get("character_name") or "")
+                romance_player_ref = f"session:{romance_player_session_id}"
+            else:
+                player_id = (
+                    str(romance_player_character_id or "").strip()
+                    or ROMANCE_PLAYER_DEFAULT_CHARACTER_ID
+                )
+                template_player = character_manager.get_by_id(player_id)
+                if template_player is None:
+                    raise AdventureError(
+                        "invalid_player_character",
+                        "主人公キャラクターが見つかりません",
+                    )
+                player_image = BASE_DIR / template_player.image_path
+                player_appearance = str(
+                    template_player.base_tags or template_player.description
+                )
+                romance_player_name = template_player.name
+                romance_player_ref = template_player.id
             romance_days = max_turns // ROMANCE_SLOTS_PER_DAY
             romance_setup = await self._generate_structured_output(
                 RomanceSetupOutput,
@@ -2029,7 +2058,7 @@ The objective must name a concrete target and an observable end condition that c
                         "objective": objective,
                         "constraints": constraints,
                         "source_snapshot": snapshot,
-                        "player_name": romance_player.name,
+                        "player_name": romance_player_name,
                     },
                     ensure_ascii=False,
                 ),
@@ -2041,10 +2070,10 @@ The objective must name a concrete target and an observable end condition that c
                 ),
             )
             # 開始セッションの人物は攻略対象。主人公の開始画像と外見ロックは
-            # 選択したテンプレートキャラクターへ差し替える
+            # 選択した主人公(テンプレキャラまたはセッション時点)へ差し替える
             romance_partner_appearance = appearance
-            appearance = str(romance_player.base_tags or romance_player.description)
-            source_image = BASE_DIR / romance_player.image_path
+            appearance = player_appearance
+            source_image = player_image
 
         start_state = template.get("start_state", {}) if template else {}
         visual_style = _template_visual_style(template)
@@ -2073,7 +2102,7 @@ The objective must name a concrete target and an observable end condition that c
                     "partner_appearance": romance_partner_appearance,
                     "relationship_origin": romance_setup.relationship_origin,
                     "job_name": romance_setup.job_name,
-                    "player_name": romance_player.name if romance_player else "",
+                    "player_name": romance_player_name,
                 }
                 if romance_setup is not None
                 else None,
@@ -2154,8 +2183,8 @@ The objective must name a concrete target and an observable end condition that c
                 romance_setup,
                 max_turns,
                 partner_appearance=romance_partner_appearance,
-                player_name=romance_player.name if romance_player else "",
-                player_character_id=romance_player.id if romance_player else "",
+                player_name=romance_player_name,
+                player_character_id=romance_player_ref,
             )
         if authored_scene_tags:
             state["authored_scene_tags"] = authored_scene_tags
