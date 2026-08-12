@@ -1,107 +1,83 @@
 ---
 name: tsf-closet-navigator
-description: "tsf_closet_base project navigator for context-efficient investigation and modification. Use when: exploring project architecture, locating files for a feature change, tracing data flow between frontend and backend, understanding API contracts, modifying game logic, adding new routes/contexts/components, debugging session or image generation issues. Reduces context window usage by providing pre-mapped architecture references instead of broad file exploration."
-argument-hint: "Describe what you want to investigate or modify (e.g., 'add a new API endpoint', 'fix stats calculation', 'trace image generation flow')"
+description: Navigate and modify the tsf_closet_base repository with minimal exploration. Use when locating frontend or backend files, tracing REST or SSE data flows, changing gameplay, image generation, play memory, Adventure mode, favorites, multi-character state, settings, exports, or validating a cross-layer change in this repository.
 ---
 
 # TSF Closet ナビゲーター
 
-tsf_closet_base のコンテキスト効率的なプロジェクト調査・変更スキル。
+リポジトリ全体を広く読む前に、タスクに必要なレイヤーと最小ファイルセットを特定する。
 
-## 使用する場面
+## 開始手順
 
-- 大量のファイルを読まずに機能の仕組みを調査したい場合
-- 新機能やバグ修正でどこを変更すべきか計画する場合
-- フロントエンド ↔ バックエンド間のデータフローをトレースする場合
-- 特定の変更に必要なファイルを特定する場合
-- コードベースの不慣れな部分にオンボーディングする場合
+1. ルートの `AGENTS.md` と、作業ディレクトリにより近い `AGENTS.md` があれば先に読む。
+2. `git status --short` で既存変更を確認し、ユーザーの未コミット変更を保護する。
+3. タスクを次の表で分類し、必要な参照だけ読む。
+4. 同種実装は最大2例まで確認し、変更予定ファイルと変更内容を短く示してから編集する。
+5. 変更ファイルに絞って検証し、構造変更があればこのスキルの対応表も更新する。
 
-## 手順
+| タスク | 読む参照 |
+| --- | --- |
+| FastAPI、サービス、DB、Alembic | [backend-map.md](./references/backend-map.md) |
+| React、Context、Hook、API、画面 | [frontend-map.md](./references/frontend-map.md) |
+| REST/SSE、画像生成、メモリ、Adventure の経路 | [data-flow.md](./references/data-flow.md) |
+| 変更箇所と検証コマンドの特定 | [modification-recipes.md](./references/modification-recipes.md) |
+| マップ自体の再検証 | [refresh-guide.md](./references/refresh-guide.md) |
 
-### ステップ 1: タスクの分類
+## 現行アーキテクチャ
 
-変更カテゴリを判定する:
+- フロントエンド: React 19、TypeScript 5.9、Vite 7、React Router 7、Biome、Playwright。開発ポートは 3000。
+- バックエンド: FastAPI、SQLAlchemy async、aiosqlite、Alembic、Ruff、pytest。開発ポートは 8000。
+- 通信: 通常操作は REST、メインプレイと Adventure の逐次応答は POST + SSE。
+- 生成: selfhost/ComfyUI、OpenRouter、NovelAI を設定に応じて切り替える。
+- 永続化: ゲームセッション、履歴、会話、プレイメモ、複数人物、Adventure、お気に入りを SQLite に保存する。
 
-| カテゴリ              | 説明                                                     | 読み込むリファレンス                            |
-| --------------------- | -------------------------------------------------------- | ----------------------------------------------- |
-| **バックエンド API**  | エンドポイントの新規/変更、リクエスト/レスポンスモデル   | [backend-map.md](./references/backend-map.md)   |
-| **フロントエンド UI** | コンポーネント、Context、Hook、ページ                    | [frontend-map.md](./references/frontend-map.md) |
-| **データフロー**      | エンドツーエンドの機能トレース (FE → API → Service → DB) | [data-flow.md](./references/data-flow.md)       |
-| **フルスタック**      | フロントエンドとバックエンド両方にまたがる変更           | backend-map + frontend-map の両方を読み込み     |
+## コアディレクトリ
 
-### ステップ 2: 変更レシピの参照
-
-タスクに基づいて、[変更レシピ集](./references/modification-recipes.md)を使用し、読むべき/変更すべき**最小限のファイルセット**を特定する。ファイルツリーを広範に探索するのではなく、レシピのテーブルを使うこと。
-
-### ステップ 3: 必要なものだけ読む
-
-レシピに従い、記載されたファイル**のみ**を読む。各ファイルについて関連箇所のみ読むこと（grep_search やターゲットを絞った行範囲を使用）。
-
-### ステップ 4: 変更の実装
-
-AGENTS.md の規約に従って変更を実装する（Context 優先の状態管理、Python は uv、ESLint/Prettier/Ruff 等）。
-
-### ステップ 5: セルフメンテナンスチェック
-
-構造的な変更（新規ファイル、リネーム、新規ルート/Context/Hook）を完了した後、影響を受けるリファレンスファイルを更新する:
-
-**更新のトリガー条件:**
-
-- 新しいルート/エンドポイントを追加した → [backend-map.md](./references/backend-map.md) を更新
-- 新しいコンポーネント/Context/Hook を追加した → [frontend-map.md](./references/frontend-map.md) を更新
-- 新しいデータフローパターンを導入した → [data-flow.md](./references/data-flow.md) を更新
-- 新しい変更パターンを発見した → [modification-recipes.md](./references/modification-recipes.md) を更新
-
-リファレンスが全体的に古くなった場合は[更新ガイド](./references/refresh-guide.md)を使用してフル再生成する。
-
-## アーキテクチャ クイックリファレンス（常時読み込み）
-
-### 技術スタック
-
-- **フロントエンド**: React 19 + TypeScript 5.9 + Vite 7 + React Router 7 (ポート 3000)
-- **バックエンド**: FastAPI 0.115 + SQLAlchemy 2.0 (async) + aiosqlite (ポート 8000)
-- **画像生成**: ComfyUI (inpaint/variation ワークフロー) / OpenRouter マルチモーダル / NovelAI
-- **LLM**: OpenAI 互換 API (LiteLLM/OpenRouter/ローカル経由)
-- **ストリーミング**: Server-Sent Events (SSE) によるリアルタイムゲーム応答
-- **マイグレーション**: Alembic
-- **パッケージ管理**: uv (Python), npm (Node.js)
-
-### コアディレクトリ
-
-```
+```text
 backend/gateway/
-  routes/          ← FastAPI ルーター（game, settings, achievements, gallery）
-  services/        ← ビジネスロジック（game_service, llm_service, image_generation, summary_service 等）
-  databases/       ← SQLAlchemy モデル + ORM クエリ
-  models.py        ← Pydantic リクエスト/レスポンススキーマ
-  consts/          ← 定数（言語コード等）
-backend/migrations/
-  versions/        ← Alembic マイグレーション履歴
+  app.py                 FastAPI 構築、ルーターマウント、互換画像API
+  models.py              Pydantic APIモデル
+  routes/                game、adventure、favorites、memory 等のルーター
+  services/              ゲーム、画像、LLM、Adventure、メモリ等のロジック
+  databases/             SQLAlchemyモデル、DB初期化、リポジトリ
+  scenarios/             Adventureシナリオ定義
+backend/migrations/      Alembic
 
 frontend/src/
-  apis/            ← API クライアントモジュール（game, settings, achievements, gallery, anlas）
-  components/      ← React コンポーネント（chat/, settings/, gallery/, achievements/, endings/, layout/, panel/, notifications/, ui/）
-  contexts/        ← 4つの Context: Game, Chat, Settings, Notification
-  hooks/           ← カスタム Hook（useSession, useSSE, useGameSSE, useAchievements, useGallery, useTagSuggest）
-  routes/          ← ルート定数 / ヘルパー (`getGameSessionPath`)
-  types/           ← TypeScript 型定義（types/index.ts）
-  utils/           ← 汎用ユーティリティ（API_BASE 等）
+  apis/                  REST/SSEクライアント
+  components/            game、adventure、gallery、settings 等のUI
+  contexts/              Game、Chat、Settings、Notification、Adventure
+  hooks/                 useSSE、useGameSSE、useSession 等
+  routes/                画面パス定数
+  types/                 共有TypeScript型
+  utils/                 API、履歴遡及、画像アルファ等
+frontend/tests/e2e/      Playwright
 ```
 
-### Context プロバイダ（フロントエンド状態管理）
+## 重要な境界
 
-| Context             | Hook                | 主な状態                                                                                                                        |
-| ------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| GameContext         | `useGame()`         | sessionId, character(s), currentImage, stats, history, attributes, ending, selfMode, transformationCount, lastSurroundingsImage |
-| ChatContext         | `useChat()`         | messages, inputText, instructionType, attachedImage, isStreaming, pendingIdentities                                             |
-| SettingsContext     | `useSettings()`     | difficulty, language, nsfwMode, imageProvider, inpaintSettings, changeSettings, anlasBalance, totalCost, novelaiTier 他多数     |
-| NotificationContext | `useNotification()` | notifications[]、`showNotification` / `showAchievementNotification` ヘルパー                                                    |
+- 共有状態は既存 Context に置く。複数階層の props 中継や props から Context への同期を追加しない。
+- `AdventureContext` は `/adventure` 配下だけで提供され、他4 Context は `main.tsx` で全体提供される。
+- 指示タイプは `dress_up`、`reality_alter`、`conversation`、`action`、`image_only`。追加時は型、送信UI、APIモデル、サービス分岐、履歴、E2Eを同時に確認する。
+- `image_only` は画像履歴だけを更新し、心境・パラメータ・実績・人物状態を更新しない。失敗時は履歴を残さない。
+- `original_instruction`、心境用の展開済み指示、画像用 `image_instruction` を混同しない。画像メモリは明示的な opt-in 時だけ注入する。
+- `prompt_override` を送る経路へ履歴遡及を自動注入しない。
+- プレイメモはセッション単位、設定画面のメモリ本文はユーザー単位。用途と保存先を分ける。
+- 複数人物の共有状態は `GameContext.sessionCharacters`、APIは `apis/characters.ts`、永続化は `SessionCharacter` を使用する。
+- Adventure は通常ゲームと別の Context、API、サービス、DBモデル、SSE契約を持つ。
 
-### API エンドポイント概要
+## 検証原則
 
-| プレフィックス  | ルーター               | 主な操作                                                             |
-| --------------- | ---------------------- | -------------------------------------------------------------------- |
-| `/game`         | game_router.py         | play (SSE), start, session/:id, masks, attributes, history削除 他    |
-| `/settings`     | settings_router.py     | settings GET/PUT/DELETE, user GET/PUT (互換), self-profile           |
-| `/achievements` | achievements_router.py | list (進捗含む), detail                                              |
-| `/gallery`      | gallery_router.py      | sessions list, items list (ページ), detail, delete, summary GET/POST |
+- フロントエンド: `frontend` で変更TS/TSXを `npx @biomejs/biome check <files>`、必要に応じて `npm run build` と対象Playwrightを実行する。
+- バックエンド: `backend` で変更Pythonを `uv run ruff check <files>` と `uv run ruff format --check <files>`、対象pytestを実行する。
+- Markdown: Prettier対象の設定を確認し、少なくとも差分とリンクを確認する。
+- DB変更: `backend` で Alembic を実行し、生成差分を目的の変更だけに整理する。
+- 環境失敗と実装失敗を分け、未実施の検証を成功扱いしない。
+
+## セルフメンテナンス
+
+- ルーター、サービス、DBモデルを追加・削除・改名したら `backend-map.md` を更新する。
+- 画面、Context、Hook、APIモジュールを追加・削除・改名したら `frontend-map.md` を更新する。
+- REST/SSEや永続化の経路を変えたら `data-flow.md` を更新する。
+- 新しい横断変更パターンや検証手順を確立したら `modification-recipes.md` を更新する。
+- 全体が古い場合は `refresh-guide.md` に従い、ソースを根拠に再生成する。

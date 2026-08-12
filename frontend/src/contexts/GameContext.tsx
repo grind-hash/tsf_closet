@@ -10,7 +10,9 @@ import {
   useContext,
   useEffect,
   useReducer,
+  useRef,
 } from "react";
+import { useTranslation } from "react-i18next";
 import type {
   Character,
   ConversationMessage,
@@ -22,6 +24,8 @@ import type {
   SurroundingsImageState,
 } from "../types";
 import { API_BASE } from "../utils/api";
+import { useNotification } from "./NotificationContext";
+import { useSettings } from "./SettingsContext";
 
 export interface PlayMemoryState {
   systemEnabled: boolean;
@@ -29,6 +33,24 @@ export interface PlayMemoryState {
   systemText: string | null;
   userText: string | null;
   systemUpdatedAt: string | null;
+}
+
+interface PlayMemoryApiResponse {
+  system_enabled: boolean;
+  user_enabled: boolean;
+  system_text: string | null;
+  user_text: string | null;
+  system_updated_at: string | null;
+}
+
+function mapPlayMemoryResponse(data: PlayMemoryApiResponse): PlayMemoryState {
+  return {
+    systemEnabled: data.system_enabled,
+    userEnabled: data.user_enabled,
+    systemText: data.system_text,
+    userText: data.user_text,
+    systemUpdatedAt: data.system_updated_at,
+  };
 }
 
 import {
@@ -77,6 +99,7 @@ type GameAction =
         sessionId: string;
         character: Character;
         currentImage: string;
+        playMemory?: PlayMemoryState;
       };
     }
   | {
@@ -177,7 +200,7 @@ function gameReducer(state: GameState, action: GameAction): GameState {
         transformationCount: 0,
         lastGeneratedSeed: null,
         lastSurroundingsImage: null,
-        playMemory: defaultState.playMemory,
+        playMemory: action.payload.playMemory ?? defaultState.playMemory,
       };
     case "RESTORE_SESSION":
       return {
@@ -327,7 +350,7 @@ interface GameContextType {
     sessionId: string,
     character: Character,
     currentImage: string,
-  ) => void;
+  ) => Promise<void>;
   restoreSession: (
     sessionId: string,
     character: Character,
@@ -536,7 +559,51 @@ function mapSessionResponse(data: {
 }
 
 export function GameProvider({ children }: { children: ReactNode }) {
+  const { t } = useTranslation();
+  const { showNotification } = useNotification();
+  const {
+    state: settingsState,
+    setPlayMemorySystemEnabled,
+    setPlayMemoryUserEnabled,
+  } = useSettings();
   const [state, dispatch] = useReducer(gameReducer, defaultState);
+  const previousPlayMemoryEnabledRef = useRef(settingsState.playMemoryEnabled);
+
+  const syncPlayMemoryPreferences = useCallback(
+    async (sessionId: string): Promise<PlayMemoryState | null> => {
+      try {
+        const response = await fetch(
+          `${API_BASE}/game/sessions/${sessionId}/play-memory`,
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              system_enabled: settingsState.playMemorySystemEnabled,
+              user_enabled: settingsState.playMemoryUserEnabled,
+            }),
+          },
+        );
+        if (!response.ok) {
+          throw new Error("play_memory_sync_failed");
+        }
+        const data = (await response.json()) as PlayMemoryApiResponse;
+        return mapPlayMemoryResponse(data);
+      } catch {
+        showNotification(
+          "warning",
+          t("settings.playMemory.sectionTitle"),
+          t("settings.playMemory.error"),
+        );
+        return null;
+      }
+    },
+    [
+      settingsState.playMemorySystemEnabled,
+      settingsState.playMemoryUserEnabled,
+      showNotification,
+      t,
+    ],
+  );
 
   useEffect(() => {
     const savedSessionId = localStorage.getItem(SESSION_STORAGE_KEY);
@@ -558,14 +625,37 @@ export function GameProvider({ children }: { children: ReactNode }) {
     }
   }, [state.sessionId]);
 
+  useEffect(() => {
+    const wasEnabled = previousPlayMemoryEnabledRef.current;
+    previousPlayMemoryEnabledRef.current = settingsState.playMemoryEnabled;
+    if (wasEnabled || !settingsState.playMemoryEnabled || !state.sessionId) {
+      return;
+    }
+    void syncPlayMemoryPreferences(state.sessionId).then((playMemory) => {
+      if (playMemory) {
+        dispatch({ type: "SET_PLAY_MEMORY", payload: playMemory });
+      }
+    });
+  }, [
+    settingsState.playMemoryEnabled,
+    state.sessionId,
+    syncPlayMemoryPreferences,
+  ]);
+
   const startSession = useCallback(
-    (sessionId: string, character: Character, currentImage: string) => {
+    async (sessionId: string, character: Character, currentImage: string) => {
+      const playMemory = await syncPlayMemoryPreferences(sessionId);
       dispatch({
         type: "START_SESSION",
-        payload: { sessionId, character, currentImage },
+        payload: {
+          sessionId,
+          character,
+          currentImage,
+          ...(playMemory ? { playMemory } : {}),
+        },
       });
     },
-    [],
+    [syncPlayMemoryPreferences],
   );
 
   const restoreSession = useCallback(
@@ -590,11 +680,25 @@ export function GameProvider({ children }: { children: ReactNode }) {
           conversationHistory: state.conversationHistory,
           selfMode: selfMode ?? false,
           transformationCount: history.length,
-          playMemory: defaultState.playMemory,
+          playMemory: {
+            ...defaultState.playMemory,
+            systemEnabled: settingsState.playMemorySystemEnabled,
+            userEnabled: settingsState.playMemoryUserEnabled,
+          },
         },
       });
+      void syncPlayMemoryPreferences(sessionId).then((playMemory) => {
+        if (playMemory) {
+          dispatch({ type: "SET_PLAY_MEMORY", payload: playMemory });
+        }
+      });
     },
-    [state.conversationHistory],
+    [
+      settingsState.playMemorySystemEnabled,
+      settingsState.playMemoryUserEnabled,
+      state.conversationHistory,
+      syncPlayMemoryPreferences,
+    ],
   );
 
   const loadCharacters = useCallback(async () => {
@@ -624,30 +728,43 @@ export function GameProvider({ children }: { children: ReactNode }) {
       }
 
       const data = await response.json();
-      dispatch(mapSessionResponse(data));
+      const action = mapSessionResponse(data);
+      const playMemory = await syncPlayMemoryPreferences(data.session_id);
+      if (playMemory) {
+        action.payload.playMemory = playMemory;
+      }
+      dispatch(action);
       return true;
     } catch {
       return false;
     }
-  }, []);
+  }, [syncPlayMemoryPreferences]);
 
-  const restoreSessionById = useCallback(async (sessionId: string) => {
-    try {
-      const response = await fetch(
-        `${API_BASE}/game/sessions/${sessionId}/restore`,
-        { method: "POST" },
-      );
-      if (!response.ok) {
+  const restoreSessionById = useCallback(
+    async (sessionId: string) => {
+      try {
+        const response = await fetch(
+          `${API_BASE}/game/sessions/${sessionId}/restore`,
+          { method: "POST" },
+        );
+        if (!response.ok) {
+          return false;
+        }
+
+        const data = await response.json();
+        const action = mapSessionResponse(data);
+        const playMemory = await syncPlayMemoryPreferences(data.session_id);
+        if (playMemory) {
+          action.payload.playMemory = playMemory;
+        }
+        dispatch(action);
+        return true;
+      } catch {
         return false;
       }
-
-      const data = await response.json();
-      dispatch(mapSessionResponse(data));
-      return true;
-    } catch {
-      return false;
-    }
-  }, []);
+    },
+    [syncPlayMemoryPreferences],
+  );
 
   const startSessionFromHistory = useCallback(
     async (
@@ -655,13 +772,16 @@ export function GameProvider({ children }: { children: ReactNode }) {
       options?: { inheritStats?: boolean; selfMode?: boolean },
     ): Promise<BranchSessionResponse> => {
       const data = await apiBranchSessionFromHistory(historyId, options);
-      dispatch(
-        mapSessionResponse(
-          data as Parameters<typeof mapSessionResponse>[0] & {
-            session_id: string;
-          },
-        ),
+      const action = mapSessionResponse(
+        data as Parameters<typeof mapSessionResponse>[0] & {
+          session_id: string;
+        },
       );
+      const playMemory = await syncPlayMemoryPreferences(data.session_id);
+      if (playMemory) {
+        action.payload.playMemory = playMemory;
+      }
+      dispatch(action);
       try {
         const records = await listSessionCharacters(data.session_id);
         dispatch({ type: "SET_SESSION_CHARACTERS", payload: records });
@@ -670,7 +790,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
       }
       return data;
     },
-    [],
+    [syncPlayMemoryPreferences],
   );
 
   const resetSession = useCallback(async () => {
@@ -1008,19 +1128,19 @@ export function GameProvider({ children }: { children: ReactNode }) {
         },
       );
       if (!response.ok) throw new Error("プレイメモの保存に失敗しました");
-      const data = await response.json();
+      const data = (await response.json()) as PlayMemoryApiResponse;
       dispatch({
         type: "SET_PLAY_MEMORY",
-        payload: {
-          systemEnabled: data.system_enabled,
-          userEnabled: data.user_enabled,
-          systemText: data.system_text,
-          userText: data.user_text,
-          systemUpdatedAt: data.system_updated_at,
-        },
+        payload: mapPlayMemoryResponse(data),
       });
+      if (updates.system_enabled !== undefined) {
+        setPlayMemorySystemEnabled(data.system_enabled);
+      }
+      if (updates.user_enabled !== undefined) {
+        setPlayMemoryUserEnabled(data.user_enabled);
+      }
     },
-    [state.sessionId],
+    [setPlayMemorySystemEnabled, setPlayMemoryUserEnabled, state.sessionId],
   );
 
   const regeneratePlayMemory = useCallback(
@@ -1032,16 +1152,10 @@ export function GameProvider({ children }: { children: ReactNode }) {
         { method: "POST" },
       );
       if (!response.ok) throw new Error("自動メモの再生成に失敗しました");
-      const data = await response.json();
+      const data = (await response.json()) as PlayMemoryApiResponse;
       dispatch({
         type: "SET_PLAY_MEMORY",
-        payload: {
-          systemEnabled: data.system_enabled,
-          userEnabled: data.user_enabled,
-          systemText: data.system_text,
-          userText: data.user_text,
-          systemUpdatedAt: data.system_updated_at,
-        },
+        payload: mapPlayMemoryResponse(data),
       });
     },
     [state.sessionId],

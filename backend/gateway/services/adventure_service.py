@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import random
 import re
 import shutil
 import uuid
@@ -14,6 +15,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal, TypeVar
 
+from annotated_types import MaxLen
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -26,10 +28,28 @@ from pydantic import (
 from sqlalchemy import delete, select
 from sqlalchemy.orm import selectinload
 
+from ..consts.adventure_narration import (
+    NARRATION_PRONOUN_DEFAULT,
+    NARRATION_PRONOUN_MAX_LENGTH,
+    NARRATION_VOICE_DEFAULT,
+    NARRATION_VOICES,
+)
+from ..consts.adventure_turns import (
+    ADVENTURE_TURNS_DEFAULT,
+    ADVENTURE_TURNS_MAX,
+    ADVENTURE_TURNS_MIN,
+)
 from ..databases.base import async_session_factory
 from ..databases.models import AdventureRun, AdventureTurn
 from ..settings.config import settings
 from .character_service import extract_protagonist_tags_from_history
+from .clothing_layers import (
+    CLOTHING_LAYER_COVERED_NEGATIVE,
+    merge_negative_prompt,
+    normalize_tag_for_match,
+    peel_undergarment_tags,
+    split_tag_tokens,
+)
 from .image_generation import image_service
 from .adventure_template_loader import SCENARIO_TEMPLATES, template_localized
 from .llm_service import llm_service
@@ -52,6 +72,112 @@ def _default_director_choices(language: str) -> list[dict[str, str]]:
     ]
 
 
+def _choice_as_dict(item: Any) -> dict[str, Any] | None:
+    """選択肢要素を id/label の dict に正規化する。"""
+    if isinstance(item, dict):
+        return item
+    if isinstance(item, BaseModel):
+        return item.model_dump()
+    if hasattr(item, "id") and hasattr(item, "label"):
+        return {"id": getattr(item, "id"), "label": getattr(item, "label")}
+    return None
+
+
+def _choices_preview(choices: Any, *, limit: int = 3) -> str:
+    """ログ用に選択肢入力の要約を返す。"""
+    try:
+        if not isinstance(choices, list):
+            return repr(choices)[:300]
+        preview: list[Any] = []
+        for item in choices[:limit]:
+            normalized = _choice_as_dict(item)
+            if normalized is None:
+                preview.append(
+                    {
+                        "type": type(item).__name__,
+                        "repr": repr(item)[:120],
+                    }
+                )
+                continue
+            preview.append(
+                {
+                    "id": str(normalized.get("id") or "")[:40],
+                    "label": str(normalized.get("label") or "")[:80],
+                }
+            )
+        return json.dumps(preview, ensure_ascii=False)
+    except Exception:
+        return f"<unprintable:{type(choices).__name__}>"
+
+
+def _sanitize_choices(
+    choices: Any,
+    *,
+    language: str,
+    fallback: list[dict[str, str]] | None = None,
+    source: str = "unknown",
+) -> list[dict[str, str]]:
+    """有効な選択肢がちょうど3件そろうときだけ採用し、それ以外はフォールバックする。"""
+    defaults = fallback if fallback is not None else _default_director_choices(language)
+    # fallback=[] は「採用できなければ空のまま」という中間検証用。既定3択ではない。
+    should_log_fallback = fallback is None or len(defaults) > 0
+
+    if not isinstance(choices, list):
+        if should_log_fallback:
+            logger.warning(
+                "Adventure choices fallback applied: source=%s language=%s "
+                "reason=not_a_list raw_type=%s raw_preview=%s fallback_count=%s",
+                source,
+                language,
+                type(choices).__name__,
+                _choices_preview(choices),
+                len(defaults),
+            )
+        return [dict(item) for item in defaults]
+
+    cleaned: list[dict[str, str]] = []
+    drop_reasons: list[str] = []
+    for index, item in enumerate(choices):
+        normalized = _choice_as_dict(item)
+        if normalized is None:
+            drop_reasons.append(f"[{index}] unnormalized_type={type(item).__name__}")
+            continue
+        choice_id = str(normalized.get("id") or "").strip()
+        label = str(normalized.get("label") or "").strip()
+        if not choice_id and not label:
+            drop_reasons.append(f"[{index}] empty_id_and_label")
+            continue
+        if not choice_id:
+            drop_reasons.append(f"[{index}] empty_id label={label[:40]!r}")
+            continue
+        if not label:
+            drop_reasons.append(f"[{index}] empty_label id={choice_id[:40]!r}")
+            continue
+        cleaned.append({"id": choice_id[:40], "label": label[:160]})
+
+    if len(cleaned) != 3:
+        if should_log_fallback:
+            if len(choices) != 3:
+                reason = f"count_mismatch raw_count={len(choices)} valid_count={len(cleaned)}"
+            else:
+                reason = f"invalid_items valid_count={len(cleaned)}"
+            logger.warning(
+                "Adventure choices fallback applied: source=%s language=%s "
+                "reason=%s raw_count=%s valid_count=%s drop_reasons=%s "
+                "raw_preview=%s fallback_count=%s",
+                source,
+                language,
+                reason,
+                len(choices),
+                len(cleaned),
+                drop_reasons[:8],
+                _choices_preview(choices),
+                len(defaults),
+            )
+        return [dict(item) for item in defaults]
+    return cleaned
+
+
 class AdventureError(RuntimeError):
     """アドベンチャー処理の利用者向けエラー。"""
 
@@ -60,28 +186,78 @@ class AdventureError(RuntimeError):
         self.code = code
 
 
+def _truncate_overlong_text(value: str, limit: int) -> str:
+    """上限超過の文字列を区切りを保って上限以内へ切り詰める。"""
+    truncated = value[:limit]
+    boundary = max(truncated.rfind(","), truncated.rfind("、"))
+    if boundary >= limit // 2:
+        truncated = truncated[:boundary]
+    result = truncated.rstrip(" ,、。")
+    return result or value[:limit]
+
+
+def _clamp_to_declared_max(
+    model: type[BaseModel], value: Any, field_name: str | None
+) -> Any:
+    """フィールド宣言の max_length を超える文字列を検証エラーにせず切り詰める。
+
+    LLM 出力が長すぎるだけでターン全体の画像生成を失わないための保険。
+    """
+    if not isinstance(value, str) or not field_name:
+        return value
+    field = model.model_fields.get(field_name)
+    if field is None:
+        return value
+    limit = next(
+        (item.max_length for item in field.metadata if isinstance(item, MaxLen)),
+        None,
+    )
+    if limit is None or len(value) <= limit:
+        return value
+    return _truncate_overlong_text(value, limit)
+
+
 class AdventureChoice(BaseModel):
     id: str = Field(min_length=1, max_length=40)
     label: str = Field(min_length=1, max_length=160)
+
+    @field_validator("id", "label", mode="before")
+    @classmethod
+    def strip_text(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return value.strip()
+        return value
 
 
 class AdventureVisualCharacter(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     name: str = Field(default="", max_length=160)
-    description: str = Field(default="", max_length=800)
-    clothing: str = Field(default="", max_length=600)
-    action: str = Field(default="", max_length=400)
+    description: str = Field(default="", max_length=1200)
+    clothing: str = Field(default="", max_length=1200)
+    action: str = Field(default="", max_length=800)
+
+    @field_validator("name", "description", "clothing", "action", mode="before")
+    @classmethod
+    def clamp_overlong_text(cls, value: Any, info: ValidationInfo) -> Any:
+        return _clamp_to_declared_max(cls, value, info.field_name)
 
 
 class AdventureVisualState(BaseModel):
     location: str = Field(min_length=1, max_length=200)
-    appearance: str = Field(min_length=1, max_length=600)
-    clothing: str = Field(default="", max_length=600)
-    surroundings: str = Field(default="", max_length=800)
+    appearance: str = Field(min_length=1, max_length=1200)
+    clothing: str = Field(default="", max_length=1200)
+    surroundings: str = Field(default="", max_length=1600)
     main_characters: list[AdventureVisualCharacter] = Field(
         default_factory=list, max_length=5
     )
+
+    @field_validator(
+        "location", "appearance", "clothing", "surroundings", mode="before"
+    )
+    @classmethod
+    def clamp_overlong_text(cls, value: Any, info: ValidationInfo) -> Any:
+        return _clamp_to_declared_max(cls, value, info.field_name)
 
     @model_validator(mode="before")
     @classmethod
@@ -121,13 +297,17 @@ class AdventureDirectorOutput(BaseModel):
     def fill_missing_choices(cls, value: Any, info: ValidationInfo) -> Any:
         if not isinstance(value, dict):
             return value
-        choices = value.get("choices")
-        if isinstance(choices, list) and len(choices) == 3:
-            return value
         fallback = (info.context or {}).get("fallback_choices")
         if not isinstance(fallback, list) or len(fallback) != 3:
-            return value
-        return {**value, "choices": fallback}
+            fallback = None
+        language = (info.context or {}).get("language") or "ja"
+        sanitized = _sanitize_choices(
+            value.get("choices"),
+            language=str(language),
+            fallback=fallback if isinstance(fallback, list) else None,
+            source="AdventureDirectorOutput",
+        )
+        return {**value, "choices": sanitized}
 
     @field_validator("completed_milestones", mode="before")
     @classmethod
@@ -153,6 +333,11 @@ class AdventureImagePromptOutput(BaseModel):
     player_tags: str = Field(min_length=1, max_length=1200)
     npc_tags: list[str] = Field(default_factory=list, max_length=3)
 
+    @field_validator("scene_tags", "player_tags", mode="before")
+    @classmethod
+    def clamp_overlong_text(cls, value: Any, info: ValidationInfo) -> Any:
+        return _clamp_to_declared_max(cls, value, info.field_name)
+
 
 class AdventureResolutionOutput(BaseModel):
     """確定済みナラティブから機械的な結果だけを抽出した出力。"""
@@ -169,13 +354,17 @@ class AdventureResolutionOutput(BaseModel):
     def fill_missing_choices(cls, value: Any, info: ValidationInfo) -> Any:
         if not isinstance(value, dict):
             return value
-        choices = value.get("choices")
-        if isinstance(choices, list) and len(choices) == 3:
-            return value
         fallback = (info.context or {}).get("fallback_choices")
         if not isinstance(fallback, list) or len(fallback) != 3:
-            return value
-        return {**value, "choices": fallback}
+            fallback = None
+        language = (info.context or {}).get("language") or "ja"
+        sanitized = _sanitize_choices(
+            value.get("choices"),
+            language=str(language),
+            fallback=fallback if isinstance(fallback, list) else None,
+            source="AdventureResolutionOutput",
+        )
+        return {**value, "choices": sanitized}
 
     @field_validator("completed_milestones", mode="before")
     @classmethod
@@ -207,6 +396,482 @@ def _image_prompt_payload(prompt: AdventureImagePromptOutput) -> dict[str, Any]:
     }
 
 
+def _template_visual_style(template: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not template:
+        return None
+    visual_style = template.get("visual_style")
+    return visual_style if isinstance(visual_style, dict) else None
+
+
+def _localized_visual_style_text(
+    visual_style: dict[str, Any] | None, key: str, language: str
+) -> str:
+    if not visual_style:
+        return ""
+    value = visual_style.get(key)
+    if not isinstance(value, dict):
+        return str(value or "").strip()
+    return str(value.get(language) or value.get("en") or "").strip()
+
+
+def _authored_scene_tags(
+    template: dict[str, Any] | None = None, state: dict[str, Any] | None = None
+) -> str:
+    if state:
+        stored = str(state.get("authored_scene_tags") or "").strip()
+        if stored:
+            return stored
+    visual_style = _template_visual_style(template)
+    if not visual_style:
+        return ""
+    return str(visual_style.get("scene_tags") or "").strip()
+
+
+def _merge_scene_tags(authored: str, generated: str) -> str:
+    authored_clean = authored.strip().strip(",")
+    generated_clean = generated.strip().strip(",")
+    if not authored_clean:
+        return generated_clean
+    if not generated_clean:
+        return authored_clean
+    if authored_clean.lower() in generated_clean.lower():
+        return generated_clean[:1800]
+    return f"{authored_clean}, {generated_clean}"[:1800]
+
+
+def _apply_visual_style_to_state(
+    visual_state: AdventureVisualState,
+    visual_style: dict[str, Any] | None,
+    language: str,
+    *,
+    force: bool = True,
+) -> None:
+    location = _localized_visual_style_text(visual_style, "location", language)
+    surroundings = _localized_visual_style_text(visual_style, "surroundings", language)
+    if location and (force or _looks_like_drab_room(visual_state.location)):
+        visual_state.location = location
+    if surroundings and (force or _looks_like_drab_room(visual_state.surroundings)):
+        visual_state.surroundings = surroundings
+
+
+_DRAB_ROOM_PATTERN = re.compile(
+    r"basement|locker|warehouse|fluorescent|concrete|dungeon|cellar|"
+    r"地下室|ロッカー|倉庫|蛍光灯|コンクリート|地下|更衣室|石造り|寒い密室|密室",
+    re.IGNORECASE,
+)
+
+
+def _looks_like_drab_room(text: str) -> bool:
+    return bool(text and _DRAB_ROOM_PATTERN.search(text))
+
+
+def _lean_state_for_llm(state: dict[str, Any]) -> dict[str, Any]:
+    """物語・選択肢生成向けに、画像用の巨大フィールドを除いた state を返す。"""
+    omit = {
+        "last_image_prompt",
+        "authored_scene_tags",
+        "opening_image_path",
+        # 人称指示はシステムプロンプト側に載るため、user prompt へは流さない
+        "narration_voice",
+        "narration_pronoun",
+    }
+    return {key: value for key, value in state.items() if key not in omit}
+
+
+def _image_tags_changed(
+    previous: dict[str, Any] | None, current: AdventureImagePromptOutput
+) -> bool:
+    if not previous:
+        return True
+    return (
+        str(previous.get("scene_tags") or "").strip() != current.scene_tags.strip()
+        or str(previous.get("player_tags") or "").strip() != current.player_tags.strip()
+        or list(previous.get("npc_tags") or []) != list(current.npc_tags)
+    )
+
+
+# 装備IDごとの画像用英語タグ。LLM任せだとドレスが背景のラック側に逃げやすい。
+_EQUIPMENT_IMAGE_TAGS: dict[str, str] = {
+    "panties": "wearing panties",
+    "bra": "wearing bra",
+    "dress": (
+        "wearing elegant princess ball gown, wearing dress, fully clothed, "
+        "frilly princess dress on the body, long dress, sparkling gown"
+    ),
+    "tiara": "wearing tiara, crown on head",
+    "sanitary_pad": "sanitary pad worn under clothing",
+}
+
+
+# Adventure の構造化JSON出力向けの衣装レイヤールール。
+# clothing_layers.CLOTHING_LAYER_IMAGE_RULE は WORN_UNDER_LAYERS 行の出力を要求し、
+# JSONスキーマと衝突するため、ここではタグ配置の指示だけを与える。
+_CLOTHING_LAYER_TAG_RULE = """
+Clothing layers are persistent state, not visibility. An outer garment covers the underwear beneath it without removing it, so keep worn underwear in visual_state.clothing even when it cannot be seen. In NovelAI tags, bra, panties, underwear, and lingerie mean the undergarment is VISIBLE: when the player wears an outer garment such as a dress or gown over them, omit those words from player_tags entirely and describe only the outer garment. Put them into player_tags only when the narrative explicitly lifts, opens, removes, or sees through the outer garment, and then only for the exposed area. When the intent is ambiguous, prefer the covered wording."""
+
+# 下着を覆う外衣の装備ID。着用済みなら下着タグを positive から外す。
+_EQUIPMENT_OUTER_ITEMS: frozenset[str] = frozenset({"dress"})
+
+# 外衣に覆われる内側の装備ID。
+_EQUIPMENT_UNDER_ITEMS: frozenset[str] = frozenset({"panties", "bra", "sanitary_pad"})
+
+# 露出状態タグ（bottomless / topless）の判定用に上下を分ける。
+_EQUIPMENT_UPPER_UNDER_ITEMS: frozenset[str] = frozenset({"bra"})
+_EQUIPMENT_LOWER_UNDER_ITEMS: frozenset[str] = frozenset({"panties", "sanitary_pad"})
+
+
+def _equipment_layers_covered(
+    worn_items: set[str] | list[str], respect_clothing_layers: bool
+) -> bool:
+    """外衣を着ていて下着が覆われている状態かを返す。"""
+    if not respect_clothing_layers:
+        return False
+    worn = {str(item) for item in worn_items}
+    return bool(worn & _EQUIPMENT_OUTER_ITEMS) and bool(worn & _EQUIPMENT_UNDER_ITEMS)
+
+
+def _equipment_image_tags(
+    template: dict[str, Any] | None,
+    worn_items: set[str] | list[str],
+    *,
+    respect_clothing_layers: bool = False,
+) -> str:
+    """装備済みアイテムの画像用タグを返す。
+
+    respect_clothing_layers が有効で外衣を着ている場合、下着アイテムのタグは
+    positive から除外する。NovelAI では bra / panties 等のタグが
+    「下着が見えている」意味になり、ドレスの上から下着が描かれてしまうため。
+    """
+    if not template or not worn_items:
+        return ""
+    worn = {str(item) for item in worn_items}
+    covered = _equipment_layers_covered(worn, respect_clothing_layers)
+    tags: list[str] = []
+    for item in template.get("rule", {}).get("items", []):
+        item_id = str(item.get("id") or "")
+        if item_id not in worn:
+            continue
+        if covered and item_id in _EQUIPMENT_UNDER_ITEMS:
+            continue
+        tag = _EQUIPMENT_IMAGE_TAGS.get(item_id)
+        if tag:
+            tags.append(tag)
+        labels = item.get("labels") or {}
+        en_label = str(labels.get("en") or "").strip()
+        if en_label and en_label.lower() not in ",".join(tags).lower():
+            tags.append(f"wearing {en_label}")
+    return ", ".join(dict.fromkeys(tags))
+
+
+# 未装備アイテムを打ち消す negative。装備済みアイテムのタグと語が重ならないよう、
+# underwear / lingerie のような総称語は使わない（clothing_layers._UNDERGARMENT_HINTS）。
+_EQUIPMENT_NEGATIVE_TAGS: dict[str, str] = {
+    # 下着はモデルが強く補完してくるため重みを上げる。
+    # underwear / lingerie のような総称語は着用中の相方まで消すので使わない。
+    "panties": "1.5::panties::, panty, thong, briefs, boyshorts",
+    "bra": "1.5::bra::, sports bra, bikini top",
+    "dress": "dress, gown, ball gown, evening gown",
+    "tiara": "tiara, crown, diadem, headdress",
+    # 服の下で見えないため negative を出す意味がない
+    "sanitary_pad": "",
+}
+
+
+def _unworn_equipment_items(
+    template: dict[str, Any] | None, worn_items: set[str] | list[str]
+) -> list[dict[str, Any]]:
+    """equipment_score テンプレートで、まだ装備していないアイテムを返す。
+
+    外衣を着ている場合、覆われる下着は「見えない」だけで矛盾しないため対象外にする。
+    CLOTHING_LAYER_COVERED_NEGATIVE が `no panties` を negative に含めるので、
+    ここで `panties` を negative に足すと自己矛盾になる。
+    """
+    rule = template.get("rule", {}) if template else {}
+    if rule.get("type") != "equipment_score":
+        return []
+    worn = {str(item) for item in worn_items}
+    outer_worn = bool(worn & _EQUIPMENT_OUTER_ITEMS)
+    unworn: list[dict[str, Any]] = []
+    for item in rule.get("items", []):
+        item_id = str(item.get("id") or "")
+        if not item_id or item_id in worn:
+            continue
+        if outer_worn and item_id in _EQUIPMENT_UNDER_ITEMS:
+            continue
+        unworn.append(item)
+    return unworn
+
+
+def _equipment_negative_tags(
+    template: dict[str, Any] | None, worn_items: set[str] | list[str]
+) -> str:
+    """未装備アイテムを描かせないための negative タグを返す。"""
+    tags: list[str] = []
+    for item in _unworn_equipment_items(template, worn_items):
+        item_id = str(item.get("id") or "")
+        tag = _EQUIPMENT_NEGATIVE_TAGS.get(item_id)
+        if tag is None:
+            labels = item.get("labels") or {}
+            tag = str(labels.get("en") or "").strip()
+        if tag:
+            tags.extend(part.strip() for part in tag.split(",") if part.strip())
+    return ", ".join(dict.fromkeys(tags))
+
+
+# _equipment_clothing_state_tags が出力する露出状態語と、LLM がその同義で書く語。
+# 前ターンの last_image_prompt 経由で LLM が引き継いでくるため、装備採点シナリオでは
+# 服装タグと同様に毎ターン全て落とし、worn_items から権威ある状態タグを付け直す。
+_EXPOSURE_STATE_TAG_PATTERN = re.compile(
+    r"\b(?:bottomless|topless|braless|pantiless|pantyless|nude|naked|"
+    r"undressed|unclothed|"
+    r"bare (?:chest|breasts?|hips?|butt|bottom|body|torso)|"
+    r"exposed (?:chest|breasts?|nipples?|crotch|hips?))\b",
+    re.IGNORECASE,
+)
+
+
+def _strip_clothing_tags_for_equipment_scenario(
+    template: dict[str, Any] | None, player_tags: str
+) -> str:
+    """equipment_score シナリオの player_tags から服装・露出状態タグを一括で外す。
+
+    このルールでは着ている物が worn_items だけで決まるのに、player_tags は
+    visual_state が補正される前に LLM が書くため、元セッションの私服などが
+    そのまま残りうる。前ターンの露出状態タグ（topless 等）も previous_image_tags
+    経由で引き継がれ、新しい装備タグを打ち消してしまう。
+    服装と露出状態は決定論のタグで置き直す。
+    """
+    rule = template.get("rule", {}) if template else {}
+    if rule.get("type") != "equipment_score" or not player_tags.strip():
+        return player_tags
+    kept = [
+        token
+        for token in split_tag_tokens(player_tags)
+        if not _CLOTHING_TAG_PATTERN.search(normalize_tag_for_match(token))
+        and not _EXPOSURE_STATE_TAG_PATTERN.search(normalize_tag_for_match(token))
+    ]
+    # player_tags は min_length=1。全部消える入力では元をそのまま返す。
+    return ", ".join(kept) if kept else player_tags
+
+
+def _equipment_clothing_state_tags(
+    template: dict[str, Any] | None, worn_items: set[str] | list[str]
+) -> str:
+    """今の露出状態を表すタグを返す。
+
+    「ブラだけ」のような状態は学習分布から外れており、negative で下衣を消すだけ
+    では下着を描き足されてしまう。Danbooru 語彙の bottomless / topless で
+    「上だけ着ている」状態そのものを指示する方が確実に効く。
+    服装タグを外したままにもできないので、裸の場合も明示する。
+    """
+    rule = template.get("rule", {}) if template else {}
+    if rule.get("type") != "equipment_score":
+        return ""
+    worn = {str(item) for item in worn_items}
+    if worn & _EQUIPMENT_OUTER_ITEMS:
+        # 外衣で覆われていれば露出状態を指示する必要はない
+        return ""
+    upper_worn = bool(worn & _EQUIPMENT_UPPER_UNDER_ITEMS)
+    lower_worn = bool(worn & _EQUIPMENT_LOWER_UNDER_ITEMS)
+    if upper_worn and not lower_worn:
+        return "1.4::bottomless::, no panties, bare hips"
+    if lower_worn and not upper_worn:
+        return "1.4::topless::, no bra, bare chest"
+    if not upper_worn and not lower_worn and rule.get("empty_clothing"):
+        return "1.4::completely nude::, no clothes"
+    return ""
+
+
+def _apply_clothing_layers_to_player_tags(
+    player_tags: str, *, covered: bool
+) -> tuple[str, str | None]:
+    """覆い状態なら player_tags から下着タグを剥がし、(タグ, extra negative) を返す。"""
+    if not covered:
+        return player_tags, None
+    kept, peeled = peel_undergarment_tags(player_tags)
+    if not peeled:
+        return player_tags, CLOTHING_LAYER_COVERED_NEGATIVE
+    return kept, CLOTHING_LAYER_COVERED_NEGATIVE
+
+
+# equipment_score の決定論選択肢用。露出済み衣類の「調べる」を避け、着用動詞で進行させる。
+_EQUIPMENT_WEAR_VERB_JA: dict[str, str] = {
+    "panties": "を履く",
+    "bra": "をつける",
+    "dress": "を着る",
+    "tiara": "をつける",
+    "sanitary_pad": "をつける",
+}
+
+
+def _equipment_wear_choice_label(item_id: str, label: str, language: str) -> str:
+    """装備アイテムの着用選択肢ラベルを生成する。"""
+    clean = label.strip()
+    if not clean:
+        clean = item_id
+    if language == "ja":
+        verb = _EQUIPMENT_WEAR_VERB_JA.get(item_id, "を身につける")
+        return f"{clean}{verb}"
+    return f"Put on {clean}"
+
+
+def _equipment_score_choices(
+    template: dict[str, Any] | None,
+    state: dict[str, Any],
+    language: str,
+) -> list[dict[str, str]] | None:
+    """equipment_score 用の次手3択を未装備から決定論生成する。非対象なら None。"""
+    rule = template.get("rule", {}) if template else {}
+    if rule.get("type") != "equipment_score":
+        return None
+
+    items = rule.get("items") or []
+    if not isinstance(items, list) or not items:
+        return None
+
+    required = {str(item_id) for item_id in rule.get("required_items", [])}
+    base_outfit = {str(item_id) for item_id in rule.get("base_outfit", [])}
+    template_state = state.get("template_state") or {}
+    worn = {str(item_id) for item_id in template_state.get("worn_items", [])}
+    flags = template_state.get("flags") or {}
+    rule_read = bool(template_state.get("rule_read") or flags.get("rule_read"))
+
+    item_by_id: dict[str, dict[str, Any]] = {}
+    missing_ids: list[str] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        item_id = str(item.get("id") or "").strip()
+        if not item_id:
+            continue
+        item_by_id[item_id] = item
+        if item_id in required and item_id not in worn:
+            missing_ids.append(item_id)
+
+    choices: list[dict[str, str]] = []
+    for item_id in missing_ids[:2]:
+        item = item_by_id[item_id]
+        labels = item.get("labels") or {}
+        label = str(labels.get(language) or labels.get("en") or item_id)
+        choices.append(
+            {
+                "id": f"wear_{item_id}"[:40],
+                "label": _equipment_wear_choice_label(item_id, label, language)[:160],
+            }
+        )
+
+    if language == "ja":
+        explore_pool = [
+            (
+                "read_rule",
+                "扉の文章を読む",
+                not rule_read,
+            ),
+            (
+                "check_door",
+                "扉の前に立って採点を確認する",
+                base_outfit.issubset(worn) or not missing_ids,
+            ),
+            (
+                "look_around",
+                "部屋を見回す",
+                True,
+            ),
+            (
+                "review_outfit",
+                "身につけた品を確認する",
+                bool(worn),
+            ),
+        ]
+    else:
+        explore_pool = [
+            ("read_rule", "Read the door text", not rule_read),
+            (
+                "check_door",
+                "Stand before the door and check the score",
+                base_outfit.issubset(worn) or not missing_ids,
+            ),
+            ("look_around", "Look around the room", True),
+            ("review_outfit", "Review the equipped items", bool(worn)),
+        ]
+
+    # 優先度順: 条件を満たす explore を先に、look_around は常に候補
+    ordered_explore: list[dict[str, str]] = []
+    for choice_id, label, enabled in explore_pool:
+        if not enabled:
+            continue
+        ordered_explore.append({"id": choice_id, "label": label})
+
+    seen_labels = {item["label"] for item in choices}
+    for filler in ordered_explore:
+        if len(choices) >= 3:
+            break
+        if filler["label"] in seen_labels:
+            continue
+        choices.append(filler)
+        seen_labels.add(filler["label"])
+
+    if len(choices) < 3:
+        defaults = _default_director_choices(language)
+        for item in defaults:
+            if len(choices) >= 3:
+                break
+            if item["label"] in seen_labels:
+                continue
+            choices.append(dict(item))
+            seen_labels.add(item["label"])
+
+    if len(choices) != 3:
+        return None
+    return choices
+
+
+def _character_reference_strength(
+    *, outfit_changed: bool, has_fresh_portrait: bool
+) -> tuple[float, float]:
+    """character reference の (strength, fidelity) を返す。
+
+    参照画像が旧衣装の初期画像である場合のみ、衣装変更時に弱参照へ落とす。
+    このターンの新衣装で描いた直後の立ち絵を参照する場合は弱めない。
+    """
+    if has_fresh_portrait or not outfit_changed:
+        return 0.85, 1.0
+    return 0.35, 0.55
+
+
+def _compose_scene_base_tags(image_prompt: AdventureImagePromptOutput) -> str:
+    """合成シーンの base プロンプト用タグを組み立てる。
+
+    solo シーンでは NPC への衣装ブリードが起きないため、立ち絵と同様に
+    base プロンプトでも主人公の衣装タグを先頭で明示し、character
+    サブプロンプトのみの場合より衣装の一致率を上げる。
+    """
+    if image_prompt.npc_tags:
+        return image_prompt.scene_tags
+    return _merge_player_tags(image_prompt.player_tags, image_prompt.scene_tags)
+
+
+def _merge_player_tags(base: str, extra: str) -> str:
+    base_clean = base.strip().strip(",")
+    extra_clean = extra.strip().strip(",")
+    if not extra_clean:
+        return base_clean
+    if not base_clean:
+        return extra_clean
+    if extra_clean.lower() in base_clean.lower():
+        return base_clean
+    return f"{base_clean}, {extra_clean}"[:1200]
+
+
+def _enhance_adventure_prompt(prompt: str, *, nsfw_mode: bool) -> str:
+    from .prompts import enhance_prompt_for_novelai
+
+    result = enhance_prompt_for_novelai(prompt)
+    if nsfw_mode and "nsfw" not in result.lower():
+        result = f"{result}, nsfw"
+    return result
+
+
 def _visual_state_changed(previous: dict[str, Any], current: dict[str, Any]) -> bool:
     return any(
         previous.get(key) != current.get(key)
@@ -218,6 +883,36 @@ def _visual_state_changed(previous: dict[str, Any], current: dict[str, Any]) -> 
             "main_characters",
         )
     )
+
+
+def _sanitize_visual_state(value: Any) -> dict[str, Any] | None:
+    """state_json の visual_state を API レスポンス用の形へ整える。"""
+    if not isinstance(value, dict):
+        return None
+    characters: list[dict[str, str]] = []
+    for item in value.get("main_characters") or []:
+        if isinstance(item, str):
+            item = {"description": item}
+        if not isinstance(item, dict):
+            continue
+        character = {
+            key: str(item.get(key) or "")
+            for key in ("name", "description", "clothing", "action")
+        }
+        if any(character.values()):
+            characters.append(character)
+    return {
+        "location": str(value.get("location") or ""),
+        "appearance": str(value.get("appearance") or ""),
+        "clothing": str(value.get("clothing") or ""),
+        "surroundings": str(value.get("surroundings") or ""),
+        "main_characters": characters[:5],
+    }
+
+
+def clamp_generated_max_turns(value: int) -> int:
+    """Keep an auto-generated run's turn budget inside the supported range."""
+    return max(ADVENTURE_TURNS_MIN, min(ADVENTURE_TURNS_MAX, int(value)))
 
 
 PRESETS: dict[str, dict[str, Any]] = {
@@ -280,29 +975,131 @@ PRESETS: dict[str, dict[str, Any]] = {
 }
 
 
-def _last_equipment_action(value: str, aliases: tuple[str, ...]) -> str | None:
-    lowered = value.lower()
-    wear_pattern = re.compile(
-        r"(?:着る|着用|身につけ|身に着け|履く|履い|つける|つけ|付ける|付け|貼る|貼り|装着|"
-        r"かぶる|被る|使用|put on|wear|attach|apply)",
-        re.IGNORECASE,
-    )
-    remove_pattern = re.compile(
-        r"(?:脱ぐ|脱い|外す|外し|下げる|remove|take off)", re.IGNORECASE
-    )
-    actions: list[tuple[int, str]] = []
+_EQUIPMENT_WEAR_PATTERN = re.compile(
+    r"(?:着る|着用|身につけ|身に着け|履く|履い|つける|つけ|付ける|付け|貼る|貼り|装着|"
+    r"かぶる|被る|使用|put on|wear|attach|apply)",
+    re.IGNORECASE,
+)
+_EQUIPMENT_REMOVE_PATTERN = re.compile(
+    r"(?:脱ぐ|脱い|外す|外し|下げる|remove|take off)", re.IGNORECASE
+)
+# エイリアス前後の走査幅。日本語は名詞の後ろ、英語は名詞の前に動詞が来る。
+_EQUIPMENT_ACTION_WINDOW = 60
+
+# 「AとBを身につける」のように動詞を共有する並列表現。境界として扱わない。
+_EQUIPMENT_LIST_JOINER = re.compile(
+    r"[\s、,，・/&]*(?:と|や|および|and)?[\s、,，・/&]*"
+)
+
+# 「ナプキンをショーツの内側に貼る」の「ショーツの」のように、直後が修飾・場所を
+# 示す助詞なら、その語は着脱動詞の対象ではないので境界にしない。
+_EQUIPMENT_MODIFIER_PARTICLE = re.compile(r"^(?:の|に|へ|で|から|より|まで)")
+
+
+def _alias_spans(lowered: str, aliases: tuple[str, ...]) -> list[tuple[int, int]]:
+    """小文字化済み文字列から、いずれかのエイリアスに一致する範囲を返す。"""
+    spans: list[tuple[int, int]] = []
     for alias in aliases:
-        for item_match in re.finditer(re.escape(alias.lower()), lowered):
-            window = lowered[item_match.start() : item_match.start() + 60]
-            actions.extend(
-                (item_match.start() + match.start(), "wear")
-                for match in wear_pattern.finditer(window)
-            )
-            actions.extend(
-                (item_match.start() + match.start(), "remove")
-                for match in remove_pattern.finditer(window)
-            )
-    return max(actions)[1] if actions else None
+        cleaned = alias.lower().strip()
+        if not cleaned:
+            continue
+        spans.extend(
+            (match.start(), match.end())
+            for match in re.finditer(re.escape(cleaned), lowered)
+        )
+    return spans
+
+
+def _last_equipment_action(
+    value: str,
+    aliases: tuple[str, ...],
+    *,
+    other_aliases: tuple[str, ...] = (),
+) -> str | None:
+    """入力からこのアイテムに対する着脱操作を判定する。
+
+    エイリアス出現位置の前後を見て、最も近い着脱動詞をそのエイリアスへ帰属させる。
+    走査範囲は other_aliases（他アイテムの語）で打ち切り、隣の衣類に付いた動詞を
+    取り違えないようにする。
+    """
+    lowered = value.lower()
+    own_spans = _alias_spans(lowered, aliases)
+    if not own_spans:
+        return None
+    other_spans = [
+        span for span in _alias_spans(lowered, other_aliases) if span not in own_spans
+    ]
+    # 「ヘッドドレス」の中の「ドレス」のように、他アイテムのより長い語に
+    # 内包されているだけの一致は自分の出現として数えない。
+    own_spans = [
+        (start, end)
+        for start, end in own_spans
+        if not any(
+            other_start <= start
+            and end <= other_end
+            and (other_end - other_start) > (end - start)
+            for other_start, other_end in other_spans
+        )
+    ]
+    if not own_spans:
+        return None
+    # 「ドレスの上からティアラをつける」の「ドレスの」のように、直後が修飾・場所の
+    # 助詞なら着脱の対象ではない。全出現が修飾なら、このアイテムは操作されていない。
+    direct_spans = [
+        (start, end)
+        for start, end in own_spans
+        if not _EQUIPMENT_MODIFIER_PARTICLE.match(lowered[end:])
+    ]
+    if not direct_spans:
+        return None
+    own_spans = direct_spans
+
+    def _is_joined(gap_start: int, gap_end: int) -> bool:
+        """並列助詞だけで隔てられているなら境界として扱わない。"""
+        if gap_start >= gap_end:
+            return True
+        return _EQUIPMENT_LIST_JOINER.fullmatch(lowered[gap_start:gap_end]) is not None
+
+    def _is_boundary(other_start: int, other_end: int) -> bool:
+        """他アイテムの語を走査の打ち切り位置として扱うか。"""
+        return not _EQUIPMENT_MODIFIER_PARTICLE.match(lowered[other_end:])
+
+    # (エイリアスからの距離, 出現位置, 種別) の最小をアイテム全体の判定とする
+    best: tuple[int, int, str] | None = None
+    for start, end in own_spans:
+        # 他アイテムの語を越えない範囲へ窓を狭める
+        left_bound = max(
+            [0, start - _EQUIPMENT_ACTION_WINDOW]
+            + [
+                other_end
+                for other_start, other_end in other_spans
+                if other_end <= start
+                and not _is_joined(other_end, start)
+                and _is_boundary(other_start, other_end)
+            ]
+        )
+        right_bound = min(
+            [len(lowered), end + _EQUIPMENT_ACTION_WINDOW]
+            + [
+                other_start
+                for other_start, other_end in other_spans
+                if other_start >= end
+                and not _is_joined(end, other_start)
+                and _is_boundary(other_start, other_end)
+            ]
+        )
+        window = lowered[left_bound:right_bound]
+        for pattern, action in (
+            (_EQUIPMENT_WEAR_PATTERN, "wear"),
+            (_EQUIPMENT_REMOVE_PATTERN, "remove"),
+        ):
+            for match in pattern.finditer(window):
+                position = left_bound + match.start()
+                distance = start - position if position < start else position - end
+                candidate = (max(distance, 0), position, action)
+                if best is None or candidate < best:
+                    best = candidate
+    return best[2] if best else None
 
 
 def _transform_appearance(appearance: str, config: dict[str, Any]) -> str:
@@ -346,6 +1143,133 @@ def _strip_json_fence(value: str) -> str:
     start = text.find("{")
     end = text.rfind("}")
     return text[start : end + 1] if start >= 0 and end > start else text
+
+
+# プレイヤーが手番中に宣言する現実改変。通常ゲームのセッション属性とは独立に、
+# Run の state へ蓄積して以降の全ターン判定へ渡す。
+# 括弧形式（通常ゲームの属性表記）はコロン省略可。素の語形はコロン必須にして、
+# 「現実改変について尋ねる」のような通常の行動を誤検出しない。
+_REALITY_DECLARATION_PATTERN = re.compile(
+    r"^\s*(?:"
+    r"\[\s*(?:現実改変|reality(?:[ _-]?alteration)?)\s*\]\s*[:：]?"
+    r"|(?:現実改変|reality(?:[ _-]?alteration)?)\s*[:：]"
+    r")\s*(?P<rule>.+)",
+    re.IGNORECASE | re.DOTALL,
+)
+_MAX_REALITY_RULES = 12
+_MAX_REALITY_RULE_LENGTH = 300
+
+# 全ターン判定へ共通で載せる現実改変の扱い。宣言済みルールが空でも無害。
+_REALITY_RULES_INSTRUCTION = (
+    "reality_rules is a list of world-alteration rules the player has declared. "
+    "Treat every entry as an absolute, already-established fact of this world that "
+    "applies to the entire scene and to every character in it, not as an intention, "
+    "a request, or something that might fail. They override ordinary social "
+    "expectations, NPC suspicion, and scenario constraints wherever they conflict. "
+    "No NPC questions, doubts, objects to, is alarmed by, reports, restrains, or "
+    "escalates any behaviour that a rule covers, however extreme or sexual that "
+    "behaviour is; they react as if it were entirely unremarkable. Behaviour covered "
+    "by a rule must never by itself set ending_status to failure, block the "
+    "objective, or make the mission impossible to continue, and must never be "
+    "narrated as being noticed as strange. The player may deliberately exploit these "
+    "rules to advance: an action that a rule makes possible can legitimately reveal "
+    "clues, complete milestones, and satisfy the objective. The mission may still end "
+    "in failure for reasons no rule covers, such as running out of turns or acting "
+    "against the objective itself. When reality_rule_declared_this_turn is set, the "
+    "player's input declared that rule this turn: narrate the world already conforming "
+    "to it, keep ending_status as continue, and never treat the declaration itself as "
+    "a suspicious act."
+)
+
+
+# 人称を切り替えても、同意・主体性のガードは弱めない。どの人称でも同じ文を添える。
+_NARRATION_VOICE_GUARD = (
+    "Choosing this grammatical person changes only the grammatical subject and "
+    "viewpoint of the prose. It grants no additional authority over the player "
+    "character and overrides no other rule: you must still never state or imply the "
+    "player character's feelings, emotions, opinions, preferences, comfort, consent, "
+    "refusal, wishes, memories, intentions, plans, or any voluntary action that the "
+    "player's input did not explicitly state. Earlier entries in recent_turns may use "
+    "a different narration voice; ignore their voice and follow this rule."
+)
+
+_NARRATION_VOICE_RULES: dict[str, str] = {
+    "second_person": (
+        "Write the player character in the second person, addressing them directly as "
+        '"you" (in Japanese, 「あなた」 or 「君」). '
+    ),
+    "third_person": (
+        "Write the player character in the third person, as a character observed from "
+        "outside rather than an addressee. Refer to them with third-person pronouns "
+        "and, where a noun phrase reads better, a short descriptive phrase built only "
+        "from traits already present in required_visual_appearance — for example "
+        '「黒髪ボブの彼女」. Never address the player as "you"/「あなた」/「君」 and '
+        "never use a first-person pronoun for them. Narrate only what an outside "
+        "observer could see or hear. "
+    ),
+}
+
+
+def normalize_narration_pronoun(value: str | None) -> str:
+    """一人称語を1語に正規化する。システムプロンプトへ入るため改行等を落とす。"""
+    cleaned = re.sub(r"\s+", "", str(value or ""))[:NARRATION_PRONOUN_MAX_LENGTH]
+    return cleaned or NARRATION_PRONOUN_DEFAULT
+
+
+def normalize_narration_voice(value: str | None) -> str:
+    """未知の値や旧 run の欠落は既定の二人称へ倒す。"""
+    voice = str(value or "")
+    return voice if voice in NARRATION_VOICES else NARRATION_VOICE_DEFAULT
+
+
+def _narration_voice_instruction(voice: str, pronoun: str) -> str:
+    """語りの人称指示を返す。プロンプト末尾に置いて直近性を効かせる。"""
+    voice = normalize_narration_voice(voice)
+    if voice == "first_person":
+        rule = (
+            "Write the player character in the first person, as their own account of "
+            f"the scene, using the pronoun 「{normalize_narration_pronoun(pronoun)}」 "
+            "for every self-reference and never substituting a different first-person "
+            "pronoun. First person permits exactly two additions and nothing more: "
+            "(1) the character's physical actions that follow directly from the "
+            "player's input, and (2) what the character can perceive with their senses "
+            "at this instant. Do not write interior monologue, deliberation, "
+            "self-commentary, reaction, or judgement. If a sentence would require the "
+            "character to want, decide, feel, agree to, refuse, or remember something, "
+            "drop the sentence and narrate the external event instead. "
+        )
+    else:
+        rule = _NARRATION_VOICE_RULES[voice]
+    return "NARRATION VOICE: " + rule + _NARRATION_VOICE_GUARD
+
+
+def _narration_from_state(state: dict[str, Any]) -> tuple[str, str]:
+    """run の state から (人称, 一人称語) を取り出す。旧 run は既定へ倒す。"""
+    return (
+        normalize_narration_voice(state.get("narration_voice")),
+        normalize_narration_pronoun(state.get("narration_pronoun")),
+    )
+
+
+def _detect_reality_declaration(user_input: str) -> str | None:
+    """「現実改変：〜」形式の宣言ならルール本文を返す。宣言でなければ None。"""
+    match = _REALITY_DECLARATION_PATTERN.match(user_input or "")
+    if match is None:
+        return None
+    rule = " ".join(match.group("rule").split()).strip()
+    if not rule:
+        return None
+    return rule[:_MAX_REALITY_RULE_LENGTH]
+
+
+def _append_reality_rule(state: dict[str, Any], rule: str) -> list[str]:
+    """宣言されたルールを state へ追記し、更新後の一覧を返す。"""
+    rules = [str(item) for item in state.get("reality_rules", []) if str(item).strip()]
+    if rule not in rules:
+        rules.append(rule)
+    rules = rules[-_MAX_REALITY_RULES:]
+    state["reality_rules"] = rules
+    return rules
 
 
 _CLOTHING_TAG_PATTERN = re.compile(
@@ -479,12 +1403,21 @@ class AdventureService:
         }
         return snapshot, image_path, appearance, nsfw_mode
 
-    def _director_system_prompt(self, language: str) -> str:
+    def _director_system_prompt(
+        self,
+        language: str,
+        *,
+        narration_voice: str = NARRATION_VOICE_DEFAULT,
+        narration_pronoun: str = NARRATION_PRONOUN_DEFAULT,
+    ) -> str:
         response_language = "Japanese" if language == "ja" else "English"
+        voice_rule = _narration_voice_instruction(narration_voice, narration_pronoun)
         return f"""You are the director of a short objective-based adventure game.
 Return one JSON object only, in {response_language}, matching this schema:
 {{"narrative":"...","choices":[{{"id":"...","label":"..."}},{{"id":"...","label":"..."}},{{"id":"...","label":"..."}}],"discovered_clues":[],"completed_milestones":[],"visual_state":{{"location":"...","appearance":"...","clothing":"...","surroundings":"...","main_characters":[{{"name":"...","description":"...","clothing":"...","action":"..."}}]}},"ending_status":"continue|success|partial|failure","ending_title":null,"ending_summary":null}}
-Keep narrative under 800 characters and the entire JSON response compact. Never decide the player's feelings, consent, past wishes, bodily sensations, or voluntary actions unless the player's input explicitly states them. If the player's action objectively makes the mission impossible to continue, return a concise failure ending instead of refusing, truncating, or leaving the JSON incomplete. Describe observable events and NPC actions. Do not introduce an unrequested body transformation. Never grant the player another person's memories, personal knowledge, relationships, habits, skills, credentials, passwords, or authentication information unless the supplied source facts explicitly state them. A copied appearance or name does not imply copied memory or competence. Treat source_snapshot.appearance and required_visual_appearance as an immutable identity signature. Copy its hair color, hair length, hairstyle, eye color, and body features exactly into visual_state.appearance; never replace or supplement those traits. Do not change the player's physical appearance unless scenario_capabilities or authored_template_resolution explicitly allows and triggers that change. Clothing may be offered, found, or discussed, but the player only puts on, removes, or changes clothing when their input explicitly chooses that action. When the player explicitly chooses to put on clothing, visual_state.clothing must show that garment as currently worn in the same turn. Unless the input explicitly requests layering, the new garment replaces the previous outfit instead of being worn over it. If the source snapshot explicitly establishes a transformed sex or body, it may create practical disguise or role opportunities without inventing further changes. Keep visual_state concrete enough to illustrate the main characters, their clothing, and the surrounding location. completed_milestones must contain milestone ID strings only, never objects. Complete milestones only when the narrated action actually earns them. When authored_template_resolution is provided, treat it as authoritative and never narrate a score, transformation, unlocked exit, or ending beyond its event."""
+Keep narrative under 800 characters and the entire JSON response compact. Never decide the player's feelings, consent, past wishes, bodily sensations, or voluntary actions unless the player's input explicitly states them. If the player's action objectively makes the mission impossible to continue, return a concise failure ending instead of refusing, truncating, or leaving the JSON incomplete. Describe observable events and NPC actions. Do not introduce an unrequested body transformation. Never grant the player another person's memories, personal knowledge, relationships, habits, skills, credentials, passwords, or authentication information unless the supplied source facts explicitly state them. A copied appearance or name does not imply copied memory or competence. Treat source_snapshot.appearance and required_visual_appearance as an immutable identity signature. Copy its hair color, hair length, hairstyle, eye color, and body features exactly into visual_state.appearance; never replace or supplement those traits. Do not change the player's physical appearance unless scenario_capabilities or authored_template_resolution explicitly allows and triggers that change. Clothing may be offered, found, or discussed, but the player only puts on, removes, or changes clothing when their input explicitly chooses that action. When the player explicitly chooses to put on clothing, visual_state.clothing must show that garment as currently worn in the same turn. Unless the input explicitly requests layering, the new garment replaces the previous outfit instead of being worn over it. If the source snapshot explicitly establishes a transformed sex or body, it may create practical disguise or role opportunities without inventing further changes. Keep visual_state concrete enough to illustrate the main characters, their clothing, and the surrounding location. When authored_visual_style is provided, set visual_state.location and visual_state.surroundings from it and never describe the room as a basement, locker room, warehouse, or cold industrial cell. completed_milestones must contain milestone ID strings only, never objects. Complete milestones only when the narrated action actually earns them. When authored_template_resolution is provided, treat it as authoritative and never narrate a score, transformation, unlocked exit, or ending beyond its event.
+{_REALITY_RULES_INSTRUCTION}
+{voice_rule}"""
 
     async def _generate_director_output(
         self,
@@ -493,8 +1426,14 @@ Keep narrative under 800 characters and the entire JSON response compact. Never 
         language: str,
         text_model: str,
         fallback_appearance: str = "",
+        narration_voice: str = NARRATION_VOICE_DEFAULT,
+        narration_pronoun: str = NARRATION_PRONOUN_DEFAULT,
     ) -> AdventureDirectorOutput:
-        system_prompt = self._director_system_prompt(language)
+        system_prompt = self._director_system_prompt(
+            language,
+            narration_voice=narration_voice,
+            narration_pronoun=narration_pronoun,
+        )
         raw = await llm_service.generate_text(
             system_prompt,
             prompt,
@@ -507,12 +1446,14 @@ Keep narrative under 800 characters and the entire JSON response compact. Never 
                 context={
                     "fallback_appearance": fallback_appearance,
                     "fallback_choices": _default_director_choices(language),
+                    "language": language,
                 },
             )
         except ValidationError as first_error:
             response_language = "Japanese" if language == "ja" else "English"
             repair_system_prompt = f"""Repair invalid adventure output as one new compact JSON object in {response_language}.
-Return JSON only and keep the entire response under 1200 characters. Do not repeat or continue the source verbatim. Preserve only facts already present. Keep narrative under 500 characters. If the source describes an action that objectively ends the mission, preserve ending_status as failure and provide a short ending_summary. Required minimum shape: {{"narrative":"...","visual_state":{{"location":"...","appearance":"...","clothing":"..."}},"ending_status":"continue|success|partial|failure","ending_title":null,"ending_summary":null}}."""
+Return JSON only and keep the entire response under 1200 characters. Do not repeat or continue the source verbatim. Preserve only facts already present. Keep narrative under 500 characters. If the source describes an action that objectively ends the mission, preserve ending_status as failure and provide a short ending_summary. Required minimum shape: {{"narrative":"...","visual_state":{{"location":"...","appearance":"...","clothing":"..."}},"ending_status":"continue|success|partial|failure","ending_title":null,"ending_summary":null}}.
+{_narration_voice_instruction(narration_voice, narration_pronoun)}"""
             repair_prompt = "Invalid source output:\n\n" + raw.content
             repaired = await llm_service.generate_text(
                 repair_system_prompt,
@@ -526,6 +1467,7 @@ Return JSON only and keep the entire response under 1200 characters. Do not repe
                     context={
                         "fallback_appearance": fallback_appearance,
                         "fallback_choices": _default_director_choices(language),
+                        "language": language,
                     },
                 )
             except ValidationError as second_error:
@@ -542,28 +1484,54 @@ Return JSON only and keep the entire response under 1200 characters. Do not repe
                     "物語生成結果を解析できませんでした。もう一度お試しください",
                 ) from second_error
 
-    def _narrative_system_prompt(self, language: str) -> str:
+    def _narrative_system_prompt(
+        self,
+        language: str,
+        *,
+        narration_voice: str = NARRATION_VOICE_DEFAULT,
+        narration_pronoun: str = NARRATION_PRONOUN_DEFAULT,
+    ) -> str:
         response_language = "Japanese" if language == "ja" else "English"
+        voice_rule = _narration_voice_instruction(narration_voice, narration_pronoun)
         return f"""You are the director of a short objective-based adventure game.
 Write only the narrative for the next scene, as plain prose in {response_language}. Do not output JSON, markdown, headings, choices, labels, or commentary.
-Keep the narrative under 800 characters. Never decide the player's feelings, consent, past wishes, bodily sensations, or voluntary actions unless the player's input explicitly states them. If the player's action objectively makes the mission impossible to continue, narrate a concise failure ending instead of refusing or truncating. Describe observable events and NPC actions. Do not introduce an unrequested body transformation. Never grant the player another person's memories, personal knowledge, relationships, habits, skills, credentials, passwords, or authentication information unless the supplied source facts explicitly state them. A copied appearance or name does not imply copied memory or competence. Treat state.appearance_lock and required_visual_appearance as an immutable identity signature, and never change the player's hair color, hair length, hairstyle, eye color, or body features unless scenario_guidance or authored_template_resolution explicitly allows and triggers that change. Clothing may be offered, found, or discussed, but the player only puts on, removes, or changes clothing when their input explicitly chooses that action. Unless the input explicitly requests layering, a new garment replaces the previous outfit instead of being worn over it. If the source snapshot explicitly establishes a transformed sex or body, it may create practical disguise or role opportunities without inventing further changes. When authored_template_resolution is provided, treat it as authoritative and never narrate a score, transformation, unlocked exit, or ending beyond its event."""
+Keep the narrative under 800 characters. Never decide the player's feelings, consent, past wishes, bodily sensations, or voluntary actions unless the player's input explicitly states them. If the player's action objectively makes the mission impossible to continue, narrate a concise failure ending instead of refusing or truncating. Describe observable events and NPC actions. Do not introduce an unrequested body transformation. Never grant the player another person's memories, personal knowledge, relationships, habits, skills, credentials, passwords, or authentication information unless the supplied source facts explicitly state them. A copied appearance or name does not imply copied memory or competence. Treat state.appearance_lock and required_visual_appearance as an immutable identity signature, and never change the player's hair color, hair length, hairstyle, eye color, or body features unless scenario_guidance or authored_template_resolution explicitly allows and triggers that change. Clothing may be offered, found, or discussed, but the player only puts on, removes, or changes clothing when their input explicitly chooses that action. Unless the input explicitly requests layering, a new garment replaces the previous outfit instead of being worn over it. If the source snapshot explicitly establishes a transformed sex or body, it may create practical disguise or role opportunities without inventing further changes. When authored_template_resolution is provided, treat it as authoritative and never narrate a score, transformation, unlocked exit, or ending beyond its event.
+{_REALITY_RULES_INSTRUCTION}
+{voice_rule}"""
 
-    def _resolution_system_prompt(self, language: str) -> str:
+    def _resolution_system_prompt(
+        self,
+        language: str,
+        *,
+        narration_voice: str = NARRATION_VOICE_DEFAULT,
+        narration_pronoun: str = NARRATION_PRONOUN_DEFAULT,
+    ) -> str:
         response_language = "Japanese" if language == "ja" else "English"
+        # 選択肢ラベルは行動フレーズなので、人称を載せない旨を併記する
+        voice_rule = (
+            _narration_voice_instruction(narration_voice, narration_pronoun)
+            + " choices[].label must remain a short neutral action phrase with no "
+            "narration voice, no pronoun, and no first-person or second-person subject."
+        )
         return f"""You resolve the mechanical outcome of one adventure turn that has already been narrated.
 Return one JSON object only, in {response_language}, matching this schema:
 {{"choices":[{{"id":"...","label":"..."}},{{"id":"...","label":"..."}},{{"id":"...","label":"..."}}],"discovered_clues":[],"completed_milestones":[],"ending_status":"continue|success|partial|failure","ending_title":null,"ending_summary":null}}
-Base every value strictly on the supplied narrative and game state, and never invent events the narrative does not contain. choices must offer exactly three distinct actions the player could take next. discovered_clues must contain only new information the narrative actually revealed, and must not repeat state.clues. completed_milestones must contain milestone ID strings only, never objects, and only when the narrated action actually earns them. Keep ending_status as continue unless the narrative itself concludes the mission, and fill ending_title and ending_summary only in that case. Never decide the player's feelings, consent, or voluntary actions. When authored_template_resolution is provided, treat it as authoritative and never report a score, transformation, or ending beyond its event. Keep the entire response compact."""
+Base every value strictly on the supplied narrative and game state, and never invent events the narrative does not contain. choices must offer exactly three distinct actions the player could take next. discovered_clues must contain only new information the narrative actually revealed, and must not repeat state.clues. completed_milestones must contain milestone ID strings only, never objects, and only when the narrated action actually earns them. Keep ending_status as continue unless the narrative itself concludes the mission, and fill ending_title and ending_summary only in that case. Never decide the player's feelings, consent, or voluntary actions. When authored_template_resolution is provided, treat it as authoritative and never report a score, transformation, or ending beyond its event. Keep the entire response compact.
+{_REALITY_RULES_INSTRUCTION}
+{voice_rule}"""
 
-    def _visual_system_prompt(self, language: str) -> str:
+    def _visual_system_prompt(
+        self, language: str, *, respect_clothing_layers: bool = False
+    ) -> str:
         response_language = "Japanese" if language == "ja" else "English"
+        layer_rule = _CLOTHING_LAYER_TAG_RULE if respect_clothing_layers else ""
         return f"""You update the visual state of an adventure scene and convert it into NovelAI image tags.
 Return one JSON object only, matching this schema:
 {{"visual_state":{{"location":"...","appearance":"...","clothing":"...","surroundings":"...","main_characters":[{{"name":"...","description":"...","clothing":"...","action":"..."}}]}},"scene_tags":"...","player_tags":"...","npc_tags":["..."]}}
 Write visual_state values in {response_language}. Write scene_tags, player_tags, and npc_tags as concise English comma-separated tags.
 Derive visual_state from previous_visual_state, changing only what the narrative states. Treat required_visual_appearance as an immutable identity signature: copy its hair color, hair length, hairstyle, eye color, and body features exactly into visual_state.appearance, and never replace or supplement those traits unless authored_template_resolution explicitly triggers that change. The player only puts on, removes, or changes clothing when player_input explicitly chose that action; otherwise keep previous_visual_state.clothing unchanged. Unless layering was explicitly requested, a new garment replaces the previous outfit. Keep visual_state concrete enough to illustrate the main characters, their clothing, and the surrounding location. main_characters contains NPCs, never the player.
 When previous_image_tags is provided, treat it as the wording a human editor deliberately chose: reuse its scene_tags, player_tags, and npc_tags as the starting point and edit them only where visual_state or the narrative now requires a change, preserving the rest of the original wording and phrasing style. When previous_image_tags is absent, write the tags from scratch.
-scene_tags contains only environment, camera, composition, lighting, and the observable interaction; it must not contain any character's gender, body, face, hair, or clothing. player_tags describes only the player from visual_state.appearance and visual_state.clothing. The player is always the primary subject in the center foreground. visual_state.clothing is authoritative and must never be replaced with an NPC outfit. npc_tags must contain one entry per NPC in main_characters, in the same order, describing only that NPC; every NPC is a secondary subject placed to the side or behind the player. Never merge player and NPC attributes. Do not add text, UI, split panels, or unstated changes."""
+scene_tags contains only environment, camera, composition, lighting, and the observable interaction; it must not contain any character's gender, body, face, hair, or clothing. player_tags describes only the player from visual_state.appearance and visual_state.clothing. The player is always the primary subject in the center foreground. visual_state.clothing is authoritative and must never be replaced with an NPC outfit. npc_tags must contain one entry per NPC in main_characters, in the same order, describing only that NPC; every NPC is a secondary subject placed to the side or behind the player. Never merge player and NPC attributes. Do not add text, UI, split panels, or unstated changes. When authored_scene_tags is provided, reuse those environment tags as the base of scene_tags and only append concrete changes required by the narrative. When authored_visual_style is provided, keep visual_state.location and visual_state.surroundings aligned with it unless the narrative explicitly moves the scene to a new place after a successful exit.{layer_rule}"""
 
     async def _generate_structured_output(
         self,
@@ -590,8 +1558,9 @@ scene_tags contains only environment, camera, composition, lighting, and the obs
             repaired = await llm_service.generate_text(
                 system_prompt,
                 "Repair the following output into one valid compact JSON object for "
-                "the required schema. Return JSON only and do not add new facts.\n\n"
-                + raw.content,
+                "the required schema. Return JSON only and do not add new facts. "
+                "Respect every string length limit in the schema; when a value is "
+                "too long, shorten it by dropping trailing details.\n\n" + raw.content,
                 provider_override="novelai",
                 novelai_model_override=text_model,
             )
@@ -615,17 +1584,26 @@ scene_tags contains only environment, camera, composition, lighting, and the obs
         turn_context: dict[str, Any],
         language: str,
         text_model: str,
+        narration_voice: str = NARRATION_VOICE_DEFAULT,
+        narration_pronoun: str = NARRATION_PRONOUN_DEFAULT,
     ) -> AdventureResolutionOutput:
         return await self._generate_structured_output(
             AdventureResolutionOutput,
-            system_prompt=self._resolution_system_prompt(language),
+            system_prompt=self._resolution_system_prompt(
+                language,
+                narration_voice=narration_voice,
+                narration_pronoun=narration_pronoun,
+            ),
             user_prompt=json.dumps(
                 {**turn_context, "narrative": narrative}, ensure_ascii=False
             ),
             text_model=text_model,
             error_code="invalid_model_output",
             error_message="物語生成結果を解析できませんでした。もう一度お試しください",
-            context={"fallback_choices": _default_director_choices(language)},
+            context={
+                "fallback_choices": _default_director_choices(language),
+                "language": language,
+            },
         )
 
     async def _generate_visual_output(
@@ -638,10 +1616,15 @@ scene_tags contains only environment, camera, composition, lighting, and the obs
         language: str,
         text_model: str,
         previous_image_tags: dict[str, Any] | None = None,
+        respect_clothing_layers: bool = False,
     ) -> AdventureVisualOutput:
-        return await self._generate_structured_output(
+        authored_scene_tags = str(turn_context.get("authored_scene_tags") or "").strip()
+        authored_visual_style = turn_context.get("authored_visual_style")
+        visual_output = await self._generate_structured_output(
             AdventureVisualOutput,
-            system_prompt=self._visual_system_prompt(language),
+            system_prompt=self._visual_system_prompt(
+                language, respect_clothing_layers=respect_clothing_layers
+            ),
             user_prompt=json.dumps(
                 {
                     "narrative": narrative,
@@ -649,6 +1632,8 @@ scene_tags contains only environment, camera, composition, lighting, and the obs
                     "authored_template_resolution": turn_context.get(
                         "authored_template_resolution", {}
                     ),
+                    "authored_visual_style": authored_visual_style,
+                    "authored_scene_tags": authored_scene_tags or None,
                     "previous_visual_state": previous_visual,
                     "previous_image_tags": previous_image_tags,
                     "required_visual_appearance": appearance_lock,
@@ -660,18 +1645,31 @@ scene_tags contains only environment, camera, composition, lighting, and the obs
             error_message="場面の見た目を解析できませんでした",
             context={"fallback_appearance": appearance_lock},
         )
+        if authored_scene_tags:
+            visual_output.scene_tags = _merge_scene_tags(
+                authored_scene_tags, visual_output.scene_tags
+            )
+        return visual_output
 
-    def _setup_system_prompt(self, language: str) -> str:
+    def _setup_system_prompt(
+        self, language: str, max_turns: int = ADVENTURE_TURNS_DEFAULT
+    ) -> str:
         response_language = "Japanese" if language == "ja" else "English"
-        return f"""You design a concise setup for an eight-turn objective-based adventure game.
+        turns = clamp_generated_max_turns(max_turns)
+        return f"""You design a concise setup for a {turns}-turn objective-based adventure game.
 Return one JSON object only, in {response_language}, matching this schema:
 {{"setting":"...","objective":"...","constraints":["...","..."]}}
-The objective must name a concrete target and an observable end condition that can be judged as achieved or failed within eight turns. Do not use vague goals such as succeed, investigate the situation, or reach the objective. The setting, objective, and constraints must fit the selected mission preset and supplied character snapshot. Constraints must create actionable complications without dictating the player's feelings, consent, memories, bodily sensations, or voluntary actions. Do not introduce another body transformation or assign physical traits that conflict with source_snapshot.appearance. For a disguise mission, generate the transformed person's name and role while keeping the supplied appearance exactly; the player does not have that person's memories, relationships, habits, skills, credentials, passwords, or authentication information."""
+The objective must name a concrete target and an observable end condition that can be judged as achieved or failed within {turns} turns. Scale the scope of the objective to that turn budget: a longer budget should leave room for searching for clues and scouting the surroundings, not add unrelated sub-goals. Do not use vague goals such as succeed, investigate the situation, or reach the objective. The setting, objective, and constraints must fit the selected mission preset and supplied character snapshot. Constraints must create actionable complications without dictating the player's feelings, consent, memories, bodily sensations, or voluntary actions. Do not introduce another body transformation or assign physical traits that conflict with source_snapshot.appearance. For a disguise mission, generate the transformed person's name and role while keeping the supplied appearance exactly; the player does not have that person's memories, relationships, habits, skills, credentials, passwords, or authentication information."""
 
     async def _generate_setup_output(
-        self, *, prompt: str, language: str, text_model: str
+        self,
+        *,
+        prompt: str,
+        language: str,
+        text_model: str,
+        max_turns: int = ADVENTURE_TURNS_DEFAULT,
     ) -> AdventureSetupOutput:
-        system_prompt = self._setup_system_prompt(language)
+        system_prompt = self._setup_system_prompt(language, max_turns)
         raw = await llm_service.generate_text(
             system_prompt,
             prompt,
@@ -714,10 +1712,12 @@ The objective must name a concrete target and an observable end condition that c
         source_session_id: str,
         source_history_id: str | None,
         preset: str,
+        max_turns: int = ADVENTURE_TURNS_DEFAULT,
     ) -> dict[str, Any]:
         preset_config = PRESETS.get(preset)
         if preset_config is None:
             raise AdventureError("invalid_preset", "シナリオ種別が不正です")
+        turn_budget = clamp_generated_max_turns(max_turns)
 
         snapshot, _, appearance, _ = await self._build_snapshot(
             source_session_id, source_history_id
@@ -731,6 +1731,7 @@ The objective must name a concrete target and an observable end condition that c
             {
                 "task": "Generate one mission setup for the selected preset.",
                 "preset": preset,
+                "max_turns": turn_budget,
                 "mission_definition": {
                     "title": preset_config["title"],
                     "default_objective": preset_config["objective"],
@@ -744,7 +1745,10 @@ The objective must name a concrete target and an observable end condition that c
             ensure_ascii=False,
         )
         generated = await self._generate_setup_output(
-            prompt=prompt, language=language, text_model=text_model
+            prompt=prompt,
+            language=language,
+            text_model=text_model,
+            max_turns=turn_budget,
         )
         return generated.model_dump()
 
@@ -778,7 +1782,15 @@ The objective must name a concrete target and an observable end condition that c
         scenario_constraints: list[str] | None = None,
         scenario_template_id: str | None = None,
         replay_run_id: str | None = None,
+        scenario_max_turns: int = ADVENTURE_TURNS_DEFAULT,
+        narration_voice: str = NARRATION_VOICE_DEFAULT,
+        narration_pronoun: str = NARRATION_PRONOUN_DEFAULT,
+        use_precise_reference: bool = False,
+        enable_composite_scene: bool = False,
+        respect_clothing_layers: bool = False,
     ) -> dict[str, Any]:
+        narration_voice = normalize_narration_voice(narration_voice)
+        narration_pronoun = normalize_narration_pronoun(narration_pronoun)
         replay_run = None
         replay_state: dict[str, Any] = {}
         if replay_run_id:
@@ -803,13 +1815,24 @@ The objective must name a concrete target and an observable end condition that c
         if preset_config is None:
             raise AdventureError("invalid_preset", "シナリオ種別が不正です")
 
-        snapshot, source_image, appearance, nsfw_mode = await self._build_snapshot(
-            source_session_id, source_history_id
-        )
+        (
+            snapshot,
+            source_image,
+            appearance,
+            session_nsfw_mode,
+        ) = await self._build_snapshot(source_session_id, source_history_id)
         user_settings = await session_store.get_user_settings()
         language = str(user_settings.get("language") or "ja")
         text_model = str(
             user_settings.get("novelai_text_model") or settings.novelai_text_model
+        )
+        # ユーザー設定の NSFW を優先し、未設定時のみセッション統計を使う
+        if "nsfw_mode" in user_settings:
+            nsfw_mode = bool(user_settings.get("nsfw_mode"))
+        else:
+            nsfw_mode = bool(session_nsfw_mode)
+        image_model = (
+            settings.novelai_model if nsfw_mode else settings.novelai_curated_model
         )
         if template:
             setting = str(template_localized(template, "setting", language))
@@ -847,21 +1870,26 @@ The objective must name a concrete target and an observable end condition that c
             ]
             milestones = list(preset_config["milestones"])
             title = str(preset_config["title"])
-            max_turns = 8
+            max_turns = clamp_generated_max_turns(scenario_max_turns)
             scenario_guidance = str(preset_config["guidance"])
             opening_premise = ""
 
         start_state = template.get("start_state", {}) if template else {}
+        visual_style = _template_visual_style(template)
+        authored_scene_tags = _authored_scene_tags(template=template)
         prompt = json.dumps(
             {
                 "task": "Create the opening scene for this adventure.",
                 "preset": effective_preset,
                 "setting": setting,
                 "objective": objective,
+                # 導入部の尺をターン予算に合わせるため、開始時点でも予算を渡す
+                "max_turns": max_turns,
                 "constraints": constraints,
                 "milestones": milestones,
                 "scenario_guidance": scenario_guidance,
                 "authored_opening_premise": opening_premise,
+                "authored_visual_style": visual_style,
                 "scenario_capabilities": start_state,
                 "source_snapshot": snapshot,
                 "required_visual_appearance": appearance
@@ -873,6 +1901,8 @@ The objective must name a concrete target and an observable end condition that c
             prompt=prompt,
             language=language,
             text_model=text_model,
+            narration_voice=narration_voice,
+            narration_pronoun=narration_pronoun,
             fallback_appearance=appearance
             or str(snapshot.get("appearance") or "")
             or "Preserve the source image appearance",
@@ -896,6 +1926,8 @@ The objective must name a concrete target and an observable end condition that c
             starting_clothing = str(snapshot.get("clothing") or "")
             if starting_clothing:
                 opening.visual_state.clothing = starting_clothing
+        if visual_style:
+            _apply_visual_style_to_state(opening.visual_state, visual_style, language)
 
         run_id = str(uuid.uuid4())
         run_dir = self._images_dir / run_id
@@ -905,12 +1937,15 @@ The objective must name a concrete target and an observable end condition that c
             source_suffix = ".png"
         initial_path = run_dir / f"initial{source_suffix}"
         shutil.copyfile(source_image, initial_path)
+        opening_choices = [choice.model_dump() for choice in opening.choices]
         state = {
             "milestones": milestones,
             "completed_milestones": [],
             "clues": [],
             "setting": setting,
             "constraints": constraints,
+            # プレイ中に「現実改変：〜」で宣言された世界ルール
+            "reality_rules": [],
             "appearance_lock": appearance,
             "scenario_template_id": scenario_template_id,
             "replayed_from_run_id": replay_run_id,
@@ -918,8 +1953,19 @@ The objective must name a concrete target and an observable end condition that c
             "visual_state": opening.visual_state.model_dump(),
             "opening_narrative": opening.narrative,
             "opening_image_path": str(initial_path),
-            "choices": [choice.model_dump() for choice in opening.choices],
+            "choices": opening_choices,
+            # 精密参照はユーザー明示ONのみ。未設定・旧runはOFF扱い。
+            "use_precise_reference": bool(use_precise_reference),
+            # 合成シーン生成はユーザー明示ONのみ。OFF時は中央の立ち絵のみ更新
+            "enable_composite_scene": bool(enable_composite_scene),
+            # 衣装レイヤー考慮。ONなら外衣に覆われた下着を画像タグから外す
+            "respect_clothing_layers": bool(respect_clothing_layers),
+            # 語りの人称。旧runは既定の二人称として扱う
+            "narration_voice": narration_voice,
+            "narration_pronoun": narration_pronoun,
         }
+        if authored_scene_tags:
+            state["authored_scene_tags"] = authored_scene_tags
         if template:
             state["template_state"] = {
                 "worn_items": [],
@@ -927,6 +1973,14 @@ The objective must name a concrete target and an observable end condition that c
                 "score": 0,
                 "transformed": False,
             }
+            equipment_choices = self._apply_equipment_score_choices(
+                template, state, language, prefer_authored=False
+            )
+            if equipment_choices:
+                state["choices"] = equipment_choices
+                opening.choices = [
+                    AdventureChoice.model_validate(item) for item in equipment_choices
+                ]
         run = AdventureRun(
             id=run_id,
             user_id=DEFAULT_USER_ID,
@@ -946,17 +2000,17 @@ The objective must name a concrete target and an observable end condition that c
             nsfw_mode=nsfw_mode,
             text_model=text_model,
             image_provider="novelai",
-            image_model=settings.novelai_model,
+            image_model=image_model,
         )
         async with async_session_factory() as db:
             db.add(run)
             await db.commit()
             await db.refresh(run)
         try:
-            await self.generate_image(run_id, redraw_from_reference=True)
+            await self._generate_opening_visuals(run_id)
         except Exception:
             logger.exception(
-                "Adventure opening image generation failed: run_id=%s", run_id
+                "Adventure opening visual generation failed: run_id=%s", run_id
             )
         return await self.get_run(run_id)
 
@@ -993,6 +2047,113 @@ The objective must name a concrete target and an observable end condition that c
         run = await self.get_run_orm(run_id, with_turns=True)
         turns = sorted(run.turns, key=lambda item: item.turn_number)
         return self._serialize_run(run, turns)
+
+    async def regenerate_choices(self, run_id: str) -> dict[str, Any]:
+        """現在場面の選択肢だけを再生成する。手番・物語・手掛かりは変更しない。"""
+        async with self._run_locks[run_id]:
+            run = await self.get_run_orm(run_id, with_turns=True)
+            if run.status != "active":
+                raise AdventureError("run_completed", "このシナリオは終了しています")
+
+            state = _json_load(run.state_json, {})
+            narration_voice, narration_pronoun = _narration_from_state(state)
+            turns = sorted(run.turns, key=lambda item: item.turn_number)
+            latest_turn = turns[-1] if turns else None
+            narrative = (
+                latest_turn.narrative
+                if latest_turn is not None
+                else str(state.get("opening_narrative") or "")
+            ).strip()
+            if not narrative:
+                raise AdventureError(
+                    "invalid_model_output",
+                    "選択肢を再生成する物語がありません",
+                )
+
+            template = SCENARIO_TEMPLATES.get(str(state.get("scenario_template_id")))
+            last_input = latest_turn.user_input if latest_turn is not None else ""
+            # 装備状態を二重適用しないよう解決用に state のコピーを使う
+            resolve_state = json.loads(json.dumps(state, ensure_ascii=False))
+            template_resolution = self._resolve_template_action(
+                template, resolve_state, last_input
+            )
+            equipment_choices = self._apply_equipment_score_choices(
+                template,
+                state,
+                run.language,
+                resolution=template_resolution,
+                prefer_authored=True,
+            )
+            if equipment_choices:
+                choices = equipment_choices
+            else:
+                scenario_guidance = PRESETS.get(run.preset, {}).get("guidance", "")
+                if template:
+                    scenario_guidance = f"{scenario_guidance} {template['guidance']}"
+                previous_turns = [
+                    {"user_input": item.user_input, "narrative": item.narrative}
+                    for item in turns
+                ]
+                appearance_lock = str(
+                    state.get("appearance_lock")
+                    or state.get("visual_state", {}).get("appearance")
+                    or "Preserve the source image appearance"
+                )
+                turn_context = {
+                    "task": "Regenerate next player choices only.",
+                    "preset": run.preset,
+                    "scenario_guidance": scenario_guidance,
+                    "authored_template_resolution": template_resolution,
+                    "objective": run.objective,
+                    "max_turns": run.max_turns,
+                    "next_turn": run.turn_count + 1,
+                    "state": state,
+                    "recent_turns": previous_turns[-7:],
+                    "player_input": last_input,
+                    "reality_rules": list(state.get("reality_rules", [])),
+                    "required_visual_appearance": appearance_lock,
+                }
+                try:
+                    resolution = await self._generate_resolution_output(
+                        narrative=narrative,
+                        turn_context=turn_context,
+                        language=run.language,
+                        text_model=run.text_model,
+                        narration_voice=narration_voice,
+                        narration_pronoun=narration_pronoun,
+                    )
+                    choices = _sanitize_choices(
+                        [choice.model_dump() for choice in resolution.choices],
+                        language=run.language,
+                        source="regenerate_choices.resolution",
+                    )
+                except Exception as error:
+                    logger.warning(
+                        "Adventure choice regeneration failed: run_id=%s error=%s "
+                        "fallback=default_director_choices",
+                        run_id,
+                        error,
+                    )
+                    choices = _default_director_choices(run.language)
+
+            state["choices"] = choices
+            async with async_session_factory() as db:
+                persisted = await db.get(AdventureRun, run.id)
+                if persisted is None:
+                    raise AdventureError(
+                        "run_not_found", "アドベンチャーが見つかりません"
+                    )
+                persisted.state_json = json.dumps(state, ensure_ascii=False)
+                persisted.updated_at = datetime.now()
+                if latest_turn is not None:
+                    persisted_turn = await db.get(AdventureTurn, latest_turn.id)
+                    if persisted_turn is not None:
+                        persisted_turn.choices_json = json.dumps(
+                            choices, ensure_ascii=False
+                        )
+                await db.commit()
+
+            return {"choices": choices}
 
     async def delete_run(self, run_id: str) -> None:
         await self.get_run_orm(run_id)
@@ -1109,20 +2270,38 @@ The objective must name a concrete target and an observable end condition that c
         return clothing or None
 
     def _clothing_narrative_suffix(
-        self, clothing: str | None, narrative: str, language: str
+        self,
+        clothing: str | None,
+        narrative: str,
+        language: str,
+        *,
+        narration_voice: str = NARRATION_VOICE_DEFAULT,
+        narration_pronoun: str = NARRATION_PRONOUN_DEFAULT,
     ) -> str:
         if not clothing:
             return ""
+        voice = normalize_narration_voice(narration_voice)
         if language == "ja":
             if re.search(r"(?:着た|着ている|着用した|着替えた)", narrative):
                 return ""
-            return f"君は{clothing}を着用した。"
+            if voice == "first_person":
+                subject = f"{normalize_narration_pronoun(narration_pronoun)}は"
+            elif voice == "third_person":
+                # 変身で性別が変わりうるため主語は補わず省略する
+                subject = ""
+            else:
+                subject = "君は"
+            return f"{subject}{clothing}を着用した。"
         if re.search(
             r"\b(?:put on|wearing|wore|changed into)\b",
             narrative,
             flags=re.IGNORECASE,
         ):
             return ""
+        if voice == "first_person":
+            return f"I put on {clothing}."
+        if voice == "third_person":
+            return f"They put on {clothing}."
         return f"You put on {clothing}."
 
     def _enforce_explicit_clothing_action(
@@ -1132,6 +2311,8 @@ The objective must name a concrete target and an observable end condition that c
         language: str,
         *,
         apply_narrative_suffix: bool = True,
+        narration_voice: str = NARRATION_VOICE_DEFAULT,
+        narration_pronoun: str = NARRATION_PRONOUN_DEFAULT,
     ) -> bool:
         clothing = self._explicit_clothing_from_input(user_input, language)
         if not clothing:
@@ -1140,7 +2321,11 @@ The objective must name a concrete target and an observable end condition that c
         output.visual_state.clothing = clothing
         if apply_narrative_suffix:
             suffix = self._clothing_narrative_suffix(
-                clothing, output.narrative, language
+                clothing,
+                output.narrative,
+                language,
+                narration_voice=narration_voice,
+                narration_pronoun=narration_pronoun,
             )
             if suffix:
                 output.narrative = f"{output.narrative.rstrip()}\n\n{suffix}"
@@ -1167,12 +2352,30 @@ The objective must name a concrete target and an observable end condition that c
         )
         worn_items = set(template_state.get("worn_items", []))
         item_actions: dict[str, str] = {}
+        alias_by_item: dict[str, tuple[str, ...]] = {}
         for item in rule.get("items", []):
             item_id = str(item.get("id") or "")
             aliases = tuple(str(alias) for alias in item.get("aliases", []))
+            if item_id and aliases:
+                alias_by_item[item_id] = aliases
+        for item in rule.get("items", []):
+            item_id = str(item.get("id") or "")
+            aliases = alias_by_item.get(item_id)
             if not item_id or not aliases:
                 continue
-            action = _last_equipment_action(user_input, aliases)
+            # 他アイテムの語で走査を打ち切り、隣の衣類の動詞を拾わないようにする。
+            # 共有エイリアス（例: 「下着」）は境界にせず、両方の判定に残す。
+            own = set(aliases)
+            other_aliases = tuple(
+                alias
+                for other_id, other in alias_by_item.items()
+                if other_id != item_id
+                for alias in other
+                if alias not in own
+            )
+            action = _last_equipment_action(
+                user_input, aliases, other_aliases=other_aliases
+            )
             if action == "wear":
                 worn_items.add(item_id)
                 worn_items.update(str(value) for value in item.get("implies", []))
@@ -1308,6 +2511,102 @@ The objective must name a concrete target and an observable end condition that c
                 appearance_transform,
             )
 
+        # 毎ターン強制上書きすると visual_state が不変になり画像生成が常にスキップされる。
+        # 地下室・ロッカー室などへ逸脱したときだけ authored visual_style で矯正する。
+        if resolution.get("event") != "perfect_score":
+            _apply_visual_style_to_state(
+                visual_state,
+                _template_visual_style(template),
+                language,
+                force=False,
+            )
+
+    def _missing_equipment_labels(
+        self,
+        template: dict[str, Any] | None,
+        worn_items: set[str] | list[str],
+        language: str,
+    ) -> list[str]:
+        rule = template.get("rule", {}) if template else {}
+        required = {str(item) for item in rule.get("required_items", [])}
+        worn = {str(item) for item in worn_items}
+        missing = required - worn
+        labels: list[str] = []
+        for item in rule.get("items", []):
+            item_id = str(item.get("id") or "")
+            if item_id not in missing:
+                continue
+            item_labels = item.get("labels", {})
+            labels.append(
+                str(item_labels.get(language) or item_labels.get("en") or item_id)
+            )
+        return labels
+
+    def _authored_event_choices(
+        self,
+        template: dict[str, Any] | None,
+        resolution: dict[str, Any],
+        language: str,
+    ) -> list[dict[str, str]]:
+        """テンプレート event に定義された作者 choices を正規化して返す。"""
+        event_config = self._template_event_config(template, resolution)
+        if not event_config:
+            return []
+        choices = event_config.get("choices", {}) or {}
+        localized = choices.get(language) or choices.get("en") or []
+        if not isinstance(localized, list):
+            return []
+        return _sanitize_choices(
+            localized,
+            language=language,
+            fallback=[],
+            source="authored_event_choices",
+        )
+
+    def _apply_equipment_score_choices(
+        self,
+        template: dict[str, Any] | None,
+        state: dict[str, Any],
+        language: str,
+        *,
+        resolution: dict[str, Any] | None = None,
+        prefer_authored: bool = True,
+    ) -> list[dict[str, str]] | None:
+        """equipment_score の次手3択を返す。作者 choices 優先。非対象は None。"""
+        if prefer_authored and resolution is not None:
+            authored = self._authored_event_choices(template, resolution, language)
+            if len(authored) == 3:
+                return authored
+            event_config = self._template_event_config(template, resolution)
+            if event_config and event_config.get("ending_status"):
+                # 成功/失敗エンディング時は着用導線を押し付けない
+                return None
+        return _equipment_score_choices(template, state, language)
+
+    def _override_output_equipment_choices(
+        self,
+        template: dict[str, Any] | None,
+        state: dict[str, Any],
+        output: AdventureDirectorOutput,
+        resolution: dict[str, Any],
+        language: str,
+    ) -> None:
+        """LLM choices を equipment_score 決定論3択で上書きする（作者 choices は維持）。"""
+        choices = self._apply_equipment_score_choices(
+            template,
+            state,
+            language,
+            resolution=resolution,
+            prefer_authored=True,
+        )
+        if not choices:
+            return
+        # 作者 choices は _enforce_template_output 側で既に入っている場合がある
+        authored = self._authored_event_choices(template, resolution, language)
+        if len(authored) == 3:
+            return
+        output.choices = [AdventureChoice.model_validate(item) for item in choices]
+
     def _enforce_template_output(
         self,
         template: dict[str, Any] | None,
@@ -1333,24 +2632,53 @@ The objective must name a concrete target and an observable end condition that c
             )
 
         event_config = self._template_event_config(template, resolution)
-        if not event_config:
+        if not event_config and not resolution.get("goal_checked"):
+            self._override_output_equipment_choices(
+                template, state, output, resolution, language
+            )
             return
-        clues = event_config.get("clues", {})
-        localized_clues = clues.get(language) or clues.get("en") or []
-        output.discovered_clues = list(
-            dict.fromkeys([*output.discovered_clues, *localized_clues])
-        )[:10]
+        clues = event_config.get("clues", {}) if event_config else {}
+        localized_clues = list(clues.get(language) or clues.get("en") or [])
+        missing_labels = self._missing_equipment_labels(
+            template, resolution.get("worn_items", []), language
+        )
+        if resolution.get("goal_checked") and missing_labels:
+            if language == "ja":
+                localized_clues.append(
+                    "まだ不足している品: " + "、".join(missing_labels)
+                )
+            else:
+                localized_clues.append("Still missing: " + ", ".join(missing_labels))
+        if localized_clues:
+            output.discovered_clues = list(
+                dict.fromkeys([*output.discovered_clues, *localized_clues])
+            )[:10]
         if apply_narrative_suffix:
             suffix = self._template_narrative_suffix(template, resolution, language)
             if suffix:
                 output.narrative = f"{output.narrative.rstrip()}\n\n{suffix}"
-        choices = event_config.get("choices", {})
+        if (
+            resolution.get("goal_checked")
+            and missing_labels
+            and resolution.get("event") in {"incomplete", "almost_complete"}
+        ):
+            if language == "ja":
+                missing_line = "不足しているのは " + "、".join(missing_labels) + "。"
+            else:
+                missing_line = "Still missing: " + ", ".join(missing_labels) + "."
+            if missing_line not in output.narrative:
+                output.narrative = f"{output.narrative.rstrip()}\n\n{missing_line}"
+        choices = event_config.get("choices", {}) if event_config else {}
         localized_choices = choices.get(language) or choices.get("en") or []
         if localized_choices:
             output.choices = [
                 AdventureChoice.model_validate(item) for item in localized_choices
             ]
-        ending_status = event_config.get("ending_status")
+        else:
+            self._override_output_equipment_choices(
+                template, state, output, resolution, language
+            )
+        ending_status = event_config.get("ending_status") if event_config else None
         if ending_status:
             output.ending_status = str(ending_status)
             ending_title = event_config.get("ending_title", {})
@@ -1375,11 +2703,21 @@ The objective must name a concrete target and an observable end condition that c
             run = await self.get_run_orm(run_id, with_turns=True)
             for existing in run.turns:
                 if existing.client_turn_id == client_turn_id:
-                    return self._serialize_turn(existing), False, False
+                    return (
+                        self._serialize_turn(existing, language=run.language),
+                        False,
+                        False,
+                    )
             if run.status != "active":
                 raise AdventureError("run_completed", "このシナリオは終了しています")
 
             state = _json_load(run.state_json, {})
+            narration_voice, narration_pronoun = _narration_from_state(state)
+            # 宣言はこの手番から有効にする
+            declared_rule = _detect_reality_declaration(user_input)
+            if declared_rule:
+                _append_reality_rule(state, declared_rule)
+                input_kind = "reality_alter"
             template_id = state.get("scenario_template_id")
             template = SCENARIO_TEMPLATES.get(str(template_id))
             template_resolution = self._resolve_template_action(
@@ -1404,6 +2742,8 @@ The objective must name a concrete target and an observable end condition that c
                     "state": state,
                     "recent_turns": previous_turns[-7:],
                     "player_input": user_input,
+                    "reality_rules": list(state.get("reality_rules", [])),
+                    "reality_rule_declared_this_turn": declared_rule,
                 },
                 ensure_ascii=False,
             )
@@ -1411,6 +2751,8 @@ The objective must name a concrete target and an observable end condition that c
                 prompt=prompt,
                 language=run.language,
                 text_model=run.text_model,
+                narration_voice=narration_voice,
+                narration_pronoun=narration_pronoun,
                 fallback_appearance=str(
                     state.get("appearance_lock")
                     or state.get("visual_state", {}).get("appearance")
@@ -1422,7 +2764,13 @@ The objective must name a concrete target and an observable end condition that c
                     template, state, output, template_resolution, run.language
                 )
             else:
-                self._enforce_explicit_clothing_action(output, user_input, run.language)
+                self._enforce_explicit_clothing_action(
+                    output,
+                    user_input,
+                    run.language,
+                    narration_voice=narration_voice,
+                    narration_pronoun=narration_pronoun,
+                )
             turn_number = run.turn_count + 1
             next_state, next_status, visual_changed, clothing_changed = (
                 self._merge_output(run, output, turn_number, state_override=state)
@@ -1468,12 +2816,16 @@ The objective must name a concrete target and an observable end condition that c
                 await db.commit()
                 await db.refresh(turn)
 
-            result = self._serialize_turn(turn)
+            result = self._serialize_turn(turn, language=run.language)
             result["run_status"] = (
                 "active" if next_status == "continue" else next_status
             )
             result["remaining_turns"] = max(0, run.max_turns - turn_number)
             result["clues"] = next_state.get("clues", [])
+            result["completed_milestones"] = next_state.get("completed_milestones", [])
+            result["visual_state"] = _sanitize_visual_state(
+                next_state.get("visual_state")
+            )
             result["ending_title"] = output.ending_title or (
                 {
                     "success": "目的達成",
@@ -1497,13 +2849,23 @@ The objective must name a concrete target and an observable end condition that c
             run = await self.get_run_orm(run_id, with_turns=True)
             for existing in run.turns:
                 if existing.client_turn_id == client_turn_id:
-                    yield {"event": "turn", "data": self._serialize_turn(existing)}
+                    yield {
+                        "event": "turn",
+                        "data": self._serialize_turn(existing, language=run.language),
+                    }
                     yield {"event": "complete", "data": {"status": run.status}}
                     return
             if run.status != "active":
                 raise AdventureError("run_completed", "このシナリオは終了しています")
 
             state = _json_load(run.state_json, {})
+            narration_voice, narration_pronoun = _narration_from_state(state)
+            # 宣言はこの手番から有効にする
+            declared_rule = _detect_reality_declaration(user_input)
+            if declared_rule:
+                _append_reality_rule(state, declared_rule)
+                input_kind = "reality_alter"
+            reality_rules = list(state.get("reality_rules", []))
             template = SCENARIO_TEMPLATES.get(str(state.get("scenario_template_id")))
             template_resolution = self._resolve_template_action(
                 template, state, user_input
@@ -1520,6 +2882,7 @@ The objective must name a concrete target and an observable end condition that c
                 or state.get("visual_state", {}).get("appearance")
                 or "Preserve the source image appearance"
             )
+            lean_state = _lean_state_for_llm(state)
             turn_context = {
                 "task": "Resolve the player's next action.",
                 "preset": run.preset,
@@ -1528,16 +2891,29 @@ The objective must name a concrete target and an observable end condition that c
                 "objective": run.objective,
                 "max_turns": run.max_turns,
                 "next_turn": run.turn_count + 1,
-                "state": state,
+                "state": lean_state,
                 "recent_turns": previous_turns[-7:],
                 "player_input": user_input,
+                "reality_rules": reality_rules,
+                "reality_rule_declared_this_turn": declared_rule,
                 "required_visual_appearance": appearance_lock,
+            }
+            visual_turn_context = {
+                **turn_context,
+                "authored_visual_style": _template_visual_style(template),
+                "authored_scene_tags": _authored_scene_tags(
+                    template=template, state=state
+                ),
             }
 
             yield {"event": "status", "data": {"phase": "narrative"}}
             narrative = ""
             async for chunk in llm_service.generate_feeling_stream(
-                self._narrative_system_prompt(run.language),
+                self._narrative_system_prompt(
+                    run.language,
+                    narration_voice=narration_voice,
+                    narration_pronoun=narration_pronoun,
+                ),
                 json.dumps(turn_context, ensure_ascii=False),
                 provider_override="novelai",
                 novelai_model_override=run.text_model,
@@ -1564,7 +2940,11 @@ The objective must name a concrete target and an observable end condition that c
                 )
                 if template
                 else self._clothing_narrative_suffix(
-                    explicit_clothing, narrative, run.language
+                    explicit_clothing,
+                    narrative,
+                    run.language,
+                    narration_voice=narration_voice,
+                    narration_pronoun=narration_pronoun,
                 )
             )
             if suffix:
@@ -1582,6 +2962,8 @@ The objective must name a concrete target and an observable end condition that c
                         turn_context=turn_context,
                         language=run.language,
                         text_model=run.text_model,
+                        narration_voice=narration_voice,
+                        narration_pronoun=narration_pronoun,
                     )
                     await queue.put(("resolution", resolution))
                 except Exception as error:
@@ -1592,12 +2974,15 @@ The objective must name a concrete target and an observable end condition that c
                 try:
                     visual = await self._generate_visual_output(
                         narrative=narrative,
-                        turn_context=turn_context,
+                        turn_context=visual_turn_context,
                         previous_visual=previous_visual,
                         appearance_lock=appearance_lock,
                         language=run.language,
                         text_model=run.text_model,
                         previous_image_tags=state.get("last_image_prompt"),
+                        respect_clothing_layers=bool(
+                            state.get("respect_clothing_layers")
+                        ),
                     )
                 except Exception as error:
                     logger.warning("Adventure visual generation failed: %s", error)
@@ -1617,20 +3002,94 @@ The objective must name a concrete target and an observable end condition that c
                 await queue.put(("visual", visual))
 
                 next_visual = visual.visual_state.model_dump()
-                if not _visual_state_changed(previous_visual, next_visual):
-                    await queue.put(("image_skipped", None))
-                    return
                 clothing_changed = previous_visual.get(
                     "clothing", ""
                 ) != next_visual.get("clothing", "")
-                await queue.put(("status", {"phase": "image_generation"}))
+                item_actions = bool(template_resolution.get("item_actions"))
+                # このターンで確定した装備。DBへの永続化はターン終了後なので、
+                # 画像生成には state 経由ではなく解決結果をそのまま渡す。
+                resolved_worn_items = (
+                    [str(item) for item in template_resolution.get("worn_items", [])]
+                    if template
+                    else None
+                )
+                should_generate_image = (
+                    clothing_changed
+                    or item_actions
+                    or _visual_state_changed(previous_visual, next_visual)
+                    or _image_tags_changed(state.get("last_image_prompt"), visual)
+                )
+                if not should_generate_image:
+                    await queue.put(("portrait_skipped", None))
+                    await queue.put(("image_skipped", None))
+                    return
+                # step 情報はフロントのプログレスバー用。phase は既存契約を維持する
+                enable_composite = bool(state.get("enable_composite_scene"))
+                image_step_count = 2 if enable_composite else 1
+                await queue.put(
+                    (
+                        "status",
+                        {
+                            "phase": "image_generation",
+                            "step": "portrait",
+                            "step_index": 1,
+                            "step_count": image_step_count,
+                        },
+                    )
+                )
+                # 立ち絵と合成シーンで同一シードを使い、衣装の描画差を抑える
+                turn_seed = random.randint(0, 999_999_999)
+                portrait_path: Path | None = None
                 try:
+                    portrait_path, _ = await self._generate_portrait_unlocked(
+                        run.id,
+                        None,
+                        redraw_from_reference=clothing_changed or item_actions,
+                        prompt_override=visual,
+                        turn_number=run.turn_count + 1,
+                        worn_items_override=resolved_worn_items,
+                        seed_override=turn_seed,
+                    )
+                    await queue.put(("portrait", portrait_path))
+                except Exception as error:
+                    logger.warning(
+                        "Adventure turn portrait generation failed: %s", error
+                    )
+                    await queue.put(("portrait_error", error))
+
+                if not enable_composite:
+                    await queue.put(("image_skipped", None))
+                    return
+                await queue.put(
+                    (
+                        "status",
+                        {
+                            "phase": "image_generation",
+                            "step": "composite",
+                            "step_index": 2,
+                            "step_count": image_step_count,
+                        },
+                    )
+                )
+                try:
+                    background_path_str = getattr(run, "background_image_path", None)
+                    background_bytes = (
+                        Path(background_path_str).read_bytes()
+                        if background_path_str and Path(background_path_str).is_file()
+                        else None
+                    )
                     image_path, _ = await self._generate_image_unlocked(
                         run.id,
                         None,
-                        redraw_from_reference=clothing_changed,
+                        redraw_from_reference=clothing_changed or item_actions,
                         prompt_override=visual,
                         turn_number=run.turn_count + 1,
+                        source_image_override=background_bytes,
+                        character_reference_image_override=portrait_path.read_bytes()
+                        if portrait_path is not None
+                        else None,
+                        worn_items_override=resolved_worn_items,
+                        seed_override=turn_seed,
                     )
                     await queue.put(("image", image_path))
                 except Exception as error:
@@ -1643,13 +3102,17 @@ The objective must name a concrete target and an observable end condition that c
 
             resolution: AdventureResolutionOutput | None = None
             visual_output: AdventureVisualOutput | None = None
+            portrait_path: Path | None = None
             image_path: Path | None = None
             failures: list[tuple[str, Exception]] = []
             resolution_done = False
             visual_done = False
+            portrait_done = False
             image_done = False
             try:
-                while not (resolution_done and visual_done and image_done):
+                while not (
+                    resolution_done and visual_done and portrait_done and image_done
+                ):
                     kind, payload = await queue.get()
                     if kind == "status":
                         yield {"event": "status", "data": payload}
@@ -1665,7 +3128,22 @@ The objective must name a concrete target and an observable end condition that c
                     elif kind == "visual_error":
                         failures.append(("image_generation", payload))
                         visual_done = True
+                        portrait_done = True
                         image_done = True
+                    elif kind == "portrait":
+                        portrait_path = payload
+                        portrait_done = True
+                        yield {
+                            "event": "portrait_image",
+                            "data": {
+                                "image_url": self.image_url(run.id, payload),
+                            },
+                        }
+                    elif kind == "portrait_error":
+                        failures.append(("image_generation", payload))
+                        portrait_done = True
+                    elif kind == "portrait_skipped":
+                        portrait_done = True
                     elif kind == "image":
                         image_path = payload
                         image_done = True
@@ -1693,14 +3171,51 @@ The objective must name a concrete target and an observable end condition that c
                 }
 
             if resolution is None:
+                logger.warning(
+                    "Adventure resolution missing after producers: run_id=%s "
+                    "turn=%s failures=%s fallback=default_director_choices",
+                    run.id,
+                    run.turn_count + 1,
+                    [
+                        (
+                            phase,
+                            error.code
+                            if isinstance(error, AdventureError)
+                            else type(error).__name__,
+                            str(error)[:200],
+                        )
+                        for phase, error in failures
+                    ],
+                )
                 resolution = AdventureResolutionOutput.model_validate(
-                    {"choices": _default_director_choices(run.language)}
+                    {"choices": _default_director_choices(run.language)},
+                    context={
+                        "fallback_choices": _default_director_choices(run.language),
+                        "language": run.language,
+                    },
                 )
             visual_state = (
                 visual_output.visual_state
                 if visual_output is not None
                 else self._fallback_visual_state(previous_visual, appearance_lock)
             )
+            if visual_output is None:
+                logger.warning(
+                    "Adventure visual missing after producers: run_id=%s turn=%s "
+                    "fallback=previous_visual_state failures=%s",
+                    run.id,
+                    run.turn_count + 1,
+                    [
+                        (
+                            phase,
+                            error.code
+                            if isinstance(error, AdventureError)
+                            else type(error).__name__,
+                            str(error)[:200],
+                        )
+                        for phase, error in failures
+                    ],
+                )
 
             output = AdventureDirectorOutput(
                 narrative=narrative,
@@ -1726,7 +3241,7 @@ The objective must name a concrete target and an observable end condition that c
             next_state, next_status, _, _ = self._merge_output(
                 run, output, turn_number, state_override=state
             )
-            if visual_output is not None and image_path is not None:
+            if visual_output is not None and portrait_path is not None:
                 next_state["last_image_prompt"] = _image_prompt_payload(visual_output)
 
             if image_path is not None:
@@ -1735,6 +3250,13 @@ The objective must name a concrete target and an observable end condition that c
             else:
                 turn_image_path = run.current_image_path
                 image_status = "failed" if failures else "not_requested"
+
+            if portrait_path is not None:
+                turn_portrait_path = str(portrait_path)
+                portrait_status = "completed"
+            else:
+                turn_portrait_path = getattr(run, "portrait_image_path", None)
+                portrait_status = "failed" if failures else "not_requested"
 
             turn = AdventureTurn(
                 id=str(uuid.uuid4()),
@@ -1751,6 +3273,8 @@ The objective must name a concrete target and an observable end condition that c
                 state_delta_json=json.dumps(next_state, ensure_ascii=False),
                 image_path=turn_image_path,
                 image_status=image_status,
+                portrait_image_path=turn_portrait_path,
+                portrait_status=portrait_status,
             )
             async with async_session_factory() as db:
                 persisted = await db.get(AdventureRun, run.id)
@@ -1777,12 +3301,16 @@ The objective must name a concrete target and an observable end condition that c
                 await db.commit()
                 await db.refresh(turn)
 
-            result = self._serialize_turn(turn)
+            result = self._serialize_turn(turn, language=run.language)
             result["run_status"] = (
                 "active" if next_status == "continue" else next_status
             )
             result["remaining_turns"] = max(0, run.max_turns - turn_number)
             result["clues"] = next_state.get("clues", [])
+            result["completed_milestones"] = next_state.get("completed_milestones", [])
+            result["visual_state"] = _sanitize_visual_state(
+                next_state.get("visual_state")
+            )
             result["ending_title"] = output.ending_title or (
                 {
                     "success": "目的達成",
@@ -1838,19 +3366,30 @@ The objective must name a concrete target and an observable end condition that c
             ) from error
 
     async def _generate_image_prompt_output(
-        self, visual_state: dict[str, Any], text_model: str
+        self,
+        visual_state: dict[str, Any],
+        text_model: str,
+        *,
+        authored_scene_tags: str = "",
+        respect_clothing_layers: bool = False,
     ) -> AdventureImagePromptOutput:
         system_prompt = """Convert a visual_state into NovelAI image tags.
 Return one JSON object only: {"scene_tags":"...","player_tags":"...","npc_tags":["..."]}.
-All values must be concise English comma-separated tags. scene_tags contains only environment, camera, composition, lighting, and the observable interaction; it must not contain any character's gender, body, face, hair, or clothing. player_tags describes only the player from visual_state.appearance and visual_state.clothing. The player is always the primary subject in the center foreground. visual_state.clothing is authoritative and must never be replaced with an NPC outfit. main_characters contains NPCs, not the player. npc_tags must contain one entry per important NPC in the same order, describing only that NPC; every NPC is a secondary subject placed to the side or behind the player. Never merge player and NPC attributes. Do not add text, UI, split panels, or unstated changes."""
+All values must be concise English comma-separated tags. scene_tags contains only environment, camera, composition, lighting, and the observable interaction; it must not contain any character's gender, body, face, hair, or clothing. player_tags describes only the player from visual_state.appearance and visual_state.clothing. The player is always the primary subject in the center foreground. visual_state.clothing is authoritative and must never be replaced with an NPC outfit. main_characters contains NPCs, not the player. npc_tags must contain one entry per important NPC in the same order, describing only that NPC; every NPC is a secondary subject placed to the side or behind the player. Never merge player and NPC attributes. Do not add text, UI, split panels, or unstated changes. When authored_scene_tags is provided, reuse those environment tags as the base of scene_tags and only append concrete changes required by visual_state."""
+        if respect_clothing_layers:
+            system_prompt += _CLOTHING_LAYER_TAG_RULE
+        payload = {
+            "visual_state": visual_state,
+            "authored_scene_tags": authored_scene_tags or None,
+        }
         raw = await llm_service.generate_text(
             system_prompt,
-            json.dumps(visual_state, ensure_ascii=False),
+            json.dumps(payload, ensure_ascii=False),
             provider_override="novelai",
             novelai_model_override=text_model,
         )
         try:
-            return AdventureImagePromptOutput.model_validate_json(
+            image_prompt = AdventureImagePromptOutput.model_validate_json(
                 _strip_json_fence(raw.content)
             )
         except ValidationError as first_error:
@@ -1864,7 +3403,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 novelai_model_override=text_model,
             )
             try:
-                return AdventureImagePromptOutput.model_validate_json(
+                image_prompt = AdventureImagePromptOutput.model_validate_json(
                     _strip_json_fence(repaired.content)
                 )
             except ValidationError as second_error:
@@ -1872,6 +3411,11 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                     "invalid_image_prompt",
                     "画像プロンプトの生成結果を解釈できませんでした",
                 ) from second_error
+        if authored_scene_tags:
+            image_prompt.scene_tags = _merge_scene_tags(
+                authored_scene_tags, image_prompt.scene_tags
+            )
+        return image_prompt
 
     async def generate_image(
         self,
@@ -1901,6 +3445,10 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         redraw_from_reference: bool = False,
         prompt_override: AdventureImagePromptOutput | None = None,
         turn_number: int | None = None,
+        source_image_override: bytes | None = None,
+        character_reference_image_override: bytes | None = None,
+        worn_items_override: list[str] | None = None,
+        seed_override: int | None = None,
     ) -> tuple[Path, str | None]:
         """呼び出し側が既に run ロックを保持している前提で画像を生成する。"""
         run = await self.get_run_orm(run_id)
@@ -1916,7 +3464,6 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 )
                 effective_turn_id = latest_turn.id if latest_turn else None
         state = _json_load(run.state_json, {})
-        visual_state = state.get("visual_state", {})
         current_path = Path(run.current_image_path)
         initial_path = Path(run.initial_image_path)
         if not current_path.is_file() or not initial_path.is_file():
@@ -1924,43 +3471,90 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 "image_not_found", "アドベンチャー画像が見つかりません"
             )
         try:
-            image_prompt = prompt_override or await self._generate_image_prompt_output(
-                visual_state, run.text_model
+            (
+                image_prompt,
+                outfit_changed,
+                nsfw_mode,
+                use_precise_reference,
+                extra_negative,
+                raw_image_prompt,
+            ) = await self._prepare_image_prompt(
+                run,
+                state,
+                redraw_from_reference=redraw_from_reference,
+                prompt_override=prompt_override,
+                worn_items_override=worn_items_override,
+            )
+            player_prompt = _enhance_adventure_prompt(
+                image_prompt.player_tags
+                + ", main protagonist, primary focus, center foreground",
+                nsfw_mode=nsfw_mode,
             )
             characters = [
                 {
-                    "prompt": image_prompt.player_tags
-                    + ", main protagonist, primary focus, center foreground",
+                    "prompt": player_prompt,
                     "position": (0.55, 0.5),
                 }
             ]
             npc_positions = ((0.18, 0.5), (0.82, 0.5), (0.12, 0.5))
             characters.extend(
                 {
-                    "prompt": npc_prompt
-                    + ", supporting character, secondary focus, behind protagonist",
+                    "prompt": _enhance_adventure_prompt(
+                        npc_prompt
+                        + ", supporting character, secondary focus, behind protagonist",
+                        nsfw_mode=nsfw_mode,
+                    ),
                     "position": npc_positions[index],
                 }
                 for index, npc_prompt in enumerate(image_prompt.npc_tags[:3])
             )
-            source_image = None if redraw_from_reference else current_path.read_bytes()
-            result = await image_service.generate_image(
-                image_prompt.scene_tags
+            source_image = (
+                source_image_override
+                if source_image_override is not None
+                else (None if outfit_changed else current_path.read_bytes())
+            )
+            character_references = None
+            if use_precise_reference:
+                char_strength, char_fidelity = _character_reference_strength(
+                    outfit_changed=outfit_changed,
+                    has_fresh_portrait=character_reference_image_override is not None,
+                )
+                reference_bytes = (
+                    character_reference_image_override
+                    if character_reference_image_override is not None
+                    else initial_path.read_bytes()
+                )
+                character_references = [
+                    {
+                        "image": reference_bytes,
+                        "type": "character",
+                        "strength": char_strength,
+                        "fidelity": char_fidelity,
+                    }
+                ]
+            scene_prompt = _enhance_adventure_prompt(
+                _compose_scene_base_tags(image_prompt)
                 + ", visual novel scene, protagonist in foreground, supporting NPCs secondary",
+                nsfw_mode=nsfw_mode,
+            )
+            effective_image_model = (
+                settings.novelai_model if nsfw_mode else settings.novelai_curated_model
+            )
+            result = await image_service.generate_image(
+                scene_prompt,
                 image_bytes=source_image,
                 provider_override="novelai",
-                nsfw_mode=run.nsfw_mode,
-                character_references=[
-                    {
-                        "image": initial_path.read_bytes(),
-                        "type": "character",
-                        "strength": 0.45 if redraw_from_reference else 0.85,
-                        "fidelity": 0.65 if redraw_from_reference else 1.0,
-                    }
-                ],
+                # 追加negativeを渡すと provider 側の既定UCが置き換わるため、
+                # 品質系の基本negativeを土台にして結合する
+                negative_prompt=merge_negative_prompt(
+                    settings.novelai_negative_prompt, extra_negative or ""
+                ),
+                nsfw_mode=nsfw_mode,
+                character_references=character_references,
                 characters=characters,
+                seed=seed_override,
                 size_override="landscape",
-                novelai_model_override=run.image_model,
+                novelai_model_override=effective_image_model,
             )
             if not result.images:
                 raise AdventureError(
@@ -1991,7 +3585,10 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             persisted_run.current_image_path = str(image_path)
             persisted_run.updated_at = datetime.now()
             persisted_state = _json_load(persisted_run.state_json, {})
-            persisted_state["last_image_prompt"] = _image_prompt_payload(image_prompt)
+            # 決定論変換後ではなく LLM 出力を保存する（_prepare_image_prompt 参照）
+            persisted_state["last_image_prompt"] = _image_prompt_payload(
+                raw_image_prompt
+            )
             if effective_turn_number == 0:
                 persisted_state["opening_image_path"] = str(image_path)
             persisted_run.state_json = json.dumps(persisted_state, ensure_ascii=False)
@@ -2019,6 +3616,342 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 turn_id,
             )
 
+    async def _mark_portrait_failed(self, run_id: str, turn_id: str | None) -> None:
+        if not turn_id:
+            return
+        try:
+            async with async_session_factory() as db:
+                turn = await db.get(AdventureTurn, turn_id)
+                if turn and turn.run_id == run_id:
+                    turn.portrait_status = "failed"
+                    await db.commit()
+        except Exception:
+            logger.exception(
+                "Adventure portrait failure status could not be saved: "
+                "run_id=%s turn_id=%s",
+                run_id,
+                turn_id,
+            )
+
+    async def _prepare_image_prompt(
+        self,
+        run: AdventureRun,
+        state: dict[str, Any],
+        *,
+        redraw_from_reference: bool,
+        prompt_override: AdventureImagePromptOutput | None,
+        worn_items_override: list[str] | None = None,
+    ) -> tuple[
+        AdventureImagePromptOutput,
+        bool,
+        bool,
+        bool,
+        str | None,
+        AdventureImagePromptOutput,
+    ]:
+        """画像プロンプトと生成条件（服装変化・NSFW・精密参照・追加negative）を算出する。
+
+        ポートレート生成・合成シーン生成の両方から共通で使う準備処理。
+        末尾の raw_image_prompt は決定論変換前の LLM 出力。last_image_prompt には
+        こちらを保存する。変換後を保存すると、次ターンの previous_image_tags 経由で
+        露出状態タグや装備タグが LLM 出力へ再入し、状態変化後も残留するため。
+        """
+        visual_state = state.get("visual_state", {})
+        template = SCENARIO_TEMPLATES.get(str(state.get("scenario_template_id") or ""))
+        authored_scene_tags = _authored_scene_tags(template=template, state=state)
+        respect_clothing_layers = bool(state.get("respect_clothing_layers"))
+        if prompt_override is not None:
+            raw_image_prompt = prompt_override
+            # 呼び出し側の prompt_override を last_image_prompt として保存する経路が
+            # あるため、決定論変換は複製に対して行い、元は書き換えない。
+            image_prompt = prompt_override.model_copy(deep=True)
+            if authored_scene_tags:
+                image_prompt.scene_tags = _merge_scene_tags(
+                    authored_scene_tags, image_prompt.scene_tags
+                )
+        else:
+            raw_image_prompt = await self._generate_image_prompt_output(
+                visual_state,
+                run.text_model,
+                authored_scene_tags=authored_scene_tags,
+                respect_clothing_layers=respect_clothing_layers,
+            )
+            image_prompt = raw_image_prompt.model_copy(deep=True)
+        # 画像生成は state を DB から読み直すため、ターン中は永続化前の古い
+        # worn_items を掴む。呼び出し側が確定値を持つ場合はそちらを優先する。
+        if worn_items_override is not None:
+            worn_items: list[str] = [str(item) for item in worn_items_override]
+        else:
+            template_state = state.get("template_state") or {}
+            worn_items = list(template_state.get("worn_items") or [])
+        # 装備採点シナリオでは worn_items が唯一の服装情報。LLM が書いた服装タグは
+        # 補正前の visual_state 由来なので落とし、装備タグで置き直す。
+        image_prompt.player_tags = _strip_clothing_tags_for_equipment_scenario(
+            template, image_prompt.player_tags
+        )
+        equipment_tags = _equipment_image_tags(
+            template, worn_items, respect_clothing_layers=respect_clothing_layers
+        )
+        nude_tags = _equipment_clothing_state_tags(template, worn_items)
+        if nude_tags:
+            image_prompt.player_tags = _merge_player_tags(
+                image_prompt.player_tags, nude_tags
+            )
+        if equipment_tags:
+            image_prompt.player_tags = _merge_player_tags(
+                image_prompt.player_tags, equipment_tags
+            )
+        covered = _equipment_layers_covered(worn_items, respect_clothing_layers)
+        image_prompt.player_tags, extra_negative = (
+            _apply_clothing_layers_to_player_tags(
+                image_prompt.player_tags, covered=covered
+            )
+        )
+        extra_negative = merge_negative_prompt(
+            extra_negative, _equipment_negative_tags(template, worn_items)
+        )
+        outfit_changed = redraw_from_reference or bool(equipment_tags)
+        if "dress" in {str(item) for item in worn_items}:
+            outfit_changed = True
+        user_settings = await session_store.get_user_settings()
+        if "nsfw_mode" in user_settings:
+            nsfw_mode = bool(user_settings.get("nsfw_mode"))
+        else:
+            nsfw_mode = bool(run.nsfw_mode)
+        use_precise_reference = bool(state.get("use_precise_reference"))
+        return (
+            image_prompt,
+            outfit_changed,
+            nsfw_mode,
+            use_precise_reference,
+            extra_negative,
+            raw_image_prompt,
+        )
+
+    async def _generate_background_image_unlocked(
+        self,
+        run_id: str,
+        *,
+        scene_tags: str,
+        nsfw_mode: bool,
+    ) -> Path:
+        """シナリオ開始時に一度だけ背景画像を生成する。以降のターンでは再利用のみ。"""
+        run = await self.get_run_orm(run_id)
+        # scene_tags は「観察可能な相互作用」を含みうるため、no humans 等の
+        # 除外タグを前置してNovelAIに人物非表示を強く指示する
+        scenery_prompt = _enhance_adventure_prompt(
+            "no humans, empty, uninhabited, scenery, background, " + scene_tags,
+            nsfw_mode=nsfw_mode,
+        )
+        result = await image_service.generate_scenery(
+            prompt=scenery_prompt,
+            size="landscape",
+            nsfw_mode=nsfw_mode,
+            include_people=False,
+            provider_override="novelai",
+        )
+        if not result.images:
+            raise AdventureError(
+                "image_generation_failed", "背景画像が生成されませんでした"
+            )
+        background_path = self._images_dir / run.id / "background.png"
+        background_path.parent.mkdir(parents=True, exist_ok=True)
+        background_path.write_bytes(result.images[0])
+        async with async_session_factory() as db:
+            persisted_run = await db.get(AdventureRun, run.id)
+            if persisted_run is None:
+                raise AdventureError("run_not_found", "アドベンチャーが見つかりません")
+            persisted_run.background_image_path = str(background_path)
+            persisted_run.updated_at = datetime.now()
+            await db.commit()
+        return background_path
+
+    async def _generate_portrait_unlocked(
+        self,
+        run_id: str,
+        turn_id: str | None = None,
+        *,
+        redraw_from_reference: bool = False,
+        prompt_override: AdventureImagePromptOutput | None = None,
+        turn_number: int | None = None,
+        worn_items_override: list[str] | None = None,
+        seed_override: int | None = None,
+    ) -> tuple[Path, str | None]:
+        """呼び出し側が既に run ロックを保持している前提で中央の立ち絵を生成する。"""
+        run = await self.get_run_orm(run_id)
+        effective_turn_number = run.turn_count if turn_number is None else turn_number
+        effective_turn_id = turn_id
+        if effective_turn_id is None and turn_number is None and run.turn_count > 0:
+            async with async_session_factory() as db:
+                latest_turn = await db.scalar(
+                    select(AdventureTurn)
+                    .where(AdventureTurn.run_id == run.id)
+                    .order_by(AdventureTurn.turn_number.desc())
+                    .limit(1)
+                )
+                effective_turn_id = latest_turn.id if latest_turn else None
+        state = _json_load(run.state_json, {})
+        initial_path = Path(run.initial_image_path)
+        if not initial_path.is_file():
+            raise AdventureError(
+                "image_not_found", "アドベンチャー画像が見つかりません"
+            )
+        try:
+            (
+                image_prompt,
+                outfit_changed,
+                nsfw_mode,
+                use_precise_reference,
+                extra_negative,
+                raw_image_prompt,
+            ) = await self._prepare_image_prompt(
+                run,
+                state,
+                redraw_from_reference=redraw_from_reference,
+                prompt_override=prompt_override,
+                worn_items_override=worn_items_override,
+            )
+            # 立ち絵はフロント側で背景を透過するため、必ず白背景で生成させる。
+            player_prompt = _enhance_adventure_prompt(
+                image_prompt.player_tags
+                + ", solo, full body standing portrait, simple background,"
+                " white background, no shadow",
+                nsfw_mode=nsfw_mode,
+            )
+            character_references = None
+            if use_precise_reference:
+                # 参照は常に旧衣装の初期画像なので fresh portrait 扱いにしない
+                char_strength, char_fidelity = _character_reference_strength(
+                    outfit_changed=outfit_changed, has_fresh_portrait=False
+                )
+                character_references = [
+                    {
+                        "image": initial_path.read_bytes(),
+                        "type": "character",
+                        "strength": char_strength,
+                        "fidelity": char_fidelity,
+                    }
+                ]
+            effective_image_model = (
+                settings.novelai_model if nsfw_mode else settings.novelai_curated_model
+            )
+            result = await image_service.generate_image(
+                player_prompt,
+                image_bytes=None,
+                provider_override="novelai",
+                # 追加negativeを渡すと provider 側の既定UCが置き換わるため、
+                # 品質系の基本negativeを土台にして結合する
+                negative_prompt=merge_negative_prompt(
+                    settings.novelai_negative_prompt, extra_negative or ""
+                ),
+                nsfw_mode=nsfw_mode,
+                character_references=character_references,
+                characters=None,
+                seed=seed_override,
+                size_override="portrait",
+                novelai_model_override=effective_image_model,
+            )
+            if not result.images:
+                raise AdventureError(
+                    "image_generation_failed", "ポートレート画像が生成されませんでした"
+                )
+        except AdventureError:
+            await self._mark_portrait_failed(run.id, effective_turn_id)
+            raise
+        except Exception as error:
+            await self._mark_portrait_failed(run.id, effective_turn_id)
+            logger.exception(
+                "Adventure portrait generation failed: run_id=%s turn_id=%s",
+                run.id,
+                effective_turn_id,
+            )
+            raise AdventureError(
+                "image_generation_failed",
+                "ポートレート画像の生成に失敗しました",
+            ) from error
+        filename = f"portrait-{effective_turn_number}-{uuid.uuid4().hex[:8]}.png"
+        portrait_path = self._images_dir / run.id / filename
+        portrait_path.parent.mkdir(parents=True, exist_ok=True)
+        portrait_path.write_bytes(result.images[0])
+        async with async_session_factory() as db:
+            persisted_run = await db.get(AdventureRun, run.id)
+            if persisted_run is None:
+                raise AdventureError("run_not_found", "アドベンチャーが見つかりません")
+            persisted_run.portrait_image_path = str(portrait_path)
+            persisted_run.updated_at = datetime.now()
+            persisted_state = _json_load(persisted_run.state_json, {})
+            # 決定論変換後ではなく LLM 出力を保存する（_prepare_image_prompt 参照）
+            persisted_state["last_image_prompt"] = _image_prompt_payload(
+                raw_image_prompt
+            )
+            if effective_turn_number == 0:
+                persisted_state["opening_portrait_path"] = str(portrait_path)
+            persisted_run.state_json = json.dumps(persisted_state, ensure_ascii=False)
+            if effective_turn_id:
+                persisted_turn = await db.get(AdventureTurn, effective_turn_id)
+                if persisted_turn and persisted_turn.run_id == run.id:
+                    persisted_turn.portrait_image_path = str(portrait_path)
+                    persisted_turn.portrait_status = "completed"
+            await db.commit()
+        return portrait_path, effective_turn_id
+
+    async def _generate_opening_visuals(self, run_id: str) -> None:
+        """Run作成直後に、背景1回・ポートレート・（設定時のみ）合成シーンを直列生成する。"""
+        async with self._run_locks[run_id]:
+            run = await self.get_run_orm(run_id)
+            state = _json_load(run.state_json, {})
+            # 決定論変換は各生成メソッド内で再適用されるため、後続へは変換前の
+            # LLM 出力を渡す。変換後を渡すと turn 0 の last_image_prompt に
+            # 露出状態タグ等が保存され、次ターンの LLM へ再入する。
+            (
+                _prepared_prompt,
+                _outfit_changed,
+                nsfw_mode,
+                _use_precise_reference,
+                _extra_negative,
+                image_prompt,
+            ) = await self._prepare_image_prompt(
+                run,
+                state,
+                redraw_from_reference=True,
+                prompt_override=None,
+            )
+            background_path = await self._generate_background_image_unlocked(
+                run_id, scene_tags=image_prompt.scene_tags, nsfw_mode=nsfw_mode
+            )
+            # 立ち絵と合成シーンで同一シードを使い、衣装の描画差を抑える
+            opening_seed = random.randint(0, 999_999_999)
+            portrait_path, _ = await self._generate_portrait_unlocked(
+                run_id,
+                None,
+                redraw_from_reference=True,
+                prompt_override=image_prompt,
+                turn_number=0,
+                seed_override=opening_seed,
+            )
+            enable_composite_scene = bool(state.get("enable_composite_scene"))
+            if enable_composite_scene:
+                await self._generate_image_unlocked(
+                    run_id,
+                    None,
+                    redraw_from_reference=True,
+                    prompt_override=image_prompt,
+                    turn_number=0,
+                    source_image_override=background_path.read_bytes(),
+                    character_reference_image_override=portrait_path.read_bytes(),
+                    seed_override=opening_seed,
+                )
+            else:
+                async with async_session_factory() as db:
+                    persisted_run = await db.get(AdventureRun, run_id)
+                    if persisted_run is None:
+                        raise AdventureError(
+                            "run_not_found", "アドベンチャーが見つかりません"
+                        )
+                    persisted_run.current_image_path = str(background_path)
+                    persisted_run.updated_at = datetime.now()
+                    await db.commit()
+
     def image_url(self, run_id: str, image_path: Path) -> str:
         return f"/adventure/images/{run_id}/{image_path.name}"
 
@@ -2038,10 +3971,35 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             return max(generated_images, key=lambda path: path.stat().st_mtime)
         return Path(run.initial_image_path)
 
+    def _opening_portrait_path(
+        self, run: AdventureRun, state: dict[str, Any]
+    ) -> Path | None:
+        stored_path = Path(str(state.get("opening_portrait_path") or ""))
+        if stored_path.is_file():
+            return stored_path
+        generated_portraits = list((self._images_dir / run.id).glob("portrait-0-*.png"))
+        if generated_portraits:
+            return max(generated_portraits, key=lambda path: path.stat().st_mtime)
+        portrait_path = getattr(run, "portrait_image_path", None)
+        return Path(portrait_path) if portrait_path else None
+
     def _serialize_turn(
-        self, turn: AdventureTurn, fallback_image_path: Path | None = None
+        self,
+        turn: AdventureTurn,
+        fallback_image_path: Path | None = None,
+        fallback_portrait_path: Path | None = None,
+        *,
+        language: str = "ja",
     ) -> dict[str, Any]:
         image_path = Path(turn.image_path) if turn.image_path else fallback_image_path
+        portrait_image_path = (
+            Path(turn.portrait_image_path)
+            if turn.portrait_image_path
+            else fallback_portrait_path
+        )
+        turn_visual = _sanitize_visual_state(
+            _json_load(turn.state_delta_json, {}).get("visual_state")
+        )
         return {
             "id": turn.id,
             "turn_number": turn.turn_number,
@@ -2049,13 +4007,52 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             "user_input": turn.user_input,
             "input_kind": turn.input_kind,
             "narrative": turn.narrative,
-            "choices": _json_load(turn.choices_json, []),
+            "location": turn_visual["location"] if turn_visual else None,
+            "choices": _sanitize_choices(
+                _json_load(turn.choices_json, []),
+                language=language,
+                source=f"serialize_turn:{turn.id}",
+            ),
             "image_url": self.image_url(turn.run_id, image_path)
             if image_path
             else None,
             "image_status": turn.image_status,
+            "portrait_image_url": self.image_url(turn.run_id, portrait_image_path)
+            if portrait_image_path
+            else None,
+            "portrait_status": turn.portrait_status,
             "created_at": turn.created_at.isoformat() if turn.created_at else None,
         }
+
+    async def update_run_settings(
+        self,
+        run_id: str,
+        *,
+        use_precise_reference: bool,
+        enable_composite_scene: bool,
+        respect_clothing_layers: bool | None = None,
+    ) -> dict[str, Any]:
+        """実行中シナリオの画像設定を更新する（次回生成から反映）。"""
+        async with self._run_locks[run_id]:
+            run = await self.get_run_orm(run_id, with_turns=True)
+            state = _json_load(run.state_json, {})
+            state["use_precise_reference"] = bool(use_precise_reference)
+            state["enable_composite_scene"] = bool(enable_composite_scene)
+            if respect_clothing_layers is not None:
+                state["respect_clothing_layers"] = bool(respect_clothing_layers)
+            async with async_session_factory() as db:
+                persisted = await db.get(AdventureRun, run.id)
+                if persisted is None:
+                    raise AdventureError(
+                        "run_not_found", "アドベンチャーが見つかりません"
+                    )
+                persisted.state_json = json.dumps(state, ensure_ascii=False)
+                persisted.updated_at = datetime.now()
+                await db.commit()
+            turns = sorted(run.turns, key=lambda item: item.turn_number)
+            # 最新 state を反映して返す
+            run.state_json = json.dumps(state, ensure_ascii=False)
+            return self._serialize_run(run, turns)
 
     def _serialize_run(
         self,
@@ -2066,13 +4063,22 @@ All values must be concise English comma-separated tags. scene_tags contains onl
     ) -> dict[str, Any]:
         state = _json_load(run.state_json, {})
         opening_image_path = self._opening_image_path(run, state)
+        opening_portrait_path = self._opening_portrait_path(run, state)
         serialized_turns = []
         effective_image_path = opening_image_path
+        effective_portrait_path = opening_portrait_path
         for turn in turns:
-            serialized_turn = self._serialize_turn(turn, effective_image_path)
+            serialized_turn = self._serialize_turn(
+                turn,
+                effective_image_path,
+                effective_portrait_path,
+                language=run.language,
+            )
             serialized_turns.append(serialized_turn)
             if turn.image_path:
                 effective_image_path = Path(turn.image_path)
+            if turn.portrait_image_path:
+                effective_portrait_path = Path(turn.portrait_image_path)
         response = {
             "id": run.id,
             "source_session_id": run.source_session_id,
@@ -2090,13 +4096,44 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             "ending_title": run.ending_title,
             "ending_summary": run.ending_summary,
             "clues": state.get("clues", []),
+            "reality_rules": state.get("reality_rules", []),
             "milestones": state.get("milestones", []),
             "completed_milestones": state.get("completed_milestones", []),
+            "visual_state": _sanitize_visual_state(state.get("visual_state")),
             "opening_narrative": state.get("opening_narrative", ""),
             "opening_image_url": self.image_url(run.id, opening_image_path),
-            "choices": state.get("choices", []),
+            "choices": _sanitize_choices(
+                state.get("choices", []),
+                language=run.language,
+                source=f"serialize_run:{run.id}",
+            ),
             "current_image_url": self.image_url(run.id, Path(run.current_image_path)),
             "current_image_prompt": state.get("last_image_prompt"),
+            # 旧 run でキー未設定なら OFF（意図しない Anlas 消費を防ぐ）
+            "use_precise_reference": bool(state.get("use_precise_reference")),
+            # 旧 run でキー未設定なら合成モード扱い（current_image_path に既に合成画像が入っている）
+            "enable_composite_scene": bool(state.get("enable_composite_scene", True)),
+            "respect_clothing_layers": bool(state.get("respect_clothing_layers")),
+            # 旧 run は既定の二人称・「僕」へ倒す
+            "narration_voice": normalize_narration_voice(state.get("narration_voice")),
+            "narration_pronoun": normalize_narration_pronoun(
+                state.get("narration_pronoun")
+            ),
+            "background_image_url": (
+                self.image_url(run.id, Path(run.background_image_path))
+                if getattr(run, "background_image_path", None)
+                else None
+            ),
+            "portrait_image_url": (
+                self.image_url(run.id, Path(run.portrait_image_path))
+                if getattr(run, "portrait_image_path", None)
+                else None
+            ),
+            "opening_portrait_url": (
+                self.image_url(run.id, opening_portrait_path)
+                if opening_portrait_path
+                else None
+            ),
             "turns": serialized_turns,
             "created_at": run.created_at.isoformat() if run.created_at else None,
             "updated_at": run.updated_at.isoformat() if run.updated_at else None,

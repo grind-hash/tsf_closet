@@ -32,6 +32,7 @@ import {
 } from "../types";
 import {
   DEFAULT_HISTORY_LOOKBACK_TARGETS,
+  type HistoryLookbackTarget,
   type HistoryLookbackTargets,
   normalizeHistoryLookbackTargets,
 } from "../utils/historyLookback";
@@ -90,6 +91,8 @@ interface SettingsState {
   experimentalEndingEnabled: boolean;
   experimentalAdventureEnabled: boolean;
   playMemoryEnabled: boolean;
+  playMemorySystemEnabled: boolean;
+  playMemoryUserEnabled: boolean;
 
   // お気に入り一覧からの削除時に確認ダイアログを表示する (spec 009)
   confirmFavoriteRemove: boolean;
@@ -114,6 +117,9 @@ interface SettingsState {
   enableSurroundingsImage: boolean;
   // Include reactive bystanders in surroundings image
   surroundingsIncludePeople: boolean;
+
+  // Adventureモード: 新規Run作成フォームの「背景と人物を同時に描く」初期値（Run単位で上書き可能）
+  adventureEnableCompositeScene: boolean;
 
   // Font family setting
   fontFamily: string;
@@ -187,6 +193,8 @@ type SettingsAction =
   | { type: "SET_EXPERIMENTAL_ENDING_ENABLED"; payload: boolean }
   | { type: "SET_EXPERIMENTAL_ADVENTURE_ENABLED"; payload: boolean }
   | { type: "SET_PLAY_MEMORY_ENABLED"; payload: boolean }
+  | { type: "SET_PLAY_MEMORY_SYSTEM_ENABLED"; payload: boolean }
+  | { type: "SET_PLAY_MEMORY_USER_ENABLED"; payload: boolean }
   | { type: "SET_CONFIRM_FAVORITE_REMOVE"; payload: boolean }
   | { type: "SET_SOUND_ENABLED"; payload: boolean }
   | { type: "SET_SOUND_VOLUME"; payload: number }
@@ -204,6 +212,7 @@ type SettingsAction =
   | { type: "SET_SEED"; payload: number | null }
   | { type: "SET_ENABLE_SURROUNDINGS_IMAGE"; payload: boolean }
   | { type: "SET_SURROUNDINGS_INCLUDE_PEOPLE"; payload: boolean }
+  | { type: "SET_ADVENTURE_ENABLE_COMPOSITE_SCENE"; payload: boolean }
   | { type: "SET_FONT_FAMILY"; payload: string }
   | { type: "SET_CLOTHING_COLOR_CONSISTENCY"; payload: boolean }
   | { type: "SET_RESPECT_CLOTHING_LAYERS"; payload: boolean }
@@ -222,7 +231,7 @@ type SettingsAction =
   | { type: "SET_HISTORY_LOOKBACK_COUNT"; payload: number }
   | {
       type: "SET_HISTORY_LOOKBACK_TARGET";
-      payload: { target: InstructionType; enabled: boolean };
+      payload: { target: HistoryLookbackTarget; enabled: boolean };
     }
   | { type: "SET_MEMORY_TEXT"; payload: string | null };
 
@@ -248,6 +257,8 @@ const defaultState: SettingsState = {
   experimentalEndingEnabled: false,
   experimentalAdventureEnabled: false,
   playMemoryEnabled: false,
+  playMemorySystemEnabled: true,
+  playMemoryUserEnabled: true,
   confirmFavoriteRemove: true,
   soundEnabled: true,
   soundVolume: 0.5,
@@ -257,6 +268,7 @@ const defaultState: SettingsState = {
   seed: null,
   enableSurroundingsImage: false,
   surroundingsIncludePeople: false,
+  adventureEnableCompositeScene: false,
   fontFamily: "system",
   clothingColorConsistency: false,
   respectClothingLayers: false,
@@ -355,6 +367,10 @@ function settingsReducer(
       return { ...state, experimentalAdventureEnabled: action.payload };
     case "SET_PLAY_MEMORY_ENABLED":
       return { ...state, playMemoryEnabled: action.payload };
+    case "SET_PLAY_MEMORY_SYSTEM_ENABLED":
+      return { ...state, playMemorySystemEnabled: action.payload };
+    case "SET_PLAY_MEMORY_USER_ENABLED":
+      return { ...state, playMemoryUserEnabled: action.payload };
     case "SET_CONFIRM_FAVORITE_REMOVE":
       return { ...state, confirmFavoriteRemove: action.payload };
     case "SET_SOUND_ENABLED":
@@ -396,6 +412,8 @@ function settingsReducer(
       return { ...state, enableSurroundingsImage: action.payload };
     case "SET_SURROUNDINGS_INCLUDE_PEOPLE":
       return { ...state, surroundingsIncludePeople: action.payload };
+    case "SET_ADVENTURE_ENABLE_COMPOSITE_SCENE":
+      return { ...state, adventureEnableCompositeScene: action.payload };
     case "SET_FONT_FAMILY":
       return { ...state, fontFamily: action.payload };
     case "SET_CLOTHING_COLOR_CONSISTENCY":
@@ -476,6 +494,8 @@ interface SettingsContextType {
   setExperimentalEndingEnabled: (enabled: boolean) => void;
   setExperimentalAdventureEnabled: (enabled: boolean) => void;
   setPlayMemoryEnabled: (enabled: boolean) => void;
+  setPlayMemorySystemEnabled: (enabled: boolean) => void;
+  setPlayMemoryUserEnabled: (enabled: boolean) => void;
   setConfirmFavoriteRemove: (enabled: boolean) => void;
   setSoundEnabled: (enabled: boolean) => void;
   setSoundVolume: (volume: number) => void;
@@ -495,6 +515,7 @@ interface SettingsContextType {
   setSeed: (seed: number | null) => void;
   setEnableSurroundingsImage: (enabled: boolean) => void;
   setSurroundingsIncludePeople: (enabled: boolean) => void;
+  setAdventureEnableCompositeScene: (enabled: boolean) => void;
   setFontFamily: (fontFamily: string) => void;
   setClothingColorConsistency: (enabled: boolean) => void;
   setLinkChatToImage: (enabled: boolean) => void;
@@ -511,7 +532,10 @@ interface SettingsContextType {
   setTtsStyleId: (styleId: string | null) => void;
   setTtsOutputFormat: (format: "wav") => void;
   setHistoryLookbackCount: (count: number) => void;
-  setHistoryLookbackTarget: (target: InstructionType, enabled: boolean) => void;
+  setHistoryLookbackTarget: (
+    target: HistoryLookbackTarget,
+    enabled: boolean,
+  ) => void;
   // メモリ機能
   memoryText: string | null;
   setMemoryText: (memoryText: string | null) => void;
@@ -940,6 +964,12 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const setPlayMemoryEnabled = useCallback((enabled: boolean) => {
     dispatch({ type: "SET_PLAY_MEMORY_ENABLED", payload: enabled });
   }, []);
+  const setPlayMemorySystemEnabled = useCallback((enabled: boolean) => {
+    dispatch({ type: "SET_PLAY_MEMORY_SYSTEM_ENABLED", payload: enabled });
+  }, []);
+  const setPlayMemoryUserEnabled = useCallback((enabled: boolean) => {
+    dispatch({ type: "SET_PLAY_MEMORY_USER_ENABLED", payload: enabled });
+  }, []);
   const setConfirmFavoriteRemove = useCallback((enabled: boolean) => {
     dispatch({ type: "SET_CONFIRM_FAVORITE_REMOVE", payload: enabled });
   }, []);
@@ -1005,6 +1035,13 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
 
   const setSurroundingsIncludePeople = useCallback((enabled: boolean) => {
     dispatch({ type: "SET_SURROUNDINGS_INCLUDE_PEOPLE", payload: enabled });
+  }, []);
+
+  const setAdventureEnableCompositeScene = useCallback((enabled: boolean) => {
+    dispatch({
+      type: "SET_ADVENTURE_ENABLE_COMPOSITE_SCENE",
+      payload: enabled,
+    });
   }, []);
 
   const setFontFamily = useCallback((fontFamily: string) => {
@@ -1156,7 +1193,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const setHistoryLookbackTarget = useCallback(
-    (target: InstructionType, enabled: boolean) => {
+    (target: HistoryLookbackTarget, enabled: boolean) => {
       dispatch({
         type: "SET_HISTORY_LOOKBACK_TARGET",
         payload: { target, enabled },
@@ -1204,6 +1241,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setExperimentalEndingEnabled,
     setExperimentalAdventureEnabled,
     setPlayMemoryEnabled,
+    setPlayMemorySystemEnabled,
+    setPlayMemoryUserEnabled,
     setConfirmFavoriteRemove,
     setSoundEnabled,
     setSoundVolume,
@@ -1219,6 +1258,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setSeed,
     setEnableSurroundingsImage,
     setSurroundingsIncludePeople,
+    setAdventureEnableCompositeScene,
     setFontFamily,
     setClothingColorConsistency,
     setLinkChatToImage,

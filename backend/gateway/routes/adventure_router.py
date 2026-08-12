@@ -11,6 +11,17 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
+from ..consts.adventure_narration import (
+    NARRATION_PRONOUN_DEFAULT,
+    NARRATION_PRONOUN_MAX_LENGTH,
+    NARRATION_VOICE_DEFAULT,
+    NarrationVoice,
+)
+from ..consts.adventure_turns import (
+    ADVENTURE_TURNS_DEFAULT,
+    ADVENTURE_TURNS_MAX,
+    ADVENTURE_TURNS_MIN,
+)
 from ..services.adventure_service import (
     AdventureError,
     AdventureImagePromptOutput,
@@ -24,6 +35,13 @@ class AdventureSetupGenerateRequest(BaseModel):
     source_session_id: str = Field(min_length=1)
     source_history_id: str | None = None
     preset: Literal["infiltration", "escape", "negotiation", "disguise"]
+    # 自動生成のゴール文面は「N手以内に〜」という尺で書かれるため、
+    # 案の生成時点でもターン予算を渡す
+    scenario_max_turns: int = Field(
+        default=ADVENTURE_TURNS_DEFAULT,
+        ge=ADVENTURE_TURNS_MIN,
+        le=ADVENTURE_TURNS_MAX,
+    )
 
 
 class AdventureCreateRequest(BaseModel):
@@ -36,12 +54,41 @@ class AdventureCreateRequest(BaseModel):
     scenario_constraints: list[str] = Field(default_factory=list, max_length=4)
     scenario_template_id: str | None = Field(default=None, max_length=80)
     replay_run_id: str | None = Field(default=None, max_length=80)
+    # 自動生成タイプのみで使用。作品シナリオはテンプレJSON、
+    # リプレイは元 run の max_turns を引き継ぐ
+    scenario_max_turns: int = Field(
+        default=ADVENTURE_TURNS_DEFAULT,
+        ge=ADVENTURE_TURNS_MIN,
+        le=ADVENTURE_TURNS_MAX,
+    )
+    # 語りの人称。既定は従来どおりの二人称
+    narration_voice: NarrationVoice = NARRATION_VOICE_DEFAULT
+    # first_person のときだけ使う一人称語
+    narration_pronoun: str = Field(
+        default=NARRATION_PRONOUN_DEFAULT,
+        min_length=1,
+        max_length=NARRATION_PRONOUN_MAX_LENGTH,
+    )
+    # 既定OFF: ユーザーが明示ONしない限り精密参照でAnlasを消費しない
+    use_precise_reference: bool = False
+    # 既定OFF: OFF時は中央の立ち絵のみ更新し、背景合成シーンは初回のみ生成
+    enable_composite_scene: bool = False
+    # 衣装レイヤー考慮。ONなら外衣に覆われた下着を画像タグから除外する
+    respect_clothing_layers: bool = False
+
+
+class AdventureSettingsUpdateRequest(BaseModel):
+    use_precise_reference: bool
+    enable_composite_scene: bool
+    # 未指定なら既存の run 設定を維持する
+    respect_clothing_layers: bool | None = None
 
 
 class AdventureTurnRequest(BaseModel):
     client_turn_id: str = Field(min_length=1, max_length=80)
     user_input: str = Field(min_length=1, max_length=1000)
-    input_kind: Literal["choice", "free_text"] = "free_text"
+    # reality_alter はサーバ側で「現実改変：〜」を検出したときにも設定される
+    input_kind: Literal["choice", "free_text", "reality_alter"] = "free_text"
 
 
 class AdventureImageRequest(BaseModel):
@@ -74,6 +121,7 @@ async def generate_setup(request: AdventureSetupGenerateRequest) -> dict:
             source_session_id=request.source_session_id,
             source_history_id=request.source_history_id,
             preset=request.preset,
+            max_turns=request.scenario_max_turns,
         )
     except AdventureError as error:
         raise _http_error(error) from error
@@ -92,6 +140,12 @@ async def create_run(request: AdventureCreateRequest) -> dict:
             scenario_constraints=request.scenario_constraints,
             scenario_template_id=request.scenario_template_id,
             replay_run_id=request.replay_run_id,
+            scenario_max_turns=request.scenario_max_turns,
+            narration_voice=request.narration_voice,
+            narration_pronoun=request.narration_pronoun,
+            use_precise_reference=request.use_precise_reference,
+            enable_composite_scene=request.enable_composite_scene,
+            respect_clothing_layers=request.respect_clothing_layers,
         )
     except AdventureError as error:
         raise _http_error(error) from error
@@ -114,6 +168,29 @@ async def get_run(run_id: str) -> dict:
 async def delete_run(run_id: str) -> None:
     try:
         await adventure_service.delete_run(run_id)
+    except AdventureError as error:
+        raise _http_error(error) from error
+
+
+@router.post("/runs/{run_id}/choices/regenerate")
+async def regenerate_choices(run_id: str) -> dict:
+    try:
+        return await adventure_service.regenerate_choices(run_id)
+    except AdventureError as error:
+        raise _http_error(error) from error
+
+
+@router.patch("/runs/{run_id}/settings")
+async def update_run_settings(
+    run_id: str, request: AdventureSettingsUpdateRequest
+) -> dict:
+    try:
+        return await adventure_service.update_run_settings(
+            run_id,
+            use_precise_reference=request.use_precise_reference,
+            enable_composite_scene=request.enable_composite_scene,
+            respect_clothing_layers=request.respect_clothing_layers,
+        )
     except AdventureError as error:
         raise _http_error(error) from error
 

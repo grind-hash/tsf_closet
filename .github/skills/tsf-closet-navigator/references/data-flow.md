@@ -1,191 +1,174 @@
 # データフローパターン
 
-> 最終検証: 2026-05-02 | 更新条件: 新しい統合パターンやデータ経路が追加された場合
+> 最終検証: 2026-08-10 | 通常ゲームとAdventureは別のストリーム契約を持つ
 
-## メインゲームループ（変身処理）
+## 通常ゲームの送信経路
 
-```
-ユーザー入力 (ChatInput)
-  │  instructionType: dress_up | reality_change | conversation | action など
-  │  text: 指示テキスト
-  │  attachedImage?: base64 (任意のマスク/参照画像)
-  ▼
-[上位ラッパー] useGameSSE → useSSE.startPostStream()
-  │  POST /game/play/stream (SSE / fetch ストリーム)
-  │  Body: { session_id, instruction, instruction_type, language,
-  │          nsfw_mode, difficulty, change_settings, inpaint_settings,
-  │          mask_base64?, self_mode?, precise_references?, seed? }
-  ▼
-[バックエンド] GameService.play_with_stream()
-  │
-  ├─ 1. LLM: 画像編集プロンプト生成（指示 → 英語プロンプト）
-  │     └─ llm_service.generate_image_prompt()
-  │
-  ├─ 2. LLM: 心境テキスト生成（キャラクターの反応）
-  │     └─ llm_service.generate_feeling()
-  │     └─ SSE: event=text, data=心境テキストのチャンク
-  │
-  ├─ 3. 画像生成（ステップ 2 と並列）
-  │     ├─ ComfyUI inpaint (ローカル)
-  │     ├─ OpenRouter マルチモーダル (Gemini等)
-  │     └─ NovelAI (anlas経由)
-  │     └─ SSE: event=image, data={image, history_id, seed}
-  │     └─ SSE: event=surroundings_image (設定有効時)
-  │
-  ├─ 4. タグ分類（衣装/露出度/年齢印象）
-  │     └─ tag_classifier.classify()
-  │
-  ├─ 5. ステータス更新（bloom/shame/adaptation 計算）
-  │     └─ SSE: event=stats, data={bloom, shame, adaptation}
-  │
-  ├─ 6. 臨界点チェック（25/50/75/100% の閾値）
-  │     └─ SSE: event=critical (閾値を超えた場合)
-  │
-  ├─ 7. 実績チェック / 現実改変属性追加
-  │     └─ SSE: event=achievement (新規解除時)
-  │     └─ SSE: event=reality_attribute_added
-  │
-  ├─ 8. エンディングチェック
-  │     └─ summary_service.check_ending()
-  │     └─ SSE: event=ending (条件達成時)
-  │
-  └─ 9. 完了
-        └─ SSE: event=cost / event=anlas
-        └─ SSE: event=complete, data={historyId, transformationCount}
-  ▼
-[フロントエンド] useGameSSE (コールバックスイッチャー)
-  ├─ onText             → GameContext.appendFeelingText
-  ├─ onImage            → ChatContext.resolvePendingIdentity + GameContext.updateFromSSE → restoreActiveSession
-  ├─ onSurroundingsImage→ GameContext.setLastSurroundingsImage
-  ├─ onStats            → GameContext.updateStats
-  ├─ onCritical         → GameContext.appendFeelingText (名前/台詞を心境に追加)
-  ├─ onAchievement      → NotificationContext.showAchievementNotification
-  ├─ onRealityAttributeAdded → GameContext.addAttribute (+ 設定で通知)
-  ├─ onEnding           → GameContext.setEnding → EndingModal
-  ├─ onCost / onAnlas   → SettingsContext.addTotalCost / setAnlasBalance
-  └─ onComplete         → isTransforming=false、クリーンアップ
+```text
+ChatInput
+  └─ 指示 + InstructionType + 添付/送信タイプ
+      ↓
+GamePlayScreen
+  └─ App.handleTransform
+      ├─ SettingsContextから生成/履歴/メモリ/複数人物設定を構築
+      └─ useGameSSE.startPostStream
+          ↓ POST /api/game/play/stream
+GameService.play_with_stream
+  ├─ 指示タイプ分岐
+  ├─ 履歴・プレイメモ・人物コンテキスト解決
+  ├─ LLM/画像生成
+  ├─ History/Conversation/Stats等の永続化
+  └─ SSE
+      ↓
+useSSE → useGameSSE
+  ├─ GameContext
+  ├─ ChatContext
+  ├─ SettingsContext
+  └─ NotificationContext
 ```
 
-## セッションライフサイクル
+送信ボディの中心は `session_id`、`instruction`、`instruction_type`、`language`。設定により `use_history_lookback`、`use_memory`、`use_play_memory`、`respect_clothing_layers`、`enable_multiple_people`、`use_character_panel`、seed、inpaint、精密参照、情景画像を加える。
 
-```
-キャラクター選択 (WelcomeScreen)
-  │  POST /game/start { character_id, difficulty, nsfw_mode }
-  ▼
-セッション作成 (DB: Session + SessionStats 行)
-  │  レスポンス: { session_id, character, stats, current_image_url }
-  ▼
-GameContext.START_SESSION ディスパッチ
-  │  sessionId 保存、画像読込、ステータス初期化
-  ▼
-ゲームループ（変身の繰り返し）
-  ▼
-エンディング発動 または ユーザーリセット
-  │  POST /game/session (DELETE) または EndingModal 表示
-  ▼
-セッション非活性化 (DB: session.active = false)
-```
+## 指示タイプ別の境界
 
-## 設定フロー
+| 指示タイプ | 主な副作用 |
+| --- | --- |
+| `dress_up` | 画像、心境、stats、履歴、タグ、実績、人物外見 |
+| `reality_alter` | 画像、心境、stats、履歴、属性、実績、人物外見 |
+| `action` | 画像、心境、stats、履歴。設定時は情景画像も生成 |
+| `conversation` | 会話を保存し、画像生成を行わない |
+| `image_only` | 画像と画像履歴だけを保存。心境、stats、実績、人物状態を更新しない |
 
-```
-SettingsScreen / SettingsContext
-  │  useSettings().setDifficulty / setLanguage / toggleNsfw / etc.
-  ▼
-PUT /settings { difficulty, language, nsfw_mode, image_provider, ... }
-  │  (旧クライアントとの互換のため PUT /settings/user も有効)
-  ▼
-[バックエンド] settings_service → DB: User 行更新
-  ▼
-SettingsContext ステート更新（ローカル localStorage 同期も並行）
+`image_only` は失敗時にHistoryを残さない。保存する場合は指示、画像、空の心境、seed、画像状態記述を保持する。
+
+## プロンプトとメモリ
+
+```text
+original_instruction
+  ├─ 心境/会話用 instruction      履歴・プレイメモ等を用途別に展開
+  └─ 画像用 image_instruction     画像メモリON時だけ有効メモを追加
 ```
 
-## プレイ要約生成フロー
+- `prompt_override` はユーザーが直接確定した画像プロンプトとして扱い、自動の履歴遡及を混ぜない。
+- `PlayMemoryService.build_context` は、ONのユーザーメモ、自動メモ、ユーザー単位メモリを用途に応じて整列する。
+- `use_memory` は画像生成へのメモリ反映、`use_play_memory` はセッションプレイメモ機能の利用を表す。混同しない。
+- 履歴遡及は `history_context.py` と `frontend/src/utils/historyLookback.ts` の両側で指示タイプ別に制御する。
 
-```
-ギャラリーセッション選択 → PlaySummaryModal
-  ├─ GET /gallery/sessions/{id}/summary
-  │    └─ 存在したら表示 (PlaySummary テーブルから)
-  └─ 未生成なら POST /gallery/sessions/{id}/summary
-        └─ LLM が History/Conversation を集約 → PlaySummary に保存 → 表示
-```
+## 通常ゲームSSE
 
-## 画像生成パイプライン
+| イベント | 主な受信処理 |
+| --- | --- |
+| `text` | 心境/応答チャンクをChat/Gameへ追加 |
+| `image` | 画像とhistory_idを確定し、セッションを同期 |
+| `surroundings_image` | `GameContext.lastSurroundingsImage` を更新 |
+| `stats` | bloom/shame/adaptationを更新 |
+| `critical` | 臨界点表示/テキストを追加 |
+| `ending` | EndingModal用状態を更新 |
+| `achievement` | 実績通知 |
+| `reality_attribute_added` | 属性を追加 |
+| `cost`、`anlas` | コスト/残高をSettingsへ反映 |
+| `complete` | 履歴ID・変身回数を確定。プレイメモ更新失敗も通知 |
+| `error` | ストリーム停止とエラー表示 |
 
-```
-指示テキスト + 現在の画像
-  ▼
-GameService._generate_image_edit_prompt()
-  │  LLM が指示から英語の編集プロンプトを生成
-  ▼
-                ┌─────────────┬──────────────┬────────────┐
-                │  ComfyUI    │ OpenRouter   │  NovelAI   │
-                │  (ローカル)  │ (クラウド)    │ (クラウド)  │
-                │  inpaint    │ マルチモーダル │  img2img   │
-                │  workflow    │ Gemini等     │  SDK経由    │
-                └──────┬──────┴──────┬───────┴─────┬──────┘
-                       ▼             ▼             ▼
-                    PNGバイト     PNGバイト      PNGバイト
-                       │             │             │
-                       └─────────────┴─────────────┘
-                                     ▼
-                           history_images/ に保存
-                           base64 で SSE 返却
-```
+## メッセージと履歴ID
 
-## 状態管理アーキテクチャ
+送信直後は `PendingMessageIdentity` に一時トークンを置き、`image` または `complete` の `history_id` でユーザーメッセージと心境メッセージを確定する。復元時は `History` と `Conversation` を時系列に統合する。
 
-```
-                      React Context 層
-   ┌──────────────┬──────────────┬──────────────┬────────────────┐
-   │ GameContext   │ ChatContext  │ SettingsCtx  │ NotificationCtx│
-   │ (セッション,  │ (メッセージ, │ (設定,       │ (トースト通知) │
-   │  画像,        │  入力,       │  プロバイダ)  │                │
-   │  ステータス,  │  ストリーミ  │              │                │
-   │  履歴)        │  ング)       │              │                │
-   └──────┬───────┴──────┬───────┴──────┬───────┴────────┬───────┘
-          │              │              │                │
-   ┌──────┴───────┐ ┌────┴──────┐ ┌────┴──────┐  ┌─────┴──────┐
-   │ useSession   │ │ ChatInput │ │ Settings  │  │ Toast      │
-   │ useSSE       │ │ ChatMsg   │ │ Screen    │  │ Container  │
-   │ GamePlay     │ │ Container │ │           │  │            │
-   └──────────────┘ └───────────┘ └───────────┘  └────────────┘
+- History: ユーザー指示 + `feeling_text`
+- Conversation: 会話のユーザー/キャラクターメッセージ
+- 復元側のキャラクター応答は `role: system` になり得るため、キャラクター側を取得するときは `role !== "user"` を基準にする。
+
+## セッションプレイメモ
+
+```text
+PlayMemorySettings
+  ↓ GameContext.updatePlayMemory / regeneratePlayMemory
+PATCH /api/game/sessions/{id}/play-memory
+POST  /api/game/sessions/{id}/play-memory/regenerate
+  ↓
+Session.play_memory_* に保存
+  ↓
+次のplayで PlayMemoryService が必要なコンテキストを構築
 ```
 
-## 通信パターン
+ユーザー単位の長期メモリは別経路である。
 
-| パターン            | 用途                                                                     | 方向                    |
-| ------------------- | ------------------------------------------------------------------------ | ----------------------- |
-| REST (fetch)        | セッション CRUD、設定、ギャラリー、実績                                    | クライアント ↔ サーバー  |
-| SSE (EventSource)   | `/game/play/stream`, `/game/chat/stream`, `/game/improve-quality/stream` | サーバー → クライアント  |
-| WebSocket なし      | SSE が唯一のリアルタイムチャネル                                          | —                       |
+```text
+MemorySettings → /api/memory/text
+              → /api/memory/generate → status/export/cancel
+              → User.memory_text / MemoryJobServiceの一時ジョブ
+```
 
-## DB 書き込みポイント
+## 複数人物
 
-| トリガー                  | 書き込まれるテーブル                                                  |
-| ------------------------- | ------------------------------------------------------------------ |
-| セッション開始              | Session, SessionStats                                              |
-| 各変身処理              | History, Conversation, TransformationTag, SessionStats (更新)      |
-| 属性追加                  | SessionAttribute                                                   |
-| 実績解除 / 進捗更新       | UserAchievement, AchievementCount, AchievedEnding                  |
-| 設定更新                  | User                                                               |
-| プレイ要約生成            | PlaySummary                                                         |
-| マスク保存                | ファイルシステム (data/preset_masks/)                                  |
+```text
+CharacterPanel / CharacterPresetPicker
+  ↓ apis/characters.ts
+/api/game/session/{id}/characters と /character-presets
+  ↓
+SessionCharacter / CharacterPreset
+  ↓
+GameContext.sessionCharacters
+  ↓ use_character_panel=true の画像プロンプト
+character_service → game_service / llm_service
+```
 
-## 注意点 / 非自明なパターン
+`enableMultiplePeople` は複数人生成自体、`multiCharacterPanelEnabled` はSessionCharacterをプロンプトへ注入するかを制御する。主人公は `ensure-protagonist` で冪等に確保する。
 
-### チャットメッセージ復元（2テーブル統合）
+## Adventure
 
-`GamePlayScreen` は**2つの異なるDBテーブル**からチャットメッセージを復元し、タイムスタンプ順にマージする:
+```text
+AdventureScreen
+  ↓ AdventureContext
+apis/adventure.ts
+  ├─ setup/generate、runs CRUD
+  ├─ runs/{id}/turns/stream
+  └─ runs/{id}/image/stream
+      ↓
+adventure_router → AdventureService
+  ├─ AdventureRun / AdventureTurn
+  ├─ scenarios/*.json
+  ├─ director / resolution / image prompt
+  └─ adventure/images/{run_id}
+      ↓
+AdventureContext.activeRun とターン履歴
+```
 
-| ソース        | DBテーブル      | 生成されるもの                                                | フロントエンド `role`                              |
-| ------------- | --------------- | ------------------------------------------------------------- | -------------------------------------------------- |
-| 変身履歴      | `History`       | ユーザー指示 (`role=user`) + 心境テキスト (`role=system`)      | `"user"` / `"system"` (isFeelingText)              |
-| 会話ログ      | `Conversation`  | ユーザーメッセージ + キャラクター応答                           | `"user"` / `"system"` (復元時) or `"character"` (ライブ) |
+Adventureのイベントは `status`、`narrative_chunk`、`narrative_done`、`turn`、`image`、`portrait_image`、`complete`、`error`。通常ゲームの `useSSE` には流さず、`apis/adventure.ts` の専用パーサを使う。
 
-**重要な注意点:**
+ターン表示では新規画像がないターンも、開始画像または直前の実効画像を時系列に引き継ぐ。Runの現在画像と開始画像の用途を混同しない。
 
-1. **タイムスタンプソートが必須** — History と Conversation のレコードは時系列で交互に存在し、片方だけでは正しい順序にならない。
-2. **キャラクター応答の `role` 値が混在する** — 復元された会話メッセージは `role: "system"` だが、ライブのメッセージは `role: "character"` になる。「キャラクター側の全メッセージ」を取得するには `role !== "user"` でフィルタすること。`role === "character"` では History 由来のメッセージを取りこぼす。
-3. **feelingText メッセージ** は `isFeelingText: true` フラグと `💭` プレフィックスを持つ。エクスポートや表示用途では除去が必要な場合がある。
-4. **エクスポート / 小説形式** — History 由来の feelingText と Conversation 由来のキャラクター応答の両方を取得するため、`role !== "user"` を使うこと。
+自動生成タイプのターン数は `scenario_max_turns` として `POST /adventure/setup/generate` と `POST /adventure/runs` の両方へ送り、`AdventureRun.max_turns` に保存する。境界値は `gateway/consts/adventure_turns.py` が唯一の情報源で、既定15手・5〜30手。作品シナリオはテンプレJSON、リプレイは元runの値を引き継ぐため、この項目は自動生成分岐だけに効く。`_setup_system_prompt` の英文と開始シーンのディレクタープロンプトにも同じ手数を渡し、生成されるゴール文面の尺と一致させる。
+
+語りの人称は run の `state_json` に `narration_voice`（`second_person` 既定 / `third_person` / `first_person`）と `narration_pronoun` で持ち、境界値は `gateway/consts/adventure_narration.py` が唯一の情報源。`_director_system_prompt`、`_narrative_system_prompt`、`_resolution_system_prompt`、修復プロンプト、`_clothing_narrative_suffix` の5箇所へ渡す。人称指示は同意・主体性のガード文を必ず伴い、`_lean_state_for_llm` では user prompt から除外する。旧 run はキー欠落時に二人称へ倒す。
+
+作品シナリオの装備判定 `_last_equipment_action` は、エイリアス前後を走査して最も近い着脱動詞を帰属させる。他アイテムの語で走査を打ち切るが、並列助詞（と／や／and）で繋がる場合と、直後が修飾助詞（の／に等）の場合は境界にしない。長い語に内包されただけの一致（「ヘッドドレス」中の「ドレス」）は数えない。画像側では未装備アイテムを `_equipment_negative_tags` で negative に出し、`_strip_unworn_equipment_tags` で player_tags からも除く。外衣着用時は下着 negative を出さない（`CLOTHING_LAYER_COVERED_NEGATIVE` と矛盾するため）。
+
+Adventureの画像設定は run の `state_json` に持つ。`use_precise_reference`、`enable_composite_scene`、`respect_clothing_layers` を `POST /runs` と `PATCH /runs/{id}/settings` で設定し、`_prepare_image_prompt` と `_generate_image_unlocked` が state から読む。`respect_clothing_layers` は設定画面のグローバル値をAdventureScreenが同期し、ON時は外衣に覆われた装備下着タグを positive から外して被覆用 negative を足す。
+
+## ギャラリー、お気に入り、エクスポート
+
+```text
+GalleryScreen
+  ├─ apis/gallery.ts → /api/gallery
+  │    ├─ Session/History検索とページング
+  │    ├─ 要約
+  │    └─ Markdown / Novel HTML ZIP
+  └─ apis/favorites.ts → /api/favorites
+       └─ FavoriteOutfit (History参照)
+```
+
+エクスポートは画面上の一時状態ではなく、DBに永続化されたHistory/Conversation/Session設定を情報源にする。
+
+## 主なDB書き込み
+
+| 操作 | モデル |
+| --- | --- |
+| セッション開始/通常プレイ | `Session`、`SessionStats`、`History`、`Conversation`、`TransformationTag` |
+| プレイメモ | `Session.play_memory_*` |
+| 複数人物 | `SessionCharacter`、`CharacterPreset` |
+| Adventure | `AdventureRun`、`AdventureTurn` |
+| お気に入り | `FavoriteOutfit` |
+| 設定/長期メモリ | `User` |
+| 実績 | `UserAchievement`、`AchievementCount`、`AchievedEnding` |
+| 要約 | `PlaySummary` |

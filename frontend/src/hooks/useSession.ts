@@ -97,7 +97,11 @@ export function useSession(): UseSessionReturn {
         description: "",
         thumbnail: data.image_path ?? "",
       };
-      game.startSession(data.session_id, character, data.image_path ?? "");
+      await game.startSession(
+        data.session_id,
+        character,
+        data.image_path ?? "",
+      );
       await game.restoreActiveSession();
     } catch (err) {
       game.setError(
@@ -125,7 +129,7 @@ export function useSession(): UseSessionReturn {
         if (!response.ok)
           throw new Error("カスタム画像でのセッション開始に失敗しました");
         const data = await response.json();
-        game.startSession(
+        await game.startSession(
           data.session_id,
           {
             id: "custom",

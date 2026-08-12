@@ -25,6 +25,13 @@ interface ImagePreviewModalProps {
   onToggleFavorite?: () => void;
   /** 画像下に表示する補足情報（未指定時は非表示） */
   caption?: ReactNode;
+  /** 補足情報の配置（既定は画像下） */
+  captionPlacement?: "below" | "side";
+  /**
+   * 単一の <img> の代わりに描画するノード（背景と立ち絵を重ねた合成プレビュー等）。
+   * 未指定時は従来どおり imageUrl の <img> を描画する。
+   */
+  media?: ReactNode;
 }
 
 export default function ImagePreviewModal({
@@ -41,10 +48,15 @@ export default function ImagePreviewModal({
   favoriteBusy = false,
   onToggleFavorite,
   caption,
+  captionPlacement = "below",
+  media,
 }: ImagePreviewModalProps) {
   const { t } = useTranslation();
   const resolvedAlt = alt || t("imagePreview.imageAlt");
   const canFavorite = Boolean(historyId && onToggleFavorite);
+  const useSideCaption = captionPlacement === "side" && Boolean(caption);
+  // 画像下キャプション時は、長文の max-content 幅で枠が 90vw まで広がるのを防ぐ
+  const useBelowCaption = captionPlacement !== "side" && Boolean(caption);
 
   // Swipe detection for mobile
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
@@ -109,7 +121,7 @@ export default function ImagePreviewModal({
     }
   };
 
-  if (!isOpen || !imageUrl) return null;
+  if (!isOpen || (!imageUrl && !media)) return null;
 
   return (
     <div
@@ -121,7 +133,11 @@ export default function ImagePreviewModal({
       aria-modal="true"
       aria-label={t("imagePreview.dialogAria")}
     >
-      <div className="image-preview-modal__content">
+      <div
+        className={`image-preview-modal__content${
+          useSideCaption ? " image-preview-modal__content--side" : ""
+        }${useBelowCaption ? " image-preview-modal__content--captioned" : ""}`}
+      >
         <button
           type="button"
           className="image-preview-modal__close"
@@ -162,14 +178,20 @@ export default function ImagePreviewModal({
           </button>
         )}
 
-        <img
-          src={imageUrl}
-          alt={resolvedAlt}
-          className="image-preview-modal__image"
-        />
+        {media ?? (
+          <img
+            src={imageUrl as string}
+            alt={resolvedAlt}
+            className="image-preview-modal__image"
+          />
+        )}
 
         {caption && (
-          <div className="image-preview-modal__caption">{caption}</div>
+          <div
+            className={`image-preview-modal__caption${useSideCaption ? " image-preview-modal__caption--side" : ""}`}
+          >
+            {caption}
+          </div>
         )}
 
         {/* 右ナビゲーションボタン */}

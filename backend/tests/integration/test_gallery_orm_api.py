@@ -138,6 +138,7 @@ def test_gallery_endpoints_return_expected_shapes(tmp_path: Path, monkeypatch):
         assert len(sessions_payload["sessions"]) == 2
         assert sessions_payload["sessions"][0]["session_id"] == "gallery-session-1"
         assert sessions_payload["sessions"][0]["character_name"] == "Character One"
+        assert sessions_payload["sessions"][0]["last_instruction"] == "second"
 
         assert search_response.status_code == 200
         search_payload = search_response.json()

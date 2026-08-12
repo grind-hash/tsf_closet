@@ -53,6 +53,31 @@ async def test_build_context_returns_empty_when_master_is_disabled(monkeypatch) 
 
 
 @pytest.mark.asyncio
+async def test_build_context_includes_only_enabled_memos_and_preference(
+    monkeypatch,
+) -> None:
+    store = StubSessionStore(
+        SimpleNamespace(
+            user_enabled=False,
+            user_text="無効なユーザーメモ",
+            system_enabled=True,
+            system_text="有効な自動メモ",
+        )
+    )
+    monkeypatch.setattr(module, "session_store", store)
+
+    result = await module.PlayMemoryService().build_context(
+        "s1",
+        enabled=True,
+        preference_text="好みメモリの内容",
+    )
+
+    assert "無効なユーザーメモ" not in result
+    assert "有効な自動メモ" in result
+    assert "好みメモリの内容" in result
+
+
+@pytest.mark.asyncio
 async def test_rolling_update_skips_disabled_system_memory(monkeypatch) -> None:
     store = StubSessionStore(
         SimpleNamespace(system_enabled=False, system_text="以前の内容")

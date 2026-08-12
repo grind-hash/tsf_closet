@@ -1,10 +1,22 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router-dom";
-import type { AdventurePreset } from "../../apis/adventure";
+import type {
+  AdventureNarrationVoice,
+  AdventurePreset,
+  AdventureStatus,
+  AdventureTurn,
+} from "../../apis/adventure";
+import { fetchAnlasBalance } from "../../apis/anlas";
 import { fetchGalleryList, fetchGallerySessions } from "../../apis/gallery";
 import { useAdventure } from "../../contexts/AdventureContext";
-import type { GalleryItem, GallerySession } from "../../types";
+import { useSettings } from "../../contexts/SettingsContext";
+import {
+  type TimedProgressSegment,
+  useTimedProgress,
+} from "../../hooks/useTimedProgress";
+import { useTransparentImage } from "../../hooks/useTransparentImage";
+import type { AnlasBalance, GalleryItem, GallerySession } from "../../types";
 import { API_BASE } from "../../utils/api";
 import ImagePreviewModal from "../ImagePreviewModal";
 import MainLayout from "../layout/MainLayout";
@@ -22,9 +34,149 @@ function mediaUrl(url: string): string {
   return url.startsWith("/") ? `${API_BASE}${url}` : url;
 }
 
+const LAST_INSTRUCTION_PREVIEW_LEN = 24;
+
+// 自動生成ミッションのターン数。backend/gateway/consts/adventure_turns.py と揃える
+const DEFAULT_MAX_TURNS = 15;
+const MIN_MAX_TURNS = 5;
+const MAX_MAX_TURNS = 30;
+
+function clampMaxTurns(value: number): number {
+  if (!Number.isFinite(value)) return DEFAULT_MAX_TURNS;
+  return Math.min(MAX_MAX_TURNS, Math.max(MIN_MAX_TURNS, Math.round(value)));
+}
+
+// 進捗バーの見なし所要時間(ms)。実測に合わせて調整する
+const ADVENTURE_PROGRESS_BUDGET_MS = {
+  clue_check: 12_000,
+  portrait: 18_000,
+  composite: 20_000,
+  image_single: 20_000,
+} as const;
+
+// 主人公ドックは他のHUDパネルと排他にせず、開いたままプレイできるようにする
+const PROTAGONIST_DOCK_STORAGE_KEY = "adventure_protagonist_dock_open";
+
+function readProtagonistDockOpen(): boolean {
+  try {
+    return localStorage.getItem(PROTAGONIST_DOCK_STORAGE_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+// backend/gateway/consts/adventure_narration.py と揃える
+const NARRATION_VOICES: AdventureNarrationVoice[] = [
+  "second_person",
+  "third_person",
+  "first_person",
+];
+const DEFAULT_NARRATION_PRONOUN = "僕";
+const NARRATION_PRONOUN_SUGGESTIONS = ["僕", "俺", "私", "わたし", "あたし"];
+const NARRATION_PRONOUN_MAX_LENGTH = 10;
+
+// セットアップで選んだ語りと画像オプションは次回の作成時にも引き継ぐ。
+// 精密参照はAnlasを追加消費するため保存対象に含めず、常に既定OFFから始める
+const SETUP_PREFS_STORAGE_KEY = "adventure_setup_prefs";
+
+type AdventureSetupPrefs = {
+  narrationVoice: AdventureNarrationVoice;
+  narrationPronoun: string;
+  enableCompositeScene: boolean;
+};
+
+function readSetupPrefs(): Partial<AdventureSetupPrefs> {
+  try {
+    const saved = localStorage.getItem(SETUP_PREFS_STORAGE_KEY);
+    if (!saved) return {};
+    const parsed: unknown = JSON.parse(saved);
+    if (!parsed || typeof parsed !== "object") return {};
+    return parsed as Partial<AdventureSetupPrefs>;
+  } catch {
+    return {};
+  }
+}
+
+function normalizeNarrationVoice(
+  value: unknown,
+): AdventureNarrationVoice | null {
+  return NARRATION_VOICES.includes(value as AdventureNarrationVoice)
+    ? (value as AdventureNarrationVoice)
+    : null;
+}
+
+function normalizeNarrationPronoun(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return trimmed.slice(0, NARRATION_PRONOUN_MAX_LENGTH);
+}
+
+type RunFilter = "all" | AdventureStatus;
+
+const RUN_FILTERS: RunFilter[] = [
+  "all",
+  "active",
+  "success",
+  "partial",
+  "failure",
+];
+
+const PORTRAIT_ALPHA_OPTIONS = { threshold: 12, featherRadius: 1.8 };
+
+// 現実改変の宣言記法。判定はサーバ側 _detect_reality_declaration と揃える
+const REALITY_DECLARATION_PATTERN =
+  /^\s*(?:\[\s*(?:現実改変|reality(?:[ _-]?alteration)?)\s*\]\s*[:：]?|(?:現実改変|reality(?:[ _-]?alteration)?)\s*[:：])\s*\S/i;
+
+function formatSessionDate(iso: string, locale: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleDateString(locale.startsWith("en") ? "en-US" : "ja-JP", {
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+  });
+}
+
+function truncateText(text: string, maxLen: number): string {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLen) return normalized;
+  return `${normalized.slice(0, maxLen)}…`;
+}
+
+function formatSourceSessionOption(
+  session: GallerySession,
+  t: (key: string, options?: Record<string, string | number>) => string,
+  locale: string,
+): string {
+  const name = session.character_name ?? t("adventure.unnamedCharacter");
+  const date = formatSessionDate(session.first_timestamp, locale);
+  const unit = t("gallery.itemsUnit");
+  const preview = session.last_instruction
+    ? truncateText(session.last_instruction, LAST_INSTRUCTION_PREVIEW_LEN)
+    : "";
+  if (preview) {
+    return t("adventure.sourceSessionOption", {
+      name,
+      count: session.item_count,
+      unit,
+      date,
+      preview,
+    });
+  }
+  return t("adventure.sourceSessionOptionNoPreview", {
+    name,
+    count: session.item_count,
+    unit,
+    date,
+  });
+}
+
 function AdventureHub() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const navigate = useNavigate();
+  const replayRunId = (useLocation().state as { replayRunId?: string } | null)
+    ?.replayRunId;
   const {
     runs,
     templates,
@@ -55,8 +207,47 @@ function AdventureHub() {
   const [scenarioSetting, setScenarioSetting] = useState("");
   const [scenarioObjective, setScenarioObjective] = useState("");
   const [scenarioConstraints, setScenarioConstraints] = useState("");
+  // 入力途中の桁削除を許すため文字列で保持し、送信時とblur時にクランプする
+  const [scenarioMaxTurns, setScenarioMaxTurns] = useState(
+    String(DEFAULT_MAX_TURNS),
+  );
   const [detailsOpen, setDetailsOpen] = useState(false);
+  // localStorageの読み出しは初回マウント時の一度だけに限定する
+  const [savedSetupPrefs] = useState(readSetupPrefs);
+  const [narrationVoice, setNarrationVoice] = useState<AdventureNarrationVoice>(
+    () =>
+      normalizeNarrationVoice(savedSetupPrefs.narrationVoice) ??
+      "second_person",
+  );
+  const [narrationPronoun, setNarrationPronoun] = useState(
+    () =>
+      normalizeNarrationPronoun(savedSetupPrefs.narrationPronoun) ??
+      DEFAULT_NARRATION_PRONOUN,
+  );
+  const [runFilter, setRunFilter] = useState<RunFilter>("all");
   const [creating, setCreating] = useState(false);
+  const { state: settingsState } = useSettings();
+  // 精密参照は既定OFF。ユーザーが明示的にONした場合のみAnlas追加消費
+  const [usePreciseReference, setUsePreciseReference] = useState(false);
+  // 前回の選択があればそれを優先し、未保存ならグローバル設定を初期値とする
+  const [enableCompositeScene, setEnableCompositeScene] = useState(() =>
+    typeof savedSetupPrefs.enableCompositeScene === "boolean"
+      ? savedSetupPrefs.enableCompositeScene
+      : settingsState.adventureEnableCompositeScene,
+  );
+
+  useEffect(() => {
+    const prefs: AdventureSetupPrefs = {
+      narrationVoice,
+      narrationPronoun: narrationPronoun.trim() || DEFAULT_NARRATION_PRONOUN,
+      enableCompositeScene,
+    };
+    try {
+      localStorage.setItem(SETUP_PREFS_STORAGE_KEY, JSON.stringify(prefs));
+    } catch {
+      // プライベートモード等で保存できなくてもフォーム操作は継続する
+    }
+  }, [narrationVoice, narrationPronoun, enableCompositeScene]);
 
   useEffect(() => {
     void loadRuns();
@@ -67,6 +258,12 @@ function AdventureHub() {
         setSourceSessionId(response.sessions[0].session_id);
     });
   }, [loadRuns, loadTemplates]);
+
+  useEffect(() => {
+    if (!replayRunId) return;
+    setStartMode("authored");
+    setSelectedReplayRunId(replayRunId);
+  }, [replayRunId]);
 
   useEffect(() => {
     if (!sourceSessionId) {
@@ -103,6 +300,26 @@ function AdventureHub() {
     [runs],
   );
 
+  const runCounts = useMemo(() => {
+    const counts: Record<RunFilter, number> = {
+      all: runs.length,
+      active: 0,
+      success: 0,
+      partial: 0,
+      failure: 0,
+    };
+    for (const run of runs) counts[run.status] += 1;
+    return counts;
+  }, [runs]);
+
+  const filteredRuns = useMemo(
+    () =>
+      runFilter === "all"
+        ? sortedRuns
+        : sortedRuns.filter((run) => run.status === runFilter),
+    [sortedRuns, runFilter],
+  );
+
   useEffect(() => {
     if (!scenarioPickerOpen) return;
     const closeOnEscape = (event: KeyboardEvent) => {
@@ -112,11 +329,16 @@ function AdventureHub() {
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [scenarioPickerOpen]);
 
+  // ターン数は生成物ではなくユーザーが決めた生成条件なので、ここではリセットしない
   const clearGeneratedSetup = () => {
     setScenarioSetting("");
     setScenarioObjective("");
     setScenarioConstraints("");
   };
+
+  const effectiveMaxTurns = clampMaxTurns(
+    Number.parseInt(scenarioMaxTurns, 10),
+  );
 
   const openScenarioPicker = () => {
     setScenarioPickerTab(selectedReplayRunId ? "played" : "authored");
@@ -129,6 +351,7 @@ function AdventureHub() {
         source_session_id: sourceSessionId,
         source_history_id: sourceHistoryId,
         preset,
+        scenario_max_turns: effectiveMaxTurns,
       });
       setScenarioSetting(generated.setting);
       setScenarioObjective(generated.objective);
@@ -170,6 +393,13 @@ function AdventureHub() {
             : [],
         scenario_template_id: authoredTemplate?.id,
         replay_run_id: selectedReplayRun?.id,
+        scenario_max_turns:
+          startMode === "generated" ? effectiveMaxTurns : undefined,
+        narration_voice: narrationVoice,
+        narration_pronoun: narrationPronoun.trim() || DEFAULT_NARRATION_PRONOUN,
+        use_precise_reference: usePreciseReference,
+        enable_composite_scene: enableCompositeScene,
+        respect_clothing_layers: settingsState.respectClothingLayers,
       });
       navigate(`/adventure/${run.id}`);
     } catch {
@@ -215,8 +445,7 @@ function AdventureHub() {
             >
               {sessions.map((session) => (
                 <option key={session.session_id} value={session.session_id}>
-                  {session.character_name ?? t("adventure.unnamedCharacter")} ·{" "}
-                  {session.item_count}
+                  {formatSourceSessionOption(session, t, i18n.language)}
                 </option>
               ))}
             </select>
@@ -238,11 +467,15 @@ function AdventureHub() {
                     clearGeneratedSetup();
                   }}
                 >
-                  <img
-                    src={mediaUrl(selectedSession.thumbnail_url)}
-                    alt={t("adventure.currentState")}
-                  />
-                  <span>{t("adventure.currentState")}</span>
+                  <span className="adventure-source-grid__thumb">
+                    <img
+                      src={mediaUrl(selectedSession.thumbnail_url)}
+                      alt={t("adventure.currentState")}
+                    />
+                  </span>
+                  <span className="adventure-source-grid__label">
+                    {t("adventure.currentState")}
+                  </span>
                 </button>
                 {historyItems.map((item) => (
                   <button
@@ -255,11 +488,15 @@ function AdventureHub() {
                       clearGeneratedSetup();
                     }}
                   >
-                    <img
-                      src={mediaUrl(item.image_url)}
-                      alt={item.instruction}
-                    />
-                    <span>{item.instruction}</span>
+                    <span className="adventure-source-grid__thumb">
+                      <img
+                        src={mediaUrl(item.image_url)}
+                        alt={item.instruction}
+                      />
+                    </span>
+                    <span className="adventure-source-grid__label">
+                      {item.instruction}
+                    </span>
                   </button>
                 ))}
               </div>
@@ -346,6 +583,31 @@ function AdventureHub() {
               </ol>
 
               <div className="adventure-setup-generator">
+                {/* ヒントは label の外に出す。label 内に入れると入力の
+                    アクセシブル名にヒント全文が混ざる */}
+                <label className="adventure-setup-turns">
+                  <span className="adventure-setup-turns__label">
+                    {t("adventure.maxTurns")}
+                  </span>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min={MIN_MAX_TURNS}
+                    max={MAX_MAX_TURNS}
+                    step={1}
+                    value={scenarioMaxTurns}
+                    disabled={setupGenerating || loading || creating}
+                    onChange={(event) =>
+                      setScenarioMaxTurns(event.target.value)
+                    }
+                    onBlur={() =>
+                      setScenarioMaxTurns(String(effectiveMaxTurns))
+                    }
+                  />
+                  <span className="adventure-setup-turns__unit">
+                    {t("adventure.maxTurnsUnit")}
+                  </span>
+                </label>
                 <button
                   type="button"
                   disabled={!sourceSessionId || setupGenerating || loading}
@@ -359,6 +621,12 @@ function AdventureHub() {
                     ? t("adventure.generatingSetup")
                     : t("adventure.generateSetup")}
                 </button>
+                <small className="adventure-setup-turns__hint">
+                  {t("adventure.maxTurnsHint", {
+                    min: MIN_MAX_TURNS,
+                    max: MAX_MAX_TURNS,
+                  })}
+                </small>
               </div>
 
               <details
@@ -439,6 +707,103 @@ function AdventureHub() {
             </div>
           )}
 
+          <details className="adventure-setup-details-wrapper">
+            <summary>{t("adventure.storyOptions")}</summary>
+            <div className="adventure-setup-details adventure-story-options">
+              <fieldset className="adventure-narration-voice">
+                <legend>{t("adventure.narrationVoice")}</legend>
+                <div className="adventure-narration-voice__cards">
+                  {NARRATION_VOICES.map((value) => (
+                    <button
+                      type="button"
+                      key={value}
+                      disabled={setupGenerating || loading || creating}
+                      className={narrationVoice === value ? "is-active" : ""}
+                      aria-pressed={narrationVoice === value}
+                      onClick={() => setNarrationVoice(value)}
+                    >
+                      <strong>{t(`adventure.narrationVoices.${value}`)}</strong>
+                      <small>
+                        {t(`adventure.narrationVoiceExamples.${value}`, {
+                          pronoun:
+                            narrationPronoun.trim() ||
+                            DEFAULT_NARRATION_PRONOUN,
+                        })}
+                      </small>
+                    </button>
+                  ))}
+                </div>
+                <p className="adventure-narration-voice__hint">
+                  {t("adventure.narrationVoiceHint")}
+                </p>
+              </fieldset>
+              {narrationVoice === "first_person" && (
+                <label className="adventure-narration-pronoun">
+                  <span>{t("adventure.narrationPronoun")}</span>
+                  <input
+                    type="text"
+                    list="adventure-narration-pronoun-options"
+                    maxLength={NARRATION_PRONOUN_MAX_LENGTH}
+                    value={narrationPronoun}
+                    disabled={setupGenerating || loading || creating}
+                    onChange={(event) =>
+                      setNarrationPronoun(event.target.value)
+                    }
+                    onBlur={() =>
+                      setNarrationPronoun(
+                        (current) =>
+                          current.trim() || DEFAULT_NARRATION_PRONOUN,
+                      )
+                    }
+                  />
+                  <datalist id="adventure-narration-pronoun-options">
+                    {NARRATION_PRONOUN_SUGGESTIONS.map((value) => (
+                      <option key={value} value={value} />
+                    ))}
+                  </datalist>
+                </label>
+              )}
+            </div>
+          </details>
+
+          <details className="adventure-setup-details-wrapper">
+            <summary>{t("adventure.imageGenOptions")}</summary>
+            <div className="adventure-setup-details adventure-image-gen-options">
+              <label className="adventure-precise-toggle">
+                <span className="adventure-precise-toggle__info">
+                  <strong>{t("adventure.preciseReference")}</strong>
+                  <small>{t("adventure.preciseReferenceHint")}</small>
+                </span>
+                <input
+                  type="checkbox"
+                  className="adventure-precise-toggle__input"
+                  checked={usePreciseReference}
+                  disabled={setupGenerating || loading || creating}
+                  onChange={(event) =>
+                    setUsePreciseReference(event.target.checked)
+                  }
+                />
+                <span className="adventure-precise-toggle__switch" />
+              </label>
+              <label className="adventure-precise-toggle">
+                <span className="adventure-precise-toggle__info">
+                  <strong>{t("adventure.enableCompositeScene")}</strong>
+                  <small>{t("adventure.enableCompositeSceneHint")}</small>
+                </span>
+                <input
+                  type="checkbox"
+                  className="adventure-precise-toggle__input"
+                  checked={enableCompositeScene}
+                  disabled={setupGenerating || loading || creating}
+                  onChange={(event) =>
+                    setEnableCompositeScene(event.target.checked)
+                  }
+                />
+                <span className="adventure-precise-toggle__switch" />
+              </label>
+            </div>
+          </details>
+
           {disabledReason && (
             <p className="adventure-disabled-reason" role="status">
               {disabledReason}
@@ -458,12 +823,47 @@ function AdventureHub() {
         </section>
 
         <section className="adventure-runs">
-          <h2>{t("adventure.savedRuns")}</h2>
+          <div className="adventure-runs__header">
+            <h2>{t("adventure.savedRuns")}</h2>
+            <span className="adventure-runs__count">
+              {t("adventure.savedRunsCount", { count: runs.length })}
+            </span>
+          </div>
+          {runs.length > 0 && (
+            <div
+              className="adventure-run-filters"
+              role="group"
+              aria-label={t("adventure.runFilterLabel")}
+            >
+              {RUN_FILTERS.map((value) => (
+                <button
+                  type="button"
+                  key={value}
+                  className={`adventure-run-filters__chip adventure-run-filters__chip--${value}${
+                    runFilter === value ? " is-active" : ""
+                  }`}
+                  aria-pressed={runFilter === value}
+                  // 0件でも選択中なら押せるままにし、抜け出せない状態を作らない
+                  disabled={runCounts[value] === 0 && runFilter !== value}
+                  onClick={() => setRunFilter(value)}
+                >
+                  {value === "all"
+                    ? t("adventure.runFilterAll")
+                    : t(`adventure.status.${value}`)}
+                  <span className="adventure-run-filters__count">
+                    {runCounts[value]}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
           {runs.length === 0 ? (
             <p className="adventure-empty">{t("adventure.noRuns")}</p>
+          ) : filteredRuns.length === 0 ? (
+            <p className="adventure-empty">{t("adventure.noRunsForFilter")}</p>
           ) : (
             <div className="adventure-run-list">
-              {sortedRuns.map((run) => (
+              {filteredRuns.map((run) => (
                 <article key={run.id} className="adventure-run-item">
                   <img src={run.current_image_url} alt={run.title} />
                   <div>
@@ -664,9 +1064,20 @@ function AdventureHub() {
 interface AdventureStageFrame {
   key: string;
   turnNumber: number;
+  /** ステージ／サムネイル用の代表画像 */
   imageUrl: string;
+  /** imageUrl が合成シーンか立ち絵かを示す */
+  kind: "composite" | "portrait";
+  /** 非合成モードのラン共通背景。合成モードでは null */
+  backgroundUrl: string | null;
+  /** この手番の立ち絵（白背景の元画像）。無ければ null */
+  portraitUrl: string | null;
+  /** この手番の合成シーン。非合成モードでは null */
+  sceneUrl: string | null;
   userInput: string | null;
+  inputKind: AdventureTurn["input_kind"] | null;
   narrative: string;
+  location: string | null;
 }
 
 function AdventurePlay({ runId }: { runId: string }) {
@@ -677,58 +1088,160 @@ function AdventurePlay({ runId }: { runId: string }) {
     loading,
     streaming,
     phase,
+    phaseStep,
     streamingNarrative,
     pendingUserInput,
     error,
     loadRun,
     submitTurn,
     regenerateImage,
+    regenerateChoices,
+    updateSettings,
     clearError,
   } = useAdventure();
+  const { state: settingsState } = useSettings();
+  const respectClothingLayers = settingsState.respectClothingLayers;
   const [input, setInput] = useState("");
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const turnStripEndRef = useRef<HTMLDivElement>(null);
+  const messageTextRef = useRef<HTMLDivElement>(null);
   const [selectedFrameIndex, setSelectedFrameIndex] = useState<number | null>(
     null,
   );
-  const [lightboxOpen, setLightboxOpen] = useState(false);
+  // モーダル内のナビゲーションはモーダル内で完結させる（ステージ側の
+  // selectedFrameIndex には触れない）ため、専用のインデックスを持つ
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const [lightboxView, setLightboxView] = useState<
+    "scene" | "background" | "portrait"
+  >("scene");
   const [promptModalOpen, setPromptModalOpen] = useState(false);
+  const [imageSettingsOpen, setImageSettingsOpen] = useState(false);
+  const [settingsSaving, setSettingsSaving] = useState(false);
+  const [logOpen, setLogOpen] = useState(false);
+  const [messageWindowHidden, setMessageWindowHidden] = useState(false);
+  const [hudPanel, setHudPanel] = useState<
+    "milestones" | "clues" | "realityRules" | null
+  >(null);
+  const [protagonistDockOpen, setProtagonistDockOpen] = useState(
+    readProtagonistDockOpen,
+  );
+  const [resultDismissed, setResultDismissed] = useState(false);
+  const [anlasBalance, setAnlasBalance] = useState<AnlasBalance | null>(null);
 
   useEffect(() => {
     void loadRun(runId).catch(() => navigate("/adventure"));
   }, [loadRun, navigate, runId]);
 
+  // 精密参照ONのrunではAnlasを消費するため残高を表示する。
+  // streamingがfalseへ戻るたび（＝各ストリーム完了後）に再取得する。
+  const usePreciseReference = activeRun?.use_precise_reference ?? false;
+  useEffect(() => {
+    if (!usePreciseReference) {
+      setAnlasBalance(null);
+      return;
+    }
+    if (streaming) return;
+    let cancelled = false;
+    void fetchAnlasBalance().then((balance) => {
+      if (!cancelled) setAnlasBalance(balance);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [usePreciseReference, streaming]);
+
+  useEffect(() => {
+    if (!logOpen) return;
+    transcriptEndRef.current?.scrollIntoView({ block: "end" });
+  }, [logOpen]);
+
+  // 衣装レイヤー考慮は Adventure 専用トグルを持たず、設定画面の値を唯一の入力とする。
+  // 実行中の run に差分があれば次回生成へ反映されるよう同期する。
   useEffect(() => {
     if (!activeRun) return;
-    transcriptEndRef.current?.scrollIntoView({ block: "nearest" });
-  }, [activeRun]);
+    if (activeRun.respect_clothing_layers === respectClothingLayers) return;
+    void updateSettings({
+      use_precise_reference: activeRun.use_precise_reference,
+      enable_composite_scene: activeRun.enable_composite_scene,
+      respect_clothing_layers: respectClothingLayers,
+    }).catch(() => undefined);
+  }, [activeRun, respectClothingLayers, updateSettings]);
 
   useEffect(() => {
     if (!streamingNarrative) return;
-    transcriptEndRef.current?.scrollIntoView({ block: "nearest" });
+    const node = messageTextRef.current;
+    if (node) node.scrollTop = node.scrollHeight;
   }, [streamingNarrative]);
 
   const frames = useMemo<AdventureStageFrame[]>(() => {
     if (!activeRun) return [];
     const list: AdventureStageFrame[] = [];
-    if (activeRun.opening_image_url) {
-      list.push({
-        key: "opening",
-        turnNumber: 0,
-        imageUrl: activeRun.opening_image_url,
-        userInput: null,
-        narrative: activeRun.opening_narrative,
-      });
-    }
-    for (const turn of activeRun.turns) {
-      if (!turn.image_url) continue;
-      list.push({
-        key: turn.id,
-        turnNumber: turn.turn_number,
-        imageUrl: turn.image_url,
-        userInput: turn.user_input,
-        narrative: turn.narrative,
-      });
+    const runBackground =
+      activeRun.background_image_url ?? activeRun.current_image_url ?? null;
+    if (activeRun.enable_composite_scene) {
+      if (activeRun.opening_image_url) {
+        list.push({
+          key: "opening",
+          turnNumber: 0,
+          imageUrl: activeRun.opening_image_url,
+          kind: "composite",
+          backgroundUrl: null,
+          portraitUrl: activeRun.opening_portrait_url ?? null,
+          sceneUrl: activeRun.opening_image_url,
+          userInput: null,
+          inputKind: null,
+          narrative: activeRun.opening_narrative,
+          location: null,
+        });
+      }
+      for (const turn of activeRun.turns) {
+        if (!turn.image_url) continue;
+        list.push({
+          key: turn.id,
+          turnNumber: turn.turn_number,
+          imageUrl: turn.image_url,
+          kind: "composite",
+          backgroundUrl: null,
+          portraitUrl: turn.portrait_image_url,
+          sceneUrl: turn.image_url,
+          userInput: turn.user_input,
+          inputKind: turn.input_kind,
+          narrative: turn.narrative,
+          location: turn.location,
+        });
+      }
+    } else {
+      if (activeRun.opening_portrait_url) {
+        list.push({
+          key: "opening",
+          turnNumber: 0,
+          imageUrl: activeRun.opening_portrait_url,
+          kind: "portrait",
+          backgroundUrl: runBackground,
+          portraitUrl: activeRun.opening_portrait_url,
+          sceneUrl: null,
+          userInput: null,
+          inputKind: null,
+          narrative: activeRun.opening_narrative,
+          location: null,
+        });
+      }
+      for (const turn of activeRun.turns) {
+        if (!turn.portrait_image_url) continue;
+        list.push({
+          key: turn.id,
+          turnNumber: turn.turn_number,
+          imageUrl: turn.portrait_image_url,
+          kind: "portrait",
+          backgroundUrl: runBackground,
+          portraitUrl: turn.portrait_image_url,
+          sceneUrl: null,
+          userInput: turn.user_input,
+          inputKind: turn.input_kind,
+          narrative: turn.narrative,
+          location: turn.location,
+        });
+      }
     }
     return list;
   }, [activeRun]);
@@ -747,6 +1260,155 @@ function AdventurePlay({ runId }: { runId: string }) {
     });
   }, [frames.length]);
 
+  const submit = useCallback(
+    (value: string, kind: "choice" | "free_text" | "reality_alter") => {
+      const trimmed = value.trim();
+      if (!trimmed || streaming || activeRun?.status !== "active") return;
+      setInput("");
+      // 「現実改変：〜」はサーバ側でも検出されるが、送信種別も合わせておく
+      const effectiveKind =
+        kind === "free_text" && REALITY_DECLARATION_PATTERN.test(trimmed)
+          ? "reality_alter"
+          : kind;
+      void submitTurn(trimmed, effectiveKind);
+    },
+    [activeRun?.status, streaming, submitTurn],
+  );
+
+  useEffect(() => {
+    const handleKey = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const inField = Boolean(target?.closest("input, textarea, select"));
+      if (event.key === "Escape") {
+        // 常設の自由入力欄からショートカット層へ戻る唯一の手段
+        if (inField) {
+          target?.blur();
+          return;
+        }
+        setLogOpen(false);
+        setImageSettingsOpen(false);
+        setHudPanel(null);
+        setMessageWindowHidden(false);
+        return;
+      }
+      if (inField) return;
+      if (event.key === "l" || event.key === "L") {
+        setLogOpen((current) => !current);
+        return;
+      }
+      if (event.key === "h" || event.key === "H") {
+        setMessageWindowHidden((current) => !current);
+        return;
+      }
+      if (logOpen) return;
+      const choice = (activeRun?.choices ?? []).filter((item) =>
+        item.label.trim(),
+      )[Number(event.key) - 1];
+      if (choice) submit(choice.label, "choice");
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [activeRun?.choices, logOpen, submit]);
+
+  const portraitSource = useMemo(() => {
+    if (!activeRun || activeRun.enable_composite_scene) return null;
+    if (selectedFrameIndex !== null) {
+      return (
+        frames[selectedFrameIndex]?.imageUrl ?? activeRun.portrait_image_url
+      );
+    }
+    return activeRun.portrait_image_url ?? activeRun.opening_portrait_url;
+  }, [activeRun, frames, selectedFrameIndex]);
+  // 生成画像の白背景はわずかに灰色に振れるため、既定より広めの許容差で抜く。
+  const { url: transparentPortraitUrl } = useTransparentImage(
+    portraitSource,
+    true,
+    PORTRAIT_ALPHA_OPTIONS,
+  );
+  const { url: transparentResultUrl } = useTransparentImage(
+    activeRun?.enable_composite_scene ? null : activeRun?.portrait_image_url,
+    true,
+    PORTRAIT_ALPHA_OPTIONS,
+  );
+  const toggleProtagonistDock = useCallback(() => {
+    setProtagonistDockOpen((current) => {
+      const next = !current;
+      try {
+        localStorage.setItem(PROTAGONIST_DOCK_STORAGE_KEY, String(next));
+      } catch {
+        // プライベートモード等で保存できなくても表示自体は切り替える
+      }
+      return next;
+    });
+  }, []);
+
+  // 主人公ドックは常に最新状態を見せる。過去フレーム閲覧中でも
+  // 追従しないよう、ステージ用の portraitSource とは別に最新分を解決する。
+  const { url: currentPortraitUrl } = useTransparentImage(
+    activeRun?.portrait_image_url ?? activeRun?.opening_portrait_url ?? null,
+    true,
+    PORTRAIT_ALPHA_OPTIONS,
+  );
+
+  const lightboxFrame =
+    lightboxIndex !== null ? frames[lightboxIndex] : undefined;
+  const canShowBackground = Boolean(lightboxFrame?.backgroundUrl);
+  const canShowPortrait = Boolean(lightboxFrame?.portraitUrl);
+  // 非合成モードのシーン表示は、ステージと同じく背景に白抜きの立ち絵を重ねる
+  const needsComposite =
+    lightboxView === "scene" &&
+    lightboxFrame?.kind === "portrait" &&
+    Boolean(lightboxFrame.backgroundUrl);
+  // ステージ用の transparentPortraitUrl はモーダルと別フレームを指しうるので流用しない。
+  // 同一 src なら utils/imageAlpha のモジュールキャッシュに当たるため追加コストは無い。
+  const { url: lightboxPortraitUrl } = useTransparentImage(
+    needsComposite ? lightboxFrame?.portraitUrl : null,
+    true,
+    PORTRAIT_ALPHA_OPTIONS,
+  );
+
+  // 実進捗が取れないため、サブ工程statusと見なし所要時間で進捗バーを描く。
+  // narrativeフェーズはテキスト自体が進捗になるため対象外（スピナー維持）。
+  const enableCompositeScene = activeRun?.enable_composite_scene ?? false;
+  const progressSegments = useMemo<TimedProgressSegment[] | null>(() => {
+    if (!streaming || phase === null || phase === "narrative") return null;
+    if (pendingUserInput !== null) {
+      const segments: TimedProgressSegment[] = [
+        {
+          key: "clue_check",
+          budgetMs: ADVENTURE_PROGRESS_BUDGET_MS.clue_check,
+        },
+        { key: "portrait", budgetMs: ADVENTURE_PROGRESS_BUDGET_MS.portrait },
+      ];
+      if (enableCompositeScene) {
+        segments.push({
+          key: "composite",
+          budgetMs: ADVENTURE_PROGRESS_BUDGET_MS.composite,
+        });
+      }
+      return segments;
+    }
+    if (phase === "image_generation") {
+      return [
+        {
+          key: "image_single",
+          budgetMs: ADVENTURE_PROGRESS_BUDGET_MS.image_single,
+        },
+      ];
+    }
+    return null;
+  }, [streaming, phase, pendingUserInput, enableCompositeScene]);
+  const progressActiveKey = useMemo(() => {
+    if (!progressSegments) return null;
+    if (pendingUserInput !== null) {
+      if (phase === "clue_check") return "clue_check";
+      if (phase === "image_generation") return phaseStep?.step ?? "portrait";
+      return null;
+    }
+    return phase === "image_generation" ? "image_single" : null;
+  }, [progressSegments, pendingUserInput, phase, phaseStep]);
+  const stageProgress = useTimedProgress(progressSegments, progressActiveKey);
+
   if (loading || !activeRun || activeRun.id !== runId) {
     return (
       <MainLayout>
@@ -756,51 +1418,83 @@ function AdventurePlay({ runId }: { runId: string }) {
   }
 
   const isStageLoading = streaming && phase !== null;
+  const phaseLabel = phaseStep
+    ? t(`adventure.phaseStep.${phaseStep.step}`)
+    : t(`adventure.phase.${phase ?? "narrative"}`);
   const isViewingPast = selectedFrameIndex !== null;
+  const isCompositeMode = activeRun.enable_composite_scene;
   const effectiveIndex =
     selectedFrameIndex ?? (frames.length > 0 ? frames.length - 1 : -1);
   const selectedFrame =
     effectiveIndex >= 0 ? frames[effectiveIndex] : undefined;
-  const displayedImageUrl = isViewingPast
-    ? (selectedFrame?.imageUrl ?? activeRun.current_image_url)
-    : activeRun.current_image_url;
+  const backgroundUrl =
+    activeRun.background_image_url ?? activeRun.current_image_url;
+  const displayedImageUrl = isCompositeMode
+    ? isViewingPast
+      ? (selectedFrame?.imageUrl ?? activeRun.current_image_url)
+      : activeRun.current_image_url
+    : backgroundUrl;
+  const displayedPortraitUrl = transparentPortraitUrl;
 
+  // ターンストリップ専用。モーダルの送りはここを通さない
   const goToFrame = (index: number) => {
     if (index < 0 || index >= frames.length) return;
     setSelectedFrameIndex(index === frames.length - 1 ? null : index);
   };
 
-  const submit = (value: string, kind: "choice" | "free_text") => {
-    const trimmed = value.trim();
-    if (!trimmed || streaming || activeRun.status !== "active") return;
-    setInput("");
-    void submitTurn(trimmed, kind);
+  // モーダル内だけを動かす。送り先に存在しないタブへ着地しないようシーンへ戻す
+  const openLightboxFrame = (
+    index: number,
+    view: "scene" | "background" | "portrait" = "scene",
+  ) => {
+    if (index < 0 || index >= frames.length) return;
+    setLightboxIndex(index);
+    setLightboxView(view);
   };
+
+  const lightboxImageUrl =
+    lightboxView === "portrait"
+      ? (lightboxFrame?.portraitUrl ?? null)
+      : lightboxView === "background"
+        ? (lightboxFrame?.backgroundUrl ?? null)
+        : (lightboxFrame?.sceneUrl ??
+          lightboxFrame?.backgroundUrl ??
+          lightboxFrame?.imageUrl ??
+          null);
+
+  const latestTurn = activeRun.turns.at(-1) ?? null;
+  const isStreamingNarrative = pendingUserInput !== null;
+  const activeNarrative = isStreamingNarrative
+    ? streamingNarrative
+    : isViewingPast
+      ? (selectedFrame?.narrative ?? activeRun.opening_narrative)
+      : (latestTurn?.narrative ?? activeRun.opening_narrative);
+  const activeAction = isStreamingNarrative
+    ? pendingUserInput
+    : isViewingPast
+      ? selectedFrame?.userInput
+      : latestTurn?.user_input;
+  const activeLocation = isViewingPast
+    ? selectedFrame?.location
+    : (latestTurn?.location ?? activeRun.visual_state?.location);
+  const availableChoices = activeRun.choices.filter(
+    (choice) => choice.label.trim().length > 0,
+  );
+  const completedMilestones = new Set(activeRun.completed_milestones);
+  // 「現実改変：〜」で宣言され、以降の判定に効いている世界ルール
+  const realityRules = activeRun.reality_rules ?? [];
+  const cast = activeRun.visual_state?.main_characters ?? [];
+  const resultImageUrl = isCompositeMode
+    ? (activeRun.current_image_url ?? activeRun.portrait_image_url)
+    : (transparentResultUrl ?? activeRun.current_image_url);
+  const turnRatio =
+    activeRun.max_turns > 0
+      ? Math.round((activeRun.remaining_turns / activeRun.max_turns) * 100)
+      : 0;
 
   return (
     <MainLayout>
       <div className="adventure-play">
-        <header className="adventure-play__header">
-          <button
-            type="button"
-            onClick={() => navigate("/adventure")}
-            aria-label={t("adventure.back")}
-          >
-            ←
-          </button>
-          <div>
-            <p>{activeRun.title}</p>
-            <span className="adventure-objective-label">
-              {t("adventure.goal")}
-            </span>
-            <h1>{activeRun.objective}</h1>
-          </div>
-          <div className="adventure-turn-counter">
-            <span>{t("adventure.remaining")}</span>
-            <strong>{activeRun.remaining_turns}</strong>
-          </div>
-        </header>
-
         {error && (
           <button
             type="button"
@@ -812,12 +1506,242 @@ function AdventurePlay({ runId }: { runId: string }) {
         )}
 
         <div className="adventure-play__body">
+          <div className="adventure-hud">
+            <button
+              type="button"
+              className="adventure-hud__back"
+              onClick={() => navigate("/adventure")}
+              aria-label={t("adventure.back")}
+            >
+              ←
+            </button>
+            <div className="adventure-hud__title">
+              <p>{activeRun.title}</p>
+              <h1 title={activeRun.objective}>
+                <span>{t("adventure.goal")}</span>
+                {activeRun.objective}
+              </h1>
+            </div>
+            {activeLocation && (
+              <span className="adventure-hud__location" title={activeLocation}>
+                <b>{t("adventure.currentLocation")}</b>
+                <span>{activeLocation}</span>
+              </span>
+            )}
+            <div className="adventure-hud__metrics">
+              <div
+                className="adventure-hud__turns"
+                title={t("adventure.remaining")}
+              >
+                <span>{t("adventure.remaining")}</span>
+                <strong>
+                  {activeRun.remaining_turns}
+                  <i>/{activeRun.max_turns}</i>
+                </strong>
+                <span className="adventure-hud__gauge" aria-hidden>
+                  <i style={{ width: `${turnRatio}%` }} />
+                </span>
+              </div>
+              {activeRun.use_precise_reference && anlasBalance && (
+                <div
+                  className="adventure-hud__anlas"
+                  title={t("adventure.anlasDetail", {
+                    fixed: anlasBalance.fixedAnlas.toLocaleString(),
+                    purchased: anlasBalance.purchasedAnlas.toLocaleString(),
+                  })}
+                >
+                  <span>Anlas</span>
+                  <strong>{anlasBalance.totalAnlas.toLocaleString()}</strong>
+                </div>
+              )}
+              {activeRun.milestones.length > 0 && (
+                <button
+                  type="button"
+                  className={`adventure-hud__chip${hudPanel === "milestones" ? " is-open" : ""}`}
+                  aria-expanded={hudPanel === "milestones"}
+                  onClick={() =>
+                    setHudPanel((current) =>
+                      current === "milestones" ? null : "milestones",
+                    )
+                  }
+                >
+                  <span>{t("adventure.milestones")}</span>
+                  <strong>
+                    {completedMilestones.size}
+                    <i>/{activeRun.milestones.length}</i>
+                  </strong>
+                </button>
+              )}
+              <button
+                type="button"
+                className={`adventure-hud__chip${hudPanel === "clues" ? " is-open" : ""}`}
+                aria-expanded={hudPanel === "clues"}
+                disabled={activeRun.clues.length === 0}
+                onClick={() =>
+                  setHudPanel((current) =>
+                    current === "clues" ? null : "clues",
+                  )
+                }
+              >
+                <span>{t("adventure.clues")}</span>
+                <strong>{activeRun.clues.length}</strong>
+              </button>
+              {realityRules.length > 0 && (
+                <button
+                  type="button"
+                  className={`adventure-hud__chip${hudPanel === "realityRules" ? " is-open" : ""}`}
+                  aria-expanded={hudPanel === "realityRules"}
+                  onClick={() =>
+                    setHudPanel((current) =>
+                      current === "realityRules" ? null : "realityRules",
+                    )
+                  }
+                >
+                  <span>{t("adventure.realityRules")}</span>
+                  <strong>{realityRules.length}</strong>
+                </button>
+              )}
+              <button
+                type="button"
+                className={`adventure-hud__chip adventure-hud__chip--protagonist${
+                  protagonistDockOpen ? " is-open" : ""
+                }`}
+                aria-pressed={protagonistDockOpen}
+                title={t("adventure.protagonistToggleHint")}
+                disabled={!currentPortraitUrl && !activeRun.visual_state}
+                onClick={toggleProtagonistDock}
+              >
+                <span>{t("adventure.protagonist")}</span>
+                {currentPortraitUrl ? (
+                  <img
+                    className="adventure-hud__chip-thumb"
+                    src={currentPortraitUrl}
+                    alt=""
+                  />
+                ) : (
+                  <strong>-</strong>
+                )}
+              </button>
+            </div>
+            {hudPanel && (
+              <div
+                className="adventure-hud__popover"
+                role="dialog"
+                aria-label={t(`adventure.${hudPanel}`)}
+              >
+                {hudPanel === "milestones" ? (
+                  <ul className="adventure-hud__milestones">
+                    {activeRun.milestones.map((milestone) => {
+                      const done = completedMilestones.has(milestone.id);
+                      return (
+                        <li
+                          key={milestone.id}
+                          className={done ? "is-done" : ""}
+                        >
+                          <span aria-hidden>{done ? "✓" : "・"}</span>
+                          {milestone.label}
+                          {done && <em>{t("adventure.milestoneDone")}</em>}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                ) : hudPanel === "realityRules" ? (
+                  <>
+                    <p className="adventure-hud__note">
+                      {t("adventure.realityRulesHint")}
+                    </p>
+                    <ul className="adventure-hud__clues">
+                      {realityRules.map((rule) => (
+                        <li key={rule}>{rule}</li>
+                      ))}
+                    </ul>
+                  </>
+                ) : (
+                  <ul className="adventure-hud__clues">
+                    {activeRun.clues.map((clue) => (
+                      <li key={clue}>{clue}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/*
+            登場人物と主人公ドックは同じ左レールに積む。別々の絶対配置にすると
+            ドックの高さ次第で重なるため、レール内で上下に振り分ける。
+          */}
+          <div className="adventure-left-rail" aria-hidden={false}>
+            {cast.length > 0 && (
+              <ul className="adventure-cast" aria-label={t("adventure.cast")}>
+                {cast.map((member) => (
+                  <li key={member.name}>
+                    <strong>{member.name}</strong>
+                    {member.action && <span>{member.action}</span>}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {protagonistDockOpen && (
+              <aside
+                className="adventure-protagonist-dock"
+                aria-label={t("adventure.protagonist")}
+              >
+                <div className="adventure-protagonist-dock__head">
+                  <strong>{t("adventure.protagonist")}</strong>
+                  <button
+                    type="button"
+                    className="adventure-protagonist-dock__close"
+                    aria-label={t("adventure.protagonistHide")}
+                    title={t("adventure.protagonistHide")}
+                    onClick={toggleProtagonistDock}
+                  >
+                    ✕
+                  </button>
+                </div>
+                {currentPortraitUrl && (
+                  <button
+                    type="button"
+                    className="adventure-protagonist-dock__figure"
+                    disabled={frames.length === 0}
+                    title={t("adventure.viewFullScreen")}
+                    onClick={() =>
+                      openLightboxFrame(frames.length - 1, "portrait")
+                    }
+                  >
+                    <img
+                      src={currentPortraitUrl}
+                      alt={t("adventure.portraitAlt")}
+                    />
+                  </button>
+                )}
+                <dl className="adventure-protagonist-dock__facts">
+                  <div>
+                    <dt>{t("adventure.protagonistAppearance")}</dt>
+                    <dd>
+                      {activeRun.visual_state?.appearance ||
+                        t("adventure.protagonistUnknown")}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>{t("adventure.protagonistClothing")}</dt>
+                    <dd>
+                      {activeRun.visual_state?.clothing ||
+                        t("adventure.protagonistUnknown")}
+                    </dd>
+                  </div>
+                </dl>
+              </aside>
+            )}
+          </div>
           <section className="adventure-stage" aria-busy={isStageLoading}>
-            <div className="adventure-stage__frame">
+            <div
+              className={`adventure-stage__frame ${isCompositeMode ? "is-composite" : "is-background"}`}
+            >
               <button
                 type="button"
                 className="adventure-stage__image-button"
-                onClick={() => setLightboxOpen(true)}
+                onClick={() => openLightboxFrame(effectiveIndex)}
                 disabled={frames.length === 0}
                 aria-label={t("adventure.viewFullScreen")}
               >
@@ -827,10 +1751,29 @@ function AdventurePlay({ runId }: { runId: string }) {
                   alt={activeRun.title}
                 />
               </button>
+              <div className="adventure-stage__scrim" aria-hidden />
+              {displayedPortraitUrl && (
+                <img
+                  key={displayedPortraitUrl}
+                  className="adventure-stage__portrait"
+                  src={displayedPortraitUrl}
+                  alt={t("adventure.portraitAlt")}
+                />
+              )}
               {isStageLoading && !isViewingPast && (
                 <div className="adventure-stage__loading" role="status">
-                  <span className="adventure-stage__loading-spinner" />
-                  <strong>{t(`adventure.phase.${phase}`)}</strong>
+                  {progressSegments && progressActiveKey ? (
+                    <span className="adventure-progressbar" aria-hidden>
+                      <i
+                        style={{
+                          width: `${Math.round(stageProgress * 100)}%`,
+                        }}
+                      />
+                    </span>
+                  ) : (
+                    <span className="adventure-stage__loading-spinner" />
+                  )}
+                  <strong>{phaseLabel}</strong>
                 </div>
               )}
               {isViewingPast && (
@@ -854,8 +1797,355 @@ function AdventurePlay({ runId }: { runId: string }) {
               >
                 ↻
               </button>
+              <button
+                type="button"
+                className="adventure-stage__settings"
+                onClick={() => setImageSettingsOpen((current) => !current)}
+                title={t("adventure.imageSettings")}
+                aria-label={t("adventure.imageSettings")}
+                aria-expanded={imageSettingsOpen}
+              >
+                ⚙
+              </button>
+              {imageSettingsOpen && (
+                <div className="adventure-image-settings-popover">
+                  <label className="adventure-precise-toggle">
+                    <span className="adventure-precise-toggle__info">
+                      <strong>{t("adventure.preciseReference")}</strong>
+                      <small>{t("adventure.preciseReferencePlayHint")}</small>
+                    </span>
+                    <input
+                      type="checkbox"
+                      className="adventure-precise-toggle__input"
+                      checked={activeRun.use_precise_reference}
+                      disabled={streaming || settingsSaving}
+                      onChange={(event) => {
+                        const next = event.target.checked;
+                        setSettingsSaving(true);
+                        void updateSettings({
+                          use_precise_reference: next,
+                          enable_composite_scene:
+                            activeRun.enable_composite_scene,
+                        })
+                          .catch(() => undefined)
+                          .finally(() => setSettingsSaving(false));
+                      }}
+                    />
+                    <span className="adventure-precise-toggle__switch" />
+                  </label>
+                  <label className="adventure-precise-toggle">
+                    <span className="adventure-precise-toggle__info">
+                      <strong>{t("adventure.enableCompositeScene")}</strong>
+                      <small>
+                        {t("adventure.enableCompositeScenePlayHint")}
+                      </small>
+                    </span>
+                    <input
+                      type="checkbox"
+                      className="adventure-precise-toggle__input"
+                      checked={activeRun.enable_composite_scene}
+                      disabled={streaming || settingsSaving}
+                      onChange={(event) => {
+                        const next = event.target.checked;
+                        setSettingsSaving(true);
+                        void updateSettings({
+                          use_precise_reference:
+                            activeRun.use_precise_reference,
+                          enable_composite_scene: next,
+                        })
+                          .catch(() => undefined)
+                          .finally(() => setSettingsSaving(false));
+                      }}
+                    />
+                    <span className="adventure-precise-toggle__switch" />
+                  </label>
+                </div>
+              )}
+            </div>
+          </section>
+
+          {messageWindowHidden && (
+            <button
+              type="button"
+              className="adventure-window-restore"
+              onClick={() => setMessageWindowHidden(false)}
+              title={t("adventure.window.showHint")}
+            >
+              {t("adventure.window.show")}
+            </button>
+          )}
+
+          <section
+            className={`adventure-messagebox${
+              messageWindowHidden ? " is-hidden" : ""
+            }`}
+            aria-live="polite"
+            inert={messageWindowHidden}
+          >
+            <div className="adventure-messagebox__meta">
+              <button
+                type="button"
+                className="adventure-messagebox__log-button"
+                onClick={() => setLogOpen(true)}
+                title={t("adventure.log.openHint")}
+              >
+                {t("adventure.log.open")}
+              </button>
+              <button
+                type="button"
+                className="adventure-messagebox__hide-button"
+                onClick={() => setMessageWindowHidden(true)}
+                title={t("adventure.window.hideHint")}
+                aria-label={t("adventure.window.hide")}
+                tabIndex={messageWindowHidden ? -1 : undefined}
+              >
+                ✕
+              </button>
             </div>
 
+            {activeAction && (
+              <p className="adventure-messagebox__action">
+                <span>{t("adventure.yourAction")}</span>
+                {activeAction}
+              </p>
+            )}
+
+            <div className="adventure-messagebox__text" ref={messageTextRef}>
+              <p className="adventure-messagebox__narrative">
+                {activeNarrative}
+                {isStreamingNarrative && (
+                  <span className="adventure-transcript__caret" />
+                )}
+              </p>
+              {streaming && !isStageLoading && (
+                <div className="adventure-progress">
+                  <span />
+                  {phaseLabel}
+                </div>
+              )}
+            </div>
+
+            {activeRun.status === "active" ? (
+              <div className="adventure-controls">
+                <div className="adventure-controls__header">
+                  <span className="adventure-controls__title">
+                    {t("adventure.actionPanel.title")}
+                  </span>
+                  <button
+                    type="button"
+                    className="adventure-choices__regenerate"
+                    onClick={() => void regenerateChoices()}
+                    disabled={streaming}
+                    title={t("adventure.regenerateChoices")}
+                  >
+                    {streaming && phase === "clue_check"
+                      ? t("adventure.regeneratingChoices")
+                      : t("adventure.regenerateChoices")}
+                  </button>
+                </div>
+
+                <div className="adventure-choices">
+                  {availableChoices.map((choice, index) => (
+                    <button
+                      type="button"
+                      key={choice.id}
+                      disabled={streaming}
+                      title={choice.label}
+                      onClick={() => submit(choice.label, "choice")}
+                    >
+                      <span className="adventure-choices__key">
+                        {index + 1}
+                      </span>
+                      {choice.label}
+                    </button>
+                  ))}
+                </div>
+                {availableChoices.length === 0 && (
+                  <p className="adventure-choices__empty">
+                    {t("adventure.emptyChoices")}
+                  </p>
+                )}
+
+                {/* 自由入力は既定の操作なので常設。streaming中も入力自体は許可し
+                    （無効化するとフォーカスが外れて次の数字キーが選択肢送信になる）、
+                    送信は submit() 側のガードとボタンの disabled で止める */}
+                <form
+                  className="adventure-freeinput"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    submit(input, "free_text");
+                  }}
+                >
+                  <input
+                    type="text"
+                    className="adventure-freeinput__field"
+                    value={input}
+                    maxLength={1000}
+                    onChange={(event) => setInput(event.target.value)}
+                    placeholder={t("adventure.freeInput")}
+                    aria-label={t("adventure.freeInput")}
+                    title={t("adventure.freeInputHint")}
+                    enterKeyHint="send"
+                  />
+                  <button
+                    type="submit"
+                    className="adventure-freeinput__submit"
+                    disabled={!input.trim() || streaming}
+                  >
+                    {t("adventure.send")}
+                  </button>
+                </form>
+              </div>
+            ) : (
+              <div className={`adventure-ending is-${activeRun.status}`}>
+                <span>{t(`adventure.status.${activeRun.status}`)}</span>
+                <h2>{activeRun.ending_title}</h2>
+                <p>{activeRun.ending_summary}</p>
+              </div>
+            )}
+          </section>
+        </div>
+      </div>
+
+      {activeRun.status !== "active" && !resultDismissed && (
+        <div className={`adventure-result is-${activeRun.status}`}>
+          <div
+            className="adventure-result__card"
+            role="dialog"
+            aria-modal="true"
+            aria-label={activeRun.ending_title ?? activeRun.title}
+          >
+            {resultImageUrl && (
+              <img
+                className="adventure-result__image"
+                src={resultImageUrl}
+                alt={t("adventure.portraitAlt")}
+              />
+            )}
+            <div className="adventure-result__body">
+              <span className="adventure-result__badge">
+                {t(`adventure.status.${activeRun.status}`)}
+              </span>
+              <h2>{activeRun.ending_title ?? activeRun.title}</h2>
+              <p className="adventure-result__summary">
+                {activeRun.ending_summary}
+              </p>
+              <dl className="adventure-result__stats">
+                <div>
+                  <dt>{t("adventure.result.turns")}</dt>
+                  <dd>
+                    {activeRun.turn_count}
+                    <i>/{activeRun.max_turns}</i>
+                  </dd>
+                </div>
+                <div>
+                  <dt>{t("adventure.milestones")}</dt>
+                  <dd>
+                    {completedMilestones.size}
+                    <i>/{activeRun.milestones.length}</i>
+                  </dd>
+                </div>
+                <div>
+                  <dt>{t("adventure.clues")}</dt>
+                  <dd>{activeRun.clues.length}</dd>
+                </div>
+              </dl>
+              {activeRun.milestones.length > 0 && (
+                <ul className="adventure-result__milestones">
+                  {activeRun.milestones.map((milestone) => {
+                    const done = completedMilestones.has(milestone.id);
+                    return (
+                      <li key={milestone.id} className={done ? "is-done" : ""}>
+                        <span aria-hidden>{done ? "✓" : "・"}</span>
+                        {milestone.label}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+              <div className="adventure-result__actions">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setResultDismissed(true);
+                    setLogOpen(true);
+                  }}
+                >
+                  {t("adventure.result.readLog")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    navigate("/adventure", {
+                      state: { replayRunId: activeRun.id },
+                    })
+                  }
+                >
+                  {t("adventure.result.replay")}
+                </button>
+                <button type="button" onClick={() => navigate("/adventure")}>
+                  {t("adventure.result.backToHub")}
+                </button>
+              </div>
+              <button
+                type="button"
+                className="adventure-result__close"
+                onClick={() => setResultDismissed(true)}
+              >
+                {t("adventure.result.close")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {logOpen && (
+        <div className="adventure-log">
+          <button
+            type="button"
+            className="adventure-log__backdrop"
+            aria-label={t("adventure.log.close")}
+            onClick={() => setLogOpen(false)}
+          />
+          <aside
+            className="adventure-log__panel"
+            role="dialog"
+            aria-modal="true"
+            aria-label={t("adventure.log.title")}
+          >
+            <header className="adventure-log__header">
+              <h2>{t("adventure.log.title")}</h2>
+              <button
+                type="button"
+                onClick={() => setLogOpen(false)}
+                aria-label={t("adventure.log.close")}
+              >
+                ×
+              </button>
+            </header>
+            <div className="adventure-log__body">
+              <div className="adventure-transcript">
+                <article className="adventure-transcript__entry is-opening">
+                  <span>{t("adventure.openingScene")}</span>
+                  <p>{activeRun.opening_narrative}</p>
+                </article>
+                {activeRun.turns.map((turn) => (
+                  <article
+                    className="adventure-transcript__entry"
+                    key={turn.id}
+                  >
+                    <div className="adventure-transcript__action">
+                      <span>
+                        {t("adventure.turn", { number: turn.turn_number })}
+                      </span>
+                      <p>{turn.user_input}</p>
+                    </div>
+                    <p>{turn.narrative}</p>
+                  </article>
+                ))}
+              </div>
+              <div ref={transcriptEndRef} />
+            </div>
             {frames.length > 1 && (
               <div className="adventure-turn-strip">
                 {frames.map((frame, index) => {
@@ -868,12 +2158,17 @@ function AdventurePlay({ runId }: { runId: string }) {
                       type="button"
                       key={frame.key}
                       className={`adventure-turn-strip__item${isActive ? " is-active" : ""}`}
-                      onClick={() => goToFrame(index)}
+                      onClick={() => {
+                        goToFrame(index);
+                        setLogOpen(false);
+                      }}
                       aria-current={isActive ? "true" : undefined}
                       title={
                         frame.turnNumber === 0
                           ? t("adventure.turnStrip.opening")
-                          : t("adventure.turn", { number: frame.turnNumber })
+                          : t("adventure.turnNumber", {
+                              number: frame.turnNumber,
+                            })
                       }
                     >
                       <img
@@ -894,144 +2189,124 @@ function AdventurePlay({ runId }: { runId: string }) {
                 <div ref={turnStripEndRef} />
               </div>
             )}
-
-            {isViewingPast && selectedFrame && (
-              <div className="adventure-turn-caption">
-                <strong>
-                  {selectedFrame.turnNumber === 0
-                    ? t("adventure.turnStrip.opening")
-                    : t("adventure.turn", {
-                        number: selectedFrame.turnNumber,
-                      })}
-                </strong>
-                {selectedFrame.userInput && <p>{selectedFrame.userInput}</p>}
-                <p>{selectedFrame.narrative}</p>
-              </div>
-            )}
-          </section>
-
-          <section className="adventure-story" aria-live="polite">
-            <div className="adventure-story__text">
-              <div className="adventure-transcript">
-                <article className="adventure-transcript__entry is-opening">
-                  <span>{t("adventure.openingScene")}</span>
-                  <p>{activeRun.opening_narrative}</p>
-                </article>
-                {activeRun.turns.map((turn) => (
-                  <article
-                    className="adventure-transcript__entry"
-                    key={turn.id}
-                  >
-                    <div className="adventure-transcript__action">
-                      <span>
-                        {t("adventure.turn", { number: turn.turn_number })}
-                      </span>
-                      <p>{turn.user_input}</p>
-                    </div>
-                    <p>{turn.narrative}</p>
-                  </article>
-                ))}
-                {pendingUserInput !== null && (
-                  <article className="adventure-transcript__entry is-streaming">
-                    <div className="adventure-transcript__action">
-                      <span>
-                        {t("adventure.turn", {
-                          number: activeRun.turn_count + 1,
-                        })}
-                      </span>
-                      <p>{pendingUserInput}</p>
-                    </div>
-                    <p>
-                      {streamingNarrative}
-                      <span className="adventure-transcript__caret" />
-                    </p>
-                  </article>
-                )}
-                <div ref={transcriptEndRef} />
-              </div>
-              {streaming && !isStageLoading && (
-                <div className="adventure-progress">
-                  <span />
-                  {t(`adventure.phase.${phase ?? "narrative"}`)}
-                </div>
-              )}
-            </div>
-
-            {activeRun.clues.length > 0 && (
-              <div className="adventure-clues">
-                <h2>{t("adventure.clues")}</h2>
-                <ul>
-                  {activeRun.clues.map((clue) => (
-                    <li key={clue}>{clue}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            {activeRun.status === "active" ? (
-              <div className="adventure-controls">
-                <div className="adventure-choices">
-                  {activeRun.choices.map((choice) => (
-                    <button
-                      type="button"
-                      key={choice.id}
-                      disabled={streaming}
-                      onClick={() => submit(choice.label, "choice")}
-                    >
-                      {choice.label}
-                    </button>
-                  ))}
-                </div>
-                <form
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    submit(input, "free_text");
-                  }}
-                >
-                  <textarea
-                    value={input}
-                    rows={2}
-                    maxLength={1000}
-                    disabled={streaming}
-                    onChange={(event) => setInput(event.target.value)}
-                    placeholder={t("adventure.freeInput")}
-                  />
-                  <button type="submit" disabled={!input.trim() || streaming}>
-                    {t("adventure.send")}
-                  </button>
-                </form>
-              </div>
-            ) : (
-              <div className={`adventure-ending is-${activeRun.status}`}>
-                <span>{t(`adventure.status.${activeRun.status}`)}</span>
-                <h2>{activeRun.ending_title}</h2>
-                <p>{activeRun.ending_summary}</p>
-              </div>
-            )}
-          </section>
+          </aside>
         </div>
-      </div>
+      )}
 
       <ImagePreviewModal
-        isOpen={lightboxOpen}
-        imageUrl={selectedFrame?.imageUrl ?? null}
-        onClose={() => setLightboxOpen(false)}
-        alt={activeRun.title}
-        onPrev={() => goToFrame(effectiveIndex - 1)}
-        onNext={() => goToFrame(effectiveIndex + 1)}
-        hasPrev={effectiveIndex > 0}
-        hasNext={effectiveIndex < frames.length - 1}
+        isOpen={lightboxFrame !== undefined}
+        imageUrl={lightboxImageUrl}
+        onClose={() => setLightboxIndex(null)}
+        alt={t("adventure.preview.sceneAlt")}
+        onPrev={() => openLightboxFrame((lightboxIndex ?? 0) - 1)}
+        onNext={() => openLightboxFrame((lightboxIndex ?? 0) + 1)}
+        hasPrev={lightboxIndex !== null && lightboxIndex > 0}
+        hasNext={lightboxIndex !== null && lightboxIndex < frames.length - 1}
+        captionPlacement="side"
+        media={
+          needsComposite && lightboxFrame?.backgroundUrl ? (
+            <div className="adventure-scene-preview">
+              <img
+                className="adventure-scene-preview__background"
+                src={lightboxFrame.backgroundUrl}
+                alt={t("adventure.preview.backgroundAlt")}
+              />
+              {lightboxPortraitUrl && (
+                <img
+                  className="adventure-scene-preview__portrait"
+                  src={lightboxPortraitUrl}
+                  alt={t("adventure.portraitAlt")}
+                />
+              )}
+            </div>
+          ) : undefined
+        }
         caption={
-          selectedFrame && (
-            <>
-              <strong>
-                {selectedFrame.turnNumber === 0
-                  ? t("adventure.turnStrip.opening")
-                  : t("adventure.turn", { number: selectedFrame.turnNumber })}
-              </strong>
-              {selectedFrame.userInput && <p>{selectedFrame.userInput}</p>}
-              <p>{selectedFrame.narrative}</p>
-            </>
+          lightboxFrame && (
+            <div className="image-preview-modal__detail">
+              {(canShowBackground || canShowPortrait) && (
+                <div
+                  className="adventure-preview__views"
+                  role="group"
+                  aria-label={t("adventure.preview.viewSwitch")}
+                >
+                  <button
+                    type="button"
+                    aria-pressed={lightboxView === "scene"}
+                    onClick={() => setLightboxView("scene")}
+                  >
+                    {t("adventure.preview.viewScene")}
+                  </button>
+                  {canShowBackground && (
+                    <button
+                      type="button"
+                      aria-pressed={lightboxView === "background"}
+                      onClick={() => setLightboxView("background")}
+                    >
+                      {t("adventure.preview.viewBackground")}
+                    </button>
+                  )}
+                  {canShowPortrait && (
+                    <button
+                      type="button"
+                      aria-pressed={lightboxView === "portrait"}
+                      onClick={() => setLightboxView("portrait")}
+                    >
+                      {t("adventure.preview.viewPortrait")}
+                    </button>
+                  )}
+                </div>
+              )}
+
+              <section className="image-preview-modal__detail-section">
+                <h2 className="image-preview-modal__detail-label">
+                  {t("adventure.preview.turnLabel")}
+                </h2>
+                <p className="image-preview-modal__detail-text">
+                  {lightboxFrame.turnNumber === 0
+                    ? t("adventure.turnStrip.opening")
+                    : `${lightboxFrame.turnNumber} / ${activeRun.max_turns}`}
+                </p>
+              </section>
+
+              {lightboxFrame.userInput && (
+                <section className="image-preview-modal__detail-section">
+                  <h2 className="image-preview-modal__detail-label">
+                    {t("adventure.preview.actionLabel")}
+                    {lightboxFrame.inputKind && (
+                      <span className="adventure-preview__kind">
+                        {t(
+                          `adventure.preview.inputKind.${lightboxFrame.inputKind}`,
+                        )}
+                      </span>
+                    )}
+                  </h2>
+                  <p className="image-preview-modal__detail-text">
+                    {lightboxFrame.userInput}
+                  </p>
+                </section>
+              )}
+
+              <section className="image-preview-modal__detail-section">
+                <h2 className="image-preview-modal__detail-label">
+                  {t("adventure.preview.narrativeLabel")}
+                </h2>
+                <p className="image-preview-modal__detail-text">
+                  {lightboxFrame.narrative}
+                </p>
+              </section>
+
+              {lightboxFrame.location && (
+                <section className="image-preview-modal__detail-section">
+                  <h2 className="image-preview-modal__detail-label">
+                    {t("adventure.currentLocation")}
+                  </h2>
+                  <p className="image-preview-modal__detail-text">
+                    {lightboxFrame.location}
+                  </p>
+                </section>
+              )}
+            </div>
           )
         }
       />

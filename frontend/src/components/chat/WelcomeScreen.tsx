@@ -259,7 +259,7 @@ export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
           description: customDescription,
         };
 
-        startSession(
+        await startSession(
           sessionData.session_id,
           selectedCharacter,
           sessionData.image_path,

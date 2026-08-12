@@ -211,6 +211,10 @@ export default function ChatInput({
         return isNarrow
           ? t("chat.instructionType.actionShort")
           : t("chat.instructionType.action");
+      case "image_only":
+        return isNarrow
+          ? t("chat.instructionType.imageOnlyShort")
+          : t("chat.instructionType.imageOnly");
       default:
         return type;
     }
@@ -313,6 +317,7 @@ export default function ChatInput({
               "reality_alter",
               "conversation",
               "action",
+              "image_only",
             ] as InstructionType[]
           ).map((type) => (
             <option key={type} value={type}>

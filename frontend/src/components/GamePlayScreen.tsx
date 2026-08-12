@@ -38,6 +38,7 @@ import type {
   ChangeSettings,
   ChatMessage,
   ConversationMessage,
+  InstructionType,
   SessionStats,
 } from "../types";
 import { API_BASE } from "../utils/api";
@@ -415,11 +416,7 @@ export default function GamePlayScreen({
           content: h.instruction,
           createdAt: h.timestamp,
           relatedHistoryId: h.id,
-          instructionType: (h.instructionType || "dress_up") as
-            | "dress_up"
-            | "reality_alter"
-            | "conversation"
-            | "action",
+          instructionType: (h.instructionType || "dress_up") as InstructionType,
         });
         // US2: Attach surroundings image to the character's feeling text message
         if (h.feelingText && h.feelingText !== "(画質改善)") {
@@ -448,11 +445,7 @@ export default function GamePlayScreen({
           createdAt: msg.createdAt || new Date().toISOString(),
           instructionType:
             msg.role === "user"
-              ? ((msg.instruction_type || "conversation") as
-                  | "dress_up"
-                  | "reality_alter"
-                  | "conversation"
-                  | "action")
+              ? ((msg.instruction_type || "conversation") as InstructionType)
               : undefined,
           attachedImageUrl: undefined,
           isStreaming: false,
@@ -645,11 +638,7 @@ export default function GamePlayScreen({
         content: message,
         createdAt: now,
         pendingToken: tempToken,
-        instructionType: instructionType as
-          | "dress_up"
-          | "reality_alter"
-          | "conversation"
-          | "action",
+        instructionType: instructionType as InstructionType,
       };
       addMessage(userMsg);
       upsertPendingIdentity({
@@ -946,8 +935,9 @@ export default function GamePlayScreen({
     }
   }, [currentImageUrl]);
 
-  const currentHistoryId =
-    gameState.history[gameState.currentHistoryIndex]?.id ?? null;
+  const currentPreviewHistory =
+    gameState.history[gameState.currentHistoryIndex] ?? null;
+  const currentHistoryId = currentPreviewHistory?.id ?? null;
   const isCurrentHistoryFavorited = Boolean(
     currentHistoryId && favoritedHistoryIds.has(currentHistoryId),
   );
@@ -1032,10 +1022,7 @@ export default function GamePlayScreen({
         content: message,
         createdAt: now,
         pendingToken: tempToken,
-        instructionType: instructionType as
-          | "dress_up"
-          | "reality_alter"
-          | "action",
+        instructionType: instructionType as InstructionType,
       };
       addMessage(userMsg);
       upsertPendingIdentity({
@@ -1346,13 +1333,7 @@ export default function GamePlayScreen({
 
       // Restore instruction type
       if (result.restored_instruction_type) {
-        setInstructionType(
-          result.restored_instruction_type as
-            | "dress_up"
-            | "reality_alter"
-            | "conversation"
-            | "action",
-        );
+        setInstructionType(result.restored_instruction_type as InstructionType);
       }
 
       // Restore image: use history API URL with restored history ID
@@ -1694,6 +1675,30 @@ export default function GamePlayScreen({
         isFavorited={isCurrentHistoryFavorited}
         favoriteBusy={favoriteBusy}
         onToggleFavorite={handleToggleFavorite}
+        captionPlacement={currentPreviewHistory ? "side" : "below"}
+        caption={
+          currentPreviewHistory ? (
+            <div className="image-preview-modal__detail">
+              <section className="image-preview-modal__detail-section">
+                <h2 className="image-preview-modal__detail-label">
+                  {t("imagePreview.instruction")}
+                </h2>
+                <p className="image-preview-modal__detail-text">
+                  {currentPreviewHistory.instruction}
+                </p>
+              </section>
+              <section className="image-preview-modal__detail-section">
+                <h2 className="image-preview-modal__detail-label">
+                  {t("imagePreview.generatedText")}
+                </h2>
+                <p className="image-preview-modal__detail-text">
+                  {currentPreviewHistory.feelingText.trim() ||
+                    t("imagePreview.noGeneratedText")}
+                </p>
+              </section>
+            </div>
+          ) : undefined
+        }
       />
       {/* Anlas cost confirmation dialog for precise references */}
       {anlasConfirmPending && (

@@ -2,10 +2,39 @@
 
 from __future__ import annotations
 
+import logging
+from collections import defaultdict
 from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+logger = logging.getLogger(__name__)
+
+
+class ScenarioVisualStyle(BaseModel):
+    """作品シナリオ固有の背景ビジュアル固定値。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    location: dict[str, str]
+    surroundings: dict[str, str]
+    scene_tags: str = Field(min_length=1, max_length=1800)
+
+    @model_validator(mode="after")
+    def validate_localizations(self) -> "ScenarioVisualStyle":
+        for field_name in ("location", "surroundings"):
+            value = getattr(self, field_name)
+            if "ja" not in value or "en" not in value:
+                raise ValueError(f"visual_style.{field_name} にはjaとenが必要です")
+            if (
+                not str(value.get("ja") or "").strip()
+                or not str(value.get("en") or "").strip()
+            ):
+                raise ValueError(f"visual_style.{field_name} が空です")
+        if not self.scene_tags.strip():
+            raise ValueError("visual_style.scene_tags が空です")
+        return self
 
 
 class ScenarioTemplateDefinition(BaseModel):
@@ -24,6 +53,7 @@ class ScenarioTemplateDefinition(BaseModel):
     milestones: dict[str, list[dict[str, str]]]
     opening_premise: dict[str, str]
     guidance: str
+    visual_style: ScenarioVisualStyle | None = None
     start_state: dict[str, Any]
     rule: dict[str, Any]
 
@@ -47,6 +77,30 @@ class ScenarioTemplateDefinition(BaseModel):
         return self
 
 
+def _warn_shared_item_aliases(template_id: str, rule: dict[str, Any]) -> None:
+    """複数アイテムが同じエイリアスを持つ場合に警告する。
+
+    共有エイリアスは「下着」のように意図的なこともあるが、その入力では該当する
+    全アイテムが同時に着脱される。意図しない重複に気付けるようログへ残す。
+    """
+    owners: dict[str, list[str]] = defaultdict(list)
+    for item in rule.get("items", []):
+        if not isinstance(item, dict):
+            continue
+        item_id = str(item.get("id") or "")
+        for alias in item.get("aliases", []):
+            cleaned = str(alias).strip().lower()
+            if item_id and cleaned:
+                owners[cleaned].append(item_id)
+    shared = {alias: ids for alias, ids in owners.items() if len(ids) > 1}
+    if shared:
+        logger.warning(
+            "Scenario %s shares equipment aliases across items: %s",
+            template_id,
+            shared,
+        )
+
+
 def load_scenario_templates() -> dict[str, dict[str, Any]]:
     scenario_dir = Path(__file__).resolve().parents[1] / "scenarios"
     templates: dict[str, dict[str, Any]] = {}
@@ -56,6 +110,7 @@ def load_scenario_templates() -> dict[str, dict[str, Any]]:
         )
         if definition.id in templates:
             raise RuntimeError(f"作品シナリオIDが重複しています: {definition.id}")
+        _warn_shared_item_aliases(definition.id, definition.rule)
         templates[definition.id] = definition.model_dump()
     return templates
 

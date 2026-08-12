@@ -371,10 +371,12 @@ class PlayRequest(BaseModel):
     transformation_type: str = Field(
         "costume", description="変身タイプ (costume=衣装変更, reality=現実改変)"
     )
-    # 指示タイプ: dress_up, reality_alter, action, conversation
+    # 指示タイプ: dress_up, reality_alter, action, conversation, image_only
     instruction_type: Optional[str] = Field(
         None,
-        description="指示タイプ (dress_up, reality_alter, action, conversation)",
+        description=(
+            "指示タイプ (dress_up, reality_alter, action, conversation, image_only)"
+        ),
     )
     use_memory: bool = Field(
         False,
@@ -432,7 +434,7 @@ class HistoryItem(BaseModel):
     after_description: str = Field(..., description="着せ替え後の説明")
     timestamp: str = Field(..., description="実行日時 (ISO形式)")
     instruction_type: Optional[str] = Field(
-        None, description="指示タイプ (dress_up/reality_alter/action)"
+        None, description="指示タイプ (dress_up/reality_alter/action/image_only)"
     )
     # T025: タグ情報を追加
     costume_category: Optional[str] = Field(
@@ -633,7 +635,8 @@ class ConversationMessageResponse(BaseModel):
     content: str = Field(..., description="メッセージ内容")
     created_at: str = Field(..., description="送信日時 (ISO形式)")
     instruction_type: Optional[str] = Field(
-        None, description="指示タイプ (dress_up/reality_alter/conversation/action)"
+        None,
+        description="指示タイプ (dress_up/reality_alter/conversation/action/image_only)",
     )
 
 

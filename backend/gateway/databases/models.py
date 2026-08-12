@@ -288,6 +288,8 @@ class AdventureRun(Base):
     state_json: Mapped[str] = mapped_column(Text, nullable=False)
     current_image_path: Mapped[str] = mapped_column(Text, nullable=False)
     initial_image_path: Mapped[str] = mapped_column(Text, nullable=False)
+    background_image_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    portrait_image_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String, default="active", nullable=False)
     turn_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     max_turns: Mapped[int] = mapped_column(Integer, default=8, nullable=False)
@@ -334,6 +336,10 @@ class AdventureTurn(Base):
     state_delta_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
     image_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     image_status: Mapped[str] = mapped_column(
+        String, default="not_requested", nullable=False
+    )
+    portrait_image_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    portrait_status: Mapped[str] = mapped_column(
         String, default="not_requested", nullable=False
     )
     created_at: Mapped[datetime] = mapped_column(

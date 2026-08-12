@@ -3,18 +3,18 @@
   "version": 1,
   "preset": "escape",
   "content_rating": "mature",
-  "max_turns": 8,
+  "max_turns": 15,
   "title": {
-    "ja": "プリンセスにならないと出られない部屋",
-    "en": "The Room That Only a Princess Can Leave"
+    "ja": "女装してプリンセスにならないと出られない部屋",
+    "en": "The Room You Can't Leave Unless You Crossdress as a Princess"
   },
   "synopsis": {
-    "ja": "寒い密室で、下着、ドレス、ティアラを揃え、扉の採点を100点にして脱出する。",
-    "en": "Complete a princess outfit in a freezing locked room and earn a perfect door score to escape."
+    "ja": "施錠された豪邸の豪華な衣装部屋で女装し、下着、ドレス、ティアラを揃え、扉の採点を100点にして脱出する。",
+    "en": "Crossdress in a locked luxury mansion dressing room, complete a princess outfit, and earn a perfect door score to escape."
   },
   "setting": {
-    "ja": "見知らぬ寒い密室。壁一面にドレスや女性用の衣類が並び、出口の扉が採点装置になっている。",
-    "en": "An unfamiliar freezing room lined with dresses and women's clothing, where the exit door judges the player's outfit."
+    "ja": "施錠された豪邸の豪華な衣装部屋。シャンデリアの下にきらびやかなドレスが壁一面に並び、出口の扉が採点装置になっている。冷たい空気が肌に触れる。",
+    "en": "A locked luxurious mansion dressing room where sparkling ball gowns line the walls under a crystal chandelier, and the exit door judges the player's outfit. Cool air touches bare skin."
   },
   "objective": {
     "ja": "必要な衣装と品物を身につけて扉の採点を100点にし、開いた扉から退出する",
@@ -22,12 +22,12 @@
   },
   "constraints": {
     "ja": [
-      "部屋は非常に寒く、8手以内に脱出条件を満たす必要がある",
+      "冷たい空気が肌を刺し、15手以内に脱出条件を満たす必要がある",
       "利用できる衣類は女性用の下着、ドレス、装身具に限られる",
       "最後の条件は扉の文章と採点結果から推理する必要がある"
     ],
     "en": [
-      "The room is freezing and the exit condition must be met within eight turns",
+      "Cool air stings bare skin and the exit condition must be met within fifteen turns",
       "Only women's underwear, dresses, and accessories are available",
       "The final requirement must be inferred from the door text and its score"
     ]
@@ -45,10 +45,21 @@
     ]
   },
   "opening_premise": {
-    "ja": "プレイヤーは見知らぬ寒い部屋で目を覚ます。寝間着はなく、衣服を身につけていない。周囲には女性用の下着、ドレス、装身具、生理用品が並ぶ。扉には、プリンセスの装いを完成させなければ出られず、ナプキンも忘れないようにという文章がある。プレイヤーが何を着るかはまだ決めない。",
-    "en": "The player wakes in an unfamiliar freezing room without their sleepwear or any clothing. Women's underwear, dresses, accessories, and sanitary products line the room. The exit says that a complete princess outfit is required and specifically warns not to forget a sanitary pad. Do not decide what the player wears."
+    "ja": "プレイヤーは施錠された豪邸の豪華な衣装部屋で目を覚ます。寝間着はなく、衣服を身につけていない。冷たい空気が肌に触れる。シャンデリアの下にはきらびやかなドレスが壁一面に並び、周囲には女性用の下着、装身具、生理用品も揃っている。扉には、女装してプリンセスの装いを完成させなければ出られず、ナプキンも忘れないようにという文章がある。プレイヤーが何を着るかはまだ決めない。",
+    "en": "The player wakes in a locked luxurious mansion dressing room without sleepwear or any clothing. Cool air touches bare skin. Sparkling ball gowns line the walls under a crystal chandelier, and women's underwear, accessories, and sanitary products are also available. The exit says that the player must crossdress into a complete princess outfit and specifically warns not to forget a sanitary pad. Do not decide what the player wears."
   },
-  "guidance": "This is an authored wardrobe escape puzzle. Never decide that the player feels shame, resistance, acceptance, or loss of identity. Only equip or remove an item when the player explicitly chooses that action. The sanitary pad is an exit item and does not imply menstruation. The player's body remains unchanged until all required items are explicitly equipped and the door is checked again. A magical princess transformation is allowed only at that deterministic trigger. Stop the opening before any voluntary dressing action.",
+  "guidance": "This is an authored wardrobe escape puzzle. Never decide that the player feels shame, resistance, acceptance, or loss of identity. Only equip or remove an item when the player explicitly chooses that action. The sanitary pad is an exit item and does not imply menstruation. Required exit items are panties, bra, princess dress, tiara/crown, and sanitary pad. Ordinary jewelry such as a necklace or earrings is not a tiara. Never invent door scores other than the authored template resolution. The player's body remains unchanged until all required items are explicitly equipped and the door is checked again. A magical princess transformation is allowed only at that deterministic trigger. Stop the opening before any voluntary dressing action. Keep the room as a luxurious mansion dressing room with sparkling gowns, chandeliers, and warm golden light; never describe it as a basement, locker room, warehouse, or cold industrial cell. When clothing is worn, describe the player as actually wearing it. Dresses, underwear, and accessories are already visible in the room, so do not offer per-item inspect choices for them; prefer equip actions or checking the door.",
+  "visual_style": {
+    "location": {
+      "ja": "豪邸の豪華な衣装部屋",
+      "en": "luxurious mansion dressing room"
+    },
+    "surroundings": {
+      "ja": "シャンデリアの下にきらびやかなドレスが壁一面に並び、全身鏡と採点装置付きの扉がある。大理石の床と暖かな金色の照明が部屋を照らしている。",
+      "en": "Racks of sparkling ball gowns line the walls under a crystal chandelier, with full-length mirrors and a scored exit door. Polished marble floors and warm golden light fill the elegant room."
+    },
+    "scene_tags": "luxurious palace dressing room, ornate crystal chandelier, racks of sparkling ball gowns and princess dresses, gold-framed full-length mirrors, polished marble floor with reflections, warm golden lighting, elegant mansion interior, velvet curtains, high ceiling, ornate molding, luxurious boutique wardrobe salon"
+  },
   "start_state": {
     "clothing": "none",
     "allow_clothing_changes": true,
@@ -74,7 +85,16 @@
       },
       {
         "id": "tiara",
-        "aliases": ["ティアラ", "冠", "tiara", "crown"],
+        "aliases": [
+          "ティアラ",
+          "冠",
+          "頭飾り",
+          "ヘッドドレス",
+          "tiara",
+          "crown",
+          "headdress",
+          "diadem"
+        ],
         "labels": { "ja": "ティアラ", "en": "tiara" }
       },
       {
@@ -103,6 +123,34 @@
       "en": "not wearing any clothing"
     },
     "events": {
+      "incomplete": {
+        "narrative_suffix": {
+          "ja": "扉が反応し、採点結果が表示される。『0点。プリンセスの装いとしてはまだ不十分のようだ』",
+          "en": "The door reacts and shows a score. '0 points. That is not yet a complete princess outfit.'"
+        },
+        "clues": {
+          "ja": [
+            "扉の採点は必要品が揃うまで0点のまま",
+            "ティアラ（冠・頭飾り）は装身具一般では代替できない"
+          ],
+          "en": [
+            "The door stays at 0 until every required item is worn",
+            "A tiara or crown is required; ordinary jewelry is not enough"
+          ]
+        },
+        "choices": {
+          "ja": [
+            { "id": "reread_rule", "label": "扉の文章をもう一度読む" },
+            { "id": "find_tiara", "label": "ティアラや冠を探す" },
+            { "id": "review_outfit", "label": "身につけた品を確認する" }
+          ],
+          "en": [
+            { "id": "reread_rule", "label": "Read the door text again" },
+            { "id": "find_tiara", "label": "Search for a tiara or crown" },
+            { "id": "review_outfit", "label": "Review the equipped items" }
+          ]
+        }
+      },
       "almost_complete": {
         "narrative_suffix": {
           "ja": "ドラムロールの後、甲高い声が響く。『惜しい！90点！あと少しで完成だね』",

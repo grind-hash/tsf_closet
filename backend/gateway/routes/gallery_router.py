@@ -219,6 +219,7 @@ class GallerySession(BaseModel):
     self_mode: bool = False
     has_summary: bool = False
     match_snippet: str | None = None
+    last_instruction: str | None = None
 
 
 class GallerySessionsResponse(BaseModel):
@@ -317,6 +318,7 @@ async def get_gallery_sessions(
                 summary_subquery.c.item_count,
                 summary_subquery.c.first_timestamp,
                 summary_subquery.c.last_timestamp,
+                HistoryORM.instruction.label("last_instruction"),
                 SessionORM.character_id,
                 SessionORM.self_mode,
                 PlaySummaryORM.session_id.isnot(None).label("has_summary"),
@@ -324,6 +326,10 @@ async def get_gallery_sessions(
             .outerjoin(
                 latest_id_subquery,
                 summary_subquery.c.session_id == latest_id_subquery.c.session_id,
+            )
+            .outerjoin(
+                HistoryORM,
+                HistoryORM.id == latest_id_subquery.c.latest_id,
             )
             .outerjoin(SessionORM, SessionORM.id == summary_subquery.c.session_id)
             .outerjoin(
@@ -359,6 +365,11 @@ async def get_gallery_sessions(
         session_id = str(row.session_id)
         latest_id = str(row.latest_id) if row.latest_id else None
         is_self_mode = bool(row.self_mode) if row.self_mode is not None else False
+        last_instruction = (
+            str(row.last_instruction).strip() if row.last_instruction else None
+        )
+        if last_instruction == "":
+            last_instruction = None
 
         character_name = None
         if is_self_mode and self_display_name:
@@ -382,6 +393,7 @@ async def get_gallery_sessions(
                 self_mode=is_self_mode,
                 has_summary=bool(row.has_summary),
                 match_snippet=snippets.get(session_id),
+                last_instruction=last_instruction,
             )
         )
 

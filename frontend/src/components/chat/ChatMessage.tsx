@@ -196,6 +196,8 @@ const ChatMessageItem = forwardRef<HTMLDivElement, ChatMessageProps>(
           return t("chat.instructionType.conversation");
         case "action":
           return t("chat.instructionType.action");
+        case "image_only":
+          return t("chat.instructionType.imageOnly");
         default:
           return message.instructionType;
       }

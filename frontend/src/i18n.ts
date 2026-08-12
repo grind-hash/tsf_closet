@@ -38,6 +38,9 @@ const resources = {
         sourceState: "開始状態",
         currentState: "現在の状態",
         selectedSourceSummary: "選択中: {{name}} ・ {{state}}",
+        sourceSessionOption:
+          "{{name}} · {{count}}{{unit}} · {{date}} · {{preview}}",
+        sourceSessionOptionNoPreview: "{{name}} · {{count}}{{unit}} · {{date}}",
         unnamedCharacter: "名前未設定",
         startMode: "開始方式",
         startModes: {
@@ -89,6 +92,10 @@ const resources = {
           step3: "内容を確認・編集して開始",
         },
         detailsToggle: "舞台・ゴール・制約を直接入力する",
+        maxTurns: "ターン数",
+        maxTurnsUnit: "手",
+        maxTurnsHint:
+          "{{min}}〜{{max}}手。多いほど手掛かりの探索や周辺の調査に余裕が生まれます。そのぶん場面画像の生成回数とプレイ時間は増えます。自動生成するゴールもこの手数に合わせた規模になります",
         generateSetup: "ミッション案を自動生成",
         generatingSetup: "ミッション案を生成中...",
         setting: "舞台",
@@ -103,11 +110,43 @@ const resources = {
           noScenario: "シナリオを選択してください",
         },
         start: "シナリオを開始",
+        storyOptions: "物語の演出",
+        narrationVoice: "語りの人称",
+        narrationVoiceHint:
+          "物語文の主語をどう書くかを選びます。開始後は変更できません。",
+        narrationVoices: {
+          second_person: "二人称",
+          third_person: "三人称",
+          first_person: "一人称",
+        },
+        narrationVoiceExamples: {
+          second_person: "例: あなたは二人に声をかけた",
+          third_person: "例: 黒髪ボブの彼女は二人に声をかけた",
+          first_person: "例: {{pronoun}}は二人に声をかけた",
+        },
+        narrationPronoun: "一人称",
+        imageGenOptions: "画像生成オプション",
+        imageSettings: "画像生成設定",
+        preciseReference: "精密参照画像を使う",
+        preciseReferenceHint:
+          "OFFが既定です。ONにすると開始画像をNovelAI精密参照に使い、参照1枚あたりAnlasを追加消費します。顔の固定が強まります。",
+        preciseReferencePlayHint:
+          "次回の画像生成から反映されます。ONにすると参照1枚あたりAnlasを追加消費します。",
+        enableCompositeScene: "背景と人物を同時に描く",
+        enableCompositeSceneHint:
+          "OFFが既定です。既定では背景は開始時に1回だけ生成し、行動に応じて中央の立ち絵のみ更新します。ONにすると、立ち絵の更新後に背景を含む合成シーンも直列で再生成するため、1ターンあたりの画像生成が2回になり待ち時間が長くなります。",
+        enableCompositeScenePlayHint:
+          "次回のターンから反映されます。ONの間は毎ターン、立ち絵に加えて合成シーンも直列生成されるため待ち時間が長くなります。",
+        portraitAlt: "主人公のポートレート",
         preparing: "シナリオを準備中...",
         preparingTitle: "シナリオを準備しています",
         preparingDetail:
           "開始場面の物語と画像を生成中です。完了までそのままお待ちください。",
         noRuns: "保存されたシナリオはありません",
+        noRunsForFilter: "この条件に一致するシナリオはありません",
+        savedRunsCount: "{{count}}件",
+        runFilterLabel: "シナリオの絞り込み",
+        runFilterAll: "すべて",
         resume: "再開",
         delete: "削除",
         deleteConfirm: "このシナリオを削除しますか？",
@@ -115,12 +154,72 @@ const resources = {
         back: "シナリオ一覧へ戻る",
         remaining: "残り手番",
         openingScene: "開始場面",
+        /** ログ専用の複合ラベル。単独の手番表記には turnNumber を使う */
         turn: "手番 {{number}}・選んだ行動",
+        turnNumber: "手番 {{number}}",
         clues: "手掛かり",
+        realityRules: "現実改変",
+        realityRulesHint:
+          "宣言済みの世界ルールです。以降のすべての判定に適用され、ルールが覆う行動だけでミッション失敗にはなりません。",
+        milestones: "進行目標",
+        milestoneDone: "達成済み",
+        protagonist: "主人公",
+        protagonistToggleHint: "主人公の状態パネルを表示／非表示",
+        protagonistHide: "主人公パネルを閉じる",
+        protagonistAppearance: "外見",
+        protagonistClothing: "服装",
+        protagonistUnknown: "まだ情報がありません",
+        cast: "登場人物",
+        result: {
+          turns: "到達手番",
+          readLog: "ログを読む",
+          replay: "同じシナリオをもう一度",
+          backToHub: "シナリオ一覧へ戻る",
+          close: "リザルトを閉じる",
+        },
+        currentLocation: "現在地",
+        yourAction: "あなたの行動",
+        log: {
+          open: "ログ",
+          openHint: "これまでの物語を読む（L）",
+          title: "これまでの物語",
+          close: "ログを閉じる",
+        },
+        window: {
+          hide: "非表示",
+          hideHint: "メッセージウィンドウを隠して立ち絵を見る（H）",
+          show: "ウィンドウを戻す",
+          showHint: "メッセージウィンドウを再表示（H）",
+        },
+        actionPanel: {
+          title: "行動",
+        },
         freeInput: "行動や会話を自由に入力",
+        freeInputHint:
+          "行動や会話をそのまま入力できます。「現実改変：〜」で始めると、以降のすべての判定に適用される世界ルールとして登録されます。",
         send: "送信",
         regenerateImage: "現在の場面画像を再生成",
+        regenerateChoices: "選択肢を再生成",
+        regeneratingChoices: "選択肢を生成中...",
+        emptyChoices:
+          "選択肢がありません。再生成するか、下の入力欄から自由に行動してください。",
         viewFullScreen: "場面画像を拡大表示",
+        preview: {
+          viewSwitch: "表示する画像を切り替え",
+          viewScene: "シーン",
+          viewBackground: "背景",
+          viewPortrait: "主人公",
+          sceneAlt: "場面の詳細",
+          backgroundAlt: "背景画像",
+          turnLabel: "手番",
+          actionLabel: "選んだ行動",
+          narrativeLabel: "物語",
+          inputKind: {
+            choice: "選択肢",
+            free_text: "自由入力",
+            reality_alter: "現実改変",
+          },
+        },
         imagePrompt: {
           title: "場面画像のプロンプトを編集して再生成",
           hint: "直前の生成に使われたプロンプトです。不要な表現を削って再生成できます。",
@@ -146,6 +245,11 @@ const resources = {
           judging: "次の展開を判定中...",
           image_generation: "場面画像を生成中...",
         },
+        phaseStep: {
+          portrait: "立ち絵を生成中...",
+          composite: "場面を合成中...",
+        },
+        anlasDetail: "固定: {{fixed}} / 購入: {{purchased}}",
         status: {
           active: "進行中",
           success: "成功",
@@ -211,6 +315,9 @@ const resources = {
         experimentalAdventure: "TSFシナリオ",
         experimentalAdventureDesc:
           "変身後の状態から独立したノベルゲームを開始できるメニューを表示します",
+        adventureEnableCompositeScene: "背景と人物を同時に描く（既定）",
+        adventureEnableCompositeSceneDesc:
+          "新規シナリオ作成時の初期値です。ONの場合、中央の立ち絵の更新後に背景を含む合成シーンも直列で再生成するため、1ターンあたりの画像生成が2回になり待ち時間が長くなります。作成画面でシナリオごとに上書きできます。",
         experimentalPlayMemory: "プレイメモ",
         experimentalPlayMemoryDesc:
           "セッションごとの経緯とユーザーメモを以後の生成へ反映します。",
@@ -645,6 +752,7 @@ const resources = {
         noImage: "画像なし",
         transforming: "変身中...",
         acting: "行動中...",
+        generatingImage: "画像生成中...",
         transformHistory: "変身 {{index}}",
         navFirstAria: "最初の状態",
         navFirstTitle: "最初へ",
@@ -736,6 +844,9 @@ const resources = {
         dialogAria: "画像プレビュー",
         prevImage: "前の画像",
         nextImage: "次の画像",
+        instruction: "指示",
+        generatedText: "生成文",
+        noGeneratedText: "生成テキストはありません",
       },
       achievementToast: {
         unlocked: "実績解除！",
@@ -779,10 +890,12 @@ const resources = {
           realityAlter: "現実改変",
           conversation: "会話",
           action: "行動",
+          imageOnly: "画像のみ（実験的）",
           dressUpShort: "着替",
           realityAlterShort: "改変",
           conversationShort: "会話",
           actionShort: "行動",
+          imageOnlyShort: "画像",
         },
         input: {
           attachmentPreviewAlt: "添付画像プレビュー",
@@ -1195,6 +1308,10 @@ const resources = {
         sourceState: "Starting State",
         currentState: "Current State",
         selectedSourceSummary: "Selected: {{name}} · {{state}}",
+        sourceSessionOption:
+          "{{name}} · {{count}} {{unit}} · {{date}} · {{preview}}",
+        sourceSessionOptionNoPreview:
+          "{{name}} · {{count}} {{unit}} · {{date}}",
         unnamedCharacter: "Unnamed Character",
         startMode: "Start Mode",
         startModes: {
@@ -1246,6 +1363,10 @@ const resources = {
           step3: "Review, edit, and start",
         },
         detailsToggle: "Enter the setting, goal, and constraints manually",
+        maxTurns: "Turns",
+        maxTurnsUnit: "turns",
+        maxTurnsHint:
+          "{{min}}-{{max}} turns. More turns leave room to search for clues and scout the surroundings, at the cost of more scene image generations and a longer playthrough. The generated goal is scaled to this budget.",
         generateSetup: "Generate Mission Setup",
         generatingSetup: "Generating mission setup...",
         setting: "Setting",
@@ -1261,11 +1382,44 @@ const resources = {
           noScenario: "Select a scenario",
         },
         start: "Start Scenario",
+        storyOptions: "Story Presentation",
+        narrationVoice: "Narration Voice",
+        narrationVoiceHint:
+          "Chooses how the narration refers to the player character. It cannot be changed after the scenario starts.",
+        narrationVoices: {
+          second_person: "Second person",
+          third_person: "Third person",
+          first_person: "First person",
+        },
+        narrationVoiceExamples: {
+          second_person: "e.g. You called out to the two of them",
+          third_person:
+            "e.g. The black-haired girl called out to the two of them",
+          first_person: "e.g. I called out to the two of them",
+        },
+        narrationPronoun: "Pronoun",
+        imageGenOptions: "Image Generation Options",
+        imageSettings: "Image Generation Settings",
+        preciseReference: "Use precise character reference",
+        preciseReferenceHint:
+          "Off by default. When on, the starting image is used as a NovelAI character reference and costs extra Anlas per reference, while face consistency improves.",
+        preciseReferencePlayHint:
+          "Applies from the next image generation. When on, each reference costs extra Anlas.",
+        enableCompositeScene: "Draw background and character together",
+        enableCompositeSceneHint:
+          "Off by default. By default, the background is generated once at the start, and only the centered character sprite updates as you act. When on, the full composite scene (including background) is also regenerated in series after each sprite update, so each turn runs two image generations and takes longer.",
+        enableCompositeScenePlayHint:
+          "Applies from the next turn. While on, every turn generates the composite scene in series after the character sprite, so turns take longer.",
+        portraitAlt: "Protagonist portrait",
         preparing: "Preparing scenario...",
         preparingTitle: "Preparing the scenario",
         preparingDetail:
           "Generating the opening story and scene image. Please wait until it is ready.",
         noRuns: "No saved scenarios",
+        noRunsForFilter: "No scenarios match this filter",
+        savedRunsCount: "{{count}} saved",
+        runFilterLabel: "Filter scenarios",
+        runFilterAll: "All",
         resume: "Resume",
         delete: "Delete",
         deleteConfirm: "Delete this scenario?",
@@ -1273,12 +1427,72 @@ const resources = {
         back: "Back to scenarios",
         remaining: "Turns Left",
         openingScene: "Opening Scene",
+        /** Log-only compound label. Use turnNumber for a standalone turn label. */
         turn: "Turn {{number}} · Chosen action",
+        turnNumber: "Turn {{number}}",
         clues: "Clues",
+        realityRules: "Reality",
+        realityRulesHint:
+          "Declared world rules. They apply to every later judgement, and behaviour they cover alone never fails the mission.",
+        milestones: "Milestones",
+        milestoneDone: "Completed",
+        protagonist: "Protagonist",
+        protagonistToggleHint: "Show or hide the protagonist state panel",
+        protagonistHide: "Close the protagonist panel",
+        protagonistAppearance: "Appearance",
+        protagonistClothing: "Clothing",
+        protagonistUnknown: "Not available yet",
+        cast: "Characters",
+        result: {
+          turns: "Turns played",
+          readLog: "Read the log",
+          replay: "Play this scenario again",
+          backToHub: "Back to scenarios",
+          close: "Close the result",
+        },
+        currentLocation: "Location",
+        yourAction: "Your action",
+        log: {
+          open: "Log",
+          openHint: "Read the story so far (L)",
+          title: "Story so far",
+          close: "Close the log",
+        },
+        window: {
+          hide: "Hide",
+          hideHint: "Hide the message window to see the character (H)",
+          show: "Show window",
+          showHint: "Show the message window again (H)",
+        },
+        actionPanel: {
+          title: "Actions",
+        },
         freeInput: "Enter an action or dialogue",
+        freeInputHint:
+          'Type any action or line of dialogue. Starting with "reality: " registers a world rule that applies to every later judgement.',
         send: "Send",
         regenerateImage: "Regenerate the current scene image",
+        regenerateChoices: "Regenerate choices",
+        regeneratingChoices: "Generating choices...",
+        emptyChoices:
+          "No choices available. Regenerate them, or type an action in the field below.",
         viewFullScreen: "View the scene image in full screen",
+        preview: {
+          viewSwitch: "Switch the displayed image",
+          viewScene: "Scene",
+          viewBackground: "Background",
+          viewPortrait: "Character",
+          sceneAlt: "Scene details",
+          backgroundAlt: "Background image",
+          turnLabel: "Turn",
+          actionLabel: "Chosen action",
+          narrativeLabel: "Story",
+          inputKind: {
+            choice: "Choice",
+            free_text: "Free input",
+            reality_alter: "Reality alteration",
+          },
+        },
         imagePrompt: {
           title: "Edit the scene image prompt and regenerate",
           hint: "This is the prompt used for the latest generation. Remove unwanted wording and regenerate.",
@@ -1304,6 +1518,11 @@ const resources = {
           judging: "Resolving the next scene...",
           image_generation: "Generating the scene image...",
         },
+        phaseStep: {
+          portrait: "Generating the character portrait...",
+          composite: "Compositing the scene...",
+        },
+        anlasDetail: "Fixed: {{fixed}} / Purchased: {{purchased}}",
         status: {
           active: "Active",
           success: "Success",
@@ -1370,6 +1589,10 @@ const resources = {
         experimentalAdventure: "TSF Scenario",
         experimentalAdventureDesc:
           "Show the separate visual-novel mode that starts from a transformed state",
+        adventureEnableCompositeScene:
+          "Draw background and character together (default)",
+        adventureEnableCompositeSceneDesc:
+          "Default for new Adventure scenarios. When on, the full composite scene (background + character) is also regenerated in series after each sprite update, so each turn runs two image generations and takes longer. Can be overridden per scenario on the creation screen.",
         experimentalPlayMemory: "Play Memory",
         experimentalPlayMemoryDesc:
           "Use session history and user notes as context for future generations.",
@@ -1802,6 +2025,7 @@ const resources = {
         noImage: "No image",
         transforming: "Transforming...",
         acting: "Acting...",
+        generatingImage: "Generating image...",
         transformHistory: "Transform {{index}}",
         navFirstAria: "First state",
         navFirstTitle: "First",
@@ -1893,6 +2117,9 @@ const resources = {
         dialogAria: "Image preview",
         prevImage: "Previous image",
         nextImage: "Next image",
+        instruction: "Instruction",
+        generatedText: "Generated text",
+        noGeneratedText: "No generated text",
       },
       achievementToast: {
         unlocked: "Achievement Unlocked!",
@@ -1936,10 +2163,12 @@ const resources = {
           realityAlter: "Reality Alter",
           conversation: "Conversation",
           action: "Action",
+          imageOnly: "Image Only (Experimental)",
           dressUpShort: "Dress",
           realityAlterShort: "Reality",
           conversationShort: "Chat",
           actionShort: "Action",
+          imageOnlyShort: "Image",
         },
         input: {
           attachmentPreviewAlt: "Attached image preview",

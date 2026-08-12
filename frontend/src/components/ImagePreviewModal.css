@@ -25,9 +25,50 @@
 
 .image-preview-modal__content {
   position: relative;
+  box-sizing: border-box;
   max-width: 90vw;
   max-height: 90vh;
+  padding: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 12px;
+  background-color: rgba(10, 14, 22, 0.88);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
   animation: imagePreviewScaleIn 0.2s ease-out;
+}
+
+/*
+ * 画像下キャプション時の枠崩れ対策。
+ * __content は shrink-to-fit なので、長文キャプションの max-content 幅に
+ * 引きずられて 90vw まで広がり（画像が左端に寄って右が巨大な余白になる）、
+ * さらに画像 + キャプション + 余白が 90vh を超えても clip されず画面外へ出る。
+ * __close / __nav は枠外に置かれているため overflow: hidden は使えない。
+ */
+.image-preview-modal__content--captioned {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  width: min(90vw, 720px);
+}
+
+.image-preview-modal__content--captioned .image-preview-modal__image {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: calc(60vh - 48px);
+  margin-inline: auto;
+}
+
+.image-preview-modal__content--captioned .image-preview-modal__caption {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-wrap: anywhere;
+}
+
+.image-preview-modal__content--side {
+  width: min(1200px, calc(100vw - 144px));
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(280px, 0.75fr);
+  gap: 20px;
+  align-items: start;
 }
 
 @keyframes imagePreviewScaleIn {
@@ -42,11 +83,18 @@
 }
 
 .image-preview-modal__image {
+  display: block;
   max-width: 100%;
-  max-height: 90vh;
+  max-height: calc(90vh - 34px);
   object-fit: contain;
   border-radius: 8px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.image-preview-modal__content--side .image-preview-modal__image {
+  width: 100%;
+  min-width: 0;
+  max-height: calc(86vh - 34px);
 }
 
 .image-preview-modal__caption {
@@ -61,8 +109,44 @@
   overflow-y: auto;
 }
 
+.image-preview-modal__caption--side {
+  box-sizing: border-box;
+  margin-top: 0;
+  max-height: 86vh;
+}
+
+.image-preview-modal__detail {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.image-preview-modal__detail-section {
+  min-width: 0;
+}
+
+.image-preview-modal__detail-label {
+  margin: 0 0 8px;
+  color: #f5d76e;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.image-preview-modal__detail-text {
+  margin: 0;
+  color: #f4f6f8;
+  font-size: 1rem;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+/* media に位置指定された合成プレビューを渡しても操作ボタンが埋もれないようにする */
 .image-preview-modal__close {
   position: absolute;
+  z-index: 2;
   top: -40px;
   right: 0;
   width: 36px;
@@ -85,6 +169,7 @@
 
 .image-preview-modal__favorite {
   position: absolute;
+  z-index: 2;
   top: -40px;
   right: 48px;
   width: 36px;
@@ -121,6 +206,7 @@
 /* ナビゲーションボタン */
 .image-preview-modal__nav {
   position: absolute;
+  z-index: 2;
   top: 50%;
   transform: translateY(-50%);
   width: 48px;
@@ -158,6 +244,26 @@
 
 /* レスポンシブ */
 @media (max-width: 768px) {
+  .image-preview-modal__content--side {
+    width: min(92vw, 680px);
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    overflow-y: auto;
+  }
+
+  .image-preview-modal__content--side .image-preview-modal__image {
+    width: auto;
+    max-height: 55vh;
+  }
+
+  .image-preview-modal__caption--side {
+    width: 100%;
+    max-height: none;
+    overflow: visible;
+  }
+
   .image-preview-modal__close {
     top: 10px;
     right: 10px;

@@ -159,13 +159,23 @@ def _tag_tokens(text: str) -> list[str]:
     return [_normalize_tag(p) for p in parts if _normalize_tag(p)]
 
 
-def is_undergarment_tag(tag: str) -> bool:
-    """タグが下着・インナー寄りかを判定する。"""
+def split_tag_tokens(text: str) -> list[str]:
+    """カンマ区切りのプロンプトをタグ単位へ分解する。"""
+    return _tag_tokens(text)
+
+
+def normalize_tag_for_match(tag: str) -> str:
+    """重み記法や括弧を外し、語の照合に使える小文字表記へ整える。"""
     t = tag.lower()
     t = re.sub(r"\d+(?:\.\d+)?::", "", t)
     t = t.replace("::", " ")
     t = re.sub(r"[{}\[\]\(\)]", " ", t)
-    t = re.sub(r"\s+", " ", t).strip()
+    return re.sub(r"\s+", " ", t).strip()
+
+
+def is_undergarment_tag(tag: str) -> bool:
+    """タグが下着・インナー寄りかを判定する。"""
+    t = normalize_tag_for_match(tag)
     if not t:
         return False
     for ex in _UNDERGARMENT_EXCLUDE:

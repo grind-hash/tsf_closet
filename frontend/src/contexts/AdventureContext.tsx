@@ -21,11 +21,21 @@ import {
   fetchAdventureTemplates,
   generateAdventureSetup,
   normalizeAdventureImageUrl,
+  regenerateAdventureChoices,
   streamAdventureImage,
   streamAdventureTurn,
+  updateAdventureRunSettings,
 } from "../apis/adventure";
 
 export type AdventurePhase = "narrative" | "clue_check" | "image_generation";
+
+export type AdventureImageStep = "portrait" | "composite";
+
+export interface AdventurePhaseStep {
+  step: AdventureImageStep;
+  index: number;
+  count: number;
+}
 
 interface AdventureContextValue {
   runs: AdventureRun[];
@@ -35,6 +45,7 @@ interface AdventureContextValue {
   setupGenerating: boolean;
   streaming: boolean;
   phase: AdventurePhase | null;
+  phaseStep: AdventurePhaseStep | null;
   streamingNarrative: string;
   pendingUserInput: string | null;
   error: string | null;
@@ -46,13 +57,31 @@ interface AdventureContextValue {
   removeRun: (runId: string) => Promise<void>;
   submitTurn: (
     input: string,
-    inputKind: "choice" | "free_text",
+    inputKind: "choice" | "free_text" | "reality_alter",
   ) => Promise<void>;
   regenerateImage: (options?: AdventureImageRegenerateOptions) => Promise<void>;
+  regenerateChoices: () => Promise<void>;
+  updateSettings: (settings: {
+    use_precise_reference: boolean;
+    enable_composite_scene: boolean;
+    respect_clothing_layers?: boolean;
+  }) => Promise<void>;
   clearError: () => void;
 }
 
 const AdventureContext = createContext<AdventureContextValue | null>(null);
+
+function parsePhaseStep(
+  data: Record<string, unknown>,
+): AdventurePhaseStep | null {
+  const step = data.step;
+  if (step !== "portrait" && step !== "composite") return null;
+  return {
+    step,
+    index: Number(data.step_index ?? 1),
+    count: Number(data.step_count ?? 1),
+  };
+}
 
 export function AdventureProvider({ children }: { children: ReactNode }) {
   const [runs, setRuns] = useState<AdventureRun[]>([]);
@@ -62,6 +91,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
   const [setupGenerating, setSetupGenerating] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const [phase, setPhase] = useState<AdventurePhase | null>(null);
+  const [phaseStep, setPhaseStep] = useState<AdventurePhaseStep | null>(null);
   const [streamingNarrative, setStreamingNarrative] = useState("");
   const [pendingUserInput, setPendingUserInput] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -142,11 +172,15 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const submitTurn = useCallback(
-    async (input: string, inputKind: "choice" | "free_text") => {
+    async (
+      input: string,
+      inputKind: "choice" | "free_text" | "reality_alter",
+    ) => {
       if (!activeRun || streaming) return;
       const runId = activeRun.id;
       setStreaming(true);
       setPhase("narrative");
+      setPhaseStep(null);
       setStreamingNarrative("");
       setPendingUserInput(input);
       setError(null);
@@ -161,9 +195,16 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
           (event) => {
             if (event.type === "status") {
               setPhase((event.data.phase as AdventurePhase) ?? null);
+              setPhaseStep(parsePhaseStep(event.data));
             } else if (event.type === "narrative_chunk") {
               const chunk = String(event.data.chunk ?? "");
-              if (chunk) setStreamingNarrative((current) => current + chunk);
+              if (chunk) {
+                // narrative_done はstrip済み全文を送るため、蓄積が空の間だけ
+                // 先頭空白を除去してストリーム表示との差分をなくす
+                setStreamingNarrative((current) =>
+                  current ? current + chunk : chunk.replace(/^\s+/, ""),
+                );
+              }
             } else if (event.type === "narrative_done") {
               setStreamingNarrative(String(event.data.narrative ?? ""));
             } else if (event.type === "turn") {
@@ -180,6 +221,10 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
                       remaining_turns:
                         turn.remaining_turns ?? current.remaining_turns,
                       clues: turn.clues ?? current.clues,
+                      completed_milestones:
+                        turn.completed_milestones ??
+                        current.completed_milestones,
+                      visual_state: turn.visual_state ?? current.visual_state,
                       status: turn.run_status ?? current.status,
                       ending_title: turn.ending_title ?? current.ending_title,
                       ending_summary:
@@ -196,6 +241,17 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
                     : current,
                 );
               }
+            } else if (event.type === "portrait_image") {
+              const portraitUrl = normalizeAdventureImageUrl(
+                event.data.image_url,
+              );
+              if (portraitUrl) {
+                setActiveRun((current) =>
+                  current
+                    ? { ...current, portrait_image_url: portraitUrl }
+                    : current,
+                );
+              }
             } else if (event.type === "error") {
               setError(
                 String(event.data.message ?? "Adventure request failed"),
@@ -209,6 +265,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       } finally {
         setStreaming(false);
         setPhase(null);
+        setPhaseStep(null);
         setStreamingNarrative("");
         setPendingUserInput(null);
       }
@@ -221,11 +278,13 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       if (!activeRun || streaming) return;
       setStreaming(true);
       setPhase("image_generation");
+      setPhaseStep(null);
       setError(null);
       try {
         await streamAdventureImage(activeRun.id, options ?? null, (event) => {
           if (event.type === "status") {
             setPhase((event.data.phase as AdventurePhase) ?? null);
+            setPhaseStep(parsePhaseStep(event.data));
           } else if (event.type === "image") {
             const imageUrl = normalizeAdventureImageUrl(event.data.image_url);
             if (imageUrl) {
@@ -254,9 +313,65 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       } finally {
         setStreaming(false);
         setPhase(null);
+        setPhaseStep(null);
       }
     },
     [activeRun, streaming],
+  );
+
+  const regenerateChoices = useCallback(async () => {
+    if (!activeRun || streaming || activeRun.status !== "active") return;
+    const runId = activeRun.id;
+    setStreaming(true);
+    setPhase("clue_check");
+    setError(null);
+    try {
+      const choices = await regenerateAdventureChoices(runId);
+      setActiveRun((current) =>
+        current && current.id === runId ? { ...current, choices } : current,
+      );
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setStreaming(false);
+      setPhase(null);
+    }
+  }, [activeRun, streaming]);
+
+  const updateSettings = useCallback(
+    async (settings: {
+      use_precise_reference: boolean;
+      enable_composite_scene: boolean;
+      respect_clothing_layers?: boolean;
+    }) => {
+      if (!activeRun) return;
+      const runId = activeRun.id;
+      setError(null);
+      try {
+        const updated = await updateAdventureRunSettings(runId, settings);
+        setActiveRun((current) =>
+          current && current.id === runId
+            ? { ...current, ...updated, turns: current.turns }
+            : current,
+        );
+        setRuns((current) =>
+          current.map((run) =>
+            run.id === runId
+              ? {
+                  ...run,
+                  use_precise_reference: updated.use_precise_reference,
+                  enable_composite_scene: updated.enable_composite_scene,
+                  respect_clothing_layers: updated.respect_clothing_layers,
+                }
+              : run,
+          ),
+        );
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : String(caught));
+        throw caught;
+      }
+    },
+    [activeRun],
   );
 
   const value = useMemo<AdventureContextValue>(
@@ -268,6 +383,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       setupGenerating,
       streaming,
       phase,
+      phaseStep,
       streamingNarrative,
       pendingUserInput,
       error,
@@ -279,6 +395,8 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       removeRun,
       submitTurn,
       regenerateImage,
+      regenerateChoices,
+      updateSettings,
       clearError: () => setError(null),
     }),
     [
@@ -289,6 +407,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       setupGenerating,
       streaming,
       phase,
+      phaseStep,
       streamingNarrative,
       pendingUserInput,
       error,
@@ -300,6 +419,8 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       removeRun,
       submitTurn,
       regenerateImage,
+      regenerateChoices,
+      updateSettings,
     ],
   );
 
