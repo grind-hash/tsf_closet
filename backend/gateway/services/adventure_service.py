@@ -408,6 +408,9 @@ class AdventureRomanceResolutionOutput(AdventureResolutionOutput):
 
     affection_delta: int = Field(default=0, ge=-20, le=20)
     affection_set: int | None = Field(default=None, ge=0, le=100)
+    # 宣言が「交際を始める」を明示した場合のみ true。reality_alter ターン限定で
+    # 告白成功と同じ扱い(全 milestone 達成 + success エンディング)になる
+    start_dating: bool = False
     updated_liked_gift_ids: list[str] = Field(default_factory=list, max_length=12)
     updated_disliked_gift_ids: list[str] = Field(default_factory=list, max_length=12)
 
@@ -429,6 +432,16 @@ class AdventureRomanceResolutionOutput(AdventureResolutionOutput):
             return max(0, min(100, int(value)))
         except (TypeError, ValueError):
             return None
+
+    @field_validator("start_dating", mode="before")
+    @classmethod
+    def coerce_start_dating(cls, value: Any) -> Any:
+        # null や文字列表現でも検証エラー→修復リトライへ落とさない
+        if value is None:
+            return False
+        if isinstance(value, str):
+            return value.strip().lower() in {"true", "1", "yes"}
+        return bool(value)
 
 
 class AdventureVisualOutput(AdventureImagePromptOutput):

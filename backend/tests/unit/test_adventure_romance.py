@@ -21,6 +21,7 @@ from gateway.services.adventure_romance import (
     init_romance_state,
     public_sim_view,
     resolve_romance_action,
+    romance_confession_threshold,
     romance_day_slot,
     romance_stage,
 )
@@ -68,6 +69,7 @@ def make_romance_output(**overrides) -> SimpleNamespace:
     payload = {
         "affection_delta": 0,
         "affection_set": None,
+        "start_dating": False,
         "updated_liked_gift_ids": [],
         "updated_disliked_gift_ids": [],
     }
@@ -227,9 +229,18 @@ def test_repeated_gift_decays_to_neutral() -> None:
     assert repeated["affection_delta"] == ROMANCE_GIFT_POINTS["standard"]["neutral"]
 
 
+def test_confession_threshold_scales_with_days() -> None:
+    # 15日=75(上限)、7日=41、5日=32。日数不明の旧データは従来の75に倒す
+    assert romance_confession_threshold(15) == 75
+    assert romance_confession_threshold(7) == 41
+    assert romance_confession_threshold(5) == 32
+    assert romance_confession_threshold(0) == 75
+
+
 def test_confession_outcome_follows_threshold() -> None:
+    # make_sim は7日設定のため、スケール後の閾値41で判定される
     success = resolve_romance_action(
-        make_sim(affection=75),
+        make_sim(affection=41),
         user_input="想いを告げる",
         input_kind="confess",
         turn_number=5,
@@ -238,7 +249,7 @@ def test_confession_outcome_follows_threshold() -> None:
     assert success["success"] is True
     assert success["affection_delta"] == 0
     failure = resolve_romance_action(
-        make_sim(affection=74),
+        make_sim(affection=40),
         user_input="想いを告げる",
         input_kind="confess",
         turn_number=5,
@@ -246,6 +257,15 @@ def test_confession_outcome_follows_threshold() -> None:
     )
     assert failure["success"] is False
     assert failure["affection_delta"] == ROMANCE_CONFESSION_FAIL_PENALTY
+    # 15日設定では従来どおり75がライン
+    long_run = resolve_romance_action(
+        make_sim(total_days=15, affection=74),
+        user_input="想いを告げる",
+        input_kind="confess",
+        turn_number=5,
+        total_turns=30,
+    )
+    assert long_run["success"] is False
 
 
 def test_talk_turn_clamps_llm_delta_and_overrides_llm_claims() -> None:
@@ -336,6 +356,35 @@ def test_successful_confession_completes_all_milestones() -> None:
     assert output.ending_status == "success"
 
 
+def test_alter_turn_start_dating_completes_run() -> None:
+    # 「交際を始める」宣言は reality_alter ターンで告白成功と同じ扱いになる
+    state = {"sim": make_sim(affection=48), "completed_milestones": []}
+    output = make_output()
+    apply_romance_outcome(
+        state,
+        output,
+        {"kind": "alter", "money_delta": 0, "affection_delta": 0},
+        make_romance_output(affection_set=100, start_dating=True),
+    )
+    assert state["sim"]["confessed"] is True
+    assert state["sim"]["affection"] == 100
+    assert output.completed_milestones == [item["id"] for item in ROMANCE_MILESTONES]
+    assert output.ending_status == "success"
+
+
+def test_talk_turn_ignores_start_dating() -> None:
+    state = {"sim": make_sim(), "completed_milestones": []}
+    output = make_output()
+    apply_romance_outcome(
+        state,
+        output,
+        {"kind": "talk", "money_delta": 0, "affection_delta": 0},
+        make_romance_output(affection_delta=2, start_dating=True),
+    )
+    assert bool(state["sim"].get("confessed")) is False
+    assert output.ending_status == "continue"
+
+
 def test_public_view_hides_preferences_and_reports_next_slot() -> None:
     sim = make_sim(affection=80)
     view = public_sim_view(sim, turn_count=2)
@@ -346,6 +395,9 @@ def test_public_view_hides_preferences_and_reports_next_slot() -> None:
     assert view["confession_available"] is True
     confessed = public_sim_view(make_sim(affection=80, confessed=True), turn_count=3)
     assert confessed["confession_available"] is False
+    # 7日設定ならスケール後の閾値41で告白ボタンが出る
+    scaled = public_sim_view(make_sim(affection=45), turn_count=3)
+    assert scaled["confession_available"] is True
 
 
 def test_gift_price_clamped_into_tier_band() -> None:

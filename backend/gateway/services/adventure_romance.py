@@ -18,6 +18,7 @@ from ..consts.adventure_romance import (
     ROMANCE_AFFECTION_START,
     ROMANCE_ALTER_DELTA_LIMIT,
     ROMANCE_CONFESSION_FAIL_PENALTY,
+    ROMANCE_CONFESSION_PACE,
     ROMANCE_CONFESSION_THRESHOLD,
     ROMANCE_DAYS_MAX,
     ROMANCE_DAYS_MIN,
@@ -96,6 +97,21 @@ def romance_day_slot(turn_number: int) -> tuple[int, str]:
     day = (number + 1) // ROMANCE_SLOTS_PER_DAY
     slot = "day" if number % ROMANCE_SLOTS_PER_DAY == 1 else "night"
     return day, slot
+
+
+def romance_confession_threshold(total_days: int) -> int:
+    """告白の成功ライン。短いランでも正攻法で届くよう日数へスケールする。
+
+    実測の獲得ペース(会話+ギフト)を前提に、1手あたり ROMANCE_CONFESSION_PACE
+    を見込む。ROMANCE_CONFESSION_THRESHOLD は最長ラン用の上限。
+    total_days が不明(旧データ等)の場合は従来の固定値に倒す。
+    """
+    days = int(total_days)
+    if days <= 0:
+        return ROMANCE_CONFESSION_THRESHOLD
+    total_turns = days * ROMANCE_SLOTS_PER_DAY
+    scaled = ROMANCE_AFFECTION_START + round(total_turns * ROMANCE_CONFESSION_PACE)
+    return min(ROMANCE_CONFESSION_THRESHOLD, scaled)
 
 
 def romance_stage(affection: int) -> str:
@@ -276,7 +292,9 @@ def resolve_romance_action(
         )
         return resolution
     if input_kind == "confess":
-        success = int(sim.get("affection") or 0) >= ROMANCE_CONFESSION_THRESHOLD
+        success = int(sim.get("affection") or 0) >= romance_confession_threshold(
+            int(sim.get("total_days") or 0)
+        )
         resolution.update(
             {
                 "kind": "confess",
@@ -372,7 +390,13 @@ def apply_romance_outcome(
             str(gift.get("id")),
         ]
     confessed_success = kind == "confess" and bool(romance_resolution.get("success"))
-    if confessed_success:
+    # 制限なし方針: 現実改変で「交際を始める」と宣言した場合も成立として扱う。
+    # start_dating は reality_alter ターンでのみ有効
+    declared_dating = kind == "alter" and bool(
+        getattr(romance_output, "start_dating", False)
+    )
+    dating_started = confessed_success or declared_dating
+    if dating_started:
         sim["confessed"] = True
 
     achieved = [
@@ -380,11 +404,11 @@ def apply_romance_outcome(
         for stage_key, milestone_id in ROMANCE_STAGE_MILESTONE_IDS.items()
         if sim["affection"] >= ROMANCE_STAGE_THRESHOLDS[stage_key]
     ]
-    if confessed_success:
+    if dating_started:
         achieved = [item["id"] for item in ROMANCE_MILESTONES]
     # LLM が申告した milestone/ending は信用せず、Python 算出値で置き換える
     output.completed_milestones = achieved
-    output.ending_status = "success" if confessed_success else "continue"
+    output.ending_status = "success" if dating_started else "continue"
 
 
 def opening_sim_view(sim: dict[str, Any]) -> dict[str, Any]:
@@ -438,7 +462,7 @@ def public_sim_view(sim: dict[str, Any], turn_count: int) -> dict[str, Any]:
             if isinstance(item, dict)
         ],
         "given_gift_ids": [str(item) for item in sim.get("given_gifts", [])],
-        "confession_available": affection >= ROMANCE_CONFESSION_THRESHOLD
+        "confession_available": affection >= romance_confession_threshold(total_days)
         and not bool(sim.get("confessed")),
     }
 
@@ -469,7 +493,9 @@ ROMANCE_NARRATIVE_GUIDANCE = (
     "entry in main_characters immediately, and never depict the partner "
     "finding the declaration strange. Declarations may also rewrite the "
     "partner's feelings toward the player; treat such mental changes as real "
-    "and immediate."
+    "and immediate. When offering choices, never duplicate the dedicated "
+    "action buttons (part-time work, buying or giving a shop gift, granting "
+    "an attribute, confessing); offer conversation and date beats instead."
 )
 
 ROMANCE_VISUAL_GUIDANCE = (
@@ -487,22 +513,32 @@ ROMANCE_VISUAL_GUIDANCE = (
 
 ROMANCE_RESOLUTION_GUIDANCE = (
     'Add these extra fields to the JSON object: "affection_delta" (integer), '
-    '"affection_set" (integer or null), "updated_liked_gift_ids" (list of '
-    'gift id strings), "updated_disliked_gift_ids" (list of gift id strings). '
-    "For an ordinary conversation turn set affection_delta between -3 and 3 "
-    "based on how the partner received the player's words, keep affection_set "
-    "null, and keep both updated lists empty. When romance_resolution.kind is "
-    "work, gift, or confess the engine has already decided every number: keep "
-    "affection_delta 0, affection_set null, and the updated lists empty. When "
-    "romance_resolution.kind is alter the player declared a reality "
-    "alteration: if the declaration rewrites the partner's feelings toward "
-    "the player, express the resulting feeling as affection_set (0-100, use "
-    "100 for complete love); if it rewrites the partner's gift tastes, put "
+    '"affection_set" (integer or null), "start_dating" (boolean), '
+    '"updated_liked_gift_ids" (list of gift id strings), '
+    '"updated_disliked_gift_ids" (list of gift id strings). '
+    "For an ordinary conversation turn score affection_delta with this "
+    "rubric: +2 when the partner receives the player's words positively, +3 "
+    "when they strike her stated interests, dropped hints, or hidden wishes, "
+    "+1 for a flat but pleasant exchange, 0 only when the exchange is "
+    "awkward or merely repeats an earlier beat, and negative only for rude "
+    "or hurtful behavior. A friendly effort deserves at least +1; do not "
+    "default to 0. Keep affection_set null, start_dating false, and both "
+    "updated lists empty on conversation turns. When romance_resolution.kind "
+    "is work, gift, or confess the engine has already decided every number: "
+    "keep affection_delta 0, affection_set null, start_dating false, and the "
+    "updated lists empty. When romance_resolution.kind is alter the player "
+    "declared a reality alteration: if the declaration rewrites the "
+    "partner's feelings toward the player, express the resulting feeling as "
+    "affection_set (0-100, use 100 for complete love); if it explicitly "
+    "establishes that the partner and the player are now lovers or dating, "
+    "set start_dating true; if it rewrites the partner's gift tastes, put "
     "the matching gift ids from state.sim.gift_catalog into the updated "
-    "lists; otherwise keep affection_set null and the lists empty. Leave "
-    "completed_milestones empty and keep ending_status continue; the engine "
-    "decides milestones and endings. choices must stay romance-flavoured "
-    "actions for the next slot."
+    "lists; otherwise keep affection_set null, start_dating false, and the "
+    "lists empty. Leave completed_milestones empty and keep ending_status "
+    "continue; the engine decides milestones and endings. choices must stay "
+    "romance-flavoured actions for the next slot, and must never duplicate "
+    "the dedicated action buttons (part-time work, buying or giving a shop "
+    "gift, granting an attribute, confessing)."
 )
 
 

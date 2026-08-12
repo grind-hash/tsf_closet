@@ -33,6 +33,9 @@ ROMANCE_STAGE_MILESTONE_IDS: dict[str, str] = {
 
 ROMANCE_CONFESSION_THRESHOLD: int = 75
 ROMANCE_CONFESSION_FAIL_PENALTY: int = -10
+# 告白ラインを日数へスケールさせる1手あたりの想定獲得ペース。
+# 短いランでも正攻法で告白に届くようにし、THRESHOLD は最長ラン用の上限とする
+ROMANCE_CONFESSION_PACE: float = 2.2
 
 # 会話系ターン(choice/free_text)で LLM の affection_delta を収める幅
 ROMANCE_TALK_DELTA_LIMIT: int = 3
@@ -82,6 +85,7 @@ __all__ = [
     "ROMANCE_STAGE_MILESTONE_IDS",
     "ROMANCE_CONFESSION_THRESHOLD",
     "ROMANCE_CONFESSION_FAIL_PENALTY",
+    "ROMANCE_CONFESSION_PACE",
     "ROMANCE_TALK_DELTA_LIMIT",
     "ROMANCE_ALTER_DELTA_LIMIT",
     "ROMANCE_INITIAL_MONEY",

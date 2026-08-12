@@ -239,6 +239,12 @@ def test_romance_prompts_carry_romance_guidance_only_when_enabled() -> None:
     romance_resolution_prompt = service._resolution_system_prompt("ja", romance=True)
     assert "affection_set" in romance_resolution_prompt
     assert "affection_set" not in service._resolution_system_prompt("ja")
+    # 会話の採点基準と、交際宣言の機械可読フィールド
+    assert "rubric" in romance_resolution_prompt
+    assert "start_dating" in romance_resolution_prompt
+    # 専用ボタン(バイト/ギフト/属性付与/告白)と重複する選択肢の抑止
+    assert "never duplicate the dedicated action buttons" in romance_resolution_prompt
+    assert "never duplicate the dedicated action buttons" in narrative_prompt
     romance_visual_prompt = service._visual_system_prompt("ja", romance=True)
     assert "partner is an NPC" in romance_visual_prompt
     assert "partner is an NPC" not in service._visual_system_prompt("ja")
