@@ -19,6 +19,10 @@ from gateway.databases.models import (
     Session,
     User,
 )
+from gateway.services.adventure_romance import (
+    apply_romance_outcome,
+    clamp_romance_max_turns,
+)
 from gateway.services.adventure_service import (
     AdventureChoice,
     AdventureDirectorOutput,
@@ -28,6 +32,7 @@ from gateway.services.adventure_service import (
     AdventureVisualState,
     PRESETS,
     SCENARIO_TEMPLATES,
+    _default_ending_title,
     _apply_visual_style_to_state,
     _authored_scene_tags,
     _equipment_score_choices,
@@ -87,6 +92,7 @@ def make_output(
 def make_run(*, turn_count: int = 0, max_turns: int = 8) -> SimpleNamespace:
     milestones = PRESETS["infiltration"]["milestones"]
     return SimpleNamespace(
+        preset="infiltration",
         state_json=(
             '{"milestones": '
             + __import__("json").dumps(milestones, ensure_ascii=False)
@@ -94,6 +100,41 @@ def make_run(*, turn_count: int = 0, max_turns: int = 8) -> SimpleNamespace:
             '"visual_state": {"location": "entrance", '
             '"appearance": "開始時の姿", "main_characters": []}}'
         ),
+        max_turns=max_turns,
+        turn_count=turn_count,
+    )
+
+
+def make_romance_run(*, turn_count: int = 0, max_turns: int = 14) -> SimpleNamespace:
+    state = {
+        "milestones": PRESETS["romance"]["milestones"],
+        "completed_milestones": [],
+        "clues": [],
+        "visual_state": {
+            "location": "campus",
+            "appearance": "開始時の姿",
+            "main_characters": [],
+        },
+        "sim": {
+            "total_days": max_turns // 2,
+            "affection": 10,
+            "money": 5000,
+            "partner_name": "美咲",
+            "job": {"name": "カフェ", "wage": 3000},
+            "gift_catalog": [],
+            "hidden_preferences": {
+                "liked_gift_ids": [],
+                "disliked_gift_ids": [],
+                "likes_hint": "",
+                "dislikes_hint": "",
+            },
+            "given_gifts": [],
+            "confessed": False,
+        },
+    }
+    return SimpleNamespace(
+        preset="romance",
+        state_json=__import__("json").dumps(state, ensure_ascii=False),
         max_turns=max_turns,
         turn_count=turn_count,
     )
@@ -171,6 +212,109 @@ def test_turn_output_cannot_replace_locked_starting_appearance() -> None:
     assert output.visual_state.appearance == "1girl, short black hair, black eyes"
 
 
+def test_romance_preset_defines_dating_milestones() -> None:
+    preset = PRESETS["romance"]
+    assert [item["id"] for item in preset["milestones"]] == [
+        "become_friends",
+        "mutual_interest",
+        "mutual_love",
+        "start_dating",
+    ]
+    assert "romance_resolution" in preset["guidance"]
+
+
+def test_romance_prompts_carry_romance_guidance_only_when_enabled() -> None:
+    service = AdventureService()
+    narrative_prompt = service._narrative_system_prompt("ja", romance=True)
+    assert "romance simulation" in narrative_prompt
+    # スナップショットの人物は攻略対象であり、主人公とは別人として扱う
+    assert "partner" in narrative_prompt
+    assert "never the player" in narrative_prompt
+    assert "romance simulation" not in service._narrative_system_prompt("ja")
+    romance_resolution_prompt = service._resolution_system_prompt("ja", romance=True)
+    assert "affection_set" in romance_resolution_prompt
+    assert "affection_set" not in service._resolution_system_prompt("ja")
+    romance_visual_prompt = service._visual_system_prompt("ja", romance=True)
+    assert "partner is an NPC" in romance_visual_prompt
+    assert "partner is an NPC" not in service._visual_system_prompt("ja")
+
+
+def test_romance_overrides_llm_milestone_and_ending_claims() -> None:
+    service = AdventureService()
+    run = make_romance_run()
+    state = __import__("json").loads(run.state_json)
+    # LLM が架空の達成と即クリアを申告しても Python 算出値で置き換える
+    output = make_output(completed=["start_dating"], ending="success")
+    apply_romance_outcome(
+        state,
+        output,
+        {"kind": "talk", "money_delta": 0, "affection_delta": 0},
+        SimpleNamespace(
+            affection_delta=2,
+            affection_set=100,
+            updated_liked_gift_ids=[],
+            updated_disliked_gift_ids=[],
+        ),
+    )
+    merged, status, _, _ = service._merge_output(run, output, 1, state_override=state)
+
+    assert merged["sim"]["affection"] == 12
+    assert merged["completed_milestones"] == []
+    assert status == "continue"
+
+
+def test_romance_confession_success_ends_run_with_all_milestones() -> None:
+    run = make_romance_run(turn_count=5)
+    state = __import__("json").loads(run.state_json)
+    state["sim"]["affection"] = 80
+    output = make_output(completed=[])
+    apply_romance_outcome(
+        state,
+        output,
+        {"kind": "confess", "success": True, "money_delta": 0, "affection_delta": 0},
+        None,
+    )
+    merged, status, _, _ = AdventureService()._merge_output(
+        run, output, 6, state_override=state
+    )
+
+    assert status == "success"
+    assert merged["sim"]["confessed"] is True
+    assert set(merged["completed_milestones"]) == {
+        "become_friends",
+        "mutual_interest",
+        "mutual_love",
+        "start_dating",
+    }
+
+
+def test_romance_turn_limit_ends_partial_with_romance_titles() -> None:
+    run = make_romance_run(turn_count=13)
+    state = __import__("json").loads(run.state_json)
+    state["sim"]["affection"] = 30
+    output = make_output(completed=[])
+    apply_romance_outcome(
+        state,
+        output,
+        {"kind": "talk", "money_delta": 0, "affection_delta": 0},
+        SimpleNamespace(
+            affection_delta=0,
+            affection_set=None,
+            updated_liked_gift_ids=[],
+            updated_disliked_gift_ids=[],
+        ),
+    )
+    _, status, _, _ = AdventureService()._merge_output(
+        run, output, 14, state_override=state
+    )
+
+    assert status == "partial"
+    assert _default_ending_title("romance", "success") == "交際成立"
+    assert _default_ending_title("romance", "partial") == "想いは届きかけた"
+    assert _default_ending_title("romance", "failure") == "恋は実らなかった"
+    assert _default_ending_title("infiltration", "failure") == "ミッション失敗"
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("preset", list(PRESETS))
 async def test_generate_setup_uses_selected_mission_preset(
@@ -222,7 +366,13 @@ async def test_generate_setup_uses_selected_mission_preset(
     assert setup["objective"] == "8手以内に保管庫から青い契約書を確保して正門を出る"
     assert len(setup["constraints"]) == 2
     assert "observable end condition" in service._setup_system_prompt("ja")
-    assert prompt["max_turns"] == ADVENTURE_TURNS_DEFAULT
+    # romance は日数×2 の偶数ターンへ丸めるため既定 15 は 14 になる
+    expected_budget = (
+        clamp_romance_max_turns(ADVENTURE_TURNS_DEFAULT)
+        if preset == "romance"
+        else ADVENTURE_TURNS_DEFAULT
+    )
+    assert prompt["max_turns"] == expected_budget
 
 
 @pytest.mark.asyncio

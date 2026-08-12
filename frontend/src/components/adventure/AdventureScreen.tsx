@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router-dom";
 import type {
+  AdventureInputKind,
   AdventureNarrationVoice,
   AdventurePreset,
   AdventureStatus,
@@ -16,10 +17,17 @@ import {
   useTimedProgress,
 } from "../../hooks/useTimedProgress";
 import { useTransparentImage } from "../../hooks/useTransparentImage";
-import type { AnlasBalance, GalleryItem, GallerySession } from "../../types";
+import type {
+  AnlasBalance,
+  Character,
+  GalleryItem,
+  GallerySession,
+} from "../../types";
 import { API_BASE } from "../../utils/api";
 import ImagePreviewModal from "../ImagePreviewModal";
 import MainLayout from "../layout/MainLayout";
+import AdventureAttributeModal from "./AdventureAttributeModal";
+import AdventureGiftShopModal from "./AdventureGiftShopModal";
 import AdventureImagePromptModal from "./AdventureImagePromptModal";
 import "./AdventureScreen.css";
 
@@ -28,6 +36,7 @@ const PRESETS: AdventurePreset[] = [
   "escape",
   "negotiation",
   "disguise",
+  "romance",
 ];
 
 function mediaUrl(url: string): string {
@@ -40,6 +49,18 @@ const LAST_INSTRUCTION_PREVIEW_LEN = 24;
 const DEFAULT_MAX_TURNS = 15;
 const MIN_MAX_TURNS = 5;
 const MAX_MAX_TURNS = 30;
+
+// 恋愛シミュレーションの日数。backend/gateway/consts/adventure_romance.py と揃える。
+// 1日=昼夜2ターンなので scenario_max_turns には日数×2 を送る
+const ROMANCE_DEFAULT_DAYS = 7;
+const ROMANCE_MIN_DAYS = 5;
+const ROMANCE_MAX_DAYS = 15;
+const ROMANCE_DAY_OPTIONS = Array.from(
+  { length: ROMANCE_MAX_DAYS - ROMANCE_MIN_DAYS + 1 },
+  (_, index) => ROMANCE_MIN_DAYS + index,
+);
+// romance の主人公既定キャラクター。backend/gateway/consts/adventure_romance.py と揃える
+const ROMANCE_DEFAULT_PLAYER_ID = "char1";
 
 function clampMaxTurns(value: number): number {
   if (!Number.isFinite(value)) return DEFAULT_MAX_TURNS;
@@ -83,6 +104,8 @@ type AdventureSetupPrefs = {
   narrationVoice: AdventureNarrationVoice;
   narrationPronoun: string;
   enableCompositeScene: boolean;
+  /** romance の主人公(自分)。選択したら次回作成時にも引き継ぐ */
+  romancePlayerCharacterId: string;
 };
 
 function readSetupPrefs(): Partial<AdventureSetupPrefs> {
@@ -211,6 +234,8 @@ function AdventureHub() {
   const [scenarioMaxTurns, setScenarioMaxTurns] = useState(
     String(DEFAULT_MAX_TURNS),
   );
+  // romance はターン数入力の代わりに日数セレクトを使う
+  const [romanceDays, setRomanceDays] = useState(ROMANCE_DEFAULT_DAYS);
   const [detailsOpen, setDetailsOpen] = useState(false);
   // localStorageの読み出しは初回マウント時の一度だけに限定する
   const [savedSetupPrefs] = useState(readSetupPrefs);
@@ -235,19 +260,45 @@ function AdventureHub() {
       ? savedSetupPrefs.enableCompositeScene
       : settingsState.adventureEnableCompositeScene,
   );
+  // romance の主人公(自分)。既定は男性キャラ、選択したら次回にも保存する
+  const [romancePlayerId, setRomancePlayerId] = useState(() => {
+    const saved = savedSetupPrefs.romancePlayerCharacterId;
+    return typeof saved === "string" && saved.trim()
+      ? saved
+      : ROMANCE_DEFAULT_PLAYER_ID;
+  });
+  const [playerCharacters, setPlayerCharacters] = useState<Character[]>([]);
 
   useEffect(() => {
     const prefs: AdventureSetupPrefs = {
       narrationVoice,
       narrationPronoun: narrationPronoun.trim() || DEFAULT_NARRATION_PRONOUN,
       enableCompositeScene,
+      romancePlayerCharacterId: romancePlayerId,
     };
     try {
       localStorage.setItem(SETUP_PREFS_STORAGE_KEY, JSON.stringify(prefs));
     } catch {
       // プライベートモード等で保存できなくてもフォーム操作は継続する
     }
-  }, [narrationVoice, narrationPronoun, enableCompositeScene]);
+  }, [narrationVoice, narrationPronoun, enableCompositeScene, romancePlayerId]);
+
+  // 主人公候補は romance を選んだときだけ読み込む
+  useEffect(() => {
+    if (preset !== "romance" || playerCharacters.length > 0) return;
+    let cancelled = false;
+    void fetch(`${API_BASE}/game/characters`)
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: { characters?: Character[] } | null) => {
+        if (!cancelled && data?.characters) {
+          setPlayerCharacters(data.characters);
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [preset, playerCharacters.length]);
 
   useEffect(() => {
     void loadRuns();
@@ -320,6 +371,12 @@ function AdventureHub() {
     [sortedRuns, runFilter],
   );
 
+  // romance はリプレイ非対応（sim を再構築できない）ため導線から除外する
+  const replayableRuns = useMemo(
+    () => runs.filter((run) => run.preset !== "romance"),
+    [runs],
+  );
+
   useEffect(() => {
     if (!scenarioPickerOpen) return;
     const closeOnEscape = (event: KeyboardEvent) => {
@@ -339,6 +396,9 @@ function AdventureHub() {
   const effectiveMaxTurns = clampMaxTurns(
     Number.parseInt(scenarioMaxTurns, 10),
   );
+  // romance は日数×2 をターン予算として送る
+  const effectiveScenarioTurns =
+    preset === "romance" ? romanceDays * 2 : effectiveMaxTurns;
 
   const openScenarioPicker = () => {
     setScenarioPickerTab(selectedReplayRunId ? "played" : "authored");
@@ -351,7 +411,7 @@ function AdventureHub() {
         source_session_id: sourceSessionId,
         source_history_id: sourceHistoryId,
         preset,
-        scenario_max_turns: effectiveMaxTurns,
+        scenario_max_turns: effectiveScenarioTurns,
       });
       setScenarioSetting(generated.setting);
       setScenarioObjective(generated.objective);
@@ -394,12 +454,16 @@ function AdventureHub() {
         scenario_template_id: authoredTemplate?.id,
         replay_run_id: selectedReplayRun?.id,
         scenario_max_turns:
-          startMode === "generated" ? effectiveMaxTurns : undefined,
+          startMode === "generated" ? effectiveScenarioTurns : undefined,
         narration_voice: narrationVoice,
         narration_pronoun: narrationPronoun.trim() || DEFAULT_NARRATION_PRONOUN,
         use_precise_reference: usePreciseReference,
         enable_composite_scene: enableCompositeScene,
         respect_clothing_layers: settingsState.respectClothingLayers,
+        romance_player_character_id:
+          startMode === "generated" && preset === "romance"
+            ? romancePlayerId
+            : undefined,
       });
       navigate(`/adventure/${run.id}`);
     } catch {
@@ -585,29 +649,82 @@ function AdventureHub() {
               <div className="adventure-setup-generator">
                 {/* ヒントは label の外に出す。label 内に入れると入力の
                     アクセシブル名にヒント全文が混ざる */}
-                <label className="adventure-setup-turns">
-                  <span className="adventure-setup-turns__label">
-                    {t("adventure.maxTurns")}
-                  </span>
-                  <input
-                    type="number"
-                    inputMode="numeric"
-                    min={MIN_MAX_TURNS}
-                    max={MAX_MAX_TURNS}
-                    step={1}
-                    value={scenarioMaxTurns}
-                    disabled={setupGenerating || loading || creating}
-                    onChange={(event) =>
-                      setScenarioMaxTurns(event.target.value)
-                    }
-                    onBlur={() =>
-                      setScenarioMaxTurns(String(effectiveMaxTurns))
-                    }
-                  />
-                  <span className="adventure-setup-turns__unit">
-                    {t("adventure.maxTurnsUnit")}
-                  </span>
-                </label>
+                {preset === "romance" ? (
+                  <>
+                    <label className="adventure-setup-turns">
+                      <span className="adventure-setup-turns__label">
+                        {t("adventure.romance.days")}
+                      </span>
+                      <select
+                        value={romanceDays}
+                        disabled={setupGenerating || loading || creating}
+                        onChange={(event) =>
+                          setRomanceDays(Number(event.target.value))
+                        }
+                      >
+                        {ROMANCE_DAY_OPTIONS.map((days) => (
+                          <option key={days} value={days}>
+                            {days}
+                          </option>
+                        ))}
+                      </select>
+                      <span className="adventure-setup-turns__unit">
+                        {t("adventure.romance.daysUnit")}
+                      </span>
+                    </label>
+                    <label
+                      className="adventure-setup-turns"
+                      title={t("adventure.romance.playerHint")}
+                    >
+                      <span className="adventure-setup-turns__label">
+                        {t("adventure.romance.player")}
+                      </span>
+                      <select
+                        value={romancePlayerId}
+                        disabled={setupGenerating || loading || creating}
+                        onChange={(event) =>
+                          setRomancePlayerId(event.target.value)
+                        }
+                      >
+                        {playerCharacters.length === 0 ? (
+                          <option value={romancePlayerId}>
+                            {t("adventure.romance.playerLoading")}
+                          </option>
+                        ) : (
+                          playerCharacters.map((character) => (
+                            <option key={character.id} value={character.id}>
+                              {character.name}
+                            </option>
+                          ))
+                        )}
+                      </select>
+                    </label>
+                  </>
+                ) : (
+                  <label className="adventure-setup-turns">
+                    <span className="adventure-setup-turns__label">
+                      {t("adventure.maxTurns")}
+                    </span>
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      min={MIN_MAX_TURNS}
+                      max={MAX_MAX_TURNS}
+                      step={1}
+                      value={scenarioMaxTurns}
+                      disabled={setupGenerating || loading || creating}
+                      onChange={(event) =>
+                        setScenarioMaxTurns(event.target.value)
+                      }
+                      onBlur={() =>
+                        setScenarioMaxTurns(String(effectiveMaxTurns))
+                      }
+                    />
+                    <span className="adventure-setup-turns__unit">
+                      {t("adventure.maxTurnsUnit")}
+                    </span>
+                  </label>
+                )}
                 <button
                   type="button"
                   disabled={!sourceSessionId || setupGenerating || loading}
@@ -622,10 +739,15 @@ function AdventureHub() {
                     : t("adventure.generateSetup")}
                 </button>
                 <small className="adventure-setup-turns__hint">
-                  {t("adventure.maxTurnsHint", {
-                    min: MIN_MAX_TURNS,
-                    max: MAX_MAX_TURNS,
-                  })}
+                  {preset === "romance"
+                    ? t("adventure.romance.daysHint", {
+                        min: ROMANCE_MIN_DAYS,
+                        max: ROMANCE_MAX_DAYS,
+                      })
+                    : t("adventure.maxTurnsHint", {
+                        min: MIN_MAX_TURNS,
+                        max: MAX_MAX_TURNS,
+                      })}
                 </small>
               </div>
 
@@ -1009,12 +1131,12 @@ function AdventureHub() {
                     </button>
                   ))
                 )
-              ) : runs.length === 0 ? (
+              ) : replayableRuns.length === 0 ? (
                 <p className="adventure-empty">
                   {t("adventure.noPlayedScenarios")}
                 </p>
               ) : (
-                runs.map((run) => (
+                replayableRuns.map((run) => (
                   <button
                     type="button"
                     key={run.id}
@@ -1115,6 +1237,9 @@ function AdventurePlay({ runId }: { runId: string }) {
     "scene" | "background" | "portrait"
   >("scene");
   const [promptModalOpen, setPromptModalOpen] = useState(false);
+  // romance 専用モーダル（ギフトショップ・属性付与）
+  const [giftShopOpen, setGiftShopOpen] = useState(false);
+  const [attributeModalOpen, setAttributeModalOpen] = useState(false);
   const [imageSettingsOpen, setImageSettingsOpen] = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [logOpen, setLogOpen] = useState(false);
@@ -1261,7 +1386,11 @@ function AdventurePlay({ runId }: { runId: string }) {
   }, [frames.length]);
 
   const submit = useCallback(
-    (value: string, kind: "choice" | "free_text" | "reality_alter") => {
+    (
+      value: string,
+      kind: AdventureInputKind,
+      options?: { giftId?: string },
+    ) => {
       const trimmed = value.trim();
       if (!trimmed || streaming || activeRun?.status !== "active") return;
       setInput("");
@@ -1270,7 +1399,7 @@ function AdventurePlay({ runId }: { runId: string }) {
         kind === "free_text" && REALITY_DECLARATION_PATTERN.test(trimmed)
           ? "reality_alter"
           : kind;
-      void submitTurn(trimmed, effectiveKind);
+      void submitTurn(trimmed, effectiveKind, options);
     },
     [activeRun?.status, streaming, submitTurn],
   );
@@ -1481,8 +1610,11 @@ function AdventurePlay({ runId }: { runId: string }) {
     (choice) => choice.label.trim().length > 0,
   );
   const completedMilestones = new Set(activeRun.completed_milestones);
-  // 「現実改変：〜」で宣言され、以降の判定に効いている世界ルール
+  // 「現実改変：〜」で宣言され、以降の判定に効いている世界ルール。
+  // romance では「付与した属性」として表示する
   const realityRules = activeRun.reality_rules ?? [];
+  // romance の公開シミュ状態。他プリセットでは null
+  const sim = activeRun.preset === "romance" ? (activeRun.sim ?? null) : null;
   const cast = activeRun.visual_state?.main_characters ?? [];
   const resultImageUrl = isCompositeMode
     ? (activeRun.current_image_url ?? activeRun.portrait_image_url)
@@ -1506,7 +1638,9 @@ function AdventurePlay({ runId }: { runId: string }) {
         )}
 
         <div className="adventure-play__body">
-          <div className="adventure-hud">
+          <div
+            className={`adventure-hud${sim ? " adventure-hud--romance" : ""}`}
+          >
             <button
               type="button"
               className="adventure-hud__back"
@@ -1529,19 +1663,73 @@ function AdventurePlay({ runId }: { runId: string }) {
               </span>
             )}
             <div className="adventure-hud__metrics">
-              <div
-                className="adventure-hud__turns"
-                title={t("adventure.remaining")}
-              >
-                <span>{t("adventure.remaining")}</span>
-                <strong>
-                  {activeRun.remaining_turns}
-                  <i>/{activeRun.max_turns}</i>
-                </strong>
-                <span className="adventure-hud__gauge" aria-hidden>
-                  <i style={{ width: `${turnRatio}%` }} />
-                </span>
-              </div>
+              {sim ? (
+                <div
+                  className="adventure-hud__turns adventure-hud__turns--romance"
+                  title={t("adventure.romance.dayCounterHint")}
+                >
+                  <span>
+                    {t("adventure.romance.dayCounter", {
+                      day: sim.day,
+                      total: sim.total_days,
+                    })}
+                  </span>
+                  <strong className={`adventure-hud__slot is-${sim.slot}`}>
+                    {t(`adventure.romance.slot.${sim.slot}`)}
+                  </strong>
+                  <span className="adventure-hud__gauge" aria-hidden>
+                    <i style={{ width: `${turnRatio}%` }} />
+                  </span>
+                </div>
+              ) : (
+                <div
+                  className="adventure-hud__turns"
+                  title={t("adventure.remaining")}
+                >
+                  <span>{t("adventure.remaining")}</span>
+                  <strong>
+                    {activeRun.remaining_turns}
+                    <i>/{activeRun.max_turns}</i>
+                  </strong>
+                  <span className="adventure-hud__gauge" aria-hidden>
+                    <i style={{ width: `${turnRatio}%` }} />
+                  </span>
+                </div>
+              )}
+              {sim && (
+                <>
+                  <div
+                    className={`adventure-hud__turns adventure-hud__affection is-${sim.stage}`}
+                    title={t(`adventure.romance.stages.${sim.stage}`)}
+                  >
+                    <span>{t("adventure.romance.affection")}</span>
+                    <strong>
+                      <svg
+                        className="adventure-hud__heart"
+                        viewBox="0 0 24 24"
+                        aria-hidden
+                      >
+                        <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
+                      </svg>
+                      {sim.affection}
+                      <i>/100</i>
+                    </strong>
+                    <span className="adventure-hud__gauge" aria-hidden>
+                      <i style={{ width: `${sim.affection}%` }} />
+                    </span>
+                    <em className="adventure-hud__stage">
+                      {t(`adventure.romance.stages.${sim.stage}`)}
+                    </em>
+                  </div>
+                  <div
+                    className="adventure-hud__anlas adventure-hud__money"
+                    title={t("adventure.romance.money")}
+                  >
+                    <span>{t("adventure.romance.money")}</span>
+                    <strong>{sim.money.toLocaleString()}</strong>
+                  </div>
+                </>
+              )}
               {activeRun.use_precise_reference && anlasBalance && (
                 <div
                   className="adventure-hud__anlas"
@@ -1583,7 +1771,9 @@ function AdventurePlay({ runId }: { runId: string }) {
                   )
                 }
               >
-                <span>{t("adventure.clues")}</span>
+                <span>
+                  {t(sim ? "adventure.romance.hints" : "adventure.clues")}
+                </span>
                 <strong>{activeRun.clues.length}</strong>
               </button>
               {realityRules.length > 0 && (
@@ -1597,7 +1787,13 @@ function AdventurePlay({ runId }: { runId: string }) {
                     )
                   }
                 >
-                  <span>{t("adventure.realityRules")}</span>
+                  <span>
+                    {t(
+                      sim
+                        ? "adventure.romance.grantedAttributes"
+                        : "adventure.realityRules",
+                    )}
+                  </span>
                   <strong>{realityRules.length}</strong>
                 </button>
               )}
@@ -1648,7 +1844,11 @@ function AdventurePlay({ runId }: { runId: string }) {
                 ) : hudPanel === "realityRules" ? (
                   <>
                     <p className="adventure-hud__note">
-                      {t("adventure.realityRulesHint")}
+                      {t(
+                        sim
+                          ? "adventure.romance.grantedAttributesHint"
+                          : "adventure.realityRulesHint",
+                      )}
                     </p>
                     <ul className="adventure-hud__clues">
                       {realityRules.map((rule) => (
@@ -1688,7 +1888,9 @@ function AdventurePlay({ runId }: { runId: string }) {
                 aria-label={t("adventure.protagonist")}
               >
                 <div className="adventure-protagonist-dock__head">
-                  <strong>{t("adventure.protagonist")}</strong>
+                  <strong>
+                    {sim?.player_name || t("adventure.protagonist")}
+                  </strong>
                   <button
                     type="button"
                     className="adventure-protagonist-dock__close"
@@ -1867,7 +2069,9 @@ function AdventurePlay({ runId }: { runId: string }) {
           {messageWindowHidden && (
             <button
               type="button"
-              className="adventure-window-restore"
+              className={`adventure-window-restore${
+                sim ? " adventure-window-restore--romance" : ""
+              }`}
               onClick={() => setMessageWindowHidden(false)}
               title={t("adventure.window.showHint")}
             >
@@ -1877,8 +2081,8 @@ function AdventurePlay({ runId }: { runId: string }) {
 
           <section
             className={`adventure-messagebox${
-              messageWindowHidden ? " is-hidden" : ""
-            }`}
+              sim ? " adventure-messagebox--romance" : ""
+            }${messageWindowHidden ? " is-hidden" : ""}`}
             aria-live="polite"
             inert={messageWindowHidden}
           >
@@ -1964,6 +2168,64 @@ function AdventurePlay({ runId }: { runId: string }) {
                   <p className="adventure-choices__empty">
                     {t("adventure.emptyChoices")}
                   </p>
+                )}
+
+                {/* romance 専用の行動ボタン行。どの行動も1スロット消費する */}
+                {sim && (
+                  <div className="adventure-romance-actions">
+                    <button
+                      type="button"
+                      disabled={streaming}
+                      title={t("adventure.romance.workHint", {
+                        job: sim.job.name,
+                        wage: sim.job.wage.toLocaleString(),
+                      })}
+                      onClick={() =>
+                        submit(
+                          t("adventure.romance.workAction", {
+                            job: sim.job.name,
+                          }),
+                          "work",
+                        )
+                      }
+                    >
+                      {t("adventure.romance.workButton")}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={streaming}
+                      title={t("adventure.romance.giftHint")}
+                      onClick={() => setGiftShopOpen(true)}
+                    >
+                      {t("adventure.romance.giftButton")}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={streaming}
+                      title={t("adventure.romance.attributeHint")}
+                      onClick={() => setAttributeModalOpen(true)}
+                    >
+                      {t("adventure.romance.attributeButton")}
+                    </button>
+                    {sim.confession_available && (
+                      <button
+                        type="button"
+                        className="is-confess"
+                        disabled={streaming}
+                        title={t("adventure.romance.confessHint")}
+                        onClick={() =>
+                          submit(
+                            t("adventure.romance.confessAction", {
+                              name: sim.partner_name,
+                            }),
+                            "confess",
+                          )
+                        }
+                      >
+                        {t("adventure.romance.confessButton")}
+                      </button>
+                    )}
+                  </div>
                 )}
 
                 {/* 自由入力は既定の操作なので常設。streaming中も入力自体は許可し
@@ -2319,6 +2581,16 @@ function AdventurePlay({ runId }: { runId: string }) {
           setPromptModalOpen(false);
           void regenerateImage(options);
         }}
+      />
+
+      <AdventureGiftShopModal
+        isOpen={giftShopOpen}
+        onClose={() => setGiftShopOpen(false)}
+      />
+
+      <AdventureAttributeModal
+        isOpen={attributeModalOpen}
+        onClose={() => setAttributeModalOpen(false)}
       />
     </MainLayout>
   );

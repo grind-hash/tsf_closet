@@ -9,6 +9,7 @@ import {
 import {
   type AdventureCreateRequest,
   type AdventureImageRegenerateOptions,
+  type AdventureInputKind,
   type AdventureRun,
   type AdventureSetup,
   type AdventureSetupRequest,
@@ -57,7 +58,8 @@ interface AdventureContextValue {
   removeRun: (runId: string) => Promise<void>;
   submitTurn: (
     input: string,
-    inputKind: "choice" | "free_text" | "reality_alter",
+    inputKind: AdventureInputKind,
+    options?: { giftId?: string },
   ) => Promise<void>;
   regenerateImage: (options?: AdventureImageRegenerateOptions) => Promise<void>;
   regenerateChoices: () => Promise<void>;
@@ -174,7 +176,8 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
   const submitTurn = useCallback(
     async (
       input: string,
-      inputKind: "choice" | "free_text" | "reality_alter",
+      inputKind: AdventureInputKind,
+      options?: { giftId?: string },
     ) => {
       if (!activeRun || streaming) return;
       const runId = activeRun.id;
@@ -191,6 +194,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
             client_turn_id: crypto.randomUUID(),
             user_input: input,
             input_kind: inputKind,
+            ...(options?.giftId ? { gift_id: options.giftId } : {}),
           },
           (event) => {
             if (event.type === "status") {
@@ -229,6 +233,9 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
                       ending_title: turn.ending_title ?? current.ending_title,
                       ending_summary:
                         turn.ending_summary ?? current.ending_summary,
+                      // romance の好感度ゲージはターン確定と同時に動かす。
+                      // 最終整合はストリーム後の run 全再取得が担う
+                      sim: turn.sim ?? current.sim,
                     }
                   : current,
               );

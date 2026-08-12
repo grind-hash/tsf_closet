@@ -100,6 +100,8 @@ components/
   adventure/
     AdventureScreen.tsx       セットアップ、Run、ターン履歴、画像
     AdventureImagePromptModal.tsx
+    AdventureGiftShopModal.tsx    romance のギフト購入（gift_id 送信）
+    AdventureAttributeModal.tsx   romance の属性付与（現実改変プレフィックス組み立て）
 
   gallery/
     GalleryScreen.tsx         セッション/履歴/お気に入り表示と検索

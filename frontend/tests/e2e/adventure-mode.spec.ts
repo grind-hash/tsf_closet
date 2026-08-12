@@ -1,8 +1,11 @@
+import { fileURLToPath } from "node:url";
 import { expect, type Page, test } from "@playwright/test";
 
 const IMAGE = "/mock-scene.png";
-const IMAGE_PATH =
-  "C:\\source\\tech_study2026\\tsf_closet_base\\backend\\images\\characters\\char1_v2.png";
+// リポジトリ内の実画像を参照する（絶対パス固定だと他環境で ENOENT になる）
+const IMAGE_PATH = fileURLToPath(
+  new URL("../../../backend/images/characters/char1_v2.png", import.meta.url),
+);
 
 function runPayload(turnCount = 0) {
   const hasTurn = turnCount > 0;

@@ -4,8 +4,17 @@ export type AdventurePreset =
   | "infiltration"
   | "escape"
   | "negotiation"
-  | "disguise";
+  | "disguise"
+  | "romance";
 export type AdventureStatus = "active" | "success" | "partial" | "failure";
+/** gift / work / confess は romance プリセット専用の行動 */
+export type AdventureInputKind =
+  | "choice"
+  | "free_text"
+  | "reality_alter"
+  | "gift"
+  | "work"
+  | "confess";
 /** 物語の語りの人称。second_person が従来どおりの既定 */
 export type AdventureNarrationVoice =
   | "second_person"
@@ -43,6 +52,34 @@ export interface AdventureImagePrompt {
   npc_tags: string[];
 }
 
+export type AdventureGiftTier = "budget" | "standard" | "luxury";
+
+export interface AdventureGift {
+  id: string;
+  name: string;
+  price: number;
+  tier: AdventureGiftTier;
+}
+
+/** romance の公開状態。隠し好みはサーバ側で除外済み */
+export interface AdventureSim {
+  total_days: number;
+  /** 次に行動する日。1始まり */
+  day: number;
+  slot: "day" | "night";
+  affection: number;
+  stage: "stranger" | "friend" | "aware" | "mutual";
+  money: number;
+  partner_name: string;
+  /** 主人公(自分)。導入前の旧 run では未定義 */
+  player_name?: string;
+  player_character_id?: string;
+  job: { name: string; wage: number };
+  gift_catalog: AdventureGift[];
+  given_gift_ids: string[];
+  confession_available: boolean;
+}
+
 export interface AdventureImageRegenerateOptions extends AdventureImagePrompt {
   redraw_from_reference: boolean;
 }
@@ -52,7 +89,7 @@ export interface AdventureTurn {
   turn_number: number;
   client_turn_id: string;
   user_input: string;
-  input_kind: "choice" | "free_text" | "reality_alter";
+  input_kind: AdventureInputKind;
   narrative: string;
   /** このターン時点の現在地。旧ターンでは null */
   location: string | null;
@@ -70,6 +107,8 @@ export interface AdventureTurn {
   visual_state?: AdventureVisualState | null;
   ending_title?: string | null;
   ending_summary?: string | null;
+  /** romance のみ。ターン確定時点の公開シミュ状態 */
+  sim?: AdventureSim | null;
 }
 
 export interface AdventureRun {
@@ -116,6 +155,8 @@ export interface AdventureRun {
   portrait_image_url: string | null;
   /** 開始時ポートレート（ターンストリップの先頭用） */
   opening_portrait_url: string | null;
+  /** romance のみ。他プリセットでは未定義 */
+  sim?: AdventureSim | null;
   turns: AdventureTurn[];
   created_at: string | null;
   updated_at: string | null;
@@ -164,6 +205,8 @@ export interface AdventureCreateRequest extends AdventureSetupRequest {
   narration_voice?: AdventureNarrationVoice;
   /** first_person のときだけ使う。未指定なら「僕」 */
   narration_pronoun?: string;
+  /** romance の主人公テンプレートキャラクター。未指定なら既定(char1) */
+  romance_player_character_id?: string;
 }
 
 export interface AdventureSettingsUpdateRequest {
@@ -200,6 +243,7 @@ function normalizeRun(run: AdventureRun): AdventureRun {
     // 旧runやモック応答にキーが無くても表示側が undefined を掴まないようにする
     narration_voice: run.narration_voice ?? "second_person",
     narration_pronoun: run.narration_pronoun || "僕",
+    sim: run.sim ?? null,
     current_image_url: withApiBase(run.current_image_url) ?? "",
     opening_image_url:
       withApiBase(run.opening_image_url) ??
@@ -317,7 +361,9 @@ export async function streamAdventureTurn(
   body: {
     client_turn_id: string;
     user_input: string;
-    input_kind: "choice" | "free_text" | "reality_alter";
+    input_kind: AdventureInputKind;
+    /** romance のプレゼント贈呈時のみ指定する */
+    gift_id?: string;
   },
   onEvent: (event: AdventureStreamEvent) => void,
 ): Promise<void> {

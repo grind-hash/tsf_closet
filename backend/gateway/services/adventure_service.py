@@ -34,6 +34,11 @@ from ..consts.adventure_narration import (
     NARRATION_VOICE_DEFAULT,
     NARRATION_VOICES,
 )
+from ..consts.adventure_romance import (
+    ROMANCE_MILESTONES,
+    ROMANCE_PLAYER_DEFAULT_CHARACTER_ID,
+    ROMANCE_SLOTS_PER_DAY,
+)
 from ..consts.adventure_turns import (
     ADVENTURE_TURNS_DEFAULT,
     ADVENTURE_TURNS_MAX,
@@ -41,8 +46,9 @@ from ..consts.adventure_turns import (
 )
 from ..databases.base import async_session_factory
 from ..databases.models import AdventureRun, AdventureTurn
-from ..settings.config import settings
+from ..settings.config import BASE_DIR, settings
 from .character_service import extract_protagonist_tags_from_history
+from .characters import character_manager
 from .clothing_layers import (
     CLOTHING_LAYER_COVERED_NEGATIVE,
     merge_negative_prompt,
@@ -51,6 +57,19 @@ from .clothing_layers import (
     split_tag_tokens,
 )
 from .image_generation import image_service
+from .adventure_romance import (
+    ROMANCE_NARRATIVE_GUIDANCE,
+    ROMANCE_RESOLUTION_GUIDANCE,
+    ROMANCE_VISUAL_GUIDANCE,
+    RomanceActionError,
+    RomanceSetupOutput,
+    apply_romance_outcome,
+    clamp_romance_max_turns,
+    init_romance_state,
+    public_sim_view,
+    resolve_romance_action,
+    romance_setup_system_prompt,
+)
 from .adventure_template_loader import SCENARIO_TEMPLATES, template_localized
 from .llm_service import llm_service
 from .session import DEFAULT_USER_ID, session_store
@@ -377,6 +396,38 @@ class AdventureResolutionOutput(BaseModel):
             else item
             for item in value
         ]
+
+
+class AdventureRomanceResolutionOutput(AdventureResolutionOutput):
+    """romance ターン用。好感度と好み書換の機械可読フィールドを追加する。
+
+    affection_set と updated_*_gift_ids は reality_alter ターンでのみ
+    Python 側が採用する。適用規則は adventure_romance.apply_romance_outcome。
+    """
+
+    affection_delta: int = Field(default=0, ge=-20, le=20)
+    affection_set: int | None = Field(default=None, ge=0, le=100)
+    updated_liked_gift_ids: list[str] = Field(default_factory=list, max_length=12)
+    updated_disliked_gift_ids: list[str] = Field(default_factory=list, max_length=12)
+
+    @field_validator("affection_delta", mode="before")
+    @classmethod
+    def clamp_affection_delta(cls, value: Any) -> Any:
+        # LLM の過大値で検証エラー→修復リトライへ落ちないよう先にクランプする
+        try:
+            return max(-20, min(20, int(value)))
+        except (TypeError, ValueError):
+            return 0
+
+    @field_validator("affection_set", mode="before")
+    @classmethod
+    def clamp_affection_set(cls, value: Any) -> Any:
+        if value is None:
+            return None
+        try:
+            return max(0, min(100, int(value)))
+        except (TypeError, ValueError):
+            return None
 
 
 class AdventureVisualOutput(AdventureImagePromptOutput):
@@ -972,7 +1023,37 @@ PRESETS: dict[str, dict[str, Any]] = {
             {"id": "pass_as_identity", "label": "疑念を招かず目的を達成する"},
         ],
     },
+    "romance": {
+        "title": "恋愛シミュレーション",
+        "objective": "期限の日までに想いを通わせ、交際を始める",
+        "guidance": (
+            "特定の相手との好感度育成シミュレーション。1日は昼と夜の2枠で進み、"
+            "romance_resolution が示す日付・時間帯・金銭・バイト・プレゼント・"
+            "告白の結果を確定事実として描写する。相手の言動は関係段階に応じて"
+            "温度を変え、プレイヤー自身の感情や同意は決めつけない。恋愛的な"
+            "進展は相手の主体的な反応として描き、金額や数値は本文へ書かない。"
+        ),
+        "milestones": ROMANCE_MILESTONES,
+    },
 }
+
+
+# 既定エンディング文言。ending_title 未設定時のフォールバックに使う
+_MISSION_ENDING_TITLES: dict[str, str] = {
+    "success": "目的達成",
+    "partial": "部分達成",
+    "failure": "ミッション失敗",
+}
+_ROMANCE_ENDING_TITLES: dict[str, str] = {
+    "success": "交際成立",
+    "partial": "想いは届きかけた",
+    "failure": "恋は実らなかった",
+}
+
+
+def _default_ending_title(preset: str, status: str) -> str | None:
+    titles = _ROMANCE_ENDING_TITLES if preset == "romance" else _MISSION_ENDING_TITLES
+    return titles.get(status)
 
 
 _EQUIPMENT_WEAR_PATTERN = re.compile(
@@ -1409,9 +1490,12 @@ class AdventureService:
         *,
         narration_voice: str = NARRATION_VOICE_DEFAULT,
         narration_pronoun: str = NARRATION_PRONOUN_DEFAULT,
+        romance: bool = False,
     ) -> str:
         response_language = "Japanese" if language == "ja" else "English"
         voice_rule = _narration_voice_instruction(narration_voice, narration_pronoun)
+        if romance:
+            voice_rule = f"{ROMANCE_NARRATIVE_GUIDANCE}\n{voice_rule}"
         return f"""You are the director of a short objective-based adventure game.
 Return one JSON object only, in {response_language}, matching this schema:
 {{"narrative":"...","choices":[{{"id":"...","label":"..."}},{{"id":"...","label":"..."}},{{"id":"...","label":"..."}}],"discovered_clues":[],"completed_milestones":[],"visual_state":{{"location":"...","appearance":"...","clothing":"...","surroundings":"...","main_characters":[{{"name":"...","description":"...","clothing":"...","action":"..."}}]}},"ending_status":"continue|success|partial|failure","ending_title":null,"ending_summary":null}}
@@ -1428,11 +1512,13 @@ Keep narrative under 800 characters and the entire JSON response compact. Never 
         fallback_appearance: str = "",
         narration_voice: str = NARRATION_VOICE_DEFAULT,
         narration_pronoun: str = NARRATION_PRONOUN_DEFAULT,
+        romance: bool = False,
     ) -> AdventureDirectorOutput:
         system_prompt = self._director_system_prompt(
             language,
             narration_voice=narration_voice,
             narration_pronoun=narration_pronoun,
+            romance=romance,
         )
         raw = await llm_service.generate_text(
             system_prompt,
@@ -1490,9 +1576,12 @@ Return JSON only and keep the entire response under 1200 characters. Do not repe
         *,
         narration_voice: str = NARRATION_VOICE_DEFAULT,
         narration_pronoun: str = NARRATION_PRONOUN_DEFAULT,
+        romance: bool = False,
     ) -> str:
         response_language = "Japanese" if language == "ja" else "English"
         voice_rule = _narration_voice_instruction(narration_voice, narration_pronoun)
+        if romance:
+            voice_rule = f"{ROMANCE_NARRATIVE_GUIDANCE}\n{voice_rule}"
         return f"""You are the director of a short objective-based adventure game.
 Write only the narrative for the next scene, as plain prose in {response_language}. Do not output JSON, markdown, headings, choices, labels, or commentary.
 Keep the narrative under 800 characters. Never decide the player's feelings, consent, past wishes, bodily sensations, or voluntary actions unless the player's input explicitly states them. If the player's action objectively makes the mission impossible to continue, narrate a concise failure ending instead of refusing or truncating. Describe observable events and NPC actions. Do not introduce an unrequested body transformation. Never grant the player another person's memories, personal knowledge, relationships, habits, skills, credentials, passwords, or authentication information unless the supplied source facts explicitly state them. A copied appearance or name does not imply copied memory or competence. Treat state.appearance_lock and required_visual_appearance as an immutable identity signature, and never change the player's hair color, hair length, hairstyle, eye color, or body features unless scenario_guidance or authored_template_resolution explicitly allows and triggers that change. Clothing may be offered, found, or discussed, but the player only puts on, removes, or changes clothing when their input explicitly chooses that action. Unless the input explicitly requests layering, a new garment replaces the previous outfit instead of being worn over it. If the source snapshot explicitly establishes a transformed sex or body, it may create practical disguise or role opportunities without inventing further changes. When authored_template_resolution is provided, treat it as authoritative and never narrate a score, transformation, unlocked exit, or ending beyond its event.
@@ -1505,6 +1594,7 @@ Keep the narrative under 800 characters. Never decide the player's feelings, con
         *,
         narration_voice: str = NARRATION_VOICE_DEFAULT,
         narration_pronoun: str = NARRATION_PRONOUN_DEFAULT,
+        romance: bool = False,
     ) -> str:
         response_language = "Japanese" if language == "ja" else "English"
         # 選択肢ラベルは行動フレーズなので、人称を載せない旨を併記する
@@ -1513,6 +1603,8 @@ Keep the narrative under 800 characters. Never decide the player's feelings, con
             + " choices[].label must remain a short neutral action phrase with no "
             "narration voice, no pronoun, and no first-person or second-person subject."
         )
+        if romance:
+            voice_rule = f"{ROMANCE_RESOLUTION_GUIDANCE}\n{voice_rule}"
         return f"""You resolve the mechanical outcome of one adventure turn that has already been narrated.
 Return one JSON object only, in {response_language}, matching this schema:
 {{"choices":[{{"id":"...","label":"..."}},{{"id":"...","label":"..."}},{{"id":"...","label":"..."}}],"discovered_clues":[],"completed_milestones":[],"ending_status":"continue|success|partial|failure","ending_title":null,"ending_summary":null}}
@@ -1521,17 +1613,22 @@ Base every value strictly on the supplied narrative and game state, and never in
 {voice_rule}"""
 
     def _visual_system_prompt(
-        self, language: str, *, respect_clothing_layers: bool = False
+        self,
+        language: str,
+        *,
+        respect_clothing_layers: bool = False,
+        romance: bool = False,
     ) -> str:
         response_language = "Japanese" if language == "ja" else "English"
         layer_rule = _CLOTHING_LAYER_TAG_RULE if respect_clothing_layers else ""
+        romance_rule = f"\n{ROMANCE_VISUAL_GUIDANCE}" if romance else ""
         return f"""You update the visual state of an adventure scene and convert it into NovelAI image tags.
 Return one JSON object only, matching this schema:
 {{"visual_state":{{"location":"...","appearance":"...","clothing":"...","surroundings":"...","main_characters":[{{"name":"...","description":"...","clothing":"...","action":"..."}}]}},"scene_tags":"...","player_tags":"...","npc_tags":["..."]}}
 Write visual_state values in {response_language}. Write scene_tags, player_tags, and npc_tags as concise English comma-separated tags.
 Derive visual_state from previous_visual_state, changing only what the narrative states. Treat required_visual_appearance as an immutable identity signature: copy its hair color, hair length, hairstyle, eye color, and body features exactly into visual_state.appearance, and never replace or supplement those traits unless authored_template_resolution explicitly triggers that change. The player only puts on, removes, or changes clothing when player_input explicitly chose that action; otherwise keep previous_visual_state.clothing unchanged. Unless layering was explicitly requested, a new garment replaces the previous outfit. Keep visual_state concrete enough to illustrate the main characters, their clothing, and the surrounding location. main_characters contains NPCs, never the player.
 When previous_image_tags is provided, treat it as the wording a human editor deliberately chose: reuse its scene_tags, player_tags, and npc_tags as the starting point and edit them only where visual_state or the narrative now requires a change, preserving the rest of the original wording and phrasing style. When previous_image_tags is absent, write the tags from scratch.
-scene_tags contains only environment, camera, composition, lighting, and the observable interaction; it must not contain any character's gender, body, face, hair, or clothing. player_tags describes only the player from visual_state.appearance and visual_state.clothing. The player is always the primary subject in the center foreground. visual_state.clothing is authoritative and must never be replaced with an NPC outfit. npc_tags must contain one entry per NPC in main_characters, in the same order, describing only that NPC; every NPC is a secondary subject placed to the side or behind the player. Never merge player and NPC attributes. Do not add text, UI, split panels, or unstated changes. When authored_scene_tags is provided, reuse those environment tags as the base of scene_tags and only append concrete changes required by the narrative. When authored_visual_style is provided, keep visual_state.location and visual_state.surroundings aligned with it unless the narrative explicitly moves the scene to a new place after a successful exit.{layer_rule}"""
+scene_tags contains only environment, camera, composition, lighting, and the observable interaction; it must not contain any character's gender, body, face, hair, or clothing. player_tags describes only the player from visual_state.appearance and visual_state.clothing. The player is always the primary subject in the center foreground. visual_state.clothing is authoritative and must never be replaced with an NPC outfit. npc_tags must contain one entry per NPC in main_characters, in the same order, describing only that NPC; every NPC is a secondary subject placed to the side or behind the player. Never merge player and NPC attributes. Do not add text, UI, split panels, or unstated changes. When authored_scene_tags is provided, reuse those environment tags as the base of scene_tags and only append concrete changes required by the narrative. When authored_visual_style is provided, keep visual_state.location and visual_state.surroundings aligned with it unless the narrative explicitly moves the scene to a new place after a successful exit.{layer_rule}{romance_rule}"""
 
     async def _generate_structured_output(
         self,
@@ -1586,13 +1683,15 @@ scene_tags contains only environment, camera, composition, lighting, and the obs
         text_model: str,
         narration_voice: str = NARRATION_VOICE_DEFAULT,
         narration_pronoun: str = NARRATION_PRONOUN_DEFAULT,
+        romance: bool = False,
     ) -> AdventureResolutionOutput:
         return await self._generate_structured_output(
-            AdventureResolutionOutput,
+            AdventureRomanceResolutionOutput if romance else AdventureResolutionOutput,
             system_prompt=self._resolution_system_prompt(
                 language,
                 narration_voice=narration_voice,
                 narration_pronoun=narration_pronoun,
+                romance=romance,
             ),
             user_prompt=json.dumps(
                 {**turn_context, "narrative": narrative}, ensure_ascii=False
@@ -1617,13 +1716,16 @@ scene_tags contains only environment, camera, composition, lighting, and the obs
         text_model: str,
         previous_image_tags: dict[str, Any] | None = None,
         respect_clothing_layers: bool = False,
+        romance: bool = False,
     ) -> AdventureVisualOutput:
         authored_scene_tags = str(turn_context.get("authored_scene_tags") or "").strip()
         authored_visual_style = turn_context.get("authored_visual_style")
         visual_output = await self._generate_structured_output(
             AdventureVisualOutput,
             system_prompt=self._visual_system_prompt(
-                language, respect_clothing_layers=respect_clothing_layers
+                language,
+                respect_clothing_layers=respect_clothing_layers,
+                romance=romance,
             ),
             user_prompt=json.dumps(
                 {
@@ -1652,9 +1754,18 @@ scene_tags contains only environment, camera, composition, lighting, and the obs
         return visual_output
 
     def _setup_system_prompt(
-        self, language: str, max_turns: int = ADVENTURE_TURNS_DEFAULT
+        self,
+        language: str,
+        max_turns: int = ADVENTURE_TURNS_DEFAULT,
+        preset: str = "",
     ) -> str:
         response_language = "Japanese" if language == "ja" else "English"
+        if preset == "romance":
+            days = clamp_romance_max_turns(max_turns) // ROMANCE_SLOTS_PER_DAY
+            return f"""You design a concise setup for a {days}-day romance simulation in which the player aims to start dating one partner character.
+Return one JSON object only, in {response_language}, matching this schema:
+{{"setting":"...","objective":"...","constraints":["...","..."]}}
+The partner is the character shown in source_snapshot; keep their appearance and situation consistent with it. The player is a separate person courting that partner; never treat the snapshot character as the player. The setting describes where the player and the partner cross paths in daily life. The objective must name the partner and state that the player starts dating them within {days} days. Constraints must create romantic complications such as rivals, schedules, shyness, or circumstances, without dictating the player's feelings, consent, memories, bodily sensations, or voluntary actions. Do not introduce another body transformation or assign physical traits that conflict with source_snapshot.appearance."""
         turns = clamp_generated_max_turns(max_turns)
         return f"""You design a concise setup for a {turns}-turn objective-based adventure game.
 Return one JSON object only, in {response_language}, matching this schema:
@@ -1668,8 +1779,9 @@ The objective must name a concrete target and an observable end condition that c
         language: str,
         text_model: str,
         max_turns: int = ADVENTURE_TURNS_DEFAULT,
+        preset: str = "",
     ) -> AdventureSetupOutput:
-        system_prompt = self._setup_system_prompt(language, max_turns)
+        system_prompt = self._setup_system_prompt(language, max_turns, preset)
         raw = await llm_service.generate_text(
             system_prompt,
             prompt,
@@ -1717,7 +1829,11 @@ The objective must name a concrete target and an observable end condition that c
         preset_config = PRESETS.get(preset)
         if preset_config is None:
             raise AdventureError("invalid_preset", "シナリオ種別が不正です")
-        turn_budget = clamp_generated_max_turns(max_turns)
+        turn_budget = (
+            clamp_romance_max_turns(max_turns)
+            if preset == "romance"
+            else clamp_generated_max_turns(max_turns)
+        )
 
         snapshot, _, appearance, _ = await self._build_snapshot(
             source_session_id, source_history_id
@@ -1749,6 +1865,7 @@ The objective must name a concrete target and an observable end condition that c
             language=language,
             text_model=text_model,
             max_turns=turn_budget,
+            preset=preset,
         )
         return generated.model_dump()
 
@@ -1788,6 +1905,7 @@ The objective must name a concrete target and an observable end condition that c
         use_precise_reference: bool = False,
         enable_composite_scene: bool = False,
         respect_clothing_layers: bool = False,
+        romance_player_character_id: str | None = None,
     ) -> dict[str, Any]:
         narration_voice = normalize_narration_voice(narration_voice)
         narration_pronoun = normalize_narration_pronoun(narration_pronoun)
@@ -1801,6 +1919,12 @@ The objective must name a concrete target and an observable end condition that c
                 str(replay_template_id) if replay_template_id else None
             )
             preset = replay_run.preset
+            # リプレイ分岐は state を引き継がず sim を再構築できないため対象外
+            if preset == "romance":
+                raise AdventureError(
+                    "romance_replay_unsupported",
+                    "恋愛シミュレーションはもう一度遊ぶに対応していません",
+                )
         template = (
             SCENARIO_TEMPLATES.get(scenario_template_id)
             if scenario_template_id
@@ -1870,9 +1994,57 @@ The objective must name a concrete target and an observable end condition that c
             ]
             milestones = list(preset_config["milestones"])
             title = str(preset_config["title"])
-            max_turns = clamp_generated_max_turns(scenario_max_turns)
+            max_turns = (
+                clamp_romance_max_turns(scenario_max_turns)
+                if effective_preset == "romance"
+                else clamp_generated_max_turns(scenario_max_turns)
+            )
             scenario_guidance = str(preset_config["guidance"])
             opening_premise = ""
+
+        # 恋愛シミュレーションの相手・バイト・カタログ・隠し好みはサーバ側で
+        # 1回だけ生成する。/setup/generate のレスポンスには載せない
+        romance_setup: RomanceSetupOutput | None = None
+        romance_player = None
+        romance_partner_appearance = ""
+        if effective_preset == "romance":
+            player_id = (
+                str(romance_player_character_id or "").strip()
+                or ROMANCE_PLAYER_DEFAULT_CHARACTER_ID
+            )
+            romance_player = character_manager.get_by_id(player_id)
+            if romance_player is None:
+                raise AdventureError(
+                    "invalid_player_character", "主人公キャラクターが見つかりません"
+                )
+            romance_days = max_turns // ROMANCE_SLOTS_PER_DAY
+            romance_setup = await self._generate_structured_output(
+                RomanceSetupOutput,
+                system_prompt=romance_setup_system_prompt(language, romance_days),
+                user_prompt=json.dumps(
+                    {
+                        "task": "Design the romance simulation setup.",
+                        "days": romance_days,
+                        "setting": setting,
+                        "objective": objective,
+                        "constraints": constraints,
+                        "source_snapshot": snapshot,
+                        "player_name": romance_player.name,
+                    },
+                    ensure_ascii=False,
+                ),
+                text_model=text_model,
+                error_code="invalid_model_output",
+                error_message=(
+                    "恋愛シナリオの生成結果を解析できませんでした。"
+                    "もう一度お試しください"
+                ),
+            )
+            # 開始セッションの人物は攻略対象。主人公の開始画像と外見ロックは
+            # 選択したテンプレートキャラクターへ差し替える
+            romance_partner_appearance = appearance
+            appearance = str(romance_player.base_tags or romance_player.description)
+            source_image = BASE_DIR / romance_player.image_path
 
         start_state = template.get("start_state", {}) if template else {}
         visual_style = _template_visual_style(template)
@@ -1894,6 +2066,17 @@ The objective must name a concrete target and an observable end condition that c
                 "source_snapshot": snapshot,
                 "required_visual_appearance": appearance
                 or "Preserve the source image appearance",
+                # 開幕描写に相手と関係性を織り込む(隠し好みは渡さない)
+                "romance_setup": {
+                    "partner_name": romance_setup.partner_name,
+                    "partner_profile": romance_setup.partner_profile,
+                    "partner_appearance": romance_partner_appearance,
+                    "relationship_origin": romance_setup.relationship_origin,
+                    "job_name": romance_setup.job_name,
+                    "player_name": romance_player.name if romance_player else "",
+                }
+                if romance_setup is not None
+                else None,
             },
             ensure_ascii=False,
         )
@@ -1903,6 +2086,7 @@ The objective must name a concrete target and an observable end condition that c
             text_model=text_model,
             narration_voice=narration_voice,
             narration_pronoun=narration_pronoun,
+            romance=romance_setup is not None,
             fallback_appearance=appearance
             or str(snapshot.get("appearance") or "")
             or "Preserve the source image appearance",
@@ -1924,7 +2108,8 @@ The objective must name a concrete target and an observable end condition that c
             )
         else:
             starting_clothing = str(snapshot.get("clothing") or "")
-            if starting_clothing:
+            # romance のスナップショット服装は攻略対象のものなので主人公へは適用しない
+            if starting_clothing and romance_setup is None:
                 opening.visual_state.clothing = starting_clothing
         if visual_style:
             _apply_visual_style_to_state(opening.visual_state, visual_style, language)
@@ -1964,6 +2149,14 @@ The objective must name a concrete target and an observable end condition that c
             "narration_voice": narration_voice,
             "narration_pronoun": narration_pronoun,
         }
+        if romance_setup is not None:
+            state["sim"] = init_romance_state(
+                romance_setup,
+                max_turns,
+                partner_appearance=romance_partner_appearance,
+                player_name=romance_player.name if romance_player else "",
+                player_character_id=romance_player.id if romance_player else "",
+            )
         if authored_scene_tags:
             state["authored_scene_tags"] = authored_scene_tags
         if template:
@@ -2225,11 +2418,7 @@ The objective must name a concrete target and an observable end condition that c
         ending_title = output.ending_title
         ending_summary = output.ending_summary
         if status != "continue" and not ending_title:
-            ending_title = {
-                "success": "目的達成",
-                "partial": "部分達成",
-                "failure": "ミッション失敗",
-            }[status]
+            ending_title = _default_ending_title(run.preset, status)
         if status != "continue" and not ending_summary:
             ending_summary = output.narrative
         state["ending_summary"] = ending_summary
@@ -2804,11 +2993,7 @@ The objective must name a concrete target and an observable end condition that c
                 )
                 persisted.ending_title = output.ending_title or (
                     next_state.get("ending_summary")
-                    and {
-                        "success": "目的達成",
-                        "partial": "部分達成",
-                        "failure": "ミッション失敗",
-                    }.get(next_status)
+                    and _default_ending_title(run.preset, next_status)
                 )
                 persisted.ending_summary = next_state.get("ending_summary")
                 persisted.updated_at = datetime.now()
@@ -2826,12 +3011,8 @@ The objective must name a concrete target and an observable end condition that c
             result["visual_state"] = _sanitize_visual_state(
                 next_state.get("visual_state")
             )
-            result["ending_title"] = output.ending_title or (
-                {
-                    "success": "目的達成",
-                    "partial": "部分達成",
-                    "failure": "ミッション失敗",
-                }.get(next_status)
+            result["ending_title"] = output.ending_title or _default_ending_title(
+                run.preset, next_status
             )
             result["ending_summary"] = next_state.get("ending_summary")
             return result, visual_changed, clothing_changed
@@ -2843,6 +3024,7 @@ The objective must name a concrete target and an observable end condition that c
         client_turn_id: str,
         user_input: str,
         input_kind: str,
+        gift_id: str | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
         """ナラティブを逐次配信し、手がかり抽出と画像生成を並列実行する。"""
         async with self._run_locks[run_id]:
@@ -2873,6 +3055,26 @@ The objective must name a concrete target and an observable end condition that c
             scenario_guidance = PRESETS.get(run.preset, {}).get("guidance", "")
             if template:
                 scenario_guidance = f"{scenario_guidance} {template['guidance']}"
+            # romance はターンの機械的結果(金銭・採点・告白成否)を先に確定する。
+            # 資金不足などはターン未消費のままエラーで弾く
+            romance_sim = (
+                state.get("sim")
+                if run.preset == "romance" and isinstance(state.get("sim"), dict)
+                else None
+            )
+            romance_resolution: dict[str, Any] | None = None
+            if romance_sim is not None:
+                try:
+                    romance_resolution = resolve_romance_action(
+                        romance_sim,
+                        user_input=user_input,
+                        input_kind=input_kind,
+                        gift_id=gift_id,
+                        turn_number=run.turn_count + 1,
+                        total_turns=run.max_turns,
+                    )
+                except RomanceActionError as error:
+                    raise AdventureError(error.code, str(error)) from error
             previous_turns = [
                 {"user_input": item.user_input, "narrative": item.narrative}
                 for item in sorted(run.turns, key=lambda item: item.turn_number)
@@ -2898,6 +3100,8 @@ The objective must name a concrete target and an observable end condition that c
                 "reality_rule_declared_this_turn": declared_rule,
                 "required_visual_appearance": appearance_lock,
             }
+            if romance_resolution is not None:
+                turn_context["romance_resolution"] = romance_resolution
             visual_turn_context = {
                 **turn_context,
                 "authored_visual_style": _template_visual_style(template),
@@ -2913,6 +3117,7 @@ The objective must name a concrete target and an observable end condition that c
                     run.language,
                     narration_voice=narration_voice,
                     narration_pronoun=narration_pronoun,
+                    romance=romance_sim is not None,
                 ),
                 json.dumps(turn_context, ensure_ascii=False),
                 provider_override="novelai",
@@ -2964,6 +3169,7 @@ The objective must name a concrete target and an observable end condition that c
                         text_model=run.text_model,
                         narration_voice=narration_voice,
                         narration_pronoun=narration_pronoun,
+                        romance=romance_sim is not None,
                     )
                     await queue.put(("resolution", resolution))
                 except Exception as error:
@@ -2983,6 +3189,7 @@ The objective must name a concrete target and an observable end condition that c
                         respect_clothing_layers=bool(
                             state.get("respect_clothing_layers")
                         ),
+                        romance=romance_sim is not None,
                     )
                 except Exception as error:
                     logger.warning("Adventure visual generation failed: %s", error)
@@ -3227,6 +3434,9 @@ The objective must name a concrete target and an observable end condition that c
                 ending_title=resolution.ending_title,
                 ending_summary=resolution.ending_summary,
             )
+            if romance_resolution is not None:
+                # sim を更新し、milestone と ending_status を Python 算出値で上書き
+                apply_romance_outcome(state, output, romance_resolution, resolution)
             if template:
                 self._enforce_template_output(
                     template,
@@ -3289,11 +3499,7 @@ The objective must name a concrete target and an observable end condition that c
                 )
                 persisted.ending_title = output.ending_title or (
                     next_state.get("ending_summary")
-                    and {
-                        "success": "目的達成",
-                        "partial": "部分達成",
-                        "failure": "ミッション失敗",
-                    }.get(next_status)
+                    and _default_ending_title(run.preset, next_status)
                 )
                 persisted.ending_summary = next_state.get("ending_summary")
                 persisted.updated_at = datetime.now()
@@ -3311,14 +3517,14 @@ The objective must name a concrete target and an observable end condition that c
             result["visual_state"] = _sanitize_visual_state(
                 next_state.get("visual_state")
             )
-            result["ending_title"] = output.ending_title or (
-                {
-                    "success": "目的達成",
-                    "partial": "部分達成",
-                    "failure": "ミッション失敗",
-                }.get(next_status)
+            result["ending_title"] = output.ending_title or _default_ending_title(
+                run.preset, next_status
             )
             result["ending_summary"] = next_state.get("ending_summary")
+            if romance_resolution is not None:
+                sim_state = next_state.get("sim")
+                if isinstance(sim_state, dict):
+                    result["sim"] = public_sim_view(sim_state, turn_number)
 
             yield {"event": "turn", "data": result}
             if image_path is not None:
@@ -4138,6 +4344,10 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             "created_at": run.created_at.isoformat() if run.created_at else None,
             "updated_at": run.updated_at.isoformat() if run.updated_at else None,
         }
+        # romance の sim は hidden_preferences を除いた公開ビューだけ返す
+        sim_state = state.get("sim")
+        if run.preset == "romance" and isinstance(sim_state, dict):
+            response["sim"] = public_sim_view(sim_state, run.turn_count)
         if include_snapshot:
             response["snapshot"] = _json_load(run.snapshot_json, {})
         return response

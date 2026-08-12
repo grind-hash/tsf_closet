@@ -34,7 +34,7 @@ router = APIRouter(prefix="/adventure", tags=["Adventure"])
 class AdventureSetupGenerateRequest(BaseModel):
     source_session_id: str = Field(min_length=1)
     source_history_id: str | None = None
-    preset: Literal["infiltration", "escape", "negotiation", "disguise"]
+    preset: Literal["infiltration", "escape", "negotiation", "disguise", "romance"]
     # 自動生成のゴール文面は「N手以内に〜」という尺で書かれるため、
     # 案の生成時点でもターン予算を渡す
     scenario_max_turns: int = Field(
@@ -47,7 +47,7 @@ class AdventureSetupGenerateRequest(BaseModel):
 class AdventureCreateRequest(BaseModel):
     source_session_id: str = Field(min_length=1)
     source_history_id: str | None = None
-    preset: Literal["infiltration", "escape", "negotiation", "disguise"]
+    preset: Literal["infiltration", "escape", "negotiation", "disguise", "romance"]
     custom_setup: str = Field(default="", max_length=1000)
     scenario_setting: str = Field(default="", max_length=600)
     scenario_objective: str = Field(default="", max_length=600)
@@ -75,6 +75,8 @@ class AdventureCreateRequest(BaseModel):
     enable_composite_scene: bool = False
     # 衣装レイヤー考慮。ONなら外衣に覆われた下着を画像タグから除外する
     respect_clothing_layers: bool = False
+    # romance の主人公テンプレートキャラクター。未指定なら既定(char1)
+    romance_player_character_id: str | None = Field(default=None, max_length=40)
 
 
 class AdventureSettingsUpdateRequest(BaseModel):
@@ -87,8 +89,13 @@ class AdventureSettingsUpdateRequest(BaseModel):
 class AdventureTurnRequest(BaseModel):
     client_turn_id: str = Field(min_length=1, max_length=80)
     user_input: str = Field(min_length=1, max_length=1000)
-    # reality_alter はサーバ側で「現実改変：〜」を検出したときにも設定される
-    input_kind: Literal["choice", "free_text", "reality_alter"] = "free_text"
+    # reality_alter はサーバ側で「現実改変：〜」を検出したときにも設定される。
+    # gift / work / confess は romance プリセット専用の行動
+    input_kind: Literal[
+        "choice", "free_text", "reality_alter", "gift", "work", "confess"
+    ] = "free_text"
+    # romance のプレゼント購入で贈る品を機械可読 ID で指定する
+    gift_id: str | None = Field(default=None, max_length=40)
 
 
 class AdventureImageRequest(BaseModel):
@@ -146,6 +153,7 @@ async def create_run(request: AdventureCreateRequest) -> dict:
             use_precise_reference=request.use_precise_reference,
             enable_composite_scene=request.enable_composite_scene,
             respect_clothing_layers=request.respect_clothing_layers,
+            romance_player_character_id=request.romance_player_character_id,
         )
     except AdventureError as error:
         raise _http_error(error) from error
@@ -204,6 +212,7 @@ async def play_turn(run_id: str, request: AdventureTurnRequest) -> EventSourceRe
                 client_turn_id=request.client_turn_id,
                 user_input=request.user_input,
                 input_kind=request.input_kind,
+                gift_id=request.gift_id,
             ):
                 yield {
                     "event": event["event"],
