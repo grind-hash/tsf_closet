@@ -526,6 +526,7 @@ def _lean_state_for_llm(state: dict[str, Any]) -> dict[str, Any]:
         # romance の相手立ち絵まわりのファイルパスは LLM に不要
         "partner_image_path",
         "partner_portrait_path",
+        "opening_partner_portrait_path",
         # 人称指示はシステムプロンプト側に載るため、user prompt へは流さない
         "narration_voice",
         "narration_pronoun",
@@ -3454,6 +3455,7 @@ The objective must name a concrete target and an observable end condition that c
             resolution: AdventureResolutionOutput | None = None
             visual_output: AdventureVisualOutput | None = None
             portrait_path: Path | None = None
+            partner_sprite_path: Path | None = None
             image_path: Path | None = None
             failures: list[tuple[str, Exception]] = []
             resolution_done = False
@@ -3496,7 +3498,9 @@ The objective must name a concrete target and an observable end condition that c
                     elif kind == "portrait_skipped":
                         portrait_done = True
                     elif kind == "partner_portrait":
-                        # romance の攻略対象立ち絵(非合成モードのみ)
+                        # romance の攻略対象立ち絵(非合成モードのみ)。
+                        # 最終の state コミットが古いパスで上書きしないよう保持する
+                        partner_sprite_path = payload
                         yield {
                             "event": "partner_image",
                             "data": {
@@ -3605,6 +3609,10 @@ The objective must name a concrete target and an observable end condition that c
             )
             if visual_output is not None and portrait_path is not None:
                 next_state["last_image_prompt"] = _image_prompt_payload(visual_output)
+            # このターンで生成した攻略対象立ち絵を state と state_delta に反映する。
+            # 生成ヘルパのDB保存はこの後の全stateコミットで上書きされるため必須
+            if partner_sprite_path is not None:
+                next_state["partner_portrait_path"] = str(partner_sprite_path)
 
             if image_path is not None:
                 turn_image_path = str(image_path)
@@ -4316,6 +4324,9 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 raise AdventureError("run_not_found", "アドベンチャーが見つかりません")
             persisted_state = _json_load(persisted_run.state_json, {})
             persisted_state["partner_portrait_path"] = str(partner_path)
+            if turn_number == 0:
+                # 開幕フレーム表示用に、開幕時の1枚は別キーでも保持する
+                persisted_state["opening_partner_portrait_path"] = str(partner_path)
             persisted_run.state_json = json.dumps(persisted_state, ensure_ascii=False)
             persisted_run.updated_at = datetime.now()
             await db.commit()
@@ -4496,6 +4507,13 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             )
             note = str((partner_entry or {}).get("description") or "").strip()
             result["partner_note"] = note or None
+            # このターン確定時点の攻略対象立ち絵。過去フレーム表示に使う
+            partner_sprite = Path(str(state_delta.get("partner_portrait_path") or ""))
+            result["partner_portrait_url"] = (
+                self.image_url(turn.run_id, partner_sprite)
+                if partner_sprite.is_file()
+                else None
+            )
         return result
 
     async def update_run_settings(
@@ -4622,6 +4640,14 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             response["partner_portrait_url"] = (
                 self.image_url(run.id, partner_portrait)
                 if partner_portrait.is_file()
+                else None
+            )
+            opening_partner = Path(
+                str(state.get("opening_partner_portrait_path") or "")
+            )
+            response["opening_partner_portrait_url"] = (
+                self.image_url(run.id, opening_partner)
+                if opening_partner.is_file()
                 else None
             )
         if include_snapshot:

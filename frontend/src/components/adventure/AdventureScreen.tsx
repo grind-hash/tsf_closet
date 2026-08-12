@@ -1353,6 +1353,8 @@ interface AdventureStageFrame {
   sim: AdventureSim | null;
   /** romance のみ。この手番の攻略対象の様子 */
   partnerNote: string | null;
+  /** romance 非合成のみ。この手番時点の攻略対象の立ち絵(白背景の元画像) */
+  partnerUrl: string | null;
 }
 
 /** backend の romance_day_slot と同じ導出。奇数手番=昼、偶数手番=夜 */
@@ -1484,6 +1486,7 @@ function AdventurePlay({ runId }: { runId: string }) {
           location: null,
           sim: activeRun.opening_sim ?? null,
           partnerNote: null,
+          partnerUrl: null,
         });
       }
       for (const turn of activeRun.turns) {
@@ -1502,9 +1505,12 @@ function AdventurePlay({ runId }: { runId: string }) {
           location: turn.location,
           sim: turn.sim ?? null,
           partnerNote: turn.partner_note ?? null,
+          partnerUrl: null,
         });
       }
     } else {
+      // 攻略対象の立ち絵は生成失敗ターンで欠けうるため、直前の1枚を引き継ぐ
+      let lastPartnerUrl = activeRun.opening_partner_portrait_url ?? null;
       if (activeRun.opening_portrait_url) {
         list.push({
           key: "opening",
@@ -1520,10 +1526,12 @@ function AdventurePlay({ runId }: { runId: string }) {
           location: null,
           sim: activeRun.opening_sim ?? null,
           partnerNote: null,
+          partnerUrl: lastPartnerUrl,
         });
       }
       for (const turn of activeRun.turns) {
         if (!turn.portrait_image_url) continue;
+        lastPartnerUrl = turn.partner_portrait_url ?? lastPartnerUrl;
         list.push({
           key: turn.id,
           turnNumber: turn.turn_number,
@@ -1538,6 +1546,7 @@ function AdventurePlay({ runId }: { runId: string }) {
           location: turn.location,
           sim: turn.sim ?? null,
           partnerNote: turn.partner_note ?? null,
+          partnerUrl: lastPartnerUrl,
         });
       }
     }
@@ -1632,11 +1641,15 @@ function AdventurePlay({ runId }: { runId: string }) {
     true,
     PORTRAIT_ALPHA_OPTIONS,
   );
-  // romance 非合成モードの攻略対象立ち絵。常に最新の1枚だけを表示する
-  const { url: transparentPartnerUrl } = useTransparentImage(
+  // romance 非合成モードの攻略対象立ち絵。過去フレーム閲覧中はその手番の1枚を表示する
+  const stagePartnerSource =
     activeRun?.preset === "romance" && !activeRun?.enable_composite_scene
-      ? (activeRun?.partner_portrait_url ?? null)
-      : null,
+      ? selectedFrameIndex !== null
+        ? (frames[selectedFrameIndex]?.partnerUrl ?? null)
+        : (activeRun?.partner_portrait_url ?? null)
+      : null;
+  const { url: transparentPartnerUrl } = useTransparentImage(
+    stagePartnerSource,
     true,
     PORTRAIT_ALPHA_OPTIONS,
   );
@@ -1669,12 +1682,9 @@ function AdventurePlay({ runId }: { runId: string }) {
       : null;
   const canShowBackground = Boolean(lightboxFrame?.backgroundUrl);
   const canShowPortrait = Boolean(lightboxFrame?.portraitUrl);
-  // romance: 攻略対象の立ち絵は最新1枚のみ保持のため、最新フレームでだけ切替可能
+  // romance: そのフレーム時点の攻略対象立ち絵があれば過去手番でも切替可能
   const canShowPartner =
-    activeRun?.preset === "romance" &&
-    Boolean(activeRun?.partner_portrait_url) &&
-    lightboxIndex !== null &&
-    lightboxIndex === frames.length - 1;
+    activeRun?.preset === "romance" && Boolean(lightboxFrame?.partnerUrl);
   // 非合成モードのシーン表示は、ステージと同じく背景に白抜きの立ち絵を重ねる
   const needsComposite =
     lightboxView === "scene" &&
@@ -1684,6 +1694,11 @@ function AdventurePlay({ runId }: { runId: string }) {
   // 同一 src なら utils/imageAlpha のモジュールキャッシュに当たるため追加コストは無い。
   const { url: lightboxPortraitUrl } = useTransparentImage(
     needsComposite ? lightboxFrame?.portraitUrl : null,
+    true,
+    PORTRAIT_ALPHA_OPTIONS,
+  );
+  const { url: lightboxPartnerUrl } = useTransparentImage(
+    needsComposite && canShowPartner ? lightboxFrame?.partnerUrl : null,
     true,
     PORTRAIT_ALPHA_OPTIONS,
   );
@@ -1788,7 +1803,7 @@ function AdventurePlay({ runId }: { runId: string }) {
 
   const lightboxImageUrl =
     lightboxView === "partner"
-      ? (activeRun?.partner_portrait_url ?? null)
+      ? (lightboxFrame?.partnerUrl ?? null)
       : lightboxView === "portrait"
         ? (lightboxFrame?.portraitUrl ?? null)
         : lightboxView === "background"
@@ -2165,7 +2180,7 @@ function AdventurePlay({ runId }: { runId: string }) {
                 <img
                   key={displayedPortraitUrl}
                   className={`adventure-stage__portrait${
-                    transparentPartnerUrl && !isViewingPast
+                    transparentPartnerUrl
                       ? " adventure-stage__portrait--paired"
                       : ""
                   }`}
@@ -2173,7 +2188,7 @@ function AdventurePlay({ runId }: { runId: string }) {
                   alt={t("adventure.portraitAlt")}
                 />
               )}
-              {transparentPartnerUrl && !isViewingPast && (
+              {transparentPartnerUrl && (
                 <img
                   key={transparentPartnerUrl}
                   className="adventure-stage__portrait adventure-stage__portrait--partner"
@@ -2700,7 +2715,7 @@ function AdventurePlay({ runId }: { runId: string }) {
               {lightboxPortraitUrl && (
                 <img
                   className={`adventure-scene-preview__portrait${
-                    canShowPartner && transparentPartnerUrl
+                    lightboxPartnerUrl
                       ? " adventure-scene-preview__portrait--paired"
                       : ""
                   }`}
@@ -2708,10 +2723,10 @@ function AdventurePlay({ runId }: { runId: string }) {
                   alt={t("adventure.portraitAlt")}
                 />
               )}
-              {canShowPartner && transparentPartnerUrl && (
+              {lightboxPartnerUrl && (
                 <img
                   className="adventure-scene-preview__portrait adventure-scene-preview__portrait--partner"
-                  src={transparentPartnerUrl}
+                  src={lightboxPartnerUrl}
                   alt={t("adventure.romance.partnerPortraitAlt")}
                 />
               )}

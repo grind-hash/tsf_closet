@@ -1419,10 +1419,13 @@ def make_serializable_turn(state_delta: dict) -> SimpleNamespace:
     )
 
 
-def test_serialize_turn_exposes_romance_sim_and_partner_note() -> None:
+def test_serialize_turn_exposes_romance_sim_and_partner_note(tmp_path) -> None:
     service = AdventureService()
+    partner_file = tmp_path / "partner-1-abcd1234.png"
+    partner_file.write_bytes(b"png")
     turn = make_serializable_turn(
         {
+            "partner_portrait_path": str(partner_file),
             "visual_state": {
                 "location": "ロビーカフェ",
                 "appearance": "主人公の姿",
@@ -1460,6 +1463,10 @@ def test_serialize_turn_exposes_romance_sim_and_partner_note() -> None:
     assert payload["sim"]["stage"] == "stranger"
     assert "hidden_preferences" not in payload["sim"]
     assert payload["partner_note"] == "グラスを受け取り微笑んでいる"
+    # ターン確定時点の攻略対象立ち絵URL(過去フレーム表示用)
+    assert payload["partner_portrait_url"] == (
+        f"/adventure/images/run-1/{partner_file.name}"
+    )
 
 
 def test_serialize_turn_omits_sim_for_mission_turns() -> None:
@@ -1480,8 +1487,10 @@ def test_serialize_turn_omits_sim_for_mission_turns() -> None:
     assert "partner_note" not in payload
 
 
-def test_serialize_run_includes_romance_opening_sim() -> None:
+def test_serialize_run_includes_romance_opening_sim(tmp_path) -> None:
     service = AdventureService()
+    opening_partner_file = tmp_path / "partner-0-abcd1234.png"
+    opening_partner_file.write_bytes(b"png")
     run = SimpleNamespace(
         id="run-romance",
         source_session_id=None,
@@ -1505,6 +1514,7 @@ def test_serialize_run_includes_romance_opening_sim() -> None:
             {
                 "opening_narrative": "書店で出会った。",
                 "opening_image_path": "initial.png",
+                "opening_partner_portrait_path": str(opening_partner_file),
                 "choices": [
                     {"id": "a", "label": "話しかける"},
                     {"id": "b", "label": "本棚を眺める"},
@@ -1542,6 +1552,10 @@ def test_serialize_run_includes_romance_opening_sim() -> None:
     assert payload["opening_sim"]["slot"] == "day"
     assert payload["opening_sim"]["given_gift_ids"] == []
     assert "hidden_preferences" not in payload["opening_sim"]
+    # 開幕フレーム表示用の攻略対象立ち絵URL
+    assert payload["opening_partner_portrait_url"] == (
+        f"/adventure/images/run-romance/{opening_partner_file.name}"
+    )
 
 
 def test_serialize_run_repairs_blank_choice_labels() -> None:

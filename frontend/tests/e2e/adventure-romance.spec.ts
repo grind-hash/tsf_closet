@@ -77,6 +77,7 @@ function romanceRunPayload(
     portrait_image_url: IMAGE,
     opening_portrait_url: IMAGE,
     partner_portrait_url: "/mock-partner.png",
+    opening_partner_portrait_url: "/mock-partner.png",
     visual_state: {
       location: "商店街の書店",
       appearance: "制服姿の主人公",
@@ -123,6 +124,9 @@ async function mockRomanceApis(
     await route.fulfill({ path: IMAGE_PATH, contentType: "image/png" });
   });
   await page.route("**/api/mock-partner.png", async (route) => {
+    await route.fulfill({ path: IMAGE_PATH, contentType: "image/png" });
+  });
+  await page.route("**/api/mock-partner-turn.png", async (route) => {
     await route.fulfill({ path: IMAGE_PATH, contentType: "image/png" });
   });
   await page.route("**/api/gallery/sessions?*", async (route) => {
@@ -304,6 +308,8 @@ test("start a romance run with day select and show the romance HUD", async ({
 test("show heroine info in the romance turn detail modal", async ({ page }) => {
   await enableAdventure(page);
   const runWithTurn = romanceRunPayload(2, {
+    // 最新の攻略対象立ち絵はターン2で更新された1枚
+    partner_portrait_url: "/mock-partner-turn.png",
     turns: [
       {
         id: "turn-1",
@@ -326,6 +332,7 @@ test("show heroine info in the romance turn detail modal", async ({ page }) => {
         // ターン確定時点の公開シミュ状態（run GET の turns に載る）
         sim: simPayload({ day: 2, slot: "day", affection: 13 }),
         partner_note: "グラスを受け取り、口元に微笑みを浮かべている",
+        partner_portrait_url: "/mock-partner-turn.png",
       },
     ],
   });
@@ -348,8 +355,20 @@ test("show heroine info in the romance turn detail modal", async ({ page }) => {
   // 手番は Day 表記になる: 手番2 = Day1 夜
   await expect(modal.getByText("Day 1/7 夜（2/14手）")).toBeVisible();
 
-  // 切替チップから相手の立ち絵ビューへ移動できる（最新フレームのみ）
+  // 切替チップから、この手番時点の相手の立ち絵ビューへ移動できる
   const partnerChip = modal.getByRole("button", { name: "攻略対象" });
+  await expect(partnerChip).toBeVisible();
+  await partnerChip.click();
+  await expect(modal.locator(".image-preview-modal__image")).toHaveAttribute(
+    "src",
+    /mock-partner-turn\.png/,
+  );
+
+  // 開幕フレームでも開始時点(好感度10)のカードと開幕時の立ち絵を表示する
+  await page.locator(".image-preview-modal__nav--prev").click();
+  await expect(modal.getByText("開始", { exact: true })).toBeVisible();
+  await expect(modal.getByText("美咲", { exact: true })).toBeVisible();
+  await expect(modal.getByText("10/100")).toBeVisible();
   await expect(partnerChip).toBeVisible();
   await partnerChip.click();
   await expect(modal.locator(".image-preview-modal__image")).toHaveAttribute(
@@ -357,13 +376,12 @@ test("show heroine info in the romance turn detail modal", async ({ page }) => {
     /mock-partner\.png/,
   );
 
-  // 開幕フレームでも開始時点(好感度10)のカードを表示する。
-  // 立ち絵は最新1枚のみ保持のため、過去フレームではチップが消える
-  await page.locator(".image-preview-modal__nav--prev").click();
-  await expect(partnerChip).toBeHidden();
-  await expect(modal.getByText("開始", { exact: true })).toBeVisible();
-  await expect(modal.getByText("美咲", { exact: true })).toBeVisible();
-  await expect(modal.getByText("10/100")).toBeVisible();
+  // ステージでも過去フレーム選択中に攻略対象の立ち絵が消えない
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "ログ" }).click();
+  await page.getByAltText("手番 0 の場面").click();
+  await expect(page.getByText("過去の場面を表示中")).toBeVisible();
+  await expect(page.getByAltText("攻略対象の立ち絵")).toBeVisible();
 });
 
 test("player can be a transformed state from a session", async ({ page }) => {
