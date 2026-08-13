@@ -576,8 +576,37 @@ def _lean_state_for_llm(state: dict[str, Any]) -> dict[str, Any]:
         # 人称指示はシステムプロンプト側に載るため、user prompt へは流さない
         "narration_voice",
         "narration_pronoun",
+        # 直前の選択肢を state ごと渡すと LLM がそのまま書き写し、
+        # 選択肢が更新されない。必要な分は previous_choices として別に渡す
+        "choices",
     }
     return {key: value for key, value in state.items() if key not in omit}
+
+
+def _previous_choice_labels(state: dict[str, Any]) -> list[str]:
+    """直前ターンで提示済みの選択肢ラベルを返す(重複回避の指示用)。"""
+    labels: list[str] = []
+    for item in state.get("choices", []) or []:
+        normalized = _choice_as_dict(item)
+        if normalized is None:
+            continue
+        label = str(normalized.get("label") or "").strip()
+        if label:
+            labels.append(label[:160])
+    return labels
+
+
+def _choice_label_key(choices: Any) -> tuple[str, ...]:
+    """選択肢の同一性判定に使う正規化ラベル列。空白と表記ゆれを吸収する。"""
+    keys: list[str] = []
+    for item in choices or []:
+        normalized = _choice_as_dict(item)
+        if normalized is None:
+            continue
+        label = re.sub(r"\s+", "", str(normalized.get("label") or ""))
+        if label:
+            keys.append(label)
+    return tuple(sorted(keys))
 
 
 def _image_tags_changed(
@@ -1079,6 +1108,9 @@ PRESETS: dict[str, dict[str, Any]] = {
         "objective": "期限の日までに想いを通わせ、交際を始める",
         "guidance": (
             "特定の相手との好感度育成シミュレーション。1日は昼と夜の2枠で進み、"
+            "1回の入力は半日分の場面(昼枠=朝〜夕方、夜枠=夕方〜就寝前)として、"
+            "入力をきっかけに半日を共に過ごす一連の流れへ膨らませて描く。"
+            "場面の締めでは次の枠へ向かう時間の気配を軽く示す。"
             "romance_resolution が示す日付・時間帯・金銭・バイト・プレゼント・"
             "告白の結果を確定事実として描写する。相手の言動は関係段階に応じて"
             "温度を変え、プレイヤー自身の感情や同意は決めつけない。恋愛的な"
@@ -1158,6 +1190,48 @@ def _romance_partner_visual_entry(
             tags = npc_tags[index] if index < len(npc_tags) else ""
             return entry, tags
     return None, ""
+
+
+def _romance_partner_scene_reference(
+    state: dict[str, Any], image_prompt: AdventureImagePromptOutput
+) -> dict[str, Any] | None:
+    """合成シーン用に攻略対象の character reference を組み立てる。
+
+    romance で攻略対象がシーンの NPC として描かれるターンだけ返す。登場しない
+    ターンに渡すと無関係な参照が絵を引っ張るため付けない。参照は開始素材の
+    画像で、服装は変化し得るため常に弱参照にする。API には参照とキャラ枠を
+    紐付ける手段が無く、どの人物へ効くかはモデルの照合に任せる。
+    """
+    sim_state = state.get("sim")
+    if not isinstance(sim_state, dict):
+        return None
+    reference_path = Path(str(state.get("partner_image_path") or ""))
+    if not reference_path.is_file():
+        return None
+    # ターン中は state_json が永続化前で古いため、visual_state を持つ
+    # prompt_override(AdventureVisualOutput)があればそちらを優先する
+    visual_state = getattr(image_prompt, "visual_state", None)
+    main_characters = (
+        list(visual_state.main_characters)
+        if visual_state is not None
+        else list(state.get("visual_state", {}).get("main_characters") or [])
+    )
+    _entry, partner_tags = _romance_partner_visual_entry(
+        main_characters,
+        list(image_prompt.npc_tags),
+        str(sim_state.get("partner_name") or ""),
+    )
+    if not partner_tags:
+        return None
+    strength, fidelity = _character_reference_strength(
+        outfit_changed=True, has_fresh_portrait=False
+    )
+    return {
+        "image": reference_path.read_bytes(),
+        "type": "character",
+        "strength": strength,
+        "fidelity": fidelity,
+    }
 
 
 _GENDER_TAG_PATTERN = re.compile(
@@ -1404,6 +1478,17 @@ _CHOICES_PERSPECTIVE_INSTRUCTION = (
 )
 
 
+# 直前の選択肢の焼き直しを禁じる。previous_choices は「避けるべき既出案」
+_CHOICES_FRESHNESS_INSTRUCTION = (
+    "previous_choices lists the options that were already offered to the player "
+    "before this turn. Write three options for the situation the narrative has "
+    "just reached: never reuse a previous_choices label, its wording, or a "
+    "paraphrase of it, and never re-offer the action the player has just taken. "
+    "If the scene barely moved, still propose different concrete approaches "
+    "rather than repeating the earlier list."
+)
+
+
 # 人称を切り替えても、同意・主体性のガードは弱めない。どの人称でも同じ文を添える。
 _NARRATION_VOICE_GUARD = (
     "Choosing this grammatical person changes only the grammatical subject and "
@@ -1647,6 +1732,7 @@ Return one JSON object only, in {response_language}, matching this schema:
 {{"narrative":"...","choices":[{{"id":"...","label":"..."}},{{"id":"...","label":"..."}},{{"id":"...","label":"..."}}],"discovered_clues":[],"completed_milestones":[],"visual_state":{{"location":"...","appearance":"...","clothing":"...","surroundings":"...","main_characters":[{{"name":"...","description":"...","clothing":"...","action":"..."}}]}},"ending_status":"continue|success|partial|failure","ending_title":null,"ending_summary":null}}
 Keep narrative under 800 characters and the entire JSON response compact. Never decide the player's feelings, consent, past wishes, bodily sensations, or voluntary actions unless the player's input explicitly states them. If the player's action objectively makes the mission impossible to continue, return a concise failure ending instead of refusing, truncating, or leaving the JSON incomplete. Describe observable events and NPC actions. Do not introduce an unrequested body transformation. Never grant the player another person's memories, personal knowledge, relationships, habits, skills, credentials, passwords, or authentication information unless the supplied source facts explicitly state them. A copied appearance or name does not imply copied memory or competence. Treat source_snapshot.appearance and required_visual_appearance as an immutable identity signature. Copy its sex, hair color, hair length, hairstyle, eye color, and body features exactly into visual_state.appearance; never replace or supplement those traits. Do not change the player's physical appearance unless scenario_capabilities or authored_template_resolution explicitly allows and triggers that change. Clothing may be offered, found, or discussed, but the player only puts on, removes, or changes clothing when their input explicitly chooses that action. When the player explicitly chooses to put on clothing, visual_state.clothing must show that garment as currently worn in the same turn. Unless the input explicitly requests layering, the new garment replaces the previous outfit instead of being worn over it. If the source snapshot explicitly establishes a transformed sex or body, it may create practical disguise or role opportunities without inventing further changes. Keep visual_state concrete enough to illustrate the main characters, their clothing, and the surrounding location. When authored_visual_style is provided, set visual_state.location and visual_state.surroundings from it and never describe the room as a basement, locker room, warehouse, or cold industrial cell. completed_milestones must contain milestone ID strings only, never objects. Complete milestones only when the narrated action actually earns them. When authored_template_resolution is provided, treat it as authoritative and never narrate a score, transformation, unlocked exit, or ending beyond its event.
 {_CHOICES_PERSPECTIVE_INSTRUCTION}
+{_CHOICES_FRESHNESS_INSTRUCTION}
 {_REALITY_RULES_INSTRUCTION}
 {voice_rule}"""
 
@@ -1757,6 +1843,7 @@ Return one JSON object only, in {response_language}, matching this schema:
 {{"choices":[{{"id":"...","label":"..."}},{{"id":"...","label":"..."}},{{"id":"...","label":"..."}}],"discovered_clues":[],"completed_milestones":[],"ending_status":"continue|success|partial|failure","ending_title":null,"ending_summary":null}}
 Base every value strictly on the supplied narrative and game state, and never invent events the narrative does not contain. choices must offer exactly three distinct actions the player could take next. discovered_clues must contain only new information the narrative actually revealed, and must not repeat state.clues. completed_milestones must contain milestone ID strings only, never objects, and only when the narrated action actually earns them. Keep ending_status as continue unless the narrative itself concludes the mission, and fill ending_title and ending_summary only in that case. Never decide the player's feelings, consent, or voluntary actions. When authored_template_resolution is provided, treat it as authoritative and never report a score, transformation, or ending beyond its event. Keep the entire response compact.
 {_CHOICES_PERSPECTIVE_INSTRUCTION}
+{_CHOICES_FRESHNESS_INSTRUCTION}
 {_REALITY_RULES_INSTRUCTION}
 {voice_rule}"""
 
@@ -1852,6 +1939,65 @@ scene_tags contains only environment, camera, composition, lighting, and the obs
                 "language": language,
             },
         )
+
+    async def _generate_fresh_choices(
+        self,
+        *,
+        narrative: str,
+        turn_context: dict[str, Any],
+        run: AdventureRun,
+        narration_voice: str,
+        narration_pronoun: str,
+        previous_choice_key: tuple[str, ...],
+        romance_sim: dict[str, Any] | None = None,
+    ) -> list[dict[str, str]]:
+        """再生成専用。既出と同一の3択が返ったら1回だけ引き直す。
+
+        選択肢の再生成はユーザーが「今の3択を変えたい」と押す操作なので、
+        同じ内容を返すと操作が空振りになる。往復は最大2回までに抑える。
+        romance では専用ボタンと重複する案をターン処理と同じ規則で落とす。
+        """
+        attempts = 2 if previous_choice_key else 1
+        choices: list[dict[str, str]] = []
+        for attempt in range(attempts):
+            resolution = await self._generate_resolution_output(
+                narrative=narrative,
+                turn_context=turn_context,
+                language=run.language,
+                text_model=run.text_model,
+                narration_voice=narration_voice,
+                narration_pronoun=narration_pronoun,
+                romance=romance_sim is not None,
+            )
+            choices = _sanitize_choices(
+                [choice.model_dump() for choice in resolution.choices],
+                language=run.language,
+                source="regenerate_choices.resolution",
+            )
+            if romance_sim is not None:
+                # 重複除去は既出判定より前に行う。除去後に既出と同じ3択へ
+                # 収束することがあり、その場合も引き直しの対象にする
+                choices = strip_duplicate_action_choices(
+                    choices, romance_sim, run.language
+                )
+            if _choice_label_key(choices) != previous_choice_key:
+                return choices
+            logger.warning(
+                "Adventure choice regeneration returned the previous choices: "
+                "run_id=%s attempt=%s labels=%s",
+                run.id,
+                attempt + 1,
+                _choices_preview(choices),
+            )
+            # 既出案を明示して引き直す。turn_context は呼び出し元と共有しない
+            turn_context = {
+                **turn_context,
+                "task": (
+                    "Regenerate next player choices only. The previous attempt "
+                    "repeated previous_choices verbatim; produce different ones."
+                ),
+            }
+        return choices
 
     async def _generate_visual_output(
         self,
@@ -2251,6 +2397,8 @@ The objective must name a concrete target and an observable end condition that c
                     "relationship_origin": romance_setup.relationship_origin,
                     "job_name": romance_setup.job_name,
                     "player_name": romance_player_name,
+                    "total_days": max_turns // ROMANCE_SLOTS_PER_DAY,
+                    "opening_slot": {"day": 1, "slot": "day"},
                 }
                 if romance_setup is not None
                 else None,
@@ -2479,6 +2627,17 @@ The objective must name a concrete target and an observable end condition that c
                     or state.get("visual_state", {}).get("appearance")
                     or "Preserve the source image appearance"
                 )
+                # 現在の選択肢を state ごと渡すと LLM が書き写して
+                # 「再生成しても変わらない」ため、避けるべき既出案として渡す
+                previous_choice_labels = _previous_choice_labels(state)
+                previous_choice_key = _choice_label_key(state.get("choices"))
+                # romance ではターン処理と同じ sim を渡し、専用ボタン相当の
+                # 選択肢(告白・プレゼント・バイト・属性付与)を除去する
+                romance_sim = (
+                    state.get("sim")
+                    if run.preset == "romance" and isinstance(state.get("sim"), dict)
+                    else None
+                )
                 turn_context = {
                     "task": "Regenerate next player choices only.",
                     "preset": run.preset,
@@ -2487,25 +2646,29 @@ The objective must name a concrete target and an observable end condition that c
                     "objective": run.objective,
                     "max_turns": run.max_turns,
                     "next_turn": run.turn_count + 1,
-                    "state": state,
+                    "state": _lean_state_for_llm(state),
                     "recent_turns": previous_turns[-7:],
                     "player_input": last_input,
-                    "reality_rules": list(state.get("reality_rules", [])),
+                    "previous_choices": previous_choice_labels,
                     "required_visual_appearance": appearance_lock,
+                    "reality_rules": list(state.get("reality_rules", [])),
                 }
+                if romance_sim is not None:
+                    # 再生成される選択肢は「これから行動する枠」(turn_count+1)向け
+                    next_day, next_slot = romance_day_slot(run.turn_count + 1)
+                    turn_context["romance_next_slot"] = {
+                        "day": next_day,
+                        "slot": next_slot,
+                    }
                 try:
-                    resolution = await self._generate_resolution_output(
+                    choices = await self._generate_fresh_choices(
                         narrative=narrative,
                         turn_context=turn_context,
-                        language=run.language,
-                        text_model=run.text_model,
+                        run=run,
                         narration_voice=narration_voice,
                         narration_pronoun=narration_pronoun,
-                    )
-                    choices = _sanitize_choices(
-                        [choice.model_dump() for choice in resolution.choices],
-                        language=run.language,
-                        source="regenerate_choices.resolution",
+                        previous_choice_key=previous_choice_key,
+                        romance_sim=romance_sim,
                     )
                 except Exception as error:
                     logger.warning(
@@ -3470,6 +3633,8 @@ The objective must name a concrete target and an observable end condition that c
                 or "Preserve the source image appearance"
             )
             lean_state = _lean_state_for_llm(state)
+            previous_choice_labels = _previous_choice_labels(state)
+            previous_choice_key = _choice_label_key(state.get("choices"))
             turn_context = {
                 "task": "Resolve the player's next action.",
                 "preset": run.preset,
@@ -3481,6 +3646,7 @@ The objective must name a concrete target and an observable end condition that c
                 "state": lean_state,
                 "recent_turns": previous_turns[-7:],
                 "player_input": user_input,
+                "previous_choices": previous_choice_labels,
                 "reality_rules": reality_rules,
                 "reality_rule_declared_this_turn": declared_rule,
                 "required_visual_appearance": appearance_lock,
@@ -3986,6 +4152,23 @@ The objective must name a concrete target and an observable end condition that c
                     apply_visual=False,
                     apply_narrative_suffix=False,
                 )
+            if (
+                previous_choice_key
+                and _choice_label_key(output.choices) == previous_choice_key
+            ):
+                # テンプレート作者 choices など据え置きが正しい場面もあるため
+                # 警告に留める。頻発するならプロンプト側の焼き直しを疑う
+                logger.warning(
+                    "Adventure choices unchanged from previous turn: run_id=%s "
+                    "turn=%s preset=%s input_kind=%s labels=%s",
+                    run.id,
+                    run.turn_count + 1,
+                    run.preset,
+                    input_kind,
+                    _choices_preview(
+                        [choice.model_dump() for choice in output.choices]
+                    ),
+                )
             turn_number = run.turn_count + 1
             next_state, next_status, _, _ = self._merge_output(
                 run, output, turn_number, state_override=state, epilogue=epilogue
@@ -4319,6 +4502,13 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                         "fidelity": char_fidelity,
                     }
                 ]
+                # romance では攻略対象がシーンに登場するターンに限り、
+                # 開始素材の画像を2枚目の参照として追加する
+                partner_reference = _romance_partner_scene_reference(
+                    state, image_prompt
+                )
+                if partner_reference is not None:
+                    character_references.append(partner_reference)
             scene_prompt = _enhance_adventure_prompt(
                 _compose_scene_base_tags(image_prompt)
                 + ", visual novel scene, protagonist in foreground, supporting NPCs secondary",

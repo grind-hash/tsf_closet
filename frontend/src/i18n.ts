@@ -352,6 +352,10 @@ const resources = {
         },
         anlasDetail: "固定: {{fixed}} / 購入: {{purchased}}",
         anlasBadge: "精密参照",
+        anlasWarnBody:
+          "精密参照が有効なため、このターンの画像生成で追加のAnlasを消費します。続行しますか？",
+        anlasWarnStartBody:
+          "精密参照が有効なため、開始時の画像生成から追加のAnlasを消費します。開始しますか？",
         status: {
           active: "進行中",
           success: "成功",
@@ -1728,6 +1732,10 @@ const resources = {
         },
         anlasDetail: "Fixed: {{fixed}} / Purchased: {{purchased}}",
         anlasBadge: "Precise ref.",
+        anlasWarnBody:
+          "Precise reference is enabled, so this turn's image generation will consume additional Anlas. Continue?",
+        anlasWarnStartBody:
+          "Precise reference is enabled, so additional Anlas will be consumed starting with the opening image generation. Start the run?",
         status: {
           active: "Active",
           success: "Success",

@@ -161,6 +161,7 @@ def test_work_resolution_pays_wage_and_seeds_encounter() -> None:
     assert hit["money_delta"] == ROMANCE_WORK_WAGE
     assert hit["partner_encountered"] is True
     assert hit["affection_delta"] == ROMANCE_WORK_ENCOUNTER_BONUS
+    assert hit["next_slot"] == "night"
     miss = resolve_romance_action(
         sim,
         user_input="バイトに出る",
@@ -171,6 +172,33 @@ def test_work_resolution_pays_wage_and_seeds_encounter() -> None:
     )
     assert miss["partner_encountered"] is False
     assert miss["affection_delta"] == 0
+
+
+def test_resolution_reports_next_slot_including_epilogue_rollover() -> None:
+    sim = make_sim()
+
+    def resolve(turn_number: int) -> dict:
+        return resolve_romance_action(
+            sim,
+            user_input="挨拶する",
+            input_kind="free_text",
+            turn_number=turn_number,
+            total_turns=14,
+            rng=random.Random(0),
+        )
+
+    first = resolve(1)
+    assert (first["day"], first["slot"]) == (1, "day")
+    assert (first["next_day"], first["next_slot"]) == (1, "night")
+    second = resolve(2)
+    assert (second["next_day"], second["next_slot"]) == (2, "day")
+    # 最終ターンの次はエピローグ初枠(total_days+1 日目の昼)へロールオーバーする
+    final = resolve(14)
+    assert (final["day"], final["slot"]) == (7, "night")
+    assert (final["next_day"], final["next_slot"]) == (8, "day")
+    epilogue = resolve(15)
+    assert (epilogue["day"], epilogue["slot"]) == (8, "day")
+    assert (epilogue["next_day"], epilogue["next_slot"]) == (8, "night")
 
 
 def test_gift_resolution_scores_by_tier_and_preference() -> None:
@@ -616,3 +644,15 @@ def test_narrative_guidance_covers_established_couple() -> None:
     assert "state.sim.confessed" in ROMANCE_NARRATIVE_GUIDANCE
     assert "already dating" in ROMANCE_NARRATIVE_GUIDANCE
     assert "state.sim.confessed" in ROMANCE_RESOLUTION_GUIDANCE
+
+
+def test_guidance_defines_half_day_granularity() -> None:
+    # 1ターン=半日の粒度指示と、同意ガード・ミクロ動作禁止の維持を固定する
+    assert "half-day slot" in ROMANCE_NARRATIVE_GUIDANCE
+    assert "morning to late afternoon" in ROMANCE_NARRATIVE_GUIDANCE
+    assert "opening beat" in ROMANCE_NARRATIVE_GUIDANCE
+    assert "never invent a new voluntary decision" in ROMANCE_NARRATIVE_GUIDANCE
+    assert "shaking hands" in ROMANCE_NARRATIVE_GUIDANCE
+    assert "next_slot" in ROMANCE_RESOLUTION_GUIDANCE
+    assert "romance_next_slot" in ROMANCE_RESOLUTION_GUIDANCE
+    assert "shaking hands" in ROMANCE_RESOLUTION_GUIDANCE

@@ -3,6 +3,7 @@ import {
   type ReactNode,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useState,
 } from "react";
@@ -38,6 +39,10 @@ export type AdventurePhase = "narrative" | "clue_check" | "image_generation";
 // 属性付与)が分散しても漏れないよう submitTurn で一元的にリクエストへ反映する
 export const DRAW_PORTRAIT_STORAGE_KEY = "adventure_draw_portrait_every_turn";
 export const DRAW_PARTNER_STORAGE_KEY = "adventure_draw_partner_every_turn";
+
+// 精密参照ONの画像生成(run開始・romanceのターン送信)はAnlasを消費するため、
+// 実行前に確認ダイアログを挟む。抑止はブラウザセッション単位(sessionStorage)
+export const ANLAS_WARN_SUPPRESSED_KEY = "adventure_anlas_warn_suppressed";
 
 function readDrawEveryTurn(storageKey: string): boolean {
   try {
@@ -86,6 +91,14 @@ interface AdventureContextValue {
     inputKind: AdventureInputKind,
     options?: { giftId?: string },
   ) => Promise<void>;
+  /** Anlas確認ダイアログ待ちのターン送信(romanceで精密参照ON時のみ) */
+  pendingAnlasTurn: {
+    input: string;
+    inputKind: AdventureInputKind;
+    options?: { giftId?: string };
+  } | null;
+  confirmPendingAnlasTurn: (suppressUntilBrowserClose: boolean) => void;
+  cancelPendingAnlasTurn: () => void;
   regenerateImage: (options?: AdventureImageRegenerateOptions) => Promise<void>;
   regenerateChoices: () => Promise<void>;
   /** 指定手番の完了時点まで巻き戻す(以降のターンは削除) */
@@ -202,7 +215,19 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const submitTurn = useCallback(
+  const [pendingAnlasTurn, setPendingAnlasTurn] = useState<{
+    input: string;
+    inputKind: AdventureInputKind;
+    options?: { giftId?: string };
+  } | null>(null);
+
+  // 確認待ちの送信を別の run へ持ち越さない
+  // biome-ignore lint/correctness/useExhaustiveDependencies: activeRun.id の変化を検知して保留をクリアするための依存
+  useEffect(() => {
+    setPendingAnlasTurn(null);
+  }, [activeRun?.id]);
+
+  const performSubmitTurn = useCallback(
     async (
       input: string,
       inputKind: AdventureInputKind,
@@ -343,6 +368,45 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
     },
     [activeRun, streaming],
   );
+
+  // 送信経路(選択肢・自由入力・ギフト・属性付与)が分散しても漏れないよう、
+  // Anlas確認ガードもここで一元的に挟む
+  const submitTurn = useCallback(
+    async (
+      input: string,
+      inputKind: AdventureInputKind,
+      options?: { giftId?: string },
+    ) => {
+      if (!activeRun || streaming) return;
+      if (
+        activeRun.preset === "romance" &&
+        activeRun.use_precise_reference &&
+        sessionStorage.getItem(ANLAS_WARN_SUPPRESSED_KEY) !== "true"
+      ) {
+        setPendingAnlasTurn({ input, inputKind, options });
+        return;
+      }
+      await performSubmitTurn(input, inputKind, options);
+    },
+    [activeRun, streaming, performSubmitTurn],
+  );
+
+  const confirmPendingAnlasTurn = useCallback(
+    (suppressUntilBrowserClose: boolean) => {
+      if (!pendingAnlasTurn) return;
+      if (suppressUntilBrowserClose) {
+        sessionStorage.setItem(ANLAS_WARN_SUPPRESSED_KEY, "true");
+      }
+      const { input, inputKind, options } = pendingAnlasTurn;
+      setPendingAnlasTurn(null);
+      void performSubmitTurn(input, inputKind, options);
+    },
+    [pendingAnlasTurn, performSubmitTurn],
+  );
+
+  const cancelPendingAnlasTurn = useCallback(() => {
+    setPendingAnlasTurn(null);
+  }, []);
 
   const regenerateImage = useCallback(
     async (options?: AdventureImageRegenerateOptions) => {
@@ -542,6 +606,9 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       createRun,
       removeRun,
       submitTurn,
+      pendingAnlasTurn,
+      confirmPendingAnlasTurn,
+      cancelPendingAnlasTurn,
       regenerateImage,
       regenerateChoices,
       updateSettings,
@@ -568,6 +635,9 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       createRun,
       removeRun,
       submitTurn,
+      pendingAnlasTurn,
+      confirmPendingAnlasTurn,
+      cancelPendingAnlasTurn,
       regenerateImage,
       regenerateChoices,
       updateSettings,

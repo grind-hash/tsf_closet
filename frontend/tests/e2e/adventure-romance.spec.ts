@@ -498,3 +498,81 @@ test("confession button appears when available and sends input_kind confess", as
     user_input: "美咲に想いを告げる",
   });
 });
+
+test("precise reference shows an Anlas confirmation before submitting a turn", async ({
+  page,
+}) => {
+  await enableAdventure(page);
+  const state = await mockRomanceApis(
+    page,
+    romanceRunPayload(0, { use_precise_reference: true }),
+  );
+  await page.route("**/api/game/anlas", async (route) => {
+    await route.fulfill({
+      json: { fixed_anlas: 100, purchased_anlas: 0, total_anlas: 100 },
+    });
+  });
+  await page.goto("/adventure/run-1");
+
+  // 選択肢クリックでは送信されず、確認ダイアログが出る
+  await page.getByRole("button", { name: /美咲に話しかける/ }).click();
+  await expect(page.getByText("Anlas 追加消費の確認")).toBeVisible();
+  expect(state.streamBodies).toHaveLength(0);
+
+  // キャンセルで閉じ、送信もされない
+  await page.getByRole("button", { name: "キャンセル" }).click();
+  await expect(page.getByText("Anlas 追加消費の確認")).not.toBeVisible();
+  expect(state.streamBodies).toHaveLength(0);
+
+  // 抑止チェック付きで続行すると送信される
+  await page.getByRole("button", { name: /美咲に話しかける/ }).click();
+  await page.getByLabel("ブラウザを閉じるまで表示しない").check();
+  await page.getByRole("button", { name: "続行" }).click();
+  await expect(page.getByText("ふたりの距離が少し縮まった。")).toBeVisible();
+  expect(state.streamBodies).toHaveLength(1);
+
+  // 抑止後はダイアログを出さず直接送信する
+  await page.getByRole("button", { name: /美咲に話しかける/ }).click();
+  await expect.poll(() => state.streamBodies.length).toBe(2);
+  await expect(page.getByText("Anlas 追加消費の確認")).not.toBeVisible();
+});
+
+test("precise reference shows an Anlas confirmation before starting a run", async ({
+  page,
+}) => {
+  await enableAdventure(page);
+  const state = await mockRomanceApis(page);
+  await page.goto("/adventure");
+
+  await page.getByRole("button", { name: /^恋愛シミュレーション/ }).click();
+  await page.getByRole("button", { name: "ミッション案を自動生成" }).click();
+  await expect(page.getByLabel("ゴール")).toHaveValue(
+    "7日以内に美咲と想いを通わせ、交際を始める",
+  );
+  // 精密参照トグルは折りたたみ内。トグルスイッチ化で素のcheckboxは
+  // 非表示のため、セクションを開いてからラベルをクリックして切り替える
+  await page.getByText("画像生成オプション").click();
+  await page
+    .locator("label.adventure-precise-toggle", { hasText: "精密参照画像を使う" })
+    .click();
+  await expect(page.getByLabel(/精密参照画像を使う/)).toBeChecked();
+
+  // 開始クリックでは run を作らず、確認ダイアログが出る
+  await page.getByRole("button", { name: "シナリオを開始" }).click();
+  await expect(page.getByText("Anlas 追加消費の確認")).toBeVisible();
+  expect(state.createBodies).toHaveLength(0);
+
+  // キャンセルで閉じ、作成もされない
+  await page.getByRole("button", { name: "キャンセル" }).click();
+  await expect(page.getByText("Anlas 追加消費の確認")).not.toBeVisible();
+  expect(state.createBodies).toHaveLength(0);
+
+  // 続行すると run が作成されプレイ画面へ遷移する
+  await page.getByRole("button", { name: "シナリオを開始" }).click();
+  await page.getByRole("button", { name: "続行" }).click();
+  await expect(page).toHaveURL(/\/adventure\/run-1$/);
+  expect(state.createBodies).toHaveLength(1);
+  expect(state.createBodies[0]).toMatchObject({
+    use_precise_reference: true,
+  });
+});

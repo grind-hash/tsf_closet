@@ -306,10 +306,16 @@ def resolve_romance_action(
     """ターンの機械的な結果を確定する。LLM へは確定事実として渡す。"""
     rng = rng or random.Random()
     day, slot = romance_day_slot(turn_number)
+    # 選択肢は「次の枠」向けの行動なので、次枠の日付・時間帯も確定して渡す。
+    # 最終ターンでは next_day が total_days を超えるが、これはエピローグ初枠を
+    # 指す意図的な値で、public_sim_view の epilogue 挙動(day クランプ解除)と一致する
+    next_day, next_slot = romance_day_slot(int(turn_number) + 1)
     resolution: dict[str, Any] = {
         "kind": "talk",
         "day": day,
         "slot": slot,
+        "next_day": next_day,
+        "next_slot": next_slot,
         "total_days": int(total_turns) // ROMANCE_SLOTS_PER_DAY,
         "money_delta": 0,
         "affection_delta": 0,
@@ -629,7 +635,29 @@ ROMANCE_NARRATIVE_GUIDANCE = (
     "partner's feelings toward the player; treat such mental changes as real "
     "and immediate. When offering choices, never duplicate the dedicated "
     "action buttons (part-time work, buying or giving a shop gift, granting "
-    "an attribute, confessing); offer conversation and date beats instead."
+    "an attribute, confessing); offer conversation and date beats instead. "
+    "Pacing: one turn always covers one half-day slot. romance_resolution.day "
+    "and romance_resolution.slot name the slot being narrated: a day slot "
+    "spans roughly morning to late afternoon, and a night slot early evening "
+    "to bedtime. Treat the player's input as the opening beat of that half "
+    "day, never its whole content: expand it into a connected scene of the "
+    "hours that follow, in two or three beats with light time skips, so even "
+    "a brief gesture such as a greeting becomes the start of time spent "
+    "together through the slot. Drive the expansion through the partner's "
+    "initiative and the shared situation: the partner may suggest, invite, "
+    "and lead, and the player simply goes along with the activity their own "
+    "input began, but never invent a new voluntary decision, feeling, or "
+    "consent for the player beyond that input. When the partner is absent, "
+    "fill the half day with the player's own activity at the same scale. "
+    "Close the scene near the end of the slot's timeframe with a light cue "
+    "of passing time (dusk settling after a day slot, the night winding down "
+    "after a night slot), and never narrate into the next slot. When "
+    "romance_resolution is absent you are writing the opening scene, set at "
+    "the start of day 1's day slot; establish the setting and the "
+    "relationship at the same half-day scale. Any choices you offer must "
+    "each be a plan that fills the upcoming half-day slot (sharing lunch, "
+    "walking through town after class, cooking dinner together), never a "
+    "momentary micro-action such as only greeting, waving, or shaking hands."
 )
 
 ROMANCE_VISUAL_GUIDANCE = (
@@ -683,7 +711,17 @@ ROMANCE_RESOLUTION_GUIDANCE = (
     "continue; the engine decides milestones and endings. choices must stay "
     "romance-flavoured actions for the next slot, and must never duplicate "
     "the dedicated action buttons (part-time work, buying or giving a shop "
-    "gift, granting an attribute, confessing)."
+    "gift, granting an attribute, confessing). "
+    "romance_resolution.next_day and romance_resolution.next_slot (or "
+    "romance_next_slot when only regenerating choices) identify the upcoming "
+    "slot those choices belong to: a day slot spans roughly morning to late "
+    "afternoon, and a night slot early evening to bedtime. Write every "
+    "choice as a plan that fills that half day (for a day slot, plans like "
+    "sharing lunch or an afternoon outing; for a night slot, plans like "
+    "dinner together or an evening walk), never a momentary micro-action "
+    "such as only greeting, waving, or shaking hands. When neither field is "
+    "supplied, keep the same half-day scale for the scene the narrative has "
+    "just reached."
 )
 
 

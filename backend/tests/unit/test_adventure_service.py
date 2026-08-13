@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -33,6 +34,7 @@ from gateway.services.adventure_service import (
     AdventureError,
     AdventureImagePromptOutput,
     AdventureService,
+    AdventureVisualOutput,
     AdventureVisualState,
     PRESETS,
     SCENARIO_TEMPLATES,
@@ -46,8 +48,12 @@ from gateway.services.adventure_service import (
     _equipment_clothing_state_tags,
     _strip_clothing_tags_for_equipment_scenario,
     _character_reference_strength,
+    _choice_label_key,
     _compose_scene_base_tags,
+    _lean_state_for_llm,
+    _previous_choice_labels,
     _merge_scene_tags,
+    _romance_partner_scene_reference,
     _romance_template_player_appearance,
     _sanitize_choices,
     _template_visual_style,
@@ -65,6 +71,42 @@ def make_image_prompt_content(*, with_guard: bool = False) -> str:
             if with_guard
             else [],
         }
+    )
+
+
+def make_romance_image_prompt_content(*, with_partner: bool) -> str:
+    return json.dumps(
+        {
+            "scene_tags": "night club interior, dim lighting",
+            "player_tags": "young man, white t-shirt",
+            "npc_tags": ["succubus dancer, revealing stage outfit"]
+            if with_partner
+            else [],
+        }
+    )
+
+
+def make_romance_scene_state(partner_path) -> str:
+    return json.dumps(
+        {
+            "use_precise_reference": True,
+            "partner_image_path": str(partner_path),
+            "sim": {"partner_name": "リリス"},
+            "visual_state": {
+                "location": "ナイトクラブ",
+                "appearance": "黒髪の青年",
+                "clothing": "白いTシャツ",
+                "surroundings": "会員制クラブのバー",
+                "main_characters": [
+                    {
+                        "name": "リリス",
+                        "description": "サキュバスのダンサー",
+                        "clothing": "ステージ衣装",
+                    }
+                ],
+            },
+        },
+        ensure_ascii=False,
     )
 
 
@@ -226,6 +268,10 @@ def test_romance_preset_defines_dating_milestones() -> None:
         "start_dating",
     ]
     assert "romance_resolution" in preset["guidance"]
+    # 1回の入力=半日分の場面という粒度の説明
+    assert "半日" in preset["guidance"]
+    assert "朝〜夕方" in preset["guidance"]
+    assert "夕方〜就寝前" in preset["guidance"]
 
 
 def test_romance_prompts_carry_romance_guidance_only_when_enabled() -> None:
@@ -245,6 +291,11 @@ def test_romance_prompts_carry_romance_guidance_only_when_enabled() -> None:
     # 専用ボタン(バイト/ギフト/属性付与/告白)と重複する選択肢の抑止
     assert "never duplicate the dedicated action buttons" in romance_resolution_prompt
     assert "never duplicate the dedicated action buttons" in narrative_prompt
+    # 1ターン=半日の粒度指示は romance 有効時だけ載る
+    assert "half-day slot" in narrative_prompt
+    assert "half-day slot" not in service._narrative_system_prompt("ja")
+    assert "next_slot" in romance_resolution_prompt
+    assert "next_slot" not in service._resolution_system_prompt("ja")
     romance_visual_prompt = service._visual_system_prompt("ja", romance=True)
     assert "partner is an NPC" in romance_visual_prompt
     assert "partner is an NPC" not in service._visual_system_prompt("ja")
@@ -1414,6 +1465,154 @@ def test_sanitize_choices_accepts_adventure_choice_models() -> None:
     ]
 
 
+def test_lean_state_hides_previous_choices_from_llm() -> None:
+    state = {
+        "choices": [{"id": "look", "label": "衣装を調べる"}],
+        "clues": ["扉に鍵"],
+        "visual_state": {"location": "密室"},
+    }
+
+    lean = _lean_state_for_llm(state)
+
+    assert "choices" not in lean
+    assert lean["clues"] == ["扉に鍵"]
+    assert state["choices"], "呼び出し元の state は書き換えない"
+
+
+def test_previous_choice_labels_and_key_normalize_input() -> None:
+    state = {
+        "choices": [
+            {"id": "look", "label": " 衣装を調べる "},
+            AdventureChoice(id="door", label="扉を読む"),
+            {"id": "blank", "label": "  "},
+        ]
+    }
+
+    assert _previous_choice_labels(state) == ["衣装を調べる", "扉を読む"]
+    assert _choice_label_key(state["choices"]) == _choice_label_key(
+        [
+            {"id": "other", "label": "扉を読む"},
+            {"id": "another", "label": "衣装を 調べる"},
+        ]
+    )
+
+
+@pytest.mark.asyncio
+async def test_regenerated_choices_retry_once_when_identical(monkeypatch) -> None:
+    service = AdventureService()
+    repeated = [
+        {"id": "a", "label": "衣装を調べる"},
+        {"id": "b", "label": "扉を読む"},
+        {"id": "c", "label": "棚を確認する"},
+    ]
+    fresh = [
+        {"id": "d", "label": "鍵穴を覗く"},
+        {"id": "e", "label": "窓の外を確かめる"},
+        {"id": "f", "label": "床板を叩く"},
+    ]
+    responses = [repeated, fresh]
+
+    async def fake_resolution(**kwargs):
+        return SimpleNamespace(
+            choices=[AdventureChoice.model_validate(item) for item in responses.pop(0)]
+        )
+
+    monkeypatch.setattr(service, "_generate_resolution_output", fake_resolution)
+    run = SimpleNamespace(id="run-1", language="ja", text_model="glm-4-6")
+
+    choices = await service._generate_fresh_choices(
+        narrative="扉の前に立っている。",
+        turn_context={"task": "Regenerate next player choices only."},
+        run=run,
+        narration_voice="second",
+        narration_pronoun="boku",
+        previous_choice_key=_choice_label_key(repeated),
+    )
+
+    assert choices == fresh
+    assert responses == []
+
+
+@pytest.mark.asyncio
+async def test_regenerated_romance_choices_drop_dedicated_actions(monkeypatch) -> None:
+    service = AdventureService()
+    captured: dict[str, object] = {}
+
+    async def fake_resolution(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(
+            choices=[
+                AdventureChoice(id="a", label="マリカに告白する"),
+                AdventureChoice(id="b", label="パールのイヤリングを購入して贈る"),
+                AdventureChoice(id="c", label="夜風に当たりながら話す"),
+            ]
+        )
+
+    monkeypatch.setattr(service, "_generate_resolution_output", fake_resolution)
+    run = SimpleNamespace(
+        id="run-1", language="ja", text_model="glm-4-6", preset="romance"
+    )
+
+    choices = await service._generate_fresh_choices(
+        narrative="マリカが微笑んでいる。",
+        turn_context={},
+        run=run,
+        narration_voice="second",
+        narration_pronoun="boku",
+        previous_choice_key=(),
+        romance_sim={
+            "gift_catalog": [{"name": "パールのイヤリング", "price": 4000}],
+            "job": {"name": "ナイトクラブのバーテンダー"},
+        },
+    )
+
+    labels = [choice["label"] for choice in choices]
+    assert "マリカに告白する" not in labels
+    assert "パールのイヤリングを購入して贈る" not in labels
+    assert "夜風に当たりながら話す" in labels
+    assert len(labels) == 3
+    # romance 用のプロンプト規則(専用ボタンと重複させない)を効かせる
+    assert captured["romance"] is True
+
+
+@pytest.mark.asyncio
+async def test_regenerated_choices_do_not_retry_when_already_new(monkeypatch) -> None:
+    service = AdventureService()
+    calls = 0
+
+    async def fake_resolution(**kwargs):
+        nonlocal calls
+        calls += 1
+        return SimpleNamespace(
+            choices=[
+                AdventureChoice(id="d", label="鍵穴を覗く"),
+                AdventureChoice(id="e", label="窓の外を確かめる"),
+                AdventureChoice(id="f", label="床板を叩く"),
+            ]
+        )
+
+    monkeypatch.setattr(service, "_generate_resolution_output", fake_resolution)
+    run = SimpleNamespace(id="run-1", language="ja", text_model="glm-4-6")
+
+    choices = await service._generate_fresh_choices(
+        narrative="扉の前に立っている。",
+        turn_context={},
+        run=run,
+        narration_voice="second",
+        narration_pronoun="boku",
+        previous_choice_key=_choice_label_key(
+            [{"id": "a", "label": "衣装を調べる"}],
+        ),
+    )
+
+    assert calls == 1
+    assert [choice["label"] for choice in choices] == [
+        "鍵穴を覗く",
+        "窓の外を確かめる",
+        "床板を叩く",
+    ]
+
+
 def test_director_output_preserves_resolution_choice_models() -> None:
     choices = [
         AdventureChoice(id="look", label="衣装を調べる"),
@@ -1782,6 +1981,115 @@ async def test_regenerate_choices_updates_only_choices(monkeypatch) -> None:
     assert saved_state["clues"] == ["特等席の衣装がある"]
     assert run.turn_count == 1
     assert __import__("json").loads(persisted_turn.choices_json) == result["choices"]
+    # 非 romance では時間帯コンテキストを載せない
+    resolution_context = service._generate_resolution_output.call_args.kwargs[
+        "turn_context"
+    ]
+    assert "romance_next_slot" not in resolution_context
+
+
+@pytest.mark.asyncio
+async def test_regenerate_choices_passes_romance_next_slot(monkeypatch) -> None:
+    service = AdventureService()
+    turn = SimpleNamespace(
+        id="turn-1",
+        run_id="run-1",
+        turn_number=1,
+        client_turn_id="c1",
+        user_input="挨拶する",
+        input_kind="free_text",
+        narrative="昼下がりの書店で言葉を交わした。",
+        choices_json=__import__("json").dumps(
+            [
+                {"id": "a", "label": " "},
+                {"id": "b", "label": " "},
+                {"id": "c", "label": " "},
+            ],
+            ensure_ascii=False,
+        ),
+        image_path=None,
+        image_status="not_requested",
+        portrait_image_path=None,
+        portrait_status="not_requested",
+        created_at=None,
+    )
+    state = {
+        "opening_narrative": "物語が始まった。",
+        "choices": [
+            {"id": "a", "label": " "},
+            {"id": "b", "label": " "},
+            {"id": "c", "label": " "},
+        ],
+        "clues": [],
+        "milestones": [],
+        "completed_milestones": [],
+        "scenario_template_id": None,
+        "visual_state": {"location": "書店", "appearance": "1boy"},
+        "sim": {"partner_name": "美咲"},
+    }
+    run = SimpleNamespace(
+        id="run-1",
+        status="active",
+        language="ja",
+        preset="romance",
+        objective="想いを通わせる",
+        max_turns=14,
+        turn_count=1,
+        text_model="glm-4-6",
+        state_json=__import__("json").dumps(state, ensure_ascii=False),
+        turns=[turn],
+    )
+    persisted_run = SimpleNamespace(
+        id="run-1",
+        state_json=run.state_json,
+        updated_at=None,
+    )
+    persisted_turn = SimpleNamespace(
+        id="turn-1",
+        choices_json=turn.choices_json,
+    )
+
+    class FakeDatabase:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, _exc_type, _exc, _traceback):
+            return None
+
+        async def get(self, model, record_id):
+            if model is AdventureRun and record_id == "run-1":
+                return persisted_run
+            if model is AdventureTurn and record_id == "turn-1":
+                return persisted_turn
+            return None
+
+        async def commit(self):
+            return None
+
+    monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
+    fresh_choices = AsyncMock(
+        return_value=[
+            {"id": "lunch", "label": "一緒に昼食をとる"},
+            {"id": "walk", "label": "夕暮れの街を歩く"},
+            {"id": "cafe", "label": "カフェでゆっくり話す"},
+        ]
+    )
+    monkeypatch.setattr(service, "_generate_fresh_choices", fresh_choices)
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.async_session_factory", FakeDatabase
+    )
+
+    result = await service.regenerate_choices("run-1")
+
+    # turn_count=1 の run が次に行動する枠は Day1 夜
+    turn_context = fresh_choices.call_args.kwargs["turn_context"]
+    assert turn_context["romance_next_slot"] == {"day": 1, "slot": "night"}
+    assert fresh_choices.call_args.kwargs["romance_sim"] == {"partner_name": "美咲"}
+    assert [item["label"] for item in result["choices"]] == [
+        "一緒に昼食をとる",
+        "夕暮れの街を歩く",
+        "カフェでゆっくり話す",
+    ]
 
 
 @pytest.mark.asyncio
@@ -2013,6 +2321,148 @@ async def test_adventure_image_generation_uses_precise_reference_when_enabled(
     assert image_kwargs["character_references"][0]["strength"] == 0.35
     assert image_kwargs["character_references"][0]["fidelity"] == 0.55
     assert image_kwargs["character_references"][0]["image"] == b"initial"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("with_partner", [True, False])
+async def test_adventure_romance_scene_partner_reference(
+    monkeypatch, tmp_path, with_partner
+) -> None:
+    """合成シーンでは攻略対象が登場するターンだけ2枚目の参照を渡す。"""
+    service = AdventureService()
+    service._images_dir = tmp_path
+    run_dir = tmp_path / "run-1"
+    run_dir.mkdir()
+    current_path = run_dir / "current.png"
+    initial_path = run_dir / "initial.png"
+    partner_path = run_dir / "partner_initial.png"
+    current_path.write_bytes(b"current")
+    initial_path.write_bytes(b"initial")
+    partner_path.write_bytes(b"partner")
+    run = SimpleNamespace(
+        id="run-1",
+        state_json=make_romance_scene_state(partner_path),
+        current_image_path=str(current_path),
+        initial_image_path=str(initial_path),
+        text_model="glm-4-6",
+        image_model="nai-diffusion-4-5-full",
+        nsfw_mode=False,
+        turn_count=1,
+        preset="romance",
+    )
+    persisted_run = SimpleNamespace(
+        id="run-1",
+        current_image_path=str(current_path),
+        updated_at=None,
+        state_json="{}",
+    )
+
+    class FakeDatabase:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, _exc_type, _exc, _traceback):
+            return None
+
+        async def get(self, model, _record_id):
+            return persisted_run if model is AdventureRun else None
+
+        async def scalar(self, _statement):
+            return None
+
+        async def commit(self):
+            return None
+
+    generate_image = AsyncMock(return_value=SimpleNamespace(images=[b"generated"]))
+    monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.session_store.get_user_settings",
+        AsyncMock(return_value={"nsfw_mode": False, "language": "ja"}),
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.llm_service.generate_text",
+        AsyncMock(
+            return_value=SimpleNamespace(
+                content=make_romance_image_prompt_content(with_partner=with_partner)
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.image_service.generate_image",
+        generate_image,
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.async_session_factory", FakeDatabase
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.settings.novelai_model",
+        "nai-diffusion-4-5-full",
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.settings.novelai_curated_model",
+        "nai-diffusion-4-5-curated",
+    )
+
+    await service.generate_image("run-1", redraw_from_reference=True)
+
+    references = generate_image.await_args.kwargs["character_references"]
+    assert references is not None
+    assert references[0]["image"] == b"initial"
+    if with_partner:
+        assert len(references) == 2
+        assert references[1]["image"] == b"partner"
+        assert references[1]["type"] == "character"
+        # 服装が変化し得るため攻略対象は常に弱参照
+        assert references[1]["strength"] == 0.35
+        assert references[1]["fidelity"] == 0.55
+    else:
+        assert len(references) == 1
+
+
+def test_romance_partner_scene_reference_requires_partner_image(tmp_path) -> None:
+    prompt = AdventureImagePromptOutput(
+        scene_tags="night club interior",
+        player_tags="young man",
+        npc_tags=["succubus dancer"],
+    )
+    state = json.loads(make_romance_scene_state(tmp_path / "missing.png"))
+    assert _romance_partner_scene_reference(state, prompt) is None
+
+
+def test_romance_partner_scene_reference_prefers_override_visual_state(
+    tmp_path,
+) -> None:
+    """ターン中は state_json が古いため prompt_override 側の visual_state を使う。"""
+    partner_path = tmp_path / "partner_initial.png"
+    partner_path.write_bytes(b"partner")
+    prompt = AdventureVisualOutput(
+        scene_tags="night club interior",
+        player_tags="young man",
+        npc_tags=["succubus dancer, revealing stage outfit"],
+        visual_state=AdventureVisualState(
+            location="ナイトクラブ",
+            appearance="黒髪の青年",
+            clothing="白いTシャツ",
+            main_characters=[
+                {
+                    "name": "リリス",
+                    "description": "サキュバスのダンサー",
+                    "clothing": "ステージ衣装",
+                }
+            ],
+        ),
+    )
+    state = {
+        "use_precise_reference": True,
+        "partner_image_path": str(partner_path),
+        "sim": {"partner_name": "リリス"},
+        "visual_state": {"main_characters": []},
+    }
+    reference = _romance_partner_scene_reference(state, prompt)
+    assert reference is not None
+    assert reference["image"] == b"partner"
+    assert reference["strength"] == 0.35
+    assert reference["fidelity"] == 0.55
 
 
 @pytest.mark.asyncio

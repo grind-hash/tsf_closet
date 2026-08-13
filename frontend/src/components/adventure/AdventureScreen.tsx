@@ -14,6 +14,7 @@ import { canActOnRun } from "../../apis/adventure";
 import { fetchAnlasBalance } from "../../apis/anlas";
 import { fetchGalleryList, fetchGallerySessions } from "../../apis/gallery";
 import {
+  ANLAS_WARN_SUPPRESSED_KEY,
   DRAW_PARTNER_STORAGE_KEY,
   DRAW_PORTRAIT_STORAGE_KEY,
   readDrawPartnerEveryTurn,
@@ -35,6 +36,7 @@ import type {
 import { API_BASE } from "../../utils/api";
 import ImagePreviewModal from "../ImagePreviewModal";
 import MainLayout from "../layout/MainLayout";
+import AdventureAnlasConfirmDialog from "./AdventureAnlasConfirmDialog";
 import AdventureAttributeModal from "./AdventureAttributeModal";
 import AdventureGiftShopModal from "./AdventureGiftShopModal";
 import AdventureImagePromptModal from "./AdventureImagePromptModal";
@@ -270,6 +272,7 @@ function AdventureHub() {
   const { state: settingsState } = useSettings();
   // 精密参照は既定OFF。ユーザーが明示的にONした場合のみAnlas追加消費
   const [usePreciseReference, setUsePreciseReference] = useState(false);
+  const [startAnlasConfirmOpen, setStartAnlasConfirmOpen] = useState(false);
   // 前回の選択があればそれを優先し、未保存ならグローバル設定を初期値とする
   const [enableCompositeScene, setEnableCompositeScene] = useState(() =>
     typeof savedSetupPrefs.enableCompositeScene === "boolean"
@@ -502,7 +505,7 @@ function AdventureHub() {
     return null;
   };
 
-  const handleCreate = async () => {
+  const performCreate = async () => {
     if (!sourceSessionId) return;
     const authoredTemplate =
       startMode === "authored" && !selectedReplayRun ? selectedTemplate : null;
@@ -556,6 +559,27 @@ function AdventureHub() {
     } finally {
       setCreating(false);
     }
+  };
+
+  // 精密参照ONの開始はオープニング画像生成からAnlasを消費するため確認を挟む
+  const handleCreate = async () => {
+    if (!sourceSessionId) return;
+    if (
+      usePreciseReference &&
+      sessionStorage.getItem(ANLAS_WARN_SUPPRESSED_KEY) !== "true"
+    ) {
+      setStartAnlasConfirmOpen(true);
+      return;
+    }
+    await performCreate();
+  };
+
+  const handleStartAnlasConfirm = (suppressUntilBrowserClose: boolean) => {
+    if (suppressUntilBrowserClose) {
+      sessionStorage.setItem(ANLAS_WARN_SUPPRESSED_KEY, "true");
+    }
+    setStartAnlasConfirmOpen(false);
+    void performCreate();
   };
 
   const disabledReason = startDisabledReason();
@@ -1404,6 +1428,12 @@ function AdventureHub() {
           </p>
         </div>
       )}
+      <AdventureAnlasConfirmDialog
+        open={startAnlasConfirmOpen}
+        body={t("adventure.anlasWarnStartBody")}
+        onConfirm={handleStartAnlasConfirm}
+        onCancel={() => setStartAnlasConfirmOpen(false)}
+      />
     </MainLayout>
   );
 }
@@ -1510,6 +1540,9 @@ function AdventurePlay({ runId }: { runId: string }) {
     error,
     loadRun,
     submitTurn,
+    pendingAnlasTurn,
+    confirmPendingAnlasTurn,
+    cancelPendingAnlasTurn,
     regenerateImage,
     regenerateChoices,
     updateSettings,
@@ -1554,6 +1587,18 @@ function AdventurePlay({ runId }: { runId: string }) {
   );
   const [resultDismissed, setResultDismissed] = useState(false);
   const [anlasBalance, setAnlasBalance] = useState<AnlasBalance | null>(null);
+
+  const handleAnlasCancel = useCallback(() => {
+    // 自由入力(手入力の現実改変宣言を含む)のキャンセルは入力欄へ戻し、
+    // 打ち直しを不要にする
+    if (
+      pendingAnlasTurn?.inputKind === "free_text" ||
+      pendingAnlasTurn?.inputKind === "reality_alter"
+    ) {
+      setInput(pendingAnlasTurn.input);
+    }
+    cancelPendingAnlasTurn();
+  }, [pendingAnlasTurn, cancelPendingAnlasTurn]);
 
   useEffect(() => {
     void loadRun(runId).catch(() => navigate("/adventure"));
@@ -1766,6 +1811,10 @@ function AdventurePlay({ runId }: { runId: string }) {
           target?.blur();
           return;
         }
+        if (pendingAnlasTurn) {
+          handleAnlasCancel();
+          return;
+        }
         setLogOpen(false);
         setImageSettingsOpen(false);
         setHudPanel(null);
@@ -1781,7 +1830,8 @@ function AdventurePlay({ runId }: { runId: string }) {
         setMessageWindowHidden((current) => !current);
         return;
       }
-      if (logOpen) return;
+      // Anlas確認ダイアログ表示中は数字キー送信で保留中の送信を上書きしない
+      if (logOpen || pendingAnlasTurn) return;
       const choice = (activeRun?.choices ?? []).filter((item) =>
         item.label.trim(),
       )[Number(event.key) - 1];
@@ -1789,7 +1839,13 @@ function AdventurePlay({ runId }: { runId: string }) {
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [activeRun?.choices, logOpen, submit]);
+  }, [
+    activeRun?.choices,
+    logOpen,
+    submit,
+    pendingAnlasTurn,
+    handleAnlasCancel,
+  ]);
 
   const portraitSource = useMemo(() => {
     if (!activeRun || activeRun.enable_composite_scene) return null;
@@ -3304,6 +3360,14 @@ function AdventurePlay({ runId }: { runId: string }) {
       <AdventureAttributeModal
         isOpen={attributeModalOpen}
         onClose={() => setAttributeModalOpen(false)}
+      />
+
+      {/* Anlas cost confirmation dialog (romance with precise references) */}
+      <AdventureAnlasConfirmDialog
+        open={pendingAnlasTurn !== null}
+        body={t("adventure.anlasWarnBody")}
+        onConfirm={confirmPendingAnlasTurn}
+        onCancel={handleAnlasCancel}
       />
     </MainLayout>
   );
