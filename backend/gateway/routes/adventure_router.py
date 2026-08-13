@@ -105,9 +105,11 @@ class AdventureTurnRequest(BaseModel):
     ] = "free_text"
     # romance のプレゼント購入で贈る品を機械可読 ID で指定する
     gift_id: str | None = Field(default=None, max_length=40)
-    # false のとき立ち絵の毎ターン生成を省略する。
+    # false のとき主人公の立ち絵の毎ターン生成を省略する。
     # 精密参照OFFかつ非合成モードの run でのみ有効
     generate_portrait: bool = True
+    # false のとき攻略対象(romance)の立ち絵の毎ターン生成を省略する。条件は同上
+    generate_partner_portrait: bool = True
 
 
 class AdventureImageRequest(BaseModel):
@@ -246,6 +248,7 @@ async def play_turn(run_id: str, request: AdventureTurnRequest) -> EventSourceRe
                 input_kind=request.input_kind,
                 gift_id=request.gift_id,
                 generate_portrait=request.generate_portrait,
+                generate_partner_portrait=request.generate_partner_portrait,
             ):
                 yield {
                     "event": event["event"],

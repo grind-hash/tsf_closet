@@ -3387,6 +3387,7 @@ The objective must name a concrete target and an observable end condition that c
         input_kind: str,
         gift_id: str | None = None,
         generate_portrait: bool = True,
+        generate_partner_portrait: bool = True,
     ) -> AsyncGenerator[dict[str, Any], None]:
         """ナラティブを逐次配信し、手がかり抽出と画像生成を並列実行する。"""
         async with self._run_locks[run_id]:
@@ -3643,55 +3644,66 @@ The objective must name a concrete target and an observable end condition that c
                         await queue.put(("background", background_result))
                 enable_composite = bool(state.get("enable_composite_scene"))
                 # 立ち絵の毎ターン生成OFF。精密参照OFFかつ非合成モードでのみ有効。
-                # romance の背景更新は上で済ませ、立ち絵は前ターンの1枚を使い回す
-                if (
-                    not generate_portrait
-                    and not enable_composite
-                    and not bool(state.get("use_precise_reference"))
-                ):
+                # 主人公と攻略対象は個別に省略でき、省略した側は前ターンの1枚を
+                # 使い回す。romance の背景更新は上で済ませてある
+                allow_portrait_skip = not enable_composite and not bool(
+                    state.get("use_precise_reference")
+                )
+                skip_player_portrait = allow_portrait_skip and not generate_portrait
+                draw_partner_portrait = (
+                    not enable_composite
+                    and romance_sim is not None
+                    and not (allow_portrait_skip and not generate_partner_portrait)
+                )
+                if skip_player_portrait and not draw_partner_portrait:
                     await queue.put(("portrait_skipped", None))
                     await queue.put(("image_skipped", None))
                     return
                 # step 情報はフロントのプログレスバー用。phase は既存契約を維持する
                 # 非合成 romance は主人公+攻略対象の2枚を直列生成する
                 image_step_count = (
-                    2 if (enable_composite or romance_sim is not None) else 1
-                )
-                await queue.put(
-                    (
-                        "status",
-                        {
-                            "phase": "image_generation",
-                            "step": "portrait",
-                            "step_index": 1,
-                            "step_count": image_step_count,
-                        },
-                    )
+                    2
+                    if enable_composite
+                    else int(not skip_player_portrait) + int(draw_partner_portrait)
                 )
                 # 立ち絵と合成シーンで同一シードを使い、衣装の描画差を抑える
                 turn_seed = random.randint(0, 999_999_999)
                 portrait_path: Path | None = None
-                try:
-                    portrait_path, _ = await self._generate_portrait_unlocked(
-                        run.id,
-                        None,
-                        redraw_from_reference=clothing_changed or item_actions,
-                        prompt_override=visual,
-                        turn_number=run.turn_count + 1,
-                        worn_items_override=resolved_worn_items,
-                        seed_override=turn_seed,
+                if skip_player_portrait:
+                    await queue.put(("portrait_skipped", None))
+                else:
+                    await queue.put(
+                        (
+                            "status",
+                            {
+                                "phase": "image_generation",
+                                "step": "portrait",
+                                "step_index": 1,
+                                "step_count": image_step_count,
+                            },
+                        )
                     )
-                    await queue.put(("portrait", portrait_path))
-                except Exception as error:
-                    logger.warning(
-                        "Adventure turn portrait generation failed: %s", error
-                    )
-                    await queue.put(("portrait_error", error))
+                    try:
+                        portrait_path, _ = await self._generate_portrait_unlocked(
+                            run.id,
+                            None,
+                            redraw_from_reference=clothing_changed or item_actions,
+                            prompt_override=visual,
+                            turn_number=run.turn_count + 1,
+                            worn_items_override=resolved_worn_items,
+                            seed_override=turn_seed,
+                        )
+                        await queue.put(("portrait", portrait_path))
+                    except Exception as error:
+                        logger.warning(
+                            "Adventure turn portrait generation failed: %s", error
+                        )
+                        await queue.put(("portrait_error", error))
 
                 if not enable_composite:
                     # 非合成モードの romance では、攻略対象の立ち絵を並置表示する。
                     # 主人公と同様に毎ターン生成し、そのターンの表情・服装を反映する
-                    if romance_sim is not None:
+                    if draw_partner_portrait:
                         partner_name = str(romance_sim.get("partner_name") or "")
                         partner_entry, partner_tags = _romance_partner_visual_entry(
                             list(visual.visual_state.main_characters),
@@ -3717,7 +3729,8 @@ The objective must name a concrete target and an observable end condition that c
                                     {
                                         "phase": "image_generation",
                                         "step": "partner",
-                                        "step_index": 2,
+                                        # 主人公を省略したターンでは唯一の工程になる
+                                        "step_index": image_step_count,
                                         "step_count": image_step_count,
                                     },
                                 )

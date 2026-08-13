@@ -14,7 +14,9 @@ import { canActOnRun } from "../../apis/adventure";
 import { fetchAnlasBalance } from "../../apis/anlas";
 import { fetchGalleryList, fetchGallerySessions } from "../../apis/gallery";
 import {
+  DRAW_PARTNER_STORAGE_KEY,
   DRAW_PORTRAIT_STORAGE_KEY,
+  readDrawPartnerEveryTurn,
   readDrawPortraitEveryTurn,
   useAdventure,
 } from "../../contexts/AdventureContext";
@@ -277,6 +279,9 @@ function AdventureHub() {
   // プレイ画面と同じブラウザ単位の好み。専用キーで共有する
   const [drawPortraitEveryTurn, setDrawPortraitEveryTurn] = useState(
     readDrawPortraitEveryTurn,
+  );
+  const [drawPartnerEveryTurn, setDrawPartnerEveryTurn] = useState(
+    readDrawPartnerEveryTurn,
   );
   // romance の主人公(自分)。既定は男性キャラ、選択したら次回にも保存する
   const [romancePlayerId, setRomancePlayerId] = useState(() => {
@@ -1085,31 +1090,60 @@ function AdventureHub() {
                 <span className="adventure-precise-toggle__switch" />
               </label>
               {!usePreciseReference && !enableCompositeScene && (
-                <label className="adventure-precise-toggle">
-                  <span className="adventure-precise-toggle__info">
-                    <strong>{t("adventure.drawPortraitEveryTurn")}</strong>
-                    <small>{t("adventure.drawPortraitEveryTurnHint")}</small>
-                  </span>
-                  <input
-                    type="checkbox"
-                    className="adventure-precise-toggle__input"
-                    checked={drawPortraitEveryTurn}
-                    disabled={setupGenerating || loading || creating}
-                    onChange={(event) => {
-                      const next = event.target.checked;
-                      setDrawPortraitEveryTurn(next);
-                      try {
-                        localStorage.setItem(
-                          DRAW_PORTRAIT_STORAGE_KEY,
-                          String(next),
-                        );
-                      } catch {
-                        // プライベートモード等で保存できなくても切り替え自体は有効
-                      }
-                    }}
-                  />
-                  <span className="adventure-precise-toggle__switch" />
-                </label>
+                <>
+                  <label className="adventure-precise-toggle">
+                    <span className="adventure-precise-toggle__info">
+                      <strong>{t("adventure.drawPortraitEveryTurn")}</strong>
+                      <small>{t("adventure.drawPortraitEveryTurnHint")}</small>
+                    </span>
+                    <input
+                      type="checkbox"
+                      className="adventure-precise-toggle__input"
+                      checked={drawPortraitEveryTurn}
+                      disabled={setupGenerating || loading || creating}
+                      onChange={(event) => {
+                        const next = event.target.checked;
+                        setDrawPortraitEveryTurn(next);
+                        try {
+                          localStorage.setItem(
+                            DRAW_PORTRAIT_STORAGE_KEY,
+                            String(next),
+                          );
+                        } catch {
+                          // プライベートモード等で保存できなくても切り替え自体は有効
+                        }
+                      }}
+                    />
+                    <span className="adventure-precise-toggle__switch" />
+                  </label>
+                  {preset === "romance" && (
+                    <label className="adventure-precise-toggle">
+                      <span className="adventure-precise-toggle__info">
+                        <strong>{t("adventure.drawPartnerEveryTurn")}</strong>
+                        <small>{t("adventure.drawPartnerEveryTurnHint")}</small>
+                      </span>
+                      <input
+                        type="checkbox"
+                        className="adventure-precise-toggle__input"
+                        checked={drawPartnerEveryTurn}
+                        disabled={setupGenerating || loading || creating}
+                        onChange={(event) => {
+                          const next = event.target.checked;
+                          setDrawPartnerEveryTurn(next);
+                          try {
+                            localStorage.setItem(
+                              DRAW_PARTNER_STORAGE_KEY,
+                              String(next),
+                            );
+                          } catch {
+                            // プライベートモード等で保存できなくても切り替え自体は有効
+                          }
+                        }}
+                      />
+                      <span className="adventure-precise-toggle__switch" />
+                    </label>
+                  )}
+                </>
               )}
             </div>
           </details>
@@ -1512,6 +1546,9 @@ function AdventurePlay({ runId }: { runId: string }) {
   const [drawPortraitEveryTurn, setDrawPortraitEveryTurn] = useState(
     readDrawPortraitEveryTurn,
   );
+  const [drawPartnerEveryTurn, setDrawPartnerEveryTurn] = useState(
+    readDrawPartnerEveryTurn,
+  );
   const [resultDismissed, setResultDismissed] = useState(false);
   const [anlasBalance, setAnlasBalance] = useState<AnlasBalance | null>(null);
 
@@ -1845,10 +1882,9 @@ function AdventurePlay({ runId }: { runId: string }) {
         },
       ];
       // 立ち絵の毎ターン生成OFF(精密参照OFFかつ非合成のみ有効)の間は、
-      // バックエンドが画像生成をスキップするため工程表示も揃える
-      const drawPortraitThisTurn =
-        drawPortraitEveryTurn || usePreciseReference || enableCompositeScene;
-      if (drawPortraitThisTurn) {
+      // バックエンドが該当の生成をスキップするため工程表示も揃える
+      const forcePortrait = usePreciseReference || enableCompositeScene;
+      if (drawPortraitEveryTurn || forcePortrait) {
         segments.push({
           key: "portrait",
           budgetMs: ADVENTURE_PROGRESS_BUDGET_MS.portrait,
@@ -1858,13 +1894,18 @@ function AdventurePlay({ runId }: { runId: string }) {
             key: "composite",
             budgetMs: ADVENTURE_PROGRESS_BUDGET_MS.composite,
           });
-        } else if (isRomancePreset) {
-          // 非合成 romance は主人公の後に攻略対象の立ち絵を直列生成する
-          segments.push({
-            key: "partner",
-            budgetMs: ADVENTURE_PROGRESS_BUDGET_MS.partner,
-          });
         }
+      }
+      if (
+        !enableCompositeScene &&
+        isRomancePreset &&
+        (drawPartnerEveryTurn || forcePortrait)
+      ) {
+        // 非合成 romance は主人公の後に攻略対象の立ち絵を直列生成する
+        segments.push({
+          key: "partner",
+          budgetMs: ADVENTURE_PROGRESS_BUDGET_MS.partner,
+        });
       }
       return segments;
     }
@@ -1882,6 +1923,7 @@ function AdventurePlay({ runId }: { runId: string }) {
     phase,
     pendingUserInput,
     drawPortraitEveryTurn,
+    drawPartnerEveryTurn,
     usePreciseReference,
     enableCompositeScene,
     isRomancePreset,
@@ -2541,35 +2583,68 @@ function AdventurePlay({ runId }: { runId: string }) {
                   </label>
                   {!activeRun.use_precise_reference &&
                     !activeRun.enable_composite_scene && (
-                      <label className="adventure-precise-toggle">
-                        <span className="adventure-precise-toggle__info">
-                          <strong>
-                            {t("adventure.drawPortraitEveryTurn")}
-                          </strong>
-                          <small>
-                            {t("adventure.drawPortraitEveryTurnHint")}
-                          </small>
-                        </span>
-                        <input
-                          type="checkbox"
-                          className="adventure-precise-toggle__input"
-                          checked={drawPortraitEveryTurn}
-                          disabled={streaming}
-                          onChange={(event) => {
-                            const next = event.target.checked;
-                            setDrawPortraitEveryTurn(next);
-                            try {
-                              localStorage.setItem(
-                                DRAW_PORTRAIT_STORAGE_KEY,
-                                String(next),
-                              );
-                            } catch {
-                              // プライベートモード等で保存できなくても切り替え自体は有効
-                            }
-                          }}
-                        />
-                        <span className="adventure-precise-toggle__switch" />
-                      </label>
+                      <>
+                        <label className="adventure-precise-toggle">
+                          <span className="adventure-precise-toggle__info">
+                            <strong>
+                              {t("adventure.drawPortraitEveryTurn")}
+                            </strong>
+                            <small>
+                              {t("adventure.drawPortraitEveryTurnHint")}
+                            </small>
+                          </span>
+                          <input
+                            type="checkbox"
+                            className="adventure-precise-toggle__input"
+                            checked={drawPortraitEveryTurn}
+                            disabled={streaming}
+                            onChange={(event) => {
+                              const next = event.target.checked;
+                              setDrawPortraitEveryTurn(next);
+                              try {
+                                localStorage.setItem(
+                                  DRAW_PORTRAIT_STORAGE_KEY,
+                                  String(next),
+                                );
+                              } catch {
+                                // プライベートモード等で保存できなくても切り替え自体は有効
+                              }
+                            }}
+                          />
+                          <span className="adventure-precise-toggle__switch" />
+                        </label>
+                        {activeRun.preset === "romance" && (
+                          <label className="adventure-precise-toggle">
+                            <span className="adventure-precise-toggle__info">
+                              <strong>
+                                {t("adventure.drawPartnerEveryTurn")}
+                              </strong>
+                              <small>
+                                {t("adventure.drawPartnerEveryTurnHint")}
+                              </small>
+                            </span>
+                            <input
+                              type="checkbox"
+                              className="adventure-precise-toggle__input"
+                              checked={drawPartnerEveryTurn}
+                              disabled={streaming}
+                              onChange={(event) => {
+                                const next = event.target.checked;
+                                setDrawPartnerEveryTurn(next);
+                                try {
+                                  localStorage.setItem(
+                                    DRAW_PARTNER_STORAGE_KEY,
+                                    String(next),
+                                  );
+                                } catch {
+                                  // プライベートモード等で保存できなくても切り替え自体は有効
+                                }
+                              }}
+                            />
+                            <span className="adventure-precise-toggle__switch" />
+                          </label>
+                        )}
+                      </>
                     )}
                 </div>
               )}
