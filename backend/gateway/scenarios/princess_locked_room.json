@@ -104,6 +104,7 @@
         "implies": ["panties"]
       }
     ],
+    "shared_aliases": ["下着", "underwear"],
     "base_outfit": ["panties", "bra", "dress", "tiara"],
     "required_items": ["panties", "bra", "dress", "tiara", "sanitary_pad"],
     "read_rule_patterns": [

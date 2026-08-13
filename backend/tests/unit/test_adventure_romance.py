@@ -5,10 +5,12 @@ import pytest
 
 from gateway.consts.adventure_romance import (
     ROMANCE_AFFECTION_START,
+    ROMANCE_ALTER_MONEY_LIMIT,
     ROMANCE_CONFESSION_FAIL_PENALTY,
     ROMANCE_GIFT_POINTS,
     ROMANCE_INITIAL_MONEY,
     ROMANCE_MILESTONES,
+    ROMANCE_MONEY_MAX,
     ROMANCE_WORK_ENCOUNTER_BONUS,
     ROMANCE_WORK_WAGE,
 )
@@ -17,6 +19,7 @@ from gateway.services.adventure_romance import (
     RomanceGift,
     RomanceSetupOutput,
     apply_romance_outcome,
+    apply_romance_time_of_day,
     clamp_romance_max_turns,
     init_romance_state,
     public_sim_view,
@@ -24,6 +27,7 @@ from gateway.services.adventure_romance import (
     romance_confession_threshold,
     romance_day_slot,
     romance_stage,
+    strip_duplicate_action_choices,
 )
 
 
@@ -69,6 +73,8 @@ def make_romance_output(**overrides) -> SimpleNamespace:
     payload = {
         "affection_delta": 0,
         "affection_set": None,
+        "money_delta": 0,
+        "money_set": None,
         "start_dating": False,
         "updated_liked_gift_ids": [],
         "updated_disliked_gift_ids": [],
@@ -214,19 +220,18 @@ def test_gift_resolution_rejects_unknown_and_unaffordable() -> None:
     assert broke.value.code == "insufficient_funds"
 
 
-def test_repeated_gift_decays_to_neutral() -> None:
+def test_repeated_gift_is_rejected_before_consuming_a_turn() -> None:
     sim = make_sim(given_gifts=["g3"])
-    repeated = resolve_romance_action(
-        sim,
-        user_input="また紅茶セットを贈る",
-        input_kind="gift",
-        gift_id="g3",
-        turn_number=3,
-        total_turns=14,
-    )
-    assert repeated["repeated_gift"] is True
-    assert repeated["preference_match"] == "neutral"
-    assert repeated["affection_delta"] == ROMANCE_GIFT_POINTS["standard"]["neutral"]
+    with pytest.raises(RomanceActionError) as error:
+        resolve_romance_action(
+            sim,
+            user_input="また紅茶セットを贈る",
+            input_kind="gift",
+            gift_id="g3",
+            turn_number=3,
+            total_turns=14,
+        )
+    assert error.value.code == "gift_already_given"
 
 
 def test_confession_threshold_scales_with_days() -> None:
@@ -407,3 +412,138 @@ def test_gift_price_clamped_into_tier_band() -> None:
     assert gift.price == 2000
     floor = RomanceGift.model_validate({"name": "香水", "price": 100, "tier": "luxury"})
     assert floor.price == 6001
+
+
+def test_public_view_reports_the_slot_of_the_resolved_turn() -> None:
+    # day/slot は次に行動する枠、scene_day/scene_slot は今映っている場面の枠
+    view = public_sim_view(make_sim(), turn_count=6)
+    assert (view["day"], view["slot"]) == (4, "day")
+    assert (view["scene_day"], view["scene_slot"]) == (3, "night")
+    opening = public_sim_view(make_sim(), turn_count=0)
+    assert opening["scene_day"] is None
+    assert opening["scene_slot"] is None
+    # 最終手番を超えても枠は最後のスロットで止める
+    last = public_sim_view(make_sim(), turn_count=99)
+    assert (last["scene_day"], last["scene_slot"]) == (7, "night")
+
+
+def test_alter_turn_honors_money_set() -> None:
+    state = {"sim": make_sim(), "completed_milestones": []}
+    apply_romance_outcome(
+        state,
+        make_output(),
+        {"kind": "alter", "money_delta": 0, "affection_delta": 0},
+        make_romance_output(money_set=65536),
+    )
+    assert state["sim"]["money"] == 65536
+
+
+def test_alter_turn_clamps_money_to_bounds() -> None:
+    over = {"sim": make_sim(), "completed_milestones": []}
+    apply_romance_outcome(
+        over,
+        make_output(),
+        {"kind": "alter", "money_delta": 0, "affection_delta": 0},
+        make_romance_output(money_set=ROMANCE_MONEY_MAX * 10),
+    )
+    assert over["sim"]["money"] == ROMANCE_MONEY_MAX
+    under = {"sim": make_sim(), "completed_milestones": []}
+    apply_romance_outcome(
+        under,
+        make_output(),
+        {"kind": "alter", "money_delta": 0, "affection_delta": 0},
+        make_romance_output(money_delta=-ROMANCE_ALTER_MONEY_LIMIT),
+    )
+    assert under["sim"]["money"] == 0
+
+
+def test_talk_and_gift_turns_ignore_llm_money_fields() -> None:
+    talk = {"sim": make_sim(), "completed_milestones": []}
+    apply_romance_outcome(
+        talk,
+        make_output(),
+        {"kind": "talk", "money_delta": 0, "affection_delta": 0},
+        make_romance_output(money_set=999_999, money_delta=999_999),
+    )
+    assert talk["sim"]["money"] == ROMANCE_INITIAL_MONEY
+    gift = {"sim": make_sim(), "completed_milestones": []}
+    apply_romance_outcome(
+        gift,
+        make_output(),
+        {
+            "kind": "gift",
+            "money_delta": -3000,
+            "affection_delta": 12,
+            "gift": {"id": "g3", "name": "紅茶セット", "price": 3000},
+        },
+        make_romance_output(money_set=999_999),
+    )
+    assert gift["sim"]["money"] == ROMANCE_INITIAL_MONEY - 3000
+
+
+def test_time_of_day_replaces_conflicting_lighting_tags() -> None:
+    night = apply_romance_time_of_day(
+        "resort beach, daylight, sunny, blue sky, two people talking", "night"
+    )
+    assert night.startswith("night, nighttime, dark sky, artificial lighting")
+    assert "daylight" not in night
+    assert "sunny" not in night
+    assert "resort beach" in night
+    assert "two people talking" in night
+
+
+def test_time_of_day_does_not_duplicate_existing_tags() -> None:
+    tags = apply_romance_time_of_day("daytime, cafe interior", "day")
+    assert tags.count("daytime") == 1
+    assert tags.endswith("cafe interior")
+
+
+def test_time_of_day_clamps_to_scene_tag_limit() -> None:
+    long_tags = ", ".join(f"tag{index}" for index in range(1000))
+    assert len(apply_romance_time_of_day(long_tags, "day")) <= 1800
+
+
+def test_strip_duplicate_action_choices_removes_reserved_actions() -> None:
+    sim = make_sim()
+    kept = strip_duplicate_action_choices(
+        [
+            {"id": "c1", "label": "美咲に告白する"},
+            {"id": "c2", "label": "紅茶セットを買って贈る"},
+            {"id": "c3", "label": "カフェのバイトに出る"},
+            {"id": "c4", "label": "美咲と一緒に本の話をする"},
+        ],
+        sim,
+        "ja",
+    )
+    labels = [item["label"] for item in kept]
+    assert "美咲と一緒に本の話をする" in labels
+    assert not any(
+        label in labels
+        for label in (
+            "美咲に告白する",
+            "紅茶セットを買って贈る",
+            "カフェのバイトに出る",
+        )
+    )
+
+
+def test_strip_duplicate_action_choices_refills_to_three() -> None:
+    kept = strip_duplicate_action_choices(
+        [
+            {"id": "c1", "label": "美咲に告白する"},
+            {"id": "c2", "label": "プレゼントを贈る"},
+            {"id": "c3", "label": "属性を付与する"},
+        ],
+        make_sim(),
+        "ja",
+    )
+    assert len(kept) == 3
+    assert all("告白" not in item["label"] for item in kept)
+
+
+def test_strip_duplicate_action_choices_keeps_untouched_lists_intact() -> None:
+    choices = [
+        {"id": "c1", "label": "海辺を歩く"},
+        {"id": "c2", "label": "好きな本の話をする"},
+    ]
+    assert strip_duplicate_action_choices(choices, make_sim(), "ja") == choices

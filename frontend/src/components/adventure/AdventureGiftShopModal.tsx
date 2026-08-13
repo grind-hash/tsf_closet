@@ -81,11 +81,13 @@ export default function AdventureGiftShopModal({
                 <button
                   type="button"
                   className="is-primary"
-                  disabled={!affordable || streaming}
+                  disabled={!affordable || given || streaming}
                   title={
-                    affordable
-                      ? undefined
-                      : t("adventure.romance.giftShop.insufficientFunds")
+                    given
+                      ? t("adventure.romance.giftShop.givenBefore")
+                      : affordable
+                        ? undefined
+                        : t("adventure.romance.giftShop.insufficientFunds")
                   }
                   onClick={() => handleGive(gift.id, gift.name)}
                 >

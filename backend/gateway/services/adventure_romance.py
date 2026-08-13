@@ -8,6 +8,7 @@ day/slot は状態に保存せず turn_number から導出する(冪等リトラ
 from __future__ import annotations
 
 import random
+import re
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -17,15 +18,22 @@ from ..consts.adventure_romance import (
     ROMANCE_AFFECTION_MIN,
     ROMANCE_AFFECTION_START,
     ROMANCE_ALTER_DELTA_LIMIT,
+    ROMANCE_ALTER_MONEY_LIMIT,
     ROMANCE_CONFESSION_FAIL_PENALTY,
     ROMANCE_CONFESSION_PACE,
     ROMANCE_CONFESSION_THRESHOLD,
     ROMANCE_DAYS_MAX,
     ROMANCE_DAYS_MIN,
+    ROMANCE_FALLBACK_CHOICES,
     ROMANCE_GIFT_POINTS,
     ROMANCE_GIFT_TIER_PRICES,
     ROMANCE_INITIAL_MONEY,
     ROMANCE_MILESTONES,
+    ROMANCE_MONEY_MAX,
+    ROMANCE_MONEY_MIN,
+    ROMANCE_RESERVED_CHOICE_PATTERNS,
+    ROMANCE_SLOT_CONFLICT_TAGS,
+    ROMANCE_SLOT_SCENE_TAGS,
     ROMANCE_SLOTS_PER_DAY,
     ROMANCE_STAGE_MILESTONE_IDS,
     ROMANCE_STAGE_THRESHOLDS,
@@ -34,6 +42,14 @@ from ..consts.adventure_romance import (
     ROMANCE_WORK_ENCOUNTER_RATE,
     ROMANCE_WORK_WAGE,
 )
+
+_RESERVED_CHOICE_RE = re.compile(
+    "|".join(f"(?:{pattern})" for pattern in ROMANCE_RESERVED_CHOICE_PATTERNS),
+    re.IGNORECASE,
+)
+
+# scene_tags の上限。AdventureImagePromptOutput.scene_tags と揃える
+_SCENE_TAGS_MAX = 1800
 
 
 class RomanceActionError(RuntimeError):
@@ -97,6 +113,76 @@ def romance_day_slot(turn_number: int) -> tuple[int, str]:
     day = (number + 1) // ROMANCE_SLOTS_PER_DAY
     slot = "day" if number % ROMANCE_SLOTS_PER_DAY == 1 else "night"
     return day, slot
+
+
+def apply_romance_time_of_day(scene_tags: str, slot: str) -> str:
+    """scene_tags の時間帯を slot で確定させる。
+
+    LLM は previous_image_tags から前ターンの照明タグを引き継ぐため、単に前置
+    するだけでは昼と夜のタグが同居する。反対の時間帯を示すタグを取り除いてから
+    当該 slot のタグを前置する。既に含まれている場合は重複させない。
+    """
+    tags = ROMANCE_SLOT_SCENE_TAGS.get(slot)
+    if not tags:
+        return scene_tags
+    conflicts = {item.casefold() for item in ROMANCE_SLOT_CONFLICT_TAGS.get(slot, ())}
+    wanted = [item.strip() for item in tags.split(",") if item.strip()]
+    wanted_keys = {item.casefold() for item in wanted}
+    kept: list[str] = []
+    for raw in scene_tags.split(","):
+        item = raw.strip()
+        if not item:
+            continue
+        key = item.casefold()
+        if key in conflicts or key in wanted_keys:
+            continue
+        kept.append(item)
+    merged = ", ".join([*wanted, *kept])
+    return merged[:_SCENE_TAGS_MAX].rstrip(", ")
+
+
+def strip_duplicate_action_choices(
+    choices: list[dict[str, Any]],
+    sim: dict[str, Any],
+    language: str,
+) -> list[dict[str, Any]]:
+    """専用ボタンと重複する選択肢を落とし、会話ビートで補充する。
+
+    告白・プレゼント・バイト・属性付与は専用ボタンだけが機械処理を走らせる。
+    同じ内容が choice として出ると選んでも何も起きないため、ここで除去する。
+    """
+    catalog_names = [
+        str(item.get("name") or "").strip()
+        for item in sim.get("gift_catalog", [])
+        if isinstance(item, dict) and str(item.get("name") or "").strip()
+    ]
+    job = sim.get("job") if isinstance(sim.get("job"), dict) else {}
+    job_name = str(job.get("name") or "").strip()
+    kept: list[dict[str, Any]] = []
+    for choice in choices:
+        label = str(choice.get("label") or "").strip()
+        if not label:
+            continue
+        if _RESERVED_CHOICE_RE.search(label):
+            continue
+        # カタログの品名やバイト先の名指しも専用ボタンの領分とみなす
+        if any(name and name in label for name in catalog_names):
+            continue
+        if job_name and job_name in label:
+            continue
+        kept.append(choice)
+    if len(kept) >= len(choices) or len(kept) >= 3:
+        return kept
+    used_ids = {str(item.get("id") or "") for item in kept}
+    used_labels = {str(item.get("label") or "") for item in kept}
+    fallbacks = ROMANCE_FALLBACK_CHOICES.get(language, ROMANCE_FALLBACK_CHOICES["en"])
+    for item in fallbacks:
+        if len(kept) >= 3:
+            break
+        if item["id"] in used_ids or item["label"] in used_labels:
+            continue
+        kept.append(dict(item))
+    return kept
 
 
 def romance_confession_threshold(total_days: int) -> int:
@@ -263,11 +349,12 @@ def resolve_romance_action(
             else {}
         )
         given = [str(item) for item in sim.get("given_gifts", [])]
-        repeated = str(gift.get("id")) in given
-        if repeated:
-            # 再贈呈は中立扱いにして連打による加点稼ぎを防ぐ
-            match = "neutral"
-        elif str(gift.get("id")) in set(hidden.get("liked_gift_ids", [])):
+        if str(gift.get("id")) in given:
+            # 満額を払って中立加点しか得られない罠になるため、ターン未消費で弾く
+            raise RomanceActionError(
+                "gift_already_given", "そのプレゼントは既に贈っています"
+            )
+        if str(gift.get("id")) in set(hidden.get("liked_gift_ids", [])):
             match = "liked"
         elif str(gift.get("id")) in set(hidden.get("disliked_gift_ids", [])):
             match = "disliked"
@@ -287,7 +374,6 @@ def resolve_romance_action(
                 "money_delta": -price,
                 "affection_delta": points,
                 "preference_match": match,
-                "repeated_gift": repeated,
             }
         )
         return resolution
@@ -310,6 +396,10 @@ def resolve_romance_action(
 
 def _clamp_affection(value: int) -> int:
     return max(ROMANCE_AFFECTION_MIN, min(ROMANCE_AFFECTION_MAX, int(value)))
+
+
+def _clamp_money(value: int) -> int:
+    return max(ROMANCE_MONEY_MIN, min(ROMANCE_MONEY_MAX, int(value)))
 
 
 def _apply_preference_updates(sim: dict[str, Any], romance_output: Any) -> None:
@@ -380,9 +470,22 @@ def apply_romance_outcome(
         # work / gift / confess は Python 計算値のみを使う
         affection += int(romance_resolution.get("affection_delta") or 0)
     sim["affection"] = _clamp_affection(affection)
-    sim["money"] = int(sim.get("money") or 0) + int(
-        romance_resolution.get("money_delta") or 0
-    )
+    money = int(sim.get("money") or 0)
+    if kind == "alter":
+        # 現実改変だけは所持金の書き換えを認める。affection_set と同じ非対称扱い
+        money_set = getattr(romance_output, "money_set", None)
+        if isinstance(money_set, int):
+            money = money_set
+        else:
+            limit = ROMANCE_ALTER_MONEY_LIMIT
+            money += max(
+                -limit,
+                min(limit, int(getattr(romance_output, "money_delta", 0) or 0)),
+            )
+    else:
+        # talk / work / gift / confess は Python 計算値のみを使う
+        money += int(romance_resolution.get("money_delta") or 0)
+    sim["money"] = _clamp_money(money)
     if kind == "gift":
         gift = romance_resolution.get("gift") or {}
         sim["given_gifts"] = [
@@ -428,22 +531,35 @@ def opening_sim_view(sim: dict[str, Any]) -> dict[str, Any]:
 
 
 def public_sim_view(sim: dict[str, Any], turn_count: int) -> dict[str, Any]:
-    """hidden_preferences を除いた公開ビュー。day/slot は次に行動する枠を示す。"""
+    """hidden_preferences を除いた公開ビュー。
+
+    day/slot は次に行動する枠、scene_day/scene_slot は turn_count が確定させた枠
+    (= その手番の画像と本文が描いている枠)を示す。両者は常に半日ずれるため、
+    HUD とライトボックスが同じ絵について別の枠を出さないよう両方を配信する。
+    """
     total_days = int(sim.get("total_days") or 0)
     total_turns = total_days * ROMANCE_SLOTS_PER_DAY
     next_turn = int(turn_count) + 1
     if total_turns:
         next_turn = min(next_turn, total_turns)
     day, slot = romance_day_slot(next_turn)
+    scene_turn = int(turn_count)
+    if total_turns:
+        scene_turn = min(scene_turn, total_turns)
+    scene_day, scene_slot = (
+        romance_day_slot(scene_turn) if scene_turn >= 1 else (None, None)
+    )
     affection = _clamp_affection(int(sim.get("affection") or 0))
     job = sim.get("job") if isinstance(sim.get("job"), dict) else {}
     return {
         "total_days": total_days,
         "day": day,
         "slot": slot,
+        "scene_day": scene_day,
+        "scene_slot": scene_slot,
         "affection": affection,
         "stage": romance_stage(affection),
-        "money": int(sim.get("money") or 0),
+        "money": _clamp_money(int(sim.get("money") or 0)),
         "partner_name": str(sim.get("partner_name") or ""),
         "player_name": str(sim.get("player_name") or ""),
         "player_character_id": str(sim.get("player_character_id") or ""),
@@ -483,7 +599,10 @@ ROMANCE_NARRATIVE_GUIDANCE = (
     "purchase results including whether the gift matched the partner's "
     "tastes, and confession success or failure. Narrate those facts exactly; "
     "never invent or alter prices, wages, day counts, or outcomes, and never "
-    "mention raw numeric scores in the prose. Portray the partner described "
+    "mention raw numeric scores in the prose. Never state or imply that the "
+    "player's money changed unless romance_resolution reports the change or "
+    "the player's own reality declaration in this turn creates it. Portray "
+    "the partner described "
     "in state.sim consistently, and let their warmth toward the player follow "
     "the relationship stage. state.sim.hidden_preferences is secret game "
     "data: weave its hints naturally into conversation, but never list it "
@@ -513,7 +632,8 @@ ROMANCE_VISUAL_GUIDANCE = (
 
 ROMANCE_RESOLUTION_GUIDANCE = (
     'Add these extra fields to the JSON object: "affection_delta" (integer), '
-    '"affection_set" (integer or null), "start_dating" (boolean), '
+    '"affection_set" (integer or null), "money_delta" (integer), '
+    '"money_set" (integer or null), "start_dating" (boolean), '
     '"updated_liked_gift_ids" (list of gift id strings), '
     '"updated_disliked_gift_ids" (list of gift id strings). '
     "For an ordinary conversation turn score affection_delta with this "
@@ -534,7 +654,15 @@ ROMANCE_RESOLUTION_GUIDANCE = (
     "set start_dating true; if it rewrites the partner's gift tastes, put "
     "the matching gift ids from state.sim.gift_catalog into the updated "
     "lists; otherwise keep affection_set null, start_dating false, and the "
-    "lists empty. Leave completed_milestones empty and keep ending_status "
+    "lists empty. Money follows the same rule as affection. Keep money_delta "
+    "0 and money_set null on conversation turns and whenever "
+    "romance_resolution.kind is work, gift, or confess, because the engine "
+    "has already applied every payment. Only when romance_resolution.kind is "
+    "alter and the declaration rewrites the player's finances, report the "
+    "result as money_set (the player's new total in yen) when the "
+    "declaration states an amount or a state of wealth, or as money_delta (a "
+    "signed change in yen) when it states a gain or a loss. Leave "
+    "completed_milestones empty and keep ending_status "
     "continue; the engine decides milestones and endings. choices must stay "
     "romance-flavoured actions for the next slot, and must never duplicate "
     "the dedicated action buttons (part-time work, buying or giving a shop "

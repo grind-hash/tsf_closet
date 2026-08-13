@@ -107,6 +107,8 @@ class AdventureImageRequest(BaseModel):
     player_tags: str = Field(default="", max_length=1200)
     npc_tags: list[str] = Field(default_factory=list, max_length=3)
     redraw_from_reference: bool = True
+    # portrait は立ち絵だけを作り直す。生成失敗ターンからの復旧に使う
+    target: Literal["scene", "portrait"] = "scene"
 
 
 def _http_error(error: AdventureError) -> HTTPException:
@@ -262,12 +264,23 @@ async def regenerate_image(
                 "event": "status",
                 "data": json.dumps({"phase": "image_generation"}, ensure_ascii=False),
             }
-            image = await adventure_service.generate_image(
-                run_id,
-                redraw_from_reference=options.redraw_from_reference,
-                prompt_override=prompt_override,
-            )
-            yield {"event": "image", "data": json.dumps(image, ensure_ascii=False)}
+            if options.target == "portrait":
+                portrait = await adventure_service.generate_portrait(
+                    run_id,
+                    redraw_from_reference=options.redraw_from_reference,
+                    prompt_override=prompt_override,
+                )
+                yield {
+                    "event": "portrait_image",
+                    "data": json.dumps(portrait, ensure_ascii=False),
+                }
+            else:
+                image = await adventure_service.generate_image(
+                    run_id,
+                    redraw_from_reference=options.redraw_from_reference,
+                    prompt_override=prompt_override,
+                )
+                yield {"event": "image", "data": json.dumps(image, ensure_ascii=False)}
             yield {
                 "event": "complete",
                 "data": json.dumps({"status": "complete"}, ensure_ascii=False),

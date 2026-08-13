@@ -103,8 +103,10 @@ const resources = {
           partnerPortraitAlt: "攻略対象の立ち絵",
           partnerLabel: "攻略対象",
           previewTurn: "Day {{day}}/{{total}} {{slot}}（{{turn}}/{{max}}手）",
+          day: "Day",
           dayCounter: "Day {{day}}/{{total}}",
-          dayCounterHint: "現在の日付と時間帯。1日は昼・夜の2枠です",
+          dayCounterHint:
+            "いま表示している場面の日付と時間帯です。1日は昼・夜の2枠で、次の行動は Day {{day}}/{{total}} {{slot}} になります",
           slot: {
             day: "昼",
             night: "夜",
@@ -117,6 +119,7 @@ const resources = {
             mutual: "両想い",
           },
           money: "所持金",
+          moneyUnit: "円",
           hints: "ヒント",
           grantedAttributes: "付与した属性",
           grantedAttributesHint:
@@ -209,6 +212,8 @@ const resources = {
         enableCompositeScenePlayHint:
           "次回のターンから反映されます。ONの間は毎ターン、立ち絵に加えて合成シーンも直列生成されるため待ち時間が長くなります。",
         portraitAlt: "主人公のポートレート",
+        portraitFailed: "立ち絵の生成に失敗しました",
+        portraitRetry: "立ち絵を再生成",
         preparing: "シナリオを準備中...",
         preparingTitle: "シナリオを準備しています",
         preparingDetail:
@@ -325,6 +330,7 @@ const resources = {
           composite: "場面を合成中...",
         },
         anlasDetail: "固定: {{fixed}} / 購入: {{purchased}}",
+        anlasBadge: "精密参照",
         status: {
           active: "進行中",
           success: "成功",
@@ -1449,8 +1455,10 @@ const resources = {
           partnerPortraitAlt: "Partner portrait",
           partnerLabel: "Love interest",
           previewTurn: "Day {{day}}/{{total}} {{slot}} (turn {{turn}}/{{max}})",
+          day: "Day",
           dayCounter: "Day {{day}}/{{total}}",
-          dayCounterHint: "Current day and time slot. Each day has two slots.",
+          dayCounterHint:
+            "The day and time slot of the scene on screen. Each day has two slots, and your next action falls on Day {{day}}/{{total}} {{slot}}.",
           slot: {
             day: "Day",
             night: "Night",
@@ -1463,6 +1471,7 @@ const resources = {
             mutual: "In love",
           },
           money: "Money",
+          moneyUnit: "JPY",
           hints: "Hints",
           grantedAttributes: "Granted attributes",
           grantedAttributesHint:
@@ -1558,6 +1567,8 @@ const resources = {
         enableCompositeScenePlayHint:
           "Applies from the next turn. While on, every turn generates the composite scene in series after the character sprite, so turns take longer.",
         portraitAlt: "Protagonist portrait",
+        portraitFailed: "Character sprite generation failed",
+        portraitRetry: "Regenerate sprite",
         preparing: "Preparing scenario...",
         preparingTitle: "Preparing the scenario",
         preparingDetail:
@@ -1674,6 +1685,7 @@ const resources = {
           composite: "Compositing the scene...",
         },
         anlasDetail: "Fixed: {{fixed}} / Purchased: {{purchased}}",
+        anlasBadge: "Precise ref.",
         status: {
           active: "Active",
           success: "Success",

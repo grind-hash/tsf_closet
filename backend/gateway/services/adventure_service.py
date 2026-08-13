@@ -35,9 +35,11 @@ from ..consts.adventure_narration import (
     NARRATION_VOICES,
 )
 from ..consts.adventure_romance import (
+    ROMANCE_BACKGROUND_CACHE_MAX,
     ROMANCE_MILESTONES,
     ROMANCE_PLAYER_DEFAULT_CHARACTER_ID,
     ROMANCE_SLOTS_PER_DAY,
+    ROMANCE_TALK_FALLBACK_DELTA,
 )
 from ..consts.adventure_turns import (
     ADVENTURE_TURNS_DEFAULT,
@@ -64,12 +66,15 @@ from .adventure_romance import (
     RomanceActionError,
     RomanceSetupOutput,
     apply_romance_outcome,
+    apply_romance_time_of_day,
     clamp_romance_max_turns,
     init_romance_state,
     opening_sim_view,
     public_sim_view,
     resolve_romance_action,
+    romance_day_slot,
     romance_setup_system_prompt,
+    strip_duplicate_action_choices,
 )
 from .adventure_template_loader import SCENARIO_TEMPLATES, template_localized
 from .llm_service import llm_service
@@ -400,14 +405,17 @@ class AdventureResolutionOutput(BaseModel):
 
 
 class AdventureRomanceResolutionOutput(AdventureResolutionOutput):
-    """romance ターン用。好感度と好み書換の機械可読フィールドを追加する。
+    """romance ターン用。好感度・所持金と好み書換の機械可読フィールドを追加する。
 
-    affection_set と updated_*_gift_ids は reality_alter ターンでのみ
-    Python 側が採用する。適用規則は adventure_romance.apply_romance_outcome。
+    affection_set、money_set/money_delta、updated_*_gift_ids は reality_alter
+    ターンでのみ Python 側が採用する。適用規則は
+    adventure_romance.apply_romance_outcome。
     """
 
     affection_delta: int = Field(default=0, ge=-20, le=20)
     affection_set: int | None = Field(default=None, ge=0, le=100)
+    money_delta: int = Field(default=0, ge=-999_999_999, le=999_999_999)
+    money_set: int | None = Field(default=None, ge=0, le=999_999_999)
     # 宣言が「交際を始める」を明示した場合のみ true。reality_alter ターン限定で
     # 告白成功と同じ扱い(全 milestone 達成 + success エンディング)になる
     start_dating: bool = False
@@ -430,6 +438,25 @@ class AdventureRomanceResolutionOutput(AdventureResolutionOutput):
             return None
         try:
             return max(0, min(100, int(value)))
+        except (TypeError, ValueError):
+            return None
+
+    @field_validator("money_delta", mode="before")
+    @classmethod
+    def clamp_money_delta(cls, value: Any) -> Any:
+        # LLM の過大値で検証エラー→修復リトライへ落ちないよう先にクランプする
+        try:
+            return max(-999_999_999, min(999_999_999, int(value)))
+        except (TypeError, ValueError):
+            return 0
+
+    @field_validator("money_set", mode="before")
+    @classmethod
+    def clamp_money_set(cls, value: Any) -> Any:
+        if value is None:
+            return None
+        try:
+            return max(0, min(999_999_999, int(value)))
         except (TypeError, ValueError):
             return None
 
@@ -540,6 +567,9 @@ def _lean_state_for_llm(state: dict[str, Any]) -> dict[str, Any]:
         "partner_image_path",
         "partner_portrait_path",
         "opening_partner_portrait_path",
+        # 背景キャッシュもファイルパスの索引で、LLM には不要
+        "background_cache",
+        "background_image_path",
         # 人称指示はシステムプロンプト側に載るため、user prompt へは流さない
         "narration_voice",
         "narration_pronoun",
@@ -3360,6 +3390,31 @@ The objective must name a concrete target and an observable end condition that c
                     await queue.put(("portrait_skipped", None))
                     await queue.put(("image_skipped", None))
                     return
+                # romance は現在地と時間帯ごとに背景を用意する。合成モードでは
+                # この背景が img2img の下地、非合成モードではステージ背景になるため、
+                # 立ち絵生成より前に確定させる
+                if romance_sim is not None:
+                    _, background_slot = romance_day_slot(run.turn_count + 1)
+                    try:
+                        background_result = (
+                            await self._ensure_romance_background_unlocked(
+                                run.id,
+                                scene_tags=apply_romance_time_of_day(
+                                    visual.scene_tags, background_slot
+                                ),
+                                location=str(visual.visual_state.location or ""),
+                                slot=background_slot,
+                                nsfw_mode=bool(run.nsfw_mode),
+                            )
+                        )
+                    except Exception as error:
+                        # 背景の失敗はターン進行を止めない。既存背景のまま続ける
+                        logger.warning(
+                            "Adventure romance background generation failed: %s", error
+                        )
+                        background_result = None
+                    if background_result is not None:
+                        await queue.put(("background", background_result))
                 # step 情報はフロントのプログレスバー用。phase は既存契約を維持する
                 enable_composite = bool(state.get("enable_composite_scene"))
                 # 非合成 romance は主人公+攻略対象の2枚を直列生成する
@@ -3493,6 +3548,8 @@ The objective must name a concrete target and an observable end condition that c
             visual_output: AdventureVisualOutput | None = None
             portrait_path: Path | None = None
             partner_sprite_path: Path | None = None
+            background_path: Path | None = None
+            background_cache: dict[str, str] | None = None
             image_path: Path | None = None
             failures: list[tuple[str, Exception]] = []
             resolution_done = False
@@ -3534,6 +3591,16 @@ The objective must name a concrete target and an observable end condition that c
                         portrait_done = True
                     elif kind == "portrait_skipped":
                         portrait_done = True
+                    elif kind == "background":
+                        # romance の現在地・時間帯別背景。攻略対象立ち絵と同様、
+                        # 最終の state コミットが古い値で上書きしないよう保持する
+                        background_path, background_cache = payload
+                        yield {
+                            "event": "background_image",
+                            "data": {
+                                "image_url": self.image_url(run.id, background_path),
+                            },
+                        }
                     elif kind == "partner_portrait":
                         # romance の攻略対象立ち絵(非合成モードのみ)。
                         # 最終の state コミットが古いパスで上書きしないよう保持する
@@ -3587,8 +3654,25 @@ The objective must name a concrete target and an observable end condition that c
                         for phase, error in failures
                     ],
                 )
-                resolution = AdventureResolutionOutput.model_validate(
-                    {"choices": _default_director_choices(run.language)},
+                # romance では基底クラスに落とすと apply_romance_outcome が
+                # affection_delta / money_* を読めず、好感度が黙って据え置きになる
+                fallback_model: type[AdventureResolutionOutput] = (
+                    AdventureRomanceResolutionOutput
+                    if romance_sim is not None
+                    else AdventureResolutionOutput
+                )
+                fallback_payload: dict[str, Any] = {
+                    "choices": _default_director_choices(run.language)
+                }
+                if (
+                    romance_sim is not None
+                    and str((romance_resolution or {}).get("kind") or "") == "talk"
+                ):
+                    # 「友好的な働きかけは最低 +1」のガイダンスに合わせ、
+                    # 生成失敗をプレイヤーへの減点にしない
+                    fallback_payload["affection_delta"] = ROMANCE_TALK_FALLBACK_DELTA
+                resolution = fallback_model.model_validate(
+                    fallback_payload,
                     context={
                         "fallback_choices": _default_director_choices(run.language),
                         "language": run.language,
@@ -3630,6 +3714,19 @@ The objective must name a concrete target and an observable end condition that c
             if romance_resolution is not None:
                 # sim を更新し、milestone と ending_status を Python 算出値で上書き
                 apply_romance_outcome(state, output, romance_resolution, resolution)
+                # 専用ボタンと重複する選択肢は選んでも機械処理が走らず空振りする。
+                # プロンプトの禁止指示に LLM が従わないため、ここで確実に落とす
+                output.choices = [
+                    AdventureChoice.model_validate(item)
+                    for item in strip_duplicate_action_choices(
+                        [
+                            {"id": choice.id, "label": choice.label}
+                            for choice in output.choices
+                        ],
+                        romance_sim or {},
+                        run.language,
+                    )
+                ]
             if template:
                 self._enforce_template_output(
                     template,
@@ -3650,6 +3747,11 @@ The objective must name a concrete target and an observable end condition that c
             # 生成ヘルパのDB保存はこの後の全stateコミットで上書きされるため必須
             if partner_sprite_path is not None:
                 next_state["partner_portrait_path"] = str(partner_sprite_path)
+            # 背景キャッシュも同じ理由で state へ書き戻す
+            if background_cache is not None:
+                next_state["background_cache"] = background_cache
+            if background_path is not None:
+                next_state["background_image_path"] = str(background_path)
 
             if image_path is not None:
                 turn_image_path = str(image_path)
@@ -3838,6 +3940,27 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             "turn_id": effective_turn_id,
         }
 
+    async def generate_portrait(
+        self,
+        run_id: str,
+        turn_id: str | None = None,
+        *,
+        redraw_from_reference: bool = False,
+        prompt_override: AdventureImagePromptOutput | None = None,
+    ) -> dict[str, Any]:
+        """立ち絵だけを作り直す。生成失敗ターンからの復旧導線で使う。"""
+        async with self._run_locks[run_id]:
+            portrait_path, effective_turn_id = await self._generate_portrait_unlocked(
+                run_id,
+                turn_id,
+                redraw_from_reference=redraw_from_reference,
+                prompt_override=prompt_override,
+            )
+        return {
+            "image_url": self.image_url(run_id, portrait_path),
+            "turn_id": effective_turn_id,
+        }
+
     async def _generate_image_unlocked(
         self,
         run_id: str,
@@ -3885,6 +4008,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 redraw_from_reference=redraw_from_reference,
                 prompt_override=prompt_override,
                 worn_items_override=worn_items_override,
+                turn_number=effective_turn_number,
             )
             player_prompt = _enhance_adventure_prompt(
                 image_prompt.player_tags
@@ -4042,6 +4166,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         redraw_from_reference: bool,
         prompt_override: AdventureImagePromptOutput | None,
         worn_items_override: list[str] | None = None,
+        turn_number: int | None = None,
     ) -> tuple[
         AdventureImagePromptOutput,
         bool,
@@ -4056,6 +4181,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         末尾の raw_image_prompt は決定論変換前の LLM 出力。last_image_prompt には
         こちらを保存する。変換後を保存すると、次ターンの previous_image_tags 経由で
         露出状態タグや装備タグが LLM 出力へ再入し、状態変化後も残留するため。
+        romance の時間帯タグも同じ理由でここ（複製側）だけに適用する。
         """
         visual_state = state.get("visual_state", {})
         template = SCENARIO_TEMPLATES.get(str(state.get("scenario_template_id") or ""))
@@ -4078,6 +4204,14 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 respect_clothing_layers=respect_clothing_layers,
             )
             image_prompt = raw_image_prompt.model_copy(deep=True)
+        # romance は昼/夜が turn_number から決まる。LLM 任せにすると夜のターンで
+        # 真昼の絵が出るため、照明タグを決定論で確定させる
+        if getattr(run, "preset", "") == "romance" and turn_number is not None:
+            # 開幕(turn 0)は最初の枠(Day1 昼)として扱う
+            _, romance_slot = romance_day_slot(max(1, int(turn_number)))
+            image_prompt.scene_tags = apply_romance_time_of_day(
+                image_prompt.scene_tags, romance_slot
+            )
         # 画像生成は state を DB から読み直すため、ターン中は永続化前の古い
         # worn_items を掴む。呼び出し側が確定値を持つ場合はそちらを優先する。
         if worn_items_override is not None:
@@ -4135,8 +4269,13 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         *,
         scene_tags: str,
         nsfw_mode: bool,
+        filename: str = "background.png",
     ) -> Path:
-        """シナリオ開始時に一度だけ背景画像を生成する。以降のターンでは再利用のみ。"""
+        """背景画像を1枚生成して run の現在背景に設定する。
+
+        既定の filename は開幕用。romance では現在地と時間帯ごとに別名で生成し、
+        _ensure_romance_background_unlocked がキャッシュとして使い回す。
+        """
         run = await self.get_run_orm(run_id)
         # scene_tags は「観察可能な相互作用」を含みうるため、no humans 等の
         # 除外タグを前置してNovelAIに人物非表示を強く指示する
@@ -4155,7 +4294,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             raise AdventureError(
                 "image_generation_failed", "背景画像が生成されませんでした"
             )
-        background_path = self._images_dir / run.id / "background.png"
+        background_path = self._images_dir / run.id / Path(filename).name
         background_path.parent.mkdir(parents=True, exist_ok=True)
         background_path.write_bytes(result.images[0])
         async with async_session_factory() as db:
@@ -4166,6 +4305,54 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             persisted_run.updated_at = datetime.now()
             await db.commit()
         return background_path
+
+    async def _ensure_romance_background_unlocked(
+        self,
+        run_id: str,
+        *,
+        scene_tags: str,
+        location: str,
+        slot: str,
+        nsfw_mode: bool,
+    ) -> tuple[Path, dict[str, str]] | None:
+        """現在地と時間帯に対応する背景を用意し、(パス, キャッシュ) を返す。
+
+        同じ (現在地, 時間帯) では生成せず既存画像を使い回す。生成上限に達した
+        場合と現在地が不明な場合は None を返し、既存の背景をそのまま使わせる。
+        """
+        key = f"{location.strip().casefold()[:80]}|{slot}"
+        if not location.strip():
+            return None
+        run = await self.get_run_orm(run_id)
+        state = _json_load(run.state_json, {})
+        cache = state.get("background_cache")
+        cache = dict(cache) if isinstance(cache, dict) else {}
+        cached_name = cache.get(key)
+        if cached_name:
+            cached_path = self._images_dir / run_id / Path(str(cached_name)).name
+            if cached_path.is_file():
+                if str(run.background_image_path or "") != str(cached_path):
+                    async with async_session_factory() as db:
+                        persisted_run = await db.get(AdventureRun, run_id)
+                        if persisted_run is not None:
+                            persisted_run.background_image_path = str(cached_path)
+                            persisted_run.updated_at = datetime.now()
+                            await db.commit()
+                return cached_path, cache
+            cache.pop(key, None)
+        if len(cache) >= ROMANCE_BACKGROUND_CACHE_MAX:
+            logger.info(
+                "Adventure romance background cache is full: run_id=%s key=%s",
+                run_id,
+                key,
+            )
+            return None
+        filename = f"background-{uuid.uuid4().hex[:8]}.png"
+        background_path = await self._generate_background_image_unlocked(
+            run_id, scene_tags=scene_tags, nsfw_mode=nsfw_mode, filename=filename
+        )
+        cache[key] = background_path.name
+        return background_path, cache
 
     async def _generate_portrait_unlocked(
         self,
@@ -4211,6 +4398,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 redraw_from_reference=redraw_from_reference,
                 prompt_override=prompt_override,
                 worn_items_override=worn_items_override,
+                turn_number=effective_turn_number,
             )
             # 立ち絵はフロント側で背景を透過するため、必ず白背景で生成させる。
             player_prompt = _enhance_adventure_prompt(
@@ -4389,9 +4577,14 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 state,
                 redraw_from_reference=True,
                 prompt_override=None,
+                turn_number=1,
             )
+            # 背景には時間帯タグ適用済みの scene_tags を渡す。
+            # image_prompt(変換前)は後続の prompt_override 用に温存する。
             background_path = await self._generate_background_image_unlocked(
-                run_id, scene_tags=image_prompt.scene_tags, nsfw_mode=nsfw_mode
+                run_id,
+                scene_tags=_prepared_prompt.scene_tags,
+                nsfw_mode=nsfw_mode,
             )
             # 立ち絵と合成シーンで同一シードを使い、衣装の描画差を抑える
             opening_seed = random.randint(0, 999_999_999)
@@ -4549,6 +4742,13 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             result["partner_portrait_url"] = (
                 self.image_url(turn.run_id, partner_sprite)
                 if partner_sprite.is_file()
+                else None
+            )
+            # このターン確定時点の背景。過去フレームを当時の場所・時間帯で見せる
+            turn_background = Path(str(state_delta.get("background_image_path") or ""))
+            result["background_image_url"] = (
+                self.image_url(turn.run_id, turn_background)
+                if turn_background.is_file()
                 else None
             )
         return result

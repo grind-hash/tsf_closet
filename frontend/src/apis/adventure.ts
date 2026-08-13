@@ -66,7 +66,12 @@ export interface AdventureSim {
   total_days: number;
   /** 次に行動する日。1始まり */
   day: number;
+  /** 次に行動する時間帯 */
   slot: "day" | "night";
+  /** 今表示している場面(直前に解決した手番)の日。開幕フレームでは null */
+  scene_day?: number | null;
+  /** 今表示している場面の時間帯。day/slot とは常に半日ずれる */
+  scene_slot?: "day" | "night" | null;
   affection: number;
   stage: "stranger" | "friend" | "aware" | "mutual";
   money: number;
@@ -80,8 +85,15 @@ export interface AdventureSim {
   confession_available: boolean;
 }
 
-export interface AdventureImageRegenerateOptions extends AdventureImagePrompt {
+/**
+ * タグを省略するとサーバが現在の状態からプロンプトを組み直す。
+ * 立ち絵の再試行のように「今の状態でもう一度」だけしたい経路で使う。
+ */
+export interface AdventureImageRegenerateOptions
+  extends Partial<AdventureImagePrompt> {
   redraw_from_reference: boolean;
+  /** portrait は立ち絵だけを作り直す。既定は場面画像 */
+  target?: "scene" | "portrait";
 }
 
 export interface AdventureTurn {
@@ -113,6 +125,8 @@ export interface AdventureTurn {
   partner_note?: string | null;
   /** romance のみ。ターン確定時点の攻略対象の立ち絵 */
   partner_portrait_url?: string | null;
+  /** romance のみ。ターン確定時点の背景(現在地・時間帯ごとに変わる) */
+  background_image_url?: string | null;
 }
 
 export interface AdventureRun {
@@ -238,6 +252,7 @@ export interface AdventureStreamEvent {
     | "image"
     | "portrait_image"
     | "partner_image"
+    | "background_image"
     | "complete"
     | "error";
   data: Record<string, unknown>;
@@ -278,6 +293,7 @@ function normalizeRun(run: AdventureRun): AdventureRun {
       image_url: withApiBase(turn.image_url),
       portrait_image_url: withApiBase(turn.portrait_image_url),
       partner_portrait_url: withApiBase(turn.partner_portrait_url ?? null),
+      background_image_url: withApiBase(turn.background_image_url ?? null),
     })),
   };
 }

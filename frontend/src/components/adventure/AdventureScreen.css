@@ -859,6 +859,15 @@ button:disabled {
   --adv-story-inset: clamp(0px, 1.6vw, 20px);
   /* 広い画面でメッセージ枠が間延びしないよう横幅に上限を置く */
   --adv-story-max-width: 1120px;
+  /*
+   * HUD は上端に絶対配置で載る。その下へ置く要素の top を1箇所で決めるため、
+   * 高さを変数化する。romance はメトリクスタイルが4段ぶん高い。
+   */
+  --adv-hud-height: 56px;
+  --adv-hud-gap: 8px;
+  --adv-overlay-top: calc(var(--adv-hud-height) + var(--adv-hud-gap));
+  /* 44px の丸ボタン1段ぶん下 */
+  --adv-overlay-row2: calc(var(--adv-overlay-top) + 52px);
 
   position: relative;
   display: grid;
@@ -869,9 +878,15 @@ button:disabled {
   overflow: hidden;
 }
 
+.adventure-play--romance {
+  --adv-hud-height: 88px;
+  --adv-hud-tile-min: 104px;
+  --adv-hud-tile-height: 71px;
+}
+
 .adventure-play > .adventure-error {
   position: absolute;
-  top: 58px;
+  top: var(--adv-overlay-top);
   left: 50%;
   z-index: 8;
   width: min(560px, calc(100% - 28px));
@@ -886,11 +901,28 @@ button:disabled {
   left: 0;
   z-index: 6;
   display: flex;
+  box-sizing: border-box;
+  min-height: var(--adv-hud-height);
   align-items: center;
   gap: 12px;
   padding: 8px 14px;
   background: linear-gradient(to bottom, rgb(8 10 12 / 82%), rgb(8 10 12 / 0%));
   font-family: var(--font-sans, sans-serif);
+  /*
+   * グラデーションの裾は全幅を覆うため、素通しにしないと HUD の下に置いた
+   * 再生成・設定ボタンのクリックまで吸ってしまう。操作要素だけ拾い直す。
+   */
+  pointer-events: none;
+}
+
+.adventure-hud__back,
+.adventure-hud__chip,
+.adventure-hud__popover,
+.adventure-hud__tile,
+.adventure-hud__turns,
+.adventure-hud__anlas,
+.adventure-hud__location {
+  pointer-events: auto;
 }
 
 .adventure-hud__back {
@@ -972,7 +1004,10 @@ button:disabled {
 
 .adventure-hud__metrics {
   display: flex;
-  flex: 0 0 auto;
+  min-width: 0;
+  /* 狭幅では折り返さず縮める。折り返すと HUD が2行になり
+     --adv-hud-height の前提が崩れる */
+  flex: 0 1 auto;
   align-items: center;
   gap: 8px;
 }
@@ -1078,7 +1113,7 @@ button:disabled {
 
 .adventure-hud__popover {
   position: absolute;
-  top: 60px;
+  top: var(--adv-overlay-top);
   right: 14px;
   z-index: 7;
   width: min(340px, calc(100% - 28px));
@@ -1165,7 +1200,7 @@ button:disabled {
  */
 .adventure-left-rail {
   position: absolute;
-  top: 68px;
+  top: var(--adv-overlay-top);
   bottom: calc(var(--adv-story-height) + var(--adv-story-inset) + 14px);
   left: 14px;
   z-index: 6;
@@ -1428,7 +1463,7 @@ button:disabled {
 
 .adventure-stage__past-banner {
   position: absolute;
-  top: 60px;
+  top: var(--adv-overlay-top);
   left: 50%;
   z-index: 5;
   display: flex;
@@ -1458,7 +1493,7 @@ button:disabled {
 
 .adventure-stage__regenerate {
   position: absolute;
-  top: 60px;
+  top: var(--adv-overlay-top);
   right: 16px;
   z-index: 5;
   width: 44px;
@@ -1471,6 +1506,46 @@ button:disabled {
 }
 
 .adventure-stage__regenerate:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/*
+ * 立ち絵の生成が失敗したターンの告知。黙って前ターンの1枚を出し続けると
+ * 合成モードでは人物の一貫性が落ちたことに気付けないため、再試行導線を出す。
+ */
+.adventure-stage__portrait-failed {
+  position: absolute;
+  top: var(--adv-overlay-row2);
+  left: 50%;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  border: 1px solid rgb(224 134 143 / 55%);
+  border-radius: 999px;
+  color: #f4f6f8;
+  background: rgb(13 17 20 / 88%);
+  font-size: 0.76rem;
+  transform: translateX(-50%);
+}
+
+.adventure-stage__portrait-failed button {
+  padding: 4px 10px;
+  border: 1px solid #e0868f;
+  border-radius: 999px;
+  color: #e0868f;
+  background: transparent;
+  font-size: 0.74rem;
+  cursor: pointer;
+}
+
+.adventure-stage__portrait-failed button:hover:not(:disabled) {
+  background: rgb(224 134 143 / 14%);
+}
+
+.adventure-stage__portrait-failed button:disabled {
   opacity: 0.45;
   cursor: not-allowed;
 }
@@ -1575,7 +1650,7 @@ button:disabled {
 
 .adventure-stage__settings {
   position: absolute;
-  top: 60px;
+  top: var(--adv-overlay-top);
   right: 68px;
   z-index: 5;
   width: 44px;
@@ -1595,7 +1670,7 @@ button:disabled {
 
 .adventure-image-settings-popover {
   position: absolute;
-  top: 112px;
+  top: var(--adv-overlay-row2);
   right: 16px;
   z-index: 6;
   display: flex;
@@ -2644,6 +2719,7 @@ button:disabled {
 @media (max-width: 900px) {
   .adventure-play {
     --adv-story-height: clamp(280px, 48vh, 400px);
+    --adv-hud-height: 56px;
 
     min-height: 560px;
   }
@@ -2737,8 +2813,18 @@ button:disabled {
 @media (orientation: landscape) and (max-height: 560px) {
   .adventure-play {
     --adv-story-height: clamp(160px, 48vh, 250px);
+    --adv-hud-height: 52px;
 
     min-height: 0;
+  }
+
+  /*
+   * .adventure-play と同一詳細度なので、後勝ちで潰されないよう
+   * ここでも romance 値を明示する(HUD の padding が 4px に縮む分だけ低い)。
+   * 幅も狭い場合は、末尾の幅別ブロックがさらに後ろで上書きする。
+   */
+  .adventure-play--romance {
+    --adv-hud-height: 80px;
   }
 
   .adventure-hud {
@@ -2762,15 +2848,7 @@ button:disabled {
     height: 92%;
   }
 
-  .adventure-stage__past-banner,
-  .adventure-stage__regenerate,
-  .adventure-stage__settings {
-    top: 50px;
-  }
-
-  .adventure-image-settings-popover {
-    top: 98px;
-  }
+  /* top は --adv-hud-height 由来なので個別指定は不要 */
 
   .adventure-messagebox__meta {
     padding: 4px 16px 0;
@@ -3053,6 +3131,7 @@ button:disabled {
  * romance: HUD を恋愛シミュレーション風のローズトーンへ差し替える。
  * ルートの adventure-hud--romance でスコープし、ミッション系の見た目は変えない。
  */
+.adventure-hud--romance .adventure-hud__tile,
 .adventure-hud--romance .adventure-hud__turns,
 .adventure-hud--romance .adventure-hud__anlas,
 .adventure-hud--romance .adventure-hud__chip {
@@ -3062,6 +3141,7 @@ button:disabled {
   box-shadow: 0 2px 10px rgb(240 143 183 / 10%);
 }
 
+.adventure-hud--romance .adventure-hud__tile-label,
 .adventure-hud--romance .adventure-hud__turns > span,
 .adventure-hud--romance .adventure-hud__anlas > span,
 .adventure-hud--romance .adventure-hud__chip span {
@@ -3070,6 +3150,37 @@ button:disabled {
 
 .adventure-hud--romance .adventure-hud__chip strong {
   color: #ff9ec7;
+}
+
+/*
+ * メトリクスタイルと同じ高さに揃え、HUD 全体の凹凸をなくす。
+ * ラベル行はタイル側と同じ高さで上端に固定し、値は残りの領域を
+ * 1fr で埋めて中央に置く。両方を上へ積むと下側が大きく空いて見える。
+ */
+.adventure-hud--romance .adventure-hud__chip {
+  box-sizing: border-box;
+  min-height: var(--adv-hud-tile-height, 71px);
+  grid-template-rows: 14px minmax(20px, 1fr);
+  align-items: center;
+  padding: 4px 10px;
+}
+
+/*
+ * 長いラベル(「付与した属性」等)が折り返すとそのチップだけ高くなる。
+ * line-height はタイルのラベルと揃え、行の基準位置をずらさない。
+ */
+.adventure-hud--romance .adventure-hud__chip span {
+  max-width: 100%;
+  overflow: hidden;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* サムネイルは値の行に収める。はみ出すと主人公チップだけ行位置がずれる */
+.adventure-hud--romance .adventure-hud__chip-thumb {
+  width: 20px;
+  height: 20px;
 }
 
 .adventure-hud--romance .adventure-hud__chip.is-open {
@@ -3092,23 +3203,65 @@ button:disabled {
   border-color: rgb(240 143 183 / 35%);
 }
 
-/* Day チップ: 日付プレート + 昼/夜バッジ */
-.adventure-hud__turns--romance {
-  min-width: 92px;
+/*
+ * romance メトリクスの共通タイル。
+ * Day・好感度・所持金で段数がバラバラだと高さも幅も揃わないため、
+ * 4段(ラベル/値/ゲージ/バッジ)を px 固定の grid で必ず確保する。
+ * 値の無い段は is-empty で visibility を落とし、枠だけ残す。
+ */
+.adventure-hud__tile {
+  display: grid;
+  box-sizing: border-box;
+  min-width: var(--adv-hud-tile-min, 104px);
+  align-items: center;
+  justify-items: center;
+  gap: 2px;
+  grid-template-rows: 14px 20px 5px 16px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: rgb(13 17 20 / 78%);
 }
 
-.adventure-hud__turns--romance > span {
+.adventure-hud__tile-label {
+  color: #aeb7bf;
+  font-size: 0.62rem;
   font-weight: 700;
   letter-spacing: 0.04em;
+  line-height: 1;
 }
 
-.adventure-hud__slot {
-  padding: 1px 10px;
+.adventure-hud__tile-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #efb85a;
+  font-size: 0.95rem;
+  line-height: 1;
+  /* 桁が変わっても幅が跳ねないよう、monospace ではなく等幅数字で揃える */
+  font-variant-numeric: tabular-nums;
+}
+
+.adventure-hud__tile-value i {
+  color: #8a949d;
+  font-size: 0.7rem;
+  font-style: normal;
+}
+
+.adventure-hud__tile-badge {
+  padding: 1px 8px;
   border-radius: 999px;
-  font-size: 0.76rem;
-  line-height: 1.5;
+  font-size: 0.6rem;
+  font-style: normal;
+  line-height: 1.4;
+  white-space: nowrap;
 }
 
+.adventure-hud__gauge.is-empty,
+.adventure-hud__tile-badge.is-empty {
+  visibility: hidden;
+}
+
+/* Day タイル: 昼/夜をバッジ色で示す */
 .adventure-hud__slot.is-day {
   color: #ffd58a;
   background: rgb(255 213 138 / 14%);
@@ -3119,19 +3272,12 @@ button:disabled {
   background: rgb(170 182 255 / 16%);
 }
 
-.adventure-hud__turns--romance .adventure-hud__gauge i {
+.adventure-hud__day .adventure-hud__gauge i {
   background: linear-gradient(90deg, #ffd58a, #ff9ec7);
 }
 
 /* 好感度: ハート付き数値 + ピンクグラデーションゲージ + 関係段階バッジ */
-.adventure-hud__affection {
-  min-width: 112px;
-}
-
-.adventure-hud__affection strong {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
+.adventure-hud__affection .adventure-hud__tile-value {
   color: #ff9ec7;
 }
 
@@ -3142,10 +3288,6 @@ button:disabled {
   filter: drop-shadow(0 0 3px rgb(255 95 162 / 55%));
 }
 
-.adventure-hud__affection .adventure-hud__gauge {
-  height: 5px;
-}
-
 .adventure-hud__affection .adventure-hud__gauge i {
   border-radius: 999px;
   background: linear-gradient(90deg, #ffb1d0, #ff5fa2);
@@ -3153,14 +3295,6 @@ button:disabled {
 }
 
 /* 関係段階はバッジ色で表現し、ゲージは常にピンク系に保つ */
-.adventure-hud__stage {
-  padding: 1px 8px;
-  border-radius: 999px;
-  font-size: 0.6rem;
-  font-style: normal;
-  line-height: 1.5;
-}
-
 .adventure-hud__affection.is-stranger .adventure-hud__stage {
   color: #cdb9c4;
   background: rgb(205 185 196 / 12%);
@@ -3181,8 +3315,13 @@ button:disabled {
   background: rgb(255 158 199 / 18%);
 }
 
-.adventure-hud__money strong {
+.adventure-hud__money .adventure-hud__tile-value {
   color: #f5d78e;
+}
+
+.adventure-hud__money .adventure-hud__tile-badge {
+  color: #cdb9c4;
+  background: rgb(205 185 196 / 12%);
 }
 
 /* romance: バイト・ギフト・属性付与・告白の行動ボタン行 */
@@ -3585,4 +3724,56 @@ button:disabled {
 .adventure-scene-preview__portrait--partner {
   left: 70%;
   max-width: 46%;
+}
+
+/*
+ * romance HUD タイルの狭幅対応。
+ * 段を落とすときは3タイル一斉なので、どの幅でも段数と高さが揃う。
+ * ベース定義より後ろに置かないと、同一詳細度のベース側に負けて効かない。
+ */
+@media (max-width: 900px) {
+  .adventure-play--romance {
+    --adv-hud-height: 72px;
+    --adv-hud-tile-min: 84px;
+    --adv-hud-tile-height: 55px;
+  }
+
+  .adventure-hud__tile {
+    grid-template-rows: 14px 20px 5px 0;
+  }
+
+  .adventure-hud--romance .adventure-hud__chip {
+    grid-template-rows: 14px minmax(20px, 1fr);
+  }
+
+  .adventure-hud__tile-badge {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .adventure-play--romance {
+    --adv-hud-height: 60px;
+    --adv-hud-tile-min: 66px;
+    --adv-hud-tile-height: 46px;
+  }
+
+  .adventure-hud__tile {
+    grid-template-rows: 12px 18px 0 0;
+    padding: 4px 8px;
+  }
+
+  .adventure-hud--romance .adventure-hud__chip {
+    grid-template-rows: 12px minmax(18px, 1fr);
+    padding: 4px 8px;
+  }
+
+  .adventure-hud--romance .adventure-hud__chip-thumb {
+    width: 18px;
+    height: 18px;
+  }
+
+  .adventure-hud__tile .adventure-hud__gauge {
+    display: none;
+  }
 }

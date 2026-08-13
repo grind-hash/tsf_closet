@@ -81,8 +81,14 @@ def _warn_shared_item_aliases(template_id: str, rule: dict[str, Any]) -> None:
     """複数アイテムが同じエイリアスを持つ場合に警告する。
 
     共有エイリアスは「下着」のように意図的なこともあるが、その入力では該当する
-    全アイテムが同時に着脱される。意図しない重複に気付けるようログへ残す。
+    全アイテムが同時に着脱される。意図的なものは rule.shared_aliases に宣言し、
+    宣言のない重複だけを警告する。
     """
+    declared = {
+        str(alias).strip().lower()
+        for alias in rule.get("shared_aliases", [])
+        if str(alias).strip()
+    }
     owners: dict[str, list[str]] = defaultdict(list)
     for item in rule.get("items", []):
         if not isinstance(item, dict):
@@ -92,12 +98,23 @@ def _warn_shared_item_aliases(template_id: str, rule: dict[str, Any]) -> None:
             cleaned = str(alias).strip().lower()
             if item_id and cleaned:
                 owners[cleaned].append(item_id)
-    shared = {alias: ids for alias, ids in owners.items() if len(ids) > 1}
+    shared = {
+        alias: ids
+        for alias, ids in owners.items()
+        if len(ids) > 1 and alias not in declared
+    }
     if shared:
         logger.warning(
             "Scenario %s shares equipment aliases across items: %s",
             template_id,
             shared,
+        )
+    unused = sorted(declared - {alias for alias, ids in owners.items() if len(ids) > 1})
+    if unused:
+        logger.warning(
+            "Scenario %s declares shared_aliases that are not shared: %s",
+            template_id,
+            unused,
         )
 
 

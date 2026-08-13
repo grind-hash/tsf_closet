@@ -271,6 +271,18 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
                     : current,
                 );
               }
+            } else if (event.type === "background_image") {
+              // romance は現在地・時間帯が変わると背景を作り直す
+              const backgroundUrl = normalizeAdventureImageUrl(
+                event.data.image_url,
+              );
+              if (backgroundUrl) {
+                setActiveRun((current) =>
+                  current
+                    ? { ...current, background_image_url: backgroundUrl }
+                    : current,
+                );
+              }
             } else if (event.type === "error") {
               setError(
                 String(event.data.message ?? "Adventure request failed"),
@@ -312,13 +324,43 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
                   ? {
                       ...current,
                       current_image_url: imageUrl,
-                      current_image_prompt: options
-                        ? {
-                            scene_tags: options.scene_tags,
-                            player_tags: options.player_tags,
-                            npc_tags: options.npc_tags,
-                          }
-                        : current.current_image_prompt,
+                      // タグを省略した再生成ではサーバが組み直すため、
+                      // 手元のプロンプト表示は据え置く
+                      current_image_prompt:
+                        options?.scene_tags !== undefined &&
+                        options.player_tags !== undefined
+                          ? {
+                              scene_tags: options.scene_tags,
+                              player_tags: options.player_tags,
+                              npc_tags: options.npc_tags ?? [],
+                            }
+                          : current.current_image_prompt,
+                    }
+                  : current,
+              );
+            }
+          } else if (event.type === "portrait_image") {
+            // target: "portrait" で立ち絵だけを作り直したとき。
+            // 該当ターンの失敗表示も同時に解除する
+            const portraitUrl = normalizeAdventureImageUrl(
+              event.data.image_url,
+            );
+            const regeneratedTurnId = event.data.turn_id;
+            if (portraitUrl) {
+              setActiveRun((current) =>
+                current
+                  ? {
+                      ...current,
+                      portrait_image_url: portraitUrl,
+                      turns: current.turns.map((turn) =>
+                        turn.id === regeneratedTurnId
+                          ? {
+                              ...turn,
+                              portrait_image_url: portraitUrl,
+                              portrait_status: "completed",
+                            }
+                          : turn,
+                      ),
                     }
                   : current,
               );

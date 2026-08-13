@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -1339,10 +1340,12 @@ interface AdventureStageFrame {
   imageUrl: string;
   /** imageUrl が合成シーンか立ち絵かを示す */
   kind: "composite" | "portrait";
-  /** 非合成モードのラン共通背景。合成モードでは null */
+  /** 非合成モードの背景。romance ではこの手番の現在地・時間帯のもの */
   backgroundUrl: string | null;
   /** この手番の立ち絵（白背景の元画像）。無ければ null */
   portraitUrl: string | null;
+  /** この手番の立ち絵生成の結果。"failed" のとき再試行導線を出す */
+  portraitStatus: string | null;
   /** この手番の合成シーン。非合成モードでは null */
   sceneUrl: string | null;
   userInput: string | null;
@@ -1357,16 +1360,65 @@ interface AdventureStageFrame {
   partnerUrl: string | null;
 }
 
-/** backend の romance_day_slot と同じ導出。奇数手番=昼、偶数手番=夜 */
-function romanceDaySlot(turnNumber: number): {
-  day: number;
-  slot: "day" | "night";
-} {
-  const number = Math.max(1, turnNumber);
-  return {
-    day: Math.ceil(number / 2),
-    slot: number % 2 === 1 ? "day" : "night",
-  };
+/**
+ * フレームが描いている日付と時間帯。サーバの scene_day/scene_slot が唯一の情報源。
+ * sim.day/slot は「次に行動する枠」で常に半日先を指すため使わない。
+ */
+function frameDaySlot(
+  frame: AdventureStageFrame | undefined,
+): { day: number; slot: "day" | "night" } | null {
+  const day = frame?.sim?.scene_day;
+  const slot = frame?.sim?.scene_slot;
+  if (!frame || frame.turnNumber <= 0) return null;
+  if (typeof day !== "number" || (slot !== "day" && slot !== "night"))
+    return null;
+  return { day, slot };
+}
+
+/**
+ * romance HUD の共通タイル。
+ * 4段(ラベル/値/ゲージ/バッジ)を常に描画し、Day・好感度・所持金の高さを揃える。
+ * 値の無い段は visibility を落として枠だけ残す。
+ */
+function HudTile({
+  className,
+  title,
+  label,
+  value,
+  gaugeRatio,
+  badge,
+  badgeClassName,
+}: {
+  className?: string;
+  title?: string;
+  label: ReactNode;
+  value: ReactNode;
+  gaugeRatio: number | null;
+  badge: ReactNode | null;
+  badgeClassName?: string;
+}) {
+  return (
+    <div
+      className={`adventure-hud__tile${className ? ` ${className}` : ""}`}
+      title={title}
+    >
+      <span className="adventure-hud__tile-label">{label}</span>
+      <strong className="adventure-hud__tile-value">{value}</strong>
+      <span
+        className={`adventure-hud__gauge${gaugeRatio === null ? " is-empty" : ""}`}
+        aria-hidden
+      >
+        <i style={{ width: `${gaugeRatio ?? 0}%` }} />
+      </span>
+      <em
+        className={`adventure-hud__tile-badge${badge === null ? " is-empty" : ""}${
+          badgeClassName ? ` ${badgeClassName}` : ""
+        }`}
+      >
+        {badge ?? "-"}
+      </em>
+    </div>
+  );
 }
 
 function AdventurePlay({ runId }: { runId: string }) {
@@ -1479,6 +1531,7 @@ function AdventurePlay({ runId }: { runId: string }) {
           kind: "composite",
           backgroundUrl: null,
           portraitUrl: activeRun.opening_portrait_url ?? null,
+          portraitStatus: null,
           sceneUrl: activeRun.opening_image_url,
           userInput: null,
           inputKind: null,
@@ -1498,6 +1551,7 @@ function AdventurePlay({ runId }: { runId: string }) {
           kind: "composite",
           backgroundUrl: null,
           portraitUrl: turn.portrait_image_url,
+          portraitStatus: turn.portrait_status,
           sceneUrl: turn.image_url,
           userInput: turn.user_input,
           inputKind: turn.input_kind,
@@ -1519,6 +1573,7 @@ function AdventurePlay({ runId }: { runId: string }) {
           kind: "portrait",
           backgroundUrl: runBackground,
           portraitUrl: activeRun.opening_portrait_url,
+          portraitStatus: null,
           sceneUrl: null,
           userInput: null,
           inputKind: null,
@@ -1537,8 +1592,10 @@ function AdventurePlay({ runId }: { runId: string }) {
           turnNumber: turn.turn_number,
           imageUrl: turn.portrait_image_url,
           kind: "portrait",
-          backgroundUrl: runBackground,
+          // romance は現在地・時間帯ごとに背景が変わるため、その手番の1枚を使う
+          backgroundUrl: turn.background_image_url ?? runBackground,
           portraitUrl: turn.portrait_image_url,
+          portraitStatus: turn.portrait_status,
           sceneUrl: null,
           userInput: turn.user_input,
           inputKind: turn.input_kind,
@@ -1675,11 +1732,9 @@ function AdventurePlay({ runId }: { runId: string }) {
 
   const lightboxFrame =
     lightboxIndex !== null ? frames[lightboxIndex] : undefined;
-  // romance のターン詳細用。開幕フレーム(手番0)には日付が無い
-  const lightboxDaySlot =
-    lightboxFrame && lightboxFrame.turnNumber > 0
-      ? romanceDaySlot(lightboxFrame.turnNumber)
-      : null;
+  // romance のターン詳細用。開幕フレーム(手番0)には日付が無い。
+  // 導出はサーバの scene_day/scene_slot に一本化し、HUD と食い違わせない
+  const lightboxDaySlot = frameDaySlot(lightboxFrame);
   const canShowBackground = Boolean(lightboxFrame?.backgroundUrl);
   const canShowPortrait = Boolean(lightboxFrame?.portraitUrl);
   // romance: そのフレーム時点の攻略対象立ち絵があれば過去手番でも切替可能
@@ -1845,10 +1900,19 @@ function AdventurePlay({ runId }: { runId: string }) {
     activeRun.max_turns > 0
       ? Math.round((activeRun.remaining_turns / activeRun.max_turns) * 100)
       : 0;
+  // HUD は「今ステージに映っている場面の枠」を出す。過去フレーム閲覧中は
+  // そのフレームの枠に追従させ、ライトボックスの表示と一致させる。
+  // 次に行動する枠(sim.day/slot)は tooltip 側で補う。
+  const stageDaySlot = frameDaySlot(
+    isViewingPast ? selectedFrame : frames[frames.length - 1],
+  ) ?? { day: sim?.day ?? 1, slot: sim?.slot ?? "day" };
+  const stagePortraitFailed =
+    (isViewingPast ? selectedFrame : frames[frames.length - 1])
+      ?.portraitStatus === "failed";
 
   return (
     <MainLayout>
-      <div className="adventure-play">
+      <div className={`adventure-play${sim ? " adventure-play--romance" : ""}`}>
         {error && (
           <button
             type="button"
@@ -1886,23 +1950,24 @@ function AdventurePlay({ runId }: { runId: string }) {
             )}
             <div className="adventure-hud__metrics">
               {sim ? (
-                <div
-                  className="adventure-hud__turns adventure-hud__turns--romance"
-                  title={t("adventure.romance.dayCounterHint")}
-                >
-                  <span>
-                    {t("adventure.romance.dayCounter", {
-                      day: sim.day,
-                      total: sim.total_days,
-                    })}
-                  </span>
-                  <strong className={`adventure-hud__slot is-${sim.slot}`}>
-                    {t(`adventure.romance.slot.${sim.slot}`)}
-                  </strong>
-                  <span className="adventure-hud__gauge" aria-hidden>
-                    <i style={{ width: `${turnRatio}%` }} />
-                  </span>
-                </div>
+                <HudTile
+                  className={`adventure-hud__day is-${stageDaySlot.slot}`}
+                  title={t("adventure.romance.dayCounterHint", {
+                    day: sim.day,
+                    total: sim.total_days,
+                    slot: t(`adventure.romance.slot.${sim.slot}`),
+                  })}
+                  label={t("adventure.romance.day")}
+                  value={
+                    <>
+                      {stageDaySlot.day}
+                      <i>/{sim.total_days}</i>
+                    </>
+                  }
+                  gaugeRatio={turnRatio}
+                  badge={t(`adventure.romance.slot.${stageDaySlot.slot}`)}
+                  badgeClassName={`adventure-hud__slot is-${stageDaySlot.slot}`}
+                />
               ) : (
                 <div
                   className="adventure-hud__turns"
@@ -1920,50 +1985,65 @@ function AdventurePlay({ runId }: { runId: string }) {
               )}
               {sim && (
                 <>
-                  <div
-                    className={`adventure-hud__turns adventure-hud__affection is-${sim.stage}`}
+                  <HudTile
+                    className={`adventure-hud__affection is-${sim.stage}`}
                     title={t(`adventure.romance.stages.${sim.stage}`)}
-                  >
-                    <span>{t("adventure.romance.affection")}</span>
-                    <strong>
-                      <svg
-                        className="adventure-hud__heart"
-                        viewBox="0 0 24 24"
-                        aria-hidden
-                      >
-                        <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
-                      </svg>
-                      {sim.affection}
-                      <i>/100</i>
-                    </strong>
-                    <span className="adventure-hud__gauge" aria-hidden>
-                      <i style={{ width: `${sim.affection}%` }} />
-                    </span>
-                    <em className="adventure-hud__stage">
-                      {t(`adventure.romance.stages.${sim.stage}`)}
-                    </em>
-                  </div>
-                  <div
-                    className="adventure-hud__anlas adventure-hud__money"
+                    label={t("adventure.romance.affection")}
+                    value={
+                      <>
+                        <svg
+                          className="adventure-hud__heart"
+                          viewBox="0 0 24 24"
+                          aria-hidden
+                        >
+                          <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
+                        </svg>
+                        {sim.affection}
+                        <i>/100</i>
+                      </>
+                    }
+                    gaugeRatio={sim.affection}
+                    badge={t(`adventure.romance.stages.${sim.stage}`)}
+                    badgeClassName="adventure-hud__stage"
+                  />
+                  <HudTile
+                    className="adventure-hud__money"
                     title={t("adventure.romance.money")}
-                  >
-                    <span>{t("adventure.romance.money")}</span>
-                    <strong>{sim.money.toLocaleString()}</strong>
-                  </div>
+                    label={t("adventure.romance.money")}
+                    value={sim.money.toLocaleString()}
+                    gaugeRatio={null}
+                    badge={t("adventure.romance.moneyUnit")}
+                  />
                 </>
               )}
-              {activeRun.use_precise_reference && anlasBalance && (
-                <div
-                  className="adventure-hud__anlas"
-                  title={t("adventure.anlasDetail", {
-                    fixed: anlasBalance.fixedAnlas.toLocaleString(),
-                    purchased: anlasBalance.purchasedAnlas.toLocaleString(),
-                  })}
-                >
-                  <span>Anlas</span>
-                  <strong>{anlasBalance.totalAnlas.toLocaleString()}</strong>
-                </div>
-              )}
+              {activeRun.use_precise_reference &&
+                anlasBalance &&
+                (sim ? (
+                  // romance では他のメトリクスと同じ共通タイルで並べる。
+                  // このタイルは精密参照が ON のときだけ出るので、バッジで理由を示す
+                  <HudTile
+                    className="adventure-hud__anlas-tile"
+                    title={t("adventure.anlasDetail", {
+                      fixed: anlasBalance.fixedAnlas.toLocaleString(),
+                      purchased: anlasBalance.purchasedAnlas.toLocaleString(),
+                    })}
+                    label="Anlas"
+                    value={anlasBalance.totalAnlas.toLocaleString()}
+                    gaugeRatio={null}
+                    badge={t("adventure.anlasBadge")}
+                  />
+                ) : (
+                  <div
+                    className="adventure-hud__anlas"
+                    title={t("adventure.anlasDetail", {
+                      fixed: anlasBalance.fixedAnlas.toLocaleString(),
+                      purchased: anlasBalance.purchasedAnlas.toLocaleString(),
+                    })}
+                  >
+                    <span>Anlas</span>
+                    <strong>{anlasBalance.totalAnlas.toLocaleString()}</strong>
+                  </div>
+                ))}
               {activeRun.milestones.length > 0 && (
                 <button
                   type="button"
@@ -2220,6 +2300,23 @@ function AdventurePlay({ runId }: { runId: string }) {
                     onClick={() => setSelectedFrameIndex(null)}
                   >
                     {t("adventure.turnStrip.backToLatest")}
+                  </button>
+                </div>
+              )}
+              {stagePortraitFailed && !isStageLoading && (
+                <div className="adventure-stage__portrait-failed" role="status">
+                  <span>{t("adventure.portraitFailed")}</span>
+                  <button
+                    type="button"
+                    disabled={streaming || isViewingPast}
+                    onClick={() =>
+                      regenerateImage({
+                        redraw_from_reference: true,
+                        target: "portrait",
+                      })
+                    }
+                  >
+                    {t("adventure.portraitRetry")}
                   </button>
                 </div>
               )}
