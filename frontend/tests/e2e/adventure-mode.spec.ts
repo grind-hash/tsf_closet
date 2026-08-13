@@ -405,6 +405,7 @@ test("scenario creation shows a full-screen loading overlay", async ({
   await expect(overlay).toHaveAttribute("role", "status");
   await expect(overlay).toContainText("シナリオを準備しています");
   await expect(overlay).toContainText("開始場面の物語と画像を生成中です");
+  await expect(overlay).toContainText("2分以上かかる場合があります");
   const bounds = await overlay.boundingBox();
   expect(bounds).not.toBeNull();
   expect(bounds?.x).toBeLessThanOrEqual(1);

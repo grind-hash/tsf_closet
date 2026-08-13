@@ -1399,6 +1399,9 @@ function AdventureHub() {
           <span className="adventure-preparing-overlay__spinner" aria-hidden />
           <strong>{t("adventure.preparingTitle")}</strong>
           <p>{t("adventure.preparingDetail")}</p>
+          <p className="adventure-preparing-overlay__note">
+            {t("adventure.preparingNote")}
+          </p>
         </div>
       )}
     </MainLayout>

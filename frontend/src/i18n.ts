@@ -226,8 +226,9 @@ const resources = {
         portraitRetry: "立ち絵を再生成",
         preparing: "シナリオを準備中...",
         preparingTitle: "シナリオを準備しています",
-        preparingDetail:
-          "開始場面の物語と画像を生成中です。完了までそのままお待ちください。",
+        preparingDetail: "開始場面の物語と画像を生成中です。",
+        preparingNote:
+          "生成には2分以上かかる場合があります。このまま画面を開いてお待ちください。",
         noRuns: "保存されたシナリオはありません",
         noRunsForFilter: "この条件に一致するシナリオはありません",
         savedRunsCount: "{{count}}件",
@@ -1601,8 +1602,9 @@ const resources = {
         portraitRetry: "Regenerate sprite",
         preparing: "Preparing scenario...",
         preparingTitle: "Preparing the scenario",
-        preparingDetail:
-          "Generating the opening story and scene image. Please wait until it is ready.",
+        preparingDetail: "Generating the opening story and scene image.",
+        preparingNote:
+          "This can take more than 2 minutes. Please keep this screen open while it finishes.",
         noRuns: "No saved scenarios",
         noRunsForFilter: "No scenarios match this filter",
         savedRunsCount: "{{count}} saved",

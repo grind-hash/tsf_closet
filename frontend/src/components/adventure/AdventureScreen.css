@@ -842,6 +842,14 @@ button:disabled {
   font-size: 0.86rem;
   line-height: 1.6;
 }
+
+.adventure-preparing-overlay p.adventure-preparing-overlay__note {
+  padding: 8px 14px;
+  border: 1px solid rgb(239 184 90 / 35%);
+  border-radius: 8px;
+  background: rgb(239 184 90 / 10%);
+  color: #f0d3a2;
+}
 .adventure-empty,
 .adventure-loading {
   color: #aeb7bf;
