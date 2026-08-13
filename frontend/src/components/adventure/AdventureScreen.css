@@ -956,17 +956,26 @@ button:disabled {
   align-items: baseline;
   gap: 8px;
   margin: 0;
-  overflow: hidden;
   font-size: 0.92rem;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.adventure-hud__title h1 span {
+.adventure-hud__title h1 b {
   flex: 0 0 auto;
   color: #efb85a;
   font-size: 0.62rem;
   font-weight: 800;
+}
+
+/*
+ * 省略記号は flex コンテナ自身では効かない。
+ * ゴール文だけを子ブロックに閉じ込めて ellipsis を付ける。
+ * 全文はツールチップ(title 属性)で確認できる。
+ */
+.adventure-hud__title h1 > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .adventure-hud__location {
@@ -1004,10 +1013,9 @@ button:disabled {
 
 .adventure-hud__metrics {
   display: flex;
-  min-width: 0;
-  /* 狭幅では折り返さず縮める。折り返すと HUD が2行になり
-     --adv-hud-height の前提が崩れる */
-  flex: 0 1 auto;
+  /* タイルやチップは縮めず常に完全表示し、狭幅ではゴール文側を省略する。
+     折り返すと HUD が2行になり --adv-hud-height の前提が崩れる */
+  flex: 0 0 auto;
   align-items: center;
   gap: 8px;
 }
@@ -1600,6 +1608,44 @@ button:disabled {
   object-fit: contain;
   transform: translateX(-50%);
   filter: drop-shadow(0 8px 22px rgb(0 0 0 / 55%));
+}
+
+/*
+ * Run 全体のタイトルとゴール全文。HUD では1行に省略されるため、
+ * シーンプレビューの詳細欄で全文を読めるようにする。
+ */
+.adventure-preview__header {
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgb(255 255 255 / 14%);
+}
+
+.adventure-preview__header p {
+  margin: 0 0 4px;
+  color: #aeb7bf;
+  font-size: 0.72rem;
+}
+
+.adventure-preview__header h2 {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  color: #f4f6f8;
+  font-size: 0.92rem;
+  font-weight: 600;
+  line-height: 1.6;
+}
+
+.adventure-preview__header h2 b {
+  flex: 0 0 auto;
+  color: #efb85a;
+  font-size: 0.62rem;
+  font-weight: 800;
+}
+
+.adventure-preview__header h2 span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .adventure-preview__views {
@@ -2893,7 +2939,7 @@ button:disabled {
 
   .adventure-hud__location,
   .adventure-hud__title p,
-  .adventure-hud__title h1 span {
+  .adventure-hud__title h1 b {
     display: none;
   }
 

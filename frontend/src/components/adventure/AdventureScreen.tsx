@@ -2095,8 +2095,8 @@ function AdventurePlay({ runId }: { runId: string }) {
             <div className="adventure-hud__title">
               <p>{activeRun.title}</p>
               <h1 title={activeRun.objective}>
-                <span>{t("adventure.goal")}</span>
-                {activeRun.objective}
+                <b>{t("adventure.goal")}</b>
+                <span>{activeRun.objective}</span>
               </h1>
             </div>
             {activeLocation && (
@@ -3106,6 +3106,13 @@ function AdventurePlay({ runId }: { runId: string }) {
         caption={
           lightboxFrame && (
             <div className="image-preview-modal__detail">
+              <header className="adventure-preview__header">
+                <p>{activeRun.title}</p>
+                <h2>
+                  <b>{t("adventure.goal")}</b>
+                  <span>{activeRun.objective}</span>
+                </h2>
+              </header>
               {(canShowBackground || canShowPortrait || canShowPartner) && (
                 <div
                   className="adventure-preview__views"
