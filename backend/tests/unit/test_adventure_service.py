@@ -2926,3 +2926,377 @@ def test_image_prompt_output_clamps_overlong_player_tags() -> None:
     prompt = AdventureImagePromptOutput(scene_tags="room", player_tags=long_tags)
     assert 0 < len(prompt.player_tags) <= 1200
     assert prompt.player_tags.startswith("tag000")
+
+
+# ---------------------------------------------------------------------------
+# 巻き戻しとエピローグ
+
+
+def test_merge_output_epilogue_ignores_llm_and_turn_limit_endings() -> None:
+    service = AdventureService()
+    run = make_run(turn_count=7)
+    # LLM の failure 申告もターン上限到達も continue に倒す
+    _, status, _, _ = service._merge_output(
+        run, make_output(completed=[], ending="failure"), 8, epilogue=True
+    )
+    assert status == "continue"
+
+
+def test_merge_output_epilogue_keeps_existing_ending_summary() -> None:
+    service = AdventureService()
+    run = make_run(turn_count=9)
+    state = __import__("json").loads(run.state_json)
+    state["completed_milestones"] = [
+        item["id"] for item in PRESETS["infiltration"]["milestones"]
+    ]
+    state["ending_summary"] = "確定済みのリザルト"
+    _, status, _, _ = service._merge_output(
+        run,
+        make_output(
+            completed=[item["id"] for item in PRESETS["infiltration"]["milestones"]]
+        ),
+        10,
+        state_override=state,
+        epilogue=True,
+    )
+    # 全達成が継続しているだけでは再エンディングせず、リザルトも消さない
+    assert status == "continue"
+    assert state["ending_summary"] == "確定済みのリザルト"
+
+
+def test_merge_output_epilogue_reverses_only_on_new_completion() -> None:
+    service = AdventureService()
+    run = make_run(turn_count=9)
+    milestone_ids = [item["id"] for item in PRESETS["infiltration"]["milestones"]]
+    state = __import__("json").loads(run.state_json)
+    state["completed_milestones"] = milestone_ids[:1]
+    _, status, _, _ = service._merge_output(
+        run,
+        make_output(completed=milestone_ids),
+        10,
+        state_override=state,
+        epilogue=True,
+    )
+    # エピローグ中に新規で全達成へ遷移したときだけ成功へ逆転する
+    assert status == "success"
+
+
+def _adventure_db_env(tmp_path):
+    """一時SQLiteに紐づく engine と sessionmaker を返す。"""
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'adventure.db'}")
+    return engine, async_sessionmaker(engine, expire_on_commit=False)
+
+
+def _turn_state(marker: str, **extra) -> dict:
+    state = {
+        "milestones": PRESETS["infiltration"]["milestones"],
+        "completed_milestones": [],
+        "clues": [marker],
+        "visual_state": {
+            "location": marker,
+            "appearance": "開始時の姿",
+            "clothing": "",
+            "surroundings": "",
+            "main_characters": [],
+        },
+        "choices": [
+            {"id": f"c-{marker}", "label": f"{marker}を調べる"},
+            {"id": f"c-{marker}-2", "label": f"{marker}で話す"},
+            {"id": f"c-{marker}-3", "label": f"{marker}から移動する"},
+        ],
+        "opening_narrative": "開幕",
+        "use_precise_reference": False,
+        "enable_composite_scene": True,
+    }
+    state.update(extra)
+    return state
+
+
+async def _seed_rewind_run(session_factory, tmp_path, *, opening_state=None) -> None:
+    json = __import__("json")
+    async with session_factory() as db:
+        db.add(User(id=DEFAULT_USER_ID))
+        await db.flush()
+        db.add(
+            AdventureRun(
+                id="run-1",
+                user_id=DEFAULT_USER_ID,
+                preset="infiltration",
+                title="潜入",
+                objective="目的地へ入る",
+                constraints_json="[]",
+                snapshot_json="{}",
+                state_json=json.dumps(
+                    _turn_state("t3", use_precise_reference=True),
+                    ensure_ascii=False,
+                ),
+                opening_state_json=(
+                    json.dumps(opening_state, ensure_ascii=False)
+                    if opening_state
+                    else None
+                ),
+                current_image_path=str(tmp_path / "run-1" / "turn-3-c3.png"),
+                initial_image_path=str(tmp_path / "run-1" / "initial.png"),
+                status="active",
+                turn_count=3,
+                max_turns=8,
+                text_model="glm-4-6",
+                image_provider="novelai",
+                image_model="nai-diffusion-4-5-full",
+            )
+        )
+        await db.flush()
+        for number in (1, 2, 3):
+            db.add(
+                AdventureTurn(
+                    id=f"turn-{number}",
+                    run_id="run-1",
+                    client_turn_id=f"client-{number}",
+                    turn_number=number,
+                    user_input=f"行動{number}",
+                    input_kind="free_text",
+                    narrative=f"ターン{number}の物語",
+                    state_delta_json=json.dumps(
+                        _turn_state(f"t{number}"), ensure_ascii=False
+                    ),
+                    image_path=str(tmp_path / "run-1" / f"turn-{number}-c{number}.png"),
+                    portrait_image_path=(
+                        str(tmp_path / "run-1" / f"portrait-{number}-c{number}.png")
+                        if number != 2
+                        else None
+                    ),
+                )
+            )
+        await db.commit()
+    run_dir = tmp_path / "run-1"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    for name in (
+        "initial.png",
+        "turn-0-open.png",
+        "background-abc.png",
+        "turn-1-c1.png",
+        "turn-2-c2.png",
+        "turn-3-c3.png",
+        "portrait-1-c1.png",
+        "portrait-3-c3.png",
+        "partner-3-c3.png",
+    ):
+        (run_dir / name).write_bytes(b"png")
+
+
+def _patched_service(monkeypatch, session_factory, tmp_path) -> AdventureService:
+    async def _make_tables():
+        return None
+
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.async_session_factory", session_factory
+    )
+    service = AdventureService.__new__(AdventureService)
+    service._run_locks = __import__("collections").defaultdict(
+        __import__("asyncio").Lock
+    )
+    service._images_dir = tmp_path
+    return service
+
+
+@pytest.mark.asyncio
+async def test_rewind_restores_state_and_deletes_later_turns(
+    tmp_path, monkeypatch
+) -> None:
+    engine, session_factory = _adventure_db_env(tmp_path)
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    await _seed_rewind_run(session_factory, tmp_path)
+    service = _patched_service(monkeypatch, session_factory, tmp_path)
+
+    result = await service.rewind_to_turn("run-1", 1)
+
+    assert result["turn_count"] == 1
+    assert [turn["turn_number"] for turn in result["turns"]] == [1]
+    assert result["clues"] == ["t1"]
+    assert result["visual_state"]["location"] == "t1"
+    assert result["choices"][0]["id"] == "c-t1"
+    # 画像設定は現在値(use_precise_reference=True)を引き継ぐ
+    assert result["use_precise_reference"] is True
+    assert result["status"] == "active"
+    # 画像は対象手番のものへ戻り、以降の画像だけが消える
+    assert result["current_image_url"].endswith("turn-1-c1.png")
+    assert (tmp_path / "run-1" / "turn-1-c1.png").exists()
+    assert not (tmp_path / "run-1" / "turn-2-c2.png").exists()
+    assert not (tmp_path / "run-1" / "turn-3-c3.png").exists()
+    assert not (tmp_path / "run-1" / "portrait-3-c3.png").exists()
+    assert not (tmp_path / "run-1" / "partner-3-c3.png").exists()
+    # 開幕・初期・背景ファイルは保護される
+    assert (tmp_path / "run-1" / "turn-0-open.png").exists()
+    assert (tmp_path / "run-1" / "initial.png").exists()
+    assert (tmp_path / "run-1" / "background-abc.png").exists()
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_rewind_recovers_missing_portrait_from_earlier_turn(
+    tmp_path, monkeypatch
+) -> None:
+    engine, session_factory = _adventure_db_env(tmp_path)
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    await _seed_rewind_run(session_factory, tmp_path)
+    service = _patched_service(monkeypatch, session_factory, tmp_path)
+
+    # turn 2 は portrait 欠落 → turn 1 の立ち絵で補う
+    result = await service.rewind_to_turn("run-1", 2)
+
+    assert result["turn_count"] == 2
+    assert result["portrait_image_url"].endswith("portrait-1-c1.png")
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_rewind_restores_ended_run_to_active(tmp_path, monkeypatch) -> None:
+    json = __import__("json")
+    engine, session_factory = _adventure_db_env(tmp_path)
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    await _seed_rewind_run(session_factory, tmp_path)
+    async with session_factory() as db:
+        run = await db.get(AdventureRun, "run-1")
+        run.status = "failure"
+        run.ending_title = "ミッション失敗"
+        run.ending_summary = "捕まった"
+        state = json.loads(run.state_json)
+        state["ending_summary"] = "捕まった"
+        state["final_status"] = "failure"
+        state["epilogue"] = True
+        run.state_json = json.dumps(state, ensure_ascii=False)
+        await db.commit()
+    service = _patched_service(monkeypatch, session_factory, tmp_path)
+
+    result = await service.rewind_to_turn("run-1", 2)
+
+    assert result["status"] == "active"
+    assert result["ending_title"] is None
+    assert result["ending_summary"] is None
+    assert result["epilogue"] is False
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_rewind_keeps_final_status_recorded_in_target_turn(
+    tmp_path, monkeypatch
+) -> None:
+    json = __import__("json")
+    engine, session_factory = _adventure_db_env(tmp_path)
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    await _seed_rewind_run(session_factory, tmp_path)
+    async with session_factory() as db:
+        # turn 2 をエンディング(failure)確定後のエピローグターンに見立てる
+        turn = await db.get(AdventureTurn, "turn-2")
+        state = json.loads(turn.state_delta_json)
+        state["final_status"] = "failure"
+        state["final_ending_title"] = "ミッション失敗"
+        state["ending_summary"] = "捕まった"
+        state["epilogue"] = True
+        turn.state_delta_json = json.dumps(state, ensure_ascii=False)
+        run = await db.get(AdventureRun, "run-1")
+        run.status = "failure"
+        await db.commit()
+    service = _patched_service(monkeypatch, session_factory, tmp_path)
+
+    result = await service.rewind_to_turn("run-1", 2)
+
+    assert result["status"] == "failure"
+    assert result["ending_title"] == "ミッション失敗"
+    assert result["ending_summary"] == "捕まった"
+    assert result["epilogue"] is True
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_rewind_noop_and_invalid_turn_numbers(tmp_path, monkeypatch) -> None:
+    engine, session_factory = _adventure_db_env(tmp_path)
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    await _seed_rewind_run(session_factory, tmp_path)
+    service = _patched_service(monkeypatch, session_factory, tmp_path)
+
+    noop = await service.rewind_to_turn("run-1", 3)
+    assert noop["turn_count"] == 3
+    assert len(noop["turns"]) == 3
+
+    with pytest.raises(AdventureError) as negative:
+        await service.rewind_to_turn("run-1", -1)
+    assert negative.value.code == "invalid_turn_number"
+    with pytest.raises(AdventureError) as beyond:
+        await service.rewind_to_turn("run-1", 4)
+    assert beyond.value.code == "invalid_turn_number"
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_rewind_to_opening_requires_snapshot(tmp_path, monkeypatch) -> None:
+    engine, session_factory = _adventure_db_env(tmp_path)
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    await _seed_rewind_run(session_factory, tmp_path)
+    service = _patched_service(monkeypatch, session_factory, tmp_path)
+
+    listed = await service.rewind_to_turn("run-1", 3)
+    assert listed["can_rewind_to_opening"] is False
+    with pytest.raises(AdventureError) as error:
+        await service.rewind_to_turn("run-1", 0)
+    assert error.value.code == "opening_state_unavailable"
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_rewind_to_opening_restores_snapshot(tmp_path, monkeypatch) -> None:
+    engine, session_factory = _adventure_db_env(tmp_path)
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    opening = {
+        "state": _turn_state("opening"),
+        "current_image_path": str(tmp_path / "run-1" / "turn-0-open.png"),
+        "portrait_image_path": None,
+        "background_image_path": None,
+    }
+    await _seed_rewind_run(session_factory, tmp_path, opening_state=opening)
+    service = _patched_service(monkeypatch, session_factory, tmp_path)
+
+    result = await service.rewind_to_turn("run-1", 0)
+
+    assert result["can_rewind_to_opening"] is True
+    assert result["turn_count"] == 0
+    assert result["turns"] == []
+    assert result["visual_state"]["location"] == "opening"
+    assert result["current_image_url"].endswith("turn-0-open.png")
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_start_epilogue_validation_and_idempotency(tmp_path, monkeypatch) -> None:
+    engine, session_factory = _adventure_db_env(tmp_path)
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    await _seed_rewind_run(session_factory, tmp_path)
+    service = _patched_service(monkeypatch, session_factory, tmp_path)
+
+    # 進行中の run には付与できない
+    with pytest.raises(AdventureError) as active:
+        await service.start_epilogue("run-1")
+    assert active.value.code == "run_not_completed"
+
+    async with session_factory() as db:
+        run = await db.get(AdventureRun, "run-1")
+        run.status = "failure"
+        run.ending_title = "ミッション失敗"
+        await db.commit()
+
+    first = await service.start_epilogue("run-1")
+    assert first["epilogue"] is True
+    assert first["status"] == "failure"
+    assert first["ending_title"] == "ミッション失敗"
+    # 二重付与は no-op 成功
+    second = await service.start_epilogue("run-1")
+    assert second["epilogue"] is True
+    await engine.dispose()

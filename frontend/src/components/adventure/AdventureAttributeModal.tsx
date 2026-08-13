@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { canActOnRun } from "../../apis/adventure";
 import { useAdventure } from "../../contexts/AdventureContext";
 
 interface AdventureAttributeModalProps {
@@ -29,7 +30,7 @@ export default function AdventureAttributeModal({
   if (!isOpen) return null;
 
   const canSubmit =
-    text.trim().length > 0 && !streaming && activeRun?.status === "active";
+    text.trim().length > 0 && !streaming && canActOnRun(activeRun);
 
   const handleSubmit = () => {
     if (!canSubmit) return;

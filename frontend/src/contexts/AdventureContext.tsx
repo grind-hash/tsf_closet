@@ -15,6 +15,7 @@ import {
   type AdventureSetupRequest,
   type AdventureTemplate,
   type AdventureTurn,
+  canActOnRun,
   createAdventureRun,
   deleteAdventureRun,
   fetchAdventureRun,
@@ -23,6 +24,8 @@ import {
   generateAdventureSetup,
   normalizeAdventureImageUrl,
   regenerateAdventureChoices,
+  rewindAdventureRun,
+  startAdventureEpilogue,
   streamAdventureImage,
   streamAdventureTurn,
   updateAdventureRunSettings,
@@ -63,6 +66,10 @@ interface AdventureContextValue {
   ) => Promise<void>;
   regenerateImage: (options?: AdventureImageRegenerateOptions) => Promise<void>;
   regenerateChoices: () => Promise<void>;
+  /** 指定手番の完了時点まで巻き戻す(以降のターンは削除) */
+  rewindRun: (turnNumber: number) => Promise<void>;
+  /** 終了済み run をエピローグ(継続プレイ)へ移行する */
+  startEpilogue: () => Promise<void>;
   updateSettings: (settings: {
     use_precise_reference: boolean;
     enable_composite_scene: boolean;
@@ -381,7 +388,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
   );
 
   const regenerateChoices = useCallback(async () => {
-    if (!activeRun || streaming || activeRun.status !== "active") return;
+    if (!activeRun || streaming || !canActOnRun(activeRun)) return;
     const runId = activeRun.id;
     setStreaming(true);
     setPhase("clue_check");
@@ -435,6 +442,53 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
     [activeRun],
   );
 
+  const rewindRun = useCallback(
+    async (turnNumber: number) => {
+      if (!activeRun || streaming) return;
+      const runId = activeRun.id;
+      setError(null);
+      try {
+        const updated = await rewindAdventureRun(runId, turnNumber);
+        // turns 配列が縮むため部分マージせず丸ごと差し替える
+        setActiveRun((current) =>
+          current && current.id === runId ? updated : current,
+        );
+        setRuns((current) =>
+          current.map((run) =>
+            run.id === runId
+              ? {
+                  ...run,
+                  status: updated.status,
+                  turn_count: updated.turn_count,
+                  remaining_turns: updated.remaining_turns,
+                  updated_at: updated.updated_at,
+                }
+              : run,
+          ),
+        );
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : String(caught));
+        throw caught;
+      }
+    },
+    [activeRun, streaming],
+  );
+
+  const startEpilogue = useCallback(async () => {
+    if (!activeRun || streaming) return;
+    const runId = activeRun.id;
+    setError(null);
+    try {
+      const updated = await startAdventureEpilogue(runId);
+      setActiveRun((current) =>
+        current && current.id === runId ? updated : current,
+      );
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+      throw caught;
+    }
+  }, [activeRun, streaming]);
+
   const value = useMemo<AdventureContextValue>(
     () => ({
       runs,
@@ -458,6 +512,8 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       regenerateImage,
       regenerateChoices,
       updateSettings,
+      rewindRun,
+      startEpilogue,
       clearError: () => setError(null),
     }),
     [
@@ -482,6 +538,8 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       regenerateImage,
       regenerateChoices,
       updateSettings,
+      rewindRun,
+      startEpilogue,
     ],
   );
 

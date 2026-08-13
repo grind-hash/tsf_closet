@@ -10,6 +10,7 @@ import type {
   AdventureStatus,
   AdventureTurn,
 } from "../../apis/adventure";
+import { canActOnRun } from "../../apis/adventure";
 import { fetchAnlasBalance } from "../../apis/anlas";
 import { fetchGalleryList, fetchGallerySessions } from "../../apis/gallery";
 import { useAdventure } from "../../contexts/AdventureContext";
@@ -33,12 +34,14 @@ import AdventureGiftShopModal from "./AdventureGiftShopModal";
 import AdventureImagePromptModal from "./AdventureImagePromptModal";
 import "./AdventureScreen.css";
 
+// 新規作成で選べるミッション。恋愛シミュレーションを先頭に置く。
+// "infiltration"(潜入)は「なりすまし・着替え」と体験が重複するため非表示
+// (backend は保持しており、既存の潜入 run の表示・リプレイには影響しない)
 const PRESETS: AdventurePreset[] = [
-  "infiltration",
+  "romance",
   "escape",
   "negotiation",
   "disguise",
-  "romance",
 ];
 
 function mediaUrl(url: string): string {
@@ -227,7 +230,7 @@ function AdventureHub() {
   const [startMode, setStartMode] = useState<"generated" | "authored">(
     "generated",
   );
-  const [preset, setPreset] = useState<AdventurePreset>("infiltration");
+  const [preset, setPreset] = useState<AdventurePreset>("romance");
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const [selectedReplayRunId, setSelectedReplayRunId] = useState("");
   const [scenarioPickerOpen, setScenarioPickerOpen] = useState(false);
@@ -1438,6 +1441,8 @@ function AdventurePlay({ runId }: { runId: string }) {
     regenerateImage,
     regenerateChoices,
     updateSettings,
+    rewindRun,
+    startEpilogue,
     clearError,
   } = useAdventure();
   const { state: settingsState } = useSettings();
@@ -1475,6 +1480,36 @@ function AdventurePlay({ runId }: { runId: string }) {
   useEffect(() => {
     void loadRun(runId).catch(() => navigate("/adventure"));
   }, [loadRun, navigate, runId]);
+
+  // リザルトモーダルの表示制御。エピローグ中の run を開き直しても再表示せず、
+  // 「進行中→終了」への遷移(巻き戻し後の再エンディング含む)と、エピローグ中の
+  // 逆転(エンディング差し替え)のときだけ改めて表示する
+  const prevRunStateRef = useRef<{
+    id: string | null;
+    status: AdventureStatus | null;
+    endingTitle: string | null;
+  }>({ id: null, status: null, endingTitle: null });
+  useEffect(() => {
+    if (!activeRun) return;
+    const prev = prevRunStateRef.current;
+    if (prev.id !== activeRun.id) {
+      setResultDismissed(Boolean(activeRun.epilogue));
+    } else if (prev.status === "active" && activeRun.status !== "active") {
+      setResultDismissed(false);
+    } else if (
+      activeRun.epilogue &&
+      prev.endingTitle !== null &&
+      activeRun.ending_title !== null &&
+      prev.endingTitle !== activeRun.ending_title
+    ) {
+      setResultDismissed(false);
+    }
+    prevRunStateRef.current = {
+      id: activeRun.id,
+      status: activeRun.status,
+      endingTitle: activeRun.ending_title,
+    };
+  }, [activeRun]);
 
   // 精密参照ONのrunではAnlasを消費するため残高を表示する。
   // streamingがfalseへ戻るたび（＝各ストリーム完了後）に再取得する。
@@ -1631,7 +1666,7 @@ function AdventurePlay({ runId }: { runId: string }) {
       options?: { giftId?: string },
     ) => {
       const trimmed = value.trim();
-      if (!trimmed || streaming || activeRun?.status !== "active") return;
+      if (!trimmed || streaming || !canActOnRun(activeRun)) return;
       setInput("");
       // 「現実改変：〜」はサーバ側でも検出されるが、送信種別も合わせておく
       const effectiveKind =
@@ -1640,7 +1675,7 @@ function AdventurePlay({ runId }: { runId: string }) {
           : kind;
       void submitTurn(trimmed, effectiveKind, options);
     },
-    [activeRun?.status, streaming, submitTurn],
+    [activeRun, streaming, submitTurn],
   );
 
   useEffect(() => {
@@ -1909,6 +1944,37 @@ function AdventurePlay({ runId }: { runId: string }) {
   const stagePortraitFailed =
     (isViewingPast ? selectedFrame : frames[frames.length - 1])
       ?.portraitStatus === "failed";
+  // 進行中に加え、終了後でもエピローグ移行済みなら操作パネルを出す
+  const canAct = canActOnRun(activeRun);
+  const isEpilogue = Boolean(activeRun.epilogue);
+  // 表示中フレームがエピローグ期か(HUD の Day 表示切替に使う)。
+  // 最新表示中は run 全体の状態に従う(移行直後はエンド前のフレームが最新のため)
+  const stageEpilogue = isViewingPast
+    ? Boolean(selectedFrame?.sim?.epilogue)
+    : isEpilogue;
+  // 巻き戻しは「選んだ手番の結果を残し、それ以降を削除」する。
+  // 手番0(開幕)へは開幕スナップショットを持つ run だけ戻れる
+  const rewindTarget = isViewingPast ? selectedFrame : undefined;
+  const canRewindHere = Boolean(
+    rewindTarget &&
+      rewindTarget.turnNumber < activeRun.turn_count &&
+      (rewindTarget.turnNumber > 0 || activeRun.can_rewind_to_opening) &&
+      !streaming,
+  );
+  const requestRewind = (turnNumber: number) => {
+    if (streaming) return;
+    const removed = activeRun.turn_count - turnNumber;
+    const confirmed = window.confirm(
+      t("adventure.turnStrip.rewindConfirm", {
+        turn: turnNumber + 1,
+        count: removed,
+      }),
+    );
+    if (!confirmed) return;
+    setSelectedFrameIndex(null);
+    setLightboxIndex(null);
+    void rewindRun(turnNumber);
+  };
 
   return (
     <MainLayout>
@@ -1950,24 +2016,46 @@ function AdventurePlay({ runId }: { runId: string }) {
             )}
             <div className="adventure-hud__metrics">
               {sim ? (
+                // エピローグでは期限が無いため「N日目」の開放表示に切り替え、
+                // 残りターンのゲージも出さない
                 <HudTile
                   className={`adventure-hud__day is-${stageDaySlot.slot}`}
-                  title={t("adventure.romance.dayCounterHint", {
-                    day: sim.day,
-                    total: sim.total_days,
-                    slot: t(`adventure.romance.slot.${sim.slot}`),
-                  })}
+                  title={
+                    stageEpilogue
+                      ? t("adventure.romance.dayCounterEpilogueHint")
+                      : t("adventure.romance.dayCounterHint", {
+                          day: sim.day,
+                          total: sim.total_days,
+                          slot: t(`adventure.romance.slot.${sim.slot}`),
+                        })
+                  }
                   label={t("adventure.romance.day")}
                   value={
-                    <>
-                      {stageDaySlot.day}
-                      <i>/{sim.total_days}</i>
-                    </>
+                    stageEpilogue ? (
+                      t("adventure.romance.dayOpen", { day: stageDaySlot.day })
+                    ) : (
+                      <>
+                        {stageDaySlot.day}
+                        <i>/{sim.total_days}</i>
+                      </>
+                    )
                   }
-                  gaugeRatio={turnRatio}
+                  gaugeRatio={stageEpilogue ? null : turnRatio}
                   badge={t(`adventure.romance.slot.${stageDaySlot.slot}`)}
                   badgeClassName={`adventure-hud__slot is-${stageDaySlot.slot}`}
                 />
+              ) : isEpilogue ? (
+                <div
+                  className="adventure-hud__turns"
+                  title={t("adventure.epilogueTurnsHint")}
+                >
+                  <span>{t("adventure.epilogueLabel")}</span>
+                  <strong>
+                    {t("adventure.epilogueTurns", {
+                      turn: activeRun.turn_count,
+                    })}
+                  </strong>
+                </div>
               ) : (
                 <div
                   className="adventure-hud__turns"
@@ -2301,6 +2389,16 @@ function AdventurePlay({ runId }: { runId: string }) {
                   >
                     {t("adventure.turnStrip.backToLatest")}
                   </button>
+                  {canRewindHere && rewindTarget && (
+                    <button
+                      type="button"
+                      className="adventure-stage__past-banner-rewind"
+                      title={t("adventure.turnStrip.rewindHint")}
+                      onClick={() => requestRewind(rewindTarget.turnNumber)}
+                    >
+                      {t("adventure.turnStrip.rewind")}
+                    </button>
+                  )}
                 </div>
               )}
               {stagePortraitFailed && !isStageLoading && (
@@ -2460,7 +2558,7 @@ function AdventurePlay({ runId }: { runId: string }) {
               )}
             </div>
 
-            {activeRun.status === "active" ? (
+            {canAct ? (
               <div className="adventure-controls">
                 <div className="adventure-controls__header">
                   <span className="adventure-controls__title">
@@ -2594,6 +2692,15 @@ function AdventurePlay({ runId }: { runId: string }) {
                 <span>{t(`adventure.status.${activeRun.status}`)}</span>
                 <h2>{activeRun.ending_title}</h2>
                 <p>{activeRun.ending_summary}</p>
+                {/* リザルトを閉じた後・再入場時の継続導線 */}
+                <button
+                  type="button"
+                  className="adventure-ending__continue"
+                  disabled={streaming}
+                  onClick={() => void startEpilogue()}
+                >
+                  {t("adventure.result.continueEpilogue")}
+                </button>
               </div>
             )}
           </section>
@@ -2678,6 +2785,16 @@ function AdventurePlay({ runId }: { runId: string }) {
                 </button>
                 <button type="button" onClick={() => navigate("/adventure")}>
                   {t("adventure.result.backToHub")}
+                </button>
+                <button
+                  type="button"
+                  disabled={streaming}
+                  onClick={() => {
+                    setResultDismissed(true);
+                    if (!isEpilogue) void startEpilogue();
+                  }}
+                >
+                  {t("adventure.result.continueEpilogue")}
                 </button>
               </div>
               <button
@@ -2927,17 +3044,38 @@ function AdventurePlay({ runId }: { runId: string }) {
                   {lightboxFrame.turnNumber === 0
                     ? t("adventure.turnStrip.opening")
                     : sim && lightboxDaySlot
-                      ? t("adventure.romance.previewTurn", {
-                          day: lightboxDaySlot.day,
-                          total: sim.total_days,
-                          slot: t(
-                            `adventure.romance.slot.${lightboxDaySlot.slot}`,
-                          ),
-                          turn: lightboxFrame.turnNumber,
-                          max: activeRun.max_turns,
-                        })
+                      ? lightboxFrame.sim?.epilogue
+                        ? t("adventure.romance.previewTurnEpilogue", {
+                            day: lightboxDaySlot.day,
+                            slot: t(
+                              `adventure.romance.slot.${lightboxDaySlot.slot}`,
+                            ),
+                            turn: lightboxFrame.turnNumber,
+                          })
+                        : t("adventure.romance.previewTurn", {
+                            day: lightboxDaySlot.day,
+                            total: sim.total_days,
+                            slot: t(
+                              `adventure.romance.slot.${lightboxDaySlot.slot}`,
+                            ),
+                            turn: lightboxFrame.turnNumber,
+                            max: activeRun.max_turns,
+                          })
                       : `${lightboxFrame.turnNumber} / ${activeRun.max_turns}`}
                 </p>
+                {lightboxFrame.turnNumber < activeRun.turn_count &&
+                  (lightboxFrame.turnNumber > 0 ||
+                    activeRun.can_rewind_to_opening) && (
+                    <button
+                      type="button"
+                      className="adventure-preview__rewind"
+                      disabled={streaming}
+                      title={t("adventure.turnStrip.rewindHint")}
+                      onClick={() => requestRewind(lightboxFrame.turnNumber)}
+                    >
+                      {t("adventure.turnStrip.rewind")}
+                    </button>
+                  )}
               </section>
 
               {lightboxFrame.userInput && (

@@ -378,6 +378,10 @@ def resolve_romance_action(
         )
         return resolution
     if input_kind == "confess":
+        # FE は交際成立後に告白ボタンを消すが、stale なクライアントからの
+        # 再演をサーバ側でも弾く(ターン未消費)
+        if bool(sim.get("confessed")):
+            raise RomanceActionError("already_dating", "既に想いは通じ合っています")
         success = int(sim.get("affection") or 0) >= romance_confession_threshold(
             int(sim.get("total_days") or 0)
         )
@@ -498,7 +502,10 @@ def apply_romance_outcome(
     declared_dating = kind == "alter" and bool(
         getattr(romance_output, "start_dating", False)
     )
-    dating_started = confessed_success or declared_dating
+    # 既に交際中なら成立イベントを再発火させない。エピローグ中に LLM が
+    # start_dating を立て続けても、毎ターン成功エンドが再演されるのを防ぐ
+    already_dating = bool(sim.get("confessed"))
+    dating_started = (confessed_success or declared_dating) and not already_dating
     if dating_started:
         sim["confessed"] = True
 
@@ -530,21 +537,25 @@ def opening_sim_view(sim: dict[str, Any]) -> dict[str, Any]:
     return public_sim_view(opening, 0)
 
 
-def public_sim_view(sim: dict[str, Any], turn_count: int) -> dict[str, Any]:
+def public_sim_view(
+    sim: dict[str, Any], turn_count: int, *, epilogue: bool = False
+) -> dict[str, Any]:
     """hidden_preferences を除いた公開ビュー。
 
     day/slot は次に行動する枠、scene_day/scene_slot は turn_count が確定させた枠
     (= その手番の画像と本文が描いている枠)を示す。両者は常に半日ずれるため、
     HUD とライトボックスが同じ絵について別の枠を出さないよう両方を配信する。
+    epilogue ではシナリオ期限が意味を失うため、day/slot を total_days で
+    クランプせずそのまま進める。
     """
     total_days = int(sim.get("total_days") or 0)
     total_turns = total_days * ROMANCE_SLOTS_PER_DAY
     next_turn = int(turn_count) + 1
-    if total_turns:
+    if total_turns and not epilogue:
         next_turn = min(next_turn, total_turns)
     day, slot = romance_day_slot(next_turn)
     scene_turn = int(turn_count)
-    if total_turns:
+    if total_turns and not epilogue:
         scene_turn = min(scene_turn, total_turns)
     scene_day, scene_slot = (
         romance_day_slot(scene_turn) if scene_turn >= 1 else (None, None)
@@ -557,6 +568,7 @@ def public_sim_view(sim: dict[str, Any], turn_count: int) -> dict[str, Any]:
         "slot": slot,
         "scene_day": scene_day,
         "scene_slot": scene_slot,
+        "epilogue": bool(epilogue),
         "affection": affection,
         "stage": romance_stage(affection),
         "money": _clamp_money(int(sim.get("money") or 0)),
@@ -593,7 +605,10 @@ ROMANCE_NARRATIVE_GUIDANCE = (
     "visual_state.main_characters with an appearance matching "
     "state.sim.partner_appearance plus any changes declared through "
     "reality_rules, and never merge the partner's traits into the player's "
-    "appearance or clothing. romance_resolution contains the authoritative "
+    "appearance or clothing. When state.sim.confessed is true the partner "
+    "and the player are already dating: portray them as an established "
+    "couple sharing daily life, not as someone still being courted. "
+    "romance_resolution contains the authoritative "
     "mechanical outcome of this turn decided by the game engine: day and slot "
     "progression, money changes, part-time work and chance encounters, gift "
     "purchase results including whether the gift matched the partner's "
@@ -651,7 +666,9 @@ ROMANCE_RESOLUTION_GUIDANCE = (
     "partner's feelings toward the player, express the resulting feeling as "
     "affection_set (0-100, use 100 for complete love); if it explicitly "
     "establishes that the partner and the player are now lovers or dating, "
-    "set start_dating true; if it rewrites the partner's gift tastes, put "
+    "set start_dating true, but keep start_dating false whenever "
+    "state.sim.confessed is already true; if it rewrites the partner's gift "
+    "tastes, put "
     "the matching gift ids from state.sim.gift_catalog into the updated "
     "lists; otherwise keep affection_set null, start_dating false, and the "
     "lists empty. Money follows the same rule as affection. Keep money_delta "

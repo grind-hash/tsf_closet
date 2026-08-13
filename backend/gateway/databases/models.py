@@ -286,6 +286,10 @@ class AdventureRun(Base):
     constraints_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
     snapshot_json: Mapped[str] = mapped_column(Text, nullable=False)
     state_json: Mapped[str] = mapped_column(Text, nullable=False)
+    # 開幕(手番0)時点の復元素材。手番0への巻き戻しに使う。
+    # {"state": {...}, "current_image_path": ..., "portrait_image_path": ...,
+    #  "background_image_path": ...} を保存する。旧runでは NULL
+    opening_state_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     current_image_path: Mapped[str] = mapped_column(Text, nullable=False)
     initial_image_path: Mapped[str] = mapped_column(Text, nullable=False)
     background_image_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

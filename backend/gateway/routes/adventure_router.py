@@ -90,6 +90,11 @@ class AdventureSettingsUpdateRequest(BaseModel):
     respect_clothing_layers: bool | None = None
 
 
+class AdventureRewindRequest(BaseModel):
+    # この手番の完了時点まで巻き戻す(それ以降のターンを削除する)
+    turn_number: int = Field(ge=0)
+
+
 class AdventureTurnRequest(BaseModel):
     client_turn_id: str = Field(min_length=1, max_length=80)
     user_input: str = Field(min_length=1, max_length=1000)
@@ -192,6 +197,22 @@ async def delete_run(run_id: str) -> None:
 async def regenerate_choices(run_id: str) -> dict:
     try:
         return await adventure_service.regenerate_choices(run_id)
+    except AdventureError as error:
+        raise _http_error(error) from error
+
+
+@router.post("/runs/{run_id}/rewind")
+async def rewind_run(run_id: str, request: AdventureRewindRequest) -> dict:
+    try:
+        return await adventure_service.rewind_to_turn(run_id, request.turn_number)
+    except AdventureError as error:
+        raise _http_error(error) from error
+
+
+@router.post("/runs/{run_id}/epilogue")
+async def start_epilogue(run_id: str) -> dict:
+    try:
+        return await adventure_service.start_epilogue(run_id)
     except AdventureError as error:
         raise _http_error(error) from error
 

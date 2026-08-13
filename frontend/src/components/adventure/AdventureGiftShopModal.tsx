@@ -1,4 +1,5 @@
 import { useTranslation } from "react-i18next";
+import { canActOnRun } from "../../apis/adventure";
 import { useAdventure } from "../../contexts/AdventureContext";
 
 interface AdventureGiftShopModalProps {
@@ -24,7 +25,7 @@ export default function AdventureGiftShopModal({
   const givenGiftIds = new Set(sim.given_gift_ids);
 
   const handleGive = (giftId: string, giftName: string) => {
-    if (streaming || activeRun?.status !== "active") return;
+    if (streaming || !canActOnRun(activeRun)) return;
     onClose();
     void submitTurn(
       t("adventure.romance.giftAction", { name: giftName }),

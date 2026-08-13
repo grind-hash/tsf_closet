@@ -15,6 +15,8 @@ from gateway.consts.adventure_romance import (
     ROMANCE_WORK_WAGE,
 )
 from gateway.services.adventure_romance import (
+    ROMANCE_NARRATIVE_GUIDANCE,
+    ROMANCE_RESOLUTION_GUIDANCE,
     RomanceActionError,
     RomanceGift,
     RomanceSetupOutput,
@@ -547,3 +549,70 @@ def test_strip_duplicate_action_choices_keeps_untouched_lists_intact() -> None:
         {"id": "c2", "label": "好きな本の話をする"},
     ]
     assert strip_duplicate_action_choices(choices, make_sim(), "ja") == choices
+
+
+def test_alter_turn_cannot_restart_dating_when_already_confessed() -> None:
+    state = {"sim": make_sim(confessed=True, affection=61), "completed_milestones": []}
+    output = make_output()
+    apply_romance_outcome(
+        state,
+        output,
+        {"kind": "alter", "money_delta": 0, "affection_delta": 0},
+        make_romance_output(start_dating=True),
+    )
+    # 既に交際中なら成立イベントは再発火せず、マイルストーンも据え置き
+    assert output.ending_status == "continue"
+    assert "start_dating" not in output.completed_milestones
+
+
+def test_confess_is_rejected_after_dating_started() -> None:
+    with pytest.raises(RomanceActionError) as error:
+        resolve_romance_action(
+            make_sim(confessed=True, affection=90),
+            user_input="もう一度告白する",
+            input_kind="confess",
+            turn_number=5,
+            total_turns=14,
+        )
+    assert error.value.code == "already_dating"
+
+
+def test_failure_epilogue_can_still_reach_dating() -> None:
+    # 失敗End後のエピローグ想定: confessed=False のまま好感度が閾値に到達
+    sim = make_sim(affection=80)
+    view = public_sim_view(sim, turn_count=15, epilogue=True)
+    assert view["confession_available"] is True
+    state = {"sim": sim, "completed_milestones": []}
+    output = make_output()
+    resolution = resolve_romance_action(
+        sim,
+        user_input="想いを告げる",
+        input_kind="confess",
+        turn_number=15,
+        total_turns=14,
+    )
+    apply_romance_outcome(state, output, resolution, make_romance_output())
+    # 逆転経路: 告白成功で全マイルストーン + success
+    assert output.ending_status == "success"
+    assert set(output.completed_milestones) == {
+        item["id"] for item in ROMANCE_MILESTONES
+    }
+    assert sim["confessed"] is True
+
+
+def test_public_view_epilogue_lifts_day_clamp() -> None:
+    # total_days=7 (total_turns=14)。通常はクランプ、エピローグでは素通し
+    clamped = public_sim_view(make_sim(), turn_count=20)
+    assert (clamped["day"], clamped["scene_day"]) == (7, 7)
+    assert clamped["epilogue"] is False
+    open_view = public_sim_view(make_sim(), turn_count=20, epilogue=True)
+    assert open_view["scene_day"] == 10
+    assert open_view["scene_slot"] == "night"
+    assert open_view["day"] == 11
+    assert open_view["epilogue"] is True
+
+
+def test_narrative_guidance_covers_established_couple() -> None:
+    assert "state.sim.confessed" in ROMANCE_NARRATIVE_GUIDANCE
+    assert "already dating" in ROMANCE_NARRATIVE_GUIDANCE
+    assert "state.sim.confessed" in ROMANCE_RESOLUTION_GUIDANCE

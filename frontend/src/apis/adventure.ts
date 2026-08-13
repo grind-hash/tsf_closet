@@ -72,6 +72,8 @@ export interface AdventureSim {
   scene_day?: number | null;
   /** 今表示している場面の時間帯。day/slot とは常に半日ずれる */
   scene_slot?: "day" | "night" | null;
+  /** この手番がエピローグ(期限なし継続プレイ)中か */
+  epilogue?: boolean;
   affection: number;
   stage: "stranger" | "friend" | "aware" | "mutual";
   money: number;
@@ -140,6 +142,10 @@ export interface AdventureRun {
   setting: string;
   constraints: string[];
   status: AdventureStatus;
+  /** エンディング後の継続プレイ中。status は終了のまま操作だけ許可される */
+  epilogue?: boolean;
+  /** 開始時点(手番0)への巻き戻しに対応しているか。旧runでは false */
+  can_rewind_to_opening?: boolean;
   turn_count: number;
   max_turns: number;
   remaining_turns: number;
@@ -356,6 +362,42 @@ export async function deleteAdventureRun(runId: string): Promise<void> {
     method: "DELETE",
   });
   if (!response.ok) throw new Error(response.statusText);
+}
+
+/** 操作(ターン送信・ギフト・属性付与など)を受け付ける状態か。
+ * 進行中に加え、終了後でもエピローグ移行済みなら操作できる */
+export function canActOnRun(
+  run: Pick<AdventureRun, "status" | "epilogue"> | null | undefined,
+): boolean {
+  if (!run) return false;
+  return run.status === "active" || Boolean(run.epilogue);
+}
+
+/** 指定手番の完了時点まで巻き戻す(それ以降のターンは削除される) */
+export async function rewindAdventureRun(
+  runId: string,
+  turnNumber: number,
+): Promise<AdventureRun> {
+  const run = await requestJson<AdventureRun>(
+    `${API_BASE}/adventure/runs/${runId}/rewind`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ turn_number: turnNumber }),
+    },
+  );
+  return normalizeRun(run);
+}
+
+/** 終了済み run をエピローグ(継続プレイ)へ移行する */
+export async function startAdventureEpilogue(
+  runId: string,
+): Promise<AdventureRun> {
+  const run = await requestJson<AdventureRun>(
+    `${API_BASE}/adventure/runs/${runId}/epilogue`,
+    { method: "POST" },
+  );
+  return normalizeRun(run);
 }
 
 async function readSse(

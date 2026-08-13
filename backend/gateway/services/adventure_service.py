@@ -570,6 +570,9 @@ def _lean_state_for_llm(state: dict[str, Any]) -> dict[str, Any]:
         # 背景キャッシュもファイルパスの索引で、LLM には不要
         "background_cache",
         "background_image_path",
+        # 巻き戻し用の内部記録。LLM に見せると終了済みと誤解させる
+        "final_status",
+        "final_ending_title",
         # 人称指示はシステムプロンプト側に載るため、user prompt へは流さない
         "narration_voice",
         "narration_pronoun",
@@ -1084,6 +1087,17 @@ PRESETS: dict[str, dict[str, Any]] = {
         "milestones": ROMANCE_MILESTONES,
     },
 }
+
+
+# エンディング後の継続プレイ(エピローグ)で scenario_guidance へ連結する指示
+EPILOGUE_GUIDANCE = (
+    "The scenario's objective has already been settled and this run is now "
+    "an open-ended epilogue. There is no deadline and no remaining-turn "
+    "pressure: never mention time running out, never push the story toward "
+    "an ending, and never conclude the scenario on your own. Depict "
+    "everyday continuation of the characters and the world exactly as they "
+    "were left at the ending."
+)
 
 
 # 既定エンディング文言。ending_title 未設定時のフォールバックに使う
@@ -2405,10 +2419,10 @@ The objective must name a concrete target and an observable end condition that c
         """現在場面の選択肢だけを再生成する。手番・物語・手掛かりは変更しない。"""
         async with self._run_locks[run_id]:
             run = await self.get_run_orm(run_id, with_turns=True)
-            if run.status != "active":
+            state = _json_load(run.state_json, {})
+            if run.status != "active" and not state.get("epilogue"):
                 raise AdventureError("run_completed", "このシナリオは終了しています")
 
-            state = _json_load(run.state_json, {})
             narration_voice, narration_pronoun = _narration_from_state(state)
             turns = sorted(run.turns, key=lambda item: item.turn_number)
             latest_turn = turns[-1] if turns else None
@@ -2515,12 +2529,170 @@ The objective must name a concrete target and an observable end condition that c
             await db.commit()
         shutil.rmtree(self._images_dir / run_id, ignore_errors=True)
 
+    # 巻き戻し時にユーザー設定として現在値を引き継ぐ state キー。
+    # ターン後に変えた画像設定や人称までは巻き戻さない
+    _REWIND_KEEP_KEYS = (
+        "use_precise_reference",
+        "enable_composite_scene",
+        "respect_clothing_layers",
+        "narration_voice",
+        "narration_pronoun",
+    )
+
+    async def rewind_to_turn(self, run_id: str, turn_number: int) -> dict[str, Any]:
+        """指定手番の完了時点まで巻き戻し、それ以降のターンを削除する。
+
+        state_delta_json はターン適用後の全 state のスナップショットなので、
+        逆適用は不要で代入だけで復元できる。終了済み run にも許可する
+        (エンド前へ戻して結末を変えるのが主要ユースケース)。
+        """
+        async with self._run_locks[run_id]:
+            run = await self.get_run_orm(run_id, with_turns=True)
+            target = int(turn_number)
+            if target == run.turn_count:
+                # 二度押し・リトライは no-op 成功として現状を返す
+                turns = sorted(run.turns, key=lambda item: item.turn_number)
+                return self._serialize_run(run, turns)
+            if target < 0 or target > run.turn_count:
+                raise AdventureError(
+                    "invalid_turn_number", "巻き戻し先の手番が不正です"
+                )
+            current_state = _json_load(run.state_json, {})
+            if target == 0:
+                opening = _json_load(getattr(run, "opening_state_json", None), {})
+                if not isinstance(opening.get("state"), dict):
+                    raise AdventureError(
+                        "opening_state_unavailable",
+                        "このシナリオは開始時点への巻き戻しに対応していません",
+                    )
+                restored_state = opening["state"]
+                restored_image_path = str(
+                    opening.get("current_image_path") or run.current_image_path
+                )
+                restored_portrait_path = opening.get("portrait_image_path")
+                restored_background_path = opening.get("background_image_path")
+            else:
+                target_turn = next(
+                    (item for item in run.turns if item.turn_number == target),
+                    None,
+                )
+                if target_turn is None:
+                    raise AdventureError(
+                        "invalid_turn_number", "巻き戻し先の手番が見つかりません"
+                    )
+                restored_state = _json_load(target_turn.state_delta_json, {})
+                restored_image_path = str(
+                    target_turn.image_path or run.current_image_path
+                )
+                # 立ち絵は旧 run で欠落しうるため、対象手番から遡って補う
+                restored_portrait_path = target_turn.portrait_image_path
+                if not restored_portrait_path:
+                    for item in sorted(
+                        run.turns, key=lambda item: item.turn_number, reverse=True
+                    ):
+                        if item.turn_number < target and item.portrait_image_path:
+                            restored_portrait_path = item.portrait_image_path
+                            break
+                # 背景キーは背景を作り直したターン以降にしか無い。欠落時は現状維持
+                restored_background_path = restored_state.get(
+                    "background_image_path"
+                ) or getattr(run, "background_image_path", None)
+            # 画像・人称のユーザー設定は現在値を引き継ぐ
+            for key in self._REWIND_KEEP_KEYS:
+                if key in current_state:
+                    restored_state[key] = current_state[key]
+            final_status = str(restored_state.get("final_status") or "")
+            if final_status:
+                # その手番時点で既に終了していた(エピローグ中の手番など)
+                restored_status = final_status
+                restored_ending_title = restored_state.get(
+                    "final_ending_title"
+                ) or _default_ending_title(run.preset, final_status)
+                restored_ending_summary = restored_state.get("ending_summary")
+            else:
+                restored_status = "active"
+                restored_ending_title = None
+                restored_ending_summary = None
+                for key in ("ending_summary", "epilogue"):
+                    restored_state.pop(key, None)
+            async with async_session_factory() as db:
+                persisted = await db.get(AdventureRun, run_id)
+                if persisted is None:
+                    raise AdventureError(
+                        "run_not_found", "アドベンチャーが見つかりません"
+                    )
+                await db.execute(
+                    delete(AdventureTurn).where(
+                        AdventureTurn.run_id == run_id,
+                        AdventureTurn.turn_number > target,
+                    )
+                )
+                persisted.state_json = json.dumps(restored_state, ensure_ascii=False)
+                persisted.turn_count = target
+                persisted.status = restored_status
+                persisted.ending_title = restored_ending_title
+                persisted.ending_summary = restored_ending_summary
+                persisted.current_image_path = restored_image_path
+                persisted.portrait_image_path = restored_portrait_path
+                persisted.background_image_path = restored_background_path
+                persisted.updated_at = datetime.now()
+                await db.commit()
+            # 削除ターンの画像はコミット後に best-effort で片付ける。
+            # background-* はキャッシュ共有、turn-0-*/initial* は開幕解決に
+            # 使われるため対象にしない
+            run_dir = self._images_dir / run_id
+            for prefix in ("turn", "portrait", "partner"):
+                for path in run_dir.glob(f"{prefix}-*-*.png"):
+                    try:
+                        removed_turn = int(path.name.split("-")[1])
+                    except (IndexError, ValueError):
+                        continue
+                    if removed_turn > target:
+                        try:
+                            path.unlink()
+                        except OSError:
+                            logger.warning(
+                                "Adventure rewind could not remove image: %s", path
+                            )
+            refreshed = await self.get_run_orm(run_id, with_turns=True)
+            turns = sorted(refreshed.turns, key=lambda item: item.turn_number)
+            return self._serialize_run(refreshed, turns)
+
+    async def start_epilogue(self, run_id: str) -> dict[str, Any]:
+        """終了済み run をエピローグ(継続プレイ)へ移行する。
+
+        run のステータスとリザルトは終了のまま保ち、以降のターン操作だけを
+        許可する。既にエピローグなら no-op 成功。
+        """
+        async with self._run_locks[run_id]:
+            run = await self.get_run_orm(run_id, with_turns=True)
+            if run.status == "active":
+                raise AdventureError(
+                    "run_not_completed", "このシナリオはまだ終了していません"
+                )
+            state = _json_load(run.state_json, {})
+            if not state.get("epilogue"):
+                state["epilogue"] = True
+                async with async_session_factory() as db:
+                    persisted = await db.get(AdventureRun, run_id)
+                    if persisted is None:
+                        raise AdventureError(
+                            "run_not_found", "アドベンチャーが見つかりません"
+                        )
+                    persisted.state_json = json.dumps(state, ensure_ascii=False)
+                    persisted.updated_at = datetime.now()
+                    await db.commit()
+                run = await self.get_run_orm(run_id, with_turns=True)
+            turns = sorted(run.turns, key=lambda item: item.turn_number)
+            return self._serialize_run(run, turns)
+
     def _merge_output(
         self,
         run: AdventureRun,
         output: AdventureDirectorOutput,
         turn_number: int,
         state_override: dict[str, Any] | None = None,
+        epilogue: bool = False,
     ) -> tuple[dict[str, Any], str, bool, bool]:
         state = (
             state_override
@@ -2528,7 +2700,8 @@ The objective must name a concrete target and an observable end condition that c
             else _json_load(run.state_json, {})
         )
         valid_ids = {item["id"] for item in state.get("milestones", [])}
-        completed = set(state.get("completed_milestones", []))
+        previously_completed = set(state.get("completed_milestones", []))
+        completed = set(previously_completed)
         completed.update(
             item for item in output.completed_milestones if item in valid_ids
         )
@@ -2570,18 +2743,31 @@ The objective must name a concrete target and an observable end condition that c
             }
         )
 
-        status = output.ending_status
-        if completed == valid_ids and valid_ids:
-            status = "success"
-        elif turn_number >= run.max_turns and status == "continue":
-            status = "partial" if completed else "failure"
+        if epilogue:
+            # エピローグでは LLM 申告や max_turns 到達で run を終わらせない。
+            # 成功エンド済み run は「全マイルストーン達成」が恒久的に真のため、
+            # 「新規に全達成へ遷移したとき」だけ成功への逆転として扱う
+            newly_complete = (
+                bool(valid_ids)
+                and completed == valid_ids
+                and previously_completed != valid_ids
+            )
+            status = "success" if newly_complete else "continue"
+        else:
+            status = output.ending_status
+            if completed == valid_ids and valid_ids:
+                status = "success"
+            elif turn_number >= run.max_turns and status == "continue":
+                status = "partial" if completed else "failure"
         ending_title = output.ending_title
         ending_summary = output.ending_summary
         if status != "continue" and not ending_title:
             ending_title = _default_ending_title(run.preset, status)
         if status != "continue" and not ending_summary:
             ending_summary = output.narrative
-        state["ending_summary"] = ending_summary
+        if not epilogue or status != "continue":
+            # エピローグの continue ターンで None を書くと確定済みリザルトが消える
+            state["ending_summary"] = ending_summary
         return state, status, visual_changed, clothing_changed
 
     def _explicit_clothing_from_input(
@@ -3057,6 +3243,8 @@ The objective must name a concrete target and an observable end condition that c
                         False,
                         False,
                     )
+            # 本メソッドは非SSE版で現在未使用。エピローグ(継続プレイ)には
+            # 対応していないため、終了済み run は従来どおり拒否する
             if run.status != "active":
                 raise AdventureError("run_completed", "このシナリオは終了しています")
 
@@ -3197,10 +3385,30 @@ The objective must name a concrete target and an observable end condition that c
                     }
                     yield {"event": "complete", "data": {"status": run.status}}
                     return
-            if run.status != "active":
+            state = _json_load(run.state_json, {})
+            epilogue = bool(state.get("epilogue"))
+            if run.status != "active" and not epilogue:
                 raise AdventureError("run_completed", "このシナリオは終了しています")
 
-            state = _json_load(run.state_json, {})
+            # 手番0への巻き戻し用に、最初のターン処理前の状態を保存する。
+            # 旧runの初回ターンでも拾えるようここで行う(create_run 直後とは
+            # 開幕画像生成の分だけ state が違うため、この時点の値が正)
+            if run.turn_count == 0 and not run.opening_state_json:
+                run.opening_state_json = json.dumps(
+                    {
+                        "state": state,
+                        "current_image_path": run.current_image_path,
+                        "portrait_image_path": run.portrait_image_path,
+                        "background_image_path": run.background_image_path,
+                    },
+                    ensure_ascii=False,
+                )
+                async with async_session_factory() as db:
+                    persisted_run = await db.get(AdventureRun, run.id)
+                    if persisted_run is not None:
+                        persisted_run.opening_state_json = run.opening_state_json
+                        await db.commit()
+
             narration_voice, narration_pronoun = _narration_from_state(state)
             # 宣言はこの手番から有効にする
             declared_rule = _detect_reality_declaration(user_input)
@@ -3215,6 +3423,8 @@ The objective must name a concrete target and an observable end condition that c
             scenario_guidance = PRESETS.get(run.preset, {}).get("guidance", "")
             if template:
                 scenario_guidance = f"{scenario_guidance} {template['guidance']}"
+            if epilogue:
+                scenario_guidance = f"{scenario_guidance} {EPILOGUE_GUIDANCE}"
             # romance はターンの機械的結果(金銭・採点・告白成否)を先に確定する。
             # 資金不足などはターン未消費のままエラーで弾く
             romance_sim = (
@@ -3262,6 +3472,8 @@ The objective must name a concrete target and an observable end condition that c
             }
             if romance_resolution is not None:
                 turn_context["romance_resolution"] = romance_resolution
+            if epilogue:
+                turn_context["epilogue"] = True
             visual_turn_context = {
                 **turn_context,
                 "authored_visual_style": _template_visual_style(template),
@@ -3739,7 +3951,7 @@ The objective must name a concrete target and an observable end condition that c
                 )
             turn_number = run.turn_count + 1
             next_state, next_status, _, _ = self._merge_output(
-                run, output, turn_number, state_override=state
+                run, output, turn_number, state_override=state, epilogue=epilogue
             )
             if visual_output is not None and portrait_path is not None:
                 next_state["last_image_prompt"] = _image_prompt_payload(visual_output)
@@ -3767,6 +3979,26 @@ The objective must name a concrete target and an observable end condition that c
                 turn_portrait_path = getattr(run, "portrait_image_path", None)
                 portrait_status = "failed" if failures else "not_requested"
 
+            # run へ書く status とエンディング文言を確定する。
+            # エピローグの continue ターンでは確定済みリザルトを上書きしない
+            if epilogue and next_status == "continue":
+                resolved_status = run.status
+                resolved_ending_title = run.ending_title
+                resolved_ending_summary = run.ending_summary
+            else:
+                resolved_status = "active" if next_status == "continue" else next_status
+                resolved_ending_title = output.ending_title or (
+                    next_state.get("ending_summary")
+                    and _default_ending_title(run.preset, next_status)
+                )
+                resolved_ending_summary = next_state.get("ending_summary")
+                if next_status != "continue":
+                    # 巻き戻し時に当時の run.status を復元できるよう、終了(と
+                    # エピローグ中の逆転)ターンの state に記録する。
+                    # フルスナップショットの伝播で以降のターンへ引き継がれる
+                    next_state["final_status"] = next_status
+                    next_state["final_ending_title"] = resolved_ending_title
+
             turn = AdventureTurn(
                 id=str(uuid.uuid4()),
                 run_id=run.id,
@@ -3793,33 +4025,26 @@ The objective must name a concrete target and an observable end condition that c
                     )
                 persisted.state_json = json.dumps(next_state, ensure_ascii=False)
                 persisted.turn_count = turn_number
-                persisted.status = (
-                    "active" if next_status == "continue" else next_status
-                )
-                persisted.ending_title = output.ending_title or (
-                    next_state.get("ending_summary")
-                    and _default_ending_title(run.preset, next_status)
-                )
-                persisted.ending_summary = next_state.get("ending_summary")
+                persisted.status = resolved_status
+                persisted.ending_title = resolved_ending_title
+                persisted.ending_summary = resolved_ending_summary
                 persisted.updated_at = datetime.now()
                 db.add(turn)
                 await db.commit()
                 await db.refresh(turn)
 
             result = self._serialize_turn(turn, language=run.language)
-            result["run_status"] = (
-                "active" if next_status == "continue" else next_status
-            )
+            result["run_status"] = resolved_status
             result["remaining_turns"] = max(0, run.max_turns - turn_number)
             result["clues"] = next_state.get("clues", [])
             result["completed_milestones"] = next_state.get("completed_milestones", [])
             result["visual_state"] = _sanitize_visual_state(
                 next_state.get("visual_state")
             )
-            result["ending_title"] = output.ending_title or _default_ending_title(
+            result["ending_title"] = resolved_ending_title or _default_ending_title(
                 run.preset, next_status
             )
-            result["ending_summary"] = next_state.get("ending_summary")
+            result["ending_summary"] = resolved_ending_summary
             # romance の sim / partner_note は _serialize_turn が
             # state_delta_json から復元して載せる
 
@@ -4729,7 +4954,12 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         # public_sim_view で除外する
         sim_state = state_delta.get("sim")
         if isinstance(sim_state, dict) and sim_state:
-            result["sim"] = public_sim_view(sim_state, turn.turn_number)
+            # epilogue はその手番時点のフラグを使う(runの現stateではなく)
+            result["sim"] = public_sim_view(
+                sim_state,
+                turn.turn_number,
+                epilogue=bool(state_delta.get("epilogue")),
+            )
             partner_entry, _ = _romance_partner_visual_entry(
                 list((turn_visual or {}).get("main_characters") or []),
                 [],
@@ -4819,6 +5049,9 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             "setting": state.get("setting", ""),
             "constraints": _json_load(run.constraints_json, []),
             "status": run.status,
+            "epilogue": bool(state.get("epilogue")),
+            # 手番0への巻き戻しは開幕スナップショットを持つ run だけ可能
+            "can_rewind_to_opening": bool(getattr(run, "opening_state_json", None)),
             "turn_count": run.turn_count,
             "max_turns": run.max_turns,
             "remaining_turns": max(0, run.max_turns - run.turn_count),
@@ -4870,7 +5103,9 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         # romance の sim は hidden_preferences を除いた公開ビューだけ返す
         sim_state = state.get("sim")
         if run.preset == "romance" and isinstance(sim_state, dict):
-            response["sim"] = public_sim_view(sim_state, run.turn_count)
+            response["sim"] = public_sim_view(
+                sim_state, run.turn_count, epilogue=bool(state.get("epilogue"))
+            )
             # 開幕フレーム(手番0)の表示用。開始値は定数から再構成する
             response["opening_sim"] = opening_sim_view(sim_state)
             partner_portrait = Path(str(state.get("partner_portrait_path") or ""))

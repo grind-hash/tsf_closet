@@ -1910,6 +1910,70 @@ button:disabled {
   margin: 0;
 }
 
+/*
+ * 既定のオーバーレイスクロールバーは暗背景でほぼ見えないうえ、操作して
+ * いない間は自動で隠れるため、ログがスクロールできないように見える。
+ * Chromium 系は ::-webkit-scrollbar の自前描画にするとクラシック表示
+ * (常時表示・レイアウト占有)へ切り替わるのでそれを使い、非対応の
+ * Firefox にだけ標準プロパティを適用する(Chromium で標準プロパティを
+ * 設定すると ::-webkit-* が無効化されオーバーレイのままになるため併用しない)。
+ */
+.adventure-log__body::-webkit-scrollbar,
+.adventure-messagebox__text::-webkit-scrollbar,
+.adventure-hud__popover::-webkit-scrollbar,
+.adventure-ending::-webkit-scrollbar,
+.adventure-turn-strip::-webkit-scrollbar,
+.adventure-result__card::-webkit-scrollbar {
+  width: 10px;
+  /* ターンストリップ(横スクロール)用 */
+  height: 10px;
+}
+
+.adventure-log__body::-webkit-scrollbar-track,
+.adventure-messagebox__text::-webkit-scrollbar-track,
+.adventure-hud__popover::-webkit-scrollbar-track,
+.adventure-ending::-webkit-scrollbar-track,
+.adventure-turn-strip::-webkit-scrollbar-track,
+.adventure-result__card::-webkit-scrollbar-track {
+  border-radius: 999px;
+  background: rgb(255 255 255 / 7%);
+}
+
+.adventure-log__body::-webkit-scrollbar-thumb,
+.adventure-messagebox__text::-webkit-scrollbar-thumb,
+.adventure-hud__popover::-webkit-scrollbar-thumb,
+.adventure-ending::-webkit-scrollbar-thumb,
+.adventure-turn-strip::-webkit-scrollbar-thumb,
+.adventure-result__card::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: #6b7681;
+  /* 枠ぶんを透過で残し、どの背景色のパネルでも細身に見せる */
+  background-clip: padding-box;
+}
+
+.adventure-log__body::-webkit-scrollbar-thumb:hover,
+.adventure-messagebox__text::-webkit-scrollbar-thumb:hover,
+.adventure-hud__popover::-webkit-scrollbar-thumb:hover,
+.adventure-ending::-webkit-scrollbar-thumb:hover,
+.adventure-turn-strip::-webkit-scrollbar-thumb:hover,
+.adventure-result__card::-webkit-scrollbar-thumb:hover {
+  background: #9aa5b0;
+  background-clip: padding-box;
+}
+
+@supports not selector(::-webkit-scrollbar) {
+  .adventure-log__body,
+  .adventure-messagebox__text,
+  .adventure-hud__popover,
+  .adventure-ending,
+  .adventure-turn-strip,
+  .adventure-result__card {
+    scrollbar-width: thin;
+    scrollbar-color: #6b7681 rgb(255 255 255 / 8%);
+  }
+}
+
 .adventure-log {
   position: fixed;
   inset: 0;
@@ -1982,6 +2046,20 @@ button:disabled {
   font-family: var(--font-serif, serif);
   line-height: 1.8;
   white-space: pre-wrap;
+  /*
+   * スクロール可能なことを影で示す。上下端に内側の影を敷き、パネル背景色の
+   * グラデーション(background-attachment: local)が端に着いたときだけ影を
+   * 覆い隠す、純CSSのスクロールシャドウ。
+   */
+  background:
+    linear-gradient(#171c21 30%, rgb(23 28 33 / 0%)) top / 100% 36px local
+    no-repeat,
+    linear-gradient(rgb(23 28 33 / 0%), #171c21 70%) bottom / 100% 36px local
+    no-repeat,
+    radial-gradient(farthest-side at 50% 0, rgb(0 0 0 / 55%), transparent) top /
+    100% 16px scroll no-repeat,
+    radial-gradient(farthest-side at 50% 100%, rgb(0 0 0 / 55%), transparent)
+    bottom / 100% 16px scroll no-repeat #171c21;
 }
 
 .adventure-transcript {
@@ -2275,6 +2353,57 @@ button:disabled {
 .adventure-ending h2 {
   margin: 6px 0;
   font-size: 1.3rem;
+}
+
+/* エンディング表示からの継続プレイ導線 */
+.adventure-ending__continue {
+  min-height: 34px;
+  margin-top: 12px;
+  padding: 4px 16px;
+  border: 1px solid #efb85a;
+  border-radius: 999px;
+  color: #efb85a;
+  background: transparent;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.adventure-ending__continue:hover:not(:disabled) {
+  background: rgb(239 184 90 / 12%);
+}
+
+.adventure-ending__continue:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/*
+ * 巻き戻し(破壊的操作)のボタン。past-banner 内は既存 button 指定を土台に
+ * 警告色だけ変える。ライトボックス内はターン詳細セクションに置く
+ */
+.adventure-stage__past-banner .adventure-stage__past-banner-rewind,
+.adventure-preview__rewind {
+  padding: 4px 10px;
+  border: 1px solid #e0868f;
+  border-radius: 999px;
+  color: #e0868f;
+  background: transparent;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.adventure-stage__past-banner .adventure-stage__past-banner-rewind:hover,
+.adventure-preview__rewind:hover:not(:disabled) {
+  background: rgb(224 134 143 / 14%);
+}
+
+.adventure-preview__rewind {
+  margin-top: 8px;
+}
+
+.adventure-preview__rewind:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .adventure-result {

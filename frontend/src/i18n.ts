@@ -107,6 +107,10 @@ const resources = {
           dayCounter: "Day {{day}}/{{total}}",
           dayCounterHint:
             "いま表示している場面の日付と時間帯です。1日は昼・夜の2枠で、次の行動は Day {{day}}/{{total}} {{slot}} になります",
+          dayOpen: "{{day}}日目",
+          dayCounterEpilogueHint:
+            "エピローグ中です。期限はなく、日々は自由に続きます",
+          previewTurnEpilogue: "{{day}}日目 {{slot}}（{{turn}}手目）",
           slot: {
             day: "昼",
             night: "夜",
@@ -252,7 +256,12 @@ const resources = {
           replay: "同じシナリオをもう一度",
           backToHub: "シナリオ一覧へ戻る",
           close: "リザルトを閉じる",
+          continueEpilogue: "このまま続ける",
         },
+        epilogueLabel: "エピローグ",
+        epilogueTurns: "{{turn}}手目",
+        epilogueTurnsHint:
+          "エンディング後の継続プレイ中です。ターン数の期限はありません",
         currentLocation: "現在地",
         yourAction: "あなたの行動",
         log: {
@@ -317,6 +326,11 @@ const resources = {
           backToLatest: "最新の場面へ",
           viewingPast: "過去の場面を表示中",
           thumbAlt: "手番 {{number}} の場面",
+          rewind: "ここからやり直す",
+          rewindHint:
+            "この場面までの結果を残し、これより後のターンを削除して再開します",
+          rewindConfirm:
+            "ターン{{turn}}以降の{{count}}ターンが削除されます。この場面からやり直しますか？",
         },
         phase: {
           narrative: "物語を生成中...",
@@ -1459,6 +1473,10 @@ const resources = {
           dayCounter: "Day {{day}}/{{total}}",
           dayCounterHint:
             "The day and time slot of the scene on screen. Each day has two slots, and your next action falls on Day {{day}}/{{total}} {{slot}}.",
+          dayOpen: "Day {{day}}",
+          dayCounterEpilogueHint:
+            "Epilogue. There is no deadline; the days continue freely.",
+          previewTurnEpilogue: "Day {{day}} {{slot}} (turn {{turn}})",
           slot: {
             day: "Day",
             night: "Night",
@@ -1607,7 +1625,12 @@ const resources = {
           replay: "Play this scenario again",
           backToHub: "Back to scenarios",
           close: "Close the result",
+          continueEpilogue: "Keep playing",
         },
+        epilogueLabel: "Epilogue",
+        epilogueTurns: "Turn {{turn}}",
+        epilogueTurnsHint:
+          "Free play after the ending. There is no turn limit.",
         currentLocation: "Location",
         yourAction: "Your action",
         log: {
@@ -1672,6 +1695,11 @@ const resources = {
           backToLatest: "Back to latest scene",
           viewingPast: "Viewing a past scene",
           thumbAlt: "Scene of turn {{number}}",
+          rewind: "Restart from here",
+          rewindHint:
+            "Keep everything up to this scene, delete every later turn, and resume",
+          rewindConfirm:
+            "This deletes {{count}} turn(s) from turn {{turn}} onward. Restart from this scene?",
         },
         phase: {
           narrative: "Writing the next scene...",
