@@ -215,6 +215,9 @@ const resources = {
           "OFFが既定です。既定では背景は開始時に1回だけ生成し、行動に応じて中央の立ち絵のみ更新します。ONにすると、立ち絵の更新後に背景を含む合成シーンも直列で再生成するため、1ターンあたりの画像生成が2回になり待ち時間が長くなります。",
         enableCompositeScenePlayHint:
           "次回のターンから反映されます。ONの間は毎ターン、立ち絵に加えて合成シーンも直列生成されるため待ち時間が長くなります。",
+        drawPortraitEveryTurn: "立ち絵を毎ターン描く",
+        drawPortraitEveryTurnHint:
+          "ONが既定です。OFFにすると行動しても立ち絵を更新せず、直前の立ち絵のまま物語だけ進みます。この設定はブラウザごとに保存されます。",
         portraitAlt: "主人公のポートレート",
         portraitFailed: "立ち絵の生成に失敗しました",
         portraitRetry: "立ち絵を再生成",
@@ -1584,6 +1587,9 @@ const resources = {
           "Off by default. By default, the background is generated once at the start, and only the centered character sprite updates as you act. When on, the full composite scene (including background) is also regenerated in series after each sprite update, so each turn runs two image generations and takes longer.",
         enableCompositeScenePlayHint:
           "Applies from the next turn. While on, every turn generates the composite scene in series after the character sprite, so turns take longer.",
+        drawPortraitEveryTurn: "Draw character sprite every turn",
+        drawPortraitEveryTurnHint:
+          "On by default. When off, the character sprite is not updated as you act; the story continues with the previous sprite. This preference is saved per browser.",
         portraitAlt: "Protagonist portrait",
         portraitFailed: "Character sprite generation failed",
         portraitRetry: "Regenerate sprite",

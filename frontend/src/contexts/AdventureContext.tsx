@@ -33,6 +33,19 @@ import {
 
 export type AdventurePhase = "narrative" | "clue_check" | "image_generation";
 
+// 立ち絵を毎ターン描くかのブラウザ単位設定。トグルUIは AdventureScreen 側にあり、
+// 送信経路(選択肢・自由入力・ギフト・属性付与)が分散しても漏れないよう
+// submitTurn で一元的にリクエストへ反映する
+export const DRAW_PORTRAIT_STORAGE_KEY = "adventure_draw_portrait_every_turn";
+
+export function readDrawPortraitEveryTurn(): boolean {
+  try {
+    return localStorage.getItem(DRAW_PORTRAIT_STORAGE_KEY) !== "false";
+  } catch {
+    return true;
+  }
+}
+
 export type AdventureImageStep = "portrait" | "composite";
 
 export interface AdventurePhaseStep {
@@ -188,6 +201,11 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
     ) => {
       if (!activeRun || streaming) return;
       const runId = activeRun.id;
+      // 立ち絵の毎ターン生成OFFは、精密参照OFFかつ非合成モードのときだけ効く
+      const generatePortrait =
+        readDrawPortraitEveryTurn() ||
+        Boolean(activeRun.use_precise_reference) ||
+        Boolean(activeRun.enable_composite_scene);
       setStreaming(true);
       setPhase("narrative");
       setPhaseStep(null);
@@ -202,6 +220,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
             user_input: input,
             input_kind: inputKind,
             ...(options?.giftId ? { gift_id: options.giftId } : {}),
+            ...(generatePortrait ? {} : { generate_portrait: false }),
           },
           (event) => {
             if (event.type === "status") {

@@ -442,6 +442,8 @@ export async function streamAdventureTurn(
     input_kind: AdventureInputKind;
     /** romance のプレゼント贈呈時のみ指定する */
     gift_id?: string;
+    /** false のとき立ち絵の毎ターン生成を省略する(精密参照OFFかつ非合成モードのみ有効) */
+    generate_portrait?: boolean;
   },
   onEvent: (event: AdventureStreamEvent) => void,
 ): Promise<void> {

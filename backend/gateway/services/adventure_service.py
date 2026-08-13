@@ -1392,6 +1392,17 @@ _REALITY_RULES_INSTRUCTION = (
     "a suspicious act."
 )
 
+# 選択肢が攻略対象やNPC側の台詞・行動として生成される事故を防ぐ。
+# 台詞入りの選択肢では「主人公が発する言葉」だけを引用させる
+_CHOICES_PERSPECTIVE_INSTRUCTION = (
+    "Every choices[].label describes an action the player character performs "
+    "next, written from the player's standpoint. Never write a label that "
+    "describes an NPC's action, service, or reaction toward the player. When "
+    "a label contains quoted dialogue, the quoted words must be lines the "
+    "player speaks to an NPC, never lines an NPC speaks to the player (for "
+    "example, never a staff greeting that addresses the player by name)."
+)
+
 
 # 人称を切り替えても、同意・主体性のガードは弱めない。どの人称でも同じ文を添える。
 _NARRATION_VOICE_GUARD = (
@@ -1635,6 +1646,7 @@ class AdventureService:
 Return one JSON object only, in {response_language}, matching this schema:
 {{"narrative":"...","choices":[{{"id":"...","label":"..."}},{{"id":"...","label":"..."}},{{"id":"...","label":"..."}}],"discovered_clues":[],"completed_milestones":[],"visual_state":{{"location":"...","appearance":"...","clothing":"...","surroundings":"...","main_characters":[{{"name":"...","description":"...","clothing":"...","action":"..."}}]}},"ending_status":"continue|success|partial|failure","ending_title":null,"ending_summary":null}}
 Keep narrative under 800 characters and the entire JSON response compact. Never decide the player's feelings, consent, past wishes, bodily sensations, or voluntary actions unless the player's input explicitly states them. If the player's action objectively makes the mission impossible to continue, return a concise failure ending instead of refusing, truncating, or leaving the JSON incomplete. Describe observable events and NPC actions. Do not introduce an unrequested body transformation. Never grant the player another person's memories, personal knowledge, relationships, habits, skills, credentials, passwords, or authentication information unless the supplied source facts explicitly state them. A copied appearance or name does not imply copied memory or competence. Treat source_snapshot.appearance and required_visual_appearance as an immutable identity signature. Copy its sex, hair color, hair length, hairstyle, eye color, and body features exactly into visual_state.appearance; never replace or supplement those traits. Do not change the player's physical appearance unless scenario_capabilities or authored_template_resolution explicitly allows and triggers that change. Clothing may be offered, found, or discussed, but the player only puts on, removes, or changes clothing when their input explicitly chooses that action. When the player explicitly chooses to put on clothing, visual_state.clothing must show that garment as currently worn in the same turn. Unless the input explicitly requests layering, the new garment replaces the previous outfit instead of being worn over it. If the source snapshot explicitly establishes a transformed sex or body, it may create practical disguise or role opportunities without inventing further changes. Keep visual_state concrete enough to illustrate the main characters, their clothing, and the surrounding location. When authored_visual_style is provided, set visual_state.location and visual_state.surroundings from it and never describe the room as a basement, locker room, warehouse, or cold industrial cell. completed_milestones must contain milestone ID strings only, never objects. Complete milestones only when the narrated action actually earns them. When authored_template_resolution is provided, treat it as authoritative and never narrate a score, transformation, unlocked exit, or ending beyond its event.
+{_CHOICES_PERSPECTIVE_INSTRUCTION}
 {_REALITY_RULES_INSTRUCTION}
 {voice_rule}"""
 
@@ -1744,6 +1756,7 @@ Keep the narrative under 800 characters. Never decide the player's feelings, con
 Return one JSON object only, in {response_language}, matching this schema:
 {{"choices":[{{"id":"...","label":"..."}},{{"id":"...","label":"..."}},{{"id":"...","label":"..."}}],"discovered_clues":[],"completed_milestones":[],"ending_status":"continue|success|partial|failure","ending_title":null,"ending_summary":null}}
 Base every value strictly on the supplied narrative and game state, and never invent events the narrative does not contain. choices must offer exactly three distinct actions the player could take next. discovered_clues must contain only new information the narrative actually revealed, and must not repeat state.clues. completed_milestones must contain milestone ID strings only, never objects, and only when the narrated action actually earns them. Keep ending_status as continue unless the narrative itself concludes the mission, and fill ending_title and ending_summary only in that case. Never decide the player's feelings, consent, or voluntary actions. When authored_template_resolution is provided, treat it as authoritative and never report a score, transformation, or ending beyond its event. Keep the entire response compact.
+{_CHOICES_PERSPECTIVE_INSTRUCTION}
 {_REALITY_RULES_INSTRUCTION}
 {voice_rule}"""
 
@@ -3373,6 +3386,7 @@ The objective must name a concrete target and an observable end condition that c
         user_input: str,
         input_kind: str,
         gift_id: str | None = None,
+        generate_portrait: bool = True,
     ) -> AsyncGenerator[dict[str, Any], None]:
         """ナラティブを逐次配信し、手がかり抽出と画像生成を並列実行する。"""
         async with self._run_locks[run_id]:
@@ -3627,8 +3641,18 @@ The objective must name a concrete target and an observable end condition that c
                         background_result = None
                     if background_result is not None:
                         await queue.put(("background", background_result))
-                # step 情報はフロントのプログレスバー用。phase は既存契約を維持する
                 enable_composite = bool(state.get("enable_composite_scene"))
+                # 立ち絵の毎ターン生成OFF。精密参照OFFかつ非合成モードでのみ有効。
+                # romance の背景更新は上で済ませ、立ち絵は前ターンの1枚を使い回す
+                if (
+                    not generate_portrait
+                    and not enable_composite
+                    and not bool(state.get("use_precise_reference"))
+                ):
+                    await queue.put(("portrait_skipped", None))
+                    await queue.put(("image_skipped", None))
+                    return
+                # step 情報はフロントのプログレスバー用。phase は既存契約を維持する
                 # 非合成 romance は主人公+攻略対象の2枚を直列生成する
                 image_step_count = (
                     2 if (enable_composite or romance_sim is not None) else 1
