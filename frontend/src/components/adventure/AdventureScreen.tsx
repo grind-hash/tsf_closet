@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router-dom";
 import type {
+  AdventureBgmKey,
   AdventureInputKind,
   AdventureNarrationVoice,
   AdventurePreset,
@@ -25,6 +26,7 @@ import {
   useAdventure,
 } from "../../contexts/AdventureContext";
 import { useSettings } from "../../contexts/SettingsContext";
+import { useAdventureBgm } from "../../hooks/useAdventureBgm";
 import {
   type TimedProgressSegment,
   useTimedProgress,
@@ -49,6 +51,7 @@ import ImagePreviewModal from "../ImagePreviewModal";
 import MainLayout from "../layout/MainLayout";
 import AdventureAnlasConfirmDialog from "./AdventureAnlasConfirmDialog";
 import AdventureAttributeModal from "./AdventureAttributeModal";
+import AdventureBgmControl from "./AdventureBgmControl";
 import AdventureGiftShopModal from "./AdventureGiftShopModal";
 import AdventureImagePromptModal from "./AdventureImagePromptModal";
 import "./AdventureScreen.css";
@@ -1522,6 +1525,8 @@ interface AdventureStageFrame {
   partnerNote: string | null;
   /** romance 非合成のみ。この手番時点の攻略対象の立ち絵(白背景の元画像) */
   partnerUrl: string | null;
+  /** この手番時点のBGMカテゴリ。据え置きターンは直前の値を引き継ぐ */
+  bgm: AdventureBgmKey;
 }
 
 /**
@@ -1614,6 +1619,8 @@ function AdventurePlay({ runId }: { runId: string }) {
   const [input, setInput] = useState("");
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const turnStripEndRef = useRef<HTMLDivElement>(null);
+  // モーダルを開いた時に選択中のビュー切替チップへフォーカスを移すための参照
+  const lightboxViewsRef = useRef<HTMLDivElement>(null);
   const messageTextRef = useRef<HTMLDivElement>(null);
   const [selectedFrameIndex, setSelectedFrameIndex] = useState<number | null>(
     null,
@@ -1622,18 +1629,19 @@ function AdventurePlay({ runId }: { runId: string }) {
   // selectedFrameIndex には触れない）ため、専用のインデックスを持つ
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [lightboxView, setLightboxView] = useState<
-    "scene" | "background" | "portrait" | "partner"
+    "scene" | "background" | "portrait" | "partner" | "overview"
   >("scene");
   const [promptModalOpen, setPromptModalOpen] = useState(false);
   // romance 専用モーダル（ギフトショップ・属性付与）
   const [giftShopOpen, setGiftShopOpen] = useState(false);
   const [attributeModalOpen, setAttributeModalOpen] = useState(false);
   const [imageSettingsOpen, setImageSettingsOpen] = useState(false);
+  const [bgmSettingsOpen, setBgmSettingsOpen] = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [logOpen, setLogOpen] = useState(false);
   const [messageWindowHidden, setMessageWindowHidden] = useState(false);
   const [hudPanel, setHudPanel] = useState<
-    "milestones" | "clues" | "realityRules" | "scenario" | null
+    "milestones" | "clues" | "realityRules" | null
   >(null);
   const [protagonistDockOpen, setProtagonistDockOpen] = useState(
     readProtagonistDockOpen,
@@ -1744,6 +1752,7 @@ function AdventurePlay({ runId }: { runId: string }) {
       // 合成モードでは攻略対象の立ち絵をターンごとに再生成しないが、
       // ライトボックスの攻略対象タブ用に直近の1枚(最低でも開幕分)を引き継ぐ
       let lastPartnerUrl = activeRun.opening_partner_portrait_url ?? null;
+      let lastBgm: AdventureBgmKey = activeRun.opening_bgm ?? "daily";
       if (activeRun.opening_image_url) {
         list.push({
           key: "opening",
@@ -1761,9 +1770,12 @@ function AdventurePlay({ runId }: { runId: string }) {
           sim: activeRun.opening_sim ?? null,
           partnerNote: null,
           partnerUrl: lastPartnerUrl,
+          bgm: lastBgm,
         });
       }
       for (const turn of activeRun.turns) {
+        // 画像の無いターンもBGMは進むため、continue より前に引き継ぐ
+        lastBgm = turn.bgm ?? lastBgm;
         if (!turn.image_url) continue;
         lastPartnerUrl = turn.partner_portrait_url ?? lastPartnerUrl;
         list.push({
@@ -1782,11 +1794,13 @@ function AdventurePlay({ runId }: { runId: string }) {
           sim: turn.sim ?? null,
           partnerNote: turn.partner_note ?? null,
           partnerUrl: lastPartnerUrl,
+          bgm: lastBgm,
         });
       }
     } else {
       // 攻略対象の立ち絵は生成失敗ターンで欠けうるため、直前の1枚を引き継ぐ
       let lastPartnerUrl = activeRun.opening_partner_portrait_url ?? null;
+      let lastBgm: AdventureBgmKey = activeRun.opening_bgm ?? "daily";
       if (activeRun.opening_portrait_url) {
         list.push({
           key: "opening",
@@ -1804,9 +1818,12 @@ function AdventurePlay({ runId }: { runId: string }) {
           sim: activeRun.opening_sim ?? null,
           partnerNote: null,
           partnerUrl: lastPartnerUrl,
+          bgm: lastBgm,
         });
       }
       for (const turn of activeRun.turns) {
+        // 画像の無いターンもBGMは進むため、continue より前に引き継ぐ
+        lastBgm = turn.bgm ?? lastBgm;
         if (!turn.portrait_image_url) continue;
         lastPartnerUrl = turn.partner_portrait_url ?? lastPartnerUrl;
         list.push({
@@ -1826,6 +1843,7 @@ function AdventurePlay({ runId }: { runId: string }) {
           sim: turn.sim ?? null,
           partnerNote: turn.partner_note ?? null,
           partnerUrl: lastPartnerUrl,
+          bgm: lastBgm,
         });
       }
     }
@@ -1845,6 +1863,29 @@ function AdventurePlay({ runId }: { runId: string }) {
       inline: "end",
     });
   }, [frames.length]);
+
+  // 表示中フレームのBGMキー。過去フレーム閲覧中はその手番の曲に追随し、
+  // 最新表示中は画像未生成ターン(フレーム化されない)も含めて turns を直読みする。
+  // BGM切替は SSE の turn イベント(ナラティブ確定)時点で起きる
+  const currentBgmKey = useMemo<AdventureBgmKey | null>(() => {
+    if (!activeRun) return null;
+    if (selectedFrameIndex !== null) {
+      return frames[selectedFrameIndex]?.bgm ?? "daily";
+    }
+    for (let i = activeRun.turns.length - 1; i >= 0; i--) {
+      const bgm = activeRun.turns[i]?.bgm;
+      if (bgm) return bgm;
+    }
+    // 旧runはキー欠落のため daily に倒す
+    return activeRun.opening_bgm ?? "daily";
+  }, [activeRun, frames, selectedFrameIndex]);
+  const {
+    muted: bgmMuted,
+    volume: bgmVolume,
+    autoplayBlocked: bgmAutoplayBlocked,
+    setMuted: setBgmMuted,
+    setVolume: setBgmVolume,
+  } = useAdventureBgm(currentBgmKey);
 
   const submit = useCallback(
     (
@@ -1881,6 +1922,7 @@ function AdventurePlay({ runId }: { runId: string }) {
         }
         setLogOpen(false);
         setImageSettingsOpen(false);
+        setBgmSettingsOpen(false);
         setHudPanel(null);
         setMessageWindowHidden(false);
         return;
@@ -1892,6 +1934,10 @@ function AdventurePlay({ runId }: { runId: string }) {
       }
       if (event.key === "h" || event.key === "H") {
         setMessageWindowHidden((current) => !current);
+        return;
+      }
+      if (event.key === "m" || event.key === "M") {
+        setBgmMuted(!bgmMuted);
         return;
       }
       // Anlas確認ダイアログ表示中は数字キー送信で保留中の送信を上書きしない。
@@ -1911,6 +1957,8 @@ function AdventurePlay({ runId }: { runId: string }) {
     pendingAnlasTurn,
     handleAnlasCancel,
     selectedFrameIndex,
+    bgmMuted,
+    setBgmMuted,
   ]);
 
   const portraitSource = useMemo(() => {
@@ -1967,6 +2015,15 @@ function AdventurePlay({ runId }: { runId: string }) {
 
   const lightboxFrame =
     lightboxIndex !== null ? frames[lightboxIndex] : undefined;
+  const lightboxOpen = lightboxFrame !== undefined;
+  // タブ的なチップ列なので、モーダルを開いた時点で選択中のチップへ
+  // キーボードフォーカスを移し、そのまま操作できるようにする
+  useEffect(() => {
+    if (!lightboxOpen) return;
+    lightboxViewsRef.current
+      ?.querySelector<HTMLButtonElement>('button[aria-pressed="true"]')
+      ?.focus();
+  }, [lightboxOpen]);
   // romance のターン詳細用。開幕フレーム(手番0)には日付が無い。
   // 導出はサーバの scene_day/scene_slot に一本化し、HUD と食い違わせない
   const lightboxDaySlot = frameDaySlot(lightboxFrame);
@@ -1975,9 +2032,10 @@ function AdventurePlay({ runId }: { runId: string }) {
   // romance: そのフレーム時点の攻略対象立ち絵があれば過去手番でも切替可能
   const canShowPartner =
     activeRun?.preset === "romance" && Boolean(lightboxFrame?.partnerUrl);
-  // 非合成モードのシーン表示は、ステージと同じく背景に白抜きの立ち絵を重ねる
+  // 非合成モードのシーン表示は、ステージと同じく背景に白抜きの立ち絵を重ねる。
+  // 概要ビューは画像をシーンのまま維持し、右側の詳細だけを差し替える
   const needsComposite =
-    lightboxView === "scene" &&
+    (lightboxView === "scene" || lightboxView === "overview") &&
     lightboxFrame?.kind === "portrait" &&
     Boolean(lightboxFrame.backgroundUrl);
   // ステージ用の transparentPortraitUrl はモーダルと別フレームを指しうるので流用しない。
@@ -2097,15 +2155,16 @@ function AdventurePlay({ runId }: { runId: string }) {
     setSelectedFrameIndex(index === frames.length - 1 ? null : index);
   };
 
-  // モーダル内だけを動かす。前後送りでは表示中のタブを引き継ぎ、
+  // モーダル内だけを動かす。前後送りと閉じてからの開き直しのどちらも
+  // 直前に見ていたタブを引き継ぎ(タブ選択の復元)、
   // 送り先に存在しないタブへ着地しないようシーンへ戻す
   const openLightboxFrame = (
     index: number,
-    view?: "scene" | "background" | "portrait" | "partner",
+    view?: "scene" | "background" | "portrait" | "partner" | "overview",
   ) => {
     if (index < 0 || index >= frames.length) return;
     const target = frames[index];
-    const requested = view ?? (lightboxIndex !== null ? lightboxView : "scene");
+    const requested = view ?? lightboxView;
     const supported =
       requested === "partner"
         ? Boolean(target.partnerUrl)
@@ -2230,23 +2289,9 @@ function AdventurePlay({ runId }: { runId: string }) {
             </button>
             <div className="adventure-hud__title">
               <p>{activeRun.title}</p>
-              {/* タイトル領域自体をシナリオ情報(全文)ポップオーバーの開閉に使う。
-                  メトリクス行へチップを足すと狭幅でタイトルが潰れるため */}
               <h1 title={activeRun.objective}>
-                <button
-                  type="button"
-                  className="adventure-hud__scenario-trigger"
-                  aria-expanded={hudPanel === "scenario"}
-                  onClick={() =>
-                    setHudPanel((current) =>
-                      current === "scenario" ? null : "scenario",
-                    )
-                  }
-                >
-                  <b>{t("adventure.goal")}</b>
-                  <span>{activeRun.objective}</span>
-                  <i aria-hidden>▾</i>
-                </button>
+                <b>{t("adventure.goal")}</b>
+                <span>{activeRun.objective}</span>
               </h1>
             </div>
             {activeLocation && (
@@ -2456,46 +2501,7 @@ function AdventurePlay({ runId }: { runId: string }) {
                 role="dialog"
                 aria-label={t(`adventure.${hudPanel}`)}
               >
-                {hudPanel === "scenario" ? (
-                  <dl className="adventure-hud__scenario">
-                    <div>
-                      <dt>{t("adventure.scenarioTitleLabel")}</dt>
-                      <dd>{activeRun.title}</dd>
-                    </div>
-                    {activeRun.setting && (
-                      <div>
-                        <dt>{t("adventure.setting")}</dt>
-                        <dd>{activeRun.setting}</dd>
-                      </div>
-                    )}
-                    <div>
-                      <dt>{t("adventure.goal")}</dt>
-                      <dd>{activeRun.objective}</dd>
-                    </div>
-                    {activeRun.constraints.length > 0 && (
-                      <div>
-                        <dt>{t("adventure.constraints")}</dt>
-                        <dd>
-                          <ul>
-                            {activeRun.constraints.map((item) => (
-                              <li key={item}>{item}</li>
-                            ))}
-                          </ul>
-                        </dd>
-                      </div>
-                    )}
-                    {sim && (
-                      <div>
-                        <dt>{t("adventure.romance.days")}</dt>
-                        <dd>
-                          {t("adventure.scenarioDeadline", {
-                            days: sim.total_days,
-                          })}
-                        </dd>
-                      </div>
-                    )}
-                  </dl>
-                ) : hudPanel === "milestones" ? (
+                {hudPanel === "milestones" ? (
                   <ul className="adventure-hud__milestones">
                     {activeRun.milestones.map((milestone) => {
                       const done = completedMilestones.has(milestone.id);
@@ -2711,13 +2717,28 @@ function AdventurePlay({ runId }: { runId: string }) {
               <button
                 type="button"
                 className="adventure-stage__settings"
-                onClick={() => setImageSettingsOpen((current) => !current)}
+                onClick={() => {
+                  setBgmSettingsOpen(false);
+                  setImageSettingsOpen((current) => !current);
+                }}
                 title={t("adventure.imageSettings")}
                 aria-label={t("adventure.imageSettings")}
                 aria-expanded={imageSettingsOpen}
               >
                 ⚙
               </button>
+              <AdventureBgmControl
+                muted={bgmMuted}
+                volume={bgmVolume}
+                autoplayBlocked={bgmAutoplayBlocked}
+                open={bgmSettingsOpen}
+                onToggleOpen={() => {
+                  setImageSettingsOpen(false);
+                  setBgmSettingsOpen((current) => !current);
+                }}
+                onMutedChange={setBgmMuted}
+                onVolumeChange={setBgmVolume}
+              />
               {imageSettingsOpen && (
                 <div className="adventure-image-settings-popover">
                   <label className="adventure-precise-toggle">
@@ -3347,172 +3368,234 @@ function AdventurePlay({ runId }: { runId: string }) {
                   <span>{activeRun.objective}</span>
                 </h2>
               </header>
-              {(canShowBackground || canShowPortrait || canShowPartner) && (
-                <div
-                  className="adventure-preview__views"
-                  role="group"
-                  aria-label={t("adventure.preview.viewSwitch")}
+              {/* 概要は常に選べるため、切替チップ列は常時表示する */}
+              <div
+                ref={lightboxViewsRef}
+                className="adventure-preview__views"
+                role="group"
+                aria-label={t("adventure.preview.viewSwitch")}
+              >
+                {/* シナリオ定義(舞台・制約・日数)の全文表示。先頭に置く */}
+                <button
+                  type="button"
+                  aria-pressed={lightboxView === "overview"}
+                  onClick={() => setLightboxView("overview")}
                 >
+                  {t("adventure.preview.viewOverview")}
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={lightboxView === "scene"}
+                  onClick={() => setLightboxView("scene")}
+                >
+                  {t("adventure.preview.viewScene")}
+                </button>
+                {canShowBackground && (
                   <button
                     type="button"
-                    aria-pressed={lightboxView === "scene"}
-                    onClick={() => setLightboxView("scene")}
+                    aria-pressed={lightboxView === "background"}
+                    onClick={() => setLightboxView("background")}
                   >
-                    {t("adventure.preview.viewScene")}
+                    {t("adventure.preview.viewBackground")}
                   </button>
-                  {canShowBackground && (
-                    <button
-                      type="button"
-                      aria-pressed={lightboxView === "background"}
-                      onClick={() => setLightboxView("background")}
-                    >
-                      {t("adventure.preview.viewBackground")}
-                    </button>
-                  )}
-                  {canShowPortrait && (
-                    <button
-                      type="button"
-                      aria-pressed={lightboxView === "portrait"}
-                      onClick={() => setLightboxView("portrait")}
-                    >
-                      {t("adventure.preview.viewPortrait")}
-                    </button>
-                  )}
-                  {canShowPartner && (
-                    <button
-                      type="button"
-                      aria-pressed={lightboxView === "partner"}
-                      onClick={() => setLightboxView("partner")}
-                    >
-                      {t("adventure.romance.partnerLabel")}
-                    </button>
-                  )}
-                </div>
-              )}
-
-              {/* そのフレーム確定時点の sim だけを使う。activeRun.sim への
-                  フォールバックは過去手番に現在の好感度を出してしまうため行わない */}
-              {sim && lightboxFrame.sim && (
-                <section className="image-preview-modal__detail-section adventure-preview-partner">
-                  <h2 className="image-preview-modal__detail-label">
-                    {t("adventure.romance.partnerLabel")}
-                  </h2>
-                  <p className="adventure-preview-partner__name">
-                    {lightboxFrame.sim.partner_name}
-                  </p>
-                  <div
-                    className={`adventure-preview-partner__affection is-${lightboxFrame.sim.stage}`}
-                    title={t(
-                      `adventure.romance.stages.${lightboxFrame.sim.stage}`,
-                    )}
+                )}
+                {canShowPortrait && (
+                  <button
+                    type="button"
+                    aria-pressed={lightboxView === "portrait"}
+                    onClick={() => setLightboxView("portrait")}
                   >
-                    <svg
-                      className="adventure-preview-partner__heart"
-                      viewBox="0 0 24 24"
-                      aria-hidden
-                    >
-                      <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
-                    </svg>
-                    <strong>
-                      {lightboxFrame.sim.affection}
-                      <i>/100</i>
-                    </strong>
-                    <span
-                      className="adventure-preview-partner__gauge"
-                      aria-hidden
-                    >
-                      <i style={{ width: `${lightboxFrame.sim.affection}%` }} />
-                    </span>
-                    <em className="adventure-preview-partner__stage">
-                      {t(`adventure.romance.stages.${lightboxFrame.sim.stage}`)}
-                    </em>
-                  </div>
-                  {lightboxFrame.partnerNote && (
-                    <p className="image-preview-modal__detail-text">
-                      {lightboxFrame.partnerNote}
-                    </p>
-                  )}
-                </section>
-              )}
+                    {t("adventure.preview.viewPortrait")}
+                  </button>
+                )}
+                {canShowPartner && (
+                  <button
+                    type="button"
+                    aria-pressed={lightboxView === "partner"}
+                    onClick={() => setLightboxView("partner")}
+                  >
+                    {t("adventure.romance.partnerLabel")}
+                  </button>
+                )}
+              </div>
 
-              <section className="image-preview-modal__detail-section">
-                <h2 className="image-preview-modal__detail-label">
-                  {t("adventure.preview.turnLabel")}
-                </h2>
-                <p className="image-preview-modal__detail-text">
-                  {lightboxFrame.turnNumber === 0
-                    ? t("adventure.turnStrip.opening")
-                    : sim && lightboxDaySlot
-                      ? lightboxFrame.sim?.epilogue
-                        ? t("adventure.romance.previewTurnEpilogue", {
-                            day: lightboxDaySlot.day,
-                            slot: t(
-                              `adventure.romance.slot.${lightboxDaySlot.slot}`,
-                            ),
-                            turn: lightboxFrame.turnNumber,
-                          })
-                        : t("adventure.romance.previewTurn", {
-                            day: lightboxDaySlot.day,
-                            total: sim.total_days,
-                            slot: t(
-                              `adventure.romance.slot.${lightboxDaySlot.slot}`,
-                            ),
-                            turn: lightboxFrame.turnNumber,
-                            max: activeRun.max_turns,
-                          })
-                      : `${lightboxFrame.turnNumber} / ${activeRun.max_turns}`}
-                </p>
-                {lightboxFrame.turnNumber < activeRun.turn_count &&
-                  (lightboxFrame.turnNumber > 0 ||
-                    activeRun.can_rewind_to_opening) && (
-                    <button
-                      type="button"
-                      className="adventure-preview__rewind"
-                      disabled={streaming}
-                      title={t("adventure.turnStrip.rewindHint")}
-                      onClick={() => requestRewind(lightboxFrame.turnNumber)}
-                    >
-                      {t("adventure.turnStrip.rewind")}
-                    </button>
+              {lightboxView === "overview" ? (
+                // 概要: シナリオ定義の全文を既存セクションと同じ様式で表示する。
+                // タイトルとゴールは直上のヘッダに常時表示のため重複させない
+                <>
+                  {activeRun.setting && (
+                    <section className="image-preview-modal__detail-section">
+                      <h2 className="image-preview-modal__detail-label">
+                        {t("adventure.setting")}
+                      </h2>
+                      <p className="image-preview-modal__detail-text">
+                        {activeRun.setting}
+                      </p>
+                    </section>
                   )}
-              </section>
-
-              {lightboxFrame.userInput && (
-                <section className="image-preview-modal__detail-section">
-                  <h2 className="image-preview-modal__detail-label">
-                    {t("adventure.preview.actionLabel")}
-                    {lightboxFrame.inputKind && (
-                      <span className="adventure-preview__kind">
-                        {t(
-                          `adventure.preview.inputKind.${lightboxFrame.inputKind}`,
+                  {activeRun.constraints.length > 0 && (
+                    <section className="image-preview-modal__detail-section">
+                      <h2 className="image-preview-modal__detail-label">
+                        {t("adventure.constraints")}
+                      </h2>
+                      <ul className="adventure-preview__constraints">
+                        {activeRun.constraints.map((item) => (
+                          <li
+                            key={item}
+                            className="image-preview-modal__detail-text"
+                          >
+                            {item}
+                          </li>
+                        ))}
+                      </ul>
+                    </section>
+                  )}
+                  {sim && (
+                    <section className="image-preview-modal__detail-section">
+                      <h2 className="image-preview-modal__detail-label">
+                        {t("adventure.romance.days")}
+                      </h2>
+                      <p className="image-preview-modal__detail-text">
+                        {t("adventure.scenarioDeadline", {
+                          days: sim.total_days,
+                        })}
+                      </p>
+                    </section>
+                  )}
+                </>
+              ) : (
+                <>
+                  {/* そのフレーム確定時点の sim だけを使う。activeRun.sim への
+                  フォールバックは過去手番に現在の好感度を出してしまうため行わない */}
+                  {sim && lightboxFrame.sim && (
+                    <section className="image-preview-modal__detail-section adventure-preview-partner">
+                      <h2 className="image-preview-modal__detail-label">
+                        {t("adventure.romance.partnerLabel")}
+                      </h2>
+                      <p className="adventure-preview-partner__name">
+                        {lightboxFrame.sim.partner_name}
+                      </p>
+                      <div
+                        className={`adventure-preview-partner__affection is-${lightboxFrame.sim.stage}`}
+                        title={t(
+                          `adventure.romance.stages.${lightboxFrame.sim.stage}`,
                         )}
-                      </span>
-                    )}
-                  </h2>
-                  <p className="image-preview-modal__detail-text">
-                    {lightboxFrame.userInput}
-                  </p>
-                </section>
-              )}
+                      >
+                        <svg
+                          className="adventure-preview-partner__heart"
+                          viewBox="0 0 24 24"
+                          aria-hidden
+                        >
+                          <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
+                        </svg>
+                        <strong>
+                          {lightboxFrame.sim.affection}
+                          <i>/100</i>
+                        </strong>
+                        <span
+                          className="adventure-preview-partner__gauge"
+                          aria-hidden
+                        >
+                          <i
+                            style={{ width: `${lightboxFrame.sim.affection}%` }}
+                          />
+                        </span>
+                        <em className="adventure-preview-partner__stage">
+                          {t(
+                            `adventure.romance.stages.${lightboxFrame.sim.stage}`,
+                          )}
+                        </em>
+                      </div>
+                      {lightboxFrame.partnerNote && (
+                        <p className="image-preview-modal__detail-text">
+                          {lightboxFrame.partnerNote}
+                        </p>
+                      )}
+                    </section>
+                  )}
 
-              <section className="image-preview-modal__detail-section">
-                <h2 className="image-preview-modal__detail-label">
-                  {t("adventure.preview.narrativeLabel")}
-                </h2>
-                <p className="image-preview-modal__detail-text">
-                  {lightboxFrame.narrative}
-                </p>
-              </section>
+                  <section className="image-preview-modal__detail-section">
+                    <h2 className="image-preview-modal__detail-label">
+                      {t("adventure.preview.turnLabel")}
+                    </h2>
+                    <p className="image-preview-modal__detail-text">
+                      {lightboxFrame.turnNumber === 0
+                        ? t("adventure.turnStrip.opening")
+                        : sim && lightboxDaySlot
+                          ? lightboxFrame.sim?.epilogue
+                            ? t("adventure.romance.previewTurnEpilogue", {
+                                day: lightboxDaySlot.day,
+                                slot: t(
+                                  `adventure.romance.slot.${lightboxDaySlot.slot}`,
+                                ),
+                                turn: lightboxFrame.turnNumber,
+                              })
+                            : t("adventure.romance.previewTurn", {
+                                day: lightboxDaySlot.day,
+                                total: sim.total_days,
+                                slot: t(
+                                  `adventure.romance.slot.${lightboxDaySlot.slot}`,
+                                ),
+                                turn: lightboxFrame.turnNumber,
+                                max: activeRun.max_turns,
+                              })
+                          : `${lightboxFrame.turnNumber} / ${activeRun.max_turns}`}
+                    </p>
+                    {lightboxFrame.turnNumber < activeRun.turn_count &&
+                      (lightboxFrame.turnNumber > 0 ||
+                        activeRun.can_rewind_to_opening) && (
+                        <button
+                          type="button"
+                          className="adventure-preview__rewind"
+                          disabled={streaming}
+                          title={t("adventure.turnStrip.rewindHint")}
+                          onClick={() =>
+                            requestRewind(lightboxFrame.turnNumber)
+                          }
+                        >
+                          {t("adventure.turnStrip.rewind")}
+                        </button>
+                      )}
+                  </section>
 
-              {lightboxFrame.location && (
-                <section className="image-preview-modal__detail-section">
-                  <h2 className="image-preview-modal__detail-label">
-                    {t("adventure.currentLocation")}
-                  </h2>
-                  <p className="image-preview-modal__detail-text">
-                    {lightboxFrame.location}
-                  </p>
-                </section>
+                  {lightboxFrame.userInput && (
+                    <section className="image-preview-modal__detail-section">
+                      <h2 className="image-preview-modal__detail-label">
+                        {t("adventure.preview.actionLabel")}
+                        {lightboxFrame.inputKind && (
+                          <span className="adventure-preview__kind">
+                            {t(
+                              `adventure.preview.inputKind.${lightboxFrame.inputKind}`,
+                            )}
+                          </span>
+                        )}
+                      </h2>
+                      <p className="image-preview-modal__detail-text">
+                        {lightboxFrame.userInput}
+                      </p>
+                    </section>
+                  )}
+
+                  <section className="image-preview-modal__detail-section">
+                    <h2 className="image-preview-modal__detail-label">
+                      {t("adventure.preview.narrativeLabel")}
+                    </h2>
+                    <p className="image-preview-modal__detail-text">
+                      {lightboxFrame.narrative}
+                    </p>
+                  </section>
+
+                  {lightboxFrame.location && (
+                    <section className="image-preview-modal__detail-section">
+                      <h2 className="image-preview-modal__detail-label">
+                        {t("adventure.currentLocation")}
+                      </h2>
+                      <p className="image-preview-modal__detail-text">
+                        {lightboxFrame.location}
+                      </p>
+                    </section>
+                  )}
+                </>
               )}
             </div>
           )

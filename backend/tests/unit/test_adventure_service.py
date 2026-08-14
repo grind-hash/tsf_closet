@@ -33,6 +33,7 @@ from gateway.services.adventure_service import (
     AdventureDirectorOutput,
     AdventureError,
     AdventureImagePromptOutput,
+    AdventureResolutionOutput,
     AdventureService,
     AdventureVisualOutput,
     AdventureVisualState,
@@ -225,6 +226,66 @@ def test_explicit_failure_ends_before_turn_limit() -> None:
 
     assert status == "failure"
     assert state["ending_summary"] == output.ending_summary
+
+
+def test_bgm_validator_keeps_known_keys_and_degrades_unknown() -> None:
+    """不正な bgm は検証エラー(修復リトライ)へ落とさず None(据え置き)にする。"""
+    choices = json.dumps(
+        [
+            {"id": "a", "label": "調べる"},
+            {"id": "b", "label": "話す"},
+            {"id": "c", "label": "移動する"},
+        ],
+        ensure_ascii=False,
+    )
+
+    valid = AdventureResolutionOutput.model_validate_json(
+        '{"choices": ' + choices + ', "bgm": " ROYAL "}'
+    )
+    assert valid.bgm == "royal"
+
+    # ファイル名など許可リスト外の値は None(据え置き)へ劣化する
+    unknown = AdventureResolutionOutput.model_validate_json(
+        '{"choices": ' + choices + ', "bgm": "scene04_royal.ogg"}'
+    )
+    assert unknown.bgm is None
+
+    missing = AdventureResolutionOutput.model_validate_json(
+        '{"choices": ' + choices + "}"
+    )
+    assert missing.bgm is None
+
+
+def test_merge_output_writes_bgm_and_keeps_previous_when_missing() -> None:
+    service = AdventureService()
+    output = make_output(completed=[])
+    output.bgm = "bar"
+
+    state, _, _, _ = service._merge_output(make_run(), output, 1)
+    assert state["bgm"] == "bar"
+
+    followup = make_output(completed=[])
+    assert followup.bgm is None
+    state, _, _, _ = service._merge_output(
+        make_run(), followup, 2, state_override=state
+    )
+    assert state["bgm"] == "bar"
+
+
+def test_turn_prompts_carry_bgm_policy() -> None:
+    service = AdventureService()
+
+    resolution_prompt = service._resolution_system_prompt("ja")
+    assert '"bgm"' in resolution_prompt
+    assert "current_bgm" in resolution_prompt
+    assert "private_action" in resolution_prompt
+    # 序盤の小イベントを important_event 扱いしないための好感度参照ルール
+    assert "state.sim.affection" in resolution_prompt
+
+    director_prompt = service._director_system_prompt("ja")
+    assert '"bgm"' in director_prompt
+    assert "private_action" in director_prompt
+    assert "state.sim.affection" in director_prompt
 
 
 def test_disguise_preset_uses_identity_without_inherited_memory() -> None:
@@ -1729,6 +1790,34 @@ def test_serialize_turn_omits_sim_for_mission_turns() -> None:
     assert "partner_note" not in payload
 
 
+def test_serialize_turn_exposes_bgm_from_state_delta() -> None:
+    service = AdventureService()
+    turn = make_serializable_turn(
+        {
+            "bgm": "bar",
+            "visual_state": {
+                "location": "バー",
+                "appearance": "主人公の姿",
+                "main_characters": [],
+            },
+        }
+    )
+
+    assert service._serialize_turn(turn)["bgm"] == "bar"
+
+    # bgm 導入前の旧ターンは None を返し、フロント側で daily に倒す
+    legacy = make_serializable_turn(
+        {
+            "visual_state": {
+                "location": "倉庫",
+                "appearance": "変装した姿",
+                "main_characters": [],
+            }
+        }
+    )
+    assert service._serialize_turn(legacy)["bgm"] is None
+
+
 def test_serialize_run_includes_romance_opening_sim(tmp_path) -> None:
     service = AdventureService()
     opening_partner_file = tmp_path / "partner-0-abcd1234.png"
@@ -2798,6 +2887,39 @@ def test_serialize_run_defaults_enable_composite_scene_true_for_legacy_runs() ->
     # 人称も旧runでは従来どおりの二人称へ倒す
     assert payload["narration_voice"] == "second_person"
     assert payload["narration_pronoun"] == "僕"
+    # bgm 導入前の旧runは None を返し、フロント側で daily に倒す
+    assert payload["bgm"] is None
+    assert payload["opening_bgm"] is None
+
+
+def test_serialize_run_exposes_bgm_and_opening_bgm() -> None:
+    service = AdventureService()
+    run = SimpleNamespace(
+        id="run-bgm",
+        source_session_id=None,
+        source_history_id=None,
+        preset="escape",
+        title="テスト",
+        objective="脱出する",
+        constraints_json="[]",
+        status="active",
+        turn_count=0,
+        max_turns=8,
+        ending_title=None,
+        ending_summary=None,
+        language="ja",
+        current_image_path="current.png",
+        initial_image_path="initial.png",
+        snapshot_json="{}",
+        created_at=None,
+        updated_at=None,
+        state_json=json.dumps({"bgm": "dark", "opening_bgm": "daily"}),
+    )
+
+    payload = service._serialize_run(run, [], include_snapshot=False)
+
+    assert payload["bgm"] == "dark"
+    assert payload["opening_bgm"] == "daily"
 
 
 @pytest.mark.asyncio

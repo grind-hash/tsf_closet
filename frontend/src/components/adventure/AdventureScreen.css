@@ -936,7 +936,6 @@ button:disabled {
 .adventure-hud__tile,
 .adventure-hud__turns,
 .adventure-hud__anlas,
-.adventure-hud__scenario-trigger,
 .adventure-hud__location {
   pointer-events: auto;
 }
@@ -984,38 +983,11 @@ button:disabled {
 }
 
 /*
- * ゴール行全体をシナリオ情報ポップオーバーの開閉ボタンにする。
- * 見た目は従来の h1 と同じで、幅は増やさない。
- */
-.adventure-hud__scenario-trigger {
-  display: flex;
-  min-width: 0;
-  max-width: 100%;
-  align-items: baseline;
-  gap: 8px;
-  padding: 0;
-  border: 0;
-  color: inherit;
-  background: none;
-  font: inherit;
-  text-align: left;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.adventure-hud__scenario-trigger > i {
-  flex: 0 0 auto;
-  color: #8a949d;
-  font-size: 0.6rem;
-  font-style: normal;
-}
-
-/*
  * 省略記号は flex コンテナ自身では効かない。
  * ゴール文だけを子ブロックに閉じ込めて ellipsis を付ける。
- * 全文はシナリオポップオーバーとツールチップ(title 属性)で確認できる。
+ * 全文はライトボックスの「概要」ビューとツールチップ(title 属性)で確認できる。
  */
-.adventure-hud__scenario-trigger > span {
+.adventure-hud__title h1 > span {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1243,35 +1215,6 @@ button:disabled {
   color: #aeb7bf;
   font-size: 0.72rem;
   line-height: 1.5;
-}
-
-/* シナリオ定義(タイトル・舞台・ゴール・制約)の全文表示 */
-.adventure-hud__scenario {
-  display: grid;
-  gap: 10px;
-  margin: 0;
-}
-
-.adventure-hud__scenario dt {
-  margin: 0 0 2px;
-  color: #8a949d;
-  font-size: 0.68rem;
-  font-weight: 700;
-}
-
-.adventure-hud__scenario dd {
-  margin: 0;
-  color: #cbd2d7;
-  font-size: 0.8rem;
-  line-height: 1.6;
-  overflow-wrap: anywhere;
-}
-
-.adventure-hud__scenario dd ul {
-  display: grid;
-  gap: 4px;
-  padding: 0;
-  list-style: none;
 }
 
 /*
@@ -1663,6 +1606,14 @@ button:disabled {
   aspect-ratio: 16 / 10;
 }
 
+/* 概要ビューの制約リスト。detail-text と同じ文字組の箇条書き */
+.adventure-preview__constraints {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 20px;
+}
+
 .adventure-scene-preview__background {
   width: 100%;
   height: 100%;
@@ -1804,6 +1755,92 @@ button:disabled {
 
 .adventure-image-settings-popover .adventure-precise-toggle {
   max-width: none;
+}
+
+.adventure-stage__bgm {
+  position: absolute;
+  top: var(--adv-overlay-top);
+  right: 120px;
+  z-index: 5;
+  width: 44px;
+  height: 44px;
+  border: 1px solid #707982;
+  border-radius: 50%;
+  color: #fff;
+  background: rgb(13 17 20 / 82%);
+  font-size: 1.2rem;
+  cursor: pointer;
+}
+
+/* ミュート中は音符を減光し、斜線で無音であることを示す */
+.adventure-stage__bgm--muted {
+  color: rgb(255 255 255 / 45%);
+}
+
+.adventure-stage__bgm--muted::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 26px;
+  height: 2px;
+  background: rgb(224 134 143 / 85%);
+  transform: translate(-50%, -50%) rotate(-45deg);
+}
+
+.adventure-bgm-popover {
+  position: absolute;
+  top: var(--adv-overlay-row2);
+  right: 16px;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(320px, calc(100% - 32px));
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid #3a4148;
+  background: rgb(13 17 20 / 96%);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 50%);
+}
+
+.adventure-bgm-popover .adventure-precise-toggle {
+  max-width: none;
+}
+
+.adventure-bgm-popover__volume {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 4px;
+  color: #f4f6f8;
+  font-size: 0.82rem;
+}
+
+.adventure-bgm-popover__volume-label {
+  flex: 0 0 auto;
+}
+
+.adventure-bgm-popover__slider {
+  flex: 1 1 auto;
+  min-width: 0;
+  accent-color: #efb85a;
+}
+
+.adventure-bgm-popover__volume-value {
+  flex: 0 0 auto;
+  min-width: 40px;
+  color: #aeb7bf;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.adventure-bgm-popover__hint {
+  margin: 0;
+  padding: 0 4px;
+  color: #e0868f;
+  font-size: 0.76rem;
+  line-height: 1.5;
 }
 
 .adventure-turn-strip {

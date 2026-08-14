@@ -20,6 +20,16 @@ export type AdventureNarrationVoice =
   | "second_person"
   | "third_person"
   | "first_person";
+/** LLMが返すBGMカテゴリ。ファイル解決はフロントエンド側で行う。daily がfallback */
+export type AdventureBgmKey =
+  | "private_action"
+  | "bossa_nova"
+  | "elegant_party"
+  | "royal"
+  | "dark"
+  | "daily"
+  | "important_event"
+  | "bar";
 
 export interface AdventureChoice {
   id: string;
@@ -107,6 +117,8 @@ export interface AdventureTurn {
   narrative: string;
   /** このターン時点の現在地。旧ターンでは null */
   location: string | null;
+  /** このターン時点のBGMカテゴリ。旧ターンでは null */
+  bgm?: AdventureBgmKey | null;
   choices: AdventureChoice[];
   image_url: string | null;
   image_status: string;
@@ -160,6 +172,10 @@ export interface AdventureRun {
   visual_state: AdventureVisualState | null;
   opening_narrative: string;
   opening_image_url: string;
+  /** 現在(最新state)のBGMカテゴリ。旧runでは null */
+  bgm?: AdventureBgmKey | null;
+  /** 開幕(手番0)時点のBGMカテゴリ。旧runでは null */
+  opening_bgm?: AdventureBgmKey | null;
   choices: AdventureChoice[];
   current_image_url: string;
   current_image_prompt: AdventureImagePrompt | null;
@@ -278,6 +294,8 @@ function normalizeRun(run: AdventureRun): AdventureRun {
     // 旧runやモック応答にキーが無くても表示側が undefined を掴まないようにする
     narration_voice: run.narration_voice ?? "second_person",
     narration_pronoun: run.narration_pronoun || "僕",
+    bgm: run.bgm ?? null,
+    opening_bgm: run.opening_bgm ?? null,
     sim: run.sim ?? null,
     opening_sim: run.opening_sim ?? null,
     partner_portrait_url: withApiBase(run.partner_portrait_url ?? null),

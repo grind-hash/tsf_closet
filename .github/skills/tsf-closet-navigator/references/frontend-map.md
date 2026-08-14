@@ -62,6 +62,7 @@
 | `useInfiniteScroll` | IntersectionObserverによる追加読込 |
 | `useTagSuggest` | タグ候補取得 |
 | `useTransparentImage` | 透過画像の読込とフォールバック |
+| `useAdventureBgm` | Adventure BGMのループ再生、fade、mute/volume(localStorage `adventure_bgm_prefs`)、autoplay/404対応。キー→ファイル対応もここが持つ |
 
 ## APIモジュール
 
@@ -102,6 +103,7 @@ components/
     AdventureImagePromptModal.tsx
     AdventureGiftShopModal.tsx    romance のギフト購入（gift_id 送信）
     AdventureAttributeModal.tsx   romance の属性付与（現実改変プレフィックス組み立て）
+    AdventureBgmControl.tsx       BGMボタン+ポップオーバー（mute/volume表示。再生は useAdventureBgm）
 
   gallery/
     GalleryScreen.tsx         セッション/履歴/お気に入り表示と検索

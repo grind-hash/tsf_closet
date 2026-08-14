@@ -176,8 +176,6 @@ const resources = {
           "{{min}}〜{{max}}手。多いほど手掛かりの探索や周辺の調査に余裕が生まれます。そのぶん場面画像の生成回数とプレイ時間は増えます。自動生成するゴールもこの手数に合わせた規模になります",
         generateSetup: "ミッション案を自動生成",
         generatingSetup: "ミッション案を生成中...",
-        scenario: "シナリオ",
-        scenarioTitleLabel: "タイトル",
         scenarioDeadline: "{{days}}日間",
         setting: "舞台",
         settingPlaceholder: "自動生成するか、舞台を入力",
@@ -290,6 +288,14 @@ const resources = {
           show: "ウィンドウを戻す",
           showHint: "メッセージウィンドウを再表示（H）",
         },
+        bgm: {
+          settings: "BGM設定",
+          enable: "BGMを再生",
+          enableHint: "場面に合わせたBGMを流す（M でミュート切替）",
+          volume: "音量",
+          autoplayBlockedHint:
+            "ブラウザにより自動再生がブロックされています。画面のどこかをクリックすると再生が始まります。",
+        },
         actionPanel: {
           title: "行動",
         },
@@ -310,6 +316,7 @@ const resources = {
           viewScene: "シーン",
           viewBackground: "背景",
           viewPortrait: "主人公",
+          viewOverview: "概要",
           sceneAlt: "場面の詳細",
           backgroundAlt: "背景画像",
           turnLabel: "手番",
@@ -1565,8 +1572,6 @@ const resources = {
           "{{min}}-{{max}} turns. More turns leave room to search for clues and scout the surroundings, at the cost of more scene image generations and a longer playthrough. The generated goal is scaled to this budget.",
         generateSetup: "Generate Mission Setup",
         generatingSetup: "Generating mission setup...",
-        scenario: "Scenario",
-        scenarioTitleLabel: "Title",
         scenarioDeadline: "{{days}} days",
         setting: "Setting",
         settingPlaceholder: "Generate or enter a setting",
@@ -1681,6 +1686,14 @@ const resources = {
           show: "Show window",
           showHint: "Show the message window again (H)",
         },
+        bgm: {
+          settings: "BGM settings",
+          enable: "Play BGM",
+          enableHint: "Play scene-matched music (M toggles mute)",
+          volume: "Volume",
+          autoplayBlockedHint:
+            "The browser blocked autoplay. Click anywhere to start playback.",
+        },
         actionPanel: {
           title: "Actions",
         },
@@ -1701,6 +1714,7 @@ const resources = {
           viewScene: "Scene",
           viewBackground: "Background",
           viewPortrait: "Character",
+          viewOverview: "Overview",
           sceneAlt: "Scene details",
           backgroundAlt: "Background image",
           turnLabel: "Turn",

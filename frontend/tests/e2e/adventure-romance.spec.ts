@@ -698,29 +698,50 @@ test("finished romance run offers replay from the result modal", async ({
   );
 });
 
-test("scenario chip shows title, setting, goal and constraints during play", async ({
+test("scenario overview is available from the preview modal", async ({
   page,
 }) => {
   await enableAdventure(page);
   await mockRomanceApis(page);
   await page.goto("/adventure/run-1");
 
-  // HUD のゴール行(タイトル領域)がシナリオ情報の開閉ボタンを兼ねる
-  await page.locator(".adventure-hud__scenario-trigger").click();
-  const popover = page.getByRole("dialog", { name: "シナリオ" });
-  await expect(popover).toContainText("タイトル");
-  await expect(popover).toContainText("恋愛シミュレーション");
-  await expect(popover).toContainText("舞台");
-  await expect(popover).toContainText("学園近くの商店街");
-  await expect(popover).toContainText("ゴール");
-  await expect(popover).toContainText(
+  // モーダルの切替チップ列の先頭に「概要」があり、詳細パネルがシナリオ定義に切り替わる
+  await page.locator(".adventure-stage__image-button").click();
+  const modal = page.locator(".image-preview-modal__overlay");
+  const caption = modal.locator(".image-preview-modal__caption");
+  await expect(caption).toContainText("物語");
+  await expect(
+    modal.locator(".adventure-preview__views button").first(),
+  ).toHaveText("概要");
+  await modal.getByRole("button", { name: "概要", exact: true }).click();
+  await expect(caption).toContainText("舞台");
+  await expect(caption).toContainText("学園近くの商店街");
+  await expect(caption).toContainText("制約");
+  await expect(caption).toContainText("美咲は放課後しか会えない");
+  // romance は日数(期限)も出す
+  await expect(caption).toContainText("日数");
+  await expect(caption).toContainText("7日間");
+  // タイトルとゴールはヘッダに常時表示のまま、手番・物語とは入れ替わる
+  await expect(caption).toContainText(
     "7日以内に美咲と想いを通わせ、交際を始める",
   );
-  await expect(popover).toContainText("制約");
-  await expect(popover).toContainText("美咲は放課後しか会えない");
-  // romance は日数(期限)も出す
-  await expect(popover).toContainText("日数");
-  await expect(popover).toContainText("7日間");
+  await expect(caption).not.toContainText("物語");
+
+  // 閉じて開き直してもタブ選択は復元され、選択中のチップへフォーカスが当たる
+  await page.keyboard.press("Escape");
+  await page.locator(".adventure-stage__image-button").click();
+  const overviewChip = modal.getByRole("button", {
+    name: "概要",
+    exact: true,
+  });
+  await expect(overviewChip).toHaveAttribute("aria-pressed", "true");
+  await expect(overviewChip).toBeFocused();
+  await expect(caption).toContainText("舞台");
+
+  // シーンへ戻すと通常の詳細に戻る
+  await modal.getByRole("button", { name: "シーン", exact: true }).click();
+  await expect(caption).toContainText("物語");
+  await expect(caption).not.toContainText("舞台");
 });
 
 test("choices and romance actions hide while a turn is streaming", async ({
