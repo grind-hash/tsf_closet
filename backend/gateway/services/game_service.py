@@ -3103,6 +3103,19 @@ class GameService:
                         },
                     )
 
+            # 実績ヘルパーはルーター側にあり、モジュールレベルで import すると
+            # routes パッケージ経由で game_router と循環するため遅延 import する。
+            # self_mode 分岐の外側で束縛しないと self_mode 側で未定義になる
+            from ..routes.achievements_router import (
+                ACHIEVEMENTS,
+                check_achievement,
+                check_achievements,
+                save_user_achievement,
+                get_user_achievements,
+                get_global_stats,
+                update_achievement_counts,
+            )
+
             # ── self_mode: skip parameter/critical/ending/achievement (US5 T026) ──
             if not session.self_mode:
                 # 5.2. パラメータ計算と更新 (T015, T016)
@@ -3258,18 +3271,6 @@ class GameService:
                                 "is_new": ending_result.is_new,
                             },
                         )
-
-                # 実績ヘルパーはルーター側にあり、モジュールレベルで import すると
-                # routes パッケージ経由で game_router と循環するため遅延 import する
-                from ..routes.achievements_router import (
-                    ACHIEVEMENTS,
-                    check_achievement,
-                    check_achievements,
-                    save_user_achievement,
-                    get_user_achievements,
-                    get_global_stats,
-                    update_achievement_counts,
-                )
 
                 # 6.1.5 実績分類処理 - テキスト生成完了後に変身指示を分類してカウント更新
                 try:

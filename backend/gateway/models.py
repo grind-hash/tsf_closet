@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, List, Optional, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 # =============================================================================
@@ -740,9 +740,7 @@ class SessionStatsResponse(BaseModel):
         False, description="プロンプト確認有効化", alias="enablePromptPreview"
     )
 
-    class Config:
-        populate_by_name = True
-        allow_population_by_field_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class TransformationTagResponse(BaseModel):

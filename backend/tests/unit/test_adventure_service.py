@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -6,6 +7,10 @@ import pytest
 from sqlalchemy import delete, event, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from gateway.consts.adventure_romance import (
+    ROMANCE_AFFECTION_START,
+    ROMANCE_INITIAL_MONEY,
+)
 from gateway.consts.adventure_turns import (
     ADVENTURE_TURNS_DEFAULT,
     ADVENTURE_TURNS_MAX,
@@ -19,15 +24,21 @@ from gateway.databases.models import (
     Session,
     User,
 )
+from gateway.services.adventure_romance import (
+    apply_romance_outcome,
+    clamp_romance_max_turns,
+)
 from gateway.services.adventure_service import (
     AdventureChoice,
     AdventureDirectorOutput,
     AdventureError,
     AdventureImagePromptOutput,
     AdventureService,
+    AdventureVisualOutput,
     AdventureVisualState,
     PRESETS,
     SCENARIO_TEMPLATES,
+    _default_ending_title,
     _apply_visual_style_to_state,
     _authored_scene_tags,
     _equipment_score_choices,
@@ -37,8 +48,14 @@ from gateway.services.adventure_service import (
     _equipment_clothing_state_tags,
     _strip_clothing_tags_for_equipment_scenario,
     _character_reference_strength,
+    _choice_label_key,
     _compose_scene_base_tags,
+    _lean_state_for_llm,
+    _previous_choice_labels,
     _merge_scene_tags,
+    _romance_partner_scene_reference,
+    _romance_replay_player_selection,
+    _romance_template_player_appearance,
     _sanitize_choices,
     _template_visual_style,
     clamp_generated_max_turns,
@@ -55,6 +72,42 @@ def make_image_prompt_content(*, with_guard: bool = False) -> str:
             if with_guard
             else [],
         }
+    )
+
+
+def make_romance_image_prompt_content(*, with_partner: bool) -> str:
+    return json.dumps(
+        {
+            "scene_tags": "night club interior, dim lighting",
+            "player_tags": "young man, white t-shirt",
+            "npc_tags": ["succubus dancer, revealing stage outfit"]
+            if with_partner
+            else [],
+        }
+    )
+
+
+def make_romance_scene_state(partner_path) -> str:
+    return json.dumps(
+        {
+            "use_precise_reference": True,
+            "partner_image_path": str(partner_path),
+            "sim": {"partner_name": "リリス"},
+            "visual_state": {
+                "location": "ナイトクラブ",
+                "appearance": "黒髪の青年",
+                "clothing": "白いTシャツ",
+                "surroundings": "会員制クラブのバー",
+                "main_characters": [
+                    {
+                        "name": "リリス",
+                        "description": "サキュバスのダンサー",
+                        "clothing": "ステージ衣装",
+                    }
+                ],
+            },
+        },
+        ensure_ascii=False,
     )
 
 
@@ -87,6 +140,7 @@ def make_output(
 def make_run(*, turn_count: int = 0, max_turns: int = 8) -> SimpleNamespace:
     milestones = PRESETS["infiltration"]["milestones"]
     return SimpleNamespace(
+        preset="infiltration",
         state_json=(
             '{"milestones": '
             + __import__("json").dumps(milestones, ensure_ascii=False)
@@ -94,6 +148,41 @@ def make_run(*, turn_count: int = 0, max_turns: int = 8) -> SimpleNamespace:
             '"visual_state": {"location": "entrance", '
             '"appearance": "開始時の姿", "main_characters": []}}'
         ),
+        max_turns=max_turns,
+        turn_count=turn_count,
+    )
+
+
+def make_romance_run(*, turn_count: int = 0, max_turns: int = 14) -> SimpleNamespace:
+    state = {
+        "milestones": PRESETS["romance"]["milestones"],
+        "completed_milestones": [],
+        "clues": [],
+        "visual_state": {
+            "location": "campus",
+            "appearance": "開始時の姿",
+            "main_characters": [],
+        },
+        "sim": {
+            "total_days": max_turns // 2,
+            "affection": 10,
+            "money": 5000,
+            "partner_name": "美咲",
+            "job": {"name": "カフェ", "wage": 3000},
+            "gift_catalog": [],
+            "hidden_preferences": {
+                "liked_gift_ids": [],
+                "disliked_gift_ids": [],
+                "likes_hint": "",
+                "dislikes_hint": "",
+            },
+            "given_gifts": [],
+            "confessed": False,
+        },
+    }
+    return SimpleNamespace(
+        preset="romance",
+        state_json=__import__("json").dumps(state, ensure_ascii=False),
         max_turns=max_turns,
         turn_count=turn_count,
     )
@@ -171,6 +260,159 @@ def test_turn_output_cannot_replace_locked_starting_appearance() -> None:
     assert output.visual_state.appearance == "1girl, short black hair, black eyes"
 
 
+def test_romance_preset_defines_dating_milestones() -> None:
+    preset = PRESETS["romance"]
+    assert [item["id"] for item in preset["milestones"]] == [
+        "become_friends",
+        "mutual_interest",
+        "mutual_love",
+        "start_dating",
+    ]
+    assert "romance_resolution" in preset["guidance"]
+    # 1回の入力=半日分の場面という粒度の説明
+    assert "半日" in preset["guidance"]
+    assert "朝〜夕方" in preset["guidance"]
+    assert "夕方〜就寝前" in preset["guidance"]
+
+
+def test_romance_prompts_carry_romance_guidance_only_when_enabled() -> None:
+    service = AdventureService()
+    narrative_prompt = service._narrative_system_prompt("ja", romance=True)
+    assert "romance simulation" in narrative_prompt
+    # スナップショットの人物は攻略対象であり、主人公とは別人として扱う
+    assert "partner" in narrative_prompt
+    assert "never the player" in narrative_prompt
+    assert "romance simulation" not in service._narrative_system_prompt("ja")
+    romance_resolution_prompt = service._resolution_system_prompt("ja", romance=True)
+    assert "affection_set" in romance_resolution_prompt
+    assert "affection_set" not in service._resolution_system_prompt("ja")
+    # 会話の採点基準と、交際宣言の機械可読フィールド
+    assert "rubric" in romance_resolution_prompt
+    assert "start_dating" in romance_resolution_prompt
+    # 専用ボタン(バイト/ギフト/属性付与/告白)と重複する選択肢の抑止
+    assert "never duplicate the dedicated action buttons" in romance_resolution_prompt
+    assert "never duplicate the dedicated action buttons" in narrative_prompt
+    # 1ターン=半日の粒度指示は romance 有効時だけ載る
+    assert "half-day slot" in narrative_prompt
+    assert "half-day slot" not in service._narrative_system_prompt("ja")
+    assert "next_slot" in romance_resolution_prompt
+    assert "next_slot" not in service._resolution_system_prompt("ja")
+    romance_visual_prompt = service._visual_system_prompt("ja", romance=True)
+    assert "partner is an NPC" in romance_visual_prompt
+    assert "partner is an NPC" not in service._visual_system_prompt("ja")
+    # 主人公が別性別で描かれないよう、player_tags へ性別トークンの復唱を要求する
+    assert "sex tokens" in romance_visual_prompt
+
+
+def test_romance_template_player_appearance_adds_gender_tags() -> None:
+    boy = SimpleNamespace(
+        base_tags="short black hair, black eyes, white t-shirt, black shorts",
+        description="普通の男の子。",
+        gender="man",
+    )
+    girl = SimpleNamespace(
+        base_tags="brown hair, medium hair, shorts",
+        description="",
+        gender="woman",
+    )
+    already_tagged = SimpleNamespace(
+        base_tags="1girl, twin tails",
+        description="",
+        gender="man",
+    )
+    unknown_gender = SimpleNamespace(
+        base_tags="silver hair",
+        description="",
+        gender="",
+    )
+
+    assert _romance_template_player_appearance(boy) == (
+        "male, 1boy, short black hair, black eyes, white t-shirt, black shorts"
+    )
+    assert _romance_template_player_appearance(girl) == (
+        "female, 1girl, brown hair, medium hair, shorts"
+    )
+    # 既に性別トークンを含む場合は二重に足さない
+    assert _romance_template_player_appearance(already_tagged) == "1girl, twin tails"
+    assert _romance_template_player_appearance(unknown_gender) == "silver hair"
+
+
+def test_romance_overrides_llm_milestone_and_ending_claims() -> None:
+    service = AdventureService()
+    run = make_romance_run()
+    state = __import__("json").loads(run.state_json)
+    # LLM が架空の達成と即クリアを申告しても Python 算出値で置き換える
+    output = make_output(completed=["start_dating"], ending="success")
+    apply_romance_outcome(
+        state,
+        output,
+        {"kind": "talk", "money_delta": 0, "affection_delta": 0},
+        SimpleNamespace(
+            affection_delta=2,
+            affection_set=100,
+            updated_liked_gift_ids=[],
+            updated_disliked_gift_ids=[],
+        ),
+    )
+    merged, status, _, _ = service._merge_output(run, output, 1, state_override=state)
+
+    assert merged["sim"]["affection"] == 12
+    assert merged["completed_milestones"] == []
+    assert status == "continue"
+
+
+def test_romance_confession_success_ends_run_with_all_milestones() -> None:
+    run = make_romance_run(turn_count=5)
+    state = __import__("json").loads(run.state_json)
+    state["sim"]["affection"] = 80
+    output = make_output(completed=[])
+    apply_romance_outcome(
+        state,
+        output,
+        {"kind": "confess", "success": True, "money_delta": 0, "affection_delta": 0},
+        None,
+    )
+    merged, status, _, _ = AdventureService()._merge_output(
+        run, output, 6, state_override=state
+    )
+
+    assert status == "success"
+    assert merged["sim"]["confessed"] is True
+    assert set(merged["completed_milestones"]) == {
+        "become_friends",
+        "mutual_interest",
+        "mutual_love",
+        "start_dating",
+    }
+
+
+def test_romance_turn_limit_ends_partial_with_romance_titles() -> None:
+    run = make_romance_run(turn_count=13)
+    state = __import__("json").loads(run.state_json)
+    state["sim"]["affection"] = 30
+    output = make_output(completed=[])
+    apply_romance_outcome(
+        state,
+        output,
+        {"kind": "talk", "money_delta": 0, "affection_delta": 0},
+        SimpleNamespace(
+            affection_delta=0,
+            affection_set=None,
+            updated_liked_gift_ids=[],
+            updated_disliked_gift_ids=[],
+        ),
+    )
+    _, status, _, _ = AdventureService()._merge_output(
+        run, output, 14, state_override=state
+    )
+
+    assert status == "partial"
+    assert _default_ending_title("romance", "success") == "交際成立"
+    assert _default_ending_title("romance", "partial") == "想いは届きかけた"
+    assert _default_ending_title("romance", "failure") == "恋は実らなかった"
+    assert _default_ending_title("infiltration", "failure") == "ミッション失敗"
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("preset", list(PRESETS))
 async def test_generate_setup_uses_selected_mission_preset(
@@ -194,7 +436,7 @@ async def test_generate_setup_uses_selected_mission_preset(
         "_build_snapshot",
         AsyncMock(
             return_value=(
-                {"attributes": ["変身後の姿"]},
+                {"attributes": ["変身後の姿"], "character_name": "水瀬ユウヤ"},
                 tmp_path / "source.png",
                 "変身後の姿",
                 False,
@@ -215,6 +457,11 @@ async def test_generate_setup_uses_selected_mission_preset(
 
     prompt = __import__("json").loads(generated.await_args.args[1])
     assert prompt["preset"] == preset
+    if preset == "romance":
+        # 変身前の主人公名(character_name)を攻略対象の名前として流用させない
+        assert "character_name" not in prompt["source_snapshot"]
+    else:
+        assert prompt["source_snapshot"]["character_name"] == "水瀬ユウヤ"
     assert (
         prompt["mission_definition"]["default_objective"]
         == PRESETS[preset]["objective"]
@@ -222,7 +469,13 @@ async def test_generate_setup_uses_selected_mission_preset(
     assert setup["objective"] == "8手以内に保管庫から青い契約書を確保して正門を出る"
     assert len(setup["constraints"]) == 2
     assert "observable end condition" in service._setup_system_prompt("ja")
-    assert prompt["max_turns"] == ADVENTURE_TURNS_DEFAULT
+    # romance は日数×2 の偶数ターンへ丸めるため既定 15 は 14 になる
+    expected_budget = (
+        clamp_romance_max_turns(ADVENTURE_TURNS_DEFAULT)
+        if preset == "romance"
+        else ADVENTURE_TURNS_DEFAULT
+    )
+    assert prompt["max_turns"] == expected_budget
 
 
 @pytest.mark.asyncio
@@ -1213,6 +1466,154 @@ def test_sanitize_choices_accepts_adventure_choice_models() -> None:
     ]
 
 
+def test_lean_state_hides_previous_choices_from_llm() -> None:
+    state = {
+        "choices": [{"id": "look", "label": "衣装を調べる"}],
+        "clues": ["扉に鍵"],
+        "visual_state": {"location": "密室"},
+    }
+
+    lean = _lean_state_for_llm(state)
+
+    assert "choices" not in lean
+    assert lean["clues"] == ["扉に鍵"]
+    assert state["choices"], "呼び出し元の state は書き換えない"
+
+
+def test_previous_choice_labels_and_key_normalize_input() -> None:
+    state = {
+        "choices": [
+            {"id": "look", "label": " 衣装を調べる "},
+            AdventureChoice(id="door", label="扉を読む"),
+            {"id": "blank", "label": "  "},
+        ]
+    }
+
+    assert _previous_choice_labels(state) == ["衣装を調べる", "扉を読む"]
+    assert _choice_label_key(state["choices"]) == _choice_label_key(
+        [
+            {"id": "other", "label": "扉を読む"},
+            {"id": "another", "label": "衣装を 調べる"},
+        ]
+    )
+
+
+@pytest.mark.asyncio
+async def test_regenerated_choices_retry_once_when_identical(monkeypatch) -> None:
+    service = AdventureService()
+    repeated = [
+        {"id": "a", "label": "衣装を調べる"},
+        {"id": "b", "label": "扉を読む"},
+        {"id": "c", "label": "棚を確認する"},
+    ]
+    fresh = [
+        {"id": "d", "label": "鍵穴を覗く"},
+        {"id": "e", "label": "窓の外を確かめる"},
+        {"id": "f", "label": "床板を叩く"},
+    ]
+    responses = [repeated, fresh]
+
+    async def fake_resolution(**kwargs):
+        return SimpleNamespace(
+            choices=[AdventureChoice.model_validate(item) for item in responses.pop(0)]
+        )
+
+    monkeypatch.setattr(service, "_generate_resolution_output", fake_resolution)
+    run = SimpleNamespace(id="run-1", language="ja", text_model="glm-4-6")
+
+    choices = await service._generate_fresh_choices(
+        narrative="扉の前に立っている。",
+        turn_context={"task": "Regenerate next player choices only."},
+        run=run,
+        narration_voice="second",
+        narration_pronoun="boku",
+        previous_choice_key=_choice_label_key(repeated),
+    )
+
+    assert choices == fresh
+    assert responses == []
+
+
+@pytest.mark.asyncio
+async def test_regenerated_romance_choices_drop_dedicated_actions(monkeypatch) -> None:
+    service = AdventureService()
+    captured: dict[str, object] = {}
+
+    async def fake_resolution(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(
+            choices=[
+                AdventureChoice(id="a", label="マリカに告白する"),
+                AdventureChoice(id="b", label="パールのイヤリングを購入して贈る"),
+                AdventureChoice(id="c", label="夜風に当たりながら話す"),
+            ]
+        )
+
+    monkeypatch.setattr(service, "_generate_resolution_output", fake_resolution)
+    run = SimpleNamespace(
+        id="run-1", language="ja", text_model="glm-4-6", preset="romance"
+    )
+
+    choices = await service._generate_fresh_choices(
+        narrative="マリカが微笑んでいる。",
+        turn_context={},
+        run=run,
+        narration_voice="second",
+        narration_pronoun="boku",
+        previous_choice_key=(),
+        romance_sim={
+            "gift_catalog": [{"name": "パールのイヤリング", "price": 4000}],
+            "job": {"name": "ナイトクラブのバーテンダー"},
+        },
+    )
+
+    labels = [choice["label"] for choice in choices]
+    assert "マリカに告白する" not in labels
+    assert "パールのイヤリングを購入して贈る" not in labels
+    assert "夜風に当たりながら話す" in labels
+    assert len(labels) == 3
+    # romance 用のプロンプト規則(専用ボタンと重複させない)を効かせる
+    assert captured["romance"] is True
+
+
+@pytest.mark.asyncio
+async def test_regenerated_choices_do_not_retry_when_already_new(monkeypatch) -> None:
+    service = AdventureService()
+    calls = 0
+
+    async def fake_resolution(**kwargs):
+        nonlocal calls
+        calls += 1
+        return SimpleNamespace(
+            choices=[
+                AdventureChoice(id="d", label="鍵穴を覗く"),
+                AdventureChoice(id="e", label="窓の外を確かめる"),
+                AdventureChoice(id="f", label="床板を叩く"),
+            ]
+        )
+
+    monkeypatch.setattr(service, "_generate_resolution_output", fake_resolution)
+    run = SimpleNamespace(id="run-1", language="ja", text_model="glm-4-6")
+
+    choices = await service._generate_fresh_choices(
+        narrative="扉の前に立っている。",
+        turn_context={},
+        run=run,
+        narration_voice="second",
+        narration_pronoun="boku",
+        previous_choice_key=_choice_label_key(
+            [{"id": "a", "label": "衣装を調べる"}],
+        ),
+    )
+
+    assert calls == 1
+    assert [choice["label"] for choice in choices] == [
+        "鍵穴を覗く",
+        "窓の外を確かめる",
+        "床板を叩く",
+    ]
+
+
 def test_director_output_preserves_resolution_choice_models() -> None:
     choices = [
         AdventureChoice(id="look", label="衣装を調べる"),
@@ -1232,6 +1633,171 @@ def test_director_output_preserves_resolution_choice_models() -> None:
         {"id": "door", "label": "扉を読む"},
         {"id": "pad", "label": "棚を確認する"},
     ]
+
+
+def make_serializable_turn(state_delta: dict) -> SimpleNamespace:
+    return SimpleNamespace(
+        id="turn-1",
+        run_id="run-1",
+        turn_number=1,
+        client_turn_id="c1",
+        user_input="話しかける",
+        input_kind="choice",
+        narrative="彼女は微笑んだ。",
+        choices_json=__import__("json").dumps(
+            [
+                {"id": "a", "label": "続ける"},
+                {"id": "b", "label": "様子を見る"},
+                {"id": "c", "label": "移動する"},
+            ],
+            ensure_ascii=False,
+        ),
+        image_path=None,
+        image_status="not_requested",
+        portrait_image_path=None,
+        portrait_status="not_requested",
+        state_delta_json=__import__("json").dumps(state_delta, ensure_ascii=False),
+        created_at=None,
+    )
+
+
+def test_serialize_turn_exposes_romance_sim_and_partner_note(tmp_path) -> None:
+    service = AdventureService()
+    partner_file = tmp_path / "partner-1-abcd1234.png"
+    partner_file.write_bytes(b"png")
+    turn = make_serializable_turn(
+        {
+            "partner_portrait_path": str(partner_file),
+            "visual_state": {
+                "location": "ロビーカフェ",
+                "appearance": "主人公の姿",
+                "main_characters": [
+                    {
+                        "name": "アリシア",
+                        "description": "グラスを受け取り微笑んでいる",
+                        "clothing": "競泳水着",
+                    }
+                ],
+            },
+            "sim": {
+                "total_days": 7,
+                "affection": 12,
+                "money": 5000,
+                "partner_name": "アリシア",
+                "job": {"name": "カフェ", "wage": 3000},
+                "gift_catalog": [],
+                "hidden_preferences": {
+                    "liked_gift_ids": ["g1"],
+                    "disliked_gift_ids": [],
+                    "likes_hint": "甘いもの",
+                    "dislikes_hint": "辛いもの",
+                },
+                "given_gifts": [],
+                "confessed": False,
+            },
+        }
+    )
+
+    payload = service._serialize_turn(turn)
+
+    assert payload["sim"]["partner_name"] == "アリシア"
+    assert payload["sim"]["affection"] == 12
+    assert payload["sim"]["stage"] == "stranger"
+    assert "hidden_preferences" not in payload["sim"]
+    assert payload["partner_note"] == "グラスを受け取り微笑んでいる"
+    # ターン確定時点の攻略対象立ち絵URL(過去フレーム表示用)
+    assert payload["partner_portrait_url"] == (
+        f"/adventure/images/run-1/{partner_file.name}"
+    )
+
+
+def test_serialize_turn_omits_sim_for_mission_turns() -> None:
+    service = AdventureService()
+    turn = make_serializable_turn(
+        {
+            "visual_state": {
+                "location": "倉庫",
+                "appearance": "変装した姿",
+                "main_characters": [],
+            }
+        }
+    )
+
+    payload = service._serialize_turn(turn)
+
+    assert "sim" not in payload
+    assert "partner_note" not in payload
+
+
+def test_serialize_run_includes_romance_opening_sim(tmp_path) -> None:
+    service = AdventureService()
+    opening_partner_file = tmp_path / "partner-0-abcd1234.png"
+    opening_partner_file.write_bytes(b"png")
+    run = SimpleNamespace(
+        id="run-romance",
+        source_session_id=None,
+        source_history_id=None,
+        preset="romance",
+        title="恋愛シミュレーション",
+        objective="交際を始める",
+        constraints_json="[]",
+        status="active",
+        turn_count=3,
+        max_turns=14,
+        ending_title=None,
+        ending_summary=None,
+        language="ja",
+        current_image_path="current.png",
+        initial_image_path="initial.png",
+        snapshot_json="{}",
+        created_at=None,
+        updated_at=None,
+        state_json=__import__("json").dumps(
+            {
+                "opening_narrative": "書店で出会った。",
+                "opening_image_path": "initial.png",
+                "opening_partner_portrait_path": str(opening_partner_file),
+                "choices": [
+                    {"id": "a", "label": "話しかける"},
+                    {"id": "b", "label": "本棚を眺める"},
+                    {"id": "c", "label": "店を出る"},
+                ],
+                "clues": [],
+                "milestones": [],
+                "completed_milestones": [],
+                "sim": {
+                    "total_days": 7,
+                    "affection": 40,
+                    "money": 12000,
+                    "partner_name": "美咲",
+                    "job": {"name": "カフェ", "wage": 3000},
+                    "gift_catalog": [],
+                    "hidden_preferences": {
+                        "liked_gift_ids": [],
+                        "disliked_gift_ids": [],
+                    },
+                    "given_gifts": ["g1"],
+                    "confessed": False,
+                },
+            },
+            ensure_ascii=False,
+        ),
+    )
+
+    payload = service._serialize_run(run, [], include_snapshot=False)
+
+    # 現在値はそのまま、開幕ビューは開始定数から再構成される
+    assert payload["sim"]["affection"] == 40
+    assert payload["opening_sim"]["affection"] == ROMANCE_AFFECTION_START
+    assert payload["opening_sim"]["money"] == ROMANCE_INITIAL_MONEY
+    assert payload["opening_sim"]["day"] == 1
+    assert payload["opening_sim"]["slot"] == "day"
+    assert payload["opening_sim"]["given_gift_ids"] == []
+    assert "hidden_preferences" not in payload["opening_sim"]
+    # 開幕フレーム表示用の攻略対象立ち絵URL
+    assert payload["opening_partner_portrait_url"] == (
+        f"/adventure/images/run-romance/{opening_partner_file.name}"
+    )
 
 
 def test_serialize_run_repairs_blank_choice_labels() -> None:
@@ -1416,6 +1982,115 @@ async def test_regenerate_choices_updates_only_choices(monkeypatch) -> None:
     assert saved_state["clues"] == ["特等席の衣装がある"]
     assert run.turn_count == 1
     assert __import__("json").loads(persisted_turn.choices_json) == result["choices"]
+    # 非 romance では時間帯コンテキストを載せない
+    resolution_context = service._generate_resolution_output.call_args.kwargs[
+        "turn_context"
+    ]
+    assert "romance_next_slot" not in resolution_context
+
+
+@pytest.mark.asyncio
+async def test_regenerate_choices_passes_romance_next_slot(monkeypatch) -> None:
+    service = AdventureService()
+    turn = SimpleNamespace(
+        id="turn-1",
+        run_id="run-1",
+        turn_number=1,
+        client_turn_id="c1",
+        user_input="挨拶する",
+        input_kind="free_text",
+        narrative="昼下がりの書店で言葉を交わした。",
+        choices_json=__import__("json").dumps(
+            [
+                {"id": "a", "label": " "},
+                {"id": "b", "label": " "},
+                {"id": "c", "label": " "},
+            ],
+            ensure_ascii=False,
+        ),
+        image_path=None,
+        image_status="not_requested",
+        portrait_image_path=None,
+        portrait_status="not_requested",
+        created_at=None,
+    )
+    state = {
+        "opening_narrative": "物語が始まった。",
+        "choices": [
+            {"id": "a", "label": " "},
+            {"id": "b", "label": " "},
+            {"id": "c", "label": " "},
+        ],
+        "clues": [],
+        "milestones": [],
+        "completed_milestones": [],
+        "scenario_template_id": None,
+        "visual_state": {"location": "書店", "appearance": "1boy"},
+        "sim": {"partner_name": "美咲"},
+    }
+    run = SimpleNamespace(
+        id="run-1",
+        status="active",
+        language="ja",
+        preset="romance",
+        objective="想いを通わせる",
+        max_turns=14,
+        turn_count=1,
+        text_model="glm-4-6",
+        state_json=__import__("json").dumps(state, ensure_ascii=False),
+        turns=[turn],
+    )
+    persisted_run = SimpleNamespace(
+        id="run-1",
+        state_json=run.state_json,
+        updated_at=None,
+    )
+    persisted_turn = SimpleNamespace(
+        id="turn-1",
+        choices_json=turn.choices_json,
+    )
+
+    class FakeDatabase:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, _exc_type, _exc, _traceback):
+            return None
+
+        async def get(self, model, record_id):
+            if model is AdventureRun and record_id == "run-1":
+                return persisted_run
+            if model is AdventureTurn and record_id == "turn-1":
+                return persisted_turn
+            return None
+
+        async def commit(self):
+            return None
+
+    monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
+    fresh_choices = AsyncMock(
+        return_value=[
+            {"id": "lunch", "label": "一緒に昼食をとる"},
+            {"id": "walk", "label": "夕暮れの街を歩く"},
+            {"id": "cafe", "label": "カフェでゆっくり話す"},
+        ]
+    )
+    monkeypatch.setattr(service, "_generate_fresh_choices", fresh_choices)
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.async_session_factory", FakeDatabase
+    )
+
+    result = await service.regenerate_choices("run-1")
+
+    # turn_count=1 の run が次に行動する枠は Day1 夜
+    turn_context = fresh_choices.call_args.kwargs["turn_context"]
+    assert turn_context["romance_next_slot"] == {"day": 1, "slot": "night"}
+    assert fresh_choices.call_args.kwargs["romance_sim"] == {"partner_name": "美咲"}
+    assert [item["label"] for item in result["choices"]] == [
+        "一緒に昼食をとる",
+        "夕暮れの街を歩く",
+        "カフェでゆっくり話す",
+    ]
 
 
 @pytest.mark.asyncio
@@ -1647,6 +2322,148 @@ async def test_adventure_image_generation_uses_precise_reference_when_enabled(
     assert image_kwargs["character_references"][0]["strength"] == 0.35
     assert image_kwargs["character_references"][0]["fidelity"] == 0.55
     assert image_kwargs["character_references"][0]["image"] == b"initial"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("with_partner", [True, False])
+async def test_adventure_romance_scene_partner_reference(
+    monkeypatch, tmp_path, with_partner
+) -> None:
+    """合成シーンでは攻略対象が登場するターンだけ2枚目の参照を渡す。"""
+    service = AdventureService()
+    service._images_dir = tmp_path
+    run_dir = tmp_path / "run-1"
+    run_dir.mkdir()
+    current_path = run_dir / "current.png"
+    initial_path = run_dir / "initial.png"
+    partner_path = run_dir / "partner_initial.png"
+    current_path.write_bytes(b"current")
+    initial_path.write_bytes(b"initial")
+    partner_path.write_bytes(b"partner")
+    run = SimpleNamespace(
+        id="run-1",
+        state_json=make_romance_scene_state(partner_path),
+        current_image_path=str(current_path),
+        initial_image_path=str(initial_path),
+        text_model="glm-4-6",
+        image_model="nai-diffusion-4-5-full",
+        nsfw_mode=False,
+        turn_count=1,
+        preset="romance",
+    )
+    persisted_run = SimpleNamespace(
+        id="run-1",
+        current_image_path=str(current_path),
+        updated_at=None,
+        state_json="{}",
+    )
+
+    class FakeDatabase:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, _exc_type, _exc, _traceback):
+            return None
+
+        async def get(self, model, _record_id):
+            return persisted_run if model is AdventureRun else None
+
+        async def scalar(self, _statement):
+            return None
+
+        async def commit(self):
+            return None
+
+    generate_image = AsyncMock(return_value=SimpleNamespace(images=[b"generated"]))
+    monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.session_store.get_user_settings",
+        AsyncMock(return_value={"nsfw_mode": False, "language": "ja"}),
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.llm_service.generate_text",
+        AsyncMock(
+            return_value=SimpleNamespace(
+                content=make_romance_image_prompt_content(with_partner=with_partner)
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.image_service.generate_image",
+        generate_image,
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.async_session_factory", FakeDatabase
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.settings.novelai_model",
+        "nai-diffusion-4-5-full",
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.settings.novelai_curated_model",
+        "nai-diffusion-4-5-curated",
+    )
+
+    await service.generate_image("run-1", redraw_from_reference=True)
+
+    references = generate_image.await_args.kwargs["character_references"]
+    assert references is not None
+    assert references[0]["image"] == b"initial"
+    if with_partner:
+        assert len(references) == 2
+        assert references[1]["image"] == b"partner"
+        assert references[1]["type"] == "character"
+        # 服装が変化し得るため攻略対象は常に弱参照
+        assert references[1]["strength"] == 0.35
+        assert references[1]["fidelity"] == 0.55
+    else:
+        assert len(references) == 1
+
+
+def test_romance_partner_scene_reference_requires_partner_image(tmp_path) -> None:
+    prompt = AdventureImagePromptOutput(
+        scene_tags="night club interior",
+        player_tags="young man",
+        npc_tags=["succubus dancer"],
+    )
+    state = json.loads(make_romance_scene_state(tmp_path / "missing.png"))
+    assert _romance_partner_scene_reference(state, prompt) is None
+
+
+def test_romance_partner_scene_reference_prefers_override_visual_state(
+    tmp_path,
+) -> None:
+    """ターン中は state_json が古いため prompt_override 側の visual_state を使う。"""
+    partner_path = tmp_path / "partner_initial.png"
+    partner_path.write_bytes(b"partner")
+    prompt = AdventureVisualOutput(
+        scene_tags="night club interior",
+        player_tags="young man",
+        npc_tags=["succubus dancer, revealing stage outfit"],
+        visual_state=AdventureVisualState(
+            location="ナイトクラブ",
+            appearance="黒髪の青年",
+            clothing="白いTシャツ",
+            main_characters=[
+                {
+                    "name": "リリス",
+                    "description": "サキュバスのダンサー",
+                    "clothing": "ステージ衣装",
+                }
+            ],
+        ),
+    )
+    state = {
+        "use_precise_reference": True,
+        "partner_image_path": str(partner_path),
+        "sim": {"partner_name": "リリス"},
+        "visual_state": {"main_characters": []},
+    }
+    reference = _romance_partner_scene_reference(state, prompt)
+    assert reference is not None
+    assert reference["image"] == b"partner"
+    assert reference["strength"] == 0.35
+    assert reference["fidelity"] == 0.55
 
 
 @pytest.mark.asyncio
@@ -2560,3 +3377,437 @@ def test_image_prompt_output_clamps_overlong_player_tags() -> None:
     prompt = AdventureImagePromptOutput(scene_tags="room", player_tags=long_tags)
     assert 0 < len(prompt.player_tags) <= 1200
     assert prompt.player_tags.startswith("tag000")
+
+
+# ---------------------------------------------------------------------------
+# 巻き戻しとエピローグ
+
+
+def test_merge_output_epilogue_ignores_llm_and_turn_limit_endings() -> None:
+    service = AdventureService()
+    run = make_run(turn_count=7)
+    # LLM の failure 申告もターン上限到達も continue に倒す
+    _, status, _, _ = service._merge_output(
+        run, make_output(completed=[], ending="failure"), 8, epilogue=True
+    )
+    assert status == "continue"
+
+
+def test_merge_output_epilogue_keeps_existing_ending_summary() -> None:
+    service = AdventureService()
+    run = make_run(turn_count=9)
+    state = __import__("json").loads(run.state_json)
+    state["completed_milestones"] = [
+        item["id"] for item in PRESETS["infiltration"]["milestones"]
+    ]
+    state["ending_summary"] = "確定済みのリザルト"
+    _, status, _, _ = service._merge_output(
+        run,
+        make_output(
+            completed=[item["id"] for item in PRESETS["infiltration"]["milestones"]]
+        ),
+        10,
+        state_override=state,
+        epilogue=True,
+    )
+    # 全達成が継続しているだけでは再エンディングせず、リザルトも消さない
+    assert status == "continue"
+    assert state["ending_summary"] == "確定済みのリザルト"
+
+
+def test_merge_output_epilogue_reverses_only_on_new_completion() -> None:
+    service = AdventureService()
+    run = make_run(turn_count=9)
+    milestone_ids = [item["id"] for item in PRESETS["infiltration"]["milestones"]]
+    state = __import__("json").loads(run.state_json)
+    state["completed_milestones"] = milestone_ids[:1]
+    _, status, _, _ = service._merge_output(
+        run,
+        make_output(completed=milestone_ids),
+        10,
+        state_override=state,
+        epilogue=True,
+    )
+    # エピローグ中に新規で全達成へ遷移したときだけ成功へ逆転する
+    assert status == "success"
+
+
+def _adventure_db_env(tmp_path):
+    """一時SQLiteに紐づく engine と sessionmaker を返す。"""
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'adventure.db'}")
+    return engine, async_sessionmaker(engine, expire_on_commit=False)
+
+
+def _turn_state(marker: str, **extra) -> dict:
+    state = {
+        "milestones": PRESETS["infiltration"]["milestones"],
+        "completed_milestones": [],
+        "clues": [marker],
+        "visual_state": {
+            "location": marker,
+            "appearance": "開始時の姿",
+            "clothing": "",
+            "surroundings": "",
+            "main_characters": [],
+        },
+        "choices": [
+            {"id": f"c-{marker}", "label": f"{marker}を調べる"},
+            {"id": f"c-{marker}-2", "label": f"{marker}で話す"},
+            {"id": f"c-{marker}-3", "label": f"{marker}から移動する"},
+        ],
+        "opening_narrative": "開幕",
+        "use_precise_reference": False,
+        "enable_composite_scene": True,
+    }
+    state.update(extra)
+    return state
+
+
+async def _seed_rewind_run(session_factory, tmp_path, *, opening_state=None) -> None:
+    json = __import__("json")
+    async with session_factory() as db:
+        db.add(User(id=DEFAULT_USER_ID))
+        await db.flush()
+        db.add(
+            AdventureRun(
+                id="run-1",
+                user_id=DEFAULT_USER_ID,
+                preset="infiltration",
+                title="潜入",
+                objective="目的地へ入る",
+                constraints_json="[]",
+                snapshot_json="{}",
+                state_json=json.dumps(
+                    _turn_state("t3", use_precise_reference=True),
+                    ensure_ascii=False,
+                ),
+                opening_state_json=(
+                    json.dumps(opening_state, ensure_ascii=False)
+                    if opening_state
+                    else None
+                ),
+                current_image_path=str(tmp_path / "run-1" / "turn-3-c3.png"),
+                initial_image_path=str(tmp_path / "run-1" / "initial.png"),
+                status="active",
+                turn_count=3,
+                max_turns=8,
+                text_model="glm-4-6",
+                image_provider="novelai",
+                image_model="nai-diffusion-4-5-full",
+            )
+        )
+        await db.flush()
+        for number in (1, 2, 3):
+            db.add(
+                AdventureTurn(
+                    id=f"turn-{number}",
+                    run_id="run-1",
+                    client_turn_id=f"client-{number}",
+                    turn_number=number,
+                    user_input=f"行動{number}",
+                    input_kind="free_text",
+                    narrative=f"ターン{number}の物語",
+                    state_delta_json=json.dumps(
+                        _turn_state(f"t{number}"), ensure_ascii=False
+                    ),
+                    image_path=str(tmp_path / "run-1" / f"turn-{number}-c{number}.png"),
+                    portrait_image_path=(
+                        str(tmp_path / "run-1" / f"portrait-{number}-c{number}.png")
+                        if number != 2
+                        else None
+                    ),
+                )
+            )
+        await db.commit()
+    run_dir = tmp_path / "run-1"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    for name in (
+        "initial.png",
+        "turn-0-open.png",
+        "background-abc.png",
+        "turn-1-c1.png",
+        "turn-2-c2.png",
+        "turn-3-c3.png",
+        "portrait-1-c1.png",
+        "portrait-3-c3.png",
+        "partner-3-c3.png",
+    ):
+        (run_dir / name).write_bytes(b"png")
+
+
+def _patched_service(monkeypatch, session_factory, tmp_path) -> AdventureService:
+    async def _make_tables():
+        return None
+
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.async_session_factory", session_factory
+    )
+    service = AdventureService.__new__(AdventureService)
+    service._run_locks = __import__("collections").defaultdict(
+        __import__("asyncio").Lock
+    )
+    service._images_dir = tmp_path
+    return service
+
+
+@pytest.mark.asyncio
+async def test_rewind_restores_state_and_deletes_later_turns(
+    tmp_path, monkeypatch
+) -> None:
+    engine, session_factory = _adventure_db_env(tmp_path)
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    await _seed_rewind_run(session_factory, tmp_path)
+    service = _patched_service(monkeypatch, session_factory, tmp_path)
+
+    result = await service.rewind_to_turn("run-1", 1)
+
+    assert result["turn_count"] == 1
+    assert [turn["turn_number"] for turn in result["turns"]] == [1]
+    assert result["clues"] == ["t1"]
+    assert result["visual_state"]["location"] == "t1"
+    assert result["choices"][0]["id"] == "c-t1"
+    # 画像設定は現在値(use_precise_reference=True)を引き継ぐ
+    assert result["use_precise_reference"] is True
+    assert result["status"] == "active"
+    # 画像は対象手番のものへ戻り、以降の画像だけが消える
+    assert result["current_image_url"].endswith("turn-1-c1.png")
+    assert (tmp_path / "run-1" / "turn-1-c1.png").exists()
+    assert not (tmp_path / "run-1" / "turn-2-c2.png").exists()
+    assert not (tmp_path / "run-1" / "turn-3-c3.png").exists()
+    assert not (tmp_path / "run-1" / "portrait-3-c3.png").exists()
+    assert not (tmp_path / "run-1" / "partner-3-c3.png").exists()
+    # 開幕・初期・背景ファイルは保護される
+    assert (tmp_path / "run-1" / "turn-0-open.png").exists()
+    assert (tmp_path / "run-1" / "initial.png").exists()
+    assert (tmp_path / "run-1" / "background-abc.png").exists()
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_rewind_recovers_missing_portrait_from_earlier_turn(
+    tmp_path, monkeypatch
+) -> None:
+    engine, session_factory = _adventure_db_env(tmp_path)
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    await _seed_rewind_run(session_factory, tmp_path)
+    service = _patched_service(monkeypatch, session_factory, tmp_path)
+
+    # turn 2 は portrait 欠落 → turn 1 の立ち絵で補う
+    result = await service.rewind_to_turn("run-1", 2)
+
+    assert result["turn_count"] == 2
+    assert result["portrait_image_url"].endswith("portrait-1-c1.png")
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_rewind_restores_ended_run_to_active(tmp_path, monkeypatch) -> None:
+    json = __import__("json")
+    engine, session_factory = _adventure_db_env(tmp_path)
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    await _seed_rewind_run(session_factory, tmp_path)
+    async with session_factory() as db:
+        run = await db.get(AdventureRun, "run-1")
+        run.status = "failure"
+        run.ending_title = "ミッション失敗"
+        run.ending_summary = "捕まった"
+        state = json.loads(run.state_json)
+        state["ending_summary"] = "捕まった"
+        state["final_status"] = "failure"
+        state["epilogue"] = True
+        run.state_json = json.dumps(state, ensure_ascii=False)
+        await db.commit()
+    service = _patched_service(monkeypatch, session_factory, tmp_path)
+
+    result = await service.rewind_to_turn("run-1", 2)
+
+    assert result["status"] == "active"
+    assert result["ending_title"] is None
+    assert result["ending_summary"] is None
+    assert result["epilogue"] is False
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_rewind_keeps_final_status_recorded_in_target_turn(
+    tmp_path, monkeypatch
+) -> None:
+    json = __import__("json")
+    engine, session_factory = _adventure_db_env(tmp_path)
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    await _seed_rewind_run(session_factory, tmp_path)
+    async with session_factory() as db:
+        # turn 2 をエンディング(failure)確定後のエピローグターンに見立てる
+        turn = await db.get(AdventureTurn, "turn-2")
+        state = json.loads(turn.state_delta_json)
+        state["final_status"] = "failure"
+        state["final_ending_title"] = "ミッション失敗"
+        state["ending_summary"] = "捕まった"
+        state["epilogue"] = True
+        turn.state_delta_json = json.dumps(state, ensure_ascii=False)
+        run = await db.get(AdventureRun, "run-1")
+        run.status = "failure"
+        await db.commit()
+    service = _patched_service(monkeypatch, session_factory, tmp_path)
+
+    result = await service.rewind_to_turn("run-1", 2)
+
+    assert result["status"] == "failure"
+    assert result["ending_title"] == "ミッション失敗"
+    assert result["ending_summary"] == "捕まった"
+    assert result["epilogue"] is True
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_rewind_noop_and_invalid_turn_numbers(tmp_path, monkeypatch) -> None:
+    engine, session_factory = _adventure_db_env(tmp_path)
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    await _seed_rewind_run(session_factory, tmp_path)
+    service = _patched_service(monkeypatch, session_factory, tmp_path)
+
+    noop = await service.rewind_to_turn("run-1", 3)
+    assert noop["turn_count"] == 3
+    assert len(noop["turns"]) == 3
+
+    with pytest.raises(AdventureError) as negative:
+        await service.rewind_to_turn("run-1", -1)
+    assert negative.value.code == "invalid_turn_number"
+    with pytest.raises(AdventureError) as beyond:
+        await service.rewind_to_turn("run-1", 4)
+    assert beyond.value.code == "invalid_turn_number"
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_rewind_to_opening_requires_snapshot(tmp_path, monkeypatch) -> None:
+    engine, session_factory = _adventure_db_env(tmp_path)
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    await _seed_rewind_run(session_factory, tmp_path)
+    service = _patched_service(monkeypatch, session_factory, tmp_path)
+
+    listed = await service.rewind_to_turn("run-1", 3)
+    assert listed["can_rewind_to_opening"] is False
+    with pytest.raises(AdventureError) as error:
+        await service.rewind_to_turn("run-1", 0)
+    assert error.value.code == "opening_state_unavailable"
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_rewind_to_opening_restores_snapshot(tmp_path, monkeypatch) -> None:
+    engine, session_factory = _adventure_db_env(tmp_path)
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    opening = {
+        "state": _turn_state("opening"),
+        "current_image_path": str(tmp_path / "run-1" / "turn-0-open.png"),
+        "portrait_image_path": None,
+        "background_image_path": None,
+    }
+    await _seed_rewind_run(session_factory, tmp_path, opening_state=opening)
+    service = _patched_service(monkeypatch, session_factory, tmp_path)
+
+    result = await service.rewind_to_turn("run-1", 0)
+
+    assert result["can_rewind_to_opening"] is True
+    assert result["turn_count"] == 0
+    assert result["turns"] == []
+    assert result["visual_state"]["location"] == "opening"
+    assert result["current_image_url"].endswith("turn-0-open.png")
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_start_epilogue_validation_and_idempotency(tmp_path, monkeypatch) -> None:
+    engine, session_factory = _adventure_db_env(tmp_path)
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    await _seed_rewind_run(session_factory, tmp_path)
+    service = _patched_service(monkeypatch, session_factory, tmp_path)
+
+    # 進行中の run には付与できない
+    with pytest.raises(AdventureError) as active:
+        await service.start_epilogue("run-1")
+    assert active.value.code == "run_not_completed"
+
+    async with session_factory() as db:
+        run = await db.get(AdventureRun, "run-1")
+        run.status = "failure"
+        run.ending_title = "ミッション失敗"
+        await db.commit()
+
+    first = await service.start_epilogue("run-1")
+    assert first["epilogue"] is True
+    assert first["status"] == "failure"
+    assert first["ending_title"] == "ミッション失敗"
+    # 二重付与は no-op 成功
+    second = await service.start_epilogue("run-1")
+    assert second["epilogue"] is True
+    await engine.dispose()
+
+
+def test_romance_replay_player_selection_restores_stored_choice() -> None:
+    # テンプレートキャラクター形式
+    assert _romance_replay_player_selection(
+        {"sim": {"player_character_id": "char2"}}
+    ) == ("char2", None, None)
+    # セッション形式は時点IDも復元する
+    assert _romance_replay_player_selection(
+        {"sim": {"player_character_id": "session:abc", "player_history_id": "42"}}
+    ) == (None, "abc", "42")
+    # 時点IDを持たない旧runはセッションの現在状態
+    assert _romance_replay_player_selection(
+        {"sim": {"player_character_id": "session:abc"}}
+    ) == (None, "abc", None)
+    # 主人公情報のないさらに古いrunは既定キャラクターへフォールバック
+    assert _romance_replay_player_selection({"sim": {}}) == (None, None, None)
+    assert _romance_replay_player_selection({}) == (None, None, None)
+
+
+def test_apply_appearance_lock_updates_lock_only_on_alter_turn() -> None:
+    service = AdventureService()
+    state = {"appearance_lock": "1boy, black hair, short hair"}
+    altered = AdventureVisualState(
+        location="street",
+        appearance="1boy, black hair, short hair, cat ears",
+        main_characters=[],
+    )
+    service._apply_appearance_lock(state, altered, allow_update=True)
+    assert state["appearance_lock"] == "1boy, black hair, short hair, cat ears"
+    assert altered.appearance == "1boy, black hair, short hair, cat ears"
+
+    # 通常ターンは更新後のロックで従来どおり上書きされる
+    drifted = AdventureVisualState(
+        location="street", appearance="blonde hair", main_characters=[]
+    )
+    service._apply_appearance_lock(state, drifted)
+    assert drifted.appearance == "1boy, black hair, short hair, cat ears"
+
+    # alter ターンでも空白のみの出力はロックを更新せず従来適用へ倒す
+    blank = AdventureVisualState(location="street", appearance=" ", main_characters=[])
+    service._apply_appearance_lock(state, blank, allow_update=True)
+    assert state["appearance_lock"] == "1boy, black hair, short hair, cat ears"
+    assert blank.appearance == "1boy, black hair, short hair, cat ears"
+
+
+def test_resolution_prompt_disables_clue_tracking_when_off() -> None:
+    service = AdventureService()
+    disabled = service._resolution_system_prompt("ja", include_clues=False)
+    assert "discovered_clues must always be an empty list" in disabled
+    assert "discovered_clues must always be an empty list" not in (
+        service._resolution_system_prompt("ja")
+    )
+
+
+def test_visual_prompt_allows_declared_reality_changes_only() -> None:
+    service = AdventureService()
+    prompt = service._visual_system_prompt("ja")
+    assert "reality_rule_declared_this_turn declares a change" in prompt
+    assert "reality_rules are established facts of this world" in prompt

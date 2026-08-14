@@ -34,7 +34,7 @@ router = APIRouter(prefix="/adventure", tags=["Adventure"])
 class AdventureSetupGenerateRequest(BaseModel):
     source_session_id: str = Field(min_length=1)
     source_history_id: str | None = None
-    preset: Literal["infiltration", "escape", "negotiation", "disguise"]
+    preset: Literal["infiltration", "escape", "negotiation", "disguise", "romance"]
     # 自動生成のゴール文面は「N手以内に〜」という尺で書かれるため、
     # 案の生成時点でもターン予算を渡す
     scenario_max_turns: int = Field(
@@ -47,7 +47,7 @@ class AdventureSetupGenerateRequest(BaseModel):
 class AdventureCreateRequest(BaseModel):
     source_session_id: str = Field(min_length=1)
     source_history_id: str | None = None
-    preset: Literal["infiltration", "escape", "negotiation", "disguise"]
+    preset: Literal["infiltration", "escape", "negotiation", "disguise", "romance"]
     custom_setup: str = Field(default="", max_length=1000)
     scenario_setting: str = Field(default="", max_length=600)
     scenario_objective: str = Field(default="", max_length=600)
@@ -75,6 +75,12 @@ class AdventureCreateRequest(BaseModel):
     enable_composite_scene: bool = False
     # 衣装レイヤー考慮。ONなら外衣に覆われた下着を画像タグから除外する
     respect_clothing_layers: bool = False
+    # romance の主人公テンプレートキャラクター。未指定なら既定(char1)
+    romance_player_character_id: str | None = Field(default=None, max_length=40)
+    # romance の主人公を特定セッション時点の変身状態にする場合に指定。
+    # session_id があればテンプレートキャラクターより優先される
+    romance_player_session_id: str | None = Field(default=None, max_length=80)
+    romance_player_history_id: str | None = Field(default=None, max_length=80)
 
 
 class AdventureSettingsUpdateRequest(BaseModel):
@@ -84,11 +90,29 @@ class AdventureSettingsUpdateRequest(BaseModel):
     respect_clothing_layers: bool | None = None
 
 
+class AdventureRewindRequest(BaseModel):
+    # この手番の完了時点まで巻き戻す(それ以降のターンを削除する)
+    turn_number: int = Field(ge=0)
+
+
 class AdventureTurnRequest(BaseModel):
     client_turn_id: str = Field(min_length=1, max_length=80)
     user_input: str = Field(min_length=1, max_length=1000)
-    # reality_alter はサーバ側で「現実改変：〜」を検出したときにも設定される
-    input_kind: Literal["choice", "free_text", "reality_alter"] = "free_text"
+    # reality_alter はサーバ側で「現実改変：〜」を検出したときにも設定される。
+    # gift / work / confess は romance プリセット専用の行動
+    input_kind: Literal[
+        "choice", "free_text", "reality_alter", "gift", "work", "confess"
+    ] = "free_text"
+    # romance のプレゼント購入で贈る品を機械可読 ID で指定する
+    gift_id: str | None = Field(default=None, max_length=40)
+    # false のとき主人公の立ち絵の毎ターン生成を省略する。
+    # 精密参照OFFかつ非合成モードの run でのみ有効
+    generate_portrait: bool = True
+    # false のとき攻略対象(romance)の立ち絵の毎ターン生成を省略する。条件は同上
+    generate_partner_portrait: bool = True
+    # false のとき、この手番では新しい手掛かりを抽出しない。判定処理自体は
+    # 走るため時間短縮はわずか。作品シナリオの決定論的な手掛かりには影響しない
+    generate_clues: bool = True
 
 
 class AdventureImageRequest(BaseModel):
@@ -96,6 +120,8 @@ class AdventureImageRequest(BaseModel):
     player_tags: str = Field(default="", max_length=1200)
     npc_tags: list[str] = Field(default_factory=list, max_length=3)
     redraw_from_reference: bool = True
+    # portrait は立ち絵だけを作り直す。生成失敗ターンからの復旧に使う
+    target: Literal["scene", "portrait"] = "scene"
 
 
 def _http_error(error: AdventureError) -> HTTPException:
@@ -146,6 +172,9 @@ async def create_run(request: AdventureCreateRequest) -> dict:
             use_precise_reference=request.use_precise_reference,
             enable_composite_scene=request.enable_composite_scene,
             respect_clothing_layers=request.respect_clothing_layers,
+            romance_player_character_id=request.romance_player_character_id,
+            romance_player_session_id=request.romance_player_session_id,
+            romance_player_history_id=request.romance_player_history_id,
         )
     except AdventureError as error:
         raise _http_error(error) from error
@@ -180,6 +209,22 @@ async def regenerate_choices(run_id: str) -> dict:
         raise _http_error(error) from error
 
 
+@router.post("/runs/{run_id}/rewind")
+async def rewind_run(run_id: str, request: AdventureRewindRequest) -> dict:
+    try:
+        return await adventure_service.rewind_to_turn(run_id, request.turn_number)
+    except AdventureError as error:
+        raise _http_error(error) from error
+
+
+@router.post("/runs/{run_id}/epilogue")
+async def start_epilogue(run_id: str) -> dict:
+    try:
+        return await adventure_service.start_epilogue(run_id)
+    except AdventureError as error:
+        raise _http_error(error) from error
+
+
 @router.patch("/runs/{run_id}/settings")
 async def update_run_settings(
     run_id: str, request: AdventureSettingsUpdateRequest
@@ -204,6 +249,10 @@ async def play_turn(run_id: str, request: AdventureTurnRequest) -> EventSourceRe
                 client_turn_id=request.client_turn_id,
                 user_input=request.user_input,
                 input_kind=request.input_kind,
+                gift_id=request.gift_id,
+                generate_portrait=request.generate_portrait,
+                generate_partner_portrait=request.generate_partner_portrait,
+                generate_clues=request.generate_clues,
             ):
                 yield {
                     "event": event["event"],
@@ -247,12 +296,23 @@ async def regenerate_image(
                 "event": "status",
                 "data": json.dumps({"phase": "image_generation"}, ensure_ascii=False),
             }
-            image = await adventure_service.generate_image(
-                run_id,
-                redraw_from_reference=options.redraw_from_reference,
-                prompt_override=prompt_override,
-            )
-            yield {"event": "image", "data": json.dumps(image, ensure_ascii=False)}
+            if options.target == "portrait":
+                portrait = await adventure_service.generate_portrait(
+                    run_id,
+                    redraw_from_reference=options.redraw_from_reference,
+                    prompt_override=prompt_override,
+                )
+                yield {
+                    "event": "portrait_image",
+                    "data": json.dumps(portrait, ensure_ascii=False),
+                }
+            else:
+                image = await adventure_service.generate_image(
+                    run_id,
+                    redraw_from_reference=options.redraw_from_reference,
+                    prompt_override=prompt_override,
+                )
+                yield {"event": "image", "data": json.dumps(image, ensure_ascii=False)}
             yield {
                 "event": "complete",
                 "data": json.dumps({"status": "complete"}, ensure_ascii=False),

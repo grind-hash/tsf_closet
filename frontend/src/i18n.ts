@@ -72,18 +72,96 @@ const resources = {
           escape: "脱出・帰還",
           negotiation: "交渉",
           disguise: "なりすまし・着替え",
+          romance: "恋愛シミュレーション",
         },
         presetHints: {
           infiltration: "見つからずに目的地へ入り込む",
           escape: "閉じ込められた場所から抜け出す",
           negotiation: "相手を説得して協力を得る",
           disguise: "別人として振る舞い、正体を隠し通す",
+          romance: "期限の日までに好感度を育てて交際を始める",
         },
         presetExamples: {
           infiltration: "例: 警備の目を盗んで奥の部屋へ",
           escape: "例: 鍵のかかった部屋から脱出する",
           negotiation: "例: 相手の信頼を得て情報を引き出す",
           disguise: "例: 別人に成りすまして潜入を続ける",
+          romance: "例: 会話とプレゼントで距離を縮めて告白する",
+        },
+        romance: {
+          days: "日数",
+          daysUnit: "日",
+          daysHint:
+            "{{min}}〜{{max}}日。1日は昼と夜の2回行動できます。開始素材で選んだ人物が攻略対象になり、主人公は下で選んだ自分のキャラクターです",
+          player: "主人公（自分）",
+          playerHint:
+            "恋愛シミュレーションで操作する自分のキャラクター。選択は次回にも保存されます",
+          playerLoading: "読み込み中...",
+          playerFromSession: "セッションの姿を使う",
+          playerSession: "主人公にするセッション",
+          playerState: "主人公の姿（時点）",
+          partnerPortraitAlt: "攻略対象の立ち絵",
+          partnerLabel: "攻略対象",
+          previewTurn: "Day {{day}}/{{total}} {{slot}}（{{turn}}/{{max}}手）",
+          day: "Day",
+          dayCounter: "Day {{day}}/{{total}}",
+          dayCounterHint:
+            "いま表示している場面の日付と時間帯です。1日は昼・夜の2枠で、次の行動は Day {{day}}/{{total}} {{slot}} になります",
+          dayOpen: "{{day}}日目",
+          dayCounterEpilogueHint:
+            "エピローグ中です。期限はなく、日々は自由に続きます",
+          previewTurnEpilogue: "{{day}}日目 {{slot}}（{{turn}}手目）",
+          slot: {
+            day: "昼",
+            night: "夜",
+          },
+          affection: "好感度",
+          stages: {
+            stranger: "知り合い",
+            friend: "友人",
+            aware: "意識し合う",
+            mutual: "両想い",
+          },
+          money: "所持金",
+          moneyUnit: "円",
+          hints: "ヒント",
+          grantedAttributes: "付与した属性",
+          grantedAttributesHint:
+            "属性付与で書き換えた相手や世界の設定です。以降のターンでは確定した事実として扱われます",
+          workButton: "バイトする",
+          workHint:
+            "{{job}}で働いて{{wage}}円を稼ぎます。まれに相手が現れることも",
+          workAction: "{{job}}のバイトに出る",
+          giftButton: "プレゼントを贈る",
+          giftHint: "ショップで購入して、その場で相手に贈ります",
+          giftAction: "{{name}}を購入して贈る",
+          confessButton: "想いを告げる",
+          confessHint: "想いが十分に通じ合った今なら、告白できます",
+          confessAction: "{{name}}に想いを告げる",
+          attributeButton: "属性を付与",
+          attributeHint: "相手の外見・性格・状況・心を書き換えます（現実改変）",
+          giftShop: {
+            title: "ギフトショップ",
+            hint: "購入したプレゼントはそのまま相手に贈ります（1回の行動を消費）。会話のヒントから相手の好みを推理しましょう",
+            price: "{{price}}円",
+            tiers: {
+              budget: "手頃",
+              standard: "定番",
+              luxury: "高級",
+            },
+            give: "贈る",
+            givenBefore: "贈呈済み",
+            insufficientFunds: "所持金が足りません",
+            close: "閉じる",
+          },
+          attribute: {
+            title: "属性を付与",
+            hint: "相手の外見・性格・状況・心を書き換えます。書いた内容はこの世界の確定した事実になります（例: 彼女は猫耳が生えている／彼女は語尾に「にゃ」を付ける／彼女は私に夢中になる）",
+            label: "付与する属性",
+            placeholder: "例: 彼女は猫耳が生えている",
+            submit: "付与する",
+            cancel: "キャンセル",
+          },
         },
         presetFromScenario: "このシナリオのミッション",
         missionFlow: {
@@ -98,6 +176,9 @@ const resources = {
           "{{min}}〜{{max}}手。多いほど手掛かりの探索や周辺の調査に余裕が生まれます。そのぶん場面画像の生成回数とプレイ時間は増えます。自動生成するゴールもこの手数に合わせた規模になります",
         generateSetup: "ミッション案を自動生成",
         generatingSetup: "ミッション案を生成中...",
+        scenario: "シナリオ",
+        scenarioTitleLabel: "タイトル",
+        scenarioDeadline: "{{days}}日間",
         setting: "舞台",
         settingPlaceholder: "自動生成するか、舞台を入力",
         goal: "ゴール",
@@ -125,23 +206,36 @@ const resources = {
           first_person: "例: {{pronoun}}は二人に声をかけた",
         },
         narrationPronoun: "一人称",
-        imageGenOptions: "画像生成オプション",
+        imageGenOptions: "生成オプション",
         imageSettings: "画像生成設定",
         preciseReference: "精密参照画像を使う",
         preciseReferenceHint:
-          "OFFが既定です。ONにすると開始画像をNovelAI精密参照に使い、参照1枚あたりAnlasを追加消費します。顔の固定が強まります。",
+          "OFFが既定です。ONにすると開始画像をNovelAI精密参照に使い、参照1枚あたり5 Anlasを追加消費します。顔の固定が強まります。",
         preciseReferencePlayHint:
-          "次回の画像生成から反映されます。ONにすると参照1枚あたりAnlasを追加消費します。",
+          "次回の画像生成から反映されます。ONにすると参照1枚あたり5 Anlasを追加消費します。",
         enableCompositeScene: "背景と人物を同時に描く",
         enableCompositeSceneHint:
           "OFFが既定です。既定では背景は開始時に1回だけ生成し、行動に応じて中央の立ち絵のみ更新します。ONにすると、立ち絵の更新後に背景を含む合成シーンも直列で再生成するため、1ターンあたりの画像生成が2回になり待ち時間が長くなります。",
         enableCompositeScenePlayHint:
           "次回のターンから反映されます。ONの間は毎ターン、立ち絵に加えて合成シーンも直列生成されるため待ち時間が長くなります。",
+        drawPortraitEveryTurn: "主人公の立ち絵を毎ターン描く",
+        drawPortraitEveryTurnHint:
+          "ONが既定です。OFFにすると行動しても主人公の立ち絵を更新せず、直前の立ち絵のまま物語が進みます。この設定はブラウザごとに保存されます。",
+        drawPartnerEveryTurn: "攻略対象の立ち絵を毎ターン描く",
+        drawPartnerEveryTurnHint:
+          "ONが既定です。OFFにすると攻略対象の立ち絵を更新せず、直前の立ち絵のまま進行します。この設定はブラウザごとに保存されます。",
+        generateClues: "手掛かり・ヒントを抽出する",
+        generateCluesHint:
+          "ONが既定です。OFFにすると新しい手掛かり（恋愛シミュレーションではヒント）を記録しません。判定処理自体は残るため、時間短縮はわずかです。この設定はブラウザごとに保存されます。",
+        turnTimeEstimate: "1ターンの生成時間: 約{{seconds}}秒",
         portraitAlt: "主人公のポートレート",
+        portraitFailed: "立ち絵の生成に失敗しました",
+        portraitRetry: "立ち絵を再生成",
         preparing: "シナリオを準備中...",
         preparingTitle: "シナリオを準備しています",
-        preparingDetail:
-          "開始場面の物語と画像を生成中です。完了までそのままお待ちください。",
+        preparingDetail: "開始場面の物語と画像を生成中です。",
+        preparingNote:
+          "生成には2分以上かかる場合があります。このまま画面を開いてお待ちください。",
         noRuns: "保存されたシナリオはありません",
         noRunsForFilter: "この条件に一致するシナリオはありません",
         savedRunsCount: "{{count}}件",
@@ -176,7 +270,12 @@ const resources = {
           replay: "同じシナリオをもう一度",
           backToHub: "シナリオ一覧へ戻る",
           close: "リザルトを閉じる",
+          continueEpilogue: "このまま続ける",
         },
+        epilogueLabel: "エピローグ",
+        epilogueTurns: "{{turn}}手目",
+        epilogueTurnsHint:
+          "エンディング後の継続プレイ中です。ターン数の期限はありません",
         currentLocation: "現在地",
         yourAction: "あなたの行動",
         log: {
@@ -203,6 +302,8 @@ const resources = {
         regeneratingChoices: "選択肢を生成中...",
         emptyChoices:
           "選択肢がありません。再生成するか、下の入力欄から自由に行動してください。",
+        viewingPastControlsHint:
+          "過去の場面を表示しています。行動するには最新の場面へ戻ってください。",
         viewFullScreen: "場面画像を拡大表示",
         preview: {
           viewSwitch: "表示する画像を切り替え",
@@ -218,6 +319,9 @@ const resources = {
             choice: "選択肢",
             free_text: "自由入力",
             reality_alter: "現実改変",
+            gift: "プレゼント",
+            work: "バイト",
+            confess: "告白",
           },
         },
         imagePrompt: {
@@ -238,18 +342,31 @@ const resources = {
           backToLatest: "最新の場面へ",
           viewingPast: "過去の場面を表示中",
           thumbAlt: "手番 {{number}} の場面",
+          rewind: "ここからやり直す",
+          rewindHint:
+            "この場面までの結果を残し、これより後のターンを削除して再開します",
+          rewindConfirm:
+            "ターン{{turn}}以降の{{count}}ターンが削除されます。この場面からやり直しますか？",
         },
         phase: {
           narrative: "物語を生成中...",
-          clue_check: "手掛かりを確認中...",
+          clue_check: "行動の結果を判定中...",
           judging: "次の展開を判定中...",
           image_generation: "場面画像を生成中...",
         },
         phaseStep: {
           portrait: "立ち絵を生成中...",
+          partner: "攻略対象の立ち絵を生成中...",
           composite: "場面を合成中...",
         },
         anlasDetail: "固定: {{fixed}} / 購入: {{purchased}}",
+        anlasBadge: "精密参照",
+        anlasWarnBody:
+          "精密参照が有効なため、このターンの画像生成で追加のAnlasを消費します（見積もり: {{estimate}}、1参照あたり5 Anlas）。続行しますか？",
+        anlasWarnStartBody:
+          "精密参照が有効なため、開始時の画像生成から追加のAnlasを消費します（見積もり: {{estimate}}、1参照あたり5 Anlas）。開始しますか？",
+        anlasEstimateExact: "{{value}} Anlas",
+        anlasEstimateRange: "{{min}}〜{{max}} Anlas",
         status: {
           active: "進行中",
           success: "成功",
@@ -1343,18 +1460,97 @@ const resources = {
           escape: "Escape / Return",
           negotiation: "Negotiation",
           disguise: "Disguise / Wardrobe",
+          romance: "Romance Simulation",
         },
         presetHints: {
           infiltration: "Slip into the destination without being noticed",
           escape: "Break free from where you are confined",
           negotiation: "Persuade someone into cooperating",
           disguise: "Pass as someone else without being exposed",
+          romance: "Raise affection and start dating before the deadline",
         },
         presetExamples: {
           infiltration: "e.g. Sneak past the guards into the back room",
           escape: "e.g. Escape a locked room",
           negotiation: "e.g. Win someone's trust to get information",
           disguise: "e.g. Keep infiltrating while posing as someone else",
+          romance: "e.g. Grow closer through talks and gifts, then confess",
+        },
+        romance: {
+          days: "Days",
+          daysUnit: "days",
+          daysHint:
+            "{{min}}-{{max}} days. Each day has two action slots (day and night). The character from the source material becomes the partner; you play as the character selected below.",
+          player: "Your character",
+          playerHint:
+            "The character you play as in the romance simulation. The choice is remembered for next time.",
+          playerLoading: "Loading...",
+          playerFromSession: "Use a session state",
+          playerSession: "Session for your character",
+          playerState: "Your appearance (point in time)",
+          partnerPortraitAlt: "Partner portrait",
+          partnerLabel: "Love interest",
+          previewTurn: "Day {{day}}/{{total}} {{slot}} (turn {{turn}}/{{max}})",
+          day: "Day",
+          dayCounter: "Day {{day}}/{{total}}",
+          dayCounterHint:
+            "The day and time slot of the scene on screen. Each day has two slots, and your next action falls on Day {{day}}/{{total}} {{slot}}.",
+          dayOpen: "Day {{day}}",
+          dayCounterEpilogueHint:
+            "Epilogue. There is no deadline; the days continue freely.",
+          previewTurnEpilogue: "Day {{day}} {{slot}} (turn {{turn}})",
+          slot: {
+            day: "Day",
+            night: "Night",
+          },
+          affection: "Affection",
+          stages: {
+            stranger: "Acquaintance",
+            friend: "Friend",
+            aware: "Aware",
+            mutual: "In love",
+          },
+          money: "Money",
+          moneyUnit: "JPY",
+          hints: "Hints",
+          grantedAttributes: "Granted attributes",
+          grantedAttributesHint:
+            "Attributes you have written onto the partner or the world. Later turns treat them as established facts.",
+          workButton: "Work part-time",
+          workHint:
+            "Work at {{job}} and earn ¥{{wage}}. The partner sometimes shows up.",
+          workAction: "Go to the part-time job at {{job}}",
+          giftButton: "Give a gift",
+          giftHint: "Buy a gift at the shop and give it right away",
+          giftAction: "Buy and give {{name}}",
+          confessButton: "Confess",
+          confessHint: "Your feelings have grown close enough to confess now",
+          confessAction: "Confess to {{name}}",
+          attributeButton: "Grant attribute",
+          attributeHint:
+            "Rewrite the partner's appearance, personality, circumstances, or feelings (reality alteration)",
+          giftShop: {
+            title: "Gift Shop",
+            hint: "A purchased gift is given immediately (consumes one action). Guess the partner's tastes from conversation hints.",
+            price: "¥{{price}}",
+            tiers: {
+              budget: "Budget",
+              standard: "Standard",
+              luxury: "Luxury",
+            },
+            give: "Give",
+            givenBefore: "Already given",
+            insufficientFunds: "Not enough money",
+            close: "Close",
+          },
+          attribute: {
+            title: "Grant an attribute",
+            hint: "Rewrite the partner's appearance, personality, circumstances, or feelings. What you write becomes an established fact of this world (e.g. She has cat ears / She ends every sentence with 'nya' / She is infatuated with me).",
+            label: "Attribute to grant",
+            placeholder: "e.g. She has cat ears",
+            submit: "Grant",
+            cancel: "Cancel",
+          },
         },
         presetFromScenario: "Mission for this scenario",
         missionFlow: {
@@ -1369,6 +1565,9 @@ const resources = {
           "{{min}}-{{max}} turns. More turns leave room to search for clues and scout the surroundings, at the cost of more scene image generations and a longer playthrough. The generated goal is scaled to this budget.",
         generateSetup: "Generate Mission Setup",
         generatingSetup: "Generating mission setup...",
+        scenario: "Scenario",
+        scenarioTitleLabel: "Title",
+        scenarioDeadline: "{{days}} days",
         setting: "Setting",
         settingPlaceholder: "Generate or enter a setting",
         goal: "Goal",
@@ -1398,23 +1597,36 @@ const resources = {
           first_person: "e.g. I called out to the two of them",
         },
         narrationPronoun: "Pronoun",
-        imageGenOptions: "Image Generation Options",
+        imageGenOptions: "Generation Options",
         imageSettings: "Image Generation Settings",
         preciseReference: "Use precise character reference",
         preciseReferenceHint:
-          "Off by default. When on, the starting image is used as a NovelAI character reference and costs extra Anlas per reference, while face consistency improves.",
+          "Off by default. When on, the starting image is used as a NovelAI character reference and costs 5 extra Anlas per reference, while face consistency improves.",
         preciseReferencePlayHint:
-          "Applies from the next image generation. When on, each reference costs extra Anlas.",
+          "Applies from the next image generation. When on, each reference costs 5 extra Anlas.",
         enableCompositeScene: "Draw background and character together",
         enableCompositeSceneHint:
           "Off by default. By default, the background is generated once at the start, and only the centered character sprite updates as you act. When on, the full composite scene (including background) is also regenerated in series after each sprite update, so each turn runs two image generations and takes longer.",
         enableCompositeScenePlayHint:
           "Applies from the next turn. While on, every turn generates the composite scene in series after the character sprite, so turns take longer.",
+        drawPortraitEveryTurn: "Draw protagonist sprite every turn",
+        drawPortraitEveryTurnHint:
+          "On by default. When off, the protagonist sprite is not updated as you act; the story continues with the previous sprite. This preference is saved per browser.",
+        drawPartnerEveryTurn: "Draw partner sprite every turn",
+        drawPartnerEveryTurnHint:
+          "On by default. When off, the partner sprite is not updated; play continues with the previous sprite. This preference is saved per browser.",
+        generateClues: "Extract clues and hints",
+        generateCluesHint:
+          "On by default. When off, new clues (hints in the romance simulation) are not recorded. The resolution step still runs, so the time saved is small. This preference is saved per browser.",
+        turnTimeEstimate: "Estimated time per turn: about {{seconds}}s",
         portraitAlt: "Protagonist portrait",
+        portraitFailed: "Character sprite generation failed",
+        portraitRetry: "Regenerate sprite",
         preparing: "Preparing scenario...",
         preparingTitle: "Preparing the scenario",
-        preparingDetail:
-          "Generating the opening story and scene image. Please wait until it is ready.",
+        preparingDetail: "Generating the opening story and scene image.",
+        preparingNote:
+          "This can take more than 2 minutes. Please keep this screen open while it finishes.",
         noRuns: "No saved scenarios",
         noRunsForFilter: "No scenarios match this filter",
         savedRunsCount: "{{count}} saved",
@@ -1449,7 +1661,12 @@ const resources = {
           replay: "Play this scenario again",
           backToHub: "Back to scenarios",
           close: "Close the result",
+          continueEpilogue: "Keep playing",
         },
+        epilogueLabel: "Epilogue",
+        epilogueTurns: "Turn {{turn}}",
+        epilogueTurnsHint:
+          "Free play after the ending. There is no turn limit.",
         currentLocation: "Location",
         yourAction: "Your action",
         log: {
@@ -1476,6 +1693,8 @@ const resources = {
         regeneratingChoices: "Generating choices...",
         emptyChoices:
           "No choices available. Regenerate them, or type an action in the field below.",
+        viewingPastControlsHint:
+          "This is a past scene. Return to the latest scene to act.",
         viewFullScreen: "View the scene image in full screen",
         preview: {
           viewSwitch: "Switch the displayed image",
@@ -1491,6 +1710,9 @@ const resources = {
             choice: "Choice",
             free_text: "Free input",
             reality_alter: "Reality alteration",
+            gift: "Gift",
+            work: "Part-time job",
+            confess: "Confession",
           },
         },
         imagePrompt: {
@@ -1511,18 +1733,31 @@ const resources = {
           backToLatest: "Back to latest scene",
           viewingPast: "Viewing a past scene",
           thumbAlt: "Scene of turn {{number}}",
+          rewind: "Restart from here",
+          rewindHint:
+            "Keep everything up to this scene, delete every later turn, and resume",
+          rewindConfirm:
+            "This deletes {{count}} turn(s) from turn {{turn}} onward. Restart from this scene?",
         },
         phase: {
           narrative: "Writing the next scene...",
-          clue_check: "Checking for clues...",
+          clue_check: "Resolving the turn outcome...",
           judging: "Resolving the next scene...",
           image_generation: "Generating the scene image...",
         },
         phaseStep: {
           portrait: "Generating the character portrait...",
+          partner: "Generating the love interest's portrait...",
           composite: "Compositing the scene...",
         },
         anlasDetail: "Fixed: {{fixed}} / Purchased: {{purchased}}",
+        anlasBadge: "Precise ref.",
+        anlasWarnBody:
+          "Precise reference is enabled, so this turn's image generation will consume additional Anlas (estimated {{estimate}}; 5 Anlas per reference). Continue?",
+        anlasWarnStartBody:
+          "Precise reference is enabled, so additional Anlas will be consumed starting with the opening image generation (estimated {{estimate}}; 5 Anlas per reference). Start the run?",
+        anlasEstimateExact: "{{value}} Anlas",
+        anlasEstimateRange: "{{min}}–{{max}} Anlas",
         status: {
           active: "Active",
           success: "Success",

@@ -4,8 +4,17 @@ export type AdventurePreset =
   | "infiltration"
   | "escape"
   | "negotiation"
-  | "disguise";
+  | "disguise"
+  | "romance";
 export type AdventureStatus = "active" | "success" | "partial" | "failure";
+/** gift / work / confess は romance プリセット専用の行動 */
+export type AdventureInputKind =
+  | "choice"
+  | "free_text"
+  | "reality_alter"
+  | "gift"
+  | "work"
+  | "confess";
 /** 物語の語りの人称。second_person が従来どおりの既定 */
 export type AdventureNarrationVoice =
   | "second_person"
@@ -43,8 +52,50 @@ export interface AdventureImagePrompt {
   npc_tags: string[];
 }
 
-export interface AdventureImageRegenerateOptions extends AdventureImagePrompt {
+export type AdventureGiftTier = "budget" | "standard" | "luxury";
+
+export interface AdventureGift {
+  id: string;
+  name: string;
+  price: number;
+  tier: AdventureGiftTier;
+}
+
+/** romance の公開状態。隠し好みはサーバ側で除外済み */
+export interface AdventureSim {
+  total_days: number;
+  /** 次に行動する日。1始まり */
+  day: number;
+  /** 次に行動する時間帯 */
+  slot: "day" | "night";
+  /** 今表示している場面(直前に解決した手番)の日。開幕フレームでは null */
+  scene_day?: number | null;
+  /** 今表示している場面の時間帯。day/slot とは常に半日ずれる */
+  scene_slot?: "day" | "night" | null;
+  /** この手番がエピローグ(期限なし継続プレイ)中か */
+  epilogue?: boolean;
+  affection: number;
+  stage: "stranger" | "friend" | "aware" | "mutual";
+  money: number;
+  partner_name: string;
+  /** 主人公(自分)。導入前の旧 run では未定義 */
+  player_name?: string;
+  player_character_id?: string;
+  job: { name: string; wage: number };
+  gift_catalog: AdventureGift[];
+  given_gift_ids: string[];
+  confession_available: boolean;
+}
+
+/**
+ * タグを省略するとサーバが現在の状態からプロンプトを組み直す。
+ * 立ち絵の再試行のように「今の状態でもう一度」だけしたい経路で使う。
+ */
+export interface AdventureImageRegenerateOptions
+  extends Partial<AdventureImagePrompt> {
   redraw_from_reference: boolean;
+  /** portrait は立ち絵だけを作り直す。既定は場面画像 */
+  target?: "scene" | "portrait";
 }
 
 export interface AdventureTurn {
@@ -52,7 +103,7 @@ export interface AdventureTurn {
   turn_number: number;
   client_turn_id: string;
   user_input: string;
-  input_kind: "choice" | "free_text" | "reality_alter";
+  input_kind: AdventureInputKind;
   narrative: string;
   /** このターン時点の現在地。旧ターンでは null */
   location: string | null;
@@ -70,6 +121,14 @@ export interface AdventureTurn {
   visual_state?: AdventureVisualState | null;
   ending_title?: string | null;
   ending_summary?: string | null;
+  /** romance のみ。ターン確定時点の公開シミュ状態 */
+  sim?: AdventureSim | null;
+  /** romance のみ。ターン確定時点の攻略対象の様子。無ければ null */
+  partner_note?: string | null;
+  /** romance のみ。ターン確定時点の攻略対象の立ち絵 */
+  partner_portrait_url?: string | null;
+  /** romance のみ。ターン確定時点の背景(現在地・時間帯ごとに変わる) */
+  background_image_url?: string | null;
 }
 
 export interface AdventureRun {
@@ -83,6 +142,10 @@ export interface AdventureRun {
   setting: string;
   constraints: string[];
   status: AdventureStatus;
+  /** エンディング後の継続プレイ中。status は終了のまま操作だけ許可される */
+  epilogue?: boolean;
+  /** 開始時点(手番0)への巻き戻しに対応しているか。旧runでは false */
+  can_rewind_to_opening?: boolean;
   turn_count: number;
   max_turns: number;
   remaining_turns: number;
@@ -116,6 +179,14 @@ export interface AdventureRun {
   portrait_image_url: string | null;
   /** 開始時ポートレート（ターンストリップの先頭用） */
   opening_portrait_url: string | null;
+  /** romance のみ。非合成モードで並置表示する攻略対象の立ち絵(最新) */
+  partner_portrait_url?: string | null;
+  /** romance のみ。開幕(手番0)時点の攻略対象の立ち絵 */
+  opening_partner_portrait_url?: string | null;
+  /** romance のみ。他プリセットでは未定義 */
+  sim?: AdventureSim | null;
+  /** romance のみ。開幕(手番0)時点の公開シミュ状態 */
+  opening_sim?: AdventureSim | null;
   turns: AdventureTurn[];
   created_at: string | null;
   updated_at: string | null;
@@ -164,6 +235,11 @@ export interface AdventureCreateRequest extends AdventureSetupRequest {
   narration_voice?: AdventureNarrationVoice;
   /** first_person のときだけ使う。未指定なら「僕」 */
   narration_pronoun?: string;
+  /** romance の主人公テンプレートキャラクター。未指定なら既定(char1) */
+  romance_player_character_id?: string;
+  /** romance の主人公を特定セッション時点の変身状態にする場合に指定 */
+  romance_player_session_id?: string;
+  romance_player_history_id?: string;
 }
 
 export interface AdventureSettingsUpdateRequest {
@@ -181,6 +257,8 @@ export interface AdventureStreamEvent {
     | "turn"
     | "image"
     | "portrait_image"
+    | "partner_image"
+    | "background_image"
     | "complete"
     | "error";
   data: Record<string, unknown>;
@@ -200,6 +278,12 @@ function normalizeRun(run: AdventureRun): AdventureRun {
     // 旧runやモック応答にキーが無くても表示側が undefined を掴まないようにする
     narration_voice: run.narration_voice ?? "second_person",
     narration_pronoun: run.narration_pronoun || "僕",
+    sim: run.sim ?? null,
+    opening_sim: run.opening_sim ?? null,
+    partner_portrait_url: withApiBase(run.partner_portrait_url ?? null),
+    opening_partner_portrait_url: withApiBase(
+      run.opening_partner_portrait_url ?? null,
+    ),
     current_image_url: withApiBase(run.current_image_url) ?? "",
     opening_image_url:
       withApiBase(run.opening_image_url) ??
@@ -214,6 +298,8 @@ function normalizeRun(run: AdventureRun): AdventureRun {
       ...turn,
       image_url: withApiBase(turn.image_url),
       portrait_image_url: withApiBase(turn.portrait_image_url),
+      partner_portrait_url: withApiBase(turn.partner_portrait_url ?? null),
+      background_image_url: withApiBase(turn.background_image_url ?? null),
     })),
   };
 }
@@ -278,6 +364,42 @@ export async function deleteAdventureRun(runId: string): Promise<void> {
   if (!response.ok) throw new Error(response.statusText);
 }
 
+/** 操作(ターン送信・ギフト・属性付与など)を受け付ける状態か。
+ * 進行中に加え、終了後でもエピローグ移行済みなら操作できる */
+export function canActOnRun(
+  run: Pick<AdventureRun, "status" | "epilogue"> | null | undefined,
+): boolean {
+  if (!run) return false;
+  return run.status === "active" || Boolean(run.epilogue);
+}
+
+/** 指定手番の完了時点まで巻き戻す(それ以降のターンは削除される) */
+export async function rewindAdventureRun(
+  runId: string,
+  turnNumber: number,
+): Promise<AdventureRun> {
+  const run = await requestJson<AdventureRun>(
+    `${API_BASE}/adventure/runs/${runId}/rewind`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ turn_number: turnNumber }),
+    },
+  );
+  return normalizeRun(run);
+}
+
+/** 終了済み run をエピローグ(継続プレイ)へ移行する */
+export async function startAdventureEpilogue(
+  runId: string,
+): Promise<AdventureRun> {
+  const run = await requestJson<AdventureRun>(
+    `${API_BASE}/adventure/runs/${runId}/epilogue`,
+    { method: "POST" },
+  );
+  return normalizeRun(run);
+}
+
 async function readSse(
   response: Response,
   onEvent: (event: AdventureStreamEvent) => void,
@@ -317,7 +439,15 @@ export async function streamAdventureTurn(
   body: {
     client_turn_id: string;
     user_input: string;
-    input_kind: "choice" | "free_text" | "reality_alter";
+    input_kind: AdventureInputKind;
+    /** romance のプレゼント贈呈時のみ指定する */
+    gift_id?: string;
+    /** false のとき主人公の立ち絵の毎ターン生成を省略する(精密参照OFFかつ非合成モードのみ有効) */
+    generate_portrait?: boolean;
+    /** false のとき攻略対象(romance)の立ち絵の毎ターン生成を省略する。条件は同上 */
+    generate_partner_portrait?: boolean;
+    /** false のとき新しい手掛かり(romanceではヒント)を抽出しない。判定処理自体は走るため時間短縮はわずか */
+    generate_clues?: boolean;
   },
   onEvent: (event: AdventureStreamEvent) => void,
 ): Promise<void> {
