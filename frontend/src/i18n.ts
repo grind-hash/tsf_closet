@@ -176,6 +176,9 @@ const resources = {
           "{{min}}〜{{max}}手。多いほど手掛かりの探索や周辺の調査に余裕が生まれます。そのぶん場面画像の生成回数とプレイ時間は増えます。自動生成するゴールもこの手数に合わせた規模になります",
         generateSetup: "ミッション案を自動生成",
         generatingSetup: "ミッション案を生成中...",
+        scenario: "シナリオ",
+        scenarioTitleLabel: "タイトル",
+        scenarioDeadline: "{{days}}日間",
         setting: "舞台",
         settingPlaceholder: "自動生成するか、舞台を入力",
         goal: "ゴール",
@@ -203,13 +206,13 @@ const resources = {
           first_person: "例: {{pronoun}}は二人に声をかけた",
         },
         narrationPronoun: "一人称",
-        imageGenOptions: "画像生成オプション",
+        imageGenOptions: "生成オプション",
         imageSettings: "画像生成設定",
         preciseReference: "精密参照画像を使う",
         preciseReferenceHint:
-          "OFFが既定です。ONにすると開始画像をNovelAI精密参照に使い、参照1枚あたりAnlasを追加消費します。顔の固定が強まります。",
+          "OFFが既定です。ONにすると開始画像をNovelAI精密参照に使い、参照1枚あたり5 Anlasを追加消費します。顔の固定が強まります。",
         preciseReferencePlayHint:
-          "次回の画像生成から反映されます。ONにすると参照1枚あたりAnlasを追加消費します。",
+          "次回の画像生成から反映されます。ONにすると参照1枚あたり5 Anlasを追加消費します。",
         enableCompositeScene: "背景と人物を同時に描く",
         enableCompositeSceneHint:
           "OFFが既定です。既定では背景は開始時に1回だけ生成し、行動に応じて中央の立ち絵のみ更新します。ONにすると、立ち絵の更新後に背景を含む合成シーンも直列で再生成するため、1ターンあたりの画像生成が2回になり待ち時間が長くなります。",
@@ -221,6 +224,10 @@ const resources = {
         drawPartnerEveryTurn: "攻略対象の立ち絵を毎ターン描く",
         drawPartnerEveryTurnHint:
           "ONが既定です。OFFにすると攻略対象の立ち絵を更新せず、直前の立ち絵のまま進行します。この設定はブラウザごとに保存されます。",
+        generateClues: "手掛かり・ヒントを抽出する",
+        generateCluesHint:
+          "ONが既定です。OFFにすると新しい手掛かり（恋愛シミュレーションではヒント）を記録しません。判定処理自体は残るため、時間短縮はわずかです。この設定はブラウザごとに保存されます。",
+        turnTimeEstimate: "1ターンの生成時間: 約{{seconds}}秒",
         portraitAlt: "主人公のポートレート",
         portraitFailed: "立ち絵の生成に失敗しました",
         portraitRetry: "立ち絵を再生成",
@@ -295,6 +302,8 @@ const resources = {
         regeneratingChoices: "選択肢を生成中...",
         emptyChoices:
           "選択肢がありません。再生成するか、下の入力欄から自由に行動してください。",
+        viewingPastControlsHint:
+          "過去の場面を表示しています。行動するには最新の場面へ戻ってください。",
         viewFullScreen: "場面画像を拡大表示",
         preview: {
           viewSwitch: "表示する画像を切り替え",
@@ -341,7 +350,7 @@ const resources = {
         },
         phase: {
           narrative: "物語を生成中...",
-          clue_check: "手掛かりを確認中...",
+          clue_check: "行動の結果を判定中...",
           judging: "次の展開を判定中...",
           image_generation: "場面画像を生成中...",
         },
@@ -353,9 +362,11 @@ const resources = {
         anlasDetail: "固定: {{fixed}} / 購入: {{purchased}}",
         anlasBadge: "精密参照",
         anlasWarnBody:
-          "精密参照が有効なため、このターンの画像生成で追加のAnlasを消費します。続行しますか？",
+          "精密参照が有効なため、このターンの画像生成で追加のAnlasを消費します（見積もり: {{estimate}}、1参照あたり5 Anlas）。続行しますか？",
         anlasWarnStartBody:
-          "精密参照が有効なため、開始時の画像生成から追加のAnlasを消費します。開始しますか？",
+          "精密参照が有効なため、開始時の画像生成から追加のAnlasを消費します（見積もり: {{estimate}}、1参照あたり5 Anlas）。開始しますか？",
+        anlasEstimateExact: "{{value}} Anlas",
+        anlasEstimateRange: "{{min}}〜{{max}} Anlas",
         status: {
           active: "進行中",
           success: "成功",
@@ -1554,6 +1565,9 @@ const resources = {
           "{{min}}-{{max}} turns. More turns leave room to search for clues and scout the surroundings, at the cost of more scene image generations and a longer playthrough. The generated goal is scaled to this budget.",
         generateSetup: "Generate Mission Setup",
         generatingSetup: "Generating mission setup...",
+        scenario: "Scenario",
+        scenarioTitleLabel: "Title",
+        scenarioDeadline: "{{days}} days",
         setting: "Setting",
         settingPlaceholder: "Generate or enter a setting",
         goal: "Goal",
@@ -1583,13 +1597,13 @@ const resources = {
           first_person: "e.g. I called out to the two of them",
         },
         narrationPronoun: "Pronoun",
-        imageGenOptions: "Image Generation Options",
+        imageGenOptions: "Generation Options",
         imageSettings: "Image Generation Settings",
         preciseReference: "Use precise character reference",
         preciseReferenceHint:
-          "Off by default. When on, the starting image is used as a NovelAI character reference and costs extra Anlas per reference, while face consistency improves.",
+          "Off by default. When on, the starting image is used as a NovelAI character reference and costs 5 extra Anlas per reference, while face consistency improves.",
         preciseReferencePlayHint:
-          "Applies from the next image generation. When on, each reference costs extra Anlas.",
+          "Applies from the next image generation. When on, each reference costs 5 extra Anlas.",
         enableCompositeScene: "Draw background and character together",
         enableCompositeSceneHint:
           "Off by default. By default, the background is generated once at the start, and only the centered character sprite updates as you act. When on, the full composite scene (including background) is also regenerated in series after each sprite update, so each turn runs two image generations and takes longer.",
@@ -1601,6 +1615,10 @@ const resources = {
         drawPartnerEveryTurn: "Draw partner sprite every turn",
         drawPartnerEveryTurnHint:
           "On by default. When off, the partner sprite is not updated; play continues with the previous sprite. This preference is saved per browser.",
+        generateClues: "Extract clues and hints",
+        generateCluesHint:
+          "On by default. When off, new clues (hints in the romance simulation) are not recorded. The resolution step still runs, so the time saved is small. This preference is saved per browser.",
+        turnTimeEstimate: "Estimated time per turn: about {{seconds}}s",
         portraitAlt: "Protagonist portrait",
         portraitFailed: "Character sprite generation failed",
         portraitRetry: "Regenerate sprite",
@@ -1675,6 +1693,8 @@ const resources = {
         regeneratingChoices: "Generating choices...",
         emptyChoices:
           "No choices available. Regenerate them, or type an action in the field below.",
+        viewingPastControlsHint:
+          "This is a past scene. Return to the latest scene to act.",
         viewFullScreen: "View the scene image in full screen",
         preview: {
           viewSwitch: "Switch the displayed image",
@@ -1721,7 +1741,7 @@ const resources = {
         },
         phase: {
           narrative: "Writing the next scene...",
-          clue_check: "Checking for clues...",
+          clue_check: "Resolving the turn outcome...",
           judging: "Resolving the next scene...",
           image_generation: "Generating the scene image...",
         },
@@ -1733,9 +1753,11 @@ const resources = {
         anlasDetail: "Fixed: {{fixed}} / Purchased: {{purchased}}",
         anlasBadge: "Precise ref.",
         anlasWarnBody:
-          "Precise reference is enabled, so this turn's image generation will consume additional Anlas. Continue?",
+          "Precise reference is enabled, so this turn's image generation will consume additional Anlas (estimated {{estimate}}; 5 Anlas per reference). Continue?",
         anlasWarnStartBody:
-          "Precise reference is enabled, so additional Anlas will be consumed starting with the opening image generation. Start the run?",
+          "Precise reference is enabled, so additional Anlas will be consumed starting with the opening image generation (estimated {{estimate}}; 5 Anlas per reference). Start the run?",
+        anlasEstimateExact: "{{value}} Anlas",
+        anlasEstimateRange: "{{min}}–{{max}} Anlas",
         status: {
           active: "Active",
           success: "Success",

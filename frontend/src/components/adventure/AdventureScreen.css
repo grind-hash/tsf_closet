@@ -332,6 +332,13 @@
   max-width: none;
 }
 
+/* 現在の生成設定から算出した1ターンの所要時間の目安 */
+.adventure-turn-estimate {
+  margin: 4px 0 0;
+  color: #9aa5b1;
+  font-size: 0.78rem;
+}
+
 .adventure-disabled-reason {
   margin: 0;
   color: #efb85a;
@@ -929,6 +936,7 @@ button:disabled {
 .adventure-hud__tile,
 .adventure-hud__turns,
 .adventure-hud__anlas,
+.adventure-hud__scenario-trigger,
 .adventure-hud__location {
   pointer-events: auto;
 }
@@ -976,11 +984,38 @@ button:disabled {
 }
 
 /*
+ * ゴール行全体をシナリオ情報ポップオーバーの開閉ボタンにする。
+ * 見た目は従来の h1 と同じで、幅は増やさない。
+ */
+.adventure-hud__scenario-trigger {
+  display: flex;
+  min-width: 0;
+  max-width: 100%;
+  align-items: baseline;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: none;
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.adventure-hud__scenario-trigger > i {
+  flex: 0 0 auto;
+  color: #8a949d;
+  font-size: 0.6rem;
+  font-style: normal;
+}
+
+/*
  * 省略記号は flex コンテナ自身では効かない。
  * ゴール文だけを子ブロックに閉じ込めて ellipsis を付ける。
- * 全文はツールチップ(title 属性)で確認できる。
+ * 全文はシナリオポップオーバーとツールチップ(title 属性)で確認できる。
  */
-.adventure-hud__title h1 > span {
+.adventure-hud__scenario-trigger > span {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1208,6 +1243,35 @@ button:disabled {
   color: #aeb7bf;
   font-size: 0.72rem;
   line-height: 1.5;
+}
+
+/* シナリオ定義(タイトル・舞台・ゴール・制約)の全文表示 */
+.adventure-hud__scenario {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+
+.adventure-hud__scenario dt {
+  margin: 0 0 2px;
+  color: #8a949d;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.adventure-hud__scenario dd {
+  margin: 0;
+  color: #cbd2d7;
+  font-size: 0.8rem;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.adventure-hud__scenario dd ul {
+  display: grid;
+  gap: 4px;
+  padding: 0;
+  list-style: none;
 }
 
 /*
@@ -2347,6 +2411,14 @@ button:disabled {
   flex: 0 0 auto;
   margin: 0;
   color: #efb85a;
+  font-size: 0.8rem;
+}
+
+/* 過去フレーム閲覧中に行動UIの代わりに出す案内文 */
+.adventure-controls__past-hint {
+  flex: 0 0 auto;
+  margin: 0;
+  color: #9aa5b1;
   font-size: 0.8rem;
 }
 

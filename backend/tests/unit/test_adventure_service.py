@@ -54,6 +54,7 @@ from gateway.services.adventure_service import (
     _previous_choice_labels,
     _merge_scene_tags,
     _romance_partner_scene_reference,
+    _romance_replay_player_selection,
     _romance_template_player_appearance,
     _sanitize_choices,
     _template_visual_style,
@@ -3750,3 +3751,63 @@ async def test_start_epilogue_validation_and_idempotency(tmp_path, monkeypatch) 
     second = await service.start_epilogue("run-1")
     assert second["epilogue"] is True
     await engine.dispose()
+
+
+def test_romance_replay_player_selection_restores_stored_choice() -> None:
+    # テンプレートキャラクター形式
+    assert _romance_replay_player_selection(
+        {"sim": {"player_character_id": "char2"}}
+    ) == ("char2", None, None)
+    # セッション形式は時点IDも復元する
+    assert _romance_replay_player_selection(
+        {"sim": {"player_character_id": "session:abc", "player_history_id": "42"}}
+    ) == (None, "abc", "42")
+    # 時点IDを持たない旧runはセッションの現在状態
+    assert _romance_replay_player_selection(
+        {"sim": {"player_character_id": "session:abc"}}
+    ) == (None, "abc", None)
+    # 主人公情報のないさらに古いrunは既定キャラクターへフォールバック
+    assert _romance_replay_player_selection({"sim": {}}) == (None, None, None)
+    assert _romance_replay_player_selection({}) == (None, None, None)
+
+
+def test_apply_appearance_lock_updates_lock_only_on_alter_turn() -> None:
+    service = AdventureService()
+    state = {"appearance_lock": "1boy, black hair, short hair"}
+    altered = AdventureVisualState(
+        location="street",
+        appearance="1boy, black hair, short hair, cat ears",
+        main_characters=[],
+    )
+    service._apply_appearance_lock(state, altered, allow_update=True)
+    assert state["appearance_lock"] == "1boy, black hair, short hair, cat ears"
+    assert altered.appearance == "1boy, black hair, short hair, cat ears"
+
+    # 通常ターンは更新後のロックで従来どおり上書きされる
+    drifted = AdventureVisualState(
+        location="street", appearance="blonde hair", main_characters=[]
+    )
+    service._apply_appearance_lock(state, drifted)
+    assert drifted.appearance == "1boy, black hair, short hair, cat ears"
+
+    # alter ターンでも空白のみの出力はロックを更新せず従来適用へ倒す
+    blank = AdventureVisualState(location="street", appearance=" ", main_characters=[])
+    service._apply_appearance_lock(state, blank, allow_update=True)
+    assert state["appearance_lock"] == "1boy, black hair, short hair, cat ears"
+    assert blank.appearance == "1boy, black hair, short hair, cat ears"
+
+
+def test_resolution_prompt_disables_clue_tracking_when_off() -> None:
+    service = AdventureService()
+    disabled = service._resolution_system_prompt("ja", include_clues=False)
+    assert "discovered_clues must always be an empty list" in disabled
+    assert "discovered_clues must always be an empty list" not in (
+        service._resolution_system_prompt("ja")
+    )
+
+
+def test_visual_prompt_allows_declared_reality_changes_only() -> None:
+    service = AdventureService()
+    prompt = service._visual_system_prompt("ja")
+    assert "reality_rule_declared_this_turn declares a change" in prompt
+    assert "reality_rules are established facts of this world" in prompt

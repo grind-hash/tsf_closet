@@ -656,3 +656,49 @@ def test_guidance_defines_half_day_granularity() -> None:
     assert "next_slot" in ROMANCE_RESOLUTION_GUIDANCE
     assert "romance_next_slot" in ROMANCE_RESOLUTION_GUIDANCE
     assert "shaking hands" in ROMANCE_RESOLUTION_GUIDANCE
+
+
+def test_init_state_stores_player_history_id() -> None:
+    sim = init_romance_state(
+        make_setup(),
+        14,
+        rng=random.Random(0),
+        player_character_id="session:abc",
+        player_history_id="42",
+    )
+    assert sim["player_history_id"] == "42"
+    # リプレイ用の内部データであり、公開ビューには載せない
+    assert "player_history_id" not in public_sim_view(sim, turn_count=0)
+
+
+def test_alter_turn_updates_partner_appearance_only_on_alter() -> None:
+    sim = make_sim(partner_appearance="brown hair, school uniform")
+    apply_romance_outcome(
+        {"sim": sim},
+        make_output(),
+        {"kind": "alter"},
+        make_romance_output(updated_partner_appearance=" cat ears, silver hair "),
+    )
+    assert sim["partner_appearance"] == "cat ears, silver hair"
+
+    # 非alterターンの申告は無視される
+    apply_romance_outcome(
+        {"sim": sim},
+        make_output(),
+        {"kind": "talk"},
+        make_romance_output(updated_partner_appearance="blonde hair"),
+    )
+    assert sim["partner_appearance"] == "cat ears, silver hair"
+
+    # alterターンでも空白のみの申告は採用しない
+    apply_romance_outcome(
+        {"sim": sim},
+        make_output(),
+        {"kind": "alter"},
+        make_romance_output(updated_partner_appearance=" "),
+    )
+    assert sim["partner_appearance"] == "cat ears, silver hair"
+
+
+def test_resolution_guidance_mentions_partner_appearance_field() -> None:
+    assert "updated_partner_appearance" in ROMANCE_RESOLUTION_GUIDANCE

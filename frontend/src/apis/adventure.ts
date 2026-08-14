@@ -446,6 +446,8 @@ export async function streamAdventureTurn(
     generate_portrait?: boolean;
     /** false のとき攻略対象(romance)の立ち絵の毎ターン生成を省略する。条件は同上 */
     generate_partner_portrait?: boolean;
+    /** false のとき新しい手掛かり(romanceではヒント)を抽出しない。判定処理自体は走るため時間短縮はわずか */
+    generate_clues?: boolean;
   },
   onEvent: (event: AdventureStreamEvent) => void,
 ): Promise<void> {

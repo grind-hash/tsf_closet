@@ -110,6 +110,9 @@ class AdventureTurnRequest(BaseModel):
     generate_portrait: bool = True
     # false のとき攻略対象(romance)の立ち絵の毎ターン生成を省略する。条件は同上
     generate_partner_portrait: bool = True
+    # false のとき、この手番では新しい手掛かりを抽出しない。判定処理自体は
+    # 走るため時間短縮はわずか。作品シナリオの決定論的な手掛かりには影響しない
+    generate_clues: bool = True
 
 
 class AdventureImageRequest(BaseModel):
@@ -249,6 +252,7 @@ async def play_turn(run_id: str, request: AdventureTurnRequest) -> EventSourceRe
                 gift_id=request.gift_id,
                 generate_portrait=request.generate_portrait,
                 generate_partner_portrait=request.generate_partner_portrait,
+                generate_clues=request.generate_clues,
             ):
                 yield {
                     "event": event["event"],

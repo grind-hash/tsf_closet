@@ -287,8 +287,11 @@ test("start a romance run with day select and show the romance HUD", async ({
     scenario_max_turns: 14,
     romance_player_character_id: "char1",
   });
-  // romance HUD: Day/時間帯・好感度・所持金
-  await expect(page.getByText("Day 1/7")).toBeVisible();
+  // romance HUD: Day/時間帯・好感度・所持金(タイルはラベルと値が別要素)
+  const dayTile = page.locator(".adventure-hud__day");
+  await expect(dayTile).toContainText("Day");
+  await expect(dayTile).toContainText("1/7");
+  await expect(dayTile).toContainText("昼");
   await expect(page.getByText("好感度")).toBeVisible();
   await expect(page.getByText("所持金")).toBeVisible();
   await expect(page.getByText("5,000")).toBeVisible();
@@ -329,8 +332,15 @@ test("show heroine info in the romance turn detail modal", async ({ page }) => {
         portrait_image_url: IMAGE,
         portrait_status: "completed",
         created_at: "2026-08-01T00:10:00",
-        // ターン確定時点の公開シミュ状態（run GET の turns に載る）
-        sim: simPayload({ day: 2, slot: "day", affection: 13 }),
+        // ターン確定時点の公開シミュ状態（run GET の turns に載る）。
+        // 手番2が描いている枠はサーバ導出の scene_day/scene_slot で伝わる
+        sim: simPayload({
+          day: 2,
+          slot: "day",
+          scene_day: 1,
+          scene_slot: "night",
+          affection: 13,
+        }),
         partner_note: "グラスを受け取り、口元に微笑みを浮かべている",
         partner_portrait_url: "/mock-partner-turn.png",
       },
@@ -382,6 +392,12 @@ test("show heroine info in the romance turn detail modal", async ({ page }) => {
   await page.getByAltText("手番 0 の場面").click();
   await expect(page.getByText("過去の場面を表示中")).toBeVisible();
   await expect(page.getByAltText("攻略対象の立ち絵")).toBeVisible();
+  // 過去閲覧中は行動UIの代わりに案内文が出て、選択肢は残らない
+  await expect(
+    page.getByText("行動するには最新の場面へ戻ってください"),
+  ).toBeVisible();
+  await expect(page.locator(".adventure-choices")).toHaveCount(0);
+  await expect(page.locator(".adventure-romance-actions")).toHaveCount(0);
 });
 
 test("player can be a transformed state from a session", async ({ page }) => {
@@ -517,6 +533,8 @@ test("precise reference shows an Anlas confirmation before submitting a turn", a
   // 選択肢クリックでは送信されず、確認ダイアログが出る
   await page.getByRole("button", { name: /美咲に話しかける/ }).click();
   await expect(page.getByText("Anlas 追加消費の確認")).toBeVisible();
+  // 合成OFFのromanceターンは立ち絵2枚(参照2枚)で見積もり10 Anlas
+  await expect(page.getByText("見積もり: 10 Anlas")).toBeVisible();
   expect(state.streamBodies).toHaveLength(0);
 
   // キャンセルで閉じ、送信もされない
@@ -551,15 +569,25 @@ test("precise reference shows an Anlas confirmation before starting a run", asyn
   );
   // 精密参照トグルは折りたたみ内。トグルスイッチ化で素のcheckboxは
   // 非表示のため、セクションを開いてからラベルをクリックして切り替える
-  await page.getByText("画像生成オプション").click();
+  await page.getByText("生成オプション", { exact: true }).click();
   await page
-    .locator("label.adventure-precise-toggle", { hasText: "精密参照画像を使う" })
+    .locator("label.adventure-precise-toggle", {
+      hasText: "精密参照画像を使う",
+    })
     .click();
   await expect(page.getByLabel(/精密参照画像を使う/)).toBeChecked();
+  await page
+    .locator("label.adventure-precise-toggle", {
+      hasText: "背景と人物を同時に描く",
+    })
+    .click();
+  await expect(page.getByLabel(/背景と人物を同時に描く/)).toBeChecked();
 
   // 開始クリックでは run を作らず、確認ダイアログが出る
   await page.getByRole("button", { name: "シナリオを開始" }).click();
   await expect(page.getByText("Anlas 追加消費の確認")).toBeVisible();
+  // 合成ONのromance開始は立ち絵2枚+合成シーン1〜2枚で見積もり15〜20 Anlas
+  await expect(page.getByText("見積もり: 15〜20 Anlas")).toBeVisible();
   expect(state.createBodies).toHaveLength(0);
 
   // キャンセルで閉じ、作成もされない
@@ -575,4 +603,291 @@ test("precise reference shows an Anlas confirmation before starting a run", asyn
   expect(state.createBodies[0]).toMatchObject({
     use_precise_reference: true,
   });
+});
+
+test("a played romance run can be selected and replayed", async ({ page }) => {
+  await enableAdventure(page);
+  const saved = romanceRunPayload(14, {
+    id: "saved-romance-1",
+    title: "以前の恋愛シミュレーション",
+    status: "success",
+    turn_count: 14,
+    remaining_turns: 0,
+  });
+  const state = await mockRomanceApis(page);
+  // 一覧に済み romance run を載せ、POST は通常どおり記録する
+  await page.route("**/api/adventure/runs", async (route) => {
+    if (route.request().method() === "POST") {
+      state.createBodies.push(
+        route.request().postDataJSON() as Record<string, unknown>,
+      );
+      await route.fulfill({ status: 201, json: romanceRunPayload() });
+    } else {
+      await route.fulfill({ json: { runs: [saved] } });
+    }
+  });
+  await page.goto("/adventure");
+
+  // 開始方式「シナリオを選ぶ」からピッカーを開くと romance も候補に並ぶ
+  await page.getByRole("button", { name: "シナリオを選ぶ" }).click();
+  const dialog = page.getByRole("dialog", { name: "シナリオを選ぶ" });
+  await dialog.getByRole("tab", { name: "プレイしたシナリオ" }).click();
+  await dialog
+    .getByRole("button", { name: /以前の恋愛シミュレーション/ })
+    .click();
+
+  await expect(
+    page
+      .locator(".adventure-selected-scenario")
+      .getByText("以前の恋愛シミュレーション", { exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "シナリオを開始" }).click();
+
+  await expect(page).toHaveURL(/\/adventure\/run-1$/);
+  expect(state.createBodies[0]).toMatchObject({
+    preset: "romance",
+    replay_run_id: "saved-romance-1",
+  });
+  // 主人公の選択はリクエストに載せず、サーバが元 run の sim から復元する
+  expect(state.createBodies[0]).not.toHaveProperty(
+    "romance_player_character_id",
+  );
+});
+
+test("finished romance run offers replay from the result modal", async ({
+  page,
+}) => {
+  await enableAdventure(page);
+  const finished = romanceRunPayload(14, {
+    status: "success",
+    turn_count: 14,
+    remaining_turns: 0,
+    ending_title: "恋の成就",
+    ending_summary: "ふたりは想いを重ね、恋人として歩き出した。",
+    completed_milestones: [
+      "become_friends",
+      "mutual_interest",
+      "mutual_love",
+      "start_dating",
+    ],
+    choices: [],
+  });
+  await mockRomanceApis(page, finished);
+  // ハブの一覧にも同じ run を載せ、リプレイ選択を解決できるようにする
+  await page.route("**/api/adventure/runs", async (route) => {
+    if (route.request().method() === "POST") {
+      await route.fulfill({ status: 201, json: romanceRunPayload() });
+    } else {
+      await route.fulfill({ json: { runs: [finished] } });
+    }
+  });
+  await page.goto("/adventure/run-1");
+
+  const result = page.getByRole("dialog", { name: "恋の成就" });
+  await expect(result).toBeVisible();
+  await result.getByRole("button", { name: "同じシナリオをもう一度" }).click();
+
+  await expect(page).toHaveURL(/\/adventure$/);
+  await expect(
+    page
+      .locator(".adventure-selected-scenario")
+      .getByText("恋愛シミュレーション", { exact: true }),
+  ).toBeVisible();
+  await expect(page.locator(".adventure-selected-scenario")).toContainText(
+    "プレイしたシナリオ",
+  );
+});
+
+test("scenario chip shows title, setting, goal and constraints during play", async ({
+  page,
+}) => {
+  await enableAdventure(page);
+  await mockRomanceApis(page);
+  await page.goto("/adventure/run-1");
+
+  // HUD のゴール行(タイトル領域)がシナリオ情報の開閉ボタンを兼ねる
+  await page.locator(".adventure-hud__scenario-trigger").click();
+  const popover = page.getByRole("dialog", { name: "シナリオ" });
+  await expect(popover).toContainText("タイトル");
+  await expect(popover).toContainText("恋愛シミュレーション");
+  await expect(popover).toContainText("舞台");
+  await expect(popover).toContainText("学園近くの商店街");
+  await expect(popover).toContainText("ゴール");
+  await expect(popover).toContainText(
+    "7日以内に美咲と想いを通わせ、交際を始める",
+  );
+  await expect(popover).toContainText("制約");
+  await expect(popover).toContainText("美咲は放課後しか会えない");
+  // romance は日数(期限)も出す
+  await expect(popover).toContainText("日数");
+  await expect(popover).toContainText("7日間");
+});
+
+test("choices and romance actions hide while a turn is streaming", async ({
+  page,
+}) => {
+  await enableAdventure(page);
+  await mockRomanceApis(page);
+  let releaseTurn: (() => void) | undefined;
+  let turnDone = false;
+  const turnTemplate = {
+    id: "turn-1",
+    turn_number: 1,
+    client_turn_id: "client-1",
+    user_input: "美咲に話しかける",
+    input_kind: "choice",
+    narrative: "ふたりの距離が少し縮まった。",
+    location: "商店街の書店",
+    choices: romanceRunPayload().choices,
+    image_url: null,
+    image_status: "not_requested",
+    portrait_image_url: IMAGE,
+    portrait_status: "completed",
+    created_at: "2026-08-01T00:10:00",
+    run_status: "active",
+    remaining_turns: 13,
+    clues: [],
+    completed_milestones: [],
+    sim: simPayload({ slot: "night", affection: 13 }),
+  };
+  // ストリーム完了後の run 全再取得でターンが載っているようにする
+  await page.route("**/api/adventure/runs/run-1", async (route) => {
+    await route.fulfill({
+      json: turnDone
+        ? romanceRunPayload(1, { turns: [turnTemplate] })
+        : romanceRunPayload(),
+    });
+  });
+  await page.route(
+    "**/api/adventure/runs/run-1/turns/stream",
+    async (route) => {
+      const body = route.request().postDataJSON() as Record<string, unknown>;
+      await new Promise<void>((resolve) => {
+        releaseTurn = resolve;
+      });
+      turnDone = true;
+      // client_turn_id は FE の識別に使われるため、リクエストの値を返す
+      const heldTurn = {
+        ...turnTemplate,
+        client_turn_id: String(body.client_turn_id ?? "client-1"),
+        user_input: String(body.user_input ?? ""),
+        input_kind: String(body.input_kind ?? "choice"),
+      };
+      await route.fulfill({
+        contentType: "text/event-stream",
+        body: `event: status\ndata: {"phase":"narrative"}\n\nevent: narrative_done\ndata: {"narrative":"ふたりの距離が少し縮まった。"}\n\nevent: turn\ndata: ${JSON.stringify(heldTurn)}\n\nevent: complete\ndata: {"status":"active"}\n\n`,
+      });
+    },
+  );
+  await page.goto("/adventure/run-1");
+
+  await expect(page.locator(".adventure-choices")).toBeVisible();
+  await page.getByRole("button", { name: /美咲に話しかける/ }).click();
+  // 生成中は前ターンの選択肢と行動ボタンを無効表示で残さず、丸ごと隠す
+  await expect(page.locator(".adventure-choices")).toHaveCount(0);
+  await expect(page.locator(".adventure-romance-actions")).toHaveCount(0);
+  // 自由入力欄は残す(フォーカス維持のため)
+  await expect(page.locator(".adventure-freeinput__field")).toBeVisible();
+
+  await expect.poll(() => Boolean(releaseTurn)).toBe(true);
+  releaseTurn?.();
+  await expect(page.getByText("ふたりの距離が少し縮まった。")).toBeVisible();
+  await expect(page.locator(".adventure-choices")).toBeVisible();
+  await expect(page.locator(".adventure-romance-actions")).toBeVisible();
+});
+
+test("partner tab stays available in composite mode", async ({ page }) => {
+  await enableAdventure(page);
+  await mockRomanceApis(
+    page,
+    romanceRunPayload(1, {
+      enable_composite_scene: true,
+      turns: [
+        {
+          id: "turn-1",
+          turn_number: 1,
+          client_turn_id: "c1",
+          user_input: "美咲に話しかける",
+          input_kind: "choice",
+          narrative: "彼女は少し驚いた顔をした。",
+          location: "商店街の書店",
+          choices: [
+            { id: "a", label: "感想を聞く" },
+            { id: "b", label: "隣に座る" },
+            { id: "c", label: "店を出る" },
+          ],
+          image_url: IMAGE,
+          image_status: "completed",
+          portrait_image_url: IMAGE,
+          portrait_status: "completed",
+          created_at: "2026-08-01T00:10:00",
+          sim: simPayload({ slot: "night", affection: 13 }),
+          partner_note: "本を抱えたまま、こちらを見つめている",
+          // 合成モードでは攻略対象立ち絵をターン生成しないため URL は無い
+          partner_portrait_url: null,
+        },
+      ],
+    }),
+  );
+  await page.goto("/adventure/run-1");
+
+  await page.locator(".adventure-stage__image-button").click();
+  const modal = page.locator(".image-preview-modal__overlay");
+  // 開幕の1枚を引き継いで攻略対象タブが使える
+  const partnerChip = modal.getByRole("button", { name: "攻略対象" });
+  await expect(partnerChip).toBeVisible();
+  await partnerChip.click();
+  await expect(modal.locator(".image-preview-modal__image")).toHaveAttribute(
+    "src",
+    /mock-partner\.png/,
+  );
+  // 前の手番(開幕)へ送ってもタブ選択は維持される
+  await page.locator(".image-preview-modal__nav--prev").click();
+  await expect(partnerChip).toHaveAttribute("aria-pressed", "true");
+  await expect(modal.locator(".image-preview-modal__image")).toHaveAttribute(
+    "src",
+    /mock-partner\.png/,
+  );
+});
+
+test("clue extraction toggle rides the turn request when off", async ({
+  page,
+}) => {
+  await enableAdventure(page);
+  await page.addInitScript(() => {
+    window.localStorage.setItem("adventure_generate_clues", "false");
+  });
+  const state = await mockRomanceApis(page);
+  await page.goto("/adventure/run-1");
+
+  // プレイ中ポップオーバーにもトグルが出て、OFF 状態を映す
+  await page.getByRole("button", { name: "画像生成設定" }).click();
+  await expect(page.getByLabel(/手掛かり・ヒントを抽出する/)).not.toBeChecked();
+  await page.keyboard.press("Escape");
+
+  await page.getByRole("button", { name: /美咲に話しかける/ }).click();
+  await expect(page.getByText("ふたりの距離が少し縮まった。")).toBeVisible();
+  expect(state.streamBodies[0]).toMatchObject({ generate_clues: false });
+});
+
+test("turn time estimate follows the image settings", async ({ page }) => {
+  await enableAdventure(page);
+  await mockRomanceApis(page);
+  await page.route("**/api/adventure/runs/run-1/settings", async (route) => {
+    const body = route.request().postDataJSON() as Record<string, unknown>;
+    await route.fulfill({ json: { ...romanceRunPayload(), ...body } });
+  });
+  await page.goto("/adventure/run-1");
+
+  await page.getByRole("button", { name: "画像生成設定" }).click();
+  // 既定(非合成・立ち絵2種ON)は 主人公18秒+攻略対象18秒+ベース20秒 → 約55秒
+  await expect(page.getByText("1ターンの生成時間: 約55秒")).toBeVisible();
+  // 合成ONは 立ち絵+合成シーンの直列2枚 → 約60秒
+  await page
+    .locator(
+      ".adventure-image-settings-popover label.adventure-precise-toggle",
+      { hasText: "背景と人物を同時に描く" },
+    )
+    .click();
+  await expect(page.getByText("1ターンの生成時間: 約60秒")).toBeVisible();
 });

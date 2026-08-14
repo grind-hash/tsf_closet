@@ -163,7 +163,8 @@ async function mockAdventureApis(
   });
   await page.route("**/api/adventure/setup/generate", async (route) => {
     const request = route.request().postDataJSON() as { preset: string };
-    expect(request.preset).toBe("infiltration");
+    // 潜入は選択肢から外れたため、テストは「なりすまし・着替え」で生成する
+    expect(request.preset).toBe("disguise");
     await route.fulfill({
       json: {
         setting: "企業主催の仮面舞踏会",
@@ -250,10 +251,11 @@ test("create and play an adventure from a session state", async ({ page }) => {
   await expect(
     page.getByRole("heading", { name: "TSFシナリオ" }),
   ).toBeVisible();
-  await expect(page.getByRole("button", { name: /^潜入/ })).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
+  // 既定ミッションは恋愛シミュレーション(潜入は非表示)
+  await expect(
+    page.getByRole("button", { name: /^恋愛シミュレーション/ }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", { name: /^なりすまし・着替え/ }).click();
   await expect(
     page.getByRole("button", { name: "シナリオを開始" }),
   ).toBeDisabled();
@@ -605,8 +607,32 @@ test("turn submission streams the narrative before the clue check", async ({
   await page.getByRole("button", { name: "受付を観察する" }).click();
   await expect(page.getByRole("status")).toContainText("物語を生成中...");
   await expect(page.locator(".adventure-progress")).toBeHidden();
+  // 生成中は前ターンの選択肢を無効表示で残さず、丸ごと隠す
+  await expect(page.locator(".adventure-choices")).toHaveCount(0);
   releaseTurn?.();
   await expect(page.getByRole("status")).toBeHidden();
+  await expect(page.locator(".adventure-choices")).toBeVisible();
+});
+
+test("setup shows a turn time estimate that follows the toggles", async ({
+  page,
+}) => {
+  await enableAdventure(page);
+  await mockAdventureApis(page);
+  await page.goto("/adventure");
+
+  // 既定ミッションは romance のため、攻略対象立ち絵を含まない preset に切り替える
+  await page.getByRole("button", { name: /^なりすまし・着替え/ }).click();
+  await page.getByText("生成オプション", { exact: true }).click();
+  // 既定(非合成・主人公立ち絵を毎ターン描く)は 18秒+ベース20秒 → 約40秒
+  await expect(page.getByText("1ターンの生成時間: 約40秒")).toBeVisible();
+  // 立ち絵の毎ターン描画をOFFにすると画像生成なしの約20秒
+  await page
+    .locator("label.adventure-precise-toggle", {
+      hasText: "主人公の立ち絵を毎ターン描く",
+    })
+    .click();
+  await expect(page.getByText("1ターンの生成時間: 約20秒")).toBeVisible();
 });
 
 test("declared reality rules are surfaced in the HUD", async ({ page }) => {

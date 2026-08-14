@@ -40,6 +40,10 @@ export type AdventurePhase = "narrative" | "clue_check" | "image_generation";
 export const DRAW_PORTRAIT_STORAGE_KEY = "adventure_draw_portrait_every_turn";
 export const DRAW_PARTNER_STORAGE_KEY = "adventure_draw_partner_every_turn";
 
+// 手掛かり(恋愛ではヒント)を毎ターン抽出するかのブラウザ単位設定。
+// 判定LLM呼び出し自体は選択肢生成などのため常に走るので、OFFの時間短縮はわずか
+export const GENERATE_CLUES_STORAGE_KEY = "adventure_generate_clues";
+
 // 精密参照ONの画像生成(run開始・romanceのターン送信)はAnlasを消費するため、
 // 実行前に確認ダイアログを挟む。抑止はブラウザセッション単位(sessionStorage)
 export const ANLAS_WARN_SUPPRESSED_KEY = "adventure_anlas_warn_suppressed";
@@ -58,6 +62,10 @@ export function readDrawPortraitEveryTurn(): boolean {
 
 export function readDrawPartnerEveryTurn(): boolean {
   return readDrawEveryTurn(DRAW_PARTNER_STORAGE_KEY);
+}
+
+export function readGenerateClues(): boolean {
+  return readDrawEveryTurn(GENERATE_CLUES_STORAGE_KEY);
 }
 
 export type AdventureImageStep = "portrait" | "composite";
@@ -260,6 +268,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
             ...(generatePartnerPortrait
               ? {}
               : { generate_partner_portrait: false }),
+            ...(readGenerateClues() ? {} : { generate_clues: false }),
           },
           (event) => {
             if (event.type === "status") {

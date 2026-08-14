@@ -244,11 +244,14 @@ def init_romance_state(
     partner_appearance: str = "",
     player_name: str = "",
     player_character_id: str = "",
+    player_history_id: str = "",
 ) -> dict[str, Any]:
     """state_json["sim"] の初期値を組み立てる。hidden_preferences は隠し情報。
 
     開始セッションの人物は攻略対象(partner)であり、主人公(player)は
-    別途選択されたテンプレートキャラクター。
+    別途選択されたテンプレートキャラクター。player_history_id は
+    player_character_id が "session:{id}" 形式のときの時点IDで、
+    リプレイ時に同じ変身状態から始め直すために保存する。
     """
     rng = rng or random.Random()
     catalog = [
@@ -280,6 +283,7 @@ def init_romance_state(
         "relationship_origin": setup.relationship_origin,
         "player_name": player_name,
         "player_character_id": player_character_id,
+        "player_history_id": player_history_id,
         "job": {"name": setup.job_name, "wage": ROMANCE_WORK_WAGE},
         "gift_catalog": catalog,
         "hidden_preferences": {
@@ -476,6 +480,11 @@ def apply_romance_outcome(
             limit = ROMANCE_ALTER_DELTA_LIMIT
             affection += max(-limit, min(limit, llm_delta))
         _apply_preference_updates(sim, romance_output)
+        # 宣言が攻略対象の外見を書き換えた場合は sim へ反映し、以後のターンの
+        # 立ち絵フォールバック・ビジュアルプロンプトが新しい外見を使うようにする
+        updated_appearance = getattr(romance_output, "updated_partner_appearance", None)
+        if isinstance(updated_appearance, str) and updated_appearance.strip():
+            sim["partner_appearance"] = updated_appearance.strip()
     else:
         # work / gift / confess は Python 計算値のみを使う
         affection += int(romance_resolution.get("affection_delta") or 0)
@@ -666,7 +675,7 @@ ROMANCE_VISUAL_GUIDANCE = (
     "signature. player_tags must restate the player's sex tokens from that "
     "signature (for example male, 1boy or female, 1girl) so the player is "
     "never drawn as a different sex. The romance partner is an NPC whose "
-    "appearance is state.sim.partner_appearance plus any changes declared "
+    "appearance is romance_partner.appearance plus any changes declared "
     "through reality_rules: when the partner is present in the scene, include "
     "them in main_characters and npc_tags with that appearance, and never "
     "merge the partner's hair, face, body, or clothing into player_tags or "
@@ -678,7 +687,8 @@ ROMANCE_RESOLUTION_GUIDANCE = (
     '"affection_set" (integer or null), "money_delta" (integer), '
     '"money_set" (integer or null), "start_dating" (boolean), '
     '"updated_liked_gift_ids" (list of gift id strings), '
-    '"updated_disliked_gift_ids" (list of gift id strings). '
+    '"updated_disliked_gift_ids" (list of gift id strings), '
+    '"updated_partner_appearance" (string or null). '
     "For an ordinary conversation turn score affection_delta with this "
     "rubric: +2 when the partner receives the player's words positively, +3 "
     "when they strike her stated interests, dropped hints, or hidden wishes, "
@@ -698,8 +708,12 @@ ROMANCE_RESOLUTION_GUIDANCE = (
     "state.sim.confessed is already true; if it rewrites the partner's gift "
     "tastes, put "
     "the matching gift ids from state.sim.gift_catalog into the updated "
-    "lists; otherwise keep affection_set null, start_dating false, and the "
-    "lists empty. Money follows the same rule as affection. Keep money_delta "
+    "lists; if it changes the partner's body, hair, face, or overall "
+    "appearance, restate the partner's complete new appearance concisely in "
+    "updated_partner_appearance; otherwise keep affection_set null, "
+    "start_dating false, the lists empty, and updated_partner_appearance "
+    "null. Keep updated_partner_appearance null on every non-alter turn. "
+    "Money follows the same rule as affection. Keep money_delta "
     "0 and money_set null on conversation turns and whenever "
     "romance_resolution.kind is work, gift, or confess, because the engine "
     "has already applied every payment. Only when romance_resolution.kind is "

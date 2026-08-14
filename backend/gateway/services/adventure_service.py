@@ -421,6 +421,9 @@ class AdventureRomanceResolutionOutput(AdventureResolutionOutput):
     start_dating: bool = False
     updated_liked_gift_ids: list[str] = Field(default_factory=list, max_length=12)
     updated_disliked_gift_ids: list[str] = Field(default_factory=list, max_length=12)
+    # 宣言が攻略対象の外見を書き換えた場合のみ、変更後の外見全体を保持する。
+    # reality_alter ターン限定で sim["partner_appearance"] へ反映される
+    updated_partner_appearance: str | None = Field(default=None, max_length=600)
 
     @field_validator("affection_delta", mode="before")
     @classmethod
@@ -1159,6 +1162,31 @@ def _romance_prompt_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in snapshot.items() if key != "character_name"}
 
 
+def _romance_replay_player_selection(
+    replay_state: dict[str, Any],
+) -> tuple[str | None, str | None, str | None]:
+    """リプレイ元 run の sim から主人公の選択を復元する。
+
+    返り値は (character_id, session_id, history_id)。sim の player_character_id
+    は "session:{id}" 形式でセッション由来の主人公を表す。history_id を持たない
+    旧 run はセッションの現在状態から始め直す。player_character_id を持たない
+    さらに古い run は全て None を返し、既定キャラクターへフォールバックする。
+    """
+    replay_sim = (
+        replay_state["sim"] if isinstance(replay_state.get("sim"), dict) else {}
+    )
+    stored_player = str(replay_sim.get("player_character_id") or "")
+    if stored_player.startswith("session:"):
+        return (
+            None,
+            stored_player.removeprefix("session:"),
+            str(replay_sim.get("player_history_id") or "") or None,
+        )
+    if stored_player:
+        return stored_player, None, None
+    return None, None, None
+
+
 def _romance_partner_visual_entry(
     main_characters: list[Any], npc_tags: list[str], partner_name: str
 ) -> tuple[dict[str, str] | None, str]:
@@ -1201,6 +1229,8 @@ def _romance_partner_scene_reference(
     ターンに渡すと無関係な参照が絵を引っ張るため付けない。参照は開始素材の
     画像で、服装は変化し得るため常に弱参照にする。API には参照とキャラ枠を
     紐付ける手段が無く、どの人物へ効くかはモデルの照合に任せる。
+    現実改変で sim["partner_appearance"] が更新された後もこの参照画像は元の
+    ままとする(弱参照のためタグ側の新外見が優勢。差し替えはスコープ外)。
     """
     sim_state = state.get("sim")
     if not isinstance(sim_state, dict):
@@ -1828,6 +1858,7 @@ Keep the narrative under 800 characters. Never decide the player's feelings, con
         narration_voice: str = NARRATION_VOICE_DEFAULT,
         narration_pronoun: str = NARRATION_PRONOUN_DEFAULT,
         romance: bool = False,
+        include_clues: bool = True,
     ) -> str:
         response_language = "Japanese" if language == "ja" else "English"
         # 選択肢ラベルは行動フレーズなので、人称を載せない旨を併記する
@@ -1838,6 +1869,12 @@ Keep the narrative under 800 characters. Never decide the player's feelings, con
         )
         if romance:
             voice_rule = f"{ROMANCE_RESOLUTION_GUIDANCE}\n{voice_rule}"
+        # 手掛かり抽出OFF時もスキーマは変えず、常に空リストを要求するだけに留める
+        if not include_clues:
+            voice_rule = (
+                "Clue tracking is disabled for this turn: discovered_clues must "
+                "always be an empty list.\n" + voice_rule
+            )
         return f"""You resolve the mechanical outcome of one adventure turn that has already been narrated.
 Return one JSON object only, in {response_language}, matching this schema:
 {{"choices":[{{"id":"...","label":"..."}},{{"id":"...","label":"..."}},{{"id":"...","label":"..."}}],"discovered_clues":[],"completed_milestones":[],"ending_status":"continue|success|partial|failure","ending_title":null,"ending_summary":null}}
@@ -1861,7 +1898,7 @@ Base every value strictly on the supplied narrative and game state, and never in
 Return one JSON object only, matching this schema:
 {{"visual_state":{{"location":"...","appearance":"...","clothing":"...","surroundings":"...","main_characters":[{{"name":"...","description":"...","clothing":"...","action":"..."}}]}},"scene_tags":"...","player_tags":"...","npc_tags":["..."]}}
 Write visual_state values in {response_language}. Write scene_tags, player_tags, and npc_tags as concise English comma-separated tags.
-Derive visual_state from previous_visual_state, changing only what the narrative states. Treat required_visual_appearance as an immutable identity signature: copy its sex, hair color, hair length, hairstyle, eye color, and body features exactly into visual_state.appearance, and never replace or supplement those traits unless authored_template_resolution explicitly triggers that change. The player only puts on, removes, or changes clothing when player_input explicitly chose that action; otherwise keep previous_visual_state.clothing unchanged. Unless layering was explicitly requested, a new garment replaces the previous outfit. Keep visual_state concrete enough to illustrate the main characters, their clothing, and the surrounding location. main_characters contains NPCs, never the player.
+Derive visual_state from previous_visual_state, changing only what the narrative states. Treat required_visual_appearance as an immutable identity signature: copy its sex, hair color, hair length, hairstyle, eye color, and body features exactly into visual_state.appearance, and never replace or supplement those traits unless authored_template_resolution explicitly triggers that change, or reality_rule_declared_this_turn declares a change to the player's own body or identity; in that case rewrite visual_state.appearance to match the declared rule while keeping every unaffected trait, and when the declaration does not concern the player's own body, copy required_visual_appearance unchanged. reality_rules are established facts of this world; keep visual_state, player_tags, and npc_tags consistent with them. The player only puts on, removes, or changes clothing when player_input explicitly chose that action; otherwise keep previous_visual_state.clothing unchanged. Unless layering was explicitly requested, a new garment replaces the previous outfit. Keep visual_state concrete enough to illustrate the main characters, their clothing, and the surrounding location. main_characters contains NPCs, never the player.
 When previous_image_tags is provided, treat it as the wording a human editor deliberately chose: reuse its scene_tags, player_tags, and npc_tags as the starting point and edit them only where visual_state or the narrative now requires a change, preserving the rest of the original wording and phrasing style. When previous_image_tags is absent, write the tags from scratch.
 scene_tags contains only environment, camera, composition, lighting, and the observable interaction; it must not contain any character's gender, body, face, hair, or clothing. player_tags describes only the player from visual_state.appearance and visual_state.clothing. The player is always the primary subject in the center foreground. visual_state.clothing is authoritative and must never be replaced with an NPC outfit. npc_tags must contain one entry per NPC in main_characters, in the same order, describing only that NPC; every NPC is a secondary subject placed to the side or behind the player. Never merge player and NPC attributes. Do not add text, UI, split panels, or unstated changes. When authored_scene_tags is provided, reuse those environment tags as the base of scene_tags and only append concrete changes required by the narrative. When authored_visual_style is provided, keep visual_state.location and visual_state.surroundings aligned with it unless the narrative explicitly moves the scene to a new place after a successful exit.{layer_rule}{romance_rule}"""
 
@@ -1919,6 +1956,7 @@ scene_tags contains only environment, camera, composition, lighting, and the obs
         narration_voice: str = NARRATION_VOICE_DEFAULT,
         narration_pronoun: str = NARRATION_PRONOUN_DEFAULT,
         romance: bool = False,
+        include_clues: bool = True,
     ) -> AdventureResolutionOutput:
         return await self._generate_structured_output(
             AdventureRomanceResolutionOutput if romance else AdventureResolutionOutput,
@@ -1927,6 +1965,7 @@ scene_tags contains only environment, camera, composition, lighting, and the obs
                 narration_voice=narration_voice,
                 narration_pronoun=narration_pronoun,
                 romance=romance,
+                include_clues=include_clues,
             ),
             user_prompt=json.dumps(
                 {**turn_context, "narrative": narrative}, ensure_ascii=False
@@ -2011,6 +2050,7 @@ scene_tags contains only environment, camera, composition, lighting, and the obs
         previous_image_tags: dict[str, Any] | None = None,
         respect_clothing_layers: bool = False,
         romance: bool = False,
+        romance_partner: dict[str, Any] | None = None,
     ) -> AdventureVisualOutput:
         authored_scene_tags = str(turn_context.get("authored_scene_tags") or "").strip()
         authored_visual_style = turn_context.get("authored_visual_style")
@@ -2033,6 +2073,13 @@ scene_tags contains only environment, camera, composition, lighting, and the obs
                     "previous_visual_state": previous_visual,
                     "previous_image_tags": previous_image_tags,
                     "required_visual_appearance": appearance_lock,
+                    # 現実改変を外見へ反映させるための世界ルール。宣言ターンの
+                    # 検出は reality_rule_declared_this_turn で伝える
+                    "reality_rules": turn_context.get("reality_rules", []),
+                    "reality_rule_declared_this_turn": turn_context.get(
+                        "reality_rule_declared_this_turn"
+                    ),
+                    "romance_partner": romance_partner,
                 },
                 ensure_ascii=False,
             ),
@@ -2217,12 +2264,18 @@ The objective must name a concrete target and an observable end condition that c
                 str(replay_template_id) if replay_template_id else None
             )
             preset = replay_run.preset
-            # リプレイ分岐は state を引き継がず sim を再構築できないため対象外
             if preset == "romance":
-                raise AdventureError(
-                    "romance_replay_unsupported",
-                    "恋愛シミュレーションはもう一度遊ぶに対応していません",
-                )
+                # 同一シナリオ・新規simのリプレイ。攻略対象の素材と主人公の選択は
+                # 元runから引き継ぎ、相手プロフィール・ギフトカタログ・隠し好みは
+                # 後段の共通処理で毎回再生成される(意図した仕様)
+                source_session_id = replay_run.source_session_id or source_session_id
+                source_history_id = replay_run.source_history_id
+                if not (romance_player_character_id or romance_player_session_id):
+                    (
+                        romance_player_character_id,
+                        romance_player_session_id,
+                        romance_player_history_id,
+                    ) = _romance_replay_player_selection(replay_state)
         template = (
             SCENARIO_TEMPLATES.get(scenario_template_id)
             if scenario_template_id
@@ -2278,6 +2331,9 @@ The objective must name a concrete target and an observable end condition that c
             )
             title = replay_run.title
             max_turns = replay_run.max_turns
+            if effective_preset == "romance":
+                # 日数導出(max_turns//2)が旧runの異常値で壊れないよう境界へ丸める
+                max_turns = clamp_romance_max_turns(max_turns)
             scenario_guidance = str(preset_config["guidance"])
             opening_premise = ""
         else:
@@ -2489,6 +2545,9 @@ The objective must name a concrete target and an observable end condition that c
                 partner_appearance=romance_partner_appearance,
                 player_name=romance_player_name,
                 player_character_id=romance_player_ref,
+                player_history_id=str(romance_player_history_id or "")
+                if romance_player_session_id
+                else "",
             )
             if partner_reference_path is not None:
                 state["partner_image_path"] = str(partner_reference_path)
@@ -2885,6 +2944,10 @@ The objective must name a concrete target and an observable end condition that c
             dict.fromkeys([*state.get("clues", []), *output.discovered_clues])
         )[:20]
         previous_visual = state.get("visual_state", {})
+        # stream_turn は _merge_output より前に visual_producer 内で
+        # _apply_appearance_lock を実行済み。reality_alter ターンでは
+        # そこで state["appearance_lock"] が更新済みのため、この再適用は
+        # 新ロックに対する no-op になる(順序依存に注意)
         appearance_lock = state.get("appearance_lock")
         template_state = state.get("template_state", {})
         transformed = bool(
@@ -3551,6 +3614,7 @@ The objective must name a concrete target and an observable end condition that c
         gift_id: str | None = None,
         generate_portrait: bool = True,
         generate_partner_portrait: bool = True,
+        generate_clues: bool = True,
     ) -> AsyncGenerator[dict[str, Any], None]:
         """ナラティブを逐次配信し、手がかり抽出と画像生成を並列実行する。"""
         async with self._run_locks[run_id]:
@@ -3723,6 +3787,7 @@ The objective must name a concrete target and an observable end condition that c
                         narration_voice=narration_voice,
                         narration_pronoun=narration_pronoun,
                         romance=romance_sim is not None,
+                        include_clues=generate_clues,
                     )
                     await queue.put(("resolution", resolution))
                 except Exception as error:
@@ -3743,6 +3808,14 @@ The objective must name a concrete target and an observable end condition that c
                             state.get("respect_clothing_layers")
                         ),
                         romance=romance_sim is not None,
+                        romance_partner={
+                            "name": str(romance_sim.get("partner_name") or ""),
+                            "appearance": str(
+                                romance_sim.get("partner_appearance") or ""
+                            ),
+                        }
+                        if romance_sim is not None
+                        else None,
                     )
                 except Exception as error:
                     logger.warning("Adventure visual generation failed: %s", error)
@@ -3758,7 +3831,13 @@ The objective must name a concrete target and an observable end condition that c
                     )
                 elif explicit_clothing:
                     visual.visual_state.clothing = explicit_clothing
-                self._apply_appearance_lock(state, visual.visual_state)
+                # 現実改変ターンだけロックの更新を許可し、宣言した変化を以後の
+                # ターンへ引き継ぐ。それ以外のターンは従来どおりロックで固定する
+                self._apply_appearance_lock(
+                    state,
+                    visual.visual_state,
+                    allow_update=input_kind == "reality_alter",
+                )
                 await queue.put(("visual", visual))
 
                 next_visual = visual.visual_state.model_dump()
@@ -4116,6 +4195,11 @@ The objective must name a concrete target and an observable end condition that c
                     ],
                 )
 
+            if not generate_clues:
+                # プロンプト指示に従わない出力への保険。作品シナリオの決定論的な
+                # 手掛かりは後段の _enforce_template_output が別途追加するため無傷
+                resolution.discovered_clues = []
+
             output = AdventureDirectorOutput(
                 narrative=narrative,
                 choices=resolution.choices,
@@ -4287,12 +4371,24 @@ The objective must name a concrete target and an observable end condition that c
             }
 
     def _apply_appearance_lock(
-        self, state: dict[str, Any], visual_state: AdventureVisualState
+        self,
+        state: dict[str, Any],
+        visual_state: AdventureVisualState,
+        *,
+        allow_update: bool = False,
     ) -> None:
         template_state = state.get("template_state", {})
         transformed = bool(
             isinstance(template_state, dict) and template_state.get("transformed")
         )
+        if allow_update:
+            # reality_alter ターン限定: 宣言を織り込んでLLMが更新した外見を
+            # 新しいロックとして採用する。以後のターンはこの外見で固定される。
+            # 空の出力は採用せず、従来のロック適用へフォールスルーする
+            new_appearance = str(visual_state.appearance or "").strip()
+            if new_appearance:
+                state["appearance_lock"] = new_appearance
+                return
         appearance_lock = state.get("appearance_lock")
         if (
             not transformed
