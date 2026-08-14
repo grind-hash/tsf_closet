@@ -936,7 +936,8 @@ button:disabled {
 .adventure-hud__tile,
 .adventure-hud__turns,
 .adventure-hud__anlas,
-.adventure-hud__location {
+.adventure-hud__location,
+.adventure-hud__bgm-chip {
   pointer-events: auto;
 }
 
@@ -993,20 +994,66 @@ button:disabled {
   text-overflow: ellipsis;
 }
 
-.adventure-hud__location {
+/*
+ * 現在地ピルとBGMチップの縦2段スタック。非 romance の HUD 内容高
+ * (56px - padding 16px = 40px)に、ピル約22px + gap 2px + チップ約16px で
+ * 収め、--adv-overlay-top の前提(HUD 高さ固定)を崩さない。
+ */
+.adventure-hud__location-stack {
   display: flex;
   min-width: 0;
   flex: 0 1 auto;
-  align-items: baseline;
-  gap: 8px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
   /* CJK では ch が半角基準になり実際の表示幅と合わないため em を使う */
   max-width: min(32vw, 20em);
-  padding: 4px 12px;
+}
+
+.adventure-hud__location {
+  display: flex;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 10px;
   border: 1px solid rgb(239 184 90 / 32%);
   border-radius: 999px;
   background: rgb(13 17 20 / 78%);
-  font-size: 0.8rem;
+  font-size: 0.72rem;
   white-space: nowrap;
+}
+
+.adventure-hud__bgm-chip {
+  display: flex;
+  max-width: 100%;
+  box-sizing: border-box;
+  align-items: baseline;
+  gap: 4px;
+  padding: 1px 8px;
+  border: 1px solid rgb(239 184 90 / 32%);
+  border-radius: 999px;
+  color: #cdd5db;
+  background: rgb(13 17 20 / 78%);
+  font-size: 0.6rem;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.adventure-hud__bgm-chip > span:first-child {
+  color: #efb85a;
+}
+
+.adventure-hud__bgm-chip > span + span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.adventure-hud__bgm-chip.is-open {
+  border-color: #efb85a;
+  color: #f4f6f8;
 }
 
 .adventure-hud__location b {
@@ -1215,6 +1262,26 @@ button:disabled {
   color: #aeb7bf;
   font-size: 0.72rem;
   line-height: 1.5;
+}
+
+.adventure-hud__bgm-key {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0 0 8px;
+  font-size: 0.88rem;
+}
+
+.adventure-hud__bgm-key > span {
+  color: #efb85a;
+}
+
+.adventure-hud__bgm-reason {
+  margin: 0;
+  color: #e7ebee;
+  font-size: 0.8rem;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
 }
 
 /*
@@ -3489,6 +3556,19 @@ button:disabled {
 
 .adventure-hud--romance .adventure-hud__location b {
   color: #ff9ec7;
+}
+
+.adventure-hud--romance .adventure-hud__bgm-chip {
+  border-color: rgb(240 143 183 / 30%);
+}
+
+.adventure-hud--romance .adventure-hud__bgm-chip > span:first-child,
+.adventure-hud--romance .adventure-hud__bgm-key > span {
+  color: #ff9ec7;
+}
+
+.adventure-hud--romance .adventure-hud__bgm-chip.is-open {
+  border-color: #ff9ec7;
 }
 
 .adventure-hud--romance .adventure-hud__popover {

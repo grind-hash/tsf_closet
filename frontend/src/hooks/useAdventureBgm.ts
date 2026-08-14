@@ -9,18 +9,16 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AdventureBgmKey } from "../apis/adventure";
+import { fetchAdventureBgmCatalog } from "../apis/adventure";
 
-/** semantic key と実ファイルの対応。LLM にはファイル名を一切見せない */
-const BGM_FILES: Record<AdventureBgmKey, string> = {
-  private_action: "/audio/scene01_private_action.ogg",
-  bossa_nova: "/audio/scene02_bossa_nova.ogg",
-  elegant_party: "/audio/scene03_elegant_party.ogg",
-  royal: "/audio/scene04_royal.ogg",
-  dark: "/audio/scene05_dark.ogg",
-  daily: "/audio/scene06_daily.ogg",
-  important_event: "/audio/scene07_important_event.ogg",
-  bar: "/audio/scene08_bar.ogg",
-};
+/**
+ * semantic key と音声URLの対応。バックエンドのカタログJSONが定義し、
+ * GET /adventure/bgm で取得する。LLM にはファイル名を一切見せない。
+ */
+interface BgmCatalogState {
+  defaultKey: string;
+  files: Record<string, string>;
+}
 
 /** 曲切替時の fade 時間。要件は 500〜1000ms 程度 */
 export const BGM_FADE_OUT_MS = 800;
@@ -103,6 +101,38 @@ export function useAdventureBgm(
 ): UseAdventureBgmResult {
   const [prefs, setPrefs] = useState<BgmPreferences>(loadBgmPreferences);
   const [autoplayBlocked, setAutoplayBlocked] = useState(false);
+  // カタログは ref に持ち、既存 callback 群の依存配列を増やさない。
+  // ロード完了だけ state にして、到着時にキー変更 effect を再評価させる
+  const catalogRef = useRef<BgmCatalogState | null>(null);
+  const [catalogLoaded, setCatalogLoaded] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchAdventureBgmCatalog()
+      .then((catalog) => {
+        if (cancelled) return;
+        const files: Record<string, string> = {};
+        for (const track of catalog.tracks) {
+          files[track.key] = track.url;
+        }
+        catalogRef.current = { defaultKey: catalog.default_key, files };
+        setCatalogLoaded(true);
+      })
+      .catch((error) => {
+        // BGM は補助機能。カタログが取れなくてもストーリー進行を妨げない
+        console.warn("Adventure BGM カタログの取得に失敗しました", error);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  /** 未知キーは既定曲へ倒す。カタログ未ロード時は null */
+  const resolveBgmUrl = useCallback((key: AdventureBgmKey): string | null => {
+    const catalog = catalogRef.current;
+    if (!catalog) return null;
+    return catalog.files[key] ?? catalog.files[catalog.defaultKey] ?? null;
+  }, []);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const phaseRef = useRef<BgmPhase>("idle");
@@ -186,11 +216,18 @@ export function useAdventureBgm(
       // クリーンアップ済み要素の遅延イベントは無視する(StrictMode の
       // 再マウントや画面離脱後に fallback 再生を復活させない)
       if (audioRef.current !== audio) return;
-      // ロード失敗はストーリー進行を妨げず、daily へ一度だけ fallback する
+      // ロード失敗はストーリー進行を妨げず、既定曲へ一度だけ fallback する
       console.warn("Adventure BGM の読み込みに失敗しました", audio.error);
-      if (!fallbackTriedRef.current && currentKeyRef.current !== "daily") {
+      const catalog = catalogRef.current;
+      const fallbackUrl = catalog ? catalog.files[catalog.defaultKey] : null;
+      if (
+        !fallbackTriedRef.current &&
+        catalog &&
+        fallbackUrl &&
+        currentKeyRef.current !== catalog.defaultKey
+      ) {
         fallbackTriedRef.current = true;
-        audio.src = BGM_FILES.daily;
+        audio.src = fallbackUrl;
         void tryPlayRef.current?.();
         return;
       }
@@ -237,9 +274,14 @@ export function useAdventureBgm(
             return;
           }
           if (next !== currentKeyRef.current) {
+            const url = resolveBgmUrl(next);
+            if (!url) {
+              phaseRef.current = "idle";
+              return;
+            }
             currentKeyRef.current = next;
             fallbackTriedRef.current = false;
-            ensureAudio().src = BGM_FILES[next];
+            ensureAudio().src = url;
           }
           void tryPlay();
         };
@@ -248,7 +290,13 @@ export function useAdventureBgm(
         document.addEventListener("keydown", handler);
       }
     }
-  }, [applyEffectiveVolume, clearRetryListeners, ensureAudio, startFade]);
+  }, [
+    applyEffectiveVolume,
+    clearRetryListeners,
+    ensureAudio,
+    resolveBgmUrl,
+    startFade,
+  ]);
   tryPlayRef.current = tryPlay;
 
   /** fade out 完了時（または停止状態から）targetKey を1回だけ反映する */
@@ -267,17 +315,26 @@ export function useAdventureBgm(
       return;
     }
     audio.pause();
+    const url = resolveBgmUrl(next);
+    if (!url) {
+      // カタログ未ロードまたは空。ロード完了時の effect 再評価で立ち上がる
+      phaseRef.current = "idle";
+      return;
+    }
     currentKeyRef.current = next;
     fallbackTriedRef.current = false;
-    audio.src = BGM_FILES[next];
+    audio.src = url;
     void tryPlay();
-  }, [ensureAudio, startFade, tryPlay]);
+  }, [ensureAudio, resolveBgmUrl, startFade, tryPlay]);
 
   // キー変更の反映。同一キーは厳密に no-op で、要素の再生成・currentTime
   // リセット・fade を一切行わない。
   useEffect(() => {
     const next = bgmKey ?? null;
     targetKeyRef.current = next;
+    // カタログ未ロード中は目標キーの記録だけ行い、ロード完了時の
+    // 再評価(catalogLoaded 変化)で再生を立ち上げる
+    if (!catalogLoaded) return;
     const phase = phaseRef.current;
     if (phase === "fading_out") {
       // 進行中の fade の完了時に targetKeyRef が読まれるため何もしない
@@ -303,7 +360,7 @@ export function useAdventureBgm(
       swapToTarget();
     }
     // blocked: targetKeyRef の更新だけで十分。ユーザー操作時の再試行が拾う
-  }, [bgmKey, clearRetryListeners, startFade, swapToTarget]);
+  }, [bgmKey, catalogLoaded, clearRetryListeners, startFade, swapToTarget]);
 
   // アンマウント時（/adventure 離脱時）は完全に停止する。破棄の印は
   // audioRef を null にすることで表し、hook 全体の旗は持たない
@@ -342,9 +399,14 @@ export function useAdventureBgm(
         if (phaseRef.current === "blocked") {
           const nextKey = targetKeyRef.current;
           if (nextKey && nextKey !== currentKeyRef.current) {
+            const url = resolveBgmUrl(nextKey);
+            if (!url) {
+              phaseRef.current = "idle";
+              return;
+            }
             currentKeyRef.current = nextKey;
             fallbackTriedRef.current = false;
-            ensureAudio().src = BGM_FILES[nextKey];
+            ensureAudio().src = url;
           }
           void tryPlay();
         } else if (phaseRef.current === "idle" && targetKeyRef.current) {
@@ -352,7 +414,7 @@ export function useAdventureBgm(
         }
       }
     },
-    [ensureAudio, swapToTarget, tryPlay],
+    [ensureAudio, resolveBgmUrl, swapToTarget, tryPlay],
   );
 
   const setVolume = useCallback(

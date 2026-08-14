@@ -1,57 +1,121 @@
-"""BGM category keys for Adventure mode.
+"""BGM catalog loader for Adventure mode.
 
 The LLM selects one semantic key per turn; the frontend maps keys to
-audio files and handles playback. Keys are the only contract between
-the two layers, so the LLM must never see or emit filenames.
+audio URLs served by the backend and handles playback. Keys are the only
+contract between the two layers, so the LLM must never see or emit
+filenames.
+
+Keys, descriptions, and audio filenames live in ``data/bgm/catalog.json``
+so that adding a track only requires dropping an audio file and adding a
+JSON entry. The catalog is reloaded when the file's mtime changes, so no
+server restart is needed. A broken catalog never fails a turn: the last
+successfully parsed catalog (or a minimal built-in default) is kept.
 """
 
 from __future__ import annotations
 
-from typing import Literal
+import json
+import logging
+from pathlib import Path
 
-BgmKey = Literal[
-    "private_action",
-    "bossa_nova",
-    "elegant_party",
-    "royal",
-    "dark",
-    "daily",
-    "important_event",
-    "bar",
-]
+from pydantic import BaseModel, Field, field_validator
 
-BGM_KEYS: tuple[str, ...] = (
-    "private_action",
-    "bossa_nova",
-    "elegant_party",
-    "royal",
-    "dark",
-    "daily",
-    "important_event",
-    "bar",
+logger = logging.getLogger(__name__)
+
+# モジュール属性にしておくとテストから monkeypatch で差し替えられる
+_CATALOG_PATH = Path(__file__).resolve().parents[1] / "data" / "bgm" / "catalog.json"
+
+
+class BgmTrack(BaseModel):
+    key: str = Field(pattern=r"^[a-z0-9_]+$", min_length=1, max_length=64)
+    file: str = Field(min_length=1, max_length=255)
+    description: str = Field(min_length=1, max_length=300)
+
+    @field_validator("file")
+    @classmethod
+    def reject_path_traversal(cls, value: str) -> str:
+        if Path(value).name != value:
+            raise ValueError(f"file must be a bare filename: {value!r}")
+        return value
+
+
+class BgmCatalog(BaseModel):
+    default_key: str = Field(min_length=1, max_length=64)
+    tracks: list[BgmTrack] = Field(min_length=1)
+
+    def resolved_default_key(self) -> str:
+        keys = {track.key for track in self.tracks}
+        if self.default_key in keys:
+            return self.default_key
+        return self.tracks[0].key
+
+
+# カタログが一度も読めない場合の最小フォールバック(daily 1曲)
+_BUILTIN_CATALOG = BgmCatalog(
+    default_key="daily",
+    tracks=[
+        BgmTrack(
+            key="daily",
+            file="scene06_daily.ogg",
+            description="everyday ordinary scenes; also the fallback",
+        )
+    ],
 )
 
-# daily is also the fallback when no category clearly fits the scene.
-BGM_KEY_DEFAULT: str = "daily"
+# (mtime, catalog)。mtime が変わったときだけ再パースする
+_cache: tuple[float, BgmCatalog] | None = None
 
-BGM_DESCRIPTIONS: dict[str, str] = {
-    "private_action": "intimate private moments",
-    "bossa_nova": "beach, resort, or travel scenes",
-    "elegant_party": "lavish parties, celebrities, formal social events",
-    "royal": "castles, palaces, royalty",
-    "dark": "dark, ominous, sad, dangerous, or serious events",
-    "daily": "everyday ordinary scenes; also the fallback",
-    "important_event": (
-        "rare climactic turning points only: confessions, life-changing "
-        "revelations, decisive relationship shifts"
-    ),
-    "bar": "cafes, bars, lounges, restaurants",
-}
 
-# Shared enumeration for the director and resolution system prompts.
-BGM_PROMPT_GUIDE: str = ", ".join(
-    f"{key} ({description})" for key, description in BGM_DESCRIPTIONS.items()
-)
+def get_bgm_catalog() -> BgmCatalog:
+    """カタログを返す。JSON 破損時は last-good、初回破損時は組み込み既定。"""
+    global _cache
+    try:
+        mtime = _CATALOG_PATH.stat().st_mtime
+    except OSError as error:
+        if _cache is not None:
+            return _cache[1]
+        logger.warning("BGM catalog is unreadable at %s: %s", _CATALOG_PATH, error)
+        return _BUILTIN_CATALOG
+    if _cache is not None and _cache[0] == mtime:
+        return _cache[1]
+    try:
+        catalog = BgmCatalog.model_validate(
+            json.loads(_CATALOG_PATH.read_text(encoding="utf-8"))
+        )
+    except (OSError, ValueError) as error:
+        # ValueError は json.JSONDecodeError と pydantic.ValidationError を包含する
+        logger.warning("BGM catalog failed to parse, keeping previous: %s", error)
+        return _cache[1] if _cache is not None else _BUILTIN_CATALOG
+    _cache = (mtime, catalog)
+    return catalog
+
+
+def get_bgm_keys() -> tuple[str, ...]:
+    return tuple(track.key for track in get_bgm_catalog().tracks)
+
+
+def get_bgm_default() -> str:
+    return get_bgm_catalog().resolved_default_key()
+
+
+def get_bgm_prompt_guide() -> str:
+    """Shared enumeration for the director and resolution system prompts."""
+    return ", ".join(
+        f"{track.key} ({track.description})" for track in get_bgm_catalog().tracks
+    )
+
+
+def resolve_bgm_audio_path(filename: str) -> Path | None:
+    """カタログ登録済みファイル名だけを実パスへ解決する(トラバーサル防止)。"""
+    name = Path(filename).name
+    if name != filename:
+        return None
+    for track in get_bgm_catalog().tracks:
+        if track.file == name:
+            path = _CATALOG_PATH.parent / name
+            return path if path.is_file() else None
+    return None
+
 
 # Shared selection policy for the director and resolution system prompts.
 # Grounds "importance" in relationship/story progression so a minor early
@@ -72,10 +136,12 @@ BGM_SELECTION_RULES: str = (
 )
 
 __all__ = [
-    "BgmKey",
-    "BGM_KEYS",
-    "BGM_KEY_DEFAULT",
-    "BGM_DESCRIPTIONS",
-    "BGM_PROMPT_GUIDE",
     "BGM_SELECTION_RULES",
+    "BgmCatalog",
+    "BgmTrack",
+    "get_bgm_catalog",
+    "get_bgm_default",
+    "get_bgm_keys",
+    "get_bgm_prompt_guide",
+    "resolve_bgm_audio_path",
 ]

@@ -256,20 +256,64 @@ def test_bgm_validator_keeps_known_keys_and_degrades_unknown() -> None:
     assert missing.bgm is None
 
 
+def test_bgm_reason_validator_degrades_instead_of_raising() -> None:
+    """選曲理由は長すぎても非文字列でも検証エラーへ落とさない。"""
+    choices = json.dumps(
+        [
+            {"id": "a", "label": "調べる"},
+            {"id": "b", "label": "話す"},
+            {"id": "c", "label": "移動する"},
+        ],
+        ensure_ascii=False,
+    )
+
+    valid = AdventureResolutionOutput.model_validate_json(
+        '{"choices": ' + choices + ', "bgm": "bar", "bgm_reason": " 酒場の場面のため "}'
+    )
+    assert valid.bgm_reason == "酒場の場面のため"
+
+    overlong = AdventureResolutionOutput.model_validate(
+        {"choices": json.loads(choices), "bgm": "bar", "bgm_reason": "あ" * 300}
+    )
+    assert overlong.bgm_reason is not None
+    assert len(overlong.bgm_reason) == 200
+
+    non_string = AdventureResolutionOutput.model_validate(
+        {"choices": json.loads(choices), "bgm": "bar", "bgm_reason": 123}
+    )
+    assert non_string.bgm_reason is None
+
+    missing = AdventureResolutionOutput.model_validate(
+        {"choices": json.loads(choices), "bgm": "bar"}
+    )
+    assert missing.bgm_reason is None
+
+
 def test_merge_output_writes_bgm_and_keeps_previous_when_missing() -> None:
     service = AdventureService()
     output = make_output(completed=[])
     output.bgm = "bar"
+    output.bgm_reason = "酒場での会話が続くため"
 
     state, _, _, _ = service._merge_output(make_run(), output, 1)
     assert state["bgm"] == "bar"
+    assert state["bgm_reason"] == "酒場での会話が続くため"
 
+    # 据え置きターン(bgm=None)ではキーと理由をペアで維持する
     followup = make_output(completed=[])
     assert followup.bgm is None
     state, _, _, _ = service._merge_output(
         make_run(), followup, 2, state_override=state
     )
     assert state["bgm"] == "bar"
+    assert state["bgm_reason"] == "酒場での会話が続くため"
+
+    # キー更新時は理由も同時に書き換わる(理由欠落なら None で上書き)
+    changed = make_output(completed=[])
+    changed.bgm = "daily"
+    state, _, _, _ = service._merge_output(make_run(), changed, 3, state_override=state)
+    assert state["bgm"] == "daily"
+    assert state["bgm_reason"] is None
 
 
 def test_turn_prompts_carry_bgm_policy() -> None:
@@ -277,6 +321,7 @@ def test_turn_prompts_carry_bgm_policy() -> None:
 
     resolution_prompt = service._resolution_system_prompt("ja")
     assert '"bgm"' in resolution_prompt
+    assert '"bgm_reason"' in resolution_prompt
     assert "current_bgm" in resolution_prompt
     assert "private_action" in resolution_prompt
     # 序盤の小イベントを important_event 扱いしないための好感度参照ルール
@@ -284,6 +329,7 @@ def test_turn_prompts_carry_bgm_policy() -> None:
 
     director_prompt = service._director_system_prompt("ja")
     assert '"bgm"' in director_prompt
+    assert '"bgm_reason"' in director_prompt
     assert "private_action" in director_prompt
     assert "state.sim.affection" in director_prompt
 

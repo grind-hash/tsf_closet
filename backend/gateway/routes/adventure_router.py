@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
+from ..consts.adventure_bgm import get_bgm_catalog, resolve_bgm_audio_path
 from ..consts.adventure_narration import (
     NARRATION_PRONOUN_DEFAULT,
     NARRATION_PRONOUN_MAX_LENGTH,
@@ -341,3 +342,28 @@ async def get_image(run_id: str, filename: str) -> FileResponse:
         return FileResponse(adventure_service.image_file(run_id, filename))
     except AdventureError as error:
         raise _http_error(error) from error
+
+
+@router.get("/bgm")
+async def get_bgm_tracks() -> dict:
+    """BGMカタログを返す。ファイル名が外に出るのはこの音声URLのみで、
+    LLM とのやり取りには semantic key しか使わない。"""
+    catalog = get_bgm_catalog()
+    return {
+        "default_key": catalog.resolved_default_key(),
+        "tracks": [
+            {"key": track.key, "url": f"/adventure/bgm/audio/{track.file}"}
+            for track in catalog.tracks
+        ],
+    }
+
+
+@router.get("/bgm/audio/{filename}")
+async def get_bgm_audio(filename: str) -> FileResponse:
+    path = resolve_bgm_audio_path(filename)
+    if path is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "bgm_not_found", "message": f"unknown bgm: {filename}"},
+        )
+    return FileResponse(path, media_type="audio/ogg")

@@ -62,7 +62,7 @@
 | `useInfiniteScroll` | IntersectionObserverによる追加読込 |
 | `useTagSuggest` | タグ候補取得 |
 | `useTransparentImage` | 透過画像の読込とフォールバック |
-| `useAdventureBgm` | Adventure BGMのループ再生、fade、mute/volume(localStorage `adventure_bgm_prefs`)、autoplay/404対応。キー→ファイル対応もここが持つ |
+| `useAdventureBgm` | Adventure BGMのループ再生、fade、mute/volume(localStorage `adventure_bgm_prefs`)、autoplay/404対応。キー→URL対応はマウント時に `GET /api/adventure/bgm` で取得（未知キーは既定曲へ） |
 
 ## APIモジュール
 

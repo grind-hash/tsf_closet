@@ -1527,6 +1527,8 @@ interface AdventureStageFrame {
   partnerUrl: string | null;
   /** この手番時点のBGMカテゴリ。据え置きターンは直前の値を引き継ぐ */
   bgm: AdventureBgmKey;
+  /** この手番のBGM選曲理由。キーと対で引き継ぎ、旧runでは null */
+  bgmReason: string | null;
 }
 
 /**
@@ -1641,7 +1643,7 @@ function AdventurePlay({ runId }: { runId: string }) {
   const [logOpen, setLogOpen] = useState(false);
   const [messageWindowHidden, setMessageWindowHidden] = useState(false);
   const [hudPanel, setHudPanel] = useState<
-    "milestones" | "clues" | "realityRules" | null
+    "milestones" | "clues" | "realityRules" | "bgm" | null
   >(null);
   const [protagonistDockOpen, setProtagonistDockOpen] = useState(
     readProtagonistDockOpen,
@@ -1753,6 +1755,7 @@ function AdventurePlay({ runId }: { runId: string }) {
       // ライトボックスの攻略対象タブ用に直近の1枚(最低でも開幕分)を引き継ぐ
       let lastPartnerUrl = activeRun.opening_partner_portrait_url ?? null;
       let lastBgm: AdventureBgmKey = activeRun.opening_bgm ?? "daily";
+      let lastBgmReason: string | null = activeRun.opening_bgm_reason ?? null;
       if (activeRun.opening_image_url) {
         list.push({
           key: "opening",
@@ -1771,11 +1774,16 @@ function AdventurePlay({ runId }: { runId: string }) {
           partnerNote: null,
           partnerUrl: lastPartnerUrl,
           bgm: lastBgm,
+          bgmReason: lastBgmReason,
         });
       }
       for (const turn of activeRun.turns) {
-        // 画像の無いターンもBGMは進むため、continue より前に引き継ぐ
-        lastBgm = turn.bgm ?? lastBgm;
+        // 画像の無いターンもBGMは進むため、continue より前に引き継ぐ。
+        // 理由はキー更新時だけ取り込み、キーとの食い違いを作らない
+        if (turn.bgm) {
+          lastBgm = turn.bgm;
+          lastBgmReason = turn.bgm_reason ?? null;
+        }
         if (!turn.image_url) continue;
         lastPartnerUrl = turn.partner_portrait_url ?? lastPartnerUrl;
         list.push({
@@ -1795,12 +1803,14 @@ function AdventurePlay({ runId }: { runId: string }) {
           partnerNote: turn.partner_note ?? null,
           partnerUrl: lastPartnerUrl,
           bgm: lastBgm,
+          bgmReason: lastBgmReason,
         });
       }
     } else {
       // 攻略対象の立ち絵は生成失敗ターンで欠けうるため、直前の1枚を引き継ぐ
       let lastPartnerUrl = activeRun.opening_partner_portrait_url ?? null;
       let lastBgm: AdventureBgmKey = activeRun.opening_bgm ?? "daily";
+      let lastBgmReason: string | null = activeRun.opening_bgm_reason ?? null;
       if (activeRun.opening_portrait_url) {
         list.push({
           key: "opening",
@@ -1819,11 +1829,16 @@ function AdventurePlay({ runId }: { runId: string }) {
           partnerNote: null,
           partnerUrl: lastPartnerUrl,
           bgm: lastBgm,
+          bgmReason: lastBgmReason,
         });
       }
       for (const turn of activeRun.turns) {
-        // 画像の無いターンもBGMは進むため、continue より前に引き継ぐ
-        lastBgm = turn.bgm ?? lastBgm;
+        // 画像の無いターンもBGMは進むため、continue より前に引き継ぐ。
+        // 理由はキー更新時だけ取り込み、キーとの食い違いを作らない
+        if (turn.bgm) {
+          lastBgm = turn.bgm;
+          lastBgmReason = turn.bgm_reason ?? null;
+        }
         if (!turn.portrait_image_url) continue;
         lastPartnerUrl = turn.partner_portrait_url ?? lastPartnerUrl;
         list.push({
@@ -1844,6 +1859,7 @@ function AdventurePlay({ runId }: { runId: string }) {
           partnerNote: turn.partner_note ?? null,
           partnerUrl: lastPartnerUrl,
           bgm: lastBgm,
+          bgmReason: lastBgmReason,
         });
       }
     }
@@ -1864,20 +1880,32 @@ function AdventurePlay({ runId }: { runId: string }) {
     });
   }, [frames.length]);
 
-  // 表示中フレームのBGMキー。過去フレーム閲覧中はその手番の曲に追随し、
+  // 表示中フレームのBGMキーと選曲理由。過去フレーム閲覧中はその手番に追随し、
   // 最新表示中は画像未生成ターン(フレーム化されない)も含めて turns を直読みする。
   // BGM切替は SSE の turn イベント(ナラティブ確定)時点で起きる
-  const currentBgmKey = useMemo<AdventureBgmKey | null>(() => {
+  const currentBgm = useMemo<{
+    key: AdventureBgmKey;
+    reason: string | null;
+  } | null>(() => {
     if (!activeRun) return null;
     if (selectedFrameIndex !== null) {
-      return frames[selectedFrameIndex]?.bgm ?? "daily";
+      const frame = frames[selectedFrameIndex];
+      return {
+        key: frame?.bgm ?? "daily",
+        reason: frame?.bgmReason ?? null,
+      };
     }
     for (let i = activeRun.turns.length - 1; i >= 0; i--) {
-      const bgm = activeRun.turns[i]?.bgm;
-      if (bgm) return bgm;
+      const turn = activeRun.turns[i];
+      if (turn?.bgm) {
+        return { key: turn.bgm, reason: turn.bgm_reason ?? null };
+      }
     }
     // 旧runはキー欠落のため daily に倒す
-    return activeRun.opening_bgm ?? "daily";
+    return {
+      key: activeRun.opening_bgm ?? "daily",
+      reason: activeRun.opening_bgm_reason ?? null,
+    };
   }, [activeRun, frames, selectedFrameIndex]);
   const {
     muted: bgmMuted,
@@ -1885,7 +1913,7 @@ function AdventurePlay({ runId }: { runId: string }) {
     autoplayBlocked: bgmAutoplayBlocked,
     setMuted: setBgmMuted,
     setVolume: setBgmVolume,
-  } = useAdventureBgm(currentBgmKey);
+  } = useAdventureBgm(currentBgm?.key ?? null);
 
   const submit = useCallback(
     (
@@ -2294,11 +2322,36 @@ function AdventurePlay({ runId }: { runId: string }) {
                 <span>{activeRun.objective}</span>
               </h1>
             </div>
-            {activeLocation && (
-              <span className="adventure-hud__location" title={activeLocation}>
-                <b>{t("adventure.currentLocation")}</b>
-                <span>{activeLocation}</span>
-              </span>
+            {(activeLocation || currentBgm) && (
+              <div className="adventure-hud__location-stack">
+                {activeLocation && (
+                  <span
+                    className="adventure-hud__location"
+                    title={activeLocation}
+                  >
+                    <b>{t("adventure.currentLocation")}</b>
+                    <span>{activeLocation}</span>
+                  </span>
+                )}
+                {currentBgm && (
+                  <button
+                    type="button"
+                    className={`adventure-hud__bgm-chip${
+                      hudPanel === "bgm" ? " is-open" : ""
+                    }`}
+                    aria-expanded={hudPanel === "bgm"}
+                    title={t("adventure.bgm.chipHint")}
+                    onClick={() =>
+                      setHudPanel((current) =>
+                        current === "bgm" ? null : "bgm",
+                      )
+                    }
+                  >
+                    <span aria-hidden>♪</span>
+                    <span>{currentBgm.key}</span>
+                  </button>
+                )}
+              </div>
             )}
             <div className="adventure-hud__metrics">
               {sim ? (
@@ -2499,9 +2552,27 @@ function AdventurePlay({ runId }: { runId: string }) {
               <div
                 className="adventure-hud__popover"
                 role="dialog"
-                aria-label={t(`adventure.${hudPanel}`)}
+                aria-label={t(
+                  // adventure.bgm は i18n 上オブジェクトのため専用キーを使う
+                  hudPanel === "bgm"
+                    ? "adventure.bgm.panelTitle"
+                    : `adventure.${hudPanel}`,
+                )}
               >
-                {hudPanel === "milestones" ? (
+                {hudPanel === "bgm" ? (
+                  <>
+                    <p className="adventure-hud__bgm-key">
+                      <span aria-hidden>♪</span>
+                      <strong>{currentBgm?.key ?? "daily"}</strong>
+                    </p>
+                    <p className="adventure-hud__note">
+                      {t("adventure.bgm.reasonLabel")}
+                    </p>
+                    <p className="adventure-hud__bgm-reason">
+                      {currentBgm?.reason ?? t("adventure.bgm.noReason")}
+                    </p>
+                  </>
+                ) : hudPanel === "milestones" ? (
                   <ul className="adventure-hud__milestones">
                     {activeRun.milestones.map((milestone) => {
                       const done = completedMilestones.has(milestone.id);

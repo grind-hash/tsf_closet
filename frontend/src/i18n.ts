@@ -295,6 +295,10 @@ const resources = {
           volume: "音量",
           autoplayBlockedHint:
             "ブラウザにより自動再生がブロックされています。画面のどこかをクリックすると再生が始まります。",
+          chipHint: "現在のBGMと選曲理由を表示",
+          panelTitle: "BGM",
+          reasonLabel: "選曲理由",
+          noReason: "この場面には選曲理由が記録されていません。",
         },
         actionPanel: {
           title: "行動",
@@ -1693,6 +1697,10 @@ const resources = {
           volume: "Volume",
           autoplayBlockedHint:
             "The browser blocked autoplay. Click anywhere to start playback.",
+          chipHint: "Show the current BGM and why it was chosen",
+          panelTitle: "BGM",
+          reasonLabel: "Selection reason",
+          noReason: "No selection reason was recorded for this scene.",
         },
         actionPanel: {
           title: "Actions",

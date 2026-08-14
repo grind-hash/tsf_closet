@@ -652,6 +652,40 @@ test("declared reality rules are surfaced in the HUD", async ({ page }) => {
   await expect(popover).toContainText("以降のすべての判定に適用");
 });
 
+test("bgm chip surfaces the selection reason in the HUD popover", async ({
+  page,
+}) => {
+  const REASON = "受付での緊張感のある駆け引きが続くため";
+  await enableAdventure(page);
+  await mockAdventureApis(page);
+  await page.route("**/api/adventure/runs/run-1", async (route) => {
+    const base = runPayload(1);
+    await route.fulfill({
+      json: {
+        ...base,
+        opening_bgm: "daily",
+        opening_bgm_reason: "開幕は日常的な場面のため",
+        bgm: "dark",
+        bgm_reason: REASON,
+        turns: base.turns.map((turn) => ({
+          ...turn,
+          bgm: "dark",
+          bgm_reason: REASON,
+        })),
+      },
+    });
+  });
+  await page.goto("/adventure/run-1");
+
+  const chip = page.getByRole("button", { name: "dark", exact: true });
+  await expect(chip).toBeVisible();
+  await chip.click();
+  const popover = page.getByRole("dialog", { name: "BGM" });
+  await expect(popover).toContainText("dark");
+  await expect(popover).toContainText("選曲理由");
+  await expect(popover).toContainText(REASON);
+});
+
 test("finished run shows the result overlay", async ({ page }) => {
   await enableAdventure(page);
   await mockAdventureApis(page);

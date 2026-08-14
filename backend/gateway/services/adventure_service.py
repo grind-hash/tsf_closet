@@ -29,11 +29,10 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import selectinload
 
 from ..consts.adventure_bgm import (
-    BGM_KEY_DEFAULT,
-    BGM_KEYS,
-    BGM_PROMPT_GUIDE,
     BGM_SELECTION_RULES,
-    BgmKey,
+    get_bgm_default,
+    get_bgm_keys,
+    get_bgm_prompt_guide,
 )
 from ..consts.adventure_narration import (
     NARRATION_PRONOUN_DEFAULT,
@@ -318,8 +317,21 @@ def _coerce_bgm_key(value: Any) -> str | None:
     """BGMキーを検証エラー→修復リトライへ落とさず None(=据え置き)に劣化させる。"""
     if isinstance(value, str):
         candidate = value.strip().lower()
-        if candidate in BGM_KEYS:
+        if candidate in get_bgm_keys():
             return candidate
+    return None
+
+
+# 選曲理由の表示上限。プロンプトの "200 characters or fewer" と揃える
+_BGM_REASON_MAX_LENGTH = 200
+
+
+def _coerce_bgm_reason(value: Any) -> str | None:
+    """選曲理由を検証エラーへ落とさず、長すぎる出力は切り詰めて受け入れる。"""
+    if isinstance(value, str):
+        candidate = value.strip()
+        if candidate:
+            return candidate[:_BGM_REASON_MAX_LENGTH]
     return None
 
 
@@ -332,12 +344,18 @@ class AdventureDirectorOutput(BaseModel):
     ending_status: Literal["continue", "success", "partial", "failure"] = "continue"
     ending_title: str | None = Field(default=None, max_length=160)
     ending_summary: str | None = Field(default=None, max_length=1200)
-    bgm: BgmKey | None = None
+    bgm: str | None = None
+    bgm_reason: str | None = None
 
     @field_validator("bgm", mode="before")
     @classmethod
     def coerce_bgm(cls, value: Any) -> Any:
         return _coerce_bgm_key(value)
+
+    @field_validator("bgm_reason", mode="before")
+    @classmethod
+    def coerce_bgm_reason(cls, value: Any) -> Any:
+        return _coerce_bgm_reason(value)
 
     @model_validator(mode="before")
     @classmethod
@@ -395,12 +413,18 @@ class AdventureResolutionOutput(BaseModel):
     ending_status: Literal["continue", "success", "partial", "failure"] = "continue"
     ending_title: str | None = Field(default=None, max_length=160)
     ending_summary: str | None = Field(default=None, max_length=1200)
-    bgm: BgmKey | None = None
+    bgm: str | None = None
+    bgm_reason: str | None = None
 
     @field_validator("bgm", mode="before")
     @classmethod
     def coerce_bgm(cls, value: Any) -> Any:
         return _coerce_bgm_key(value)
+
+    @field_validator("bgm_reason", mode="before")
+    @classmethod
+    def coerce_bgm_reason(cls, value: Any) -> Any:
+        return _coerce_bgm_reason(value)
 
     @model_validator(mode="before")
     @classmethod
@@ -610,6 +634,9 @@ def _lean_state_for_llm(state: dict[str, Any]) -> dict[str, Any]:
         # 直前の選択肢を state ごと渡すと LLM がそのまま書き写し、
         # 選択肢が更新されない。必要な分は previous_choices として別に渡す
         "choices",
+        # 選曲理由は表示用メタデータ。LLM へは current_bgm だけを渡す
+        "bgm_reason",
+        "opening_bgm_reason",
     }
     return {key: value for key, value in state.items() if key not in omit}
 
@@ -1787,8 +1814,8 @@ class AdventureService:
             voice_rule = f"{ROMANCE_NARRATIVE_GUIDANCE}\n{voice_rule}"
         return f"""You are the director of a short objective-based adventure game.
 Return one JSON object only, in {response_language}, matching this schema:
-{{"narrative":"...","choices":[{{"id":"...","label":"..."}},{{"id":"...","label":"..."}},{{"id":"...","label":"..."}}],"discovered_clues":[],"completed_milestones":[],"visual_state":{{"location":"...","appearance":"...","clothing":"...","surroundings":"...","main_characters":[{{"name":"...","description":"...","clothing":"...","action":"..."}}]}},"ending_status":"continue|success|partial|failure","ending_title":null,"ending_summary":null,"bgm":"{"|".join(BGM_KEYS)}"}}
-Keep narrative under 800 characters and the entire JSON response compact. bgm selects the background music category for the scene and must be exactly one of: {BGM_PROMPT_GUIDE}. {BGM_SELECTION_RULES} Never output a filename, a path, or any value outside this list. Never decide the player's feelings, consent, past wishes, bodily sensations, or voluntary actions unless the player's input explicitly states them. If the player's action objectively makes the mission impossible to continue, return a concise failure ending instead of refusing, truncating, or leaving the JSON incomplete. Describe observable events and NPC actions. Do not introduce an unrequested body transformation. Never grant the player another person's memories, personal knowledge, relationships, habits, skills, credentials, passwords, or authentication information unless the supplied source facts explicitly state them. A copied appearance or name does not imply copied memory or competence. Treat source_snapshot.appearance and required_visual_appearance as an immutable identity signature. Copy its sex, hair color, hair length, hairstyle, eye color, and body features exactly into visual_state.appearance; never replace or supplement those traits. Do not change the player's physical appearance unless scenario_capabilities or authored_template_resolution explicitly allows and triggers that change. Clothing may be offered, found, or discussed, but the player only puts on, removes, or changes clothing when their input explicitly chooses that action. When the player explicitly chooses to put on clothing, visual_state.clothing must show that garment as currently worn in the same turn. Unless the input explicitly requests layering, the new garment replaces the previous outfit instead of being worn over it. If the source snapshot explicitly establishes a transformed sex or body, it may create practical disguise or role opportunities without inventing further changes. Keep visual_state concrete enough to illustrate the main characters, their clothing, and the surrounding location. When authored_visual_style is provided, set visual_state.location and visual_state.surroundings from it and never describe the room as a basement, locker room, warehouse, or cold industrial cell. completed_milestones must contain milestone ID strings only, never objects. Complete milestones only when the narrated action actually earns them. When authored_template_resolution is provided, treat it as authoritative and never narrate a score, transformation, unlocked exit, or ending beyond its event.
+{{"narrative":"...","choices":[{{"id":"...","label":"..."}},{{"id":"...","label":"..."}},{{"id":"...","label":"..."}}],"discovered_clues":[],"completed_milestones":[],"visual_state":{{"location":"...","appearance":"...","clothing":"...","surroundings":"...","main_characters":[{{"name":"...","description":"...","clothing":"...","action":"..."}}]}},"ending_status":"continue|success|partial|failure","ending_title":null,"ending_summary":null,"bgm":"{"|".join(get_bgm_keys())}","bgm_reason":"..."}}
+Keep narrative under 800 characters and the entire JSON response compact. bgm selects the background music category for the scene and must be exactly one of: {get_bgm_prompt_guide()}. {BGM_SELECTION_RULES} bgm_reason briefly states, in {response_language}, why that bgm category fits this scene, in 200 characters or fewer. Never output a filename, a path, or any value outside this list. Never decide the player's feelings, consent, past wishes, bodily sensations, or voluntary actions unless the player's input explicitly states them. If the player's action objectively makes the mission impossible to continue, return a concise failure ending instead of refusing, truncating, or leaving the JSON incomplete. Describe observable events and NPC actions. Do not introduce an unrequested body transformation. Never grant the player another person's memories, personal knowledge, relationships, habits, skills, credentials, passwords, or authentication information unless the supplied source facts explicitly state them. A copied appearance or name does not imply copied memory or competence. Treat source_snapshot.appearance and required_visual_appearance as an immutable identity signature. Copy its sex, hair color, hair length, hairstyle, eye color, and body features exactly into visual_state.appearance; never replace or supplement those traits. Do not change the player's physical appearance unless scenario_capabilities or authored_template_resolution explicitly allows and triggers that change. Clothing may be offered, found, or discussed, but the player only puts on, removes, or changes clothing when their input explicitly chooses that action. When the player explicitly chooses to put on clothing, visual_state.clothing must show that garment as currently worn in the same turn. Unless the input explicitly requests layering, the new garment replaces the previous outfit instead of being worn over it. If the source snapshot explicitly establishes a transformed sex or body, it may create practical disguise or role opportunities without inventing further changes. Keep visual_state concrete enough to illustrate the main characters, their clothing, and the surrounding location. When authored_visual_style is provided, set visual_state.location and visual_state.surroundings from it and never describe the room as a basement, locker room, warehouse, or cold industrial cell. completed_milestones must contain milestone ID strings only, never objects. Complete milestones only when the narrated action actually earns them. When authored_template_resolution is provided, treat it as authoritative and never narrate a score, transformation, unlocked exit, or ending beyond its event.
 {_CHOICES_PERSPECTIVE_INSTRUCTION}
 {_CHOICES_FRESHNESS_INSTRUCTION}
 {_REALITY_RULES_INSTRUCTION}
@@ -1905,8 +1932,8 @@ Keep the narrative under 800 characters. Never decide the player's feelings, con
             )
         return f"""You resolve the mechanical outcome of one adventure turn that has already been narrated.
 Return one JSON object only, in {response_language}, matching this schema:
-{{"choices":[{{"id":"...","label":"..."}},{{"id":"...","label":"..."}},{{"id":"...","label":"..."}}],"discovered_clues":[],"completed_milestones":[],"ending_status":"continue|success|partial|failure","ending_title":null,"ending_summary":null,"bgm":"{"|".join(BGM_KEYS)}"}}
-Base every value strictly on the supplied narrative and game state, and never invent events the narrative does not contain. bgm selects the background music category for the scene and must be exactly one of: {BGM_PROMPT_GUIDE}. current_bgm is the music already playing: keep bgm identical to current_bgm unless the location, scene, mood, or story phase has clearly changed, and never change it for a single line of dialogue, a momentary emotion, or a brief reaction. {BGM_SELECTION_RULES} Never output a filename, a path, or any value outside this list. choices must offer exactly three distinct actions the player could take next. discovered_clues must contain only new information the narrative actually revealed, and must not repeat state.clues. completed_milestones must contain milestone ID strings only, never objects, and only when the narrated action actually earns them. Keep ending_status as continue unless the narrative itself concludes the mission, and fill ending_title and ending_summary only in that case. Never decide the player's feelings, consent, or voluntary actions. When authored_template_resolution is provided, treat it as authoritative and never report a score, transformation, or ending beyond its event. Keep the entire response compact.
+{{"choices":[{{"id":"...","label":"..."}},{{"id":"...","label":"..."}},{{"id":"...","label":"..."}}],"discovered_clues":[],"completed_milestones":[],"ending_status":"continue|success|partial|failure","ending_title":null,"ending_summary":null,"bgm":"{"|".join(get_bgm_keys())}","bgm_reason":"..."}}
+Base every value strictly on the supplied narrative and game state, and never invent events the narrative does not contain. bgm selects the background music category for the scene and must be exactly one of: {get_bgm_prompt_guide()}. current_bgm is the music already playing: keep bgm identical to current_bgm unless the location, scene, mood, or story phase has clearly changed, and never change it for a single line of dialogue, a momentary emotion, or a brief reaction. {BGM_SELECTION_RULES} bgm_reason briefly states, in {response_language}, why that bgm category fits this scene, in 200 characters or fewer. Never output a filename, a path, or any value outside this list. choices must offer exactly three distinct actions the player could take next. discovered_clues must contain only new information the narrative actually revealed, and must not repeat state.clues. completed_milestones must contain milestone ID strings only, never objects, and only when the narrated action actually earns them. Keep ending_status as continue unless the narrative itself concludes the mission, and fill ending_title and ending_summary only in that case. Never decide the player's feelings, consent, or voluntary actions. When authored_template_resolution is provided, treat it as authoritative and never report a score, transformation, or ending beyond its event. Keep the entire response compact.
 {_CHOICES_PERSPECTIVE_INSTRUCTION}
 {_CHOICES_FRESHNESS_INSTRUCTION}
 {_REALITY_RULES_INSTRUCTION}
@@ -2556,9 +2583,12 @@ The objective must name a concrete target and an observable end condition that c
             "opening_narrative": opening.narrative,
             "opening_image_path": str(initial_path),
             "choices": opening_choices,
-            # BGM は semantic key で保持し、ファイル解決はフロントエンドが担う
-            "bgm": opening.bgm or BGM_KEY_DEFAULT,
-            "opening_bgm": opening.bgm or BGM_KEY_DEFAULT,
+            # BGM は semantic key で保持し、ファイル解決はフロントエンドが担う。
+            # 理由はキーが有効なときだけ保持し、キーと理由のペアを崩さない
+            "bgm": opening.bgm or get_bgm_default(),
+            "opening_bgm": opening.bgm or get_bgm_default(),
+            "bgm_reason": opening.bgm_reason if opening.bgm else None,
+            "opening_bgm_reason": opening.bgm_reason if opening.bgm else None,
             # 精密参照はユーザー明示ONのみ。未設定・旧runはOFF扱い。
             "use_precise_reference": bool(use_precise_reference),
             # 合成シーン生成はユーザー明示ONのみ。OFF時は中央の立ち絵のみ更新
@@ -3013,8 +3043,10 @@ The objective must name a concrete target and an observable end condition that c
             }
         )
         if output.bgm:
-            # None は「据え置き」で、前ターンの BGM を維持する
+            # None は「据え置き」で、前ターンの BGM と理由を維持する。
+            # 理由はキー更新時だけ書き換え、キーと理由のペアを崩さない
             state["bgm"] = output.bgm
+            state["bgm_reason"] = output.bgm_reason
 
         if epilogue:
             # エピローグでは LLM 申告や max_turns 到達で run を終わらせない。
@@ -3749,7 +3781,7 @@ The objective must name a concrete target and an observable end condition that c
                 "reality_rule_declared_this_turn": declared_rule,
                 "required_visual_appearance": appearance_lock,
                 # resolution プロンプトの current_bgm ルールが名前参照する
-                "current_bgm": state.get("bgm") or BGM_KEY_DEFAULT,
+                "current_bgm": state.get("bgm") or get_bgm_default(),
             }
             if romance_resolution is not None:
                 turn_context["romance_resolution"] = romance_resolution
@@ -4246,6 +4278,7 @@ The objective must name a concrete target and an observable end condition that c
                 ending_title=resolution.ending_title,
                 ending_summary=resolution.ending_summary,
                 bgm=resolution.bgm,
+                bgm_reason=resolution.bgm_reason,
             )
             if romance_resolution is not None:
                 # sim を更新し、milestone と ending_status を Python 算出値で上書き
@@ -5295,8 +5328,9 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             "narrative": turn.narrative,
             "location": turn_visual["location"] if turn_visual else None,
             # state_delta はターン適用後の全 state なので、bgm 未出力(据え置き)の
-            # ターンにも直近の有効キーが入っている。旧 run は None
+            # ターンにも直近の有効キーと理由が入っている。旧 run は None
             "bgm": state_delta.get("bgm"),
+            "bgm_reason": state_delta.get("bgm_reason"),
             "choices": _sanitize_choices(
                 _json_load(turn.choices_json, []),
                 language=language,
@@ -5429,7 +5463,9 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             "opening_image_url": self.image_url(run.id, opening_image_path),
             # BGM は semantic key のみ返す。旧 run は None でフロントが daily に倒す
             "bgm": state.get("bgm"),
+            "bgm_reason": state.get("bgm_reason"),
             "opening_bgm": state.get("opening_bgm"),
+            "opening_bgm_reason": state.get("opening_bgm_reason"),
             "choices": _sanitize_choices(
                 state.get("choices", []),
                 language=run.language,

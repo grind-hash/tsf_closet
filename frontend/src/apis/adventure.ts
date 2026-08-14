@@ -20,16 +20,17 @@ export type AdventureNarrationVoice =
   | "second_person"
   | "third_person"
   | "first_person";
-/** LLMが返すBGMカテゴリ。ファイル解決はフロントエンド側で行う。daily がfallback */
-export type AdventureBgmKey =
-  | "private_action"
-  | "bossa_nova"
-  | "elegant_party"
-  | "royal"
-  | "dark"
-  | "daily"
-  | "important_event"
-  | "bar";
+/**
+ * LLMが返すBGMカテゴリ。有効なキー集合はバックエンドのカタログJSONが
+ * 定義するため、フロントでは自由文字列として扱い未知キーは既定曲へ倒す。
+ */
+export type AdventureBgmKey = string;
+
+/** GET /adventure/bgm が返すBGMカタログ。url は API_BASE 適用済み */
+export interface AdventureBgmCatalog {
+  default_key: string;
+  tracks: { key: string; url: string }[];
+}
 
 export interface AdventureChoice {
   id: string;
@@ -119,6 +120,8 @@ export interface AdventureTurn {
   location: string | null;
   /** このターン時点のBGMカテゴリ。旧ターンでは null */
   bgm?: AdventureBgmKey | null;
+  /** このターン時点のBGM選曲理由(LLM出力)。旧ターンでは null */
+  bgm_reason?: string | null;
   choices: AdventureChoice[];
   image_url: string | null;
   image_status: string;
@@ -174,8 +177,12 @@ export interface AdventureRun {
   opening_image_url: string;
   /** 現在(最新state)のBGMカテゴリ。旧runでは null */
   bgm?: AdventureBgmKey | null;
+  /** 現在のBGM選曲理由(LLM出力)。旧runでは null */
+  bgm_reason?: string | null;
   /** 開幕(手番0)時点のBGMカテゴリ。旧runでは null */
   opening_bgm?: AdventureBgmKey | null;
+  /** 開幕時点のBGM選曲理由。旧runでは null */
+  opening_bgm_reason?: string | null;
   choices: AdventureChoice[];
   current_image_url: string;
   current_image_prompt: AdventureImagePrompt | null;
@@ -295,7 +302,9 @@ function normalizeRun(run: AdventureRun): AdventureRun {
     narration_voice: run.narration_voice ?? "second_person",
     narration_pronoun: run.narration_pronoun || "僕",
     bgm: run.bgm ?? null,
+    bgm_reason: run.bgm_reason ?? null,
     opening_bgm: run.opening_bgm ?? null,
+    opening_bgm_reason: run.opening_bgm_reason ?? null,
     sim: run.sim ?? null,
     opening_sim: run.opening_sim ?? null,
     partner_portrait_url: withApiBase(run.partner_portrait_url ?? null),
@@ -331,6 +340,19 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
     );
   }
   return response.json() as Promise<T>;
+}
+
+export async function fetchAdventureBgmCatalog(): Promise<AdventureBgmCatalog> {
+  const payload = await requestJson<AdventureBgmCatalog>(
+    `${API_BASE}/adventure/bgm`,
+  );
+  return {
+    default_key: payload.default_key,
+    tracks: payload.tracks.map((track) => ({
+      key: track.key,
+      url: withApiBase(track.url) ?? track.url,
+    })),
+  };
 }
 
 export async function fetchAdventureTemplates(): Promise<AdventureTemplate[]> {
