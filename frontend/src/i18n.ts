@@ -38,10 +38,15 @@ const resources = {
         sourceState: "開始状態",
         currentState: "現在の状態",
         selectedSourceSummary: "選択中: {{name}} ・ {{state}}",
-        sourceSessionOption:
-          "{{name}} · {{count}}{{unit}} · {{date}} · {{preview}}",
-        sourceSessionOptionNoPreview: "{{name}} · {{count}}{{unit}} · {{date}}",
         unnamedCharacter: "名前未設定",
+        sourcePicker: {
+          change: "変更",
+          select: "選択する",
+          selectCurrent: "現在の状態で選択",
+          openHistory: "{{name}} の時点を選ぶ",
+          close: "選択画面を閉じる",
+          notSelected: "未選択",
+        },
         startMode: "開始方式",
         startModes: {
           generated: "自動生成",
@@ -213,19 +218,20 @@ const resources = {
           "次回の画像生成から反映されます。ONにすると参照1枚あたり5 Anlasを追加消費します。",
         enableCompositeScene: "背景と人物を同時に描く",
         enableCompositeSceneHint:
-          "OFFが既定です。既定では背景は開始時に1回だけ生成し、行動に応じて中央の立ち絵のみ更新します。ONにすると、立ち絵の更新後に背景を含む合成シーンも直列で再生成するため、1ターンあたりの画像生成が2回になり待ち時間が長くなります。",
+          "OFFが既定です。既定では背景は開始時に1回だけ生成し、行動に応じて中央の立ち絵のみ更新します。ONにすると、立ち絵の更新後に背景を含む合成シーンも直列で再生成するため、1ターンあたりの画像生成が1回増えて待ち時間が長くなります。",
         enableCompositeScenePlayHint:
           "次回のターンから反映されます。ONの間は毎ターン、立ち絵に加えて合成シーンも直列生成されるため待ち時間が長くなります。",
         drawPortraitEveryTurn: "主人公の立ち絵を毎ターン描く",
         drawPortraitEveryTurnHint:
-          "ONが既定です。OFFにすると行動しても主人公の立ち絵を更新せず、直前の立ち絵のまま物語が進みます。この設定はブラウザごとに保存されます。",
+          "ONが既定です。OFFにすると行動しても主人公の立ち絵を更新せず、直前の立ち絵のまま物語が進みます。合成シーンを描く設定のときは、直前の立ち絵をそのまま参照に使います。この設定はブラウザごとに保存されます。",
         drawPartnerEveryTurn: "攻略対象の立ち絵を毎ターン描く",
         drawPartnerEveryTurnHint:
-          "ONが既定です。OFFにすると攻略対象の立ち絵を更新せず、直前の立ち絵のまま進行します。この設定はブラウザごとに保存されます。",
-        generateClues: "手掛かり・ヒントを抽出する",
-        generateCluesHint:
-          "ONが既定です。OFFにすると新しい手掛かり（恋愛シミュレーションではヒント）を記録しません。判定処理自体は残るため、時間短縮はわずかです。この設定はブラウザごとに保存されます。",
+          "ONが既定です。OFFにすると攻略対象の立ち絵を更新せず、直前の立ち絵のまま進行します。合成シーンを描く設定のときは、この立ち絵が合成の参照にも使われます。この設定はブラウザごとに保存されます。",
         turnTimeEstimate: "1ターンの生成時間: 約{{seconds}}秒",
+        turnImagesDisabledNotice:
+          "※現在の設定では、テキスト生成のみで背景やキャラクターの画像は変更されません。",
+        turnImagesDisabledNoticeRomance:
+          "※現在の設定では、テキスト生成のみで背景やキャラクターの画像は変更されません（現在地や時間帯が変わったときの背景更新を除く）。",
         portraitAlt: "主人公のポートレート",
         portraitFailed: "立ち絵の生成に失敗しました",
         portraitRetry: "立ち絵を再生成",
@@ -1436,11 +1442,15 @@ const resources = {
         sourceState: "Starting State",
         currentState: "Current State",
         selectedSourceSummary: "Selected: {{name}} · {{state}}",
-        sourceSessionOption:
-          "{{name}} · {{count}} {{unit}} · {{date}} · {{preview}}",
-        sourceSessionOptionNoPreview:
-          "{{name}} · {{count}} {{unit}} · {{date}}",
         unnamedCharacter: "Unnamed Character",
+        sourcePicker: {
+          change: "Change",
+          select: "Select",
+          selectCurrent: "Select current state",
+          openHistory: "Pick a moment from {{name}}",
+          close: "Close the picker",
+          notSelected: "Not selected",
+        },
         startMode: "Start Mode",
         startModes: {
           generated: "Generated Mission",
@@ -1615,19 +1625,20 @@ const resources = {
           "Applies from the next image generation. When on, each reference costs 5 extra Anlas.",
         enableCompositeScene: "Draw background and character together",
         enableCompositeSceneHint:
-          "Off by default. By default, the background is generated once at the start, and only the centered character sprite updates as you act. When on, the full composite scene (including background) is also regenerated in series after each sprite update, so each turn runs two image generations and takes longer.",
+          "Off by default. By default, the background is generated once at the start, and only the centered character sprite updates as you act. When on, the full composite scene (including background) is also regenerated in series after each sprite update, so each turn runs one more image generation and takes longer.",
         enableCompositeScenePlayHint:
           "Applies from the next turn. While on, every turn generates the composite scene in series after the character sprite, so turns take longer.",
         drawPortraitEveryTurn: "Draw protagonist sprite every turn",
         drawPortraitEveryTurnHint:
-          "On by default. When off, the protagonist sprite is not updated as you act; the story continues with the previous sprite. This preference is saved per browser.",
+          "On by default. When off, the protagonist sprite is not updated as you act; the story continues with the previous sprite. With the composite scene on, the previous sprite is reused as its character reference. This preference is saved per browser.",
         drawPartnerEveryTurn: "Draw partner sprite every turn",
         drawPartnerEveryTurnHint:
-          "On by default. When off, the partner sprite is not updated; play continues with the previous sprite. This preference is saved per browser.",
-        generateClues: "Extract clues and hints",
-        generateCluesHint:
-          "On by default. When off, new clues (hints in the romance simulation) are not recorded. The resolution step still runs, so the time saved is small. This preference is saved per browser.",
+          "On by default. When off, the partner sprite is not updated; play continues with the previous sprite. With the composite scene on, this sprite is also used as a reference for the composite. This preference is saved per browser.",
         turnTimeEstimate: "Estimated time per turn: about {{seconds}}s",
+        turnImagesDisabledNotice:
+          "Note: with the current settings, only text is generated — background and character images stay unchanged.",
+        turnImagesDisabledNoticeRomance:
+          "Note: with the current settings, only text is generated — background and character images stay unchanged (except when the background updates on a location or time-of-day change).",
         portraitAlt: "Protagonist portrait",
         portraitFailed: "Character sprite generation failed",
         portraitRetry: "Regenerate sprite",

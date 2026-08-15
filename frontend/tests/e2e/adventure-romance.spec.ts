@@ -409,12 +409,22 @@ test("player can be a transformed state from a session", async ({ page }) => {
   await page
     .getByLabel(/主人公（自分）/)
     .selectOption(ROMANCE_PLAYER_SESSION_VALUE);
-  // 主人公セッションと時点ピッカーが現れ、変身時点を選べる
+  // 先頭セッションの「現在の状態」がサマリに自動選択される
   const playerSource = page.locator(".adventure-romance-player-source");
-  await expect(playerSource.getByLabel(/主人公にするセッション/)).toHaveValue(
-    "session-1",
+  await expect(playerSource.getByRole("group")).toContainText(
+    "テストキャラクター",
   );
-  await playerSource.getByRole("button", { name: "猫耳メイドに変身" }).click();
+  // 選択モーダルを開き、セッション内の変身時点を選ぶ
+  await playerSource.getByRole("button", { name: "変更" }).click();
+  const picker = page.getByRole("dialog", { name: "主人公にするセッション" });
+  await picker
+    .getByRole("button", { name: "テストキャラクター の時点を選ぶ" })
+    .click();
+  await picker.getByRole("button", { name: "猫耳メイドに変身" }).click();
+  await expect(picker).toBeHidden();
+  await expect(playerSource.getByRole("group")).toContainText(
+    "猫耳メイドに変身",
+  );
   await page.getByRole("button", { name: "ミッション案を自動生成" }).click();
   await page.getByRole("button", { name: "シナリオを開始" }).click();
 
@@ -871,24 +881,23 @@ test("partner tab stays available in composite mode", async ({ page }) => {
   );
 });
 
-test("clue extraction toggle rides the turn request when off", async ({
-  page,
-}) => {
+test("clue extraction is always on and has no toggle", async ({ page }) => {
   await enableAdventure(page);
+  // 旧バージョンでOFFにしていたブラウザでも、以後は常にONへ倒す
   await page.addInitScript(() => {
     window.localStorage.setItem("adventure_generate_clues", "false");
   });
   const state = await mockRomanceApis(page);
   await page.goto("/adventure/run-1");
 
-  // プレイ中ポップオーバーにもトグルが出て、OFF 状態を映す
   await page.getByRole("button", { name: "画像生成設定" }).click();
-  await expect(page.getByLabel(/手掛かり・ヒントを抽出する/)).not.toBeChecked();
+  await expect(page.getByText("手掛かり・ヒントを抽出する")).toHaveCount(0);
   await page.keyboard.press("Escape");
 
   await page.getByRole("button", { name: /美咲に話しかける/ }).click();
   await expect(page.getByText("ふたりの距離が少し縮まった。")).toBeVisible();
-  expect(state.streamBodies[0]).toMatchObject({ generate_clues: false });
+  // 送らない = backend 既定の true
+  expect(state.streamBodies[0]).not.toHaveProperty("generate_clues");
 });
 
 test("turn time estimate follows the image settings", async ({ page }) => {
@@ -903,12 +912,91 @@ test("turn time estimate follows the image settings", async ({ page }) => {
   await page.getByRole("button", { name: "画像生成設定" }).click();
   // 既定(非合成・立ち絵2種ON)は 主人公18秒+攻略対象18秒+ベース20秒 → 約55秒
   await expect(page.getByText("1ターンの生成時間: 約55秒")).toBeVisible();
-  // 合成ONは 立ち絵+合成シーンの直列2枚 → 約60秒
+  // 合成ONは立ち絵2種の後に合成シーンを直列生成する → 約75秒
   await page
     .locator(
       ".adventure-image-settings-popover label.adventure-precise-toggle",
       { hasText: "背景と人物を同時に描く" },
     )
     .click();
-  await expect(page.getByText("1ターンの生成時間: 約60秒")).toBeVisible();
+  await expect(page.getByText("1ターンの生成時間: 約75秒")).toBeVisible();
+  // 合成ON中も立ち絵トグルは操作でき、OFFにすると合成シーンだけの約40秒になる
+  await page
+    .locator(
+      ".adventure-image-settings-popover label.adventure-precise-toggle",
+      { hasText: "主人公の立ち絵を毎ターン描く" },
+    )
+    .click();
+  await page
+    .locator(
+      ".adventure-image-settings-popover label.adventure-precise-toggle",
+      { hasText: "攻略対象の立ち絵を毎ターン描く" },
+    )
+    .click();
+  await expect(page.getByText("1ターンの生成時間: 約40秒")).toBeVisible();
+});
+
+test("image settings popover stays inside a short viewport", async ({
+  page,
+}) => {
+  await enableAdventure(page);
+  await mockRomanceApis(page);
+  // 縦が足りないディスプレイでも末尾のトグルが切れずに読めること
+  await page.setViewportSize({ width: 1280, height: 520 });
+  await page.goto("/adventure/run-1");
+
+  await page.getByRole("button", { name: "画像生成設定" }).click();
+  const popover = page.locator(".adventure-image-settings-popover");
+  await expect(popover).toBeVisible();
+
+  const fits = await popover.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    return {
+      bottomOverflow: rect.bottom - window.innerHeight,
+      scrollable: element.scrollHeight > element.clientHeight,
+    };
+  });
+  expect(fits.bottomOverflow).toBeLessThanOrEqual(0);
+  // 収まりきらない分は枠内スクロールへ逃がす
+  expect(fits.scrollable).toBe(true);
+
+  // 先頭の生成時間は常に見えており、最後の項目までスクロールで到達できる
+  await expect(popover.locator(".adventure-turn-estimate")).toBeInViewport();
+  const lastToggle = popover
+    .locator("label.adventure-precise-toggle")
+    .filter({ hasText: "攻略対象の立ち絵を毎ターン描く" });
+  await lastToggle.scrollIntoViewIfNeeded();
+  await expect(lastToggle).toBeInViewport();
+});
+
+test("portrait toggles ride the turn request while the composite scene is on", async ({
+  page,
+}) => {
+  await enableAdventure(page);
+  await page.addInitScript(() => {
+    window.localStorage.setItem("adventure_draw_portrait_every_turn", "false");
+    window.localStorage.setItem("adventure_draw_partner_every_turn", "false");
+  });
+  const state = await mockRomanceApis(page, {
+    ...romanceRunPayload(),
+    enable_composite_scene: true,
+  });
+  await page.goto("/adventure/run-1");
+
+  // 合成ONでも両トグルが表示され、OFF 状態を映す
+  await page.getByRole("button", { name: "画像生成設定" }).click();
+  await expect(
+    page.getByLabel(/主人公の立ち絵を毎ターン描く/),
+  ).not.toBeChecked();
+  await expect(
+    page.getByLabel(/攻略対象の立ち絵を毎ターン描く/),
+  ).not.toBeChecked();
+  await page.keyboard.press("Escape");
+
+  await page.getByRole("button", { name: /美咲に話しかける/ }).click();
+  await expect(page.getByText("ふたりの距離が少し縮まった。")).toBeVisible();
+  expect(state.streamBodies[0]).toMatchObject({
+    generate_portrait: false,
+    generate_partner_portrait: false,
+  });
 });

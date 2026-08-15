@@ -14,15 +14,13 @@ import type {
 } from "../../apis/adventure";
 import { canActOnRun } from "../../apis/adventure";
 import { fetchAnlasBalance } from "../../apis/anlas";
-import { fetchGalleryList, fetchGallerySessions } from "../../apis/gallery";
+import { fetchGallerySessions } from "../../apis/gallery";
 import {
   ANLAS_WARN_SUPPRESSED_KEY,
   DRAW_PARTNER_STORAGE_KEY,
   DRAW_PORTRAIT_STORAGE_KEY,
-  GENERATE_CLUES_STORAGE_KEY,
   readDrawPartnerEveryTurn,
   readDrawPortraitEveryTurn,
-  readGenerateClues,
   useAdventure,
 } from "../../contexts/AdventureContext";
 import { useSettings } from "../../contexts/SettingsContext";
@@ -32,12 +30,7 @@ import {
   useTimedProgress,
 } from "../../hooks/useTimedProgress";
 import { useTransparentImage } from "../../hooks/useTransparentImage";
-import type {
-  AnlasBalance,
-  Character,
-  GalleryItem,
-  GallerySession,
-} from "../../types";
+import type { AnlasBalance, Character, GallerySession } from "../../types";
 import {
   type AdventureAnlasEstimate,
   estimateAdventureAnlas,
@@ -45,6 +38,7 @@ import {
 import {
   ADVENTURE_PROGRESS_BUDGET_MS,
   estimateAdventureTurnSeconds,
+  isAdventureTurnTextOnly,
 } from "../../utils/adventureTurnTimeEstimate";
 import { API_BASE } from "../../utils/api";
 import ImagePreviewModal from "../ImagePreviewModal";
@@ -54,6 +48,10 @@ import AdventureAttributeModal from "./AdventureAttributeModal";
 import AdventureBgmControl from "./AdventureBgmControl";
 import AdventureGiftShopModal from "./AdventureGiftShopModal";
 import AdventureImagePromptModal from "./AdventureImagePromptModal";
+import AdventureSessionPickerModal, {
+  type AdventureSourceSelection,
+  selectionFromSession,
+} from "./AdventureSessionPickerModal";
 import "./AdventureScreen.css";
 
 // Anlas見積もりを表示用文字列にする。min=maxなら単一値、異なれば範囲表記
@@ -82,8 +80,6 @@ const PRESETS: AdventurePreset[] = [
 function mediaUrl(url: string): string {
   return url.startsWith("/") ? `${API_BASE}${url}` : url;
 }
-
-const LAST_INSTRUCTION_PREVIEW_LEN = 24;
 
 // 自動生成ミッションのターン数。backend/gateway/consts/adventure_turns.py と揃える
 const DEFAULT_MAX_TURNS = 15;
@@ -187,52 +183,58 @@ const PORTRAIT_ALPHA_OPTIONS = { threshold: 12, featherRadius: 1.8 };
 const REALITY_DECLARATION_PATTERN =
   /^\s*(?:\[\s*(?:現実改変|reality(?:[ _-]?alteration)?)\s*\]\s*[:：]?|(?:現実改変|reality(?:[ _-]?alteration)?)\s*[:：])\s*\S/i;
 
-function formatSessionDate(iso: string, locale: string): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return iso;
-  return date.toLocaleDateString(locale.startsWith("en") ? "en-US" : "ja-JP", {
-    year: "numeric",
-    month: "numeric",
-    day: "numeric",
-  });
-}
-
-function truncateText(text: string, maxLen: number): string {
-  const normalized = text.replace(/\s+/g, " ").trim();
-  if (normalized.length <= maxLen) return normalized;
-  return `${normalized.slice(0, maxLen)}…`;
-}
-
-function formatSourceSessionOption(
-  session: GallerySession,
-  t: (key: string, options?: Record<string, string | number>) => string,
-  locale: string,
-): string {
-  const name = session.character_name ?? t("adventure.unnamedCharacter");
-  const date = formatSessionDate(session.first_timestamp, locale);
-  const unit = t("gallery.itemsUnit");
-  const preview = session.last_instruction
-    ? truncateText(session.last_instruction, LAST_INSTRUCTION_PREVIEW_LEN)
-    : "";
-  if (preview) {
-    return t("adventure.sourceSessionOption", {
-      name,
-      count: session.item_count,
-      unit,
-      date,
-      preview,
-    });
+// 開始セッション/主人公セッションの選択中サマリ。未選択時は選択ボタンだけを出す
+function SourceSelectionSummary({
+  selection,
+  disabled,
+  onOpenPicker,
+}: {
+  selection: AdventureSourceSelection | null;
+  disabled: boolean;
+  onOpenPicker: () => void;
+}) {
+  const { t } = useTranslation();
+  if (!selection) {
+    return (
+      <button
+        type="button"
+        className="adventure-source-summary__change"
+        disabled={disabled}
+        onClick={onOpenPicker}
+      >
+        {t("adventure.sourcePicker.select")}
+      </button>
+    );
   }
-  return t("adventure.sourceSessionOptionNoPreview", {
-    name,
-    count: session.item_count,
-    unit,
-    date,
-  });
+  const name = selection.characterName ?? t("adventure.unnamedCharacter");
+  const state = selection.pointLabel ?? t("adventure.currentState");
+  return (
+    <div
+      className="adventure-source-summary"
+      role="group"
+      aria-label={t("adventure.selectedSourceSummary", { name, state })}
+    >
+      <span className="adventure-source-summary__thumb">
+        <img src={mediaUrl(selection.thumbnailUrl)} alt="" />
+      </span>
+      <span className="adventure-source-summary__text">
+        <strong>{name}</strong>
+        <span>{state}</span>
+      </span>
+      <button
+        type="button"
+        className="adventure-source-summary__change"
+        disabled={disabled}
+        onClick={onOpenPicker}
+      >
+        {t("adventure.sourcePicker.change")}
+      </button>
+    </div>
+  );
 }
 
 function AdventureHub() {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const replayRunId = (useLocation().state as { replayRunId?: string } | null)
     ?.replayRunId;
@@ -249,10 +251,15 @@ function AdventureHub() {
     removeRun,
     clearError,
   } = useAdventure();
+  // 1ページ目のセッション一覧。既定選択と保存済みIDの解決に使う(一覧表示はモーダル側)
   const [sessions, setSessions] = useState<GallerySession[]>([]);
-  const [historyItems, setHistoryItems] = useState<GalleryItem[]>([]);
-  const [sourceSessionId, setSourceSessionId] = useState("");
-  const [sourceHistoryId, setSourceHistoryId] = useState<string | undefined>();
+  // 開始セッション(+時点)の選択。送信用IDは下で派生値として取り出す
+  const [sourceSelection, setSourceSelection] =
+    useState<AdventureSourceSelection | null>(null);
+  // 選択モーダルの対象。source=開始セッション、player=romanceの主人公セッション
+  const [pickerTarget, setPickerTarget] = useState<"source" | "player" | null>(
+    null,
+  );
   const [startMode, setStartMode] = useState<"generated" | "authored">(
     "generated",
   );
@@ -304,7 +311,6 @@ function AdventureHub() {
   const [drawPartnerEveryTurn, setDrawPartnerEveryTurn] = useState(
     readDrawPartnerEveryTurn,
   );
-  const [generateClues, setGenerateClues] = useState(readGenerateClues);
   // romance の主人公(自分)。既定は男性キャラ、選択したら次回にも保存する
   const [romancePlayerId, setRomancePlayerId] = useState(() => {
     const saved = savedSetupPrefs.romancePlayerCharacterId;
@@ -313,17 +319,15 @@ function AdventureHub() {
       : ROMANCE_DEFAULT_PLAYER_ID;
   });
   const [playerCharacters, setPlayerCharacters] = useState<Character[]>([]);
-  // 主人公を「セッションの姿」にする場合の対象セッションと時点
-  const [romancePlayerSessionId, setRomancePlayerSessionId] = useState(() => {
-    const saved = savedSetupPrefs.romancePlayerSessionId;
-    return typeof saved === "string" ? saved : "";
-  });
-  const [romancePlayerHistoryId, setRomancePlayerHistoryId] = useState<
-    string | undefined
-  >();
-  const [playerHistoryItems, setPlayerHistoryItems] = useState<GalleryItem[]>(
-    [],
-  );
+  // 主人公を「セッションの姿」にする場合の選択。保存済みIDは sessions ロード後に解決する
+  const [playerSelection, setPlayerSelection] =
+    useState<AdventureSourceSelection | null>(null);
+
+  // 既存の送信・保存ロジックは選択オブジェクトから派生したIDを参照する
+  const sourceSessionId = sourceSelection?.sessionId ?? "";
+  const sourceHistoryId = sourceSelection?.historyId;
+  const romancePlayerSessionId = playerSelection?.sessionId ?? "";
+  const romancePlayerHistoryId = playerSelection?.historyId;
 
   useEffect(() => {
     const prefs: AdventureSetupPrefs = {
@@ -346,32 +350,17 @@ function AdventureHub() {
     romancePlayerSessionId,
   ]);
 
-  // セッションの姿モードでは、保存されたセッションが見つからなければ先頭へ倒す
+  // セッションの姿モードで未選択の間は、保存済みセッションIDを解決する。
+  // 1ページ目に見つからなければ先頭セッションへ倒す(時点は現在の状態)
   useEffect(() => {
     if (romancePlayerId !== ROMANCE_PLAYER_SESSION_VALUE) return;
-    if (sessions.length === 0) return;
-    if (
-      !sessions.some((session) => session.session_id === romancePlayerSessionId)
-    ) {
-      setRomancePlayerSessionId(sessions[0].session_id);
-    }
-  }, [romancePlayerId, sessions, romancePlayerSessionId]);
-
-  // 主人公セッションの履歴(時点)一覧。セッションが変わったら時点選択をリセット
-  useEffect(() => {
-    if (
-      romancePlayerId !== ROMANCE_PLAYER_SESSION_VALUE ||
-      !romancePlayerSessionId
-    ) {
-      setPlayerHistoryItems([]);
-      setRomancePlayerHistoryId(undefined);
-      return;
-    }
-    setRomancePlayerHistoryId(undefined);
-    void fetchGalleryList(1, 50, romancePlayerSessionId).then((response) =>
-      setPlayerHistoryItems(response.items),
+    if (playerSelection || sessions.length === 0) return;
+    const saved = sessions.find(
+      (session) =>
+        session.session_id === savedSetupPrefs.romancePlayerSessionId,
     );
-  }, [romancePlayerId, romancePlayerSessionId]);
+    setPlayerSelection(selectionFromSession(saved ?? sessions[0]));
+  }, [romancePlayerId, sessions, playerSelection, savedSetupPrefs]);
 
   // 主人公候補は romance を選んだときだけ読み込む
   useEffect(() => {
@@ -395,8 +384,10 @@ function AdventureHub() {
     void loadTemplates();
     void fetchGallerySessions(1, 50).then((response) => {
       setSessions(response.sessions);
-      if (response.sessions[0])
-        setSourceSessionId(response.sessions[0].session_id);
+      const first = response.sessions[0];
+      if (first) {
+        setSourceSelection((prev) => prev ?? selectionFromSession(first));
+      }
     });
   }, [loadRuns, loadTemplates]);
 
@@ -406,26 +397,6 @@ function AdventureHub() {
     setSelectedReplayRunId(replayRunId);
   }, [replayRunId]);
 
-  useEffect(() => {
-    if (!sourceSessionId) {
-      setHistoryItems([]);
-      return;
-    }
-    setSourceHistoryId(undefined);
-    setScenarioSetting("");
-    setScenarioObjective("");
-    setScenarioConstraints("");
-    void fetchGalleryList(1, 50, sourceSessionId).then((response) =>
-      setHistoryItems(response.items),
-    );
-  }, [sourceSessionId]);
-
-  const selectedSession = sessions.find(
-    (session) => session.session_id === sourceSessionId,
-  );
-  const romancePlayerSession = sessions.find(
-    (session) => session.session_id === romancePlayerSessionId,
-  );
   const selectedTemplate = templates.find(
     (template) => template.id === selectedTemplateId,
   );
@@ -433,6 +404,14 @@ function AdventureHub() {
   const selectedScenario = selectedReplayRun ?? selectedTemplate;
   const selectedScenarioPreset =
     selectedReplayRun?.preset ?? selectedTemplate?.preset;
+  // 生成時間の見積もりと「テキストのみ」告知は同じ設定から導く
+  const setupImageSettings = {
+    preset:
+      startMode === "authored" ? (selectedScenarioPreset ?? preset) : preset,
+    enableCompositeScene,
+    drawPortraitEveryTurn,
+    drawPartnerEveryTurn,
+  };
 
   const sortedRuns = useMemo(
     () =>
@@ -478,6 +457,19 @@ function AdventureHub() {
     setScenarioSetting("");
     setScenarioObjective("");
     setScenarioConstraints("");
+  };
+
+  // 開始セッション/時点を選び直したら、生成済みのシナリオ案は破棄する
+  const handleSourceSelect = (selection: AdventureSourceSelection) => {
+    setSourceSelection(selection);
+    clearGeneratedSetup();
+    setPickerTarget(null);
+  };
+
+  // 主人公側の変更ではシナリオ案を保持する(従来の挙動を踏襲)
+  const handlePlayerSelect = (selection: AdventureSourceSelection) => {
+    setPlayerSelection(selection);
+    setPickerTarget(null);
   };
 
   const effectiveMaxTurns = clampMaxTurns(
@@ -622,83 +614,11 @@ function AdventureHub() {
           <p className="adventure-card__hint">
             {t("adventure.stepSourceHint")}
           </p>
-          <label className="adventure-source-select">
-            <span>{t("adventure.sourceSession")}</span>
-            <select
-              value={sourceSessionId}
-              disabled={setupGenerating || loading}
-              onChange={(event) => setSourceSessionId(event.target.value)}
-            >
-              {sessions.map((session) => (
-                <option key={session.session_id} value={session.session_id}>
-                  {formatSourceSessionOption(session, t, i18n.language)}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          {selectedSession && (
-            <>
-              <div
-                className="adventure-source-grid"
-                role="group"
-                aria-label={t("adventure.sourceState")}
-              >
-                <button
-                  type="button"
-                  disabled={setupGenerating || loading}
-                  className={!sourceHistoryId ? "is-selected" : ""}
-                  onClick={() => {
-                    setSourceHistoryId(undefined);
-                    clearGeneratedSetup();
-                  }}
-                >
-                  <span className="adventure-source-grid__thumb">
-                    <img
-                      src={mediaUrl(selectedSession.thumbnail_url)}
-                      alt={t("adventure.currentState")}
-                    />
-                  </span>
-                  <span className="adventure-source-grid__label">
-                    {t("adventure.currentState")}
-                  </span>
-                </button>
-                {historyItems.map((item) => (
-                  <button
-                    type="button"
-                    key={item.id}
-                    disabled={setupGenerating || loading}
-                    className={sourceHistoryId === item.id ? "is-selected" : ""}
-                    onClick={() => {
-                      setSourceHistoryId(item.id);
-                      clearGeneratedSetup();
-                    }}
-                  >
-                    <span className="adventure-source-grid__thumb">
-                      <img
-                        src={mediaUrl(item.image_url)}
-                        alt={item.instruction}
-                      />
-                    </span>
-                    <span className="adventure-source-grid__label">
-                      {item.instruction}
-                    </span>
-                  </button>
-                ))}
-              </div>
-              <p className="adventure-source-summary">
-                {t("adventure.selectedSourceSummary", {
-                  name:
-                    selectedSession.character_name ??
-                    t("adventure.unnamedCharacter"),
-                  state: sourceHistoryId
-                    ? (historyItems.find((item) => item.id === sourceHistoryId)
-                        ?.instruction ?? t("adventure.currentState"))
-                    : t("adventure.currentState"),
-                })}
-              </p>
-            </>
-          )}
+          <SourceSelectionSummary
+            selection={sourceSelection}
+            disabled={setupGenerating || loading}
+            onOpenPicker={() => setPickerTarget("source")}
+          />
         </section>
 
         <section className="adventure-card adventure-card--mission">
@@ -879,78 +799,14 @@ function AdventureHub() {
               {preset === "romance" &&
                 romancePlayerId === ROMANCE_PLAYER_SESSION_VALUE && (
                   <div className="adventure-romance-player-source">
-                    <label className="adventure-source-select">
-                      <span>{t("adventure.romance.playerSession")}</span>
-                      <select
-                        value={romancePlayerSessionId}
-                        disabled={setupGenerating || loading || creating}
-                        onChange={(event) =>
-                          setRomancePlayerSessionId(event.target.value)
-                        }
-                      >
-                        {sessions.map((session) => (
-                          <option
-                            key={session.session_id}
-                            value={session.session_id}
-                          >
-                            {formatSourceSessionOption(
-                              session,
-                              t,
-                              i18n.language,
-                            )}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    {romancePlayerSession && (
-                      <div
-                        className="adventure-source-grid"
-                        role="group"
-                        aria-label={t("adventure.romance.playerState")}
-                      >
-                        <button
-                          type="button"
-                          disabled={setupGenerating || loading || creating}
-                          className={
-                            !romancePlayerHistoryId ? "is-selected" : ""
-                          }
-                          onClick={() => setRomancePlayerHistoryId(undefined)}
-                        >
-                          <span className="adventure-source-grid__thumb">
-                            <img
-                              src={mediaUrl(romancePlayerSession.thumbnail_url)}
-                              alt={t("adventure.currentState")}
-                            />
-                          </span>
-                          <span className="adventure-source-grid__label">
-                            {t("adventure.currentState")}
-                          </span>
-                        </button>
-                        {playerHistoryItems.map((item) => (
-                          <button
-                            type="button"
-                            key={item.id}
-                            disabled={setupGenerating || loading || creating}
-                            className={
-                              romancePlayerHistoryId === item.id
-                                ? "is-selected"
-                                : ""
-                            }
-                            onClick={() => setRomancePlayerHistoryId(item.id)}
-                          >
-                            <span className="adventure-source-grid__thumb">
-                              <img
-                                src={mediaUrl(item.image_url)}
-                                alt={item.instruction}
-                              />
-                            </span>
-                            <span className="adventure-source-grid__label">
-                              {item.instruction}
-                            </span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
+                    <span className="adventure-romance-player-source__label">
+                      {t("adventure.romance.playerSession")}
+                    </span>
+                    <SourceSelectionSummary
+                      selection={playerSelection}
+                      disabled={setupGenerating || loading || creating}
+                      onOpenPicker={() => setPickerTarget("player")}
+                    />
                   </div>
                 )}
 
@@ -1094,6 +950,21 @@ function AdventureHub() {
           <details className="adventure-setup-details-wrapper">
             <summary>{t("adventure.imageGenOptions")}</summary>
             <div className="adventure-setup-details adventure-image-gen-options">
+              {/* 各トグルの結果である所要時間は、スクロールしても見える先頭へ置く */}
+              <p className="adventure-turn-estimate">
+                {t("adventure.turnTimeEstimate", {
+                  seconds: estimateAdventureTurnSeconds(setupImageSettings),
+                })}
+              </p>
+              {isAdventureTurnTextOnly(setupImageSettings) && (
+                <p className="adventure-turn-note">
+                  {t(
+                    setupImageSettings.preset === "romance"
+                      ? "adventure.turnImagesDisabledNoticeRomance"
+                      : "adventure.turnImagesDisabledNotice",
+                  )}
+                </p>
+              )}
               <label className="adventure-precise-toggle">
                 <span className="adventure-precise-toggle__info">
                   <strong>{t("adventure.preciseReference")}</strong>
@@ -1126,79 +997,23 @@ function AdventureHub() {
                 />
                 <span className="adventure-precise-toggle__switch" />
               </label>
-              {!usePreciseReference && !enableCompositeScene && (
-                <>
-                  <label className="adventure-precise-toggle">
-                    <span className="adventure-precise-toggle__info">
-                      <strong>{t("adventure.drawPortraitEveryTurn")}</strong>
-                      <small>{t("adventure.drawPortraitEveryTurnHint")}</small>
-                    </span>
-                    <input
-                      type="checkbox"
-                      className="adventure-precise-toggle__input"
-                      checked={drawPortraitEveryTurn}
-                      disabled={setupGenerating || loading || creating}
-                      onChange={(event) => {
-                        const next = event.target.checked;
-                        setDrawPortraitEveryTurn(next);
-                        try {
-                          localStorage.setItem(
-                            DRAW_PORTRAIT_STORAGE_KEY,
-                            String(next),
-                          );
-                        } catch {
-                          // プライベートモード等で保存できなくても切り替え自体は有効
-                        }
-                      }}
-                    />
-                    <span className="adventure-precise-toggle__switch" />
-                  </label>
-                  {preset === "romance" && (
-                    <label className="adventure-precise-toggle">
-                      <span className="adventure-precise-toggle__info">
-                        <strong>{t("adventure.drawPartnerEveryTurn")}</strong>
-                        <small>{t("adventure.drawPartnerEveryTurnHint")}</small>
-                      </span>
-                      <input
-                        type="checkbox"
-                        className="adventure-precise-toggle__input"
-                        checked={drawPartnerEveryTurn}
-                        disabled={setupGenerating || loading || creating}
-                        onChange={(event) => {
-                          const next = event.target.checked;
-                          setDrawPartnerEveryTurn(next);
-                          try {
-                            localStorage.setItem(
-                              DRAW_PARTNER_STORAGE_KEY,
-                              String(next),
-                            );
-                          } catch {
-                            // プライベートモード等で保存できなくても切り替え自体は有効
-                          }
-                        }}
-                      />
-                      <span className="adventure-precise-toggle__switch" />
-                    </label>
-                  )}
-                </>
-              )}
-              {/* 手掛かり抽出は画像設定と独立のため、常に表示する */}
+              {/* 立ち絵の毎ターン描画は合成・精密参照の設定に関わらず効くため常に表示する */}
               <label className="adventure-precise-toggle">
                 <span className="adventure-precise-toggle__info">
-                  <strong>{t("adventure.generateClues")}</strong>
-                  <small>{t("adventure.generateCluesHint")}</small>
+                  <strong>{t("adventure.drawPortraitEveryTurn")}</strong>
+                  <small>{t("adventure.drawPortraitEveryTurnHint")}</small>
                 </span>
                 <input
                   type="checkbox"
                   className="adventure-precise-toggle__input"
-                  checked={generateClues}
+                  checked={drawPortraitEveryTurn}
                   disabled={setupGenerating || loading || creating}
                   onChange={(event) => {
                     const next = event.target.checked;
-                    setGenerateClues(next);
+                    setDrawPortraitEveryTurn(next);
                     try {
                       localStorage.setItem(
-                        GENERATE_CLUES_STORAGE_KEY,
+                        DRAW_PORTRAIT_STORAGE_KEY,
                         String(next),
                       );
                     } catch {
@@ -1208,20 +1023,33 @@ function AdventureHub() {
                 />
                 <span className="adventure-precise-toggle__switch" />
               </label>
-              <p className="adventure-turn-estimate">
-                {t("adventure.turnTimeEstimate", {
-                  seconds: estimateAdventureTurnSeconds({
-                    preset:
-                      startMode === "authored"
-                        ? (selectedScenarioPreset ?? preset)
-                        : preset,
-                    usePreciseReference,
-                    enableCompositeScene,
-                    drawPortraitEveryTurn,
-                    drawPartnerEveryTurn,
-                  }),
-                })}
-              </p>
+              {preset === "romance" && (
+                <label className="adventure-precise-toggle">
+                  <span className="adventure-precise-toggle__info">
+                    <strong>{t("adventure.drawPartnerEveryTurn")}</strong>
+                    <small>{t("adventure.drawPartnerEveryTurnHint")}</small>
+                  </span>
+                  <input
+                    type="checkbox"
+                    className="adventure-precise-toggle__input"
+                    checked={drawPartnerEveryTurn}
+                    disabled={setupGenerating || loading || creating}
+                    onChange={(event) => {
+                      const next = event.target.checked;
+                      setDrawPartnerEveryTurn(next);
+                      try {
+                        localStorage.setItem(
+                          DRAW_PARTNER_STORAGE_KEY,
+                          String(next),
+                        );
+                      } catch {
+                        // プライベートモード等で保存できなくても切り替え自体は有効
+                      }
+                    }}
+                  />
+                  <span className="adventure-precise-toggle__switch" />
+                </label>
+              )}
             </div>
           </details>
 
@@ -1467,6 +1295,22 @@ function AdventureHub() {
           </section>
         </div>
       )}
+      {pickerTarget && (
+        <AdventureSessionPickerModal
+          title={
+            pickerTarget === "source"
+              ? t("adventure.sourceSession")
+              : t("adventure.romance.playerSession")
+          }
+          selected={
+            pickerTarget === "source" ? sourceSelection : playerSelection
+          }
+          onSelect={
+            pickerTarget === "source" ? handleSourceSelect : handlePlayerSelect
+          }
+          onClose={() => setPickerTarget(null)}
+        />
+      )}
       {creating && (
         <div
           className="adventure-preparing-overlay"
@@ -1654,7 +1498,6 @@ function AdventurePlay({ runId }: { runId: string }) {
   const [drawPartnerEveryTurn, setDrawPartnerEveryTurn] = useState(
     readDrawPartnerEveryTurn,
   );
-  const [generateClues, setGenerateClues] = useState(readGenerateClues);
   const [resultDismissed, setResultDismissed] = useState(false);
   const [anlasBalance, setAnlasBalance] = useState<AnlasBalance | null>(null);
 
@@ -2092,30 +1935,24 @@ function AdventurePlay({ runId }: { runId: string }) {
           budgetMs: ADVENTURE_PROGRESS_BUDGET_MS.clue_check,
         },
       ];
-      // 立ち絵の毎ターン生成OFF(精密参照OFFかつ非合成のみ有効)の間は、
-      // バックエンドが該当の生成をスキップするため工程表示も揃える
-      const forcePortrait = usePreciseReference || enableCompositeScene;
-      if (drawPortraitEveryTurn || forcePortrait) {
+      // 立ち絵の毎ターン生成OFFの間はバックエンドが該当の生成をスキップするため
+      // 工程表示も揃える。順序は主人公→攻略対象→合成シーンの直列生成に対応する
+      if (drawPortraitEveryTurn) {
         segments.push({
           key: "portrait",
           budgetMs: ADVENTURE_PROGRESS_BUDGET_MS.portrait,
         });
-        if (enableCompositeScene) {
-          segments.push({
-            key: "composite",
-            budgetMs: ADVENTURE_PROGRESS_BUDGET_MS.composite,
-          });
-        }
       }
-      if (
-        !enableCompositeScene &&
-        isRomancePreset &&
-        (drawPartnerEveryTurn || forcePortrait)
-      ) {
-        // 非合成 romance は主人公の後に攻略対象の立ち絵を直列生成する
+      if (isRomancePreset && drawPartnerEveryTurn) {
         segments.push({
           key: "partner",
           budgetMs: ADVENTURE_PROGRESS_BUDGET_MS.partner,
+        });
+      }
+      if (enableCompositeScene) {
+        segments.push({
+          key: "composite",
+          budgetMs: ADVENTURE_PROGRESS_BUDGET_MS.composite,
         });
       }
       return segments;
@@ -2135,7 +1972,6 @@ function AdventurePlay({ runId }: { runId: string }) {
     pendingUserInput,
     drawPortraitEveryTurn,
     drawPartnerEveryTurn,
-    usePreciseReference,
     enableCompositeScene,
     isRomancePreset,
   ]);
@@ -2164,6 +2000,13 @@ function AdventurePlay({ runId }: { runId: string }) {
     : t(`adventure.phase.${phase ?? "narrative"}`);
   const isViewingPast = selectedFrameIndex !== null;
   const isCompositeMode = activeRun.enable_composite_scene;
+  // 生成時間の見積もりと「テキストのみ」告知は同じ設定から導く
+  const playImageSettings = {
+    preset: activeRun.preset,
+    enableCompositeScene: activeRun.enable_composite_scene,
+    drawPortraitEveryTurn,
+    drawPartnerEveryTurn,
+  };
   const effectiveIndex =
     selectedFrameIndex ?? (frames.length > 0 ? frames.length - 1 : -1);
   const selectedFrame =
@@ -2812,6 +2655,21 @@ function AdventurePlay({ runId }: { runId: string }) {
               />
               {imageSettingsOpen && (
                 <div className="adventure-image-settings-popover">
+                  {/* 各トグルの結果である所要時間は、スクロールしても見える先頭へ置く */}
+                  <p className="adventure-turn-estimate">
+                    {t("adventure.turnTimeEstimate", {
+                      seconds: estimateAdventureTurnSeconds(playImageSettings),
+                    })}
+                  </p>
+                  {isAdventureTurnTextOnly(playImageSettings) && (
+                    <p className="adventure-turn-note">
+                      {t(
+                        activeRun.preset === "romance"
+                          ? "adventure.turnImagesDisabledNoticeRomance"
+                          : "adventure.turnImagesDisabledNotice",
+                      )}
+                    </p>
+                  )}
                   <label className="adventure-precise-toggle">
                     <span className="adventure-precise-toggle__info">
                       <strong>{t("adventure.preciseReference")}</strong>
@@ -2862,88 +2720,23 @@ function AdventurePlay({ runId }: { runId: string }) {
                     />
                     <span className="adventure-precise-toggle__switch" />
                   </label>
-                  {!activeRun.use_precise_reference &&
-                    !activeRun.enable_composite_scene && (
-                      <>
-                        <label className="adventure-precise-toggle">
-                          <span className="adventure-precise-toggle__info">
-                            <strong>
-                              {t("adventure.drawPortraitEveryTurn")}
-                            </strong>
-                            <small>
-                              {t("adventure.drawPortraitEveryTurnHint")}
-                            </small>
-                          </span>
-                          <input
-                            type="checkbox"
-                            className="adventure-precise-toggle__input"
-                            checked={drawPortraitEveryTurn}
-                            disabled={streaming}
-                            onChange={(event) => {
-                              const next = event.target.checked;
-                              setDrawPortraitEveryTurn(next);
-                              try {
-                                localStorage.setItem(
-                                  DRAW_PORTRAIT_STORAGE_KEY,
-                                  String(next),
-                                );
-                              } catch {
-                                // プライベートモード等で保存できなくても切り替え自体は有効
-                              }
-                            }}
-                          />
-                          <span className="adventure-precise-toggle__switch" />
-                        </label>
-                        {activeRun.preset === "romance" && (
-                          <label className="adventure-precise-toggle">
-                            <span className="adventure-precise-toggle__info">
-                              <strong>
-                                {t("adventure.drawPartnerEveryTurn")}
-                              </strong>
-                              <small>
-                                {t("adventure.drawPartnerEveryTurnHint")}
-                              </small>
-                            </span>
-                            <input
-                              type="checkbox"
-                              className="adventure-precise-toggle__input"
-                              checked={drawPartnerEveryTurn}
-                              disabled={streaming}
-                              onChange={(event) => {
-                                const next = event.target.checked;
-                                setDrawPartnerEveryTurn(next);
-                                try {
-                                  localStorage.setItem(
-                                    DRAW_PARTNER_STORAGE_KEY,
-                                    String(next),
-                                  );
-                                } catch {
-                                  // プライベートモード等で保存できなくても切り替え自体は有効
-                                }
-                              }}
-                            />
-                            <span className="adventure-precise-toggle__switch" />
-                          </label>
-                        )}
-                      </>
-                    )}
-                  {/* 手掛かり抽出は画像設定と独立のため、常に表示する */}
+                  {/* 立ち絵の毎ターン描画は合成・精密参照の設定に関わらず効くため常に表示する */}
                   <label className="adventure-precise-toggle">
                     <span className="adventure-precise-toggle__info">
-                      <strong>{t("adventure.generateClues")}</strong>
-                      <small>{t("adventure.generateCluesHint")}</small>
+                      <strong>{t("adventure.drawPortraitEveryTurn")}</strong>
+                      <small>{t("adventure.drawPortraitEveryTurnHint")}</small>
                     </span>
                     <input
                       type="checkbox"
                       className="adventure-precise-toggle__input"
-                      checked={generateClues}
+                      checked={drawPortraitEveryTurn}
                       disabled={streaming}
                       onChange={(event) => {
                         const next = event.target.checked;
-                        setGenerateClues(next);
+                        setDrawPortraitEveryTurn(next);
                         try {
                           localStorage.setItem(
-                            GENERATE_CLUES_STORAGE_KEY,
+                            DRAW_PORTRAIT_STORAGE_KEY,
                             String(next),
                           );
                         } catch {
@@ -2953,17 +2746,33 @@ function AdventurePlay({ runId }: { runId: string }) {
                     />
                     <span className="adventure-precise-toggle__switch" />
                   </label>
-                  <p className="adventure-turn-estimate">
-                    {t("adventure.turnTimeEstimate", {
-                      seconds: estimateAdventureTurnSeconds({
-                        preset: activeRun.preset,
-                        usePreciseReference: activeRun.use_precise_reference,
-                        enableCompositeScene: activeRun.enable_composite_scene,
-                        drawPortraitEveryTurn,
-                        drawPartnerEveryTurn,
-                      }),
-                    })}
-                  </p>
+                  {activeRun.preset === "romance" && (
+                    <label className="adventure-precise-toggle">
+                      <span className="adventure-precise-toggle__info">
+                        <strong>{t("adventure.drawPartnerEveryTurn")}</strong>
+                        <small>{t("adventure.drawPartnerEveryTurnHint")}</small>
+                      </span>
+                      <input
+                        type="checkbox"
+                        className="adventure-precise-toggle__input"
+                        checked={drawPartnerEveryTurn}
+                        disabled={streaming}
+                        onChange={(event) => {
+                          const next = event.target.checked;
+                          setDrawPartnerEveryTurn(next);
+                          try {
+                            localStorage.setItem(
+                              DRAW_PARTNER_STORAGE_KEY,
+                              String(next),
+                            );
+                          } catch {
+                            // プライベートモード等で保存できなくても切り替え自体は有効
+                          }
+                        }}
+                      />
+                      <span className="adventure-precise-toggle__switch" />
+                    </label>
+                  )}
                 </div>
               )}
             </div>

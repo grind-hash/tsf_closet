@@ -1276,23 +1276,31 @@ def _romance_partner_visual_entry(
 
 
 def _romance_partner_scene_reference(
-    state: dict[str, Any], image_prompt: AdventureImagePromptOutput
+    state: dict[str, Any],
+    image_prompt: AdventureImagePromptOutput,
+    *,
+    reference_override: bytes | None = None,
 ) -> dict[str, Any] | None:
     """合成シーン用に攻略対象の character reference を組み立てる。
 
     romance で攻略対象がシーンの NPC として描かれるターンだけ返す。登場しない
-    ターンに渡すと無関係な参照が絵を引っ張るため付けない。参照は開始素材の
-    画像で、服装は変化し得るため常に弱参照にする。API には参照とキャラ枠を
+    ターンに渡すと無関係な参照が絵を引っ張るため付けない。API には参照とキャラ枠を
     紐付ける手段が無く、どの人物へ効くかはモデルの照合に任せる。
-    現実改変で sim["partner_appearance"] が更新された後もこの参照画像は元の
+    reference_override はそのターンに描き直した攻略対象の立ち絵。衣装・表情が
+    現在のものなので強参照にする。override が無い場合は開始素材の画像を使い、
+    服装は変化し得るため弱参照にする。
+    現実改変で sim["partner_appearance"] が更新された後も開始素材の参照画像は元の
     ままとする(弱参照のためタグ側の新外見が優勢。差し替えはスコープ外)。
     """
     sim_state = state.get("sim")
     if not isinstance(sim_state, dict):
         return None
-    reference_path = Path(str(state.get("partner_image_path") or ""))
-    if not reference_path.is_file():
-        return None
+    reference_bytes = reference_override
+    if reference_bytes is None:
+        reference_path = Path(str(state.get("partner_image_path") or ""))
+        if not reference_path.is_file():
+            return None
+        reference_bytes = reference_path.read_bytes()
     # ターン中は state_json が永続化前で古いため、visual_state を持つ
     # prompt_override(AdventureVisualOutput)があればそちらを優先する
     visual_state = getattr(image_prompt, "visual_state", None)
@@ -1309,10 +1317,10 @@ def _romance_partner_scene_reference(
     if not partner_tags:
         return None
     strength, fidelity = _character_reference_strength(
-        outfit_changed=True, has_fresh_portrait=False
+        outfit_changed=True, has_fresh_portrait=reference_override is not None
     )
     return {
-        "image": reference_path.read_bytes(),
+        "image": reference_bytes,
         "type": "character",
         "strength": strength,
         "fidelity": fidelity,
@@ -3955,29 +3963,34 @@ The objective must name a concrete target and an observable end condition that c
                         background_result = None
                     if background_result is not None:
                         await queue.put(("background", background_result))
-                enable_composite = bool(state.get("enable_composite_scene"))
-                # 立ち絵の毎ターン生成OFF。精密参照OFFかつ非合成モードでのみ有効。
+                # 旧 run のキー未設定時は _serialize_run と同じく合成モード扱いにする。
+                # 既定を食い違わせると、UIは合成モード表示のままターン中は合成画像を
+                # 描き直さないため、ステージの絵が更新されなくなる
+                enable_composite = bool(state.get("enable_composite_scene", True))
+                # 立ち絵の毎ターン生成OFF。合成モード・精密参照の有無に関わらず効く。
                 # 主人公と攻略対象は個別に省略でき、省略した側は前ターンの1枚を
-                # 使い回す。romance の背景更新は上で済ませてある
-                allow_portrait_skip = not enable_composite and not bool(
-                    state.get("use_precise_reference")
-                )
-                skip_player_portrait = allow_portrait_skip and not generate_portrait
+                # 使い回す。合成モードでは前ターンの立ち絵をキャラクター参照へ流用する。
+                # romance の背景更新は上で済ませてある
+                skip_player_portrait = not generate_portrait
                 draw_partner_portrait = (
-                    not enable_composite
-                    and romance_sim is not None
-                    and not (allow_portrait_skip and not generate_partner_portrait)
+                    romance_sim is not None and generate_partner_portrait
                 )
-                if skip_player_portrait and not draw_partner_portrait:
+                # 合成シーンは立ち絵の設定に関わらず毎ターン描き直すため、
+                # 画像工程が全く無くなるのは非合成モードのときだけ
+                if (
+                    not enable_composite
+                    and skip_player_portrait
+                    and not draw_partner_portrait
+                ):
                     await queue.put(("portrait_skipped", None))
                     await queue.put(("image_skipped", None))
                     return
                 # step 情報はフロントのプログレスバー用。phase は既存契約を維持する
-                # 非合成 romance は主人公+攻略対象の2枚を直列生成する
+                # 主人公→攻略対象→合成シーンの順に直列生成する
                 image_step_count = (
-                    2
-                    if enable_composite
-                    else int(not skip_player_portrait) + int(draw_partner_portrait)
+                    int(not skip_player_portrait)
+                    + int(draw_partner_portrait)
+                    + int(enable_composite)
                 )
                 # 立ち絵と合成シーンで同一シードを使い、衣装の描画差を抑える
                 turn_seed = random.randint(0, 999_999_999)
@@ -4013,57 +4026,57 @@ The objective must name a concrete target and an observable end condition that c
                         )
                         await queue.put(("portrait_error", error))
 
-                if not enable_composite:
-                    # 非合成モードの romance では、攻略対象の立ち絵を並置表示する。
-                    # 主人公と同様に毎ターン生成し、そのターンの表情・服装を反映する
-                    if draw_partner_portrait:
-                        partner_name = str(romance_sim.get("partner_name") or "")
-                        partner_entry, partner_tags = _romance_partner_visual_entry(
-                            list(visual.visual_state.main_characters),
-                            list(visual.npc_tags),
-                            partner_name,
+                # romance の攻略対象立ち絵。毎ターン生成してそのターンの表情・服装を
+                # 反映する。非合成モードでは主人公と並置表示し、合成モードでは
+                # 合成シーンの2枚目のキャラクター参照として使う
+                partner_path: Path | None = None
+                if draw_partner_portrait:
+                    partner_name = str(romance_sim.get("partner_name") or "")
+                    partner_entry, partner_tags = _romance_partner_visual_entry(
+                        list(visual.visual_state.main_characters),
+                        list(visual.npc_tags),
+                        partner_name,
+                    )
+                    if not partner_tags:
+                        clothing = partner_entry["clothing"] if partner_entry else ""
+                        partner_tags = ", ".join(
+                            part
+                            for part in (
+                                str(romance_sim.get("partner_appearance") or ""),
+                                clothing,
+                            )
+                            if part
                         )
-                        if not partner_tags:
-                            clothing = (
-                                partner_entry["clothing"] if partner_entry else ""
+                    if partner_tags:
+                        await queue.put(
+                            (
+                                "status",
+                                {
+                                    "phase": "image_generation",
+                                    "step": "partner",
+                                    # 主人公を省略したターンでは先頭の工程になる
+                                    "step_index": int(not skip_player_portrait) + 1,
+                                    "step_count": image_step_count,
+                                },
                             )
-                            partner_tags = ", ".join(
-                                part
-                                for part in (
-                                    str(romance_sim.get("partner_appearance") or ""),
-                                    clothing,
-                                )
-                                if part
-                            )
-                        if partner_tags:
-                            await queue.put(
-                                (
-                                    "status",
-                                    {
-                                        "phase": "image_generation",
-                                        "step": "partner",
-                                        # 主人公を省略したターンでは唯一の工程になる
-                                        "step_index": image_step_count,
-                                        "step_count": image_step_count,
-                                    },
+                        )
+                        try:
+                            partner_path = await (
+                                self._generate_partner_portrait_unlocked(
+                                    run.id,
+                                    partner_tags=partner_tags,
+                                    turn_number=run.turn_count + 1,
+                                    seed_override=turn_seed,
                                 )
                             )
-                            try:
-                                partner_path = await (
-                                    self._generate_partner_portrait_unlocked(
-                                        run.id,
-                                        partner_tags=partner_tags,
-                                        turn_number=run.turn_count + 1,
-                                        seed_override=turn_seed,
-                                    )
-                                )
-                                await queue.put(("partner_portrait", partner_path))
-                            except Exception as error:
-                                # 相手立ち絵の失敗はターン進行を止めない
-                                logger.warning(
-                                    "Adventure partner portrait generation failed: %s",
-                                    error,
-                                )
+                            await queue.put(("partner_portrait", partner_path))
+                        except Exception as error:
+                            # 相手立ち絵の失敗はターン進行を止めない
+                            logger.warning(
+                                "Adventure partner portrait generation failed: %s",
+                                error,
+                            )
+                if not enable_composite:
                     await queue.put(("image_skipped", None))
                     return
                 await queue.put(
@@ -4072,7 +4085,7 @@ The objective must name a concrete target and an observable end condition that c
                         {
                             "phase": "image_generation",
                             "step": "composite",
-                            "step_index": 2,
+                            "step_index": image_step_count,
                             "step_count": image_step_count,
                         },
                     )
@@ -4084,6 +4097,13 @@ The objective must name a concrete target and an observable end condition that c
                         if background_path_str and Path(background_path_str).is_file()
                         else None
                     )
+                    # 立ち絵を省略したターンは前ターンの1枚を参照に流用する。
+                    # 描き直した直後の1枚ではないため参照強度は弱める
+                    reference_path = portrait_path
+                    if reference_path is None:
+                        previous_portrait = getattr(run, "portrait_image_path", None)
+                        if previous_portrait and Path(previous_portrait).is_file():
+                            reference_path = Path(previous_portrait)
                     image_path, _ = await self._generate_image_unlocked(
                         run.id,
                         None,
@@ -4091,8 +4111,12 @@ The objective must name a concrete target and an observable end condition that c
                         prompt_override=visual,
                         turn_number=run.turn_count + 1,
                         source_image_override=background_bytes,
-                        character_reference_image_override=portrait_path.read_bytes()
-                        if portrait_path is not None
+                        character_reference_image_override=reference_path.read_bytes()
+                        if reference_path is not None
+                        else None,
+                        character_reference_is_fresh=portrait_path is not None,
+                        partner_reference_image_override=partner_path.read_bytes()
+                        if partner_path is not None
                         else None,
                         worn_items_override=resolved_worn_items,
                         seed_override=turn_seed,
@@ -4582,10 +4606,17 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         turn_number: int | None = None,
         source_image_override: bytes | None = None,
         character_reference_image_override: bytes | None = None,
+        character_reference_is_fresh: bool = True,
+        partner_reference_image_override: bytes | None = None,
         worn_items_override: list[str] | None = None,
         seed_override: int | None = None,
     ) -> tuple[Path, str | None]:
-        """呼び出し側が既に run ロックを保持している前提で画像を生成する。"""
+        """呼び出し側が既に run ロックを保持している前提で画像を生成する。
+
+        character_reference_is_fresh は、渡された参照画像がこのターンに描き直した
+        立ち絵かどうか。立ち絵の毎ターン生成をOFFにしたターンでは前ターンの
+        立ち絵を流用するため False になり、衣装変更時の参照強度を弱める。
+        """
         run = await self.get_run_orm(run_id)
         effective_turn_number = run.turn_count if turn_number is None else turn_number
         effective_turn_id = turn_id
@@ -4653,7 +4684,10 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             if use_precise_reference:
                 char_strength, char_fidelity = _character_reference_strength(
                     outfit_changed=outfit_changed,
-                    has_fresh_portrait=character_reference_image_override is not None,
+                    has_fresh_portrait=(
+                        character_reference_image_override is not None
+                        and character_reference_is_fresh
+                    ),
                 )
                 reference_bytes = (
                     character_reference_image_override
@@ -4669,9 +4703,11 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                     }
                 ]
                 # romance では攻略対象がシーンに登場するターンに限り、
-                # 開始素材の画像を2枚目の参照として追加する
+                # そのターンの立ち絵(無ければ開始素材)を2枚目の参照として追加する
                 partner_reference = _romance_partner_scene_reference(
-                    state, image_prompt
+                    state,
+                    image_prompt,
+                    reference_override=partner_reference_image_override,
                 )
                 if partner_reference is not None:
                     character_references.append(partner_reference)

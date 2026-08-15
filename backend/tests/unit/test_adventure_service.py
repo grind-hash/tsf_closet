@@ -2555,6 +2555,109 @@ async def test_adventure_romance_scene_partner_reference(
         assert len(references) == 1
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("portrait_is_fresh", [True, False])
+async def test_composite_scene_reference_overrides(
+    monkeypatch, tmp_path, portrait_is_fresh
+) -> None:
+    """立ち絵を省略したターンは前ターンの1枚を弱参照で使い回す。
+
+    攻略対象はそのターンに描き直した立ち絵を2枚目の参照として受け取る。
+    """
+    service = AdventureService()
+    service._images_dir = tmp_path
+    run_dir = tmp_path / "run-1"
+    run_dir.mkdir()
+    current_path = run_dir / "current.png"
+    initial_path = run_dir / "initial.png"
+    partner_path = run_dir / "partner_initial.png"
+    current_path.write_bytes(b"current")
+    initial_path.write_bytes(b"initial")
+    partner_path.write_bytes(b"partner")
+    run = SimpleNamespace(
+        id="run-1",
+        state_json=make_romance_scene_state(partner_path),
+        current_image_path=str(current_path),
+        initial_image_path=str(initial_path),
+        text_model="glm-4-6",
+        image_model="nai-diffusion-4-5-full",
+        nsfw_mode=False,
+        turn_count=1,
+        preset="romance",
+    )
+    persisted_run = SimpleNamespace(
+        id="run-1",
+        current_image_path=str(current_path),
+        updated_at=None,
+        state_json="{}",
+    )
+
+    class FakeDatabase:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, _exc_type, _exc, _traceback):
+            return None
+
+        async def get(self, model, _record_id):
+            return persisted_run if model is AdventureRun else None
+
+        async def scalar(self, _statement):
+            return None
+
+        async def commit(self):
+            return None
+
+    generate_image = AsyncMock(return_value=SimpleNamespace(images=[b"generated"]))
+    monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.session_store.get_user_settings",
+        AsyncMock(return_value={"nsfw_mode": False, "language": "ja"}),
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.llm_service.generate_text",
+        AsyncMock(
+            return_value=SimpleNamespace(
+                content=make_romance_image_prompt_content(with_partner=True)
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.image_service.generate_image",
+        generate_image,
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.async_session_factory", FakeDatabase
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.settings.novelai_model",
+        "nai-diffusion-4-5-full",
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.settings.novelai_curated_model",
+        "nai-diffusion-4-5-curated",
+    )
+
+    await service._generate_image_unlocked(
+        "run-1",
+        None,
+        redraw_from_reference=True,
+        character_reference_image_override=b"portrait-turn",
+        character_reference_is_fresh=portrait_is_fresh,
+        partner_reference_image_override=b"partner-turn",
+    )
+
+    references = generate_image.await_args.kwargs["character_references"]
+    assert references is not None
+    assert len(references) == 2
+    assert references[0]["image"] == b"portrait-turn"
+    # 前ターンの立ち絵は衣装変更後の絵ではないため弱参照へ落とす
+    assert references[0]["strength"] == (0.85 if portrait_is_fresh else 0.35)
+    assert references[1]["image"] == b"partner-turn"
+    assert references[1]["strength"] == 0.85
+    assert references[1]["fidelity"] == 1.0
+
+
 def test_romance_partner_scene_reference_requires_partner_image(tmp_path) -> None:
     prompt = AdventureImagePromptOutput(
         scene_tags="night club interior",
@@ -2599,6 +2702,104 @@ def test_romance_partner_scene_reference_prefers_override_visual_state(
     assert reference["image"] == b"partner"
     assert reference["strength"] == 0.35
     assert reference["fidelity"] == 0.55
+
+
+def test_romance_partner_scene_reference_uses_turn_portrait_override(
+    tmp_path,
+) -> None:
+    """そのターンに描き直した攻略対象立ち絵は現在の衣装なので強参照にする。"""
+    partner_path = tmp_path / "partner_initial.png"
+    partner_path.write_bytes(b"partner")
+    prompt = AdventureVisualOutput(
+        scene_tags="night club interior",
+        player_tags="young man",
+        npc_tags=["succubus dancer, revealing stage outfit"],
+        visual_state=AdventureVisualState(
+            location="ナイトクラブ",
+            appearance="黒髪の青年",
+            clothing="白いTシャツ",
+            main_characters=[
+                {
+                    "name": "リリス",
+                    "description": "サキュバスのダンサー",
+                    "clothing": "ステージ衣装",
+                }
+            ],
+        ),
+    )
+    state = {
+        "use_precise_reference": True,
+        "partner_image_path": str(partner_path),
+        "sim": {"partner_name": "リリス"},
+        "visual_state": {"main_characters": []},
+    }
+    reference = _romance_partner_scene_reference(
+        state, prompt, reference_override=b"partner-turn"
+    )
+    assert reference is not None
+    assert reference["image"] == b"partner-turn"
+    assert reference["strength"] == 0.85
+    assert reference["fidelity"] == 1.0
+
+
+def test_romance_partner_scene_reference_override_without_start_material(
+    tmp_path,
+) -> None:
+    """開始素材が無くても、そのターンの立ち絵があれば参照を組み立てる。"""
+    prompt = AdventureVisualOutput(
+        scene_tags="night club interior",
+        player_tags="young man",
+        npc_tags=["succubus dancer"],
+        visual_state=AdventureVisualState(
+            location="ナイトクラブ",
+            appearance="黒髪の青年",
+            clothing="白いTシャツ",
+            main_characters=[
+                {
+                    "name": "リリス",
+                    "description": "サキュバスのダンサー",
+                    "clothing": "ステージ衣装",
+                }
+            ],
+        ),
+    )
+    state = {
+        "use_precise_reference": True,
+        "partner_image_path": str(tmp_path / "missing.png"),
+        "sim": {"partner_name": "リリス"},
+        "visual_state": {"main_characters": []},
+    }
+    reference = _romance_partner_scene_reference(
+        state, prompt, reference_override=b"partner-turn"
+    )
+    assert reference is not None
+    assert reference["image"] == b"partner-turn"
+
+
+def test_romance_partner_scene_reference_skips_absent_partner(tmp_path) -> None:
+    """立ち絵を描いたターンでも、場面に登場しないなら参照は付けない。"""
+    prompt = AdventureVisualOutput(
+        scene_tags="empty classroom",
+        player_tags="young man",
+        npc_tags=[],
+        visual_state=AdventureVisualState(
+            location="教室",
+            appearance="黒髪の青年",
+            clothing="制服",
+            main_characters=[],
+        ),
+    )
+    state = {
+        "use_precise_reference": True,
+        "sim": {"partner_name": "リリス"},
+        "visual_state": {"main_characters": []},
+    }
+    assert (
+        _romance_partner_scene_reference(
+            state, prompt, reference_override=b"partner-turn"
+        )
+        is None
+    )
 
 
 @pytest.mark.asyncio

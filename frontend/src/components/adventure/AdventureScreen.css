@@ -58,18 +58,6 @@
   font-size: 0.82rem;
 }
 
-.adventure-source-select {
-  display: grid;
-  gap: 8px;
-  max-width: min(100%, 560px);
-}
-
-.adventure-source-summary {
-  margin: -8px 0 0;
-  color: #cbd2d7;
-  font-size: 0.82rem;
-}
-
 .adventure-card label,
 .adventure-card fieldset {
   display: grid;
@@ -339,6 +327,14 @@
   font-size: 0.78rem;
 }
 
+/* 画像生成が走らない設定の補足。注意喚起ではないので見積もりと同系統に留める */
+.adventure-turn-note {
+  margin: 2px 0 0;
+  color: #8b95a1;
+  font-size: 0.74rem;
+  line-height: 1.5;
+}
+
 .adventure-disabled-reason {
   margin: 0;
   color: #efb85a;
@@ -440,77 +436,6 @@
   border-color: #efb85a;
   color: #14181c;
   background: #efb85a;
-}
-
-.adventure-source-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
-  grid-auto-rows: max-content;
-  align-content: start;
-  align-items: start;
-  gap: 10px;
-  min-height: 0;
-  /* 行数が増えてもセルを潰さず、枠内スクロールで見せる */
-  max-height: min(52vh, 420px);
-  overflow-x: hidden;
-  overflow-y: auto;
-  /*
-   * overscroll-behavior は指定しない。contain にすると、行数が少なく
-   * スクロール余地が無い場合でもホイールが親（.adventure-hub）へ伝播せず、
-   * この枠の上ではページが動かなくなる。
-   */
-}
-
-.adventure-source-grid button {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  width: 100%;
-  min-width: 0;
-  /* overflow:hidden で min-size が 0 になり行が潰れるのを防ぐ */
-  min-height: max-content;
-  height: max-content;
-  padding: 0;
-  border: 2px solid transparent;
-  border-radius: 6px;
-  color: #e9edf0;
-  background: #22282e;
-  cursor: pointer;
-}
-
-.adventure-source-grid button.is-selected {
-  border-color: #efb85a;
-}
-
-.adventure-source-grid__thumb {
-  display: block;
-  width: 100%;
-  flex: 0 0 auto;
-  aspect-ratio: 3 / 4;
-  overflow: hidden;
-  border-radius: 4px 4px 0 0;
-  background: #1a1f24;
-}
-
-.adventure-source-grid__thumb img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  object-position: center top;
-}
-
-.adventure-source-grid__label {
-  display: -webkit-box;
-  flex: 0 0 auto;
-  min-height: 2.4em;
-  padding: 6px 8px;
-  overflow: hidden;
-  font-size: 0.75rem;
-  line-height: 1.2;
-  text-align: left;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
 }
 
 /*
@@ -1813,7 +1738,13 @@ button:disabled {
   flex-direction: column;
   gap: 8px;
   width: min(320px, calc(100% - 32px));
+  /*
+   * ステージ(inset:0)の下端までに収め、はみ出す分は枠内スクロールで見せる。
+   * 画面高が足りないディスプレイでも末尾の項目が切れないようにする。
+   */
+  max-height: calc(100% - var(--adv-overlay-row2) - 16px);
   padding: 12px;
+  overflow-y: auto;
   border-radius: 10px;
   border: 1px solid #3a4148;
   background: rgb(13 17 20 / 96%);
@@ -1864,7 +1795,10 @@ button:disabled {
   flex-direction: column;
   gap: 8px;
   width: min(320px, calc(100% - 32px));
+  /* 画像生成設定と同じく、ステージ下端までに収めて枠内スクロールへ逃がす */
+  max-height: calc(100% - var(--adv-overlay-row2) - 16px);
   padding: 12px;
+  overflow-y: auto;
   border-radius: 10px;
   border: 1px solid #3a4148;
   background: rgb(13 17 20 / 96%);
@@ -3008,6 +2942,396 @@ button:disabled {
 .adventure-scenario-option__meta {
   color: #aeb7bf;
 }
+
+/*
+ * 開始セッション選択モーダル。
+ * 骨格・配色は .adventure-scenario-modal に合わせ、タブと閉じるボタンは
+ * .adventure-scenario-tabs / .adventure-scenario-modal__close を再利用する。
+ */
+.adventure-session-picker {
+  position: fixed;
+  inset: 0;
+  z-index: 1500;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgb(6 9 12 / 78%);
+}
+
+.adventure-session-picker__dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(960px, 100%);
+  height: min(640px, calc(100vh - 40px));
+  height: min(640px, calc(100dvh - 40px));
+  overflow: hidden;
+  border: 1px solid #505a63;
+  border-radius: 6px;
+  color: #f4f6f8;
+  background: #171c21;
+  box-shadow: 0 18px 60px rgb(0 0 0 / 45%);
+}
+
+.adventure-session-picker__dialog > header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px;
+  border-bottom: 1px solid #394149;
+}
+
+.adventure-session-picker__dialog h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.adventure-session-picker__dialog .adventure-scenario-tabs {
+  flex: 0 0 auto;
+}
+
+.adventure-session-picker__search {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border-bottom: 1px solid #30373d;
+}
+
+.adventure-session-picker__search input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid #4a535c;
+  border-radius: 6px;
+  color: #e9edf0;
+  background: #1c2228;
+}
+
+.adventure-session-picker__search button {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  border: 1px solid #505a63;
+  border-radius: 50%;
+  color: #e9edf0;
+  background: #242b31;
+  cursor: pointer;
+}
+
+.adventure-session-picker__drill-header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 10px 18px;
+  border-bottom: 1px solid #30373d;
+}
+
+.adventure-session-picker__drill-header button {
+  flex: 0 0 auto;
+  padding: 8px 12px;
+  border: 1px solid #4a535c;
+  border-radius: 6px;
+  color: #e9edf0;
+  background: #242b31;
+  cursor: pointer;
+}
+
+.adventure-session-picker__drill-header strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.adventure-session-picker__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 14px 18px 18px;
+  overflow-y: auto;
+  /* モーダル表示中は背面ページをスクロールさせる必要がないため contain とする */
+  overscroll-behavior: contain;
+}
+
+.adventure-session-picker__cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  align-content: start;
+  gap: 12px;
+}
+
+.adventure-session-picker__card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  border: 2px solid transparent;
+  border-radius: 6px;
+  background: #1c2228;
+}
+
+.adventure-session-picker__card.is-selected {
+  border-color: #efb85a;
+}
+
+.adventure-session-picker__card-thumb {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  aspect-ratio: 3 / 4;
+  overflow: hidden;
+  background: #1a1f24;
+  cursor: pointer;
+}
+
+.adventure-session-picker__card-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center top;
+}
+
+.adventure-session-picker__card-info {
+  display: grid;
+  gap: 3px;
+  padding: 8px 10px 4px;
+  color: #e9edf0;
+}
+
+.adventure-session-picker__card-info strong {
+  overflow: hidden;
+  font-size: 0.88rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.adventure-session-picker__card-meta {
+  color: #aeb7bf;
+  font-size: 0.76rem;
+}
+
+.adventure-session-picker__card-preview {
+  display: -webkit-box;
+  min-height: 2.2em;
+  overflow: hidden;
+  color: #bbc3ca;
+  font-size: 0.76rem;
+  line-height: 1.2;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.adventure-session-picker__card-select {
+  margin: 6px 10px 10px;
+  padding: 8px 10px;
+  border: 1px solid #4a535c;
+  border-radius: 6px;
+  color: #e9edf0;
+  background: #242b31;
+  cursor: pointer;
+}
+
+.adventure-session-picker__card-select:hover {
+  border-color: #efb85a;
+}
+
+/* 時点(履歴画像)とお気に入りのタイルグリッド */
+.adventure-session-picker__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  grid-auto-rows: max-content;
+  align-content: start;
+  align-items: start;
+  gap: 10px;
+}
+
+.adventure-session-picker__grid > button {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  width: 100%;
+  min-width: 0;
+  min-height: max-content;
+  height: max-content;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 6px;
+  color: #e9edf0;
+  background: #22282e;
+  cursor: pointer;
+}
+
+.adventure-session-picker__grid > button.is-selected {
+  border-color: #efb85a;
+}
+
+.adventure-session-picker__thumb {
+  display: block;
+  flex: 0 0 auto;
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  overflow: hidden;
+  border-radius: 4px 4px 0 0;
+  background: #1a1f24;
+}
+
+.adventure-session-picker__thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center top;
+}
+
+.adventure-session-picker__tile-label {
+  display: -webkit-box;
+  flex: 0 0 auto;
+  min-height: 2.4em;
+  padding: 6px 8px;
+  overflow: hidden;
+  font-size: 0.75rem;
+  line-height: 1.2;
+  text-align: left;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.adventure-session-picker__status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin: 12px 0 0;
+  color: #bbc3ca;
+}
+
+.adventure-session-picker__status button {
+  padding: 6px 12px;
+  border: 1px solid #4a535c;
+  border-radius: 6px;
+  color: #e9edf0;
+  background: #242b31;
+  cursor: pointer;
+}
+
+.adventure-session-picker__empty {
+  display: grid;
+  gap: 6px;
+  padding: 32px 12px;
+  color: #bbc3ca;
+  text-align: center;
+}
+
+.adventure-session-picker__empty p {
+  margin: 0;
+}
+
+.adventure-session-picker__load-more {
+  display: block;
+  width: 100%;
+  margin-top: 12px;
+  padding: 10px;
+  border: 1px solid #4a535c;
+  border-radius: 6px;
+  color: #e9edf0;
+  background: #242b31;
+  cursor: pointer;
+}
+
+.adventure-session-picker__sentinel {
+  height: 1px;
+}
+
+@media (max-width: 640px) {
+  .adventure-session-picker {
+    padding: 10px;
+  }
+
+  .adventure-session-picker__cards {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  }
+
+  .adventure-session-picker__grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* 開始セッションの選択中サマリ(サムネイル+名前+時点ラベル+変更ボタン) */
+.adventure-source-summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: min(100%, 560px);
+  margin: 0;
+  padding: 8px;
+  border: 1px solid #394149;
+  border-radius: 6px;
+  background: #1c2228;
+}
+
+.adventure-source-summary__thumb {
+  display: block;
+  flex: 0 0 auto;
+  width: 56px;
+  aspect-ratio: 3 / 4;
+  overflow: hidden;
+  border-radius: 4px;
+  background: #1a1f24;
+}
+
+.adventure-source-summary__thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center top;
+}
+
+.adventure-source-summary__text {
+  display: grid;
+  flex: 1 1 auto;
+  gap: 2px;
+  min-width: 0;
+}
+
+.adventure-source-summary__text strong {
+  overflow: hidden;
+  font-size: 0.9rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.adventure-source-summary__text span {
+  color: #bbc3ca;
+  font-size: 0.78rem;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.adventure-source-summary__change {
+  flex: 0 0 auto;
+  padding: 8px 14px;
+  border: 1px solid #4a535c;
+  border-radius: 6px;
+  color: #e9edf0;
+  background: #242b31;
+  cursor: pointer;
+}
+
+.adventure-source-summary__change:hover:not(:disabled) {
+  border-color: #efb85a;
+}
+
+.adventure-source-summary__change:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 /* 横幅が足りない場合は縦積みに戻す */
 @media (max-width: 1023px) {
   .adventure-play {
@@ -3303,16 +3627,6 @@ button:disabled {
 @media (max-width: 640px) {
   .adventure-hub {
     padding: 20px 14px 40px;
-  }
-
-  .adventure-source-select {
-    max-width: 100%;
-  }
-
-  .adventure-source-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 8px;
-    max-height: min(50vh, 400px);
   }
 
   .adventure-setup-details {
@@ -3938,11 +4252,16 @@ button:disabled {
   background: rgb(40 22 32 / 92%);
 }
 
-/* romance: 主人公を「セッションの姿」にする場合のセッション/時点ピッカー */
+/* romance: 主人公を「セッションの姿」にする場合の選択サマリ */
 .adventure-romance-player-source {
   display: grid;
   gap: 10px;
   margin-bottom: 14px;
+}
+
+.adventure-romance-player-source__label {
+  color: #cbd3da;
+  font-size: 0.85rem;
 }
 
 /* romance 非合成モード: 主人公と攻略対象の立ち絵を左右に並置する */

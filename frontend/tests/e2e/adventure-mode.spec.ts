@@ -109,6 +109,7 @@ async function mockAdventureApis(
   page: Page,
   savedRuns: ReturnType<typeof runPayload>[] = [],
 ) {
+  const state = { createBodies: [] as Record<string, unknown>[] };
   let turnCount = 0;
   let authoredRunCreated = false;
   await page.route("**/api/mock-scene.png", async (route) => {
@@ -179,6 +180,7 @@ async function mockAdventureApis(
         scenario_template_id?: string;
         replay_run_id?: string;
       };
+      state.createBodies.push(request as Record<string, unknown>);
       if (request.replay_run_id) {
         expect(request).toMatchObject({
           preset: "infiltration",
@@ -231,6 +233,7 @@ async function mockAdventureApis(
       });
     },
   );
+  return state;
 }
 
 test("experimental setting hides adventure route by default", async ({
@@ -294,6 +297,60 @@ test("create and play an adventure from a session state", async ({ page }) => {
   await expect(
     cluePanel.getByText("銀色の封蝋", { exact: true }),
   ).toBeVisible();
+});
+
+test("create an adventure starting from a favorite", async ({ page }) => {
+  await enableAdventure(page);
+  const state = await mockAdventureApis(page);
+  await page.route("**/api/favorites?*", async (route) => {
+    await route.fulfill({
+      json: {
+        items: [
+          {
+            id: "fav-1",
+            history_id: "h9",
+            session_id: "session-1",
+            label: "お気に入りの魔法少女",
+            image_url: IMAGE,
+            instruction: "魔法少女に変身",
+            costume_category: null,
+            history_created_at: "2026-08-01T00:00:00",
+            created_at: "2026-08-02T00:00:00",
+          },
+        ],
+        total: 1,
+        page: 1,
+        page_size: 20,
+        has_more: false,
+      },
+    });
+  });
+  await page.goto("/adventure");
+
+  // 先頭セッションが自動選択され、サマリに表示される
+  const sourceCard = page.locator(".adventure-card--source");
+  await expect(sourceCard.getByRole("group")).toContainText(
+    "テストキャラクター",
+  );
+  // 選択モーダルのお気に入りタブから1クリックでセッションと時点を同時決定する
+  await sourceCard.getByRole("button", { name: "変更" }).click();
+  const picker = page.getByRole("dialog", { name: "開始セッション" });
+  await picker.getByRole("tab", { name: "お気に入り" }).click();
+  await picker.getByRole("button", { name: "お気に入りの魔法少女" }).click();
+  await expect(picker).toBeHidden();
+  await expect(sourceCard.getByRole("group")).toContainText(
+    "お気に入りの魔法少女",
+  );
+
+  await page.getByRole("button", { name: /^なりすまし・着替え/ }).click();
+  await page.getByRole("button", { name: "ミッション案を自動生成" }).click();
+  await page.getByRole("button", { name: "シナリオを開始" }).click();
+
+  await expect(page).toHaveURL(/\/adventure\/run-1$/);
+  expect(state.createBodies[0]).toMatchObject({
+    source_session_id: "session-1",
+    source_history_id: "h9",
+  });
 });
 
 test("create an adventure from an authored scenario", async ({ page }) => {
@@ -624,15 +681,31 @@ test("setup shows a turn time estimate that follows the toggles", async ({
   // 既定ミッションは romance のため、攻略対象立ち絵を含まない preset に切り替える
   await page.getByRole("button", { name: /^なりすまし・着替え/ }).click();
   await page.getByText("生成オプション", { exact: true }).click();
+  const textOnlyNotice = page.getByText(
+    "※現在の設定では、テキスト生成のみで背景やキャラクターの画像は変更されません。",
+  );
   // 既定(非合成・主人公立ち絵を毎ターン描く)は 18秒+ベース20秒 → 約40秒
   await expect(page.getByText("1ターンの生成時間: 約40秒")).toBeVisible();
+  await expect(textOnlyNotice).toBeHidden();
   // 立ち絵の毎ターン描画をOFFにすると画像生成なしの約20秒
+  const portraitToggle = page.locator("label.adventure-precise-toggle", {
+    hasText: "主人公の立ち絵を毎ターン描く",
+  });
+  await portraitToggle.click();
+  await expect(page.getByText("1ターンの生成時間: 約20秒")).toBeVisible();
+  await expect(textOnlyNotice).toBeVisible();
+  // 合成ONは立ち絵OFFのままでも合成シーンを描くため、告知は消えて20秒ぶん伸びる
   await page
     .locator("label.adventure-precise-toggle", {
-      hasText: "主人公の立ち絵を毎ターン描く",
+      hasText: "背景と人物を同時に描く",
     })
     .click();
-  await expect(page.getByText("1ターンの生成時間: 約20秒")).toBeVisible();
+  await expect(page.getByText("1ターンの生成時間: 約40秒")).toBeVisible();
+  await expect(textOnlyNotice).toBeHidden();
+  // 合成ONでも立ち絵トグルは操作でき、ONに戻すと立ち絵の18秒が加算される
+  await expect(portraitToggle).toBeVisible();
+  await portraitToggle.click();
+  await expect(page.getByText("1ターンの生成時間: 約60秒")).toBeVisible();
 });
 
 test("declared reality rules are surfaced in the HUD", async ({ page }) => {
