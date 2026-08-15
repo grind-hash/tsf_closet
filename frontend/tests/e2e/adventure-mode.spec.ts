@@ -723,6 +723,12 @@ test("declared reality rules are surfaced in the HUD", async ({ page }) => {
   const popover = page.getByRole("dialog", { name: "現実改変" });
   await expect(popover).toContainText(RULE);
   await expect(popover).toContainText("以降のすべての判定に適用");
+
+  // romance 以外でも同じ管理UIへ入れる(ボタン名に「現実改変」は入れない。
+  // HUDチップと名前が衝突して strict mode 違反になるため)
+  await popover.getByRole("button", { name: "ルールを管理" }).click();
+  const manager = page.getByRole("dialog", { name: "現実改変ルールを管理" });
+  await expect(manager.getByText(RULE, { exact: true })).toBeVisible();
 });
 
 test("bgm chip surfaces the selection reason in the HUD popover", async ({

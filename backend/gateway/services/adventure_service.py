@@ -10,7 +10,7 @@ import re
 import shutil
 import uuid
 from collections import defaultdict
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Iterable
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal, TypeVar
@@ -641,6 +641,9 @@ def _lean_state_for_llm(state: dict[str, Any]) -> dict[str, Any]:
         # 食い違うため LLM に見せると元の姿へ戻す誘導になる
         "initial_appearance_lock",
         "initial_partner_appearance",
+        # 未反映の付与ルール。内容は reality_rules と
+        # reality_rule_declared_this_turn で別途渡すため重複して見せない
+        "pending_reality_rules",
     }
     return {key: value for key, value in state.items() if key not in omit}
 
@@ -1594,9 +1597,12 @@ _REALITY_RULES_INSTRUCTION = (
     "clues, complete milestones, and satisfy the objective. The mission may still end "
     "in failure for reasons no rule covers, such as running out of turns or acting "
     "against the objective itself. When reality_rule_declared_this_turn is set, the "
-    "player's input declared that rule this turn: narrate the world already conforming "
-    "to it, keep ending_status as continue, and never treat the declaration itself as "
-    "a suspicious act."
+    "player established those rules as of this turn, either by declaring them in their "
+    "input or by adding them directly: narrate the world already conforming to them, "
+    "keep ending_status as continue, and never treat the declaration itself as "
+    "a suspicious act. Every entry in reality_rules stays in force on every later turn, "
+    "so a rule that states how the player looks, what they wear, or how others treat "
+    "them must keep being reflected even long after the turn that established it."
 )
 
 # 選択肢が攻略対象やNPC側の台詞・行動として生成される事故を防ぐ。
@@ -1691,22 +1697,59 @@ def _narration_from_state(state: dict[str, Any]) -> tuple[str, str]:
     )
 
 
+def _normalize_reality_rule(rule: Any) -> str:
+    """ルール1件の表記ゆれを吸収する。空白を畳み、上限文字数で切る。
+
+    宣言経路(_detect_reality_declaration)と管理経路(update_reality_rules)で
+    同じ文字列になるよう、正規化はこの1箇所に集約する。
+    """
+    return " ".join(str(rule or "").split()).strip()[:_MAX_REALITY_RULE_LENGTH]
+
+
+def _normalize_reality_rules(rules: Iterable[Any]) -> list[str]:
+    """一覧を正規化し、空要素を捨てて順序を保ったまま重複を除く。"""
+    normalized: list[str] = []
+    for item in rules:
+        rule = _normalize_reality_rule(item)
+        if rule and rule not in normalized:
+            normalized.append(rule)
+    return normalized
+
+
+def _take_established_reality_rules(
+    state: dict[str, Any], declared_rule: str | None
+) -> str | None:
+    """この手番で確定したルールを1つの文字列にまとめて返す。
+
+    入力による宣言と、手番を使わず付与された未反映分(pending_reality_rules)を
+    同じ扱いにする。pending は一度きりの通知なので state から取り除く。
+    どちらも無ければ None を返す。
+    """
+    pending = _normalize_reality_rules(state.pop("pending_reality_rules", []))
+    established = _normalize_reality_rules(
+        [*([declared_rule] if declared_rule else []), *pending]
+    )
+    return "; ".join(established) or None
+
+
 def _detect_reality_declaration(user_input: str) -> str | None:
     """「現実改変：〜」形式の宣言ならルール本文を返す。宣言でなければ None。"""
     match = _REALITY_DECLARATION_PATTERN.match(user_input or "")
     if match is None:
         return None
-    rule = " ".join(match.group("rule").split()).strip()
-    if not rule:
-        return None
-    return rule[:_MAX_REALITY_RULE_LENGTH]
+    return _normalize_reality_rule(match.group("rule")) or None
 
 
 def _append_reality_rule(state: dict[str, Any], rule: str) -> list[str]:
-    """宣言されたルールを state へ追記し、更新後の一覧を返す。"""
-    rules = [str(item) for item in state.get("reality_rules", []) if str(item).strip()]
-    if rule not in rules:
-        rules.append(rule)
+    """宣言されたルールを state へ追記し、更新後の一覧を返す。
+
+    上限超過時は最も古いルールを落とす。物語中の宣言は必ず効く必要があるため、
+    管理経路(update_reality_rules)のように拒否はしない。
+    """
+    rules = _normalize_reality_rules(state.get("reality_rules", []))
+    normalized = _normalize_reality_rule(rule)
+    if normalized and normalized not in rules:
+        rules.append(normalized)
     rules = rules[-_MAX_REALITY_RULES:]
     state["reality_rules"] = rules
     return rules
@@ -1967,7 +2010,7 @@ Return JSON only and keep the entire response under 1200 characters. Do not repe
             voice_rule = f"{ROMANCE_NARRATIVE_GUIDANCE}\n{voice_rule}"
         return f"""You are the director of a short objective-based adventure game.
 Write only the narrative for the next scene, as plain prose in {response_language}. Do not output JSON, markdown, headings, choices, labels, or commentary.
-Keep the narrative under 800 characters. Never decide the player's feelings, consent, past wishes, bodily sensations, or voluntary actions unless the player's input explicitly states them. If the player's action objectively makes the mission impossible to continue, narrate a concise failure ending instead of refusing or truncating. Describe observable events and NPC actions. Do not introduce an unrequested body transformation. Never grant the player another person's memories, personal knowledge, relationships, habits, skills, credentials, passwords, or authentication information unless the supplied source facts explicitly state them. A copied appearance or name does not imply copied memory or competence. Treat state.appearance_lock and required_visual_appearance as an immutable identity signature, and never change the player's sex, hair color, hair length, hairstyle, eye color, or body features unless scenario_guidance or authored_template_resolution explicitly allows and triggers that change, or reality_rule_declared_this_turn declares a change to the player's own body or identity; in that case narrate the player already in the new body and keep every unaffected trait. Clothing may be offered, found, or discussed, but the player only puts on, removes, or changes clothing when their input explicitly chooses that action, or when a declared reality rule changes the player's body or identity; in that case clothing follows the body, so each person wears whatever their new body was already wearing, and a declared swap or exchange of bodies also exchanges their outfits. Unless the input explicitly requests layering, a new garment replaces the previous outfit instead of being worn over it. If the source snapshot explicitly establishes a transformed sex or body, it may create practical disguise or role opportunities without inventing further changes. When authored_template_resolution is provided, treat it as authoritative and never narrate a score, transformation, unlocked exit, or ending beyond its event.
+Keep the narrative under 800 characters. Never decide the player's feelings, consent, past wishes, bodily sensations, or voluntary actions unless the player's input explicitly states them. If the player's action objectively makes the mission impossible to continue, narrate a concise failure ending instead of refusing or truncating. Describe observable events and NPC actions. Do not introduce an unrequested body transformation. Never grant the player another person's memories, personal knowledge, relationships, habits, skills, credentials, passwords, or authentication information unless the supplied source facts explicitly state them. A copied appearance or name does not imply copied memory or competence. Treat state.appearance_lock and required_visual_appearance as an immutable identity signature, and never change the player's sex, hair color, hair length, hairstyle, eye color, or body features unless scenario_guidance or authored_template_resolution explicitly allows and triggers that change, or reality_rule_declared_this_turn declares a change to the player's own body or identity; in that case narrate the player already in the new body and keep every unaffected trait. Clothing may be offered, found, or discussed, but the player only puts on, removes, or changes clothing when their input explicitly chooses that action, or when a declared reality rule changes the player's body or identity; in that case clothing follows the body, so each person wears whatever their new body was already wearing, and a declared swap or exchange of bodies also exchanges their outfits. Separately, a reality_rules entry may itself state what the player wears or how the player looks; such a rule is already true, so narrate the player that way on every turn it remains in reality_rules rather than treating it as something they still have to do. Unless the input explicitly requests layering, a new garment replaces the previous outfit instead of being worn over it. If the source snapshot explicitly establishes a transformed sex or body, it may create practical disguise or role opportunities without inventing further changes. When authored_template_resolution is provided, treat it as authoritative and never narrate a score, transformation, unlocked exit, or ending beyond its event.
 {_REALITY_RULES_INSTRUCTION}
 {voice_rule}"""
 
@@ -2018,7 +2061,7 @@ Base every value strictly on the supplied narrative and game state, and never in
 Return one JSON object only, matching this schema:
 {{"visual_state":{{"location":"...","appearance":"...","clothing":"...","surroundings":"...","main_characters":[{{"name":"...","description":"...","clothing":"...","action":"..."}}]}},"scene_tags":"...","player_tags":"...","npc_tags":["..."]}}
 Write visual_state values in {response_language}. Write scene_tags, player_tags, and npc_tags as concise English comma-separated tags.
-Derive visual_state from previous_visual_state, changing only what the narrative states. Treat required_visual_appearance as an immutable identity signature: copy its sex, hair color, hair length, hairstyle, eye color, and body features exactly into visual_state.appearance, and never replace or supplement those traits unless authored_template_resolution explicitly triggers that change, or reality_rule_declared_this_turn declares a change to the player's own body or identity; in that case rewrite visual_state.appearance to match the declared rule while keeping every unaffected trait, and when the declaration does not concern the player's own body, copy required_visual_appearance unchanged. reality_rules are established facts of this world; keep visual_state, player_tags, and npc_tags consistent with them. The player only puts on, removes, or changes clothing when player_input explicitly chose that action, or when reality_rule_declared_this_turn changes the player's own body or identity; in that case clothing follows the body, so rewrite visual_state.clothing to the outfit that body is actually wearing after the change, and when the declaration swaps or exchanges the player with another character the player now wears the clothing that character was wearing while that character now wears the player's previous clothing, which their entry in main_characters must reflect. Otherwise keep previous_visual_state.clothing unchanged. Unless layering was explicitly requested, a new garment replaces the previous outfit. Keep visual_state concrete enough to illustrate the main characters, their clothing, and the surrounding location. main_characters contains NPCs, never the player.
+Derive visual_state from previous_visual_state, changing only what the narrative states. Treat required_visual_appearance as an immutable identity signature: copy its sex, hair color, hair length, hairstyle, eye color, and body features exactly into visual_state.appearance, and never replace or supplement those traits unless authored_template_resolution explicitly triggers that change, or reality_rule_declared_this_turn declares a change to the player's own body or identity; in that case rewrite visual_state.appearance to match the declared rule while keeping every unaffected trait, and when the declaration does not concern the player's own body, copy required_visual_appearance unchanged. reality_rules are established facts of this world; keep visual_state, player_tags, and npc_tags consistent with them. The player only puts on, removes, or changes clothing when player_input explicitly chose that action, or when reality_rule_declared_this_turn changes the player's own body or identity; in that case clothing follows the body, so rewrite visual_state.clothing to the outfit that body is actually wearing after the change, and when the declaration swaps or exchanges the player with another character the player now wears the clothing that character was wearing while that character now wears the player's previous clothing, which their entry in main_characters must reflect. Separately, a reality_rules entry may itself state what the player wears or how the player looks; such a rule outranks previous_visual_state, so visual_state.clothing and visual_state.appearance must satisfy it on every turn it remains in reality_rules, not only on the turn it was established. Otherwise keep previous_visual_state.clothing unchanged. Unless layering was explicitly requested, a new garment replaces the previous outfit. Keep visual_state concrete enough to illustrate the main characters, their clothing, and the surrounding location. main_characters contains NPCs, never the player.
 When previous_image_tags is provided, treat it as the wording a human editor deliberately chose: reuse its scene_tags, player_tags, and npc_tags as the starting point and edit them only where visual_state or the narrative now requires a change, preserving the rest of the original wording and phrasing style. When previous_image_tags is absent, write the tags from scratch.
 scene_tags contains only environment, camera, composition, lighting, and the observable interaction; it must not contain any character's gender, body, face, hair, or clothing. player_tags describes only the player from visual_state.appearance and visual_state.clothing. The player is always the primary subject in the center foreground. visual_state.clothing is authoritative and must never be replaced with an NPC outfit. npc_tags must contain one entry per NPC in main_characters, in the same order, describing only that NPC; every NPC is a secondary subject placed to the side or behind the player. Never merge player and NPC attributes. Do not add text, UI, split panels, or unstated changes. When authored_scene_tags is provided, reuse those environment tags as the base of scene_tags and only append concrete changes required by the narrative. When authored_visual_style is provided, keep visual_state.location and visual_state.surroundings aligned with it unless the narrative explicitly moves the scene to a new place after a successful exit.{layer_rule}{romance_rule}"""
 
@@ -3809,6 +3852,13 @@ The objective must name a concrete target and an observable end condition that c
             if declared_rule:
                 _append_reality_rule(state, declared_rule)
                 input_kind = "reality_alter"
+            # 手番を使わず付与されたルールも、この手番で初めて世界へ反映させる
+            declared_this_turn = _take_established_reality_rules(state, declared_rule)
+            # 外見ロックの更新は「外見が変わり得る手番」だけに許す。手番を使わない
+            # 付与でも、その手番の visual 出力を新しいロックとして採用する
+            appearance_update_allowed = (
+                input_kind == "reality_alter" or declared_this_turn is not None
+            )
             reality_rules = list(state.get("reality_rules", []))
             template = SCENARIO_TEMPLATES.get(str(state.get("scenario_template_id")))
             template_resolution = self._resolve_template_action(
@@ -3864,7 +3914,7 @@ The objective must name a concrete target and an observable end condition that c
                 "player_input": user_input,
                 "previous_choices": previous_choice_labels,
                 "reality_rules": reality_rules,
-                "reality_rule_declared_this_turn": declared_rule,
+                "reality_rule_declared_this_turn": declared_this_turn,
                 "required_visual_appearance": appearance_lock,
                 # resolution プロンプトの current_bgm ルールが名前参照する
                 "current_bgm": state.get("bgm") or get_bgm_default(),
@@ -3985,14 +4035,14 @@ The objective must name a concrete target and an observable end condition that c
                     )
                 elif explicit_clothing:
                     visual.visual_state.clothing = explicit_clothing
-                # 現実改変ターンだけロックの更新を許可し、宣言した変化を以後の
+                # 外見が変わり得る手番だけロックの更新を許可し、変化を以後の
                 # ターンへ引き継ぐ。それ以外のターンは従来どおりロックで固定する
                 self._apply_appearance_lock(
                     state,
                     visual.visual_state,
-                    allow_update=input_kind == "reality_alter",
+                    allow_update=appearance_update_allowed,
                 )
-                if input_kind == "reality_alter":
+                if appearance_update_allowed:
                     # 攻略対象側も同じ手番で書き戻す。resolution の
                     # updated_partner_appearance が出た場合は後段の
                     # apply_romance_outcome がこちらを上書きする
@@ -5569,6 +5619,57 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 await db.commit()
             turns = sorted(run.turns, key=lambda item: item.turn_number)
             # 最新 state を反映して返す
+            run.state_json = json.dumps(state, ensure_ascii=False)
+            return self._serialize_run(run, turns)
+
+    async def update_reality_rules(
+        self, run_id: str, rules: list[str]
+    ) -> dict[str, Any]:
+        """付与済みの現実改変ルールを丸ごと置き換える(手番は消費しない)。
+
+        通常ゲームの属性付与と同じく、次のターンのプロンプトへ反映されるだけで
+        物語は進まない。turn_count / status / AdventureTurn には触れないため、
+        手番切れで失敗エンドになることもない。
+        既に確定した外見(appearance_lock / sim["partner_appearance"])はここでは
+        戻さない。ルールは以後の判定に効く世界設定で、確定済みの姿とは別管理。
+        巻き戻しは対象手番のスナップショットを復元するため、その手番より後に
+        ここで加えた変更は巻き戻しで失われる。
+        """
+        # 検証はロック取得前に済ませ、拒否時はDBに触れない
+        normalized = _normalize_reality_rules(rules)
+        if len(normalized) > _MAX_REALITY_RULES:
+            raise AdventureError(
+                "too_many_reality_rules",
+                f"付与できる属性は{_MAX_REALITY_RULES}件までです",
+            )
+        async with self._run_locks[run_id]:
+            run = await self.get_run_orm(run_id, with_turns=True)
+            state = _json_load(run.state_json, {})
+            previous = _normalize_reality_rules(state.get("reality_rules", []))
+            state["reality_rules"] = normalized
+            # 手番を使わずに足したルールは「宣言された手番」を持たない。次の手番で
+            # 一度だけ世界へ反映させるため、新規分をここで控えておく
+            # (ターン送信前に複数回 PATCH されても取りこぼさないよう既存分と併合)
+            pending = _normalize_reality_rules(
+                [
+                    *state.get("pending_reality_rules", []),
+                    *[rule for rule in normalized if rule not in previous],
+                ]
+            )
+            # 反映前に削除されたルールは持ち越さない
+            state["pending_reality_rules"] = [
+                rule for rule in pending if rule in normalized
+            ]
+            async with async_session_factory() as db:
+                persisted = await db.get(AdventureRun, run.id)
+                if persisted is None:
+                    raise AdventureError(
+                        "run_not_found", "アドベンチャーが見つかりません"
+                    )
+                persisted.state_json = json.dumps(state, ensure_ascii=False)
+                persisted.updated_at = datetime.now()
+                await db.commit()
+            turns = sorted(run.turns, key=lambda item: item.turn_number)
             run.state_json = json.dumps(state, ensure_ascii=False)
             return self._serialize_run(run, turns)
 

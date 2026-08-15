@@ -3802,6 +3802,8 @@ button:disabled {
 
 .adventure-prompt-modal__actions {
   display: flex;
+  /* ボタンが3つ並ぶ場合があるため、狭い画面では折り返す */
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 10px;
   margin-top: 10px;
@@ -3825,6 +3827,102 @@ button:disabled {
 }
 
 .adventure-prompt-modal__actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/*
+ * 付与済みルールの一覧。1件300字まで入るためピル型ではなく縦積みの行にし、
+ * 見た目は HUD ポップオーバーの一覧(adventure-hud__clues li)に揃える。
+ */
+.adventure-attribute-list {
+  display: grid;
+  gap: 6px;
+  max-height: 32vh;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.adventure-attribute-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 1px solid #59636c;
+  border-radius: 4px;
+  color: #cbd2d7;
+  font-size: 0.82rem;
+}
+
+.adventure-attribute-list li.is-editing {
+  border-color: #efb85a;
+}
+
+.adventure-attribute-list__text {
+  flex: 1 1 auto;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.adventure-attribute-list__action {
+  display: grid;
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  color: #cbd2d7;
+  background: transparent;
+  font-size: 0.85rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.adventure-attribute-list__action:hover:not(:disabled) {
+  background: rgb(255 255 255 / 18%);
+}
+
+.adventure-attribute-list__action:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.adventure-attribute-list__empty {
+  margin: 0;
+  color: #8b959d;
+  font-size: 0.78rem;
+}
+
+.adventure-prompt-modal__error {
+  margin: 0;
+  color: #f0a2a2;
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+/* HUD ポップオーバー内の操作ボタン(一覧の下に置く) */
+.adventure-hud__panel-action {
+  margin-top: 8px;
+  padding: 6px 12px;
+  border: 1px solid #707982;
+  border-radius: 6px;
+  color: #e6ebef;
+  background: transparent;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.adventure-hud__panel-action:hover:not(:disabled) {
+  border-color: #efb85a;
+  color: #efb85a;
+}
+
+.adventure-hud__panel-action:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }

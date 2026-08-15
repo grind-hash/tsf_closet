@@ -29,6 +29,7 @@ import {
   startAdventureEpilogue,
   streamAdventureImage,
   streamAdventureTurn,
+  updateAdventureRealityRules,
   updateAdventureRunSettings,
 } from "../apis/adventure";
 
@@ -110,6 +111,8 @@ interface AdventureContextValue {
     enable_composite_scene: boolean;
     respect_clothing_layers?: boolean;
   }) => Promise<void>;
+  /** 付与済みの現実改変ルールを丸ごと置き換える(手番は消費しない) */
+  updateRealityRules: (rules: string[]) => Promise<void>;
   clearError: () => void;
 }
 
@@ -535,6 +538,28 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
     [activeRun],
   );
 
+  const updateRealityRules = useCallback(
+    async (rules: string[]) => {
+      if (!activeRun) return;
+      const runId = activeRun.id;
+      setError(null);
+      try {
+        const updated = await updateAdventureRealityRules(runId, rules);
+        // このエンドポイントが変えるのは reality_rules だけ。run 全体を
+        // 差し込むと、ストリームで先に入った画像URL等を古い値へ巻き戻す
+        setActiveRun((current) =>
+          current && current.id === runId
+            ? { ...current, reality_rules: updated.reality_rules ?? [] }
+            : current,
+        );
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : String(caught));
+        throw caught;
+      }
+    },
+    [activeRun],
+  );
+
   const rewindRun = useCallback(
     async (turnNumber: number) => {
       if (!activeRun || streaming) return;
@@ -608,6 +633,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       regenerateImage,
       regenerateChoices,
       updateSettings,
+      updateRealityRules,
       rewindRun,
       startEpilogue,
       clearError: () => setError(null),
@@ -637,6 +663,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       regenerateImage,
       regenerateChoices,
       updateSettings,
+      updateRealityRules,
       rewindRun,
       startEpilogue,
     ],

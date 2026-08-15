@@ -54,6 +54,7 @@ from gateway.services.adventure_service import (
     _compose_scene_base_tags,
     _identity_tags_only,
     _lean_state_for_llm,
+    _normalize_reality_rules,
     _partner_appearance_diverged,
     _previous_choice_labels,
     _merge_scene_tags,
@@ -842,6 +843,11 @@ def test_append_reality_rule_dedupes_and_caps() -> None:
     assert len(rules) == _MAX_REALITY_RULES
     assert "誰も咎めない" not in rules
     assert rules[-1] == f"ルール{_MAX_REALITY_RULES + 2}"
+
+    # 宣言経路も管理経路と同じ正規化を通ること
+    fresh: dict[str, object] = {}
+    _append_reality_rule(fresh, "  空白は   畳まれる ")
+    assert fresh["reality_rules"] == ["空白は 畳まれる"]
 
 
 def test_turn_judgement_prompts_carry_reality_rule_policy() -> None:
@@ -2943,6 +2949,228 @@ async def test_update_run_settings_toggles_precise_reference(monkeypatch) -> Non
     saved = __import__("json").loads(persisted.state_json)
     assert saved["use_precise_reference"] is True
     assert saved["enable_composite_scene"] is True
+
+
+def make_reality_rule_run(state: dict[str, object]) -> tuple[object, object]:
+    """update_reality_rules 用の run / persisted ペアを組み立てる。"""
+    run = SimpleNamespace(
+        id="run-1",
+        source_session_id=None,
+        source_history_id=None,
+        preset="romance",
+        title="テスト",
+        objective="交際する",
+        constraints_json="[]",
+        status="active",
+        turn_count=0,
+        max_turns=8,
+        ending_title=None,
+        ending_summary=None,
+        language="ja",
+        current_image_path="current.png",
+        initial_image_path="initial.png",
+        snapshot_json="{}",
+        created_at=None,
+        updated_at=None,
+        state_json=json.dumps(state, ensure_ascii=False),
+        turns=[],
+    )
+    persisted = SimpleNamespace(id="run-1", state_json=run.state_json, updated_at=None)
+    return run, persisted
+
+
+def patch_reality_rule_db(monkeypatch, service, run, persisted) -> None:
+    class FakeDatabase:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, _exc_type, _exc, _traceback):
+            return None
+
+        async def get(self, model, record_id):
+            if model is AdventureRun and record_id == "run-1":
+                return persisted
+            return None
+
+        async def commit(self):
+            return None
+
+    monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.async_session_factory", FakeDatabase
+    )
+
+
+def make_reality_rule_state(**overrides: object) -> dict[str, object]:
+    state: dict[str, object] = {
+        "reality_rules": [],
+        "choices": [],
+        "clues": [],
+        "milestones": [],
+        "completed_milestones": [],
+        "opening_narrative": "開始",
+        "visual_state": {"location": "room", "appearance": "1girl"},
+    }
+    state.update(overrides)
+    return state
+
+
+def test_normalize_reality_rules_collapses_and_dedupes() -> None:
+    assert _normalize_reality_rules(
+        ["  彼女は  猫耳が\n生えている ", "彼女は 猫耳が 生えている", "", "   ", None]
+    ) == ["彼女は 猫耳が 生えている"]
+    # 順序は保つ
+    assert _normalize_reality_rules(["B", "A", "B"]) == ["B", "A"]
+    # 1件あたりの上限で切り詰める
+    assert len(_normalize_reality_rules(["あ" * 400])[0]) == 300
+
+
+@pytest.mark.asyncio
+async def test_update_reality_rules_replaces_list(monkeypatch) -> None:
+    service = AdventureService()
+    run, persisted = make_reality_rule_run(
+        make_reality_rule_state(reality_rules=["A", "B", "C"])
+    )
+    patch_reality_rule_db(monkeypatch, service, run, persisted)
+
+    result = await service.update_reality_rules("run-1", ["A", "  C 改  "])
+
+    assert result["reality_rules"] == ["A", "C 改"]
+    assert json.loads(persisted.state_json)["reality_rules"] == ["A", "C 改"]
+
+
+@pytest.mark.asyncio
+async def test_update_reality_rules_marks_only_new_rules_pending(monkeypatch) -> None:
+    """手番を使わず足したルールは、次の手番で反映するため控えに積む。"""
+    service = AdventureService()
+    run, persisted = make_reality_rule_run(
+        make_reality_rule_state(reality_rules=["既存のルール"])
+    )
+    patch_reality_rule_db(monkeypatch, service, run, persisted)
+
+    await service.update_reality_rules("run-1", ["既存のルール", "僕はバニーを着る"])
+
+    saved = json.loads(persisted.state_json)
+    # 既存分は再通知しない
+    assert saved["pending_reality_rules"] == ["僕はバニーを着る"]
+
+
+@pytest.mark.asyncio
+async def test_update_reality_rules_drops_pending_for_removed_rules(
+    monkeypatch,
+) -> None:
+    """反映前に消したルールは持ち越さない。"""
+    service = AdventureService()
+    run, persisted = make_reality_rule_run(
+        make_reality_rule_state(
+            reality_rules=["僕はバニーを着る"],
+            pending_reality_rules=["僕はバニーを着る"],
+        )
+    )
+    patch_reality_rule_db(monkeypatch, service, run, persisted)
+
+    await service.update_reality_rules("run-1", [])
+
+    saved = json.loads(persisted.state_json)
+    assert saved["pending_reality_rules"] == []
+
+
+def test_take_established_reality_rules_merges_and_clears_pending() -> None:
+    """付与済み(未反映)と入力による宣言を同じ「この手番で確定」として渡す。"""
+    from gateway.services.adventure_service import _take_established_reality_rules
+
+    # 手番を使わない付与だけの手番でも通知される
+    state: dict[str, object] = {"pending_reality_rules": ["僕はバニーを着る"]}
+    assert _take_established_reality_rules(state, None) == "僕はバニーを着る"
+    # 一度きりの通知なので取り出したら消える
+    assert "pending_reality_rules" not in state
+    assert _take_established_reality_rules(state, None) is None
+
+    # 宣言と付与が同じ手番に重なったら両方渡す。重複は畳む
+    both: dict[str, object] = {"pending_reality_rules": ["A", "宣言"]}
+    assert _take_established_reality_rules(both, "宣言") == "宣言; A"
+
+    # どちらも無ければ None
+    assert _take_established_reality_rules({}, None) is None
+
+
+def test_reality_rules_instruction_covers_standing_rules() -> None:
+    """付与したルールは宣言手番だけでなく以後も効き続ける必要がある。"""
+    from gateway.services.adventure_service import _REALITY_RULES_INSTRUCTION
+
+    assert "stays in force on every later turn" in _REALITY_RULES_INSTRUCTION
+    # 入力による宣言とPATCH付与のどちらでも同じ扱いにする
+    assert "or by adding them directly" in _REALITY_RULES_INSTRUCTION
+
+
+def test_prompts_let_reality_rules_dictate_clothing() -> None:
+    """「〜を着る」のような服装ルールが服装ロックに負けないこと。"""
+    service = AdventureService()
+    visual = service._visual_system_prompt("ja")
+    assert "state what the player wears" in visual
+    assert "outranks previous_visual_state" in visual
+    narrative = service._narrative_system_prompt("ja")
+    assert "state what the player wears" in narrative
+    assert "rather than treating it as something they still have to do" in narrative
+
+
+@pytest.mark.asyncio
+async def test_update_reality_rules_keeps_appearance_and_turn_count(
+    monkeypatch,
+) -> None:
+    """属性を消しても確定済みの外見は戻らず、手番も消費しない。"""
+    service = AdventureService()
+    run, persisted = make_reality_rule_run(
+        make_reality_rule_state(
+            reality_rules=["僕とミユキが入れ替わる"],
+            appearance_lock="female, 1girl, long blonde hair",
+            initial_appearance_lock="male, 1boy, black hair",
+            sim={
+                "partner_name": "ミユキ",
+                "partner_appearance": "male, 1boy, black hair",
+                "total_days": 4,
+                "affection": 10,
+                "money": 5000,
+                "job": {"name": "書店", "wage": 1000},
+                "gift_catalog": [],
+                "given_gifts": [],
+            },
+        )
+    )
+    patch_reality_rule_db(monkeypatch, service, run, persisted)
+
+    result = await service.update_reality_rules("run-1", [])
+
+    saved = json.loads(persisted.state_json)
+    assert saved["reality_rules"] == []
+    # 決定事項: ルールを消しても既に確定した姿は維持する
+    assert saved["appearance_lock"] == "female, 1girl, long blonde hair"
+    assert saved["sim"]["partner_appearance"] == "male, 1boy, black hair"
+    # 手番は一切消費しない
+    assert result["turn_count"] == 0
+    assert result["remaining_turns"] == run.max_turns
+    assert result["status"] == "active"
+
+
+@pytest.mark.asyncio
+async def test_update_reality_rules_rejects_over_limit(monkeypatch) -> None:
+    """上限超過は黙って切らずに拒否し、DBにも触れない。"""
+    from gateway.services.adventure_service import _MAX_REALITY_RULES
+
+    service = AdventureService()
+    run, persisted = make_reality_rule_run(
+        make_reality_rule_state(reality_rules=["既存"])
+    )
+    before = persisted.state_json
+    patch_reality_rule_db(monkeypatch, service, run, persisted)
+
+    with pytest.raises(AdventureError) as excinfo:
+        await service.update_reality_rules(
+            "run-1", [f"ルール{index}" for index in range(_MAX_REALITY_RULES + 1)]
+        )
+
+    assert excinfo.value.code == "too_many_reality_rules"
+    assert persisted.state_json == before
 
 
 @pytest.mark.asyncio

@@ -2468,6 +2468,21 @@ function AdventurePlay({ runId }: { runId: string }) {
                         <li key={rule}>{rule}</li>
                       ))}
                     </ul>
+                    <button
+                      type="button"
+                      className="adventure-hud__panel-action"
+                      disabled={!canActOnRun(activeRun)}
+                      onClick={() => {
+                        setHudPanel(null);
+                        setAttributeModalOpen(true);
+                      }}
+                    >
+                      {t(
+                        sim
+                          ? "adventure.romance.attribute.manage"
+                          : "adventure.realityRuleManager.manage",
+                      )}
+                    </button>
                   </>
                 ) : (
                   <ul className="adventure-hud__clues">

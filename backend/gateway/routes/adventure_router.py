@@ -91,6 +91,12 @@ class AdventureSettingsUpdateRequest(BaseModel):
     respect_clothing_layers: bool | None = None
 
 
+class AdventureRealityRulesUpdateRequest(BaseModel):
+    # 一覧を丸ごと置き換える。件数・表記の正規化はサービス側で行うため、
+    # ここの上限は明らかに異常な量を弾くためだけのもの
+    rules: list[str] = Field(default_factory=list, max_length=64)
+
+
 class AdventureRewindRequest(BaseModel):
     # この手番の完了時点まで巻き戻す(それ以降のターンを削除する)
     turn_number: int = Field(ge=0)
@@ -237,6 +243,16 @@ async def update_run_settings(
             enable_composite_scene=request.enable_composite_scene,
             respect_clothing_layers=request.respect_clothing_layers,
         )
+    except AdventureError as error:
+        raise _http_error(error) from error
+
+
+@router.patch("/runs/{run_id}/reality-rules")
+async def update_reality_rules(
+    run_id: str, request: AdventureRealityRulesUpdateRequest
+) -> dict:
+    try:
+        return await adventure_service.update_reality_rules(run_id, request.rules)
     except AdventureError as error:
         raise _http_error(error) from error
 

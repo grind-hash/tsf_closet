@@ -108,6 +108,8 @@ interface RomanceMockState {
   streamBodies: Record<string, unknown>[];
   createBodies: Record<string, unknown>[];
   runAfterTurn: Record<string, unknown> | null;
+  /** PATCH /reality-rules のボディ。手番を消費しない付与・編集・削除の記録 */
+  realityRuleBodies: { rules: string[] }[];
 }
 
 async function mockRomanceApis(
@@ -118,6 +120,7 @@ async function mockRomanceApis(
     streamBodies: [],
     createBodies: [],
     runAfterTurn: null,
+    realityRuleBodies: [],
   };
   let turnTaken = false;
   await page.route("**/api/mock-scene.png", async (route) => {
@@ -224,6 +227,17 @@ async function mockRomanceApis(
       json: turnTaken && state.runAfterTurn ? state.runAfterTurn : initialRun,
     });
   });
+  // runs/run-1 より後に登録する(Playwright はハンドラを後勝ちで解決する)
+  await page.route(
+    "**/api/adventure/runs/run-1/reality-rules",
+    async (route) => {
+      const body = route.request().postDataJSON() as { rules: string[] };
+      state.realityRuleBodies.push(body);
+      await route.fulfill({
+        json: { ...initialRun, reality_rules: body.rules },
+      });
+    },
+  );
   await page.route(
     "**/api/adventure/runs/run-1/turns/stream",
     async (route) => {
@@ -481,20 +495,86 @@ test("attribute modal sends a reality declaration and lists it in the HUD", asyn
   await page.goto("/adventure/run-1");
 
   await page.getByRole("button", { name: "属性を付与" }).click();
-  const modal = page.getByRole("dialog", { name: "属性を付与" });
+  const modal = page.getByRole("dialog", { name: "属性を管理" });
   await modal.getByLabel("付与する属性").fill("彼女は猫耳が生えている");
-  await modal.getByRole("button", { name: "付与する" }).click();
+  await modal.getByRole("button", { name: "付与して行動" }).click();
 
   await expect(page.getByText("ふたりの距離が少し縮まった。")).toBeVisible();
   expect(state.streamBodies[0]).toMatchObject({
     input_kind: "reality_alter",
     user_input: "現実改変：彼女は猫耳が生えている",
   });
+  // 行動を伴う付与はターン側が追記するので PATCH は走らない
+  expect(state.realityRuleBodies).toHaveLength(0);
   // ストリーム後の run 再取得で「付与した属性」チップが出る
   const attributeChip = page.getByRole("button", { name: /^付与した属性/ });
   await expect(attributeChip).toBeVisible();
   await attributeChip.click();
   await expect(page.getByText("彼女は猫耳が生えている")).toBeVisible();
+});
+
+test("attribute modal grants without consuming a turn", async ({ page }) => {
+  await enableAdventure(page);
+  const state = await mockRomanceApis(page);
+  await page.goto("/adventure/run-1");
+
+  await page.getByRole("button", { name: "属性を付与" }).click();
+  const modal = page.getByRole("dialog", { name: "属性を管理" });
+  await modal.getByLabel("付与する属性").fill("彼女は猫耳が生えている");
+  await modal.getByRole("button", { name: "付与のみ" }).click();
+
+  await expect.poll(() => state.realityRuleBodies.length).toBeGreaterThan(0);
+  expect(state.realityRuleBodies[0]).toEqual({
+    rules: ["彼女は猫耳が生えている"],
+  });
+  // 手番を消費しないことがこの機能の要点
+  expect(state.streamBodies).toHaveLength(0);
+  // モーダルは開いたままで、一覧へ反映される(続けて付与できる)。
+  // ヒント文にも同じ例文が入るため exact 指定で一覧の行だけを見る
+  await expect(
+    modal.getByText("彼女は猫耳が生えている", { exact: true }),
+  ).toBeVisible();
+});
+
+test("attribute modal edits and deletes granted attributes", async ({
+  page,
+}) => {
+  await enableAdventure(page);
+  const state = await mockRomanceApis(
+    page,
+    romanceRunPayload(1, {
+      reality_rules: ["彼女は猫耳が生えている", "彼女は語尾ににゃを付ける"],
+    }),
+  );
+  await page.goto("/adventure/run-1");
+
+  await page.getByRole("button", { name: /^付与した属性/ }).click();
+  await page.getByRole("button", { name: "属性を管理" }).click();
+  const modal = page.getByRole("dialog", { name: "属性を管理" });
+
+  await modal
+    .getByRole("button", { name: "「彼女は猫耳が生えている」を編集" })
+    .click();
+  const field = modal.getByLabel("内容を編集");
+  await expect(field).toHaveValue("彼女は猫耳が生えている");
+  await field.fill("彼女は狐耳が生えている");
+  await modal.getByRole("button", { name: "保存" }).click();
+
+  await expect.poll(() => state.realityRuleBodies.length).toBe(1);
+  expect(state.realityRuleBodies[0]).toEqual({
+    rules: ["彼女は狐耳が生えている", "彼女は語尾ににゃを付ける"],
+  });
+
+  await modal
+    .getByRole("button", { name: "「彼女は語尾ににゃを付ける」を削除" })
+    .click();
+  await expect.poll(() => state.realityRuleBodies.length).toBe(2);
+  expect(state.realityRuleBodies[1]).toEqual({
+    rules: ["彼女は狐耳が生えている"],
+  });
+
+  // 一覧の操作はいずれも手番を消費しない
+  expect(state.streamBodies).toHaveLength(0);
 });
 
 test("confession button appears when available and sends input_kind confess", async ({

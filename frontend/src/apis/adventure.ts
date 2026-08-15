@@ -546,6 +546,26 @@ export async function updateAdventureRunSettings(
   );
 }
 
+/**
+ * 付与済みの現実改変ルールを丸ごと置き換える。手番は消費しない。
+ * 追加・編集・削除・並べ替えをこの1本で賄う(ルールにIDが無いため)。
+ */
+export async function updateAdventureRealityRules(
+  runId: string,
+  rules: string[],
+): Promise<AdventureRun> {
+  return normalizeRun(
+    await requestJson<AdventureRun>(
+      `${API_BASE}/adventure/runs/${runId}/reality-rules`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rules }),
+      },
+    ),
+  );
+}
+
 export function normalizeAdventureImageUrl(url: unknown): string | null {
   return typeof url === "string" ? withApiBase(url) : null;
 }

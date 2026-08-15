@@ -159,13 +159,16 @@ const resources = {
             insufficientFunds: "所持金が足りません",
             close: "閉じる",
           },
+          /**
+           * romance だけ呼称が「属性」になる項目の上書き。
+           * ボタン等の共通文言は adventure.realityRuleManager.* を使う
+           */
           attribute: {
-            title: "属性を付与",
+            title: "属性を管理",
             hint: "相手の外見・性格・状況・心を書き換えます。書いた内容はこの世界の確定した事実になります（例: 彼女は猫耳が生えている／彼女は語尾に「にゃ」を付ける／彼女は私に夢中になる）",
             label: "付与する属性",
             placeholder: "例: 彼女は猫耳が生えている",
-            submit: "付与する",
-            cancel: "キャンセル",
+            manage: "属性を管理",
           },
         },
         presetFromScenario: "このシナリオのミッション",
@@ -259,6 +262,35 @@ const resources = {
         realityRules: "現実改変",
         realityRulesHint:
           "宣言済みの世界ルールです。以降のすべての判定に適用され、ルールが覆う行動だけでミッション失敗にはなりません。",
+        /**
+         * 現実改変ルールの管理モーダル。romance では「属性」と呼ぶため、
+         * 呼称が変わる項目だけ adventure.romance.attribute.* で上書きする。
+         * ボタン名に「現実改変」を含めないこと(HUDチップと名前が衝突する)
+         */
+        realityRuleManager: {
+          title: "現実改変ルールを管理",
+          hint: "宣言済みのルールを追加・編集・削除します。ルールは以降のすべての判定に、この世界の確定した事実として適用されます",
+          label: "ルールの内容",
+          placeholder: "例: 僕の行動は誰にも疑問に思われない",
+          manage: "ルールを管理",
+          listLabel: "付与済み（{{count}}/{{max}}）",
+          listEmpty: "まだ何も付与されていません",
+          editAria: "「{{text}}」を編集",
+          deleteAria: "「{{text}}」を削除",
+          editLabel: "内容を編集",
+          saveEdit: "保存",
+          cancelEdit: "編集をやめる",
+          grant: "付与のみ",
+          grantHint: "手番を消費せずに付与します。次のターンから効きます",
+          grantAndAct: "付与して行動",
+          grantAndActHint: "1手番を消費し、付与した内容を物語として描かせます",
+          close: "閉じる",
+          duplicate: "同じ内容がすでに付与されています",
+          limitReached:
+            "付与できるのは{{max}}件までです。不要なものを削除してください",
+          removeNote:
+            "削除しても、すでに確定した外見や状況は元には戻りません。以降の判定に効かなくなるだけです",
+        },
         milestones: "進行目標",
         milestoneDone: "達成済み",
         protagonist: "主人公",
@@ -1566,12 +1598,11 @@ const resources = {
             close: "Close",
           },
           attribute: {
-            title: "Grant an attribute",
+            title: "Manage attributes",
             hint: "Rewrite the partner's appearance, personality, circumstances, or feelings. What you write becomes an established fact of this world (e.g. She has cat ears / She ends every sentence with 'nya' / She is infatuated with me).",
             label: "Attribute to grant",
             placeholder: "e.g. She has cat ears",
-            submit: "Grant",
-            cancel: "Cancel",
+            manage: "Manage attributes",
           },
         },
         presetFromScenario: "Mission for this scenario",
@@ -1667,6 +1698,31 @@ const resources = {
         realityRules: "Reality",
         realityRulesHint:
           "Declared world rules. They apply to every later judgement, and behaviour they cover alone never fails the mission.",
+        realityRuleManager: {
+          title: "Manage reality rules",
+          hint: "Add, edit, or remove declared rules. Every rule applies to all later judgements as an established fact of this world.",
+          label: "Rule text",
+          placeholder: "e.g. Nobody ever questions what I do",
+          manage: "Manage rules",
+          listLabel: "Granted ({{count}}/{{max}})",
+          listEmpty: "Nothing granted yet",
+          editAria: "Edit “{{text}}”",
+          deleteAria: "Delete “{{text}}”",
+          editLabel: "Edit text",
+          saveEdit: "Save",
+          cancelEdit: "Stop editing",
+          grant: "Grant only",
+          grantHint:
+            "Grants without using a turn. It takes effect from the next turn.",
+          grantAndAct: "Grant and act",
+          grantAndActHint:
+            "Uses one turn and has the story play out what you granted.",
+          close: "Close",
+          duplicate: "That has already been granted",
+          limitReached: "You can grant up to {{max}}. Delete one first.",
+          removeNote:
+            "Deleting does not revert an appearance or situation that has already changed. It only stops applying to later judgements.",
+        },
         milestones: "Milestones",
         milestoneDone: "Completed",
         protagonist: "Protagonist",

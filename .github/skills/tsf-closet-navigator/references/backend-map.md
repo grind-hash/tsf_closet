@@ -59,6 +59,7 @@
 - `POST /runs/{run_id}/image/stream`
 - `POST /runs/{run_id}/choices/regenerate`
 - `PATCH /runs/{run_id}/settings`
+- `PATCH /runs/{run_id}/reality-rules`（現実改変ルールの全件置換。手番を消費しない）
 - `GET /images/{run_id}/{filename}`
 
 ### FastAPI アプリ直下の互換/補助API
