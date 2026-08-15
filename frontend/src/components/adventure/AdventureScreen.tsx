@@ -1883,6 +1883,16 @@ function AdventurePlay({ runId }: { runId: string }) {
     true,
     PORTRAIT_ALPHA_OPTIONS,
   );
+  // 攻略対象も同じく最新分。合成モードでもドックには並べる
+  const { url: currentPartnerDockUrl } = useTransparentImage(
+    activeRun?.preset === "romance"
+      ? (activeRun?.partner_portrait_url ??
+          activeRun?.opening_partner_portrait_url ??
+          null)
+      : null,
+    true,
+    PORTRAIT_ALPHA_OPTIONS,
+  );
 
   const lightboxFrame =
     lightboxIndex !== null ? frames[lightboxIndex] : undefined;
@@ -2085,6 +2095,19 @@ function AdventurePlay({ runId }: { runId: string }) {
   // romance の公開シミュ状態。他プリセットでは null
   const sim = activeRun.preset === "romance" ? (activeRun.sim ?? null) : null;
   const cast = activeRun.visual_state?.main_characters ?? [];
+  // 攻略対象の服装は sim ではなく現在の場面側に載る。名前の部分一致で引く
+  // (バックエンドの _romance_partner_visual_entry と同じ突合)
+  const partnerName = sim?.partner_name?.trim() ?? "";
+  const partnerClothing = partnerName
+    ? (cast.find((member) => {
+        const name = member.name.trim();
+        // 空名エントリは partnerName.includes("") で誤ヒットするため除く
+        return (
+          name !== "" &&
+          (name.includes(partnerName) || partnerName.includes(name))
+        );
+      })?.clothing ?? "")
+    : "";
   const resultImageUrl = isCompositeMode
     ? (activeRun.current_image_url ?? activeRun.portrait_image_url)
     : (transparentResultUrl ?? activeRun.current_image_url);
@@ -2523,6 +2546,45 @@ function AdventurePlay({ runId }: { runId: string }) {
                     </dd>
                   </div>
                 </dl>
+                {sim && (
+                  <div className="adventure-protagonist-dock__partner">
+                    <div className="adventure-protagonist-dock__subhead">
+                      <span>{t("adventure.partnerSection")}</span>
+                      <strong>{sim.partner_name}</strong>
+                    </div>
+                    {currentPartnerDockUrl && (
+                      <button
+                        type="button"
+                        className="adventure-protagonist-dock__figure"
+                        disabled={frames.length === 0}
+                        title={t("adventure.viewFullScreen")}
+                        onClick={() =>
+                          openLightboxFrame(frames.length - 1, "partner")
+                        }
+                      >
+                        <img
+                          src={currentPartnerDockUrl}
+                          alt={t("adventure.romance.partnerPortraitAlt")}
+                        />
+                      </button>
+                    )}
+                    <dl className="adventure-protagonist-dock__facts">
+                      <div>
+                        <dt>{t("adventure.protagonistAppearance")}</dt>
+                        <dd>
+                          {sim.partner_appearance ||
+                            t("adventure.protagonistUnknown")}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>{t("adventure.protagonistClothing")}</dt>
+                        <dd>
+                          {partnerClothing || t("adventure.protagonistUnknown")}
+                        </dd>
+                      </div>
+                    </dl>
+                  </div>
+                )}
               </aside>
             )}
           </div>

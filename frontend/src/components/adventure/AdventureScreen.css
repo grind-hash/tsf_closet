@@ -1365,6 +1365,35 @@ button:disabled {
   overflow-wrap: anywhere;
 }
 
+/* 攻略対象は同じドック内の第2セクション。罫線だけで主人公側と切り分ける */
+.adventure-protagonist-dock__partner {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid rgb(239 184 90 / 28%);
+}
+
+.adventure-protagonist-dock__subhead {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.adventure-protagonist-dock__subhead span {
+  color: #efb85a;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.adventure-protagonist-dock__subhead strong {
+  color: #d6dce1;
+  font-size: 0.78rem;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
 .adventure-play__body {
   position: relative;
   min-height: 0;

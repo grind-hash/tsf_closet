@@ -541,6 +541,8 @@ def opening_sim_view(sim: dict[str, Any]) -> dict[str, Any]:
 
     開始値(好感度・所持金・贈答/告白なし)は定数のため、進行後の sim からも
     正確に再構成できる。相手・カタログ・バイトはターンで変化しない。
+    例外は partner_appearance で、現実改変で書き換わると開幕時の値には戻せない
+    ため現在値が入る。開幕フレームの表示にこの項目を使わないこと。
     """
     opening = {
         **sim,
@@ -588,6 +590,8 @@ def public_sim_view(
         "stage": romance_stage(affection),
         "money": _clamp_money(int(sim.get("money") or 0)),
         "partner_name": str(sim.get("partner_name") or ""),
+        # 現実改変で書き換わりうるため、主人公の外見表示と対にして配信する
+        "partner_appearance": str(sim.get("partner_appearance") or ""),
         "player_name": str(sim.get("player_name") or ""),
         "player_character_id": str(sim.get("player_character_id") or ""),
         "job": {
@@ -620,7 +624,10 @@ ROMANCE_NARRATIVE_GUIDANCE = (
     "visual_state.main_characters with an appearance matching "
     "state.sim.partner_appearance plus any changes declared through "
     "reality_rules, and never merge the partner's traits into the player's "
-    "appearance or clothing. When state.sim.confessed is true the partner "
+    "appearance or clothing, unless reality_rules declare that the player and "
+    "the partner exchanged bodies or identities: that exchange is exactly what "
+    "the prose must show, each of them carrying the other's body and the "
+    "clothing that body was already wearing. When state.sim.confessed is true the partner "
     "and the player are already dating: portray them as an established "
     "couple sharing daily life, not as someone still being courted. "
     "romance_resolution contains the authoritative "
@@ -674,12 +681,21 @@ ROMANCE_VISUAL_GUIDANCE = (
     "subject as usual and required_visual_appearance is the player's identity "
     "signature. player_tags must restate the player's sex tokens from that "
     "signature (for example male, 1boy or female, 1girl) so the player is "
-    "never drawn as a different sex. The romance partner is an NPC whose "
+    "never drawn as a different sex, unless reality_rule_declared_this_turn "
+    "changes the player's own body or identity, in which case restate the sex "
+    "tokens of the player's new body instead. The romance partner is an NPC whose "
     "appearance is romance_partner.appearance plus any changes declared "
     "through reality_rules: when the partner is present in the scene, include "
     "them in main_characters and npc_tags with that appearance, and never "
     "merge the partner's hair, face, body, or clothing into player_tags or "
-    "visual_state.appearance."
+    "visual_state.appearance, unless reality_rules declare that the player and "
+    "the partner exchanged bodies or identities, in which case that exchange is "
+    "exactly what the tags must show: each of them carries the other's body and "
+    "the clothing that body was already wearing. The partner's entry in npc_tags "
+    "must always begin with the partner's explicit sex tokens (for example "
+    "female, 1girl or male, 1boy) taken from the partner's body after any change "
+    "declared through reality_rules, so a partner whose body has become male is "
+    "never drawn female."
 )
 
 ROMANCE_RESOLUTION_GUIDANCE = (
@@ -708,9 +724,15 @@ ROMANCE_RESOLUTION_GUIDANCE = (
     "state.sim.confessed is already true; if it rewrites the partner's gift "
     "tastes, put "
     "the matching gift ids from state.sim.gift_catalog into the updated "
-    "lists; if it changes the partner's body, hair, face, or overall "
-    "appearance, restate the partner's complete new appearance concisely in "
-    "updated_partner_appearance; otherwise keep affection_set null, "
+    "lists; if it changes the partner's body, hair, face, sex, age, species, "
+    "or overall appearance in any way, including any swap, exchange, or "
+    "transfer of bodies or identities between the partner and the player or "
+    "anyone else, in which case the partner now has that other person's body, "
+    "restate the partner's complete new appearance in "
+    "updated_partner_appearance as concise English comma-separated tags "
+    "beginning with explicit sex tokens (for example female, 1girl or male, "
+    "1boy) and describing only the body, hair, eyes, build, and distinguishing "
+    "features, never clothing; otherwise keep affection_set null, "
     "start_dating false, the lists empty, and updated_partner_appearance "
     "null. Keep updated_partner_appearance null on every non-alter turn. "
     "Money follows the same rule as affection. Keep money_delta "

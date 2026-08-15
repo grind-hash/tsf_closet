@@ -637,6 +637,10 @@ def _lean_state_for_llm(state: dict[str, Any]) -> dict[str, Any]:
         # 選曲理由は表示用メタデータ。LLM へは current_bgm だけを渡す
         "bgm_reason",
         "opening_bgm_reason",
+        # 開始時の外見。参照画像の乖離判定にだけ使う内部値で、改変後の現在値と
+        # 食い違うため LLM に見せると元の姿へ戻す誘導になる
+        "initial_appearance_lock",
+        "initial_partner_appearance",
     }
     return {key: value for key, value in state.items() if key not in omit}
 
@@ -1275,6 +1279,36 @@ def _romance_partner_visual_entry(
     return None, ""
 
 
+def _normalized_appearance(value: Any) -> str:
+    """外見文字列の比較用正規化。空白の揺れと大文字小文字を吸収する。"""
+    return " ".join(str(value or "").split()).casefold()
+
+
+def _appearance_diverged(state: dict[str, Any]) -> bool:
+    """主人公の外見が開始時から変わっているか。
+
+    どちらかの値が欠けていれば False を返し、旧 run は従来どおり開始画像を
+    参照し続ける。
+    """
+    initial = _normalized_appearance(state.get("initial_appearance_lock"))
+    current = _normalized_appearance(state.get("appearance_lock"))
+    if not initial or not current:
+        return False
+    return initial != current
+
+
+def _partner_appearance_diverged(state: dict[str, Any]) -> bool:
+    """攻略対象の外見が開始時から変わっているか。旧 run と非 romance は False。"""
+    sim = state.get("sim")
+    if not isinstance(sim, dict):
+        return False
+    initial = _normalized_appearance(state.get("initial_partner_appearance"))
+    current = _normalized_appearance(sim.get("partner_appearance"))
+    if not initial or not current:
+        return False
+    return initial != current
+
+
 def _romance_partner_scene_reference(
     state: dict[str, Any],
     image_prompt: AdventureImagePromptOutput,
@@ -1289,15 +1323,21 @@ def _romance_partner_scene_reference(
     reference_override はそのターンに描き直した攻略対象の立ち絵。衣装・表情が
     現在のものなので強参照にする。override が無い場合は開始素材の画像を使い、
     服装は変化し得るため弱参照にする。
-    現実改変で sim["partner_appearance"] が更新された後も開始素材の参照画像は元の
-    ままとする(弱参照のためタグ側の新外見が優勢。差し替えはスコープ外)。
+    現実改変で sim["partner_appearance"] が開始時から変わった後は、開始素材が
+    元の姿のままなので使わず、直近の相手立ち絵へ切り替える。それも無ければ
+    参照なしとする(古い姿を弱参照するより無参照の方が正しい)。
     """
     sim_state = state.get("sim")
     if not isinstance(sim_state, dict):
         return None
     reference_bytes = reference_override
     if reference_bytes is None:
-        reference_path = Path(str(state.get("partner_image_path") or ""))
+        reference_key = (
+            "partner_portrait_path"
+            if _partner_appearance_diverged(state)
+            else "partner_image_path"
+        )
+        reference_path = Path(str(state.get(reference_key) or ""))
         if not reference_path.is_file():
             return None
         reference_bytes = reference_path.read_bytes()
@@ -1702,6 +1742,23 @@ def _history_visual_description(history: Any) -> tuple[str, str]:
     return ", ".join(appearance) or extracted, ", ".join(clothing)
 
 
+def _identity_tags_only(tags: str) -> str:
+    """カンマ区切りタグから服装・情景タグを除き、同一性タグだけを返す。
+
+    partner_appearance の初期値を作る _history_visual_description と同じ
+    フィルタを使い、書き戻し後も初期値と同じ形式を保つ。npc_tags は服装を
+    含むため、素のまま保存すると攻略対象の服装が以後固定されてしまう。
+    """
+    parts = [tag.strip() for tag in tags.split(",") if tag.strip()]
+    identity = [
+        tag
+        for tag in parts
+        if not _CLOTHING_TAG_PATTERN.search(tag)
+        and not _SCENE_OR_ACTION_TAG_PATTERN.search(tag)
+    ]
+    return ", ".join(identity)
+
+
 class AdventureService:
     """アドベンチャーRunを元セッションから分離して管理する。"""
 
@@ -1910,7 +1967,7 @@ Return JSON only and keep the entire response under 1200 characters. Do not repe
             voice_rule = f"{ROMANCE_NARRATIVE_GUIDANCE}\n{voice_rule}"
         return f"""You are the director of a short objective-based adventure game.
 Write only the narrative for the next scene, as plain prose in {response_language}. Do not output JSON, markdown, headings, choices, labels, or commentary.
-Keep the narrative under 800 characters. Never decide the player's feelings, consent, past wishes, bodily sensations, or voluntary actions unless the player's input explicitly states them. If the player's action objectively makes the mission impossible to continue, narrate a concise failure ending instead of refusing or truncating. Describe observable events and NPC actions. Do not introduce an unrequested body transformation. Never grant the player another person's memories, personal knowledge, relationships, habits, skills, credentials, passwords, or authentication information unless the supplied source facts explicitly state them. A copied appearance or name does not imply copied memory or competence. Treat state.appearance_lock and required_visual_appearance as an immutable identity signature, and never change the player's sex, hair color, hair length, hairstyle, eye color, or body features unless scenario_guidance or authored_template_resolution explicitly allows and triggers that change. Clothing may be offered, found, or discussed, but the player only puts on, removes, or changes clothing when their input explicitly chooses that action. Unless the input explicitly requests layering, a new garment replaces the previous outfit instead of being worn over it. If the source snapshot explicitly establishes a transformed sex or body, it may create practical disguise or role opportunities without inventing further changes. When authored_template_resolution is provided, treat it as authoritative and never narrate a score, transformation, unlocked exit, or ending beyond its event.
+Keep the narrative under 800 characters. Never decide the player's feelings, consent, past wishes, bodily sensations, or voluntary actions unless the player's input explicitly states them. If the player's action objectively makes the mission impossible to continue, narrate a concise failure ending instead of refusing or truncating. Describe observable events and NPC actions. Do not introduce an unrequested body transformation. Never grant the player another person's memories, personal knowledge, relationships, habits, skills, credentials, passwords, or authentication information unless the supplied source facts explicitly state them. A copied appearance or name does not imply copied memory or competence. Treat state.appearance_lock and required_visual_appearance as an immutable identity signature, and never change the player's sex, hair color, hair length, hairstyle, eye color, or body features unless scenario_guidance or authored_template_resolution explicitly allows and triggers that change, or reality_rule_declared_this_turn declares a change to the player's own body or identity; in that case narrate the player already in the new body and keep every unaffected trait. Clothing may be offered, found, or discussed, but the player only puts on, removes, or changes clothing when their input explicitly chooses that action, or when a declared reality rule changes the player's body or identity; in that case clothing follows the body, so each person wears whatever their new body was already wearing, and a declared swap or exchange of bodies also exchanges their outfits. Unless the input explicitly requests layering, a new garment replaces the previous outfit instead of being worn over it. If the source snapshot explicitly establishes a transformed sex or body, it may create practical disguise or role opportunities without inventing further changes. When authored_template_resolution is provided, treat it as authoritative and never narrate a score, transformation, unlocked exit, or ending beyond its event.
 {_REALITY_RULES_INSTRUCTION}
 {voice_rule}"""
 
@@ -1961,7 +2018,7 @@ Base every value strictly on the supplied narrative and game state, and never in
 Return one JSON object only, matching this schema:
 {{"visual_state":{{"location":"...","appearance":"...","clothing":"...","surroundings":"...","main_characters":[{{"name":"...","description":"...","clothing":"...","action":"..."}}]}},"scene_tags":"...","player_tags":"...","npc_tags":["..."]}}
 Write visual_state values in {response_language}. Write scene_tags, player_tags, and npc_tags as concise English comma-separated tags.
-Derive visual_state from previous_visual_state, changing only what the narrative states. Treat required_visual_appearance as an immutable identity signature: copy its sex, hair color, hair length, hairstyle, eye color, and body features exactly into visual_state.appearance, and never replace or supplement those traits unless authored_template_resolution explicitly triggers that change, or reality_rule_declared_this_turn declares a change to the player's own body or identity; in that case rewrite visual_state.appearance to match the declared rule while keeping every unaffected trait, and when the declaration does not concern the player's own body, copy required_visual_appearance unchanged. reality_rules are established facts of this world; keep visual_state, player_tags, and npc_tags consistent with them. The player only puts on, removes, or changes clothing when player_input explicitly chose that action; otherwise keep previous_visual_state.clothing unchanged. Unless layering was explicitly requested, a new garment replaces the previous outfit. Keep visual_state concrete enough to illustrate the main characters, their clothing, and the surrounding location. main_characters contains NPCs, never the player.
+Derive visual_state from previous_visual_state, changing only what the narrative states. Treat required_visual_appearance as an immutable identity signature: copy its sex, hair color, hair length, hairstyle, eye color, and body features exactly into visual_state.appearance, and never replace or supplement those traits unless authored_template_resolution explicitly triggers that change, or reality_rule_declared_this_turn declares a change to the player's own body or identity; in that case rewrite visual_state.appearance to match the declared rule while keeping every unaffected trait, and when the declaration does not concern the player's own body, copy required_visual_appearance unchanged. reality_rules are established facts of this world; keep visual_state, player_tags, and npc_tags consistent with them. The player only puts on, removes, or changes clothing when player_input explicitly chose that action, or when reality_rule_declared_this_turn changes the player's own body or identity; in that case clothing follows the body, so rewrite visual_state.clothing to the outfit that body is actually wearing after the change, and when the declaration swaps or exchanges the player with another character the player now wears the clothing that character was wearing while that character now wears the player's previous clothing, which their entry in main_characters must reflect. Otherwise keep previous_visual_state.clothing unchanged. Unless layering was explicitly requested, a new garment replaces the previous outfit. Keep visual_state concrete enough to illustrate the main characters, their clothing, and the surrounding location. main_characters contains NPCs, never the player.
 When previous_image_tags is provided, treat it as the wording a human editor deliberately chose: reuse its scene_tags, player_tags, and npc_tags as the starting point and edit them only where visual_state or the narrative now requires a change, preserving the rest of the original wording and phrasing style. When previous_image_tags is absent, write the tags from scratch.
 scene_tags contains only environment, camera, composition, lighting, and the observable interaction; it must not contain any character's gender, body, face, hair, or clothing. player_tags describes only the player from visual_state.appearance and visual_state.clothing. The player is always the primary subject in the center foreground. visual_state.clothing is authoritative and must never be replaced with an NPC outfit. npc_tags must contain one entry per NPC in main_characters, in the same order, describing only that NPC; every NPC is a secondary subject placed to the side or behind the player. Never merge player and NPC attributes. Do not add text, UI, split panels, or unstated changes. When authored_scene_tags is provided, reuse those environment tags as the base of scene_tags and only append concrete changes required by the narrative. When authored_visual_style is provided, keep visual_state.location and visual_state.surroundings aligned with it unless the narrative explicitly moves the scene to a new place after a successful exit.{layer_rule}{romance_rule}"""
 
@@ -2584,6 +2641,9 @@ The objective must name a concrete target and an observable end condition that c
             # プレイ中に「現実改変：〜」で宣言された世界ルール
             "reality_rules": [],
             "appearance_lock": appearance,
+            # 開始時の外見。現実改変で appearance_lock が動いたかの判定に使い、
+            # 乖離後は元画像を参照に使わない(_appearance_diverged)
+            "initial_appearance_lock": appearance,
             "scenario_template_id": scenario_template_id,
             "replayed_from_run_id": replay_run_id,
             "scenario_capabilities": start_state,
@@ -2618,6 +2678,8 @@ The objective must name a concrete target and an observable end condition that c
                 if romance_player_session_id
                 else "",
             )
+            # 攻略対象の開始時の外見。主人公側と同じく乖離判定にだけ使う
+            state["initial_partner_appearance"] = romance_partner_appearance
             if partner_reference_path is not None:
                 state["partner_image_path"] = str(partner_reference_path)
         if authored_scene_tags:
@@ -3706,6 +3768,22 @@ The objective must name a concrete target and an observable end condition that c
             if run.status != "active" and not epilogue:
                 raise AdventureError("run_completed", "このシナリオは終了しています")
 
+            # 開始時外見のバックフィル。旧runは「今の姿」を基準に採用するため
+            # 過去の改変までは遡れないが、以後の改変は正しく追える。手番0の
+            # スナップショットにも載るよう opening_state_json 保存の前で行う
+            if "initial_appearance_lock" not in state:
+                state["initial_appearance_lock"] = str(
+                    state.get("appearance_lock") or ""
+                )
+            sim_backfill = state.get("sim")
+            if (
+                isinstance(sim_backfill, dict)
+                and "initial_partner_appearance" not in state
+            ):
+                state["initial_partner_appearance"] = str(
+                    sim_backfill.get("partner_appearance") or ""
+                )
+
             # 手番0への巻き戻し用に、最初のターン処理前の状態を保存する。
             # 旧runの初回ターンでも拾えるようここで行う(create_run 直後とは
             # 開幕画像生成の分だけ state が違うため、この時点の値が正)
@@ -3914,6 +3992,11 @@ The objective must name a concrete target and an observable end condition that c
                     visual.visual_state,
                     allow_update=input_kind == "reality_alter",
                 )
+                if input_kind == "reality_alter":
+                    # 攻略対象側も同じ手番で書き戻す。resolution の
+                    # updated_partner_appearance が出た場合は後段の
+                    # apply_romance_outcome がこちらを上書きする
+                    self._apply_partner_appearance_lock(state, visual)
                 await queue.put(("visual", visual))
 
                 next_visual = visual.visual_state.model_dump()
@@ -4491,6 +4574,29 @@ The objective must name a concrete target and an observable end condition that c
         ):
             visual_state.appearance = appearance_lock
 
+    def _apply_partner_appearance_lock(
+        self, state: dict[str, Any], visual_output: AdventureVisualOutput
+    ) -> None:
+        """現実改変ターンで攻略対象の外見を visual 出力から書き戻す。
+
+        主人公の _apply_appearance_lock と対称の処理。resolution の
+        updated_partner_appearance は宣言を取りこぼすことがあるため、その手番の
+        絵をすでに正しく描いている visual 出力を安全網として採用する。
+        攻略対象がその手番の場面に居ない、タグが取れない、服装しか無いといった
+        場合はすべて no-op で、既存の外見を消さない。
+        """
+        sim = state.get("sim")
+        if not isinstance(sim, dict):
+            return
+        _entry, partner_tags = _romance_partner_visual_entry(
+            list(visual_output.visual_state.main_characters),
+            list(visual_output.npc_tags),
+            str(sim.get("partner_name") or ""),
+        )
+        identity = _identity_tags_only(partner_tags)
+        if identity:
+            sim["partner_appearance"] = identity
+
     def _fallback_visual_state(
         self, previous_visual: dict[str, Any], appearance_lock: str
     ) -> AdventureVisualState:
@@ -5063,18 +5169,30 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             )
             character_references = None
             if use_precise_reference:
-                # 参照は常に旧衣装の初期画像なので fresh portrait 扱いにしない
-                char_strength, char_fidelity = _character_reference_strength(
-                    outfit_changed=outfit_changed, has_fresh_portrait=False
-                )
-                character_references = [
-                    {
-                        "image": initial_path.read_bytes(),
-                        "type": "character",
-                        "strength": char_strength,
-                        "fidelity": char_fidelity,
-                    }
-                ]
+                # 現実改変で外見が変わった後の初期画像は元の姿のままで、参照に
+                # 使うと毎ターン引き戻す。乖離後は直近の立ち絵へ、それも無ければ
+                # 参照なしにする(古い姿を参照するより無参照の方が正しい)
+                reference_path: Path | None = initial_path
+                if _appearance_diverged(state):
+                    latest_portrait = getattr(run, "portrait_image_path", None)
+                    reference_path = (
+                        Path(latest_portrait)
+                        if latest_portrait and Path(latest_portrait).is_file()
+                        else None
+                    )
+                if reference_path is not None:
+                    # 参照は前ターン以前の1枚なので fresh portrait 扱いにしない
+                    char_strength, char_fidelity = _character_reference_strength(
+                        outfit_changed=outfit_changed, has_fresh_portrait=False
+                    )
+                    character_references = [
+                        {
+                            "image": reference_path.read_bytes(),
+                            "type": "character",
+                            "strength": char_strength,
+                            "fidelity": char_fidelity,
+                        }
+                    ]
             effective_image_model = (
                 settings.novelai_model if nsfw_mode else settings.novelai_curated_model
             )
@@ -5160,9 +5278,17 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             nsfw_mode=nsfw_mode,
         )
         character_references = None
-        reference_path = Path(str(state.get("partner_image_path") or ""))
+        # 参照は開始セッションの元画像。ただし現実改変で外見が変わった後は
+        # その1枚が元の姿のままなので、直近の相手立ち絵へ切り替える。
+        # 立ち絵が無ければ参照なしで描く
+        reference_key = (
+            "partner_portrait_path"
+            if _partner_appearance_diverged(state)
+            else "partner_image_path"
+        )
+        reference_path = Path(str(state.get(reference_key) or ""))
         if bool(state.get("use_precise_reference")) and reference_path.is_file():
-            # 参照は開始セッションの元画像。服装は変化し得るため弱めに参照する
+            # 服装は変化し得るため弱めに参照する
             char_strength, char_fidelity = _character_reference_strength(
                 outfit_changed=True, has_fresh_portrait=False
             )

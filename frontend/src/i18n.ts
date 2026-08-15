@@ -267,6 +267,7 @@ const resources = {
         protagonistAppearance: "外見",
         protagonistClothing: "服装",
         protagonistUnknown: "まだ情報がありません",
+        partnerSection: "攻略対象",
         cast: "登場人物",
         result: {
           turns: "到達手番",
@@ -1674,6 +1675,7 @@ const resources = {
         protagonistAppearance: "Appearance",
         protagonistClothing: "Clothing",
         protagonistUnknown: "Not available yet",
+        partnerSection: "Romance partner",
         cast: "Characters",
         result: {
           turns: "Turns played",

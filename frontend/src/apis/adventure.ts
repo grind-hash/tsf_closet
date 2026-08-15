@@ -89,6 +89,8 @@ export interface AdventureSim {
   stage: "stranger" | "friend" | "aware" | "mutual";
   money: number;
   partner_name: string;
+  /** 攻略対象の外見。現実改変で書き換わる。配信前の旧 run では未定義 */
+  partner_appearance?: string;
   /** 主人公(自分)。導入前の旧 run では未定義 */
   player_name?: string;
   player_character_id?: string;
