@@ -16,6 +16,7 @@
 | `/achievements` | `AchievementsScreen` | 実績一覧 |
 | `/settings` | `SettingsScreen` | 設定、メモリ、TTS |
 | `/adventure`、`/adventure/:runId` | `AdventureScreen` | 実験設定で有効化、専用Provider |
+| `/bgm-test` | `BgmTestScreen` | BGMカタログの試聴。実験設定(Adventure)で有効化 |
 
 ## Context
 
@@ -62,7 +63,7 @@
 | `useInfiniteScroll` | IntersectionObserverによる追加読込 |
 | `useTagSuggest` | タグ候補取得 |
 | `useTransparentImage` | 透過画像の読込とフォールバック |
-| `useAdventureBgm` | Adventure BGMのループ再生、fade、mute/volume(localStorage `adventure_bgm_prefs`)、autoplay/404対応。キー→URL対応はマウント時に `GET /api/adventure/bgm` で取得（未知キーは既定曲へ） |
+| `useAdventureBgm` | Adventure BGMのループ再生、fade、autoplay/404対応。キー→URL対応はマウント時に `GET /api/adventure/bgm` で取得（未知キーは既定曲へ）。mute/volumeの永続化は `utils/bgmPreferences.ts`(localStorage `adventure_bgm_prefs`)へ集約し、BGMテスト画面と音量を共有する |
 
 ## APIモジュール
 
@@ -104,6 +105,9 @@ components/
     AdventureGiftShopModal.tsx    romance のギフト購入（gift_id 送信）
     AdventureAttributeModal.tsx   romance の属性付与（現実改変プレフィックス組み立て）
     AdventureBgmControl.tsx       BGMボタン+ポップオーバー（mute/volume表示。再生は useAdventureBgm）
+
+  bgm/
+    BgmTestScreen.tsx         BGMカタログ全曲の一覧と試聴(単発再生、fade/loopなし)
 
   gallery/
     GalleryScreen.tsx         セッション/履歴/お気に入り表示と検索

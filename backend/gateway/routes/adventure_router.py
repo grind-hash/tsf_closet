@@ -386,13 +386,19 @@ async def get_image(run_id: str, filename: str) -> FileResponse:
 
 @router.get("/bgm")
 async def get_bgm_tracks() -> dict:
-    """BGMカタログを返す。ファイル名が外に出るのはこの音声URLのみで、
-    LLM とのやり取りには semantic key しか使わない。"""
+    """BGMカタログを返す。ファイル名・説明・出所表記はBGMテスト画面の表示に使う。
+    LLM とのやり取りには semantic key しか使わず、この endpoint は経由しない。"""
     catalog = get_bgm_catalog()
     return {
         "default_key": catalog.resolved_default_key(),
         "tracks": [
-            {"key": track.key, "url": f"/adventure/bgm/audio/{track.file}"}
+            {
+                "key": track.key,
+                "file": track.file,
+                "description": track.description,
+                "credit": track.credit,
+                "url": f"/adventure/bgm/audio/{track.file}",
+            }
             for track in catalog.tracks
         ],
     }

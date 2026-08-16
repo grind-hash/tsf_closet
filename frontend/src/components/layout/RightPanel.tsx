@@ -817,11 +817,21 @@ export default function RightPanel({
           </label>
         </section>
 
-        {/* 保持する要素セクション */}
+        {/* 保持する要素セクション (v0.8.0 で削除予定) */}
         <section className="right-panel__section">
           <h4 className="right-panel__section-title">
             {t("rightPanel.sectionPreserve")}
+            <span
+              className="feature-chip-deprecated"
+              data-removal-version="v0.8.0"
+              title={t("rightPanel.preserveDeprecatedNotice")}
+            >
+              Deprecated
+            </span>
           </h4>
+          <small className="right-panel__hint right-panel__hint--deprecated">
+            {t("rightPanel.preserveDeprecatedNotice")}
+          </small>
 
           {/* 保持要素プリセットチップ */}
           {preservePresets.length > 0 && (

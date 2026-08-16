@@ -6,6 +6,7 @@ import ApiKeyConsentModal from "./components/ApiKeyConsentModal";
 import AchievementsScreen from "./components/achievements/AchievementsScreen";
 import AdventureScreen from "./components/adventure/AdventureScreen";
 import { hasApiKeyConsent } from "./components/apiKeyConsentStorage";
+import BgmTestScreen from "./components/bgm/BgmTestScreen";
 import EndingModal from "./components/EndingModal";
 import EndingsScreen from "./components/endings/EndingsScreen";
 import GamePlayScreen from "./components/GamePlayScreen";
@@ -52,6 +53,13 @@ function App() {
   }
   if (location.pathname === "/settings") {
     return <SettingsScreen />;
+  }
+  // TSFシナリオのBGMカタログを試聴する画面。ゲートはTSFシナリオと同一にする
+  if (location.pathname === "/bgm-test") {
+    if (!settingsState.experimentalAdventureEnabled) {
+      return <Navigate to="/play/new" replace />;
+    }
+    return <BgmTestScreen />;
   }
   if (location.pathname.startsWith("/adventure")) {
     if (!settingsState.experimentalAdventureEnabled) {

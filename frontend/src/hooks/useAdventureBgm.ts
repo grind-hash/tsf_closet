@@ -10,6 +10,19 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AdventureBgmKey } from "../apis/adventure";
 import { fetchAdventureBgmCatalog } from "../apis/adventure";
+import type { BgmPreferences } from "../utils/bgmPreferences";
+import {
+  clamp01,
+  loadBgmPreferences,
+  saveBgmPreferences,
+} from "../utils/bgmPreferences";
+
+// ミュート/音量の永続化は utils/bgmPreferences.ts に集約している。
+// BGM テスト画面と同じ音量設定を共有するため、既存の import 経路は保つ。
+export {
+  BGM_PREFS_STORAGE_KEY,
+  type BgmPreferences,
+} from "../utils/bgmPreferences";
 
 /**
  * semantic key と音声URLの対応。バックエンドのカタログJSONが定義し、
@@ -23,54 +36,6 @@ interface BgmCatalogState {
 /** 曲切替時の fade 時間。要件は 500〜1000ms 程度 */
 export const BGM_FADE_OUT_MS = 800;
 export const BGM_FADE_IN_MS = 400;
-
-// BGM の環境設定（ミュート/音量）。初回利用時は必ずミュートにし、
-// localStorage に永続化して次回アクセス時に復元する。
-export const BGM_PREFS_STORAGE_KEY = "adventure_bgm_prefs";
-
-export interface BgmPreferences {
-  muted: boolean;
-  volume: number;
-}
-
-const defaultBgmPreferences: BgmPreferences = {
-  muted: true,
-  volume: 0.5,
-};
-
-function clamp01(value: number): number {
-  return Math.min(1, Math.max(0, value));
-}
-
-function loadBgmPreferences(): BgmPreferences {
-  try {
-    const raw = localStorage.getItem(BGM_PREFS_STORAGE_KEY);
-    if (!raw) {
-      return { ...defaultBgmPreferences };
-    }
-    const parsed = JSON.parse(raw) as Partial<BgmPreferences>;
-    return {
-      muted:
-        typeof parsed.muted === "boolean"
-          ? parsed.muted
-          : defaultBgmPreferences.muted,
-      volume:
-        typeof parsed.volume === "number"
-          ? clamp01(parsed.volume)
-          : defaultBgmPreferences.volume,
-    };
-  } catch {
-    return { ...defaultBgmPreferences };
-  }
-}
-
-function saveBgmPreferences(prefs: BgmPreferences): void {
-  try {
-    localStorage.setItem(BGM_PREFS_STORAGE_KEY, JSON.stringify(prefs));
-  } catch {
-    // localStorage が利用できない環境では無視する
-  }
-}
 
 type BgmPhase = "idle" | "playing" | "fading_out" | "blocked";
 

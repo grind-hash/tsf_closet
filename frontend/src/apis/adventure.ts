@@ -26,10 +26,25 @@ export type AdventureNarrationVoice =
  */
 export type AdventureBgmKey = string;
 
-/** GET /adventure/bgm が返すBGMカタログ。url は API_BASE 適用済み */
+/** GET /adventure/bgm が返す1曲分の情報。url は API_BASE 適用済み */
+export interface AdventureBgmTrack {
+  key: string;
+  url: string;
+  /** 音声ファイル名。BGMテスト画面では曲名としてそのまま表示する */
+  file: string;
+  /** LLM の選曲ガイドに使う用途説明 */
+  description: string;
+  /**
+   * 出所の表記。表示文そのものが入るのでフロントでは加工せずそのまま出す
+   * （例: "SUNO v4.5-all で作成"）。表記不要な曲では未設定。
+   */
+  credit?: string | null;
+}
+
+/** GET /adventure/bgm が返すBGMカタログ */
 export interface AdventureBgmCatalog {
   default_key: string;
-  tracks: { key: string; url: string }[];
+  tracks: AdventureBgmTrack[];
 }
 
 export interface AdventureChoice {
@@ -353,7 +368,7 @@ export async function fetchAdventureBgmCatalog(): Promise<AdventureBgmCatalog> {
   return {
     default_key: payload.default_key,
     tracks: payload.tracks.map((track) => ({
-      key: track.key,
+      ...track,
       url: withApiBase(track.url) ?? track.url,
     })),
   };

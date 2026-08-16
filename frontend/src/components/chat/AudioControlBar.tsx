@@ -9,19 +9,10 @@ import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { useChat } from "../../contexts/ChatContext";
 import { useSettings } from "../../contexts/SettingsContext";
+import { formatTime } from "../../utils/formatTime";
 import "./AudioControlBar.css";
 
 const PLAYBACK_RATE_OPTIONS = [0.75, 1, 1.25, 1.5, 2];
-
-function formatTime(seconds: number): string {
-  if (!Number.isFinite(seconds) || seconds < 0) {
-    return "0:00";
-  }
-  const total = Math.floor(seconds);
-  const minutes = Math.floor(total / 60);
-  const secs = total % 60;
-  return `${minutes}:${secs.toString().padStart(2, "0")}`;
-}
 
 export default function AudioControlBar() {
   const { t } = useTranslation();

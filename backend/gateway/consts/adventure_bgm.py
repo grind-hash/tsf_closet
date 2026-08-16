@@ -30,6 +30,12 @@ class BgmTrack(BaseModel):
     key: str = Field(pattern=r"^[a-z0-9_]+$", min_length=1, max_length=64)
     file: str = Field(min_length=1, max_length=255)
     description: str = Field(min_length=1, max_length=300)
+    # 出所の表記。BGMテスト画面にそのまま表示するので、表示したい文をそのまま
+    # 書く(例: "SUNO v4.5-all で作成", "○○の音楽素材 より配布")。自作曲など
+    # 表記が不要な曲では省略する。
+    # 任意フィールドにしておくこと。必須にすると credit の無いカタログが検証
+    # エラーでカタログ全体の破損扱いになり、BGM が組み込み既定の1曲へ劣化する。
+    credit: str | None = Field(default=None, max_length=120)
 
     @field_validator("file")
     @classmethod
