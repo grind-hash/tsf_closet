@@ -3904,6 +3904,19 @@ button:disabled {
   line-height: 1.5;
 }
 
+/* プロンプト確認のタブ的なチップ列 */
+.adventure-preview-stages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.adventure-preview-stages .adventure-hud__chip {
+  min-width: 0;
+  min-height: 32px;
+  padding: 0 12px;
+}
+
 /* HUD ポップオーバー内の操作ボタン(一覧の下に置く) */
 .adventure-hud__panel-action {
   margin-top: 8px;

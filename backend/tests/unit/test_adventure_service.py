@@ -3040,6 +3040,61 @@ async def test_update_reality_rules_replaces_list(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_preview_turn_prompts_requires_the_flag(monkeypatch) -> None:
+    service = AdventureService()
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.settings.enable_prompt_preview", False
+    )
+    with pytest.raises(AdventureError) as excinfo:
+        await service.preview_turn_prompts(
+            "run-1", user_input="話しかける", input_kind="free_text"
+        )
+    assert excinfo.value.code == "prompt_preview_disabled"
+
+
+@pytest.mark.asyncio
+async def test_preview_turn_prompts_shows_rules_without_touching_state(
+    monkeypatch,
+) -> None:
+    """付与済みルールが実際の送信内容に載ることを、state を汚さずに確認できる。"""
+    service = AdventureService()
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.settings.enable_prompt_preview", True
+    )
+    run, _persisted = make_reality_rule_run(
+        make_reality_rule_state(
+            reality_rules=["僕はバニーレオタードを着る"],
+            pending_reality_rules=["僕はバニーレオタードを着る"],
+            appearance_lock="male, 1boy, black hair",
+        )
+    )
+    before = run.state_json
+    monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
+
+    result = await service.preview_turn_prompts(
+        "run-1", user_input="海辺を歩く", input_kind="free_text"
+    )
+
+    # 3呼び出し分そろっていること
+    assert set(result) >= {"narrative", "resolution", "visual", "image", "input_kind"}
+    for key in ("narrative", "resolution", "visual"):
+        assert result[key]["system"].strip()
+        assert result[key]["user"].strip()
+    # 付与した属性が user prompt に載っている(これが確認したかったこと)
+    assert "僕はバニーレオタードを着る" in result["narrative"]["user"]
+    # 未反映の付与は「この手番で確定」として渡る
+    payload = json.loads(result["narrative"]["user"])
+    assert payload["reality_rule_declared_this_turn"] == "僕はバニーレオタードを着る"
+    # ビジュアルの本文は事前には確定しないので占位である旨を伝える
+    assert result["visual"]["narrative_is_placeholder"] is True
+    # プレビューは state を書き換えない(pending を消費しない)
+    assert run.state_json == before
+    assert json.loads(run.state_json)["pending_reality_rules"] == [
+        "僕はバニーレオタードを着る"
+    ]
+
+
+@pytest.mark.asyncio
 async def test_update_reality_rules_marks_only_new_rules_pending(monkeypatch) -> None:
     """手番を使わず足したルールは、次の手番で反映するため控えに積む。"""
     service = AdventureService()
@@ -4743,6 +4798,41 @@ def test_apply_partner_appearance_lock_is_noop_without_partner_entry() -> None:
     )
     # 空白のみ
     assert run_case(make_partner_visual_output([" "])) == original
+
+
+def test_partner_turn_portrait_tags_skips_when_partner_absent() -> None:
+    """場面に居ない相手は描き直さない(裸・改変前の姿へ戻る事故を防ぐ)。"""
+    from gateway.services.adventure_service import (
+        _romance_partner_turn_portrait_tags,
+    )
+
+    stale = "female, 1girl, long blonde hair, large breasts"
+    # 相手が main_characters に居ない手番は空文字 = 前の1枚を維持
+    assert _romance_partner_turn_portrait_tags([], [], "ミユキ", stale) == ""
+    assert (
+        _romance_partner_turn_portrait_tags(
+            [{"name": "店員", "description": "レジ係", "clothing": "制服"}],
+            ["shop clerk, uniform"],
+            "ミユキ",
+            stale,
+        )
+        == ""
+    )
+    # 居る手番はその手番の npc_tags を使う(改変後の姿が入っている)
+    present = [
+        {"name": "ミユキ", "description": "黒髪の青年", "clothing": "白いTシャツ"}
+    ]
+    assert (
+        _romance_partner_turn_portrait_tags(
+            present, ["male, 1boy, black hair, white t-shirt"], "ミユキ", stale
+        )
+        == "male, 1boy, black hair, white t-shirt"
+    )
+    # 居るが npc_tags を取れない場合だけ sim の外見と服装で補う
+    assert (
+        _romance_partner_turn_portrait_tags(present, [], "ミユキ", stale)
+        == f"{stale}, 白いTシャツ"
+    )
 
 
 def test_appearance_diverged_requires_both_values() -> None:

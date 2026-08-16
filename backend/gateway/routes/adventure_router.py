@@ -97,6 +97,15 @@ class AdventureRealityRulesUpdateRequest(BaseModel):
     rules: list[str] = Field(default_factory=list, max_length=64)
 
 
+class AdventurePromptPreviewRequest(BaseModel):
+    # 「この入力で送信したら何が送られるか」を組み立てるための仮の入力
+    user_input: str = Field(default="", max_length=2000)
+    input_kind: Literal[
+        "choice", "free_text", "reality_alter", "gift", "work", "confess"
+    ] = "free_text"
+    gift_id: str | None = Field(default=None, max_length=40)
+
+
 class AdventureRewindRequest(BaseModel):
     # この手番の完了時点まで巻き戻す(それ以降のターンを削除する)
     turn_number: int = Field(ge=0)
@@ -242,6 +251,21 @@ async def update_run_settings(
             use_precise_reference=request.use_precise_reference,
             enable_composite_scene=request.enable_composite_scene,
             respect_clothing_layers=request.respect_clothing_layers,
+        )
+    except AdventureError as error:
+        raise _http_error(error) from error
+
+
+@router.post("/runs/{run_id}/preview-prompt")
+async def preview_turn_prompts(
+    run_id: str, request: AdventurePromptPreviewRequest
+) -> dict:
+    try:
+        return await adventure_service.preview_turn_prompts(
+            run_id,
+            user_input=request.user_input,
+            input_kind=request.input_kind,
+            gift_id=request.gift_id,
         )
     except AdventureError as error:
         raise _http_error(error) from error

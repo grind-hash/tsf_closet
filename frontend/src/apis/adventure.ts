@@ -171,6 +171,8 @@ export interface AdventureRun {
   clues: string[];
   /** プレイ中に「現実改変：〜」で宣言された世界ルール。旧runでは未定義 */
   reality_rules?: string[];
+  /** ENABLE_PROMPT_PREVIEW。プロンプト確認UIの出し分けに使う */
+  enable_prompt_preview?: boolean;
   milestones: AdventureMilestone[];
   completed_milestones: string[];
   /** 現在地・登場人物などの最新ビジュアル状態。開始直後は null のことがある */
@@ -543,6 +545,52 @@ export async function updateAdventureRunSettings(
         body: JSON.stringify(request),
       },
     ),
+  );
+}
+
+/** LLM1回分のプロンプト。user は実際に送られる文字列そのもの */
+export interface AdventurePromptPair {
+  system: string;
+  user: string;
+  /** ビジュアル呼び出しのみ。本文は生成後に決まるため占位文字列が入る */
+  narrative_is_placeholder?: boolean;
+}
+
+export interface AdventureImagePromptPreview {
+  scene_prompt: string;
+  player_prompt: string;
+  npc_prompts: string[];
+  portrait_prompt: string;
+  negative_prompt: string;
+  nsfw_mode: boolean;
+  use_precise_reference: boolean;
+}
+
+export interface AdventurePromptPreview {
+  /** 「現実改変：〜」検出で昇格した後の種別 */
+  input_kind: AdventureInputKind;
+  narrative: AdventurePromptPair;
+  resolution: AdventurePromptPair;
+  visual: AdventurePromptPair;
+  /** 場面タグが未生成の run では null */
+  image: AdventureImagePromptPreview | null;
+}
+
+/**
+ * 次の手番で送られるプロンプトを、LLMを呼ばずに組み立てて取得する。
+ * ENABLE_PROMPT_PREVIEW が有効なときだけ使える。
+ */
+export async function previewAdventurePrompts(
+  runId: string,
+  request: { user_input: string; input_kind: AdventureInputKind },
+): Promise<AdventurePromptPreview> {
+  return requestJson<AdventurePromptPreview>(
+    `${API_BASE}/adventure/runs/${runId}/preview-prompt`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    },
   );
 }
 

@@ -267,6 +267,35 @@ const resources = {
          * 呼称が変わる項目だけ adventure.romance.attribute.* で上書きする。
          * ボタン名に「現実改変」を含めないこと(HUDチップと名前が衝突する)
          */
+        promptPreview: {
+          open: "プロンプトを確認",
+          title: "送信されるプロンプト",
+          hint: "1手番で物語・判定・ビジュアルの3回LLMを呼びます。付与した属性や状態は各回の「ユーザー」に載ります。LLMは呼ばれず、手番も消費しません",
+          inputLabel: "仮の行動（この入力で送ったと仮定します）",
+          inputPlaceholder: "例: 彼女に話しかける",
+          reload: "この入力で取り直す",
+          loading: "取得中…",
+          stages: "呼び出し",
+          stage: {
+            narrative: "物語",
+            resolution: "判定",
+            visual: "ビジュアル",
+            image: "画像生成",
+          },
+          systemPrompt: "システム",
+          userPrompt:
+            "ユーザー（実際の送信文字列。JSONは読みやすく整形しています）",
+          narrativePlaceholder:
+            "ビジュアル呼び出しの本文は、物語生成の結果が入る箇所です。事前には確定しないため占位文字列を表示しています",
+          scenePrompt: "シーン（合成画像）",
+          playerPrompt: "主人公（キャラクター枠）",
+          portraitPrompt: "立ち絵",
+          npcPrompts: "NPC（キャラクター枠）",
+          negativePrompt: "ネガティブ",
+          imageNote:
+            "いまの場面タグで生成した場合の最終文字列です。NSFW={{nsfw}} / 精密参照={{precise}}",
+          close: "閉じる",
+        },
         realityRuleManager: {
           title: "現実改変ルールを管理",
           hint: "宣言済みのルールを追加・編集・削除します。ルールは以降のすべての判定に、この世界の確定した事実として適用されます",
@@ -1698,6 +1727,35 @@ const resources = {
         realityRules: "Reality",
         realityRulesHint:
           "Declared world rules. They apply to every later judgement, and behaviour they cover alone never fails the mission.",
+        promptPreview: {
+          open: "Inspect prompts",
+          title: "Prompts that will be sent",
+          hint: "Each turn makes three LLM calls: narrative, resolution, and visual. Granted attributes and state appear in each call's user prompt. No LLM is called and no turn is used.",
+          inputLabel: "Hypothetical action (previewed as if you sent this)",
+          inputPlaceholder: "e.g. Talk to her",
+          reload: "Rebuild with this input",
+          loading: "Loading…",
+          stages: "Calls",
+          stage: {
+            narrative: "Narrative",
+            resolution: "Resolution",
+            visual: "Visual",
+            image: "Image",
+          },
+          systemPrompt: "System",
+          userPrompt:
+            "User (the exact string sent; JSON is pretty-printed here)",
+          narrativePlaceholder:
+            "The visual call's narrative field is filled by the narrative generation, so it cannot be known in advance. A placeholder is shown instead.",
+          scenePrompt: "Scene (composite)",
+          playerPrompt: "Player (character slot)",
+          portraitPrompt: "Portrait",
+          npcPrompts: "NPCs (character slots)",
+          negativePrompt: "Negative",
+          imageNote:
+            "Final strings if generated from the current scene tags. NSFW={{nsfw}} / precise reference={{precise}}",
+          close: "Close",
+        },
         realityRuleManager: {
           title: "Manage reality rules",
           hint: "Add, edit, or remove declared rules. Every rule applies to all later judgements as an established fact of this world.",

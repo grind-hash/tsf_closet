@@ -48,6 +48,7 @@ import AdventureAttributeModal from "./AdventureAttributeModal";
 import AdventureBgmControl from "./AdventureBgmControl";
 import AdventureGiftShopModal from "./AdventureGiftShopModal";
 import AdventureImagePromptModal from "./AdventureImagePromptModal";
+import AdventurePromptPreviewModal from "./AdventurePromptPreviewModal";
 import AdventureSessionPickerModal, {
   type AdventureSourceSelection,
   selectionFromSession,
@@ -1484,6 +1485,7 @@ function AdventurePlay({ runId }: { runId: string }) {
   const [imageSettingsOpen, setImageSettingsOpen] = useState(false);
   const [bgmSettingsOpen, setBgmSettingsOpen] = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
+  const [promptPreviewOpen, setPromptPreviewOpen] = useState(false);
   const [logOpen, setLogOpen] = useState(false);
   const [messageWindowHidden, setMessageWindowHidden] = useState(false);
   const [hudPanel, setHudPanel] = useState<
@@ -2850,6 +2852,19 @@ function AdventurePlay({ runId }: { runId: string }) {
                       <span className="adventure-precise-toggle__switch" />
                     </label>
                   )}
+                  {/* ENABLE_PROMPT_PREVIEW のときだけ出る確認用の入口 */}
+                  {activeRun.enable_prompt_preview && (
+                    <button
+                      type="button"
+                      className="adventure-hud__panel-action"
+                      onClick={() => {
+                        setImageSettingsOpen(false);
+                        setPromptPreviewOpen(true);
+                      }}
+                    >
+                      {t("adventure.promptPreview.open")}
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -3557,6 +3572,11 @@ function AdventurePlay({ runId }: { runId: string }) {
             </div>
           )
         }
+      />
+
+      <AdventurePromptPreviewModal
+        isOpen={promptPreviewOpen}
+        onClose={() => setPromptPreviewOpen(false)}
       />
 
       <AdventureImagePromptModal

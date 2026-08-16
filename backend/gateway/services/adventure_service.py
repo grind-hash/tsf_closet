@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import logging
 import random
@@ -11,6 +12,7 @@ import shutil
 import uuid
 from collections import defaultdict
 from collections.abc import AsyncGenerator, Iterable
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal, TypeVar
@@ -1312,6 +1314,27 @@ def _partner_appearance_diverged(state: dict[str, Any]) -> bool:
     return initial != current
 
 
+def _romance_partner_turn_portrait_tags(
+    main_characters: list[Any],
+    npc_tags: list[str],
+    partner_name: str,
+    partner_appearance: str,
+) -> str:
+    """その手番の攻略対象立ち絵に使うタグ。描き直さないなら空文字を返す。
+
+    その手番の場面に相手が居ない(main_characters に居ない)なら描き直さず、
+    前の1枚を残す。居ない相手を sim の外見から描くと、服装の情報が無いぶん
+    裸で描かれたり、改変前の古い外見へ戻ったりする。
+    相手は居るが npc_tags を取れなかったときだけ sim の外見で補う。
+    """
+    entry, tags = _romance_partner_visual_entry(main_characters, npc_tags, partner_name)
+    if entry is None:
+        return ""
+    if tags:
+        return tags
+    return ", ".join(part for part in (partner_appearance, entry["clothing"]) if part)
+
+
 def _romance_partner_scene_reference(
     state: dict[str, Any],
     image_prompt: AdventureImagePromptOutput,
@@ -1714,6 +1737,75 @@ def _normalize_reality_rules(rules: Iterable[Any]) -> list[str]:
         if rule and rule not in normalized:
             normalized.append(rule)
     return normalized
+
+
+# 画像生成へ渡すときに付ける定型サフィックス。プレビューと送信で同じものを使う
+_SCENE_PROMPT_SUFFIX = (
+    ", visual novel scene, protagonist in foreground, supporting NPCs secondary"
+)
+_PLAYER_PROMPT_SUFFIX = ", main protagonist, primary focus, center foreground"
+_NPC_PROMPT_SUFFIX = ", supporting character, secondary focus, behind protagonist"
+_PORTRAIT_PROMPT_SUFFIX = ", solo, full body standing portrait, simple background, white background, no shadow"
+
+
+def _visual_user_payload(
+    *,
+    narrative: str,
+    turn_context: dict[str, Any],
+    previous_visual: dict[str, Any],
+    appearance_lock: str,
+    previous_image_tags: dict[str, Any] | None,
+    romance_partner: dict[str, Any] | None,
+) -> str:
+    """ビジュアル呼び出しの user prompt。プレビューと送信で同じものを使う。"""
+    authored_scene_tags = str(turn_context.get("authored_scene_tags") or "").strip()
+    return json.dumps(
+        {
+            "narrative": narrative,
+            "player_input": turn_context.get("player_input", ""),
+            "authored_template_resolution": turn_context.get(
+                "authored_template_resolution", {}
+            ),
+            "authored_visual_style": turn_context.get("authored_visual_style"),
+            "authored_scene_tags": authored_scene_tags or None,
+            "previous_visual_state": previous_visual,
+            "previous_image_tags": previous_image_tags,
+            "required_visual_appearance": appearance_lock,
+            # 現実改変を外見へ反映させるための世界ルール。宣言ターンの
+            # 検出は reality_rule_declared_this_turn で伝える
+            "reality_rules": turn_context.get("reality_rules", []),
+            "reality_rule_declared_this_turn": turn_context.get(
+                "reality_rule_declared_this_turn"
+            ),
+            "romance_partner": romance_partner,
+        },
+        ensure_ascii=False,
+    )
+
+
+@dataclass
+class _TurnContexts:
+    """1手番のLLM呼び出しに渡す文脈と、その組み立て過程で決まる値。
+
+    stream_turn と、プロンプトプレビュー(preview_turn_prompts)の両方が
+    _build_turn_contexts からこれを受け取る。プレビューが実際の送信内容と
+    食い違わないよう、組み立てはこの1経路に集約する。
+    """
+
+    turn_context: dict[str, Any]
+    visual_turn_context: dict[str, Any]
+    # 「現実改変：〜」を検出すると reality_alter へ昇格するため、呼び出し側の値と
+    # 食い違い得る
+    input_kind: str
+    narration_voice: str
+    narration_pronoun: str
+    appearance_update_allowed: bool
+    template: dict[str, Any] | None
+    template_resolution: dict[str, Any]
+    romance_sim: dict[str, Any] | None
+    romance_resolution: dict[str, Any] | None
+    appearance_lock: str
+    previous_choice_key: tuple[str, ...]
 
 
 def _take_established_reality_rules(
@@ -2216,7 +2308,6 @@ scene_tags contains only environment, camera, composition, lighting, and the obs
         romance_partner: dict[str, Any] | None = None,
     ) -> AdventureVisualOutput:
         authored_scene_tags = str(turn_context.get("authored_scene_tags") or "").strip()
-        authored_visual_style = turn_context.get("authored_visual_style")
         visual_output = await self._generate_structured_output(
             AdventureVisualOutput,
             system_prompt=self._visual_system_prompt(
@@ -2224,27 +2315,13 @@ scene_tags contains only environment, camera, composition, lighting, and the obs
                 respect_clothing_layers=respect_clothing_layers,
                 romance=romance,
             ),
-            user_prompt=json.dumps(
-                {
-                    "narrative": narrative,
-                    "player_input": turn_context.get("player_input", ""),
-                    "authored_template_resolution": turn_context.get(
-                        "authored_template_resolution", {}
-                    ),
-                    "authored_visual_style": authored_visual_style,
-                    "authored_scene_tags": authored_scene_tags or None,
-                    "previous_visual_state": previous_visual,
-                    "previous_image_tags": previous_image_tags,
-                    "required_visual_appearance": appearance_lock,
-                    # 現実改変を外見へ反映させるための世界ルール。宣言ターンの
-                    # 検出は reality_rule_declared_this_turn で伝える
-                    "reality_rules": turn_context.get("reality_rules", []),
-                    "reality_rule_declared_this_turn": turn_context.get(
-                        "reality_rule_declared_this_turn"
-                    ),
-                    "romance_partner": romance_partner,
-                },
-                ensure_ascii=False,
+            user_prompt=_visual_user_payload(
+                narrative=narrative,
+                turn_context=turn_context,
+                previous_visual=previous_visual,
+                appearance_lock=appearance_lock,
+                previous_image_tags=previous_image_tags,
+                romance_partner=romance_partner,
             ),
             text_model=text_model,
             error_code="invalid_image_prompt",
@@ -3846,90 +3923,26 @@ The objective must name a concrete target and an observable end condition that c
                         persisted_run.opening_state_json = run.opening_state_json
                         await db.commit()
 
-            narration_voice, narration_pronoun = _narration_from_state(state)
-            # 宣言はこの手番から有効にする
-            declared_rule = _detect_reality_declaration(user_input)
-            if declared_rule:
-                _append_reality_rule(state, declared_rule)
-                input_kind = "reality_alter"
-            # 手番を使わず付与されたルールも、この手番で初めて世界へ反映させる
-            declared_this_turn = _take_established_reality_rules(state, declared_rule)
-            # 外見ロックの更新は「外見が変わり得る手番」だけに許す。手番を使わない
-            # 付与でも、その手番の visual 出力を新しいロックとして採用する
-            appearance_update_allowed = (
-                input_kind == "reality_alter" or declared_this_turn is not None
+            contexts = self._build_turn_contexts(
+                run,
+                state,
+                user_input=user_input,
+                input_kind=input_kind,
+                gift_id=gift_id,
+                epilogue=epilogue,
             )
-            reality_rules = list(state.get("reality_rules", []))
-            template = SCENARIO_TEMPLATES.get(str(state.get("scenario_template_id")))
-            template_resolution = self._resolve_template_action(
-                template, state, user_input
-            )
-            scenario_guidance = PRESETS.get(run.preset, {}).get("guidance", "")
-            if template:
-                scenario_guidance = f"{scenario_guidance} {template['guidance']}"
-            if epilogue:
-                scenario_guidance = f"{scenario_guidance} {EPILOGUE_GUIDANCE}"
-            # romance はターンの機械的結果(金銭・採点・告白成否)を先に確定する。
-            # 資金不足などはターン未消費のままエラーで弾く
-            romance_sim = (
-                state.get("sim")
-                if run.preset == "romance" and isinstance(state.get("sim"), dict)
-                else None
-            )
-            romance_resolution: dict[str, Any] | None = None
-            if romance_sim is not None:
-                try:
-                    romance_resolution = resolve_romance_action(
-                        romance_sim,
-                        user_input=user_input,
-                        input_kind=input_kind,
-                        gift_id=gift_id,
-                        turn_number=run.turn_count + 1,
-                        total_turns=run.max_turns,
-                    )
-                except RomanceActionError as error:
-                    raise AdventureError(error.code, str(error)) from error
-            previous_turns = [
-                {"user_input": item.user_input, "narrative": item.narrative}
-                for item in sorted(run.turns, key=lambda item: item.turn_number)
-            ]
-            appearance_lock = str(
-                state.get("appearance_lock")
-                or state.get("visual_state", {}).get("appearance")
-                or "Preserve the source image appearance"
-            )
-            lean_state = _lean_state_for_llm(state)
-            previous_choice_labels = _previous_choice_labels(state)
-            previous_choice_key = _choice_label_key(state.get("choices"))
-            turn_context = {
-                "task": "Resolve the player's next action.",
-                "preset": run.preset,
-                "scenario_guidance": scenario_guidance,
-                "authored_template_resolution": template_resolution,
-                "objective": run.objective,
-                "max_turns": run.max_turns,
-                "next_turn": run.turn_count + 1,
-                "state": lean_state,
-                "recent_turns": previous_turns[-7:],
-                "player_input": user_input,
-                "previous_choices": previous_choice_labels,
-                "reality_rules": reality_rules,
-                "reality_rule_declared_this_turn": declared_this_turn,
-                "required_visual_appearance": appearance_lock,
-                # resolution プロンプトの current_bgm ルールが名前参照する
-                "current_bgm": state.get("bgm") or get_bgm_default(),
-            }
-            if romance_resolution is not None:
-                turn_context["romance_resolution"] = romance_resolution
-            if epilogue:
-                turn_context["epilogue"] = True
-            visual_turn_context = {
-                **turn_context,
-                "authored_visual_style": _template_visual_style(template),
-                "authored_scene_tags": _authored_scene_tags(
-                    template=template, state=state
-                ),
-            }
+            input_kind = contexts.input_kind
+            narration_voice = contexts.narration_voice
+            narration_pronoun = contexts.narration_pronoun
+            appearance_update_allowed = contexts.appearance_update_allowed
+            template = contexts.template
+            template_resolution = contexts.template_resolution
+            romance_sim = contexts.romance_sim
+            romance_resolution = contexts.romance_resolution
+            appearance_lock = contexts.appearance_lock
+            previous_choice_key = contexts.previous_choice_key
+            turn_context = contexts.turn_context
+            visual_turn_context = contexts.visual_turn_context
 
             yield {"event": "status", "data": {"phase": "narrative"}}
             narrative = ""
@@ -4042,11 +4055,6 @@ The objective must name a concrete target and an observable end condition that c
                     visual.visual_state,
                     allow_update=appearance_update_allowed,
                 )
-                if appearance_update_allowed:
-                    # 攻略対象側も同じ手番で書き戻す。resolution の
-                    # updated_partner_appearance が出た場合は後段の
-                    # apply_romance_outcome がこちらを上書きする
-                    self._apply_partner_appearance_lock(state, visual)
                 await queue.put(("visual", visual))
 
                 next_visual = visual.visual_state.model_dump()
@@ -4164,22 +4172,12 @@ The objective must name a concrete target and an observable end condition that c
                 # 合成シーンの2枚目のキャラクター参照として使う
                 partner_path: Path | None = None
                 if draw_partner_portrait:
-                    partner_name = str(romance_sim.get("partner_name") or "")
-                    partner_entry, partner_tags = _romance_partner_visual_entry(
+                    partner_tags = _romance_partner_turn_portrait_tags(
                         list(visual.visual_state.main_characters),
                         list(visual.npc_tags),
-                        partner_name,
+                        str(romance_sim.get("partner_name") or ""),
+                        str(romance_sim.get("partner_appearance") or ""),
                     )
-                    if not partner_tags:
-                        clothing = partner_entry["clothing"] if partner_entry else ""
-                        partner_tags = ", ".join(
-                            part
-                            for part in (
-                                str(romance_sim.get("partner_appearance") or ""),
-                                clothing,
-                            )
-                            if part
-                        )
                     if partner_tags:
                         await queue.put(
                             (
@@ -4440,6 +4438,12 @@ The objective must name a concrete target and an observable end condition that c
             if romance_resolution is not None:
                 # sim を更新し、milestone と ending_status を Python 算出値で上書き
                 apply_romance_outcome(state, output, romance_resolution, resolution)
+                # 攻略対象の外見は、実際にその手番を描いた visual 出力を優先する。
+                # resolution は visual を見ない別呼び出しで、入れ替わりの宣言でも
+                # 元の外見を restate してくることがあり、上書きされると次の手番で
+                # 相手が元の姿へ戻ってしまう
+                if appearance_update_allowed and visual_output is not None:
+                    self._apply_partner_appearance_lock(state, visual_output)
                 # 専用ボタンと重複する選択肢は選んでも機械処理が走らず空振りする。
                 # プロンプトの禁止指示に LLM が従わないため、ここで確実に落とす
                 output.choices = [
@@ -4623,6 +4627,114 @@ The objective must name a concrete target and an observable end condition that c
             and appearance_lock.strip()
         ):
             visual_state.appearance = appearance_lock
+
+    def _build_turn_contexts(
+        self,
+        run: AdventureRun,
+        state: dict[str, Any],
+        *,
+        user_input: str,
+        input_kind: str,
+        gift_id: str | None,
+        epilogue: bool,
+    ) -> _TurnContexts:
+        """1手番のLLMへ渡す文脈を組み立てる。
+
+        state を破壊的に更新する(宣言ルールの追記・未反映付与の取り出し)ため、
+        プレビュー用途では state のコピーを渡すこと。
+        資金不足などはここで AdventureError を送出し、手番を消費させない。
+        """
+        narration_voice, narration_pronoun = _narration_from_state(state)
+        # 宣言はこの手番から有効にする
+        declared_rule = _detect_reality_declaration(user_input)
+        if declared_rule:
+            _append_reality_rule(state, declared_rule)
+            input_kind = "reality_alter"
+        # 手番を使わず付与されたルールも、この手番で初めて世界へ反映させる
+        declared_this_turn = _take_established_reality_rules(state, declared_rule)
+        # 外見ロックの更新は「外見が変わり得る手番」だけに許す。手番を使わない
+        # 付与でも、その手番の visual 出力を新しいロックとして採用する
+        appearance_update_allowed = (
+            input_kind == "reality_alter" or declared_this_turn is not None
+        )
+        reality_rules = list(state.get("reality_rules", []))
+        template = SCENARIO_TEMPLATES.get(str(state.get("scenario_template_id")))
+        template_resolution = self._resolve_template_action(template, state, user_input)
+        scenario_guidance = PRESETS.get(run.preset, {}).get("guidance", "")
+        if template:
+            scenario_guidance = f"{scenario_guidance} {template['guidance']}"
+        if epilogue:
+            scenario_guidance = f"{scenario_guidance} {EPILOGUE_GUIDANCE}"
+        # romance はターンの機械的結果(金銭・採点・告白成否)を先に確定する。
+        # 資金不足などはターン未消費のままエラーで弾く
+        romance_sim = (
+            state.get("sim")
+            if run.preset == "romance" and isinstance(state.get("sim"), dict)
+            else None
+        )
+        romance_resolution: dict[str, Any] | None = None
+        if romance_sim is not None:
+            try:
+                romance_resolution = resolve_romance_action(
+                    romance_sim,
+                    user_input=user_input,
+                    input_kind=input_kind,
+                    gift_id=gift_id,
+                    turn_number=run.turn_count + 1,
+                    total_turns=run.max_turns,
+                )
+            except RomanceActionError as error:
+                raise AdventureError(error.code, str(error)) from error
+        previous_turns = [
+            {"user_input": item.user_input, "narrative": item.narrative}
+            for item in sorted(run.turns, key=lambda item: item.turn_number)
+        ]
+        appearance_lock = str(
+            state.get("appearance_lock")
+            or state.get("visual_state", {}).get("appearance")
+            or "Preserve the source image appearance"
+        )
+        turn_context: dict[str, Any] = {
+            "task": "Resolve the player's next action.",
+            "preset": run.preset,
+            "scenario_guidance": scenario_guidance,
+            "authored_template_resolution": template_resolution,
+            "objective": run.objective,
+            "max_turns": run.max_turns,
+            "next_turn": run.turn_count + 1,
+            "state": _lean_state_for_llm(state),
+            "recent_turns": previous_turns[-7:],
+            "player_input": user_input,
+            "previous_choices": _previous_choice_labels(state),
+            "reality_rules": reality_rules,
+            "reality_rule_declared_this_turn": declared_this_turn,
+            "required_visual_appearance": appearance_lock,
+            # resolution プロンプトの current_bgm ルールが名前参照する
+            "current_bgm": state.get("bgm") or get_bgm_default(),
+        }
+        if romance_resolution is not None:
+            turn_context["romance_resolution"] = romance_resolution
+        if epilogue:
+            turn_context["epilogue"] = True
+        visual_turn_context = {
+            **turn_context,
+            "authored_visual_style": _template_visual_style(template),
+            "authored_scene_tags": _authored_scene_tags(template=template, state=state),
+        }
+        return _TurnContexts(
+            turn_context=turn_context,
+            visual_turn_context=visual_turn_context,
+            input_kind=input_kind,
+            narration_voice=narration_voice,
+            narration_pronoun=narration_pronoun,
+            appearance_update_allowed=appearance_update_allowed,
+            template=template,
+            template_resolution=template_resolution,
+            romance_sim=romance_sim,
+            romance_resolution=romance_resolution,
+            appearance_lock=appearance_lock,
+            previous_choice_key=_choice_label_key(state.get("choices")),
+        )
 
     def _apply_partner_appearance_lock(
         self, state: dict[str, Any], visual_output: AdventureVisualOutput
@@ -4809,8 +4921,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 turn_number=effective_turn_number,
             )
             player_prompt = _enhance_adventure_prompt(
-                image_prompt.player_tags
-                + ", main protagonist, primary focus, center foreground",
+                image_prompt.player_tags + _PLAYER_PROMPT_SUFFIX,
                 nsfw_mode=nsfw_mode,
             )
             characters = [
@@ -4823,8 +4934,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             characters.extend(
                 {
                     "prompt": _enhance_adventure_prompt(
-                        npc_prompt
-                        + ", supporting character, secondary focus, behind protagonist",
+                        npc_prompt + _NPC_PROMPT_SUFFIX,
                         nsfw_mode=nsfw_mode,
                     ),
                     "position": npc_positions[index],
@@ -4868,8 +4978,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 if partner_reference is not None:
                     character_references.append(partner_reference)
             scene_prompt = _enhance_adventure_prompt(
-                _compose_scene_base_tags(image_prompt)
-                + ", visual novel scene, protagonist in foreground, supporting NPCs secondary",
+                _compose_scene_base_tags(image_prompt) + _SCENE_PROMPT_SUFFIX,
                 nsfw_mode=nsfw_mode,
             )
             effective_image_model = (
@@ -5212,9 +5321,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             )
             # 立ち絵はフロント側で背景を透過するため、必ず白背景で生成させる。
             player_prompt = _enhance_adventure_prompt(
-                image_prompt.player_tags
-                + ", solo, full body standing portrait, simple background,"
-                " white background, no shadow",
+                image_prompt.player_tags + _PORTRAIT_PROMPT_SUFFIX,
                 nsfw_mode=nsfw_mode,
             )
             character_references = None
@@ -5323,8 +5430,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         state = _json_load(run.state_json, {})
         nsfw_mode = bool(run.nsfw_mode)
         prompt = _enhance_adventure_prompt(
-            partner_tags + ", solo, full body standing portrait, simple background,"
-            " white background, no shadow",
+            partner_tags + _PORTRAIT_PROMPT_SUFFIX,
             nsfw_mode=nsfw_mode,
         )
         character_references = None
@@ -5673,6 +5779,149 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             run.state_json = json.dumps(state, ensure_ascii=False)
             return self._serialize_run(run, turns)
 
+    async def preview_turn_prompts(
+        self,
+        run_id: str,
+        *,
+        user_input: str,
+        input_kind: str,
+        gift_id: str | None = None,
+    ) -> dict[str, Any]:
+        """次の手番で送られるプロンプトを、LLMを呼ばずに組み立てて返す。
+
+        ENABLE_PROMPT_PREVIEW が有効なときだけ使える確認用の機能。
+        state は書き換えず(コピー上で組み立てる)、手番も消費しない。
+        ビジュアル呼び出しの user prompt に入る narrative はこの手番の生成結果
+        なので、プレビューでは占位文字列になる(narrative_is_placeholder=True)。
+        画像工程は state["last_image_prompt"] を使って組み立てるため、
+        「いまの場面のタグで生成したら何が送られるか」を示す。
+        """
+        if not settings.enable_prompt_preview:
+            raise AdventureError(
+                "prompt_preview_disabled", "プロンプトプレビューは無効です"
+            )
+        run = await self.get_run_orm(run_id, with_turns=True)
+        # 宣言の追記や未反映付与の取り出しが走るため、必ずコピー上で組み立てる
+        state = copy.deepcopy(_json_load(run.state_json, {}))
+        epilogue = bool(state.get("epilogue"))
+        contexts = self._build_turn_contexts(
+            run,
+            state,
+            user_input=user_input,
+            input_kind=input_kind,
+            gift_id=gift_id,
+            epilogue=epilogue,
+        )
+        romance = contexts.romance_sim is not None
+        turn_user_prompt = json.dumps(contexts.turn_context, ensure_ascii=False)
+        narrative_placeholder = (
+            "(この手番の本文がここに入ります。物語生成の結果なので事前には確定しません)"
+        )
+        romance_partner = (
+            {
+                "name": str((contexts.romance_sim or {}).get("partner_name") or ""),
+                "appearance": str(
+                    (contexts.romance_sim or {}).get("partner_appearance") or ""
+                ),
+            }
+            if romance
+            else None
+        )
+        result: dict[str, Any] = {
+            "input_kind": contexts.input_kind,
+            "narrative": {
+                "system": self._narrative_system_prompt(
+                    run.language,
+                    narration_voice=contexts.narration_voice,
+                    narration_pronoun=contexts.narration_pronoun,
+                    romance=romance,
+                ),
+                "user": turn_user_prompt,
+            },
+            "resolution": {
+                "system": self._resolution_system_prompt(
+                    run.language,
+                    narration_voice=contexts.narration_voice,
+                    narration_pronoun=contexts.narration_pronoun,
+                    romance=romance,
+                ),
+                "user": turn_user_prompt,
+            },
+            "visual": {
+                "system": self._visual_system_prompt(
+                    run.language,
+                    respect_clothing_layers=bool(state.get("respect_clothing_layers")),
+                    romance=romance,
+                ),
+                "user": _visual_user_payload(
+                    narrative=narrative_placeholder,
+                    turn_context=contexts.visual_turn_context,
+                    previous_visual=state.get("visual_state", {}),
+                    appearance_lock=contexts.appearance_lock,
+                    previous_image_tags=state.get("last_image_prompt"),
+                    romance_partner=romance_partner,
+                ),
+                "narrative_is_placeholder": True,
+            },
+            "image": await self._preview_image_prompts(run, state),
+        }
+        return result
+
+    async def _preview_image_prompts(
+        self, run: AdventureRun, state: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """いまの場面タグで画像生成したときに実際に送られる文字列を組み立てる。
+
+        LLMを呼ばないよう、state["last_image_prompt"] を prompt_override として
+        渡す(None を渡すと画像タグ生成のLLM呼び出しが走るため)。
+        """
+        stored = state.get("last_image_prompt")
+        if not isinstance(stored, dict):
+            return None
+        try:
+            override = AdventureImagePromptOutput.model_validate(stored)
+        except ValidationError:
+            return None
+        (
+            image_prompt,
+            _outfit_changed,
+            nsfw_mode,
+            use_precise_reference,
+            extra_negative,
+            _raw,
+        ) = await self._prepare_image_prompt(
+            run,
+            state,
+            redraw_from_reference=False,
+            prompt_override=override,
+            turn_number=run.turn_count,
+        )
+        return {
+            "scene_prompt": _enhance_adventure_prompt(
+                _compose_scene_base_tags(image_prompt) + _SCENE_PROMPT_SUFFIX,
+                nsfw_mode=nsfw_mode,
+            ),
+            "player_prompt": _enhance_adventure_prompt(
+                image_prompt.player_tags + _PLAYER_PROMPT_SUFFIX,
+                nsfw_mode=nsfw_mode,
+            ),
+            "npc_prompts": [
+                _enhance_adventure_prompt(
+                    npc_prompt + _NPC_PROMPT_SUFFIX, nsfw_mode=nsfw_mode
+                )
+                for npc_prompt in image_prompt.npc_tags[:3]
+            ],
+            "portrait_prompt": _enhance_adventure_prompt(
+                image_prompt.player_tags + _PORTRAIT_PROMPT_SUFFIX,
+                nsfw_mode=nsfw_mode,
+            ),
+            "negative_prompt": merge_negative_prompt(
+                settings.novelai_negative_prompt, extra_negative or ""
+            ),
+            "nsfw_mode": nsfw_mode,
+            "use_precise_reference": use_precise_reference,
+        }
+
     def _serialize_run(
         self,
         run: AdventureRun,
@@ -5741,6 +5990,9 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             # 旧 run でキー未設定なら合成モード扱い（current_image_path に既に合成画像が入っている）
             "enable_composite_scene": bool(state.get("enable_composite_scene", True)),
             "respect_clothing_layers": bool(state.get("respect_clothing_layers")),
+            # 環境変数由来のグローバル設定。通常ゲームは session stats 経由で受け取るが
+            # Adventure はそこを見ないため、run のペイロードへ載せる
+            "enable_prompt_preview": bool(settings.enable_prompt_preview),
             # 旧 run は既定の二人称・「僕」へ倒す
             "narration_voice": normalize_narration_voice(state.get("narration_voice")),
             "narration_pronoun": normalize_narration_pronoun(
