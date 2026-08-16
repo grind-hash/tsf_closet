@@ -1,6 +1,9 @@
 # データフローパターン
 
 > 最終検証: 2026-08-10 | 通常ゲームとAdventureは別のストリーム契約を持つ
+>
+> Adventure の流れは `docs/adventure-flow.md` にシーケンス図（Mermaid）でもまとめてある。
+> Adventure の経路を変えたら両方を更新する。
 
 ## 通常ゲームの送信経路
 

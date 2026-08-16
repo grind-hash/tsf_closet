@@ -1,0 +1,296 @@
+# アドベンチャーモードの処理の流れ
+
+Adventure（ミッション系プリセットと恋愛シミュレーション）の処理をシーケンス図でまとめる。
+VS Code の Markdown プレビュー、または GitHub 上でそのまま Mermaid として表示できる。
+
+対象コード:
+
+- バックエンド: `backend/gateway/routes/adventure_router.py`、`backend/gateway/services/adventure_service.py`、`backend/gateway/services/adventure_romance.py`
+- フロントエンド: `frontend/src/components/adventure/AdventureScreen.tsx`、`frontend/src/contexts/AdventureContext.tsx`、`frontend/src/apis/adventure.ts`
+
+---
+
+## 1. 全体像
+
+Adventure は通常ゲームとは別の Context・API・サービス・DBモデル・SSE契約を持つ。
+
+```mermaid
+flowchart LR
+    subgraph FE[フロントエンド]
+        Screen[AdventureScreen]
+        Ctx[AdventureContext]
+        Api[apis/adventure.ts]
+    end
+    subgraph BE[バックエンド]
+        Router[adventure_router]
+        Svc[AdventureService]
+        Romance[adventure_romance]
+    end
+    subgraph EXT[外部]
+        LLM[llm_service / NovelAI]
+        Img[image_service / NovelAI]
+    end
+    DB[(SQLite<br/>AdventureRun<br/>AdventureTurn)]
+
+    Screen --> Ctx --> Api -->|REST / SSE| Router --> Svc
+    Svc --> Romance
+    Svc --> LLM
+    Svc --> Img
+    Svc --> DB
+```
+
+---
+
+## 2. 1手番で何が送られるか
+
+**1手番につき LLM を3回呼ぶ。** 画像タグだけを見ても入力側は分からないので、
+付与した属性などを確認したいときは各回の user プロンプトを見る。
+
+| 回  | 目的                       | システムプロンプト           | user プロンプト                     |
+| --- | -------------------------- | ---------------------------- | ----------------------------------- |
+| ①   | 物語本文（ストリーム）     | `_narrative_system_prompt`   | `turn_context` の JSON              |
+| ②   | 判定（選択肢・BGM・好感度）| `_resolution_system_prompt`  | `turn_context` の JSON（①と同じ）   |
+| ③   | ビジュアル（画像タグ）     | `_visual_system_prompt`      | `_visual_user_payload`（本文を含む）|
+
+`turn_context` には `reality_rules`（付与した属性）、`state`、`sim`、
+`required_visual_appearance` などが入る。`ENABLE_PROMPT_PREVIEW=true` なら
+画像設定ポップオーバーの「プロンプトを確認」から実際の送信文字列を確認できる。
+
+---
+
+## 3. ターン処理（中心的な流れ）
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as プレイヤー
+    participant S as AdventureScreen
+    participant C as AdventureContext
+    participant R as adventure_router
+    participant SV as AdventureService.stream_turn
+    participant L as llm_service
+    participant I as image_service
+    participant DB as SQLite
+
+    U->>S: 選択肢 / 自由入力 / ギフト / バイト / 告白
+    S->>C: submitTurn(input, inputKind)
+    alt romance かつ精密参照ON かつ抑止されていない
+        C-->>U: Anlas消費の確認ダイアログ
+        U->>C: 続行を選択
+    end
+    C->>R: POST /runs/{id}/turns/stream
+    R->>SV: stream_turn
+
+    SV->>SV: run ロック取得（同一runのターンを直列化）
+    SV->>DB: run と turns を取得
+    alt client_turn_id が処理済み
+        SV-->>C: turn / complete をそのまま返す
+        Note over SV,C: 再送は二重に実行しない
+    end
+    SV->>SV: 開始時外見キーのバックフィル（旧run対応）
+    opt 手番0
+        SV->>DB: opening_state_json を保存（手番0への巻き戻し用）
+    end
+
+    SV->>SV: _build_turn_contexts
+    Note over SV: 「現実改変：〜」を検出したら reality_alter へ昇格<br/>手番を使わず付与した未反映ルールを取り出す<br/>romance の金銭・採点・告白成否を先に確定する
+    alt 資金不足などで成立しない
+        SV-->>C: error
+        Note over SV,C: 手番は消費しない
+    end
+
+    SV-->>C: status（phase=narrative）
+    SV->>L: ① 物語生成
+    loop ストリーム受信
+        L-->>SV: チャンク
+        SV-->>C: narrative_chunk
+    end
+    SV-->>C: narrative_done
+
+    par ② 判定
+        SV->>L: 解決の構造化出力
+        L-->>SV: 選択肢 / 手掛かり / 進行目標 / BGM / 好感度
+    and ③ ビジュアルと画像生成
+        SV->>L: ビジュアルの構造化出力
+        L-->>SV: visual_state と画像タグ
+        SV->>SV: 外見ロックの更新（外見が変わり得る手番のみ）
+        opt 立ち絵ONのターン
+            SV->>I: 主人公の立ち絵
+            I-->>SV: 画像
+            SV-->>C: portrait_image
+        end
+        opt romance かつ攻略対象が場面に居る
+            SV->>I: 攻略対象の立ち絵
+            I-->>SV: 画像
+            SV-->>C: partner_image
+        end
+        opt 合成モード
+            SV->>I: 合成シーン
+            I-->>SV: 画像
+            SV-->>C: image
+        end
+    end
+
+    SV->>SV: _merge_output（state更新・エンド判定）
+    opt romance
+        SV->>SV: apply_romance_outcome（好感度・所持金・milestone）
+        SV->>SV: 攻略対象の外見を visual 出力から書き戻し
+    end
+    SV->>DB: state_json / turn_count / AdventureTurn を保存
+    SV-->>C: turn
+    SV-->>C: complete
+    C->>R: GET /runs/{id}
+    R-->>C: 最新の run
+    C-->>S: activeRun を更新
+```
+
+### 補足
+
+- **並列なのは②と③だけ**で、①の本文が確定してから走る。③は本文を入力に取るため。
+- **画像は③の中で直列**に生成する（主人公の立ち絵 → 攻略対象の立ち絵 → 合成シーン）。
+  立ち絵と合成で同じシードを使い、衣装の描画差を抑える。
+- **攻略対象の外見の書き戻しは `apply_romance_outcome` より後**に行う。
+  判定側は visual を見ない別呼び出しで、入れ替わり宣言でも元の外見をそのまま
+  返してくることがあり、先に書くと上書きされて次の手番で姿が戻る。
+- SSE イベントは `status` / `narrative_chunk` / `narrative_done` / `portrait_image` /
+  `partner_image` / `background_image` / `image` / `turn` / `complete` / `error`。
+  通常ゲームの `useSSE` には流さず、`apis/adventure.ts` の専用パーサで処理する。
+
+---
+
+## 4. Run の作成
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as プレイヤー
+    participant S as セットアップ画面
+    participant C as AdventureContext
+    participant R as adventure_router
+    participant SV as AdventureService
+    participant L as llm_service
+    participant I as image_service
+    participant DB as SQLite
+
+    U->>S: 素材セッション / プリセット / 日数・手数を選択
+    S->>C: generateSetup
+    C->>R: POST /adventure/setup/generate
+    R->>SV: generate_setup
+    SV->>L: 設定・目的・制約の生成
+    L-->>SV: setting / objective / constraints
+    SV-->>C: セットアップ案
+    C-->>U: 内容を確認・編集
+
+    U->>S: 開始
+    alt 精密参照ON
+        C-->>U: Anlas消費の確認ダイアログ
+        U->>C: 続行を選択
+    end
+    S->>C: createRun
+    C->>R: POST /adventure/runs
+    R->>SV: create_run
+    SV->>DB: 素材セッションのスナップショット取得
+    opt romance
+        SV->>L: 相手プロフィール / ギフトカタログ / 隠し好みの生成
+        Note over SV: 素材の人物は攻略対象。主人公は別途選択したキャラへ差し替える
+    end
+    SV->>L: 開幕シーンの生成
+    L-->>SV: 本文 / 選択肢 / visual_state
+    SV->>I: 開始画像
+    SV->>DB: AdventureRun を作成
+    SV->>SV: _generate_opening_visuals
+    SV->>I: 背景 / 主人公の立ち絵 / 攻略対象の立ち絵 / 合成シーン
+    Note over SV: 失敗しても run 作成は成功扱いにする
+    SV-->>C: run
+    C-->>U: プレイ画面へ
+```
+
+---
+
+## 5. 手番を消費しない操作
+
+進行を進めずに state だけを変える操作。いずれも `stream_turn` と同じ run ロックを
+取るので、ターン処理中は完了を待ってから実行される。
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as プレイヤー
+    participant C as AdventureContext
+    participant R as adventure_router
+    participant SV as AdventureService
+    participant DB as SQLite
+
+    rect rgb(240, 240, 245)
+        Note over U,DB: 属性（現実改変ルール）の管理
+        U->>C: 付与のみ / 編集 / 削除
+        C->>R: PATCH /runs/{id}/reality-rules
+        R->>SV: update_reality_rules
+        SV->>SV: 正規化・重複排除・上限12件を検証
+        SV->>SV: 新規分を pending_reality_rules に控える
+        SV->>DB: state_json を更新
+        SV-->>C: run 全体
+        Note over SV: 控えた分は次の手番で一度だけ<br/>「この手番で確定したルール」として渡る
+    end
+
+    rect rgb(240, 245, 240)
+        Note over U,DB: 画像設定の変更
+        U->>C: 精密参照 / 合成モード / 衣装レイヤー
+        C->>R: PATCH /runs/{id}/settings
+        R->>SV: update_run_settings
+        SV->>DB: state_json を更新
+        SV-->>C: run 全体
+    end
+
+    rect rgb(245, 240, 240)
+        Note over U,DB: プロンプト確認（ENABLE_PROMPT_PREVIEW 有効時のみ）
+        U->>C: プロンプトを確認
+        C->>R: POST /runs/{id}/preview-prompt
+        R->>SV: preview_turn_prompts
+        SV->>SV: state のコピー上で3回分を組み立てる
+        SV-->>C: system / user と画像生成の最終文字列
+        Note over SV: LLMは呼ばず、state も書き換えない
+    end
+
+    rect rgb(245, 245, 235)
+        Note over U,DB: 巻き戻し
+        U->>C: ここからやり直す
+        C->>R: POST /runs/{id}/rewind
+        R->>SV: rewind_to_turn
+        SV->>DB: 対象手番のスナップショットで state を復元
+        SV->>DB: それ以降の AdventureTurn を削除
+        Note over SV: 画像設定と人称は現在値を引き継ぐ<br/>付与した属性は復元対象なので巻き戻る
+        SV-->>C: run 全体
+    end
+```
+
+---
+
+## 6. 画像の再生成
+
+場面画像のタグを手で直して描き直す経路。手番は進まない。
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as プレイヤー
+    participant M as AdventureImagePromptModal
+    participant C as AdventureContext
+    participant R as adventure_router
+    participant SV as AdventureService
+    participant I as image_service
+
+    U->>M: scene_tags / player_tags / npc_tags を編集
+    M->>C: regenerateImage
+    C->>R: POST /runs/{id}/image/stream
+    R->>SV: 立ち絵 または 合成シーンの生成
+    Note over SV: 編集内容は prompt_override として渡るので<br/>画像タグ生成のLLM呼び出しは走らない
+    SV->>I: 画像生成
+    I-->>SV: 画像
+    SV-->>C: image / portrait_image
+    C-->>U: ステージを更新
+```
+
+> このモーダルが扱うのは最終段の画像タグだけで、付与した属性などの入力側は
+> すでにタグへ蒸留されている。入力側を見たい場合は「5. 手番を消費しない操作」の
+> プロンプト確認を使う。
