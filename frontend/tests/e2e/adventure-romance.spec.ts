@@ -17,6 +17,7 @@ function simPayload(overrides: Record<string, unknown> = {}) {
     stage: "stranger",
     money: 5000,
     partner_name: "美咲",
+    partner_speech_style: "丁寧語。一人称はわたし",
     player_name: "水瀬ユウヤ",
     player_character_id: "char1",
     job: { name: "カフェ", wage: 3000 },
@@ -72,6 +73,8 @@ function romanceRunPayload(
     respect_clothing_layers: false,
     narration_voice: "second_person",
     narration_pronoun: "僕",
+    player_speech_style: "polite",
+    player_speech_custom: "",
     opening_image_url: IMAGE,
     background_image_url: IMAGE,
     portrait_image_url: IMAGE,
@@ -110,6 +113,8 @@ interface RomanceMockState {
   runAfterTurn: Record<string, unknown> | null;
   /** PATCH /reality-rules のボディ。手番を消費しない付与・編集・削除の記録 */
   realityRuleBodies: { rules: string[] }[];
+  /** PATCH /settings のボディ。口調変更も手番を消費しない */
+  settingsBodies: Record<string, unknown>[];
 }
 
 async function mockRomanceApis(
@@ -121,6 +126,7 @@ async function mockRomanceApis(
     createBodies: [],
     runAfterTurn: null,
     realityRuleBodies: [],
+    settingsBodies: [],
   };
   let turnTaken = false;
   await page.route("**/api/mock-scene.png", async (route) => {
@@ -238,6 +244,20 @@ async function mockRomanceApis(
       });
     },
   );
+  await page.route("**/api/adventure/runs/run-1/settings", async (route) => {
+    const body = route.request().postDataJSON() as Record<string, unknown>;
+    state.settingsBodies.push(body);
+    await route.fulfill({
+      json: {
+        ...initialRun,
+        player_speech_style: body.player_speech_style,
+        player_speech_custom: body.player_speech_custom,
+        sim: simPayload({
+          partner_speech_style: body.partner_speech_style as string,
+        }),
+      },
+    });
+  });
   await page.route(
     "**/api/adventure/runs/run-1/turns/stream",
     async (route) => {
@@ -320,6 +340,61 @@ test("start a romance run with day select and show the romance HUD", async ({
   ).toBeVisible();
   await expect(page.getByRole("button", { name: "属性を付与" })).toBeVisible();
   await expect(page.getByRole("button", { name: "想いを告げる" })).toBeHidden();
+});
+
+test("choose a speech style at setup and change it during play", async ({
+  page,
+}) => {
+  await enableAdventure(page);
+  const state = await mockRomanceApis(page);
+  await page.goto("/adventure");
+
+  await page.getByRole("button", { name: /^恋愛シミュレーション/ }).click();
+  await page.getByRole("button", { name: "ミッション案を自動生成" }).click();
+  await expect(page.getByLabel("ゴール")).toHaveValue(
+    "7日以内に美咲と想いを通わせ、交際を始める",
+  );
+
+  // 物語の演出に主人公と攻略対象の口調が並んで置かれる
+  await page.getByText("物語の演出").click();
+  await page.getByRole("button", { name: /^ため口/ }).click();
+  await page
+    .getByLabel("攻略対象の口調")
+    .fill("ため口。語尾を伸ばすギャル口調");
+
+  await page.getByRole("button", { name: "シナリオを開始" }).click();
+  await expect(page).toHaveURL(/\/adventure\/run-1$/);
+  expect(state.createBodies[0]).toMatchObject({
+    player_speech_style: "casual",
+    romance_partner_speech_style: "ため口。語尾を伸ばすギャル口調",
+  });
+
+  // 口調は常時見えているHUDチップに出て、1クリックで主人公と攻略対象が対で並ぶ
+  const speechChip = page.getByRole("button", { name: /^口調/ });
+  await expect(speechChip).toContainText("丁寧語");
+  await speechChip.click();
+  const popover = page.getByRole("dialog", { name: "主人公の口調" });
+  await expect(popover).toContainText("丁寧語");
+  await expect(popover).toContainText("丁寧語。一人称はわたし");
+
+  // プレイ中の変更は手番を消費せず PATCH で保存される
+  await popover.getByRole("button", { name: "口調を変更" }).click();
+  const modal = page.getByRole("dialog", { name: "口調を変更" });
+  await modal.getByRole("button", { name: /^かしこまった敬語/ }).click();
+  await modal.getByLabel("攻略対象の口調").fill("ため口で親しげに話す");
+  await modal.getByRole("button", { name: "保存" }).click();
+
+  await expect(modal).toBeHidden();
+  expect(state.settingsBodies).toHaveLength(1);
+  expect(state.settingsBodies[0]).toMatchObject({
+    player_speech_style: "formal",
+    partner_speech_style: "ため口で親しげに話す",
+    // 画像設定は現在値のまま送り、意図せず切り替わらないこと
+    use_precise_reference: false,
+    enable_composite_scene: false,
+  });
+  // 手番は消費しない
+  expect(state.streamBodies).toHaveLength(0);
 });
 
 test("show heroine info in the romance turn detail modal", async ({ page }) => {

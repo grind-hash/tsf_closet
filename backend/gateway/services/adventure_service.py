@@ -49,6 +49,12 @@ from ..consts.adventure_romance import (
     ROMANCE_SLOTS_PER_DAY,
     ROMANCE_TALK_FALLBACK_DELTA,
 )
+from ..consts.adventure_speech import (
+    PARTNER_SPEECH_STYLE_MAX_LENGTH,
+    SPEECH_CUSTOM_MAX_LENGTH,
+    SPEECH_STYLE_DEFAULT,
+    SPEECH_STYLES,
+)
 from ..consts.adventure_turns import (
     ADVENTURE_TURNS_DEFAULT,
     ADVENTURE_TURNS_MAX,
@@ -89,6 +95,11 @@ from .llm_service import llm_service
 from .session import DEFAULT_USER_ID, session_store
 
 logger = logging.getLogger(__name__)
+
+# 選択肢ラベルの上限。行動パネルは幅 260〜360px の縦長カラムなので、長い
+# ラベルは何行にも折り返して選択肢一覧が読めなくなる。プロンプト側で
+# 20字程度を要求したうえで、この値は超過分を静かに切り詰める最後の砦として使う
+_CHOICE_LABEL_MAX_LENGTH = 60
 
 
 def _default_director_choices(language: str) -> list[dict[str, str]]:
@@ -186,7 +197,12 @@ def _sanitize_choices(
         if not label:
             drop_reasons.append(f"[{index}] empty_label id={choice_id[:40]!r}")
             continue
-        cleaned.append({"id": choice_id[:40], "label": label[:160]})
+        cleaned.append(
+            {
+                "id": choice_id[:40],
+                "label": _truncate_overlong_text(label, _CHOICE_LABEL_MAX_LENGTH),
+            }
+        )
 
     if len(cleaned) != 3:
         if should_log_fallback:
@@ -252,13 +268,25 @@ def _clamp_to_declared_max(
 
 class AdventureChoice(BaseModel):
     id: str = Field(min_length=1, max_length=40)
-    label: str = Field(min_length=1, max_length=160)
+    label: str = Field(min_length=1, max_length=_CHOICE_LABEL_MAX_LENGTH)
 
     @field_validator("id", "label", mode="before")
     @classmethod
     def strip_text(cls, value: Any) -> Any:
         if isinstance(value, str):
             return value.strip()
+        return value
+
+    @field_validator("label", mode="before")
+    @classmethod
+    def clamp_label(cls, value: Any) -> Any:
+        """長すぎるラベルは検証エラーにせず切り詰める。
+
+        1手番まるごと修復リトライに落とすほどの問題ではなく、
+        長さを理由に3択が既定文へ差し替わるほうが体験を損なうため。
+        """
+        if isinstance(value, str) and len(value) > _CHOICE_LABEL_MAX_LENGTH:
+            return _truncate_overlong_text(value, _CHOICE_LABEL_MAX_LENGTH)
         return value
 
 
@@ -633,6 +661,9 @@ def _lean_state_for_llm(state: dict[str, Any]) -> dict[str, Any]:
         # 人称指示はシステムプロンプト側に載るため、user prompt へは流さない
         "narration_voice",
         "narration_pronoun",
+        # 口調指示も同様にシステムプロンプト末尾へ載せる
+        "player_speech_style",
+        "player_speech_custom",
         # 直前の選択肢を state ごと渡すと LLM がそのまま書き写し、
         # 選択肢が更新されない。必要な分は previous_choices として別に渡す
         "choices",
@@ -1640,6 +1671,19 @@ _CHOICES_PERSPECTIVE_INSTRUCTION = (
 )
 
 
+# 行動パネルは幅 260〜360px の縦長カラムなので、長いラベルは何行にも折り返って
+# 3択が読めなくなる。内容の粒度ではなく「書き方」を短くさせる
+_CHOICES_LENGTH_INSTRUCTION = (
+    "Keep every choices[].label short enough to read at a glance in a narrow "
+    "column: at most 20 Japanese characters, or at most 8 English words. Name "
+    "the action in the fewest words that still identify it, and drop scene "
+    "description, motives, adjectives, and clauses that restate the narrative "
+    "(write 「新作ドリンクを出す」, not 「彼女の座っているテーブルへ、考え抜いた新しい"
+    "ドリンクを提供する」). Shortening the wording never changes the required "
+    "scope of the action itself."
+)
+
+
 # 直前の選択肢の焼き直しを禁じる。previous_choices は「避けるべき既出案」
 _CHOICES_FRESHNESS_INSTRUCTION = (
     "previous_choices lists the options that were already offered to the player "
@@ -1677,6 +1721,89 @@ _NARRATION_VOICE_RULES: dict[str, str] = {
         "observer could see or hear. "
     ),
 }
+
+
+# 主人公のセリフの敬体・常体。語りの人称(地の文の主語)とは独立した軸で、
+# 「バイト先の相手にため口で話す」といった破綻を防ぐために明示する
+_SPEECH_STYLE_RULES: dict[str, str] = {
+    "polite": (
+        "The player character speaks politely to everyone, using Japanese "
+        "です/ます forms (or their equivalent in the response language), and "
+        "never drops into plain casual speech even as the relationship warms."
+    ),
+    "casual": (
+        "The player character speaks casually and familiarly, using Japanese "
+        "plain forms (だ/だよ/〜ね) rather than です/ます, as one would with a "
+        "close friend."
+    ),
+    "formal": (
+        "The player character speaks in deferential, formal Japanese, "
+        "combining です/ます with honorific and humble forms (いらっしゃる, "
+        "いたします, 申し上げます) as one would toward a customer or a superior."
+    ),
+}
+
+# 口調指示が同意・主体性のガードを緩める口実にならないよう、人称と同じ形で添える
+_SPEECH_STYLE_GUARD = (
+    "This register governs only the wording of the lines the player character "
+    "actually speaks. It grants no authority to invent the player character's "
+    "feelings, consent, wishes, or voluntary actions, and it never changes what "
+    "they choose to say. Earlier entries in recent_turns may use a different "
+    "register; ignore theirs and follow this rule."
+)
+
+
+def normalize_speech_style(value: str | None) -> str:
+    """未知の値や旧 run の欠落は既定の丁寧語へ倒す。"""
+    style = str(value or "")
+    return style if style in SPEECH_STYLES else SPEECH_STYLE_DEFAULT
+
+
+def normalize_speech_custom(value: str | None) -> str:
+    """自由入力の口調を1行へ正規化する。システムプロンプトへ入るため改行を畳む。"""
+    return " ".join(str(value or "").split()).strip()[:SPEECH_CUSTOM_MAX_LENGTH]
+
+
+def normalize_partner_speech_style(value: str | None) -> str:
+    """攻略対象の口調文を1行へ正規化する。空文字は「未設定」を意味する。"""
+    return " ".join(str(value or "").split()).strip()[:PARTNER_SPEECH_STYLE_MAX_LENGTH]
+
+
+def _speech_style_instruction(
+    style: str | None,
+    custom: str | None,
+    *,
+    partner_style: str = "",
+    partner_name: str = "",
+) -> str:
+    """セリフの口調指示を返す。プロンプト末尾に置いて直近性を効かせる。
+
+    主人公と(romance なら)攻略対象の両方を1ブロックにまとめる。相手の口調は
+    user prompt の state.sim にも載るが、名前参照だけでは守られないため、
+    人称指示と同じ末尾位置で実際の文言を再掲する。
+    """
+    style = normalize_speech_style(style)
+    if style == "custom":
+        custom = normalize_speech_custom(custom)
+        player_rule = (
+            "The player character speaks in this register, and keeps it in every "
+            f"line they speak: 「{custom}」"
+            if custom
+            else _SPEECH_STYLE_RULES[SPEECH_STYLE_DEFAULT]
+        )
+    else:
+        player_rule = _SPEECH_STYLE_RULES[style]
+    partner_rule = ""
+    partner_style = normalize_partner_speech_style(partner_style)
+    if partner_style:
+        who = partner_name.strip() or "The romance partner"
+        partner_rule = (
+            f" {who} speaks in this register, and keeps it in every line they "
+            f"speak regardless of how the player speaks and regardless of how "
+            f"far the relationship has progressed: 「{partner_style}」 Never "
+            "converge their register onto the player's."
+        )
+    return "SPEECH REGISTER: " + player_rule + partner_rule + " " + _SPEECH_STYLE_GUARD
 
 
 def normalize_narration_pronoun(value: str | None) -> str:
@@ -1717,6 +1844,21 @@ def _narration_from_state(state: dict[str, Any]) -> tuple[str, str]:
     return (
         normalize_narration_voice(state.get("narration_voice")),
         normalize_narration_pronoun(state.get("narration_pronoun")),
+    )
+
+
+def _speech_rule_from_state(state: dict[str, Any]) -> str:
+    """run の state からセリフの口調指示を組み立てる。旧 run は既定へ倒す。
+
+    攻略対象(romance)の口調も同じブロックへ含めるため、sim からも読み出す。
+    """
+    sim = state.get("sim")
+    sim = sim if isinstance(sim, dict) else {}
+    return _speech_style_instruction(
+        state.get("player_speech_style"),
+        state.get("player_speech_custom"),
+        partner_style=str(sim.get("partner_speech_style") or ""),
+        partner_name=str(sim.get("partner_name") or ""),
     )
 
 
@@ -1799,6 +1941,8 @@ class _TurnContexts:
     input_kind: str
     narration_voice: str
     narration_pronoun: str
+    # 組み立て済みのセリフ口調ブロック。主人公と攻略対象の両方を含む
+    speech_rule: str
     appearance_update_allowed: bool
     template: dict[str, Any] | None
     template_resolution: dict[str, Any]
@@ -2006,17 +2150,21 @@ class AdventureService:
         *,
         narration_voice: str = NARRATION_VOICE_DEFAULT,
         narration_pronoun: str = NARRATION_PRONOUN_DEFAULT,
+        speech_rule: str = "",
         romance: bool = False,
     ) -> str:
         response_language = "Japanese" if language == "ja" else "English"
         voice_rule = _narration_voice_instruction(narration_voice, narration_pronoun)
         if romance:
             voice_rule = f"{ROMANCE_NARRATIVE_GUIDANCE}\n{voice_rule}"
+        if speech_rule:
+            voice_rule = f"{voice_rule}\n{speech_rule}"
         return f"""You are the director of a short objective-based adventure game.
 Return one JSON object only, in {response_language}, matching this schema:
 {{"narrative":"...","choices":[{{"id":"...","label":"..."}},{{"id":"...","label":"..."}},{{"id":"...","label":"..."}}],"discovered_clues":[],"completed_milestones":[],"visual_state":{{"location":"...","appearance":"...","clothing":"...","surroundings":"...","main_characters":[{{"name":"...","description":"...","clothing":"...","action":"..."}}]}},"ending_status":"continue|success|partial|failure","ending_title":null,"ending_summary":null,"bgm":"{"|".join(get_bgm_keys())}","bgm_reason":"..."}}
 Keep narrative under 800 characters and the entire JSON response compact. bgm selects the background music category for the scene and must be exactly one of: {get_bgm_prompt_guide()}. {BGM_SELECTION_RULES} bgm_reason briefly states, in {response_language}, why that bgm category fits this scene, in 200 characters or fewer. Never output a filename, a path, or any value outside this list. Never decide the player's feelings, consent, past wishes, bodily sensations, or voluntary actions unless the player's input explicitly states them. If the player's action objectively makes the mission impossible to continue, return a concise failure ending instead of refusing, truncating, or leaving the JSON incomplete. Describe observable events and NPC actions. Do not introduce an unrequested body transformation. Never grant the player another person's memories, personal knowledge, relationships, habits, skills, credentials, passwords, or authentication information unless the supplied source facts explicitly state them. A copied appearance or name does not imply copied memory or competence. Treat source_snapshot.appearance and required_visual_appearance as an immutable identity signature. Copy its sex, hair color, hair length, hairstyle, eye color, and body features exactly into visual_state.appearance; never replace or supplement those traits. Do not change the player's physical appearance unless scenario_capabilities or authored_template_resolution explicitly allows and triggers that change. Clothing may be offered, found, or discussed, but the player only puts on, removes, or changes clothing when their input explicitly chooses that action. When the player explicitly chooses to put on clothing, visual_state.clothing must show that garment as currently worn in the same turn. Unless the input explicitly requests layering, the new garment replaces the previous outfit instead of being worn over it. If the source snapshot explicitly establishes a transformed sex or body, it may create practical disguise or role opportunities without inventing further changes. Keep visual_state concrete enough to illustrate the main characters, their clothing, and the surrounding location. When authored_visual_style is provided, set visual_state.location and visual_state.surroundings from it and never describe the room as a basement, locker room, warehouse, or cold industrial cell. completed_milestones must contain milestone ID strings only, never objects. Complete milestones only when the narrated action actually earns them. When authored_template_resolution is provided, treat it as authoritative and never narrate a score, transformation, unlocked exit, or ending beyond its event.
 {_CHOICES_PERSPECTIVE_INSTRUCTION}
+{_CHOICES_LENGTH_INSTRUCTION}
 {_CHOICES_FRESHNESS_INSTRUCTION}
 {_REALITY_RULES_INSTRUCTION}
 {voice_rule}"""
@@ -2030,12 +2178,14 @@ Keep narrative under 800 characters and the entire JSON response compact. bgm se
         fallback_appearance: str = "",
         narration_voice: str = NARRATION_VOICE_DEFAULT,
         narration_pronoun: str = NARRATION_PRONOUN_DEFAULT,
+        speech_rule: str = "",
         romance: bool = False,
     ) -> AdventureDirectorOutput:
         system_prompt = self._director_system_prompt(
             language,
             narration_voice=narration_voice,
             narration_pronoun=narration_pronoun,
+            speech_rule=speech_rule,
             romance=romance,
         )
         raw = await llm_service.generate_text(
@@ -2057,7 +2207,8 @@ Keep narrative under 800 characters and the entire JSON response compact. bgm se
             response_language = "Japanese" if language == "ja" else "English"
             repair_system_prompt = f"""Repair invalid adventure output as one new compact JSON object in {response_language}.
 Return JSON only and keep the entire response under 1200 characters. Do not repeat or continue the source verbatim. Preserve only facts already present. Keep narrative under 500 characters. If the source describes an action that objectively ends the mission, preserve ending_status as failure and provide a short ending_summary. Required minimum shape: {{"narrative":"...","visual_state":{{"location":"...","appearance":"...","clothing":"..."}},"ending_status":"continue|success|partial|failure","ending_title":null,"ending_summary":null}}.
-{_narration_voice_instruction(narration_voice, narration_pronoun)}"""
+{_narration_voice_instruction(narration_voice, narration_pronoun)}
+{speech_rule}"""
             repair_prompt = "Invalid source output:\n\n" + raw.content
             repaired = await llm_service.generate_text(
                 repair_system_prompt,
@@ -2094,12 +2245,15 @@ Return JSON only and keep the entire response under 1200 characters. Do not repe
         *,
         narration_voice: str = NARRATION_VOICE_DEFAULT,
         narration_pronoun: str = NARRATION_PRONOUN_DEFAULT,
+        speech_rule: str = "",
         romance: bool = False,
     ) -> str:
         response_language = "Japanese" if language == "ja" else "English"
         voice_rule = _narration_voice_instruction(narration_voice, narration_pronoun)
         if romance:
             voice_rule = f"{ROMANCE_NARRATIVE_GUIDANCE}\n{voice_rule}"
+        if speech_rule:
+            voice_rule = f"{voice_rule}\n{speech_rule}"
         return f"""You are the director of a short objective-based adventure game.
 Write only the narrative for the next scene, as plain prose in {response_language}. Do not output JSON, markdown, headings, choices, labels, or commentary.
 Keep the narrative under 800 characters. Never decide the player's feelings, consent, past wishes, bodily sensations, or voluntary actions unless the player's input explicitly states them. If the player's action objectively makes the mission impossible to continue, narrate a concise failure ending instead of refusing or truncating. Describe observable events and NPC actions. Do not introduce an unrequested body transformation. Never grant the player another person's memories, personal knowledge, relationships, habits, skills, credentials, passwords, or authentication information unless the supplied source facts explicitly state them. A copied appearance or name does not imply copied memory or competence. Treat state.appearance_lock and required_visual_appearance as an immutable identity signature, and never change the player's sex, hair color, hair length, hairstyle, eye color, or body features unless scenario_guidance or authored_template_resolution explicitly allows and triggers that change, or reality_rule_declared_this_turn declares a change to the player's own body or identity; in that case narrate the player already in the new body and keep every unaffected trait. Clothing may be offered, found, or discussed, but the player only puts on, removes, or changes clothing when their input explicitly chooses that action, or when a declared reality rule changes the player's body or identity; in that case clothing follows the body, so each person wears whatever their new body was already wearing, and a declared swap or exchange of bodies also exchanges their outfits. Separately, a reality_rules entry may itself state what the player wears or how the player looks; such a rule is already true, so narrate the player that way on every turn it remains in reality_rules rather than treating it as something they still have to do. Unless the input explicitly requests layering, a new garment replaces the previous outfit instead of being worn over it. If the source snapshot explicitly establishes a transformed sex or body, it may create practical disguise or role opportunities without inventing further changes. When authored_template_resolution is provided, treat it as authoritative and never narrate a score, transformation, unlocked exit, or ending beyond its event.
@@ -2120,7 +2274,8 @@ Keep the narrative under 800 characters. Never decide the player's feelings, con
         voice_rule = (
             _narration_voice_instruction(narration_voice, narration_pronoun)
             + " choices[].label must remain a short neutral action phrase with no "
-            "narration voice, no pronoun, and no first-person or second-person subject."
+            "narration voice, no pronoun, no speech style, and no first-person or "
+            "second-person subject."
         )
         if romance:
             voice_rule = f"{ROMANCE_RESOLUTION_GUIDANCE}\n{voice_rule}"
@@ -2135,6 +2290,7 @@ Return one JSON object only, in {response_language}, matching this schema:
 {{"choices":[{{"id":"...","label":"..."}},{{"id":"...","label":"..."}},{{"id":"...","label":"..."}}],"discovered_clues":[],"completed_milestones":[],"ending_status":"continue|success|partial|failure","ending_title":null,"ending_summary":null,"bgm":"{"|".join(get_bgm_keys())}","bgm_reason":"..."}}
 Base every value strictly on the supplied narrative and game state, and never invent events the narrative does not contain. bgm selects the background music category for the scene and must be exactly one of: {get_bgm_prompt_guide()}. current_bgm is the music already playing: keep bgm identical to current_bgm unless the location, scene, mood, or story phase has clearly changed, and never change it for a single line of dialogue, a momentary emotion, or a brief reaction. {BGM_SELECTION_RULES} bgm_reason briefly states, in {response_language}, why that bgm category fits this scene, in 200 characters or fewer. Never output a filename, a path, or any value outside this list. choices must offer exactly three distinct actions the player could take next. discovered_clues must contain only new information the narrative actually revealed, and must not repeat state.clues. completed_milestones must contain milestone ID strings only, never objects, and only when the narrated action actually earns them. Keep ending_status as continue unless the narrative itself concludes the mission, and fill ending_title and ending_summary only in that case. Never decide the player's feelings, consent, or voluntary actions. When authored_template_resolution is provided, treat it as authoritative and never report a score, transformation, or ending beyond its event. Keep the entire response compact.
 {_CHOICES_PERSPECTIVE_INSTRUCTION}
+{_CHOICES_LENGTH_INSTRUCTION}
 {_CHOICES_FRESHNESS_INSTRUCTION}
 {_REALITY_RULES_INSTRUCTION}
 {voice_rule}"""
@@ -2346,7 +2502,7 @@ scene_tags contains only environment, camera, composition, lighting, and the obs
             return f"""You design a concise setup for a {days}-day romance simulation in which the player aims to start dating one partner character.
 Return one JSON object only, in {response_language}, matching this schema:
 {{"setting":"...","objective":"...","constraints":["...","..."]}}
-The partner is the character shown in source_snapshot; keep their appearance and situation consistent with it. source_snapshot deliberately contains no name for the partner: invent a fitting new name from their appearance and situation, and use that name in the objective. Never name the partner after the player. The player is a separate person courting that partner; never treat the snapshot character as the player. The setting describes where the player and the partner cross paths in daily life. The objective must name the partner and state that the player starts dating them within {days} days. Constraints must create romantic complications such as rivals, schedules, shyness, or circumstances, without dictating the player's feelings, consent, memories, bodily sensations, or voluntary actions. Do not introduce another body transformation or assign physical traits that conflict with source_snapshot.appearance."""
+The partner is the character shown in source_snapshot; keep their appearance and situation consistent with it. source_snapshot deliberately contains no name for the partner: invent a fitting new name from their appearance and situation, and use that name in the objective. Never name the partner after the player. The player is a separate person courting that partner; never treat the snapshot character as the player. The setting describes where the player and the partner cross paths in daily life. The objective must name the partner and state that the player starts dating them within {days} days. Constraints must create romantic complications such as schedules, shyness, or circumstances, without dictating the player's feelings, consent, memories, bodily sensations, or voluntary actions. Do not introduce another body transformation or assign physical traits that conflict with source_snapshot.appearance."""
         turns = clamp_generated_max_turns(max_turns)
         return f"""You design a concise setup for a {turns}-turn objective-based adventure game.
 Return one JSON object only, in {response_language}, matching this schema:
@@ -2485,15 +2641,23 @@ The objective must name a concrete target and an observable end condition that c
         scenario_max_turns: int = ADVENTURE_TURNS_DEFAULT,
         narration_voice: str = NARRATION_VOICE_DEFAULT,
         narration_pronoun: str = NARRATION_PRONOUN_DEFAULT,
+        player_speech_style: str = SPEECH_STYLE_DEFAULT,
+        player_speech_custom: str = "",
         use_precise_reference: bool = False,
         enable_composite_scene: bool = False,
         respect_clothing_layers: bool = False,
         romance_player_character_id: str | None = None,
         romance_player_session_id: str | None = None,
         romance_player_history_id: str | None = None,
+        romance_partner_speech_style: str = "",
     ) -> dict[str, Any]:
         narration_voice = normalize_narration_voice(narration_voice)
         narration_pronoun = normalize_narration_pronoun(narration_pronoun)
+        player_speech_style = normalize_speech_style(player_speech_style)
+        player_speech_custom = normalize_speech_custom(player_speech_custom)
+        romance_partner_speech_style = normalize_partner_speech_style(
+            romance_partner_speech_style
+        )
         replay_run = None
         replay_state: dict[str, Any] = {}
         if replay_run_id:
@@ -2662,6 +2826,11 @@ The objective must name a concrete target and an observable end condition that c
             romance_partner_image = source_image
             appearance = player_appearance
             source_image = player_image
+            # ユーザーがセットアップで書いた口調があれば LLM 生成値より優先する
+            romance_partner_speech_style = (
+                romance_partner_speech_style
+                or normalize_partner_speech_style(romance_setup.partner_speech_style)
+            )
 
         start_state = template.get("start_state", {}) if template else {}
         visual_style = _template_visual_style(template)
@@ -2689,6 +2858,7 @@ The objective must name a concrete target and an observable end condition that c
                 "romance_setup": {
                     "partner_name": romance_setup.partner_name,
                     "partner_profile": romance_setup.partner_profile,
+                    "partner_speech_style": romance_partner_speech_style,
                     "partner_appearance": romance_partner_appearance,
                     "relationship_origin": romance_setup.relationship_origin,
                     "job_name": romance_setup.job_name,
@@ -2707,6 +2877,12 @@ The objective must name a concrete target and an observable end condition that c
             text_model=text_model,
             narration_voice=narration_voice,
             narration_pronoun=narration_pronoun,
+            speech_rule=_speech_style_instruction(
+                player_speech_style,
+                player_speech_custom,
+                partner_style=romance_partner_speech_style,
+                partner_name=romance_setup.partner_name if romance_setup else "",
+            ),
             romance=romance_setup is not None,
             fallback_appearance=appearance
             or str(snapshot.get("appearance") or "")
@@ -2786,6 +2962,9 @@ The objective must name a concrete target and an observable end condition that c
             # 語りの人称。旧runは既定の二人称として扱う
             "narration_voice": narration_voice,
             "narration_pronoun": narration_pronoun,
+            # 主人公のセリフの口調。旧runは既定の丁寧語として扱う
+            "player_speech_style": player_speech_style,
+            "player_speech_custom": player_speech_custom,
         }
         if romance_setup is not None:
             state["sim"] = init_romance_state(
@@ -2797,6 +2976,7 @@ The objective must name a concrete target and an observable end condition that c
                 player_history_id=str(romance_player_history_id or "")
                 if romance_player_session_id
                 else "",
+                partner_speech_style=romance_partner_speech_style,
             )
             # 攻略対象の開始時の外見。主人公側と同じく乖離判定にだけ使う
             state["initial_partner_appearance"] = romance_partner_appearance
@@ -3023,6 +3203,9 @@ The objective must name a concrete target and an observable end condition that c
         "respect_clothing_layers",
         "narration_voice",
         "narration_pronoun",
+        # 口調は物語の出来事ではなく設定なので、巻き戻しても最新の選択を残す
+        "player_speech_style",
+        "player_speech_custom",
     )
 
     async def rewind_to_turn(self, run_id: str, turn_number: int) -> dict[str, Any]:
@@ -3785,6 +3968,7 @@ The objective must name a concrete target and an observable end condition that c
                 text_model=run.text_model,
                 narration_voice=narration_voice,
                 narration_pronoun=narration_pronoun,
+                speech_rule=_speech_rule_from_state(state),
                 fallback_appearance=str(
                     state.get("appearance_lock")
                     or state.get("visual_state", {}).get("appearance")
@@ -3951,6 +4135,7 @@ The objective must name a concrete target and an observable end condition that c
                     run.language,
                     narration_voice=narration_voice,
                     narration_pronoun=narration_pronoun,
+                    speech_rule=contexts.speech_rule,
                     romance=romance_sim is not None,
                 ),
                 json.dumps(turn_context, ensure_ascii=False),
@@ -4727,6 +4912,7 @@ The objective must name a concrete target and an observable end condition that c
             input_kind=input_kind,
             narration_voice=narration_voice,
             narration_pronoun=narration_pronoun,
+            speech_rule=_speech_rule_from_state(state),
             appearance_update_allowed=appearance_update_allowed,
             template=template,
             template_resolution=template_resolution,
@@ -5705,8 +5891,15 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         use_precise_reference: bool,
         enable_composite_scene: bool,
         respect_clothing_layers: bool | None = None,
+        player_speech_style: str | None = None,
+        player_speech_custom: str | None = None,
+        partner_speech_style: str | None = None,
     ) -> dict[str, Any]:
-        """実行中シナリオの画像設定を更新する（次回生成から反映）。"""
+        """実行中シナリオの画像設定と口調を更新する（次の手番から反映）。
+
+        口調はプロンプト注入だけの設定なので、現実改変ルールと同じく手番を
+        消費しない。None の項目は既存値を維持する。
+        """
         async with self._run_locks[run_id]:
             run = await self.get_run_orm(run_id, with_turns=True)
             state = _json_load(run.state_json, {})
@@ -5714,6 +5907,18 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             state["enable_composite_scene"] = bool(enable_composite_scene)
             if respect_clothing_layers is not None:
                 state["respect_clothing_layers"] = bool(respect_clothing_layers)
+            if player_speech_style is not None:
+                state["player_speech_style"] = normalize_speech_style(
+                    player_speech_style
+                )
+            if player_speech_custom is not None:
+                state["player_speech_custom"] = normalize_speech_custom(
+                    player_speech_custom
+                )
+            if partner_speech_style is not None and isinstance(state.get("sim"), dict):
+                state["sim"]["partner_speech_style"] = normalize_partner_speech_style(
+                    partner_speech_style
+                )
             async with async_session_factory() as db:
                 persisted = await db.get(AdventureRun, run.id)
                 if persisted is None:
@@ -5834,6 +6039,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                     run.language,
                     narration_voice=contexts.narration_voice,
                     narration_pronoun=contexts.narration_pronoun,
+                    speech_rule=contexts.speech_rule,
                     romance=romance,
                 ),
                 "user": turn_user_prompt,
@@ -5997,6 +6203,13 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             "narration_voice": normalize_narration_voice(state.get("narration_voice")),
             "narration_pronoun": normalize_narration_pronoun(
                 state.get("narration_pronoun")
+            ),
+            # 旧 run は既定の丁寧語へ倒す
+            "player_speech_style": normalize_speech_style(
+                state.get("player_speech_style")
+            ),
+            "player_speech_custom": normalize_speech_custom(
+                state.get("player_speech_custom")
             ),
             "background_image_url": (
                 self.image_url(run.id, Path(run.background_image_path))

@@ -12,6 +12,7 @@ import {
   type AdventureImageRegenerateOptions,
   type AdventureInputKind,
   type AdventureRun,
+  type AdventureSettingsUpdateRequest,
   type AdventureSetup,
   type AdventureSetupRequest,
   type AdventureTemplate,
@@ -106,11 +107,7 @@ interface AdventureContextValue {
   rewindRun: (turnNumber: number) => Promise<void>;
   /** 終了済み run をエピローグ(継続プレイ)へ移行する */
   startEpilogue: () => Promise<void>;
-  updateSettings: (settings: {
-    use_precise_reference: boolean;
-    enable_composite_scene: boolean;
-    respect_clothing_layers?: boolean;
-  }) => Promise<void>;
+  updateSettings: (settings: AdventureSettingsUpdateRequest) => Promise<void>;
   /** 付与済みの現実改変ルールを丸ごと置き換える(手番は消費しない) */
   updateRealityRules: (rules: string[]) => Promise<void>;
   clearError: () => void;
@@ -503,11 +500,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
   }, [activeRun, streaming]);
 
   const updateSettings = useCallback(
-    async (settings: {
-      use_precise_reference: boolean;
-      enable_composite_scene: boolean;
-      respect_clothing_layers?: boolean;
-    }) => {
+    async (settings: AdventureSettingsUpdateRequest) => {
       if (!activeRun) return;
       const runId = activeRun.id;
       setError(null);
@@ -526,6 +519,9 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
                   use_precise_reference: updated.use_precise_reference,
                   enable_composite_scene: updated.enable_composite_scene,
                   respect_clothing_layers: updated.respect_clothing_layers,
+                  player_speech_style: updated.player_speech_style,
+                  player_speech_custom: updated.player_speech_custom,
+                  sim: updated.sim,
                 }
               : run,
           ),

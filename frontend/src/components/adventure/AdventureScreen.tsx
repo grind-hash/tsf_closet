@@ -9,6 +9,7 @@ import type {
   AdventureNarrationVoice,
   AdventurePreset,
   AdventureSim,
+  AdventureSpeechStyle,
   AdventureStatus,
   AdventureTurn,
 } from "../../apis/adventure";
@@ -53,6 +54,7 @@ import AdventureSessionPickerModal, {
   type AdventureSourceSelection,
   selectionFromSession,
 } from "./AdventureSessionPickerModal";
+import AdventureSpeechStyleModal from "./AdventureSpeechStyleModal";
 import "./AdventureScreen.css";
 
 // Anlas見積もりを表示用文字列にする。min=maxなら単一値、異なれば範囲表記
@@ -127,6 +129,17 @@ const DEFAULT_NARRATION_PRONOUN = "僕";
 const NARRATION_PRONOUN_SUGGESTIONS = ["僕", "俺", "私", "わたし", "あたし"];
 const NARRATION_PRONOUN_MAX_LENGTH = 10;
 
+// backend/gateway/consts/adventure_speech.py と揃える
+const SPEECH_STYLES: AdventureSpeechStyle[] = [
+  "polite",
+  "casual",
+  "formal",
+  "custom",
+];
+const DEFAULT_SPEECH_STYLE: AdventureSpeechStyle = "polite";
+const SPEECH_CUSTOM_MAX_LENGTH = 120;
+const PARTNER_SPEECH_STYLE_MAX_LENGTH = 200;
+
 // セットアップで選んだ語りと画像オプションは次回の作成時にも引き継ぐ。
 // 精密参照はAnlasを追加消費するため保存対象に含めず、常に既定OFFから始める
 const SETUP_PREFS_STORAGE_KEY = "adventure_setup_prefs";
@@ -134,6 +147,9 @@ const SETUP_PREFS_STORAGE_KEY = "adventure_setup_prefs";
 type AdventureSetupPrefs = {
   narrationVoice: AdventureNarrationVoice;
   narrationPronoun: string;
+  /** 主人公のセリフの口調。攻略対象の口調はrun固有なので保存しない */
+  speechStyle: AdventureSpeechStyle;
+  speechCustom: string;
   enableCompositeScene: boolean;
   /** romance の主人公(自分)。テンプレキャラID または __session__。次回にも引き継ぐ */
   romancePlayerCharacterId: string;
@@ -166,6 +182,29 @@ function normalizeNarrationPronoun(value: unknown): string | null {
   const trimmed = value.trim();
   if (!trimmed) return null;
   return trimmed.slice(0, NARRATION_PRONOUN_MAX_LENGTH);
+}
+
+function normalizeSpeechStyle(value: unknown): AdventureSpeechStyle | null {
+  return SPEECH_STYLES.includes(value as AdventureSpeechStyle)
+    ? (value as AdventureSpeechStyle)
+    : null;
+}
+
+function normalizeSpeechCustom(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  return value.trim().slice(0, SPEECH_CUSTOM_MAX_LENGTH);
+}
+
+/** 口調をUIへ1行で出す。custom は自由入力本文、空の攻略対象は「自動」表記 */
+function speechStyleLabel(
+  style: AdventureSpeechStyle,
+  custom: string,
+  t: (key: string) => string,
+): string {
+  if (style === "custom") {
+    return custom.trim() || t("adventure.speechStyles.polite");
+  }
+  return t(`adventure.speechStyles.${style}`);
 }
 
 type RunFilter = "all" | AdventureStatus;
@@ -293,6 +332,15 @@ function AdventureHub() {
       normalizeNarrationPronoun(savedSetupPrefs.narrationPronoun) ??
       DEFAULT_NARRATION_PRONOUN,
   );
+  const [speechStyle, setSpeechStyle] = useState<AdventureSpeechStyle>(
+    () =>
+      normalizeSpeechStyle(savedSetupPrefs.speechStyle) ?? DEFAULT_SPEECH_STYLE,
+  );
+  const [speechCustom, setSpeechCustom] = useState(
+    () => normalizeSpeechCustom(savedSetupPrefs.speechCustom) ?? "",
+  );
+  // 攻略対象の口調。空欄なら人物像からLLMが決めるため、次回へは引き継がない
+  const [partnerSpeechStyle, setPartnerSpeechStyle] = useState("");
   const [runFilter, setRunFilter] = useState<RunFilter>("all");
   const [creating, setCreating] = useState(false);
   const { state: settingsState } = useSettings();
@@ -334,6 +382,8 @@ function AdventureHub() {
     const prefs: AdventureSetupPrefs = {
       narrationVoice,
       narrationPronoun: narrationPronoun.trim() || DEFAULT_NARRATION_PRONOUN,
+      speechStyle,
+      speechCustom: speechCustom.trim(),
       enableCompositeScene,
       romancePlayerCharacterId: romancePlayerId,
       romancePlayerSessionId,
@@ -346,6 +396,8 @@ function AdventureHub() {
   }, [
     narrationVoice,
     narrationPronoun,
+    speechStyle,
+    speechCustom,
     enableCompositeScene,
     romancePlayerId,
     romancePlayerSessionId,
@@ -405,10 +457,12 @@ function AdventureHub() {
   const selectedScenario = selectedReplayRun ?? selectedTemplate;
   const selectedScenarioPreset =
     selectedReplayRun?.preset ?? selectedTemplate?.preset;
+  // 実際に開始されるプリセット。リプレイ・作品シナリオは選択側が優先される
+  const effectivePreset =
+    startMode === "authored" ? (selectedScenarioPreset ?? preset) : preset;
   // 生成時間の見積もりと「テキストのみ」告知は同じ設定から導く
   const setupImageSettings = {
-    preset:
-      startMode === "authored" ? (selectedScenarioPreset ?? preset) : preset,
+    preset: effectivePreset,
     enableCompositeScene,
     drawPortraitEveryTurn,
     drawPartnerEveryTurn,
@@ -537,6 +591,10 @@ function AdventureHub() {
           startMode === "generated" ? effectiveScenarioTurns : undefined,
         narration_voice: narrationVoice,
         narration_pronoun: narrationPronoun.trim() || DEFAULT_NARRATION_PRONOUN,
+        player_speech_style: speechStyle,
+        player_speech_custom: speechCustom.trim(),
+        romance_partner_speech_style:
+          effectivePreset === "romance" ? partnerSpeechStyle.trim() : "",
         use_precise_reference: usePreciseReference,
         enable_composite_scene: enableCompositeScene,
         respect_clothing_layers: settingsState.respectClothingLayers,
@@ -943,6 +1001,60 @@ function AdventureHub() {
                       <option key={value} value={value} />
                     ))}
                   </datalist>
+                </label>
+              )}
+              <fieldset className="adventure-speech-style">
+                <legend>{t("adventure.speechStyle")}</legend>
+                <div className="adventure-speech-style__cards">
+                  {SPEECH_STYLES.map((value) => (
+                    <button
+                      type="button"
+                      key={value}
+                      disabled={setupGenerating || loading || creating}
+                      className={speechStyle === value ? "is-active" : ""}
+                      aria-pressed={speechStyle === value}
+                      onClick={() => setSpeechStyle(value)}
+                    >
+                      <strong>{t(`adventure.speechStyles.${value}`)}</strong>
+                      <small>
+                        {t(`adventure.speechStyleExamples.${value}`)}
+                      </small>
+                    </button>
+                  ))}
+                </div>
+                <p className="adventure-speech-style__hint">
+                  {t("adventure.speechStyleHint")}
+                </p>
+              </fieldset>
+              {speechStyle === "custom" && (
+                <label className="adventure-speech-style__custom">
+                  <span>{t("adventure.speechStyleCustom")}</span>
+                  <input
+                    type="text"
+                    maxLength={SPEECH_CUSTOM_MAX_LENGTH}
+                    value={speechCustom}
+                    disabled={setupGenerating || loading || creating}
+                    placeholder={t("adventure.speechStyleCustomPlaceholder")}
+                    onChange={(event) => setSpeechCustom(event.target.value)}
+                  />
+                </label>
+              )}
+              {effectivePreset === "romance" && (
+                <label className="adventure-speech-style__partner">
+                  <span>{t("adventure.romance.partnerSpeechStyle")}</span>
+                  <input
+                    type="text"
+                    maxLength={PARTNER_SPEECH_STYLE_MAX_LENGTH}
+                    value={partnerSpeechStyle}
+                    disabled={setupGenerating || loading || creating}
+                    placeholder={t(
+                      "adventure.romance.partnerSpeechStylePlaceholder",
+                    )}
+                    onChange={(event) =>
+                      setPartnerSpeechStyle(event.target.value)
+                    }
+                  />
+                  <small>{t("adventure.romance.partnerSpeechStyleHint")}</small>
                 </label>
               )}
             </div>
@@ -1482,6 +1594,7 @@ function AdventurePlay({ runId }: { runId: string }) {
   // romance 専用モーダル（ギフトショップ・属性付与）
   const [giftShopOpen, setGiftShopOpen] = useState(false);
   const [attributeModalOpen, setAttributeModalOpen] = useState(false);
+  const [speechModalOpen, setSpeechModalOpen] = useState(false);
   const [imageSettingsOpen, setImageSettingsOpen] = useState(false);
   const [bgmSettingsOpen, setBgmSettingsOpen] = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
@@ -1489,7 +1602,7 @@ function AdventurePlay({ runId }: { runId: string }) {
   const [logOpen, setLogOpen] = useState(false);
   const [messageWindowHidden, setMessageWindowHidden] = useState(false);
   const [hudPanel, setHudPanel] = useState<
-    "milestones" | "clues" | "realityRules" | "bgm" | null
+    "milestones" | "clues" | "realityRules" | "speechStyle" | "bgm" | null
   >(null);
   const [protagonistDockOpen, setProtagonistDockOpen] = useState(
     readProtagonistDockOpen,
@@ -2396,6 +2509,24 @@ function AdventurePlay({ runId }: { runId: string }) {
               )}
               <button
                 type="button"
+                className={`adventure-hud__chip adventure-hud__chip--speech${
+                  hudPanel === "speechStyle" ? " is-open" : ""
+                }`}
+                aria-expanded={hudPanel === "speechStyle"}
+                onClick={() =>
+                  setHudPanel((current) =>
+                    current === "speechStyle" ? null : "speechStyle",
+                  )
+                }
+              >
+                <span>{t("adventure.speechStyleChip")}</span>
+                {/* 自由入力の全文はポップオーバーで読めるため、チップは分類名だけ出す */}
+                <strong>
+                  {t(`adventure.speechStyles.${activeRun.player_speech_style}`)}
+                </strong>
+              </button>
+              <button
+                type="button"
                 className={`adventure-hud__chip adventure-hud__chip--protagonist${
                   protagonistDockOpen ? " is-open" : ""
                 }`}
@@ -2427,7 +2558,45 @@ function AdventurePlay({ runId }: { runId: string }) {
                     : `adventure.${hudPanel}`,
                 )}
               >
-                {hudPanel === "bgm" ? (
+                {hudPanel === "speechStyle" ? (
+                  <>
+                    <p className="adventure-hud__note">
+                      {t("adventure.speechStyleHint")}
+                    </p>
+                    <dl className="adventure-hud__facts">
+                      <div>
+                        <dt>{t("adventure.protagonist")}</dt>
+                        <dd>
+                          {speechStyleLabel(
+                            activeRun.player_speech_style,
+                            activeRun.player_speech_custom,
+                            t,
+                          )}
+                        </dd>
+                      </div>
+                      {sim && (
+                        <div>
+                          <dt>{sim.partner_name}</dt>
+                          <dd>
+                            {sim.partner_speech_style ||
+                              t("adventure.romance.partnerSpeechStyleAuto")}
+                          </dd>
+                        </div>
+                      )}
+                    </dl>
+                    <button
+                      type="button"
+                      className="adventure-hud__panel-action"
+                      disabled={!canActOnRun(activeRun)}
+                      onClick={() => {
+                        setHudPanel(null);
+                        setSpeechModalOpen(true);
+                      }}
+                    >
+                      {t("adventure.speechStyleManager.manage")}
+                    </button>
+                  </>
+                ) : hudPanel === "bgm" ? (
                   <>
                     <p className="adventure-hud__bgm-key">
                       <span aria-hidden>♪</span>
@@ -3597,6 +3766,11 @@ function AdventurePlay({ runId }: { runId: string }) {
       <AdventureAttributeModal
         isOpen={attributeModalOpen}
         onClose={() => setAttributeModalOpen(false)}
+      />
+
+      <AdventureSpeechStyleModal
+        isOpen={speechModalOpen}
+        onClose={() => setSpeechModalOpen(false)}
       />
 
       {/* Anlas cost confirmation dialog (romance with precise references) */}

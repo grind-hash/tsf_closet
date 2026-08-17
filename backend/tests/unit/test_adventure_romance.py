@@ -148,6 +148,42 @@ def test_init_state_keeps_partner_and_player_separated() -> None:
     assert "partner_profile" not in view
 
 
+def test_init_state_takes_partner_speech_style_from_the_generated_setup() -> None:
+    sim = init_romance_state(
+        make_setup(partner_speech_style="ため口。語尾を伸ばすギャル口調。"),
+        14,
+        rng=random.Random(0),
+    )
+    assert sim["partner_speech_style"] == "ため口。語尾を伸ばすギャル口調。"
+    # 主人公の口調表示と対にして並べるため、公開ビューへは出す
+    assert (
+        public_sim_view(sim, turn_count=0)["partner_speech_style"]
+        == "ため口。語尾を伸ばすギャル口調。"
+    )
+
+
+def test_user_written_partner_speech_style_wins_over_the_generated_one() -> None:
+    sim = init_romance_state(
+        make_setup(partner_speech_style="丁寧語で話す。"),
+        14,
+        rng=random.Random(0),
+        partner_speech_style="ため口で話す。",
+    )
+    assert sim["partner_speech_style"] == "ため口で話す。"
+
+
+def test_partner_speech_style_is_optional_for_legacy_setups() -> None:
+    sim = init_romance_state(make_setup(), 14, rng=random.Random(0))
+    assert sim["partner_speech_style"] == ""
+
+
+def test_narrative_guidance_pins_the_partner_register() -> None:
+    from gateway.services.adventure_romance import ROMANCE_NARRATIVE_GUIDANCE
+
+    assert "state.sim.partner_speech_style" in ROMANCE_NARRATIVE_GUIDANCE
+    assert "never drifts toward the player's" in ROMANCE_NARRATIVE_GUIDANCE
+
+
 def test_work_resolution_pays_wage_and_seeds_encounter() -> None:
     sim = make_sim()
     hit = resolve_romance_action(

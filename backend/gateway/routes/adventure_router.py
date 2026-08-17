@@ -18,6 +18,12 @@ from ..consts.adventure_narration import (
     NARRATION_VOICE_DEFAULT,
     NarrationVoice,
 )
+from ..consts.adventure_speech import (
+    PARTNER_SPEECH_STYLE_MAX_LENGTH,
+    SPEECH_CUSTOM_MAX_LENGTH,
+    SPEECH_STYLE_DEFAULT,
+    SpeechStyle,
+)
 from ..consts.adventure_turns import (
     ADVENTURE_TURNS_DEFAULT,
     ADVENTURE_TURNS_MAX,
@@ -70,6 +76,10 @@ class AdventureCreateRequest(BaseModel):
         min_length=1,
         max_length=NARRATION_PRONOUN_MAX_LENGTH,
     )
+    # 主人公のセリフの口調。既定は丁寧語
+    player_speech_style: SpeechStyle = SPEECH_STYLE_DEFAULT
+    # custom のときだけ使う自由入力
+    player_speech_custom: str = Field(default="", max_length=SPEECH_CUSTOM_MAX_LENGTH)
     # 既定OFF: ユーザーが明示ONしない限り精密参照でAnlasを消費しない
     use_precise_reference: bool = False
     # 既定OFF: OFF時は中央の立ち絵のみ更新し、背景合成シーンは初回のみ生成
@@ -82,6 +92,10 @@ class AdventureCreateRequest(BaseModel):
     # session_id があればテンプレートキャラクターより優先される
     romance_player_session_id: str | None = Field(default=None, max_length=80)
     romance_player_history_id: str | None = Field(default=None, max_length=80)
+    # romance の攻略対象の口調。空なら人物像からLLMが自動で決める
+    romance_partner_speech_style: str = Field(
+        default="", max_length=PARTNER_SPEECH_STYLE_MAX_LENGTH
+    )
 
 
 class AdventureSettingsUpdateRequest(BaseModel):
@@ -89,6 +103,14 @@ class AdventureSettingsUpdateRequest(BaseModel):
     enable_composite_scene: bool
     # 未指定なら既存の run 設定を維持する
     respect_clothing_layers: bool | None = None
+    player_speech_style: SpeechStyle | None = None
+    player_speech_custom: str | None = Field(
+        default=None, max_length=SPEECH_CUSTOM_MAX_LENGTH
+    )
+    # romance 以外の run では無視される
+    partner_speech_style: str | None = Field(
+        default=None, max_length=PARTNER_SPEECH_STYLE_MAX_LENGTH
+    )
 
 
 class AdventureRealityRulesUpdateRequest(BaseModel):
@@ -185,12 +207,15 @@ async def create_run(request: AdventureCreateRequest) -> dict:
             scenario_max_turns=request.scenario_max_turns,
             narration_voice=request.narration_voice,
             narration_pronoun=request.narration_pronoun,
+            player_speech_style=request.player_speech_style,
+            player_speech_custom=request.player_speech_custom,
             use_precise_reference=request.use_precise_reference,
             enable_composite_scene=request.enable_composite_scene,
             respect_clothing_layers=request.respect_clothing_layers,
             romance_player_character_id=request.romance_player_character_id,
             romance_player_session_id=request.romance_player_session_id,
             romance_player_history_id=request.romance_player_history_id,
+            romance_partner_speech_style=request.romance_partner_speech_style,
         )
     except AdventureError as error:
         raise _http_error(error) from error
@@ -251,6 +276,9 @@ async def update_run_settings(
             use_precise_reference=request.use_precise_reference,
             enable_composite_scene=request.enable_composite_scene,
             respect_clothing_layers=request.respect_clothing_layers,
+            player_speech_style=request.player_speech_style,
+            player_speech_custom=request.player_speech_custom,
+            partner_speech_style=request.partner_speech_style,
         )
     except AdventureError as error:
         raise _http_error(error) from error

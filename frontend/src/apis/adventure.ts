@@ -20,6 +20,8 @@ export type AdventureNarrationVoice =
   | "second_person"
   | "third_person"
   | "first_person";
+/** セリフの口調。polite が既定。custom のときだけ自由入力を使う */
+export type AdventureSpeechStyle = "polite" | "casual" | "formal" | "custom";
 /**
  * LLMが返すBGMカテゴリ。有効なキー集合はバックエンドのカタログJSONが
  * 定義するため、フロントでは自由文字列として扱い未知キーは既定曲へ倒す。
@@ -104,6 +106,8 @@ export interface AdventureSim {
   stage: "stranger" | "friend" | "aware" | "mutual";
   money: number;
   partner_name: string;
+  /** 攻略対象の口調。空なら人物像に任せる。導入前の旧 run では未定義 */
+  partner_speech_style?: string;
   /** 攻略対象の外見。現実改変で書き換わる。配信前の旧 run では未定義 */
   partner_appearance?: string;
   /** 主人公(自分)。導入前の旧 run では未定義 */
@@ -215,6 +219,10 @@ export interface AdventureRun {
   narration_voice: AdventureNarrationVoice;
   /** first_person のときに使う一人称語 */
   narration_pronoun: string;
+  /** 主人公のセリフの口調。旧runは polite 扱い */
+  player_speech_style: AdventureSpeechStyle;
+  /** custom のときに使う自由入力 */
+  player_speech_custom: string;
   /** 開始時に一度だけ生成される背景。非合成モードの固定背景として使用 */
   background_image_url: string | null;
   /** 現在の中央の立ち絵（最新ターン分） */
@@ -277,11 +285,17 @@ export interface AdventureCreateRequest extends AdventureSetupRequest {
   narration_voice?: AdventureNarrationVoice;
   /** first_person のときだけ使う。未指定なら「僕」 */
   narration_pronoun?: string;
+  /** 主人公のセリフの口調。未指定なら polite（丁寧語） */
+  player_speech_style?: AdventureSpeechStyle;
+  /** custom のときだけ使う自由入力 */
+  player_speech_custom?: string;
   /** romance の主人公テンプレートキャラクター。未指定なら既定(char1) */
   romance_player_character_id?: string;
   /** romance の主人公を特定セッション時点の変身状態にする場合に指定 */
   romance_player_session_id?: string;
   romance_player_history_id?: string;
+  /** romance の攻略対象の口調。空なら人物像からLLMが決める */
+  romance_partner_speech_style?: string;
 }
 
 export interface AdventureSettingsUpdateRequest {
@@ -289,6 +303,11 @@ export interface AdventureSettingsUpdateRequest {
   enable_composite_scene: boolean;
   /** 未指定なら run 側の既存値を維持する */
   respect_clothing_layers?: boolean;
+  /** 未指定なら run 側の既存値を維持する。次の手番から反映される */
+  player_speech_style?: AdventureSpeechStyle;
+  player_speech_custom?: string;
+  /** romance 以外の run では無視される */
+  partner_speech_style?: string;
 }
 
 export interface AdventureStreamEvent {
@@ -320,6 +339,8 @@ function normalizeRun(run: AdventureRun): AdventureRun {
     // 旧runやモック応答にキーが無くても表示側が undefined を掴まないようにする
     narration_voice: run.narration_voice ?? "second_person",
     narration_pronoun: run.narration_pronoun || "僕",
+    player_speech_style: run.player_speech_style ?? "polite",
+    player_speech_custom: run.player_speech_custom ?? "",
     bgm: run.bgm ?? null,
     bgm_reason: run.bgm_reason ?? null,
     opening_bgm: run.opening_bgm ?? null,

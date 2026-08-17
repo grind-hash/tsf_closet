@@ -266,6 +266,14 @@
   gap: 8px;
 }
 
+/* 口調は4択なので2列に折り返す。見た目は語りの人称カードと共有する */
+.adventure-speech-style__cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.adventure-speech-style__cards button,
 .adventure-narration-voice__cards button {
   display: grid;
   gap: 4px;
@@ -277,24 +285,51 @@
   cursor: pointer;
 }
 
+.adventure-speech-style__cards button.is-active,
 .adventure-narration-voice__cards button.is-active {
   border-color: #efb85a;
   background: #24211a;
 }
 
+.adventure-speech-style__cards strong,
 .adventure-narration-voice__cards strong {
   color: #f4f6f8;
   font-size: 0.88rem;
 }
 
+.adventure-speech-style__cards small,
 .adventure-narration-voice__cards small {
   color: #aeb7bf;
   font-size: 0.74rem;
   line-height: 1.5;
 }
 
+.adventure-speech-style__hint,
 .adventure-narration-voice__hint {
   margin: 0;
+  color: #aeb7bf;
+  font-size: 0.75rem;
+}
+
+.adventure-speech-style__custom,
+.adventure-speech-style__partner {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.adventure-speech-style__custom input,
+.adventure-speech-style__partner input {
+  min-height: 40px;
+  padding: 0 10px;
+  border: 1px solid #4a535c;
+  border-radius: 6px;
+  color: #e9edf0;
+  background: #242b31;
+  font-size: 0.95rem;
+}
+
+.adventure-speech-style__partner small {
   color: #aeb7bf;
   font-size: 0.75rem;
 }
@@ -878,8 +913,13 @@ button:disabled {
   cursor: pointer;
 }
 
+/*
+ * HUD で唯一伸縮する要素なので、チップを1つ足すとその分だけゴール文が縮む。
+ * min-width:0 のままだと幅0まで潰れてゴールが消えるため、下限を与える
+ * (省略表示は h1 > span 側の ellipsis が担当する)。
+ */
 .adventure-hud__title {
-  min-width: 0;
+  min-width: 5rem;
   flex: 1 1 auto;
 }
 
@@ -1097,6 +1137,20 @@ button:disabled {
   line-height: 1;
 }
 
+/* 口調は文字列なので、他のチップ(数値)より幅が暴れる。上限を決めて
+   ゴール文の取り分を奪わせない。全文はポップオーバー側で読める */
+.adventure-hud__chip--speech {
+  max-width: 92px;
+}
+
+.adventure-hud__chip--speech strong {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 0.78rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .adventure-hud__chip.is-open {
   border-color: #efb85a;
 }
@@ -1187,6 +1241,28 @@ button:disabled {
   color: #aeb7bf;
   font-size: 0.72rem;
   line-height: 1.5;
+}
+
+/* HUDポップオーバー内の「見出し＋値」一覧。主人公と攻略対象を対で並べる */
+.adventure-hud__facts {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 8px;
+}
+
+.adventure-hud__facts dt {
+  margin-bottom: 2px;
+  color: #efb85a;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.adventure-hud__facts dd {
+  margin: 0;
+  color: #d6dce1;
+  font-size: 0.82rem;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
 }
 
 .adventure-hud__bgm-key {
@@ -3690,7 +3766,8 @@ button:disabled {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .adventure-narration-voice__cards {
+  .adventure-narration-voice__cards,
+  .adventure-speech-style__cards {
     grid-template-columns: minmax(0, 1fr);
   }
 
@@ -4150,17 +4227,22 @@ button:disabled {
   background: rgb(205 185 196 / 12%);
 }
 
-/* romance: バイト・ギフト・属性付与・告白の行動ボタン行 */
+/* romance: バイト・ギフト・属性付与・告白の行動ボタン行。
+   幅 260〜360px のパネルに3〜4個並ぶため flex-wrap ではラギッドに折り返る。
+   2列グリッドに固定して、折り返しても行頭・ボタン幅が揃うようにする */
 .adventure-romance-actions {
-  display: flex;
+  display: grid;
   flex: 0 0 auto;
-  flex-wrap: wrap;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
 
 .adventure-romance-actions button {
   min-height: 34px;
-  padding: 4px 16px;
+  /* 2列で等幅になるぶん、左右余白を詰めて既定ラベルが1行に収まるようにする。
+     収まらない場合は省略せず折り返す(ラベルを読めなくしない) */
+  padding: 4px 10px;
+  line-height: 1.35;
   border: 1px solid rgb(240 143 183 / 32%);
   border-radius: 999px;
   color: #edd6e0;

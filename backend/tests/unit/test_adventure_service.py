@@ -947,6 +947,147 @@ def test_clothing_narrative_suffix_follows_narration_voice(
     assert suffix == expected
 
 
+def test_speech_style_defaults_to_polite_and_reaches_narrative_prompts() -> None:
+    """口調は物語を書く2経路にだけ載せ、選択肢を作る判定側には載せない。"""
+    from gateway.services.adventure_service import _speech_style_instruction
+
+    service = AdventureService()
+    rule = _speech_style_instruction(None, None)
+    assert "SPEECH REGISTER:" in rule
+    assert "です/ます" in rule
+    for prompt in (
+        service._director_system_prompt("ja", speech_rule=rule),
+        service._narrative_system_prompt("ja", speech_rule=rule),
+    ):
+        assert "SPEECH REGISTER:" in prompt
+    assert "SPEECH REGISTER:" not in service._resolution_system_prompt("ja")
+
+
+@pytest.mark.parametrize(
+    ("style", "marker"),
+    [
+        ("polite", "speaks politely to everyone"),
+        ("casual", "speaks casually and familiarly"),
+        ("formal", "deferential, formal Japanese"),
+    ],
+)
+def test_speech_style_switches_register(style: str, marker: str) -> None:
+    from gateway.services.adventure_service import _speech_style_instruction
+
+    assert marker in _speech_style_instruction(style, "")
+
+
+def test_custom_speech_style_uses_the_written_text() -> None:
+    from gateway.services.adventure_service import _speech_style_instruction
+
+    rule = _speech_style_instruction("custom", "武士のような古風な口調")
+    assert "「武士のような古風な口調」" in rule
+
+
+def test_custom_speech_style_falls_back_to_polite_when_blank() -> None:
+    from gateway.services.adventure_service import _speech_style_instruction
+
+    assert "speaks politely to everyone" in _speech_style_instruction("custom", "   ")
+
+
+def test_unknown_speech_style_falls_back_to_polite() -> None:
+    from gateway.services.adventure_service import normalize_speech_style
+
+    assert normalize_speech_style("bogus") == "polite"
+    assert normalize_speech_style(None) == "polite"
+
+
+def test_partner_speech_style_is_restated_and_pinned_to_the_partner() -> None:
+    """攻略対象の口調は主人公の口調へ収束させない、と明示すること。"""
+    from gateway.services.adventure_service import _speech_style_instruction
+
+    rule = _speech_style_instruction(
+        "polite",
+        "",
+        partner_style="ため口。語尾を伸ばすギャル口調",
+        partner_name="ミク",
+    )
+    assert "ミク" in rule
+    assert "「ため口。語尾を伸ばすギャル口調」" in rule
+    assert "Never converge their register onto the player's." in rule
+
+
+def test_speech_rule_from_state_reads_the_partner_from_sim() -> None:
+    from gateway.services.adventure_service import _speech_rule_from_state
+
+    rule = _speech_rule_from_state(
+        {
+            "player_speech_style": "casual",
+            "sim": {"partner_name": "ミク", "partner_speech_style": "ため口"},
+        }
+    )
+    assert "speaks casually and familiarly" in rule
+    assert "ミク" in rule
+
+
+def test_speech_settings_are_hidden_from_the_user_prompt_state() -> None:
+    from gateway.services.adventure_service import _lean_state_for_llm
+
+    lean = _lean_state_for_llm(
+        {"player_speech_style": "casual", "player_speech_custom": "x", "clues": []}
+    )
+    assert "player_speech_style" not in lean
+    assert "player_speech_custom" not in lean
+
+
+def test_choice_prompts_ask_for_short_labels() -> None:
+    """行動パネルは幅の狭い縦カラムなので、選択肢を一目で読める長さに保つ。"""
+    service = AdventureService()
+    for prompt in (
+        service._director_system_prompt("ja"),
+        service._resolution_system_prompt("ja"),
+    ):
+        assert "at most 20 Japanese characters" in prompt
+
+
+def test_overlong_choice_label_is_clamped_instead_of_failing() -> None:
+    """長すぎるラベルは修復リトライに落とさず切り詰める。"""
+    from gateway.services.adventure_service import (
+        _CHOICE_LABEL_MAX_LENGTH,
+        AdventureChoice,
+    )
+
+    choice = AdventureChoice.model_validate(
+        {"id": "a", "label": "あ" * (_CHOICE_LABEL_MAX_LENGTH + 40)}
+    )
+    assert len(choice.label) <= _CHOICE_LABEL_MAX_LENGTH
+
+
+def test_sanitize_choices_keeps_long_labels_instead_of_dropping_them() -> None:
+    """長さを理由に3択が既定文へ差し替わらないこと。"""
+    from gateway.services.adventure_service import (
+        _CHOICE_LABEL_MAX_LENGTH,
+        _sanitize_choices,
+    )
+
+    long_label = (
+        "彼女の座っているテーブルへ、" + "考え抜いた新しいドリンクを提供する" * 6
+    )
+    choices = _sanitize_choices(
+        [
+            {"id": "a", "label": long_label},
+            {"id": "b", "label": "本棚を眺める"},
+            {"id": "c", "label": "店を出る"},
+        ],
+        language="ja",
+    )
+    assert [item["id"] for item in choices] == ["a", "b", "c"]
+    assert len(choices[0]["label"]) <= _CHOICE_LABEL_MAX_LENGTH
+
+
+def test_romance_setup_prompt_no_longer_suggests_rivals() -> None:
+    """恋敵を扱う機構が無いため、ミッション案に登場させない。"""
+    service = AdventureService()
+    prompt = service._setup_system_prompt("ja", preset="romance")
+    assert "rivals" not in prompt
+    assert "romantic complications" in prompt
+
+
 def test_equipment_image_tags_include_worn_dress() -> None:
     from gateway.services.adventure_service import _equipment_image_tags
 
