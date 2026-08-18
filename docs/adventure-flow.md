@@ -27,8 +27,8 @@ flowchart LR
         Romance[adventure_romance]
     end
     subgraph EXT[外部]
-        LLM[llm_service / NovelAI]
-        Img[image_service / NovelAI]
+        LLM[llm_service<br/>selfhost / OpenRouter / NovelAI]
+        Img[image_service<br/>selfhost / OpenRouter / NovelAI]
     end
     DB[(SQLite<br/>AdventureRun<br/>AdventureTurn)]
 
@@ -74,7 +74,7 @@ sequenceDiagram
 
     U->>S: 選択肢 / 自由入力 / ギフト / バイト / 告白
     S->>C: submitTurn(input, inputKind)
-    alt romance かつ精密参照ON かつ抑止されていない
+    alt NovelAI かつ romance かつ精密参照ON かつ抑止されていない
         C-->>U: Anlas消費の確認ダイアログ
         U->>C: 続行を選択
     end
@@ -146,15 +146,31 @@ sequenceDiagram
 
 ### 補足
 
+- **プロバイダーは通常ゲームと同じ設定に従う**。テキストは `FEELING_PROVIDER`、
+  画像は `IMAGE_PROVIDER`（selfhost / openrouter / novelai）。NovelAI固有機能は
+  次のように劣化する: 非NovelAIではキャラクター枠・negative prompt・seed が
+  使えず1本のプロンプトへ畳む（`_flatten_scene_prompt`）。参照画像は追加費用
+  なしで常に使う（精密参照トグルはNovelAI専用）。selfhost（ComfyUI）は
+  txt2img を持たないため背景は生成せず、立ち絵・合成は既存画像の編集で賄う。
 - **並列なのは②と③だけ**で、①の本文が確定してから走る。③は本文を入力に取るため。
-- **画像は③の中で直列**に生成する（主人公の立ち絵 → 攻略対象の立ち絵 → 合成シーン）。
-  立ち絵と合成で同じシードを使い、衣装の描画差を抑える。
+- **画像は③の中で直列**に生成する（背景 → 主人公の立ち絵 → 攻略対象の立ち絵 →
+  合成シーン）。立ち絵と合成で同じシードを使い、衣装の描画差を抑える。
+  **OpenRouter のときだけ**、従量課金APIで同時リクエストが可能なため
+  背景・主人公・攻略対象を `asyncio.gather` で並列生成する（合成のみ後段）。
+  `model_execution_gate` も OpenRouter は直列化しない。並列時の state 保存は
+  `_persist_locks` で read-modify-write を直列化する。
+- **API料金（OpenRouter）**はターン内の全呼び出しを `_CostTracker`
+  （ContextVar）で集計し、`complete` 直前に `cost` イベントで配信する。
+  REST応答（run作成・セットアップ生成・選択肢再生成・画像再生成）は
+  `cost_usd` フィールドで返す。FEは `SettingsContext.totalCost` へ累算し、
+  HUDのメトリクス行に累計を表示する。
 - **攻略対象の外見の書き戻しは `apply_romance_outcome` より後**に行う。
   判定側は visual を見ない別呼び出しで、入れ替わり宣言でも元の外見をそのまま
   返してくることがあり、先に書くと上書きされて次の手番で姿が戻る。
 - SSE イベントは `status` / `narrative_chunk` / `narrative_done` / `portrait_image` /
-  `partner_image` / `background_image` / `image` / `turn` / `complete` / `error`。
-  通常ゲームの `useSSE` には流さず、`apis/adventure.ts` の専用パーサで処理する。
+  `partner_image` / `background_image` / `image` / `cost` / `turn` / `complete` /
+  `error`。通常ゲームの `useSSE` には流さず、`apis/adventure.ts` の専用パーサで
+  処理する。
 
 ---
 
@@ -182,7 +198,7 @@ sequenceDiagram
     C-->>U: 内容を確認・編集
 
     U->>S: 開始
-    alt 精密参照ON
+    alt NovelAI かつ精密参照ON
         C-->>U: Anlas消費の確認ダイアログ
         U->>C: 続行を選択
     end
@@ -200,8 +216,8 @@ sequenceDiagram
     SV->>DB: AdventureRun を作成
     SV->>SV: _generate_opening_visuals
     SV->>I: 背景 / 主人公の立ち絵 / 攻略対象の立ち絵 / 合成シーン
-    Note over SV: 失敗しても run 作成は成功扱いにする
-    SV-->>C: run
+    Note over SV: 失敗しても run 作成は成功扱いにする<br/>OpenRouterでは背景・立ち絵を並列生成する<br/>selfhostは背景をスキップする
+    SV-->>C: run（OpenRouterでは cost_usd を含む）
     C-->>U: プレイ画面へ
 ```
 
@@ -288,6 +304,9 @@ sequenceDiagram
     SV->>I: 画像生成
     I-->>SV: 画像
     SV-->>C: image / portrait_image
+    opt OpenRouter利用時
+        SV-->>C: cost（このストリームのAPI料金）
+    end
     C-->>U: ステージを更新
 ```
 

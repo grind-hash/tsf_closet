@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import copy
 import json
 import logging
@@ -100,6 +101,73 @@ logger = logging.getLogger(__name__)
 # ラベルは何行にも折り返して選択肢一覧が読めなくなる。プロンプト側で
 # 20字程度を要求したうえで、この値は超過分を静かに切り詰める最後の砦として使う
 _CHOICE_LABEL_MAX_LENGTH = 60
+
+_KNOWN_PROVIDERS = ("selfhost", "openrouter", "novelai")
+
+
+def _text_provider() -> str:
+    """Adventureのテキスト生成プロバイダー。通常ゲームと同じ設定に従う。"""
+    provider = str(settings.feeling_provider or "").lower()
+    return provider if provider in _KNOWN_PROVIDERS else "selfhost"
+
+
+def _image_provider() -> str:
+    """Adventureの画像生成プロバイダー。通常ゲームと同じ設定に従う。"""
+    provider = str(settings.image_provider or "").lower()
+    return provider if provider in _KNOWN_PROVIDERS else "selfhost"
+
+
+def _image_calls_parallelizable() -> bool:
+    """画像生成APIを並列に呼んでよいか。
+
+    OpenRouterは従量課金のクラウドAPIで同時リクエストを受けられる。
+    selfhost(単一GPU)とNovelAI(直列ゲート対象)は従来どおり直列にする。
+    """
+    return _image_provider() == "openrouter"
+
+
+class _CostTracker:
+    """1オペレーション(ターン・Run作成など)のAPI料金(USD)を集計する。"""
+
+    __slots__ = ("total_usd",)
+
+    def __init__(self) -> None:
+        self.total_usd = 0.0
+
+    def add(self, cost_usd: float | None) -> None:
+        if cost_usd:
+            self.total_usd += float(cost_usd)
+
+
+# asyncio.create_task はコンテキストを複製するが、同一トラッカーオブジェクトを
+# 共有するため、producer タスク内の加算も呼び出し元の合計へ反映される
+_cost_tracker: contextvars.ContextVar[_CostTracker | None] = contextvars.ContextVar(
+    "adventure_cost_tracker", default=None
+)
+
+
+def _record_cost(cost_usd: float | None) -> None:
+    tracker = _cost_tracker.get()
+    if tracker is not None:
+        tracker.add(cost_usd)
+
+
+async def _generate_text(
+    system_prompt: str, user_prompt: str, *, text_model: str
+) -> str:
+    """設定プロバイダーでテキストを生成し、API料金を集計へ加算する。
+
+    text_model は NovelAI 利用時のみ意味を持つ。OpenRouter / selfhost は
+    それぞれの設定値(openrouter_llm_model / litellm_llm_model)を使う。
+    """
+    result = await llm_service.generate_text(
+        system_prompt,
+        user_prompt,
+        provider_override=_text_provider(),
+        novelai_model_override=text_model,
+    )
+    _record_cost(getattr(result, "cost_usd", None))
+    return result.content
 
 
 def _default_director_choices(language: str) -> list[dict[str, str]]:
@@ -1092,6 +1160,45 @@ def _merge_player_tags(base: str, extra: str) -> str:
     return f"{base_clean}, {extra_clean}"[:1200]
 
 
+def _flatten_scene_prompt(
+    scene_prompt: str, player_prompt: str, npc_prompts: list[str]
+) -> str:
+    """NovelAI V4のキャラクター枠を持たないプロバイダー向けに1本へ畳む。
+
+    NovelAI では scene/player/npc を分離プロンプトで送るが、OpenRouter や
+    ComfyUI は単一プロンプトしか受けないため、役割を明示して連結する。
+    """
+    parts = [f"Scene: {scene_prompt.strip()}"]
+    if player_prompt.strip():
+        parts.append(
+            "Main character in the center foreground: " + player_prompt.strip()
+        )
+    for index, npc_prompt in enumerate(npc_prompts, start=1):
+        if npc_prompt.strip():
+            parts.append(
+                f"Secondary character {index}, beside or behind the main "
+                "character: " + npc_prompt.strip()
+            )
+    return "\n".join(parts)
+
+
+def _scene_edit_instruction(has_background: bool, has_reference: bool) -> str:
+    """OpenRouter画像編集用の指示文。添付画像の役割を明示する。"""
+    if has_background and has_reference:
+        return (
+            "Create one single-frame illustration: place the exact character "
+            "from the second attached image into the scene of the first "
+            "attached image. Keep the character's face, hair, body, and "
+            "outfit consistent with the description below.\n"
+        )
+    if has_background:
+        return (
+            "Create one single-frame illustration based on the attached "
+            "image, updated to match the description below.\n"
+        )
+    return ""
+
+
 def _enhance_adventure_prompt(prompt: str, *, nsfw_mode: bool) -> str:
     from .prompts import enhance_prompt_for_novelai
 
@@ -2043,6 +2150,9 @@ class AdventureService:
 
     def __init__(self) -> None:
         self._run_locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
+        # 画像生成の並列実行(OpenRouter)時に、state_json の
+        # read-modify-write が交錯して更新を失わないよう永続化だけ直列化する
+        self._persist_locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
         self._images_dir = settings.history_images_dir.parent / "adventure_images"
         self._images_dir.mkdir(parents=True, exist_ok=True)
 
@@ -2188,15 +2298,10 @@ Keep narrative under 800 characters and the entire JSON response compact. bgm se
             speech_rule=speech_rule,
             romance=romance,
         )
-        raw = await llm_service.generate_text(
-            system_prompt,
-            prompt,
-            provider_override="novelai",
-            novelai_model_override=text_model,
-        )
+        raw = await _generate_text(system_prompt, prompt, text_model=text_model)
         try:
             return AdventureDirectorOutput.model_validate_json(
-                _strip_json_fence(raw.content),
+                _strip_json_fence(raw),
                 context={
                     "fallback_appearance": fallback_appearance,
                     "fallback_choices": _default_director_choices(language),
@@ -2209,16 +2314,13 @@ Keep narrative under 800 characters and the entire JSON response compact. bgm se
 Return JSON only and keep the entire response under 1200 characters. Do not repeat or continue the source verbatim. Preserve only facts already present. Keep narrative under 500 characters. If the source describes an action that objectively ends the mission, preserve ending_status as failure and provide a short ending_summary. Required minimum shape: {{"narrative":"...","visual_state":{{"location":"...","appearance":"...","clothing":"..."}},"ending_status":"continue|success|partial|failure","ending_title":null,"ending_summary":null}}.
 {_narration_voice_instruction(narration_voice, narration_pronoun)}
 {speech_rule}"""
-            repair_prompt = "Invalid source output:\n\n" + raw.content
-            repaired = await llm_service.generate_text(
-                repair_system_prompt,
-                repair_prompt,
-                provider_override="novelai",
-                novelai_model_override=text_model,
+            repair_prompt = "Invalid source output:\n\n" + raw
+            repaired = await _generate_text(
+                repair_system_prompt, repair_prompt, text_model=text_model
             )
             try:
                 return AdventureDirectorOutput.model_validate_json(
-                    _strip_json_fence(repaired.content),
+                    _strip_json_fence(repaired),
                     context={
                         "fallback_appearance": fallback_appearance,
                         "fallback_choices": _default_director_choices(language),
@@ -2229,8 +2331,8 @@ Return JSON only and keep the entire response under 1200 characters. Do not repe
                 logger.warning(
                     "Adventure JSON validation failed: raw_length=%d "
                     "repaired_length=%d: %s / %s",
-                    len(raw.content),
-                    len(repaired.content),
+                    len(raw),
+                    len(repaired),
                     first_error,
                     second_error,
                 )
@@ -2324,29 +2426,21 @@ scene_tags contains only environment, camera, composition, lighting, and the obs
         error_message: str,
         context: dict[str, Any] | None = None,
     ) -> _StructuredOutputT:
-        raw = await llm_service.generate_text(
-            system_prompt,
-            user_prompt,
-            provider_override="novelai",
-            novelai_model_override=text_model,
-        )
+        raw = await _generate_text(system_prompt, user_prompt, text_model=text_model)
         try:
-            return model.model_validate_json(
-                _strip_json_fence(raw.content), context=context
-            )
+            return model.model_validate_json(_strip_json_fence(raw), context=context)
         except ValidationError as first_error:
-            repaired = await llm_service.generate_text(
+            repaired = await _generate_text(
                 system_prompt,
                 "Repair the following output into one valid compact JSON object for "
                 "the required schema. Return JSON only and do not add new facts. "
                 "Respect every string length limit in the schema; when a value is "
-                "too long, shorten it by dropping trailing details.\n\n" + raw.content,
-                provider_override="novelai",
-                novelai_model_override=text_model,
+                "too long, shorten it by dropping trailing details.\n\n" + raw,
+                text_model=text_model,
             )
             try:
                 return model.model_validate_json(
-                    _strip_json_fence(repaired.content), context=context
+                    _strip_json_fence(repaired), context=context
                 )
             except ValidationError as second_error:
                 logger.warning(
@@ -2519,30 +2613,20 @@ The objective must name a concrete target and an observable end condition that c
         preset: str = "",
     ) -> AdventureSetupOutput:
         system_prompt = self._setup_system_prompt(language, max_turns, preset)
-        raw = await llm_service.generate_text(
-            system_prompt,
-            prompt,
-            provider_override="novelai",
-            novelai_model_override=text_model,
-        )
+        raw = await _generate_text(system_prompt, prompt, text_model=text_model)
         try:
-            return AdventureSetupOutput.model_validate_json(
-                _strip_json_fence(raw.content)
-            )
+            return AdventureSetupOutput.model_validate_json(_strip_json_fence(raw))
         except ValidationError as first_error:
             repair_prompt = (
                 "Repair the following output into valid JSON for the required schema. "
-                "Do not add new scenario facts.\n\n" + raw.content
+                "Do not add new scenario facts.\n\n" + raw
             )
-            repaired = await llm_service.generate_text(
-                system_prompt,
-                repair_prompt,
-                provider_override="novelai",
-                novelai_model_override=text_model,
+            repaired = await _generate_text(
+                system_prompt, repair_prompt, text_model=text_model
             )
             try:
                 return AdventureSetupOutput.model_validate_json(
-                    _strip_json_fence(repaired.content)
+                    _strip_json_fence(repaired)
                 )
             except ValidationError as second_error:
                 logger.warning(
@@ -2599,6 +2683,8 @@ The objective must name a concrete target and an observable end condition that c
             },
             ensure_ascii=False,
         )
+        tracker = _CostTracker()
+        _cost_tracker.set(tracker)
         generated = await self._generate_setup_output(
             prompt=prompt,
             language=language,
@@ -2606,7 +2692,10 @@ The objective must name a concrete target and an observable end condition that c
             max_turns=turn_budget,
             preset=preset,
         )
-        return generated.model_dump()
+        payload = generated.model_dump()
+        if tracker.total_usd > 0:
+            payload["cost_usd"] = tracker.total_usd
+        return payload
 
     async def list_templates(self) -> list[dict[str, Any]]:
         user_settings = await session_store.get_user_settings()
@@ -2651,6 +2740,9 @@ The objective must name a concrete target and an observable end condition that c
         romance_player_history_id: str | None = None,
         romance_partner_speech_style: str = "",
     ) -> dict[str, Any]:
+        # Run作成全体(セットアップLLM・開幕画像)のAPI料金を集計して応答へ載せる
+        tracker = _CostTracker()
+        _cost_tracker.set(tracker)
         narration_voice = normalize_narration_voice(narration_voice)
         narration_pronoun = normalize_narration_pronoun(narration_pronoun)
         player_speech_style = normalize_speech_style(player_speech_style)
@@ -3017,7 +3109,7 @@ The objective must name a concrete target and an observable end condition that c
             language=language,
             nsfw_mode=nsfw_mode,
             text_model=text_model,
-            image_provider="novelai",
+            image_provider=_image_provider(),
             image_model=image_model,
         )
         async with async_session_factory() as db:
@@ -3030,7 +3122,10 @@ The objective must name a concrete target and an observable end condition that c
             logger.exception(
                 "Adventure opening visual generation failed: run_id=%s", run_id
             )
-        return await self.get_run(run_id)
+        payload = await self.get_run(run_id)
+        if tracker.total_usd > 0:
+            payload["cost_usd"] = tracker.total_usd
+        return payload
 
     async def list_runs(self) -> list[dict[str, Any]]:
         async with async_session_factory() as db:
@@ -3068,6 +3163,8 @@ The objective must name a concrete target and an observable end condition that c
 
     async def regenerate_choices(self, run_id: str) -> dict[str, Any]:
         """現在場面の選択肢だけを再生成する。手番・物語・手掛かりは変更しない。"""
+        tracker = _CostTracker()
+        _cost_tracker.set(tracker)
         async with self._run_locks[run_id]:
             run = await self.get_run_orm(run_id, with_turns=True)
             state = _json_load(run.state_json, {})
@@ -3186,7 +3283,10 @@ The objective must name a concrete target and an observable end condition that c
                         )
                 await db.commit()
 
-            return {"choices": choices}
+            payload: dict[str, Any] = {"choices": choices}
+            if tracker.total_usd > 0:
+                payload["cost_usd"] = tracker.total_usd
+            return payload
 
     async def delete_run(self, run_id: str) -> None:
         await self.get_run_orm(run_id)
@@ -4057,6 +4157,9 @@ The objective must name a concrete target and an observable end condition that c
         generate_clues: bool = True,
     ) -> AsyncGenerator[dict[str, Any], None]:
         """ナラティブを逐次配信し、手がかり抽出と画像生成を並列実行する。"""
+        # このターンで発生したAPI料金(OpenRouter)を集計し、終端でcostイベントを送る
+        cost_tracker = _CostTracker()
+        _cost_tracker.set(cost_tracker)
         async with self._run_locks[run_id]:
             run = await self.get_run_orm(run_id, with_turns=True)
             for existing in run.turns:
@@ -4139,8 +4242,9 @@ The objective must name a concrete target and an observable end condition that c
                     romance=romance_sim is not None,
                 ),
                 json.dumps(turn_context, ensure_ascii=False),
-                provider_override="novelai",
+                provider_override=_text_provider(),
                 novelai_model_override=run.text_model,
+                usage_callback=_record_cost,
             ):
                 if not chunk:
                     continue
@@ -4266,8 +4370,13 @@ The objective must name a concrete target and an observable end condition that c
                     return
                 # romance は現在地と時間帯ごとに背景を用意する。合成モードでは
                 # この背景が img2img の下地、非合成モードではステージ背景になるため、
-                # 立ち絵生成より前に確定させる
-                if romance_sim is not None:
+                # 合成シーンより前に確定させる
+                fresh_background_path: Path | None = None
+
+                async def background_step() -> None:
+                    nonlocal fresh_background_path
+                    if romance_sim is None:
+                        return
                     _, background_slot = romance_day_slot(run.turn_count + 1)
                     try:
                         background_result = (
@@ -4286,9 +4395,11 @@ The objective must name a concrete target and an observable end condition that c
                         logger.warning(
                             "Adventure romance background generation failed: %s", error
                         )
-                        background_result = None
+                        return
                     if background_result is not None:
+                        fresh_background_path = background_result[0]
                         await queue.put(("background", background_result))
+
                 # 旧 run のキー未設定時は _serialize_run と同じく合成モード扱いにする。
                 # 既定を食い違わせると、UIは合成モード表示のままターン中は合成画像を
                 # 描き直さないため、ステージの絵が更新されなくなる
@@ -4296,7 +4407,6 @@ The objective must name a concrete target and an observable end condition that c
                 # 立ち絵の毎ターン生成OFF。合成モード・精密参照の有無に関わらず効く。
                 # 主人公と攻略対象は個別に省略でき、省略した側は前ターンの1枚を
                 # 使い回す。合成モードでは前ターンの立ち絵をキャラクター参照へ流用する。
-                # romance の背景更新は上で済ませてある
                 skip_player_portrait = not generate_portrait
                 draw_partner_portrait = (
                     romance_sim is not None and generate_partner_portrait
@@ -4308,11 +4418,11 @@ The objective must name a concrete target and an observable end condition that c
                     and skip_player_portrait
                     and not draw_partner_portrait
                 ):
+                    await background_step()
                     await queue.put(("portrait_skipped", None))
                     await queue.put(("image_skipped", None))
                     return
                 # step 情報はフロントのプログレスバー用。phase は既存契約を維持する
-                # 主人公→攻略対象→合成シーンの順に直列生成する
                 image_step_count = (
                     int(not skip_player_portrait)
                     + int(draw_partner_portrait)
@@ -4320,23 +4430,13 @@ The objective must name a concrete target and an observable end condition that c
                 )
                 # 立ち絵と合成シーンで同一シードを使い、衣装の描画差を抑える
                 turn_seed = random.randint(0, 999_999_999)
-                portrait_path: Path | None = None
-                if skip_player_portrait:
-                    await queue.put(("portrait_skipped", None))
-                else:
-                    await queue.put(
-                        (
-                            "status",
-                            {
-                                "phase": "image_generation",
-                                "step": "portrait",
-                                "step_index": 1,
-                                "step_count": image_step_count,
-                            },
-                        )
-                    )
+
+                async def portrait_step() -> Path | None:
+                    if skip_player_portrait:
+                        await queue.put(("portrait_skipped", None))
+                        return None
                     try:
-                        portrait_path, _ = await self._generate_portrait_unlocked(
+                        path, _ = await self._generate_portrait_unlocked(
                             run.id,
                             None,
                             redraw_from_reference=clothing_changed or item_actions,
@@ -4345,17 +4445,19 @@ The objective must name a concrete target and an observable end condition that c
                             worn_items_override=resolved_worn_items,
                             seed_override=turn_seed,
                         )
-                        await queue.put(("portrait", portrait_path))
                     except Exception as error:
                         logger.warning(
                             "Adventure turn portrait generation failed: %s", error
                         )
                         await queue.put(("portrait_error", error))
+                        return None
+                    await queue.put(("portrait", path))
+                    return path
 
                 # romance の攻略対象立ち絵。毎ターン生成してそのターンの表情・服装を
                 # 反映する。非合成モードでは主人公と並置表示し、合成モードでは
                 # 合成シーンの2枚目のキャラクター参照として使う
-                partner_path: Path | None = None
+                partner_tags = ""
                 if draw_partner_portrait:
                     partner_tags = _romance_partner_turn_portrait_tags(
                         list(visual.visual_state.main_characters),
@@ -4363,6 +4465,66 @@ The objective must name a concrete target and an observable end condition that c
                         str(romance_sim.get("partner_name") or ""),
                         str(romance_sim.get("partner_appearance") or ""),
                     )
+
+                async def partner_step() -> Path | None:
+                    if not partner_tags:
+                        return None
+                    try:
+                        path = await self._generate_partner_portrait_unlocked(
+                            run.id,
+                            partner_tags=partner_tags,
+                            turn_number=run.turn_count + 1,
+                            seed_override=turn_seed,
+                        )
+                    except Exception as error:
+                        # 相手立ち絵の失敗はターン進行を止めない
+                        logger.warning(
+                            "Adventure partner portrait generation failed: %s",
+                            error,
+                        )
+                        return None
+                    await queue.put(("partner_portrait", path))
+                    return path
+
+                portrait_path: Path | None = None
+                partner_path: Path | None = None
+                if _image_calls_parallelizable():
+                    # OpenRouterは従量課金のクラウドAPIなので、背景・主人公立ち絵・
+                    # 攻略対象立ち絵を並列生成して待ち時間を短縮する。工程単位の
+                    # 進捗は追えないため、先頭工程のstatusを1件だけ出す
+                    if not skip_player_portrait or partner_tags:
+                        await queue.put(
+                            (
+                                "status",
+                                {
+                                    "phase": "image_generation",
+                                    "step": "portrait"
+                                    if not skip_player_portrait
+                                    else "partner",
+                                    "step_index": 1,
+                                    "step_count": image_step_count,
+                                },
+                            )
+                        )
+                    _, portrait_path, partner_path = await asyncio.gather(
+                        background_step(), portrait_step(), partner_step()
+                    )
+                else:
+                    # 主人公→攻略対象→合成シーンの順に直列生成する
+                    await background_step()
+                    if not skip_player_portrait:
+                        await queue.put(
+                            (
+                                "status",
+                                {
+                                    "phase": "image_generation",
+                                    "step": "portrait",
+                                    "step_index": 1,
+                                    "step_count": image_step_count,
+                                },
+                            )
+                        )
+                    portrait_path = await portrait_step()
                     if partner_tags:
                         await queue.put(
                             (
@@ -4376,22 +4538,7 @@ The objective must name a concrete target and an observable end condition that c
                                 },
                             )
                         )
-                        try:
-                            partner_path = await (
-                                self._generate_partner_portrait_unlocked(
-                                    run.id,
-                                    partner_tags=partner_tags,
-                                    turn_number=run.turn_count + 1,
-                                    seed_override=turn_seed,
-                                )
-                            )
-                            await queue.put(("partner_portrait", partner_path))
-                        except Exception as error:
-                            # 相手立ち絵の失敗はターン進行を止めない
-                            logger.warning(
-                                "Adventure partner portrait generation failed: %s",
-                                error,
-                            )
+                    partner_path = await partner_step()
                 if not enable_composite:
                     await queue.put(("image_skipped", None))
                     return
@@ -4407,7 +4554,13 @@ The objective must name a concrete target and an observable end condition that c
                     )
                 )
                 try:
-                    background_path_str = getattr(run, "background_image_path", None)
+                    # このターンで背景を描き直した場合はその1枚を下地にする。
+                    # run オブジェクトはターン開始時点の読みなので直接は使えない
+                    background_path_str = (
+                        str(fresh_background_path)
+                        if fresh_background_path is not None
+                        else getattr(run, "background_image_path", None)
+                    )
                     background_bytes = (
                         Path(background_path_str).read_bytes()
                         if background_path_str and Path(background_path_str).is_file()
@@ -4777,6 +4930,11 @@ The objective must name a concrete target and an observable end condition that c
                         "turn_id": turn.id,
                     },
                 }
+            if cost_tracker.total_usd > 0:
+                yield {
+                    "event": "cost",
+                    "data": {"cost_usd": cost_tracker.total_usd},
+                }
             yield {
                 "event": "complete",
                 "data": {
@@ -4974,29 +5132,27 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             "visual_state": visual_state,
             "authored_scene_tags": authored_scene_tags or None,
         }
-        raw = await llm_service.generate_text(
+        raw = await _generate_text(
             system_prompt,
             json.dumps(payload, ensure_ascii=False),
-            provider_override="novelai",
-            novelai_model_override=text_model,
+            text_model=text_model,
         )
         try:
             image_prompt = AdventureImagePromptOutput.model_validate_json(
-                _strip_json_fence(raw.content)
+                _strip_json_fence(raw)
             )
         except ValidationError as first_error:
             logger.warning(
                 "Adventure image prompt JSON validation failed: %s", first_error
             )
-            repaired = await llm_service.generate_text(
+            repaired = await _generate_text(
                 system_prompt,
-                "Repair this into valid JSON without adding facts:\n\n" + raw.content,
-                provider_override="novelai",
-                novelai_model_override=text_model,
+                "Repair this into valid JSON without adding facts:\n\n" + raw,
+                text_model=text_model,
             )
             try:
                 image_prompt = AdventureImagePromptOutput.model_validate_json(
-                    _strip_json_fence(repaired.content)
+                    _strip_json_fence(repaired)
                 )
             except ValidationError as second_error:
                 raise AdventureError(
@@ -5017,6 +5173,8 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         redraw_from_reference: bool = False,
         prompt_override: AdventureImagePromptOutput | None = None,
     ) -> dict[str, Any]:
+        tracker = _CostTracker()
+        _cost_tracker.set(tracker)
         async with self._run_locks[run_id]:
             image_path, effective_turn_id = await self._generate_image_unlocked(
                 run_id,
@@ -5024,10 +5182,13 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 redraw_from_reference=redraw_from_reference,
                 prompt_override=prompt_override,
             )
-        return {
+        result: dict[str, Any] = {
             "image_url": self.image_url(run_id, image_path),
             "turn_id": effective_turn_id,
         }
+        if tracker.total_usd > 0:
+            result["cost_usd"] = tracker.total_usd
+        return result
 
     async def generate_portrait(
         self,
@@ -5038,6 +5199,8 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         prompt_override: AdventureImagePromptOutput | None = None,
     ) -> dict[str, Any]:
         """立ち絵だけを作り直す。生成失敗ターンからの復旧導線で使う。"""
+        tracker = _CostTracker()
+        _cost_tracker.set(tracker)
         async with self._run_locks[run_id]:
             portrait_path, effective_turn_id = await self._generate_portrait_unlocked(
                 run_id,
@@ -5045,10 +5208,13 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 redraw_from_reference=redraw_from_reference,
                 prompt_override=prompt_override,
             )
-        return {
+        result: dict[str, Any] = {
             "image_url": self.image_url(run_id, portrait_path),
             "turn_id": effective_turn_id,
         }
+        if tracker.total_usd > 0:
+            result["cost_usd"] = tracker.total_usd
+        return result
 
     async def _generate_image_unlocked(
         self,
@@ -5167,25 +5333,63 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 _compose_scene_base_tags(image_prompt) + _SCENE_PROMPT_SUFFIX,
                 nsfw_mode=nsfw_mode,
             )
-            effective_image_model = (
-                settings.novelai_model if nsfw_mode else settings.novelai_curated_model
-            )
-            result = await image_service.generate_image(
-                scene_prompt,
-                image_bytes=source_image,
-                provider_override="novelai",
-                # 追加negativeを渡すと provider 側の既定UCが置き換わるため、
-                # 品質系の基本negativeを土台にして結合する
-                negative_prompt=merge_negative_prompt(
-                    settings.novelai_negative_prompt, extra_negative or ""
-                ),
-                nsfw_mode=nsfw_mode,
-                character_references=character_references,
-                characters=characters,
-                seed=seed_override,
-                size_override="landscape",
-                novelai_model_override=effective_image_model,
-            )
+            provider = _image_provider()
+            if provider == "novelai":
+                effective_image_model = (
+                    settings.novelai_model
+                    if nsfw_mode
+                    else settings.novelai_curated_model
+                )
+                result = await image_service.generate_image(
+                    scene_prompt,
+                    image_bytes=source_image,
+                    provider_override="novelai",
+                    # 追加negativeを渡すと provider 側の既定UCが置き換わるため、
+                    # 品質系の基本negativeを土台にして結合する
+                    negative_prompt=merge_negative_prompt(
+                        settings.novelai_negative_prompt, extra_negative or ""
+                    ),
+                    nsfw_mode=nsfw_mode,
+                    character_references=character_references,
+                    characters=characters,
+                    seed=seed_override,
+                    size_override="landscape",
+                    novelai_model_override=effective_image_model,
+                )
+            else:
+                # キャラクター枠を持たないプロバイダーは単一プロンプトへ畳む。
+                # OpenRouter は編集元が無いターンで立ち絵/初期画像を編集元に
+                # 昇格させて同一性を保ち、ComfyUI は編集元画像が必須
+                flat_prompt = _flatten_scene_prompt(
+                    scene_prompt,
+                    player_prompt,
+                    [str(entry["prompt"]) for entry in characters[1:]],
+                )
+                edit_source = source_image
+                reference_bytes = (
+                    character_reference_image_override
+                    if character_reference_image_override is not None
+                    else initial_path.read_bytes()
+                )
+                if provider == "selfhost":
+                    if edit_source is None:
+                        edit_source = current_path.read_bytes()
+                    # ComfyUIワークフローは参照画像を受けない
+                    reference_bytes = None
+                elif edit_source is None:
+                    edit_source, reference_bytes = reference_bytes, None
+                instruction = _scene_edit_instruction(
+                    has_background=edit_source is not None,
+                    has_reference=reference_bytes is not None,
+                )
+                result = await image_service.generate_image(
+                    instruction + flat_prompt,
+                    image_bytes=edit_source,
+                    reference_image_bytes=reference_bytes,
+                    provider_override=provider,
+                    nsfw_mode=nsfw_mode,
+                )
+            _record_cost(getattr(result, "cost_usd", None))
             if not result.images:
                 raise AdventureError(
                     "image_generation_failed", "画像が生成されませんでした"
@@ -5208,7 +5412,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         image_path = self._images_dir / run.id / filename
         image_path.parent.mkdir(parents=True, exist_ok=True)
         image_path.write_bytes(result.images[0])
-        async with async_session_factory() as db:
+        async with self._persist_locks[run.id], async_session_factory() as db:
             persisted_run = await db.get(AdventureRun, run.id)
             if persisted_run is None:
                 raise AdventureError("run_not_found", "アドベンチャーが見つかりません")
@@ -5382,19 +5586,37 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         _ensure_romance_background_unlocked がキャッシュとして使い回す。
         """
         run = await self.get_run_orm(run_id)
+        provider = _image_provider()
+        if provider == "selfhost":
+            # ComfyUIの編集ワークフローはtxt2imgを持たないため背景は作れない。
+            # 呼び出し側は既存背景(無ければ初期画像)のまま続行する
+            raise AdventureError(
+                "image_generation_failed",
+                "背景画像はセルフホストプロバイダーでは生成できません",
+            )
         # scene_tags は「観察可能な相互作用」を含みうるため、no humans 等の
-        # 除外タグを前置してNovelAIに人物非表示を強く指示する
+        # 除外タグを前置して人物非表示を強く指示する
         scenery_prompt = _enhance_adventure_prompt(
             "no humans, empty, uninhabited, scenery, background, " + scene_tags,
             nsfw_mode=nsfw_mode,
         )
-        result = await image_service.generate_scenery(
-            prompt=scenery_prompt,
-            size="landscape",
-            nsfw_mode=nsfw_mode,
-            include_people=False,
-            provider_override="novelai",
-        )
+        if provider == "novelai":
+            result = await image_service.generate_scenery(
+                prompt=scenery_prompt,
+                size="landscape",
+                nsfw_mode=nsfw_mode,
+                include_people=False,
+                provider_override="novelai",
+            )
+        else:
+            result = await image_service.generate_image(
+                "Generate one wide background scenery illustration containing "
+                "no people at all.\n" + scenery_prompt,
+                image_bytes=None,
+                provider_override=provider,
+                nsfw_mode=nsfw_mode,
+            )
+        _record_cost(getattr(result, "cost_usd", None))
         if not result.images:
             raise AdventureError(
                 "image_generation_failed", "背景画像が生成されませんでした"
@@ -5402,7 +5624,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         background_path = self._images_dir / run.id / Path(filename).name
         background_path.parent.mkdir(parents=True, exist_ok=True)
         background_path.write_bytes(result.images[0])
-        async with async_session_factory() as db:
+        async with self._persist_locks[run.id], async_session_factory() as db:
             persisted_run = await db.get(AdventureRun, run.id)
             if persisted_run is None:
                 raise AdventureError("run_not_found", "アドベンチャーが見つかりません")
@@ -5425,6 +5647,10 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         同じ (現在地, 時間帯) では生成せず既存画像を使い回す。生成上限に達した
         場合と現在地が不明な場合は None を返し、既存の背景をそのまま使わせる。
         """
+        # selfhost(ComfyUI)は背景のtxt2imgを生成できない。毎ターン例外と警告を
+        # 出さないよう、ここで静かに既存背景のまま進める
+        if _image_provider() == "selfhost":
+            return None
         key = f"{location.strip().casefold()[:80]}|{slot}"
         if not location.strip():
             return None
@@ -5510,20 +5736,21 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 image_prompt.player_tags + _PORTRAIT_PROMPT_SUFFIX,
                 nsfw_mode=nsfw_mode,
             )
-            character_references = None
-            if use_precise_reference:
-                # 現実改変で外見が変わった後の初期画像は元の姿のままで、参照に
-                # 使うと毎ターン引き戻す。乖離後は直近の立ち絵へ、それも無ければ
-                # 参照なしにする(古い姿を参照するより無参照の方が正しい)
-                reference_path: Path | None = initial_path
-                if _appearance_diverged(state):
-                    latest_portrait = getattr(run, "portrait_image_path", None)
-                    reference_path = (
-                        Path(latest_portrait)
-                        if latest_portrait and Path(latest_portrait).is_file()
-                        else None
-                    )
-                if reference_path is not None:
+            # 現実改変で外見が変わった後の初期画像は元の姿のままで、参照に
+            # 使うと毎ターン引き戻す。乖離後は直近の立ち絵へ、それも無ければ
+            # 参照なしにする(古い姿を参照するより無参照の方が正しい)
+            reference_path: Path | None = initial_path
+            if _appearance_diverged(state):
+                latest_portrait = getattr(run, "portrait_image_path", None)
+                reference_path = (
+                    Path(latest_portrait)
+                    if latest_portrait and Path(latest_portrait).is_file()
+                    else None
+                )
+            provider = _image_provider()
+            if provider == "novelai":
+                character_references = None
+                if use_precise_reference and reference_path is not None:
                     # 参照は前ターン以前の1枚なので fresh portrait 扱いにしない
                     char_strength, char_fidelity = _character_reference_strength(
                         outfit_changed=outfit_changed, has_fresh_portrait=False
@@ -5536,25 +5763,52 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                             "fidelity": char_fidelity,
                         }
                     ]
-            effective_image_model = (
-                settings.novelai_model if nsfw_mode else settings.novelai_curated_model
-            )
-            result = await image_service.generate_image(
-                player_prompt,
-                image_bytes=None,
-                provider_override="novelai",
-                # 追加negativeを渡すと provider 側の既定UCが置き換わるため、
-                # 品質系の基本negativeを土台にして結合する
-                negative_prompt=merge_negative_prompt(
-                    settings.novelai_negative_prompt, extra_negative or ""
-                ),
-                nsfw_mode=nsfw_mode,
-                character_references=character_references,
-                characters=None,
-                seed=seed_override,
-                size_override="portrait",
-                novelai_model_override=effective_image_model,
-            )
+                effective_image_model = (
+                    settings.novelai_model
+                    if nsfw_mode
+                    else settings.novelai_curated_model
+                )
+                result = await image_service.generate_image(
+                    player_prompt,
+                    image_bytes=None,
+                    provider_override="novelai",
+                    # 追加negativeを渡すと provider 側の既定UCが置き換わるため、
+                    # 品質系の基本negativeを土台にして結合する
+                    negative_prompt=merge_negative_prompt(
+                        settings.novelai_negative_prompt, extra_negative or ""
+                    ),
+                    nsfw_mode=nsfw_mode,
+                    character_references=character_references,
+                    characters=None,
+                    seed=seed_override,
+                    size_override="portrait",
+                    novelai_model_override=effective_image_model,
+                )
+            else:
+                # 参照は追加課金なしで常に使い、同一性を保つ。OpenRouterは
+                # 参照を編集元として渡し、ComfyUIは編集元画像が必須なので
+                # 参照が無いときも初期画像を編集元に使う(引き戻しの懸念より
+                # 生成不能の方が悪い)
+                edit_source: bytes | None = (
+                    reference_path.read_bytes()
+                    if reference_path is not None and reference_path.is_file()
+                    else None
+                )
+                if provider == "selfhost" and edit_source is None:
+                    edit_source = initial_path.read_bytes()
+                instruction = (
+                    "Redraw the exact character from the attached image with the "
+                    "same face, hair, and identity, as described below.\n"
+                    if edit_source is not None
+                    else ""
+                )
+                result = await image_service.generate_image(
+                    instruction + player_prompt,
+                    image_bytes=edit_source,
+                    provider_override=provider,
+                    nsfw_mode=nsfw_mode,
+                )
+            _record_cost(getattr(result, "cost_usd", None))
             if not result.images:
                 raise AdventureError(
                     "image_generation_failed", "ポートレート画像が生成されませんでした"
@@ -5577,7 +5831,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         portrait_path = self._images_dir / run.id / filename
         portrait_path.parent.mkdir(parents=True, exist_ok=True)
         portrait_path.write_bytes(result.images[0])
-        async with async_session_factory() as db:
+        async with self._persist_locks[run.id], async_session_factory() as db:
             persisted_run = await db.get(AdventureRun, run.id)
             if persisted_run is None:
                 raise AdventureError("run_not_found", "アドベンチャーが見つかりません")
@@ -5629,34 +5883,60 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             else "partner_image_path"
         )
         reference_path = Path(str(state.get(reference_key) or ""))
-        if bool(state.get("use_precise_reference")) and reference_path.is_file():
-            # 服装は変化し得るため弱めに参照する
-            char_strength, char_fidelity = _character_reference_strength(
-                outfit_changed=True, has_fresh_portrait=False
+        provider = _image_provider()
+        if provider == "novelai":
+            if bool(state.get("use_precise_reference")) and reference_path.is_file():
+                # 服装は変化し得るため弱めに参照する
+                char_strength, char_fidelity = _character_reference_strength(
+                    outfit_changed=True, has_fresh_portrait=False
+                )
+                character_references = [
+                    {
+                        "image": reference_path.read_bytes(),
+                        "type": "character",
+                        "strength": char_strength,
+                        "fidelity": char_fidelity,
+                    }
+                ]
+            effective_image_model = (
+                settings.novelai_model if nsfw_mode else settings.novelai_curated_model
             )
-            character_references = [
-                {
-                    "image": reference_path.read_bytes(),
-                    "type": "character",
-                    "strength": char_strength,
-                    "fidelity": char_fidelity,
-                }
-            ]
-        effective_image_model = (
-            settings.novelai_model if nsfw_mode else settings.novelai_curated_model
-        )
-        result = await image_service.generate_image(
-            prompt,
-            image_bytes=None,
-            provider_override="novelai",
-            negative_prompt=settings.novelai_negative_prompt,
-            nsfw_mode=nsfw_mode,
-            character_references=character_references,
-            characters=None,
-            seed=seed_override,
-            size_override="portrait",
-            novelai_model_override=effective_image_model,
-        )
+            result = await image_service.generate_image(
+                prompt,
+                image_bytes=None,
+                provider_override="novelai",
+                negative_prompt=settings.novelai_negative_prompt,
+                nsfw_mode=nsfw_mode,
+                character_references=character_references,
+                characters=None,
+                seed=seed_override,
+                size_override="portrait",
+                novelai_model_override=effective_image_model,
+            )
+        else:
+            # 参照は追加課金なしで常に使い、同一性を保つ。参照が無いときは
+            # OpenRouterはtxt2img、ComfyUIは生成不可なのでエラーにする
+            edit_source: bytes | None = (
+                reference_path.read_bytes() if reference_path.is_file() else None
+            )
+            if provider == "selfhost" and edit_source is None:
+                raise AdventureError(
+                    "image_generation_failed",
+                    "相手の立ち絵の編集元画像が見つかりません",
+                )
+            instruction = (
+                "Redraw the exact character from the attached image with the "
+                "same face, hair, and identity, as described below.\n"
+                if edit_source is not None
+                else ""
+            )
+            result = await image_service.generate_image(
+                instruction + prompt,
+                image_bytes=edit_source,
+                provider_override=provider,
+                nsfw_mode=nsfw_mode,
+            )
+        _record_cost(getattr(result, "cost_usd", None))
         if not result.images:
             raise AdventureError(
                 "image_generation_failed", "相手の立ち絵が生成されませんでした"
@@ -5665,7 +5945,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         partner_path = self._images_dir / run.id / filename
         partner_path.parent.mkdir(parents=True, exist_ok=True)
         partner_path.write_bytes(result.images[0])
-        async with async_session_factory() as db:
+        async with self._persist_locks[run.id], async_session_factory() as db:
             persisted_run = await db.get(AdventureRun, run.id)
             if persisted_run is None:
                 raise AdventureError("run_not_found", "アドベンチャーが見つかりません")
@@ -5680,7 +5960,11 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         return partner_path
 
     async def _generate_opening_visuals(self, run_id: str) -> None:
-        """Run作成直後に、背景1回・ポートレート・（設定時のみ）合成シーンを直列生成する。"""
+        """Run作成直後に、背景・ポートレート・（設定時のみ）合成シーンを生成する。
+
+        NovelAI/セルフホストは従来どおり直列、OpenRouterは従量課金APIなので
+        背景・主人公立ち絵・攻略対象立ち絵を並列生成して開幕を短縮する。
+        """
         async with self._run_locks[run_id]:
             run = await self.get_run_orm(run_id)
             state = _json_load(run.state_json, {})
@@ -5701,25 +5985,40 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 prompt_override=None,
                 turn_number=1,
             )
-            # 背景には時間帯タグ適用済みの scene_tags を渡す。
-            # image_prompt(変換前)は後続の prompt_override 用に温存する。
-            background_path = await self._generate_background_image_unlocked(
-                run_id,
-                scene_tags=_prepared_prompt.scene_tags,
-                nsfw_mode=nsfw_mode,
-            )
             # 立ち絵と合成シーンで同一シードを使い、衣装の描画差を抑える
             opening_seed = random.randint(0, 999_999_999)
-            portrait_path, _ = await self._generate_portrait_unlocked(
-                run_id,
-                None,
-                redraw_from_reference=True,
-                prompt_override=image_prompt,
-                turn_number=0,
-                seed_override=opening_seed,
-            )
+
+            async def background_step() -> Path | None:
+                # 背景には時間帯タグ適用済みの scene_tags を渡す。
+                # image_prompt(変換前)は後続の prompt_override 用に温存する。
+                # 背景の失敗で開幕全体を止めない(セルフホストは生成不可で常にここ)
+                try:
+                    return await self._generate_background_image_unlocked(
+                        run_id,
+                        scene_tags=_prepared_prompt.scene_tags,
+                        nsfw_mode=nsfw_mode,
+                    )
+                except Exception:
+                    logger.warning(
+                        "Adventure opening background generation failed: run_id=%s",
+                        run_id,
+                    )
+                    return None
+
+            async def portrait_step() -> Path:
+                path, _ = await self._generate_portrait_unlocked(
+                    run_id,
+                    None,
+                    redraw_from_reference=True,
+                    prompt_override=image_prompt,
+                    turn_number=0,
+                    seed_override=opening_seed,
+                )
+                return path
+
             # romance では攻略対象の立ち絵も開幕時に用意する(非合成モードの
             # 並置表示用。合成へ切り替えた場合もそのまま無害)
+            partner_tags = ""
             sim_state = state.get("sim")
             if isinstance(sim_state, dict):
                 partner_entry, partner_tags = _romance_partner_visual_entry(
@@ -5737,22 +6036,50 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                         )
                         if part
                     )
-                if partner_tags:
-                    try:
-                        await self._generate_partner_portrait_unlocked(
-                            run_id,
-                            partner_tags=partner_tags,
-                            turn_number=0,
-                            seed_override=opening_seed,
-                        )
-                    except Exception:
-                        logger.exception(
-                            "Adventure opening partner portrait failed: run_id=%s",
-                            run_id,
-                        )
-                    # 立ち絵生成が state を更新するため読み直す
-                    run = await self.get_run_orm(run_id)
-                    state = _json_load(run.state_json, {})
+
+            async def partner_step() -> None:
+                if not partner_tags:
+                    return
+                try:
+                    await self._generate_partner_portrait_unlocked(
+                        run_id,
+                        partner_tags=partner_tags,
+                        turn_number=0,
+                        seed_override=opening_seed,
+                    )
+                except Exception:
+                    logger.exception(
+                        "Adventure opening partner portrait failed: run_id=%s",
+                        run_id,
+                    )
+
+            if _image_calls_parallelizable():
+                (
+                    background_result,
+                    portrait_result,
+                    _partner_result,
+                ) = await asyncio.gather(
+                    background_step(),
+                    portrait_step(),
+                    partner_step(),
+                    return_exceptions=True,
+                )
+                if isinstance(portrait_result, BaseException):
+                    raise portrait_result
+                portrait_path = portrait_result
+                background_path = (
+                    None
+                    if isinstance(background_result, BaseException)
+                    else background_result
+                )
+            else:
+                background_path = await background_step()
+                portrait_path = await portrait_step()
+                await partner_step()
+
+            # 立ち絵生成が state を更新するため読み直す
+            run = await self.get_run_orm(run_id)
+            state = _json_load(run.state_json, {})
             enable_composite_scene = bool(state.get("enable_composite_scene"))
             if enable_composite_scene:
                 await self._generate_image_unlocked(
@@ -5761,12 +6088,17 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                     redraw_from_reference=True,
                     prompt_override=image_prompt,
                     turn_number=0,
-                    source_image_override=background_path.read_bytes(),
+                    source_image_override=background_path.read_bytes()
+                    if background_path is not None
+                    else None,
                     character_reference_image_override=portrait_path.read_bytes(),
                     seed_override=opening_seed,
                 )
-            else:
-                async with async_session_factory() as db:
+            elif background_path is not None:
+                async with (
+                    self._persist_locks[run_id],
+                    async_session_factory() as db,
+                ):
                     persisted_run = await db.get(AdventureRun, run_id)
                     if persisted_run is None:
                         raise AdventureError(
@@ -6102,21 +6434,25 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             prompt_override=override,
             turn_number=run.turn_count,
         )
-        return {
-            "scene_prompt": _enhance_adventure_prompt(
-                _compose_scene_base_tags(image_prompt) + _SCENE_PROMPT_SUFFIX,
-                nsfw_mode=nsfw_mode,
-            ),
-            "player_prompt": _enhance_adventure_prompt(
-                image_prompt.player_tags + _PLAYER_PROMPT_SUFFIX,
-                nsfw_mode=nsfw_mode,
-            ),
-            "npc_prompts": [
-                _enhance_adventure_prompt(
-                    npc_prompt + _NPC_PROMPT_SUFFIX, nsfw_mode=nsfw_mode
-                )
-                for npc_prompt in image_prompt.npc_tags[:3]
-            ],
+        scene_prompt = _enhance_adventure_prompt(
+            _compose_scene_base_tags(image_prompt) + _SCENE_PROMPT_SUFFIX,
+            nsfw_mode=nsfw_mode,
+        )
+        player_prompt = _enhance_adventure_prompt(
+            image_prompt.player_tags + _PLAYER_PROMPT_SUFFIX,
+            nsfw_mode=nsfw_mode,
+        )
+        npc_prompts = [
+            _enhance_adventure_prompt(
+                npc_prompt + _NPC_PROMPT_SUFFIX, nsfw_mode=nsfw_mode
+            )
+            for npc_prompt in image_prompt.npc_tags[:3]
+        ]
+        provider = _image_provider()
+        payload = {
+            "scene_prompt": scene_prompt,
+            "player_prompt": player_prompt,
+            "npc_prompts": npc_prompts,
             "portrait_prompt": _enhance_adventure_prompt(
                 image_prompt.player_tags + _PORTRAIT_PROMPT_SUFFIX,
                 nsfw_mode=nsfw_mode,
@@ -6126,7 +6462,16 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             ),
             "nsfw_mode": nsfw_mode,
             "use_precise_reference": use_precise_reference,
+            "image_provider": provider,
         }
+        if provider != "novelai":
+            # 非NovelAIはキャラクター枠を持たず、送信経路と同じ関数で
+            # 1本に畳んだプロンプトを送る。negative prompt も送られない
+            payload["scene_prompt"] = _flatten_scene_prompt(
+                scene_prompt, player_prompt, npc_prompts
+            )
+            payload["negative_prompt"] = ""
+        return payload
 
     def _serialize_run(
         self,

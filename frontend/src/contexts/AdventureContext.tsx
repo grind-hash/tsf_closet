@@ -33,6 +33,7 @@ import {
   updateAdventureRealityRules,
   updateAdventureRunSettings,
 } from "../apis/adventure";
+import { useSettings } from "./SettingsContext";
 
 export type AdventurePhase = "narrative" | "clue_check" | "image_generation";
 
@@ -128,6 +129,9 @@ function parsePhaseStep(
 }
 
 export function AdventureProvider({ children }: { children: ReactNode }) {
+  // API料金(OpenRouter)の累計加算と、Anlas確認のプロバイダー判定に使う
+  const { state: settingsState, addTotalCost } = useSettings();
+  const imageProvider = settingsState.imageProvider;
   const [runs, setRuns] = useState<AdventureRun[]>([]);
   const [templates, setTemplates] = useState<AdventureTemplate[]>([]);
   const [activeRun, setActiveRun] = useState<AdventureRun | null>(null);
@@ -174,34 +178,47 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const generateSetup = useCallback(async (request: AdventureSetupRequest) => {
-    setSetupGenerating(true);
-    setError(null);
-    try {
-      return await generateAdventureSetup(request);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
-      throw caught;
-    } finally {
-      setSetupGenerating(false);
-    }
-  }, []);
+  const generateSetup = useCallback(
+    async (request: AdventureSetupRequest) => {
+      setSetupGenerating(true);
+      setError(null);
+      try {
+        const setup = await generateAdventureSetup(request);
+        if (setup.cost_usd) {
+          addTotalCost(setup.cost_usd);
+        }
+        return setup;
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : String(caught));
+        throw caught;
+      } finally {
+        setSetupGenerating(false);
+      }
+    },
+    [addTotalCost],
+  );
 
-  const createRun = useCallback(async (request: AdventureCreateRequest) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const created = await createAdventureRun(request);
-      setActiveRun(created);
-      setRuns((current) => [created, ...current]);
-      return created;
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
-      throw caught;
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const createRun = useCallback(
+    async (request: AdventureCreateRequest) => {
+      setLoading(true);
+      setError(null);
+      try {
+        const created = await createAdventureRun(request);
+        if (created.cost_usd) {
+          addTotalCost(created.cost_usd);
+        }
+        setActiveRun(created);
+        setRuns((current) => [created, ...current]);
+        return created;
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : String(caught));
+        throw caught;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [addTotalCost],
+  );
 
   const removeRun = useCallback(async (runId: string) => {
     setError(null);
@@ -344,6 +361,12 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
                     : current,
                 );
               }
+            } else if (event.type === "cost") {
+              // OpenRouter利用時のみ配信される。累計はSettingsContextで共有
+              const cost = Number(event.data.cost_usd);
+              if (Number.isFinite(cost) && cost > 0) {
+                addTotalCost(cost);
+              }
             } else if (event.type === "error") {
               setError(
                 String(event.data.message ?? "Adventure request failed"),
@@ -362,7 +385,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
         setPendingUserInput(null);
       }
     },
-    [activeRun, streaming],
+    [activeRun, streaming, addTotalCost],
   );
 
   // 送信経路(選択肢・自由入力・ギフト・属性付与)が分散しても漏れないよう、
@@ -374,7 +397,10 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       options?: { giftId?: string },
     ) => {
       if (!activeRun || streaming) return;
+      // Anlasを消費するのはNovelAIプロバイダーの精密参照だけ。
+      // OpenRouter/セルフホストでは確認ダイアログを出さない
       if (
+        imageProvider === "novelai" &&
         activeRun.preset === "romance" &&
         activeRun.use_precise_reference &&
         sessionStorage.getItem(ANLAS_WARN_SUPPRESSED_KEY) !== "true"
@@ -384,7 +410,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       }
       await performSubmitTurn(input, inputKind, options);
     },
-    [activeRun, streaming, performSubmitTurn],
+    [activeRun, streaming, performSubmitTurn, imageProvider],
   );
 
   const confirmPendingAnlasTurn = useCallback(
@@ -465,6 +491,11 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
                   : current,
               );
             }
+          } else if (event.type === "cost") {
+            const cost = Number(event.data.cost_usd);
+            if (Number.isFinite(cost) && cost > 0) {
+              addTotalCost(cost);
+            }
           } else if (event.type === "error") {
             setError(String(event.data.message ?? "Image generation failed"));
           }
@@ -477,7 +508,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
         setPhaseStep(null);
       }
     },
-    [activeRun, streaming],
+    [activeRun, streaming, addTotalCost],
   );
 
   const regenerateChoices = useCallback(async () => {
@@ -487,9 +518,14 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
     setPhase("clue_check");
     setError(null);
     try {
-      const choices = await regenerateAdventureChoices(runId);
+      const result = await regenerateAdventureChoices(runId);
+      if (result.cost_usd) {
+        addTotalCost(result.cost_usd);
+      }
       setActiveRun((current) =>
-        current && current.id === runId ? { ...current, choices } : current,
+        current && current.id === runId
+          ? { ...current, choices: result.choices }
+          : current,
       );
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
@@ -497,7 +533,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       setStreaming(false);
       setPhase(null);
     }
-  }, [activeRun, streaming]);
+  }, [activeRun, streaming, addTotalCost]);
 
   const updateSettings = useCallback(
     async (settings: AdventureSettingsUpdateRequest) => {

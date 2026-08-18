@@ -66,6 +66,19 @@ from gateway.services.adventure_service import (
     clamp_generated_max_turns,
 )
 from gateway.services.session import DEFAULT_USER_ID
+from gateway.settings.config import settings as app_settings
+
+
+@pytest.fixture(autouse=True)
+def _novelai_providers(monkeypatch):
+    """本ファイルの既存テストはNovelAI経路を前提に書かれている。
+
+    Adventureはグローバルのprovider設定に従うようになったため、
+    既定(selfhost)のままだと別経路へ分岐してしまう。novelaiへ固定し、
+    他プロバイダーの経路は個別テストで明示的に切り替える。
+    """
+    monkeypatch.setattr(app_settings, "image_provider", "novelai")
+    monkeypatch.setattr(app_settings, "feeling_provider", "novelai")
 
 
 def make_image_prompt_content(*, with_guard: bool = False) -> str:
@@ -5051,3 +5064,223 @@ def test_narrative_prompt_allows_declared_identity_and_clothing_change() -> None
     assert "narrate the player already in the new body" in prompt
     assert "clothing follows the body" in prompt
     assert "also exchanges their outfits" in prompt
+
+
+# ---------------------------------------------------------------------------
+# プロバイダー切り替え (openrouter / selfhost)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_generate_text_uses_configured_provider_and_records_cost(
+    monkeypatch,
+) -> None:
+    """テキスト生成は feeling_provider に従い、API料金を集計へ加算する。"""
+    from gateway.services import adventure_service as module
+
+    monkeypatch.setattr(app_settings, "feeling_provider", "openrouter")
+    generate_text = AsyncMock(return_value=SimpleNamespace(content="ok", cost_usd=0.5))
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.llm_service.generate_text",
+        generate_text,
+    )
+
+    tracker = module._CostTracker()
+    token = module._cost_tracker.set(tracker)
+    try:
+        content = await module._generate_text("sys", "user", text_model="glm-4-6")
+    finally:
+        module._cost_tracker.reset(token)
+
+    assert content == "ok"
+    assert generate_text.await_args.kwargs["provider_override"] == "openrouter"
+    assert tracker.total_usd == pytest.approx(0.5)
+
+
+def test_flatten_scene_prompt_labels_all_roles() -> None:
+    from gateway.services.adventure_service import _flatten_scene_prompt
+
+    prompt = _flatten_scene_prompt(
+        "night street", "young man, casual", ["woman, red dress"]
+    )
+
+    assert "Scene: night street" in prompt
+    assert "Main character in the center foreground: young man, casual" in prompt
+    assert "Secondary character 1" in prompt
+    assert "woman, red dress" in prompt
+
+
+def _make_background_run_fixtures(tmp_path):
+    run = SimpleNamespace(id="run-1")
+    persisted_run = SimpleNamespace(
+        id="run-1", background_image_path=None, updated_at=None
+    )
+
+    class FakeDatabase:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, _exc_type, _exc, _traceback):
+            return None
+
+        async def get(self, model, _record_id):
+            return persisted_run if model is AdventureRun else None
+
+        async def commit(self):
+            return None
+
+    return run, persisted_run, FakeDatabase
+
+
+@pytest.mark.asyncio
+async def test_generate_background_image_openrouter_uses_txt2img(
+    monkeypatch, tmp_path
+) -> None:
+    """OpenRouterでは generate_scenery ではなく txt2img で背景を生成する。"""
+    monkeypatch.setattr(app_settings, "image_provider", "openrouter")
+    service = AdventureService()
+    service._images_dir = tmp_path
+    (tmp_path / "run-1").mkdir()
+    run, persisted_run, FakeDatabase = _make_background_run_fixtures(tmp_path)
+
+    generate_image = AsyncMock(
+        return_value=SimpleNamespace(images=[b"bg"], cost_usd=0.01)
+    )
+    generate_scenery = AsyncMock()
+    monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.image_service.generate_image",
+        generate_image,
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.image_service.generate_scenery",
+        generate_scenery,
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.async_session_factory", FakeDatabase
+    )
+
+    background_path = await service._generate_background_image_unlocked(
+        "run-1", scene_tags="scenery tags", nsfw_mode=False
+    )
+
+    generate_scenery.assert_not_awaited()
+    image_kwargs = generate_image.await_args.kwargs
+    assert image_kwargs["provider_override"] == "openrouter"
+    assert image_kwargs["image_bytes"] is None
+    assert background_path.name == "background.png"
+    assert persisted_run.background_image_path == str(background_path)
+
+
+@pytest.mark.asyncio
+async def test_generate_background_image_selfhost_unsupported(
+    monkeypatch, tmp_path
+) -> None:
+    """ComfyUIはtxt2imgを持たないため背景生成はエラーになる(呼び出し側で握る)。"""
+    monkeypatch.setattr(app_settings, "image_provider", "selfhost")
+    service = AdventureService()
+    service._images_dir = tmp_path
+    run, _persisted_run, FakeDatabase = _make_background_run_fixtures(tmp_path)
+
+    generate_image = AsyncMock()
+    monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.image_service.generate_image",
+        generate_image,
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.async_session_factory", FakeDatabase
+    )
+
+    with pytest.raises(AdventureError) as excinfo:
+        await service._generate_background_image_unlocked(
+            "run-1", scene_tags="scenery tags", nsfw_mode=False
+        )
+
+    assert excinfo.value.code == "image_generation_failed"
+    generate_image.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_generate_portrait_openrouter_uses_reference_as_edit_source(
+    monkeypatch, tmp_path
+) -> None:
+    """OpenRouterの立ち絵は参照画像を編集元に渡して同一性を保つ。"""
+    monkeypatch.setattr(app_settings, "image_provider", "openrouter")
+    service = AdventureService()
+    service._images_dir = tmp_path
+    run_dir = tmp_path / "run-1"
+    run_dir.mkdir()
+    initial_path = run_dir / "initial.png"
+    initial_path.write_bytes(b"initial")
+    run = SimpleNamespace(
+        id="run-1",
+        state_json=(
+            '{"use_precise_reference": false, "visual_state":{"location":"売り場",'
+            '"appearance":"黒髪","clothing":"紺色のドレス","surroundings":"婦人服売り場",'
+            '"main_characters":[]}}'
+        ),
+        current_image_path=str(initial_path),
+        initial_image_path=str(initial_path),
+        text_model="glm-4-6",
+        image_model="nai-diffusion-4-5-full",
+        nsfw_mode=False,
+        turn_count=1,
+    )
+    persisted_run = SimpleNamespace(
+        id="run-1",
+        portrait_image_path=None,
+        updated_at=None,
+        state_json="{}",
+    )
+
+    class FakeDatabase:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, _exc_type, _exc, _traceback):
+            return None
+
+        async def get(self, model, _record_id):
+            return persisted_run if model is AdventureRun else None
+
+        async def scalar(self, _statement):
+            return None
+
+        async def commit(self):
+            return None
+
+    generate_image = AsyncMock(
+        return_value=SimpleNamespace(images=[b"portrait"], cost_usd=0.02)
+    )
+    monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.session_store.get_user_settings",
+        AsyncMock(return_value={"nsfw_mode": False, "language": "ja"}),
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.llm_service.generate_text",
+        AsyncMock(
+            return_value=SimpleNamespace(
+                content=make_image_prompt_content(with_guard=False)
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.image_service.generate_image",
+        generate_image,
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.async_session_factory", FakeDatabase
+    )
+
+    await service._generate_portrait_unlocked("run-1", None, turn_number=1)
+
+    image_kwargs = generate_image.await_args.kwargs
+    assert image_kwargs["provider_override"] == "openrouter"
+    assert image_kwargs["image_bytes"] == b"initial"
+    # NovelAI専用パラメータは渡さない
+    assert "characters" not in image_kwargs
+    assert "character_references" not in image_kwargs
+    prompt = generate_image.await_args.args[0]
+    assert prompt.startswith("Redraw the exact character")

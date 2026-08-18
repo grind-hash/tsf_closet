@@ -625,10 +625,12 @@ function AdventureHub() {
     }
   };
 
-  // 精密参照ONの開始はオープニング画像生成からAnlasを消費するため確認を挟む
+  // 精密参照ONの開始はオープニング画像生成からAnlasを消費するため確認を挟む。
+  // Anlasを消費するのはNovelAIプロバイダーのときだけ
   const handleCreate = async () => {
     if (!sourceSessionId) return;
     if (
+      settingsState.imageProvider === "novelai" &&
       usePreciseReference &&
       sessionStorage.getItem(ANLAS_WARN_SUPPRESSED_KEY) !== "true"
     ) {
@@ -1081,7 +1083,14 @@ function AdventureHub() {
               <label className="adventure-precise-toggle">
                 <span className="adventure-precise-toggle__info">
                   <strong>{t("adventure.preciseReference")}</strong>
-                  <small>{t("adventure.preciseReferenceHint")}</small>
+                  {/* NovelAI以外では効果もAnlas消費もない旨を明示する */}
+                  <small>
+                    {t(
+                      settingsState.imageProvider === "novelai"
+                        ? "adventure.preciseReferenceHint"
+                        : "adventure.preciseReferenceOtherProviderHint",
+                    )}
+                  </small>
                 </span>
                 <input
                   type="checkbox"
@@ -1664,9 +1673,12 @@ function AdventurePlay({ runId }: { runId: string }) {
 
   // 精密参照ONのrunではAnlasを消費するため残高を表示する。
   // streamingがfalseへ戻るたび（＝各ストリーム完了後）に再取得する。
+  // Anlasを消費するのはNovelAIプロバイダーのときだけ
   const usePreciseReference = activeRun?.use_precise_reference ?? false;
+  const anlasApplies =
+    usePreciseReference && settingsState.imageProvider === "novelai";
   useEffect(() => {
-    if (!usePreciseReference) {
+    if (!anlasApplies) {
       setAnlasBalance(null);
       return;
     }
@@ -1678,7 +1690,7 @@ function AdventurePlay({ runId }: { runId: string }) {
     return () => {
       cancelled = true;
     };
-  }, [usePreciseReference, streaming]);
+  }, [anlasApplies, streaming]);
 
   useEffect(() => {
     if (!logOpen) return;
@@ -2452,6 +2464,27 @@ function AdventurePlay({ runId }: { runId: string }) {
                     <strong>{anlasBalance.totalAnlas.toLocaleString()}</strong>
                   </div>
                 ))}
+              {/* OpenRouter利用時は従量課金なので累計API料金を常時見せる。
+                  通常ゲーム画面のコストバーと同じ累計値(SettingsContext)を表示する */}
+              {settingsState.showCost &&
+                (sim ? (
+                  <HudTile
+                    className="adventure-hud__cost-tile"
+                    title={t("gameplay.apiCost")}
+                    label={t("gameplay.apiCost")}
+                    value={`$${settingsState.totalCost.toFixed(4)}`}
+                    gaugeRatio={null}
+                    badge={null}
+                  />
+                ) : (
+                  <div
+                    className="adventure-hud__cost"
+                    title={t("gameplay.apiCost")}
+                  >
+                    <span>{t("gameplay.apiCost")}</span>
+                    <strong>${settingsState.totalCost.toFixed(4)}</strong>
+                  </div>
+                ))}
               {activeRun.milestones.length > 0 && (
                 <button
                   type="button"
@@ -2921,7 +2954,14 @@ function AdventurePlay({ runId }: { runId: string }) {
                   <label className="adventure-precise-toggle">
                     <span className="adventure-precise-toggle__info">
                       <strong>{t("adventure.preciseReference")}</strong>
-                      <small>{t("adventure.preciseReferencePlayHint")}</small>
+                      {/* NovelAI以外では効果もAnlas消費もない旨を明示する */}
+                      <small>
+                        {t(
+                          settingsState.imageProvider === "novelai"
+                            ? "adventure.preciseReferencePlayHint"
+                            : "adventure.preciseReferenceOtherProviderHint",
+                        )}
+                      </small>
                     </span>
                     <input
                       type="checkbox"

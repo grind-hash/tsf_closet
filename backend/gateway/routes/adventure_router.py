@@ -371,6 +371,7 @@ async def regenerate_image(
                     redraw_from_reference=options.redraw_from_reference,
                     prompt_override=prompt_override,
                 )
+                cost_usd = portrait.pop("cost_usd", None)
                 yield {
                     "event": "portrait_image",
                     "data": json.dumps(portrait, ensure_ascii=False),
@@ -381,7 +382,13 @@ async def regenerate_image(
                     redraw_from_reference=options.redraw_from_reference,
                     prompt_override=prompt_override,
                 )
+                cost_usd = image.pop("cost_usd", None)
                 yield {"event": "image", "data": json.dumps(image, ensure_ascii=False)}
+            if cost_usd:
+                yield {
+                    "event": "cost",
+                    "data": json.dumps({"cost_usd": cost_usd}, ensure_ascii=False),
+                }
             yield {
                 "event": "complete",
                 "data": json.dumps({"status": "complete"}, ensure_ascii=False),

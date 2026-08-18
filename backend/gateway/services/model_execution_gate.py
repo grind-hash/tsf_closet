@@ -24,6 +24,11 @@ class ModelExecutionGate:
     async def hold(
         self, category: str, provider: str, model: str
     ) -> AsyncIterator[None]:
+        # OpenRouter は従量課金のクラウドAPIで同時リクエストを受け付けるため
+        # 直列化しない。ゲートはローカルGPU(selfhost)とNovelAIの保護が目的
+        if provider == "openrouter":
+            yield
+            return
         key = (category, provider, model)
         started = time.monotonic()
         async with self._locks[key]:

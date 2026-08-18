@@ -252,6 +252,8 @@ const resources = {
           "OFFが既定です。ONにすると開始画像をNovelAI精密参照に使い、参照1枚あたり5 Anlasを追加消費します。顔の固定が強まります。",
         preciseReferencePlayHint:
           "次回の画像生成から反映されます。ONにすると参照1枚あたり5 Anlasを追加消費します。",
+        preciseReferenceOtherProviderHint:
+          "この設定はNovelAI画像プロバイダー専用です。現在のプロバイダー(OpenRouter/セルフホスト)では参照画像を追加費用なしで常に使うため、ON/OFFを切り替えても効果はなく、Anlasも消費しません。",
         enableCompositeScene: "背景と人物を同時に描く",
         enableCompositeSceneHint:
           "OFFが既定です。既定では背景は開始時に1回だけ生成し、行動に応じて中央の立ち絵のみ更新します。ONにすると、立ち絵の更新後に背景を含む合成シーンも直列で再生成するため、1ターンあたりの画像生成が1回増えて待ち時間が長くなります。",
@@ -1769,6 +1771,8 @@ const resources = {
           "Off by default. When on, the starting image is used as a NovelAI character reference and costs 5 extra Anlas per reference, while face consistency improves.",
         preciseReferencePlayHint:
           "Applies from the next image generation. When on, each reference costs 5 extra Anlas.",
+        preciseReferenceOtherProviderHint:
+          "This option only applies to the NovelAI image provider. Your current provider (OpenRouter / self-hosted) always uses reference images at no extra cost, so toggling this has no effect and consumes no Anlas.",
         enableCompositeScene: "Draw background and character together",
         enableCompositeSceneHint:
           "Off by default. By default, the background is generated once at the start, and only the centered character sprite updates as you act. When on, the full composite scene (including background) is also regenerated in series after each sprite update, so each turn runs one more image generation and takes longer.",

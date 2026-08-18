@@ -1948,8 +1948,8 @@ async def get_anlas_balance() -> AnlasBalanceResponse:
     """Get the current Anlas balance from NovelAI."""
     from ..settings.config import settings as app_settings
 
-    # AdventureモードはグローバルproviderにかかわらずNovelAIを強制するため、
-    # provider設定ではなくAPIキーの有無でゲートする
+    # provider設定ではなくAPIキーの有無でゲートする(providerを切り替えても
+    # NovelAIキーがあれば残高は参照できるため)
     if not app_settings.novelai_api_key:
         return AnlasBalanceResponse()
 

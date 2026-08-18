@@ -107,6 +107,22 @@ async function enableAdventure(page: Page) {
   });
 }
 
+// Anlas確認ダイアログはNovelAI画像プロバイダーのときだけ出るため、
+// /health をモックしてプロバイダーを固定する
+async function mockNovelaiHealth(page: Page) {
+  await page.route("**/health", async (route) => {
+    await route.fulfill({
+      json: {
+        status: "ok",
+        services: {},
+        image_provider: "novelai",
+        image_description_provider: "novelai",
+        feeling_provider: "novelai",
+      },
+    });
+  });
+}
+
 interface RomanceMockState {
   streamBodies: Record<string, unknown>[];
   createBodies: Record<string, unknown>[];
@@ -684,6 +700,7 @@ test("precise reference shows an Anlas confirmation before submitting a turn", a
   page,
 }) => {
   await enableAdventure(page);
+  await mockNovelaiHealth(page);
   const state = await mockRomanceApis(
     page,
     romanceRunPayload(0, { use_precise_reference: true }),
@@ -724,6 +741,7 @@ test("precise reference shows an Anlas confirmation before starting a run", asyn
   page,
 }) => {
   await enableAdventure(page);
+  await mockNovelaiHealth(page);
   const state = await mockRomanceApis(page);
   await page.goto("/adventure");
 
