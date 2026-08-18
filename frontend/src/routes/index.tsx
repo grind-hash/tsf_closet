@@ -38,6 +38,9 @@ export const ROUTES = {
   SETTINGS: "/settings",
   ADVENTURE: "/adventure",
   ADVENTURE_RUN: "/adventure/:runId",
+  // /adventure 配下に置かないこと。App.tsx が startsWith("/adventure") で
+  // AdventureScreen へ流し、パス2階層目を runId として解釈するため衝突する
+  BGM_TEST: "/bgm-test",
 } as const;
 
 // セッションID付きのゲームURLを生成するヘルパー

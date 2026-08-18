@@ -5,6 +5,7 @@
  * メニュー項目:
  * - 新規プレイ
  * - ギャラリー
+ * - TSFシナリオ / BGMテスト（実験設定で有効化）
  * - 実績
  * - 設定
  */
@@ -53,6 +54,13 @@ const getMenuItems = (
             icon: "A",
             path: ROUTES.ADVENTURE,
             description: t("menu.adventureDesc"),
+          },
+          {
+            id: "bgm-test",
+            label: t("menu.bgmTest"),
+            icon: "♪",
+            path: ROUTES.BGM_TEST,
+            description: t("menu.bgmTestDesc"),
           },
         ]
       : []),

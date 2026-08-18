@@ -490,6 +490,13 @@
   color: var(--text-muted, #666);
 }
 
+/* 削除予定機能の注意文 */
+.right-panel__hint--deprecated {
+  margin-top: 0;
+  margin-bottom: 0.5rem;
+  color: var(--text-warning, #e0a050);
+}
+
 /* ボタン */
 .right-panel__btn-primary {
   padding: 0.375rem 0.75rem;

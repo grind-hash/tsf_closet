@@ -46,6 +46,8 @@ Thumbs.db
 
 # Data persistence (SQLite + history images)
 data/
+# Adventure BGM catalog and audio are source assets, not runtime data
+!backend/gateway/data/
 *.sqlite
 *.db
 

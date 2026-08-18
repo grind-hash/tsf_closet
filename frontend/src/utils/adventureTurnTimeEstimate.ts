@@ -20,42 +20,59 @@ export const ADVENTURE_PROGRESS_BUDGET_MS = {
  */
 export const TURN_BASE_SECONDS = 20;
 
-/**
- * 1ターンの生成時間を実際のパイプライン挙動から見積もる(秒、5秒単位へ丸め)。
- *
- * - 合成ON: 主人公立ち絵→合成シーンを直列生成する(スキップ不可)。
- *   攻略対象の立ち絵は合成シーンに含まれるため単独生成されない
- * - 合成OFF: 主人公/攻略対象(romance)の立ち絵を設定に応じて生成する。
- *   精密参照ONはスキップ不可(backend の allow_portrait_skip と同条件)
- * - 場面変化が無いターンは画像自体が省かれるため、これは上振れ側の目安
- * - romance の背景再生成(現在地・時間帯の変化時のみ)は含めない
- */
-export function estimateAdventureTurnSeconds(params: {
+export interface AdventureTurnImageSettings {
   preset: AdventurePreset;
-  usePreciseReference: boolean;
   enableCompositeScene: boolean;
   drawPortraitEveryTurn: boolean;
   drawPartnerEveryTurn: boolean;
-}): number {
+}
+
+/**
+ * 1ターンの生成時間を実際のパイプライン挙動から見積もる(秒、5秒単位へ丸め)。
+ *
+ * 3つの設定は独立で、主人公立ち絵→攻略対象立ち絵(romance)→合成シーンの順に
+ * 直列生成される。立ち絵の毎ターン生成OFFは合成・精密参照の有無に関わらず効き、
+ * 省略した側は前ターンの1枚を使い回す(backend の visual_producer と同条件)。
+ *
+ * - 場面変化が無いターンは画像自体が省かれるため、これは上振れ側の目安
+ * - romance の背景再生成(現在地・時間帯の変化時のみ)は含めない
+ */
+export function estimateAdventureTurnSeconds(
+  params: AdventureTurnImageSettings,
+): number {
   const {
     preset,
-    usePreciseReference,
     enableCompositeScene,
     drawPortraitEveryTurn,
     drawPartnerEveryTurn,
   } = params;
-  const forcePortrait = usePreciseReference || enableCompositeScene;
   let seconds = TURN_BASE_SECONDS;
-  if (enableCompositeScene) {
+  if (drawPortraitEveryTurn) {
     seconds += ADVENTURE_PROGRESS_BUDGET_MS.portrait / 1000;
+  }
+  if (preset === "romance" && drawPartnerEveryTurn) {
+    seconds += ADVENTURE_PROGRESS_BUDGET_MS.partner / 1000;
+  }
+  if (enableCompositeScene) {
     seconds += ADVENTURE_PROGRESS_BUDGET_MS.composite / 1000;
-  } else {
-    if (drawPortraitEveryTurn || forcePortrait) {
-      seconds += ADVENTURE_PROGRESS_BUDGET_MS.portrait / 1000;
-    }
-    if (preset === "romance" && (drawPartnerEveryTurn || forcePortrait)) {
-      seconds += ADVENTURE_PROGRESS_BUDGET_MS.partner / 1000;
-    }
   }
   return Math.round(seconds / 5) * 5;
+}
+
+/**
+ * そのターンに画像生成が一切走らない設定かどうか。
+ * backend の visual_producer が画像工程ごとスキップする条件と揃える。
+ * romance の背景更新(現在地・時間帯の変化時)はこの判定の対象外。
+ */
+export function isAdventureTurnTextOnly(
+  params: AdventureTurnImageSettings,
+): boolean {
+  const {
+    preset,
+    enableCompositeScene,
+    drawPortraitEveryTurn,
+    drawPartnerEveryTurn,
+  } = params;
+  if (enableCompositeScene || drawPortraitEveryTurn) return false;
+  return !(preset === "romance" && drawPartnerEveryTurn);
 }

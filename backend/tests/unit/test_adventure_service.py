@@ -33,6 +33,7 @@ from gateway.services.adventure_service import (
     AdventureDirectorOutput,
     AdventureError,
     AdventureImagePromptOutput,
+    AdventureResolutionOutput,
     AdventureService,
     AdventureVisualOutput,
     AdventureVisualState,
@@ -47,10 +48,14 @@ from gateway.services.adventure_service import (
     _last_equipment_action,
     _equipment_clothing_state_tags,
     _strip_clothing_tags_for_equipment_scenario,
+    _appearance_diverged,
     _character_reference_strength,
     _choice_label_key,
     _compose_scene_base_tags,
+    _identity_tags_only,
     _lean_state_for_llm,
+    _normalize_reality_rules,
+    _partner_appearance_diverged,
     _previous_choice_labels,
     _merge_scene_tags,
     _romance_partner_scene_reference,
@@ -225,6 +230,112 @@ def test_explicit_failure_ends_before_turn_limit() -> None:
 
     assert status == "failure"
     assert state["ending_summary"] == output.ending_summary
+
+
+def test_bgm_validator_keeps_known_keys_and_degrades_unknown() -> None:
+    """不正な bgm は検証エラー(修復リトライ)へ落とさず None(据え置き)にする。"""
+    choices = json.dumps(
+        [
+            {"id": "a", "label": "調べる"},
+            {"id": "b", "label": "話す"},
+            {"id": "c", "label": "移動する"},
+        ],
+        ensure_ascii=False,
+    )
+
+    valid = AdventureResolutionOutput.model_validate_json(
+        '{"choices": ' + choices + ', "bgm": " ROYAL "}'
+    )
+    assert valid.bgm == "royal"
+
+    # ファイル名など許可リスト外の値は None(据え置き)へ劣化する
+    unknown = AdventureResolutionOutput.model_validate_json(
+        '{"choices": ' + choices + ', "bgm": "scene04_royal.ogg"}'
+    )
+    assert unknown.bgm is None
+
+    missing = AdventureResolutionOutput.model_validate_json(
+        '{"choices": ' + choices + "}"
+    )
+    assert missing.bgm is None
+
+
+def test_bgm_reason_validator_degrades_instead_of_raising() -> None:
+    """選曲理由は長すぎても非文字列でも検証エラーへ落とさない。"""
+    choices = json.dumps(
+        [
+            {"id": "a", "label": "調べる"},
+            {"id": "b", "label": "話す"},
+            {"id": "c", "label": "移動する"},
+        ],
+        ensure_ascii=False,
+    )
+
+    valid = AdventureResolutionOutput.model_validate_json(
+        '{"choices": ' + choices + ', "bgm": "bar", "bgm_reason": " 酒場の場面のため "}'
+    )
+    assert valid.bgm_reason == "酒場の場面のため"
+
+    overlong = AdventureResolutionOutput.model_validate(
+        {"choices": json.loads(choices), "bgm": "bar", "bgm_reason": "あ" * 300}
+    )
+    assert overlong.bgm_reason is not None
+    assert len(overlong.bgm_reason) == 200
+
+    non_string = AdventureResolutionOutput.model_validate(
+        {"choices": json.loads(choices), "bgm": "bar", "bgm_reason": 123}
+    )
+    assert non_string.bgm_reason is None
+
+    missing = AdventureResolutionOutput.model_validate(
+        {"choices": json.loads(choices), "bgm": "bar"}
+    )
+    assert missing.bgm_reason is None
+
+
+def test_merge_output_writes_bgm_and_keeps_previous_when_missing() -> None:
+    service = AdventureService()
+    output = make_output(completed=[])
+    output.bgm = "bar"
+    output.bgm_reason = "酒場での会話が続くため"
+
+    state, _, _, _ = service._merge_output(make_run(), output, 1)
+    assert state["bgm"] == "bar"
+    assert state["bgm_reason"] == "酒場での会話が続くため"
+
+    # 据え置きターン(bgm=None)ではキーと理由をペアで維持する
+    followup = make_output(completed=[])
+    assert followup.bgm is None
+    state, _, _, _ = service._merge_output(
+        make_run(), followup, 2, state_override=state
+    )
+    assert state["bgm"] == "bar"
+    assert state["bgm_reason"] == "酒場での会話が続くため"
+
+    # キー更新時は理由も同時に書き換わる(理由欠落なら None で上書き)
+    changed = make_output(completed=[])
+    changed.bgm = "daily"
+    state, _, _, _ = service._merge_output(make_run(), changed, 3, state_override=state)
+    assert state["bgm"] == "daily"
+    assert state["bgm_reason"] is None
+
+
+def test_turn_prompts_carry_bgm_policy() -> None:
+    service = AdventureService()
+
+    resolution_prompt = service._resolution_system_prompt("ja")
+    assert '"bgm"' in resolution_prompt
+    assert '"bgm_reason"' in resolution_prompt
+    assert "current_bgm" in resolution_prompt
+    assert "private_action" in resolution_prompt
+    # 序盤の小イベントを important_event 扱いしないための好感度参照ルール
+    assert "state.sim.affection" in resolution_prompt
+
+    director_prompt = service._director_system_prompt("ja")
+    assert '"bgm"' in director_prompt
+    assert '"bgm_reason"' in director_prompt
+    assert "private_action" in director_prompt
+    assert "state.sim.affection" in director_prompt
 
 
 def test_disguise_preset_uses_identity_without_inherited_memory() -> None:
@@ -733,6 +844,11 @@ def test_append_reality_rule_dedupes_and_caps() -> None:
     assert "誰も咎めない" not in rules
     assert rules[-1] == f"ルール{_MAX_REALITY_RULES + 2}"
 
+    # 宣言経路も管理経路と同じ正規化を通ること
+    fresh: dict[str, object] = {}
+    _append_reality_rule(fresh, "  空白は   畳まれる ")
+    assert fresh["reality_rules"] == ["空白は 畳まれる"]
+
 
 def test_turn_judgement_prompts_carry_reality_rule_policy() -> None:
     service = AdventureService()
@@ -829,6 +945,147 @@ def test_clothing_narrative_suffix_follows_narration_voice(
         narration_pronoun=pronoun,
     )
     assert suffix == expected
+
+
+def test_speech_style_defaults_to_polite_and_reaches_narrative_prompts() -> None:
+    """口調は物語を書く2経路にだけ載せ、選択肢を作る判定側には載せない。"""
+    from gateway.services.adventure_service import _speech_style_instruction
+
+    service = AdventureService()
+    rule = _speech_style_instruction(None, None)
+    assert "SPEECH REGISTER:" in rule
+    assert "です/ます" in rule
+    for prompt in (
+        service._director_system_prompt("ja", speech_rule=rule),
+        service._narrative_system_prompt("ja", speech_rule=rule),
+    ):
+        assert "SPEECH REGISTER:" in prompt
+    assert "SPEECH REGISTER:" not in service._resolution_system_prompt("ja")
+
+
+@pytest.mark.parametrize(
+    ("style", "marker"),
+    [
+        ("polite", "speaks politely to everyone"),
+        ("casual", "speaks casually and familiarly"),
+        ("formal", "deferential, formal Japanese"),
+    ],
+)
+def test_speech_style_switches_register(style: str, marker: str) -> None:
+    from gateway.services.adventure_service import _speech_style_instruction
+
+    assert marker in _speech_style_instruction(style, "")
+
+
+def test_custom_speech_style_uses_the_written_text() -> None:
+    from gateway.services.adventure_service import _speech_style_instruction
+
+    rule = _speech_style_instruction("custom", "武士のような古風な口調")
+    assert "「武士のような古風な口調」" in rule
+
+
+def test_custom_speech_style_falls_back_to_polite_when_blank() -> None:
+    from gateway.services.adventure_service import _speech_style_instruction
+
+    assert "speaks politely to everyone" in _speech_style_instruction("custom", "   ")
+
+
+def test_unknown_speech_style_falls_back_to_polite() -> None:
+    from gateway.services.adventure_service import normalize_speech_style
+
+    assert normalize_speech_style("bogus") == "polite"
+    assert normalize_speech_style(None) == "polite"
+
+
+def test_partner_speech_style_is_restated_and_pinned_to_the_partner() -> None:
+    """攻略対象の口調は主人公の口調へ収束させない、と明示すること。"""
+    from gateway.services.adventure_service import _speech_style_instruction
+
+    rule = _speech_style_instruction(
+        "polite",
+        "",
+        partner_style="ため口。語尾を伸ばすギャル口調",
+        partner_name="ミク",
+    )
+    assert "ミク" in rule
+    assert "「ため口。語尾を伸ばすギャル口調」" in rule
+    assert "Never converge their register onto the player's." in rule
+
+
+def test_speech_rule_from_state_reads_the_partner_from_sim() -> None:
+    from gateway.services.adventure_service import _speech_rule_from_state
+
+    rule = _speech_rule_from_state(
+        {
+            "player_speech_style": "casual",
+            "sim": {"partner_name": "ミク", "partner_speech_style": "ため口"},
+        }
+    )
+    assert "speaks casually and familiarly" in rule
+    assert "ミク" in rule
+
+
+def test_speech_settings_are_hidden_from_the_user_prompt_state() -> None:
+    from gateway.services.adventure_service import _lean_state_for_llm
+
+    lean = _lean_state_for_llm(
+        {"player_speech_style": "casual", "player_speech_custom": "x", "clues": []}
+    )
+    assert "player_speech_style" not in lean
+    assert "player_speech_custom" not in lean
+
+
+def test_choice_prompts_ask_for_short_labels() -> None:
+    """行動パネルは幅の狭い縦カラムなので、選択肢を一目で読める長さに保つ。"""
+    service = AdventureService()
+    for prompt in (
+        service._director_system_prompt("ja"),
+        service._resolution_system_prompt("ja"),
+    ):
+        assert "at most 20 Japanese characters" in prompt
+
+
+def test_overlong_choice_label_is_clamped_instead_of_failing() -> None:
+    """長すぎるラベルは修復リトライに落とさず切り詰める。"""
+    from gateway.services.adventure_service import (
+        _CHOICE_LABEL_MAX_LENGTH,
+        AdventureChoice,
+    )
+
+    choice = AdventureChoice.model_validate(
+        {"id": "a", "label": "あ" * (_CHOICE_LABEL_MAX_LENGTH + 40)}
+    )
+    assert len(choice.label) <= _CHOICE_LABEL_MAX_LENGTH
+
+
+def test_sanitize_choices_keeps_long_labels_instead_of_dropping_them() -> None:
+    """長さを理由に3択が既定文へ差し替わらないこと。"""
+    from gateway.services.adventure_service import (
+        _CHOICE_LABEL_MAX_LENGTH,
+        _sanitize_choices,
+    )
+
+    long_label = (
+        "彼女の座っているテーブルへ、" + "考え抜いた新しいドリンクを提供する" * 6
+    )
+    choices = _sanitize_choices(
+        [
+            {"id": "a", "label": long_label},
+            {"id": "b", "label": "本棚を眺める"},
+            {"id": "c", "label": "店を出る"},
+        ],
+        language="ja",
+    )
+    assert [item["id"] for item in choices] == ["a", "b", "c"]
+    assert len(choices[0]["label"]) <= _CHOICE_LABEL_MAX_LENGTH
+
+
+def test_romance_setup_prompt_no_longer_suggests_rivals() -> None:
+    """恋敵を扱う機構が無いため、ミッション案に登場させない。"""
+    service = AdventureService()
+    prompt = service._setup_system_prompt("ja", preset="romance")
+    assert "rivals" not in prompt
+    assert "romantic complications" in prompt
 
 
 def test_equipment_image_tags_include_worn_dress() -> None:
@@ -1729,6 +1986,34 @@ def test_serialize_turn_omits_sim_for_mission_turns() -> None:
     assert "partner_note" not in payload
 
 
+def test_serialize_turn_exposes_bgm_from_state_delta() -> None:
+    service = AdventureService()
+    turn = make_serializable_turn(
+        {
+            "bgm": "bar",
+            "visual_state": {
+                "location": "バー",
+                "appearance": "主人公の姿",
+                "main_characters": [],
+            },
+        }
+    )
+
+    assert service._serialize_turn(turn)["bgm"] == "bar"
+
+    # bgm 導入前の旧ターンは None を返し、フロント側で daily に倒す
+    legacy = make_serializable_turn(
+        {
+            "visual_state": {
+                "location": "倉庫",
+                "appearance": "変装した姿",
+                "main_characters": [],
+            }
+        }
+    )
+    assert service._serialize_turn(legacy)["bgm"] is None
+
+
 def test_serialize_run_includes_romance_opening_sim(tmp_path) -> None:
     service = AdventureService()
     opening_partner_file = tmp_path / "partner-0-abcd1234.png"
@@ -2420,6 +2705,109 @@ async def test_adventure_romance_scene_partner_reference(
         assert len(references) == 1
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("portrait_is_fresh", [True, False])
+async def test_composite_scene_reference_overrides(
+    monkeypatch, tmp_path, portrait_is_fresh
+) -> None:
+    """立ち絵を省略したターンは前ターンの1枚を弱参照で使い回す。
+
+    攻略対象はそのターンに描き直した立ち絵を2枚目の参照として受け取る。
+    """
+    service = AdventureService()
+    service._images_dir = tmp_path
+    run_dir = tmp_path / "run-1"
+    run_dir.mkdir()
+    current_path = run_dir / "current.png"
+    initial_path = run_dir / "initial.png"
+    partner_path = run_dir / "partner_initial.png"
+    current_path.write_bytes(b"current")
+    initial_path.write_bytes(b"initial")
+    partner_path.write_bytes(b"partner")
+    run = SimpleNamespace(
+        id="run-1",
+        state_json=make_romance_scene_state(partner_path),
+        current_image_path=str(current_path),
+        initial_image_path=str(initial_path),
+        text_model="glm-4-6",
+        image_model="nai-diffusion-4-5-full",
+        nsfw_mode=False,
+        turn_count=1,
+        preset="romance",
+    )
+    persisted_run = SimpleNamespace(
+        id="run-1",
+        current_image_path=str(current_path),
+        updated_at=None,
+        state_json="{}",
+    )
+
+    class FakeDatabase:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, _exc_type, _exc, _traceback):
+            return None
+
+        async def get(self, model, _record_id):
+            return persisted_run if model is AdventureRun else None
+
+        async def scalar(self, _statement):
+            return None
+
+        async def commit(self):
+            return None
+
+    generate_image = AsyncMock(return_value=SimpleNamespace(images=[b"generated"]))
+    monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.session_store.get_user_settings",
+        AsyncMock(return_value={"nsfw_mode": False, "language": "ja"}),
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.llm_service.generate_text",
+        AsyncMock(
+            return_value=SimpleNamespace(
+                content=make_romance_image_prompt_content(with_partner=True)
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.image_service.generate_image",
+        generate_image,
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.async_session_factory", FakeDatabase
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.settings.novelai_model",
+        "nai-diffusion-4-5-full",
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.settings.novelai_curated_model",
+        "nai-diffusion-4-5-curated",
+    )
+
+    await service._generate_image_unlocked(
+        "run-1",
+        None,
+        redraw_from_reference=True,
+        character_reference_image_override=b"portrait-turn",
+        character_reference_is_fresh=portrait_is_fresh,
+        partner_reference_image_override=b"partner-turn",
+    )
+
+    references = generate_image.await_args.kwargs["character_references"]
+    assert references is not None
+    assert len(references) == 2
+    assert references[0]["image"] == b"portrait-turn"
+    # 前ターンの立ち絵は衣装変更後の絵ではないため弱参照へ落とす
+    assert references[0]["strength"] == (0.85 if portrait_is_fresh else 0.35)
+    assert references[1]["image"] == b"partner-turn"
+    assert references[1]["strength"] == 0.85
+    assert references[1]["fidelity"] == 1.0
+
+
 def test_romance_partner_scene_reference_requires_partner_image(tmp_path) -> None:
     prompt = AdventureImagePromptOutput(
         scene_tags="night club interior",
@@ -2464,6 +2852,169 @@ def test_romance_partner_scene_reference_prefers_override_visual_state(
     assert reference["image"] == b"partner"
     assert reference["strength"] == 0.35
     assert reference["fidelity"] == 0.55
+
+
+def test_romance_partner_scene_reference_uses_turn_portrait_override(
+    tmp_path,
+) -> None:
+    """そのターンに描き直した攻略対象立ち絵は現在の衣装なので強参照にする。"""
+    partner_path = tmp_path / "partner_initial.png"
+    partner_path.write_bytes(b"partner")
+    prompt = AdventureVisualOutput(
+        scene_tags="night club interior",
+        player_tags="young man",
+        npc_tags=["succubus dancer, revealing stage outfit"],
+        visual_state=AdventureVisualState(
+            location="ナイトクラブ",
+            appearance="黒髪の青年",
+            clothing="白いTシャツ",
+            main_characters=[
+                {
+                    "name": "リリス",
+                    "description": "サキュバスのダンサー",
+                    "clothing": "ステージ衣装",
+                }
+            ],
+        ),
+    )
+    state = {
+        "use_precise_reference": True,
+        "partner_image_path": str(partner_path),
+        "sim": {"partner_name": "リリス"},
+        "visual_state": {"main_characters": []},
+    }
+    reference = _romance_partner_scene_reference(
+        state, prompt, reference_override=b"partner-turn"
+    )
+    assert reference is not None
+    assert reference["image"] == b"partner-turn"
+    assert reference["strength"] == 0.85
+    assert reference["fidelity"] == 1.0
+
+
+def test_romance_partner_scene_reference_override_without_start_material(
+    tmp_path,
+) -> None:
+    """開始素材が無くても、そのターンの立ち絵があれば参照を組み立てる。"""
+    prompt = AdventureVisualOutput(
+        scene_tags="night club interior",
+        player_tags="young man",
+        npc_tags=["succubus dancer"],
+        visual_state=AdventureVisualState(
+            location="ナイトクラブ",
+            appearance="黒髪の青年",
+            clothing="白いTシャツ",
+            main_characters=[
+                {
+                    "name": "リリス",
+                    "description": "サキュバスのダンサー",
+                    "clothing": "ステージ衣装",
+                }
+            ],
+        ),
+    )
+    state = {
+        "use_precise_reference": True,
+        "partner_image_path": str(tmp_path / "missing.png"),
+        "sim": {"partner_name": "リリス"},
+        "visual_state": {"main_characters": []},
+    }
+    reference = _romance_partner_scene_reference(
+        state, prompt, reference_override=b"partner-turn"
+    )
+    assert reference is not None
+    assert reference["image"] == b"partner-turn"
+
+
+def test_romance_partner_scene_reference_skips_absent_partner(tmp_path) -> None:
+    """立ち絵を描いたターンでも、場面に登場しないなら参照は付けない。"""
+    prompt = AdventureVisualOutput(
+        scene_tags="empty classroom",
+        player_tags="young man",
+        npc_tags=[],
+        visual_state=AdventureVisualState(
+            location="教室",
+            appearance="黒髪の青年",
+            clothing="制服",
+            main_characters=[],
+        ),
+    )
+    state = {
+        "use_precise_reference": True,
+        "sim": {"partner_name": "リリス"},
+        "visual_state": {"main_characters": []},
+    }
+    assert (
+        _romance_partner_scene_reference(
+            state, prompt, reference_override=b"partner-turn"
+        )
+        is None
+    )
+
+
+def make_partner_scene_prompt() -> AdventureVisualOutput:
+    """攻略対象が場面に登場するターンの visual 出力。"""
+    return AdventureVisualOutput(
+        scene_tags="night club interior",
+        player_tags="young man",
+        npc_tags=["succubus dancer, revealing stage outfit"],
+        visual_state=AdventureVisualState(
+            location="ナイトクラブ",
+            appearance="黒髪の青年",
+            clothing="白いTシャツ",
+            main_characters=[
+                {
+                    "name": "リリス",
+                    "description": "サキュバスのダンサー",
+                    "clothing": "ステージ衣装",
+                }
+            ],
+        ),
+    )
+
+
+def test_romance_partner_scene_reference_uses_latest_portrait_after_alteration(
+    tmp_path,
+) -> None:
+    """外見が改変された後は、元の姿の開始素材ではなく直近の立ち絵を参照する。"""
+    partner_path = tmp_path / "partner_initial.png"
+    partner_path.write_bytes(b"partner-start")
+    portrait_path = tmp_path / "partner-3.png"
+    portrait_path.write_bytes(b"partner-latest")
+    state = {
+        "use_precise_reference": True,
+        "partner_image_path": str(partner_path),
+        "partner_portrait_path": str(portrait_path),
+        "initial_partner_appearance": "female, 1girl, long blonde hair",
+        "sim": {
+            "partner_name": "リリス",
+            "partner_appearance": "male, 1boy, black hair",
+        },
+        "visual_state": {"main_characters": []},
+    }
+    reference = _romance_partner_scene_reference(state, make_partner_scene_prompt())
+    assert reference is not None
+    assert reference["image"] == b"partner-latest"
+
+
+def test_romance_partner_scene_reference_drops_start_material_after_alteration(
+    tmp_path,
+) -> None:
+    """改変後に立ち絵が無ければ、開始素材があっても参照を付けない。"""
+    partner_path = tmp_path / "partner_initial.png"
+    partner_path.write_bytes(b"partner-start")
+    state = {
+        "use_precise_reference": True,
+        "partner_image_path": str(partner_path),
+        "partner_portrait_path": str(tmp_path / "missing.png"),
+        "initial_partner_appearance": "female, 1girl, long blonde hair",
+        "sim": {
+            "partner_name": "リリス",
+            "partner_appearance": "male, 1boy, black hair",
+        },
+        "visual_state": {"main_characters": []},
+    }
+    assert _romance_partner_scene_reference(state, make_partner_scene_prompt()) is None
 
 
 @pytest.mark.asyncio
@@ -2539,6 +3090,283 @@ async def test_update_run_settings_toggles_precise_reference(monkeypatch) -> Non
     saved = __import__("json").loads(persisted.state_json)
     assert saved["use_precise_reference"] is True
     assert saved["enable_composite_scene"] is True
+
+
+def make_reality_rule_run(state: dict[str, object]) -> tuple[object, object]:
+    """update_reality_rules 用の run / persisted ペアを組み立てる。"""
+    run = SimpleNamespace(
+        id="run-1",
+        source_session_id=None,
+        source_history_id=None,
+        preset="romance",
+        title="テスト",
+        objective="交際する",
+        constraints_json="[]",
+        status="active",
+        turn_count=0,
+        max_turns=8,
+        ending_title=None,
+        ending_summary=None,
+        language="ja",
+        current_image_path="current.png",
+        initial_image_path="initial.png",
+        snapshot_json="{}",
+        created_at=None,
+        updated_at=None,
+        state_json=json.dumps(state, ensure_ascii=False),
+        turns=[],
+    )
+    persisted = SimpleNamespace(id="run-1", state_json=run.state_json, updated_at=None)
+    return run, persisted
+
+
+def patch_reality_rule_db(monkeypatch, service, run, persisted) -> None:
+    class FakeDatabase:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, _exc_type, _exc, _traceback):
+            return None
+
+        async def get(self, model, record_id):
+            if model is AdventureRun and record_id == "run-1":
+                return persisted
+            return None
+
+        async def commit(self):
+            return None
+
+    monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.async_session_factory", FakeDatabase
+    )
+
+
+def make_reality_rule_state(**overrides: object) -> dict[str, object]:
+    state: dict[str, object] = {
+        "reality_rules": [],
+        "choices": [],
+        "clues": [],
+        "milestones": [],
+        "completed_milestones": [],
+        "opening_narrative": "開始",
+        "visual_state": {"location": "room", "appearance": "1girl"},
+    }
+    state.update(overrides)
+    return state
+
+
+def test_normalize_reality_rules_collapses_and_dedupes() -> None:
+    assert _normalize_reality_rules(
+        ["  彼女は  猫耳が\n生えている ", "彼女は 猫耳が 生えている", "", "   ", None]
+    ) == ["彼女は 猫耳が 生えている"]
+    # 順序は保つ
+    assert _normalize_reality_rules(["B", "A", "B"]) == ["B", "A"]
+    # 1件あたりの上限で切り詰める
+    assert len(_normalize_reality_rules(["あ" * 400])[0]) == 300
+
+
+@pytest.mark.asyncio
+async def test_update_reality_rules_replaces_list(monkeypatch) -> None:
+    service = AdventureService()
+    run, persisted = make_reality_rule_run(
+        make_reality_rule_state(reality_rules=["A", "B", "C"])
+    )
+    patch_reality_rule_db(monkeypatch, service, run, persisted)
+
+    result = await service.update_reality_rules("run-1", ["A", "  C 改  "])
+
+    assert result["reality_rules"] == ["A", "C 改"]
+    assert json.loads(persisted.state_json)["reality_rules"] == ["A", "C 改"]
+
+
+@pytest.mark.asyncio
+async def test_preview_turn_prompts_requires_the_flag(monkeypatch) -> None:
+    service = AdventureService()
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.settings.enable_prompt_preview", False
+    )
+    with pytest.raises(AdventureError) as excinfo:
+        await service.preview_turn_prompts(
+            "run-1", user_input="話しかける", input_kind="free_text"
+        )
+    assert excinfo.value.code == "prompt_preview_disabled"
+
+
+@pytest.mark.asyncio
+async def test_preview_turn_prompts_shows_rules_without_touching_state(
+    monkeypatch,
+) -> None:
+    """付与済みルールが実際の送信内容に載ることを、state を汚さずに確認できる。"""
+    service = AdventureService()
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.settings.enable_prompt_preview", True
+    )
+    run, _persisted = make_reality_rule_run(
+        make_reality_rule_state(
+            reality_rules=["僕はバニーレオタードを着る"],
+            pending_reality_rules=["僕はバニーレオタードを着る"],
+            appearance_lock="male, 1boy, black hair",
+        )
+    )
+    before = run.state_json
+    monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
+
+    result = await service.preview_turn_prompts(
+        "run-1", user_input="海辺を歩く", input_kind="free_text"
+    )
+
+    # 3呼び出し分そろっていること
+    assert set(result) >= {"narrative", "resolution", "visual", "image", "input_kind"}
+    for key in ("narrative", "resolution", "visual"):
+        assert result[key]["system"].strip()
+        assert result[key]["user"].strip()
+    # 付与した属性が user prompt に載っている(これが確認したかったこと)
+    assert "僕はバニーレオタードを着る" in result["narrative"]["user"]
+    # 未反映の付与は「この手番で確定」として渡る
+    payload = json.loads(result["narrative"]["user"])
+    assert payload["reality_rule_declared_this_turn"] == "僕はバニーレオタードを着る"
+    # ビジュアルの本文は事前には確定しないので占位である旨を伝える
+    assert result["visual"]["narrative_is_placeholder"] is True
+    # プレビューは state を書き換えない(pending を消費しない)
+    assert run.state_json == before
+    assert json.loads(run.state_json)["pending_reality_rules"] == [
+        "僕はバニーレオタードを着る"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_update_reality_rules_marks_only_new_rules_pending(monkeypatch) -> None:
+    """手番を使わず足したルールは、次の手番で反映するため控えに積む。"""
+    service = AdventureService()
+    run, persisted = make_reality_rule_run(
+        make_reality_rule_state(reality_rules=["既存のルール"])
+    )
+    patch_reality_rule_db(monkeypatch, service, run, persisted)
+
+    await service.update_reality_rules("run-1", ["既存のルール", "僕はバニーを着る"])
+
+    saved = json.loads(persisted.state_json)
+    # 既存分は再通知しない
+    assert saved["pending_reality_rules"] == ["僕はバニーを着る"]
+
+
+@pytest.mark.asyncio
+async def test_update_reality_rules_drops_pending_for_removed_rules(
+    monkeypatch,
+) -> None:
+    """反映前に消したルールは持ち越さない。"""
+    service = AdventureService()
+    run, persisted = make_reality_rule_run(
+        make_reality_rule_state(
+            reality_rules=["僕はバニーを着る"],
+            pending_reality_rules=["僕はバニーを着る"],
+        )
+    )
+    patch_reality_rule_db(monkeypatch, service, run, persisted)
+
+    await service.update_reality_rules("run-1", [])
+
+    saved = json.loads(persisted.state_json)
+    assert saved["pending_reality_rules"] == []
+
+
+def test_take_established_reality_rules_merges_and_clears_pending() -> None:
+    """付与済み(未反映)と入力による宣言を同じ「この手番で確定」として渡す。"""
+    from gateway.services.adventure_service import _take_established_reality_rules
+
+    # 手番を使わない付与だけの手番でも通知される
+    state: dict[str, object] = {"pending_reality_rules": ["僕はバニーを着る"]}
+    assert _take_established_reality_rules(state, None) == "僕はバニーを着る"
+    # 一度きりの通知なので取り出したら消える
+    assert "pending_reality_rules" not in state
+    assert _take_established_reality_rules(state, None) is None
+
+    # 宣言と付与が同じ手番に重なったら両方渡す。重複は畳む
+    both: dict[str, object] = {"pending_reality_rules": ["A", "宣言"]}
+    assert _take_established_reality_rules(both, "宣言") == "宣言; A"
+
+    # どちらも無ければ None
+    assert _take_established_reality_rules({}, None) is None
+
+
+def test_reality_rules_instruction_covers_standing_rules() -> None:
+    """付与したルールは宣言手番だけでなく以後も効き続ける必要がある。"""
+    from gateway.services.adventure_service import _REALITY_RULES_INSTRUCTION
+
+    assert "stays in force on every later turn" in _REALITY_RULES_INSTRUCTION
+    # 入力による宣言とPATCH付与のどちらでも同じ扱いにする
+    assert "or by adding them directly" in _REALITY_RULES_INSTRUCTION
+
+
+def test_prompts_let_reality_rules_dictate_clothing() -> None:
+    """「〜を着る」のような服装ルールが服装ロックに負けないこと。"""
+    service = AdventureService()
+    visual = service._visual_system_prompt("ja")
+    assert "state what the player wears" in visual
+    assert "outranks previous_visual_state" in visual
+    narrative = service._narrative_system_prompt("ja")
+    assert "state what the player wears" in narrative
+    assert "rather than treating it as something they still have to do" in narrative
+
+
+@pytest.mark.asyncio
+async def test_update_reality_rules_keeps_appearance_and_turn_count(
+    monkeypatch,
+) -> None:
+    """属性を消しても確定済みの外見は戻らず、手番も消費しない。"""
+    service = AdventureService()
+    run, persisted = make_reality_rule_run(
+        make_reality_rule_state(
+            reality_rules=["僕とミユキが入れ替わる"],
+            appearance_lock="female, 1girl, long blonde hair",
+            initial_appearance_lock="male, 1boy, black hair",
+            sim={
+                "partner_name": "ミユキ",
+                "partner_appearance": "male, 1boy, black hair",
+                "total_days": 4,
+                "affection": 10,
+                "money": 5000,
+                "job": {"name": "書店", "wage": 1000},
+                "gift_catalog": [],
+                "given_gifts": [],
+            },
+        )
+    )
+    patch_reality_rule_db(monkeypatch, service, run, persisted)
+
+    result = await service.update_reality_rules("run-1", [])
+
+    saved = json.loads(persisted.state_json)
+    assert saved["reality_rules"] == []
+    # 決定事項: ルールを消しても既に確定した姿は維持する
+    assert saved["appearance_lock"] == "female, 1girl, long blonde hair"
+    assert saved["sim"]["partner_appearance"] == "male, 1boy, black hair"
+    # 手番は一切消費しない
+    assert result["turn_count"] == 0
+    assert result["remaining_turns"] == run.max_turns
+    assert result["status"] == "active"
+
+
+@pytest.mark.asyncio
+async def test_update_reality_rules_rejects_over_limit(monkeypatch) -> None:
+    """上限超過は黙って切らずに拒否し、DBにも触れない。"""
+    from gateway.services.adventure_service import _MAX_REALITY_RULES
+
+    service = AdventureService()
+    run, persisted = make_reality_rule_run(
+        make_reality_rule_state(reality_rules=["既存"])
+    )
+    before = persisted.state_json
+    patch_reality_rule_db(monkeypatch, service, run, persisted)
+
+    with pytest.raises(AdventureError) as excinfo:
+        await service.update_reality_rules(
+            "run-1", [f"ルール{index}" for index in range(_MAX_REALITY_RULES + 1)]
+        )
+
+    assert excinfo.value.code == "too_many_reality_rules"
+    assert persisted.state_json == before
 
 
 @pytest.mark.asyncio
@@ -2718,6 +3546,189 @@ async def test_generate_portrait_uses_precise_reference_when_enabled(
     assert image_kwargs["character_references"][0]["strength"] == 0.35
 
 
+def patch_portrait_generation(monkeypatch, service, run) -> AsyncMock:
+    """立ち絵生成のLLM・画像・DBをモックし、generate_image のモックを返す。"""
+    persisted_run = SimpleNamespace(
+        id=run.id, portrait_image_path=None, updated_at=None, state_json="{}"
+    )
+
+    class FakeDatabase:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, _exc_type, _exc, _traceback):
+            return None
+
+        async def get(self, model, _record_id):
+            return persisted_run if model is AdventureRun else None
+
+        async def scalar(self, _statement):
+            return None
+
+        async def commit(self):
+            return None
+
+    generate_image = AsyncMock(return_value=SimpleNamespace(images=[b"portrait"]))
+    monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.session_store.get_user_settings",
+        AsyncMock(return_value={"nsfw_mode": False, "language": "ja"}),
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.llm_service.generate_text",
+        AsyncMock(
+            return_value=SimpleNamespace(
+                content=make_image_prompt_content(with_guard=False)
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.image_service.generate_image",
+        generate_image,
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.async_session_factory", FakeDatabase
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.settings.novelai_model",
+        "nai-diffusion-4-5-full",
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.settings.novelai_curated_model",
+        "nai-diffusion-4-5-curated",
+    )
+    return generate_image
+
+
+def make_altered_portrait_run(initial_path, portrait_path) -> SimpleNamespace:
+    """外見が現実改変で開始時から変わった run。"""
+    return SimpleNamespace(
+        id="run-1",
+        state_json=json.dumps(
+            {
+                "use_precise_reference": True,
+                "initial_appearance_lock": "male, 1boy, black hair",
+                "appearance_lock": "female, 1girl, long blonde hair",
+                "visual_state": {
+                    "location": "砂浜",
+                    "appearance": "female, 1girl, long blonde hair",
+                    "clothing": "白いTシャツ",
+                    "surroundings": "夕暮れの砂浜",
+                    "main_characters": [],
+                },
+            },
+            ensure_ascii=False,
+        ),
+        current_image_path=str(initial_path),
+        initial_image_path=str(initial_path),
+        portrait_image_path=str(portrait_path) if portrait_path else None,
+        text_model="glm-4-6",
+        image_model="nai-diffusion-4-5-full",
+        nsfw_mode=False,
+        turn_count=3,
+    )
+
+
+@pytest.mark.asyncio
+async def test_generate_portrait_uses_latest_portrait_reference_after_alteration(
+    monkeypatch, tmp_path
+) -> None:
+    """改変後は元の姿の初期画像ではなく直近の立ち絵を参照する。"""
+    service = AdventureService()
+    service._images_dir = tmp_path
+    run_dir = tmp_path / "run-1"
+    run_dir.mkdir()
+    initial_path = run_dir / "initial.png"
+    initial_path.write_bytes(b"initial")
+    portrait_path = run_dir / "portrait-2.png"
+    portrait_path.write_bytes(b"portrait-prev")
+    run = make_altered_portrait_run(initial_path, portrait_path)
+    generate_image = patch_portrait_generation(monkeypatch, service, run)
+
+    await service._generate_portrait_unlocked(
+        "run-1", None, redraw_from_reference=True, turn_number=3
+    )
+
+    references = generate_image.await_args.kwargs["character_references"]
+    assert references is not None
+    assert references[0]["image"] == b"portrait-prev"
+    # 今ターン描いた1枚ではないので弱参照のまま(強参照は衣装を再固定する)
+    assert references[0]["strength"] == 0.35
+
+
+@pytest.mark.asyncio
+async def test_generate_portrait_drops_reference_when_no_prior_portrait_after_alteration(
+    monkeypatch, tmp_path
+) -> None:
+    """改変後に立ち絵が無ければ、古い姿を参照せず参照なしで描く。"""
+    service = AdventureService()
+    service._images_dir = tmp_path
+    run_dir = tmp_path / "run-1"
+    run_dir.mkdir()
+    initial_path = run_dir / "initial.png"
+    initial_path.write_bytes(b"initial")
+    run = make_altered_portrait_run(initial_path, None)
+    generate_image = patch_portrait_generation(monkeypatch, service, run)
+
+    await service._generate_portrait_unlocked(
+        "run-1", None, redraw_from_reference=True, turn_number=3
+    )
+
+    assert generate_image.await_args.kwargs["character_references"] is None
+
+
+@pytest.mark.asyncio
+async def test_generate_partner_portrait_reference_follows_alteration(
+    monkeypatch, tmp_path
+) -> None:
+    """相手立ち絵の参照も、改変前は開始素材・改変後は直近の立ち絵になる。"""
+    service = AdventureService()
+    service._images_dir = tmp_path
+    run_dir = tmp_path / "run-1"
+    run_dir.mkdir()
+    start_path = run_dir / "partner_initial.png"
+    start_path.write_bytes(b"partner-start")
+    latest_path = run_dir / "partner-2.png"
+    latest_path.write_bytes(b"partner-latest")
+
+    def build_run(partner_appearance: str) -> SimpleNamespace:
+        return SimpleNamespace(
+            id="run-1",
+            state_json=json.dumps(
+                {
+                    "use_precise_reference": True,
+                    "partner_image_path": str(start_path),
+                    "partner_portrait_path": str(latest_path),
+                    "initial_partner_appearance": "female, 1girl, long blonde hair",
+                    "sim": {
+                        "partner_name": "ミユキ",
+                        "partner_appearance": partner_appearance,
+                    },
+                },
+                ensure_ascii=False,
+            ),
+            nsfw_mode=False,
+        )
+
+    unchanged = build_run("female, 1girl, long blonde hair")
+    generate_image = patch_portrait_generation(monkeypatch, service, unchanged)
+    await service._generate_partner_portrait_unlocked(
+        "run-1", partner_tags="female, 1girl, long blonde hair", turn_number=2
+    )
+    references = generate_image.await_args.kwargs["character_references"]
+    assert references is not None
+    assert references[0]["image"] == b"partner-start"
+
+    altered = build_run("male, 1boy, black hair")
+    generate_image = patch_portrait_generation(monkeypatch, service, altered)
+    await service._generate_partner_portrait_unlocked(
+        "run-1", partner_tags="male, 1boy, black hair", turn_number=3
+    )
+    references = generate_image.await_args.kwargs["character_references"]
+    assert references is not None
+    assert references[0]["image"] == b"partner-latest"
+
+
 @pytest.mark.asyncio
 async def test_generate_background_image_persists_path_once(
     monkeypatch, tmp_path
@@ -2798,6 +3809,39 @@ def test_serialize_run_defaults_enable_composite_scene_true_for_legacy_runs() ->
     # 人称も旧runでは従来どおりの二人称へ倒す
     assert payload["narration_voice"] == "second_person"
     assert payload["narration_pronoun"] == "僕"
+    # bgm 導入前の旧runは None を返し、フロント側で daily に倒す
+    assert payload["bgm"] is None
+    assert payload["opening_bgm"] is None
+
+
+def test_serialize_run_exposes_bgm_and_opening_bgm() -> None:
+    service = AdventureService()
+    run = SimpleNamespace(
+        id="run-bgm",
+        source_session_id=None,
+        source_history_id=None,
+        preset="escape",
+        title="テスト",
+        objective="脱出する",
+        constraints_json="[]",
+        status="active",
+        turn_count=0,
+        max_turns=8,
+        ending_title=None,
+        ending_summary=None,
+        language="ja",
+        current_image_path="current.png",
+        initial_image_path="initial.png",
+        snapshot_json="{}",
+        created_at=None,
+        updated_at=None,
+        state_json=json.dumps({"bgm": "dark", "opening_bgm": "daily"}),
+    )
+
+    payload = service._serialize_run(run, [], include_snapshot=False)
+
+    assert payload["bgm"] == "dark"
+    assert payload["opening_bgm"] == "daily"
 
 
 @pytest.mark.asyncio
@@ -3797,6 +4841,188 @@ def test_apply_appearance_lock_updates_lock_only_on_alter_turn() -> None:
     assert blank.appearance == "1boy, black hair, short hair, cat ears"
 
 
+def make_partner_visual_output(
+    npc_tags: list[str], *, partner_name: str = "ミユキ"
+) -> AdventureVisualOutput:
+    """攻略対象を1人だけ含む visual 出力を組み立てる。"""
+    return AdventureVisualOutput(
+        scene_tags="beach, sunset",
+        player_tags="female, 1girl, blonde hair, white t-shirt",
+        npc_tags=npc_tags,
+        visual_state=AdventureVisualState(
+            location="砂浜",
+            appearance="金髪の少女",
+            clothing="白いTシャツ",
+            main_characters=[
+                {
+                    "name": partner_name,
+                    "description": "黒髪の青年",
+                    "clothing": "白いTシャツ",
+                }
+            ],
+        ),
+    )
+
+
+def test_identity_tags_only_drops_clothing_and_scene_tags() -> None:
+    assert (
+        _identity_tags_only(
+            "male, 1boy, black hair, white shirt, black pants, standing"
+        )
+        == "male, 1boy, black hair"
+    )
+    # 服装も情景も無ければ全部残る
+    assert _identity_tags_only("female, 1girl, blonde hair") == (
+        "female, 1girl, blonde hair"
+    )
+    assert _identity_tags_only("") == ""
+    assert _identity_tags_only(" , ") == ""
+
+
+def test_apply_partner_appearance_lock_writes_identity_tags() -> None:
+    """現実改変ターンの visual 出力から相手の外見を書き戻す(服装は混ぜない)。"""
+    service = AdventureService()
+    state = {
+        "sim": {
+            "partner_name": "ミユキ",
+            "partner_appearance": "female, 1girl, long blonde hair",
+        }
+    }
+    visual = make_partner_visual_output(
+        ["male, 1boy, black hair, short hair, white t-shirt, black pants"]
+    )
+    service._apply_partner_appearance_lock(state, visual)
+    assert state["sim"]["partner_appearance"] == ("male, 1boy, black hair, short hair")
+
+
+def test_apply_partner_appearance_lock_is_noop_without_partner_entry() -> None:
+    """相手を特定できない・同一性タグが取れないケースは既存値を消さない。"""
+    service = AdventureService()
+    original = "female, 1girl, long blonde hair"
+
+    # 非romance(sim なし)は例外を出さずに何もしない
+    non_romance: dict[str, object] = {}
+    service._apply_partner_appearance_lock(
+        non_romance, make_partner_visual_output(["male, 1boy, black hair"])
+    )
+    assert non_romance == {}
+
+    def run_case(visual: AdventureVisualOutput, partner_name: str = "ミユキ") -> str:
+        state = {"sim": {"partner_name": partner_name, "partner_appearance": original}}
+        service._apply_partner_appearance_lock(state, visual)
+        return state["sim"]["partner_appearance"]
+
+    # partner_name が空
+    assert run_case(make_partner_visual_output(["male, 1boy"]), partner_name="") == (
+        original
+    )
+    # その手番の場面に相手が居ない
+    absent = AdventureVisualOutput(
+        scene_tags="empty classroom",
+        player_tags="female, 1girl",
+        npc_tags=[],
+        visual_state=AdventureVisualState(
+            location="教室", appearance="金髪の少女", main_characters=[]
+        ),
+    )
+    assert run_case(absent) == original
+    # 名前が一致しない
+    assert run_case(
+        make_partner_visual_output(["male, 1boy"], partner_name="サキ")
+    ) == (original)
+    # npc_tags が main_characters の数に足りない
+    assert run_case(make_partner_visual_output([])) == original
+    # 同一性タグが無く服装だけ
+    assert (
+        run_case(make_partner_visual_output(["school uniform, black shoes"]))
+        == original
+    )
+    # 空白のみ
+    assert run_case(make_partner_visual_output([" "])) == original
+
+
+def test_partner_turn_portrait_tags_skips_when_partner_absent() -> None:
+    """場面に居ない相手は描き直さない(裸・改変前の姿へ戻る事故を防ぐ)。"""
+    from gateway.services.adventure_service import (
+        _romance_partner_turn_portrait_tags,
+    )
+
+    stale = "female, 1girl, long blonde hair, large breasts"
+    # 相手が main_characters に居ない手番は空文字 = 前の1枚を維持
+    assert _romance_partner_turn_portrait_tags([], [], "ミユキ", stale) == ""
+    assert (
+        _romance_partner_turn_portrait_tags(
+            [{"name": "店員", "description": "レジ係", "clothing": "制服"}],
+            ["shop clerk, uniform"],
+            "ミユキ",
+            stale,
+        )
+        == ""
+    )
+    # 居る手番はその手番の npc_tags を使う(改変後の姿が入っている)
+    present = [
+        {"name": "ミユキ", "description": "黒髪の青年", "clothing": "白いTシャツ"}
+    ]
+    assert (
+        _romance_partner_turn_portrait_tags(
+            present, ["male, 1boy, black hair, white t-shirt"], "ミユキ", stale
+        )
+        == "male, 1boy, black hair, white t-shirt"
+    )
+    # 居るが npc_tags を取れない場合だけ sim の外見と服装で補う
+    assert (
+        _romance_partner_turn_portrait_tags(present, [], "ミユキ", stale)
+        == f"{stale}, 白いTシャツ"
+    )
+
+
+def test_appearance_diverged_requires_both_values() -> None:
+    """開始時の値が無い旧 run は乖離扱いにしない。"""
+    assert _appearance_diverged({}) is False
+    assert _appearance_diverged({"appearance_lock": "1boy, black hair"}) is False
+    assert _appearance_diverged({"initial_appearance_lock": "1boy"}) is False
+    same = {
+        "initial_appearance_lock": "1boy, black hair",
+        # 空白と大文字小文字の揺れは乖離としない
+        "appearance_lock": "1Boy,   black  hair",
+    }
+    assert _appearance_diverged(same) is False
+    assert (
+        _appearance_diverged(
+            {
+                "initial_appearance_lock": "1boy, black hair",
+                "appearance_lock": "1girl, blonde hair",
+            }
+        )
+        is True
+    )
+
+
+def test_partner_appearance_diverged_requires_sim_and_both_values() -> None:
+    assert _partner_appearance_diverged({}) is False
+    assert (
+        _partner_appearance_diverged({"initial_partner_appearance": "1girl"}) is False
+    )
+    assert (
+        _partner_appearance_diverged(
+            {
+                "initial_partner_appearance": "1girl, blonde hair",
+                "sim": {"partner_appearance": "1girl,  Blonde   hair"},
+            }
+        )
+        is False
+    )
+    assert (
+        _partner_appearance_diverged(
+            {
+                "initial_partner_appearance": "1girl, blonde hair",
+                "sim": {"partner_appearance": "1boy, black hair"},
+            }
+        )
+        is True
+    )
+
+
 def test_resolution_prompt_disables_clue_tracking_when_off() -> None:
     service = AdventureService()
     disabled = service._resolution_system_prompt("ja", include_clues=False)
@@ -3811,3 +5037,17 @@ def test_visual_prompt_allows_declared_reality_changes_only() -> None:
     prompt = service._visual_system_prompt("ja")
     assert "reality_rule_declared_this_turn declares a change" in prompt
     assert "reality_rules are established facts of this world" in prompt
+    # 体が変わる宣言では服装ロックを解除し、服は体に従わせる
+    assert "clothing follows the body" in prompt
+    assert "swaps or exchanges the player with another character" in prompt
+    # 例外に当たらないターンは従来どおり服装を維持する
+    assert "Otherwise keep previous_visual_state.clothing unchanged" in prompt
+
+
+def test_narrative_prompt_allows_declared_identity_and_clothing_change() -> None:
+    """本文側は visual の主入力なので、同じ例外を持たないと服装が引き継がれる。"""
+    service = AdventureService()
+    prompt = service._narrative_system_prompt("ja")
+    assert "narrate the player already in the new body" in prompt
+    assert "clothing follows the body" in prompt
+    assert "also exchanges their outfits" in prompt

@@ -12,6 +12,7 @@ import {
   type AdventureImageRegenerateOptions,
   type AdventureInputKind,
   type AdventureRun,
+  type AdventureSettingsUpdateRequest,
   type AdventureSetup,
   type AdventureSetupRequest,
   type AdventureTemplate,
@@ -29,6 +30,7 @@ import {
   startAdventureEpilogue,
   streamAdventureImage,
   streamAdventureTurn,
+  updateAdventureRealityRules,
   updateAdventureRunSettings,
 } from "../apis/adventure";
 
@@ -39,10 +41,6 @@ export type AdventurePhase = "narrative" | "clue_check" | "image_generation";
 // 属性付与)が分散しても漏れないよう submitTurn で一元的にリクエストへ反映する
 export const DRAW_PORTRAIT_STORAGE_KEY = "adventure_draw_portrait_every_turn";
 export const DRAW_PARTNER_STORAGE_KEY = "adventure_draw_partner_every_turn";
-
-// 手掛かり(恋愛ではヒント)を毎ターン抽出するかのブラウザ単位設定。
-// 判定LLM呼び出し自体は選択肢生成などのため常に走るので、OFFの時間短縮はわずか
-export const GENERATE_CLUES_STORAGE_KEY = "adventure_generate_clues";
 
 // 精密参照ONの画像生成(run開始・romanceのターン送信)はAnlasを消費するため、
 // 実行前に確認ダイアログを挟む。抑止はブラウザセッション単位(sessionStorage)
@@ -62,10 +60,6 @@ export function readDrawPortraitEveryTurn(): boolean {
 
 export function readDrawPartnerEveryTurn(): boolean {
   return readDrawEveryTurn(DRAW_PARTNER_STORAGE_KEY);
-}
-
-export function readGenerateClues(): boolean {
-  return readDrawEveryTurn(GENERATE_CLUES_STORAGE_KEY);
 }
 
 export type AdventureImageStep = "portrait" | "composite";
@@ -113,11 +107,9 @@ interface AdventureContextValue {
   rewindRun: (turnNumber: number) => Promise<void>;
   /** 終了済み run をエピローグ(継続プレイ)へ移行する */
   startEpilogue: () => Promise<void>;
-  updateSettings: (settings: {
-    use_precise_reference: boolean;
-    enable_composite_scene: boolean;
-    respect_clothing_layers?: boolean;
-  }) => Promise<void>;
+  updateSettings: (settings: AdventureSettingsUpdateRequest) => Promise<void>;
+  /** 付与済みの現実改変ルールを丸ごと置き換える(手番は消費しない) */
+  updateRealityRules: (rules: string[]) => Promise<void>;
   clearError: () => void;
 }
 
@@ -243,13 +235,9 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
     ) => {
       if (!activeRun || streaming) return;
       const runId = activeRun.id;
-      // 立ち絵の毎ターン生成OFFは、精密参照OFFかつ非合成モードのときだけ効く
-      const forcePortrait =
-        Boolean(activeRun.use_precise_reference) ||
-        Boolean(activeRun.enable_composite_scene);
-      const generatePortrait = readDrawPortraitEveryTurn() || forcePortrait;
-      const generatePartnerPortrait =
-        readDrawPartnerEveryTurn() || forcePortrait;
+      // 立ち絵の毎ターン生成OFFは、合成モード・精密参照の有無に関わらず効く
+      const generatePortrait = readDrawPortraitEveryTurn();
+      const generatePartnerPortrait = readDrawPartnerEveryTurn();
       setStreaming(true);
       setPhase("narrative");
       setPhaseStep(null);
@@ -268,7 +256,6 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
             ...(generatePartnerPortrait
               ? {}
               : { generate_partner_portrait: false }),
-            ...(readGenerateClues() ? {} : { generate_clues: false }),
           },
           (event) => {
             if (event.type === "status") {
@@ -513,11 +500,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
   }, [activeRun, streaming]);
 
   const updateSettings = useCallback(
-    async (settings: {
-      use_precise_reference: boolean;
-      enable_composite_scene: boolean;
-      respect_clothing_layers?: boolean;
-    }) => {
+    async (settings: AdventureSettingsUpdateRequest) => {
       if (!activeRun) return;
       const runId = activeRun.id;
       setError(null);
@@ -536,9 +519,34 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
                   use_precise_reference: updated.use_precise_reference,
                   enable_composite_scene: updated.enable_composite_scene,
                   respect_clothing_layers: updated.respect_clothing_layers,
+                  player_speech_style: updated.player_speech_style,
+                  player_speech_custom: updated.player_speech_custom,
+                  sim: updated.sim,
                 }
               : run,
           ),
+        );
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : String(caught));
+        throw caught;
+      }
+    },
+    [activeRun],
+  );
+
+  const updateRealityRules = useCallback(
+    async (rules: string[]) => {
+      if (!activeRun) return;
+      const runId = activeRun.id;
+      setError(null);
+      try {
+        const updated = await updateAdventureRealityRules(runId, rules);
+        // このエンドポイントが変えるのは reality_rules だけ。run 全体を
+        // 差し込むと、ストリームで先に入った画像URL等を古い値へ巻き戻す
+        setActiveRun((current) =>
+          current && current.id === runId
+            ? { ...current, reality_rules: updated.reality_rules ?? [] }
+            : current,
         );
       } catch (caught) {
         setError(caught instanceof Error ? caught.message : String(caught));
@@ -621,6 +629,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       regenerateImage,
       regenerateChoices,
       updateSettings,
+      updateRealityRules,
       rewindRun,
       startEpilogue,
       clearError: () => setError(null),
@@ -650,6 +659,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       regenerateImage,
       regenerateChoices,
       updateSettings,
+      updateRealityRules,
       rewindRun,
       startEpilogue,
     ],

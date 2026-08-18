@@ -42,6 +42,7 @@ from ..consts.adventure_romance import (
     ROMANCE_WORK_ENCOUNTER_RATE,
     ROMANCE_WORK_WAGE,
 )
+from ..consts.adventure_speech import PARTNER_SPEECH_STYLE_MAX_LENGTH
 
 _RESERVED_CHOICE_RE = re.compile(
     "|".join(f"(?:{pattern})" for pattern in ROMANCE_RESERVED_CHOICE_PATTERNS),
@@ -90,6 +91,10 @@ class RomanceSetupOutput(BaseModel):
 
     partner_name: str = Field(min_length=1, max_length=80)
     partner_profile: str = Field(min_length=1, max_length=600)
+    # 話し方だけを取り出した1文。既存 run と生成失敗に備えて必須にしない
+    partner_speech_style: str = Field(
+        default="", max_length=PARTNER_SPEECH_STYLE_MAX_LENGTH
+    )
     relationship_origin: str = Field(min_length=1, max_length=400)
     job_name: str = Field(min_length=1, max_length=80)
     gift_catalog: list[RomanceGift] = Field(min_length=8, max_length=12)
@@ -245,6 +250,7 @@ def init_romance_state(
     player_name: str = "",
     player_character_id: str = "",
     player_history_id: str = "",
+    partner_speech_style: str = "",
 ) -> dict[str, Any]:
     """state_json["sim"] の初期値を組み立てる。hidden_preferences は隠し情報。
 
@@ -252,6 +258,8 @@ def init_romance_state(
     別途選択されたテンプレートキャラクター。player_history_id は
     player_character_id が "session:{id}" 形式のときの時点IDで、
     リプレイ時に同じ変身状態から始め直すために保存する。
+    partner_speech_style はユーザーがセットアップで指定した上書き値で、
+    空なら LLM が生成した setup.partner_speech_style を使う。
     """
     rng = rng or random.Random()
     catalog = [
@@ -279,6 +287,9 @@ def init_romance_state(
         "money": ROMANCE_INITIAL_MONEY,
         "partner_name": setup.partner_name,
         "partner_profile": setup.partner_profile,
+        "partner_speech_style": " ".join(
+            (partner_speech_style or setup.partner_speech_style).split()
+        ).strip()[:PARTNER_SPEECH_STYLE_MAX_LENGTH],
         "partner_appearance": partner_appearance,
         "relationship_origin": setup.relationship_origin,
         "player_name": player_name,
@@ -541,6 +552,8 @@ def opening_sim_view(sim: dict[str, Any]) -> dict[str, Any]:
 
     開始値(好感度・所持金・贈答/告白なし)は定数のため、進行後の sim からも
     正確に再構成できる。相手・カタログ・バイトはターンで変化しない。
+    例外は partner_appearance で、現実改変で書き換わると開幕時の値には戻せない
+    ため現在値が入る。開幕フレームの表示にこの項目を使わないこと。
     """
     opening = {
         **sim,
@@ -588,6 +601,11 @@ def public_sim_view(
         "stage": romance_stage(affection),
         "money": _clamp_money(int(sim.get("money") or 0)),
         "partner_name": str(sim.get("partner_name") or ""),
+        # 主人公の口調表示と対にして並べるため公開する。partner_profile は
+        # 隠し好みの推理材料を含むので従来どおり非公開のまま
+        "partner_speech_style": str(sim.get("partner_speech_style") or ""),
+        # 現実改変で書き換わりうるため、主人公の外見表示と対にして配信する
+        "partner_appearance": str(sim.get("partner_appearance") or ""),
         "player_name": str(sim.get("player_name") or ""),
         "player_character_id": str(sim.get("player_character_id") or ""),
         "job": {
@@ -620,7 +638,10 @@ ROMANCE_NARRATIVE_GUIDANCE = (
     "visual_state.main_characters with an appearance matching "
     "state.sim.partner_appearance plus any changes declared through "
     "reality_rules, and never merge the partner's traits into the player's "
-    "appearance or clothing. When state.sim.confessed is true the partner "
+    "appearance or clothing, unless reality_rules declare that the player and "
+    "the partner exchanged bodies or identities: that exchange is exactly what "
+    "the prose must show, each of them carrying the other's body and the "
+    "clothing that body was already wearing. When state.sim.confessed is true the partner "
     "and the player are already dating: portray them as an established "
     "couple sharing daily life, not as someone still being courted. "
     "romance_resolution contains the authoritative "
@@ -634,7 +655,13 @@ ROMANCE_NARRATIVE_GUIDANCE = (
     "the player's own reality declaration in this turn creates it. Portray "
     "the partner described "
     "in state.sim consistently, and let their warmth toward the player follow "
-    "the relationship stage. state.sim.hidden_preferences is secret game "
+    "the relationship stage. state.sim.partner_speech_style is the partner's "
+    "fixed manner of speech: every line of their dialogue must follow the "
+    "politeness level, first-person pronoun, form of address, and sentence "
+    "endings it names, on every turn, and it never drifts toward the player's "
+    "own register no matter how close they become. When it is empty, derive "
+    "their manner of speech from state.sim.partner_profile and keep it "
+    "identical across turns. state.sim.hidden_preferences is secret game "
     "data: weave its hints naturally into conversation, but never list it "
     "outright. In this scenario reality_rules are mainly used to rewrite the "
     "partner's appearance, personality, circumstances, or feelings. Depict a "
@@ -666,7 +693,9 @@ ROMANCE_NARRATIVE_GUIDANCE = (
     "relationship at the same half-day scale. Any choices you offer must "
     "each be a plan that fills the upcoming half-day slot (sharing lunch, "
     "walking through town after class, cooking dinner together), never a "
-    "momentary micro-action such as only greeting, waving, or shaking hands."
+    "momentary micro-action such as only greeting, waving, or shaking hands. "
+    "Name that plan in a few words, as the examples above are worded; the slot "
+    "it covers is set by the plan itself, not by how long the label is."
 )
 
 ROMANCE_VISUAL_GUIDANCE = (
@@ -674,12 +703,21 @@ ROMANCE_VISUAL_GUIDANCE = (
     "subject as usual and required_visual_appearance is the player's identity "
     "signature. player_tags must restate the player's sex tokens from that "
     "signature (for example male, 1boy or female, 1girl) so the player is "
-    "never drawn as a different sex. The romance partner is an NPC whose "
+    "never drawn as a different sex, unless reality_rule_declared_this_turn "
+    "changes the player's own body or identity, in which case restate the sex "
+    "tokens of the player's new body instead. The romance partner is an NPC whose "
     "appearance is romance_partner.appearance plus any changes declared "
     "through reality_rules: when the partner is present in the scene, include "
     "them in main_characters and npc_tags with that appearance, and never "
     "merge the partner's hair, face, body, or clothing into player_tags or "
-    "visual_state.appearance."
+    "visual_state.appearance, unless reality_rules declare that the player and "
+    "the partner exchanged bodies or identities, in which case that exchange is "
+    "exactly what the tags must show: each of them carries the other's body and "
+    "the clothing that body was already wearing. The partner's entry in npc_tags "
+    "must always begin with the partner's explicit sex tokens (for example "
+    "female, 1girl or male, 1boy) taken from the partner's body after any change "
+    "declared through reality_rules, so a partner whose body has become male is "
+    "never drawn female."
 )
 
 ROMANCE_RESOLUTION_GUIDANCE = (
@@ -708,9 +746,15 @@ ROMANCE_RESOLUTION_GUIDANCE = (
     "state.sim.confessed is already true; if it rewrites the partner's gift "
     "tastes, put "
     "the matching gift ids from state.sim.gift_catalog into the updated "
-    "lists; if it changes the partner's body, hair, face, or overall "
-    "appearance, restate the partner's complete new appearance concisely in "
-    "updated_partner_appearance; otherwise keep affection_set null, "
+    "lists; if it changes the partner's body, hair, face, sex, age, species, "
+    "or overall appearance in any way, including any swap, exchange, or "
+    "transfer of bodies or identities between the partner and the player or "
+    "anyone else, in which case the partner now has that other person's body, "
+    "restate the partner's complete new appearance in "
+    "updated_partner_appearance as concise English comma-separated tags "
+    "beginning with explicit sex tokens (for example female, 1girl or male, "
+    "1boy) and describing only the body, hair, eyes, build, and distinguishing "
+    "features, never clothing; otherwise keep affection_set null, "
     "start_dating false, the lists empty, and updated_partner_appearance "
     "null. Keep updated_partner_appearance null on every non-alter turn. "
     "Money follows the same rule as affection. Keep money_delta "
@@ -733,7 +777,9 @@ ROMANCE_RESOLUTION_GUIDANCE = (
     "choice as a plan that fills that half day (for a day slot, plans like "
     "sharing lunch or an afternoon outing; for a night slot, plans like "
     "dinner together or an evening walk), never a momentary micro-action "
-    "such as only greeting, waving, or shaking hands. When neither field is "
+    "such as only greeting, waving, or shaking hands. Name that plan in a few "
+    "words, as those examples are worded; the slot a choice covers is set by "
+    "the plan itself, not by how long the label is. When neither field is "
     "supplied, keep the same half-day scale for the scene the narrative has "
     "just reached."
 )
@@ -744,5 +790,5 @@ def romance_setup_system_prompt(language: str, days: int) -> str:
     response_language = "Japanese" if language == "ja" else "English"
     return f"""You design the setup of a {days}-day romance simulation where the player tries to start dating one partner character.
 Return one JSON object only, in {response_language}, matching this schema:
-{{"partner_name":"...","partner_profile":"...","relationship_origin":"...","job_name":"...","gift_catalog":[{{"name":"...","price":1500,"tier":"budget|standard|luxury"}}],"liked_gift_names":["..."],"disliked_gift_names":["..."],"likes_hint":"...","dislikes_hint":"..."}}
-The partner is the character shown in source_snapshot; keep their appearance and situation consistent with it. source_snapshot deliberately contains no name for the partner: when the supplied setting or objective already names the partner, reuse that name as partner_name; otherwise invent a fitting new name from their appearance. Never use player_name as the partner's name. The player is a separate person courting that partner; never treat the snapshot character as the player. partner_profile describes personality, daily life, and how they speak. relationship_origin describes how the player and the partner currently know each other, at an acquaintance level that can grow into dating within {days} days. job_name is a part-time job the player can work at, where the partner occasionally appears. gift_catalog must contain 8 to 12 concrete purchasable gifts with prices inside their tier band: budget 500-2000, standard 2001-6000, luxury 6001-15000. liked_gift_names and disliked_gift_names must each pick exactly 2 or 3 names verbatim from gift_catalog, reflecting the partner's personality. likes_hint and dislikes_hint describe those tastes indirectly, as hints the partner might drop in conversation, without naming the exact gifts. Keep every value concise."""
+{{"partner_name":"...","partner_profile":"...","partner_speech_style":"...","relationship_origin":"...","job_name":"...","gift_catalog":[{{"name":"...","price":1500,"tier":"budget|standard|luxury"}}],"liked_gift_names":["..."],"disliked_gift_names":["..."],"likes_hint":"...","dislikes_hint":"..."}}
+The partner is the character shown in source_snapshot; keep their appearance and situation consistent with it. source_snapshot deliberately contains no name for the partner: when the supplied setting or objective already names the partner, reuse that name as partner_name; otherwise invent a fitting new name from their appearance. Never use player_name as the partner's name. The player is a separate person courting that partner; never treat the snapshot character as the player. partner_profile describes personality and daily life. partner_speech_style states, in {response_language}, exactly how the partner speaks, in one short sentence a writer can follow verbatim: politeness level (敬体 or 常体), first-person pronoun, how they address the player, sentence endings, and any verbal tic. Make it match the personality in partner_profile, so a brash or casual personality actually speaks casually rather than politely. relationship_origin describes how the player and the partner currently know each other, at an acquaintance level that can grow into dating within {days} days. job_name is a part-time job the player can work at, where the partner occasionally appears. gift_catalog must contain 8 to 12 concrete purchasable gifts with prices inside their tier band: budget 500-2000, standard 2001-6000, luxury 6001-15000. liked_gift_names and disliked_gift_names must each pick exactly 2 or 3 names verbatim from gift_catalog, reflecting the partner's personality. likes_hint and dislikes_hint describe those tastes indirectly, as hints the partner might drop in conversation, without naming the exact gifts. Keep every value concise."""

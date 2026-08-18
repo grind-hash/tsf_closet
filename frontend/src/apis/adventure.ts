@@ -20,6 +20,34 @@ export type AdventureNarrationVoice =
   | "second_person"
   | "third_person"
   | "first_person";
+/** セリフの口調。polite が既定。custom のときだけ自由入力を使う */
+export type AdventureSpeechStyle = "polite" | "casual" | "formal" | "custom";
+/**
+ * LLMが返すBGMカテゴリ。有効なキー集合はバックエンドのカタログJSONが
+ * 定義するため、フロントでは自由文字列として扱い未知キーは既定曲へ倒す。
+ */
+export type AdventureBgmKey = string;
+
+/** GET /adventure/bgm が返す1曲分の情報。url は API_BASE 適用済み */
+export interface AdventureBgmTrack {
+  key: string;
+  url: string;
+  /** 音声ファイル名。BGMテスト画面では曲名としてそのまま表示する */
+  file: string;
+  /** LLM の選曲ガイドに使う用途説明 */
+  description: string;
+  /**
+   * 出所の表記。表示文そのものが入るのでフロントでは加工せずそのまま出す
+   * （例: "SUNO v4.5-all で作成"）。表記不要な曲では未設定。
+   */
+  credit?: string | null;
+}
+
+/** GET /adventure/bgm が返すBGMカタログ */
+export interface AdventureBgmCatalog {
+  default_key: string;
+  tracks: AdventureBgmTrack[];
+}
 
 export interface AdventureChoice {
   id: string;
@@ -78,6 +106,10 @@ export interface AdventureSim {
   stage: "stranger" | "friend" | "aware" | "mutual";
   money: number;
   partner_name: string;
+  /** 攻略対象の口調。空なら人物像に任せる。導入前の旧 run では未定義 */
+  partner_speech_style?: string;
+  /** 攻略対象の外見。現実改変で書き換わる。配信前の旧 run では未定義 */
+  partner_appearance?: string;
   /** 主人公(自分)。導入前の旧 run では未定義 */
   player_name?: string;
   player_character_id?: string;
@@ -107,6 +139,10 @@ export interface AdventureTurn {
   narrative: string;
   /** このターン時点の現在地。旧ターンでは null */
   location: string | null;
+  /** このターン時点のBGMカテゴリ。旧ターンでは null */
+  bgm?: AdventureBgmKey | null;
+  /** このターン時点のBGM選曲理由(LLM出力)。旧ターンでは null */
+  bgm_reason?: string | null;
   choices: AdventureChoice[];
   image_url: string | null;
   image_status: string;
@@ -154,12 +190,22 @@ export interface AdventureRun {
   clues: string[];
   /** プレイ中に「現実改変：〜」で宣言された世界ルール。旧runでは未定義 */
   reality_rules?: string[];
+  /** ENABLE_PROMPT_PREVIEW。プロンプト確認UIの出し分けに使う */
+  enable_prompt_preview?: boolean;
   milestones: AdventureMilestone[];
   completed_milestones: string[];
   /** 現在地・登場人物などの最新ビジュアル状態。開始直後は null のことがある */
   visual_state: AdventureVisualState | null;
   opening_narrative: string;
   opening_image_url: string;
+  /** 現在(最新state)のBGMカテゴリ。旧runでは null */
+  bgm?: AdventureBgmKey | null;
+  /** 現在のBGM選曲理由(LLM出力)。旧runでは null */
+  bgm_reason?: string | null;
+  /** 開幕(手番0)時点のBGMカテゴリ。旧runでは null */
+  opening_bgm?: AdventureBgmKey | null;
+  /** 開幕時点のBGM選曲理由。旧runでは null */
+  opening_bgm_reason?: string | null;
   choices: AdventureChoice[];
   current_image_url: string;
   current_image_prompt: AdventureImagePrompt | null;
@@ -173,6 +219,10 @@ export interface AdventureRun {
   narration_voice: AdventureNarrationVoice;
   /** first_person のときに使う一人称語 */
   narration_pronoun: string;
+  /** 主人公のセリフの口調。旧runは polite 扱い */
+  player_speech_style: AdventureSpeechStyle;
+  /** custom のときに使う自由入力 */
+  player_speech_custom: string;
   /** 開始時に一度だけ生成される背景。非合成モードの固定背景として使用 */
   background_image_url: string | null;
   /** 現在の中央の立ち絵（最新ターン分） */
@@ -235,11 +285,17 @@ export interface AdventureCreateRequest extends AdventureSetupRequest {
   narration_voice?: AdventureNarrationVoice;
   /** first_person のときだけ使う。未指定なら「僕」 */
   narration_pronoun?: string;
+  /** 主人公のセリフの口調。未指定なら polite（丁寧語） */
+  player_speech_style?: AdventureSpeechStyle;
+  /** custom のときだけ使う自由入力 */
+  player_speech_custom?: string;
   /** romance の主人公テンプレートキャラクター。未指定なら既定(char1) */
   romance_player_character_id?: string;
   /** romance の主人公を特定セッション時点の変身状態にする場合に指定 */
   romance_player_session_id?: string;
   romance_player_history_id?: string;
+  /** romance の攻略対象の口調。空なら人物像からLLMが決める */
+  romance_partner_speech_style?: string;
 }
 
 export interface AdventureSettingsUpdateRequest {
@@ -247,6 +303,11 @@ export interface AdventureSettingsUpdateRequest {
   enable_composite_scene: boolean;
   /** 未指定なら run 側の既存値を維持する */
   respect_clothing_layers?: boolean;
+  /** 未指定なら run 側の既存値を維持する。次の手番から反映される */
+  player_speech_style?: AdventureSpeechStyle;
+  player_speech_custom?: string;
+  /** romance 以外の run では無視される */
+  partner_speech_style?: string;
 }
 
 export interface AdventureStreamEvent {
@@ -278,6 +339,12 @@ function normalizeRun(run: AdventureRun): AdventureRun {
     // 旧runやモック応答にキーが無くても表示側が undefined を掴まないようにする
     narration_voice: run.narration_voice ?? "second_person",
     narration_pronoun: run.narration_pronoun || "僕",
+    player_speech_style: run.player_speech_style ?? "polite",
+    player_speech_custom: run.player_speech_custom ?? "",
+    bgm: run.bgm ?? null,
+    bgm_reason: run.bgm_reason ?? null,
+    opening_bgm: run.opening_bgm ?? null,
+    opening_bgm_reason: run.opening_bgm_reason ?? null,
     sim: run.sim ?? null,
     opening_sim: run.opening_sim ?? null,
     partner_portrait_url: withApiBase(run.partner_portrait_url ?? null),
@@ -313,6 +380,19 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
     );
   }
   return response.json() as Promise<T>;
+}
+
+export async function fetchAdventureBgmCatalog(): Promise<AdventureBgmCatalog> {
+  const payload = await requestJson<AdventureBgmCatalog>(
+    `${API_BASE}/adventure/bgm`,
+  );
+  return {
+    default_key: payload.default_key,
+    tracks: payload.tracks.map((track) => ({
+      ...track,
+      url: withApiBase(track.url) ?? track.url,
+    })),
+  };
 }
 
 export async function fetchAdventureTemplates(): Promise<AdventureTemplate[]> {
@@ -499,6 +579,72 @@ export async function updateAdventureRunSettings(
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(request),
+      },
+    ),
+  );
+}
+
+/** LLM1回分のプロンプト。user は実際に送られる文字列そのもの */
+export interface AdventurePromptPair {
+  system: string;
+  user: string;
+  /** ビジュアル呼び出しのみ。本文は生成後に決まるため占位文字列が入る */
+  narrative_is_placeholder?: boolean;
+}
+
+export interface AdventureImagePromptPreview {
+  scene_prompt: string;
+  player_prompt: string;
+  npc_prompts: string[];
+  portrait_prompt: string;
+  negative_prompt: string;
+  nsfw_mode: boolean;
+  use_precise_reference: boolean;
+}
+
+export interface AdventurePromptPreview {
+  /** 「現実改変：〜」検出で昇格した後の種別 */
+  input_kind: AdventureInputKind;
+  narrative: AdventurePromptPair;
+  resolution: AdventurePromptPair;
+  visual: AdventurePromptPair;
+  /** 場面タグが未生成の run では null */
+  image: AdventureImagePromptPreview | null;
+}
+
+/**
+ * 次の手番で送られるプロンプトを、LLMを呼ばずに組み立てて取得する。
+ * ENABLE_PROMPT_PREVIEW が有効なときだけ使える。
+ */
+export async function previewAdventurePrompts(
+  runId: string,
+  request: { user_input: string; input_kind: AdventureInputKind },
+): Promise<AdventurePromptPreview> {
+  return requestJson<AdventurePromptPreview>(
+    `${API_BASE}/adventure/runs/${runId}/preview-prompt`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    },
+  );
+}
+
+/**
+ * 付与済みの現実改変ルールを丸ごと置き換える。手番は消費しない。
+ * 追加・編集・削除・並べ替えをこの1本で賄う(ルールにIDが無いため)。
+ */
+export async function updateAdventureRealityRules(
+  runId: string,
+  rules: string[],
+): Promise<AdventureRun> {
+  return normalizeRun(
+    await requestJson<AdventureRun>(
+      `${API_BASE}/adventure/runs/${runId}/reality-rules`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rules }),
       },
     ),
   );

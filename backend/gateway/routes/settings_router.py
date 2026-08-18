@@ -87,7 +87,7 @@ class SettingsModel(BaseModel):
     change_settings: ChangeSettingsModel = ChangeSettingsModel()
     show_achievement_notifications: bool = True
     sound_enabled: bool = True
-    sound_volume: float = 0.5
+    sound_volume: float = 0.25
     right_panel_open: bool = False
     enable_surroundings_image: bool = False
     surroundings_include_people: bool = False

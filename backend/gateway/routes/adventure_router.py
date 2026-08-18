@@ -11,11 +11,18 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
+from ..consts.adventure_bgm import get_bgm_catalog, resolve_bgm_audio_path
 from ..consts.adventure_narration import (
     NARRATION_PRONOUN_DEFAULT,
     NARRATION_PRONOUN_MAX_LENGTH,
     NARRATION_VOICE_DEFAULT,
     NarrationVoice,
+)
+from ..consts.adventure_speech import (
+    PARTNER_SPEECH_STYLE_MAX_LENGTH,
+    SPEECH_CUSTOM_MAX_LENGTH,
+    SPEECH_STYLE_DEFAULT,
+    SpeechStyle,
 )
 from ..consts.adventure_turns import (
     ADVENTURE_TURNS_DEFAULT,
@@ -69,6 +76,10 @@ class AdventureCreateRequest(BaseModel):
         min_length=1,
         max_length=NARRATION_PRONOUN_MAX_LENGTH,
     )
+    # 主人公のセリフの口調。既定は丁寧語
+    player_speech_style: SpeechStyle = SPEECH_STYLE_DEFAULT
+    # custom のときだけ使う自由入力
+    player_speech_custom: str = Field(default="", max_length=SPEECH_CUSTOM_MAX_LENGTH)
     # 既定OFF: ユーザーが明示ONしない限り精密参照でAnlasを消費しない
     use_precise_reference: bool = False
     # 既定OFF: OFF時は中央の立ち絵のみ更新し、背景合成シーンは初回のみ生成
@@ -81,6 +92,10 @@ class AdventureCreateRequest(BaseModel):
     # session_id があればテンプレートキャラクターより優先される
     romance_player_session_id: str | None = Field(default=None, max_length=80)
     romance_player_history_id: str | None = Field(default=None, max_length=80)
+    # romance の攻略対象の口調。空なら人物像からLLMが自動で決める
+    romance_partner_speech_style: str = Field(
+        default="", max_length=PARTNER_SPEECH_STYLE_MAX_LENGTH
+    )
 
 
 class AdventureSettingsUpdateRequest(BaseModel):
@@ -88,6 +103,29 @@ class AdventureSettingsUpdateRequest(BaseModel):
     enable_composite_scene: bool
     # 未指定なら既存の run 設定を維持する
     respect_clothing_layers: bool | None = None
+    player_speech_style: SpeechStyle | None = None
+    player_speech_custom: str | None = Field(
+        default=None, max_length=SPEECH_CUSTOM_MAX_LENGTH
+    )
+    # romance 以外の run では無視される
+    partner_speech_style: str | None = Field(
+        default=None, max_length=PARTNER_SPEECH_STYLE_MAX_LENGTH
+    )
+
+
+class AdventureRealityRulesUpdateRequest(BaseModel):
+    # 一覧を丸ごと置き換える。件数・表記の正規化はサービス側で行うため、
+    # ここの上限は明らかに異常な量を弾くためだけのもの
+    rules: list[str] = Field(default_factory=list, max_length=64)
+
+
+class AdventurePromptPreviewRequest(BaseModel):
+    # 「この入力で送信したら何が送られるか」を組み立てるための仮の入力
+    user_input: str = Field(default="", max_length=2000)
+    input_kind: Literal[
+        "choice", "free_text", "reality_alter", "gift", "work", "confess"
+    ] = "free_text"
+    gift_id: str | None = Field(default=None, max_length=40)
 
 
 class AdventureRewindRequest(BaseModel):
@@ -169,12 +207,15 @@ async def create_run(request: AdventureCreateRequest) -> dict:
             scenario_max_turns=request.scenario_max_turns,
             narration_voice=request.narration_voice,
             narration_pronoun=request.narration_pronoun,
+            player_speech_style=request.player_speech_style,
+            player_speech_custom=request.player_speech_custom,
             use_precise_reference=request.use_precise_reference,
             enable_composite_scene=request.enable_composite_scene,
             respect_clothing_layers=request.respect_clothing_layers,
             romance_player_character_id=request.romance_player_character_id,
             romance_player_session_id=request.romance_player_session_id,
             romance_player_history_id=request.romance_player_history_id,
+            romance_partner_speech_style=request.romance_partner_speech_style,
         )
     except AdventureError as error:
         raise _http_error(error) from error
@@ -235,7 +276,35 @@ async def update_run_settings(
             use_precise_reference=request.use_precise_reference,
             enable_composite_scene=request.enable_composite_scene,
             respect_clothing_layers=request.respect_clothing_layers,
+            player_speech_style=request.player_speech_style,
+            player_speech_custom=request.player_speech_custom,
+            partner_speech_style=request.partner_speech_style,
         )
+    except AdventureError as error:
+        raise _http_error(error) from error
+
+
+@router.post("/runs/{run_id}/preview-prompt")
+async def preview_turn_prompts(
+    run_id: str, request: AdventurePromptPreviewRequest
+) -> dict:
+    try:
+        return await adventure_service.preview_turn_prompts(
+            run_id,
+            user_input=request.user_input,
+            input_kind=request.input_kind,
+            gift_id=request.gift_id,
+        )
+    except AdventureError as error:
+        raise _http_error(error) from error
+
+
+@router.patch("/runs/{run_id}/reality-rules")
+async def update_reality_rules(
+    run_id: str, request: AdventureRealityRulesUpdateRequest
+) -> dict:
+    try:
+        return await adventure_service.update_reality_rules(run_id, request.rules)
     except AdventureError as error:
         raise _http_error(error) from error
 
@@ -341,3 +410,34 @@ async def get_image(run_id: str, filename: str) -> FileResponse:
         return FileResponse(adventure_service.image_file(run_id, filename))
     except AdventureError as error:
         raise _http_error(error) from error
+
+
+@router.get("/bgm")
+async def get_bgm_tracks() -> dict:
+    """BGMカタログを返す。ファイル名・説明・出所表記はBGMテスト画面の表示に使う。
+    LLM とのやり取りには semantic key しか使わず、この endpoint は経由しない。"""
+    catalog = get_bgm_catalog()
+    return {
+        "default_key": catalog.resolved_default_key(),
+        "tracks": [
+            {
+                "key": track.key,
+                "file": track.file,
+                "description": track.description,
+                "credit": track.credit,
+                "url": f"/adventure/bgm/audio/{track.file}",
+            }
+            for track in catalog.tracks
+        ],
+    }
+
+
+@router.get("/bgm/audio/{filename}")
+async def get_bgm_audio(filename: str) -> FileResponse:
+    path = resolve_bgm_audio_path(filename)
+    if path is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "bgm_not_found", "message": f"unknown bgm: {filename}"},
+        )
+    return FileResponse(path, media_type="audio/ogg")

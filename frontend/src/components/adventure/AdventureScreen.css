@@ -58,18 +58,6 @@
   font-size: 0.82rem;
 }
 
-.adventure-source-select {
-  display: grid;
-  gap: 8px;
-  max-width: min(100%, 560px);
-}
-
-.adventure-source-summary {
-  margin: -8px 0 0;
-  color: #cbd2d7;
-  font-size: 0.82rem;
-}
-
 .adventure-card label,
 .adventure-card fieldset {
   display: grid;
@@ -278,6 +266,14 @@
   gap: 8px;
 }
 
+/* 口調は4択なので2列に折り返す。見た目は語りの人称カードと共有する */
+.adventure-speech-style__cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.adventure-speech-style__cards button,
 .adventure-narration-voice__cards button {
   display: grid;
   gap: 4px;
@@ -289,24 +285,51 @@
   cursor: pointer;
 }
 
+.adventure-speech-style__cards button.is-active,
 .adventure-narration-voice__cards button.is-active {
   border-color: #efb85a;
   background: #24211a;
 }
 
+.adventure-speech-style__cards strong,
 .adventure-narration-voice__cards strong {
   color: #f4f6f8;
   font-size: 0.88rem;
 }
 
+.adventure-speech-style__cards small,
 .adventure-narration-voice__cards small {
   color: #aeb7bf;
   font-size: 0.74rem;
   line-height: 1.5;
 }
 
+.adventure-speech-style__hint,
 .adventure-narration-voice__hint {
   margin: 0;
+  color: #aeb7bf;
+  font-size: 0.75rem;
+}
+
+.adventure-speech-style__custom,
+.adventure-speech-style__partner {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.adventure-speech-style__custom input,
+.adventure-speech-style__partner input {
+  min-height: 40px;
+  padding: 0 10px;
+  border: 1px solid #4a535c;
+  border-radius: 6px;
+  color: #e9edf0;
+  background: #242b31;
+  font-size: 0.95rem;
+}
+
+.adventure-speech-style__partner small {
   color: #aeb7bf;
   font-size: 0.75rem;
 }
@@ -337,6 +360,14 @@
   margin: 4px 0 0;
   color: #9aa5b1;
   font-size: 0.78rem;
+}
+
+/* 画像生成が走らない設定の補足。注意喚起ではないので見積もりと同系統に留める */
+.adventure-turn-note {
+  margin: 2px 0 0;
+  color: #8b95a1;
+  font-size: 0.74rem;
+  line-height: 1.5;
 }
 
 .adventure-disabled-reason {
@@ -440,77 +471,6 @@
   border-color: #efb85a;
   color: #14181c;
   background: #efb85a;
-}
-
-.adventure-source-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
-  grid-auto-rows: max-content;
-  align-content: start;
-  align-items: start;
-  gap: 10px;
-  min-height: 0;
-  /* 行数が増えてもセルを潰さず、枠内スクロールで見せる */
-  max-height: min(52vh, 420px);
-  overflow-x: hidden;
-  overflow-y: auto;
-  /*
-   * overscroll-behavior は指定しない。contain にすると、行数が少なく
-   * スクロール余地が無い場合でもホイールが親（.adventure-hub）へ伝播せず、
-   * この枠の上ではページが動かなくなる。
-   */
-}
-
-.adventure-source-grid button {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  width: 100%;
-  min-width: 0;
-  /* overflow:hidden で min-size が 0 になり行が潰れるのを防ぐ */
-  min-height: max-content;
-  height: max-content;
-  padding: 0;
-  border: 2px solid transparent;
-  border-radius: 6px;
-  color: #e9edf0;
-  background: #22282e;
-  cursor: pointer;
-}
-
-.adventure-source-grid button.is-selected {
-  border-color: #efb85a;
-}
-
-.adventure-source-grid__thumb {
-  display: block;
-  width: 100%;
-  flex: 0 0 auto;
-  aspect-ratio: 3 / 4;
-  overflow: hidden;
-  border-radius: 4px 4px 0 0;
-  background: #1a1f24;
-}
-
-.adventure-source-grid__thumb img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  object-position: center top;
-}
-
-.adventure-source-grid__label {
-  display: -webkit-box;
-  flex: 0 0 auto;
-  min-height: 2.4em;
-  padding: 6px 8px;
-  overflow: hidden;
-  font-size: 0.75rem;
-  line-height: 1.2;
-  text-align: left;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
 }
 
 /*
@@ -936,8 +896,8 @@ button:disabled {
 .adventure-hud__tile,
 .adventure-hud__turns,
 .adventure-hud__anlas,
-.adventure-hud__scenario-trigger,
-.adventure-hud__location {
+.adventure-hud__location,
+.adventure-hud__bgm-chip {
   pointer-events: auto;
 }
 
@@ -953,8 +913,13 @@ button:disabled {
   cursor: pointer;
 }
 
+/*
+ * HUD で唯一伸縮する要素なので、チップを1つ足すとその分だけゴール文が縮む。
+ * min-width:0 のままだと幅0まで潰れてゴールが消えるため、下限を与える
+ * (省略表示は h1 > span 側の ellipsis が担当する)。
+ */
 .adventure-hud__title {
-  min-width: 0;
+  min-width: 5rem;
   flex: 1 1 auto;
 }
 
@@ -984,57 +949,76 @@ button:disabled {
 }
 
 /*
- * ゴール行全体をシナリオ情報ポップオーバーの開閉ボタンにする。
- * 見た目は従来の h1 と同じで、幅は増やさない。
- */
-.adventure-hud__scenario-trigger {
-  display: flex;
-  min-width: 0;
-  max-width: 100%;
-  align-items: baseline;
-  gap: 8px;
-  padding: 0;
-  border: 0;
-  color: inherit;
-  background: none;
-  font: inherit;
-  text-align: left;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.adventure-hud__scenario-trigger > i {
-  flex: 0 0 auto;
-  color: #8a949d;
-  font-size: 0.6rem;
-  font-style: normal;
-}
-
-/*
  * 省略記号は flex コンテナ自身では効かない。
  * ゴール文だけを子ブロックに閉じ込めて ellipsis を付ける。
- * 全文はシナリオポップオーバーとツールチップ(title 属性)で確認できる。
+ * 全文はライトボックスの「概要」ビューとツールチップ(title 属性)で確認できる。
  */
-.adventure-hud__scenario-trigger > span {
+.adventure-hud__title h1 > span {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.adventure-hud__location {
+/*
+ * 現在地ピルとBGMチップの縦2段スタック。非 romance の HUD 内容高
+ * (56px - padding 16px = 40px)に、ピル約22px + gap 2px + チップ約16px で
+ * 収め、--adv-overlay-top の前提(HUD 高さ固定)を崩さない。
+ */
+.adventure-hud__location-stack {
   display: flex;
   min-width: 0;
   flex: 0 1 auto;
-  align-items: baseline;
-  gap: 8px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
   /* CJK では ch が半角基準になり実際の表示幅と合わないため em を使う */
   max-width: min(32vw, 20em);
-  padding: 4px 12px;
+}
+
+.adventure-hud__location {
+  display: flex;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 10px;
   border: 1px solid rgb(239 184 90 / 32%);
   border-radius: 999px;
   background: rgb(13 17 20 / 78%);
-  font-size: 0.8rem;
+  font-size: 0.72rem;
   white-space: nowrap;
+}
+
+.adventure-hud__bgm-chip {
+  display: flex;
+  max-width: 100%;
+  box-sizing: border-box;
+  align-items: baseline;
+  gap: 4px;
+  padding: 1px 8px;
+  border: 1px solid rgb(239 184 90 / 32%);
+  border-radius: 999px;
+  color: #cdd5db;
+  background: rgb(13 17 20 / 78%);
+  font-size: 0.6rem;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.adventure-hud__bgm-chip > span:first-child {
+  color: #efb85a;
+}
+
+.adventure-hud__bgm-chip > span + span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.adventure-hud__bgm-chip.is-open {
+  border-color: #efb85a;
+  color: #f4f6f8;
 }
 
 .adventure-hud__location b {
@@ -1153,6 +1137,20 @@ button:disabled {
   line-height: 1;
 }
 
+/* 口調は文字列なので、他のチップ(数値)より幅が暴れる。上限を決めて
+   ゴール文の取り分を奪わせない。全文はポップオーバー側で読める */
+.adventure-hud__chip--speech {
+  max-width: 92px;
+}
+
+.adventure-hud__chip--speech strong {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 0.78rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .adventure-hud__chip.is-open {
   border-color: #efb85a;
 }
@@ -1245,33 +1243,46 @@ button:disabled {
   line-height: 1.5;
 }
 
-/* シナリオ定義(タイトル・舞台・ゴール・制約)の全文表示 */
-.adventure-hud__scenario {
+/* HUDポップオーバー内の「見出し＋値」一覧。主人公と攻略対象を対で並べる */
+.adventure-hud__facts {
   display: grid;
-  gap: 10px;
-  margin: 0;
+  gap: 8px;
+  margin: 0 0 8px;
 }
 
-.adventure-hud__scenario dt {
-  margin: 0 0 2px;
-  color: #8a949d;
+.adventure-hud__facts dt {
+  margin-bottom: 2px;
+  color: #efb85a;
   font-size: 0.68rem;
   font-weight: 700;
 }
 
-.adventure-hud__scenario dd {
+.adventure-hud__facts dd {
   margin: 0;
-  color: #cbd2d7;
-  font-size: 0.8rem;
-  line-height: 1.6;
+  color: #d6dce1;
+  font-size: 0.82rem;
+  line-height: 1.55;
   overflow-wrap: anywhere;
 }
 
-.adventure-hud__scenario dd ul {
-  display: grid;
-  gap: 4px;
-  padding: 0;
-  list-style: none;
+.adventure-hud__bgm-key {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0 0 8px;
+  font-size: 0.88rem;
+}
+
+.adventure-hud__bgm-key > span {
+  color: #efb85a;
+}
+
+.adventure-hud__bgm-reason {
+  margin: 0;
+  color: #e7ebee;
+  font-size: 0.8rem;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
 }
 
 /*
@@ -1427,6 +1438,35 @@ button:disabled {
   color: #d6dce1;
   font-size: 0.82rem;
   line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+/* 攻略対象は同じドック内の第2セクション。罫線だけで主人公側と切り分ける */
+.adventure-protagonist-dock__partner {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid rgb(239 184 90 / 28%);
+}
+
+.adventure-protagonist-dock__subhead {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.adventure-protagonist-dock__subhead span {
+  color: #efb85a;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.adventure-protagonist-dock__subhead strong {
+  color: #d6dce1;
+  font-size: 0.78rem;
+  font-weight: 700;
   overflow-wrap: anywhere;
 }
 
@@ -1663,6 +1703,14 @@ button:disabled {
   aspect-ratio: 16 / 10;
 }
 
+/* 概要ビューの制約リスト。detail-text と同じ文字組の箇条書き */
+.adventure-preview__constraints {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 20px;
+}
+
 .adventure-scene-preview__background {
   width: 100%;
   height: 100%;
@@ -1795,7 +1843,13 @@ button:disabled {
   flex-direction: column;
   gap: 8px;
   width: min(320px, calc(100% - 32px));
+  /*
+   * ステージ(inset:0)の下端までに収め、はみ出す分は枠内スクロールで見せる。
+   * 画面高が足りないディスプレイでも末尾の項目が切れないようにする。
+   */
+  max-height: calc(100% - var(--adv-overlay-row2) - 16px);
   padding: 12px;
+  overflow-y: auto;
   border-radius: 10px;
   border: 1px solid #3a4148;
   background: rgb(13 17 20 / 96%);
@@ -1804,6 +1858,95 @@ button:disabled {
 
 .adventure-image-settings-popover .adventure-precise-toggle {
   max-width: none;
+}
+
+.adventure-stage__bgm {
+  position: absolute;
+  top: var(--adv-overlay-top);
+  right: 120px;
+  z-index: 5;
+  width: 44px;
+  height: 44px;
+  border: 1px solid #707982;
+  border-radius: 50%;
+  color: #fff;
+  background: rgb(13 17 20 / 82%);
+  font-size: 1.2rem;
+  cursor: pointer;
+}
+
+/* ミュート中は音符を減光し、斜線で無音であることを示す */
+.adventure-stage__bgm--muted {
+  color: rgb(255 255 255 / 45%);
+}
+
+.adventure-stage__bgm--muted::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 26px;
+  height: 2px;
+  background: rgb(224 134 143 / 85%);
+  transform: translate(-50%, -50%) rotate(-45deg);
+}
+
+.adventure-bgm-popover {
+  position: absolute;
+  top: var(--adv-overlay-row2);
+  right: 16px;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(320px, calc(100% - 32px));
+  /* 画像生成設定と同じく、ステージ下端までに収めて枠内スクロールへ逃がす */
+  max-height: calc(100% - var(--adv-overlay-row2) - 16px);
+  padding: 12px;
+  overflow-y: auto;
+  border-radius: 10px;
+  border: 1px solid #3a4148;
+  background: rgb(13 17 20 / 96%);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 50%);
+}
+
+.adventure-bgm-popover .adventure-precise-toggle {
+  max-width: none;
+}
+
+.adventure-bgm-popover__volume {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 4px;
+  color: #f4f6f8;
+  font-size: 0.82rem;
+}
+
+.adventure-bgm-popover__volume-label {
+  flex: 0 0 auto;
+}
+
+.adventure-bgm-popover__slider {
+  flex: 1 1 auto;
+  min-width: 0;
+  accent-color: #efb85a;
+}
+
+.adventure-bgm-popover__volume-value {
+  flex: 0 0 auto;
+  min-width: 40px;
+  color: #aeb7bf;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.adventure-bgm-popover__hint {
+  margin: 0;
+  padding: 0 4px;
+  color: #e0868f;
+  font-size: 0.76rem;
+  line-height: 1.5;
 }
 
 .adventure-turn-strip {
@@ -2904,6 +3047,396 @@ button:disabled {
 .adventure-scenario-option__meta {
   color: #aeb7bf;
 }
+
+/*
+ * 開始セッション選択モーダル。
+ * 骨格・配色は .adventure-scenario-modal に合わせ、タブと閉じるボタンは
+ * .adventure-scenario-tabs / .adventure-scenario-modal__close を再利用する。
+ */
+.adventure-session-picker {
+  position: fixed;
+  inset: 0;
+  z-index: 1500;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgb(6 9 12 / 78%);
+}
+
+.adventure-session-picker__dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(960px, 100%);
+  height: min(640px, calc(100vh - 40px));
+  height: min(640px, calc(100dvh - 40px));
+  overflow: hidden;
+  border: 1px solid #505a63;
+  border-radius: 6px;
+  color: #f4f6f8;
+  background: #171c21;
+  box-shadow: 0 18px 60px rgb(0 0 0 / 45%);
+}
+
+.adventure-session-picker__dialog > header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px;
+  border-bottom: 1px solid #394149;
+}
+
+.adventure-session-picker__dialog h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.adventure-session-picker__dialog .adventure-scenario-tabs {
+  flex: 0 0 auto;
+}
+
+.adventure-session-picker__search {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border-bottom: 1px solid #30373d;
+}
+
+.adventure-session-picker__search input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid #4a535c;
+  border-radius: 6px;
+  color: #e9edf0;
+  background: #1c2228;
+}
+
+.adventure-session-picker__search button {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  border: 1px solid #505a63;
+  border-radius: 50%;
+  color: #e9edf0;
+  background: #242b31;
+  cursor: pointer;
+}
+
+.adventure-session-picker__drill-header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 10px 18px;
+  border-bottom: 1px solid #30373d;
+}
+
+.adventure-session-picker__drill-header button {
+  flex: 0 0 auto;
+  padding: 8px 12px;
+  border: 1px solid #4a535c;
+  border-radius: 6px;
+  color: #e9edf0;
+  background: #242b31;
+  cursor: pointer;
+}
+
+.adventure-session-picker__drill-header strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.adventure-session-picker__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 14px 18px 18px;
+  overflow-y: auto;
+  /* モーダル表示中は背面ページをスクロールさせる必要がないため contain とする */
+  overscroll-behavior: contain;
+}
+
+.adventure-session-picker__cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  align-content: start;
+  gap: 12px;
+}
+
+.adventure-session-picker__card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  border: 2px solid transparent;
+  border-radius: 6px;
+  background: #1c2228;
+}
+
+.adventure-session-picker__card.is-selected {
+  border-color: #efb85a;
+}
+
+.adventure-session-picker__card-thumb {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  aspect-ratio: 3 / 4;
+  overflow: hidden;
+  background: #1a1f24;
+  cursor: pointer;
+}
+
+.adventure-session-picker__card-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center top;
+}
+
+.adventure-session-picker__card-info {
+  display: grid;
+  gap: 3px;
+  padding: 8px 10px 4px;
+  color: #e9edf0;
+}
+
+.adventure-session-picker__card-info strong {
+  overflow: hidden;
+  font-size: 0.88rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.adventure-session-picker__card-meta {
+  color: #aeb7bf;
+  font-size: 0.76rem;
+}
+
+.adventure-session-picker__card-preview {
+  display: -webkit-box;
+  min-height: 2.2em;
+  overflow: hidden;
+  color: #bbc3ca;
+  font-size: 0.76rem;
+  line-height: 1.2;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.adventure-session-picker__card-select {
+  margin: 6px 10px 10px;
+  padding: 8px 10px;
+  border: 1px solid #4a535c;
+  border-radius: 6px;
+  color: #e9edf0;
+  background: #242b31;
+  cursor: pointer;
+}
+
+.adventure-session-picker__card-select:hover {
+  border-color: #efb85a;
+}
+
+/* 時点(履歴画像)とお気に入りのタイルグリッド */
+.adventure-session-picker__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  grid-auto-rows: max-content;
+  align-content: start;
+  align-items: start;
+  gap: 10px;
+}
+
+.adventure-session-picker__grid > button {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  width: 100%;
+  min-width: 0;
+  min-height: max-content;
+  height: max-content;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 6px;
+  color: #e9edf0;
+  background: #22282e;
+  cursor: pointer;
+}
+
+.adventure-session-picker__grid > button.is-selected {
+  border-color: #efb85a;
+}
+
+.adventure-session-picker__thumb {
+  display: block;
+  flex: 0 0 auto;
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  overflow: hidden;
+  border-radius: 4px 4px 0 0;
+  background: #1a1f24;
+}
+
+.adventure-session-picker__thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center top;
+}
+
+.adventure-session-picker__tile-label {
+  display: -webkit-box;
+  flex: 0 0 auto;
+  min-height: 2.4em;
+  padding: 6px 8px;
+  overflow: hidden;
+  font-size: 0.75rem;
+  line-height: 1.2;
+  text-align: left;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.adventure-session-picker__status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin: 12px 0 0;
+  color: #bbc3ca;
+}
+
+.adventure-session-picker__status button {
+  padding: 6px 12px;
+  border: 1px solid #4a535c;
+  border-radius: 6px;
+  color: #e9edf0;
+  background: #242b31;
+  cursor: pointer;
+}
+
+.adventure-session-picker__empty {
+  display: grid;
+  gap: 6px;
+  padding: 32px 12px;
+  color: #bbc3ca;
+  text-align: center;
+}
+
+.adventure-session-picker__empty p {
+  margin: 0;
+}
+
+.adventure-session-picker__load-more {
+  display: block;
+  width: 100%;
+  margin-top: 12px;
+  padding: 10px;
+  border: 1px solid #4a535c;
+  border-radius: 6px;
+  color: #e9edf0;
+  background: #242b31;
+  cursor: pointer;
+}
+
+.adventure-session-picker__sentinel {
+  height: 1px;
+}
+
+@media (max-width: 640px) {
+  .adventure-session-picker {
+    padding: 10px;
+  }
+
+  .adventure-session-picker__cards {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  }
+
+  .adventure-session-picker__grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* 開始セッションの選択中サマリ(サムネイル+名前+時点ラベル+変更ボタン) */
+.adventure-source-summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: min(100%, 560px);
+  margin: 0;
+  padding: 8px;
+  border: 1px solid #394149;
+  border-radius: 6px;
+  background: #1c2228;
+}
+
+.adventure-source-summary__thumb {
+  display: block;
+  flex: 0 0 auto;
+  width: 56px;
+  aspect-ratio: 3 / 4;
+  overflow: hidden;
+  border-radius: 4px;
+  background: #1a1f24;
+}
+
+.adventure-source-summary__thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center top;
+}
+
+.adventure-source-summary__text {
+  display: grid;
+  flex: 1 1 auto;
+  gap: 2px;
+  min-width: 0;
+}
+
+.adventure-source-summary__text strong {
+  overflow: hidden;
+  font-size: 0.9rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.adventure-source-summary__text span {
+  color: #bbc3ca;
+  font-size: 0.78rem;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.adventure-source-summary__change {
+  flex: 0 0 auto;
+  padding: 8px 14px;
+  border: 1px solid #4a535c;
+  border-radius: 6px;
+  color: #e9edf0;
+  background: #242b31;
+  cursor: pointer;
+}
+
+.adventure-source-summary__change:hover:not(:disabled) {
+  border-color: #efb85a;
+}
+
+.adventure-source-summary__change:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 /* 横幅が足りない場合は縦積みに戻す */
 @media (max-width: 1023px) {
   .adventure-play {
@@ -3201,16 +3734,6 @@ button:disabled {
     padding: 20px 14px 40px;
   }
 
-  .adventure-source-select {
-    max-width: 100%;
-  }
-
-  .adventure-source-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 8px;
-    max-height: min(50vh, 400px);
-  }
-
   .adventure-setup-details {
     grid-template-columns: 1fr;
   }
@@ -3243,7 +3766,8 @@ button:disabled {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .adventure-narration-voice__cards {
+  .adventure-narration-voice__cards,
+  .adventure-speech-style__cards {
     grid-template-columns: minmax(0, 1fr);
   }
 
@@ -3355,6 +3879,8 @@ button:disabled {
 
 .adventure-prompt-modal__actions {
   display: flex;
+  /* ボタンが3つ並ぶ場合があるため、狭い画面では折り返す */
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 10px;
   margin-top: 10px;
@@ -3378,6 +3904,115 @@ button:disabled {
 }
 
 .adventure-prompt-modal__actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/*
+ * 付与済みルールの一覧。1件300字まで入るためピル型ではなく縦積みの行にし、
+ * 見た目は HUD ポップオーバーの一覧(adventure-hud__clues li)に揃える。
+ */
+.adventure-attribute-list {
+  display: grid;
+  gap: 6px;
+  max-height: 32vh;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.adventure-attribute-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 1px solid #59636c;
+  border-radius: 4px;
+  color: #cbd2d7;
+  font-size: 0.82rem;
+}
+
+.adventure-attribute-list li.is-editing {
+  border-color: #efb85a;
+}
+
+.adventure-attribute-list__text {
+  flex: 1 1 auto;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.adventure-attribute-list__action {
+  display: grid;
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  color: #cbd2d7;
+  background: transparent;
+  font-size: 0.85rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.adventure-attribute-list__action:hover:not(:disabled) {
+  background: rgb(255 255 255 / 18%);
+}
+
+.adventure-attribute-list__action:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.adventure-attribute-list__empty {
+  margin: 0;
+  color: #8b959d;
+  font-size: 0.78rem;
+}
+
+.adventure-prompt-modal__error {
+  margin: 0;
+  color: #f0a2a2;
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+/* プロンプト確認のタブ的なチップ列 */
+.adventure-preview-stages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.adventure-preview-stages .adventure-hud__chip {
+  min-width: 0;
+  min-height: 32px;
+  padding: 0 12px;
+}
+
+/* HUD ポップオーバー内の操作ボタン(一覧の下に置く) */
+.adventure-hud__panel-action {
+  margin-top: 8px;
+  padding: 6px 12px;
+  border: 1px solid #707982;
+  border-radius: 6px;
+  color: #e6ebef;
+  background: transparent;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.adventure-hud__panel-action:hover:not(:disabled) {
+  border-color: #efb85a;
+  color: #efb85a;
+}
+
+.adventure-hud__panel-action:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
@@ -3452,6 +4087,19 @@ button:disabled {
 
 .adventure-hud--romance .adventure-hud__location b {
   color: #ff9ec7;
+}
+
+.adventure-hud--romance .adventure-hud__bgm-chip {
+  border-color: rgb(240 143 183 / 30%);
+}
+
+.adventure-hud--romance .adventure-hud__bgm-chip > span:first-child,
+.adventure-hud--romance .adventure-hud__bgm-key > span {
+  color: #ff9ec7;
+}
+
+.adventure-hud--romance .adventure-hud__bgm-chip.is-open {
+  border-color: #ff9ec7;
 }
 
 .adventure-hud--romance .adventure-hud__popover {
@@ -3579,17 +4227,22 @@ button:disabled {
   background: rgb(205 185 196 / 12%);
 }
 
-/* romance: バイト・ギフト・属性付与・告白の行動ボタン行 */
+/* romance: バイト・ギフト・属性付与・告白の行動ボタン行。
+   幅 260〜360px のパネルに3〜4個並ぶため flex-wrap ではラギッドに折り返る。
+   2列グリッドに固定して、折り返しても行頭・ボタン幅が揃うようにする */
 .adventure-romance-actions {
-  display: flex;
+  display: grid;
   flex: 0 0 auto;
-  flex-wrap: wrap;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
 
 .adventure-romance-actions button {
   min-height: 34px;
-  padding: 4px 16px;
+  /* 2列で等幅になるぶん、左右余白を詰めて既定ラベルが1行に収まるようにする。
+     収まらない場合は省略せず折り返す(ラベルを読めなくしない) */
+  padding: 4px 10px;
+  line-height: 1.35;
   border: 1px solid rgb(240 143 183 / 32%);
   border-radius: 999px;
   color: #edd6e0;
@@ -3821,11 +4474,16 @@ button:disabled {
   background: rgb(40 22 32 / 92%);
 }
 
-/* romance: 主人公を「セッションの姿」にする場合のセッション/時点ピッカー */
+/* romance: 主人公を「セッションの姿」にする場合の選択サマリ */
 .adventure-romance-player-source {
   display: grid;
   gap: 10px;
   margin-bottom: 14px;
+}
+
+.adventure-romance-player-source__label {
+  color: #cbd3da;
+  font-size: 0.85rem;
 }
 
 /* romance 非合成モード: 主人公と攻略対象の立ち絵を左右に並置する */

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { estimateAdventureTurnSeconds } from "./adventureTurnTimeEstimate";
+import {
+  estimateAdventureTurnSeconds,
+  isAdventureTurnTextOnly,
+} from "./adventureTurnTimeEstimate";
 
 // 手掛かり抽出のON/OFFは判定LLMがビジュアルLLMと並列のため見積もりに影響しない
 describe("estimateAdventureTurnSeconds", () => {
@@ -7,7 +10,6 @@ describe("estimateAdventureTurnSeconds", () => {
     expect(
       estimateAdventureTurnSeconds({
         preset: "romance",
-        usePreciseReference: false,
         enableCompositeScene: false,
         drawPortraitEveryTurn: true,
         drawPartnerEveryTurn: true,
@@ -15,23 +17,21 @@ describe("estimateAdventureTurnSeconds", () => {
     ).toBe(55);
   });
 
-  it("estimates a composite romance turn as 60s", () => {
+  it("adds the composite step on top of both sprites for romance", () => {
     expect(
       estimateAdventureTurnSeconds({
         preset: "romance",
-        usePreciseReference: false,
         enableCompositeScene: true,
         drawPortraitEveryTurn: true,
         drawPartnerEveryTurn: true,
       }),
-    ).toBe(60);
+    ).toBe(75);
   });
 
   it("estimates a non-romance turn with portrait on (non-composite) as 40s", () => {
     expect(
       estimateAdventureTurnSeconds({
         preset: "infiltration",
-        usePreciseReference: false,
         enableCompositeScene: false,
         drawPortraitEveryTurn: true,
         drawPartnerEveryTurn: true,
@@ -43,7 +43,6 @@ describe("estimateAdventureTurnSeconds", () => {
     expect(
       estimateAdventureTurnSeconds({
         preset: "romance",
-        usePreciseReference: false,
         enableCompositeScene: false,
         drawPortraitEveryTurn: false,
         drawPartnerEveryTurn: false,
@@ -51,27 +50,71 @@ describe("estimateAdventureTurnSeconds", () => {
     ).toBe(20);
   });
 
-  it("forces sprite generation when precise reference is on", () => {
+  it("keeps only the composite step when both sprite toggles are off", () => {
     expect(
       estimateAdventureTurnSeconds({
         preset: "romance",
-        usePreciseReference: true,
-        enableCompositeScene: false,
-        drawPortraitEveryTurn: false,
-        drawPartnerEveryTurn: false,
-      }),
-    ).toBe(55);
-  });
-
-  it("keeps the composite estimate even when sprite toggles are off", () => {
-    expect(
-      estimateAdventureTurnSeconds({
-        preset: "romance",
-        usePreciseReference: false,
         enableCompositeScene: true,
         drawPortraitEveryTurn: false,
         drawPartnerEveryTurn: false,
       }),
-    ).toBe(60);
+    ).toBe(40);
+  });
+
+  it("ignores the partner toggle outside the romance preset", () => {
+    expect(
+      estimateAdventureTurnSeconds({
+        preset: "infiltration",
+        enableCompositeScene: false,
+        drawPortraitEveryTurn: false,
+        drawPartnerEveryTurn: true,
+      }),
+    ).toBe(20);
+  });
+});
+
+describe("isAdventureTurnTextOnly", () => {
+  it("is true when every image toggle is off", () => {
+    expect(
+      isAdventureTurnTextOnly({
+        preset: "romance",
+        enableCompositeScene: false,
+        drawPortraitEveryTurn: false,
+        drawPartnerEveryTurn: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("is true for a non-romance preset even when the partner toggle is on", () => {
+    expect(
+      isAdventureTurnTextOnly({
+        preset: "infiltration",
+        enableCompositeScene: false,
+        drawPortraitEveryTurn: false,
+        drawPartnerEveryTurn: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("is false while the composite scene is still drawn", () => {
+    expect(
+      isAdventureTurnTextOnly({
+        preset: "romance",
+        enableCompositeScene: true,
+        drawPortraitEveryTurn: false,
+        drawPartnerEveryTurn: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("is false while the romance partner sprite is still drawn", () => {
+    expect(
+      isAdventureTurnTextOnly({
+        preset: "romance",
+        enableCompositeScene: false,
+        drawPortraitEveryTurn: false,
+        drawPartnerEveryTurn: true,
+      }),
+    ).toBe(false);
   });
 });

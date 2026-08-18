@@ -12,6 +12,8 @@ const resources = {
         galleryDesc: "生成した画像を閲覧",
         adventure: "TSFシナリオ",
         adventureDesc: "変身後の状態から目的攻略に挑戦",
+        bgmTest: "BGMテスト",
+        bgmTestDesc: "TSFシナリオのBGMを試聴",
         endings: "エンディング",
         endingsDesc: "達成したエンディングを確認",
         achievements: "実績",
@@ -38,10 +40,15 @@ const resources = {
         sourceState: "開始状態",
         currentState: "現在の状態",
         selectedSourceSummary: "選択中: {{name}} ・ {{state}}",
-        sourceSessionOption:
-          "{{name}} · {{count}}{{unit}} · {{date}} · {{preview}}",
-        sourceSessionOptionNoPreview: "{{name}} · {{count}}{{unit}} · {{date}}",
         unnamedCharacter: "名前未設定",
+        sourcePicker: {
+          change: "変更",
+          select: "選択する",
+          selectCurrent: "現在の状態で選択",
+          openHistory: "{{name}} の時点を選ぶ",
+          close: "選択画面を閉じる",
+          notSelected: "未選択",
+        },
         startMode: "開始方式",
         startModes: {
           generated: "自動生成",
@@ -102,6 +109,12 @@ const resources = {
           playerState: "主人公の姿（時点）",
           partnerPortraitAlt: "攻略対象の立ち絵",
           partnerLabel: "攻略対象",
+          partnerSpeechStyle: "攻略対象の口調",
+          partnerSpeechStylePlaceholder:
+            "例: ため口。語尾を伸ばすギャル口調。一人称はアタシ",
+          partnerSpeechStyleHint:
+            "空欄なら人物像に合わせて自動で決まります。開始後も変更できます",
+          partnerSpeechStyleAuto: "自動（人物像に合わせる）",
           previewTurn: "Day {{day}}/{{total}} {{slot}}（{{turn}}/{{max}}手）",
           day: "Day",
           dayCounter: "Day {{day}}/{{total}}",
@@ -154,13 +167,16 @@ const resources = {
             insufficientFunds: "所持金が足りません",
             close: "閉じる",
           },
+          /**
+           * romance だけ呼称が「属性」になる項目の上書き。
+           * ボタン等の共通文言は adventure.realityRuleManager.* を使う
+           */
           attribute: {
-            title: "属性を付与",
+            title: "属性を管理",
             hint: "相手の外見・性格・状況・心を書き換えます。書いた内容はこの世界の確定した事実になります（例: 彼女は猫耳が生えている／彼女は語尾に「にゃ」を付ける／彼女は私に夢中になる）",
             label: "付与する属性",
             placeholder: "例: 彼女は猫耳が生えている",
-            submit: "付与する",
-            cancel: "キャンセル",
+            manage: "属性を管理",
           },
         },
         presetFromScenario: "このシナリオのミッション",
@@ -176,8 +192,6 @@ const resources = {
           "{{min}}〜{{max}}手。多いほど手掛かりの探索や周辺の調査に余裕が生まれます。そのぶん場面画像の生成回数とプレイ時間は増えます。自動生成するゴールもこの手数に合わせた規模になります",
         generateSetup: "ミッション案を自動生成",
         generatingSetup: "ミッション案を生成中...",
-        scenario: "シナリオ",
-        scenarioTitleLabel: "タイトル",
         scenarioDeadline: "{{days}}日間",
         setting: "舞台",
         settingPlaceholder: "自動生成するか、舞台を入力",
@@ -206,6 +220,31 @@ const resources = {
           first_person: "例: {{pronoun}}は二人に声をかけた",
         },
         narrationPronoun: "一人称",
+        speechStyle: "主人公の口調",
+        speechStyleChip: "口調",
+        speechStyleHint:
+          "主人公のセリフの話し方を決めます。開始後も変更でき、次の手番から反映されます。",
+        speechStyles: {
+          polite: "丁寧語",
+          casual: "ため口",
+          formal: "かしこまった敬語",
+          custom: "自由入力",
+        },
+        speechStyleExamples: {
+          polite: "例: 「お待たせしました」",
+          casual: "例: 「待たせちゃったね」",
+          formal: "例: 「大変お待たせいたしました」",
+          custom: "例: 口調を自分で書く",
+        },
+        speechStyleCustom: "口調の指定",
+        speechStyleCustomPlaceholder: "例: 武士のような古風な口調で話す",
+        speechStyleManager: {
+          title: "口調を変更",
+          manage: "口調を変更",
+          hint: "主人公と攻略対象のセリフの話し方を変更します。手番は消費せず、次の手番から反映されます。",
+          save: "保存",
+          close: "閉じる",
+        },
         imageGenOptions: "生成オプション",
         imageSettings: "画像生成設定",
         preciseReference: "精密参照画像を使う",
@@ -215,19 +254,20 @@ const resources = {
           "次回の画像生成から反映されます。ONにすると参照1枚あたり5 Anlasを追加消費します。",
         enableCompositeScene: "背景と人物を同時に描く",
         enableCompositeSceneHint:
-          "OFFが既定です。既定では背景は開始時に1回だけ生成し、行動に応じて中央の立ち絵のみ更新します。ONにすると、立ち絵の更新後に背景を含む合成シーンも直列で再生成するため、1ターンあたりの画像生成が2回になり待ち時間が長くなります。",
+          "OFFが既定です。既定では背景は開始時に1回だけ生成し、行動に応じて中央の立ち絵のみ更新します。ONにすると、立ち絵の更新後に背景を含む合成シーンも直列で再生成するため、1ターンあたりの画像生成が1回増えて待ち時間が長くなります。",
         enableCompositeScenePlayHint:
           "次回のターンから反映されます。ONの間は毎ターン、立ち絵に加えて合成シーンも直列生成されるため待ち時間が長くなります。",
         drawPortraitEveryTurn: "主人公の立ち絵を毎ターン描く",
         drawPortraitEveryTurnHint:
-          "ONが既定です。OFFにすると行動しても主人公の立ち絵を更新せず、直前の立ち絵のまま物語が進みます。この設定はブラウザごとに保存されます。",
+          "ONが既定です。OFFにすると行動しても主人公の立ち絵を更新せず、直前の立ち絵のまま物語が進みます。合成シーンを描く設定のときは、直前の立ち絵をそのまま参照に使います。この設定はブラウザごとに保存されます。",
         drawPartnerEveryTurn: "攻略対象の立ち絵を毎ターン描く",
         drawPartnerEveryTurnHint:
-          "ONが既定です。OFFにすると攻略対象の立ち絵を更新せず、直前の立ち絵のまま進行します。この設定はブラウザごとに保存されます。",
-        generateClues: "手掛かり・ヒントを抽出する",
-        generateCluesHint:
-          "ONが既定です。OFFにすると新しい手掛かり（恋愛シミュレーションではヒント）を記録しません。判定処理自体は残るため、時間短縮はわずかです。この設定はブラウザごとに保存されます。",
+          "ONが既定です。OFFにすると攻略対象の立ち絵を更新せず、直前の立ち絵のまま進行します。合成シーンを描く設定のときは、この立ち絵が合成の参照にも使われます。この設定はブラウザごとに保存されます。",
         turnTimeEstimate: "1ターンの生成時間: 約{{seconds}}秒",
+        turnImagesDisabledNotice:
+          "※現在の設定では、テキスト生成のみで背景やキャラクターの画像は変更されません。",
+        turnImagesDisabledNoticeRomance:
+          "※現在の設定では、テキスト生成のみで背景やキャラクターの画像は変更されません（現在地や時間帯が変わったときの背景更新を除く）。",
         portraitAlt: "主人公のポートレート",
         portraitFailed: "立ち絵の生成に失敗しました",
         portraitRetry: "立ち絵を再生成",
@@ -255,6 +295,64 @@ const resources = {
         realityRules: "現実改変",
         realityRulesHint:
           "宣言済みの世界ルールです。以降のすべての判定に適用され、ルールが覆う行動だけでミッション失敗にはなりません。",
+        /**
+         * 現実改変ルールの管理モーダル。romance では「属性」と呼ぶため、
+         * 呼称が変わる項目だけ adventure.romance.attribute.* で上書きする。
+         * ボタン名に「現実改変」を含めないこと(HUDチップと名前が衝突する)
+         */
+        promptPreview: {
+          open: "プロンプトを確認",
+          title: "送信されるプロンプト",
+          hint: "1手番で物語・判定・ビジュアルの3回LLMを呼びます。付与した属性や状態は各回の「ユーザー」に載ります。LLMは呼ばれず、手番も消費しません",
+          inputLabel: "仮の行動（この入力で送ったと仮定します）",
+          inputPlaceholder: "例: 彼女に話しかける",
+          reload: "この入力で取り直す",
+          loading: "取得中…",
+          stages: "呼び出し",
+          stage: {
+            narrative: "物語",
+            resolution: "判定",
+            visual: "ビジュアル",
+            image: "画像生成",
+          },
+          systemPrompt: "システム",
+          userPrompt:
+            "ユーザー（実際の送信文字列。JSONは読みやすく整形しています）",
+          narrativePlaceholder:
+            "ビジュアル呼び出しの本文は、物語生成の結果が入る箇所です。事前には確定しないため占位文字列を表示しています",
+          scenePrompt: "シーン（合成画像）",
+          playerPrompt: "主人公（キャラクター枠）",
+          portraitPrompt: "立ち絵",
+          npcPrompts: "NPC（キャラクター枠）",
+          negativePrompt: "ネガティブ",
+          imageNote:
+            "いまの場面タグで生成した場合の最終文字列です。NSFW={{nsfw}} / 精密参照={{precise}}",
+          close: "閉じる",
+        },
+        realityRuleManager: {
+          title: "現実改変ルールを管理",
+          hint: "宣言済みのルールを追加・編集・削除します。ルールは以降のすべての判定に、この世界の確定した事実として適用されます",
+          label: "ルールの内容",
+          placeholder: "例: 僕の行動は誰にも疑問に思われない",
+          manage: "ルールを管理",
+          listLabel: "付与済み（{{count}}/{{max}}）",
+          listEmpty: "まだ何も付与されていません",
+          editAria: "「{{text}}」を編集",
+          deleteAria: "「{{text}}」を削除",
+          editLabel: "内容を編集",
+          saveEdit: "保存",
+          cancelEdit: "編集をやめる",
+          grant: "付与のみ",
+          grantHint: "手番を消費せずに付与します。次のターンから効きます",
+          grantAndAct: "付与して行動",
+          grantAndActHint: "1手番を消費し、付与した内容を物語として描かせます",
+          close: "閉じる",
+          duplicate: "同じ内容がすでに付与されています",
+          limitReached:
+            "付与できるのは{{max}}件までです。不要なものを削除してください",
+          removeNote:
+            "削除しても、すでに確定した外見や状況は元には戻りません。以降の判定に効かなくなるだけです",
+        },
         milestones: "進行目標",
         milestoneDone: "達成済み",
         protagonist: "主人公",
@@ -263,6 +361,7 @@ const resources = {
         protagonistAppearance: "外見",
         protagonistClothing: "服装",
         protagonistUnknown: "まだ情報がありません",
+        partnerSection: "攻略対象",
         cast: "登場人物",
         result: {
           turns: "到達手番",
@@ -290,6 +389,18 @@ const resources = {
           show: "ウィンドウを戻す",
           showHint: "メッセージウィンドウを再表示（H）",
         },
+        bgm: {
+          settings: "BGM設定",
+          enable: "BGMを再生",
+          enableHint: "場面に合わせたBGMを流す（M でミュート切替）",
+          volume: "音量",
+          autoplayBlockedHint:
+            "ブラウザにより自動再生がブロックされています。画面のどこかをクリックすると再生が始まります。",
+          chipHint: "現在のBGMと選曲理由を表示",
+          panelTitle: "BGM",
+          reasonLabel: "選曲理由",
+          noReason: "この場面には選曲理由が記録されていません。",
+        },
         actionPanel: {
           title: "行動",
         },
@@ -310,6 +421,7 @@ const resources = {
           viewScene: "シーン",
           viewBackground: "背景",
           viewPortrait: "主人公",
+          viewOverview: "概要",
           sceneAlt: "場面の詳細",
           backgroundAlt: "背景画像",
           turnLabel: "手番",
@@ -373,6 +485,22 @@ const resources = {
           partial: "部分成功",
           failure: "失敗",
         },
+      },
+      bgmTest: {
+        title: "BGMテスト",
+        subtitle: "TSFシナリオで使うBGMを一覧から試聴できます。",
+        playerLabel: "BGMプレイヤー",
+        trackListTitle: "楽曲一覧",
+        play: "再生",
+        pause: "一時停止",
+        stop: "停止",
+        seek: "再生位置",
+        volume: "音量",
+        noTrack: "曲が選択されていません",
+        loading: "楽曲を読み込み中...",
+        loadError: "楽曲一覧の取得に失敗しました。",
+        playbackError: "この曲を再生できませんでした。",
+        empty: "登録されている楽曲がありません。",
       },
       settings: {
         title: "設定",
@@ -744,6 +872,8 @@ const resources = {
         aivisEngineDockerManaged: "Docker管理（{{command}}）",
         sectionAttributes: "属性付与",
         sectionPreserve: "保持する要素",
+        preserveDeprecatedNotice:
+          "この機能は v0.8.0 で削除予定です。保持したい内容は、設定画面で「プレイメモ」を有効にしたうえで「ユーザーメモ」に記述してご利用ください。",
         sectionLanguage: "言語",
         sectionSummary: "現在の設定",
         presets: "プリセット:",
@@ -1399,6 +1529,8 @@ const resources = {
         galleryDesc: "Browse generated images",
         adventure: "TSF Scenario",
         adventureDesc: "Play an objective adventure from a transformed state",
+        bgmTest: "BGM Test",
+        bgmTestDesc: "Preview the TSF Scenario background music",
         endings: "Endings",
         endingsDesc: "View unlocked endings",
         achievements: "Achievements",
@@ -1425,11 +1557,15 @@ const resources = {
         sourceState: "Starting State",
         currentState: "Current State",
         selectedSourceSummary: "Selected: {{name}} · {{state}}",
-        sourceSessionOption:
-          "{{name}} · {{count}} {{unit}} · {{date}} · {{preview}}",
-        sourceSessionOptionNoPreview:
-          "{{name}} · {{count}} {{unit}} · {{date}}",
         unnamedCharacter: "Unnamed Character",
+        sourcePicker: {
+          change: "Change",
+          select: "Select",
+          selectCurrent: "Select current state",
+          openHistory: "Pick a moment from {{name}}",
+          close: "Close the picker",
+          notSelected: "Not selected",
+        },
         startMode: "Start Mode",
         startModes: {
           generated: "Generated Mission",
@@ -1490,6 +1626,12 @@ const resources = {
           playerState: "Your appearance (point in time)",
           partnerPortraitAlt: "Partner portrait",
           partnerLabel: "Love interest",
+          partnerSpeechStyle: "Partner's speech style",
+          partnerSpeechStylePlaceholder:
+            "e.g. casual gyaru speech with drawn-out endings, calls herself Atashi",
+          partnerSpeechStyleHint:
+            "Leave blank to derive it from the generated persona. It can be changed after the start.",
+          partnerSpeechStyleAuto: "Automatic (from the persona)",
           previewTurn: "Day {{day}}/{{total}} {{slot}} (turn {{turn}}/{{max}})",
           day: "Day",
           dayCounter: "Day {{day}}/{{total}}",
@@ -1544,12 +1686,11 @@ const resources = {
             close: "Close",
           },
           attribute: {
-            title: "Grant an attribute",
+            title: "Manage attributes",
             hint: "Rewrite the partner's appearance, personality, circumstances, or feelings. What you write becomes an established fact of this world (e.g. She has cat ears / She ends every sentence with 'nya' / She is infatuated with me).",
             label: "Attribute to grant",
             placeholder: "e.g. She has cat ears",
-            submit: "Grant",
-            cancel: "Cancel",
+            manage: "Manage attributes",
           },
         },
         presetFromScenario: "Mission for this scenario",
@@ -1565,8 +1706,6 @@ const resources = {
           "{{min}}-{{max}} turns. More turns leave room to search for clues and scout the surroundings, at the cost of more scene image generations and a longer playthrough. The generated goal is scaled to this budget.",
         generateSetup: "Generate Mission Setup",
         generatingSetup: "Generating mission setup...",
-        scenario: "Scenario",
-        scenarioTitleLabel: "Title",
         scenarioDeadline: "{{days}} days",
         setting: "Setting",
         settingPlaceholder: "Generate or enter a setting",
@@ -1597,6 +1736,32 @@ const resources = {
           first_person: "e.g. I called out to the two of them",
         },
         narrationPronoun: "Pronoun",
+        speechStyle: "Player's Speech Style",
+        speechStyleChip: "Speech",
+        speechStyleHint:
+          "Chooses how the player character speaks in dialogue. It can be changed after the scenario starts and applies from the next turn.",
+        speechStyles: {
+          polite: "Polite",
+          casual: "Casual",
+          formal: "Formal honorific",
+          custom: "Write your own",
+        },
+        speechStyleExamples: {
+          polite: 'e.g. "Thank you for waiting."',
+          casual: 'e.g. "Sorry to keep you waiting!"',
+          formal: 'e.g. "I do apologise for the wait."',
+          custom: "e.g. describe the register yourself",
+        },
+        speechStyleCustom: "Speech style",
+        speechStyleCustomPlaceholder:
+          "e.g. speaks in an archaic, samurai-like way",
+        speechStyleManager: {
+          title: "Change Speech Style",
+          manage: "Change speech style",
+          hint: "Changes how the player character and the romance partner speak. It costs no turn and applies from the next turn.",
+          save: "Save",
+          close: "Close",
+        },
         imageGenOptions: "Generation Options",
         imageSettings: "Image Generation Settings",
         preciseReference: "Use precise character reference",
@@ -1606,19 +1771,20 @@ const resources = {
           "Applies from the next image generation. When on, each reference costs 5 extra Anlas.",
         enableCompositeScene: "Draw background and character together",
         enableCompositeSceneHint:
-          "Off by default. By default, the background is generated once at the start, and only the centered character sprite updates as you act. When on, the full composite scene (including background) is also regenerated in series after each sprite update, so each turn runs two image generations and takes longer.",
+          "Off by default. By default, the background is generated once at the start, and only the centered character sprite updates as you act. When on, the full composite scene (including background) is also regenerated in series after each sprite update, so each turn runs one more image generation and takes longer.",
         enableCompositeScenePlayHint:
           "Applies from the next turn. While on, every turn generates the composite scene in series after the character sprite, so turns take longer.",
         drawPortraitEveryTurn: "Draw protagonist sprite every turn",
         drawPortraitEveryTurnHint:
-          "On by default. When off, the protagonist sprite is not updated as you act; the story continues with the previous sprite. This preference is saved per browser.",
+          "On by default. When off, the protagonist sprite is not updated as you act; the story continues with the previous sprite. With the composite scene on, the previous sprite is reused as its character reference. This preference is saved per browser.",
         drawPartnerEveryTurn: "Draw partner sprite every turn",
         drawPartnerEveryTurnHint:
-          "On by default. When off, the partner sprite is not updated; play continues with the previous sprite. This preference is saved per browser.",
-        generateClues: "Extract clues and hints",
-        generateCluesHint:
-          "On by default. When off, new clues (hints in the romance simulation) are not recorded. The resolution step still runs, so the time saved is small. This preference is saved per browser.",
+          "On by default. When off, the partner sprite is not updated; play continues with the previous sprite. With the composite scene on, this sprite is also used as a reference for the composite. This preference is saved per browser.",
         turnTimeEstimate: "Estimated time per turn: about {{seconds}}s",
+        turnImagesDisabledNotice:
+          "Note: with the current settings, only text is generated — background and character images stay unchanged.",
+        turnImagesDisabledNoticeRomance:
+          "Note: with the current settings, only text is generated — background and character images stay unchanged (except when the background updates on a location or time-of-day change).",
         portraitAlt: "Protagonist portrait",
         portraitFailed: "Character sprite generation failed",
         portraitRetry: "Regenerate sprite",
@@ -1646,6 +1812,60 @@ const resources = {
         realityRules: "Reality",
         realityRulesHint:
           "Declared world rules. They apply to every later judgement, and behaviour they cover alone never fails the mission.",
+        promptPreview: {
+          open: "Inspect prompts",
+          title: "Prompts that will be sent",
+          hint: "Each turn makes three LLM calls: narrative, resolution, and visual. Granted attributes and state appear in each call's user prompt. No LLM is called and no turn is used.",
+          inputLabel: "Hypothetical action (previewed as if you sent this)",
+          inputPlaceholder: "e.g. Talk to her",
+          reload: "Rebuild with this input",
+          loading: "Loading…",
+          stages: "Calls",
+          stage: {
+            narrative: "Narrative",
+            resolution: "Resolution",
+            visual: "Visual",
+            image: "Image",
+          },
+          systemPrompt: "System",
+          userPrompt:
+            "User (the exact string sent; JSON is pretty-printed here)",
+          narrativePlaceholder:
+            "The visual call's narrative field is filled by the narrative generation, so it cannot be known in advance. A placeholder is shown instead.",
+          scenePrompt: "Scene (composite)",
+          playerPrompt: "Player (character slot)",
+          portraitPrompt: "Portrait",
+          npcPrompts: "NPCs (character slots)",
+          negativePrompt: "Negative",
+          imageNote:
+            "Final strings if generated from the current scene tags. NSFW={{nsfw}} / precise reference={{precise}}",
+          close: "Close",
+        },
+        realityRuleManager: {
+          title: "Manage reality rules",
+          hint: "Add, edit, or remove declared rules. Every rule applies to all later judgements as an established fact of this world.",
+          label: "Rule text",
+          placeholder: "e.g. Nobody ever questions what I do",
+          manage: "Manage rules",
+          listLabel: "Granted ({{count}}/{{max}})",
+          listEmpty: "Nothing granted yet",
+          editAria: "Edit “{{text}}”",
+          deleteAria: "Delete “{{text}}”",
+          editLabel: "Edit text",
+          saveEdit: "Save",
+          cancelEdit: "Stop editing",
+          grant: "Grant only",
+          grantHint:
+            "Grants without using a turn. It takes effect from the next turn.",
+          grantAndAct: "Grant and act",
+          grantAndActHint:
+            "Uses one turn and has the story play out what you granted.",
+          close: "Close",
+          duplicate: "That has already been granted",
+          limitReached: "You can grant up to {{max}}. Delete one first.",
+          removeNote:
+            "Deleting does not revert an appearance or situation that has already changed. It only stops applying to later judgements.",
+        },
         milestones: "Milestones",
         milestoneDone: "Completed",
         protagonist: "Protagonist",
@@ -1654,6 +1874,7 @@ const resources = {
         protagonistAppearance: "Appearance",
         protagonistClothing: "Clothing",
         protagonistUnknown: "Not available yet",
+        partnerSection: "Romance partner",
         cast: "Characters",
         result: {
           turns: "Turns played",
@@ -1681,6 +1902,18 @@ const resources = {
           show: "Show window",
           showHint: "Show the message window again (H)",
         },
+        bgm: {
+          settings: "BGM settings",
+          enable: "Play BGM",
+          enableHint: "Play scene-matched music (M toggles mute)",
+          volume: "Volume",
+          autoplayBlockedHint:
+            "The browser blocked autoplay. Click anywhere to start playback.",
+          chipHint: "Show the current BGM and why it was chosen",
+          panelTitle: "BGM",
+          reasonLabel: "Selection reason",
+          noReason: "No selection reason was recorded for this scene.",
+        },
         actionPanel: {
           title: "Actions",
         },
@@ -1701,6 +1934,7 @@ const resources = {
           viewScene: "Scene",
           viewBackground: "Background",
           viewPortrait: "Character",
+          viewOverview: "Overview",
           sceneAlt: "Scene details",
           backgroundAlt: "Background image",
           turnLabel: "Turn",
@@ -1764,6 +1998,23 @@ const resources = {
           partial: "Partial Success",
           failure: "Failure",
         },
+      },
+      bgmTest: {
+        title: "BGM Test",
+        subtitle:
+          "Preview every track the TSF Scenario mode uses from a single list.",
+        playerLabel: "BGM player",
+        trackListTitle: "Tracks",
+        play: "Play",
+        pause: "Pause",
+        stop: "Stop",
+        seek: "Seek",
+        volume: "Volume",
+        noTrack: "No track selected",
+        loading: "Loading tracks...",
+        loadError: "Failed to load the track list.",
+        playbackError: "This track could not be played.",
+        empty: "No tracks are registered.",
       },
       settings: {
         title: "Settings",
@@ -2135,6 +2386,8 @@ const resources = {
         aivisEngineDockerManaged: "Docker managed ({{command}})",
         sectionAttributes: "Attributes",
         sectionPreserve: "Preserve Elements",
+        preserveDeprecatedNotice:
+          "This feature will be removed in v0.8.0. Enable Play Memory in Settings and write what you want preserved into User Memory instead.",
         sectionLanguage: "Language",
         sectionSummary: "Current Settings",
         presets: "Presets:",

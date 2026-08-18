@@ -17,6 +17,7 @@ function simPayload(overrides: Record<string, unknown> = {}) {
     stage: "stranger",
     money: 5000,
     partner_name: "美咲",
+    partner_speech_style: "丁寧語。一人称はわたし",
     player_name: "水瀬ユウヤ",
     player_character_id: "char1",
     job: { name: "カフェ", wage: 3000 },
@@ -72,6 +73,8 @@ function romanceRunPayload(
     respect_clothing_layers: false,
     narration_voice: "second_person",
     narration_pronoun: "僕",
+    player_speech_style: "polite",
+    player_speech_custom: "",
     opening_image_url: IMAGE,
     background_image_url: IMAGE,
     portrait_image_url: IMAGE,
@@ -108,6 +111,10 @@ interface RomanceMockState {
   streamBodies: Record<string, unknown>[];
   createBodies: Record<string, unknown>[];
   runAfterTurn: Record<string, unknown> | null;
+  /** PATCH /reality-rules のボディ。手番を消費しない付与・編集・削除の記録 */
+  realityRuleBodies: { rules: string[] }[];
+  /** PATCH /settings のボディ。口調変更も手番を消費しない */
+  settingsBodies: Record<string, unknown>[];
 }
 
 async function mockRomanceApis(
@@ -118,6 +125,8 @@ async function mockRomanceApis(
     streamBodies: [],
     createBodies: [],
     runAfterTurn: null,
+    realityRuleBodies: [],
+    settingsBodies: [],
   };
   let turnTaken = false;
   await page.route("**/api/mock-scene.png", async (route) => {
@@ -224,6 +233,31 @@ async function mockRomanceApis(
       json: turnTaken && state.runAfterTurn ? state.runAfterTurn : initialRun,
     });
   });
+  // runs/run-1 より後に登録する(Playwright はハンドラを後勝ちで解決する)
+  await page.route(
+    "**/api/adventure/runs/run-1/reality-rules",
+    async (route) => {
+      const body = route.request().postDataJSON() as { rules: string[] };
+      state.realityRuleBodies.push(body);
+      await route.fulfill({
+        json: { ...initialRun, reality_rules: body.rules },
+      });
+    },
+  );
+  await page.route("**/api/adventure/runs/run-1/settings", async (route) => {
+    const body = route.request().postDataJSON() as Record<string, unknown>;
+    state.settingsBodies.push(body);
+    await route.fulfill({
+      json: {
+        ...initialRun,
+        player_speech_style: body.player_speech_style,
+        player_speech_custom: body.player_speech_custom,
+        sim: simPayload({
+          partner_speech_style: body.partner_speech_style as string,
+        }),
+      },
+    });
+  });
   await page.route(
     "**/api/adventure/runs/run-1/turns/stream",
     async (route) => {
@@ -306,6 +340,61 @@ test("start a romance run with day select and show the romance HUD", async ({
   ).toBeVisible();
   await expect(page.getByRole("button", { name: "属性を付与" })).toBeVisible();
   await expect(page.getByRole("button", { name: "想いを告げる" })).toBeHidden();
+});
+
+test("choose a speech style at setup and change it during play", async ({
+  page,
+}) => {
+  await enableAdventure(page);
+  const state = await mockRomanceApis(page);
+  await page.goto("/adventure");
+
+  await page.getByRole("button", { name: /^恋愛シミュレーション/ }).click();
+  await page.getByRole("button", { name: "ミッション案を自動生成" }).click();
+  await expect(page.getByLabel("ゴール")).toHaveValue(
+    "7日以内に美咲と想いを通わせ、交際を始める",
+  );
+
+  // 物語の演出に主人公と攻略対象の口調が並んで置かれる
+  await page.getByText("物語の演出").click();
+  await page.getByRole("button", { name: /^ため口/ }).click();
+  await page
+    .getByLabel("攻略対象の口調")
+    .fill("ため口。語尾を伸ばすギャル口調");
+
+  await page.getByRole("button", { name: "シナリオを開始" }).click();
+  await expect(page).toHaveURL(/\/adventure\/run-1$/);
+  expect(state.createBodies[0]).toMatchObject({
+    player_speech_style: "casual",
+    romance_partner_speech_style: "ため口。語尾を伸ばすギャル口調",
+  });
+
+  // 口調は常時見えているHUDチップに出て、1クリックで主人公と攻略対象が対で並ぶ
+  const speechChip = page.getByRole("button", { name: /^口調/ });
+  await expect(speechChip).toContainText("丁寧語");
+  await speechChip.click();
+  const popover = page.getByRole("dialog", { name: "主人公の口調" });
+  await expect(popover).toContainText("丁寧語");
+  await expect(popover).toContainText("丁寧語。一人称はわたし");
+
+  // プレイ中の変更は手番を消費せず PATCH で保存される
+  await popover.getByRole("button", { name: "口調を変更" }).click();
+  const modal = page.getByRole("dialog", { name: "口調を変更" });
+  await modal.getByRole("button", { name: /^かしこまった敬語/ }).click();
+  await modal.getByLabel("攻略対象の口調").fill("ため口で親しげに話す");
+  await modal.getByRole("button", { name: "保存" }).click();
+
+  await expect(modal).toBeHidden();
+  expect(state.settingsBodies).toHaveLength(1);
+  expect(state.settingsBodies[0]).toMatchObject({
+    player_speech_style: "formal",
+    partner_speech_style: "ため口で親しげに話す",
+    // 画像設定は現在値のまま送り、意図せず切り替わらないこと
+    use_precise_reference: false,
+    enable_composite_scene: false,
+  });
+  // 手番は消費しない
+  expect(state.streamBodies).toHaveLength(0);
 });
 
 test("show heroine info in the romance turn detail modal", async ({ page }) => {
@@ -409,12 +498,22 @@ test("player can be a transformed state from a session", async ({ page }) => {
   await page
     .getByLabel(/主人公（自分）/)
     .selectOption(ROMANCE_PLAYER_SESSION_VALUE);
-  // 主人公セッションと時点ピッカーが現れ、変身時点を選べる
+  // 先頭セッションの「現在の状態」がサマリに自動選択される
   const playerSource = page.locator(".adventure-romance-player-source");
-  await expect(playerSource.getByLabel(/主人公にするセッション/)).toHaveValue(
-    "session-1",
+  await expect(playerSource.getByRole("group")).toContainText(
+    "テストキャラクター",
   );
-  await playerSource.getByRole("button", { name: "猫耳メイドに変身" }).click();
+  // 選択モーダルを開き、セッション内の変身時点を選ぶ
+  await playerSource.getByRole("button", { name: "変更" }).click();
+  const picker = page.getByRole("dialog", { name: "主人公にするセッション" });
+  await picker
+    .getByRole("button", { name: "テストキャラクター の時点を選ぶ" })
+    .click();
+  await picker.getByRole("button", { name: "猫耳メイドに変身" }).click();
+  await expect(picker).toBeHidden();
+  await expect(playerSource.getByRole("group")).toContainText(
+    "猫耳メイドに変身",
+  );
   await page.getByRole("button", { name: "ミッション案を自動生成" }).click();
   await page.getByRole("button", { name: "シナリオを開始" }).click();
 
@@ -471,20 +570,86 @@ test("attribute modal sends a reality declaration and lists it in the HUD", asyn
   await page.goto("/adventure/run-1");
 
   await page.getByRole("button", { name: "属性を付与" }).click();
-  const modal = page.getByRole("dialog", { name: "属性を付与" });
+  const modal = page.getByRole("dialog", { name: "属性を管理" });
   await modal.getByLabel("付与する属性").fill("彼女は猫耳が生えている");
-  await modal.getByRole("button", { name: "付与する" }).click();
+  await modal.getByRole("button", { name: "付与して行動" }).click();
 
   await expect(page.getByText("ふたりの距離が少し縮まった。")).toBeVisible();
   expect(state.streamBodies[0]).toMatchObject({
     input_kind: "reality_alter",
     user_input: "現実改変：彼女は猫耳が生えている",
   });
+  // 行動を伴う付与はターン側が追記するので PATCH は走らない
+  expect(state.realityRuleBodies).toHaveLength(0);
   // ストリーム後の run 再取得で「付与した属性」チップが出る
   const attributeChip = page.getByRole("button", { name: /^付与した属性/ });
   await expect(attributeChip).toBeVisible();
   await attributeChip.click();
   await expect(page.getByText("彼女は猫耳が生えている")).toBeVisible();
+});
+
+test("attribute modal grants without consuming a turn", async ({ page }) => {
+  await enableAdventure(page);
+  const state = await mockRomanceApis(page);
+  await page.goto("/adventure/run-1");
+
+  await page.getByRole("button", { name: "属性を付与" }).click();
+  const modal = page.getByRole("dialog", { name: "属性を管理" });
+  await modal.getByLabel("付与する属性").fill("彼女は猫耳が生えている");
+  await modal.getByRole("button", { name: "付与のみ" }).click();
+
+  await expect.poll(() => state.realityRuleBodies.length).toBeGreaterThan(0);
+  expect(state.realityRuleBodies[0]).toEqual({
+    rules: ["彼女は猫耳が生えている"],
+  });
+  // 手番を消費しないことがこの機能の要点
+  expect(state.streamBodies).toHaveLength(0);
+  // モーダルは開いたままで、一覧へ反映される(続けて付与できる)。
+  // ヒント文にも同じ例文が入るため exact 指定で一覧の行だけを見る
+  await expect(
+    modal.getByText("彼女は猫耳が生えている", { exact: true }),
+  ).toBeVisible();
+});
+
+test("attribute modal edits and deletes granted attributes", async ({
+  page,
+}) => {
+  await enableAdventure(page);
+  const state = await mockRomanceApis(
+    page,
+    romanceRunPayload(1, {
+      reality_rules: ["彼女は猫耳が生えている", "彼女は語尾ににゃを付ける"],
+    }),
+  );
+  await page.goto("/adventure/run-1");
+
+  await page.getByRole("button", { name: /^付与した属性/ }).click();
+  await page.getByRole("button", { name: "属性を管理" }).click();
+  const modal = page.getByRole("dialog", { name: "属性を管理" });
+
+  await modal
+    .getByRole("button", { name: "「彼女は猫耳が生えている」を編集" })
+    .click();
+  const field = modal.getByLabel("内容を編集");
+  await expect(field).toHaveValue("彼女は猫耳が生えている");
+  await field.fill("彼女は狐耳が生えている");
+  await modal.getByRole("button", { name: "保存" }).click();
+
+  await expect.poll(() => state.realityRuleBodies.length).toBe(1);
+  expect(state.realityRuleBodies[0]).toEqual({
+    rules: ["彼女は狐耳が生えている", "彼女は語尾ににゃを付ける"],
+  });
+
+  await modal
+    .getByRole("button", { name: "「彼女は語尾ににゃを付ける」を削除" })
+    .click();
+  await expect.poll(() => state.realityRuleBodies.length).toBe(2);
+  expect(state.realityRuleBodies[1]).toEqual({
+    rules: ["彼女は狐耳が生えている"],
+  });
+
+  // 一覧の操作はいずれも手番を消費しない
+  expect(state.streamBodies).toHaveLength(0);
 });
 
 test("confession button appears when available and sends input_kind confess", async ({
@@ -698,29 +863,50 @@ test("finished romance run offers replay from the result modal", async ({
   );
 });
 
-test("scenario chip shows title, setting, goal and constraints during play", async ({
+test("scenario overview is available from the preview modal", async ({
   page,
 }) => {
   await enableAdventure(page);
   await mockRomanceApis(page);
   await page.goto("/adventure/run-1");
 
-  // HUD のゴール行(タイトル領域)がシナリオ情報の開閉ボタンを兼ねる
-  await page.locator(".adventure-hud__scenario-trigger").click();
-  const popover = page.getByRole("dialog", { name: "シナリオ" });
-  await expect(popover).toContainText("タイトル");
-  await expect(popover).toContainText("恋愛シミュレーション");
-  await expect(popover).toContainText("舞台");
-  await expect(popover).toContainText("学園近くの商店街");
-  await expect(popover).toContainText("ゴール");
-  await expect(popover).toContainText(
+  // モーダルの切替チップ列の先頭に「概要」があり、詳細パネルがシナリオ定義に切り替わる
+  await page.locator(".adventure-stage__image-button").click();
+  const modal = page.locator(".image-preview-modal__overlay");
+  const caption = modal.locator(".image-preview-modal__caption");
+  await expect(caption).toContainText("物語");
+  await expect(
+    modal.locator(".adventure-preview__views button").first(),
+  ).toHaveText("概要");
+  await modal.getByRole("button", { name: "概要", exact: true }).click();
+  await expect(caption).toContainText("舞台");
+  await expect(caption).toContainText("学園近くの商店街");
+  await expect(caption).toContainText("制約");
+  await expect(caption).toContainText("美咲は放課後しか会えない");
+  // romance は日数(期限)も出す
+  await expect(caption).toContainText("日数");
+  await expect(caption).toContainText("7日間");
+  // タイトルとゴールはヘッダに常時表示のまま、手番・物語とは入れ替わる
+  await expect(caption).toContainText(
     "7日以内に美咲と想いを通わせ、交際を始める",
   );
-  await expect(popover).toContainText("制約");
-  await expect(popover).toContainText("美咲は放課後しか会えない");
-  // romance は日数(期限)も出す
-  await expect(popover).toContainText("日数");
-  await expect(popover).toContainText("7日間");
+  await expect(caption).not.toContainText("物語");
+
+  // 閉じて開き直してもタブ選択は復元され、選択中のチップへフォーカスが当たる
+  await page.keyboard.press("Escape");
+  await page.locator(".adventure-stage__image-button").click();
+  const overviewChip = modal.getByRole("button", {
+    name: "概要",
+    exact: true,
+  });
+  await expect(overviewChip).toHaveAttribute("aria-pressed", "true");
+  await expect(overviewChip).toBeFocused();
+  await expect(caption).toContainText("舞台");
+
+  // シーンへ戻すと通常の詳細に戻る
+  await modal.getByRole("button", { name: "シーン", exact: true }).click();
+  await expect(caption).toContainText("物語");
+  await expect(caption).not.toContainText("舞台");
 });
 
 test("choices and romance actions hide while a turn is streaming", async ({
@@ -850,24 +1036,23 @@ test("partner tab stays available in composite mode", async ({ page }) => {
   );
 });
 
-test("clue extraction toggle rides the turn request when off", async ({
-  page,
-}) => {
+test("clue extraction is always on and has no toggle", async ({ page }) => {
   await enableAdventure(page);
+  // 旧バージョンでOFFにしていたブラウザでも、以後は常にONへ倒す
   await page.addInitScript(() => {
     window.localStorage.setItem("adventure_generate_clues", "false");
   });
   const state = await mockRomanceApis(page);
   await page.goto("/adventure/run-1");
 
-  // プレイ中ポップオーバーにもトグルが出て、OFF 状態を映す
   await page.getByRole("button", { name: "画像生成設定" }).click();
-  await expect(page.getByLabel(/手掛かり・ヒントを抽出する/)).not.toBeChecked();
+  await expect(page.getByText("手掛かり・ヒントを抽出する")).toHaveCount(0);
   await page.keyboard.press("Escape");
 
   await page.getByRole("button", { name: /美咲に話しかける/ }).click();
   await expect(page.getByText("ふたりの距離が少し縮まった。")).toBeVisible();
-  expect(state.streamBodies[0]).toMatchObject({ generate_clues: false });
+  // 送らない = backend 既定の true
+  expect(state.streamBodies[0]).not.toHaveProperty("generate_clues");
 });
 
 test("turn time estimate follows the image settings", async ({ page }) => {
@@ -882,12 +1067,91 @@ test("turn time estimate follows the image settings", async ({ page }) => {
   await page.getByRole("button", { name: "画像生成設定" }).click();
   // 既定(非合成・立ち絵2種ON)は 主人公18秒+攻略対象18秒+ベース20秒 → 約55秒
   await expect(page.getByText("1ターンの生成時間: 約55秒")).toBeVisible();
-  // 合成ONは 立ち絵+合成シーンの直列2枚 → 約60秒
+  // 合成ONは立ち絵2種の後に合成シーンを直列生成する → 約75秒
   await page
     .locator(
       ".adventure-image-settings-popover label.adventure-precise-toggle",
       { hasText: "背景と人物を同時に描く" },
     )
     .click();
-  await expect(page.getByText("1ターンの生成時間: 約60秒")).toBeVisible();
+  await expect(page.getByText("1ターンの生成時間: 約75秒")).toBeVisible();
+  // 合成ON中も立ち絵トグルは操作でき、OFFにすると合成シーンだけの約40秒になる
+  await page
+    .locator(
+      ".adventure-image-settings-popover label.adventure-precise-toggle",
+      { hasText: "主人公の立ち絵を毎ターン描く" },
+    )
+    .click();
+  await page
+    .locator(
+      ".adventure-image-settings-popover label.adventure-precise-toggle",
+      { hasText: "攻略対象の立ち絵を毎ターン描く" },
+    )
+    .click();
+  await expect(page.getByText("1ターンの生成時間: 約40秒")).toBeVisible();
+});
+
+test("image settings popover stays inside a short viewport", async ({
+  page,
+}) => {
+  await enableAdventure(page);
+  await mockRomanceApis(page);
+  // 縦が足りないディスプレイでも末尾のトグルが切れずに読めること
+  await page.setViewportSize({ width: 1280, height: 520 });
+  await page.goto("/adventure/run-1");
+
+  await page.getByRole("button", { name: "画像生成設定" }).click();
+  const popover = page.locator(".adventure-image-settings-popover");
+  await expect(popover).toBeVisible();
+
+  const fits = await popover.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    return {
+      bottomOverflow: rect.bottom - window.innerHeight,
+      scrollable: element.scrollHeight > element.clientHeight,
+    };
+  });
+  expect(fits.bottomOverflow).toBeLessThanOrEqual(0);
+  // 収まりきらない分は枠内スクロールへ逃がす
+  expect(fits.scrollable).toBe(true);
+
+  // 先頭の生成時間は常に見えており、最後の項目までスクロールで到達できる
+  await expect(popover.locator(".adventure-turn-estimate")).toBeInViewport();
+  const lastToggle = popover
+    .locator("label.adventure-precise-toggle")
+    .filter({ hasText: "攻略対象の立ち絵を毎ターン描く" });
+  await lastToggle.scrollIntoViewIfNeeded();
+  await expect(lastToggle).toBeInViewport();
+});
+
+test("portrait toggles ride the turn request while the composite scene is on", async ({
+  page,
+}) => {
+  await enableAdventure(page);
+  await page.addInitScript(() => {
+    window.localStorage.setItem("adventure_draw_portrait_every_turn", "false");
+    window.localStorage.setItem("adventure_draw_partner_every_turn", "false");
+  });
+  const state = await mockRomanceApis(page, {
+    ...romanceRunPayload(),
+    enable_composite_scene: true,
+  });
+  await page.goto("/adventure/run-1");
+
+  // 合成ONでも両トグルが表示され、OFF 状態を映す
+  await page.getByRole("button", { name: "画像生成設定" }).click();
+  await expect(
+    page.getByLabel(/主人公の立ち絵を毎ターン描く/),
+  ).not.toBeChecked();
+  await expect(
+    page.getByLabel(/攻略対象の立ち絵を毎ターン描く/),
+  ).not.toBeChecked();
+  await page.keyboard.press("Escape");
+
+  await page.getByRole("button", { name: /美咲に話しかける/ }).click();
+  await expect(page.getByText("ふたりの距離が少し縮まった。")).toBeVisible();
+  expect(state.streamBodies[0]).toMatchObject({
+    generate_portrait: false,
+    generate_partner_portrait: false,
+  });
 });

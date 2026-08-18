@@ -1,0 +1,77 @@
+{
+  "default_key": "daily",
+  "tracks": [
+    {
+      "key": "private_action",
+      "file": "scene01_private_action.ogg",
+      "description": "intimate private moments",
+      "credit": "Created with Suno AI v4.5-all"
+    },
+    {
+      "key": "bossa_nova",
+      "file": "scene02_bossa_nova.ogg",
+      "description": "beach, resort, or travel scenes",
+      "credit": "Created with Suno AI v4.5-all"
+    },
+    {
+      "key": "elegant_party",
+      "file": "scene03_elegant_party.ogg",
+      "description": "lavish parties, celebrities, formal social events",
+      "credit": "Created with Suno AI v4.5-all"
+    },
+    {
+      "key": "royal",
+      "file": "scene04_royal.ogg",
+      "description": "castles, palaces, royalty",
+      "credit": "Created with Suno AI v4.5-all"
+    },
+    {
+      "key": "dark",
+      "file": "scene05_dark.ogg",
+      "description": "grave or tragic events: loss, grief, a threat already realized, or a decisive turn for the worse; mere tension without harm is suspense",
+      "credit": "Created with Suno AI v4.5-all"
+    },
+    {
+      "key": "daily",
+      "file": "scene06_daily.ogg",
+      "description": "everyday ordinary scenes in daylight; also the fallback",
+      "credit": "Created with Suno AI v4.5-all"
+    },
+    {
+      "key": "important_event",
+      "file": "scene07_important_event.ogg",
+      "description": "rare climactic turning points only: confessions, life-changing revelations, decisive relationship shifts",
+      "credit": "Created with Suno AI v4.5-all"
+    },
+    {
+      "key": "bar",
+      "file": "scene08_bar.ogg",
+      "description": "cafes, bars, lounges, restaurants",
+      "credit": "Created with Suno AI v4.5-all"
+    },
+    {
+      "key": "night",
+      "file": "scene09_night.ogg",
+      "description": "ordinary scenes set at night or late evening; prefer this over daily whenever the scene is clearly after dark",
+      "credit": "Created with Suno AI v4.5-all"
+    },
+    {
+      "key": "suspense",
+      "file": "scene10_suspense.ogg",
+      "description": "tense but nothing has gone wrong yet: sneaking, hiding, bluffing, holding a disguise, or waiting to be found out",
+      "credit": "Created with Suno AI v4.5-all"
+    },
+    {
+      "key": "ending_success",
+      "file": "scene11_ending_success.ogg",
+      "description": "the concluding turn only, when ending_status is success; never use while ending_status is continue",
+      "credit": "Created with Suno AI v4.5-all"
+    },
+    {
+      "key": "ending_failure",
+      "file": "scene12_ending_failure.ogg",
+      "description": "the concluding turn only, when ending_status is failure or partial; never use while ending_status is continue",
+      "credit": "Created with Suno AI v4.5-all"
+    }
+  ]
+}

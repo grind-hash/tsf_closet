@@ -17,6 +17,7 @@ from gateway.consts.adventure_romance import (
 from gateway.services.adventure_romance import (
     ROMANCE_NARRATIVE_GUIDANCE,
     ROMANCE_RESOLUTION_GUIDANCE,
+    ROMANCE_VISUAL_GUIDANCE,
     RomanceActionError,
     RomanceGift,
     RomanceSetupOutput,
@@ -145,6 +146,42 @@ def test_init_state_keeps_partner_and_player_separated() -> None:
     # 隠し情報と内部プロフィールは公開ビューへ出さない
     assert "hidden_preferences" not in view
     assert "partner_profile" not in view
+
+
+def test_init_state_takes_partner_speech_style_from_the_generated_setup() -> None:
+    sim = init_romance_state(
+        make_setup(partner_speech_style="ため口。語尾を伸ばすギャル口調。"),
+        14,
+        rng=random.Random(0),
+    )
+    assert sim["partner_speech_style"] == "ため口。語尾を伸ばすギャル口調。"
+    # 主人公の口調表示と対にして並べるため、公開ビューへは出す
+    assert (
+        public_sim_view(sim, turn_count=0)["partner_speech_style"]
+        == "ため口。語尾を伸ばすギャル口調。"
+    )
+
+
+def test_user_written_partner_speech_style_wins_over_the_generated_one() -> None:
+    sim = init_romance_state(
+        make_setup(partner_speech_style="丁寧語で話す。"),
+        14,
+        rng=random.Random(0),
+        partner_speech_style="ため口で話す。",
+    )
+    assert sim["partner_speech_style"] == "ため口で話す。"
+
+
+def test_partner_speech_style_is_optional_for_legacy_setups() -> None:
+    sim = init_romance_state(make_setup(), 14, rng=random.Random(0))
+    assert sim["partner_speech_style"] == ""
+
+
+def test_narrative_guidance_pins_the_partner_register() -> None:
+    from gateway.services.adventure_romance import ROMANCE_NARRATIVE_GUIDANCE
+
+    assert "state.sim.partner_speech_style" in ROMANCE_NARRATIVE_GUIDANCE
+    assert "never drifts toward the player's" in ROMANCE_NARRATIVE_GUIDANCE
 
 
 def test_work_resolution_pays_wage_and_seeds_encounter() -> None:
@@ -702,3 +739,40 @@ def test_alter_turn_updates_partner_appearance_only_on_alter() -> None:
 
 def test_resolution_guidance_mentions_partner_appearance_field() -> None:
     assert "updated_partner_appearance" in ROMANCE_RESOLUTION_GUIDANCE
+    # 「入れ替わり」も相手の外見変更として申告させる
+    assert "swap, exchange, or transfer of bodies" in ROMANCE_RESOLUTION_GUIDANCE
+    # 画像タグとして使うため英語タグ・性別トークン開始・服装なしを要求する
+    assert "English comma-separated tags" in ROMANCE_RESOLUTION_GUIDANCE
+    assert "never clothing" in ROMANCE_RESOLUTION_GUIDANCE
+
+
+def test_visual_guidance_requires_sex_tokens_for_both_characters() -> None:
+    """性別トークンが無いと画像モデルが女性寄りに描くため双方へ明示させる。"""
+    assert "female, 1girl or male, 1boy" in ROMANCE_VISUAL_GUIDANCE
+    assert "The partner's entry in npc_tags" in ROMANCE_VISUAL_GUIDANCE
+    assert "never drawn female" in ROMANCE_VISUAL_GUIDANCE
+    # 宣言ターンは主人公も新しい体の性別を名乗る
+    assert "sex tokens of the player's new body" in ROMANCE_VISUAL_GUIDANCE
+
+
+def test_narrative_and_visual_guidance_allow_declared_body_swap() -> None:
+    """「相手の特徴を主人公へ混ぜるな」は入れ替わり宣言と衝突するため例外が要る。"""
+    for guidance in (ROMANCE_NARRATIVE_GUIDANCE, ROMANCE_VISUAL_GUIDANCE):
+        assert "exchanged bodies or identities" in guidance
+        assert "the clothing that body was already wearing" in guidance
+
+
+def test_public_sim_view_exposes_partner_appearance() -> None:
+    """攻略対象の外見は現実改変で変わるので、主人公の外見表示と対にして配信する。"""
+    sim = init_romance_state(
+        make_setup(),
+        14,
+        partner_appearance="female, 1girl, long blonde hair",
+        player_name="僕",
+        player_character_id="char1",
+    )
+    assert public_sim_view(sim, 1)["partner_appearance"] == (
+        "female, 1girl, long blonde hair"
+    )
+    sim["partner_appearance"] = "male, 1boy, black hair"
+    assert public_sim_view(sim, 1)["partner_appearance"] == "male, 1boy, black hair"

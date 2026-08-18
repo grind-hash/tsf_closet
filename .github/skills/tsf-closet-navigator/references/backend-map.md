@@ -59,6 +59,7 @@
 - `POST /runs/{run_id}/image/stream`
 - `POST /runs/{run_id}/choices/regenerate`
 - `PATCH /runs/{run_id}/settings`
+- `PATCH /runs/{run_id}/reality-rules`（現実改変ルールの全件置換。手番を消費しない）
 - `GET /images/{run_id}/{filename}`
 
 ### FastAPI アプリ直下の互換/補助API
@@ -116,7 +117,7 @@
 
 | ファイル | 主な責務 |
 | --- | --- |
-| `adventure_service.py` | Run作成、ディレクター/解決、ターン、画像、実効画像の直列化 |
+| `adventure_service.py` | Run作成、ディレクター/解決、ターン、画像、実効画像の直列化。BGMキーは `gateway/data/bgm/catalog.json`（ローダは `consts/adventure_bgm.py`、mtimeホットリロード）が唯一の情報源 |
 | `adventure_romance.py` | romance プリセットの決定論ロジック（日数/好感度/金銭/ギフト採点/告白）。境界値は `consts/adventure_romance.py` |
 | `adventure_template_loader.py` | `scenarios/*.json` の検証とローカライズ |
 | `favorite_service.py` | FavoriteOutfit CRUD |
