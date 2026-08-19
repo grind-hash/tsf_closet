@@ -896,6 +896,7 @@ button:disabled {
 .adventure-hud__tile,
 .adventure-hud__turns,
 .adventure-hud__anlas,
+.adventure-hud__cost,
 .adventure-hud__location,
 .adventure-hud__bgm-chip {
   pointer-events: auto;
@@ -1108,6 +1109,29 @@ button:disabled {
 
 .adventure-hud__anlas strong {
   color: #99bbee;
+  font-family: monospace;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+/* OpenRouter利用時の累計API料金。Anlas表示と同じ体裁で並べる */
+.adventure-hud__cost {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  min-width: 66px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: rgb(13 17 20 / 78%);
+}
+
+.adventure-hud__cost > span {
+  color: #aeb7bf;
+  font-size: 0.62rem;
+}
+
+.adventure-hud__cost strong {
+  color: #efb85a;
   font-family: monospace;
   font-size: 1rem;
   line-height: 1;

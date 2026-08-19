@@ -12,7 +12,7 @@ import base64
 import json
 import logging
 from dataclasses import dataclass
-from typing import AsyncGenerator, Dict, List, Any, Optional
+from typing import AsyncGenerator, Callable, Dict, List, Any, Optional
 
 import httpx
 
@@ -169,8 +169,13 @@ class OpenRouterLLMClient:
         self,
         system_prompt: str,
         user_prompt: str,
+        usage_callback: Optional[Callable[[Optional[float]], None]] = None,
     ) -> AsyncGenerator[str, None]:
-        """テキストをストリーミング生成する"""
+        """テキストをストリーミング生成する
+
+        usage_callback を渡すと、ストリーム末尾のusageチャンクから
+        取得したAPI料金(USD)を通知する。
+        """
         payload = {
             "model": self.llm_model,
             "messages": [
@@ -179,6 +184,8 @@ class OpenRouterLLMClient:
             ],
             "max_tokens": 4096,
             "stream": True,
+            # 最終チャンクに usage / cost を含める
+            "usage": {"include": True},
         }
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
@@ -198,7 +205,14 @@ class OpenRouterLLMClient:
                             break
                         try:
                             data = json.loads(data_str)
-                            delta = data.get("choices", [{}])[0].get("delta", {})
+                            if data.get("usage") and usage_callback is not None:
+                                _, cost = self._extract_usage(data)
+                                usage_callback(cost)
+                            # usage付きの最終チャンクは choices が空になり得る
+                            choices = data.get("choices") or []
+                            if not choices:
+                                continue
+                            delta = choices[0].get("delta", {})
                             content = delta.get("content")
                             if content:
                                 yield content
@@ -495,6 +509,7 @@ class LLMService:
         provider_override: Optional[str] = None,
         novelai_model_override: Optional[str] = None,
         max_tokens: Optional[int] = None,
+        usage_callback: Optional[Callable[[Optional[float]], None]] = None,
     ) -> AsyncGenerator[str, None]:
         """心境テキストをストリーミング生成する
 
@@ -502,6 +517,7 @@ class LLMService:
             system_prompt: システムプロンプト
             user_prompt: ユーザープロンプト
             provider_override: プロバイダー指定（省略時は設定値）
+            usage_callback: OpenRouter利用時にAPI料金(USD)を受け取るコールバック
 
         Yields:
             テキストチャンク
@@ -510,7 +526,7 @@ class LLMService:
 
         if provider == "openrouter":
             async for chunk in self._get_openrouter_client().generate_text_stream(
-                system_prompt, user_prompt
+                system_prompt, user_prompt, usage_callback=usage_callback
             ):
                 yield chunk
         elif provider == "novelai":

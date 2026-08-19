@@ -240,6 +240,8 @@ export interface AdventureRun {
   turns: AdventureTurn[];
   created_at: string | null;
   updated_at: string | null;
+  /** OpenRouter利用時のRun作成応答のみ。作成で発生したAPI料金(USD) */
+  cost_usd?: number;
 }
 
 export interface AdventureTemplate {
@@ -266,6 +268,8 @@ export interface AdventureSetup {
   setting: string;
   objective: string;
   constraints: string[];
+  /** OpenRouter利用時のみ。この生成で発生したAPI料金(USD) */
+  cost_usd?: number;
 }
 
 export interface AdventureCreateRequest extends AdventureSetupRequest {
@@ -320,6 +324,7 @@ export interface AdventureStreamEvent {
     | "portrait_image"
     | "partner_image"
     | "background_image"
+    | "cost"
     | "complete"
     | "error";
   data: Record<string, unknown>;
@@ -558,14 +563,19 @@ export async function streamAdventureImage(
   await readSse(response, onEvent);
 }
 
+export interface AdventureChoicesResult {
+  choices: AdventureChoice[];
+  /** OpenRouter利用時のみ。この再生成で発生したAPI料金(USD) */
+  cost_usd?: number;
+}
+
 export async function regenerateAdventureChoices(
   runId: string,
-): Promise<AdventureChoice[]> {
-  const payload = await requestJson<{ choices: AdventureChoice[] }>(
+): Promise<AdventureChoicesResult> {
+  return requestJson<AdventureChoicesResult>(
     `${API_BASE}/adventure/runs/${runId}/choices/regenerate`,
     { method: "POST" },
   );
-  return payload.choices;
 }
 
 export async function updateAdventureRunSettings(
@@ -600,6 +610,8 @@ export interface AdventureImagePromptPreview {
   negative_prompt: string;
   nsfw_mode: boolean;
   use_precise_reference: boolean;
+  /** 生成に使われる画像プロバイダー。非NovelAIでは scene_prompt が畳み込み済み */
+  image_provider?: string;
 }
 
 export interface AdventurePromptPreview {

@@ -9,6 +9,15 @@ const streamControl = vi.hoisted(() => ({
   finish: null as (() => void) | null,
 }));
 
+// AdventureProvider は API 料金の累計加算と Anlas 確認判定のために
+// SettingsContext を参照する。Provider 全体を立てずに最小のモックで賄う
+vi.mock("../SettingsContext", () => ({
+  useSettings: () => ({
+    state: { imageProvider: "novelai", showCost: false, totalCost: 0 },
+    addTotalCost: vi.fn(),
+  }),
+}));
+
 vi.mock("../../apis/adventure", () => ({
   streamAdventureTurn: vi.fn(
     (
