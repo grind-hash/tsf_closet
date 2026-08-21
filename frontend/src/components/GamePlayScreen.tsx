@@ -63,6 +63,7 @@ import ImagePreviewModal from "./ImagePreviewModal";
 import InpaintModal from "./InpaintModal";
 import MainLayout from "./layout/MainLayout";
 import RightPanel from "./layout/RightPanel";
+import { NovelaiUsageBar } from "./NovelaiUsageBar";
 import CharacterPanel from "./panel/CharacterPanel";
 import CharacterStatePanel from "./panel/CharacterStatePanel";
 import ImageOverlay from "./ui/ImageOverlay";
@@ -70,6 +71,8 @@ import "./GamePlayScreen.css";
 import "./chat/ChatContainer.css";
 
 const ANLAS_WARN_SUPPRESSED_KEY = "anlas_warn_suppressed";
+// V5 利用上限使い切り警告の抑止キー（ブラウザセッション単位）
+const V5_USAGE_WARN_SUPPRESSED_KEY = "v5_usage_warn_suppressed";
 
 interface GamePlayScreenProps {
   onTransform: (
@@ -141,6 +144,7 @@ export default function GamePlayScreen({
     setInpaintMask,
     clearInpaintMask,
     togglePanel,
+    isNovelaiV5Active,
   } = useSettings();
   const sessionId = gameState.sessionId;
   const currentImageUrl = gameState.currentImage;
@@ -229,6 +233,17 @@ export default function GamePlayScreen({
     useMemory: boolean;
   } | null>(null);
   const [anlasDoNotShowAgain, setAnlasDoNotShowAgain] = useState(false);
+
+  // V5 利用上限の使い切り警告ダイアログ（Anlas 消費で生成が続く状態）
+  const [usageWarnPending, setUsageWarnPending] = useState<{
+    message: string;
+    changeSettings: ChangeSettings;
+    transformationType: string;
+    transformOptions: Record<string, unknown> | undefined;
+    instructionType?: string;
+    useMemory: boolean;
+  } | null>(null);
+  const [usageWarnDoNotShowAgain, setUsageWarnDoNotShowAgain] = useState(false);
 
   // Close export menu on outside click
   useEffect(() => {
@@ -823,9 +838,10 @@ export default function GamePlayScreen({
 
         // NovelAI mode: always send i2i strength and optionally character references
         if (imageProvider === "novelai") {
-          const enabledRefs = settingsState.preciseReferences.filter(
-            (r) => r.enabled,
-          );
+          // V5系モデルは精密参照非対応のため送らない
+          const enabledRefs = isNovelaiV5Active
+            ? []
+            : settingsState.preciseReferences.filter((r) => r.enabled);
           transformOptions = {
             // Mask only when inpaint is enabled
             ...(settingsState.inpaintEnabled &&
@@ -848,6 +864,29 @@ export default function GamePlayScreen({
               })),
             }),
           };
+        }
+
+        // V5 利用上限を使い切った状態での生成は Anlas を消費するため警告する
+        const usageExhausted =
+          anlasBalance?.usage != null &&
+          (anlasBalance.usage.percent <= 0 || anlasBalance.usage.isNegative);
+        if (
+          isNovelaiV5Active &&
+          usageExhausted &&
+          sessionStorage.getItem(V5_USAGE_WARN_SUPPRESSED_KEY) !== "true"
+        ) {
+          setUsageWarnDoNotShowAgain(false);
+          setUsageWarnPending({
+            message,
+            changeSettings,
+            transformationType,
+            transformOptions: transformOptions as
+              | Record<string, unknown>
+              | undefined,
+            instructionType: backendInstructionType,
+            useMemory,
+          });
+          return; // Wait for user confirmation
         }
 
         // Anlas warning: if precise references are enabled, show confirmation
@@ -917,6 +956,8 @@ export default function GamePlayScreen({
       selectedMaskId,
       inpaintSettings,
       settingsState.preciseReferences,
+      isNovelaiV5Active,
+      anlasBalance,
       settingsState.language,
       settingsState.enableMultiplePeople,
       settingsState.playMemoryEnabled,
@@ -1125,6 +1166,39 @@ export default function GamePlayScreen({
   const handleAnlasCancel = useCallback(() => {
     setAnlasConfirmPending(null);
     setAnlasDoNotShowAgain(false);
+  }, []);
+
+  // V5 利用上限使い切り警告ダイアログのハンドラー
+  const handleUsageWarnConfirm = useCallback(() => {
+    if (!usageWarnPending) return;
+    const {
+      message,
+      changeSettings: cs,
+      transformationType,
+      transformOptions,
+      instructionType: pendingInstructionType,
+      useMemory,
+    } = usageWarnPending;
+    if (usageWarnDoNotShowAgain) {
+      sessionStorage.setItem(V5_USAGE_WARN_SUPPRESSED_KEY, "true");
+    }
+    setUsageWarnPending(null);
+    setUsageWarnDoNotShowAgain(false);
+    onTransform(
+      message,
+      undefined,
+      cs,
+      transformationType,
+      transformOptions,
+      pendingInstructionType,
+      undefined,
+      useMemory,
+    );
+  }, [usageWarnPending, usageWarnDoNotShowAgain, onTransform]);
+
+  const handleUsageWarnCancel = useCallback(() => {
+    setUsageWarnPending(null);
+    setUsageWarnDoNotShowAgain(false);
   }, []);
 
   // メッセージ削除の確認ダイアログを表示
@@ -1452,6 +1526,9 @@ export default function GamePlayScreen({
               id="mobile-anlas-balance"
               className="game-play-screen__anlas-content"
             >
+              {isNovelaiV5Active && anlasBalance.usage && (
+                <NovelaiUsageBar usage={anlasBalance.usage} compact />
+              )}
               <span className="game-play-screen__anlas-label">
                 Anlas: {anlasBalance.totalAnlas.toLocaleString()}
               </span>
@@ -1787,6 +1864,107 @@ export default function GamePlayScreen({
               <button
                 type="button"
                 onClick={handleAnlasConfirm}
+                style={{
+                  padding: "0.5rem 1rem",
+                  borderRadius: 4,
+                  border: "none",
+                  background: "var(--accent-color, #6366f1)",
+                  color: "#fff",
+                  cursor: "pointer",
+                }}
+              >
+                {uiText.anlasProceed}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* V5 利用上限使い切り警告ダイアログ */}
+      {usageWarnPending && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.6)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 9999,
+          }}
+        >
+          <div
+            style={{
+              background: "var(--bg-secondary, #2a2a2a)",
+              borderRadius: 8,
+              padding: "1.5rem",
+              maxWidth: 400,
+              width: "90%",
+              boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
+            }}
+          >
+            <h3 style={{ margin: "0 0 0.75rem", fontSize: "1rem" }}>
+              {uiText.anlasTitle}
+            </h3>
+            <p
+              style={{
+                margin: "0 0 1rem",
+                fontSize: "0.9rem",
+                lineHeight: 1.5,
+              }}
+            >
+              {t("gameplay.v5UsageExhaustedBody")}
+            </p>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.5rem",
+                margin: "0 0 1rem",
+                fontSize: "0.85rem",
+                color: "var(--text-secondary, #aaa)",
+                cursor: "pointer",
+              }}
+              onClick={() => setUsageWarnDoNotShowAgain((v) => !v)}
+            >
+              <input
+                type="checkbox"
+                id="usage-warn-do-not-show-again"
+                checked={usageWarnDoNotShowAgain}
+                onChange={(e) => setUsageWarnDoNotShowAgain(e.target.checked)}
+                style={{ cursor: "pointer" }}
+              />
+              <label
+                htmlFor="usage-warn-do-not-show-again"
+                style={{ cursor: "pointer", userSelect: "none" }}
+              >
+                {uiText.anlasDoNotShowAgain}
+              </label>
+            </div>
+            <div
+              style={{
+                display: "flex",
+                gap: "0.5rem",
+                justifyContent: "flex-end",
+              }}
+            >
+              <button
+                type="button"
+                onClick={handleUsageWarnCancel}
+                style={{
+                  padding: "0.5rem 1rem",
+                  borderRadius: 4,
+                  border: "1px solid var(--border-color, #555)",
+                  background: "transparent",
+                  color: "var(--text-primary, #eee)",
+                  cursor: "pointer",
+                }}
+              >
+                {uiText.anlasCancel}
+              </button>
+              <button
+                type="button"
+                onClick={handleUsageWarnConfirm}
                 style={{
                   padding: "0.5rem 1rem",
                   borderRadius: 4,

@@ -30,6 +30,7 @@ import type {
 } from "../../types";
 import { generateUUID } from "../../utils/generateUUID";
 import { isHistoryLookbackEnabled } from "../../utils/historyLookback";
+import { NovelaiUsageBar } from "../NovelaiUsageBar";
 import MemorySettings from "../settings/MemorySettings";
 import PlayMemorySettings from "../settings/PlayMemorySettings";
 import "./RightPanel.css";
@@ -98,6 +99,9 @@ export default function RightPanel({
     setShowRealityAttributeNotification,
     setEnableMultiplePeople,
     setNovelaiTextModel,
+    setNovelaiImageModel,
+    setNovelaiCuratedImageModel,
+    isNovelaiV5Active,
   } = useSettings();
   const { state: gameState, addAttribute, removeAttribute } = useGame();
   const { state: chatState, setInputText } = useChat();
@@ -1299,6 +1303,65 @@ export default function RightPanel({
               </div>
             )}
 
+            {/* NovelAI Image Model Selectors */}
+            <div className="right-panel__form-group">
+              <label className="right-panel__label">
+                {t("settings.novelaiImageModelNsfw")}
+                <span
+                  className="feature-chip-experimental"
+                  data-feature-version="v0.7.0"
+                  style={{ marginLeft: "0.5rem" }}
+                >
+                  Experimental
+                </span>
+              </label>
+              <select
+                className="right-panel__select"
+                value={settingsState.novelaiImageModel}
+                onChange={(e) => setNovelaiImageModel(e.target.value)}
+              >
+                <option value="nai-diffusion-4-5-full">
+                  {t("settings.novelaiImageModelV45Full")}
+                </option>
+                <option value="nai-diffusion-5-full">
+                  {t("settings.novelaiImageModelV5Full")}
+                </option>
+              </select>
+            </div>
+
+            <div className="right-panel__form-group">
+              <label className="right-panel__label">
+                {t("settings.novelaiImageModelSfw")}
+                <span
+                  className="feature-chip-experimental"
+                  data-feature-version="v0.7.0"
+                  style={{ marginLeft: "0.5rem" }}
+                >
+                  Experimental
+                </span>
+              </label>
+              <select
+                className="right-panel__select"
+                value={settingsState.novelaiCuratedImageModel}
+                onChange={(e) => setNovelaiCuratedImageModel(e.target.value)}
+              >
+                <option value="nai-diffusion-4-5-curated">
+                  {t("settings.novelaiImageModelV45Curated")}
+                </option>
+                <option value="nai-diffusion-5-curated">
+                  {t("settings.novelaiImageModelV5Curated")}
+                </option>
+              </select>
+              {isNovelaiV5Active && settingsState.anlasBalance?.usage && (
+                <div className="right-panel__usage-bar">
+                  <NovelaiUsageBar
+                    usage={settingsState.anlasBalance.usage}
+                    compact
+                  />
+                </div>
+              )}
+            </div>
+
             {/* Prompt Builder */}
             {settingsState.clothingColorConsistency && (
               <div className="right-panel__form-group">
@@ -1512,232 +1575,248 @@ export default function RightPanel({
               <label className="right-panel__label">
                 {t("rightPanel.preciseReferences")}
               </label>
-              <small
-                className="right-panel__hint"
-                style={{ marginBottom: "0.5rem", display: "block" }}
-              >
-                {t("rightPanel.preciseReferenceAnlas")}
-              </small>
-              <input
-                ref={preciseRefInputRef}
-                type="file"
-                accept="image/png,image/jpeg,image/webp"
-                style={{ display: "none" }}
-                onChange={handlePreciseRefFileChange}
-              />
-              <button
-                type="button"
-                className={`right-panel__precise-ref-drop-zone ${
-                  isPreciseRefDragging ? "is-dragging" : ""
-                }`}
-                onClick={() => preciseRefInputRef.current?.click()}
-                onDragEnter={handlePreciseRefDragEnter}
-                onDragOver={handlePreciseRefDragOver}
-                onDragLeave={handlePreciseRefDragLeave}
-                onDrop={handlePreciseRefDrop}
-                aria-label={t("rightPanel.addReferenceImage")}
-                data-testid="precise-ref-drop-zone"
-              >
-                {isPreciseRefDragging ? (
-                  t("rightPanel.preciseRefDropActive")
-                ) : (
-                  <>
-                    <span>{t("rightPanel.addReferenceImage")}</span>
-                    <span className="right-panel__precise-ref-drop-hint">
-                      {t("rightPanel.preciseRefDropHint")}
-                    </span>
-                  </>
-                )}
-              </button>
-
-              {preciseRefError && (
-                <div
-                  style={{
-                    color: "var(--danger-color, #f44)",
-                    fontSize: "0.8rem",
-                    marginBottom: "0.5rem",
-                    padding: "0.3rem 0.5rem",
-                    background: "rgba(255,68,68,0.1)",
-                    borderRadius: 4,
-                  }}
+              {isNovelaiV5Active ? (
+                <small
+                  className="right-panel__hint"
+                  style={{ marginBottom: "0.5rem", display: "block" }}
                 >
-                  {preciseRefError}
-                </div>
+                  {t("rightPanel.preciseReferenceV5Unavailable")}
+                </small>
+              ) : (
+                <small
+                  className="right-panel__hint"
+                  style={{ marginBottom: "0.5rem", display: "block" }}
+                >
+                  {t("rightPanel.preciseReferenceAnlas")}
+                </small>
               )}
-
-              {settingsState.preciseReferences.map((ref) => (
-                <div
-                  key={ref.id}
-                  className="right-panel__precise-ref-card"
-                  style={{
-                    border: "1px solid var(--border-color, #555)",
-                    borderRadius: "6px",
-                    padding: "0.5rem",
-                    marginBottom: "0.5rem",
-                    position: "relative",
-                  }}
+              <div
+                className={
+                  isNovelaiV5Active ? "right-panel__disabled-block" : undefined
+                }
+                aria-disabled={isNovelaiV5Active || undefined}
+              >
+                <input
+                  ref={preciseRefInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  style={{ display: "none" }}
+                  onChange={handlePreciseRefFileChange}
+                />
+                <button
+                  type="button"
+                  className={`right-panel__precise-ref-drop-zone ${
+                    isPreciseRefDragging ? "is-dragging" : ""
+                  }`}
+                  onClick={() => preciseRefInputRef.current?.click()}
+                  onDragEnter={handlePreciseRefDragEnter}
+                  onDragOver={handlePreciseRefDragOver}
+                  onDragLeave={handlePreciseRefDragLeave}
+                  onDrop={handlePreciseRefDrop}
+                  aria-label={t("rightPanel.addReferenceImage")}
+                  data-testid="precise-ref-drop-zone"
                 >
-                  {/* Thumbnail + controls header */}
+                  {isPreciseRefDragging ? (
+                    t("rightPanel.preciseRefDropActive")
+                  ) : (
+                    <>
+                      <span>{t("rightPanel.addReferenceImage")}</span>
+                      <span className="right-panel__precise-ref-drop-hint">
+                        {t("rightPanel.preciseRefDropHint")}
+                      </span>
+                    </>
+                  )}
+                </button>
+
+                {preciseRefError && (
                   <div
                     style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "0.5rem",
-                      marginBottom: "0.4rem",
+                      color: "var(--danger-color, #f44)",
+                      fontSize: "0.8rem",
+                      marginBottom: "0.5rem",
+                      padding: "0.3rem 0.5rem",
+                      background: "rgba(255,68,68,0.1)",
+                      borderRadius: 4,
                     }}
                   >
-                    <img
-                      src={ref.imageData}
-                      alt={ref.fileName}
+                    {preciseRefError}
+                  </div>
+                )}
+
+                {settingsState.preciseReferences.map((ref) => (
+                  <div
+                    key={ref.id}
+                    className="right-panel__precise-ref-card"
+                    style={{
+                      border: "1px solid var(--border-color, #555)",
+                      borderRadius: "6px",
+                      padding: "0.5rem",
+                      marginBottom: "0.5rem",
+                      position: "relative",
+                    }}
+                  >
+                    {/* Thumbnail + controls header */}
+                    <div
                       style={{
-                        width: 48,
-                        height: 48,
-                        objectFit: "cover",
-                        borderRadius: 4,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "0.5rem",
+                        marginBottom: "0.4rem",
+                      }}
+                    >
+                      <img
+                        src={ref.imageData}
+                        alt={ref.fileName}
+                        style={{
+                          width: 48,
+                          height: 48,
+                          objectFit: "cover",
+                          borderRadius: 4,
+                          opacity: ref.enabled ? 1 : 0.4,
+                        }}
+                      />
+                      <span
+                        style={{
+                          flex: 1,
+                          fontSize: "0.8rem",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {ref.fileName}
+                      </span>
+                      <button
+                        type="button"
+                        style={{
+                          background: "none",
+                          border: "none",
+                          cursor: "pointer",
+                          fontSize: "1rem",
+                          color: "var(--text-secondary, #aaa)",
+                          pointerEvents: "auto",
+                        }}
+                        title={t("rightPanel.toggleEnabledTitle")}
+                        onClick={() =>
+                          updatePreciseReference(ref.id, {
+                            enabled: !ref.enabled,
+                          })
+                        }
+                      >
+                        {ref.enabled ? "👁" : "👁‍🗨"}
+                      </button>
+                      <button
+                        type="button"
+                        style={{
+                          background: "none",
+                          border: "none",
+                          cursor: "pointer",
+                          fontSize: "1rem",
+                          color: "var(--danger-color, #f44)",
+                          pointerEvents: "auto",
+                        }}
+                        title={t("common.delete")}
+                        onClick={() => removePreciseReference(ref.id)}
+                      >
+                        🗑
+                      </button>
+                    </div>
+
+                    {/* Controls area - grayed out when disabled */}
+                    <div
+                      style={{
                         opacity: ref.enabled ? 1 : 0.4,
-                      }}
-                    />
-                    <span
-                      style={{
-                        flex: 1,
-                        fontSize: "0.8rem",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
+                        pointerEvents: ref.enabled ? "auto" : "none",
                       }}
                     >
-                      {ref.fileName}
-                    </span>
-                    <button
-                      type="button"
-                      style={{
-                        background: "none",
-                        border: "none",
-                        cursor: "pointer",
-                        fontSize: "1rem",
-                        color: "var(--text-secondary, #aaa)",
-                        pointerEvents: "auto",
-                      }}
-                      title={t("rightPanel.toggleEnabledTitle")}
-                      onClick={() =>
-                        updatePreciseReference(ref.id, {
-                          enabled: !ref.enabled,
-                        })
-                      }
-                    >
-                      {ref.enabled ? "👁" : "👁‍🗨"}
-                    </button>
-                    <button
-                      type="button"
-                      style={{
-                        background: "none",
-                        border: "none",
-                        cursor: "pointer",
-                        fontSize: "1rem",
-                        color: "var(--danger-color, #f44)",
-                        pointerEvents: "auto",
-                      }}
-                      title={t("common.delete")}
-                      onClick={() => removePreciseReference(ref.id)}
-                    >
-                      🗑
-                    </button>
-                  </div>
+                      {/* Reference type dropdown */}
+                      <div
+                        className="right-panel__form-group"
+                        style={{ marginBottom: "0.3rem" }}
+                      >
+                        <label
+                          className="right-panel__label"
+                          style={{ fontSize: "0.75rem" }}
+                        >
+                          {t("rightPanel.referenceType")}
+                        </label>
+                        <select
+                          className="right-panel__select"
+                          value={ref.type}
+                          onChange={(e) =>
+                            updatePreciseReference(ref.id, {
+                              type: e.target.value as PreciseReferenceType,
+                            })
+                          }
+                          style={{ width: "100%", fontSize: "0.8rem" }}
+                        >
+                          <option value="character&style">
+                            {t("rightPanel.referenceTypeCharacterStyle")}
+                          </option>
+                          <option value="character">
+                            {t("rightPanel.referenceTypeCharacter")}
+                          </option>
+                          <option value="style">
+                            {t("rightPanel.referenceTypeStyle")}
+                          </option>
+                        </select>
+                      </div>
 
-                  {/* Controls area - grayed out when disabled */}
-                  <div
-                    style={{
-                      opacity: ref.enabled ? 1 : 0.4,
-                      pointerEvents: ref.enabled ? "auto" : "none",
-                    }}
-                  >
-                    {/* Reference type dropdown */}
-                    <div
-                      className="right-panel__form-group"
-                      style={{ marginBottom: "0.3rem" }}
-                    >
-                      <label
-                        className="right-panel__label"
-                        style={{ fontSize: "0.75rem" }}
+                      {/* Strength slider */}
+                      <div
+                        className="right-panel__form-group"
+                        style={{ marginBottom: "0.3rem" }}
                       >
-                        {t("rightPanel.referenceType")}
-                      </label>
-                      <select
-                        className="right-panel__select"
-                        value={ref.type}
-                        onChange={(e) =>
-                          updatePreciseReference(ref.id, {
-                            type: e.target.value as PreciseReferenceType,
-                          })
-                        }
-                        style={{ width: "100%", fontSize: "0.8rem" }}
-                      >
-                        <option value="character&style">
-                          {t("rightPanel.referenceTypeCharacterStyle")}
-                        </option>
-                        <option value="character">
-                          {t("rightPanel.referenceTypeCharacter")}
-                        </option>
-                        <option value="style">
-                          {t("rightPanel.referenceTypeStyle")}
-                        </option>
-                      </select>
-                    </div>
+                        <label
+                          className="right-panel__label"
+                          style={{ fontSize: "0.75rem" }}
+                        >
+                          {t("rightPanel.strength")}: {ref.strength.toFixed(2)}
+                        </label>
+                        <input
+                          type="range"
+                          className="right-panel__slider"
+                          min={0}
+                          max={1}
+                          step={0.05}
+                          value={ref.strength}
+                          onChange={(e) =>
+                            updatePreciseReference(ref.id, {
+                              strength: parseFloat(e.target.value),
+                            })
+                          }
+                        />
+                      </div>
 
-                    {/* Strength slider */}
-                    <div
-                      className="right-panel__form-group"
-                      style={{ marginBottom: "0.3rem" }}
-                    >
-                      <label
-                        className="right-panel__label"
-                        style={{ fontSize: "0.75rem" }}
+                      {/* Fidelity slider */}
+                      <div
+                        className="right-panel__form-group"
+                        style={{ marginBottom: 0 }}
                       >
-                        {t("rightPanel.strength")}: {ref.strength.toFixed(2)}
-                      </label>
-                      <input
-                        type="range"
-                        className="right-panel__slider"
-                        min={0}
-                        max={1}
-                        step={0.05}
-                        value={ref.strength}
-                        onChange={(e) =>
-                          updatePreciseReference(ref.id, {
-                            strength: parseFloat(e.target.value),
-                          })
-                        }
-                      />
-                    </div>
-
-                    {/* Fidelity slider */}
-                    <div
-                      className="right-panel__form-group"
-                      style={{ marginBottom: 0 }}
-                    >
-                      <label
-                        className="right-panel__label"
-                        style={{ fontSize: "0.75rem" }}
-                      >
-                        {t("rightPanel.fidelity")}: {ref.fidelity.toFixed(2)}
-                      </label>
-                      <input
-                        type="range"
-                        className="right-panel__slider"
-                        min={0}
-                        max={1}
-                        step={0.05}
-                        value={ref.fidelity}
-                        onChange={(e) =>
-                          updatePreciseReference(ref.id, {
-                            fidelity: parseFloat(e.target.value),
-                          })
-                        }
-                      />
+                        <label
+                          className="right-panel__label"
+                          style={{ fontSize: "0.75rem" }}
+                        >
+                          {t("rightPanel.fidelity")}: {ref.fidelity.toFixed(2)}
+                        </label>
+                        <input
+                          type="range"
+                          className="right-panel__slider"
+                          min={0}
+                          max={1}
+                          step={0.05}
+                          value={ref.fidelity}
+                          onChange={(e) =>
+                            updatePreciseReference(ref.id, {
+                              fidelity: parseFloat(e.target.value),
+                            })
+                          }
+                        />
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           </section>
         )}

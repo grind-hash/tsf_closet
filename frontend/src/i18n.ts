@@ -254,6 +254,10 @@ const resources = {
           "次回の画像生成から反映されます。ONにすると参照1枚あたり5 Anlasを追加消費します。",
         preciseReferenceOtherProviderHint:
           "この設定はNovelAI画像プロバイダー専用です。現在のプロバイダー(OpenRouter/セルフホスト)では参照画像を追加費用なしで常に使うため、ON/OFFを切り替えても効果はなく、Anlasも消費しません。",
+        preciseReferenceV5Hint:
+          "V5モデルでは精密参照は利用できません。V4.5モデル選択時のみ有効です。",
+        v5UsageExhaustedBody:
+          "NAI Diffusion V5 の利用上限を使い切っています。このまま生成するとAnlasを消費します。続行しますか？",
         enableCompositeScene: "背景と人物を同時に描く",
         enableCompositeSceneHint:
           "OFFが既定です。既定では背景は開始時に1回だけ生成し、行動に応じて中央の立ち絵のみ更新します。ONにすると、立ち絵の更新後に背景を含む合成シーンも直列で再生成するため、1ターンあたりの画像生成が1回増えて待ち時間が長くなります。",
@@ -475,6 +479,7 @@ const resources = {
         },
         anlasDetail: "固定: {{fixed}} / 購入: {{purchased}}",
         anlasBadge: "精密参照",
+        anlasBadgeV5: "V5",
         anlasWarnBody:
           "精密参照が有効なため、このターンの画像生成で追加のAnlasを消費します（見積もり: {{estimate}}、1参照あたり5 Anlas）。続行しますか？",
         anlasWarnStartBody:
@@ -603,6 +608,19 @@ const resources = {
           "テキスト生成（心境・プロンプト拡張・会話など）に使用するNovelAIモデルを選択します。Opusプラン限定です。",
         novelaiTextModelGlm: "GLM 4.6（デフォルト）",
         novelaiTextModelXialong: "Xialong v1（実験的）",
+        novelaiImageModelNsfw: "画像生成モデル (NSFW)",
+        novelaiImageModelNsfwDesc:
+          "NSFWモードがONのときに使用するNovelAI画像モデルを選択します。",
+        novelaiImageModelSfw: "画像生成モデル (非NSFW)",
+        novelaiImageModelSfwDesc:
+          "NSFWモードがOFFのときに使用するNovelAI画像モデルを選択します。",
+        novelaiImageModelV45Full: "NAI Diffusion V4.5 Full（デフォルト）",
+        novelaiImageModelV5Full: "NAI Diffusion V5 Full",
+        novelaiImageModelV45Curated: "NAI Diffusion V4.5 Curated（デフォルト）",
+        novelaiImageModelV5Curated: "NAI Diffusion V5 Curated",
+        novelaiUsageTitle: "V5 利用上限",
+        novelaiUsageDesc:
+          "NAI Diffusion V5 の残り生成量です。生成のたびに減少し、使い切った後の生成はAnlasを消費します。",
         dataSection: "データ",
         reset: "設定を初期化",
         resetDesc: "すべての設定を初期値に戻します",
@@ -911,6 +929,8 @@ const resources = {
         maskSettingsHint: "インペイントマスクを編集",
         preciseReferences: "精密参照画像:",
         preciseReferenceAnlas: "参照画像1枚あたり +5 Anlas",
+        preciseReferenceV5Unavailable:
+          "V5モデルでは精密参照は利用できません。V4.5モデル選択時のみ有効です。",
         addReferenceImage: "📎 参照画像を追加",
         preciseRefDropHint: "または画像をここにドロップ",
         preciseRefDropActive: "ここに画像をドロップ",
@@ -1253,6 +1273,11 @@ const resources = {
         anlasTitle: "Anlas 追加消費の確認",
         anlasCancel: "キャンセル",
         anlasDoNotShowAgain: "ブラウザを閉じるまで表示しない",
+        novelaiUsageLabel: "V5上限",
+        novelaiUsageExhausted: "上限到達",
+        novelaiUsageTooltip: "NAI Diffusion V5 の残り生成量: {{percent}}%",
+        v5UsageExhaustedBody:
+          "NAI Diffusion V5 の利用上限を使い切っています。このまま生成するとAnlasを消費します。続行しますか？",
         deleteMessageTitle: "メッセージを削除",
         deleteMessageConfirm: "このメッセージと対応する応答を削除しますか？",
         deleteMessageResponsePreview: "削除される応答: {{preview}}",
@@ -1773,6 +1798,10 @@ const resources = {
           "Applies from the next image generation. When on, each reference costs 5 extra Anlas.",
         preciseReferenceOtherProviderHint:
           "This option only applies to the NovelAI image provider. Your current provider (OpenRouter / self-hosted) always uses reference images at no extra cost, so toggling this has no effect and consumes no Anlas.",
+        preciseReferenceV5Hint:
+          "Precise references are not available with V5 models. They only take effect with V4.5 models.",
+        v5UsageExhaustedBody:
+          "You have used up the NAI Diffusion V5 usage limit. Generating now will consume Anlas. Continue?",
         enableCompositeScene: "Draw background and character together",
         enableCompositeSceneHint:
           "Off by default. By default, the background is generated once at the start, and only the centered character sprite updates as you act. When on, the full composite scene (including background) is also regenerated in series after each sprite update, so each turn runs one more image generation and takes longer.",
@@ -1990,6 +2019,7 @@ const resources = {
         },
         anlasDetail: "Fixed: {{fixed}} / Purchased: {{purchased}}",
         anlasBadge: "Precise ref.",
+        anlasBadgeV5: "V5",
         anlasWarnBody:
           "Precise reference is enabled, so this turn's image generation will consume additional Anlas (estimated {{estimate}}; 5 Anlas per reference). Continue?",
         anlasWarnStartBody:
@@ -2121,6 +2151,19 @@ const resources = {
           "Select the NovelAI model for text generation (inner monologue, prompt expansion, chat, etc.). Opus plan only.",
         novelaiTextModelGlm: "GLM 4.6 (Default)",
         novelaiTextModelXialong: "Xialong v1 (Experimental)",
+        novelaiImageModelNsfw: "Image Generation Model (NSFW)",
+        novelaiImageModelNsfwDesc:
+          "Select the NovelAI image model used while NSFW mode is ON.",
+        novelaiImageModelSfw: "Image Generation Model (Non-NSFW)",
+        novelaiImageModelSfwDesc:
+          "Select the NovelAI image model used while NSFW mode is OFF.",
+        novelaiImageModelV45Full: "NAI Diffusion V4.5 Full (Default)",
+        novelaiImageModelV5Full: "NAI Diffusion V5 Full",
+        novelaiImageModelV45Curated: "NAI Diffusion V4.5 Curated (Default)",
+        novelaiImageModelV5Curated: "NAI Diffusion V5 Curated",
+        novelaiUsageTitle: "V5 Usage Limit",
+        novelaiUsageDesc:
+          "Remaining NAI Diffusion V5 generation quota. It decreases with each generation; once exhausted, generations consume Anlas.",
         dataSection: "Data",
         reset: "Reset settings",
         resetDesc: "Reset all settings to defaults",
@@ -2427,6 +2470,8 @@ const resources = {
         maskSettingsHint: "Edit inpaint masks",
         preciseReferences: "Precise Reference Images:",
         preciseReferenceAnlas: "+5 Anlas per reference image",
+        preciseReferenceV5Unavailable:
+          "Precise references are not available with V5 models. They only take effect with V4.5 models.",
         addReferenceImage: "📎 Add Reference Image",
         preciseRefDropHint: "or drop images here",
         preciseRefDropActive: "Drop images here",
@@ -2769,6 +2814,11 @@ const resources = {
         anlasCancel: "Cancel",
         anlasDoNotShowAgain: "Don't show again until browser closes",
         anlasProceed: "Proceed",
+        novelaiUsageLabel: "V5 limit",
+        novelaiUsageExhausted: "Exhausted",
+        novelaiUsageTooltip: "Remaining NAI Diffusion V5 quota: {{percent}}%",
+        v5UsageExhaustedBody:
+          "You have used up the NAI Diffusion V5 usage limit. Generating now will consume Anlas. Continue?",
         deleteMessageTitle: "Delete Message",
         deleteMessageConfirm: "Delete this message and its response?",
         deleteMessageResponsePreview: "Response to delete: {{preview}}",

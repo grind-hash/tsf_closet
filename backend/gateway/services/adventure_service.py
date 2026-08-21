@@ -61,6 +61,7 @@ from ..consts.adventure_turns import (
     ADVENTURE_TURNS_MAX,
     ADVENTURE_TURNS_MIN,
 )
+from ..consts.novelai_models import is_v5_image_model, resolve_user_image_model
 from ..databases.base import async_session_factory
 from ..databases.models import AdventureRun, AdventureTurn
 from ..settings.config import BASE_DIR, settings
@@ -1995,6 +1996,20 @@ _SCENE_PROMPT_SUFFIX = (
 _PLAYER_PROMPT_SUFFIX = ", main protagonist, primary focus, center foreground"
 _NPC_PROMPT_SUFFIX = ", supporting character, secondary focus, behind protagonist"
 _PORTRAIT_PROMPT_SUFFIX = ", solo, full body standing portrait, simple background, white background, no shadow"
+# V5系モデルは透過背景をネイティブ生成できるため、白背景ではなく透過を指示する
+# （フロント側の透過処理は既に透過を持つ画像を素通しする）
+_PORTRAIT_PROMPT_SUFFIX_V5 = (
+    ", solo, full body standing portrait, transparent background, no shadow"
+)
+
+
+def _portrait_prompt_suffix(image_model: str | None) -> str:
+    """立ち絵用サフィックスをモデルに応じて返す（V5のみ透過背景指示）。"""
+    return (
+        _PORTRAIT_PROMPT_SUFFIX_V5
+        if is_v5_image_model(image_model)
+        else _PORTRAIT_PROMPT_SUFFIX
+    )
 
 
 def _visual_user_payload(
@@ -2802,9 +2817,7 @@ The objective must name a concrete target and an observable end condition that c
             nsfw_mode = bool(user_settings.get("nsfw_mode"))
         else:
             nsfw_mode = bool(session_nsfw_mode)
-        image_model = (
-            settings.novelai_model if nsfw_mode else settings.novelai_curated_model
-        )
+        image_model = resolve_user_image_model(user_settings, nsfw_mode)
         if template:
             setting = str(template_localized(template, "setting", language))
             objective = str(template_localized(template, "objective", language))
@@ -5216,6 +5229,12 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             result["cost_usd"] = tracker.total_usd
         return result
 
+    @staticmethod
+    async def _resolve_image_model(nsfw_mode: bool) -> str:
+        """ユーザー設定と nsfw_mode から NovelAI 画像生成モデルを解決する。"""
+        user_settings = await session_store.get_user_settings()
+        return resolve_user_image_model(user_settings, nsfw_mode)
+
     async def _generate_image_unlocked(
         self,
         run_id: str,
@@ -5298,8 +5317,13 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 if source_image_override is not None
                 else (None if outfit_changed else current_path.read_bytes())
             )
+            provider = _image_provider()
+            effective_image_model: str | None = None
+            if provider == "novelai":
+                effective_image_model = await self._resolve_image_model(nsfw_mode)
             character_references = None
-            if use_precise_reference:
+            # V5系モデルは精密参照（character reference）非対応
+            if use_precise_reference and not is_v5_image_model(effective_image_model):
                 char_strength, char_fidelity = _character_reference_strength(
                     outfit_changed=outfit_changed,
                     has_fresh_portrait=(
@@ -5333,13 +5357,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 _compose_scene_base_tags(image_prompt) + _SCENE_PROMPT_SUFFIX,
                 nsfw_mode=nsfw_mode,
             )
-            provider = _image_provider()
             if provider == "novelai":
-                effective_image_model = (
-                    settings.novelai_model
-                    if nsfw_mode
-                    else settings.novelai_curated_model
-                )
                 result = await image_service.generate_image(
                     scene_prompt,
                     image_bytes=source_image,
@@ -5607,6 +5625,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 nsfw_mode=nsfw_mode,
                 include_people=False,
                 provider_override="novelai",
+                novelai_model_override=await self._resolve_image_model(nsfw_mode),
             )
         else:
             result = await image_service.generate_image(
@@ -5731,9 +5750,15 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 worn_items_override=worn_items_override,
                 turn_number=effective_turn_number,
             )
+            provider = _image_provider()
+            effective_image_model: str | None = None
+            if provider == "novelai":
+                effective_image_model = await self._resolve_image_model(nsfw_mode)
             # 立ち絵はフロント側で背景を透過するため、必ず白背景で生成させる。
+            # （V5モデルのみ透過背景をネイティブ生成させる）
             player_prompt = _enhance_adventure_prompt(
-                image_prompt.player_tags + _PORTRAIT_PROMPT_SUFFIX,
+                image_prompt.player_tags
+                + _portrait_prompt_suffix(effective_image_model),
                 nsfw_mode=nsfw_mode,
             )
             # 現実改変で外見が変わった後の初期画像は元の姿のままで、参照に
@@ -5747,10 +5772,14 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                     if latest_portrait and Path(latest_portrait).is_file()
                     else None
                 )
-            provider = _image_provider()
             if provider == "novelai":
                 character_references = None
-                if use_precise_reference and reference_path is not None:
+                # V5系モデルは精密参照（character reference）非対応
+                if (
+                    use_precise_reference
+                    and reference_path is not None
+                    and not is_v5_image_model(effective_image_model)
+                ):
                     # 参照は前ターン以前の1枚なので fresh portrait 扱いにしない
                     char_strength, char_fidelity = _character_reference_strength(
                         outfit_changed=outfit_changed, has_fresh_portrait=False
@@ -5763,11 +5792,6 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                             "fidelity": char_fidelity,
                         }
                     ]
-                effective_image_model = (
-                    settings.novelai_model
-                    if nsfw_mode
-                    else settings.novelai_curated_model
-                )
                 result = await image_service.generate_image(
                     player_prompt,
                     image_bytes=None,
@@ -5863,14 +5887,19 @@ All values must be concise English comma-separated tags. scene_tags contains onl
     ) -> Path:
         """romance の攻略対象の立ち絵を生成する(非合成モードの並置表示用)。
 
-        主人公の立ち絵と同じく白背景で生成し、フロント側で透過する。
+        主人公の立ち絵と同じく白背景で生成し、フロント側で透過する
+        (V5モデルのみ透過背景をネイティブ生成させる)。
         最新の1枚だけを state["partner_portrait_path"] に保持する。
         """
         run = await self.get_run_orm(run_id)
         state = _json_load(run.state_json, {})
         nsfw_mode = bool(run.nsfw_mode)
+        provider = _image_provider()
+        effective_image_model: str | None = None
+        if provider == "novelai":
+            effective_image_model = await self._resolve_image_model(nsfw_mode)
         prompt = _enhance_adventure_prompt(
-            partner_tags + _PORTRAIT_PROMPT_SUFFIX,
+            partner_tags + _portrait_prompt_suffix(effective_image_model),
             nsfw_mode=nsfw_mode,
         )
         character_references = None
@@ -5883,9 +5912,13 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             else "partner_image_path"
         )
         reference_path = Path(str(state.get(reference_key) or ""))
-        provider = _image_provider()
         if provider == "novelai":
-            if bool(state.get("use_precise_reference")) and reference_path.is_file():
+            # V5系モデルは精密参照（character reference）非対応
+            if (
+                bool(state.get("use_precise_reference"))
+                and reference_path.is_file()
+                and not is_v5_image_model(effective_image_model)
+            ):
                 # 服装は変化し得るため弱めに参照する
                 char_strength, char_fidelity = _character_reference_strength(
                     outfit_changed=True, has_fresh_portrait=False
@@ -5898,9 +5931,6 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                         "fidelity": char_fidelity,
                     }
                 ]
-            effective_image_model = (
-                settings.novelai_model if nsfw_mode else settings.novelai_curated_model
-            )
             result = await image_service.generate_image(
                 prompt,
                 image_bytes=None,
@@ -6449,12 +6479,16 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             for npc_prompt in image_prompt.npc_tags[:3]
         ]
         provider = _image_provider()
+        # 送信経路と同じサフィックス選択（V5のみ透過背景）になるようモデルを解決する
+        preview_image_model: str | None = None
+        if provider == "novelai":
+            preview_image_model = await self._resolve_image_model(nsfw_mode)
         payload = {
             "scene_prompt": scene_prompt,
             "player_prompt": player_prompt,
             "npc_prompts": npc_prompts,
             "portrait_prompt": _enhance_adventure_prompt(
-                image_prompt.player_tags + _PORTRAIT_PROMPT_SUFFIX,
+                image_prompt.player_tags + _portrait_prompt_suffix(preview_image_model),
                 nsfw_mode=nsfw_mode,
             ),
             "negative_prompt": merge_negative_prompt(

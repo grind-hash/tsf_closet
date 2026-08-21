@@ -896,6 +896,7 @@ button:disabled {
 .adventure-hud__tile,
 .adventure-hud__turns,
 .adventure-hud__anlas,
+.adventure-hud__usage,
 .adventure-hud__cost,
 .adventure-hud__location,
 .adventure-hud__bgm-chip {
@@ -1112,6 +1113,50 @@ button:disabled {
   font-family: monospace;
   font-size: 1rem;
   line-height: 1;
+}
+
+/* NovelAI V5 の利用上限。Anlas表示と同じ体裁で左隣に並べる */
+.adventure-hud__usage {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  min-width: 66px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: rgb(13 17 20 / 78%);
+}
+
+.adventure-hud__usage > span:first-child {
+  color: #aeb7bf;
+  font-size: 0.62rem;
+}
+
+.adventure-hud__usage strong {
+  color: #5ac8ef;
+  font-family: monospace;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.adventure-hud__usage .adventure-hud__gauge i {
+  background: #5ac8ef;
+}
+
+.adventure-hud__usage.is-warning strong {
+  color: #ef8a8a;
+  font-size: 0.78rem;
+}
+
+.adventure-hud__usage.is-warning .adventure-hud__gauge i {
+  background: #ef5a5a;
+}
+
+.adventure-hud__usage-tile.is-warning .adventure-hud__tile-value {
+  color: #ef8a8a;
+}
+
+.adventure-hud__usage-tile.is-warning .adventure-hud__gauge i {
+  background: #ef5a5a;
 }
 
 /* OpenRouter利用時の累計API料金。Anlas表示と同じ体裁で並べる */

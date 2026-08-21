@@ -63,6 +63,11 @@ export interface NovelAISubscriptionResponse {
   tier: number; // 0: Free, 1: Tablet, 2: Scroll, 3: Opus
   active: boolean; // サブスクリプションがアクティブか
   expires_at?: string; // 有効期限 (ISO 8601)
+  usage?: {
+    percent: number;
+    is_negative: boolean;
+    time_until_next_percent: number;
+  } | null; // V5 利用上限（未対応アカウントは null）
 }
 
 // NovelAI Subscription state in frontend
@@ -469,11 +474,19 @@ export interface PendingMessageIdentity {
   status: PendingMessageStatus;
 }
 
+// NovelAI V5 usage limit information
+export interface NovelAIUsage {
+  percent: number;
+  isNegative: boolean;
+  timeUntilNextPercent: number;
+}
+
 // Anlas balance information
 export interface AnlasBalance {
   fixedAnlas: number;
   purchasedAnlas: number;
   totalAnlas: number;
+  usage?: NovelAIUsage | null; // V5 利用上限（レスポンスに無ければ null）
 }
 
 // Surroundings image SSE event data

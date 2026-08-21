@@ -42,6 +42,19 @@ class User(Base):
     novelai_text_model: Mapped[str] = mapped_column(
         String, default="glm-4-6", nullable=False, server_default="glm-4-6"
     )
+    # NovelAI 画像生成モデル（NSFW ON 時 / OFF 時）
+    novelai_image_model: Mapped[str] = mapped_column(
+        String,
+        default="nai-diffusion-4-5-full",
+        nullable=False,
+        server_default="nai-diffusion-4-5-full",
+    )
+    novelai_curated_image_model: Mapped[str] = mapped_column(
+        String,
+        default="nai-diffusion-4-5-curated",
+        nullable=False,
+        server_default="nai-diffusion-4-5-curated",
+    )
     tts_enabled: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     tts_use_gpu: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     tts_engine_dir: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

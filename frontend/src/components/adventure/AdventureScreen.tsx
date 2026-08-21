@@ -343,7 +343,7 @@ function AdventureHub() {
   const [partnerSpeechStyle, setPartnerSpeechStyle] = useState("");
   const [runFilter, setRunFilter] = useState<RunFilter>("all");
   const [creating, setCreating] = useState(false);
-  const { state: settingsState } = useSettings();
+  const { state: settingsState, isNovelaiV5Active } = useSettings();
   // 精密参照は既定OFF。ユーザーが明示的にONした場合のみAnlas追加消費
   const [usePreciseReference, setUsePreciseReference] = useState(false);
   const [startAnlasConfirmOpen, setStartAnlasConfirmOpen] = useState(false);
@@ -595,7 +595,8 @@ function AdventureHub() {
         player_speech_custom: speechCustom.trim(),
         romance_partner_speech_style:
           effectivePreset === "romance" ? partnerSpeechStyle.trim() : "",
-        use_precise_reference: usePreciseReference,
+        // V5系モデルは精密参照非対応のため実効値をOFFにする
+        use_precise_reference: usePreciseReference && !isNovelaiV5Active,
         enable_composite_scene: enableCompositeScene,
         respect_clothing_layers: settingsState.respectClothingLayers,
         romance_player_character_id:
@@ -632,6 +633,7 @@ function AdventureHub() {
     if (
       settingsState.imageProvider === "novelai" &&
       usePreciseReference &&
+      !isNovelaiV5Active &&
       sessionStorage.getItem(ANLAS_WARN_SUPPRESSED_KEY) !== "true"
     ) {
       setStartAnlasConfirmOpen(true);
@@ -1083,20 +1085,24 @@ function AdventureHub() {
               <label className="adventure-precise-toggle">
                 <span className="adventure-precise-toggle__info">
                   <strong>{t("adventure.preciseReference")}</strong>
-                  {/* NovelAI以外では効果もAnlas消費もない旨を明示する */}
+                  {/* NovelAI以外では効果もAnlas消費もない旨、V5では非対応の旨を明示する */}
                   <small>
                     {t(
-                      settingsState.imageProvider === "novelai"
-                        ? "adventure.preciseReferenceHint"
-                        : "adventure.preciseReferenceOtherProviderHint",
+                      isNovelaiV5Active
+                        ? "adventure.preciseReferenceV5Hint"
+                        : settingsState.imageProvider === "novelai"
+                          ? "adventure.preciseReferenceHint"
+                          : "adventure.preciseReferenceOtherProviderHint",
                     )}
                   </small>
                 </span>
                 <input
                   type="checkbox"
                   className="adventure-precise-toggle__input"
-                  checked={usePreciseReference}
-                  disabled={setupGenerating || loading || creating}
+                  checked={usePreciseReference && !isNovelaiV5Active}
+                  disabled={
+                    setupGenerating || loading || creating || isNovelaiV5Active
+                  }
                   onChange={(event) =>
                     setUsePreciseReference(event.target.checked)
                   }
@@ -1575,6 +1581,9 @@ function AdventurePlay({ runId }: { runId: string }) {
     pendingAnlasTurn,
     confirmPendingAnlasTurn,
     cancelPendingAnlasTurn,
+    pendingUsageWarnTurn,
+    confirmPendingUsageWarnTurn,
+    cancelPendingUsageWarnTurn,
     regenerateImage,
     regenerateChoices,
     updateSettings,
@@ -1582,7 +1591,11 @@ function AdventurePlay({ runId }: { runId: string }) {
     startEpilogue,
     clearError,
   } = useAdventure();
-  const { state: settingsState } = useSettings();
+  const {
+    state: settingsState,
+    setAnlasBalance: setGlobalAnlasBalance,
+    isNovelaiV5Active,
+  } = useSettings();
   const respectClothingLayers = settingsState.respectClothingLayers;
   const [input, setInput] = useState("");
   const transcriptEndRef = useRef<HTMLDivElement>(null);
@@ -1637,6 +1650,16 @@ function AdventurePlay({ runId }: { runId: string }) {
     cancelPendingAnlasTurn();
   }, [pendingAnlasTurn, cancelPendingAnlasTurn]);
 
+  const handleUsageWarnCancel = useCallback(() => {
+    if (
+      pendingUsageWarnTurn?.inputKind === "free_text" ||
+      pendingUsageWarnTurn?.inputKind === "reality_alter"
+    ) {
+      setInput(pendingUsageWarnTurn.input);
+    }
+    cancelPendingUsageWarnTurn();
+  }, [pendingUsageWarnTurn, cancelPendingUsageWarnTurn]);
+
   useEffect(() => {
     void loadRun(runId).catch(() => navigate("/adventure"));
   }, [loadRun, navigate, runId]);
@@ -1675,8 +1698,16 @@ function AdventurePlay({ runId }: { runId: string }) {
   // streamingがfalseへ戻るたび（＝各ストリーム完了後）に再取得する。
   // Anlasを消費するのはNovelAIプロバイダーのときだけ
   const usePreciseReference = activeRun?.use_precise_reference ?? false;
+  // V5実効時は毎生成で利用上限が減るため、精密参照OFFでも残高/上限を追跡する
   const anlasApplies =
-    usePreciseReference && settingsState.imageProvider === "novelai";
+    (usePreciseReference || isNovelaiV5Active) &&
+    settingsState.imageProvider === "novelai";
+  // HUD の V5 利用上限表示（実効モデルが V5 のときのみ）
+  const hudUsage = isNovelaiV5Active ? (anlasBalance?.usage ?? null) : null;
+  const hudUsageExhausted =
+    hudUsage != null && (hudUsage.percent <= 0 || hudUsage.isNegative);
+  const hudUsagePercent =
+    hudUsage != null ? Math.max(0, Math.min(100, hudUsage.percent)) : 0;
   useEffect(() => {
     if (!anlasApplies) {
       setAnlasBalance(null);
@@ -1685,12 +1716,16 @@ function AdventurePlay({ runId }: { runId: string }) {
     if (streaming) return;
     let cancelled = false;
     void fetchAnlasBalance().then((balance) => {
-      if (!cancelled) setAnlasBalance(balance);
+      if (!cancelled) {
+        setAnlasBalance(balance);
+        // 使い切り警告(AdventureContext)が参照するグローバル状態にも反映する
+        if (balance) setGlobalAnlasBalance(balance);
+      }
     });
     return () => {
       cancelled = true;
     };
-  }, [anlasApplies, streaming]);
+  }, [anlasApplies, streaming, setGlobalAnlasBalance]);
 
   useEffect(() => {
     if (!logOpen) return;
@@ -2436,11 +2471,50 @@ function AdventurePlay({ runId }: { runId: string }) {
                   />
                 </>
               )}
-              {activeRun.use_precise_reference &&
+              {/* V5 利用上限。通常ゲームHUDと同じく Anlas の左隣に置く */}
+              {hudUsage &&
+                (sim ? (
+                  <HudTile
+                    className={`adventure-hud__usage-tile${
+                      hudUsageExhausted ? " is-warning" : ""
+                    }`}
+                    title={t("gameplay.novelaiUsageTooltip", {
+                      percent: hudUsage.percent,
+                    })}
+                    label={t("gameplay.novelaiUsageLabel")}
+                    value={
+                      hudUsageExhausted
+                        ? t("gameplay.novelaiUsageExhausted")
+                        : `${hudUsage.percent}%`
+                    }
+                    gaugeRatio={hudUsagePercent}
+                    badge={null}
+                  />
+                ) : (
+                  <div
+                    className={`adventure-hud__usage${
+                      hudUsageExhausted ? " is-warning" : ""
+                    }`}
+                    title={t("gameplay.novelaiUsageTooltip", {
+                      percent: hudUsage.percent,
+                    })}
+                  >
+                    <span>{t("gameplay.novelaiUsageLabel")}</span>
+                    <strong>
+                      {hudUsageExhausted
+                        ? t("gameplay.novelaiUsageExhausted")
+                        : `${hudUsage.percent}%`}
+                    </strong>
+                    <span className="adventure-hud__gauge" aria-hidden>
+                      <i style={{ width: `${hudUsagePercent}%` }} />
+                    </span>
+                  </div>
+                ))}
+              {(activeRun.use_precise_reference || isNovelaiV5Active) &&
                 anlasBalance &&
                 (sim ? (
                   // romance では他のメトリクスと同じ共通タイルで並べる。
-                  // このタイルは精密参照が ON のときだけ出るので、バッジで理由を示す
+                  // 精密参照ON時 / V5実効時だけ出るので、バッジで理由を示す
                   <HudTile
                     className="adventure-hud__anlas-tile"
                     title={t("adventure.anlasDetail", {
@@ -2450,7 +2524,11 @@ function AdventurePlay({ runId }: { runId: string }) {
                     label="Anlas"
                     value={anlasBalance.totalAnlas.toLocaleString()}
                     gaugeRatio={null}
-                    badge={t("adventure.anlasBadge")}
+                    badge={
+                      isNovelaiV5Active
+                        ? t("adventure.anlasBadgeV5")
+                        : t("adventure.anlasBadge")
+                    }
                   />
                 ) : (
                   <div
@@ -2954,20 +3032,26 @@ function AdventurePlay({ runId }: { runId: string }) {
                   <label className="adventure-precise-toggle">
                     <span className="adventure-precise-toggle__info">
                       <strong>{t("adventure.preciseReference")}</strong>
-                      {/* NovelAI以外では効果もAnlas消費もない旨を明示する */}
+                      {/* NovelAI以外では効果もAnlas消費もない旨、V5では非対応の旨を明示する */}
                       <small>
                         {t(
-                          settingsState.imageProvider === "novelai"
-                            ? "adventure.preciseReferencePlayHint"
-                            : "adventure.preciseReferenceOtherProviderHint",
+                          isNovelaiV5Active
+                            ? "adventure.preciseReferenceV5Hint"
+                            : settingsState.imageProvider === "novelai"
+                              ? "adventure.preciseReferencePlayHint"
+                              : "adventure.preciseReferenceOtherProviderHint",
                         )}
                       </small>
                     </span>
                     <input
                       type="checkbox"
                       className="adventure-precise-toggle__input"
-                      checked={activeRun.use_precise_reference}
-                      disabled={streaming || settingsSaving}
+                      checked={
+                        activeRun.use_precise_reference && !isNovelaiV5Active
+                      }
+                      disabled={
+                        streaming || settingsSaving || isNovelaiV5Active
+                      }
                       onChange={(event) => {
                         const next = event.target.checked;
                         setSettingsSaving(true);
@@ -3828,6 +3912,14 @@ function AdventurePlay({ runId }: { runId: string }) {
         })}
         onConfirm={confirmPendingAnlasTurn}
         onCancel={handleAnlasCancel}
+      />
+
+      {/* V5 利用上限使い切り警告ダイアログ */}
+      <AdventureAnlasConfirmDialog
+        open={pendingUsageWarnTurn !== null}
+        body={t("adventure.v5UsageExhaustedBody")}
+        onConfirm={confirmPendingUsageWarnTurn}
+        onCancel={handleUsageWarnCancel}
       />
     </MainLayout>
   );

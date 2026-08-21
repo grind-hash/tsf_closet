@@ -3775,6 +3775,10 @@ async def test_generate_background_image_persists_path_once(
         generate_scenery,
     )
     monkeypatch.setattr(
+        "gateway.services.adventure_service.session_store.get_user_settings",
+        AsyncMock(return_value={}),
+    )
+    monkeypatch.setattr(
         "gateway.services.adventure_service.async_session_factory", FakeDatabase
     )
 

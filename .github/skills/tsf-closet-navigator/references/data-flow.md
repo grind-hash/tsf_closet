@@ -34,13 +34,13 @@ useSSE → useGameSSE
 
 ## 指示タイプ別の境界
 
-| 指示タイプ | 主な副作用 |
-| --- | --- |
-| `dress_up` | 画像、心境、stats、履歴、タグ、実績、人物外見 |
-| `reality_alter` | 画像、心境、stats、履歴、属性、実績、人物外見 |
-| `action` | 画像、心境、stats、履歴。設定時は情景画像も生成 |
-| `conversation` | 会話を保存し、画像生成を行わない |
-| `image_only` | 画像と画像履歴だけを保存。心境、stats、実績、人物状態を更新しない |
+| 指示タイプ      | 主な副作用                                                        |
+| --------------- | ----------------------------------------------------------------- |
+| `dress_up`      | 画像、心境、stats、履歴、タグ、実績、人物外見                     |
+| `reality_alter` | 画像、心境、stats、履歴、属性、実績、人物外見                     |
+| `action`        | 画像、心境、stats、履歴。設定時は情景画像も生成                   |
+| `conversation`  | 会話を保存し、画像生成を行わない                                  |
+| `image_only`    | 画像と画像履歴だけを保存。心境、stats、実績、人物状態を更新しない |
 
 `image_only` は失敗時にHistoryを残さない。保存する場合は指示、画像、空の心境、seed、画像状態記述を保持する。
 
@@ -59,19 +59,23 @@ original_instruction
 
 ## 通常ゲームSSE
 
-| イベント | 主な受信処理 |
-| --- | --- |
-| `text` | 心境/応答チャンクをChat/Gameへ追加 |
-| `image` | 画像とhistory_idを確定し、セッションを同期 |
-| `surroundings_image` | `GameContext.lastSurroundingsImage` を更新 |
-| `stats` | bloom/shame/adaptationを更新 |
-| `critical` | 臨界点表示/テキストを追加 |
-| `ending` | EndingModal用状態を更新 |
-| `achievement` | 実績通知 |
-| `reality_attribute_added` | 属性を追加 |
-| `cost`、`anlas` | コスト/残高をSettingsへ反映 |
-| `complete` | 履歴ID・変身回数を確定。プレイメモ更新失敗も通知 |
-| `error` | ストリーム停止とエラー表示 |
+| イベント                  | 主な受信処理                                                                                                                       |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `text`                    | 心境/応答チャンクをChat/Gameへ追加                                                                                                 |
+| `image`                   | 画像とhistory_idを確定し、セッションを同期                                                                                         |
+| `surroundings_image`      | `GameContext.lastSurroundingsImage` を更新                                                                                         |
+| `stats`                   | bloom/shame/adaptationを更新                                                                                                       |
+| `critical`                | 臨界点表示/テキストを追加                                                                                                          |
+| `ending`                  | EndingModal用状態を更新                                                                                                            |
+| `achievement`             | 実績通知                                                                                                                           |
+| `reality_attribute_added` | 属性を追加                                                                                                                         |
+| `cost`、`anlas`           | コスト/残高をSettingsへ反映。`anlas` にはV5利用上限 `usage` も同梱（`anlas_service` が `/user/subscription` から残高と併せて取得） |
+| `complete`                | 履歴ID・変身回数を確定。プレイメモ更新失敗も通知                                                                                   |
+| `error`                   | ストリーム停止とエラー表示                                                                                                         |
+
+## NovelAI 画像モデル選択（V4.5/V5）
+
+ユーザー設定 `novelai_image_model`（NSFW用）/ `novelai_curated_image_model`（非NSFW用）を、呼び出し側（game_service / adventure_service）が `consts/novelai_models.py` の `resolve_user_image_model(user_settings, nsfw_mode)` で解決し、`novelai_model_override` として `image_service` に配管する。インペイントモデル・SDK Literal 用ベースモデル・V5 判定は同 consts が唯一の情報源（V5 Curated のインペイントは NovelAI 本家に合わせ `nai-diffusion-4-5-curated-inpainting`）。SDK の `GenerateImageParams.model` は v4.5 までの Literal のため、V5 名は送信直前の `req.model` 上書きで差し替える。V5 では精密参照（character reference）が使えず、FE（`isNovelaiV5Active` で UI 無効化・不送信）と BE（各構築箇所＋クライアント内の防御的破棄）の両方で落とす。Adventure の立ち絵は V4.5=白背景生成＋FE透過処理、V5=プロンプト `transparent background` でネイティブ透過（`imageAlpha.ts` は既に透過を持つ画像を素通しするため混在履歴も安全）。V5 利用上限（`usage.percent`）は生成毎に減り、使い切り後の生成は Anlas を消費するため、両モード（GamePlayScreen / AdventureContext.submitTurn）で生成前に抑止チェック付き確認ダイアログを挟む（sessionStorage `v5_usage_warn_suppressed`）。上限バーは通常ゲーム HUD（Anlas 左隣）・設定パネル・設定画面に加え、Adventure のプレイ HUD にも置く（romance は `HudTile` の `gaugeRatio`、非 romance は `adventure-hud__usage`。Anlas 表示自体も V5 実効時は精密参照 OFF でも表示し、バッジを V5 に切り替える）。精密参照の Anlas 確認ダイアログを検証する E2E は、実 DB のモデル選択に結果が左右されないよう `/api/settings/user` の GET をモックして V4.5 に固定すること（`mockV45ImageModels`）。
 
 ## メッセージと履歴ID
 
@@ -185,13 +189,13 @@ GalleryScreen
 
 ## 主なDB書き込み
 
-| 操作 | モデル |
-| --- | --- |
+| 操作                      | モデル                                                                    |
+| ------------------------- | ------------------------------------------------------------------------- |
 | セッション開始/通常プレイ | `Session`、`SessionStats`、`History`、`Conversation`、`TransformationTag` |
-| プレイメモ | `Session.play_memory_*` |
-| 複数人物 | `SessionCharacter`、`CharacterPreset` |
-| Adventure | `AdventureRun`、`AdventureTurn` |
-| お気に入り | `FavoriteOutfit` |
-| 設定/長期メモリ | `User` |
-| 実績 | `UserAchievement`、`AchievementCount`、`AchievedEnding` |
-| 要約 | `PlaySummary` |
+| プレイメモ                | `Session.play_memory_*`                                                   |
+| 複数人物                  | `SessionCharacter`、`CharacterPreset`                                     |
+| Adventure                 | `AdventureRun`、`AdventureTurn`                                           |
+| お気に入り                | `FavoriteOutfit`                                                          |
+| 設定/長期メモリ           | `User`                                                                    |
+| 実績                      | `UserAchievement`、`AchievementCount`、`AchievedEnding`                   |
+| 要約                      | `PlaySummary`                                                             |

@@ -263,6 +263,26 @@ function runWorker(
   });
 }
 
+/**
+ * 画像が既に意味のある透過（アルファ）を持つかを判定する。
+ * V5モデルはtransparent background指示で透過PNGをネイティブ生成するため、
+ * その画像をworkerへ通すと透過が破壊される。既に透過を持つ画像は
+ * 背景除去をスキップして原本をそのまま使う（4.5/V5混在履歴も画像単位で判定できる）。
+ */
+export function hasMeaningfulAlpha(
+  data: Uint8ClampedArray,
+  sampleStep = 16,
+): boolean {
+  let transparentSamples = 0;
+  let totalSamples = 0;
+  for (let i = 3; i < data.length; i += 4 * sampleStep) {
+    totalSamples += 1;
+    if (data[i] < 250) transparentSamples += 1;
+  }
+  if (totalSamples === 0) return false;
+  return transparentSamples / totalSamples > 0.005;
+}
+
 async function process(
   src: string,
   options: Required<RemoveBackgroundOptions>,
@@ -278,6 +298,11 @@ async function process(
   if (!context) throw new Error("Canvas 2D context is unavailable");
   context.drawImage(image, 0, 0);
   const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+
+  // 既に透過を持つ画像（V5のネイティブ透過等）は原本をそのまま返す
+  if (hasMeaningfulAlpha(imageData.data)) {
+    return src;
+  }
 
   const processed = await runWorker(imageData, options);
   const output = context.createImageData(canvas.width, canvas.height);

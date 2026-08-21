@@ -1,0 +1,61 @@
+/* NovelAI V5 利用上限バー */
+.novelai-usage-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.novelai-usage-bar__label {
+  font-size: 0.75rem;
+  color: var(--text-muted, #888);
+  font-family: monospace;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.novelai-usage-bar__track {
+  position: relative;
+  display: inline-block;
+  width: 6rem;
+  height: 0.4rem;
+  border-radius: 999px;
+  background: var(--bg-secondary, #26263a);
+  border: 1px solid var(--border-color, #333);
+  overflow: hidden;
+  flex-shrink: 1;
+}
+
+.novelai-usage-bar__fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: #5ac8ef;
+  border-radius: 999px;
+  transition: width 0.3s ease;
+}
+
+.novelai-usage-bar__value {
+  font-size: 0.75rem;
+  color: #9be;
+  font-family: monospace;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* 使い切り警告状態 */
+.novelai-usage-bar--warning .novelai-usage-bar__fill {
+  background: #ef5a5a;
+}
+
+.novelai-usage-bar--warning .novelai-usage-bar__value {
+  color: #ef8a8a;
+}
+
+.novelai-usage-bar--warning .novelai-usage-bar__track {
+  border-color: rgba(239, 90, 90, 0.6);
+}
+
+/* コンパクト表示（HUD・設定パネル向け） */
+.novelai-usage-bar--compact .novelai-usage-bar__track {
+  width: 4.5rem;
+}

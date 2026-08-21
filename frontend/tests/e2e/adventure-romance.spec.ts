@@ -123,6 +123,23 @@ async function mockNovelaiHealth(page: Page) {
   });
 }
 
+// 実DBのユーザー設定(V5選択中など)に依存しないよう、画像モデルをV4.5に固定する。
+// V5実効時は精密参照が無効になりAnlas確認ダイアログも出ないため、
+// 精密参照系のテストはこのモックを併用する
+async function mockV45ImageModels(page: Page) {
+  await page.route("**/api/settings/user", async (route) => {
+    if (route.request().method() !== "GET") {
+      await route.continue();
+      return;
+    }
+    const response = await route.fetch();
+    const json = await response.json();
+    json.novelai_image_model = "nai-diffusion-4-5-full";
+    json.novelai_curated_image_model = "nai-diffusion-4-5-curated";
+    await route.fulfill({ response, json });
+  });
+}
+
 interface RomanceMockState {
   streamBodies: Record<string, unknown>[];
   createBodies: Record<string, unknown>[];
@@ -701,6 +718,7 @@ test("precise reference shows an Anlas confirmation before submitting a turn", a
 }) => {
   await enableAdventure(page);
   await mockNovelaiHealth(page);
+  await mockV45ImageModels(page);
   const state = await mockRomanceApis(
     page,
     romanceRunPayload(0, { use_precise_reference: true }),
@@ -742,6 +760,7 @@ test("precise reference shows an Anlas confirmation before starting a run", asyn
 }) => {
   await enableAdventure(page);
   await mockNovelaiHealth(page);
+  await mockV45ImageModels(page);
   const state = await mockRomanceApis(page);
   await page.goto("/adventure");
 

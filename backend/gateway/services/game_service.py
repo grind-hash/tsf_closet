@@ -85,6 +85,7 @@ from .gender_congruence import (
 )
 from .anlas_service import get_anlas_balance
 from ..consts.language import normalize_language
+from ..consts.novelai_models import is_v5_image_model, resolve_user_image_model
 from ..databases.base import async_session_factory
 from .character_service import (
     apply_character_prompt_tags,
@@ -516,6 +517,8 @@ class GameService:
         # ユーザー設定からNovelAIテキストモデルを取得
         user_settings = await session_store.get_user_settings(session.session_id)
         effective_novelai_text_model = user_settings.get("novelai_text_model")
+        # 画像モデルはこの経路のnsfw既定（False相当）に合わせcurated側を解決する
+        effective_novelai_image_model = resolve_user_image_model(user_settings, False)
 
         before_image = session.current_image
         pronoun = session.character.pronoun if session.character else "僕"
@@ -548,7 +551,11 @@ class GameService:
         inferred_after_desc = f"{request.instruction}に変身した姿"
 
         image_task = asyncio.create_task(
-            self._generate_image(before_image, image_edit_prompt)
+            self._generate_image(
+                before_image,
+                image_edit_prompt,
+                novelai_image_model_override=effective_novelai_image_model,
+            )
         )
         feeling_task = asyncio.create_task(
             self._generate_feeling(
@@ -667,6 +674,15 @@ class GameService:
                     "fixed_anlas": balance.fixed_anlas,
                     "purchased_anlas": balance.purchased_anlas,
                     "total_anlas": balance.total_anlas,
+                    "usage": {
+                        "percent": balance.usage.percent,
+                        "is_negative": balance.usage.is_negative,
+                        "time_until_next_percent": (
+                            balance.usage.time_until_next_percent
+                        ),
+                    }
+                    if balance.usage
+                    else None,
                 },
             )
         except Exception as e:
@@ -747,6 +763,7 @@ class GameService:
         character_references: list[dict] | None = None,
         seed: int | None = None,
         characters: list[dict] | None = None,
+        novelai_image_model_override: str | None = None,
     ) -> tuple[bytes, float | None, int | None]:
         """画像を生成 (ImageGenerationService経由)
 
@@ -792,6 +809,7 @@ class GameService:
                 character_references=character_references,
                 seed=seed,
                 characters=image_characters,
+                novelai_model_override=novelai_image_model_override,
             )
             if not result.images:
                 raise GameServiceError("画像が生成されませんでした")
@@ -812,6 +830,7 @@ class GameService:
         is_reality_change: bool = False,
         reality_alter_descriptions: list[str] | None = None,
         novelai_model_override: str | None = None,
+        novelai_image_model_override: str | None = None,
     ) -> tuple[bytes | None, float | None, int | None]:
         """Generate surroundings image (NovelAI txt2img, US2)
 
@@ -823,6 +842,8 @@ class GameService:
             include_people: Include reactive bystanders in the image
             is_reality_change: Reality-change mode (bystanders are indifferent)
             reality_alter_descriptions: Active reality alteration texts
+            novelai_model_override: NovelAI テキストモデルのオーバーライド
+            novelai_image_model_override: NovelAI 画像モデルのオーバーライド
 
         Returns:
             (image bytes, API cost USD, seed) or (None, None, None) on failure
@@ -871,6 +892,7 @@ class GameService:
                 size=scenery_size,
                 nsfw_mode=nsfw_mode,
                 include_people=include_people,
+                novelai_model_override=novelai_image_model_override,
             )
 
             if not result.images:
@@ -1615,6 +1637,21 @@ class GameService:
             effective_novelai_text_model: str | None = user_settings.get(
                 "novelai_text_model"
             )
+
+            # NovelAI 画像モデル（ユーザー設定 + nsfw_mode から解決）
+            effective_novelai_image_model = resolve_user_image_model(
+                user_settings, effective_nsfw_mode
+            )
+            # V5系モデルは精密参照（character reference）非対応のため送らない
+            if character_references and is_v5_image_model(
+                effective_novelai_image_model
+            ):
+                logger.info(
+                    "Dropping %d character references (V5 model %s does not support them)",
+                    len(character_references),
+                    effective_novelai_image_model,
+                )
+                character_references = None
             self_profile: dict | None = None
             if session.self_mode:
                 self_profile = await session_store.get_self_profile()
@@ -1800,6 +1837,7 @@ class GameService:
                     character_references=character_references,
                     seed=seed,
                     characters=image_api_characters,
+                    novelai_image_model_override=effective_novelai_image_model,
                 )
 
                 history = await session_store.add_history(
@@ -2273,6 +2311,7 @@ class GameService:
                             character_references=character_references,
                             seed=seed,
                             characters=action_image_api_characters,
+                            novelai_image_model_override=effective_novelai_image_model,
                         )
                         logger.info(
                             "Action image generated: %d bytes, cost=%s, seed=%s",
@@ -2432,6 +2471,7 @@ class GameService:
                         if has_reality_attrs
                         else None,
                         novelai_model_override=effective_novelai_text_model,
+                        novelai_image_model_override=effective_novelai_image_model,
                     )
 
                     if surroundings_data is not None:
@@ -2970,6 +3010,7 @@ class GameService:
                         character_references=character_references,
                         seed=seed,
                         characters=dress_image_characters,
+                        novelai_image_model_override=effective_novelai_image_model,
                     )
                     logger.info(
                         "Image generated: %d bytes, cost: %s",
@@ -3603,8 +3644,14 @@ class GameService:
             yield StreamEvent(type="status", data={"message": "画質改善中..."})
 
             # 7. 新しい画像を生成
+            # 画像モデルはユーザー設定から解決（この経路のnsfwは従来どおりFalse固定）
+            user_settings = await session_store.get_user_settings()
             new_image, image_cost, improve_seed = await self._generate_image(
-                initial_image_bytes, improve_instruction
+                initial_image_bytes,
+                improve_instruction,
+                novelai_image_model_override=resolve_user_image_model(
+                    user_settings, False
+                ),
             )
             logger.info(f"Quality improvement done: {len(new_image)} bytes")
 
@@ -3740,11 +3787,15 @@ class GameService:
                 "High quality, detailed anime illustration."
             )
 
+        user_settings = await session_store.get_user_settings()
         new_image, image_cost, _seed = await self._generate_image(
             reference_image_bytes,
             instruction,
             nsfw_mode=effective_nsfw_mode,
             negative_prompt=STANDING_PORTRAIT_NEGATIVE_PROMPT,
+            novelai_image_model_override=resolve_user_image_model(
+                user_settings, effective_nsfw_mode
+            ),
         )
 
         total_cost = sum(c for c in [image_cost, describe_cost] if c is not None)

@@ -12,10 +12,16 @@ import {
   useReducer,
   useRef,
 } from "react";
+import { fetchAnlasBalance } from "../apis/anlas";
 import { getMemoryText as fetchMemoryTextApi } from "../apis/memory";
 import type { SelfProfile } from "../apis/settings";
 import { getSelfProfile as fetchSelfProfileApi } from "../apis/settings";
 import { DEFAULT_LANGUAGE, type UiLanguage } from "../constants/language";
+import {
+  DEFAULT_NSFW_IMAGE_MODEL,
+  DEFAULT_SFW_IMAGE_MODEL,
+  isV5ImageModel,
+} from "../constants/novelaiImageModels";
 import i18n from "../i18n";
 import type {
   AnlasBalance,
@@ -146,6 +152,9 @@ interface SettingsState {
   novelaiTextModel: string;
   // NovelAI subscription tier (null = unknown)
   novelaiTier: number | null;
+  // NovelAI image model selections (backend-persisted)
+  novelaiImageModel: string; // NSFW ON 時に使用
+  novelaiCuratedImageModel: string; // NSFW OFF 時に使用
 
   // Text-to-Speech (AivisSpeech)
   ttsEnabled: boolean;
@@ -221,6 +230,8 @@ type SettingsAction =
   | { type: "SET_MULTI_CHARACTER_PANEL_ENABLED"; payload: boolean }
   | { type: "SET_NOVELAI_TEXT_MODEL"; payload: string }
   | { type: "SET_NOVELAI_TIER"; payload: number | null }
+  | { type: "SET_NOVELAI_IMAGE_MODEL"; payload: string }
+  | { type: "SET_NOVELAI_CURATED_IMAGE_MODEL"; payload: string }
   | { type: "SET_TTS_ENABLED"; payload: boolean }
   | { type: "SET_TTS_USE_GPU"; payload: boolean }
   | { type: "SET_TTS_ENGINE_DIR"; payload: string }
@@ -277,6 +288,8 @@ const defaultState: SettingsState = {
   multiCharacterPanelEnabled: true,
   novelaiTextModel: "glm-4-6",
   novelaiTier: null,
+  novelaiImageModel: DEFAULT_NSFW_IMAGE_MODEL,
+  novelaiCuratedImageModel: DEFAULT_SFW_IMAGE_MODEL,
   ttsEnabled: false,
   ttsUseGpu: false,
   ttsEngineDir: "contrib/AivisSpeech",
@@ -430,6 +443,10 @@ function settingsReducer(
       return { ...state, novelaiTextModel: action.payload };
     case "SET_NOVELAI_TIER":
       return { ...state, novelaiTier: action.payload };
+    case "SET_NOVELAI_IMAGE_MODEL":
+      return { ...state, novelaiImageModel: action.payload };
+    case "SET_NOVELAI_CURATED_IMAGE_MODEL":
+      return { ...state, novelaiCuratedImageModel: action.payload };
     case "SET_TTS_ENABLED":
       return { ...state, ttsEnabled: action.payload };
     case "SET_TTS_USE_GPU":
@@ -524,6 +541,12 @@ interface SettingsContextType {
   setMultiCharacterPanelEnabled: (enabled: boolean) => void;
   setNovelaiTextModel: (model: string) => void;
   setNovelaiTier: (tier: number | null) => void;
+  setNovelaiImageModel: (model: string) => void;
+  setNovelaiCuratedImageModel: (model: string) => void;
+  /** 現在のNSFW設定で実際に使われるNovelAI画像モデル */
+  effectiveNovelaiImageModel: string;
+  /** NovelAIプロバイダーかつ実効モデルがV5系のとき true */
+  isNovelaiV5Active: boolean;
   setTtsEnabled: (enabled: boolean) => void;
   setTtsUseGpu: (enabled: boolean) => void;
   setTtsEngineDir: (engineDir: string) => void;
@@ -559,7 +582,13 @@ function loadInitialState(initial: SettingsState): SettingsState {
       // imageProviderはバックエンドから取得するため除外
       const { imageProvider: _ignored, ...rest } = parsed;
       // novelaiTextModelとnovelaiTierはバックエンド/API経由のため除外
-      const { novelaiTextModel: _nai, novelaiTier: _tier, ...filtered } = rest;
+      const {
+        novelaiTextModel: _nai,
+        novelaiTier: _tier,
+        novelaiImageModel: _naiImg,
+        novelaiCuratedImageModel: _naiCuratedImg,
+        ...filtered
+      } = rest;
       return {
         ...initial,
         ...filtered,
@@ -638,6 +667,23 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     }
   }, [state.imageProvider, state.anlasBalance]);
 
+  // NovelAI利用時はAnlas残高/利用上限を初期取得する
+  // （設定画面・設定パネル・HUDの利用上限バー表示に共通で使う）
+  useEffect(() => {
+    if (state.imageProvider !== "novelai" || state.anlasBalance !== null) {
+      return;
+    }
+    let cancelled = false;
+    fetchAnlasBalance().then((balance) => {
+      if (!cancelled && balance) {
+        dispatch({ type: "SET_ANLAS_BALANCE", payload: balance });
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [state.imageProvider, state.anlasBalance]);
+
   // 初回ロード時にバックエンドからユーザー設定を取得
   useEffect(() => {
     const fetchUserSettings = async () => {
@@ -656,6 +702,10 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
                 data.gender_congruence_llm_enabled ?? false,
               language: data.language ?? DEFAULT_LANGUAGE,
               novelaiTextModel: data.novelai_text_model ?? "glm-4-6",
+              novelaiImageModel:
+                data.novelai_image_model ?? DEFAULT_NSFW_IMAGE_MODEL,
+              novelaiCuratedImageModel:
+                data.novelai_curated_image_model ?? DEFAULT_SFW_IMAGE_MODEL,
               ttsEnabled: data.tts_enabled ?? false,
               ttsUseGpu: data.tts_use_gpu ?? false,
               ttsEngineDir: data.tts_engine_dir ?? "contrib/AivisSpeech",
@@ -737,6 +787,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         anlasBalance: _ignored5,
         novelaiTextModel: _ignored6,
         novelaiTier: _ignored7,
+        novelaiImageModel: _ignored9,
+        novelaiCuratedImageModel: _ignored10,
         memoryText: _ignored8,
         ...rest
       } = state;
@@ -1087,6 +1139,35 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "SET_NOVELAI_TIER", payload: tier });
   }, []);
 
+  const setNovelaiImageModel = useCallback(async (model: string) => {
+    dispatch({ type: "SET_NOVELAI_IMAGE_MODEL", payload: model });
+    try {
+      await fetch("/api/settings/user", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ novelai_image_model: model }),
+      });
+    } catch (error) {
+      console.error("Failed to save novelai_image_model to backend:", error);
+    }
+  }, []);
+
+  const setNovelaiCuratedImageModel = useCallback(async (model: string) => {
+    dispatch({ type: "SET_NOVELAI_CURATED_IMAGE_MODEL", payload: model });
+    try {
+      await fetch("/api/settings/user", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ novelai_curated_image_model: model }),
+      });
+    } catch (error) {
+      console.error(
+        "Failed to save novelai_curated_image_model to backend:",
+        error,
+      );
+    }
+  }, []);
+
   const setTtsEnabled = useCallback(async (enabled: boolean) => {
     dispatch({ type: "SET_TTS_ENABLED", payload: enabled });
     try {
@@ -1215,6 +1296,14 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  // 現在のNSFW設定で実際に使われるNovelAI画像モデルとV5判定
+  const effectiveNovelaiImageModel = state.nsfwMode
+    ? state.novelaiImageModel
+    : state.novelaiCuratedImageModel;
+  const isNovelaiV5Active =
+    state.imageProvider === "novelai" &&
+    isV5ImageModel(effectiveNovelaiImageModel);
+
   const value: SettingsContextType = {
     state,
     setDifficulty,
@@ -1267,6 +1356,10 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setMultiCharacterPanelEnabled,
     setNovelaiTextModel,
     setNovelaiTier,
+    setNovelaiImageModel,
+    setNovelaiCuratedImageModel,
+    effectiveNovelaiImageModel,
+    isNovelaiV5Active,
     setTtsEnabled,
     setTtsUseGpu,
     setTtsEngineDir,

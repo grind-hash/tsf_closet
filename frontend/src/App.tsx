@@ -84,6 +84,7 @@ function AppMain() {
     resetTotalCost,
     setAnlasBalance,
     setNovelaiTier,
+    isNovelaiV5Active,
   } = useSettings();
   const {
     state: gameState,
@@ -423,7 +424,9 @@ function AppMain() {
       }
 
       // Build character_references for NovelAI precise reference images
+      // (V5系モデルは精密参照非対応のため送らない)
       if (
+        !isNovelaiV5Active &&
         options?.characterReferences &&
         options.characterReferences.length > 0
       ) {
@@ -459,6 +462,7 @@ function AppMain() {
       settingsState.imageProvider,
       settingsState.playMemoryEnabled,
       settingsState.historyLookbackTargets,
+      isNovelaiV5Active,
     ],
   );
 
