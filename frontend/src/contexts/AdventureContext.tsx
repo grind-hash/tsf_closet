@@ -33,6 +33,11 @@ import {
   updateAdventureRealityRules,
   updateAdventureRunSettings,
 } from "../apis/adventure";
+import {
+  clearLastAdventureRunId,
+  readLastAdventureRunId,
+  saveLastAdventureRunId,
+} from "../utils/adventureLastRun";
 import { useSettings } from "./SettingsContext";
 
 export type AdventurePhase = "narrative" | "clue_check" | "image_generation";
@@ -89,6 +94,8 @@ interface AdventureContextValue {
   error: string | null;
   loadRuns: () => Promise<void>;
   loadTemplates: () => Promise<void>;
+  /** 直前に開いた/作成した run の ID（localStorage に永続化。削除・消失時は null） */
+  lastRunId: string | null;
   loadRun: (runId: string) => Promise<void>;
   generateSetup: (request: AdventureSetupRequest) => Promise<AdventureSetup>;
   createRun: (request: AdventureCreateRequest) => Promise<AdventureRun>;
@@ -160,6 +167,10 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
   const [streamingNarrative, setStreamingNarrative] = useState("");
   const [pendingUserInput, setPendingUserInput] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // 直前に開いた/作成した run。Hub の再開バナーと SideMenu の導線が参照する
+  const [lastRunId, setLastRunId] = useState<string | null>(() =>
+    readLastAdventureRunId(),
+  );
 
   const loadRuns = useCallback(async () => {
     setLoading(true);
@@ -187,7 +198,13 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
     setError(null);
     try {
       setActiveRun(await fetchAdventureRun(runId));
+      // 開いた run を「直前のシナリオ」として覚える
+      saveLastAdventureRunId(runId);
+      setLastRunId(runId);
     } catch (caught) {
+      // 削除済み等で開けない run を指し続けないよう、一致する保存 ID は消す
+      clearLastAdventureRunId(runId);
+      setLastRunId((current) => (current === runId ? null : current));
       setError(caught instanceof Error ? caught.message : String(caught));
       throw caught;
     } finally {
@@ -226,6 +243,8 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
         }
         setActiveRun(created);
         setRuns((current) => [created, ...current]);
+        saveLastAdventureRunId(created.id);
+        setLastRunId(created.id);
         return created;
       } catch (caught) {
         setError(caught instanceof Error ? caught.message : String(caught));
@@ -243,6 +262,8 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       await deleteAdventureRun(runId);
       setRuns((current) => current.filter((run) => run.id !== runId));
       setActiveRun((current) => (current?.id === runId ? null : current));
+      clearLastAdventureRunId(runId);
+      setLastRunId((current) => (current === runId ? null : current));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
       throw caught;
@@ -705,6 +726,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       runs,
       templates,
       activeRun,
+      lastRunId,
       loading,
       setupGenerating,
       streaming,
@@ -738,6 +760,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       runs,
       templates,
       activeRun,
+      lastRunId,
       loading,
       setupGenerating,
       streaming,

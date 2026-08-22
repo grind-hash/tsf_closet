@@ -35,7 +35,7 @@
 
 `App.tsx` は `/adventure` 配下だけを `AdventureProvider` で包む。
 
-`AdventureContext` は Run/Template、activeRun、セットアップ生成、ターン/画像ストリーム、フェーズ、逐次ナラティブ、エラーを管理する。通常ゲームの `GameContext` や `useGameSSE` に統合しない。
+`AdventureContext` は Run/Template、activeRun、セットアップ生成、ターン/画像ストリーム、フェーズ、逐次ナラティブ、エラーを管理する。 直前に開いた run ID は `lastRunId`（`utils/adventureLastRun.ts`、localStorage `adventure_last_run_id`）として公開し、Hub の再開バナーと SideMenu の「直前のシナリオへ」が参照する。通常ゲームの `GameContext` や `useGameSSE` に統合しない。
 
 ## 主な設定境界
 

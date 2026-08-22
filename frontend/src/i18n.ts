@@ -22,6 +22,7 @@ const resources = {
         settingsDesc: "アプリの設定",
         goActiveGame: "プレイ中のゲームに移動",
         backToActiveGame: "プレイ中のゲームに戻る",
+        goLastAdventure: "直前のシナリオへ",
       },
       layout: {
         openPanel: "パネルを開く",
@@ -36,6 +37,7 @@ const resources = {
           "挑戦する目的の種類を選び、内容を確認してから開始します",
         newRun: "新しいシナリオ",
         savedRuns: "保存されたシナリオ",
+        continueLast: "中断したシナリオを再開",
         sourceSession: "開始セッション",
         sourceState: "開始状態",
         currentState: "現在の状態",
@@ -186,6 +188,8 @@ const resources = {
           step3: "内容を確認・編集して開始",
         },
         detailsToggle: "舞台・ゴール・制約を直接入力する",
+        detailsDraftHint:
+          "入力済みの舞台・ゴール・制約は自動生成の土台として使われます。内容は保たれ、表現が整えられたり空欄が補われたりします",
         maxTurns: "ターン数",
         maxTurnsUnit: "手",
         maxTurnsHint:
@@ -1573,6 +1577,7 @@ const resources = {
         settingsDesc: "Application settings",
         goActiveGame: "Go to active game",
         backToActiveGame: "Back to active game",
+        goLastAdventure: "Go to last scenario",
       },
       layout: {
         openPanel: "Open panel",
@@ -1587,6 +1592,7 @@ const resources = {
           "Choose the type of objective, review the details, then start",
         newRun: "New Scenario",
         savedRuns: "Saved Scenarios",
+        continueLast: "Resume your last scenario",
         sourceSession: "Starting Session",
         sourceState: "Starting State",
         currentState: "Current State",
@@ -1734,6 +1740,8 @@ const resources = {
           step3: "Review, edit, and start",
         },
         detailsToggle: "Enter the setting, goal, and constraints manually",
+        detailsDraftHint:
+          "Filled-in setting, goal, and constraints are used as the basis for auto-generation. Their meaning is kept; wording may be polished and blanks filled in.",
         maxTurns: "Turns",
         maxTurnsUnit: "turns",
         maxTurnsHint:

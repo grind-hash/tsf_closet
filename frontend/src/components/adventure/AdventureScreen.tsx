@@ -8,6 +8,7 @@ import type {
   AdventureInputKind,
   AdventureNarrationVoice,
   AdventurePreset,
+  AdventureRun,
   AdventureSim,
   AdventureSpeechStyle,
   AdventureStatus,
@@ -273,6 +274,66 @@ function SourceSelectionSummary({
   );
 }
 
+// 制約テキストエリア(1行1件)を配列へ。生成リクエストと作成リクエストで共用する
+function splitConstraintLines(value: string): string[] {
+  return value
+    .split("\n")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+// 保存済みシナリオ一覧の1行。Hub 上部の「中断したシナリオを再開」バナーでも
+// 同じ体裁で使うため切り出す(バナーでは削除ボタンを出さない)
+function AdventureRunRow({
+  run,
+  onResume,
+  onDelete,
+}: {
+  run: AdventureRun;
+  onResume: () => void;
+  onDelete?: () => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <article className="adventure-run-item">
+      <img src={run.current_image_url} alt={run.title} />
+      <div>
+        <div className="adventure-run-item__title-row">
+          <strong>{run.title}</strong>
+          <span
+            className={`adventure-run-badge adventure-run-badge--${run.status}`}
+          >
+            {t(`adventure.status.${run.status}`)}
+          </span>
+        </div>
+        <p>{run.objective}</p>
+        <div className="adventure-run-progress">
+          <span className="adventure-run-progress__bar">
+            <span
+              style={{
+                width: `${Math.min(100, (run.turn_count / run.max_turns) * 100)}%`,
+              }}
+            />
+          </span>
+          <span className="adventure-run-progress__label">
+            {run.turn_count}/{run.max_turns}
+          </span>
+        </div>
+      </div>
+      <div className="adventure-run-item__actions">
+        <button type="button" onClick={onResume}>
+          {t("adventure.resume")}
+        </button>
+        {onDelete && (
+          <button type="button" className="is-danger" onClick={onDelete}>
+            {t("adventure.delete")}
+          </button>
+        )}
+      </div>
+    </article>
+  );
+}
+
 function AdventureHub() {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -290,6 +351,7 @@ function AdventureHub() {
     createRun,
     removeRun,
     clearError,
+    lastRunId,
   } = useAdventure();
   // 1ページ目のセッション一覧。既定選択と保存済みIDの解決に使う(一覧表示はモーダル側)
   const [sessions, setSessions] = useState<GallerySession[]>([]);
@@ -468,6 +530,13 @@ function AdventureHub() {
     drawPartnerEveryTurn,
   };
 
+  // 直前に開いた run を再取得済みの一覧から引く。削除済み・終了済みなら出さない
+  const lastRun = useMemo(() => {
+    if (!lastRunId) return null;
+    const found = runs.find((run) => run.id === lastRunId);
+    return found && canActOnRun(found) ? found : null;
+  }, [runs, lastRunId]);
+
   const sortedRuns = useMemo(
     () =>
       [...runs].sort((a, b) => {
@@ -540,12 +609,25 @@ function AdventureHub() {
   };
   const handleGenerateSetup = async () => {
     if (!sourceSessionId) return;
+    // 入力済みの舞台・ゴール・制約は下書きとして渡し、LLM に意味を保ったまま
+    // 仕上げ・補完させる。空の項目はキー自体を送らない(backend の上限4件に合わせる)
+    const draftSetting = scenarioSetting.trim();
+    const draftObjective = scenarioObjective.trim();
+    const draftConstraints = splitConstraintLines(scenarioConstraints).slice(
+      0,
+      4,
+    );
     try {
       const generated = await generateSetup({
         source_session_id: sourceSessionId,
         source_history_id: sourceHistoryId,
         preset,
         scenario_max_turns: effectiveScenarioTurns,
+        ...(draftSetting ? { scenario_setting: draftSetting } : {}),
+        ...(draftObjective ? { scenario_objective: draftObjective } : {}),
+        ...(draftConstraints.length > 0
+          ? { scenario_constraints: draftConstraints }
+          : {}),
       });
       setScenarioSetting(generated.setting);
       setScenarioObjective(generated.objective);
@@ -580,10 +662,7 @@ function AdventureHub() {
         scenario_objective: startMode === "generated" ? scenarioObjective : "",
         scenario_constraints:
           startMode === "generated"
-            ? scenarioConstraints
-                .split("\n")
-                .map((item) => item.trim())
-                .filter(Boolean)
+            ? splitConstraintLines(scenarioConstraints)
             : [],
         scenario_template_id: authoredTemplate?.id,
         replay_run_id: selectedReplayRun?.id,
@@ -661,6 +740,19 @@ function AdventureHub() {
             <h1>{t("adventure.title")}</h1>
           </div>
         </header>
+
+        {lastRun && (
+          <section
+            className="adventure-continue"
+            aria-label={t("adventure.continueLast")}
+          >
+            <h2>{t("adventure.continueLast")}</h2>
+            <AdventureRunRow
+              run={lastRun}
+              onResume={() => navigate(`/adventure/${lastRun.id}`)}
+            />
+          </section>
+        )}
 
         {error && (
           <button
@@ -879,6 +971,9 @@ function AdventureHub() {
                 onToggle={(event) => setDetailsOpen(event.currentTarget.open)}
               >
                 <summary>{t("adventure.detailsToggle")}</summary>
+                <small className="adventure-setup-turns__hint">
+                  {t("adventure.detailsDraftHint")}
+                </small>
                 <div className="adventure-setup-details">
                   <label>
                     <span>{t("adventure.setting")}</span>
@@ -1241,51 +1336,16 @@ function AdventureHub() {
           ) : (
             <div className="adventure-run-list">
               {filteredRuns.map((run) => (
-                <article key={run.id} className="adventure-run-item">
-                  <img src={run.current_image_url} alt={run.title} />
-                  <div>
-                    <div className="adventure-run-item__title-row">
-                      <strong>{run.title}</strong>
-                      <span
-                        className={`adventure-run-badge adventure-run-badge--${run.status}`}
-                      >
-                        {t(`adventure.status.${run.status}`)}
-                      </span>
-                    </div>
-                    <p>{run.objective}</p>
-                    <div className="adventure-run-progress">
-                      <span className="adventure-run-progress__bar">
-                        <span
-                          style={{
-                            width: `${Math.min(100, (run.turn_count / run.max_turns) * 100)}%`,
-                          }}
-                        />
-                      </span>
-                      <span className="adventure-run-progress__label">
-                        {run.turn_count}/{run.max_turns}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="adventure-run-item__actions">
-                    <button
-                      type="button"
-                      onClick={() => navigate(`/adventure/${run.id}`)}
-                    >
-                      {t("adventure.resume")}
-                    </button>
-                    <button
-                      type="button"
-                      className="is-danger"
-                      onClick={() => {
-                        if (window.confirm(t("adventure.deleteConfirm"))) {
-                          void removeRun(run.id);
-                        }
-                      }}
-                    >
-                      {t("adventure.delete")}
-                    </button>
-                  </div>
-                </article>
+                <AdventureRunRow
+                  key={run.id}
+                  run={run}
+                  onResume={() => navigate(`/adventure/${run.id}`)}
+                  onDelete={() => {
+                    if (window.confirm(t("adventure.deleteConfirm"))) {
+                      void removeRun(run.id);
+                    }
+                  }}
+                />
               ))}
             </div>
           )}

@@ -58,6 +58,27 @@
   font-size: 0.82rem;
 }
 
+/*
+ * 直前にプレイしたシナリオへの復帰バナー。ヘッダー直下に置き、保存済み一覧と
+ * 同じ行(.adventure-run-item)をアクセント枠で再利用する。スクロールせずに
+ * 「中断したシナリオを再開」できることが目的
+ */
+.adventure-continue {
+  padding: 18px 0;
+  border-bottom: 1px solid #30373d;
+}
+
+.adventure-continue h2 {
+  margin: 0 0 10px;
+  color: #efb85a;
+  font-size: 1rem;
+}
+
+.adventure-continue .adventure-run-item {
+  border-color: #b98a3a;
+  background: #1f2420;
+}
+
 .adventure-card label,
 .adventure-card fieldset {
   display: grid;

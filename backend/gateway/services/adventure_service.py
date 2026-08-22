@@ -12,7 +12,7 @@ import re
 import shutil
 import uuid
 from collections import defaultdict
-from collections.abc import AsyncGenerator, Iterable
+from collections.abc import AsyncGenerator, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -1356,6 +1356,40 @@ def _default_ending_title(preset: str, status: str) -> str | None:
     return titles.get(status)
 
 
+# ミッション案の自動生成でユーザーが入力済みの舞台・ゴール・制約を「著者の下書き」として
+# 扱わせる指示。意味・固有名詞・条件は保ち、文言の仕上げと空欄の補完だけを許す
+_SETUP_DRAFT_GUIDANCE = (
+    "\nuser_draft contains the author's own draft for some fields. Treat each "
+    "provided field as authoritative intent: keep its meaning and every named "
+    "place, person, item, and condition; you may polish wording and make it "
+    "consistent with the turn budget and source_snapshot, but do not replace it "
+    "with a different idea. Generate only the missing fields so they fit the draft."
+)
+# romance は「新しい名前を発明せよ」と指示しているため、下書きに名前があればそれを優先させる
+_SETUP_DRAFT_ROMANCE_GUIDANCE = (
+    " If user_draft already names the partner, use that name instead of inventing one."
+)
+
+
+def _build_setup_user_draft(
+    setting: str,
+    objective: str,
+    constraints: Sequence[str] | None,
+) -> dict[str, Any]:
+    """入力済み項目だけを集めた下書き。全て空なら空 dict を返す。"""
+    draft: dict[str, Any] = {}
+    if setting.strip():
+        draft["setting"] = setting.strip()
+    if objective.strip():
+        draft["objective"] = objective.strip()
+    cleaned_constraints = [
+        item.strip() for item in (constraints or []) if item and item.strip()
+    ]
+    if cleaned_constraints:
+        draft["constraints"] = cleaned_constraints
+    return draft
+
+
 def _romance_prompt_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
     """romance の攻略対象素材として LLM へ渡す snapshot。
 
@@ -2604,19 +2638,26 @@ scene_tags contains only environment, camera, composition, lighting, and the obs
         language: str,
         max_turns: int = ADVENTURE_TURNS_DEFAULT,
         preset: str = "",
+        draft: dict[str, Any] | None = None,
     ) -> str:
         response_language = "Japanese" if language == "ja" else "English"
         if preset == "romance":
             days = clamp_romance_max_turns(max_turns) // ROMANCE_SLOTS_PER_DAY
-            return f"""You design a concise setup for a {days}-day romance simulation in which the player aims to start dating one partner character.
+            prompt = f"""You design a concise setup for a {days}-day romance simulation in which the player aims to start dating one partner character.
 Return one JSON object only, in {response_language}, matching this schema:
 {{"setting":"...","objective":"...","constraints":["...","..."]}}
 The partner is the character shown in source_snapshot; keep their appearance and situation consistent with it. source_snapshot deliberately contains no name for the partner: invent a fitting new name from their appearance and situation, and use that name in the objective. Never name the partner after the player. The player is a separate person courting that partner; never treat the snapshot character as the player. The setting describes where the player and the partner cross paths in daily life. The objective must name the partner and state that the player starts dating them within {days} days. Constraints must create romantic complications such as schedules, shyness, or circumstances, without dictating the player's feelings, consent, memories, bodily sensations, or voluntary actions. Do not introduce another body transformation or assign physical traits that conflict with source_snapshot.appearance."""
+            if draft:
+                prompt += _SETUP_DRAFT_GUIDANCE + _SETUP_DRAFT_ROMANCE_GUIDANCE
+            return prompt
         turns = clamp_generated_max_turns(max_turns)
-        return f"""You design a concise setup for a {turns}-turn objective-based adventure game.
+        prompt = f"""You design a concise setup for a {turns}-turn objective-based adventure game.
 Return one JSON object only, in {response_language}, matching this schema:
 {{"setting":"...","objective":"...","constraints":["...","..."]}}
 The objective must name a concrete target and an observable end condition that can be judged as achieved or failed within {turns} turns. Scale the scope of the objective to that turn budget: a longer budget should leave room for searching for clues and scouting the surroundings, not add unrelated sub-goals. Do not use vague goals such as succeed, investigate the situation, or reach the objective. The setting, objective, and constraints must fit the selected mission preset and supplied character snapshot. Constraints must create actionable complications without dictating the player's feelings, consent, memories, bodily sensations, or voluntary actions. Do not introduce another body transformation or assign physical traits that conflict with source_snapshot.appearance. For a disguise mission, generate the transformed person's name and role while keeping the supplied appearance exactly; the player does not have that person's memories, relationships, habits, skills, credentials, passwords, or authentication information."""
+        if draft:
+            prompt += _SETUP_DRAFT_GUIDANCE
+        return prompt
 
     async def _generate_setup_output(
         self,
@@ -2626,8 +2667,9 @@ The objective must name a concrete target and an observable end condition that c
         text_model: str,
         max_turns: int = ADVENTURE_TURNS_DEFAULT,
         preset: str = "",
+        draft: dict[str, Any] | None = None,
     ) -> AdventureSetupOutput:
-        system_prompt = self._setup_system_prompt(language, max_turns, preset)
+        system_prompt = self._setup_system_prompt(language, max_turns, preset, draft)
         raw = await _generate_text(system_prompt, prompt, text_model=text_model)
         try:
             return AdventureSetupOutput.model_validate_json(_strip_json_fence(raw))
@@ -2661,6 +2703,9 @@ The objective must name a concrete target and an observable end condition that c
         source_history_id: str | None,
         preset: str,
         max_turns: int = ADVENTURE_TURNS_DEFAULT,
+        draft_setting: str = "",
+        draft_objective: str = "",
+        draft_constraints: Sequence[str] | None = None,
     ) -> dict[str, Any]:
         preset_config = PRESETS.get(preset)
         if preset_config is None:
@@ -2669,6 +2714,11 @@ The objective must name a concrete target and an observable end condition that c
             clamp_romance_max_turns(max_turns)
             if preset == "romance"
             else clamp_generated_max_turns(max_turns)
+        )
+        # ユーザーが入力済みの項目だけを下書きとして渡す。空なら従来どおり
+        # キー自体を出さず、LLM にも下書き指示を付けない
+        user_draft = _build_setup_user_draft(
+            draft_setting, draft_objective, draft_constraints
         )
 
         snapshot, _, appearance, _ = await self._build_snapshot(
@@ -2679,25 +2729,25 @@ The objective must name a concrete target and an observable end condition that c
         text_model = str(
             user_settings.get("novelai_text_model") or settings.novelai_text_model
         )
-        prompt = json.dumps(
-            {
-                "task": "Generate one mission setup for the selected preset.",
-                "preset": preset,
-                "max_turns": turn_budget,
-                "mission_definition": {
-                    "title": preset_config["title"],
-                    "default_objective": preset_config["objective"],
-                    "milestones": preset_config["milestones"],
-                    "guidance": preset_config["guidance"],
-                },
-                "source_snapshot": _romance_prompt_snapshot(snapshot)
-                if preset == "romance"
-                else snapshot,
-                "required_visual_appearance": appearance
-                or "Preserve the source image appearance",
+        prompt_payload: dict[str, Any] = {
+            "task": "Generate one mission setup for the selected preset.",
+            "preset": preset,
+            "max_turns": turn_budget,
+            "mission_definition": {
+                "title": preset_config["title"],
+                "default_objective": preset_config["objective"],
+                "milestones": preset_config["milestones"],
+                "guidance": preset_config["guidance"],
             },
-            ensure_ascii=False,
-        )
+            "source_snapshot": _romance_prompt_snapshot(snapshot)
+            if preset == "romance"
+            else snapshot,
+            "required_visual_appearance": appearance
+            or "Preserve the source image appearance",
+        }
+        if user_draft:
+            prompt_payload["user_draft"] = user_draft
+        prompt = json.dumps(prompt_payload, ensure_ascii=False)
         tracker = _CostTracker()
         _cost_tracker.set(tracker)
         generated = await self._generate_setup_output(
@@ -2706,6 +2756,7 @@ The objective must name a concrete target and an observable end condition that c
             text_model=text_model,
             max_turns=turn_budget,
             preset=preset,
+            draft=user_draft or None,
         )
         payload = generated.model_dump()
         if tracker.total_usd > 0:

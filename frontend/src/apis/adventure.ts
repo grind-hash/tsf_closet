@@ -262,6 +262,13 @@ export interface AdventureSetupRequest {
   preset: AdventurePreset;
   /** 自動生成タイプのターン数。未指定なら15。作品シナリオ・リプレイでは無視される */
   scenario_max_turns?: number;
+  /**
+   * ユーザーが入力済みの舞台・ゴール・制約。空でない項目だけを送ると、
+   * LLM はそれを下書きとして意味を保ったまま仕上げ、空欄を補完する
+   */
+  scenario_setting?: string;
+  scenario_objective?: string;
+  scenario_constraints?: string[];
 }
 
 export interface AdventureSetup {

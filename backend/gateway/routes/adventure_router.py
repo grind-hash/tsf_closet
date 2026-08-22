@@ -49,6 +49,11 @@ class AdventureSetupGenerateRequest(BaseModel):
         ge=ADVENTURE_TURNS_MIN,
         le=ADVENTURE_TURNS_MAX,
     )
+    # ユーザーが入力済みの舞台・ゴール・制約。空でなければ生成の下書きとして
+    # LLM に渡し、意味を保ったまま仕上げ・補完させる（AdventureCreateRequest と同じ上限）
+    scenario_setting: str = Field(default="", max_length=600)
+    scenario_objective: str = Field(default="", max_length=600)
+    scenario_constraints: list[str] = Field(default_factory=list, max_length=4)
 
 
 class AdventureCreateRequest(BaseModel):
@@ -186,6 +191,9 @@ async def generate_setup(request: AdventureSetupGenerateRequest) -> dict:
             source_history_id=request.source_history_id,
             preset=request.preset,
             max_turns=request.scenario_max_turns,
+            draft_setting=request.scenario_setting,
+            draft_objective=request.scenario_objective,
+            draft_constraints=request.scenario_constraints,
         )
     except AdventureError as error:
         raise _http_error(error) from error
