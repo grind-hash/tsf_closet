@@ -8,15 +8,15 @@
 - `App.tsx`: `useLocation()` で画面を切り替える。通常ゲームのSSE送信ボディもここで組み立てる。
 - `routes/index.tsx`: パス定数と `getGameSessionPath()` を定義する。RouterProviderはまだ使用しない。
 
-| パス | 画面 | 備考 |
-| --- | --- | --- |
-| `/`、`/play`、`/play/new`、`/play/:sessionId` | `GamePlayScreen` | 通常ゲーム、新規開始、復元 |
-| `/gallery`、`/gallery/:sessionId` | `GalleryScreen` | セッション/履歴/お気に入り |
-| `/endings` | `EndingsScreen` | 実験設定で有効化 |
-| `/achievements` | `AchievementsScreen` | 実績一覧 |
-| `/settings` | `SettingsScreen` | 設定、メモリ、TTS |
-| `/adventure`、`/adventure/:runId` | `AdventureScreen` | 実験設定で有効化、専用Provider |
-| `/bgm-test` | `BgmTestScreen` | BGMカタログの試聴。実験設定(Adventure)で有効化 |
+| パス                                          | 画面                 | 備考                                           |
+| --------------------------------------------- | -------------------- | ---------------------------------------------- |
+| `/`、`/play`、`/play/new`、`/play/:sessionId` | `GamePlayScreen`     | 通常ゲーム、新規開始、復元                     |
+| `/gallery`、`/gallery/:sessionId`             | `GalleryScreen`      | セッション/履歴/お気に入り                     |
+| `/endings`                                    | `EndingsScreen`      | 実験設定で有効化                               |
+| `/achievements`                               | `AchievementsScreen` | 実績一覧                                       |
+| `/settings`                                   | `SettingsScreen`     | 設定、メモリ、TTS                              |
+| `/adventure`、`/adventure/:runId`             | `AdventureScreen`    | 実験設定で有効化、専用Provider                 |
+| `/bgm-test`                                   | `BgmTestScreen`      | BGMカタログの試聴。実験設定(Adventure)で有効化 |
 
 ## Context
 
@@ -24,18 +24,18 @@
 
 `main.tsx` は外側から `SettingsProvider` → `NotificationProvider` → `GameProvider` → `ChatProvider` の順に提供する。
 
-| Context | Hook | 主な状態/責務 |
-| --- | --- | --- |
-| `SettingsContext` | `useSettings()` | 言語、難易度、生成プロバイダー、inpaint、履歴遡及、プレイメモ設定、複数人物、TTS、Adventure等の設定と保存 |
-| `NotificationContext` | `useNotification()` | 通知キューと実績通知 |
-| `GameContext` | `useGame()` | Session、History、画像、stats、属性、会話復元、SessionCharacter、セッションプレイメモ |
-| `ChatContext` | `useChat()` | メッセージ、入力、指示タイプ、添付、一時ID、ストリーミング、音声再生状態 |
+| Context               | Hook                | 主な状態/責務                                                                                             |
+| --------------------- | ------------------- | --------------------------------------------------------------------------------------------------------- |
+| `SettingsContext`     | `useSettings()`     | 言語、難易度、生成プロバイダー、inpaint、履歴遡及、プレイメモ設定、複数人物、TTS、Adventure等の設定と保存 |
+| `NotificationContext` | `useNotification()` | 通知キューと実績通知                                                                                      |
+| `GameContext`         | `useGame()`         | Session、History、画像、stats、属性、会話復元、SessionCharacter、セッションプレイメモ                     |
+| `ChatContext`         | `useChat()`         | メッセージ、入力、指示タイプ、添付、一時ID、ストリーミング、音声再生状態                                  |
 
 ### Adventure専用Provider
 
 `App.tsx` は `/adventure` 配下だけを `AdventureProvider` で包む。
 
-`AdventureContext` は Run/Template、activeRun、セットアップ生成、ターン/画像ストリーム、フェーズ、逐次ナラティブ、エラーを管理する。通常ゲームの `GameContext` や `useGameSSE` に統合しない。
+`AdventureContext` は Run/Template、activeRun、セットアップ生成、ターン/画像ストリーム、フェーズ、逐次ナラティブ、エラーを管理する。 直前に開いた run ID は `lastRunId`（`utils/adventureLastRun.ts`、localStorage `adventure_last_run_id`）として公開し、Hub の再開バナーと SideMenu の「直前のシナリオへ」が参照する。通常ゲームの `GameContext` や `useGameSSE` に統合しない。
 
 ## 主な設定境界
 
@@ -48,37 +48,39 @@
 - `enableMultiplePeople`: 複数人画像生成
 - `multiCharacterPanelEnabled`: SessionCharacterのプロンプト反映
 - `adventureEnableCompositeScene`: Adventureの背景/人物合成初期値
+- `novelaiImageModel` / `novelaiCuratedImageModel`: NovelAI画像モデル選択（NSFW用/非NSFW用、バックエンド永続）。選択肢と `isV5ImageModel` は `constants/novelaiImageModels.ts`。実効モデルとV5判定は context value の `effectiveNovelaiImageModel` / `isNovelaiV5Active` で取得する（V5時: 精密参照UIを無効化、`character_references` 不送信、`NovelaiUsageBar` で利用上限表示、使い切り時は生成前に確認ダイアログ）
+- `anlasBalance.usage`: NovelAI V5 の利用上限（SSE `anlas` イベントと `/api/game/anlas` に同梱）
 - `tts*`: AivisSpeech設定
 - `memoryText`: ユーザー単位の長期メモリ本文
 
 ## Hook
 
-| Hook | 目的 |
-| --- | --- |
-| `useSession` | セッション開始/復元、キャラクター読込、GameContext更新 |
-| `useSSE` | GET/POST SSEの解析、停止、エラー処理 |
-| `useGameSSE` | 通常ゲームSSEを4つの全体Contextへ接続 |
-| `useAchievements` | 実績一覧/詳細取得 |
-| `useGallery` | ギャラリーの検索、ページング、削除 |
-| `useInfiniteScroll` | IntersectionObserverによる追加読込 |
-| `useTagSuggest` | タグ候補取得 |
-| `useTransparentImage` | 透過画像の読込とフォールバック |
-| `useAdventureBgm` | Adventure BGMのループ再生、fade、autoplay/404対応。キー→URL対応はマウント時に `GET /api/adventure/bgm` で取得（未知キーは既定曲へ）。mute/volumeの永続化は `utils/bgmPreferences.ts`(localStorage `adventure_bgm_prefs`)へ集約し、BGMテスト画面と音量を共有する |
+| Hook                  | 目的                                                                                                                                                                                                                                                            |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `useSession`          | セッション開始/復元、キャラクター読込、GameContext更新                                                                                                                                                                                                          |
+| `useSSE`              | GET/POST SSEの解析、停止、エラー処理                                                                                                                                                                                                                            |
+| `useGameSSE`          | 通常ゲームSSEを4つの全体Contextへ接続                                                                                                                                                                                                                           |
+| `useAchievements`     | 実績一覧/詳細取得                                                                                                                                                                                                                                               |
+| `useGallery`          | ギャラリーの検索、ページング、削除                                                                                                                                                                                                                              |
+| `useInfiniteScroll`   | IntersectionObserverによる追加読込                                                                                                                                                                                                                              |
+| `useTagSuggest`       | タグ候補取得                                                                                                                                                                                                                                                    |
+| `useTransparentImage` | 透過画像の読込とフォールバック                                                                                                                                                                                                                                  |
+| `useAdventureBgm`     | Adventure BGMのループ再生、fade、autoplay/404対応。キー→URL対応はマウント時に `GET /api/adventure/bgm` で取得（未知キーは既定曲へ）。mute/volumeの永続化は `utils/bgmPreferences.ts`(localStorage `adventure_bgm_prefs`)へ集約し、BGMテスト画面と音量を共有する |
 
 ## APIモジュール
 
-| ファイル | 主な公開操作 |
-| --- | --- |
-| `apis/game.ts` | プロンプトプレビュー、指示候補、立ち絵、削除、履歴分岐 |
-| `apis/adventure.ts` | Template/Run CRUD、セットアップ、ターン/画像SSE、設定、URL正規化 |
-| `apis/characters.ts` | SessionCharacter、主人公確保、Preset、人物タグ |
-| `apis/favorites.ts` | お気に入り一覧、追加、ラベル変更、削除、toggle |
-| `apis/gallery.ts` | セッション/履歴、フレーム、詳細、削除、要約、エクスポート |
-| `apis/memory.ts` | ユーザーメモ本文、生成ジョブ、状態、取消、分析DL |
-| `apis/settings.ts` | セルフプロフィール生成/保存/取得 |
-| `apis/speechSynthesis.ts` | AivisSpeech導入、起動、話者、合成 |
-| `apis/achievements.ts` | 実績一覧/詳細 |
-| `apis/anlas.ts` | NovelAI Anlas残高 |
+| ファイル                  | 主な公開操作                                                     |
+| ------------------------- | ---------------------------------------------------------------- |
+| `apis/game.ts`            | プロンプトプレビュー、指示候補、立ち絵、削除、履歴分岐           |
+| `apis/adventure.ts`       | Template/Run CRUD、セットアップ、ターン/画像SSE、設定、URL正規化 |
+| `apis/characters.ts`      | SessionCharacter、主人公確保、Preset、人物タグ                   |
+| `apis/favorites.ts`       | お気に入り一覧、追加、ラベル変更、削除、toggle                   |
+| `apis/gallery.ts`         | セッション/履歴、フレーム、詳細、削除、要約、エクスポート        |
+| `apis/memory.ts`          | ユーザーメモ本文、生成ジョブ、状態、取消、分析DL                 |
+| `apis/settings.ts`        | セルフプロフィール生成/保存/取得                                 |
+| `apis/speechSynthesis.ts` | AivisSpeech導入、起動、話者、合成                                |
+| `apis/achievements.ts`    | 実績一覧/詳細                                                    |
+| `apis/anlas.ts`           | NovelAI Anlas残高                                                |
 
 ## UI構成
 
@@ -90,6 +92,7 @@ components/
   AttributeSection.tsx        現実改変属性
   InpaintModal.tsx            マスク編集
   SessionListModal.tsx        セッション一覧/復元
+  NovelaiUsageBar.tsx         NovelAI V5利用上限バー(HUD/設定パネル/設定画面共用、表示可否は親が判断)
   session/BranchSessionDialog.tsx
 
   chat/

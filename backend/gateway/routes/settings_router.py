@@ -11,6 +11,10 @@ from ..consts.history_lookback import (
     HISTORY_LOOKBACK_MIN,
 )
 from ..consts.language import DEFAULT_LANGUAGE, LanguageCode
+from ..consts.novelai_models import (
+    DEFAULT_NSFW_IMAGE_MODEL,
+    DEFAULT_SFW_IMAGE_MODEL,
+)
 from ..services.settings_service import settings_service
 
 router = APIRouter(prefix="/settings", tags=["settings"])
@@ -34,6 +38,8 @@ class UserSettingsResponse(BaseModel):
     gender_congruence_llm_enabled: bool = False
     language: LanguageCode
     novelai_text_model: str = "glm-4-6"
+    novelai_image_model: str = DEFAULT_NSFW_IMAGE_MODEL
+    novelai_curated_image_model: str = DEFAULT_SFW_IMAGE_MODEL
     tts_enabled: bool = False
     tts_use_gpu: bool = False
     tts_engine_dir: str | None = None
@@ -52,6 +58,12 @@ class UserSettingsUpdateRequest(BaseModel):
     gender_congruence_llm_enabled: bool | None = None
     language: LanguageCode | None = None
     novelai_text_model: Literal["glm-4-6", "xialong-v1"] | None = None
+    novelai_image_model: (
+        Literal["nai-diffusion-4-5-full", "nai-diffusion-5-full"] | None
+    ) = None
+    novelai_curated_image_model: (
+        Literal["nai-diffusion-4-5-curated", "nai-diffusion-5-curated"] | None
+    ) = None
     tts_enabled: bool | None = None
     tts_use_gpu: bool | None = None
     tts_engine_dir: str | None = None
@@ -173,6 +185,8 @@ async def update_user_settings(
             gender_congruence_llm_enabled=request.gender_congruence_llm_enabled,
             language=request.language,
             novelai_text_model=request.novelai_text_model,
+            novelai_image_model=request.novelai_image_model,
+            novelai_curated_image_model=request.novelai_curated_image_model,
             tts_enabled=request.tts_enabled,
             tts_use_gpu=request.tts_use_gpu,
             tts_engine_dir=request.tts_engine_dir,

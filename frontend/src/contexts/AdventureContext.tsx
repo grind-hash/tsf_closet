@@ -33,6 +33,11 @@ import {
   updateAdventureRealityRules,
   updateAdventureRunSettings,
 } from "../apis/adventure";
+import {
+  clearLastAdventureRunId,
+  readLastAdventureRunId,
+  saveLastAdventureRunId,
+} from "../utils/adventureLastRun";
 import { useSettings } from "./SettingsContext";
 
 export type AdventurePhase = "narrative" | "clue_check" | "image_generation";
@@ -46,6 +51,10 @@ export const DRAW_PARTNER_STORAGE_KEY = "adventure_draw_partner_every_turn";
 // 精密参照ONの画像生成(run開始・romanceのターン送信)はAnlasを消費するため、
 // 実行前に確認ダイアログを挟む。抑止はブラウザセッション単位(sessionStorage)
 export const ANLAS_WARN_SUPPRESSED_KEY = "adventure_anlas_warn_suppressed";
+
+// V5 利用上限使い切り後の生成はAnlasを消費するため警告する。
+// 抑止キーは通常ゲーム側と共有(ブラウザセッション単位)
+export const V5_USAGE_WARN_SUPPRESSED_KEY = "v5_usage_warn_suppressed";
 
 function readDrawEveryTurn(storageKey: string): boolean {
   try {
@@ -85,6 +94,8 @@ interface AdventureContextValue {
   error: string | null;
   loadRuns: () => Promise<void>;
   loadTemplates: () => Promise<void>;
+  /** 直前に開いた/作成した run の ID（localStorage に永続化。削除・消失時は null） */
+  lastRunId: string | null;
   loadRun: (runId: string) => Promise<void>;
   generateSetup: (request: AdventureSetupRequest) => Promise<AdventureSetup>;
   createRun: (request: AdventureCreateRequest) => Promise<AdventureRun>;
@@ -102,6 +113,14 @@ interface AdventureContextValue {
   } | null;
   confirmPendingAnlasTurn: (suppressUntilBrowserClose: boolean) => void;
   cancelPendingAnlasTurn: () => void;
+  /** V5利用上限使い切り警告の確認待ちターン送信 */
+  pendingUsageWarnTurn: {
+    input: string;
+    inputKind: AdventureInputKind;
+    options?: { giftId?: string };
+  } | null;
+  confirmPendingUsageWarnTurn: (suppressUntilBrowserClose: boolean) => void;
+  cancelPendingUsageWarnTurn: () => void;
   regenerateImage: (options?: AdventureImageRegenerateOptions) => Promise<void>;
   regenerateChoices: () => Promise<void>;
   /** 指定手番の完了時点まで巻き戻す(以降のターンは削除) */
@@ -130,8 +149,13 @@ function parsePhaseStep(
 
 export function AdventureProvider({ children }: { children: ReactNode }) {
   // API料金(OpenRouter)の累計加算と、Anlas確認のプロバイダー判定に使う
-  const { state: settingsState, addTotalCost } = useSettings();
+  const {
+    state: settingsState,
+    addTotalCost,
+    isNovelaiV5Active,
+  } = useSettings();
   const imageProvider = settingsState.imageProvider;
+  const anlasUsage = settingsState.anlasBalance?.usage ?? null;
   const [runs, setRuns] = useState<AdventureRun[]>([]);
   const [templates, setTemplates] = useState<AdventureTemplate[]>([]);
   const [activeRun, setActiveRun] = useState<AdventureRun | null>(null);
@@ -143,6 +167,10 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
   const [streamingNarrative, setStreamingNarrative] = useState("");
   const [pendingUserInput, setPendingUserInput] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // 直前に開いた/作成した run。Hub の再開バナーと SideMenu の導線が参照する
+  const [lastRunId, setLastRunId] = useState<string | null>(() =>
+    readLastAdventureRunId(),
+  );
 
   const loadRuns = useCallback(async () => {
     setLoading(true);
@@ -170,7 +198,13 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
     setError(null);
     try {
       setActiveRun(await fetchAdventureRun(runId));
+      // 開いた run を「直前のシナリオ」として覚える
+      saveLastAdventureRunId(runId);
+      setLastRunId(runId);
     } catch (caught) {
+      // 削除済み等で開けない run を指し続けないよう、一致する保存 ID は消す
+      clearLastAdventureRunId(runId);
+      setLastRunId((current) => (current === runId ? null : current));
       setError(caught instanceof Error ? caught.message : String(caught));
       throw caught;
     } finally {
@@ -209,6 +243,8 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
         }
         setActiveRun(created);
         setRuns((current) => [created, ...current]);
+        saveLastAdventureRunId(created.id);
+        setLastRunId(created.id);
         return created;
       } catch (caught) {
         setError(caught instanceof Error ? caught.message : String(caught));
@@ -226,6 +262,8 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       await deleteAdventureRun(runId);
       setRuns((current) => current.filter((run) => run.id !== runId));
       setActiveRun((current) => (current?.id === runId ? null : current));
+      clearLastAdventureRunId(runId);
+      setLastRunId((current) => (current === runId ? null : current));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
       throw caught;
@@ -237,11 +275,17 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
     inputKind: AdventureInputKind;
     options?: { giftId?: string };
   } | null>(null);
+  const [pendingUsageWarnTurn, setPendingUsageWarnTurn] = useState<{
+    input: string;
+    inputKind: AdventureInputKind;
+    options?: { giftId?: string };
+  } | null>(null);
 
   // 確認待ちの送信を別の run へ持ち越さない
   // biome-ignore lint/correctness/useExhaustiveDependencies: activeRun.id の変化を検知して保留をクリアするための依存
   useEffect(() => {
     setPendingAnlasTurn(null);
+    setPendingUsageWarnTurn(null);
   }, [activeRun?.id]);
 
   const performSubmitTurn = useCallback(
@@ -397,10 +441,24 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       options?: { giftId?: string },
     ) => {
       if (!activeRun || streaming) return;
+      // V5 利用上限を使い切った状態での生成はAnlasを消費するため警告する
+      const usageExhausted =
+        anlasUsage != null &&
+        (anlasUsage.percent <= 0 || anlasUsage.isNegative);
+      if (
+        isNovelaiV5Active &&
+        usageExhausted &&
+        sessionStorage.getItem(V5_USAGE_WARN_SUPPRESSED_KEY) !== "true"
+      ) {
+        setPendingUsageWarnTurn({ input, inputKind, options });
+        return;
+      }
       // Anlasを消費するのはNovelAIプロバイダーの精密参照だけ。
       // OpenRouter/セルフホストでは確認ダイアログを出さない
+      // (V5実効時は精密参照が使われないため対象外)
       if (
         imageProvider === "novelai" &&
+        !isNovelaiV5Active &&
         activeRun.preset === "romance" &&
         activeRun.use_precise_reference &&
         sessionStorage.getItem(ANLAS_WARN_SUPPRESSED_KEY) !== "true"
@@ -410,7 +468,14 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       }
       await performSubmitTurn(input, inputKind, options);
     },
-    [activeRun, streaming, performSubmitTurn, imageProvider],
+    [
+      activeRun,
+      streaming,
+      performSubmitTurn,
+      imageProvider,
+      isNovelaiV5Active,
+      anlasUsage,
+    ],
   );
 
   const confirmPendingAnlasTurn = useCallback(
@@ -428,6 +493,23 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
 
   const cancelPendingAnlasTurn = useCallback(() => {
     setPendingAnlasTurn(null);
+  }, []);
+
+  const confirmPendingUsageWarnTurn = useCallback(
+    (suppressUntilBrowserClose: boolean) => {
+      if (!pendingUsageWarnTurn) return;
+      if (suppressUntilBrowserClose) {
+        sessionStorage.setItem(V5_USAGE_WARN_SUPPRESSED_KEY, "true");
+      }
+      const { input, inputKind, options } = pendingUsageWarnTurn;
+      setPendingUsageWarnTurn(null);
+      void performSubmitTurn(input, inputKind, options);
+    },
+    [pendingUsageWarnTurn, performSubmitTurn],
+  );
+
+  const cancelPendingUsageWarnTurn = useCallback(() => {
+    setPendingUsageWarnTurn(null);
   }, []);
 
   const regenerateImage = useCallback(
@@ -644,6 +726,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       runs,
       templates,
       activeRun,
+      lastRunId,
       loading,
       setupGenerating,
       streaming,
@@ -662,6 +745,9 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       pendingAnlasTurn,
       confirmPendingAnlasTurn,
       cancelPendingAnlasTurn,
+      pendingUsageWarnTurn,
+      confirmPendingUsageWarnTurn,
+      cancelPendingUsageWarnTurn,
       regenerateImage,
       regenerateChoices,
       updateSettings,
@@ -674,6 +760,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       runs,
       templates,
       activeRun,
+      lastRunId,
       loading,
       setupGenerating,
       streaming,
@@ -692,6 +779,9 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       pendingAnlasTurn,
       confirmPendingAnlasTurn,
       cancelPendingAnlasTurn,
+      pendingUsageWarnTurn,
+      confirmPendingUsageWarnTurn,
+      cancelPendingUsageWarnTurn,
       regenerateImage,
       regenerateChoices,
       updateSettings,

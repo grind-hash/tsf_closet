@@ -23,6 +23,19 @@ async function openPreciseReferenceSettings(page: Page): Promise<Locator> {
     json.image_provider = "novelai";
     await route.fulfill({ response, json });
   });
+  // 実DBのユーザー設定(V5選択中など)に依存しないよう、画像モデルをV4.5に固定する
+  // (V5実効時は精密参照セクションが無効化されるため)
+  await page.route("**/api/settings/user", async (route) => {
+    if (route.request().method() !== "GET") {
+      await route.continue();
+      return;
+    }
+    const response = await route.fetch();
+    const json = await response.json();
+    json.novelai_image_model = "nai-diffusion-4-5-full";
+    json.novelai_curated_image_model = "nai-diffusion-4-5-curated";
+    await route.fulfill({ response, json });
+  });
 
   await page.goto("/play");
   await page.locator(".backdrop").first().waitFor({ state: "hidden" });
@@ -132,6 +145,53 @@ test.describe("精密参照画像の追加", () => {
       page.getByText(
         /oversized\.png: ファイルサイズ|oversized\.png: File size/,
       ),
+    ).toBeVisible();
+  });
+});
+
+test.describe("V5モデル選択時の精密参照", () => {
+  test("実効モデルがV5のとき精密参照は無効化され説明が表示される", async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      window.localStorage.setItem("novelai_api_key_consent", "true");
+      window.localStorage.setItem("novelai_opus_confirmed", "true");
+    });
+    await page.route("**/health", async (route) => {
+      const response = await route.fetch();
+      const json = await response.json();
+      json.image_provider = "novelai";
+      await route.fulfill({ response, json });
+    });
+    // nsfw OFF 既定のため curated 側を V5 にすると実効モデルが V5 になる
+    await page.route("**/api/settings/user", async (route) => {
+      if (route.request().method() !== "GET") {
+        await route.continue();
+        return;
+      }
+      const response = await route.fetch();
+      const json = await response.json();
+      json.nsfw_mode = false;
+      json.novelai_curated_image_model = "nai-diffusion-5-curated";
+      await route.fulfill({ response, json });
+    });
+
+    await page.goto("/play");
+    await page.locator(".backdrop").first().waitFor({ state: "hidden" });
+    await page
+      .getByRole("button", { name: /パネルを開く|Open panel/i })
+      .click();
+
+    // 説明文言が表示され、操作ブロックが無効化されている
+    await expect(
+      page.getByText(
+        /V5モデルでは精密参照は利用できません|not available with V5/,
+      ),
+    ).toBeVisible();
+    const disabledBlock = page.locator(".right-panel__disabled-block");
+    await expect(disabledBlock).toBeVisible();
+    await expect(
+      disabledBlock.getByTestId("precise-ref-drop-zone"),
     ).toBeVisible();
   });
 });

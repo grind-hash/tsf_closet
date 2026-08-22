@@ -31,6 +31,11 @@ echo "========================================="
 ollama pull ministral-3:3b-instruct-2512-q4_K_M
 
 echo "========================================="
+echo "Pulling gemma4:e4b model..."
+echo "========================================="
+ollama pull gemma4:e4b
+
+echo "========================================="
 echo "All models pulled successfully!"
 echo "========================================="
 

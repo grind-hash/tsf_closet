@@ -7,6 +7,7 @@ import { useTranslation } from "react-i18next";
 import { useSettings } from "../../contexts/SettingsContext";
 import type { HistoryLookbackTarget } from "../../utils/historyLookback";
 import MainLayout from "../layout/MainLayout";
+import { NovelaiUsageBar } from "../NovelaiUsageBar";
 import MemorySettings from "./MemorySettings";
 import SelfProfileEditor from "./SelfProfileEditor";
 import SpeechSynthesisSettings from "./SpeechSynthesisSettings";
@@ -53,6 +54,9 @@ export default function SettingsScreen() {
     setLinkChatToImage,
     setEnableMultiplePeople,
     setNovelaiTextModel,
+    setNovelaiImageModel,
+    setNovelaiCuratedImageModel,
+    isNovelaiV5Active,
     setHistoryLookbackCount,
     setHistoryLookbackTarget,
     resetSettings,
@@ -430,6 +434,90 @@ export default function SettingsScreen() {
                 {state.imageProvider === "novelai" && t("settings.novelai")}
               </div>
             </div>
+
+            {state.imageProvider === "novelai" && (
+              <>
+                <div className="settings-screen__item">
+                  <div className="settings-screen__toggle-info">
+                    <span className="settings-screen__item-label">
+                      {t("settings.novelaiImageModelNsfw")}
+                      <span
+                        className="feature-chip-experimental"
+                        data-feature-version="v0.7.0"
+                        style={{ marginLeft: "0.5rem" }}
+                      >
+                        Experimental
+                      </span>
+                    </span>
+                    <span className="settings-screen__item-desc">
+                      {t("settings.novelaiImageModelNsfwDesc")}
+                    </span>
+                  </div>
+                  <div className="settings-screen__select-wrapper">
+                    <select
+                      className="settings-screen__select"
+                      value={state.novelaiImageModel}
+                      onChange={(e) => setNovelaiImageModel(e.target.value)}
+                    >
+                      <option value="nai-diffusion-4-5-full">
+                        {t("settings.novelaiImageModelV45Full")}
+                      </option>
+                      <option value="nai-diffusion-5-full">
+                        {t("settings.novelaiImageModelV5Full")}
+                      </option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="settings-screen__item">
+                  <div className="settings-screen__toggle-info">
+                    <span className="settings-screen__item-label">
+                      {t("settings.novelaiImageModelSfw")}
+                      <span
+                        className="feature-chip-experimental"
+                        data-feature-version="v0.7.0"
+                        style={{ marginLeft: "0.5rem" }}
+                      >
+                        Experimental
+                      </span>
+                    </span>
+                    <span className="settings-screen__item-desc">
+                      {t("settings.novelaiImageModelSfwDesc")}
+                    </span>
+                  </div>
+                  <div className="settings-screen__select-wrapper">
+                    <select
+                      className="settings-screen__select"
+                      value={state.novelaiCuratedImageModel}
+                      onChange={(e) =>
+                        setNovelaiCuratedImageModel(e.target.value)
+                      }
+                    >
+                      <option value="nai-diffusion-4-5-curated">
+                        {t("settings.novelaiImageModelV45Curated")}
+                      </option>
+                      <option value="nai-diffusion-5-curated">
+                        {t("settings.novelaiImageModelV5Curated")}
+                      </option>
+                    </select>
+                  </div>
+                </div>
+
+                {isNovelaiV5Active && state.anlasBalance?.usage && (
+                  <div className="settings-screen__item">
+                    <div className="settings-screen__toggle-info">
+                      <span className="settings-screen__item-label">
+                        {t("settings.novelaiUsageTitle")}
+                      </span>
+                      <span className="settings-screen__item-desc">
+                        {t("settings.novelaiUsageDesc")}
+                      </span>
+                    </div>
+                    <NovelaiUsageBar usage={state.anlasBalance.usage} />
+                  </div>
+                )}
+              </>
+            )}
           </section>
 
           {/* 自分自身モード キャラ設定 */}

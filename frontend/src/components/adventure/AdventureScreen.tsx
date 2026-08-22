@@ -8,6 +8,7 @@ import type {
   AdventureInputKind,
   AdventureNarrationVoice,
   AdventurePreset,
+  AdventureRun,
   AdventureSim,
   AdventureSpeechStyle,
   AdventureStatus,
@@ -139,6 +140,9 @@ const SPEECH_STYLES: AdventureSpeechStyle[] = [
 const DEFAULT_SPEECH_STYLE: AdventureSpeechStyle = "polite";
 const SPEECH_CUSTOM_MAX_LENGTH = 120;
 const PARTNER_SPEECH_STYLE_MAX_LENGTH = 200;
+// 制約(1行1件)の上限件数。backend の consts/adventure_setup.py と合わせる
+const SCENARIO_CONSTRAINTS_MAX_ITEMS = 20;
+const SCENARIO_CONSTRAINTS_MAX_LENGTH = 2000;
 
 // セットアップで選んだ語りと画像オプションは次回の作成時にも引き継ぐ。
 // 精密参照はAnlasを追加消費するため保存対象に含めず、常に既定OFFから始める
@@ -273,6 +277,66 @@ function SourceSelectionSummary({
   );
 }
 
+// 制約テキストエリア(1行1件)を配列へ。生成リクエストと作成リクエストで共用する
+function splitConstraintLines(value: string): string[] {
+  return value
+    .split("\n")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+// 保存済みシナリオ一覧の1行。Hub 上部の「中断したシナリオを再開」バナーでも
+// 同じ体裁で使うため切り出す(バナーでは削除ボタンを出さない)
+function AdventureRunRow({
+  run,
+  onResume,
+  onDelete,
+}: {
+  run: AdventureRun;
+  onResume: () => void;
+  onDelete?: () => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <article className="adventure-run-item">
+      <img src={run.current_image_url} alt={run.title} />
+      <div>
+        <div className="adventure-run-item__title-row">
+          <strong>{run.title}</strong>
+          <span
+            className={`adventure-run-badge adventure-run-badge--${run.status}`}
+          >
+            {t(`adventure.status.${run.status}`)}
+          </span>
+        </div>
+        <p>{run.objective}</p>
+        <div className="adventure-run-progress">
+          <span className="adventure-run-progress__bar">
+            <span
+              style={{
+                width: `${Math.min(100, (run.turn_count / run.max_turns) * 100)}%`,
+              }}
+            />
+          </span>
+          <span className="adventure-run-progress__label">
+            {run.turn_count}/{run.max_turns}
+          </span>
+        </div>
+      </div>
+      <div className="adventure-run-item__actions">
+        <button type="button" onClick={onResume}>
+          {t("adventure.resume")}
+        </button>
+        {onDelete && (
+          <button type="button" className="is-danger" onClick={onDelete}>
+            {t("adventure.delete")}
+          </button>
+        )}
+      </div>
+    </article>
+  );
+}
+
 function AdventureHub() {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -290,6 +354,7 @@ function AdventureHub() {
     createRun,
     removeRun,
     clearError,
+    lastRunId,
   } = useAdventure();
   // 1ページ目のセッション一覧。既定選択と保存済みIDの解決に使う(一覧表示はモーダル側)
   const [sessions, setSessions] = useState<GallerySession[]>([]);
@@ -343,7 +408,7 @@ function AdventureHub() {
   const [partnerSpeechStyle, setPartnerSpeechStyle] = useState("");
   const [runFilter, setRunFilter] = useState<RunFilter>("all");
   const [creating, setCreating] = useState(false);
-  const { state: settingsState } = useSettings();
+  const { state: settingsState, isNovelaiV5Active } = useSettings();
   // 精密参照は既定OFF。ユーザーが明示的にONした場合のみAnlas追加消費
   const [usePreciseReference, setUsePreciseReference] = useState(false);
   const [startAnlasConfirmOpen, setStartAnlasConfirmOpen] = useState(false);
@@ -468,6 +533,13 @@ function AdventureHub() {
     drawPartnerEveryTurn,
   };
 
+  // 直前に開いた run を再取得済みの一覧から引く。削除済み・終了済みなら出さない
+  const lastRun = useMemo(() => {
+    if (!lastRunId) return null;
+    const found = runs.find((run) => run.id === lastRunId);
+    return found && canActOnRun(found) ? found : null;
+  }, [runs, lastRunId]);
+
   const sortedRuns = useMemo(
     () =>
       [...runs].sort((a, b) => {
@@ -538,14 +610,29 @@ function AdventureHub() {
     setScenarioPickerTab(selectedReplayRunId ? "played" : "authored");
     setScenarioPickerOpen(true);
   };
+  // 制約は backend の上限件数を超えると 422 になるため、送信前に件数を見て
+  // 開始・生成ボタンを止め、理由を表示する
+  const constraintCount = splitConstraintLines(scenarioConstraints).length;
+  const tooManyConstraints = constraintCount > SCENARIO_CONSTRAINTS_MAX_ITEMS;
+
   const handleGenerateSetup = async () => {
-    if (!sourceSessionId) return;
+    if (!sourceSessionId || tooManyConstraints) return;
+    // 入力済みの舞台・ゴール・制約は下書きとして渡し、LLM に意味を保ったまま
+    // 仕上げ・補完させる。空の項目はキー自体を送らない
+    const draftSetting = scenarioSetting.trim();
+    const draftObjective = scenarioObjective.trim();
+    const draftConstraints = splitConstraintLines(scenarioConstraints);
     try {
       const generated = await generateSetup({
         source_session_id: sourceSessionId,
         source_history_id: sourceHistoryId,
         preset,
         scenario_max_turns: effectiveScenarioTurns,
+        ...(draftSetting ? { scenario_setting: draftSetting } : {}),
+        ...(draftObjective ? { scenario_objective: draftObjective } : {}),
+        ...(draftConstraints.length > 0
+          ? { scenario_constraints: draftConstraints }
+          : {}),
       });
       setScenarioSetting(generated.setting);
       setScenarioObjective(generated.objective);
@@ -560,6 +647,11 @@ function AdventureHub() {
     if (!sourceSessionId) return t("adventure.disabledReason.noSession");
     if (startMode === "generated" && !scenarioObjective.trim())
       return t("adventure.disabledReason.noObjective");
+    if (startMode === "generated" && tooManyConstraints)
+      return t("adventure.disabledReason.tooManyConstraints", {
+        max: SCENARIO_CONSTRAINTS_MAX_ITEMS,
+        count: constraintCount,
+      });
     if (startMode === "authored" && !selectedScenario)
       return t("adventure.disabledReason.noScenario");
     return null;
@@ -580,10 +672,7 @@ function AdventureHub() {
         scenario_objective: startMode === "generated" ? scenarioObjective : "",
         scenario_constraints:
           startMode === "generated"
-            ? scenarioConstraints
-                .split("\n")
-                .map((item) => item.trim())
-                .filter(Boolean)
+            ? splitConstraintLines(scenarioConstraints)
             : [],
         scenario_template_id: authoredTemplate?.id,
         replay_run_id: selectedReplayRun?.id,
@@ -595,7 +684,8 @@ function AdventureHub() {
         player_speech_custom: speechCustom.trim(),
         romance_partner_speech_style:
           effectivePreset === "romance" ? partnerSpeechStyle.trim() : "",
-        use_precise_reference: usePreciseReference,
+        // V5系モデルは精密参照非対応のため実効値をOFFにする
+        use_precise_reference: usePreciseReference && !isNovelaiV5Active,
         enable_composite_scene: enableCompositeScene,
         respect_clothing_layers: settingsState.respectClothingLayers,
         romance_player_character_id:
@@ -632,6 +722,7 @@ function AdventureHub() {
     if (
       settingsState.imageProvider === "novelai" &&
       usePreciseReference &&
+      !isNovelaiV5Active &&
       sessionStorage.getItem(ANLAS_WARN_SUPPRESSED_KEY) !== "true"
     ) {
       setStartAnlasConfirmOpen(true);
@@ -659,6 +750,19 @@ function AdventureHub() {
             <h1>{t("adventure.title")}</h1>
           </div>
         </header>
+
+        {lastRun && (
+          <section
+            className="adventure-continue"
+            aria-label={t("adventure.continueLast")}
+          >
+            <h2>{t("adventure.continueLast")}</h2>
+            <AdventureRunRow
+              run={lastRun}
+              onResume={() => navigate(`/adventure/${lastRun.id}`)}
+            />
+          </section>
+        )}
 
         {error && (
           <button
@@ -833,7 +937,12 @@ function AdventureHub() {
                 )}
                 <button
                   type="button"
-                  disabled={!sourceSessionId || setupGenerating || loading}
+                  disabled={
+                    !sourceSessionId ||
+                    setupGenerating ||
+                    loading ||
+                    tooManyConstraints
+                  }
                   aria-busy={setupGenerating}
                   onClick={() => void handleGenerateSetup()}
                 >
@@ -877,6 +986,9 @@ function AdventureHub() {
                 onToggle={(event) => setDetailsOpen(event.currentTarget.open)}
               >
                 <summary>{t("adventure.detailsToggle")}</summary>
+                <small className="adventure-setup-turns__hint">
+                  {t("adventure.detailsDraftHint")}
+                </small>
                 <div className="adventure-setup-details">
                   <label>
                     <span>{t("adventure.setting")}</span>
@@ -906,13 +1018,33 @@ function AdventureHub() {
                     <span>{t("adventure.constraints")}</span>
                     <textarea
                       value={scenarioConstraints}
-                      maxLength={1200}
+                      maxLength={SCENARIO_CONSTRAINTS_MAX_LENGTH}
                       rows={3}
+                      aria-invalid={tooManyConstraints || undefined}
                       onChange={(event) =>
                         setScenarioConstraints(event.target.value)
                       }
-                      placeholder={t("adventure.constraintsPlaceholder")}
+                      placeholder={t("adventure.constraintsPlaceholder", {
+                        max: SCENARIO_CONSTRAINTS_MAX_ITEMS,
+                      })}
                     />
+                    <small
+                      className={`adventure-setup-turns__hint${
+                        tooManyConstraints
+                          ? " adventure-setup-constraints__hint--over"
+                          : ""
+                      }`}
+                    >
+                      {tooManyConstraints
+                        ? t("adventure.disabledReason.tooManyConstraints", {
+                            max: SCENARIO_CONSTRAINTS_MAX_ITEMS,
+                            count: constraintCount,
+                          })
+                        : t("adventure.constraintsCount", {
+                            count: constraintCount,
+                            max: SCENARIO_CONSTRAINTS_MAX_ITEMS,
+                          })}
+                    </small>
                   </label>
                 </div>
               </details>
@@ -1083,20 +1215,24 @@ function AdventureHub() {
               <label className="adventure-precise-toggle">
                 <span className="adventure-precise-toggle__info">
                   <strong>{t("adventure.preciseReference")}</strong>
-                  {/* NovelAI以外では効果もAnlas消費もない旨を明示する */}
+                  {/* NovelAI以外では効果もAnlas消費もない旨、V5では非対応の旨を明示する */}
                   <small>
                     {t(
-                      settingsState.imageProvider === "novelai"
-                        ? "adventure.preciseReferenceHint"
-                        : "adventure.preciseReferenceOtherProviderHint",
+                      isNovelaiV5Active
+                        ? "adventure.preciseReferenceV5Hint"
+                        : settingsState.imageProvider === "novelai"
+                          ? "adventure.preciseReferenceHint"
+                          : "adventure.preciseReferenceOtherProviderHint",
                     )}
                   </small>
                 </span>
                 <input
                   type="checkbox"
                   className="adventure-precise-toggle__input"
-                  checked={usePreciseReference}
-                  disabled={setupGenerating || loading || creating}
+                  checked={usePreciseReference && !isNovelaiV5Active}
+                  disabled={
+                    setupGenerating || loading || creating || isNovelaiV5Active
+                  }
                   onChange={(event) =>
                     setUsePreciseReference(event.target.checked)
                   }
@@ -1235,51 +1371,16 @@ function AdventureHub() {
           ) : (
             <div className="adventure-run-list">
               {filteredRuns.map((run) => (
-                <article key={run.id} className="adventure-run-item">
-                  <img src={run.current_image_url} alt={run.title} />
-                  <div>
-                    <div className="adventure-run-item__title-row">
-                      <strong>{run.title}</strong>
-                      <span
-                        className={`adventure-run-badge adventure-run-badge--${run.status}`}
-                      >
-                        {t(`adventure.status.${run.status}`)}
-                      </span>
-                    </div>
-                    <p>{run.objective}</p>
-                    <div className="adventure-run-progress">
-                      <span className="adventure-run-progress__bar">
-                        <span
-                          style={{
-                            width: `${Math.min(100, (run.turn_count / run.max_turns) * 100)}%`,
-                          }}
-                        />
-                      </span>
-                      <span className="adventure-run-progress__label">
-                        {run.turn_count}/{run.max_turns}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="adventure-run-item__actions">
-                    <button
-                      type="button"
-                      onClick={() => navigate(`/adventure/${run.id}`)}
-                    >
-                      {t("adventure.resume")}
-                    </button>
-                    <button
-                      type="button"
-                      className="is-danger"
-                      onClick={() => {
-                        if (window.confirm(t("adventure.deleteConfirm"))) {
-                          void removeRun(run.id);
-                        }
-                      }}
-                    >
-                      {t("adventure.delete")}
-                    </button>
-                  </div>
-                </article>
+                <AdventureRunRow
+                  key={run.id}
+                  run={run}
+                  onResume={() => navigate(`/adventure/${run.id}`)}
+                  onDelete={() => {
+                    if (window.confirm(t("adventure.deleteConfirm"))) {
+                      void removeRun(run.id);
+                    }
+                  }}
+                />
               ))}
             </div>
           )}
@@ -1575,6 +1676,9 @@ function AdventurePlay({ runId }: { runId: string }) {
     pendingAnlasTurn,
     confirmPendingAnlasTurn,
     cancelPendingAnlasTurn,
+    pendingUsageWarnTurn,
+    confirmPendingUsageWarnTurn,
+    cancelPendingUsageWarnTurn,
     regenerateImage,
     regenerateChoices,
     updateSettings,
@@ -1582,7 +1686,11 @@ function AdventurePlay({ runId }: { runId: string }) {
     startEpilogue,
     clearError,
   } = useAdventure();
-  const { state: settingsState } = useSettings();
+  const {
+    state: settingsState,
+    setAnlasBalance: setGlobalAnlasBalance,
+    isNovelaiV5Active,
+  } = useSettings();
   const respectClothingLayers = settingsState.respectClothingLayers;
   const [input, setInput] = useState("");
   const transcriptEndRef = useRef<HTMLDivElement>(null);
@@ -1637,6 +1745,16 @@ function AdventurePlay({ runId }: { runId: string }) {
     cancelPendingAnlasTurn();
   }, [pendingAnlasTurn, cancelPendingAnlasTurn]);
 
+  const handleUsageWarnCancel = useCallback(() => {
+    if (
+      pendingUsageWarnTurn?.inputKind === "free_text" ||
+      pendingUsageWarnTurn?.inputKind === "reality_alter"
+    ) {
+      setInput(pendingUsageWarnTurn.input);
+    }
+    cancelPendingUsageWarnTurn();
+  }, [pendingUsageWarnTurn, cancelPendingUsageWarnTurn]);
+
   useEffect(() => {
     void loadRun(runId).catch(() => navigate("/adventure"));
   }, [loadRun, navigate, runId]);
@@ -1675,8 +1793,16 @@ function AdventurePlay({ runId }: { runId: string }) {
   // streamingがfalseへ戻るたび（＝各ストリーム完了後）に再取得する。
   // Anlasを消費するのはNovelAIプロバイダーのときだけ
   const usePreciseReference = activeRun?.use_precise_reference ?? false;
+  // V5実効時は毎生成で利用上限が減るため、精密参照OFFでも残高/上限を追跡する
   const anlasApplies =
-    usePreciseReference && settingsState.imageProvider === "novelai";
+    (usePreciseReference || isNovelaiV5Active) &&
+    settingsState.imageProvider === "novelai";
+  // HUD の V5 利用上限表示（実効モデルが V5 のときのみ）
+  const hudUsage = isNovelaiV5Active ? (anlasBalance?.usage ?? null) : null;
+  const hudUsageExhausted =
+    hudUsage != null && (hudUsage.percent <= 0 || hudUsage.isNegative);
+  const hudUsagePercent =
+    hudUsage != null ? Math.max(0, Math.min(100, hudUsage.percent)) : 0;
   useEffect(() => {
     if (!anlasApplies) {
       setAnlasBalance(null);
@@ -1685,12 +1811,16 @@ function AdventurePlay({ runId }: { runId: string }) {
     if (streaming) return;
     let cancelled = false;
     void fetchAnlasBalance().then((balance) => {
-      if (!cancelled) setAnlasBalance(balance);
+      if (!cancelled) {
+        setAnlasBalance(balance);
+        // 使い切り警告(AdventureContext)が参照するグローバル状態にも反映する
+        if (balance) setGlobalAnlasBalance(balance);
+      }
     });
     return () => {
       cancelled = true;
     };
-  }, [anlasApplies, streaming]);
+  }, [anlasApplies, streaming, setGlobalAnlasBalance]);
 
   useEffect(() => {
     if (!logOpen) return;
@@ -2436,11 +2566,50 @@ function AdventurePlay({ runId }: { runId: string }) {
                   />
                 </>
               )}
-              {activeRun.use_precise_reference &&
+              {/* V5 利用上限。通常ゲームHUDと同じく Anlas の左隣に置く */}
+              {hudUsage &&
+                (sim ? (
+                  <HudTile
+                    className={`adventure-hud__usage-tile${
+                      hudUsageExhausted ? " is-warning" : ""
+                    }`}
+                    title={t("gameplay.novelaiUsageTooltip", {
+                      percent: hudUsage.percent,
+                    })}
+                    label={t("gameplay.novelaiUsageLabel")}
+                    value={
+                      hudUsageExhausted
+                        ? t("gameplay.novelaiUsageExhausted")
+                        : `${hudUsage.percent}%`
+                    }
+                    gaugeRatio={hudUsagePercent}
+                    badge={null}
+                  />
+                ) : (
+                  <div
+                    className={`adventure-hud__usage${
+                      hudUsageExhausted ? " is-warning" : ""
+                    }`}
+                    title={t("gameplay.novelaiUsageTooltip", {
+                      percent: hudUsage.percent,
+                    })}
+                  >
+                    <span>{t("gameplay.novelaiUsageLabel")}</span>
+                    <strong>
+                      {hudUsageExhausted
+                        ? t("gameplay.novelaiUsageExhausted")
+                        : `${hudUsage.percent}%`}
+                    </strong>
+                    <span className="adventure-hud__gauge" aria-hidden>
+                      <i style={{ width: `${hudUsagePercent}%` }} />
+                    </span>
+                  </div>
+                ))}
+              {(activeRun.use_precise_reference || isNovelaiV5Active) &&
                 anlasBalance &&
                 (sim ? (
                   // romance では他のメトリクスと同じ共通タイルで並べる。
-                  // このタイルは精密参照が ON のときだけ出るので、バッジで理由を示す
+                  // 精密参照ON時 / V5実効時だけ出るので、バッジで理由を示す
                   <HudTile
                     className="adventure-hud__anlas-tile"
                     title={t("adventure.anlasDetail", {
@@ -2450,7 +2619,11 @@ function AdventurePlay({ runId }: { runId: string }) {
                     label="Anlas"
                     value={anlasBalance.totalAnlas.toLocaleString()}
                     gaugeRatio={null}
-                    badge={t("adventure.anlasBadge")}
+                    badge={
+                      isNovelaiV5Active
+                        ? t("adventure.anlasBadgeV5")
+                        : t("adventure.anlasBadge")
+                    }
                   />
                 ) : (
                   <div
@@ -2954,20 +3127,26 @@ function AdventurePlay({ runId }: { runId: string }) {
                   <label className="adventure-precise-toggle">
                     <span className="adventure-precise-toggle__info">
                       <strong>{t("adventure.preciseReference")}</strong>
-                      {/* NovelAI以外では効果もAnlas消費もない旨を明示する */}
+                      {/* NovelAI以外では効果もAnlas消費もない旨、V5では非対応の旨を明示する */}
                       <small>
                         {t(
-                          settingsState.imageProvider === "novelai"
-                            ? "adventure.preciseReferencePlayHint"
-                            : "adventure.preciseReferenceOtherProviderHint",
+                          isNovelaiV5Active
+                            ? "adventure.preciseReferenceV5Hint"
+                            : settingsState.imageProvider === "novelai"
+                              ? "adventure.preciseReferencePlayHint"
+                              : "adventure.preciseReferenceOtherProviderHint",
                         )}
                       </small>
                     </span>
                     <input
                       type="checkbox"
                       className="adventure-precise-toggle__input"
-                      checked={activeRun.use_precise_reference}
-                      disabled={streaming || settingsSaving}
+                      checked={
+                        activeRun.use_precise_reference && !isNovelaiV5Active
+                      }
+                      disabled={
+                        streaming || settingsSaving || isNovelaiV5Active
+                      }
                       onChange={(event) => {
                         const next = event.target.checked;
                         setSettingsSaving(true);
@@ -3828,6 +4007,14 @@ function AdventurePlay({ runId }: { runId: string }) {
         })}
         onConfirm={confirmPendingAnlasTurn}
         onCancel={handleAnlasCancel}
+      />
+
+      {/* V5 利用上限使い切り警告ダイアログ */}
+      <AdventureAnlasConfirmDialog
+        open={pendingUsageWarnTurn !== null}
+        body={t("adventure.v5UsageExhaustedBody")}
+        onConfirm={confirmPendingUsageWarnTurn}
+        onCancel={handleUsageWarnCancel}
       />
     </MainLayout>
   );

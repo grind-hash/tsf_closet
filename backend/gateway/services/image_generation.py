@@ -12,13 +12,14 @@ import logging
 import random
 from dataclasses import dataclass
 from io import BytesIO
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
 import httpx
 from PIL import Image, ImageFilter
 
 from .comfy import ComfyUIClient, ComfyUIResult
 from .model_execution_gate import model_execution_gate
+from ..consts.novelai_models import get_image_model_info
 from ..settings.config import settings
 from novelai import AsyncNovelAI
 from novelai.types import Character, CharacterReference, GenerateImageParams, I2iParams
@@ -359,10 +360,13 @@ class NovelAIImageClient:
         # 非NSFWモード: curatedモデル（NSFWプロンプトを自動ブロック）
         if nsfw_mode:
             self.model = model or settings.novelai_model
-            self.inpaint_model = inpaint_model or settings.novelai_inpaint_model
         else:
             self.model = model or settings.novelai_curated_model
-            self.inpaint_model = inpaint_model or settings.novelai_curated_inpaint_model
+        model_info = get_image_model_info(self.model, nsfw_mode=nsfw_mode)
+        self.inpaint_model = inpaint_model or model_info.inpaint_model
+        # SDKのGenerateImageParams.modelはv4.5までのLiteral制約があるため、
+        # V5モデルでは対応するv4.5名を保持し、送信直前にreq.modelを上書きする
+        self.sdk_base_model = model_info.sdk_base_model
         self.inpaint_fallback_model = (
             inpaint_fallback_model or settings.novelai_inpaint_fallback_model
         )
@@ -524,10 +528,11 @@ class NovelAIImageClient:
             extra_negative = ", split screen, before and after, side by side, duplicate characters, mirrored panels, two people, multiple people, clone, twin, copy body, duplicate body"
 
         # モデル・アクション選択（PoC準拠）
+        # インペイントモデルも要求モデル（override優先）に追従させる
+        wire_model = model_override or self.model
+        model_info = get_image_model_info(wire_model, nsfw_mode=self.nsfw_mode)
         use_inpaint = normalized_mask is not None
-        model_to_use = (
-            self.inpaint_model if use_inpaint else model_override or self.model
-        )
+        model_to_use = model_info.inpaint_model if use_inpaint else wire_model
         if use_inpaint:
             action_to_use = self.inpaint_action
         elif i2i_params is not None:
@@ -537,6 +542,14 @@ class NovelAIImageClient:
         logger.info(
             f"[Inpaint Debug] use_inpaint={use_inpaint}, model={model_to_use}, action={action_to_use}, strength={strength}"
         )
+
+        # V5系モデルは精密参照（character reference）非対応のため防御的に破棄する
+        if character_references and model_info.is_v5:
+            logger.warning(
+                "Character references are not supported by V5 models; dropping %d references",
+                len(character_references),
+            )
+            character_references = None
 
         # Build SDK CharacterReference objects from request dicts
         sdk_char_refs: Optional[List[CharacterReference]] = None
@@ -578,9 +591,10 @@ class NovelAIImageClient:
             )
 
         # NOTE: GenerateImageParamsのmodelはSDKのリテラル制約に合わせてベースモデルを入れる
+        # （V5モデル名はLiteral非対応のため、送信直前のreq.model上書きで差し替える）
         params = GenerateImageParams(
             prompt=self._format_prompt(prompt, multiple_people=multiple_people),
-            model=self.model,
+            model=model_info.sdk_base_model,
             size=size_override or self.size,
             steps=self.steps,
             scale=self.scale,
@@ -651,6 +665,7 @@ class NovelAIImageClient:
         negative_prompt_override: Optional[str] = None,
         seed: Optional[int] = None,
         include_people: bool = False,
+        model_override: Optional[str] = None,
     ) -> ImageGenerationResult:
         """Background / scenery txt2img generation (US2)
 
@@ -660,11 +675,14 @@ class NovelAIImageClient:
             negative_prompt_override: Negative prompt override
             seed: Image generation seed
             include_people: If True, allow anonymous bystanders (block protagonist only)
+            model_override: Model name override (V5 names allowed)
 
         Returns:
             ImageGenerationResult
         """
         client = await self._get_client()
+        wire_model = model_override or self.model
+        model_info = get_image_model_info(wire_model, nsfw_mode=self.nsfw_mode)
 
         neg_prompt = negative_prompt_override or self.negative_prompt
         if include_people:
@@ -682,9 +700,10 @@ class NovelAIImageClient:
 
         actual_seed = seed if seed is not None else random.randint(0, 999999999)
 
+        # NOTE: GenerateImageParamsのmodelはSDKのリテラル制約に合わせてベースモデルを入れる
         params = GenerateImageParams(
             prompt=prompt,
-            model=self.model,
+            model=model_info.sdk_base_model,
             size=size,
             steps=self.steps,
             scale=self.scale,
@@ -701,6 +720,8 @@ class NovelAIImageClient:
             req = await async_convert_user_params_to_api_request(params, client)
             # txt2img: action="generate"
             req.action = "generate"
+            # 実際に送信するモデル名（V5名を含む）をリクエスト直前に確定する
+            req.model = wire_model
             images = await client.api_client.image.generate(req)
         except NovelAIError as e:
             logger.error("NovelAI scenery generation error: %s", e)
@@ -718,7 +739,7 @@ class NovelAIImageClient:
         return ImageGenerationResult(
             images=image_bytes_list,
             provider="novelai",
-            model=self.model,
+            model=wire_model,
             seed=actual_seed,
         )
 
@@ -734,8 +755,8 @@ class ImageGenerationService:
         self._default_provider: ProviderType = provider or self._resolve_provider()
         self._comfy_client: Optional[ComfyUIClient] = None
         self._openrouter_client: Optional[OpenRouterImageClient] = None
-        # nsfw_modeごとにNovelAIクライアントをキャッシュ
-        self._novelai_clients: Dict[bool, NovelAIImageClient] = {}
+        # (nsfw_mode, モデル名)ごとにNovelAIクライアントをキャッシュ
+        self._novelai_clients: Dict[Tuple[bool, str], NovelAIImageClient] = {}
 
     def _resolve_provider(self) -> ProviderType:
         """環境変数からプロバイダーを解決"""
@@ -759,17 +780,26 @@ class ImageGenerationService:
             self._openrouter_client = OpenRouterImageClient()
         return self._openrouter_client
 
-    def _get_novelai_client(self, nsfw_mode: bool = True) -> NovelAIImageClient:
-        """NovelAIクライアントを取得（遅延初期化、nsfw_modeごとにキャッシュ）
+    def _get_novelai_client(
+        self, nsfw_mode: bool = True, model: Optional[str] = None
+    ) -> NovelAIImageClient:
+        """NovelAIクライアントを取得（遅延初期化、(nsfw_mode, モデル名)ごとにキャッシュ）
 
         Args:
             nsfw_mode: NSFWモード
-                - True: nai-diffusion-4-5-full/inpainting を使用
-                - False: nai-diffusion-4-5-curated/inpainting を使用（NSFWプロンプトを自動ブロック）
+                - True: full 系モデルを使用
+                - False: curated 系モデルを使用（NSFWプロンプトを自動ブロック）
+            model: モデル名の明示指定（省略時は nsfw_mode に応じた env 既定）
         """
-        if nsfw_mode not in self._novelai_clients:
-            self._novelai_clients[nsfw_mode] = NovelAIImageClient(nsfw_mode=nsfw_mode)
-        return self._novelai_clients[nsfw_mode]
+        resolved_model = model or (
+            settings.novelai_model if nsfw_mode else settings.novelai_curated_model
+        )
+        cache_key = (nsfw_mode, resolved_model)
+        if cache_key not in self._novelai_clients:
+            self._novelai_clients[cache_key] = NovelAIImageClient(
+                nsfw_mode=nsfw_mode, model=resolved_model
+            )
+        return self._novelai_clients[cache_key]
 
     async def generate_image(
         self,
@@ -823,15 +853,22 @@ class ImageGenerationService:
                 )
         if provider == "novelai":
             effective_nsfw_mode = nsfw_mode
-            if novelai_model_override == settings.novelai_model:
-                effective_nsfw_mode = True
-            elif novelai_model_override == settings.novelai_curated_model:
-                effective_nsfw_mode = False
-            client = self._get_novelai_client(nsfw_mode=effective_nsfw_mode)
+            if novelai_model_override:
+                # モデル名の系統（full/curated）から nsfw_mode を再導出する
+                override_info = get_image_model_info(
+                    novelai_model_override, nsfw_mode=nsfw_mode
+                )
+                effective_nsfw_mode = override_info.family == "full"
+            client = self._get_novelai_client(
+                nsfw_mode=effective_nsfw_mode, model=novelai_model_override
+            )
+            wire_model = novelai_model_override or client.model
             effective_model = (
-                client.inpaint_model
+                get_image_model_info(
+                    wire_model, nsfw_mode=effective_nsfw_mode
+                ).inpaint_model
                 if mask_bytes
-                else novelai_model_override or client.model
+                else wire_model
             )
             async with model_execution_gate.hold("image", provider, effective_model):
                 return await client.generate(
@@ -884,6 +921,7 @@ class ImageGenerationService:
         seed: Optional[int] = None,
         characters: Optional[List[Dict[str, Any]]] = None,
         size_override: Optional[str] = None,
+        novelai_model_override: Optional[str] = None,
         **comfy_kwargs: Any,
     ) -> ImageGenerationResult:
         """画像を編集する
@@ -914,6 +952,7 @@ class ImageGenerationService:
             seed=seed,
             characters=characters,
             size_override=size_override,
+            novelai_model_override=novelai_model_override,
             **comfy_kwargs,
         )
 
@@ -926,6 +965,7 @@ class ImageGenerationService:
         nsfw_mode: bool = True,
         include_people: bool = False,
         provider_override: Optional[ProviderType] = None,
+        novelai_model_override: Optional[str] = None,
     ) -> ImageGenerationResult:
         """Generate background / scenery image (NovelAI txt2img, US2)
 
@@ -950,14 +990,18 @@ class ImageGenerationService:
                 "Scenery generation is only supported with NovelAI provider"
             )
 
-        client = self._get_novelai_client(nsfw_mode=nsfw_mode)
-        async with model_execution_gate.hold("image", "novelai", client.model):
+        client = self._get_novelai_client(
+            nsfw_mode=nsfw_mode, model=novelai_model_override
+        )
+        wire_model = novelai_model_override or client.model
+        async with model_execution_gate.hold("image", "novelai", wire_model):
             return await client.generate_scenery(
                 prompt=prompt,
                 size=size,
                 negative_prompt_override=negative_prompt,
                 seed=seed,
                 include_people=include_people,
+                model_override=novelai_model_override,
             )
 
     async def health_check(self) -> Dict[str, bool]:

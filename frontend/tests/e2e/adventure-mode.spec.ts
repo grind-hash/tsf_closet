@@ -109,7 +109,10 @@ async function mockAdventureApis(
   page: Page,
   savedRuns: ReturnType<typeof runPayload>[] = [],
 ) {
-  const state = { createBodies: [] as Record<string, unknown>[] };
+  const state = {
+    createBodies: [] as Record<string, unknown>[],
+    setupBodies: [] as Record<string, unknown>[],
+  };
   let turnCount = 0;
   let authoredRunCreated = false;
   await page.route("**/api/mock-scene.png", async (route) => {
@@ -163,7 +166,8 @@ async function mockAdventureApis(
     });
   });
   await page.route("**/api/adventure/setup/generate", async (route) => {
-    const request = route.request().postDataJSON() as { preset: string };
+    const request = route.request().postDataJSON() as Record<string, unknown>;
+    state.setupBodies.push(request);
     // 潜入は選択肢から外れたため、テストは「なりすまし・着替え」で生成する
     expect(request.preset).toBe("disguise");
     await route.fulfill({
@@ -611,6 +615,68 @@ test("saved adventures remain reachable in a short mobile viewport", async ({
   await expect(lastRun).toBeVisible();
 });
 
+test("generate setup sends the typed draft fields", async ({ page }) => {
+  await enableAdventure(page);
+  const state = await mockAdventureApis(page);
+  await page.goto("/adventure");
+  await page.getByRole("button", { name: /^なりすまし・着替え/ }).click();
+  // 折りたたみを開いてから下書きを入力する
+  await page.getByText("舞台・ゴール・制約を直接入力する").click();
+  await page.getByLabel("舞台").fill("夜の港町");
+  await page.getByLabel("制約").fill("警備が厳しい\n\n身分証を持っていない");
+  await page.getByRole("button", { name: "ミッション案を自動生成" }).click();
+  await expect(page.getByLabel("舞台")).toHaveValue("企業主催の仮面舞踏会");
+
+  expect(state.setupBodies).toHaveLength(1);
+  expect(state.setupBodies[0]).toMatchObject({
+    scenario_setting: "夜の港町",
+    scenario_constraints: ["警備が厳しい", "身分証を持っていない"],
+  });
+  // 空欄の項目はキー自体を送らない
+  expect(state.setupBodies[0]).not.toHaveProperty("scenario_objective");
+});
+
+test("hub offers to resume the last played run above the setup", async ({
+  page,
+}) => {
+  await enableAdventure(page);
+  await page.addInitScript(() => {
+    window.localStorage.setItem("adventure_last_run_id", "run-1");
+  });
+  await mockAdventureApis(page, [runPayload()]);
+  await page.goto("/adventure");
+
+  const banner = page.locator(".adventure-continue");
+  await expect(banner).toBeVisible();
+  await expect(banner).toContainText("中断したシナリオを再開");
+  await expect(banner).toContainText(runPayload().title);
+  // バナーは削除ボタンを持たない
+  await expect(banner.getByRole("button", { name: "削除" })).toHaveCount(0);
+  // サイドメニューにも直前のシナリオへの導線が出る
+  await expect(
+    page.getByRole("button", { name: "直前のシナリオへ" }),
+  ).toBeVisible();
+
+  await banner.getByRole("button", { name: "再開" }).click();
+  await expect(page).toHaveURL(/\/adventure\/run-1$/);
+});
+
+test("hub hides the resume banner when the last run is finished", async ({
+  page,
+}) => {
+  await enableAdventure(page);
+  await page.addInitScript(() => {
+    window.localStorage.setItem("adventure_last_run_id", "run-1");
+  });
+  await mockAdventureApis(page, [{ ...runPayload(), status: "success" }]);
+  await page.goto("/adventure");
+
+  await expect(
+    page.getByRole("heading", { name: "TSFシナリオ" }),
+  ).toBeVisible();
+  await expect(page.locator(".adventure-continue")).toHaveCount(0);
+});
+
 test("manual image regeneration shows a stage loading indicator", async ({
   page,
 }) => {
@@ -798,4 +864,38 @@ test("finished run shows the result overlay", async ({ page }) => {
   await expect(
     page.getByRole("dialog", { name: "これまでの物語" }),
   ).toBeVisible();
+});
+
+test("too many constraints block start and generation with a reason", async ({
+  page,
+}) => {
+  await enableAdventure(page);
+  await mockAdventureApis(page);
+  await page.goto("/adventure");
+  await page.getByRole("button", { name: /^なりすまし・着替え/ }).click();
+  await page.getByText("舞台・ゴール・制約を直接入力する").click();
+  await page.getByLabel("ゴール").fill("仮面舞踏会で招待状の差出人を特定する");
+  const lines = Array.from({ length: 21 }, (_, index) => `制約${index + 1}`);
+  await page.getByLabel("制約").fill(lines.join("\n"));
+
+  // 理由は入力欄のヒントと開始ボタンの status の両方に出る
+  await expect(
+    page.locator(".adventure-setup-constraints__hint--over"),
+  ).toHaveText("制約は最大20件です（現在21件）");
+  await expect(page.getByRole("status")).toHaveText(
+    "制約は最大20件です（現在21件）",
+  );
+  await expect(
+    page.getByRole("button", { name: "シナリオを開始" }),
+  ).toBeDisabled();
+  await expect(
+    page.getByRole("button", { name: "ミッション案を自動生成" }),
+  ).toBeDisabled();
+
+  // 上限内に減らせば再び開始できる
+  await page.getByLabel("制約").fill(lines.slice(0, 20).join("\n"));
+  await expect(page.getByText("制約 20/20件")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "シナリオを開始" }),
+  ).toBeEnabled();
 });

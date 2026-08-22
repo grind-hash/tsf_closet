@@ -46,8 +46,14 @@ export default function ChatInput({
   imageProvider,
 }: ChatInputProps) {
   const { t, i18n } = useTranslation();
-  const { state, setInputText, setInstructionType, attachImage, clearInput } =
-    useChat();
+  const {
+    state,
+    setInputText,
+    setInstructionType,
+    setImageOnlyTextToImage,
+    attachImage,
+    clearInput,
+  } = useChat();
   const { state: gameState } = useGame();
   const { state: settingsState } = useSettings();
   const { showNotification } = useNotification();
@@ -137,6 +143,17 @@ export default function ChatInput({
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, 240)}px`;
   }, [state.inputText]);
+
+  // 画像のみモード専用: 前画像を使わない text-to-image トグルの状態
+  const isImageOnly = state.instructionType === "image_only";
+  const textToImageUnavailable = imageProvider === "selfhost";
+  const textToImageDisabled =
+    disabled || !isImageOnly || textToImageUnavailable;
+  const textToImageTitle = textToImageUnavailable
+    ? t("chat.input.imageOnlyTextToImageSelfhostHint")
+    : !isImageOnly
+      ? t("chat.input.imageOnlyTextToImageDisabledHint")
+      : t("chat.input.imageOnlyTextToImageHint");
 
   // 送信ハンドラ
   const handleSubmit = (e: FormEvent) => {
@@ -279,6 +296,26 @@ export default function ChatInput({
             }
           >
             {t("chat.input.sendMemoryLabel")}
+          </span>
+        </label>
+        <label className="chat-input__switch" title={textToImageTitle}>
+          <input
+            type="checkbox"
+            className="chat-input__switch-input"
+            checked={state.imageOnlyTextToImage}
+            disabled={textToImageDisabled}
+            onChange={(e) => setImageOnlyTextToImage(e.target.checked)}
+            aria-label={t("chat.input.imageOnlyTextToImageLabel")}
+          />
+          <span className="chat-input__switch-track" aria-hidden="true" />
+          <span
+            className={
+              textToImageDisabled
+                ? "chat-input__switch-text chat-input__switch-text--disabled"
+                : "chat-input__switch-text"
+            }
+          >
+            {t("chat.input.imageOnlyTextToImageLabel")}
           </span>
         </label>
         <button

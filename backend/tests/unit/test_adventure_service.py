@@ -1101,6 +1101,144 @@ def test_romance_setup_prompt_no_longer_suggests_rivals() -> None:
     assert "romantic complications" in prompt
 
 
+def _mock_setup_generation(monkeypatch, tmp_path, service: AdventureService):
+    generated = AsyncMock(
+        return_value=SimpleNamespace(
+            content=__import__("json").dumps(
+                {
+                    "setting": "夜霧に沈む港町の倉庫街",
+                    "objective": "10手以内に第3倉庫から密輸台帳を持ち出し桟橋へ出る",
+                    "constraints": ["警備が厳しい", "身分証を持っていない"],
+                },
+                ensure_ascii=False,
+            )
+        )
+    )
+    monkeypatch.setattr(
+        service,
+        "_build_snapshot",
+        AsyncMock(
+            return_value=(
+                {"attributes": ["変身後の姿"], "character_name": "水瀬ユウヤ"},
+                tmp_path / "source.png",
+                "変身後の姿",
+                False,
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.session_store.get_user_settings",
+        AsyncMock(return_value={"language": "ja", "novelai_text_model": "glm-4-6"}),
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.llm_service.generate_text", generated
+    )
+    return generated
+
+
+@pytest.mark.asyncio
+async def test_generate_setup_forwards_user_draft(monkeypatch, tmp_path) -> None:
+    """入力済みの舞台・制約を下書きとして user prompt と system prompt に反映する。"""
+    service = AdventureService()
+    generated = _mock_setup_generation(monkeypatch, tmp_path, service)
+
+    await service.generate_setup(
+        source_session_id="session-1",
+        source_history_id=None,
+        preset="escape",
+        draft_setting="  夜の港町 ",
+        draft_objective="",
+        draft_constraints=["警備が厳しい", "", "  "],
+    )
+
+    system_prompt = generated.await_args.args[0]
+    prompt = __import__("json").loads(generated.await_args.args[1])
+    # 空の項目は下書きに含めず、前後の空白は落とす
+    assert prompt["user_draft"] == {
+        "setting": "夜の港町",
+        "constraints": ["警備が厳しい"],
+    }
+    assert "user_draft contains the author's own draft" in system_prompt
+    # romance 専用の名前維持の指示は非 romance には付けない
+    assert "use that name instead of inventing one" not in system_prompt
+
+
+@pytest.mark.asyncio
+async def test_generate_setup_omits_user_draft_when_empty(
+    monkeypatch, tmp_path
+) -> None:
+    """下書きが全て空なら従来どおり user_draft キーも下書き指示も出さない。"""
+    service = AdventureService()
+    generated = _mock_setup_generation(monkeypatch, tmp_path, service)
+
+    await service.generate_setup(
+        source_session_id="session-1",
+        source_history_id=None,
+        preset="escape",
+        draft_setting="   ",
+        draft_objective="",
+        draft_constraints=["", "  "],
+    )
+
+    system_prompt = generated.await_args.args[0]
+    prompt = __import__("json").loads(generated.await_args.args[1])
+    assert "user_draft" not in prompt
+    assert "user_draft contains the author's own draft" not in system_prompt
+
+
+def test_romance_setup_prompt_keeps_draft_partner_name() -> None:
+    """romance は下書きに相手の名前があれば新しい名前を発明せずそれを使う。"""
+    service = AdventureService()
+    with_draft = service._setup_system_prompt(
+        "ja", preset="romance", draft={"objective": "7日以内に小鳥遊ミオと付き合う"}
+    )
+    assert "user_draft contains the author's own draft" in with_draft
+    assert "use that name instead of inventing one" in with_draft
+    without_draft = service._setup_system_prompt("ja", preset="romance")
+    assert "use that name instead of inventing one" not in without_draft
+
+
+def test_scenario_constraints_accept_up_to_the_shared_limit() -> None:
+    """制約は 1 行 1 件で多数入力されるため、作成・生成リクエストと LLM 出力の
+    上限件数を共通定数に揃え、詳細なキャラクター設定(十数件)でも 422 にしない。"""
+    from pydantic import ValidationError as PydanticValidationError
+
+    from gateway.consts.adventure_setup import SCENARIO_CONSTRAINTS_MAX_ITEMS
+    from gateway.routes.adventure_router import (
+        AdventureCreateRequest,
+        AdventureSetupGenerateRequest,
+    )
+    from gateway.services.adventure_service import AdventureSetupOutput
+
+    assert SCENARIO_CONSTRAINTS_MAX_ITEMS >= 14
+    many = [f"制約{i}" for i in range(SCENARIO_CONSTRAINTS_MAX_ITEMS)]
+    too_many = [*many, "超過"]
+
+    created = AdventureCreateRequest(
+        source_session_id="session-1", preset="romance", scenario_constraints=many
+    )
+    assert len(created.scenario_constraints) == SCENARIO_CONSTRAINTS_MAX_ITEMS
+    generated = AdventureSetupGenerateRequest(
+        source_session_id="session-1", preset="romance", scenario_constraints=many
+    )
+    assert len(generated.scenario_constraints) == SCENARIO_CONSTRAINTS_MAX_ITEMS
+    output = AdventureSetupOutput(setting="舞台", objective="ゴール", constraints=many)
+    assert len(output.constraints) == SCENARIO_CONSTRAINTS_MAX_ITEMS
+
+    with pytest.raises(PydanticValidationError):
+        AdventureCreateRequest(
+            source_session_id="session-1",
+            preset="romance",
+            scenario_constraints=too_many,
+        )
+    with pytest.raises(PydanticValidationError):
+        AdventureSetupGenerateRequest(
+            source_session_id="session-1",
+            preset="romance",
+            scenario_constraints=too_many,
+        )
+
+
 def test_equipment_image_tags_include_worn_dress() -> None:
     from gateway.services.adventure_service import _equipment_image_tags
 
@@ -3773,6 +3911,10 @@ async def test_generate_background_image_persists_path_once(
     monkeypatch.setattr(
         "gateway.services.adventure_service.image_service.generate_scenery",
         generate_scenery,
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.session_store.get_user_settings",
+        AsyncMock(return_value={}),
     )
     monkeypatch.setattr(
         "gateway.services.adventure_service.async_session_factory", FakeDatabase

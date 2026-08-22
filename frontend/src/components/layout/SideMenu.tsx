@@ -10,13 +10,20 @@
  * - 設定
  */
 
+import { useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useChat } from "../../contexts/ChatContext";
 import { useGame } from "../../contexts/GameContext";
 import { useSettings } from "../../contexts/SettingsContext";
 import { getGameSessionPath, ROUTES } from "../../routes";
+import {
+  readLastAdventureRunId,
+  subscribeLastAdventureRunId,
+} from "../../utils/adventureLastRun";
 import "./SideMenu.css";
+
+const getServerLastAdventureRunId = (): string | null => null;
 
 interface MenuItem {
   id: string;
@@ -110,6 +117,14 @@ export default function SideMenu() {
   // プレイ中のゲームがあるかどうか
   const hasActiveGame = gameState.isActive && gameState.sessionId;
 
+  // 直前に開いた TSFシナリオ(Adventure run)。AdventureProvider は /adventure 配下に
+  // しか無いため Context ではなく localStorage の購読で取得する
+  const lastAdventureRunId = useSyncExternalStore(
+    subscribeLastAdventureRunId,
+    readLastAdventureRunId,
+    getServerLastAdventureRunId,
+  );
+
   const handleMenuClick = (path: string, menuId: string) => {
     // 新規プレイの場合はセッションとチャット履歴をクリアしてからナビゲート
     if (menuId === "new-game") {
@@ -186,6 +201,24 @@ export default function SideMenu() {
                 </span>
                 <span className="side-menu__label">
                   {t("menu.goActiveGame")}
+                </span>
+              </button>
+            )}
+            {/* TSFシナリオの下に直前に開いたシナリオへの導線を表示 */}
+            {item.id === "adventure" && lastAdventureRunId && (
+              <button
+                type="button"
+                className="side-menu__item side-menu__item--sub"
+                onClick={() =>
+                  navigate(`${ROUTES.ADVENTURE}/${lastAdventureRunId}`)
+                }
+                title={t("menu.goLastAdventure")}
+              >
+                <span className="side-menu__icon" aria-hidden="true">
+                  ▶️
+                </span>
+                <span className="side-menu__label">
+                  {t("menu.goLastAdventure")}
                 </span>
               </button>
             )}

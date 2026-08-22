@@ -98,6 +98,8 @@ class SettingsService:
             "gender_congruence_llm_enabled": False,
             "language": DEFAULT_LANGUAGE,
             "novelai_text_model": "glm-4-6",
+            "novelai_image_model": "nai-diffusion-4-5-full",
+            "novelai_curated_image_model": "nai-diffusion-4-5-curated",
             "tts_enabled": False,
             "tts_use_gpu": False,
             "tts_engine_dir": None,
@@ -121,6 +123,12 @@ class SettingsService:
             ),
             "language": normalize_language(user.language),
             "novelai_text_model": user.novelai_text_model or "glm-4-6",
+            "novelai_image_model": getattr(user, "novelai_image_model", None)
+            or "nai-diffusion-4-5-full",
+            "novelai_curated_image_model": getattr(
+                user, "novelai_curated_image_model", None
+            )
+            or "nai-diffusion-4-5-curated",
             "tts_enabled": bool(user.tts_enabled),
             "tts_use_gpu": bool(user.tts_use_gpu),
             "tts_engine_dir": user.tts_engine_dir,
@@ -158,6 +166,8 @@ class SettingsService:
         gender_congruence_llm_enabled: bool | None = None,
         language: str | None = None,
         novelai_text_model: str | None = None,
+        novelai_image_model: str | None = None,
+        novelai_curated_image_model: str | None = None,
         tts_enabled: bool | None = None,
         tts_use_gpu: bool | None = None,
         tts_engine_dir: str | None = None,
@@ -176,6 +186,8 @@ class SettingsService:
                 gender_congruence_llm_enabled,
                 language,
                 novelai_text_model,
+                novelai_image_model,
+                novelai_curated_image_model,
                 tts_enabled,
                 tts_use_gpu,
                 tts_engine_dir,
@@ -233,6 +245,10 @@ class SettingsService:
                 user.language = normalize_language(language)
             if novelai_text_model is not None:
                 user.novelai_text_model = novelai_text_model
+            if novelai_image_model is not None:
+                user.novelai_image_model = novelai_image_model
+            if novelai_curated_image_model is not None:
+                user.novelai_curated_image_model = novelai_curated_image_model
             if tts_enabled is not None:
                 user.tts_enabled = 1 if tts_enabled else 0
             if tts_use_gpu is not None:

@@ -174,6 +174,75 @@
   opacity: 0.6;
 }
 
+/* 画像のみモード専用: 前画像を使わない（text-to-image）トグルスイッチ
+   （設定画面の toggle と同じ「隠し checkbox + track + ::after つまみ」構造のコンパクト版） */
+.chat-input__switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+  color: var(--text-muted, #888);
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+}
+
+.chat-input__switch:has(.chat-input__switch-input:disabled) {
+  cursor: not-allowed;
+}
+
+.chat-input__switch-input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  margin: 0;
+}
+
+.chat-input__switch-track {
+  position: relative;
+  flex-shrink: 0;
+  width: 30px;
+  height: 16px;
+  border-radius: 999px;
+  background-color: var(--border-color, #333);
+  transition: background-color 0.2s;
+}
+
+.chat-input__switch-track::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background-color: var(--text-color, #eee);
+  transition: transform 0.2s;
+}
+
+.chat-input__switch-input:checked + .chat-input__switch-track {
+  background-color: var(--accent-color, #e94560);
+}
+
+.chat-input__switch-input:checked + .chat-input__switch-track::after {
+  transform: translateX(14px);
+}
+
+.chat-input__switch-input:focus-visible + .chat-input__switch-track {
+  outline: 2px solid var(--accent-color, #e94560);
+  outline-offset: 2px;
+}
+
+.chat-input__switch-input:disabled + .chat-input__switch-track {
+  opacity: 0.5;
+}
+
+.chat-input__switch-text--disabled {
+  opacity: 0.6;
+}
+
 /* 過去メッセージから生成: ボタン（ツールバー内、アイコン+ラベル表示） */
 .chat-input__suggest-btn {
   display: inline-flex;
@@ -255,6 +324,10 @@
 
   /* ツールバーを圧迫しないよう、メモリチェックのラベルテキストと生成ボタンのラベルを非表示にする */
   .chat-input__memory-toggle span {
+    display: none;
+  }
+
+  .chat-input__switch-text {
     display: none;
   }
 

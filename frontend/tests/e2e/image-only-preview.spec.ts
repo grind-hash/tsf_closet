@@ -280,3 +280,68 @@ test("画像のみ送信はimage_onlyを送り空の応答メッセージを作�
     "夕焼けの海辺へ移動する",
   );
 });
+
+async function mockNovelaiProvider(page: Page) {
+  // SettingsContext は /health の image_provider からプロバイダーを決める。
+  // 既定(selfhost)では「前画像を使わない」トグルが無効になるため novelai に固定する。
+  await page.route("**/health", async (route) => {
+    await route.fulfill({
+      status: 200,
+      json: {
+        status: "ok",
+        image_provider: "novelai",
+        image_description_provider: "novelai",
+        feeling_provider: "novelai",
+      },
+    });
+  });
+}
+
+test("画像のみで「前画像を使わない」をONにするとimage_only_text_to_imageを送る", async ({
+  page,
+}) => {
+  await mockNovelaiProvider(page);
+  await mockPlaySession(page);
+  await page.goto(`/play/${sessionId}`);
+
+  const toggleInput = page.locator(".chat-input__switch-input");
+  // 既定の着せ替えモードでは無効
+  await expect(toggleInput).toBeDisabled();
+
+  await page.locator(".chat-input__type-select").selectOption("image_only");
+  await expect(toggleInput).toBeEnabled();
+  await page.locator(".chat-input__switch").click();
+  await expect(toggleInput).toBeChecked();
+
+  const requestPromise = page.waitForRequest("**/api/game/play/stream");
+  await page
+    .locator(".chat-input__textarea")
+    .fill("銀髪の魔女風のキャラクターを描く");
+  await page.locator(".chat-input__send-btn").click();
+
+  const request = await requestPromise;
+  expect(request.postDataJSON()).toMatchObject({
+    instruction: "銀髪の魔女風のキャラクターを描く",
+    instruction_type: "image_only",
+    image_only_text_to_image: true,
+  });
+});
+
+test("「前画像を使わない」がOFFのままならimage_only_text_to_imageを送らない", async ({
+  page,
+}) => {
+  await mockNovelaiProvider(page);
+  await mockPlaySession(page);
+  await page.goto(`/play/${sessionId}`);
+
+  await page.locator(".chat-input__type-select").selectOption("image_only");
+  await expect(page.locator(".chat-input__switch-input")).not.toBeChecked();
+
+  const requestPromise = page.waitForRequest("**/api/game/play/stream");
+  await page.locator(".chat-input__textarea").fill("夕焼けの海辺へ移動する");
+  await page.locator(".chat-input__send-btn").click();
+
+  const body = (await requestPromise).postDataJSON();
+  expect(body.instruction_type).toBe("image_only");
+  expect(body.image_only_text_to_image).toBeUndefined();
+});

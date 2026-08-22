@@ -641,3 +641,15 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* NovelAI V5: 精密参照の無効化ブロック */
+.right-panel__disabled-block {
+  opacity: 0.45;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* NovelAI V5: 利用上限バーの配置 */
+.right-panel__usage-bar {
+  margin-top: 0.5rem;
+}

@@ -34,15 +34,17 @@ useSSE → useGameSSE
 
 ## 指示タイプ別の境界
 
-| 指示タイプ | 主な副作用 |
-| --- | --- |
-| `dress_up` | 画像、心境、stats、履歴、タグ、実績、人物外見 |
-| `reality_alter` | 画像、心境、stats、履歴、属性、実績、人物外見 |
-| `action` | 画像、心境、stats、履歴。設定時は情景画像も生成 |
-| `conversation` | 会話を保存し、画像生成を行わない |
-| `image_only` | 画像と画像履歴だけを保存。心境、stats、実績、人物状態を更新しない |
+| 指示タイプ      | 主な副作用                                                        |
+| --------------- | ----------------------------------------------------------------- |
+| `dress_up`      | 画像、心境、stats、履歴、タグ、実績、人物外見                     |
+| `reality_alter` | 画像、心境、stats、履歴、属性、実績、人物外見                     |
+| `action`        | 画像、心境、stats、履歴。設定時は情景画像も生成                   |
+| `conversation`  | 会話を保存し、画像生成を行わない                                  |
+| `image_only`    | 画像と画像履歴だけを保存。心境、stats、実績、人物状態を更新しない |
 
 `image_only` は失敗時にHistoryを残さない。保存する場合は指示、画像、空の心境、seed、画像状態記述を保持する。
+
+`image_only` には「前画像を使わない（i2iなし）」オプションがある。FE は `ChatContext.imageOnlyTextToImage`（永続化しない）をチャット入力ツールバーのトグルスイッチ `chat-input__switch` で切り替え、`image_only` 以外・selfhost のときは disabled + title で理由を出す（隠さない）。送信時は `transformOptions.imageOnlyTextToImage` → `App.handleTransform` が `image_only_text_to_image=true` を付ける（確認ダイアログ経由の再送・プロンプト上書き送信も同じ経路）。BE は `play_with_stream(image_only_text_to_image=...)` を `image_only` 分岐内だけで読み、前画像の i2i・Vision 説明・`after_description` の継承・`WORN_UNDER_LAYERS` 継承・直前履歴由来の主人公タグ・マスクを使わず `_generate_image(None, ...)` → `image_service.generate_image(image_bytes=None)` で新規生成する（メモリ・プレイメモ・セッション属性・登場人物パネル・seed・ネガティブ・プロンプト上書き・精密参照は従来どおり）。プロンプトは `image_only_prompts.py` の `get_image_only_generate_system_prompt` / `build_image_only_generate_prompt`（非 Opus）と `IMAGE_ONLY_TEXT_TO_IMAGE_RULE`（Opus、`extra_system_suffix` 末尾）を使い、History の `before_description` は空で保存する。selfhost(ComfyUI) は text-to-image 不可のため LLM 呼び出し前に `GameServiceError` で拒否する。
 
 ## プロンプトとメモリ
 
@@ -59,19 +61,23 @@ original_instruction
 
 ## 通常ゲームSSE
 
-| イベント | 主な受信処理 |
-| --- | --- |
-| `text` | 心境/応答チャンクをChat/Gameへ追加 |
-| `image` | 画像とhistory_idを確定し、セッションを同期 |
-| `surroundings_image` | `GameContext.lastSurroundingsImage` を更新 |
-| `stats` | bloom/shame/adaptationを更新 |
-| `critical` | 臨界点表示/テキストを追加 |
-| `ending` | EndingModal用状態を更新 |
-| `achievement` | 実績通知 |
-| `reality_attribute_added` | 属性を追加 |
-| `cost`、`anlas` | コスト/残高をSettingsへ反映 |
-| `complete` | 履歴ID・変身回数を確定。プレイメモ更新失敗も通知 |
-| `error` | ストリーム停止とエラー表示 |
+| イベント                  | 主な受信処理                                                                                                                       |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `text`                    | 心境/応答チャンクをChat/Gameへ追加                                                                                                 |
+| `image`                   | 画像とhistory_idを確定し、セッションを同期                                                                                         |
+| `surroundings_image`      | `GameContext.lastSurroundingsImage` を更新                                                                                         |
+| `stats`                   | bloom/shame/adaptationを更新                                                                                                       |
+| `critical`                | 臨界点表示/テキストを追加                                                                                                          |
+| `ending`                  | EndingModal用状態を更新                                                                                                            |
+| `achievement`             | 実績通知                                                                                                                           |
+| `reality_attribute_added` | 属性を追加                                                                                                                         |
+| `cost`、`anlas`           | コスト/残高をSettingsへ反映。`anlas` にはV5利用上限 `usage` も同梱（`anlas_service` が `/user/subscription` から残高と併せて取得） |
+| `complete`                | 履歴ID・変身回数を確定。プレイメモ更新失敗も通知                                                                                   |
+| `error`                   | ストリーム停止とエラー表示                                                                                                         |
+
+## NovelAI 画像モデル選択（V4.5/V5）
+
+ユーザー設定 `novelai_image_model`（NSFW用）/ `novelai_curated_image_model`（非NSFW用）を、呼び出し側（game_service / adventure_service）が `consts/novelai_models.py` の `resolve_user_image_model(user_settings, nsfw_mode)` で解決し、`novelai_model_override` として `image_service` に配管する。インペイントモデル・SDK Literal 用ベースモデル・V5 判定は同 consts が唯一の情報源（V5 Curated のインペイントは NovelAI 本家に合わせ `nai-diffusion-4-5-curated-inpainting`）。SDK の `GenerateImageParams.model` は v4.5 までの Literal のため、V5 名は送信直前の `req.model` 上書きで差し替える。V5 では精密参照（character reference）が使えず、FE（`isNovelaiV5Active` で UI 無効化・不送信）と BE（各構築箇所＋クライアント内の防御的破棄）の両方で落とす。Adventure の立ち絵は V4.5=白背景生成＋FE透過処理、V5=プロンプト `transparent background` でネイティブ透過（`imageAlpha.ts` は既に透過を持つ画像を素通しするため混在履歴も安全）。V5 利用上限（`usage.percent`）は生成毎に減り、使い切り後の生成は Anlas を消費するため、両モード（GamePlayScreen / AdventureContext.submitTurn）で生成前に抑止チェック付き確認ダイアログを挟む（sessionStorage `v5_usage_warn_suppressed`）。上限バーは通常ゲーム HUD（Anlas 左隣）・設定パネル・設定画面に加え、Adventure のプレイ HUD にも置く（romance は `HudTile` の `gaugeRatio`、非 romance は `adventure-hud__usage`。Anlas 表示自体も V5 実効時は精密参照 OFF でも表示し、バッジを V5 に切り替える）。精密参照の Anlas 確認ダイアログを検証する E2E は、実 DB のモデル選択に結果が左右されないよう `/api/settings/user` の GET をモックして V4.5 に固定すること（`mockV45ImageModels`）。
 
 ## メッセージと履歴ID
 
@@ -147,6 +153,10 @@ API料金は `_CostTracker`（ContextVar `_cost_tracker`。create_task がコン
 
 自動生成タイプのターン数は `scenario_max_turns` として `POST /adventure/setup/generate` と `POST /adventure/runs` の両方へ送り、`AdventureRun.max_turns` に保存する。境界値は `gateway/consts/adventure_turns.py` が唯一の情報源で、既定15手・5〜30手。作品シナリオはテンプレJSON、リプレイは元runの値を引き継ぐため、この項目は自動生成分岐だけに効く。`_setup_system_prompt` の英文と開始シーンのディレクタープロンプトにも同じ手数を渡し、生成されるゴール文面の尺と一致させる。
 
+ミッション案の自動生成は、ユーザーが入力済みの舞台・ゴール・制約を `POST /adventure/setup/generate` の `scenario_setting` / `scenario_objective` / `scenario_constraints`（空の項目はキーを送らない）として受け取り、`_build_setup_user_draft` が非空項目だけの `user_draft` を user prompt に載せ、`_setup_system_prompt(..., draft=...)` が `_SETUP_DRAFT_GUIDANCE`（意味・固有名詞・条件を保ち、文言の仕上げと空欄の補完だけを許す。romance は下書きに相手の名前があれば 新しい名前を発明しない）を付ける。下書きが全て空なら従来どおり `user_draft` も指示も出さない。FE は応答で3項目を上書きする（従来どおり）。 制約の上限件数は `gateway/consts/adventure_setup.py` の `SCENARIO_CONSTRAINTS_MAX_ITEMS`（20件）が唯一の情報源で、`AdventureCreateRequest` / `AdventureSetupGenerateRequest` / LLM 出力 `AdventureSetupOutput` の3か所に同じ値を使う（かつて4件固定で、詳細なキャラクター設定を十数行書くと `POST /runs` が 422 になった）。FE は `SCENARIO_CONSTRAINTS_MAX_ITEMS` を同値で持ち、件数超過時は開始・生成ボタンを無効化して理由（`disabledReason.tooManyConstraints`）を入力欄のヒントと status の両方に出す。
+
+直前にプレイしたシナリオへの復帰導線: 最後に開いた/作成した run の ID を `utils/adventureLastRun.ts`（localStorage `adventure_last_run_id`、同一タブ通知用のカスタムイベント付き）に保存し、`AdventureContext.lastRunId` が `loadRun` 成功・`createRun` で更新、`loadRun` 失敗・`removeRun` で一致時にクリアする。Hub はヘッダー直下に `.adventure-continue` バナー（保存済み一覧と同じ `AdventureRunRow`、削除ボタン無し）を、再取得済み `runs` に該当 run があり `canActOnRun` が真のときだけ出す（終了済みは出さない）。SideMenu は AdventureProvider の外側でも描画されるため Context ではなく `useSyncExternalStore` で同ユーティリティを購読し、TSFシナリオ項目の下に「直前のシナリオへ」サブ項目を出す（ID のみ保存。削除済み run を指した場合は AdventurePlay の `loadRun` 失敗で Hub へ戻る）。Backend に `last_played_at` は持たない（`updated_at` は画像再生成でも動くため「プレイ」の指標にならない）。
+
 語りの人称は run の `state_json` に `narration_voice`（`second_person` 既定 / `third_person` / `first_person`）と `narration_pronoun` で持ち、境界値は `gateway/consts/adventure_narration.py` が唯一の情報源。`_director_system_prompt`、`_narrative_system_prompt`、`_resolution_system_prompt`、修復プロンプト、`_clothing_narrative_suffix` の5箇所へ渡す。人称指示は同意・主体性のガード文を必ず伴い、`_lean_state_for_llm` では user prompt から除外する。旧 run はキー欠落時に二人称へ倒す。
 
 セリフの口調は人称とは独立した軸で、run の `state_json` に `player_speech_style`（`polite` 既定 / `casual` / `formal` / `custom`）と `player_speech_custom`（custom 時の自由入力）を持つ。境界値は `gateway/consts/adventure_speech.py` が唯一の情報源で、プロンプト英文は `_SPEECH_STYLE_RULES` と `_SPEECH_STYLE_GUARD`（`adventure_service.py`）にある。`_speech_style_instruction` が主人公と（romance なら）攻略対象を1つの `SPEECH REGISTER:` ブロックへまとめ、`_speech_rule_from_state` が state と `state["sim"]` から組み立てる。渡すのは**物語文を書く経路だけ**（`_director_system_prompt` とその修復プロンプト、`_narrative_system_prompt`、`stream_turn` の本文生成、`preview_turn_prompts` の `narrative.system`）で、`_resolution_system_prompt` には渡さない（`choices[].label` は人称も口調も持たない中立の行動句と定めており矛盾するため。代わりに同ラベル規則へ `no speech style` を明記した）。`_visual_system_prompt` と `_clothing_narrative_suffix` も対象外。`_lean_state_for_llm` は両キーを user prompt から除外し、`_REWIND_KEEP_KEYS` には含める（口調は物語の出来事ではなく設定なので巻き戻しで戻さない）。旧 run はキー欠落時に丁寧語へ倒すため、進行中の旧 run も次の手番から丁寧語になる。変更は `POST /runs`（`player_speech_style` / `player_speech_custom` / `romance_partner_speech_style`）と `PATCH /runs/{id}/settings`（同3項目、None は据え置き）の2経路で、後者は現実改変ルールと同じく**手番を消費しない**。`_serialize_run` が主人公側2キーを配信し、攻略対象側は `public_sim_view` の `partner_speech_style` に載る。FE はセットアップの「物語の演出」に主人公・攻略対象の口調を並べて置く。プレイ中の導線は HUD チップ列の `adventure-hud__chip--speech`（`hudPanel="speechStyle"`）で、ポップオーバーに主人公と攻略対象の口調を対で出し、「口調を変更」から `AdventureSpeechStyleModal` で即時 PATCH する（ステージ上に新しい浮遊ポップオーバーは足さない）。**主人公ドックの中には置かない**: 既定で閉じている折りたたみパネルかつスクロールが必要で、入口として発見されなかった実績がある。チップの値は分類名だけを出し（`custom` の自由入力全文はポップオーバーで読める）、`max-width` で幅を抑える。HUD で伸縮するのは `.adventure-hud__title`（ゴール文）だけなので、チップを増やすとその分ゴールが縮む。`min-width: 5rem` の下限を入れて幅0まで潰れないようにしてある（省略表示は `h1 > span` の ellipsis が担当）。主人公の選択は localStorage の `adventure_setup_prefs` へ引き継ぐが、攻略対象の口調は run 固有なので保存しない。
@@ -185,13 +195,13 @@ GalleryScreen
 
 ## 主なDB書き込み
 
-| 操作 | モデル |
-| --- | --- |
+| 操作                      | モデル                                                                    |
+| ------------------------- | ------------------------------------------------------------------------- |
 | セッション開始/通常プレイ | `Session`、`SessionStats`、`History`、`Conversation`、`TransformationTag` |
-| プレイメモ | `Session.play_memory_*` |
-| 複数人物 | `SessionCharacter`、`CharacterPreset` |
-| Adventure | `AdventureRun`、`AdventureTurn` |
-| お気に入り | `FavoriteOutfit` |
-| 設定/長期メモリ | `User` |
-| 実績 | `UserAchievement`、`AchievementCount`、`AchievedEnding` |
-| 要約 | `PlaySummary` |
+| プレイメモ                | `Session.play_memory_*`                                                   |
+| 複数人物                  | `SessionCharacter`、`CharacterPreset`                                     |
+| Adventure                 | `AdventureRun`、`AdventureTurn`                                           |
+| お気に入り                | `FavoriteOutfit`                                                          |
+| 設定/長期メモリ           | `User`                                                                    |
+| 実績                      | `UserAchievement`、`AchievementCount`、`AchievedEnding`                   |
+| 要約                      | `PlaySummary`                                                             |

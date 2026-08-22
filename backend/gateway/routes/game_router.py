@@ -280,6 +280,13 @@ class PlayStreamRequest(BaseModel):
         None,
         description="履歴遡及を利用するか（未指定時は操作種別の既定値を使用）",
     )
+    image_only_text_to_image: bool = Field(
+        False,
+        description=(
+            "画像のみモードで前画像を使わず text-to-image で生成する"
+            "（image_only 以外の指示タイプでは無視）"
+        ),
+    )
 
 
 @router.post(
@@ -335,6 +342,7 @@ async def play_game_stream(request: PlayStreamRequest) -> EventSourceResponse:
             use_memory=request.use_memory,
             use_play_memory=request.use_play_memory,
             use_history_lookback=request.use_history_lookback,
+            image_only_text_to_image=request.image_only_text_to_image,
         ):
             if event.type == "complete" and request.use_play_memory:
                 from ..services.play_memory_service import play_memory_service
@@ -1930,12 +1938,21 @@ async def delete_preset_mask(mask_id: str) -> MaskListResponse:
 # ---------- Anlas balance ----------
 
 
+class AnlasUsageModel(BaseModel):
+    """NovelAI V5 usage limit model."""
+
+    percent: int
+    is_negative: bool = False
+    time_until_next_percent: int = 0
+
+
 class AnlasBalanceResponse(BaseModel):
     """Anlas balance response model."""
 
     fixed_anlas: int | None = None
     purchased_anlas: int | None = None
     total_anlas: int | None = None
+    usage: AnlasUsageModel | None = None
 
 
 @router.get(
@@ -1963,6 +1980,13 @@ async def get_anlas_balance() -> AnlasBalanceResponse:
             fixed_anlas=balance.fixed_anlas,
             purchased_anlas=balance.purchased_anlas,
             total_anlas=balance.total_anlas,
+            usage=AnlasUsageModel(
+                percent=balance.usage.percent,
+                is_negative=balance.usage.is_negative,
+                time_until_next_percent=balance.usage.time_until_next_percent,
+            )
+            if balance.usage
+            else None,
         )
     except Exception as e:
         raise HTTPException(

@@ -12,7 +12,7 @@ import re
 import shutil
 import uuid
 from collections import defaultdict
-from collections.abc import AsyncGenerator, Iterable
+from collections.abc import AsyncGenerator, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -50,6 +50,7 @@ from ..consts.adventure_romance import (
     ROMANCE_SLOTS_PER_DAY,
     ROMANCE_TALK_FALLBACK_DELTA,
 )
+from ..consts.adventure_setup import SCENARIO_CONSTRAINTS_MAX_ITEMS
 from ..consts.adventure_speech import (
     PARTNER_SPEECH_STYLE_MAX_LENGTH,
     SPEECH_CUSTOM_MAX_LENGTH,
@@ -61,6 +62,7 @@ from ..consts.adventure_turns import (
     ADVENTURE_TURNS_MAX,
     ADVENTURE_TURNS_MIN,
 )
+from ..consts.novelai_models import is_v5_image_model, resolve_user_image_model
 from ..databases.base import async_session_factory
 from ..databases.models import AdventureRun, AdventureTurn
 from ..settings.config import BASE_DIR, settings
@@ -334,6 +336,27 @@ def _clamp_to_declared_max(
     return _truncate_overlong_text(value, limit)
 
 
+def _clamp_list_to_declared_max(
+    model: type[BaseModel], value: Any, field_name: str | None
+) -> Any:
+    """フィールド宣言の max_length を超えるリストを検証エラーにせず切り詰める。
+
+    LLM 出力の件数超過だけで生成全体を失わないための保険。
+    """
+    if not isinstance(value, list) or not field_name:
+        return value
+    field = model.model_fields.get(field_name)
+    if field is None:
+        return value
+    limit = next(
+        (item.max_length for item in field.metadata if isinstance(item, MaxLen)),
+        None,
+    )
+    if limit is None or len(value) <= limit:
+        return value
+    return value[:limit]
+
+
 class AdventureChoice(BaseModel):
     id: str = Field(min_length=1, max_length=40)
     label: str = Field(min_length=1, max_length=_CHOICE_LABEL_MAX_LENGTH)
@@ -488,7 +511,16 @@ class AdventureDirectorOutput(BaseModel):
 class AdventureSetupOutput(BaseModel):
     setting: str = Field(min_length=1, max_length=600)
     objective: str = Field(min_length=1, max_length=600)
-    constraints: list[str] = Field(min_length=1, max_length=4)
+    # ユーザーの下書きに多数の制約があっても落とさず返せるよう、入力側と同じ上限にする
+    constraints: list[str] = Field(
+        min_length=1, max_length=SCENARIO_CONSTRAINTS_MAX_ITEMS
+    )
+
+    @field_validator("constraints", mode="before")
+    @classmethod
+    def clamp_overlong_list(cls, value: Any, info: ValidationInfo) -> Any:
+        # ローカルモデルは件数指示を守れないことがあるため、超過分は捨てる
+        return _clamp_list_to_declared_max(cls, value, info.field_name)
 
 
 class AdventureImagePromptOutput(BaseModel):
@@ -1355,6 +1387,40 @@ def _default_ending_title(preset: str, status: str) -> str | None:
     return titles.get(status)
 
 
+# ミッション案の自動生成でユーザーが入力済みの舞台・ゴール・制約を「著者の下書き」として
+# 扱わせる指示。意味・固有名詞・条件は保ち、文言の仕上げと空欄の補完だけを許す
+_SETUP_DRAFT_GUIDANCE = (
+    "\nuser_draft contains the author's own draft for some fields. Treat each "
+    "provided field as authoritative intent: keep its meaning and every named "
+    "place, person, item, and condition; you may polish wording and make it "
+    "consistent with the turn budget and source_snapshot, but do not replace it "
+    "with a different idea. Generate only the missing fields so they fit the draft."
+)
+# romance は「新しい名前を発明せよ」と指示しているため、下書きに名前があればそれを優先させる
+_SETUP_DRAFT_ROMANCE_GUIDANCE = (
+    " If user_draft already names the partner, use that name instead of inventing one."
+)
+
+
+def _build_setup_user_draft(
+    setting: str,
+    objective: str,
+    constraints: Sequence[str] | None,
+) -> dict[str, Any]:
+    """入力済み項目だけを集めた下書き。全て空なら空 dict を返す。"""
+    draft: dict[str, Any] = {}
+    if setting.strip():
+        draft["setting"] = setting.strip()
+    if objective.strip():
+        draft["objective"] = objective.strip()
+    cleaned_constraints = [
+        item.strip() for item in (constraints or []) if item and item.strip()
+    ]
+    if cleaned_constraints:
+        draft["constraints"] = cleaned_constraints
+    return draft
+
+
 def _romance_prompt_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
     """romance の攻略対象素材として LLM へ渡す snapshot。
 
@@ -1727,6 +1793,29 @@ def _strip_json_fence(value: str) -> str:
     return text[start : end + 1] if start >= 0 and end > start else text
 
 
+def _validate_model_json(
+    model: type[_StructuredOutputT],
+    raw: str,
+    *,
+    context: dict[str, Any] | None = None,
+) -> _StructuredOutputT:
+    """LLM 出力の JSON を検証する。制御文字だけが不正な場合は救済する。
+
+    ローカルモデルは JSON 文字列内へ生の改行を混ぜやすく、厳密パースだけでは
+    復旧可能な出力まで失うため、json.loads(strict=False) で再試行する。
+    それでも読めなければ元の検証エラーを送出し、呼び出し側のリペアへ委ねる。
+    """
+    text = _strip_json_fence(raw)
+    try:
+        return model.model_validate_json(text, context=context)
+    except ValidationError as strict_error:
+        try:
+            data = json.loads(text, strict=False)
+        except ValueError:
+            raise strict_error
+        return model.model_validate(data, context=context)
+
+
 # プレイヤーが手番中に宣言する現実改変。通常ゲームのセッション属性とは独立に、
 # Run の state へ蓄積して以降の全ターン判定へ渡す。
 # 括弧形式（通常ゲームの属性表記）はコロン省略可。素の語形はコロン必須にして、
@@ -1995,6 +2084,20 @@ _SCENE_PROMPT_SUFFIX = (
 _PLAYER_PROMPT_SUFFIX = ", main protagonist, primary focus, center foreground"
 _NPC_PROMPT_SUFFIX = ", supporting character, secondary focus, behind protagonist"
 _PORTRAIT_PROMPT_SUFFIX = ", solo, full body standing portrait, simple background, white background, no shadow"
+# V5系モデルは透過背景をネイティブ生成できるため、白背景ではなく透過を指示する
+# （フロント側の透過処理は既に透過を持つ画像を素通しする）
+_PORTRAIT_PROMPT_SUFFIX_V5 = (
+    ", solo, full body standing portrait, transparent background, no shadow"
+)
+
+
+def _portrait_prompt_suffix(image_model: str | None) -> str:
+    """立ち絵用サフィックスをモデルに応じて返す（V5のみ透過背景指示）。"""
+    return (
+        _PORTRAIT_PROMPT_SUFFIX_V5
+        if is_v5_image_model(image_model)
+        else _PORTRAIT_PROMPT_SUFFIX
+    )
 
 
 def _visual_user_payload(
@@ -2300,8 +2403,9 @@ Keep narrative under 800 characters and the entire JSON response compact. bgm se
         )
         raw = await _generate_text(system_prompt, prompt, text_model=text_model)
         try:
-            return AdventureDirectorOutput.model_validate_json(
-                _strip_json_fence(raw),
+            return _validate_model_json(
+                AdventureDirectorOutput,
+                raw,
                 context={
                     "fallback_appearance": fallback_appearance,
                     "fallback_choices": _default_director_choices(language),
@@ -2314,13 +2418,17 @@ Keep narrative under 800 characters and the entire JSON response compact. bgm se
 Return JSON only and keep the entire response under 1200 characters. Do not repeat or continue the source verbatim. Preserve only facts already present. Keep narrative under 500 characters. If the source describes an action that objectively ends the mission, preserve ending_status as failure and provide a short ending_summary. Required minimum shape: {{"narrative":"...","visual_state":{{"location":"...","appearance":"...","clothing":"..."}},"ending_status":"continue|success|partial|failure","ending_title":null,"ending_summary":null}}.
 {_narration_voice_instruction(narration_voice, narration_pronoun)}
 {speech_rule}"""
-            repair_prompt = "Invalid source output:\n\n" + raw
+            repair_prompt = (
+                f"Fix these validation errors:\n{first_error}\n\n"
+                "Invalid source output:\n\n" + raw
+            )
             repaired = await _generate_text(
                 repair_system_prompt, repair_prompt, text_model=text_model
             )
             try:
-                return AdventureDirectorOutput.model_validate_json(
-                    _strip_json_fence(repaired),
+                return _validate_model_json(
+                    AdventureDirectorOutput,
+                    repaired,
                     context={
                         "fallback_appearance": fallback_appearance,
                         "fallback_choices": _default_director_choices(language),
@@ -2428,20 +2536,19 @@ scene_tags contains only environment, camera, composition, lighting, and the obs
     ) -> _StructuredOutputT:
         raw = await _generate_text(system_prompt, user_prompt, text_model=text_model)
         try:
-            return model.model_validate_json(_strip_json_fence(raw), context=context)
+            return _validate_model_json(model, raw, context=context)
         except ValidationError as first_error:
             repaired = await _generate_text(
                 system_prompt,
                 "Repair the following output into one valid compact JSON object for "
                 "the required schema. Return JSON only and do not add new facts. "
                 "Respect every string length limit in the schema; when a value is "
-                "too long, shorten it by dropping trailing details.\n\n" + raw,
+                "too long, shorten it by dropping trailing details. "
+                f"Fix these validation errors:\n{first_error}\n\n" + raw,
                 text_model=text_model,
             )
             try:
-                return model.model_validate_json(
-                    _strip_json_fence(repaired), context=context
-                )
+                return _validate_model_json(model, repaired, context=context)
             except ValidationError as second_error:
                 logger.warning(
                     "Adventure %s validation failed: %s / %s",
@@ -2589,19 +2696,28 @@ scene_tags contains only environment, camera, composition, lighting, and the obs
         language: str,
         max_turns: int = ADVENTURE_TURNS_DEFAULT,
         preset: str = "",
+        draft: dict[str, Any] | None = None,
     ) -> str:
         response_language = "Japanese" if language == "ja" else "English"
         if preset == "romance":
             days = clamp_romance_max_turns(max_turns) // ROMANCE_SLOTS_PER_DAY
-            return f"""You design a concise setup for a {days}-day romance simulation in which the player aims to start dating one partner character.
+            prompt = f"""You design a concise setup for a {days}-day romance simulation in which the player aims to start dating one partner character.
 Return one JSON object only, in {response_language}, matching this schema:
 {{"setting":"...","objective":"...","constraints":["...","..."]}}
+The constraints array must contain between 1 and 4 items.
 The partner is the character shown in source_snapshot; keep their appearance and situation consistent with it. source_snapshot deliberately contains no name for the partner: invent a fitting new name from their appearance and situation, and use that name in the objective. Never name the partner after the player. The player is a separate person courting that partner; never treat the snapshot character as the player. The setting describes where the player and the partner cross paths in daily life. The objective must name the partner and state that the player starts dating them within {days} days. Constraints must create romantic complications such as schedules, shyness, or circumstances, without dictating the player's feelings, consent, memories, bodily sensations, or voluntary actions. Do not introduce another body transformation or assign physical traits that conflict with source_snapshot.appearance."""
+            if draft:
+                prompt += _SETUP_DRAFT_GUIDANCE + _SETUP_DRAFT_ROMANCE_GUIDANCE
+            return prompt
         turns = clamp_generated_max_turns(max_turns)
-        return f"""You design a concise setup for a {turns}-turn objective-based adventure game.
+        prompt = f"""You design a concise setup for a {turns}-turn objective-based adventure game.
 Return one JSON object only, in {response_language}, matching this schema:
 {{"setting":"...","objective":"...","constraints":["...","..."]}}
+The constraints array must contain between 1 and 4 items.
 The objective must name a concrete target and an observable end condition that can be judged as achieved or failed within {turns} turns. Scale the scope of the objective to that turn budget: a longer budget should leave room for searching for clues and scouting the surroundings, not add unrelated sub-goals. Do not use vague goals such as succeed, investigate the situation, or reach the objective. The setting, objective, and constraints must fit the selected mission preset and supplied character snapshot. Constraints must create actionable complications without dictating the player's feelings, consent, memories, bodily sensations, or voluntary actions. Do not introduce another body transformation or assign physical traits that conflict with source_snapshot.appearance. For a disguise mission, generate the transformed person's name and role while keeping the supplied appearance exactly; the player does not have that person's memories, relationships, habits, skills, credentials, passwords, or authentication information."""
+        if draft:
+            prompt += _SETUP_DRAFT_GUIDANCE
+        return prompt
 
     async def _generate_setup_output(
         self,
@@ -2611,23 +2727,24 @@ The objective must name a concrete target and an observable end condition that c
         text_model: str,
         max_turns: int = ADVENTURE_TURNS_DEFAULT,
         preset: str = "",
+        draft: dict[str, Any] | None = None,
     ) -> AdventureSetupOutput:
-        system_prompt = self._setup_system_prompt(language, max_turns, preset)
+        system_prompt = self._setup_system_prompt(language, max_turns, preset, draft)
         raw = await _generate_text(system_prompt, prompt, text_model=text_model)
         try:
-            return AdventureSetupOutput.model_validate_json(_strip_json_fence(raw))
+            return _validate_model_json(AdventureSetupOutput, raw)
         except ValidationError as first_error:
             repair_prompt = (
                 "Repair the following output into valid JSON for the required schema. "
-                "Do not add new scenario facts.\n\n" + raw
+                "Keep the same scenario and do not add new scenario facts. "
+                "Fix these validation errors:\n"
+                f"{first_error}\n\nOutput to repair:\n{raw}"
             )
             repaired = await _generate_text(
                 system_prompt, repair_prompt, text_model=text_model
             )
             try:
-                return AdventureSetupOutput.model_validate_json(
-                    _strip_json_fence(repaired)
-                )
+                return _validate_model_json(AdventureSetupOutput, repaired)
             except ValidationError as second_error:
                 logger.warning(
                     "Adventure setup JSON validation failed: %s / %s",
@@ -2646,6 +2763,9 @@ The objective must name a concrete target and an observable end condition that c
         source_history_id: str | None,
         preset: str,
         max_turns: int = ADVENTURE_TURNS_DEFAULT,
+        draft_setting: str = "",
+        draft_objective: str = "",
+        draft_constraints: Sequence[str] | None = None,
     ) -> dict[str, Any]:
         preset_config = PRESETS.get(preset)
         if preset_config is None:
@@ -2654,6 +2774,11 @@ The objective must name a concrete target and an observable end condition that c
             clamp_romance_max_turns(max_turns)
             if preset == "romance"
             else clamp_generated_max_turns(max_turns)
+        )
+        # ユーザーが入力済みの項目だけを下書きとして渡す。空なら従来どおり
+        # キー自体を出さず、LLM にも下書き指示を付けない
+        user_draft = _build_setup_user_draft(
+            draft_setting, draft_objective, draft_constraints
         )
 
         snapshot, _, appearance, _ = await self._build_snapshot(
@@ -2664,25 +2789,25 @@ The objective must name a concrete target and an observable end condition that c
         text_model = str(
             user_settings.get("novelai_text_model") or settings.novelai_text_model
         )
-        prompt = json.dumps(
-            {
-                "task": "Generate one mission setup for the selected preset.",
-                "preset": preset,
-                "max_turns": turn_budget,
-                "mission_definition": {
-                    "title": preset_config["title"],
-                    "default_objective": preset_config["objective"],
-                    "milestones": preset_config["milestones"],
-                    "guidance": preset_config["guidance"],
-                },
-                "source_snapshot": _romance_prompt_snapshot(snapshot)
-                if preset == "romance"
-                else snapshot,
-                "required_visual_appearance": appearance
-                or "Preserve the source image appearance",
+        prompt_payload: dict[str, Any] = {
+            "task": "Generate one mission setup for the selected preset.",
+            "preset": preset,
+            "max_turns": turn_budget,
+            "mission_definition": {
+                "title": preset_config["title"],
+                "default_objective": preset_config["objective"],
+                "milestones": preset_config["milestones"],
+                "guidance": preset_config["guidance"],
             },
-            ensure_ascii=False,
-        )
+            "source_snapshot": _romance_prompt_snapshot(snapshot)
+            if preset == "romance"
+            else snapshot,
+            "required_visual_appearance": appearance
+            or "Preserve the source image appearance",
+        }
+        if user_draft:
+            prompt_payload["user_draft"] = user_draft
+        prompt = json.dumps(prompt_payload, ensure_ascii=False)
         tracker = _CostTracker()
         _cost_tracker.set(tracker)
         generated = await self._generate_setup_output(
@@ -2691,6 +2816,7 @@ The objective must name a concrete target and an observable end condition that c
             text_model=text_model,
             max_turns=turn_budget,
             preset=preset,
+            draft=user_draft or None,
         )
         payload = generated.model_dump()
         if tracker.total_usd > 0:
@@ -2802,9 +2928,7 @@ The objective must name a concrete target and an observable end condition that c
             nsfw_mode = bool(user_settings.get("nsfw_mode"))
         else:
             nsfw_mode = bool(session_nsfw_mode)
-        image_model = (
-            settings.novelai_model if nsfw_mode else settings.novelai_curated_model
-        )
+        image_model = resolve_user_image_model(user_settings, nsfw_mode)
         if template:
             setting = str(template_localized(template, "setting", language))
             objective = str(template_localized(template, "objective", language))
@@ -5138,22 +5262,19 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             text_model=text_model,
         )
         try:
-            image_prompt = AdventureImagePromptOutput.model_validate_json(
-                _strip_json_fence(raw)
-            )
+            image_prompt = _validate_model_json(AdventureImagePromptOutput, raw)
         except ValidationError as first_error:
             logger.warning(
                 "Adventure image prompt JSON validation failed: %s", first_error
             )
             repaired = await _generate_text(
                 system_prompt,
-                "Repair this into valid JSON without adding facts:\n\n" + raw,
+                "Repair this into valid JSON without adding facts. "
+                f"Fix these validation errors:\n{first_error}\n\n" + raw,
                 text_model=text_model,
             )
             try:
-                image_prompt = AdventureImagePromptOutput.model_validate_json(
-                    _strip_json_fence(repaired)
-                )
+                image_prompt = _validate_model_json(AdventureImagePromptOutput, repaired)
             except ValidationError as second_error:
                 raise AdventureError(
                     "invalid_image_prompt",
@@ -5215,6 +5336,12 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         if tracker.total_usd > 0:
             result["cost_usd"] = tracker.total_usd
         return result
+
+    @staticmethod
+    async def _resolve_image_model(nsfw_mode: bool) -> str:
+        """ユーザー設定と nsfw_mode から NovelAI 画像生成モデルを解決する。"""
+        user_settings = await session_store.get_user_settings()
+        return resolve_user_image_model(user_settings, nsfw_mode)
 
     async def _generate_image_unlocked(
         self,
@@ -5298,8 +5425,13 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 if source_image_override is not None
                 else (None if outfit_changed else current_path.read_bytes())
             )
+            provider = _image_provider()
+            effective_image_model: str | None = None
+            if provider == "novelai":
+                effective_image_model = await self._resolve_image_model(nsfw_mode)
             character_references = None
-            if use_precise_reference:
+            # V5系モデルは精密参照（character reference）非対応
+            if use_precise_reference and not is_v5_image_model(effective_image_model):
                 char_strength, char_fidelity = _character_reference_strength(
                     outfit_changed=outfit_changed,
                     has_fresh_portrait=(
@@ -5333,13 +5465,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 _compose_scene_base_tags(image_prompt) + _SCENE_PROMPT_SUFFIX,
                 nsfw_mode=nsfw_mode,
             )
-            provider = _image_provider()
             if provider == "novelai":
-                effective_image_model = (
-                    settings.novelai_model
-                    if nsfw_mode
-                    else settings.novelai_curated_model
-                )
                 result = await image_service.generate_image(
                     scene_prompt,
                     image_bytes=source_image,
@@ -5607,6 +5733,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 nsfw_mode=nsfw_mode,
                 include_people=False,
                 provider_override="novelai",
+                novelai_model_override=await self._resolve_image_model(nsfw_mode),
             )
         else:
             result = await image_service.generate_image(
@@ -5731,9 +5858,15 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 worn_items_override=worn_items_override,
                 turn_number=effective_turn_number,
             )
+            provider = _image_provider()
+            effective_image_model: str | None = None
+            if provider == "novelai":
+                effective_image_model = await self._resolve_image_model(nsfw_mode)
             # 立ち絵はフロント側で背景を透過するため、必ず白背景で生成させる。
+            # （V5モデルのみ透過背景をネイティブ生成させる）
             player_prompt = _enhance_adventure_prompt(
-                image_prompt.player_tags + _PORTRAIT_PROMPT_SUFFIX,
+                image_prompt.player_tags
+                + _portrait_prompt_suffix(effective_image_model),
                 nsfw_mode=nsfw_mode,
             )
             # 現実改変で外見が変わった後の初期画像は元の姿のままで、参照に
@@ -5747,10 +5880,14 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                     if latest_portrait and Path(latest_portrait).is_file()
                     else None
                 )
-            provider = _image_provider()
             if provider == "novelai":
                 character_references = None
-                if use_precise_reference and reference_path is not None:
+                # V5系モデルは精密参照（character reference）非対応
+                if (
+                    use_precise_reference
+                    and reference_path is not None
+                    and not is_v5_image_model(effective_image_model)
+                ):
                     # 参照は前ターン以前の1枚なので fresh portrait 扱いにしない
                     char_strength, char_fidelity = _character_reference_strength(
                         outfit_changed=outfit_changed, has_fresh_portrait=False
@@ -5763,11 +5900,6 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                             "fidelity": char_fidelity,
                         }
                     ]
-                effective_image_model = (
-                    settings.novelai_model
-                    if nsfw_mode
-                    else settings.novelai_curated_model
-                )
                 result = await image_service.generate_image(
                     player_prompt,
                     image_bytes=None,
@@ -5863,14 +5995,19 @@ All values must be concise English comma-separated tags. scene_tags contains onl
     ) -> Path:
         """romance の攻略対象の立ち絵を生成する(非合成モードの並置表示用)。
 
-        主人公の立ち絵と同じく白背景で生成し、フロント側で透過する。
+        主人公の立ち絵と同じく白背景で生成し、フロント側で透過する
+        (V5モデルのみ透過背景をネイティブ生成させる)。
         最新の1枚だけを state["partner_portrait_path"] に保持する。
         """
         run = await self.get_run_orm(run_id)
         state = _json_load(run.state_json, {})
         nsfw_mode = bool(run.nsfw_mode)
+        provider = _image_provider()
+        effective_image_model: str | None = None
+        if provider == "novelai":
+            effective_image_model = await self._resolve_image_model(nsfw_mode)
         prompt = _enhance_adventure_prompt(
-            partner_tags + _PORTRAIT_PROMPT_SUFFIX,
+            partner_tags + _portrait_prompt_suffix(effective_image_model),
             nsfw_mode=nsfw_mode,
         )
         character_references = None
@@ -5883,9 +6020,13 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             else "partner_image_path"
         )
         reference_path = Path(str(state.get(reference_key) or ""))
-        provider = _image_provider()
         if provider == "novelai":
-            if bool(state.get("use_precise_reference")) and reference_path.is_file():
+            # V5系モデルは精密参照（character reference）非対応
+            if (
+                bool(state.get("use_precise_reference"))
+                and reference_path.is_file()
+                and not is_v5_image_model(effective_image_model)
+            ):
                 # 服装は変化し得るため弱めに参照する
                 char_strength, char_fidelity = _character_reference_strength(
                     outfit_changed=True, has_fresh_portrait=False
@@ -5898,9 +6039,6 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                         "fidelity": char_fidelity,
                     }
                 ]
-            effective_image_model = (
-                settings.novelai_model if nsfw_mode else settings.novelai_curated_model
-            )
             result = await image_service.generate_image(
                 prompt,
                 image_bytes=None,
@@ -6449,12 +6587,16 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             for npc_prompt in image_prompt.npc_tags[:3]
         ]
         provider = _image_provider()
+        # 送信経路と同じサフィックス選択（V5のみ透過背景）になるようモデルを解決する
+        preview_image_model: str | None = None
+        if provider == "novelai":
+            preview_image_model = await self._resolve_image_model(nsfw_mode)
         payload = {
             "scene_prompt": scene_prompt,
             "player_prompt": player_prompt,
             "npc_prompts": npc_prompts,
             "portrait_prompt": _enhance_adventure_prompt(
-                image_prompt.player_tags + _PORTRAIT_PROMPT_SUFFIX,
+                image_prompt.player_tags + _portrait_prompt_suffix(preview_image_model),
                 nsfw_mode=nsfw_mode,
             ),
             "negative_prompt": merge_negative_prompt(

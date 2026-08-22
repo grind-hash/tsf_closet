@@ -84,6 +84,7 @@ function AppMain() {
     resetTotalCost,
     setAnlasBalance,
     setNovelaiTier,
+    isNovelaiV5Active,
   } = useSettings();
   const {
     state: gameState,
@@ -327,6 +328,7 @@ function AppMain() {
         inpaintNoise?: number;
         negativePrompt?: string;
         promptOverride?: string;
+        imageOnlyTextToImage?: boolean;
         characterReferences?: Array<{
           imageData: string;
           type: string;
@@ -415,6 +417,10 @@ function AppMain() {
       if (options?.promptOverride) {
         body.prompt_override = options.promptOverride;
       }
+      // 画像のみモード: 前画像を使わず text-to-image で生成する
+      if (options?.imageOnlyTextToImage) {
+        body.image_only_text_to_image = true;
+      }
       // Add change settings
       if (settings) {
         body.preserve_elements = settings.preserveElements;
@@ -423,7 +429,9 @@ function AppMain() {
       }
 
       // Build character_references for NovelAI precise reference images
+      // (V5系モデルは精密参照非対応のため送らない)
       if (
+        !isNovelaiV5Active &&
         options?.characterReferences &&
         options.characterReferences.length > 0
       ) {
@@ -459,6 +467,7 @@ function AppMain() {
       settingsState.imageProvider,
       settingsState.playMemoryEnabled,
       settingsState.historyLookbackTargets,
+      isNovelaiV5Active,
     ],
   );
 

@@ -137,6 +137,15 @@ export function useSSE(options: UseSSEOptions): UseSSEReturn {
                   fixedAnlas: data.fixed_anlas,
                   purchasedAnlas: data.purchased_anlas,
                   totalAnlas: data.total_anlas,
+                  usage:
+                    data.usage && typeof data.usage.percent === "number"
+                      ? {
+                          percent: data.usage.percent,
+                          isNegative: Boolean(data.usage.is_negative),
+                          timeUntilNextPercent:
+                            data.usage.time_until_next_percent ?? 0,
+                        }
+                      : null,
                 });
               }
             }

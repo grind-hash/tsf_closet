@@ -291,6 +291,13 @@ class NovelAISubscriptionResponse(BaseModel):
     tier: int = Field(..., description="サブスクリプションティア (0-3)")
     active: bool = Field(..., description="サブスクリプションがアクティブか")
     expires_at: Optional[str] = Field(None, description="有効期限 (ISO 8601)")
+    usage: Optional[dict] = Field(
+        None,
+        description=(
+            "V5 利用上限 {percent, is_negative, time_until_next_percent}。"
+            "レスポンスに usage が無い場合は None"
+        ),
+    )
 
 
 # =============================================================================

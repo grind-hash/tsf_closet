@@ -36,7 +36,7 @@ RUN git clone https://github.com/comfyanonymous/ComfyUI.git /app/ComfyUI
 WORKDIR /app/ComfyUI
 
 # Install PyTorch with CUDA support
-RUN pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+RUN pip install --no-cache-dir torch==2.9.0 torchvision==0.24.0 torchaudio==2.9.0 --index-url https://download.pytorch.org/whl/cu130
 
 # Install ComfyUI requirements
 RUN pip install --no-cache-dir -r requirements.txt

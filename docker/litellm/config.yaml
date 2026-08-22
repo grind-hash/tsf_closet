@@ -3,15 +3,26 @@
 
 model_list:
   # ministral-3:3b
-  - model_name: ollama/ministral-3:3b-instruct-2512-q4_K_M
+  - model_name: ministral-3:3b-instruct-2512-q4_K_M
     litellm_params:
-      model: ollama/ministral-3:3b-instruct-2512-q4_K_M
-      api_base: http://ollama:11434
+      model: ministral-3:3b-instruct-2512-q4_K_M
+      api_base: http://ollama:11434/v1
       request_timeout: 300
+      custom_llm_provider: custom_openai
+
+  # gemma4:e4
+  - model_name: gemma4:e4b
+    litellm_params:
+      model: gemma4:e4b
+      api_base: http://ollama:11434/v1
+      request_timeout: 300
+      custom_llm_provider: custom_openai
 
 # General settings
 general_settings:
   master_key: sk-1234
+  store_model_in_db: true
+  store_prompts_in_spend_logs: true
 
 # Logging settings
 litellm_settings:

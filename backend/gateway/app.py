@@ -34,6 +34,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.datastructures import FormData
 
+from .services.anlas_service import parse_novelai_usage
 from .services.comfy import ComfyUIClient, ComfyUIError
 from .databases import close_database, init_database
 from .routes import (
@@ -450,6 +451,8 @@ async def get_novelai_subscription() -> Dict[str, Any]:
             - tier: int (0-3)
             - active: bool
             - expires_at: Optional[str]
+            - usage: Optional[dict] V5 利用上限 {percent, is_negative,
+              time_until_next_percent}（レスポンスに usage が無い場合は None）
 
     Raises:
         HTTPException:
@@ -484,11 +487,19 @@ async def get_novelai_subscription() -> Dict[str, Any]:
             # デバッグ: 生のレスポンスをログ出力
             logger.info(f"NovelAI subscription raw response: {data}")
 
-            # tier, active, expiresAtはトップレベルにある
+            # tier, active, expiresAt, usageはトップレベルにある
+            usage = parse_novelai_usage(data)
             return {
                 "tier": data.get("tier", 0),
                 "active": data.get("active", False),
                 "expires_at": data.get("expiresAt"),
+                "usage": {
+                    "percent": usage.percent,
+                    "is_negative": usage.is_negative,
+                    "time_until_next_percent": usage.time_until_next_percent,
+                }
+                if usage
+                else None,
             }
 
     except httpx.TimeoutException as e:
