@@ -1198,6 +1198,47 @@ def test_romance_setup_prompt_keeps_draft_partner_name() -> None:
     assert "use that name instead of inventing one" not in without_draft
 
 
+def test_scenario_constraints_accept_up_to_the_shared_limit() -> None:
+    """制約は 1 行 1 件で多数入力されるため、作成・生成リクエストと LLM 出力の
+    上限件数を共通定数に揃え、詳細なキャラクター設定(十数件)でも 422 にしない。"""
+    from pydantic import ValidationError as PydanticValidationError
+
+    from gateway.consts.adventure_setup import SCENARIO_CONSTRAINTS_MAX_ITEMS
+    from gateway.routes.adventure_router import (
+        AdventureCreateRequest,
+        AdventureSetupGenerateRequest,
+    )
+    from gateway.services.adventure_service import AdventureSetupOutput
+
+    assert SCENARIO_CONSTRAINTS_MAX_ITEMS >= 14
+    many = [f"制約{i}" for i in range(SCENARIO_CONSTRAINTS_MAX_ITEMS)]
+    too_many = [*many, "超過"]
+
+    created = AdventureCreateRequest(
+        source_session_id="session-1", preset="romance", scenario_constraints=many
+    )
+    assert len(created.scenario_constraints) == SCENARIO_CONSTRAINTS_MAX_ITEMS
+    generated = AdventureSetupGenerateRequest(
+        source_session_id="session-1", preset="romance", scenario_constraints=many
+    )
+    assert len(generated.scenario_constraints) == SCENARIO_CONSTRAINTS_MAX_ITEMS
+    output = AdventureSetupOutput(setting="舞台", objective="ゴール", constraints=many)
+    assert len(output.constraints) == SCENARIO_CONSTRAINTS_MAX_ITEMS
+
+    with pytest.raises(PydanticValidationError):
+        AdventureCreateRequest(
+            source_session_id="session-1",
+            preset="romance",
+            scenario_constraints=too_many,
+        )
+    with pytest.raises(PydanticValidationError):
+        AdventureSetupGenerateRequest(
+            source_session_id="session-1",
+            preset="romance",
+            scenario_constraints=too_many,
+        )
+
+
 def test_equipment_image_tags_include_worn_dress() -> None:
     from gateway.services.adventure_service import _equipment_image_tags
 

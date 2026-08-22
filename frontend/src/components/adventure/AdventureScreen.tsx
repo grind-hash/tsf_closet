@@ -140,6 +140,9 @@ const SPEECH_STYLES: AdventureSpeechStyle[] = [
 const DEFAULT_SPEECH_STYLE: AdventureSpeechStyle = "polite";
 const SPEECH_CUSTOM_MAX_LENGTH = 120;
 const PARTNER_SPEECH_STYLE_MAX_LENGTH = 200;
+// 制約(1行1件)の上限件数。backend の consts/adventure_setup.py と合わせる
+const SCENARIO_CONSTRAINTS_MAX_ITEMS = 20;
+const SCENARIO_CONSTRAINTS_MAX_LENGTH = 2000;
 
 // セットアップで選んだ語りと画像オプションは次回の作成時にも引き継ぐ。
 // 精密参照はAnlasを追加消費するため保存対象に含めず、常に既定OFFから始める
@@ -607,16 +610,18 @@ function AdventureHub() {
     setScenarioPickerTab(selectedReplayRunId ? "played" : "authored");
     setScenarioPickerOpen(true);
   };
+  // 制約は backend の上限件数を超えると 422 になるため、送信前に件数を見て
+  // 開始・生成ボタンを止め、理由を表示する
+  const constraintCount = splitConstraintLines(scenarioConstraints).length;
+  const tooManyConstraints = constraintCount > SCENARIO_CONSTRAINTS_MAX_ITEMS;
+
   const handleGenerateSetup = async () => {
-    if (!sourceSessionId) return;
+    if (!sourceSessionId || tooManyConstraints) return;
     // 入力済みの舞台・ゴール・制約は下書きとして渡し、LLM に意味を保ったまま
-    // 仕上げ・補完させる。空の項目はキー自体を送らない(backend の上限4件に合わせる)
+    // 仕上げ・補完させる。空の項目はキー自体を送らない
     const draftSetting = scenarioSetting.trim();
     const draftObjective = scenarioObjective.trim();
-    const draftConstraints = splitConstraintLines(scenarioConstraints).slice(
-      0,
-      4,
-    );
+    const draftConstraints = splitConstraintLines(scenarioConstraints);
     try {
       const generated = await generateSetup({
         source_session_id: sourceSessionId,
@@ -642,6 +647,11 @@ function AdventureHub() {
     if (!sourceSessionId) return t("adventure.disabledReason.noSession");
     if (startMode === "generated" && !scenarioObjective.trim())
       return t("adventure.disabledReason.noObjective");
+    if (startMode === "generated" && tooManyConstraints)
+      return t("adventure.disabledReason.tooManyConstraints", {
+        max: SCENARIO_CONSTRAINTS_MAX_ITEMS,
+        count: constraintCount,
+      });
     if (startMode === "authored" && !selectedScenario)
       return t("adventure.disabledReason.noScenario");
     return null;
@@ -927,7 +937,12 @@ function AdventureHub() {
                 )}
                 <button
                   type="button"
-                  disabled={!sourceSessionId || setupGenerating || loading}
+                  disabled={
+                    !sourceSessionId ||
+                    setupGenerating ||
+                    loading ||
+                    tooManyConstraints
+                  }
                   aria-busy={setupGenerating}
                   onClick={() => void handleGenerateSetup()}
                 >
@@ -1003,13 +1018,33 @@ function AdventureHub() {
                     <span>{t("adventure.constraints")}</span>
                     <textarea
                       value={scenarioConstraints}
-                      maxLength={1200}
+                      maxLength={SCENARIO_CONSTRAINTS_MAX_LENGTH}
                       rows={3}
+                      aria-invalid={tooManyConstraints || undefined}
                       onChange={(event) =>
                         setScenarioConstraints(event.target.value)
                       }
-                      placeholder={t("adventure.constraintsPlaceholder")}
+                      placeholder={t("adventure.constraintsPlaceholder", {
+                        max: SCENARIO_CONSTRAINTS_MAX_ITEMS,
+                      })}
                     />
+                    <small
+                      className={`adventure-setup-turns__hint${
+                        tooManyConstraints
+                          ? " adventure-setup-constraints__hint--over"
+                          : ""
+                      }`}
+                    >
+                      {tooManyConstraints
+                        ? t("adventure.disabledReason.tooManyConstraints", {
+                            max: SCENARIO_CONSTRAINTS_MAX_ITEMS,
+                            count: constraintCount,
+                          })
+                        : t("adventure.constraintsCount", {
+                            count: constraintCount,
+                            max: SCENARIO_CONSTRAINTS_MAX_ITEMS,
+                          })}
+                    </small>
                   </label>
                 </div>
               </details>

@@ -18,6 +18,7 @@ from ..consts.adventure_narration import (
     NARRATION_VOICE_DEFAULT,
     NarrationVoice,
 )
+from ..consts.adventure_setup import SCENARIO_CONSTRAINTS_MAX_ITEMS
 from ..consts.adventure_speech import (
     PARTNER_SPEECH_STYLE_MAX_LENGTH,
     SPEECH_CUSTOM_MAX_LENGTH,
@@ -53,7 +54,9 @@ class AdventureSetupGenerateRequest(BaseModel):
     # LLM に渡し、意味を保ったまま仕上げ・補完させる（AdventureCreateRequest と同じ上限）
     scenario_setting: str = Field(default="", max_length=600)
     scenario_objective: str = Field(default="", max_length=600)
-    scenario_constraints: list[str] = Field(default_factory=list, max_length=4)
+    scenario_constraints: list[str] = Field(
+        default_factory=list, max_length=SCENARIO_CONSTRAINTS_MAX_ITEMS
+    )
 
 
 class AdventureCreateRequest(BaseModel):
@@ -63,7 +66,9 @@ class AdventureCreateRequest(BaseModel):
     custom_setup: str = Field(default="", max_length=1000)
     scenario_setting: str = Field(default="", max_length=600)
     scenario_objective: str = Field(default="", max_length=600)
-    scenario_constraints: list[str] = Field(default_factory=list, max_length=4)
+    scenario_constraints: list[str] = Field(
+        default_factory=list, max_length=SCENARIO_CONSTRAINTS_MAX_ITEMS
+    )
     scenario_template_id: str | None = Field(default=None, max_length=80)
     replay_run_id: str | None = Field(default=None, max_length=80)
     # 自動生成タイプのみで使用。作品シナリオはテンプレJSON、

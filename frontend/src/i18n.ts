@@ -202,10 +202,12 @@ const resources = {
         goal: "ゴール",
         goalPlaceholder: "達成条件が明確なゴールを自動生成または入力",
         constraints: "制約",
-        constraintsPlaceholder: "制約を1行ずつ入力",
+        constraintsPlaceholder: "制約を1行ずつ入力（最大{{max}}件）",
+        constraintsCount: "制約 {{count}}/{{max}}件",
         disabledReason: {
           noSession: "開始セッションを選択してください",
           noObjective: "ゴールを入力するか、自動生成してください",
+          tooManyConstraints: "制約は最大{{max}}件です（現在{{count}}件）",
           noScenario: "シナリオを選択してください",
         },
         start: "シナリオを開始",
@@ -1755,10 +1757,13 @@ const resources = {
         goalPlaceholder:
           "Generate or enter a goal with a clear completion condition",
         constraints: "Constraints",
-        constraintsPlaceholder: "Enter one constraint per line",
+        constraintsPlaceholder: "Enter one constraint per line (up to {{max}})",
+        constraintsCount: "Constraints {{count}}/{{max}}",
         disabledReason: {
           noSession: "Select a starting session",
           noObjective: "Enter a goal, or generate one automatically",
+          tooManyConstraints:
+            "Up to {{max}} constraints are allowed (currently {{count}})",
           noScenario: "Select a scenario",
         },
         start: "Start Scenario",

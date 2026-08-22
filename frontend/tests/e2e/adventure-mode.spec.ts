@@ -865,3 +865,37 @@ test("finished run shows the result overlay", async ({ page }) => {
     page.getByRole("dialog", { name: "これまでの物語" }),
   ).toBeVisible();
 });
+
+test("too many constraints block start and generation with a reason", async ({
+  page,
+}) => {
+  await enableAdventure(page);
+  await mockAdventureApis(page);
+  await page.goto("/adventure");
+  await page.getByRole("button", { name: /^なりすまし・着替え/ }).click();
+  await page.getByText("舞台・ゴール・制約を直接入力する").click();
+  await page.getByLabel("ゴール").fill("仮面舞踏会で招待状の差出人を特定する");
+  const lines = Array.from({ length: 21 }, (_, index) => `制約${index + 1}`);
+  await page.getByLabel("制約").fill(lines.join("\n"));
+
+  // 理由は入力欄のヒントと開始ボタンの status の両方に出る
+  await expect(
+    page.locator(".adventure-setup-constraints__hint--over"),
+  ).toHaveText("制約は最大20件です（現在21件）");
+  await expect(page.getByRole("status")).toHaveText(
+    "制約は最大20件です（現在21件）",
+  );
+  await expect(
+    page.getByRole("button", { name: "シナリオを開始" }),
+  ).toBeDisabled();
+  await expect(
+    page.getByRole("button", { name: "ミッション案を自動生成" }),
+  ).toBeDisabled();
+
+  // 上限内に減らせば再び開始できる
+  await page.getByLabel("制約").fill(lines.slice(0, 20).join("\n"));
+  await expect(page.getByText("制約 20/20件")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "シナリオを開始" }),
+  ).toBeEnabled();
+});

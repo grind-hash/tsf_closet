@@ -79,6 +79,11 @@
   background: #1f2420;
 }
 
+/* 制約の件数が上限を超えたときのヒント(開始・生成は無効化される) */
+.adventure-setup-constraints__hint--over {
+  color: #f0a7ad;
+}
+
 .adventure-card label,
 .adventure-card fieldset {
   display: grid;

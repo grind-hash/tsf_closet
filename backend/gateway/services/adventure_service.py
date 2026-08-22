@@ -50,6 +50,7 @@ from ..consts.adventure_romance import (
     ROMANCE_SLOTS_PER_DAY,
     ROMANCE_TALK_FALLBACK_DELTA,
 )
+from ..consts.adventure_setup import SCENARIO_CONSTRAINTS_MAX_ITEMS
 from ..consts.adventure_speech import (
     PARTNER_SPEECH_STYLE_MAX_LENGTH,
     SPEECH_CUSTOM_MAX_LENGTH,
@@ -489,7 +490,10 @@ class AdventureDirectorOutput(BaseModel):
 class AdventureSetupOutput(BaseModel):
     setting: str = Field(min_length=1, max_length=600)
     objective: str = Field(min_length=1, max_length=600)
-    constraints: list[str] = Field(min_length=1, max_length=4)
+    # ユーザーの下書きに多数の制約があっても落とさず返せるよう、入力側と同じ上限にする
+    constraints: list[str] = Field(
+        min_length=1, max_length=SCENARIO_CONSTRAINTS_MAX_ITEMS
+    )
 
 
 class AdventureImagePromptOutput(BaseModel):
