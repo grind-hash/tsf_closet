@@ -122,6 +122,8 @@ services:
       dockerfile: docker/ollama/Dockerfile
     volumes:
       - ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_CONTEXT_LENGTH=16384
     deploy:
       resources:
         reservations:

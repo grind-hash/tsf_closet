@@ -336,6 +336,27 @@ def _clamp_to_declared_max(
     return _truncate_overlong_text(value, limit)
 
 
+def _clamp_list_to_declared_max(
+    model: type[BaseModel], value: Any, field_name: str | None
+) -> Any:
+    """フィールド宣言の max_length を超えるリストを検証エラーにせず切り詰める。
+
+    LLM 出力の件数超過だけで生成全体を失わないための保険。
+    """
+    if not isinstance(value, list) or not field_name:
+        return value
+    field = model.model_fields.get(field_name)
+    if field is None:
+        return value
+    limit = next(
+        (item.max_length for item in field.metadata if isinstance(item, MaxLen)),
+        None,
+    )
+    if limit is None or len(value) <= limit:
+        return value
+    return value[:limit]
+
+
 class AdventureChoice(BaseModel):
     id: str = Field(min_length=1, max_length=40)
     label: str = Field(min_length=1, max_length=_CHOICE_LABEL_MAX_LENGTH)
@@ -494,6 +515,12 @@ class AdventureSetupOutput(BaseModel):
     constraints: list[str] = Field(
         min_length=1, max_length=SCENARIO_CONSTRAINTS_MAX_ITEMS
     )
+
+    @field_validator("constraints", mode="before")
+    @classmethod
+    def clamp_overlong_list(cls, value: Any, info: ValidationInfo) -> Any:
+        # ローカルモデルは件数指示を守れないことがあるため、超過分は捨てる
+        return _clamp_list_to_declared_max(cls, value, info.field_name)
 
 
 class AdventureImagePromptOutput(BaseModel):
@@ -1766,6 +1793,29 @@ def _strip_json_fence(value: str) -> str:
     return text[start : end + 1] if start >= 0 and end > start else text
 
 
+def _validate_model_json(
+    model: type[_StructuredOutputT],
+    raw: str,
+    *,
+    context: dict[str, Any] | None = None,
+) -> _StructuredOutputT:
+    """LLM 出力の JSON を検証する。制御文字だけが不正な場合は救済する。
+
+    ローカルモデルは JSON 文字列内へ生の改行を混ぜやすく、厳密パースだけでは
+    復旧可能な出力まで失うため、json.loads(strict=False) で再試行する。
+    それでも読めなければ元の検証エラーを送出し、呼び出し側のリペアへ委ねる。
+    """
+    text = _strip_json_fence(raw)
+    try:
+        return model.model_validate_json(text, context=context)
+    except ValidationError as strict_error:
+        try:
+            data = json.loads(text, strict=False)
+        except ValueError:
+            raise strict_error
+        return model.model_validate(data, context=context)
+
+
 # プレイヤーが手番中に宣言する現実改変。通常ゲームのセッション属性とは独立に、
 # Run の state へ蓄積して以降の全ターン判定へ渡す。
 # 括弧形式（通常ゲームの属性表記）はコロン省略可。素の語形はコロン必須にして、
@@ -2353,8 +2403,9 @@ Keep narrative under 800 characters and the entire JSON response compact. bgm se
         )
         raw = await _generate_text(system_prompt, prompt, text_model=text_model)
         try:
-            return AdventureDirectorOutput.model_validate_json(
-                _strip_json_fence(raw),
+            return _validate_model_json(
+                AdventureDirectorOutput,
+                raw,
                 context={
                     "fallback_appearance": fallback_appearance,
                     "fallback_choices": _default_director_choices(language),
@@ -2367,13 +2418,17 @@ Keep narrative under 800 characters and the entire JSON response compact. bgm se
 Return JSON only and keep the entire response under 1200 characters. Do not repeat or continue the source verbatim. Preserve only facts already present. Keep narrative under 500 characters. If the source describes an action that objectively ends the mission, preserve ending_status as failure and provide a short ending_summary. Required minimum shape: {{"narrative":"...","visual_state":{{"location":"...","appearance":"...","clothing":"..."}},"ending_status":"continue|success|partial|failure","ending_title":null,"ending_summary":null}}.
 {_narration_voice_instruction(narration_voice, narration_pronoun)}
 {speech_rule}"""
-            repair_prompt = "Invalid source output:\n\n" + raw
+            repair_prompt = (
+                f"Fix these validation errors:\n{first_error}\n\n"
+                "Invalid source output:\n\n" + raw
+            )
             repaired = await _generate_text(
                 repair_system_prompt, repair_prompt, text_model=text_model
             )
             try:
-                return AdventureDirectorOutput.model_validate_json(
-                    _strip_json_fence(repaired),
+                return _validate_model_json(
+                    AdventureDirectorOutput,
+                    repaired,
                     context={
                         "fallback_appearance": fallback_appearance,
                         "fallback_choices": _default_director_choices(language),
@@ -2481,20 +2536,19 @@ scene_tags contains only environment, camera, composition, lighting, and the obs
     ) -> _StructuredOutputT:
         raw = await _generate_text(system_prompt, user_prompt, text_model=text_model)
         try:
-            return model.model_validate_json(_strip_json_fence(raw), context=context)
+            return _validate_model_json(model, raw, context=context)
         except ValidationError as first_error:
             repaired = await _generate_text(
                 system_prompt,
                 "Repair the following output into one valid compact JSON object for "
                 "the required schema. Return JSON only and do not add new facts. "
                 "Respect every string length limit in the schema; when a value is "
-                "too long, shorten it by dropping trailing details.\n\n" + raw,
+                "too long, shorten it by dropping trailing details. "
+                f"Fix these validation errors:\n{first_error}\n\n" + raw,
                 text_model=text_model,
             )
             try:
-                return model.model_validate_json(
-                    _strip_json_fence(repaired), context=context
-                )
+                return _validate_model_json(model, repaired, context=context)
             except ValidationError as second_error:
                 logger.warning(
                     "Adventure %s validation failed: %s / %s",
@@ -2650,6 +2704,7 @@ scene_tags contains only environment, camera, composition, lighting, and the obs
             prompt = f"""You design a concise setup for a {days}-day romance simulation in which the player aims to start dating one partner character.
 Return one JSON object only, in {response_language}, matching this schema:
 {{"setting":"...","objective":"...","constraints":["...","..."]}}
+The constraints array must contain between 1 and 4 items.
 The partner is the character shown in source_snapshot; keep their appearance and situation consistent with it. source_snapshot deliberately contains no name for the partner: invent a fitting new name from their appearance and situation, and use that name in the objective. Never name the partner after the player. The player is a separate person courting that partner; never treat the snapshot character as the player. The setting describes where the player and the partner cross paths in daily life. The objective must name the partner and state that the player starts dating them within {days} days. Constraints must create romantic complications such as schedules, shyness, or circumstances, without dictating the player's feelings, consent, memories, bodily sensations, or voluntary actions. Do not introduce another body transformation or assign physical traits that conflict with source_snapshot.appearance."""
             if draft:
                 prompt += _SETUP_DRAFT_GUIDANCE + _SETUP_DRAFT_ROMANCE_GUIDANCE
@@ -2658,6 +2713,7 @@ The partner is the character shown in source_snapshot; keep their appearance and
         prompt = f"""You design a concise setup for a {turns}-turn objective-based adventure game.
 Return one JSON object only, in {response_language}, matching this schema:
 {{"setting":"...","objective":"...","constraints":["...","..."]}}
+The constraints array must contain between 1 and 4 items.
 The objective must name a concrete target and an observable end condition that can be judged as achieved or failed within {turns} turns. Scale the scope of the objective to that turn budget: a longer budget should leave room for searching for clues and scouting the surroundings, not add unrelated sub-goals. Do not use vague goals such as succeed, investigate the situation, or reach the objective. The setting, objective, and constraints must fit the selected mission preset and supplied character snapshot. Constraints must create actionable complications without dictating the player's feelings, consent, memories, bodily sensations, or voluntary actions. Do not introduce another body transformation or assign physical traits that conflict with source_snapshot.appearance. For a disguise mission, generate the transformed person's name and role while keeping the supplied appearance exactly; the player does not have that person's memories, relationships, habits, skills, credentials, passwords, or authentication information."""
         if draft:
             prompt += _SETUP_DRAFT_GUIDANCE
@@ -2676,19 +2732,19 @@ The objective must name a concrete target and an observable end condition that c
         system_prompt = self._setup_system_prompt(language, max_turns, preset, draft)
         raw = await _generate_text(system_prompt, prompt, text_model=text_model)
         try:
-            return AdventureSetupOutput.model_validate_json(_strip_json_fence(raw))
+            return _validate_model_json(AdventureSetupOutput, raw)
         except ValidationError as first_error:
             repair_prompt = (
                 "Repair the following output into valid JSON for the required schema. "
-                "Do not add new scenario facts.\n\n" + raw
+                "Keep the same scenario and do not add new scenario facts. "
+                "Fix these validation errors:\n"
+                f"{first_error}\n\nOutput to repair:\n{raw}"
             )
             repaired = await _generate_text(
                 system_prompt, repair_prompt, text_model=text_model
             )
             try:
-                return AdventureSetupOutput.model_validate_json(
-                    _strip_json_fence(repaired)
-                )
+                return _validate_model_json(AdventureSetupOutput, repaired)
             except ValidationError as second_error:
                 logger.warning(
                     "Adventure setup JSON validation failed: %s / %s",
@@ -5206,22 +5262,19 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             text_model=text_model,
         )
         try:
-            image_prompt = AdventureImagePromptOutput.model_validate_json(
-                _strip_json_fence(raw)
-            )
+            image_prompt = _validate_model_json(AdventureImagePromptOutput, raw)
         except ValidationError as first_error:
             logger.warning(
                 "Adventure image prompt JSON validation failed: %s", first_error
             )
             repaired = await _generate_text(
                 system_prompt,
-                "Repair this into valid JSON without adding facts:\n\n" + raw,
+                "Repair this into valid JSON without adding facts. "
+                f"Fix these validation errors:\n{first_error}\n\n" + raw,
                 text_model=text_model,
             )
             try:
-                image_prompt = AdventureImagePromptOutput.model_validate_json(
-                    _strip_json_fence(repaired)
-                )
+                image_prompt = _validate_model_json(AdventureImagePromptOutput, repaired)
             except ValidationError as second_error:
                 raise AdventureError(
                     "invalid_image_prompt",
