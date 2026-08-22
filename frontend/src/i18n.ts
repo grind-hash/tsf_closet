@@ -1180,6 +1180,13 @@ const resources = {
           sendMemoryLabel: "画像生成にもメモリを反映",
           sendMemoryDisabledHint:
             "先に「指示にメモリを反映」を有効にしてください",
+          imageOnlyTextToImageLabel: "前画像を使わない（i2iなし）",
+          imageOnlyTextToImageHint:
+            "画像のみ指示で、直前の画像とその状態説明・インペイント・ベース画像選択を使わずに新規生成します。性別や外見も指示から決まります。メモリ・属性・登場人物・seed・ネガティブ・プロンプト上書き・精密参照はそのまま反映されます",
+          imageOnlyTextToImageDisabledHint:
+            "指示タイプが「画像のみ」のときだけ有効です",
+          imageOnlyTextToImageSelfhostHint:
+            "セルフホスト（ComfyUI）はtext-to-image生成に対応していません",
           suggestError: "指示テキストの生成に失敗しました",
           suggestErrorDetail:
             "履歴が不足しているか、生成中にエラーが発生しました",
@@ -2720,6 +2727,13 @@ const resources = {
           suggestMemoryLabel: "Use memory for instruction",
           sendMemoryLabel: "Also use memory for image generation",
           sendMemoryDisabledHint: 'Enable "Use memory for instruction" first',
+          imageOnlyTextToImageLabel: "No base image (no i2i)",
+          imageOnlyTextToImageHint:
+            "Image-only: generates a fresh image without the previous image, its state description, inpaint mask, or base-image selection. Gender and looks also come from the instruction. Memory, attributes, character panel, seed, negative prompt, prompt override and precise references still apply.",
+          imageOnlyTextToImageDisabledHint:
+            'Available only when the instruction type is "Image Only"',
+          imageOnlyTextToImageSelfhostHint:
+            "Not available on the self-hosted (ComfyUI) provider",
           suggestError: "Failed to generate instruction text",
           suggestErrorDetail:
             "Not enough history, or an error occurred during generation",

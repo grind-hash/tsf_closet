@@ -29,6 +29,8 @@ interface ChatState {
   // 入力状態
   inputText: string;
   instructionType: InstructionType;
+  // 画像のみモードで前画像を使わず text-to-image で生成する（永続化しない）
+  imageOnlyTextToImage: boolean;
   attachedImage: File | null;
   attachedImagePreview: string | null;
 
@@ -57,6 +59,7 @@ type ChatAction =
     }
   | { type: "SET_INPUT_TEXT"; payload: string }
   | { type: "SET_INSTRUCTION_TYPE"; payload: InstructionType }
+  | { type: "SET_IMAGE_ONLY_TEXT_TO_IMAGE"; payload: boolean }
   | {
       type: "SET_ATTACHED_IMAGE";
       payload: { file: File | null; preview: string | null };
@@ -157,6 +160,7 @@ const defaultState: ChatState = {
   pendingIdentities: [],
   inputText: "",
   instructionType: "dress_up",
+  imageOnlyTextToImage: false,
   attachedImage: null,
   attachedImagePreview: null,
   isStreaming: false,
@@ -206,6 +210,8 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
       return { ...state, inputText: action.payload };
     case "SET_INSTRUCTION_TYPE":
       return { ...state, instructionType: action.payload };
+    case "SET_IMAGE_ONLY_TEXT_TO_IMAGE":
+      return { ...state, imageOnlyTextToImage: action.payload };
     case "SET_ATTACHED_IMAGE":
       return {
         ...state,
@@ -359,6 +365,7 @@ interface ChatContextType {
   setMessageStreaming: (id: string, isStreaming: boolean) => void;
   setInputText: (text: string) => void;
   setInstructionType: (type: InstructionType) => void;
+  setImageOnlyTextToImage: (enabled: boolean) => void;
   attachImage: (file: File | null) => void;
   setStreaming: (isStreaming: boolean) => void;
   upsertPendingIdentity: (identity: PendingMessageIdentity) => void;
@@ -608,6 +615,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "SET_INSTRUCTION_TYPE", payload: type });
   }, []);
 
+  const setImageOnlyTextToImage = useCallback((enabled: boolean) => {
+    dispatch({ type: "SET_IMAGE_ONLY_TEXT_TO_IMAGE", payload: enabled });
+  }, []);
+
   const attachImage = useCallback((file: File | null) => {
     if (file) {
       const reader = new FileReader();
@@ -744,6 +755,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setMessageStreaming,
     setInputText,
     setInstructionType,
+    setImageOnlyTextToImage,
     attachImage,
     setStreaming,
     upsertPendingIdentity,

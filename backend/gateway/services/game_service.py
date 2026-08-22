@@ -68,8 +68,11 @@ from .history_context import (
     resolve_history_lookback_enabled,
 )
 from .image_only_prompts import (
+    IMAGE_ONLY_TEXT_TO_IMAGE_RULE,
     build_image_only_edit_prompt,
+    build_image_only_generate_prompt,
     get_image_only_edit_system_prompt,
+    get_image_only_generate_system_prompt,
 )
 from .session import session_store
 from .settings_service import settings_service
@@ -752,7 +755,7 @@ class GameService:
 
     async def _generate_image(
         self,
-        image_bytes: bytes,
+        image_bytes: bytes | None,
         instruction: str,
         costume_image_bytes: bytes | None = None,
         nsfw_mode: bool = False,
@@ -772,7 +775,8 @@ class GameService:
         - openrouter: OpenRouter API
 
         Args:
-            image_bytes: 入力画像
+            image_bytes: 入力画像。None の場合はベース画像なしの text-to-image で
+                生成する（selfhost/ComfyUI は非対応で画像サービス側がエラーにする）
             instruction: 着せ替え指示（画像APIへ渡す最終プロンプト）
             costume_image_bytes: 参照衣装画像（オプション）
             nsfw_mode: NSFWモード (Trueの場合NSFWワークフローを使用)
@@ -796,21 +800,39 @@ class GameService:
             image_prompt = strip_worn_under_layers_for_image(instruction)
             image_characters = strip_characters_worn_under_layers(characters)
 
-            result = await self._image_service.edit_image(
-                image_bytes=image_bytes,
-                prompt=image_prompt,
-                reference_image_bytes=costume_image_bytes,
-                mask_bytes=mask_bytes,
-                workflow_path=workflow_path,
-                negative_prompt=negative_prompt,
-                inpaint_strength=inpaint_strength,
-                inpaint_noise=inpaint_noise,
-                nsfw_mode=nsfw_mode,
-                character_references=character_references,
-                seed=seed,
-                characters=image_characters,
-                novelai_model_override=novelai_image_model_override,
-            )
+            if image_bytes is None:
+                # ベース画像なし: text-to-image で新規生成する
+                result = await self._image_service.generate_image(
+                    image_prompt,
+                    image_bytes=None,
+                    reference_image_bytes=costume_image_bytes,
+                    mask_bytes=mask_bytes,
+                    workflow_path=workflow_path,
+                    negative_prompt=negative_prompt,
+                    i2i_strength_override=inpaint_strength,
+                    i2i_noise_override=inpaint_noise,
+                    nsfw_mode=nsfw_mode,
+                    character_references=character_references,
+                    seed=seed,
+                    characters=image_characters,
+                    novelai_model_override=novelai_image_model_override,
+                )
+            else:
+                result = await self._image_service.edit_image(
+                    image_bytes=image_bytes,
+                    prompt=image_prompt,
+                    reference_image_bytes=costume_image_bytes,
+                    mask_bytes=mask_bytes,
+                    workflow_path=workflow_path,
+                    negative_prompt=negative_prompt,
+                    inpaint_strength=inpaint_strength,
+                    inpaint_noise=inpaint_noise,
+                    nsfw_mode=nsfw_mode,
+                    character_references=character_references,
+                    seed=seed,
+                    characters=image_characters,
+                    novelai_model_override=novelai_image_model_override,
+                )
             if not result.images:
                 raise GameServiceError("画像が生成されませんでした")
             logger.info(
@@ -1001,12 +1023,23 @@ class GameService:
         respect_clothing_layers: bool = False,
         session_characters_section: str = "",
         language: str = "ja",
+        text_to_image: bool = False,
     ) -> tuple[str, float | None]:
-        """自由な自然言語指示から画像編集プロンプトを生成する。"""
-        system_prompt = get_image_only_edit_system_prompt(
-            settings.image_provider,
-            nsfw_mode,
-        )
+        """自由な自然言語指示から画像編集プロンプトを生成する。
+
+        text_to_image が True の場合は前画像の説明を使わず、新規生成
+        （text-to-image）用のシステム/ユーザープロンプトに切り替える。
+        """
+        if text_to_image:
+            system_prompt = get_image_only_generate_system_prompt(
+                settings.image_provider,
+                nsfw_mode,
+            )
+        else:
+            system_prompt = get_image_only_edit_system_prompt(
+                settings.image_provider,
+                nsfw_mode,
+            )
         memory_priority_suffix = (
             await self._get_memory_priority_suffix(language) if use_memory else ""
         )
@@ -1014,10 +1047,13 @@ class GameService:
             memory_priority_suffix,
             respect_clothing_layers,
         )
-        user_prompt = build_image_only_edit_prompt(
-            instruction=instruction,
-            current_description=current_description,
-        )
+        if text_to_image:
+            user_prompt = build_image_only_generate_prompt(instruction)
+        else:
+            user_prompt = build_image_only_edit_prompt(
+                instruction=instruction,
+                current_description=current_description,
+            )
         if session_characters_section:
             user_prompt = f"{user_prompt}\n\n{session_characters_section}"
 
@@ -1463,6 +1499,7 @@ class GameService:
         respect_clothing_layers: bool = False,
         use_play_memory: bool = False,
         use_history_lookback: bool | None = None,
+        image_only_text_to_image: bool = False,
     ) -> AsyncGenerator[StreamEvent, None]:
         """ストリーミング対応の着せ替えを実行
 
@@ -1486,6 +1523,8 @@ class GameService:
             seed: 画像生成seed値（未指定時はランダム生成）
             enable_surroundings_image: 周囲状況画像を生成するか（行動モード専用）
             surroundings_include_people: 周囲画像にリアクションする通行人を含めるか
+            image_only_text_to_image: 画像のみモードで前画像を使わず text-to-image で
+                生成する（image_only 以外の指示タイプでは無視）
 
         Yields:
             StreamEvent: text/image/complete/error イベント
@@ -1666,24 +1705,42 @@ class GameService:
 
             # 画像のみモード: 心境・ゲーム状態を生成せず画像履歴だけを更新する
             if instruction_type == "image_only":
-                logger.info("Image-only mode: generating an image without narrative")
+                logger.info(
+                    "Image-only mode: generating an image without narrative "
+                    "(text_to_image=%s)",
+                    image_only_text_to_image,
+                )
+                if image_only_text_to_image and settings.image_provider == "selfhost":
+                    # ComfyUI の編集ワークフローは text-to-image を持たないため、
+                    # LLM 呼び出しの前に拒否する（History は残らない）
+                    raise GameServiceError(
+                        "画像のみ（i2iなし）はセルフホスト（ComfyUI）では利用できません"
+                    )
 
                 last_hist = await session_store.get_latest_history(session.id)
-                previous_description = (
-                    last_hist.after_description
-                    if last_hist and last_hist.after_description
-                    else self._build_initial_prompt(
-                        gender,
-                        character,
-                        self_profile,
-                        base_tags=custom_metadata.get("base_tags", ""),
-                        enable_multiple_people=enable_multiple_people,
+                previous_description: str | None
+                if image_only_text_to_image:
+                    # 前画像の状態を引き継がず、指示・メモリ・属性だけから新規生成する
+                    previous_description = None
+                else:
+                    previous_description = (
+                        last_hist.after_description
+                        if last_hist and last_hist.after_description
+                        else self._build_initial_prompt(
+                            gender,
+                            character,
+                            self_profile,
+                            base_tags=custom_metadata.get("base_tags", ""),
+                            enable_multiple_people=enable_multiple_people,
+                        )
                     )
-                )
 
                 describe_cost: float | None = None
-                if settings.is_novelai_opus_mode:
-                    current_description = previous_description
+                if image_only_text_to_image:
+                    # ベース画像を使わないので Vision による現在画像の説明も行わない
+                    current_description = ""
+                elif settings.is_novelai_opus_mode:
+                    current_description = previous_description or ""
                 else:
                     current_description, describe_cost = await self._describe_image(
                         before_image,
@@ -1710,7 +1767,13 @@ class GameService:
                         protagonist_name, protagonist_tags = (
                             _resolve_protagonist_image_identity(
                                 last_after_description=(
-                                    last_hist.after_description if last_hist else None
+                                    None
+                                    if image_only_text_to_image
+                                    else (
+                                        last_hist.after_description
+                                        if last_hist
+                                        else None
+                                    )
                                 ),
                                 character=character,
                                 self_profile=self_profile,
@@ -1749,6 +1812,9 @@ class GameService:
                         memory_suffix,
                         respect_clothing_layers_for_image,
                     )
+                    if image_only_text_to_image:
+                        # 前プロンプトからの保持ルールを無効化する（system 末尾に付与）
+                        memory_suffix += IMAGE_ONLY_TEXT_TO_IMAGE_RULE
                     generated_prompt = await llm_service.generate_novelai_image_prompt(
                         instruction=image_instruction + attribute_context,
                         previous_prompt=previous_description,
@@ -1785,6 +1851,7 @@ class GameService:
                         respect_clothing_layers=respect_clothing_layers_for_image,
                         session_characters_section=session_characters_section,
                         language=effective_language,
+                        text_to_image=image_only_text_to_image,
                     )
 
                 final_prompt = image_edit_prompt
@@ -1827,10 +1894,11 @@ class GameService:
                     after_description = image_only_characters[0]["prompt"]
 
                 image_data, image_cost, image_seed = await self._generate_image(
-                    before_image,
+                    None if image_only_text_to_image else before_image,
                     image_api_prompt,
                     nsfw_mode=effective_nsfw_mode,
-                    mask_bytes=mask_bytes,
+                    # text-to-image ではマスクも渡さない（渡すとインペイント経路に入る）
+                    mask_bytes=None if image_only_text_to_image else mask_bytes,
                     inpaint_strength=inpaint_strength,
                     inpaint_noise=inpaint_noise,
                     negative_prompt=image_negative_prompt,

@@ -44,6 +44,8 @@ useSSE → useGameSSE
 
 `image_only` は失敗時にHistoryを残さない。保存する場合は指示、画像、空の心境、seed、画像状態記述を保持する。
 
+`image_only` には「前画像を使わない（i2iなし）」オプションがある。FE は `ChatContext.imageOnlyTextToImage`（永続化しない）をチャット入力ツールバーのトグルスイッチ `chat-input__switch` で切り替え、`image_only` 以外・selfhost のときは disabled + title で理由を出す（隠さない）。送信時は `transformOptions.imageOnlyTextToImage` → `App.handleTransform` が `image_only_text_to_image=true` を付ける（確認ダイアログ経由の再送・プロンプト上書き送信も同じ経路）。BE は `play_with_stream(image_only_text_to_image=...)` を `image_only` 分岐内だけで読み、前画像の i2i・Vision 説明・`after_description` の継承・`WORN_UNDER_LAYERS` 継承・直前履歴由来の主人公タグ・マスクを使わず `_generate_image(None, ...)` → `image_service.generate_image(image_bytes=None)` で新規生成する（メモリ・プレイメモ・セッション属性・登場人物パネル・seed・ネガティブ・プロンプト上書き・精密参照は従来どおり）。プロンプトは `image_only_prompts.py` の `get_image_only_generate_system_prompt` / `build_image_only_generate_prompt`（非 Opus）と `IMAGE_ONLY_TEXT_TO_IMAGE_RULE`（Opus、`extra_system_suffix` 末尾）を使い、History の `before_description` は空で保存する。selfhost(ComfyUI) は text-to-image 不可のため LLM 呼び出し前に `GameServiceError` で拒否する。
+
 ## プロンプトとメモリ
 
 ```text

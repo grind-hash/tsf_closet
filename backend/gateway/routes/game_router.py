@@ -280,6 +280,13 @@ class PlayStreamRequest(BaseModel):
         None,
         description="履歴遡及を利用するか（未指定時は操作種別の既定値を使用）",
     )
+    image_only_text_to_image: bool = Field(
+        False,
+        description=(
+            "画像のみモードで前画像を使わず text-to-image で生成する"
+            "（image_only 以外の指示タイプでは無視）"
+        ),
+    )
 
 
 @router.post(
@@ -335,6 +342,7 @@ async def play_game_stream(request: PlayStreamRequest) -> EventSourceResponse:
             use_memory=request.use_memory,
             use_play_memory=request.use_play_memory,
             use_history_lookback=request.use_history_lookback,
+            image_only_text_to_image=request.image_only_text_to_image,
         ):
             if event.type == "complete" and request.use_play_memory:
                 from ..services.play_memory_service import play_memory_service

@@ -328,6 +328,7 @@ function AppMain() {
         inpaintNoise?: number;
         negativePrompt?: string;
         promptOverride?: string;
+        imageOnlyTextToImage?: boolean;
         characterReferences?: Array<{
           imageData: string;
           type: string;
@@ -415,6 +416,10 @@ function AppMain() {
       }
       if (options?.promptOverride) {
         body.prompt_override = options.promptOverride;
+      }
+      // 画像のみモード: 前画像を使わず text-to-image で生成する
+      if (options?.imageOnlyTextToImage) {
+        body.image_only_text_to_image = true;
       }
       // Add change settings
       if (settings) {

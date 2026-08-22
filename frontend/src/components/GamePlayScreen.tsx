@@ -87,6 +87,7 @@ interface GamePlayScreenProps {
       inpaintNoise?: number;
       negativePrompt?: string;
       promptOverride?: string;
+      imageOnlyTextToImage?: boolean;
     },
     instructionType?: string,
     pendingToken?: string,
@@ -827,6 +828,7 @@ export default function GamePlayScreen({
               inpaintNoise?: number;
               negativePrompt?: string;
               promptOverride?: string;
+              imageOnlyTextToImage?: boolean;
               characterReferences?: Array<{
                 imageData: string;
                 type: string;
@@ -863,6 +865,18 @@ export default function GamePlayScreen({
                 fidelity: r.fidelity,
               })),
             }),
+          };
+        }
+
+        // 画像のみモードで「前画像を使わない」が ON なら text-to-image フラグを載せる
+        // （確認ダイアログ経由の再送にも transformOptions ごと引き継がれる）
+        if (
+          backendInstructionType === "image_only" &&
+          chatState.imageOnlyTextToImage
+        ) {
+          transformOptions = {
+            ...(transformOptions ?? {}),
+            imageOnlyTextToImage: true,
           };
         }
 
@@ -965,6 +979,7 @@ export default function GamePlayScreen({
       showNotification,
       t,
       restoreActiveSession,
+      chatState.imageOnlyTextToImage,
     ],
   );
 
@@ -1087,6 +1102,7 @@ export default function GamePlayScreen({
         inpaintStrength?: number;
         inpaintNoise?: number;
         negativePrompt?: string;
+        imageOnlyTextToImage?: boolean;
       } = {
         promptOverride: override,
       };
@@ -1101,6 +1117,13 @@ export default function GamePlayScreen({
           transformOptions.maskImage = maskDataUrl;
           transformOptions.maskId = selectedMaskId || undefined;
         }
+      }
+      // 画像のみモードで「前画像を使わない」が ON なら text-to-image フラグを載せる
+      if (
+        backendInstructionType === "image_only" &&
+        chatState.imageOnlyTextToImage
+      ) {
+        transformOptions.imageOnlyTextToImage = true;
       }
 
       onTransform(
@@ -1122,6 +1145,7 @@ export default function GamePlayScreen({
       isTransforming,
       chatState.inputText,
       chatState.instructionType,
+      chatState.imageOnlyTextToImage,
       addMessage,
       upsertPendingIdentity,
       onTransform,

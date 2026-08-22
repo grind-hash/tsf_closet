@@ -251,3 +251,185 @@ async def test_image_only_applies_play_memory_only_when_image_memory_is_enabled(
     prompt_call = service._generate_image_only_edit_prompt.await_args.kwargs
     assert prompt_call["instruction"] == expected_instruction
     assert prompt_call["use_memory"] is use_memory
+
+
+def test_image_only_generate_prompts_do_not_preserve_previous_image() -> None:
+    from gateway.services.image_only_prompts import (
+        IMAGE_ONLY_TEXT_TO_IMAGE_RULE,
+        build_image_only_generate_prompt,
+        get_image_only_generate_system_prompt,
+    )
+
+    generic = get_image_only_generate_system_prompt("openrouter")
+    novelai = get_image_only_generate_system_prompt("novelai", nsfw_mode=True)
+    user_prompt = build_image_only_generate_prompt("銀髪の魔女風のキャラクター")
+
+    assert "There is no source image" in generic
+    assert "Preserve" not in generic
+    assert "Danbooru-style tags" in novelai
+    assert "nsfw, very aesthetic, best quality" in novelai
+    assert "Preserve" not in novelai
+    assert "銀髪の魔女風のキャラクター" in user_prompt
+    assert "Current image description" not in user_prompt
+    assert "NO previous image" in IMAGE_ONLY_TEXT_TO_IMAGE_RULE
+
+
+@pytest.mark.asyncio
+async def test_image_only_text_to_image_skips_previous_image(monkeypatch) -> None:
+    from gateway.settings.config import settings
+
+    service, session, add_history_mock, update_session_mock = (
+        _configure_image_only_service(monkeypatch)
+    )
+    monkeypatch.setattr(settings, "image_provider", "novelai")
+    generate_image_mock = AsyncMock(return_value=(b"generated-image", 0.15, 777))
+    monkeypatch.setattr(service, "_generate_image", generate_image_mock)
+
+    events = [
+        event
+        async for event in service.play_with_stream(
+            session_id=session.id,
+            character_id=None,
+            character_image=None,
+            instruction="銀髪の魔女風のキャラクターを新規に描く",
+            instruction_type="image_only",
+            image_only_text_to_image=True,
+        )
+    ]
+
+    assert [event.type for event in events] == ["image", "cost", "complete"]
+    # ベース画像なし・マスクなしで画像生成を呼ぶ
+    generate_image_mock.assert_awaited_once()
+    assert generate_image_mock.await_args.args[0] is None
+    assert generate_image_mock.await_args.kwargs["mask_bytes"] is None
+    # 前画像の Vision 説明は行わない
+    service._describe_image.assert_not_awaited()
+    # プロンプト生成は新規生成モードで、前画像の説明を渡さない
+    prompt_call = service._generate_image_only_edit_prompt.await_args.kwargs
+    assert prompt_call["text_to_image"] is True
+    assert prompt_call["current_description"] == ""
+    add_history_mock.assert_awaited_once()
+    assert add_history_mock.await_args.kwargs["before_description"] == ""
+    # NovelAI では品質タグが付与されるため前方一致で確認する
+    assert add_history_mock.await_args.kwargs["after_description"].startswith(
+        "final image prompt"
+    )
+    assert add_history_mock.await_args.kwargs["instruction_type"] == "image_only"
+    update_session_mock.assert_awaited_once()
+    assert events[-1].data["before_desc"] == ""
+
+
+@pytest.mark.asyncio
+async def test_image_only_text_to_image_rejected_on_selfhost(monkeypatch) -> None:
+    service, session, add_history_mock, update_session_mock = (
+        _configure_image_only_service(monkeypatch)
+    )
+    generate_image_mock = AsyncMock(return_value=(b"generated-image", None, 1))
+    monkeypatch.setattr(service, "_generate_image", generate_image_mock)
+
+    events = [
+        event
+        async for event in service.play_with_stream(
+            session_id=session.id,
+            character_id=None,
+            character_image=None,
+            instruction="新規生成",
+            instruction_type="image_only",
+            image_only_text_to_image=True,
+        )
+    ]
+
+    assert [event.type for event in events] == ["error"]
+    assert "セルフホスト" in events[0].data["message"]
+    service._describe_image.assert_not_awaited()
+    service._generate_image_only_edit_prompt.assert_not_awaited()
+    generate_image_mock.assert_not_awaited()
+    add_history_mock.assert_not_awaited()
+    update_session_mock.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_image_only_text_to_image_opus_mode_drops_previous_prompt(
+    monkeypatch,
+) -> None:
+    from gateway.services.game_service import llm_service
+    from gateway.settings.config import settings
+
+    service, session, add_history_mock, _ = _configure_image_only_service(monkeypatch)
+    monkeypatch.setattr(settings, "image_provider", "novelai")
+    monkeypatch.setattr(settings, "image_description_provider", "novelai")
+    monkeypatch.setattr(
+        service,
+        "_generate_image",
+        AsyncMock(return_value=(b"generated-image", None, 5)),
+    )
+    generate_prompt_mock = AsyncMock(
+        return_value='{"character": "1girl, solo, silver hair", "scene": "masterpiece, night"}'
+    )
+    monkeypatch.setattr(
+        llm_service, "generate_novelai_image_prompt", generate_prompt_mock
+    )
+
+    events = [
+        event
+        async for event in service.play_with_stream(
+            session_id=session.id,
+            character_id=None,
+            character_image=None,
+            instruction="銀髪の魔女風のキャラクターを新規に描く",
+            instruction_type="image_only",
+            image_only_text_to_image=True,
+        )
+    ]
+
+    assert events[-1].type == "complete"
+    generate_prompt_mock.assert_awaited_once()
+    prompt_kwargs = generate_prompt_mock.await_args.kwargs
+    assert prompt_kwargs["previous_prompt"] is None
+    assert "TEXT-TO-IMAGE MODE" in prompt_kwargs["extra_system_suffix"]
+    service._describe_image.assert_not_awaited()
+    assert add_history_mock.await_args.kwargs["before_description"] == ""
+    assert (
+        add_history_mock.await_args.kwargs["after_description"]
+        == "1girl, solo, silver hair"
+    )
+
+
+@pytest.mark.asyncio
+async def test_generate_image_uses_text_to_image_without_base_image(
+    monkeypatch,
+) -> None:
+    from gateway.services.game_service import GameService
+
+    service = GameService()
+    fake_result = SimpleNamespace(
+        images=[b"generated"], cost_usd=None, seed=42, provider="novelai"
+    )
+    image_service = SimpleNamespace(
+        edit_image=AsyncMock(return_value=fake_result),
+        generate_image=AsyncMock(return_value=fake_result),
+    )
+    monkeypatch.setattr(service, "_image_service", image_service)
+
+    image, cost, seed = await service._generate_image(
+        None,
+        "1girl, solo",
+        inpaint_strength=0.7,
+        inpaint_noise=0.1,
+        seed=42,
+    )
+
+    assert (image, cost, seed) == (b"generated", None, 42)
+    image_service.generate_image.assert_awaited_once()
+    kwargs = image_service.generate_image.await_args.kwargs
+    assert kwargs["image_bytes"] is None
+    assert kwargs["i2i_strength_override"] == 0.7
+    assert kwargs["i2i_noise_override"] == 0.1
+    assert kwargs["seed"] == 42
+    image_service.edit_image.assert_not_awaited()
+
+    await service._generate_image(b"base-image", "1girl, solo")
+
+    image_service.edit_image.assert_awaited_once()
+    assert image_service.edit_image.await_args.kwargs["image_bytes"] == b"base-image"
+    assert image_service.generate_image.await_count == 1
