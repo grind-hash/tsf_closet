@@ -54,6 +54,25 @@ PROMPT_EXPANDER_UPLOAD_MAX_BASE64_LEN: Final[int] = 16 * 1024 * 1024
 DEFAULT_PROMPT_EXPANDER_I2I_STRENGTH: Final[float] = 0.7
 DEFAULT_PROMPT_EXPANDER_I2I_NOISE: Final[float] = 0.0
 
+# 漫画モード（NovelAI Diffusion V5 のコマ割り・吹き出し生成を LLM 拡張で支援する）
+# panel_count は 0 が「おまかせ」（LLM が指示文から 2〜4 コマを選ぶ）
+PROMPT_EXPANDER_MANGA_PANEL_COUNT_AUTO: Final[int] = 0
+PROMPT_EXPANDER_MANGA_PANEL_COUNT_MIN: Final[int] = 1
+PROMPT_EXPANDER_MANGA_PANEL_COUNT_MAX: Final[int] = 6
+PROMPT_EXPANDER_MANGA_LAYOUTS: Final[tuple[str, ...]] = (
+    "auto",
+    "vertical",
+    "horizontal",
+    "grid",
+)
+DEFAULT_PROMPT_EXPANDER_MANGA_LAYOUT: Final[str] = "auto"
+# セリフ・効果音の言語（auto は指示文の言語に合わせる）
+PROMPT_EXPANDER_MANGA_TEXT_LANGUAGES: Final[tuple[str, ...]] = ("auto", "ja", "en")
+DEFAULT_PROMPT_EXPANDER_MANGA_TEXT_LANGUAGE: Final[str] = "auto"
+# 読み順（rtl = 日本式: 右上始まりで右→左・上→下、ltr = 西洋式）
+PROMPT_EXPANDER_MANGA_READING_DIRECTIONS: Final[tuple[str, ...]] = ("rtl", "ltr")
+DEFAULT_PROMPT_EXPANDER_MANGA_READING_DIRECTION: Final[str] = "rtl"
+
 
 def max_character_prompts(image_model: str | None) -> int:
     """画像モデルに応じたキャラクタープロンプト上限を返す。"""
@@ -74,3 +93,17 @@ def max_character_prompts_map() -> dict[str, int]:
 
 def is_prompt_expander_image_model(name: str | None) -> bool:
     return bool(name) and name in PROMPT_EXPANDER_IMAGE_MODEL_OPTIONS
+
+
+def supports_manga_mode(image_model: str | None) -> bool:
+    """漫画モード（コマ割り・文字描画）は V5 系モデルのみ対応。"""
+    return is_v5_image_model(image_model)
+
+
+def normalize_manga_panel_count(value: object) -> int:
+    """保存値・入力値を 0（おまかせ）または範囲内の整数に丸める。"""
+    if isinstance(value, bool) or not isinstance(value, int):
+        return PROMPT_EXPANDER_MANGA_PANEL_COUNT_AUTO
+    if value < PROMPT_EXPANDER_MANGA_PANEL_COUNT_MIN:
+        return PROMPT_EXPANDER_MANGA_PANEL_COUNT_AUTO
+    return min(value, PROMPT_EXPANDER_MANGA_PANEL_COUNT_MAX)

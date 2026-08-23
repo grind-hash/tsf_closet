@@ -52,3 +52,27 @@ def test_text_model_options():
     assert is_novelai_text_model("xialong-v1")
     assert not is_novelai_text_model("gpt-4")
     assert not is_novelai_text_model(None)
+
+
+def test_manga_constants_and_helpers():
+    from gateway.consts.prompt_expander import (
+        PROMPT_EXPANDER_MANGA_LAYOUTS,
+        PROMPT_EXPANDER_MANGA_PANEL_COUNT_AUTO,
+        PROMPT_EXPANDER_MANGA_PANEL_COUNT_MAX,
+        PROMPT_EXPANDER_MANGA_TEXT_LANGUAGES,
+        normalize_manga_panel_count,
+        supports_manga_mode,
+    )
+
+    assert PROMPT_EXPANDER_MANGA_LAYOUTS == ("auto", "vertical", "horizontal", "grid")
+    assert PROMPT_EXPANDER_MANGA_TEXT_LANGUAGES == ("auto", "ja", "en")
+    assert supports_manga_mode("nai-diffusion-5-full")
+    assert supports_manga_mode("nai-diffusion-5-curated")
+    assert not supports_manga_mode("nai-diffusion-4-5-full")
+    assert not supports_manga_mode(None)
+    assert normalize_manga_panel_count(None) == PROMPT_EXPANDER_MANGA_PANEL_COUNT_AUTO
+    assert normalize_manga_panel_count("3") == PROMPT_EXPANDER_MANGA_PANEL_COUNT_AUTO
+    assert normalize_manga_panel_count(True) == PROMPT_EXPANDER_MANGA_PANEL_COUNT_AUTO
+    assert normalize_manga_panel_count(-1) == PROMPT_EXPANDER_MANGA_PANEL_COUNT_AUTO
+    assert normalize_manga_panel_count(3) == 3
+    assert normalize_manga_panel_count(99) == PROMPT_EXPANDER_MANGA_PANEL_COUNT_MAX

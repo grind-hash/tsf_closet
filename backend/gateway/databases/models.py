@@ -654,6 +654,11 @@ class PromptExpanderEntry(Base):
     i2i_strength: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     i2i_noise: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     image_size: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    # 漫画モード（V5 のコマ割り）で拡張したプロンプトか。panel_count は None がおまかせ
+    manga_mode: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, server_default="0"
+    )
+    manga_panel_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     # none | history | entry | upload
     source_kind: Mapped[str] = mapped_column(
         String, default="none", nullable=False, server_default="none"

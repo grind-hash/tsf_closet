@@ -59,6 +59,13 @@ function settingsPayload() {
       use_memory: false,
       confirm_before_generate: true,
       inherit_source_prompts: true,
+      manga_mode: false,
+      manga_panel_count: 0,
+      manga_layout: "auto",
+      manga_dialogue: true,
+      manga_text_language: "auto",
+      manga_sound_effects: true,
+      manga_reading_direction: "rtl",
     },
     text_model_options: [
       { id: "glm-4-6", label: "GLM 4.6" },
@@ -123,6 +130,8 @@ const OLD_ENTRY: PromptExpanderEntry = {
   i2i_strength: 0.7,
   i2i_noise: 0.2,
   image_size: "landscape",
+  manga_mode: false,
+  manga_panel_count: null,
   source_kind: "none",
   source_history_id: null,
   source_entry_id: null,
@@ -258,6 +267,7 @@ function Probe() {
       </div>
       <div data-testid="expanding">{ctx.expandingTarget ?? "none"}</div>
       <div data-testid="character-mode">{ctx.characterMode ? "on" : "off"}</div>
+      <div data-testid="manga-active">{ctx.mangaActive ? "on" : "off"}</div>
       <div data-testid="slots">{ctx.characterSlots.join("|")}</div>
       <div data-testid="anlas">{ctx.anlas ? ctx.anlas.totalAnlas : "none"}</div>
       <div data-testid="error">{ctx.error ?? ""}</div>
@@ -281,6 +291,46 @@ function Probe() {
       </button>
       <button type="button" onClick={() => ctx.setCharacterMode(true)}>
         character-on
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          void ctx.updateSettings({
+            manga_mode: true,
+            manga_panel_count: 3,
+            manga_layout: "vertical",
+            manga_text_language: "ja",
+          })
+        }
+      >
+        manga-on
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          // 設定モックはステートレスなので、V5 切替と漫画設定を 1 回の PUT で送る
+          void ctx.updateSettings({
+            image_model: "nai-diffusion-5-full",
+            manga_mode: true,
+            manga_panel_count: 3,
+            manga_layout: "vertical",
+            manga_text_language: "ja",
+          })
+        }
+      >
+        manga-on-v5
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          ctx.restoreEntry({
+            ...OLD_ENTRY,
+            manga_mode: true,
+            manga_panel_count: null,
+          })
+        }
+      >
+        restore-manga
       </button>
       <button type="button" onClick={() => ctx.addCharacterSlot("slot text")}>
         add-slot
@@ -644,6 +694,72 @@ describe("PromptExpanderContext", () => {
     expect(body.positive_expand_mode).toBe("off");
     expect(body.instruction).toBeNull();
     expect(body.character_prompts).toEqual(["girl A", "girl B"]);
+  });
+
+  it("manga mode is sent to /expand and /generate only while a V5 model is selected", async () => {
+    await openSessionAndWait();
+    fireEvent.click(screen.getByRole("button", { name: "set-positive" }));
+    // 日本語モードを選んでいても、漫画モード中はタグ扱いに固定される
+    fireEvent.click(screen.getByRole("button", { name: "positive-japanese" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "manga-on" }));
+    });
+    // V4.5 のままでは漫画モードは効かない
+    expect(screen.getByTestId("manga-active").textContent).toBe("off");
+    let pending = await clickAndWaitPending("expand-positive");
+    let expandBody = lastBody("/prompt-expander/expand", "POST");
+    expect(expandBody.manga_mode).toBe(false);
+    expect(expandBody).not.toHaveProperty("manga");
+    expect(expandBody.positive_mode).toBe("japanese");
+    expect(pending.mode).toBe("japanese");
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "discard" }));
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "manga-on-v5" }));
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("manga-active").textContent).toBe("on"),
+    );
+    pending = await clickAndWaitPending("expand-positive");
+    expandBody = lastBody("/prompt-expander/expand", "POST");
+    expect(expandBody.manga_mode).toBe(true);
+    expect(expandBody.positive_mode).toBe("tags");
+    expect(pending.mode).toBe("tags");
+    expect(expandBody.manga).toEqual({
+      panel_count: 3,
+      layout: "vertical",
+      dialogue: true,
+      text_language: "ja",
+      sound_effects: true,
+      reading_direction: "rtl",
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "generate-from" }));
+    });
+    await waitFor(() => expect(findCalls("/generate", "POST")).toHaveLength(1));
+    const body = lastBody("/generate", "POST");
+    expect(body.manga_mode).toBe(true);
+    expect(body.manga_panel_count).toBe(3);
+  });
+
+  it("restoreEntry restores the manga flag (null panel count = auto)", async () => {
+    await openSessionAndWait();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "restore-manga" }));
+    });
+    await waitFor(() => {
+      const putCalls = findCalls("/prompt-expander/settings", "PUT");
+      expect(putCalls.length).toBeGreaterThan(0);
+      const body = JSON.parse(String(putCalls[putCalls.length - 1].init?.body));
+      expect(body.manga_mode).toBe(true);
+      expect(body.manga_panel_count).toBe(0);
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("manga-active").textContent).toBe("on"),
+    );
   });
 
   it("V5 usage exhausted gating sets pendingUsageWarn and respects the sessionStorage key", async () => {

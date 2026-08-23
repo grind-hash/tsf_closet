@@ -606,3 +606,182 @@ async def test_expand_invalid_llm_output_and_suggest(factory, monkeypatch):
     ]
     system = pe.llm_service.generate_text.await_args.args[0]
     assert "銀髪が好き" in system and "propose 2 favorite" in system
+
+
+async def test_expand_prompts_manga_mode(factory, monkeypatch):
+    """漫画モードは V5 専用で、JSON をタグ見出し + コマ説明に結合する。"""
+    calls: list[tuple[str, str]] = []
+
+    async def _fake_generate_text(system_prompt, user_prompt, **kwargs):
+        calls.append((system_prompt, user_prompt))
+        return SimpleNamespace(
+            content=(
+                '{"base_tags":"1boy, 1girl, japanese text, text, speech bubble, border",'
+                '"panel_description":"There are two comic panels. The first panel shows a boy. The second panel shows a girl.",'
+                '"character_prompts":["boy, short hair, There\'s a speech bubble next to the boy that says \\"えっ\\""]}'
+            ),
+            cost_usd=None,
+        )
+
+    monkeypatch.setattr(pe.llm_service, "generate_text", _fake_generate_text)
+
+    manga = pe.MangaOptions(panel_count=2, layout="vertical", text_language="ja")
+    result = await pe.expand_prompts(
+        pe.ExpandParams(
+            instruction="男が女になる2コマ漫画",
+            character_mode=True,
+            image_model="nai-diffusion-5-full",
+            text_model="glm-4-6",
+            manga=manga,
+        )
+    )
+    assert result.positive_prompt == (
+        "1boy, 1girl, japanese text, text, speech bubble, border, "
+        "moe, anime, very aesthetic, best quality, "
+        "There are two comic panels. The first panel shows a boy. "
+        "The second panel shows a girl."
+    )
+    assert result.character_prompts == [
+        'boy, short hair, There\'s a speech bubble next to the boy that says "えっ"'
+    ]
+    system, user = calls[-1]
+    assert "Describe exactly 2 comic panels." in system
+    assert "stacked vertically" in system
+    assert "Never create before/after panels" not in system
+    assert user.endswith("does not explicitly change.")
+
+    # キャラクターモード OFF なら character_prompts は返さない。
+    # 日本語モードでも漫画モードは英語構成（品質タグ補完あり）で、system も英語指定
+    result = await pe.expand_prompts(
+        pe.ExpandParams(
+            instruction="男が女になる2コマ漫画",
+            positive_mode="japanese",
+            character_mode=False,
+            image_model="nai-diffusion-5-curated",
+            text_model="glm-4-6",
+            manga=pe.MangaOptions(),
+        )
+    )
+    assert result.character_prompts is None
+    assert result.positive_prompt.startswith(
+        "1boy, 1girl, japanese text, text, speech bubble, border, moe, anime"
+    )
+    system, _ = calls[-1]
+    assert "natural English prose" in system
+    assert "natural Japanese prose" not in system
+
+    # V4.5 では拒否（LLM は呼ばれない）
+    before = len(calls)
+    with pytest.raises(pe.PromptExpanderError) as exc_info:
+        await pe.expand_prompts(
+            pe.ExpandParams(
+                instruction="2コマ漫画",
+                image_model="nai-diffusion-4-5-full",
+                text_model="glm-4-6",
+                manga=pe.MangaOptions(),
+            )
+        )
+    assert exc_info.value.code == "manga_requires_v5"
+    assert len(calls) == before
+
+
+async def test_settings_manga_fields_roundtrip(factory):
+    async with factory() as db:
+        current = await pe.PromptExpanderService.get_settings(db)
+        assert current.manga_mode is False
+        assert current.manga_panel_count == 0
+        assert current.manga_layout == "auto"
+        assert current.manga_dialogue is True
+        assert current.manga_text_language == "auto"
+        assert current.manga_sound_effects is True
+        assert current.manga_reading_direction == "rtl"
+        saved = await pe.PromptExpanderService.save_settings(
+            db,
+            patch={
+                "manga_mode": True,
+                "manga_panel_count": 4,
+                "manga_layout": "horizontal",
+                "manga_dialogue": False,
+                "manga_text_language": "ja",
+                "manga_sound_effects": False,
+                "manga_reading_direction": "ltr",
+            },
+        )
+        await db.commit()
+        assert saved.manga_mode is True
+        assert saved.manga_panel_count == 4
+        assert saved.manga_layout == "horizontal"
+        assert saved.manga_dialogue is False
+        assert saved.manga_text_language == "ja"
+        assert saved.manga_sound_effects is False
+        assert saved.manga_reading_direction == "ltr"
+        # 不正値は既定へ倒す
+        saved = await pe.PromptExpanderService.save_settings(
+            db,
+            patch={
+                "manga_panel_count": 99,
+                "manga_layout": "diagonal",
+                "manga_text_language": "fr",
+                "manga_reading_direction": "ttb",
+            },
+        )
+        await db.commit()
+        assert saved.manga_panel_count == 6
+        assert saved.manga_layout == "auto"
+        assert saved.manga_text_language == "auto"
+        assert saved.manga_reading_direction == "rtl"
+
+
+async def test_generate_entry_persists_manga_flags_only_for_v5(
+    factory, tmp_path: Path, monkeypatch
+):
+    generate_mock = AsyncMock(
+        return_value=ImageGenerationResult(
+            images=[_png("purple")],
+            provider="novelai",
+            model="nai-diffusion-5-full",
+            seed=1,
+        )
+    )
+    monkeypatch.setattr(pe.image_service, "generate_image", generate_mock)
+    async with factory() as db:
+        session = await pe.PromptExpanderService.create_session(db, title="s")
+        await db.commit()
+
+    outcome = await pe.generate_entry(
+        session.id,
+        pe.GenerateParams(
+            prompt="1girl, border, There are three comic panels.",
+            image_model="nai-diffusion-5-full",
+            manga_mode=True,
+            manga_panel_count=3,
+        ),
+    )
+    assert outcome.entry["manga_mode"] is True
+    assert outcome.entry["manga_panel_count"] == 3
+
+    # おまかせ（0）は None として保存
+    outcome = await pe.generate_entry(
+        session.id,
+        pe.GenerateParams(
+            prompt="1girl, border, There are two comic panels.",
+            image_model="nai-diffusion-5-full",
+            manga_mode=True,
+            manga_panel_count=0,
+        ),
+    )
+    assert outcome.entry["manga_mode"] is True
+    assert outcome.entry["manga_panel_count"] is None
+
+    # V4.5 では印を残さない
+    outcome = await pe.generate_entry(
+        session.id,
+        pe.GenerateParams(
+            prompt="1girl",
+            image_model="nai-diffusion-4-5-full",
+            manga_mode=True,
+            manga_panel_count=3,
+        ),
+    )
+    assert outcome.entry["manga_mode"] is False
+    assert outcome.entry["manga_panel_count"] is None

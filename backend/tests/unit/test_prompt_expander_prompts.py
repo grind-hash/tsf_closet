@@ -236,3 +236,175 @@ class TestSuggestionsJson:
     def test_rejects_empty(self):
         with pytest.raises(PromptExpanderOutputError):
             parse_suggestions_json('{"suggestions":[]}', count=3, mode="tags")
+
+
+class TestMangaPrompt:
+    """漫画モード（V5 コマ割り）の system プロンプトと JSON 解析。"""
+
+    def test_manga_tags_character_mode_fixed_panels(self):
+        from gateway.services.prompt_expander_prompts import MangaOptions
+
+        system = build_positive_system_prompt(
+            mode="tags",
+            character_mode=True,
+            max_characters=22,
+            nsfw=False,
+            manga=MangaOptions(panel_count=3, layout="vertical", text_language="en"),
+        )
+        assert '"base_tags"' in system and '"panel_description"' in system
+        assert "Describe exactly 3 comic panels." in system
+        assert "stacked vertically" in system
+        assert '"english text", "text", "speech bubble", "border"' in system
+        assert "between 1 and 22 items" in system
+        assert "There's a speech bubble next to the girl that says \"Ha ha!" in system
+        assert 'there\'s also a "SLAM"' in system
+        # 通常モードの「複数コマ禁止」は含まれない
+        assert "Never create before/after panels" not in system
+        assert "Adult or explicit tags are disabled" in system
+
+    def test_manga_is_english_regardless_of_expand_mode(self):
+        """日本語モードでもコマ説明・外見は英語（日本語の説明文はナレーション枠として描画されるため）。"""
+        from gateway.services.prompt_expander_prompts import MangaOptions
+
+        system = build_positive_system_prompt(
+            mode="japanese",
+            character_mode=False,
+            max_characters=22,
+            nsfw=True,
+            manga=MangaOptions(
+                panel_count=0, dialogue=False, sound_effects=False, text_language="ja"
+            ),
+        )
+        assert "between 2 and 4" in system
+        assert "natural English prose" in system
+        assert "natural Japanese prose" not in system
+        assert "3コマの漫画です" not in system
+        assert "Return an empty list []" in system
+        assert "Do not add any speech bubbles" in system
+        assert "Do not add sound effects" in system
+        assert "renders Japanese prose as caption boxes" in system
+        assert "Do not describe narration boxes, captions" in system
+        # 文字系タグは border だけ
+        assert 'and "border". Do not describe' in system
+
+    def test_manga_single_panel_and_japanese_dialogue_examples(self):
+        from gateway.services.prompt_expander_prompts import MangaOptions
+
+        system = build_positive_system_prompt(
+            mode="tags",
+            character_mode=False,
+            max_characters=6,
+            nsfw=False,
+            manga=MangaOptions(panel_count=1, text_language="ja", layout="grid"),
+        )
+        assert "Describe exactly 1 comic panel." in system
+        assert '"japanese text", "text", "speech bubble", "border"' in system
+        assert "grid of two columns" in system
+        # セリフ・効果音の例文は英語の文で、引用符の中だけが日本語
+        assert 'says "これ、私にぴったり…！"' in system
+        assert 'there\'s also a "ドン！" visible' in system
+        assert "it must be in Japanese" in system
+
+    def test_manga_reading_direction_defaults_to_japanese_rtl(self):
+        """既定は日本式（右上始まり、右→左）。各コマの位置語を要求する。"""
+        from gateway.services.prompt_expander_prompts import MangaOptions
+
+        system = build_positive_system_prompt(
+            mode="tags",
+            character_mode=False,
+            max_characters=6,
+            nsfw=False,
+            manga=MangaOptions(panel_count=4, layout="grid"),
+        )
+        assert "Reading order is Japanese manga style: right to left" in system
+        assert "The first panel is at the top right" in system
+        assert 'Begin panel_description with "read from right to left"' in system
+        assert "The first panel, at the top right, shows" in system
+        assert "read right to left within each row" in system
+        assert "left-to-right manga" not in system
+
+        system = build_positive_system_prompt(
+            mode="tags",
+            character_mode=False,
+            max_characters=6,
+            nsfw=False,
+            manga=MangaOptions(
+                panel_count=3, layout="horizontal", reading_direction="ltr"
+            ),
+        )
+        assert "Reading order is Western style: left to right" in system
+        assert 'include the tag "left-to-right manga" in base_tags' in system
+        assert "the first panel is the leftmost" in system
+        assert (
+            "right to left"
+            not in system.split("For example:")[0].split("Reading order")[0]
+        )
+
+    def test_manga_user_prompt_closing(self):
+        user = build_positive_user_prompt(
+            instruction="三コマで変身する", character_mode=True, manga=True
+        )
+        assert user.endswith(
+            "Create the base_tags, panel_description and character_prompts JSON "
+            "for the comic page. Preserve every current element that the "
+            "instruction does not explicitly change."
+        )
+
+    def test_parse_manga_json_with_characters(self):
+        from gateway.services.prompt_expander_prompts import parse_manga_json
+
+        raw = (
+            '```json\n{"base_tags":"2boys, 3girls, english text, text, speech bubble, border",'
+            '"panel_description":"There are three comic panels. The first panel shows...",'
+            '"character_prompts":["boy, short hair, There\'s a speech bubble next to the boy that says \\"Hi\\"", "  "]}\n```'
+        )
+        base, characters = parse_manga_json(raw, max_characters=22, character_mode=True)
+        # 品質タグはタグ見出し側に入り、コマ説明文の後ろには付かない
+        assert base == (
+            "2boys, 3girls, english text, text, speech bubble, border, "
+            "moe, anime, very aesthetic, best quality, "
+            "There are three comic panels. The first panel shows..."
+        )
+        assert characters == [
+            'boy, short hair, There\'s a speech bubble next to the boy that says "Hi"'
+        ]
+
+    def test_parse_manga_json_without_characters_ignores_list(self):
+        from gateway.services.prompt_expander_prompts import parse_manga_json
+
+        raw = '{"base_tags":"1girl, japanese text, text, speech bubble, border","panel_description":"There are three panels. The girl says \\"これ、私にぴったり…！\\"","character_prompts":["1girl, ignored"]}'
+        base, characters = parse_manga_json(
+            raw, max_characters=22, character_mode=False
+        )
+        assert base == (
+            "1girl, japanese text, text, speech bubble, border, moe, anime, very "
+            'aesthetic, best quality, There are three panels. The girl says "これ、私にぴったり…！"'
+        )
+        assert characters is None
+
+    def test_parse_manga_json_errors_and_cap(self):
+        from gateway.services.prompt_expander_prompts import parse_manga_json
+
+        with pytest.raises(PromptExpanderOutputError):
+            parse_manga_json(
+                '{"base_tags":"1girl"}', max_characters=6, character_mode=False
+            )
+        with pytest.raises(PromptExpanderOutputError):
+            parse_manga_json(
+                '{"base_tags":"1girl","panel_description":"   ","character_prompts":[]}',
+                max_characters=6,
+                character_mode=False,
+            )
+        with pytest.raises(PromptExpanderOutputError):
+            parse_manga_json(
+                '{"base_tags":"1girl","panel_description":"two panels","character_prompts":[]}',
+                max_characters=6,
+                character_mode=True,
+            )
+        base, characters = parse_manga_json(
+            '{"base_tags":"","panel_description":"two panels","character_prompts":["a","b","c"]}',
+            max_characters=2,
+            character_mode=True,
+        )
+        assert base == "two panels"
+        assert characters == ["a", "b"]

@@ -11,13 +11,22 @@ import { useTranslation } from "react-i18next";
 import { isV5ImageModel } from "../../constants/novelaiImageModels";
 import {
   getPromptExpanderImageModelLabel,
+  mangaPanelCountOptions,
   PROMPT_EXPANDER_I2I_NOISE_MAX,
   PROMPT_EXPANDER_I2I_NOISE_MIN,
   PROMPT_EXPANDER_I2I_STRENGTH_MAX,
   PROMPT_EXPANDER_I2I_STRENGTH_MIN,
+  PROMPT_EXPANDER_MANGA_LAYOUTS,
+  PROMPT_EXPANDER_MANGA_PANEL_COUNT_AUTO,
+  PROMPT_EXPANDER_MANGA_READING_DIRECTIONS,
+  PROMPT_EXPANDER_MANGA_TEXT_LANGUAGES,
   PROMPT_EXPANDER_SEED_MAX,
   type PromptExpanderImageSize,
+  type PromptExpanderMangaLayout,
+  type PromptExpanderMangaReadingDirection,
+  type PromptExpanderMangaTextLanguage,
   type PromptExpandMode,
+  supportsMangaMode,
 } from "../../constants/promptExpander";
 import {
   type PromptExpanderExpansionTarget,
@@ -37,9 +46,16 @@ interface ExpandModeRadioProps {
   name: string;
   value: PromptExpandMode;
   onChange: (mode: PromptExpandMode) => void;
+  /** 無効化の理由（title に出す。漫画モード中の固定など） */
+  disabledReason?: string | null;
 }
 
-function ExpandModeRadio({ name, value, onChange }: ExpandModeRadioProps) {
+function ExpandModeRadio({
+  name,
+  value,
+  onChange,
+  disabledReason = null,
+}: ExpandModeRadioProps) {
   const { t } = useTranslation();
   const items: Array<{ mode: PromptExpandMode; label: string }> = [
     { mode: "japanese", label: t("promptExpander.composer.expandJapanese") },
@@ -50,6 +66,7 @@ function ExpandModeRadio({ name, value, onChange }: ExpandModeRadioProps) {
       className="prompt-expander__radio-group prompt-expander__radio-group--compact"
       role="radiogroup"
       aria-label={t("promptExpander.composer.expandModeLabel")}
+      title={disabledReason ?? undefined}
     >
       {items.map((item) => (
         <label
@@ -61,6 +78,7 @@ function ExpandModeRadio({ name, value, onChange }: ExpandModeRadioProps) {
             name={name}
             value={item.mode}
             checked={value === item.mode}
+            disabled={disabledReason !== null}
             onChange={() => onChange(item.mode)}
           />
           {item.label}
@@ -131,6 +149,8 @@ export default function PromptExpanderComposer() {
     setCharacterMode,
     characterSlots,
     maxCharacterPrompts,
+    mangaActive,
+    effectivePositiveMode,
     negativeText,
     setNegativeText,
     negativeMode,
@@ -154,6 +174,7 @@ export default function PromptExpanderComposer() {
   const [seedDraft, setSeedDraft] = useState<string | null>(null);
 
   const isV45 = !isV5ImageModel(settings.image_model);
+  const mangaSupported = supportsMangaMode(settings.image_model);
   const busy = expanding || generating;
   const notConfigured = !options.novelaiConfigured;
   const notConfiguredText = t("promptExpander.composer.disabledNotConfigured");
@@ -211,6 +232,28 @@ export default function PromptExpanderComposer() {
     }
   };
 
+  // 漫画セクションの見出し右側に出す要約（閉じていても状態が分かるように）
+  const mangaPanelLabel = (count: number) =>
+    count === PROMPT_EXPANDER_MANGA_PANEL_COUNT_AUTO
+      ? t("promptExpander.composer.mangaPanelAuto")
+      : t("promptExpander.composer.mangaPanelValue", { count });
+  const mangaSummary = !mangaSupported
+    ? t("promptExpander.composer.mangaSummaryUnsupported")
+    : !settings.manga_mode
+      ? t("promptExpander.composer.mangaSummaryOff")
+      : [
+          mangaPanelLabel(settings.manga_panel_count),
+          t(`promptExpander.composer.mangaLayout.${settings.manga_layout}`),
+          t(
+            `promptExpander.composer.mangaReadingDirectionShort.${settings.manga_reading_direction}`,
+          ),
+          settings.manga_dialogue
+            ? t(
+                `promptExpander.composer.mangaTextLanguage.${settings.manga_text_language}`,
+              )
+            : t("promptExpander.composer.mangaSummaryNoDialogue"),
+        ].join(" · ");
+
   const renderFieldToolbar = (
     target: PromptExpanderExpansionTarget,
     extra?: ReactNode,
@@ -230,12 +273,17 @@ export default function PromptExpanderComposer() {
       >
         <ExpandModeRadio
           name={`prompt-expander-${target}-mode`}
-          value={isPositive ? positiveMode : negativeMode}
+          value={isPositive ? effectivePositiveMode : negativeMode}
           onChange={isPositive ? setPositiveMode : setNegativeMode}
+          disabledReason={
+            isPositive && mangaActive
+              ? t("promptExpander.composer.mangaModeFixedHint")
+              : null
+          }
         />
         <button
           type="button"
-          className="prompt-expander__btn prompt-expander__btn--sm prompt-expander__btn--accent"
+          className="prompt-expander__btn prompt-expander__btn--sm prompt-expander__btn--primary"
           onClick={() =>
             void (isPositive ? expandPositive() : expandNegative())
           }
@@ -374,7 +422,169 @@ export default function PromptExpanderComposer() {
         </div>
       </PromptExpanderSection>
 
-      {/* ② プロンプト／指示 */}
+      {/* ② 漫画（コマ割り）。V5 のコマ割り・吹き出し生成を「拡張」で支援する */}
+      <PromptExpanderSection
+        id="manga"
+        title={t("promptExpander.composer.sectionManga")}
+        defaultOpen={false}
+        toolbar={
+          <>
+            <span className="prompt-expander__section-summary">
+              {mangaSummary}
+            </span>
+            <PromptExpanderSwitch
+              checked={settings.manga_mode}
+              onChange={(checked) =>
+                void updateSettings({ manga_mode: checked })
+              }
+              label={t("promptExpander.composer.mangaToggle")}
+              disabled={!mangaSupported}
+              title={
+                mangaSupported
+                  ? undefined
+                  : t("promptExpander.composer.mangaRequiresV5")
+              }
+            />
+          </>
+        }
+      >
+        {!mangaSupported && (
+          <p className="prompt-expander__hint prompt-expander__hint--warning">
+            {t("promptExpander.composer.mangaRequiresV5")}
+          </p>
+        )}
+        <p className="prompt-expander__hint">
+          {t("promptExpander.composer.mangaHint")}
+        </p>
+        <div className="prompt-expander__params-grid">
+          <div className="prompt-expander__field">
+            <label
+              className="prompt-expander__label"
+              htmlFor="prompt-expander-manga-panels"
+            >
+              {t("promptExpander.composer.mangaPanelCount")}
+            </label>
+            <select
+              id="prompt-expander-manga-panels"
+              className="prompt-expander__select"
+              value={settings.manga_panel_count}
+              onChange={(e) =>
+                void updateSettings({
+                  manga_panel_count: Number.parseInt(e.target.value, 10),
+                })
+              }
+            >
+              {mangaPanelCountOptions().map((count) => (
+                <option key={count} value={count}>
+                  {mangaPanelLabel(count)}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="prompt-expander__field">
+            <label
+              className="prompt-expander__label"
+              htmlFor="prompt-expander-manga-layout"
+            >
+              {t("promptExpander.composer.mangaLayoutLabel")}
+            </label>
+            <select
+              id="prompt-expander-manga-layout"
+              className="prompt-expander__select"
+              value={settings.manga_layout}
+              onChange={(e) =>
+                void updateSettings({
+                  manga_layout: e.target.value as PromptExpanderMangaLayout,
+                })
+              }
+            >
+              {PROMPT_EXPANDER_MANGA_LAYOUTS.map((layout) => (
+                <option key={layout} value={layout}>
+                  {t(`promptExpander.composer.mangaLayout.${layout}`)}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="prompt-expander__field">
+            <label
+              className="prompt-expander__label"
+              htmlFor="prompt-expander-manga-reading"
+            >
+              {t("promptExpander.composer.mangaReadingDirectionLabel")}
+            </label>
+            <select
+              id="prompt-expander-manga-reading"
+              className="prompt-expander__select"
+              value={settings.manga_reading_direction}
+              onChange={(e) =>
+                void updateSettings({
+                  manga_reading_direction: e.target
+                    .value as PromptExpanderMangaReadingDirection,
+                })
+              }
+            >
+              {PROMPT_EXPANDER_MANGA_READING_DIRECTIONS.map((direction) => (
+                <option key={direction} value={direction}>
+                  {t(
+                    `promptExpander.composer.mangaReadingDirection.${direction}`,
+                  )}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="prompt-expander__field">
+            <label
+              className="prompt-expander__label"
+              htmlFor="prompt-expander-manga-language"
+            >
+              {t("promptExpander.composer.mangaTextLanguageLabel")}
+            </label>
+            <select
+              id="prompt-expander-manga-language"
+              className="prompt-expander__select"
+              value={settings.manga_text_language}
+              onChange={(e) =>
+                void updateSettings({
+                  manga_text_language: e.target
+                    .value as PromptExpanderMangaTextLanguage,
+                })
+              }
+            >
+              {PROMPT_EXPANDER_MANGA_TEXT_LANGUAGES.map((lang) => (
+                <option key={lang} value={lang}>
+                  {t(`promptExpander.composer.mangaTextLanguage.${lang}`)}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <div className="prompt-expander__manga-switches">
+          <PromptExpanderSwitch
+            checked={settings.manga_dialogue}
+            onChange={(checked) =>
+              void updateSettings({ manga_dialogue: checked })
+            }
+            label={t("promptExpander.composer.mangaDialogue")}
+          />
+          <PromptExpanderSwitch
+            checked={settings.manga_sound_effects}
+            onChange={(checked) =>
+              void updateSettings({ manga_sound_effects: checked })
+            }
+            label={t("promptExpander.composer.mangaSoundEffects")}
+          />
+        </div>
+        <p className="prompt-expander__hint">
+          {t("promptExpander.composer.mangaLayoutSizeHint")}
+        </p>
+        <p className="prompt-expander__hint">
+          {characterMode
+            ? t("promptExpander.composer.mangaCharacterOnHint")
+            : t("promptExpander.composer.mangaCharacterOffHint")}
+        </p>
+      </PromptExpanderSection>
+
+      {/* ③ プロンプト／指示 */}
       <PromptExpanderSection
         id="prompt"
         title={t("promptExpander.composer.sectionPrompt")}
@@ -406,8 +616,17 @@ export default function PromptExpanderComposer() {
             rows={5}
             value={positiveText}
             onChange={(e) => setPositiveText(e.target.value)}
-            placeholder={t("promptExpander.composer.promptPlaceholder")}
+            placeholder={
+              mangaActive
+                ? t("promptExpander.composer.promptPlaceholderManga")
+                : t("promptExpander.composer.promptPlaceholder")
+            }
           />
+          {mangaActive && (
+            <p className="prompt-expander__hint">
+              {t("promptExpander.composer.mangaModeFixedHint")}
+            </p>
+          )}
           {positiveMode === "japanese" && isV45 && (
             <p className="prompt-expander__hint prompt-expander__hint--warning">
               {t("promptExpander.composer.v45JapaneseHint")}
@@ -446,7 +665,7 @@ export default function PromptExpanderComposer() {
         </div>
       </PromptExpanderSection>
 
-      {/* ③ キャラクタープロンプト */}
+      {/* ④ キャラクタープロンプト */}
       <PromptExpanderSection
         id="characters"
         title={t("promptExpander.composer.sectionCharacters")}
@@ -478,7 +697,7 @@ export default function PromptExpanderComposer() {
         )}
       </PromptExpanderSection>
 
-      {/* ④ i2i 設定 */}
+      {/* ⑤ i2i 設定 */}
       <PromptExpanderSection
         id="i2i"
         title={t("promptExpander.composer.sectionI2i")}

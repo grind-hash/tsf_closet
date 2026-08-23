@@ -7,6 +7,7 @@
 
 import { useTranslation } from "react-i18next";
 import { usePromptExpander } from "../../contexts/PromptExpanderContext";
+import PromptExpanderDeleteButton from "./PromptExpanderDeleteButton";
 import "./PromptExpanderShared.css";
 import "./PromptExpanderComposer.css";
 
@@ -89,16 +90,12 @@ export default function PromptExpanderCharacterSlots() {
                   index: index + 1,
                 })}
               />
-              <button
-                type="button"
-                className="prompt-expander__btn prompt-expander__btn--sm prompt-expander__btn--danger"
-                onClick={() => removeCharacterSlot(index)}
-                aria-label={t("promptExpander.composer.removeSlot", {
+              <PromptExpanderDeleteButton
+                label={t("promptExpander.composer.removeSlot", {
                   index: index + 1,
                 })}
-              >
-                ×
-              </button>
+                onClick={() => removeCharacterSlot(index)}
+              />
             </li>
           ))}
         </ol>

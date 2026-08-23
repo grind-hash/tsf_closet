@@ -41,6 +41,8 @@ type PromptExpanderEntryPayload = {
   i2i_strength: number | null;
   i2i_noise: number | null;
   image_size: "portrait" | "landscape" | "square" | null;
+  manga_mode: boolean;
+  manga_panel_count: number | null;
   source_kind: "none" | "history" | "entry" | "upload";
   source_history_id: string | null;
   source_entry_id: string | null;
@@ -83,6 +85,8 @@ function entryPayload(
     i2i_strength: null,
     i2i_noise: null,
     image_size: "portrait",
+    manga_mode: false,
+    manga_panel_count: null,
     source_kind: "none",
     source_history_id: null,
     source_entry_id: null,
@@ -106,6 +110,13 @@ function settingsPayload() {
       use_memory: true,
       confirm_before_generate: true,
       inherit_source_prompts: true,
+      manga_mode: false,
+      manga_panel_count: 0,
+      manga_layout: "auto",
+      manga_dialogue: true,
+      manga_text_language: "auto",
+      manga_sound_effects: true,
+      manga_reading_direction: "rtl",
     },
     text_model_options: [
       { id: "glm-4-6", label: "GLM 4.6" },
@@ -186,6 +197,8 @@ async function mockPromptExpanderApis(page: Page) {
     entries: [entryPayload()] as PromptExpanderEntryPayload[],
     expandBodies: [] as Record<string, unknown>[],
     generateBodies: [] as Record<string, unknown>[],
+    // PUT の部分更新を積み上げて保持する（複数回の設定変更をまたいで検証するため）
+    settings: settingsPayload().settings as Record<string, unknown>,
   };
   let generatedCount = 0;
 
@@ -206,13 +219,15 @@ async function mockPromptExpanderApis(page: Page) {
   await page.route(
     (url) => url.pathname === "/api/prompt-expander/settings",
     async (route) => {
-      // GET / PUT とも同じ設定を返す（PUT は送信内容を上書き反映する）
+      // GET / PUT とも同じ設定を返す（PUT は送信内容を上書き反映して保持する）
       const payload = settingsPayload();
       if (route.request().method() === "PUT") {
         const patch = route.request().postDataJSON() as Record<string, unknown>;
-        payload.settings = { ...payload.settings, ...patch };
+        state.settings = { ...state.settings, ...patch };
       }
-      await route.fulfill({ json: payload });
+      await route.fulfill({
+        json: { ...payload, settings: state.settings },
+      });
     },
   );
   await page.route(
@@ -263,6 +278,9 @@ async function mockPromptExpanderApis(page: Page) {
         instruction?: string | null;
         positive_expand_mode: "off" | "japanese" | "tags";
         negative_expand_mode: "off" | "japanese" | "tags";
+        image_model?: string;
+        manga_mode?: boolean;
+        manga_panel_count?: number | null;
       };
       state.generateBodies.push(body);
       generatedCount += 1;
@@ -274,6 +292,11 @@ async function mockPromptExpanderApis(page: Page) {
         character_prompts: body.character_prompts ?? [],
         positive_expand_mode: body.positive_expand_mode,
         negative_expand_mode: body.negative_expand_mode,
+        image_model: body.image_model ?? "nai-diffusion-4-5-full",
+        manga_mode: body.manga_mode ?? false,
+        manga_panel_count: body.manga_mode
+          ? (body.manga_panel_count ?? null)
+          : null,
         image_url: `/prompt-expander/images/pe-entry-new-${generatedCount}`,
         created_at: "2026-08-02T00:00:00",
       });
@@ -487,16 +510,16 @@ test("expand with tags from the field toolbar, edit the inline result and genera
 
   // 正プロンプト欄の右上ツールバー: モード（既定はタグ）+ 拡張 + 提案
   const toolbar = positiveToolbar(page);
-  await expect(
-    toolbar.getByRole("radio", { name: "タグで拡張" }),
-  ).toBeChecked();
+  await expect(toolbar.getByRole("radio", { name: "タグ" })).toBeChecked();
   await expect(toolbar.getByRole("button", { name: "✨ 提案" })).toBeEnabled();
   // 空欄のうちは拡張できない（理由付き）
-  const expandButton = toolbar.getByRole("button", { name: "拡張" });
+  const expandButton = toolbar.getByRole("button", {
+    name: "LLMでプロンプト化",
+  });
   await expect(expandButton).toBeDisabled();
   await expect(expandButton).toHaveAttribute(
     "title",
-    "拡張する内容を入力してください",
+    "プロンプト化する内容を入力してください",
   );
 
   const instruction = "猫耳メイドがカフェで微笑む";
@@ -515,7 +538,7 @@ test("expand with tags from the field toolbar, edit the inline result and genera
   expect(state.expandBodies[0]).not.toHaveProperty("current_prompt");
 
   // 拡張結果は欄の直下にインライン表示され、編集できる
-  const card = page.getByRole("region", { name: "拡張結果（プロンプト）" });
+  const card = page.getByRole("region", { name: "変換結果（プロンプト）" });
   await expect(card).toBeVisible();
   const basePrompt = card.getByLabel("ベースプロンプト");
   await expect(basePrompt).toHaveValue(EXPANDED_PROMPT);
@@ -554,8 +577,10 @@ test("apply the expansion to the field and generate with the expand metadata", a
 
   const instruction = "雨の日の駅で傘を差す少女";
   await positiveField(page).fill(instruction);
-  await positiveToolbar(page).getByRole("button", { name: "拡張" }).click();
-  const card = page.getByRole("region", { name: "拡張結果（プロンプト）" });
+  await positiveToolbar(page)
+    .getByRole("button", { name: "LLMでプロンプト化" })
+    .click();
+  const card = page.getByRole("region", { name: "変換結果（プロンプト）" });
   await expect(card).toBeVisible();
   await card.getByRole("button", { name: "欄へ反映" }).click();
 
@@ -564,7 +589,7 @@ test("apply the expansion to the field and generate with the expand metadata", a
   // 拡張由来であることがラベル横のバッジで分かる
   await expect(
     page.locator('label[for="prompt-expander-positive"]'),
-  ).toContainText("タグ拡張");
+  ).toContainText("タグで変換");
   expect(state.generateBodies).toHaveLength(0);
 
   await generateButton(page).click();
@@ -589,12 +614,10 @@ test("negative field has its own expand toolbar and inline result", async ({
   const toolbar = negativeToolbar(page);
   // ラジオ本体は見た目上隠れているので、ラベル（チップ）をクリックして切り替える
   await toolbar
-    .locator(".prompt-expander__radio", { hasText: "日本語で拡張" })
+    .locator(".prompt-expander__radio", { hasText: "日本語文" })
     .click();
-  await expect(
-    toolbar.getByRole("radio", { name: "日本語で拡張" }),
-  ).toBeChecked();
-  await toolbar.getByRole("button", { name: "拡張" }).click();
+  await expect(toolbar.getByRole("radio", { name: "日本語文" })).toBeChecked();
+  await toolbar.getByRole("button", { name: "LLMでプロンプト化" }).click();
 
   await expect.poll(() => state.expandBodies.length).toBe(1);
   expect(state.expandBodies[0]).toMatchObject({
@@ -604,7 +627,7 @@ test("negative field has its own expand toolbar and inline result", async ({
     negative_instruction: "低品質なもの",
   });
 
-  const card = page.getByRole("region", { name: "拡張結果（ネガティブ）" });
+  const card = page.getByRole("region", { name: "変換結果（ネガティブ）" });
   await expect(card).toBeVisible();
   await expect(card.getByLabel("ネガティブプロンプト")).toHaveValue(
     EXPANDED_NEGATIVE,
@@ -646,6 +669,100 @@ test("generate without expansion sends the raw prompt", async ({ page }) => {
   ).toContainText("1girl, raw prompt");
 });
 
+test("comic mode is V5-only, its options are sent with expand/generate, and entries get a badge", async ({
+  page,
+}) => {
+  await enableFeatures(page, { experimentalPromptExpanderEnabled: true });
+  const state = await mockPromptExpanderApis(page);
+  await openSession(page);
+
+  // 既定は閉じているが、見出し右のトグルと要約は見える。V4.5 では無効で理由が分かる
+  const mangaHeading = page.getByRole("button", { name: "漫画（コマ割り）" });
+  await expect(mangaHeading).toHaveAttribute("aria-expanded", "false");
+  const mangaSwitch = page.getByRole("checkbox", { name: "漫画モード" });
+  await expect(mangaSwitch).toBeDisabled();
+  await expect(
+    page.locator(".prompt-expander__section[data-section-id='manga']"),
+  ).toContainText("V5 専用（現在のモデルでは無効）");
+  await mangaHeading.click();
+  await expect(mangaHeading).toHaveAttribute("aria-expanded", "true");
+  await expect(
+    page.getByText(
+      /漫画モード（コマ割り・吹き出しの文字描画）は NAI Diffusion V5 系モデル専用です/,
+    ),
+  ).toBeVisible();
+
+  // V5 に切り替えると有効になる
+  await page.getByLabel("画像モデル").selectOption("nai-diffusion-5-full");
+  await expect(mangaSwitch).toBeEnabled();
+  await page
+    .locator(".prompt-expander__switch", { hasText: "漫画モード" })
+    .click();
+  await expect(mangaSwitch).toBeChecked();
+  await page.getByLabel("コマ数").selectOption("3");
+  await page.getByLabel("コマ割り").selectOption("vertical");
+  await page.getByLabel("セリフの言語").selectOption("ja");
+  await expect(
+    page.locator(".prompt-expander__section[data-section-id='manga']"),
+  ).toContainText("3コマ · 縦積み · 右→左 · 日本語");
+  // 読み順は日本式（右上始まり）が既定
+  await expect(page.getByLabel("読み順")).toHaveValue("rtl");
+  // 指示欄のプレースホルダーが漫画向けに変わり、拡張モードはタグ固定（理由つき）
+  await expect(positiveField(page)).toHaveAttribute(
+    "placeholder",
+    /漫画にしたい流れを入力/,
+  );
+  const toolbar = positiveToolbar(page);
+  await expect(toolbar.getByRole("radio", { name: "タグ" })).toBeChecked();
+  await expect(toolbar.getByRole("radio", { name: "日本語文" })).toBeDisabled();
+  await expect(
+    page.getByText(/漫画モード中はコマ説明・外見を英語で組み立てます/),
+  ).toBeVisible();
+
+  // 拡張に漫画オプションが載る
+  await positiveField(page).fill("男が女の子になる3コマ");
+  await positiveToolbar(page)
+    .getByRole("button", { name: "LLMでプロンプト化" })
+    .click();
+  await expect.poll(() => state.expandBodies.length).toBe(1);
+  expect(state.expandBodies[0]).toMatchObject({
+    manga_mode: true,
+    positive_mode: "tags",
+    manga: {
+      panel_count: 3,
+      layout: "vertical",
+      dialogue: true,
+      text_language: "ja",
+      sound_effects: true,
+      reading_direction: "rtl",
+    },
+  });
+
+  // 生成にも印が載り、エントリにバッジが出る
+  const card = page.getByRole("region", { name: "変換結果（プロンプト）" });
+  await card.getByRole("button", { name: "この内容で生成" }).click();
+  await expect.poll(() => state.generateBodies.length).toBe(1);
+  expect(state.generateBodies[0]).toMatchObject({
+    manga_mode: true,
+    manga_panel_count: 3,
+  });
+  const newest = page.locator(".prompt-expander__entry-list > li").first();
+  await expect(newest.locator(".prompt-expander__badge").last()).toHaveText(
+    "漫画 3コマ",
+  );
+
+  // V4.5 に戻すと設定は残るが、拡張には載らない
+  await page.getByLabel("画像モデル").selectOption("nai-diffusion-4-5-full");
+  await expect(mangaSwitch).toBeDisabled();
+  await expect(mangaSwitch).toBeChecked();
+  await positiveToolbar(page)
+    .getByRole("button", { name: "LLMでプロンプト化" })
+    .click();
+  await expect.poll(() => state.expandBodies.length).toBe(2);
+  expect(state.expandBodies[1]).toMatchObject({ manga_mode: false });
+  expect(state.expandBodies[1]).not.toHaveProperty("manga");
+});
+
 test("composer sections collapse, expand and persist to localStorage", async ({
   page,
 }) => {
@@ -653,12 +770,13 @@ test("composer sections collapse, expand and persist to localStorage", async ({
   await mockPromptExpanderApis(page);
   await openSession(page);
 
-  // 並び順: 生成パラメータ → プロンプト／指示 → キャラクタープロンプト → i2i設定
+  // 並び順: 生成パラメータ → 漫画（コマ割り） → プロンプト／指示 → キャラクタープロンプト → i2i設定
   const headings = page.locator(
     ".prompt-expander__composer .prompt-expander__section-toggle",
   );
   await expect(headings).toHaveText([
     /生成パラメータ/,
+    /漫画（コマ割り）/,
     /プロンプト／指示/,
     /キャラクタープロンプト/,
     /i2i設定/,
@@ -733,7 +851,7 @@ test("settings open as a right side panel and remember the state", async ({
   await expect(panel).toBeVisible();
   await expect(headerButton).toHaveAttribute("aria-expanded", "true");
   await expect(
-    panel.getByLabel("テキストモデル（拡張・提案に使用）"),
+    panel.getByLabel("テキストモデル（プロンプト化・提案に使用）"),
   ).toBeVisible();
   await expect(panel.getByLabel("Prompt Expander メモリ")).toBeVisible();
   // 「拡張結果を確認してから生成」は廃止、参照元の引き継ぎは i2i 設定側へ移動

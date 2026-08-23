@@ -52,18 +52,13 @@
 }
 
 .prompt-expander__radio-group--compact .prompt-expander__radio {
-  padding: 0.18rem 0.5rem;
+  padding: 0.22rem 0.55rem;
   font-size: 0.75rem;
 }
 
-.prompt-expander__btn--accent {
-  border-color: var(--accent-color, #e94560);
-  color: var(--accent-hover, #ff6b6b);
-  font-weight: 600;
-}
-
-.prompt-expander__btn--accent:hover:not(:disabled) {
-  background: rgba(233, 69, 96, 0.15);
+/* キャラクタースロットの削除アイコンはテキストエリアの上端に揃える */
+.prompt-expander__slot .prompt-expander__icon-btn {
+  margin-top: 0.35rem;
 }
 
 /* 欄の近くに出す拡張エラー */
@@ -174,6 +169,14 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 0.7rem 0.9rem;
+}
+
+/* 漫画（コマ割り） */
+.prompt-expander__manga-switches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.2rem;
+  margin: 0.6rem 0 0.4rem;
 }
 
 .prompt-expander__seed-row {

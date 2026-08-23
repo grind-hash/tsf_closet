@@ -7,6 +7,9 @@
 
 import type {
   PromptExpanderImageSize,
+  PromptExpanderMangaLayout,
+  PromptExpanderMangaReadingDirection,
+  PromptExpanderMangaTextLanguage,
   PromptExpanderSourceKind,
   PromptExpandMode,
 } from "../constants/promptExpander";
@@ -29,9 +32,28 @@ export interface PromptExpanderSettings {
   use_memory: boolean;
   confirm_before_generate: boolean;
   inherit_source_prompts: boolean;
+  /** 漫画モード（V5 のコマ割り・吹き出し）。拡張時の LLM 指示にだけ効く */
+  manga_mode: boolean;
+  /** コマ数（0 = おまかせ） */
+  manga_panel_count: number;
+  manga_layout: PromptExpanderMangaLayout;
+  manga_dialogue: boolean;
+  manga_text_language: PromptExpanderMangaTextLanguage;
+  manga_sound_effects: boolean;
+  manga_reading_direction: PromptExpanderMangaReadingDirection;
 }
 
 export type PromptExpanderSettingsPatch = Partial<PromptExpanderSettings>;
+
+/** 拡張リクエストに載せる漫画モードの詳細 */
+export interface PromptExpanderMangaOptions {
+  panel_count: number;
+  layout: PromptExpanderMangaLayout;
+  dialogue: boolean;
+  text_language: PromptExpanderMangaTextLanguage;
+  sound_effects: boolean;
+  reading_direction: PromptExpanderMangaReadingDirection;
+}
 
 export interface PromptExpanderTextModelOption {
   id: string;
@@ -76,6 +98,9 @@ export interface PromptExpanderEntry {
   i2i_strength: number | null;
   i2i_noise: number | null;
   image_size: PromptExpanderImageSize | null;
+  manga_mode: boolean;
+  /** 漫画モードで指定したコマ数（null = おまかせ／非漫画） */
+  manga_panel_count: number | null;
   source_kind: PromptExpanderSourceKind;
   source_history_id: string | null;
   source_entry_id: string | null;
@@ -116,6 +141,8 @@ export interface PromptExpandRequest {
   current_prompt?: string;
   current_character_prompts: string[];
   current_negative?: string;
+  manga_mode?: boolean;
+  manga?: PromptExpanderMangaOptions;
 }
 
 export interface PromptExpandResponse {
@@ -144,6 +171,8 @@ export interface PromptExpanderGenerateRequest {
   source_entry_id?: string;
   /** source_kind="upload" のときに必須（base64 または data URL） */
   source_image?: string;
+  manga_mode?: boolean;
+  manga_panel_count?: number | null;
 }
 
 interface AnlasPayload {

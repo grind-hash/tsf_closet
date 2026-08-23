@@ -141,8 +141,14 @@
 .prompt-expander__entry-actions {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 0.35rem;
   margin-top: auto;
+}
+
+/* 削除アイコンは行末に寄せる */
+.prompt-expander__entry-actions .prompt-expander__icon-btn {
+  margin-left: auto;
 }
 
 .prompt-expander__preview-caption {

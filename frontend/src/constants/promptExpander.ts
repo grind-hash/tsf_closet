@@ -83,6 +83,50 @@ export const PROMPT_EXPANDER_SEED_MAX = 999999999;
 /** PE ローカルメモリの最大文字数 */
 export const PROMPT_EXPANDER_MEMORY_MAX_LENGTH = 10000;
 
+/** 漫画モード: コマ数（0 = おまかせ） */
+export const PROMPT_EXPANDER_MANGA_PANEL_COUNT_AUTO = 0;
+export const PROMPT_EXPANDER_MANGA_PANEL_COUNT_MIN = 1;
+export const PROMPT_EXPANDER_MANGA_PANEL_COUNT_MAX = 6;
+/** 漫画モード: コマ割り */
+export const PROMPT_EXPANDER_MANGA_LAYOUTS = [
+  "auto",
+  "vertical",
+  "horizontal",
+  "grid",
+] as const;
+export type PromptExpanderMangaLayout =
+  (typeof PROMPT_EXPANDER_MANGA_LAYOUTS)[number];
+/** 漫画モード: セリフ・効果音の言語（auto = 指示文の言語に合わせる） */
+export const PROMPT_EXPANDER_MANGA_TEXT_LANGUAGES = [
+  "auto",
+  "ja",
+  "en",
+] as const;
+export type PromptExpanderMangaTextLanguage =
+  (typeof PROMPT_EXPANDER_MANGA_TEXT_LANGUAGES)[number];
+/** 漫画モード: 読み順（rtl = 日本式: 右上始まりで右→左・上→下、ltr = 西洋式） */
+export const PROMPT_EXPANDER_MANGA_READING_DIRECTIONS = ["rtl", "ltr"] as const;
+export type PromptExpanderMangaReadingDirection =
+  (typeof PROMPT_EXPANDER_MANGA_READING_DIRECTIONS)[number];
+
+/** 漫画モードを使える画像モデルか（V5 系のみ） */
+export function supportsMangaMode(model: string | null | undefined): boolean {
+  return isV5ImageModel(model);
+}
+
+/** 漫画モードで選べるコマ数の一覧（0 = おまかせ を先頭に） */
+export function mangaPanelCountOptions(): number[] {
+  const counts: number[] = [PROMPT_EXPANDER_MANGA_PANEL_COUNT_AUTO];
+  for (
+    let n = PROMPT_EXPANDER_MANGA_PANEL_COUNT_MIN;
+    n <= PROMPT_EXPANDER_MANGA_PANEL_COUNT_MAX;
+    n += 1
+  ) {
+    counts.push(n);
+  }
+  return counts;
+}
+
 /** 画像モデル名から表示ラベルを返す（未知名はそのまま返す） */
 export function getPromptExpanderImageModelLabel(model: string): string {
   return (

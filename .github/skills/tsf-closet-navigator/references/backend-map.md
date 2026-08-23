@@ -128,7 +128,7 @@
 | `aivisspeech_service.py`                              | AivisSpeechの導入、起動、合成、WAV結合                                                                                                                                         |
 | `achievement_service.py`、`achievement_classifier.py` | 実績判定と分類                                                                                                                                                                 |
 | `tag_classifier.py`                                   | 変身タグ分類                                                                                                                                                                   |
-| `prompt_expander_service.py`、`prompt_expander_prompts.py` | Prompt Expander。`PromptExpanderSettings`（`users.prompt_expander_settings_json`）、セッション/エントリ CRUD、画像ファイル（`data/prompt_expander_images/{session}/{entry}.png`）、`expand_prompts`（NovelAI テキストモデル固定）、`generate_entry`（`image_service.generate_image(provider_override="novelai", raw_prompt=True)`）、キャラ提案。プロンプト原文・サニタイズは `prompt_expander_prompts.py`。境界値は `consts/prompt_expander.py`（V5=22 人 / V4.5=6 人、画像モデル 4 種、サイズ 3 種）、テキストモデルは `consts/novelai_text_models.py` が唯一の情報源 |
+| `prompt_expander_service.py`、`prompt_expander_prompts.py` | Prompt Expander。`PromptExpanderSettings`（`users.prompt_expander_settings_json`）、セッション/エントリ CRUD、画像ファイル（`data/prompt_expander_images/{session}/{entry}.png`）、`expand_prompts`（NovelAI テキストモデル固定）、`generate_entry`（`image_service.generate_image(provider_override="novelai", raw_prompt=True)`）、キャラ提案。プロンプト原文・サニタイズは `prompt_expander_prompts.py`。境界値は `consts/prompt_expander.py`（V5=22 人 / V4.5=6 人、画像モデル 4 種、サイズ 3 種、漫画モードのコマ数 0〜6 / レイアウト / セリフ言語）、テキストモデルは `consts/novelai_text_models.py` が唯一の情報源 |
 
 ## 永続化モデル
 
@@ -146,7 +146,7 @@
 | `SessionCharacter`                                      | セッション人物の外見、位置、ロック、主人公フラグ                       |
 | `CharacterPreset`                                       | 再利用可能な人物定義                                                   |
 | `FavoriteOutfit`                                        | UserとHistoryを結ぶお気に入り                                          |
-| `PromptExpanderSession`、`PromptExpanderEntry`          | Prompt Expander の履歴（1セッション複数エントリ）。エントリは指示・拡張モード・最終プロンプト/ネガ/キャラプロンプト・モデル・seed・i2i 強度/ノイズ・サイズ・参照元（history/entry/upload）・画像パス |
+| `PromptExpanderSession`、`PromptExpanderEntry`          | Prompt Expander の履歴（1セッション複数エントリ）。エントリは指示・拡張モード・最終プロンプト/ネガ/キャラプロンプト・モデル・seed・i2i 強度/ノイズ・サイズ・漫画モード（`manga_mode` / `manga_panel_count`）・参照元（history/entry/upload）・画像パス |
 | `PlaySummary`                                           | セッション要約とタイムライン                                           |
 | `UserAchievement`、`AchievementCount`、`AchievedEnding` | 実績/エンディング進捗                                                  |
 | `ParameterChangeLog`                                    | パラメータ変更監査                                                     |

@@ -36,11 +36,20 @@ from ..consts.prompt_expander import (
     DEFAULT_PROMPT_EXPANDER_I2I_STRENGTH,
     DEFAULT_PROMPT_EXPANDER_IMAGE_MODEL,
     DEFAULT_PROMPT_EXPANDER_IMAGE_SIZE,
+    DEFAULT_PROMPT_EXPANDER_MANGA_LAYOUT,
+    DEFAULT_PROMPT_EXPANDER_MANGA_READING_DIRECTION,
+    DEFAULT_PROMPT_EXPANDER_MANGA_TEXT_LANGUAGE,
     PROMPT_EXPANDER_IMAGE_SIZES,
+    PROMPT_EXPANDER_MANGA_LAYOUTS,
+    PROMPT_EXPANDER_MANGA_PANEL_COUNT_AUTO,
+    PROMPT_EXPANDER_MANGA_READING_DIRECTIONS,
+    PROMPT_EXPANDER_MANGA_TEXT_LANGUAGES,
     PROMPT_EXPANDER_MEMORY_MAX_LEN,
     PROMPT_EXPANDER_TITLE_MAX_LEN,
     is_prompt_expander_image_model,
     max_character_prompts,
+    normalize_manga_panel_count,
+    supports_manga_mode,
 )
 from ..databases.base import async_session_factory
 from ..databases.models import PromptExpanderEntry, PromptExpanderSession, User
@@ -50,6 +59,7 @@ from .image_generation import ImageGenerationResult, image_service
 from .llm_service import llm_service
 from .prompt_expander_prompts import (
     ExpandMode,
+    MangaOptions,
     PromptExpanderOutputError,
     build_negative_system_prompt,
     build_negative_user_prompt,
@@ -57,6 +67,7 @@ from .prompt_expander_prompts import (
     build_positive_user_prompt,
     build_suggest_characters_prompts,
     parse_character_json,
+    parse_manga_json,
     parse_suggestions_json,
     sanitize_by_mode,
 )
@@ -98,6 +109,47 @@ class PromptExpanderSettings(BaseModel):
     use_memory: bool = False
     confirm_before_generate: bool = True
     inherit_source_prompts: bool = True
+    # 漫画モード（V5 のコマ割り・吹き出し生成。拡張時の LLM 指示にだけ効く）
+    manga_mode: bool = False
+    manga_panel_count: int = PROMPT_EXPANDER_MANGA_PANEL_COUNT_AUTO
+    manga_layout: str = DEFAULT_PROMPT_EXPANDER_MANGA_LAYOUT
+    manga_dialogue: bool = True
+    manga_text_language: str = DEFAULT_PROMPT_EXPANDER_MANGA_TEXT_LANGUAGE
+    manga_sound_effects: bool = True
+    manga_reading_direction: str = DEFAULT_PROMPT_EXPANDER_MANGA_READING_DIRECTION
+
+    @field_validator("manga_reading_direction", mode="before")
+    @classmethod
+    def _coerce_manga_reading_direction(cls, value: object) -> str:
+        return (
+            value  # type: ignore[return-value]
+            if isinstance(value, str)
+            and value in PROMPT_EXPANDER_MANGA_READING_DIRECTIONS
+            else DEFAULT_PROMPT_EXPANDER_MANGA_READING_DIRECTION
+        )
+
+    @field_validator("manga_panel_count", mode="before")
+    @classmethod
+    def _coerce_manga_panel_count(cls, value: object) -> int:
+        return normalize_manga_panel_count(value)
+
+    @field_validator("manga_layout", mode="before")
+    @classmethod
+    def _coerce_manga_layout(cls, value: object) -> str:
+        return (
+            value  # type: ignore[return-value]
+            if isinstance(value, str) and value in PROMPT_EXPANDER_MANGA_LAYOUTS
+            else DEFAULT_PROMPT_EXPANDER_MANGA_LAYOUT
+        )
+
+    @field_validator("manga_text_language", mode="before")
+    @classmethod
+    def _coerce_manga_text_language(cls, value: object) -> str:
+        return (
+            value  # type: ignore[return-value]
+            if isinstance(value, str) and value in PROMPT_EXPANDER_MANGA_TEXT_LANGUAGES
+            else DEFAULT_PROMPT_EXPANDER_MANGA_TEXT_LANGUAGE
+        )
 
     @field_validator("text_model", mode="before")
     @classmethod
@@ -299,6 +351,8 @@ def entry_to_dict(entry: PromptExpanderEntry) -> dict[str, Any]:
         "i2i_strength": entry.i2i_strength,
         "i2i_noise": entry.i2i_noise,
         "image_size": entry.image_size,
+        "manga_mode": bool(entry.manga_mode),
+        "manga_panel_count": entry.manga_panel_count,
         "source_kind": entry.source_kind or "none",
         "source_history_id": entry.source_history_id,
         "source_entry_id": entry.source_entry_id,
@@ -566,6 +620,8 @@ class PromptExpanderService:
             positive_expand_mode="off",
             negative_expand_mode="off",
             character_mode=False,
+            manga_mode=False,
+            manga_panel_count=None,
             final_prompt="",
             final_negative_prompt="",
             character_prompts_json="[]",
@@ -723,6 +779,8 @@ class ExpandParams:
     current_prompt: Optional[str] = None
     current_character_prompts: Sequence[str] = ()
     current_negative: Optional[str] = None
+    # 漫画モード（None なら通常拡張）
+    manga: Optional[MangaOptions] = None
 
 
 @dataclass
@@ -789,6 +847,11 @@ async def expand_prompts(
         raise PromptExpanderError("invalid_request", "拡張対象が指定されていません")
     if not is_prompt_expander_image_model(params.image_model):
         raise PromptExpanderError("unsupported_image_model", "画像モデルが不正です")
+    if params.manga is not None and not supports_manga_mode(params.image_model):
+        raise PromptExpanderError(
+            "manga_requires_v5",
+            "漫画モードは NovelAI Diffusion V5 系モデルでのみ使用できます",
+        )
 
     async with async_session_factory() as db:
         pe_settings = await PromptExpanderService.get_settings(db, user_id=user_id)
@@ -831,6 +894,7 @@ async def expand_prompts(
             nsfw=nsfw,
             memory_text=memory_text,
             language=params.language,
+            manga=params.manga,
         )
         user_prompt = build_positive_user_prompt(
             instruction=instruction,
@@ -838,10 +902,19 @@ async def expand_prompts(
             current_character_prompts=current_characters,
             character_mode=params.character_mode,
             context_description=context_description,
+            manga=params.manga is not None,
         )
         raw = await _call_llm(system_prompt, user_prompt, params.text_model)
         try:
-            if params.character_mode:
+            if params.manga is not None:
+                base, characters = parse_manga_json(
+                    raw,
+                    max_characters=max_characters,
+                    character_mode=params.character_mode,
+                )
+                result.positive_prompt = base
+                result.character_prompts = characters
+            elif params.character_mode:
                 base, characters = parse_character_json(
                     raw, max_characters=max_characters, mode=params.positive_mode
                 )
@@ -948,6 +1021,9 @@ class GenerateParams:
     source_history_id: Optional[str] = None
     source_entry_id: Optional[str] = None
     source_image: Optional[str] = None
+    # 漫画モードで拡張したプロンプトかどうか（エントリのバッジ・復元用。生成には影響しない）
+    manga_mode: bool = False
+    manga_panel_count: Optional[int] = None
 
 
 @dataclass
@@ -1039,6 +1115,8 @@ async def generate_entry(
     if not result.images:
         raise PromptExpanderError("image_failed", "画像が返されませんでした")
 
+    # 漫画モードは V5 系モデル専用なので、それ以外では印を残さない
+    manga_mode = bool(params.manga_mode) and supports_manga_mode(params.image_model)
     entry_id = str(uuid.uuid4())
     async with async_session_factory() as db:
         session = await PromptExpanderService.get_session(
@@ -1063,6 +1141,12 @@ async def generate_entry(
             ),
             i2i_noise=params.i2i_noise if source.image_bytes is not None else None,
             image_size=params.image_size,
+            manga_mode=manga_mode,
+            manga_panel_count=(
+                normalize_manga_panel_count(params.manga_panel_count) or None
+                if manga_mode
+                else None
+            ),
             source_kind=params.source_kind
             if source.image_bytes is not None
             else "none",

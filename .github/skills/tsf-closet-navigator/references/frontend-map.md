@@ -125,6 +125,7 @@ components/
     PromptExpanderScreen.tsx        セッション一覧/作業画面、Anlas・V5利用上限、同意モーダル。設定は MainLayout の rightPanel（開閉は localStorage `prompt_expander_settings_panel_open`）
     PromptExpanderSessionList.tsx   PEセッションの作成/改名/削除/一覧
     PromptExpanderSection.tsx       アコーディオン見出し（aria-expanded、右側ツールバー枠）。開閉は hooks/usePersistedSectionState（localStorage `prompt_expander_sections_open`）
+    PromptExpanderDeleteButton.tsx  削除用アイコンボタン（ギャラリー同様ゴミ箱アイコン、ホバーで赤）。削除を赤塗り/赤枠のテキストボタンにしない
     PromptExpanderComposer.tsx      セクション順: 生成パラメータ → プロンプト／指示（各欄右上にモード切替・「拡張」・「✨提案」）→ キャラクタープロンプト → i2i設定 → 「生成」
     PromptExpanderExpansionPanel.tsx 欄直下のインライン拡張結果カード（欄へ反映／この内容で生成／破棄）
     PromptExpanderEntryList.tsx / EntryCard.tsx  履歴セクション（欄へ復元・i2i元・通常プレイ/TSFシナリオへ・削除）。プレビューは ImagePreviewModal に className="prompt-expander-preview" で 96vw/96vh 拡大
@@ -170,4 +171,4 @@ components/
 - 各大規模画面は隣接CSSを持つ。既存レイアウトを保ち、変更画面だけ確認する。
 - Context単体テストは `frontend/src/contexts/tests/`、E2Eは `frontend/tests/e2e/`。
 - 主な対象E2E: `action-mode.spec.ts`、`image-only-preview.spec.ts`、`adventure-mode.spec.ts`、`adventure-portrait-alpha.spec.ts`、`prompt-expander.spec.ts`。
-- 定数ミラー: `constants/promptExpander.ts`（画像モデル4種、キャラ上限 V5=22/V4.5=6、サイズ）。`V5_USAGE_WARN_SUPPRESSED_KEY` は `constants/novelaiImageModels.ts` に集約。
+- 定数ミラー: `constants/promptExpander.ts`（画像モデル4種、キャラ上限 V5=22/V4.5=6、サイズ、漫画モードのコマ数/レイアウト/セリフ言語と `supportsMangaMode`）。`V5_USAGE_WARN_SUPPRESSED_KEY` は `constants/novelaiImageModels.ts` に集約。

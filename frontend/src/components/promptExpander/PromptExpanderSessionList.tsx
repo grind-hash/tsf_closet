@@ -11,6 +11,7 @@ import { useNavigate } from "react-router-dom";
 import type { PromptExpanderSession } from "../../apis/promptExpander";
 import { promptExpanderImageUrl } from "../../apis/promptExpander";
 import { usePromptExpander } from "../../contexts/PromptExpanderContext";
+import PromptExpanderDeleteButton from "./PromptExpanderDeleteButton";
 import "./PromptExpanderShared.css";
 import "./PromptExpanderSessionList.css";
 
@@ -150,14 +151,11 @@ function SessionRow({ session }: SessionRowProps) {
         >
           {t("promptExpander.sessions.rename")}
         </button>
-        <button
-          type="button"
-          className="prompt-expander__btn prompt-expander__btn--sm prompt-expander__btn--danger"
+        <PromptExpanderDeleteButton
+          label={t("promptExpander.sessions.delete")}
           onClick={handleDelete}
           disabled={busy}
-        >
-          {t("promptExpander.sessions.delete")}
-        </button>
+        />
       </div>
     </li>
   );

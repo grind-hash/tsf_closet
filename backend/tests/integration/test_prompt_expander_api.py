@@ -295,3 +295,91 @@ def test_expand_and_suggest(client: TestClient):
     assert res.json()["suggestions"] == [
         {"title": "銀髪", "prompt": "1girl, silver hair"}
     ]
+
+
+def test_expand_manga_mode_api(client: TestClient):
+    pe.llm_service.generate_text.return_value = SimpleNamespace(
+        content=(
+            '{"base_tags":"1girl, english text, text, speech bubble, border",'
+            '"panel_description":"There are two comic panels. The first panel shows a girl.",'
+            '"character_prompts":[]}'
+        ),
+        cost_usd=None,
+    )
+    res = client.post(
+        "/api/prompt-expander/expand",
+        json={
+            "instruction": "2コマ漫画",
+            "image_model": "nai-diffusion-5-full",
+            "text_model": "glm-4-6",
+            "manga_mode": True,
+            "manga": {"panel_count": 2, "layout": "vertical", "text_language": "en"},
+        },
+    )
+    assert res.status_code == 200, res.text
+    assert res.json()["positive_prompt"].startswith(
+        "1girl, english text, text, speech bubble, border, "
+    )
+    assert res.json()["positive_prompt"].endswith(
+        "There are two comic panels. The first panel shows a girl."
+    )
+    assert res.json()["character_prompts"] is None
+    system_prompt = pe.llm_service.generate_text.await_args.args[0]
+    assert "Describe exactly 2 comic panels." in system_prompt
+
+    # V4.5 では 422
+    res = client.post(
+        "/api/prompt-expander/expand",
+        json={
+            "instruction": "2コマ漫画",
+            "image_model": "nai-diffusion-4-5-full",
+            "text_model": "glm-4-6",
+            "manga_mode": True,
+        },
+    )
+    assert res.status_code == 422
+    assert res.json()["detail"]["code"] == "manga_requires_v5"
+
+    # 範囲外のコマ数はバリデーションエラー
+    res = client.post(
+        "/api/prompt-expander/expand",
+        json={
+            "instruction": "2コマ漫画",
+            "image_model": "nai-diffusion-5-full",
+            "text_model": "glm-4-6",
+            "manga_mode": True,
+            "manga": {"panel_count": 7},
+        },
+    )
+    assert res.status_code == 422
+
+    # 設定の漫画項目が保存・応答される
+    res = client.put(
+        "/api/prompt-expander/settings",
+        json={"manga_mode": True, "manga_panel_count": 3, "manga_layout": "grid"},
+    )
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["settings"]["manga_mode"] is True
+    assert body["settings"]["manga_panel_count"] == 3
+    assert body["settings"]["manga_layout"] == "grid"
+    assert body["manga_panel_count_max"] == 6
+    assert body["manga_layouts"] == ["auto", "vertical", "horizontal", "grid"]
+    assert body["manga_text_languages"] == ["auto", "ja", "en"]
+    assert body["manga_reading_directions"] == ["rtl", "ltr"]
+    assert body["settings"]["manga_reading_direction"] == "rtl"
+
+    # 読み順は拡張リクエストにも載る
+    res = client.post(
+        "/api/prompt-expander/expand",
+        json={
+            "instruction": "2コマ漫画",
+            "image_model": "nai-diffusion-5-full",
+            "text_model": "glm-4-6",
+            "manga_mode": True,
+            "manga": {"panel_count": 2, "reading_direction": "ltr"},
+        },
+    )
+    assert res.status_code == 200, res.text
+    system_prompt = pe.llm_service.generate_text.await_args.args[0]
+    assert "Reading order is Western style" in system_prompt

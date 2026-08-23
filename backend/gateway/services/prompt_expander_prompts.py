@@ -9,12 +9,34 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass
 from typing import Literal, Sequence
 
+from ..consts.prompt_expander import (
+    PROMPT_EXPANDER_MANGA_PANEL_COUNT_AUTO,
+    PROMPT_EXPANDER_MANGA_PANEL_COUNT_MAX,
+)
 from .llm_service import _strip_code_fence
 from .memory_prompts import build_memory_priority_instruction
 
 ExpandMode = Literal["japanese", "tags"]
+MangaLayout = Literal["auto", "vertical", "horizontal", "grid"]
+MangaTextLanguage = Literal["auto", "ja", "en"]
+MangaReadingDirection = Literal["rtl", "ltr"]
+
+
+@dataclass(frozen=True)
+class MangaOptions:
+    """漫画モードの拡張オプション（NovelAI Diffusion V5 のコマ割り生成向け）。"""
+
+    panel_count: int = PROMPT_EXPANDER_MANGA_PANEL_COUNT_AUTO
+    layout: MangaLayout = "auto"
+    dialogue: bool = True
+    text_language: MangaTextLanguage = "auto"
+    sound_effects: bool = True
+    # rtl = 日本式（右上始まり、右→左・上→下）、ltr = 西洋式
+    reading_direction: MangaReadingDirection = "rtl"
+
 
 # タグモードで末尾に補完する品質タグ（移植元と同一）
 QUALITY_TAGS: tuple[str, ...] = ("moe", "anime", "very aesthetic", "best quality")
@@ -83,6 +105,246 @@ Requirements:
 - Preserve the current prompt's identity, appearance, clothing, composition, and background unless the instruction explicitly changes them.
 - Apply every explicit change requested by the user.
 - Write every JSON string as concrete visual Japanese prose; a few English Danbooru-style tags may be mixed in where a Japanese phrase would be ambiguous."""
+
+# ---------------------------------------------------------------------------
+# システムプロンプト（漫画モード。NovelAI Diffusion V5 のコマ割り・吹き出し生成）
+#
+# 公式サンプルに倣い「タグ見出し + コマ説明の英語自然文 + キャラクターごとのプロンプト
+# （外見タグ + 吹き出しの文）」の 3 要素を JSON で返させ、サーバー側で結合する。
+# コマ説明や外見を日本語の自然文で書くと、V5 はその文章をナレーション枠として画像内に
+# 描画してしまうため、漫画モードでは拡張モードに関わらず引用符内のセリフ・効果音以外は
+# 英語で組み立てる。
+# ---------------------------------------------------------------------------
+
+MANGA_SYSTEM_PROMPT_TEMPLATE = """You are a NovelAI Diffusion V5 image generation prompt expert for TSF and outfit-change scenarios, specialized in multi-panel comic (manga) pages with speech bubbles.
+Convert the user's Japanese or English instruction into one comic-page prompt for NovelAI Diffusion V5, split into a tag header, a panel description, and per-character prompts.
+
+Requirements:
+- Output JSON only with this exact shape: {{"base_tags":"...","panel_description":"...","character_prompts":["..."]}}. Do not output Markdown, explanations, labels, or prose outside the JSON.
+- base_tags: concise comma-separated English Danbooru-style tags for the whole page only: the total number of distinct characters on the page as count tokens (for example "1girl" or "2boys, 3girls"), style and quality tags, and {text_tags}. Do not describe individual panels or characters here.
+- panel_description: {panel_count_rule} Write it as natural English prose, one or two short sentences per panel (under about 25 words per panel), in reading order. {reading_rule} Name each panel's position on the page (top right, top left, bottom right, bottom left, rightmost, leftmost, full-width bottom, ...). For example: {panel_example} Each panel is one concrete visual scene: who is visible, action, expression, camera, background.{layout_rule}
+- character_prompts: {character_rule}
+- {dialogue_rule}
+- {sfx_rule}
+- Everything except the text inside quotation marks must be written in English. Never write the panel description, appearance, or actions in Japanese: the image model renders Japanese prose as caption boxes. Japanese may appear only inside the quotation marks of dialogue and sound effects.
+- The only written words that may appear in the image are the quoted dialogue and sound effects. Do not describe narration boxes, captions, titles, signs, labels, or any other on-screen text.
+- The same character must keep identical identity, hair, eyes, body, and clothing across all panels unless the story explicitly changes them. If a character's appearance changes between panels (for example a TSF transformation), describe each stage inside panel_description{transformation_rule}.
+- Apply every explicit change requested by the user, including TSF/body transformation, clothing, appearance, pose, expression, camera, lighting, and scene changes.
+- Preserve the current prompt's identity, appearance, clothing, and setting unless the instruction explicitly changes them.
+- Prefer specific visual wording over abstract or emotional wording."""
+
+# コマ説明の例。読み順ごとに位置語の付け方を示す
+MANGA_PANEL_EXAMPLES: dict[str, str] = {
+    "rtl": (
+        '"There are four comic panels, read from right to left. The first panel, '
+        "at the top right, shows a white-haired boy and a red-haired girl talking "
+        "at a kitchen table. The second panel, at the top left, shows a close-up of "
+        "a blonde girl thinking. The third panel, at the bottom right, shows an "
+        "older couple looking at them. The fourth panel, at the bottom left, shows "
+        'the boy laughing."'
+    ),
+    "ltr": (
+        '"There are four comic panels, read from left to right. The first panel, '
+        "at the top left, shows a white-haired boy and a red-haired girl talking "
+        "at a kitchen table. The second panel, at the top right, shows a close-up "
+        "of a blonde girl thinking. The third panel, at the bottom left, shows an "
+        "older couple looking at them. The fourth panel, at the bottom right, shows "
+        'the boy laughing."'
+    ),
+}
+MANGA_READING_RULES: dict[str, str] = {
+    "rtl": (
+        "Reading order is Japanese manga style: right to left, then top to bottom. "
+        "The first panel is at the top right, the next panel is to its left, and "
+        "each new row starts again at the right. Begin panel_description with "
+        '"read from right to left".'
+    ),
+    "ltr": (
+        "Reading order is Western style: left to right, then top to bottom. The "
+        "first panel is at the top left, the next panel is to its right, and each "
+        'new row starts again at the left. Begin panel_description with "read from '
+        'left to right", and include the tag "left-to-right manga" in base_tags.'
+    ),
+}
+# セリフの例（引用符の中身だけが描画される文字。言語設定に合わせて例を切り替える）
+MANGA_SPEECH_EXAMPLES: dict[str, str] = {
+    "en": (
+        "There's a speech bubble next to the girl that says \"Ha ha! That one's a "
+        'classic!"'
+    ),
+    "ja": 'There\'s a speech bubble next to the girl that says "これ、私にぴったり…！"',
+}
+MANGA_SFX_EXAMPLES: dict[str, str] = {
+    "en": 'there\'s also a "SLAM" visible on the table',
+    "ja": 'there\'s also a "ドン！" visible on the table',
+}
+
+MANGA_LAYOUT_RULES: dict[str, dict[str, str]] = {
+    "auto": {"rtl": "", "ltr": ""},
+    "vertical": {
+        "rtl": " State that the panels are stacked vertically from top to bottom.",
+        "ltr": " State that the panels are stacked vertically from top to bottom.",
+    },
+    "horizontal": {
+        "rtl": (
+            " State that the panels are arranged side by side in a single row, "
+            "read from right to left (the first panel is the rightmost)."
+        ),
+        "ltr": (
+            " State that the panels are arranged side by side in a single row, "
+            "read from left to right (the first panel is the leftmost)."
+        ),
+    },
+    "grid": {
+        "rtl": (
+            " State that the panels are arranged in a grid of two columns, read "
+            "right to left within each row and then top to bottom."
+        ),
+        "ltr": (
+            " State that the panels are arranged in a grid of two columns, read "
+            "left to right within each row and then top to bottom."
+        ),
+    },
+}
+
+POSITIVE_CLOSING_MANGA = (
+    "Create the base_tags, panel_description and character_prompts JSON for the "
+    "comic page. Preserve every current element that the instruction does not "
+    "explicitly change."
+)
+
+
+def _manga_text_language_phrase(language: MangaTextLanguage) -> str:
+    if language == "ja":
+        return "Japanese"
+    if language == "en":
+        return "English"
+    return (
+        "the language the user wrote the instruction in (Japanese for a Japanese "
+        "instruction, English for an English instruction)"
+    )
+
+
+def _manga_text_tags(options: MangaOptions) -> str:
+    """base_tags に必ず含めさせる文字描画系タグの説明。"""
+    if not options.dialogue and not options.sound_effects:
+        return '"border"'
+    if options.text_language == "ja":
+        lang_tag = '"japanese text"'
+    elif options.text_language == "en":
+        lang_tag = '"english text"'
+    else:
+        lang_tag = (
+            '"english text" or "japanese text" (whichever matches the language of '
+            "the rendered text)"
+        )
+    tags = [lang_tag, '"text"']
+    if options.dialogue:
+        tags.append('"speech bubble"')
+    tags.append('"border"')
+    return ", ".join(tags)
+
+
+def build_manga_system_prompt(
+    *,
+    options: MangaOptions,
+    character_mode: bool,
+    max_characters: int,
+) -> str:
+    """漫画モードの system プロンプト本体（成人向けルール・メモリ節は呼び出し側で付与）。
+
+    拡張モード（日本語／タグ）には依存しない。引用符内のセリフ・効果音以外は常に英語。
+    """
+    if options.panel_count <= PROMPT_EXPANDER_MANGA_PANEL_COUNT_AUTO:
+        panel_count_rule = (
+            "Decide how many comic panels (between 2 and 4) best fit the user's "
+            "instruction, then describe each panel."
+        )
+    else:
+        count = min(options.panel_count, PROMPT_EXPANDER_MANGA_PANEL_COUNT_MAX)
+        plural = "s" if count != 1 else ""
+        panel_count_rule = f"Describe exactly {count} comic panel{plural}."
+    direction = (
+        options.reading_direction
+        if options.reading_direction
+        in (
+            "rtl",
+            "ltr",
+        )
+        else "rtl"
+    )
+    layout_rule = MANGA_LAYOUT_RULES.get(options.layout, MANGA_LAYOUT_RULES["auto"])[
+        direction
+    ]
+
+    speech_target = (
+        "the speaking character's character_prompts item, naming the panel when "
+        "the character speaks in more than one panel"
+        if character_mode
+        else "panel_description, right after the panel where it is spoken"
+    )
+    if character_mode:
+        character_rule = (
+            f"Return between 1 and {max_characters} items, exactly one per distinct "
+            "character on the page (not one per panel). Each item must contain only "
+            "that character's own identity, face, hair, eyes, body, clothing, "
+            "expression, pose, and action as concise comma-separated English "
+            "Danbooru-style tags, followed by that character's speech bubble "
+            "sentence(s) when dialogue is enabled. Do not put background, camera, "
+            "lighting, page-level tags, or another character's traits in a "
+            "character prompt."
+        )
+    else:
+        character_rule = (
+            "Return an empty list []. Describe every character's appearance (and "
+            "speech bubbles, when enabled) inside panel_description instead."
+        )
+
+    text_language = _manga_text_language_phrase(options.text_language)
+    example_key = "ja" if options.text_language == "ja" else "en"
+    if options.dialogue:
+        dialogue_rule = (
+            "Speech: write every spoken line as an English sentence like: "
+            f'{MANGA_SPEECH_EXAMPLES[example_key]} (use "thought cloud" instead '
+            'of "speech bubble" for unspoken thoughts). Put each line in '
+            f"{speech_target}. Only the text inside the quotes is rendered: it must "
+            f"be in {text_language}, short (at most 12 words or 20 Japanese "
+            "characters per bubble), and written exactly as it should appear in "
+            "the image."
+        )
+    else:
+        dialogue_rule = (
+            "Do not add any speech bubbles, thought clouds, captions, or written "
+            "dialogue."
+        )
+    if options.sound_effects:
+        sfx_rule = (
+            "Sound effects: you may add at most one short onomatopoeia per panel "
+            "when it fits the action, written as an English sentence like: "
+            f"{MANGA_SFX_EXAMPLES[example_key]}. The quoted sound-effect text must "
+            f"be in {text_language}."
+        )
+    else:
+        sfx_rule = "Do not add sound effects or onomatopoeia text."
+
+    transformation_rule = (
+        " and make that character's character_prompts item describe the final stage"
+        if character_mode
+        else ""
+    )
+
+    return MANGA_SYSTEM_PROMPT_TEMPLATE.format(
+        text_tags=_manga_text_tags(options),
+        transformation_rule=transformation_rule,
+        panel_count_rule=panel_count_rule,
+        panel_example=MANGA_PANEL_EXAMPLES[direction],
+        reading_rule=MANGA_READING_RULES[direction],
+        layout_rule=layout_rule,
+        character_rule=character_rule,
+        dialogue_rule=dialogue_rule,
+        sfx_rule=sfx_rule,
+    )
+
 
 # ---------------------------------------------------------------------------
 # ネガティブプロンプト拡張
@@ -172,12 +434,21 @@ def build_positive_system_prompt(
     nsfw: bool,
     memory_text: str = "",
     language: str = "ja",
+    manga: MangaOptions | None = None,
 ) -> str:
     """正プロンプト拡張の system プロンプトを組み立てる。
 
     構成は移植元と同じく「本体 → 成人向けルール → メモリ節（最優先指示）」。
+    manga を渡すと漫画モード（コマ割り・吹き出し）の本体に差し替える。
     """
-    if mode == "japanese":
+    if manga is not None:
+        # 漫画モードは拡張モードに依存しない（引用符内以外は常に英語）
+        base = build_manga_system_prompt(
+            options=manga,
+            character_mode=character_mode,
+            max_characters=max_characters,
+        )
+    elif mode == "japanese":
         base = (
             CHARACTER_SYSTEM_PROMPT_JA_TEMPLATE.format(max_characters=max_characters)
             if character_mode
@@ -203,6 +474,7 @@ def build_positive_user_prompt(
     current_character_prompts: Sequence[str] | None = None,
     character_mode: bool = False,
     context_description: str | None = None,
+    manga: bool = False,
 ) -> str:
     """正プロンプト拡張の user プロンプトを組み立てる（移植元の形式を踏襲）。"""
     parts = [
@@ -222,9 +494,12 @@ def build_positive_user_prompt(
             + context_description.strip()
         )
     parts.append("User instruction:\n" + instruction.strip())
-    parts.append(
-        POSITIVE_CLOSING_CHARACTER if character_mode else POSITIVE_CLOSING_SINGLE
-    )
+    if manga:
+        parts.append(POSITIVE_CLOSING_MANGA)
+    else:
+        parts.append(
+            POSITIVE_CLOSING_CHARACTER if character_mode else POSITIVE_CLOSING_SINGLE
+        )
     return "\n\n".join(parts)
 
 
@@ -407,6 +682,48 @@ def parse_character_json(
     characters = [item for item in characters if item]
     if not base or not characters:
         raise PromptExpanderOutputError("空のプロンプトが含まれています。")
+    if len(characters) > max_characters:
+        characters = characters[:max_characters]
+    return base, characters
+
+
+def parse_manga_json(
+    raw: str,
+    *,
+    max_characters: int,
+    character_mode: bool,
+) -> tuple[str, list[str] | None]:
+    """{"base_tags","panel_description","character_prompts"} 形式の出力を解析する。
+
+    base_tags（タグ）とpanel_description（英語の自然文）を結合して 1 つのベースプロンプト
+    にする。品質タグはタグ見出し側に補完し、コマ説明文の後ろには付けない。
+    キャラクターモード OFF のときは character_prompts を無視して None を返す。
+    """
+    data = _load_json_object(raw)
+    if not isinstance(data, dict):
+        raise PromptExpanderOutputError("漫画プロンプトのJSON形式が不正です。")
+    tags_raw = data.get("base_tags")
+    desc_raw = data.get("panel_description")
+    characters_raw = data.get("character_prompts")
+    if not isinstance(tags_raw, str) or not isinstance(desc_raw, str):
+        raise PromptExpanderOutputError("base_tagsまたはpanel_descriptionが不正です。")
+    tags = sanitize_tag_prompt(tags_raw, ensure_quality=True)
+    description = sanitize_prose_prompt(desc_raw)
+    if not description:
+        raise PromptExpanderOutputError("コマ説明が空です。")
+    base = f"{tags}, {description}" if tags else description
+    if not character_mode:
+        return base, None
+    if not isinstance(characters_raw, list):
+        raise PromptExpanderOutputError("character_promptsが不正です。")
+    characters = [
+        sanitize_tag_prompt(item, ensure_quality=False)
+        for item in characters_raw
+        if isinstance(item, str)
+    ]
+    characters = [item for item in characters if item]
+    if not characters:
+        raise PromptExpanderOutputError("キャラクタープロンプトが空です。")
     if len(characters) > max_characters:
         characters = characters[:max_characters]
     return base, characters

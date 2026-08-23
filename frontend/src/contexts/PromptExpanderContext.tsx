@@ -32,6 +32,7 @@ import {
   PromptExpanderApiError,
   type PromptExpanderEntry,
   type PromptExpanderGenerateRequest,
+  type PromptExpanderMangaOptions,
   type PromptExpanderSession,
   type PromptExpanderSettings,
   type PromptExpanderSettingsPatch,
@@ -56,6 +57,7 @@ import {
   PROMPT_EXPANDER_IMAGE_SIZES,
   type PromptExpanderImageSize,
   type PromptExpandMode,
+  supportsMangaMode,
 } from "../constants/promptExpander";
 import type { AnlasBalance } from "../types";
 import { useNotification } from "./NotificationContext";
@@ -156,6 +158,10 @@ interface PromptExpanderContextValue {
   characterMode: boolean;
   characterSlots: string[];
   characterSlotsOverCap: boolean;
+  /** 漫画モードが実際に効く状態か（設定 ON かつ V5 系モデル） */
+  mangaActive: boolean;
+  /** 正プロンプト拡張に実際に使うモード（漫画モード中は "tags" 固定） */
+  effectivePositiveMode: PromptExpandMode;
   negativeText: string;
   negativeMode: PromptExpandMode;
   negativeOrigin: PromptExpanderNegativeOrigin | null;
@@ -225,6 +231,13 @@ const DEFAULT_SETTINGS: PromptExpanderSettings = {
   use_memory: false,
   confirm_before_generate: true,
   inherit_source_prompts: true,
+  manga_mode: false,
+  manga_panel_count: 0,
+  manga_layout: "auto",
+  manga_dialogue: true,
+  manga_text_language: "auto",
+  manga_sound_effects: true,
+  manga_reading_direction: "rtl",
 };
 
 const DEFAULT_OPTIONS: PromptExpanderOptions = {
@@ -277,7 +290,7 @@ function applySettingsResponse(
   setSettings: (s: PromptExpanderSettings) => void,
   setOptions: (o: PromptExpanderOptions) => void,
 ) {
-  setSettings(payload.settings);
+  setSettings({ ...DEFAULT_SETTINGS, ...payload.settings });
   setOptions({
     textModelOptions:
       payload.text_model_options?.length > 0
@@ -605,6 +618,32 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
     getMaxCharacterPrompts(settings.image_model);
   const characterSlotsOverCap =
     characterMode && characterSlots.length > maxCharacterPrompts;
+  // 漫画モードは V5 系モデルでだけ効く（V4.5 では設定を残したまま無効）
+  const mangaActive =
+    settings.manga_mode && supportsMangaMode(settings.image_model);
+  // 漫画モード中はコマ説明・外見を英語で組み立てるため、正プロンプトの拡張モードは
+  // タグ扱いに固定する（日本語の説明文は画像内にナレーションとして描かれてしまう）
+  const effectivePositiveMode: PromptExpandMode = mangaActive
+    ? "tags"
+    : positiveMode;
+  const mangaRequest = useMemo<PromptExpanderMangaOptions>(
+    () => ({
+      panel_count: settings.manga_panel_count,
+      layout: settings.manga_layout,
+      dialogue: settings.manga_dialogue,
+      text_language: settings.manga_text_language,
+      sound_effects: settings.manga_sound_effects,
+      reading_direction: settings.manga_reading_direction,
+    }),
+    [
+      settings.manga_dialogue,
+      settings.manga_layout,
+      settings.manga_panel_count,
+      settings.manga_reading_direction,
+      settings.manga_sound_effects,
+      settings.manga_text_language,
+    ],
+  );
 
   const setSource = useCallback((next: PromptExpanderSource | null) => {
     setSourceState(next);
@@ -697,6 +736,8 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
         text_model: settings.text_model,
         image_size: settings.image_size,
         source_kind: source?.kind ?? "none",
+        manga_mode: mangaActive,
+        manga_panel_count: mangaActive ? settings.manga_panel_count : null,
       };
       if (settings.seed !== null && settings.seed !== undefined) {
         payload.seed = settings.seed;
@@ -714,7 +755,7 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       }
       return payload;
     },
-    [settings, source],
+    [mangaActive, settings, source],
   );
 
   // 確認ゲートを通過した後の実際の生成リクエスト
@@ -844,7 +885,7 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       const resp = await expandPrompt({
         instruction,
         expand_positive: true,
-        positive_mode: positiveMode,
+        positive_mode: effectivePositiveMode,
         character_mode: characterMode,
         expand_negative: false,
         negative_mode: negativeMode,
@@ -857,10 +898,12 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
         // （保持すべき現在値は参照元エントリから継承する）。
         // キャラクタースロットは入力済みの現在値として渡す
         current_character_prompts: characterMode ? characterSlots : [],
+        manga_mode: mangaActive,
+        ...(mangaActive ? { manga: mangaRequest } : {}),
       });
       setPendingExpansion({
         target: "positive",
-        mode: positiveMode,
+        mode: effectivePositiveMode,
         instruction,
         positivePrompt: resp.positive_prompt ?? "",
         characterPrompts: characterMode ? resp.character_prompts : null,
@@ -874,10 +917,12 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
   }, [
     characterMode,
     characterSlots,
+    effectivePositiveMode,
     failExpansion,
     language,
+    mangaActive,
+    mangaRequest,
     negativeMode,
-    positiveMode,
     positiveText,
     settings.image_model,
     settings.inherit_source_prompts,
@@ -1069,6 +1114,11 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       if (entry.i2i_noise !== null && entry.i2i_noise !== undefined) {
         patch.i2i_noise = entry.i2i_noise;
       }
+      // 漫画モードの印も復元する（コマ数 null はおまかせ）
+      patch.manga_mode = Boolean(entry.manga_mode);
+      if (entry.manga_mode) {
+        patch.manga_panel_count = entry.manga_panel_count ?? 0;
+      }
       if (Object.keys(patch).length > 0) {
         void updateSettings(patch);
       }
@@ -1160,6 +1210,8 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       characterMode,
       characterSlots,
       characterSlotsOverCap,
+      mangaActive,
+      effectivePositiveMode,
       negativeText,
       negativeMode,
       negativeOrigin,
@@ -1227,6 +1279,8 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       characterMode,
       characterSlots,
       characterSlotsOverCap,
+      mangaActive,
+      effectivePositiveMode,
       negativeText,
       negativeMode,
       negativeOrigin,

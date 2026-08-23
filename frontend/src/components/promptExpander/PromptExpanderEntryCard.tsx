@@ -18,6 +18,7 @@ import { useChat } from "../../contexts/ChatContext";
 import { useGame } from "../../contexts/GameContext";
 import { usePromptExpander } from "../../contexts/PromptExpanderContext";
 import { useSettings } from "../../contexts/SettingsContext";
+import PromptExpanderDeleteButton from "./PromptExpanderDeleteButton";
 import "./PromptExpanderShared.css";
 import "./PromptExpanderEntryList.css";
 
@@ -90,6 +91,16 @@ export default function PromptExpanderEntryCard({
   }
   if (isUploaded) {
     badges.push(t("promptExpander.entry.badgeUploaded"));
+  }
+  // 可変幅のバッジは行末に寄せる
+  if (entry.manga_mode) {
+    badges.push(
+      entry.manga_panel_count
+        ? t("promptExpander.entry.mangaBadgeCount", {
+            count: entry.manga_panel_count,
+          })
+        : t("promptExpander.entry.mangaBadge"),
+    );
   }
 
   const handleUseInGame = () => {
@@ -219,14 +230,11 @@ export default function PromptExpanderEntryCard({
               {t("promptExpander.entry.useInAdventure")}
             </button>
           )}
-          <button
-            type="button"
-            className="prompt-expander__btn prompt-expander__btn--sm prompt-expander__btn--danger"
+          <PromptExpanderDeleteButton
+            label={t("promptExpander.entry.delete")}
             onClick={handleDelete}
             disabled={deleting}
-          >
-            {t("promptExpander.entry.delete")}
-          </button>
+          />
         </div>
       </div>
     </li>

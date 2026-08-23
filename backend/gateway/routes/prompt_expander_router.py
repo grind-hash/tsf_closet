@@ -18,6 +18,11 @@ from ..consts.prompt_expander import (
     PROMPT_EXPANDER_IMAGE_MODEL_OPTIONS,
     PROMPT_EXPANDER_IMAGE_SIZES,
     PROMPT_EXPANDER_INSTRUCTION_MAX_LEN,
+    PROMPT_EXPANDER_MANGA_LAYOUTS,
+    PROMPT_EXPANDER_MANGA_PANEL_COUNT_AUTO,
+    PROMPT_EXPANDER_MANGA_PANEL_COUNT_MAX,
+    PROMPT_EXPANDER_MANGA_READING_DIRECTIONS,
+    PROMPT_EXPANDER_MANGA_TEXT_LANGUAGES,
     PROMPT_EXPANDER_MEMORY_MAX_LEN,
     PROMPT_EXPANDER_NEGATIVE_MAX_LEN,
     PROMPT_EXPANDER_PROMPT_MAX_LEN,
@@ -30,6 +35,7 @@ from ..consts.prompt_expander import (
 )
 from ..databases.base import async_session_factory
 from ..services import prompt_expander_service as pe_service
+from ..services.prompt_expander_prompts import MangaOptions
 from ..services.prompt_expander_service import (
     ExpandParams,
     GenerateParams,
@@ -58,11 +64,46 @@ ImageSizeLiteral = Literal["portrait", "landscape", "square"]
 ExpandModeLiteral = Literal["japanese", "tags"]
 StoredExpandModeLiteral = Literal["off", "japanese", "tags"]
 SourceKindLiteral = Literal["none", "history", "entry", "upload"]
+MangaLayoutLiteral = Literal["auto", "vertical", "horizontal", "grid"]
+MangaTextLanguageLiteral = Literal["auto", "ja", "en"]
+MangaReadingDirectionLiteral = Literal["rtl", "ltr"]
 
 # Literal と定数の整合性を起動時に検証する（どちらかを直し忘れたときに気付くため）
 assert set(ImageModelLiteral.__args__) == set(PROMPT_EXPANDER_IMAGE_MODEL_OPTIONS)  # type: ignore[attr-defined]
 assert set(TextModelLiteral.__args__) == set(NOVELAI_TEXT_MODEL_OPTIONS)  # type: ignore[attr-defined]
 assert set(ImageSizeLiteral.__args__) == set(PROMPT_EXPANDER_IMAGE_SIZES)  # type: ignore[attr-defined]
+assert set(MangaLayoutLiteral.__args__) == set(PROMPT_EXPANDER_MANGA_LAYOUTS)  # type: ignore[attr-defined]
+assert set(MangaTextLanguageLiteral.__args__) == set(
+    PROMPT_EXPANDER_MANGA_TEXT_LANGUAGES
+)  # type: ignore[attr-defined]
+assert set(MangaReadingDirectionLiteral.__args__) == set(
+    PROMPT_EXPANDER_MANGA_READING_DIRECTIONS
+)  # type: ignore[attr-defined]
+
+
+class MangaOptionsModel(BaseModel):
+    """漫画モードの拡張オプション（manga_mode が ON のときだけ意味を持つ）。"""
+
+    panel_count: int = Field(
+        PROMPT_EXPANDER_MANGA_PANEL_COUNT_AUTO,
+        ge=PROMPT_EXPANDER_MANGA_PANEL_COUNT_AUTO,
+        le=PROMPT_EXPANDER_MANGA_PANEL_COUNT_MAX,
+    )
+    layout: MangaLayoutLiteral = "auto"
+    dialogue: bool = True
+    text_language: MangaTextLanguageLiteral = "auto"
+    sound_effects: bool = True
+    reading_direction: MangaReadingDirectionLiteral = "rtl"
+
+    def to_options(self) -> MangaOptions:
+        return MangaOptions(
+            panel_count=self.panel_count,
+            layout=self.layout,
+            dialogue=self.dialogue,
+            text_language=self.text_language,
+            sound_effects=self.sound_effects,
+            reading_direction=self.reading_direction,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -81,6 +122,13 @@ class PromptExpanderSettingsModel(BaseModel):
     use_memory: bool = False
     confirm_before_generate: bool = True
     inherit_source_prompts: bool = True
+    manga_mode: bool = False
+    manga_panel_count: int = PROMPT_EXPANDER_MANGA_PANEL_COUNT_AUTO
+    manga_layout: str = "auto"
+    manga_dialogue: bool = True
+    manga_text_language: str = "auto"
+    manga_sound_effects: bool = True
+    manga_reading_direction: str = "rtl"
 
 
 class TextModelOption(BaseModel):
@@ -95,6 +143,16 @@ class PromptExpanderSettingsResponse(BaseModel):
     max_character_prompts: dict[str, int]
     image_sizes: list[str]
     novelai_configured: bool
+    manga_panel_count_max: int = PROMPT_EXPANDER_MANGA_PANEL_COUNT_MAX
+    manga_layouts: list[str] = Field(
+        default_factory=lambda: list(PROMPT_EXPANDER_MANGA_LAYOUTS)
+    )
+    manga_text_languages: list[str] = Field(
+        default_factory=lambda: list(PROMPT_EXPANDER_MANGA_TEXT_LANGUAGES)
+    )
+    manga_reading_directions: list[str] = Field(
+        default_factory=lambda: list(PROMPT_EXPANDER_MANGA_READING_DIRECTIONS)
+    )
 
 
 class PromptExpanderSettingsUpdateRequest(BaseModel):
@@ -109,6 +167,17 @@ class PromptExpanderSettingsUpdateRequest(BaseModel):
     use_memory: bool | None = None
     confirm_before_generate: bool | None = None
     inherit_source_prompts: bool | None = None
+    manga_mode: bool | None = None
+    manga_panel_count: int | None = Field(
+        None,
+        ge=PROMPT_EXPANDER_MANGA_PANEL_COUNT_AUTO,
+        le=PROMPT_EXPANDER_MANGA_PANEL_COUNT_MAX,
+    )
+    manga_layout: MangaLayoutLiteral | None = None
+    manga_dialogue: bool | None = None
+    manga_text_language: MangaTextLanguageLiteral | None = None
+    manga_sound_effects: bool | None = None
+    manga_reading_direction: MangaReadingDirectionLiteral | None = None
 
 
 class SessionCreateRequest(BaseModel):
@@ -149,6 +218,8 @@ class PromptExpanderEntryResponse(BaseModel):
     i2i_strength: float | None = None
     i2i_noise: float | None = None
     image_size: str | None = None
+    manga_mode: bool = False
+    manga_panel_count: int | None = None
     source_kind: str
     source_history_id: str | None = None
     source_entry_id: str | None = None
@@ -200,6 +271,9 @@ class PromptExpandRequest(BaseModel):
     current_negative: str | None = Field(
         None, max_length=PROMPT_EXPANDER_NEGATIVE_MAX_LEN
     )
+    # 漫画モード（V5 専用。manga_mode=True のとき manga の内容で拡張する）
+    manga_mode: bool = False
+    manga: MangaOptionsModel | None = None
 
     @model_validator(mode="after")
     def _check(self) -> "PromptExpandRequest":
@@ -245,6 +319,12 @@ class PromptExpanderGenerateRequest(BaseModel):
     source_entry_id: str | None = Field(None, max_length=80)
     source_image: str | None = Field(
         None, max_length=PROMPT_EXPANDER_UPLOAD_MAX_BASE64_LEN
+    )
+    manga_mode: bool = False
+    manga_panel_count: int | None = Field(
+        None,
+        ge=PROMPT_EXPANDER_MANGA_PANEL_COUNT_AUTO,
+        le=PROMPT_EXPANDER_MANGA_PANEL_COUNT_MAX,
     )
 
     @model_validator(mode="after")
@@ -322,6 +402,7 @@ def _http_error(exc: PromptExpanderError) -> HTTPException:
         "novelai_not_configured": status.HTTP_400_BAD_REQUEST,
         "too_many_characters": status.HTTP_422_UNPROCESSABLE_ENTITY,
         "unsupported_image_model": status.HTTP_422_UNPROCESSABLE_ENTITY,
+        "manga_requires_v5": status.HTTP_422_UNPROCESSABLE_ENTITY,
         "invalid_llm_output": status.HTTP_502_BAD_GATEWAY,
         "llm_failed": status.HTTP_502_BAD_GATEWAY,
         "image_failed": status.HTTP_502_BAD_GATEWAY,
@@ -514,6 +595,8 @@ async def generate_image(session_id: str, body: PromptExpanderGenerateRequest):
         source_history_id=body.source_history_id,
         source_entry_id=body.source_entry_id,
         source_image=body.source_image,
+        manga_mode=body.manga_mode,
+        manga_panel_count=body.manga_panel_count,
     )
     try:
         outcome = await pe_service.generate_entry(
@@ -638,6 +721,11 @@ async def expand_prompt(body: PromptExpandRequest):
         current_prompt=body.current_prompt,
         current_character_prompts=body.current_character_prompts,
         current_negative=body.current_negative,
+        manga=(
+            (body.manga or MangaOptionsModel()).to_options()
+            if body.manga_mode
+            else None
+        ),
     )
     try:
         result = await pe_service.expand_prompts(params, user_id=DEFAULT_USER_ID)

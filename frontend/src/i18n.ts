@@ -1606,9 +1606,53 @@ const resources = {
         composer: {
           sectionLabel: "プロンプト入力",
           sectionParams: "生成パラメータ",
+          sectionManga: "漫画（コマ割り）",
           sectionPrompt: "プロンプト／指示",
           sectionCharacters: "キャラクタープロンプト",
           sectionI2i: "i2i設定",
+          mangaToggle: "漫画モード",
+          mangaSummaryOff: "OFF",
+          mangaSummaryUnsupported: "V5 専用（現在のモデルでは無効）",
+          mangaSummaryNoDialogue: "セリフなし",
+          mangaRequiresV5:
+            "漫画モード（コマ割り・吹き出しの文字描画）は NAI Diffusion V5 系モデル専用です。V4.5 では設定は保持されますが、拡張には使われません。",
+          mangaHint:
+            "「LLMでプロンプト化」のときに、指示文からコマ割りとセリフ付きのプロンプトを LLM が組み立てます。「1コマ目…2コマ目…」と書いても、あらすじだけでも構いません。欄の内容をそのまま生成するときには影響しません。",
+          mangaModeFixedHint:
+            "漫画モード中はコマ説明・外見を英語で組み立てます（日本語の説明文は画像内にナレーション枠として描かれてしまうため）。日本語は「」内のセリフ・効果音だけに使い、言語は漫画セクションで選べます。",
+          mangaPanelCount: "コマ数",
+          mangaPanelAuto: "おまかせ（2〜4コマ）",
+          mangaPanelValue: "{{count}}コマ",
+          mangaLayoutLabel: "コマ割り",
+          mangaLayout: {
+            auto: "おまかせ",
+            vertical: "縦積み",
+            horizontal: "横並び",
+            grid: "グリッド（2列）",
+          },
+          mangaReadingDirectionLabel: "読み順",
+          mangaReadingDirection: {
+            rtl: "右から左（日本式: 右上から）",
+            ltr: "左から右（西洋式: 左上から）",
+          },
+          mangaReadingDirectionShort: {
+            rtl: "右→左",
+            ltr: "左→右",
+          },
+          mangaTextLanguageLabel: "セリフの言語",
+          mangaTextLanguage: {
+            auto: "指示文に合わせる",
+            ja: "日本語",
+            en: "English",
+          },
+          mangaDialogue: "セリフ・吹き出しを入れる",
+          mangaSoundEffects: "効果音（擬音）を許可",
+          mangaLayoutSizeHint:
+            "縦積みは「縦長」、横並びは「横長」のサイズが向いています。コマ数が多いほど各コマは小さく描かれます。読み順は各コマの位置（右上・左上…）として説明文に明示されます。",
+          mangaCharacterOnHint:
+            "キャラクタープロンプト ON: 登場人物ごとに外見とセリフを分けて組み立てます（複数人の会話向け）。",
+          mangaCharacterOffHint:
+            "キャラクタープロンプト OFF: 外見もセリフもベースプロンプトにまとめます（1 人の変身シーケンス向け）。",
           i2iSummaryOn: "生成元: {{kind}}",
           i2iSummaryOff: "生成元なし",
           sourceNone: "生成元なし（text-to-image で生成します）",
@@ -1617,7 +1661,7 @@ const resources = {
           uploadImage: "画像をアップロード",
           inheritSource: "参照元のプロンプトを引き継ぐ",
           inheritSourceHint:
-            "拡張時に生成元のプロンプト（履歴の外見説明 / エントリの最終プロンプト）を土台にします",
+            "LLM でプロンプト化するときに、生成元のプロンプト（履歴の外見説明 / エントリの最終プロンプト）を土台にします",
           sourceKind: {
             none: "なし",
             history: "プレイ履歴",
@@ -1626,30 +1670,32 @@ const resources = {
           },
           promptLabel: "プロンプト／指示",
           promptPlaceholder:
-            "NovelAI に渡すプロンプト、または「拡張」で NovelAI 用プロンプトにする自然文の指示を入力",
-          expandModeLabel: "拡張モード",
-          expandJapanese: "日本語で拡張",
-          expandTags: "タグで拡張",
-          expandButton: "拡張",
+            "NovelAI に渡すプロンプト、または「LLMでプロンプト化」で NovelAI 用プロンプトにする自然文の指示を入力",
+          promptPlaceholderManga:
+            "漫画にしたい流れを入力（例: 1コマ目は男が鏡を見る、2コマ目は体が女性化、3コマ目は戸惑うセリフ）。あらすじだけでもコマ割りは LLM が決めます",
+          expandModeLabel: "出力形式",
+          expandJapanese: "日本語文",
+          expandTags: "タグ",
+          expandButton: "LLMでプロンプト化",
           expandPositiveTitle:
-            "この欄の内容を指示として LLM で NovelAI 用プロンプトへ拡張します",
+            "この欄の内容を指示として、LLM で NovelAI 用のプロンプトに変換します（選んだ出力形式で）",
           expandNegativeTitle:
-            "この欄の内容を指示として LLM でネガティブプロンプトへ拡張します",
-          expandDisabledEmpty: "拡張する内容を入力してください",
+            "この欄の内容を指示として、LLM でネガティブプロンプトに変換します（選んだ出力形式で）",
+          expandDisabledEmpty: "プロンプト化する内容を入力してください",
           expandEmptyPositive:
-            "プロンプト／指示を入力してから拡張してください。",
+            "プロンプト／指示を入力してからプロンプト化してください。",
           expandEmptyNegative:
-            "ネガティブプロンプト欄に拡張したい内容を入力してから拡張してください。",
-          expandFailed: "拡張に失敗しました: {{message}}",
+            "ネガティブプロンプト欄に避けたい内容を入力してからプロンプト化してください。",
+          expandFailed: "プロンプト化に失敗しました: {{message}}",
           positiveToolbar: "プロンプト欄の操作",
           negativeToolbar: "ネガティブ欄の操作",
           suggestButton: "✨ 提案",
           suggestNeedsCharacterMode:
             "キャラクタープロンプトを ON にすると提案をスロットへ挿入できます",
           applyExpansion: "欄へ反映",
-          originTitle: "拡張結果を反映済み（指示: {{instruction}}）",
+          originTitle: "LLM の変換結果を反映済み（指示: {{instruction}}）",
           v45JapaneseHint:
-            "V4.5 では日本語プロンプトの精度が落ちます。タグで拡張を推奨します。",
+            "V4.5 では日本語プロンプトの精度が落ちます。出力形式は「タグ」を推奨します。",
           characterToggle: "キャラクタープロンプト",
           characterOffHint:
             "ON にすると登場人物ごとのプロンプト欄を使えます（V5: 最大22、V4.5: 最大6）",
@@ -1681,19 +1727,19 @@ const resources = {
           i2iDisabledReason:
             "生成元画像を選ぶと i2i 強度とノイズを調整できます。",
           generate: "生成",
-          expanding: "拡張中…",
+          expanding: "プロンプト化中…",
           generating: "生成中…",
           disabledNotConfigured:
-            "NovelAI が設定されていないため拡張・提案・生成はできません",
+            "NovelAI が設定されていないためプロンプト化・提案・生成はできません",
           disabledNoSession: "セッションを開いてください",
           disabledTooMany: "キャラクタープロンプトが上限を超えています",
           disabledEmptyPrompt: "プロンプト／指示を入力してください",
           disabledPendingExpansion:
-            "拡張結果を「欄へ反映」するか「破棄」してから生成してください",
+            "変換結果を「欄へ反映」するか「破棄」してから生成してください",
         },
         expansion: {
-          titlePositive: "拡張結果（プロンプト）",
-          titleNegative: "拡張結果（ネガティブ）",
+          titlePositive: "変換結果（プロンプト）",
+          titleNegative: "変換結果（ネガティブ）",
           hint: "内容を確認・編集してから、欄へ反映するか、この内容でそのまま生成します。",
           basePrompt: "ベースプロンプト",
           characterPrompt: "キャラクター {{index}}",
@@ -1716,10 +1762,12 @@ const resources = {
           uploadedNoText: "（アップロード画像）",
           seedBadge: "seed {{value}}",
           expandBadge: {
-            japanese: "日本語拡張",
-            tags: "タグ拡張",
+            japanese: "日本語文で変換",
+            tags: "タグで変換",
           },
           badgeUploaded: "アップロード",
+          mangaBadge: "漫画",
+          mangaBadgeCount: "漫画 {{count}}コマ",
           restore: "欄へ復元",
           useAsSource: "i2i元にする",
           useInGame: "通常プレイで使う",
@@ -1729,7 +1777,7 @@ const resources = {
         },
         settings: {
           title: "Prompt Expander 設定",
-          textModel: "テキストモデル（拡張・提案に使用）",
+          textModel: "テキストモデル（プロンプト化・提案に使用）",
           textModelHint: "NovelAI のテキスト生成モデルを切り替えます。",
           memory: "Prompt Expander メモリ",
           memoryPlaceholder:
@@ -3401,8 +3449,52 @@ const resources = {
           sectionLabel: "Prompt composer",
           sectionParams: "Generation parameters",
           sectionPrompt: "Prompt / Instruction",
+          sectionManga: "Comic (panels)",
           sectionCharacters: "Character prompts",
           sectionI2i: "i2i settings",
+          mangaToggle: "Comic mode",
+          mangaSummaryOff: "Off",
+          mangaSummaryUnsupported: "V5 only (inactive with this model)",
+          mangaSummaryNoDialogue: "no dialogue",
+          mangaRequiresV5:
+            "Comic mode (panel layout and speech-bubble text) works only with NAI Diffusion V5 models. With V4.5 the settings are kept but not used for expansion.",
+          mangaHint:
+            'When you convert with the LLM, it builds a prompt with panels and speech bubbles from your instruction. You can write "panel 1 ... panel 2 ..." or just a synopsis. Generating the field as-is is not affected.',
+          mangaModeFixedHint:
+            "In comic mode the panel descriptions and appearance are always written in English (Japanese prose would be rendered as caption boxes in the image). Japanese is used only inside the quoted dialogue and sound effects; pick the language in the comic section.",
+          mangaPanelCount: "Panels",
+          mangaPanelAuto: "Auto (2-4 panels)",
+          mangaPanelValue: "{{count}} panel(s)",
+          mangaLayoutLabel: "Layout",
+          mangaLayout: {
+            auto: "Auto",
+            vertical: "Vertical stack",
+            horizontal: "Side by side",
+            grid: "Grid (2 columns)",
+          },
+          mangaReadingDirectionLabel: "Reading order",
+          mangaReadingDirection: {
+            rtl: "Right to left (Japanese: start top right)",
+            ltr: "Left to right (Western: start top left)",
+          },
+          mangaReadingDirectionShort: {
+            rtl: "R→L",
+            ltr: "L→R",
+          },
+          mangaTextLanguageLabel: "Dialogue language",
+          mangaTextLanguage: {
+            auto: "Match the instruction",
+            ja: "Japanese",
+            en: "English",
+          },
+          mangaDialogue: "Include speech bubbles",
+          mangaSoundEffects: "Allow sound effects",
+          mangaLayoutSizeHint:
+            "Vertical stacks suit the portrait size and side-by-side suits landscape. More panels means each panel is drawn smaller. The reading order is spelled out as each panel's position (top right, top left, ...).",
+          mangaCharacterOnHint:
+            "Character prompts ON: appearance and lines are split per character (good for conversations).",
+          mangaCharacterOffHint:
+            "Character prompts OFF: appearance and lines go into the base prompt (good for a single-person transformation sequence).",
           i2iSummaryOn: "Source: {{kind}}",
           i2iSummaryOff: "No source",
           sourceNone: "No source (text-to-image)",
@@ -3411,7 +3503,7 @@ const resources = {
           uploadImage: "Upload image",
           inheritSource: "Inherit source prompts",
           inheritSourceHint:
-            "Use the source's prompts (history appearance / entry final prompt) as the base when expanding",
+            "Use the source's prompts (history appearance / entry final prompt) as the base when converting with the LLM",
           sourceKind: {
             none: "None",
             history: "Play history",
@@ -3420,29 +3512,32 @@ const resources = {
           },
           promptLabel: "Prompt / Instruction",
           promptPlaceholder:
-            'Prompt passed to NovelAI, or a natural-language instruction that "Expand" turns into a NovelAI prompt',
-          expandModeLabel: "Expansion mode",
-          expandJapanese: "Expand in Japanese",
-          expandTags: "Expand as tags",
-          expandButton: "Expand",
+            'Prompt passed to NovelAI, or a natural-language instruction that "Convert to prompt" turns into a NovelAI prompt',
+          promptPlaceholderManga:
+            "Describe the flow of the comic (e.g. panel 1: a man looks in the mirror, panel 2: his body turns female, panel 3: a confused line). A synopsis alone is fine; the LLM decides the panels",
+          expandModeLabel: "Output format",
+          expandJapanese: "Japanese prose",
+          expandTags: "Tags",
+          expandButton: "Convert to prompt",
           expandPositiveTitle:
-            "Use this field as the instruction and expand it into a NovelAI prompt with the LLM",
+            "Use this field as the instruction and convert it into a NovelAI prompt with the LLM (in the selected output format)",
           expandNegativeTitle:
-            "Use this field as the instruction and expand it into a negative prompt with the LLM",
-          expandDisabledEmpty: "Enter something to expand",
-          expandEmptyPositive: "Enter a prompt / instruction before expanding.",
+            "Use this field as the instruction and convert it into a negative prompt with the LLM (in the selected output format)",
+          expandDisabledEmpty: "Enter something to convert",
+          expandEmptyPositive:
+            "Enter a prompt / instruction before converting.",
           expandEmptyNegative:
-            "Enter something in the negative prompt field before expanding.",
-          expandFailed: "Expansion failed: {{message}}",
+            "Enter what to avoid in the negative prompt field before converting.",
+          expandFailed: "Conversion failed: {{message}}",
           positiveToolbar: "Prompt field actions",
           negativeToolbar: "Negative field actions",
           suggestButton: "✨ Suggest",
           suggestNeedsCharacterMode:
             "Turn on character prompts to insert suggestions into a slot",
           applyExpansion: "Apply to field",
-          originTitle: "Expansion applied (instruction: {{instruction}})",
+          originTitle: "LLM conversion applied (instruction: {{instruction}})",
           v45JapaneseHint:
-            "Japanese prompts are less accurate on V4.5. Tag expansion is recommended.",
+            'Japanese prompts are less accurate on V4.5. The "Tags" output format is recommended.',
           characterToggle: "Character prompts",
           characterOffHint:
             "Turn on to use per-character prompt slots (V5: up to 22, V4.5: up to 6)",
@@ -3474,19 +3569,19 @@ const resources = {
           i2iDisabledReason:
             "Select a source image to adjust i2i strength and noise.",
           generate: "Generate",
-          expanding: "Expanding…",
+          expanding: "Converting…",
           generating: "Generating…",
           disabledNotConfigured:
-            "NovelAI is not configured, so expansion, suggestions and generation are unavailable",
+            "NovelAI is not configured, so conversion, suggestions and generation are unavailable",
           disabledNoSession: "Open a session first",
           disabledTooMany: "Too many character prompts",
           disabledEmptyPrompt: "Enter a prompt / instruction",
           disabledPendingExpansion:
-            "Apply or discard the expansion result before generating",
+            "Apply or discard the conversion result before generating",
         },
         expansion: {
-          titlePositive: "Expansion result (prompt)",
-          titleNegative: "Expansion result (negative)",
+          titlePositive: "Conversion result (prompt)",
+          titleNegative: "Conversion result (negative)",
           hint: "Review and edit the result, then apply it to the field or generate with it as-is.",
           basePrompt: "Base prompt",
           characterPrompt: "Character {{index}}",
@@ -3509,10 +3604,12 @@ const resources = {
           uploadedNoText: "(uploaded image)",
           seedBadge: "seed {{value}}",
           expandBadge: {
-            japanese: "JA expand",
-            tags: "Tag expand",
+            japanese: "JA prose (LLM)",
+            tags: "Tags (LLM)",
           },
           badgeUploaded: "Uploaded",
+          mangaBadge: "Comic",
+          mangaBadgeCount: "Comic {{count}} panels",
           restore: "Restore to fields",
           useAsSource: "Use as i2i source",
           useInGame: "Use in normal play",
@@ -3522,7 +3619,7 @@ const resources = {
         },
         settings: {
           title: "Prompt Expander settings",
-          textModel: "Text model (expansion / suggestions)",
+          textModel: "Text model (conversion / suggestions)",
           textModelHint: "Switches the NovelAI text generation model.",
           memory: "Prompt Expander memory",
           memoryPlaceholder:
