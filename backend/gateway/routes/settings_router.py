@@ -26,10 +26,6 @@ class UserSettingsModel(BaseModel):
     language: LanguageCode = DEFAULT_LANGUAGE
 
 
-# NovelAI Text API で選択可能なモデル
-NOVELAI_TEXT_MODEL_OPTIONS = ("glm-4-6", "xialong-v1")
-
-
 class UserSettingsResponse(BaseModel):
     nsfw_mode: bool
     difficulty: str

@@ -17,6 +17,7 @@ import type {
 import { canActOnRun } from "../../apis/adventure";
 import { fetchAnlasBalance } from "../../apis/anlas";
 import { fetchGallerySessions } from "../../apis/gallery";
+import { fetchPromptExpanderEntry } from "../../apis/promptExpander";
 import {
   ANLAS_WARN_SUPPRESSED_KEY,
   DRAW_PARTNER_STORAGE_KEY,
@@ -53,6 +54,7 @@ import AdventureImagePromptModal from "./AdventureImagePromptModal";
 import AdventurePromptPreviewModal from "./AdventurePromptPreviewModal";
 import AdventureSessionPickerModal, {
   type AdventureSourceSelection,
+  selectionFromPromptExpanderEntry,
   selectionFromSession,
 } from "./AdventureSessionPickerModal";
 import AdventureSpeechStyleModal from "./AdventureSpeechStyleModal";
@@ -82,6 +84,7 @@ const PRESETS: AdventurePreset[] = [
 ];
 
 function mediaUrl(url: string): string {
+  if (url.startsWith(`${API_BASE}/`)) return url;
   return url.startsWith("/") ? `${API_BASE}${url}` : url;
 }
 
@@ -250,7 +253,11 @@ function SourceSelectionSummary({
       </button>
     );
   }
-  const name = selection.characterName ?? t("adventure.unnamedCharacter");
+  // Prompt Expander 由来はキャラ名を持たないため、出どころのラベルを主見出しにする
+  const name =
+    selection.origin === "prompt_expander"
+      ? t("adventure.sourcePicker.promptExpanderOrigin")
+      : (selection.characterName ?? t("adventure.unnamedCharacter"));
   const state = selection.pointLabel ?? t("adventure.currentState");
   return (
     <div
@@ -340,8 +347,11 @@ function AdventureRunRow({
 function AdventureHub() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const replayRunId = (useLocation().state as { replayRunId?: string } | null)
+  const location = useLocation();
+  const replayRunId = (location.state as { replayRunId?: string } | null)
     ?.replayRunId;
+  // Prompt Expander のエントリカードからの導線(/adventure?pe_entry=<id>)
+  const peEntryParam = new URLSearchParams(location.search).get("pe_entry");
   const {
     runs,
     templates,
@@ -440,6 +450,9 @@ function AdventureHub() {
   // 既存の送信・保存ロジックは選択オブジェクトから派生したIDを参照する
   const sourceSessionId = sourceSelection?.sessionId ?? "";
   const sourceHistoryId = sourceSelection?.historyId;
+  const sourcePeEntryId = sourceSelection?.promptExpanderEntryId;
+  // 開始元はセッションか Prompt Expander エントリのどちらかがあればよい
+  const hasSource = Boolean(sourceSessionId || sourcePeEntryId);
   const romancePlayerSessionId = playerSelection?.sessionId ?? "";
   const romancePlayerHistoryId = playerSelection?.historyId;
 
@@ -514,6 +527,25 @@ function AdventureHub() {
     setStartMode("authored");
     setSelectedReplayRunId(replayRunId);
   }, [replayRunId]);
+
+  // ?pe_entry=<id> で開かれたら、そのエントリを開始元に据えてクエリを消す。
+  // StrictMode の二重実行と、navigate 後の再実行を ref で抑止する
+  const peDeepLinkHandledRef = useRef(false);
+  const promptExpanderEnabled = settingsState.experimentalPromptExpanderEnabled;
+  useEffect(() => {
+    if (!peEntryParam || !promptExpanderEnabled) return;
+    if (peDeepLinkHandledRef.current) return;
+    peDeepLinkHandledRef.current = true;
+    navigate("/adventure", { replace: true });
+    void fetchPromptExpanderEntry(peEntryParam)
+      .then((entry) => {
+        setSourceSelection(selectionFromPromptExpanderEntry(entry));
+      })
+      .catch((caught: unknown) => {
+        // 取得できなければ既定の開始セッション選択に倒す
+        console.warn("Failed to load Prompt Expander entry:", caught);
+      });
+  }, [peEntryParam, promptExpanderEnabled, navigate]);
 
   const selectedTemplate = templates.find(
     (template) => template.id === selectedTemplateId,
@@ -616,7 +648,7 @@ function AdventureHub() {
   const tooManyConstraints = constraintCount > SCENARIO_CONSTRAINTS_MAX_ITEMS;
 
   const handleGenerateSetup = async () => {
-    if (!sourceSessionId || tooManyConstraints) return;
+    if (!hasSource || tooManyConstraints) return;
     // 入力済みの舞台・ゴール・制約は下書きとして渡し、LLM に意味を保ったまま
     // 仕上げ・補完させる。空の項目はキー自体を送らない
     const draftSetting = scenarioSetting.trim();
@@ -624,8 +656,9 @@ function AdventureHub() {
     const draftConstraints = splitConstraintLines(scenarioConstraints);
     try {
       const generated = await generateSetup({
-        source_session_id: sourceSessionId,
+        source_session_id: sourceSessionId || undefined,
         source_history_id: sourceHistoryId,
+        source_prompt_expander_entry_id: sourcePeEntryId,
         preset,
         scenario_max_turns: effectiveScenarioTurns,
         ...(draftSetting ? { scenario_setting: draftSetting } : {}),
@@ -644,7 +677,7 @@ function AdventureHub() {
   };
 
   const startDisabledReason = (): string | null => {
-    if (!sourceSessionId) return t("adventure.disabledReason.noSession");
+    if (!hasSource) return t("adventure.disabledReason.noSession");
     if (startMode === "generated" && !scenarioObjective.trim())
       return t("adventure.disabledReason.noObjective");
     if (startMode === "generated" && tooManyConstraints)
@@ -658,14 +691,15 @@ function AdventureHub() {
   };
 
   const performCreate = async () => {
-    if (!sourceSessionId) return;
+    if (!hasSource) return;
     const authoredTemplate =
       startMode === "authored" && !selectedReplayRun ? selectedTemplate : null;
     setCreating(true);
     try {
       const run = await createRun({
-        source_session_id: sourceSessionId,
+        source_session_id: sourceSessionId || undefined,
         source_history_id: sourceHistoryId,
+        source_prompt_expander_entry_id: sourcePeEntryId,
         preset: selectedReplayRun?.preset ?? authoredTemplate?.preset ?? preset,
         custom_setup: "",
         scenario_setting: startMode === "generated" ? scenarioSetting : "",
@@ -718,7 +752,7 @@ function AdventureHub() {
   // 精密参照ONの開始はオープニング画像生成からAnlasを消費するため確認を挟む。
   // Anlasを消費するのはNovelAIプロバイダーのときだけ
   const handleCreate = async () => {
-    if (!sourceSessionId) return;
+    if (!hasSource) return;
     if (
       settingsState.imageProvider === "novelai" &&
       usePreciseReference &&
@@ -938,7 +972,7 @@ function AdventureHub() {
                 <button
                   type="button"
                   disabled={
-                    !sourceSessionId ||
+                    !hasSource ||
                     setupGenerating ||
                     loading ||
                     tooManyConstraints
@@ -1532,6 +1566,11 @@ function AdventureHub() {
             pickerTarget === "source" ? handleSourceSelect : handlePlayerSelect
           }
           onClose={() => setPickerTarget(null)}
+          // 主人公(player)側は変身後の姿を選ぶ用途なので Prompt Expander は出さない
+          allowPromptExpander={
+            pickerTarget === "source" &&
+            settingsState.experimentalPromptExpanderEnabled
+          }
         />
       )}
       {creating && (

@@ -10,7 +10,16 @@ import json
 from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import Boolean, ForeignKey, Index, Integer, String, Text, func
+from sqlalchemy import (
+    Boolean,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base
@@ -66,6 +75,10 @@ class User(Base):
     )
     self_profile_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     memory_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Prompt Expander 専用設定（JSON）。スキーマは services/prompt_expander_service.PromptExpanderSettings
+    prompt_expander_settings_json: Mapped[Optional[str]] = mapped_column(
+        Text, nullable=True
+    )
 
     sessions: Mapped[List["Session"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
@@ -74,6 +87,9 @@ class User(Base):
         back_populates="user", cascade="all, delete-orphan"
     )
     adventure_runs: Mapped[List["AdventureRun"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    prompt_expander_sessions: Mapped[List["PromptExpanderSession"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
 
@@ -292,6 +308,11 @@ class AdventureRun(Base):
     )
     source_history_id: Mapped[Optional[str]] = mapped_column(
         String, ForeignKey("history.id", ondelete="SET NULL"), nullable=True
+    )
+    # Prompt Expander のエントリを開始素材にした場合の ID。
+    # run は開始画像をコピーして保持するため FK は張らない（SQLite の table rebuild 回避）
+    source_prompt_expander_entry_id: Mapped[Optional[str]] = mapped_column(
+        String, nullable=True
     )
     preset: Mapped[str] = mapped_column(String, nullable=False)
     title: Mapped[str] = mapped_column(String, nullable=False)
@@ -558,4 +579,106 @@ class FavoriteOutfit(Base):
         ),
         Index("idx_favorite_outfits_user_created", "user_id", "created_at"),
         Index("idx_favorite_outfits_history_id", "history_id"),
+    )
+
+
+class PromptExpanderSession(Base):
+    """Prompt Expander のセッション（1セッション複数エントリ）."""
+
+    __tablename__ = "prompt_expander_sessions"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    title: Mapped[str] = mapped_column(
+        String(120), default="", nullable=False, server_default=""
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        default=func.current_timestamp(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        default=func.current_timestamp(),
+        onupdate=func.current_timestamp(),
+        nullable=False,
+    )
+
+    user: Mapped["User"] = relationship(back_populates="prompt_expander_sessions")
+    entries: Mapped[List["PromptExpanderEntry"]] = relationship(
+        back_populates="session", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        Index("idx_prompt_expander_sessions_user_updated", "user_id", "updated_at"),
+    )
+
+
+class PromptExpanderEntry(Base):
+    """Prompt Expander の履歴エントリ（生成画像またはアップロード画像）."""
+
+    __tablename__ = "prompt_expander_entries"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    session_id: Mapped[str] = mapped_column(
+        String,
+        ForeignKey("prompt_expander_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    # generated | uploaded
+    kind: Mapped[str] = mapped_column(String, nullable=False, default="generated")
+    # 拡張前のユーザー指示（拡張 OFF のときは final_prompt と同じ文面）
+    instruction: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # off | japanese | tags
+    positive_expand_mode: Mapped[str] = mapped_column(
+        String, default="off", nullable=False, server_default="off"
+    )
+    negative_expand_mode: Mapped[str] = mapped_column(
+        String, default="off", nullable=False, server_default="off"
+    )
+    character_mode: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, server_default="0"
+    )
+    final_prompt: Mapped[str] = mapped_column(
+        Text, default="", nullable=False, server_default=""
+    )
+    final_negative_prompt: Mapped[str] = mapped_column(
+        Text, default="", nullable=False, server_default=""
+    )
+    # list[str] を JSON で保持
+    character_prompts_json: Mapped[str] = mapped_column(
+        Text, default="[]", nullable=False, server_default="[]"
+    )
+    image_model: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    text_model: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    seed: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    i2i_strength: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    i2i_noise: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    image_size: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    # none | history | entry | upload
+    source_kind: Mapped[str] = mapped_column(
+        String, default="none", nullable=False, server_default="none"
+    )
+    source_history_id: Mapped[Optional[str]] = mapped_column(
+        String, ForeignKey("history.id", ondelete="SET NULL"), nullable=True
+    )
+    source_entry_id: Mapped[Optional[str]] = mapped_column(
+        String,
+        ForeignKey("prompt_expander_entries.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    # data/ からの相対パス（例: data/prompt_expander_images/{session_id}/{entry_id}.png）
+    image_path: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        default=func.current_timestamp(), nullable=False
+    )
+
+    session: Mapped["PromptExpanderSession"] = relationship(back_populates="entries")
+
+    __table_args__ = (
+        Index(
+            "idx_prompt_expander_entries_session_created",
+            "session_id",
+            "created_at",
+        ),
+        Index("idx_prompt_expander_entries_created", "created_at"),
     )

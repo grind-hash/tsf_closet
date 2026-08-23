@@ -1,0 +1,97 @@
+/* Prompt Expander 生成元ピッカー / エントリグリッド */
+
+.prompt-expander__picker-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.prompt-expander__picker-tab {
+  min-height: 38px;
+  border: 1px solid var(--border-color, #333);
+  border-radius: 6px;
+  color: var(--text-color, #eee);
+  background: var(--bg-color, #1a1a2e);
+  cursor: pointer;
+}
+
+.prompt-expander__picker-tab.is-active {
+  border-color: var(--accent-color, #e94560);
+  background: var(--accent-color, #e94560);
+  color: #fff;
+  font-weight: 700;
+}
+
+.prompt-expander__entry-grid-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.prompt-expander__entry-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 0.6rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.prompt-expander__entry-grid-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  width: 100%;
+  padding: 0.35rem;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  background: var(--bg-color, #1a1a2e);
+  color: var(--text-color, #eee);
+  cursor: pointer;
+  text-align: left;
+}
+
+.prompt-expander__entry-grid-item:hover {
+  border-color: var(--border-color, #333);
+}
+
+.prompt-expander__entry-grid-item.is-selected {
+  border-color: var(--accent-color, #e94560);
+}
+
+.prompt-expander__entry-grid-item img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border-radius: 6px;
+  object-fit: cover;
+  background: var(--side-menu-bg, #16213e);
+}
+
+.prompt-expander__entry-grid-label {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  color: var(--text-muted, #888);
+}
+
+.prompt-expander__picker-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1600;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgb(6 9 12 / 55%);
+}
+
+.prompt-expander__picker-overlay-error {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.5rem;
+  max-width: 420px;
+}

@@ -46,6 +46,7 @@ from .routes import (
     gallery_router,
     game_router,
     memory_router,
+    prompt_expander_router,
     settings_router,
 )
 from .settings.app_settings import Settings, configure_logging, settings
@@ -281,6 +282,9 @@ app.include_router(memory_router, prefix="/api")
 
 # AivisSpeech 連携ルーター
 app.include_router(aivisspeech_router, prefix="/api")
+
+# Prompt Expander（実験的機能: 自然言語→NovelAI プロンプト拡張と画像生成）
+app.include_router(prompt_expander_router, prefix="/api")
 
 
 # 履歴画像配信エンドポイント

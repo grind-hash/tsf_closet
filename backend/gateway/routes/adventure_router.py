@@ -8,7 +8,7 @@ from typing import Literal
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sse_starlette.sse import EventSourceResponse
 
 from ..consts.adventure_bgm import get_bgm_catalog, resolve_bgm_audio_path
@@ -40,9 +40,21 @@ router = APIRouter(prefix="/adventure", tags=["Adventure"])
 
 
 class AdventureSetupGenerateRequest(BaseModel):
-    source_session_id: str = Field(min_length=1)
+    # 開始素材はゲームセッション（＋履歴時点）か Prompt Expander エントリのどちらか。
+    # 両方あれば Prompt Expander エントリを優先する
+    source_session_id: str | None = Field(default=None, min_length=1)
     source_history_id: str | None = None
+    source_prompt_expander_entry_id: str | None = Field(default=None, max_length=80)
     preset: Literal["infiltration", "escape", "negotiation", "disguise", "romance"]
+
+    @model_validator(mode="after")
+    def _require_source(self) -> "AdventureSetupGenerateRequest":
+        if not self.source_session_id and not self.source_prompt_expander_entry_id:
+            raise ValueError(
+                "source_session_id か source_prompt_expander_entry_id のいずれかが必要です"
+            )
+        return self
+
     # 自動生成のゴール文面は「N手以内に〜」という尺で書かれるため、
     # 案の生成時点でもターン予算を渡す
     scenario_max_turns: int = Field(
@@ -60,10 +72,25 @@ class AdventureSetupGenerateRequest(BaseModel):
 
 
 class AdventureCreateRequest(BaseModel):
-    source_session_id: str = Field(min_length=1)
+    source_session_id: str | None = Field(default=None, min_length=1)
     source_history_id: str | None = None
+    source_prompt_expander_entry_id: str | None = Field(default=None, max_length=80)
     preset: Literal["infiltration", "escape", "negotiation", "disguise", "romance"]
     custom_setup: str = Field(default="", max_length=1000)
+
+    @model_validator(mode="after")
+    def _require_source(self) -> "AdventureCreateRequest":
+        # リプレイ（replay_run_id）は元 run から素材を引き継ぐため素材未指定を許す
+        if (
+            not self.source_session_id
+            and not self.source_prompt_expander_entry_id
+            and not self.replay_run_id
+        ):
+            raise ValueError(
+                "source_session_id か source_prompt_expander_entry_id のいずれかが必要です"
+            )
+        return self
+
     scenario_setting: str = Field(default="", max_length=600)
     scenario_objective: str = Field(default="", max_length=600)
     scenario_constraints: list[str] = Field(
@@ -194,6 +221,7 @@ async def generate_setup(request: AdventureSetupGenerateRequest) -> dict:
         return await adventure_service.generate_setup(
             source_session_id=request.source_session_id,
             source_history_id=request.source_history_id,
+            source_prompt_expander_entry_id=request.source_prompt_expander_entry_id,
             preset=request.preset,
             max_turns=request.scenario_max_turns,
             draft_setting=request.scenario_setting,
@@ -210,6 +238,7 @@ async def create_run(request: AdventureCreateRequest) -> dict:
         return await adventure_service.create_run(
             source_session_id=request.source_session_id,
             source_history_id=request.source_history_id,
+            source_prompt_expander_entry_id=request.source_prompt_expander_entry_id,
             preset=request.preset,
             custom_setup=request.custom_setup,
             scenario_setting=request.scenario_setting,

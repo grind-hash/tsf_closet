@@ -25,6 +25,7 @@
 | `/api/settings`     | `routes/settings_router.py`     | 設定、互換ユーザー設定、セルフプロフィール                                      |
 | `/api/memory`       | `routes/memory_router.py`       | ユーザーメモ本文、生成ジョブ、状態、取消、分析エクスポート                      |
 | `/api/aivisspeech`  | `routes/aivisspeech_router.py`  | エンジン/モデル管理、話者一覧、音声合成                                         |
+| `/api/prompt-expander` | `routes/prompt_expander_router.py` | Prompt Expander（実験的）: 専用設定、セッション/エントリ、アップロード、LLM 拡張、NovelAI 生成、画像配信、キャラ提案 |
 
 ### `game_router.py` の主要操作
 
@@ -127,23 +128,25 @@
 | `aivisspeech_service.py`                              | AivisSpeechの導入、起動、合成、WAV結合                                                                                                                                         |
 | `achievement_service.py`、`achievement_classifier.py` | 実績判定と分類                                                                                                                                                                 |
 | `tag_classifier.py`                                   | 変身タグ分類                                                                                                                                                                   |
+| `prompt_expander_service.py`、`prompt_expander_prompts.py` | Prompt Expander。`PromptExpanderSettings`（`users.prompt_expander_settings_json`）、セッション/エントリ CRUD、画像ファイル（`data/prompt_expander_images/{session}/{entry}.png`）、`expand_prompts`（NovelAI テキストモデル固定）、`generate_entry`（`image_service.generate_image(provider_override="novelai", raw_prompt=True)`）、キャラ提案。プロンプト原文・サニタイズは `prompt_expander_prompts.py`。境界値は `consts/prompt_expander.py`（V5=22 人 / V4.5=6 人、画像モデル 4 種、サイズ 3 種）、テキストモデルは `consts/novelai_text_models.py` が唯一の情報源 |
 
 ## 永続化モデル
 
 | モデル                                                  | 主なデータ                                                             |
 | ------------------------------------------------------- | ---------------------------------------------------------------------- |
-| `User`                                                  | UI/生成/TTS/メモリ設定。NovelAI画像モデル選択（NSFW用/非NSFW用）を含む |
+| `User`                                                  | UI/生成/TTS/メモリ設定。NovelAI画像モデル選択（NSFW用/非NSFW用）、Prompt Expander 専用設定 JSON（`prompt_expander_settings_json`）を含む |
 | `Session`                                               | 現在画像、active、変身回数、セッションプレイメモ                       |
 | `History`                                               | 指示、指示タイプ、画像、情景画像、心境、前後記述、seed                 |
 | `SessionStats`                                          | bloom、shame、adaptation、臨界点、難易度                               |
 | `Conversation`                                          | セッション会話                                                         |
 | `TransformationTag`                                     | 衣装、露出、年齢印象                                                   |
 | `SessionAttribute`                                      | 現実改変属性                                                           |
-| `AdventureRun`                                          | シナリオ状態、現在/初期/背景/立ち絵画像、設定                          |
+| `AdventureRun`                                          | シナリオ状態、現在/初期/背景/立ち絵画像、設定、開始素材（session/history または `source_prompt_expander_entry_id`） |
 | `AdventureTurn`                                         | 入力、語り、状態差分、画像、立ち絵、画像状態                           |
 | `SessionCharacter`                                      | セッション人物の外見、位置、ロック、主人公フラグ                       |
 | `CharacterPreset`                                       | 再利用可能な人物定義                                                   |
 | `FavoriteOutfit`                                        | UserとHistoryを結ぶお気に入り                                          |
+| `PromptExpanderSession`、`PromptExpanderEntry`          | Prompt Expander の履歴（1セッション複数エントリ）。エントリは指示・拡張モード・最終プロンプト/ネガ/キャラプロンプト・モデル・seed・i2i 強度/ノイズ・サイズ・参照元（history/entry/upload）・画像パス |
 | `PlaySummary`                                           | セッション要約とタイムライン                                           |
 | `UserAchievement`、`AchievementCount`、`AchievedEnding` | 実績/エンディング進捗                                                  |
 | `ParameterChangeLog`                                    | パラメータ変更監査                                                     |

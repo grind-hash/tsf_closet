@@ -1,0 +1,239 @@
+/* Prompt Expander コンポーザ（入力欄） */
+
+.prompt-expander__composer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+/* セクション見出し右の要約テキスト */
+.prompt-expander__section-summary {
+  font-size: 0.75rem;
+  color: var(--text-muted, #888);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+/* 欄 + 見出し行 + インライン結果 */
+.prompt-expander__field-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.prompt-expander__field-block + .prompt-expander__field-block {
+  padding-top: 0.65rem;
+  border-top: 1px dashed var(--border-color, #333);
+}
+
+.prompt-expander__field-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem 0.8rem;
+}
+
+.prompt-expander__field-head .prompt-expander__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.prompt-expander__field-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.35rem 0.5rem;
+  margin-left: auto;
+}
+
+.prompt-expander__radio-group--compact .prompt-expander__radio {
+  padding: 0.18rem 0.5rem;
+  font-size: 0.75rem;
+}
+
+.prompt-expander__btn--accent {
+  border-color: var(--accent-color, #e94560);
+  color: var(--accent-hover, #ff6b6b);
+  font-weight: 600;
+}
+
+.prompt-expander__btn--accent:hover:not(:disabled) {
+  background: rgba(233, 69, 96, 0.15);
+}
+
+/* 欄の近くに出す拡張エラー */
+.prompt-expander__expansion-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.prompt-expander__expansion-error-main {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+/* 生成元 */
+.prompt-expander__source-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-height: 40px;
+}
+
+.prompt-expander__source-info {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.prompt-expander__source-label {
+  font-size: 0.85rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prompt-expander__source-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.8rem;
+}
+
+/* キャラクタースロット */
+.prompt-expander__slots {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.prompt-expander__slots-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem 0.8rem;
+}
+
+.prompt-expander__slots-counter {
+  font-size: 0.8rem;
+  color: var(--text-muted, #888);
+}
+
+.prompt-expander__slots-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.prompt-expander__slot-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.prompt-expander__slot {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+}
+
+.prompt-expander__slot--over .prompt-expander__slot-textarea {
+  border-color: var(--warning-color, #fbbf24);
+}
+
+.prompt-expander__slot-index {
+  flex: 0 0 1.5rem;
+  padding-top: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--text-muted, #888);
+  text-align: right;
+}
+
+.prompt-expander__slot-textarea {
+  flex: 1 1 auto;
+  min-height: 2.8rem;
+}
+
+/* 生成パラメータ */
+.prompt-expander__params-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.7rem 0.9rem;
+}
+
+.prompt-expander__seed-row {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.prompt-expander__seed-row .prompt-expander__input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* 生成ボタン */
+.prompt-expander__generate-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.8rem;
+}
+
+.prompt-expander__generate {
+  min-width: 180px;
+  padding: 0.6rem 1.2rem;
+  font-size: 0.95rem;
+}
+
+/* 拡張結果のインラインカード */
+.prompt-expander__expansion {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--accent-color, #e94560);
+  border-radius: 8px;
+  background: rgba(233, 69, 96, 0.08);
+}
+
+.prompt-expander__expansion-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.6rem;
+}
+
+.prompt-expander__expansion-title {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.prompt-expander__expansion-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+@media (max-width: 640px) {
+  .prompt-expander__field-toolbar {
+    width: 100%;
+    justify-content: flex-start;
+    margin-left: 0;
+  }
+}

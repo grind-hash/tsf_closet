@@ -8,7 +8,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Link } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import {
+  fetchPromptExpanderEntry,
+  type PromptExpanderEntry,
+  promptExpanderImageUrl,
+} from "../../apis/promptExpander";
 import { useGame } from "../../contexts/GameContext";
 import { useSettings } from "../../contexts/SettingsContext";
 import { ROUTES } from "../../routes";
@@ -19,6 +24,7 @@ import {
   isWithinNovelAIFreeSize,
 } from "../../utils/imageSizeValidator";
 import CustomImageSizeWarningModal from "../CustomImageSizeWarningModal";
+import PromptExpanderEntryPickerModal from "../promptExpander/PromptExpanderEntryPickerModal";
 import "./WelcomeScreen.css";
 
 interface WelcomeScreenProps {
@@ -86,6 +92,17 @@ export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
   // SettingsContextからimageProvider, selfProfileを取得
   const { state: settingsState, selfProfile } = useSettings();
 
+  // Prompt Expander（実験機能）からの画像取り込み
+  const promptExpanderEnabled = settingsState.experimentalPromptExpanderEnabled;
+  const [showPromptExpanderPicker, setShowPromptExpanderPicker] =
+    useState(false);
+  const [selectedPromptExpanderEntryId, setSelectedPromptExpanderEntryId] =
+    useState<string | null>(null);
+  const [isLoadingPromptExpanderEntry, setIsLoadingPromptExpanderEntry] =
+    useState(false);
+  const location = useLocation();
+  const navigate = useNavigate();
+
   // 自分自身モードON + プロフィール未設定の判定
   const selfModeNeedsProfile = gameState.selfMode && !selfProfile;
 
@@ -118,36 +135,45 @@ export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
     fetchCharacters();
   }, [setError, t]);
 
+  // 画像ファイルを読み込んでカスタム画像に設定する。
+  // NovelAIモードかつ規定サイズ外の場合は警告を挟む。
+  // ファイル選択と Prompt Expander からの取り込みで共用する
+  const loadCustomImageFile = async (file: File) => {
+    // 画像サイズを取得
+    const dimensions = await getImageDimensions(file);
+
+    // base64に変換
+    const base64 = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (event) => resolve(event.target?.result as string);
+      reader.onerror = () =>
+        reject(new Error(t("chat.welcome.imageLoadError")));
+      reader.readAsDataURL(file);
+    });
+
+    if (
+      settingsState.imageProvider === "novelai" &&
+      !isWithinNovelAIFreeSize(dimensions.width, dimensions.height)
+    ) {
+      setPendingImage(base64);
+      setPendingImageDimensions(dimensions);
+      setShowSizeWarning(true);
+    } else {
+      // 警告不要の場合は直接設定
+      setCustomImage(base64);
+      setSelectedCharacterId(null);
+      setSelectedCustomCharacterId(null);
+    }
+  };
+
   // ファイル選択ハンドラ
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    setSelectedPromptExpanderEntryId(null);
     try {
-      // 画像サイズを取得
-      const dimensions = await getImageDimensions(file);
-
-      // base64に変換
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const base64 = event.target?.result as string;
-
-        // NovelAIモードかつ規定サイズ外の場合は警告を表示
-        if (
-          settingsState.imageProvider === "novelai" &&
-          !isWithinNovelAIFreeSize(dimensions.width, dimensions.height)
-        ) {
-          setPendingImage(base64);
-          setPendingImageDimensions(dimensions);
-          setShowSizeWarning(true);
-        } else {
-          // 警告不要の場合は直接設定
-          setCustomImage(base64);
-          setSelectedCharacterId(null);
-          setSelectedCustomCharacterId(null);
-        }
-      };
-      reader.readAsDataURL(file);
+      await loadCustomImageFile(file);
     } catch (err) {
       console.error("Failed to read image:", err);
       setError(
@@ -155,6 +181,57 @@ export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
       );
     }
   };
+
+  // Prompt Expander のエントリ画像をカスタム画像として取り込む。
+  // 外見タグ欄は最終プロンプト + キャラクタープロンプトで前埋めする
+  // （日本語拡張の最終プロンプトは散文のためタグとしては使わない）
+  const applyPromptExpanderEntry = async (entry: PromptExpanderEntry) => {
+    setIsLoadingPromptExpanderEntry(true);
+    try {
+      const response = await fetch(promptExpanderImageUrl(entry));
+      if (!response.ok) {
+        throw new Error(t("chat.welcome.promptExpanderLoadError"));
+      }
+      const blob = await response.blob();
+      const file = new File([blob], `${entry.id}.png`, {
+        type: blob.type || "image/png",
+      });
+      await loadCustomImageFile(file);
+      setSelectedPromptExpanderEntryId(entry.id);
+      if (entry.positive_expand_mode !== "japanese") {
+        setCustomBaseTags(
+          [entry.final_prompt, ...(entry.character_prompts ?? [])]
+            .map((text) => text?.trim() ?? "")
+            .filter(Boolean)
+            .join(", "),
+        );
+      }
+    } catch (err) {
+      console.error("Failed to load Prompt Expander entry:", err);
+      setError(t("chat.welcome.promptExpanderLoadError"));
+    } finally {
+      setIsLoadingPromptExpanderEntry(false);
+    }
+  };
+
+  // /play/new?pe_entry=<id>（Prompt Expander のエントリカードからの導線）。
+  // 1回だけ取り込んでクエリを消す。StrictMode の二重実行は ref で抑止する
+  const peDeepLinkHandledRef = useRef(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 取り込み処理はマウント時のクエリに対して1回だけ実行する
+  useEffect(() => {
+    const entryId = new URLSearchParams(location.search).get("pe_entry");
+    if (!entryId || !promptExpanderEnabled || peDeepLinkHandledRef.current) {
+      return;
+    }
+    peDeepLinkHandledRef.current = true;
+    navigate(location.pathname, { replace: true });
+    void fetchPromptExpanderEntry(entryId)
+      .then((entry) => applyPromptExpanderEntry(entry))
+      .catch((err) => {
+        console.error("Failed to load Prompt Expander entry:", err);
+        setError(t("chat.welcome.promptExpanderLoadError"));
+      });
+  }, [location.search, location.pathname, promptExpanderEnabled, navigate]);
 
   // 009: サイズ警告で続行を選択
   const handleSizeWarningContinue = () => {
@@ -184,12 +261,14 @@ export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
     setSelectedCharacterId(characterId);
     setCustomImage(null); // キャラクター選択時はカスタム画像をクリア
     setSelectedCustomCharacterId(null);
+    setSelectedPromptExpanderEntryId(null);
   };
 
   const handleCustomCharacterSelect = (character: CustomCharacter) => {
     setCustomImage(`data:image/png;base64,${character.thumbnail}`);
     setSelectedCustomCharacterId(character.id);
     setSelectedCharacterId(null);
+    setSelectedPromptExpanderEntryId(null);
     setCustomName(character.name);
     setCustomDescription(character.description);
     setCustomPronoun(character.pronoun || t("chat.welcome.defaultPronoun"));
@@ -360,6 +439,16 @@ export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
           >
             {t("chat.welcome.createdCharacters")}
           </button>
+          {promptExpanderEnabled && (
+            <button
+              type="button"
+              className="welcome-screen__upload-btn"
+              onClick={() => setShowPromptExpanderPicker(true)}
+              disabled={isLoadingPromptExpanderEntry}
+            >
+              {t("chat.welcome.selectFromPromptExpander")}
+            </button>
+          )}
           {customImage && (
             <div className="welcome-screen__custom-preview">
               <img src={customImage} alt={t("chat.welcome.customImageAlt")} />
@@ -369,6 +458,7 @@ export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
                 onClick={() => {
                   setCustomImage(null);
                   setSelectedCustomCharacterId(null);
+                  setSelectedPromptExpanderEntryId(null);
                 }}
               >
                 ✕
@@ -520,6 +610,18 @@ export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
             : t("chat.welcome.startGame")}
         </button>
       </div>
+
+      {/* Prompt Expander エントリの選択モーダル（実験機能） */}
+      <PromptExpanderEntryPickerModal
+        open={promptExpanderEnabled && showPromptExpanderPicker}
+        title={t("chat.welcome.selectFromPromptExpander")}
+        selectedEntryId={selectedPromptExpanderEntryId}
+        onSelect={(entry) => {
+          setShowPromptExpanderPicker(false);
+          void applyPromptExpanderEntry(entry);
+        }}
+        onClose={() => setShowPromptExpanderPicker(false)}
+      />
 
       {/* 009: カスタム画像サイズ警告モーダル */}
       {showSizeWarning && pendingImageDimensions && (

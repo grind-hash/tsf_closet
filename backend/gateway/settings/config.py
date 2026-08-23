@@ -174,6 +174,10 @@ class Settings:
     history_masks_dir: Path = _resolve_path(
         os.getenv("HISTORY_MASKS_DIR", "data/history_masks")
     )
+    # Prompt Expander の生成/アップロード画像保存先 (デフォルト: data/prompt_expander_images)
+    prompt_expander_images_dir: Path = _resolve_path(
+        os.getenv("PROMPT_EXPANDER_IMAGES_DIR", "data/prompt_expander_images")
+    )
     # マスクプリセット保存先 (デフォルト: data/preset_masks)
     preset_masks_dir: Path = _resolve_path(
         os.getenv("PRESET_MASKS_DIR", "data/preset_masks")

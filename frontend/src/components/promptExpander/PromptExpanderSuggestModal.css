@@ -1,0 +1,61 @@
+/* Prompt Expander キャラクター提案モーダル */
+
+.prompt-expander__suggest-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.6rem 0.9rem;
+}
+
+.prompt-expander__suggest-controls .prompt-expander__field {
+  flex: 0 0 auto;
+}
+
+.prompt-expander__suggest-error-title {
+  margin: 0 0 0.25rem;
+  font-weight: 600;
+}
+
+.prompt-expander__suggest-error-hint {
+  margin: 0;
+  font-size: 0.8rem;
+}
+
+.prompt-expander__suggest-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.prompt-expander__suggest-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--border-color, #333);
+  border-radius: 6px;
+  background: var(--bg-color, #1a1a2e);
+}
+
+.prompt-expander__suggest-item-main {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.prompt-expander__suggest-item-title {
+  font-size: 0.9rem;
+}
+
+.prompt-expander__suggest-item-prompt {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

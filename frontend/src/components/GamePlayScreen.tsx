@@ -30,6 +30,7 @@ import {
   deleteHistoryEntry,
   deleteLatestHistory,
 } from "../apis/game";
+import { V5_USAGE_WARN_SUPPRESSED_KEY } from "../constants/novelaiImageModels";
 import { useChat } from "../contexts/ChatContext";
 import { useGame } from "../contexts/GameContext";
 import { useNotification } from "../contexts/NotificationContext";
@@ -71,8 +72,6 @@ import "./GamePlayScreen.css";
 import "./chat/ChatContainer.css";
 
 const ANLAS_WARN_SUPPRESSED_KEY = "anlas_warn_suppressed";
-// V5 利用上限使い切り警告の抑止キー（ブラウザセッション単位）
-const V5_USAGE_WARN_SUPPRESSED_KEY = "v5_usage_warn_suppressed";
 
 interface GamePlayScreenProps {
   onTransform: (

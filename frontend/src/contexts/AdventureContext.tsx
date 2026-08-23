@@ -33,6 +33,7 @@ import {
   updateAdventureRealityRules,
   updateAdventureRunSettings,
 } from "../apis/adventure";
+import { V5_USAGE_WARN_SUPPRESSED_KEY } from "../constants/novelaiImageModels";
 import {
   clearLastAdventureRunId,
   readLastAdventureRunId,
@@ -53,8 +54,9 @@ export const DRAW_PARTNER_STORAGE_KEY = "adventure_draw_partner_every_turn";
 export const ANLAS_WARN_SUPPRESSED_KEY = "adventure_anlas_warn_suppressed";
 
 // V5 利用上限使い切り後の生成はAnlasを消費するため警告する。
-// 抑止キーは通常ゲーム側と共有(ブラウザセッション単位)
-export const V5_USAGE_WARN_SUPPRESSED_KEY = "v5_usage_warn_suppressed";
+// 抑止キーは通常ゲーム側 / Prompt Expander と共有(ブラウザセッション単位)。
+// 定数本体は constants/novelaiImageModels.ts にあり、互換のため再エクスポートする
+export { V5_USAGE_WARN_SUPPRESSED_KEY };
 
 function readDrawEveryTurn(storageKey: string): boolean {
   try {

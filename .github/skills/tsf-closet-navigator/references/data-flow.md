@@ -179,6 +179,29 @@ BGM は各ターンの resolution 構造化出力の `bgm`（semantic key、既�
 
 Adventureの画像設定は run の `state_json` に持つ。`use_precise_reference`、`enable_composite_scene`、`respect_clothing_layers` を `POST /runs` と `PATCH /runs/{id}/settings` で設定し、`_prepare_image_prompt` と `_generate_image_unlocked` が state から読む。精密参照ON時の合成シーンの character reference は主人公（そのターンの立ち絵、無ければ初期画像）が1枚目で、romance では攻略対象が npc としてシーンに登場するターンに限り `_romance_partner_scene_reference` が `partner_image_path`（開始素材）を2枚目として弱参照（strength 0.35 / fidelity 0.55）で追加する。ただし現実改変で外見が開始時から乖離した後は、元の姿のままの参照画像を使わない: `_appearance_diverged` / `_partner_appearance_diverged` が `state["initial_appearance_lock"]` / `state["initial_partner_appearance"]`（`create_run` で seed、旧 run は `stream_turn` 冒頭で現在値からバックフィル、`_lean_state_for_llm` で LLM から隠す）と現在値を比較し、真なら `_generate_portrait_unlocked` は `run.portrait_image_path`、`_generate_partner_portrait_unlocked` と `_romance_partner_scene_reference` は `state["partner_portrait_path"]` を参照し、それも無ければ参照なしで描く（古い姿を弱参照するより無参照が正しい）。立ち絵生成系は DB から state を読み直すため、宣言ターン自体は乖離前として扱われ従来どおり元画像を参照する。参照強度は `has_fresh_portrait=False` のまま（強参照にすると衣装が再固定される）。参照とキャラ枠の紐付けはAPIに無くモデルの照合に任せる。romance で精密参照ONのターン送信は、画像プロバイダーが novelai のときに限り FE の `AdventureContext.submitTurn` が送信前にAnlas確認ダイアログを挟む（保留は `pendingAnlasTurn`、抑止は sessionStorage `adventure_anlas_warn_suppressed` でブラウザセッション単位。ギフト・属性付与モーダル経由の送信も同じガードを通る）。セットアップ画面の開始も、novelai かつ精密参照ON時はプリセットを問わず `handleCreate` が同じ確認を挟む（オープニング画像生成が既にAnlasを消費するため）。ダイアログは共通コンポーネント `AdventureAnlasConfirmDialog` で、通常ゲーム側と同じ体裁・抑止チェックを持つ。`respect_clothing_layers` は設定画面のグローバル値をAdventureScreenが同期し、ON時は外衣に覆われた装備下着タグを positive から外して被覆用 negative を足す。
 
+## Prompt Expander（実験的機能）
+
+```text
+PromptExpanderScreen (/prompt-expander, /prompt-expander/:sessionId)
+  ↓ PromptExpanderContext（Provider は /prompt-expander 配下だけ。App.tsx で包む）
+apis/promptExpander.ts
+  ├─ GET/PUT /api/prompt-expander/settings     専用設定（users.prompt_expander_settings_json）
+  ├─ /sessions, /sessions/{id}, /sessions/{id}/uploads, /entries, /images/{entry_id}
+  ├─ POST /expand                              LLM のみ（NovelAI テキスト glm-4-6 / xialong-v1 固定）
+  ├─ POST /sessions/{id}/generate              画像のみ（NovelAI 固定、raw_prompt=True）。応答に entry + anlas
+  └─ POST /suggest-characters                  PE メモリ（無ければグローバルメモリ）から好みのキャラ提案
+      ↓
+prompt_expander_router → prompt_expander_service / prompt_expander_prompts
+  ├─ PromptExpanderSession / PromptExpanderEntry
+  └─ data/prompt_expander_images/{session_id}/{entry_id}.png
+```
+
+- 通常ゲームの `image_only` と違い、拡張は欄右上の「拡張」ボタンによる明示操作で、拡張と画像生成は別 API。結果は欄直下のインラインカードで確認・編集してから「欄へ反映」または「この内容で生成」し、下部の「生成」は欄の内容をそのまま送る（拡張の由来は Context の origin として `positive_expand_mode`/`instruction` に載る）。設定 `confirm_before_generate` は API に残るが FE では使わない。SSE は使わない。
+- `raw_prompt=True`（`image_generation.py`）は `_format_prompt` の `、。→", "` 置換・長い接尾辞・`extra_negative`・サーバー既定ネガティブへのフォールバックをすべて無効化する（日本語自然文プロンプトを壊さないため）。SDK の `quality=True` と `uc_preset` は従来どおり。同時に `noise_override=0.0` が既定値へ落ちる不具合も `is not None` 判定に修正した。
+- 正/ネガそれぞれ「日本語で拡張」（V5 向け自然文）と「タグで拡張」（英語タグ、移植元の品質タグ補完あり）。キャラクターモードは JSON `{base_prompt, character_prompts[]}` で、上限は `consts/prompt_expander.max_character_prompts(image_model)`（V5=22 / V4.5=6）。超過は切り詰め、0 件は `invalid_llm_output`。
+- 参照元（i2i 元）は `source_kind: none | history | entry | upload`。`entry` なら保存済み最終プロンプト/キャラプロンプト/ネガを「現在のプロンプト」として LLM へ渡し（`inherit_source_prompts`）、`history` なら `after_description` を参考情報として渡す。NSFW は画像モデルの family（full/curated）から導出し、ADULT/SAFE ルールと `nsfw_mode` の両方に使う。
+- 開始素材連携: 通常ゲームは WelcomeScreen が PE 画像を data URL 化して既存 `POST /api/game/start-custom` に流す（BE 無変更）。Adventure は `POST /adventure/setup/generate` / `POST /adventure/runs` に `source_prompt_expander_entry_id`（`source_session_id` と排他、両方あれば PE 優先。リプレイは元 run から引き継ぐ）を受け、`_build_snapshot` が `_build_prompt_expander_snapshot` へ分岐する（appearance = 最終プロンプト＋キャラプロンプト、timeline/attributes/stats なし、nsfw は family 由来）。run は画像をコピーするため `AdventureRun.source_prompt_expander_entry_id` に FK は張らない。
+
 ## ギャラリー、お気に入り、エクスポート
 
 ```text

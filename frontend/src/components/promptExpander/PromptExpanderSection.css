@@ -1,0 +1,92 @@
+/* Prompt Expander 開閉セクション */
+
+.prompt-expander__section {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border-color, #333);
+  border-radius: 8px;
+  background: var(--side-menu-bg, #16213e);
+}
+
+.prompt-expander__section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem 0.8rem;
+  padding: 0.35rem 0.6rem 0.35rem 0.3rem;
+}
+
+.prompt-expander__section.is-open .prompt-expander__section-head {
+  border-bottom: 1px solid var(--border-color, #333);
+}
+
+.prompt-expander__section-heading {
+  flex: 1 1 auto;
+  margin: 0;
+  min-width: 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.prompt-expander__section-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0.35rem 0.4rem;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-color, #eee);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.prompt-expander__section-toggle:hover {
+  background: var(--hover-bg, #1f2f50);
+}
+
+.prompt-expander__section-toggle:focus-visible {
+  outline: 2px solid var(--accent-color, #e94560);
+  outline-offset: 1px;
+}
+
+.prompt-expander__section-chevron {
+  display: inline-block;
+  flex: 0 0 auto;
+  font-size: 0.8rem;
+  color: var(--text-muted, #888);
+  transition: transform 0.2s;
+}
+
+.prompt-expander__section.is-collapsed .prompt-expander__section-chevron {
+  transform: rotate(-90deg);
+}
+
+.prompt-expander__section-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prompt-expander__section-toolbar {
+  display: flex;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.35rem 0.6rem;
+}
+
+.prompt-expander__section-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  padding: 0.75rem 0.9rem 0.9rem;
+}
+
+.prompt-expander__section-body[hidden] {
+  display: none;
+}

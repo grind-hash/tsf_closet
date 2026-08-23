@@ -6,6 +6,7 @@ from .favorites_router import router as favorites_router
 from .gallery_router import router as gallery_router
 from .game_router import router as game_router
 from .memory_router import router as memory_router
+from .prompt_expander_router import router as prompt_expander_router
 from .settings_router import router as settings_router
 
 __all__ = [
@@ -17,5 +18,6 @@ __all__ = [
     "gallery_router",
     "game_router",
     "memory_router",
+    "prompt_expander_router",
     "settings_router",
 ]

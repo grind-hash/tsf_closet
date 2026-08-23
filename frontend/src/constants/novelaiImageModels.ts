@@ -24,3 +24,7 @@ const V5_IMAGE_MODELS = new Set<string>([
 export function isV5ImageModel(name: string | null | undefined): boolean {
   return name ? V5_IMAGE_MODELS.has(name) : false;
 }
+
+// V5 利用上限使い切り警告の抑止キー（ブラウザセッション単位、sessionStorage）。
+// 通常ゲーム / TSFシナリオ / Prompt Expander で共有する
+export const V5_USAGE_WARN_SUPPRESSED_KEY = "v5_usage_warn_suppressed";

@@ -17,6 +17,7 @@
 | `/settings`                                   | `SettingsScreen`     | 設定、メモリ、TTS                              |
 | `/adventure`、`/adventure/:runId`             | `AdventureScreen`    | 実験設定で有効化、専用Provider                 |
 | `/bgm-test`                                   | `BgmTestScreen`      | BGMカタログの試聴。実験設定(Adventure)で有効化 |
+| `/prompt-expander`、`/prompt-expander/:sessionId` | `PromptExpanderScreen` | Prompt Expander（実験設定で有効化、専用Provider） |
 
 ## Context
 
@@ -31,6 +32,12 @@
 | `GameContext`         | `useGame()`         | Session、History、画像、stats、属性、会話復元、SessionCharacter、セッションプレイメモ                     |
 | `ChatContext`         | `useChat()`         | メッセージ、入力、指示タイプ、添付、一時ID、ストリーミング、音声再生状態                                  |
 
+### Prompt Expander専用Provider
+
+`App.tsx` は `/prompt-expander` 配下だけを `PromptExpanderProvider` で包む（`experimentalPromptExpanderEnabled` が OFF なら `/play/new` へリダイレクト）。
+
+`PromptExpanderContext`（`usePromptExpander()`）は PE セッション一覧/詳細、エントリ、専用設定（`GET/PUT /api/prompt-expander/settings`、生成パラメータはこの設定そのもの）、作業欄状態（参照元、正/ネガの本文と拡張モード、キャラクタースロット）、`pendingExpansion`（欄直下のインライン結果カード。`target: positive|negative`）、`positiveOrigin`/`negativeOrigin`（「欄へ反映」した拡張のモードと指示。履歴メタデータ用。欄が空になると消える）、`pendingUsageWarn`（V5 利用上限の確認）、PE ローカルの `anlas` を持つ。拡張は欄右上の「拡張」ボタン（`expandPositive`/`expandNegative`）→ インライン結果カード（「欄へ反映」`applyExpansion` ／「この内容で生成」`generateFromExpansion` ／「破棄」）で、下部の「生成」（`runGenerate`）は常に欄の内容をそのまま送る。`restoreEntry` は最終プロンプトを欄へ戻し origin とカードを消す。設定の `confirm_before_generate` / `inherit_source_prompts` は API には残るが UI の確認トグルは無い（継承トグルは i2i セクション）。通常ゲームの Context や `useGameSSE` には統合しない。
+
 ### Adventure専用Provider
 
 `App.tsx` は `/adventure` 配下だけを `AdventureProvider` で包む。
@@ -42,6 +49,7 @@
 `SettingsContext` の追加機能は既定値と保存先を確認して変更する。
 
 - `experimentalAdventureEnabled`: Adventure画面のゲート
+- `experimentalPromptExpanderEnabled`: Prompt Expander画面とメニュー、WelcomeScreen/Adventureピッカーの「Prompt Expander」入口のゲート
 - `playMemoryEnabled`、`playMemorySystemEnabled`、`playMemoryUserEnabled`: セッションプレイメモ
 - `historyLookbackCount`、`historyLookbackTargets`: 指示タイプ別の履歴遡及
 - `respectClothingLayers`: 衣装レイヤー可視性。既定OFF
@@ -81,6 +89,7 @@
 | `apis/speechSynthesis.ts` | AivisSpeech導入、起動、話者、合成                                |
 | `apis/achievements.ts`    | 実績一覧/詳細                                                    |
 | `apis/anlas.ts`           | NovelAI Anlas残高                                                |
+| `apis/promptExpander.ts`  | PE 設定/セッション/エントリ/アップロード/拡張/生成/キャラ提案、`promptExpanderImageUrl` |
 
 ## UI構成
 
@@ -111,6 +120,19 @@ components/
 
   bgm/
     BgmTestScreen.tsx         BGMカタログ全曲の一覧と試聴(単発再生、fade/loopなし)
+
+  promptExpander/
+    PromptExpanderScreen.tsx        セッション一覧/作業画面、Anlas・V5利用上限、同意モーダル。設定は MainLayout の rightPanel（開閉は localStorage `prompt_expander_settings_panel_open`）
+    PromptExpanderSessionList.tsx   PEセッションの作成/改名/削除/一覧
+    PromptExpanderSection.tsx       アコーディオン見出し（aria-expanded、右側ツールバー枠）。開閉は hooks/usePersistedSectionState（localStorage `prompt_expander_sections_open`）
+    PromptExpanderComposer.tsx      セクション順: 生成パラメータ → プロンプト／指示（各欄右上にモード切替・「拡張」・「✨提案」）→ キャラクタープロンプト → i2i設定 → 「生成」
+    PromptExpanderExpansionPanel.tsx 欄直下のインライン拡張結果カード（欄へ反映／この内容で生成／破棄）
+    PromptExpanderEntryList.tsx / EntryCard.tsx  履歴セクション（欄へ復元・i2i元・通常プレイ/TSFシナリオへ・削除）。プレビューは ImagePreviewModal に className="prompt-expander-preview" で 96vw/96vh 拡大
+    PromptExpanderSettingsPanel.tsx テキストモデル、PEメモリ＋「メモリ情報を持ってくる」、確認/継承トグル
+    PromptExpanderUploadDialog.tsx  添付（履歴に残す／i2i元にする）
+    PromptExpanderSuggestModal.tsx  メモリからの好みキャラ提案
+    PromptExpanderSourcePickerModal.tsx  i2i元ピッカー（PEエントリ／プレイセッション=AdventureSessionPickerModal再利用）
+    PromptExpanderEntryGrid.tsx / EntryPickerModal.tsx  他画面から再利用するPE画像ピッカー
 
   gallery/
     GalleryScreen.tsx         セッション/履歴/お気に入り表示と検索
@@ -147,4 +169,5 @@ components/
 - i18nは `frontend/src/i18n.ts` に日本語/英語リソースを持つ。新規UI文字列は両言語を更新する。
 - 各大規模画面は隣接CSSを持つ。既存レイアウトを保ち、変更画面だけ確認する。
 - Context単体テストは `frontend/src/contexts/tests/`、E2Eは `frontend/tests/e2e/`。
-- 主な対象E2E: `action-mode.spec.ts`、`image-only-preview.spec.ts`、`adventure-mode.spec.ts`、`adventure-portrait-alpha.spec.ts`。
+- 主な対象E2E: `action-mode.spec.ts`、`image-only-preview.spec.ts`、`adventure-mode.spec.ts`、`adventure-portrait-alpha.spec.ts`、`prompt-expander.spec.ts`。
+- 定数ミラー: `constants/promptExpander.ts`（画像モデル4種、キャラ上限 V5=22/V4.5=6、サイズ）。`V5_USAGE_WARN_SUPPRESSED_KEY` は `constants/novelaiImageModels.ts` に集約。

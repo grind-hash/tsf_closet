@@ -96,6 +96,7 @@ interface SettingsState {
   showRealityAttributeNotification: boolean;
   experimentalEndingEnabled: boolean;
   experimentalAdventureEnabled: boolean;
+  experimentalPromptExpanderEnabled: boolean;
   playMemoryEnabled: boolean;
   playMemorySystemEnabled: boolean;
   playMemoryUserEnabled: boolean;
@@ -201,6 +202,7 @@ type SettingsAction =
   | { type: "SET_SHOW_REALITY_ATTRIBUTE_NOTIFICATION"; payload: boolean }
   | { type: "SET_EXPERIMENTAL_ENDING_ENABLED"; payload: boolean }
   | { type: "SET_EXPERIMENTAL_ADVENTURE_ENABLED"; payload: boolean }
+  | { type: "SET_EXPERIMENTAL_PROMPT_EXPANDER_ENABLED"; payload: boolean }
   | { type: "SET_PLAY_MEMORY_ENABLED"; payload: boolean }
   | { type: "SET_PLAY_MEMORY_SYSTEM_ENABLED"; payload: boolean }
   | { type: "SET_PLAY_MEMORY_USER_ENABLED"; payload: boolean }
@@ -267,6 +269,7 @@ const defaultState: SettingsState = {
   showRealityAttributeNotification: true,
   experimentalEndingEnabled: false,
   experimentalAdventureEnabled: false,
+  experimentalPromptExpanderEnabled: false,
   playMemoryEnabled: false,
   playMemorySystemEnabled: true,
   playMemoryUserEnabled: true,
@@ -378,6 +381,8 @@ function settingsReducer(
       return { ...state, experimentalEndingEnabled: action.payload };
     case "SET_EXPERIMENTAL_ADVENTURE_ENABLED":
       return { ...state, experimentalAdventureEnabled: action.payload };
+    case "SET_EXPERIMENTAL_PROMPT_EXPANDER_ENABLED":
+      return { ...state, experimentalPromptExpanderEnabled: action.payload };
     case "SET_PLAY_MEMORY_ENABLED":
       return { ...state, playMemoryEnabled: action.payload };
     case "SET_PLAY_MEMORY_SYSTEM_ENABLED":
@@ -510,6 +515,7 @@ interface SettingsContextType {
   setShowRealityAttributeNotification: (show: boolean) => void;
   setExperimentalEndingEnabled: (enabled: boolean) => void;
   setExperimentalAdventureEnabled: (enabled: boolean) => void;
+  setExperimentalPromptExpanderEnabled: (enabled: boolean) => void;
   setPlayMemoryEnabled: (enabled: boolean) => void;
   setPlayMemorySystemEnabled: (enabled: boolean) => void;
   setPlayMemoryUserEnabled: (enabled: boolean) => void;
@@ -1013,6 +1019,15 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const setExperimentalAdventureEnabled = useCallback((enabled: boolean) => {
     dispatch({ type: "SET_EXPERIMENTAL_ADVENTURE_ENABLED", payload: enabled });
   }, []);
+  const setExperimentalPromptExpanderEnabled = useCallback(
+    (enabled: boolean) => {
+      dispatch({
+        type: "SET_EXPERIMENTAL_PROMPT_EXPANDER_ENABLED",
+        payload: enabled,
+      });
+    },
+    [],
+  );
   const setPlayMemoryEnabled = useCallback((enabled: boolean) => {
     dispatch({ type: "SET_PLAY_MEMORY_ENABLED", payload: enabled });
   }, []);
@@ -1329,6 +1344,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setShowRealityAttributeNotification,
     setExperimentalEndingEnabled,
     setExperimentalAdventureEnabled,
+    setExperimentalPromptExpanderEnabled,
     setPlayMemoryEnabled,
     setPlayMemorySystemEnabled,
     setPlayMemoryUserEnabled,

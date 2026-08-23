@@ -95,6 +95,13 @@ from .adventure_romance import (
 )
 from .adventure_template_loader import SCENARIO_TEMPLATES, template_localized
 from .llm_service import llm_service
+from .prompt_expander_service import (
+    PromptExpanderError,
+    PromptExpanderService,
+    entry_nsfw,
+    entry_to_dict,
+    resolve_entry_image_file,
+)
 from .session import DEFAULT_USER_ID, session_store
 
 logger = logging.getLogger(__name__)
@@ -2271,9 +2278,59 @@ class AdventureService:
                 return candidate
         return None
 
-    async def _build_snapshot(
-        self, source_session_id: str, source_history_id: str | None
+    async def _build_prompt_expander_snapshot(
+        self, entry_id: str
     ) -> tuple[dict[str, Any], Path, str, bool]:
+        """Prompt Expander のエントリを開始素材にしたスナップショットを組み立てる。
+
+        ゲームセッション由来の時系列・属性・統計は無く、外見は保存済みの最終プロンプト
+        （＋キャラクタープロンプト）を使う。NSFW は画像モデルの family から導出する。
+        """
+        try:
+            async with async_session_factory() as db:
+                entry = await PromptExpanderService.get_entry(
+                    db, entry_id=entry_id, user_id=DEFAULT_USER_ID
+                )
+                view = entry_to_dict(entry)
+                image_path = resolve_entry_image_file(entry)
+                nsfw_mode = bool(entry_nsfw(entry))
+        except PromptExpanderError as exc:
+            raise AdventureError(
+                "source_not_found", "開始元の Prompt Expander エントリが見つかりません"
+            ) from exc
+        if image_path is None:
+            raise AdventureError("image_not_found", "開始画像が見つかりません")
+        appearance_parts = [str(view.get("final_prompt") or "").strip()]
+        appearance_parts.extend(
+            str(item).strip() for item in view.get("character_prompts") or []
+        )
+        appearance = ", ".join(part for part in appearance_parts if part)
+        snapshot = {
+            "source_session_id": None,
+            "source_history_id": None,
+            "source_prompt_expander_entry_id": entry_id,
+            "character_name": None,
+            "appearance": appearance,
+            "clothing": "",
+            "attributes": [],
+            "timeline": [],
+            "stats": None,
+        }
+        return snapshot, image_path, appearance, nsfw_mode
+
+    async def _build_snapshot(
+        self,
+        source_session_id: str | None,
+        source_history_id: str | None,
+        *,
+        source_prompt_expander_entry_id: str | None = None,
+    ) -> tuple[dict[str, Any], Path, str, bool]:
+        if source_prompt_expander_entry_id:
+            return await self._build_prompt_expander_snapshot(
+                source_prompt_expander_entry_id
+            )
+        if not source_session_id:
+            raise AdventureError("source_not_found", "開始元セッションが見つかりません")
         source_session = await session_store.get_session_by_id(source_session_id)
         if source_session is None or source_session.user_id != DEFAULT_USER_ID:
             raise AdventureError("source_not_found", "開始元セッションが見つかりません")
@@ -2759,9 +2816,10 @@ The objective must name a concrete target and an observable end condition that c
     async def generate_setup(
         self,
         *,
-        source_session_id: str,
+        source_session_id: str | None,
         source_history_id: str | None,
         preset: str,
+        source_prompt_expander_entry_id: str | None = None,
         max_turns: int = ADVENTURE_TURNS_DEFAULT,
         draft_setting: str = "",
         draft_objective: str = "",
@@ -2782,7 +2840,9 @@ The objective must name a concrete target and an observable end condition that c
         )
 
         snapshot, _, appearance, _ = await self._build_snapshot(
-            source_session_id, source_history_id
+            source_session_id,
+            source_history_id,
+            source_prompt_expander_entry_id=source_prompt_expander_entry_id,
         )
         user_settings = await session_store.get_user_settings()
         language = str(user_settings.get("language") or "ja")
@@ -2844,9 +2904,10 @@ The objective must name a concrete target and an observable end condition that c
     async def create_run(
         self,
         *,
-        source_session_id: str,
+        source_session_id: str | None,
         source_history_id: str | None,
         preset: str,
+        source_prompt_expander_entry_id: str | None = None,
         custom_setup: str = "",
         scenario_setting: str = "",
         scenario_objective: str = "",
@@ -2890,8 +2951,19 @@ The objective must name a concrete target and an observable end condition that c
                 # 同一シナリオ・新規simのリプレイ。攻略対象の素材と主人公の選択は
                 # 元runから引き継ぎ、相手プロフィール・ギフトカタログ・隠し好みは
                 # 後段の共通処理で毎回再生成される(意図した仕様)
-                source_session_id = replay_run.source_session_id or source_session_id
-                source_history_id = replay_run.source_history_id
+                replay_pe_entry_id = getattr(
+                    replay_run, "source_prompt_expander_entry_id", None
+                )
+                if replay_pe_entry_id:
+                    source_prompt_expander_entry_id = replay_pe_entry_id
+                    source_session_id = None
+                    source_history_id = None
+                else:
+                    source_session_id = (
+                        replay_run.source_session_id or source_session_id
+                    )
+                    source_history_id = replay_run.source_history_id
+                    source_prompt_expander_entry_id = None
                 if not (romance_player_character_id or romance_player_session_id):
                     (
                         romance_player_character_id,
@@ -2917,7 +2989,11 @@ The objective must name a concrete target and an observable end condition that c
             source_image,
             appearance,
             session_nsfw_mode,
-        ) = await self._build_snapshot(source_session_id, source_history_id)
+        ) = await self._build_snapshot(
+            source_session_id,
+            source_history_id,
+            source_prompt_expander_entry_id=source_prompt_expander_entry_id,
+        )
         user_settings = await session_store.get_user_settings()
         language = str(user_settings.get("language") or "ja")
         text_model = str(
@@ -3220,6 +3296,7 @@ The objective must name a concrete target and an observable end condition that c
             user_id=DEFAULT_USER_ID,
             source_session_id=source_session_id,
             source_history_id=source_history_id,
+            source_prompt_expander_entry_id=source_prompt_expander_entry_id,
             preset=effective_preset,
             title=title,
             objective=objective,
@@ -5274,7 +5351,9 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 text_model=text_model,
             )
             try:
-                image_prompt = _validate_model_json(AdventureImagePromptOutput, repaired)
+                image_prompt = _validate_model_json(
+                    AdventureImagePromptOutput, repaired
+                )
             except ValidationError as second_error:
                 raise AdventureError(
                     "invalid_image_prompt",
@@ -6644,6 +6723,9 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             "id": run.id,
             "source_session_id": run.source_session_id,
             "source_history_id": run.source_history_id,
+            "source_prompt_expander_entry_id": getattr(
+                run, "source_prompt_expander_entry_id", None
+            ),
             "preset": run.preset,
             "scenario_template_id": state.get("scenario_template_id"),
             "title": run.title,

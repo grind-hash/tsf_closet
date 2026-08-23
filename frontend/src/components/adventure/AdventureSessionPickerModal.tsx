@@ -2,21 +2,26 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { type FavoriteItem, fetchFavorites } from "../../apis/favorites";
 import { fetchGallerySessions } from "../../apis/gallery";
+import type { PromptExpanderEntry } from "../../apis/promptExpander";
 import { useGallery } from "../../hooks/useGallery";
 import { useInfiniteScroll } from "../../hooks/useInfiniteScroll";
 import type { GallerySession } from "../../types";
 import { API_BASE } from "../../utils/api";
+import PromptExpanderEntryGrid from "../promptExpander/PromptExpanderEntryGrid";
 
-export type AdventureSourceOrigin = "session" | "favorite";
+export type AdventureSourceOrigin = "session" | "favorite" | "prompt_expander";
 
 /**
  * 開始セッション(+時点)の選択結果。
  * サマリ表示に必要なメタ情報も一緒に返し、親コンポーネントでの再取得を不要にする。
  */
 export interface AdventureSourceSelection {
+  /** origin が prompt_expander のときは空文字 */
   sessionId: string;
   /** undefined = 現在の状態 */
   historyId?: string;
+  /** origin が prompt_expander のときだけ入る Prompt Expander エントリID */
+  promptExpanderEntryId?: string;
   characterName: string | null;
   thumbnailUrl: string;
   /** 時点の指示テキストまたはお気に入りラベル。null = 現在の状態 */
@@ -38,7 +43,24 @@ export function selectionFromSession(
   };
 }
 
+/** Prompt Expander エントリを選んだときの選択結果を作る */
+export function selectionFromPromptExpanderEntry(
+  entry: PromptExpanderEntry,
+): AdventureSourceSelection {
+  return {
+    sessionId: "",
+    historyId: undefined,
+    promptExpanderEntryId: entry.id,
+    characterName: null,
+    // API 相対パス("/prompt-expander/images/{id}")のまま持ち、表示時に mediaUrl で解決する
+    thumbnailUrl: entry.image_url,
+    pointLabel: entry.instruction?.trim() || entry.final_prompt?.trim() || null,
+    origin: "prompt_expander",
+  };
+}
+
 function mediaUrl(url: string): string {
+  if (url.startsWith(`${API_BASE}/`)) return url;
   return url.startsWith("/") ? `${API_BASE}${url}` : url;
 }
 
@@ -55,7 +77,7 @@ function formatSessionDate(iso: string, locale: string): string {
 const PAGE_SIZE = 20;
 const HISTORY_PAGE_SIZE = 30;
 
-type PickerTab = "sessions" | "favorites";
+type PickerTab = "sessions" | "favorites" | "prompt_expander";
 
 interface SessionHistoryListProps {
   session: GallerySession;
@@ -170,6 +192,8 @@ interface AdventureSessionPickerModalProps {
   selected: AdventureSourceSelection | null;
   onSelect: (selection: AdventureSourceSelection) => void;
   onClose: () => void;
+  /** true のとき Prompt Expander エントリのタブを出す(開始セッションの選択時のみ) */
+  allowPromptExpander?: boolean;
 }
 
 /**
@@ -177,17 +201,23 @@ interface AdventureSessionPickerModalProps {
  * セッションタブ: 各セッション最新1枚のカード一覧(検索+無限スクロール)。
  * カードから「現在の状態で選択」で即決定、サムネイルクリックで時点一覧へドリルダウン。
  * お気に入りタブ: 1クリックでセッションと時点を同時決定する。
+ * Prompt Expander タブ(allowPromptExpander 時のみ): エントリ1クリックで決定する。
  */
 export default function AdventureSessionPickerModal({
   title,
   selected,
   onSelect,
   onClose,
+  allowPromptExpander = false,
 }: AdventureSessionPickerModalProps) {
   const { t, i18n } = useTranslation();
-  const [tab, setTab] = useState<PickerTab>(
-    selected?.origin === "favorite" ? "favorites" : "sessions",
-  );
+  const [tab, setTab] = useState<PickerTab>(() => {
+    if (selected?.origin === "favorite") return "favorites";
+    if (selected?.origin === "prompt_expander" && allowPromptExpander) {
+      return "prompt_expander";
+    }
+    return "sessions";
+  });
   const [drilldownSession, setDrilldownSession] =
     useState<GallerySession | null>(null);
 
@@ -299,9 +329,19 @@ export default function AdventureSessionPickerModal({
   const initialFocusDoneRef = useRef(false);
   useEffect(() => {
     if (initialFocusDoneRef.current || !contentEl) return;
+    // Prompt Expander タブは EntryGrid 側で読み込むため、ここでは待たない
     const fetchedOnce =
-      tab === "sessions" ? sessionsFetchedOnce : favoritesFetchedOnce;
-    const loading = tab === "sessions" ? sessionsLoading : favoritesLoading;
+      tab === "sessions"
+        ? sessionsFetchedOnce
+        : tab === "favorites"
+          ? favoritesFetchedOnce
+          : true;
+    const loading =
+      tab === "sessions"
+        ? sessionsLoading
+        : tab === "favorites"
+          ? favoritesLoading
+          : false;
     if (!fetchedOnce || loading) return;
     initialFocusDoneRef.current = true;
     const target =
@@ -612,6 +652,17 @@ export default function AdventureSessionPickerModal({
               >
                 {t("gallery.tabFavorites")}
               </button>
+              {allowPromptExpander && (
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={tab === "prompt_expander"}
+                  className={tab === "prompt_expander" ? "is-active" : ""}
+                  onClick={() => setTab("prompt_expander")}
+                >
+                  {t("adventure.sourcePicker.tabPromptExpander")}
+                </button>
+              )}
             </div>
             {tab === "sessions" && (
               <div className="adventure-session-picker__search">
@@ -650,6 +701,17 @@ export default function AdventureSessionPickerModal({
             />
           ) : tab === "sessions" ? (
             renderSessionsTab()
+          ) : tab === "prompt_expander" && allowPromptExpander ? (
+            <PromptExpanderEntryGrid
+              selectedEntryId={
+                selected?.origin === "prompt_expander"
+                  ? selected.promptExpanderEntryId
+                  : null
+              }
+              onSelect={(entry) =>
+                onSelect(selectionFromPromptExpanderEntry(entry))
+              }
+            />
           ) : (
             renderFavoritesTab()
           )}

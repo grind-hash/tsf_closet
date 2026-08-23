@@ -14,9 +14,11 @@ import GamePlayScreen from "./components/GamePlayScreen";
 import GalleryScreen from "./components/gallery/GalleryScreen";
 import NovelAIWarningModal from "./components/NovelAIWarningModal";
 import NotificationContainer from "./components/notifications/NotificationContainer";
+import PromptExpanderScreen from "./components/promptExpander/PromptExpanderScreen";
 import SessionListModal from "./components/SessionListModal";
 import SettingsScreen from "./components/settings/SettingsScreen";
 import { AdventureProvider } from "./contexts/AdventureContext";
+import { PromptExpanderProvider } from "./contexts/PromptExpanderContext";
 import { useSettings } from "./contexts/SettingsContext";
 import { useGameSSE } from "./hooks/useGameSSE";
 import { getGameSessionPath } from "./routes";
@@ -69,6 +71,17 @@ function App() {
       <AdventureProvider>
         <AdventureScreen />
       </AdventureProvider>
+    );
+  }
+  // Prompt Expander（実験機能）。ゲートは設定画面のトグルで切り替える
+  if (location.pathname.startsWith("/prompt-expander")) {
+    if (!settingsState.experimentalPromptExpanderEnabled) {
+      return <Navigate to="/play/new" replace />;
+    }
+    return (
+      <PromptExpanderProvider>
+        <PromptExpanderScreen />
+      </PromptExpanderProvider>
     );
   }
 
