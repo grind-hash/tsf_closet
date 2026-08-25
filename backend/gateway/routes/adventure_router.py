@@ -38,6 +38,14 @@ from ..services.adventure_service import (
 
 router = APIRouter(prefix="/adventure", tags=["Adventure"])
 
+# run 単位で上書きできる NovelAI 画像モデル（consts/novelai_models.py と同期）
+AdventureImageModel = Literal[
+    "nai-diffusion-4-5-full",
+    "nai-diffusion-4-5-curated",
+    "nai-diffusion-5-full",
+    "nai-diffusion-5-curated",
+]
+
 
 class AdventureSetupGenerateRequest(BaseModel):
     # 開始素材はゲームセッション（＋履歴時点）か Prompt Expander エントリのどちらか。
@@ -133,6 +141,8 @@ class AdventureCreateRequest(BaseModel):
     romance_partner_speech_style: str = Field(
         default="", max_length=PARTNER_SPEECH_STYLE_MAX_LENGTH
     )
+    # この run 専用の NovelAI 画像モデル。未指定ならグローバル設定に従う
+    image_model: AdventureImageModel | None = None
 
 
 class AdventureSettingsUpdateRequest(BaseModel):
@@ -148,6 +158,8 @@ class AdventureSettingsUpdateRequest(BaseModel):
     partner_speech_style: str | None = Field(
         default=None, max_length=PARTNER_SPEECH_STYLE_MAX_LENGTH
     )
+    # "default" で run 単位の上書きを解除。未指定(None)なら既存値を維持する
+    image_model: Literal["default"] | AdventureImageModel | None = None
 
 
 class AdventureRealityRulesUpdateRequest(BaseModel):
@@ -258,6 +270,7 @@ async def create_run(request: AdventureCreateRequest) -> dict:
             romance_player_session_id=request.romance_player_session_id,
             romance_player_history_id=request.romance_player_history_id,
             romance_partner_speech_style=request.romance_partner_speech_style,
+            image_model=request.image_model,
         )
     except AdventureError as error:
         raise _http_error(error) from error
@@ -321,6 +334,7 @@ async def update_run_settings(
             player_speech_style=request.player_speech_style,
             player_speech_custom=request.player_speech_custom,
             partner_speech_style=request.partner_speech_style,
+            image_model=request.image_model,
         )
     except AdventureError as error:
         raise _http_error(error) from error

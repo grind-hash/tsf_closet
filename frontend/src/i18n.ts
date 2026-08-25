@@ -257,6 +257,14 @@ const resources = {
         },
         imageGenOptions: "生成オプション",
         imageSettings: "画像生成設定",
+        imageModel: "画像生成モデル",
+        imageModelDefault: "設定に従う（既定）",
+        imageModelHint:
+          "このシナリオ専用のNovelAIモデルを選べます。既定では設定画面のモデル（NSFW設定に応じてFull/Curatedが切り替わる）を使います。Curated系は非NSFW向けです。",
+        imageModelPlayHint:
+          "次回の画像生成から反映されます。Curated系は非NSFW向けです。V5系では精密参照が使えません。",
+        imageModelOtherProviderHint:
+          "この設定はNovelAI画像プロバイダー専用です。現在のプロバイダー(OpenRouter/セルフホスト)では選択しても効果はありません。",
         preciseReference: "精密参照画像を使う",
         preciseReferenceHint:
           "OFFが既定です。ONにすると開始画像をNovelAI精密参照に使い、参照1枚あたり5 Anlasを追加消費します。顔の固定が強まります。",
@@ -2106,6 +2114,14 @@ const resources = {
         },
         imageGenOptions: "Generation Options",
         imageSettings: "Image Generation Settings",
+        imageModel: "Image Model",
+        imageModelDefault: "Follow global settings (default)",
+        imageModelHint:
+          "Choose a NovelAI model used only for this scenario. By default it follows the model from the settings screen (Full/Curated depending on the NSFW setting). Curated models are for non-NSFW content.",
+        imageModelPlayHint:
+          "Applies from the next image generation. Curated models are for non-NSFW content. Precise references are unavailable on V5 models.",
+        imageModelOtherProviderHint:
+          "This option only applies to the NovelAI image provider. With your current provider (OpenRouter / self-hosted) it has no effect.",
         preciseReference: "Use precise character reference",
         preciseReferenceHint:
           "Off by default. When on, the starting image is used as a NovelAI character reference and costs 5 extra Anlas per reference, while face consistency improves.",

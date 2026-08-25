@@ -33,7 +33,10 @@ import {
   updateAdventureRealityRules,
   updateAdventureRunSettings,
 } from "../apis/adventure";
-import { V5_USAGE_WARN_SUPPRESSED_KEY } from "../constants/novelaiImageModels";
+import {
+  isV5ImageModel,
+  V5_USAGE_WARN_SUPPRESSED_KEY,
+} from "../constants/novelaiImageModels";
 import {
   clearLastAdventureRunId,
   readLastAdventureRunId,
@@ -154,7 +157,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
   const {
     state: settingsState,
     addTotalCost,
-    isNovelaiV5Active,
+    effectiveNovelaiImageModel,
   } = useSettings();
   const imageProvider = settingsState.imageProvider;
   const anlasUsage = settingsState.anlasBalance?.usage ?? null;
@@ -443,12 +446,18 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       options?: { giftId?: string },
     ) => {
       if (!activeRun || streaming) return;
+      // run 単位のモデル上書きを含めた実効モデルで V5 かを判定する
+      const isV5ForActiveRun =
+        imageProvider === "novelai" &&
+        isV5ImageModel(
+          activeRun.image_model_override ?? effectiveNovelaiImageModel,
+        );
       // V5 利用上限を使い切った状態での生成はAnlasを消費するため警告する
       const usageExhausted =
         anlasUsage != null &&
         (anlasUsage.percent <= 0 || anlasUsage.isNegative);
       if (
-        isNovelaiV5Active &&
+        isV5ForActiveRun &&
         usageExhausted &&
         sessionStorage.getItem(V5_USAGE_WARN_SUPPRESSED_KEY) !== "true"
       ) {
@@ -460,7 +469,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       // (V5実効時は精密参照が使われないため対象外)
       if (
         imageProvider === "novelai" &&
-        !isNovelaiV5Active &&
+        !isV5ForActiveRun &&
         activeRun.preset === "romance" &&
         activeRun.use_precise_reference &&
         sessionStorage.getItem(ANLAS_WARN_SUPPRESSED_KEY) !== "true"
@@ -475,7 +484,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       streaming,
       performSubmitTurn,
       imageProvider,
-      isNovelaiV5Active,
+      effectiveNovelaiImageModel,
       anlasUsage,
     ],
   );
@@ -639,6 +648,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
                   use_precise_reference: updated.use_precise_reference,
                   enable_composite_scene: updated.enable_composite_scene,
                   respect_clothing_layers: updated.respect_clothing_layers,
+                  image_model_override: updated.image_model_override,
                   player_speech_style: updated.player_speech_style,
                   player_speech_custom: updated.player_speech_custom,
                   sim: updated.sim,

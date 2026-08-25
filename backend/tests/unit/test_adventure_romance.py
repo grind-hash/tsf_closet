@@ -19,6 +19,7 @@ from gateway.services.adventure_romance import (
     ROMANCE_RESOLUTION_GUIDANCE,
     ROMANCE_VISUAL_GUIDANCE,
     RomanceActionError,
+    RomanceAlteredGift,
     RomanceGift,
     RomanceSetupOutput,
     apply_romance_outcome,
@@ -776,3 +777,55 @@ def test_public_sim_view_exposes_partner_appearance() -> None:
     )
     sim["partner_appearance"] = "male, 1boy, black hair"
     assert public_sim_view(sim, 1)["partner_appearance"] == "male, 1boy, black hair"
+
+
+def test_alter_turn_rewrites_gift_catalog_and_preserves_ids() -> None:
+    """現実改変のカタログ書換。既存品はIDを引き継ぎ、好みと贈答記録を掃除する。"""
+    state = {
+        "sim": make_sim(given_gifts=["g1", "g2"]),
+        "completed_milestones": [],
+    }
+    new_catalog = [
+        RomanceAlteredGift(name="文庫本", price=0, tier="budget"),
+        RomanceAlteredGift(
+            name="魔法の指輪", price=100, tier="luxury", preference="liked"
+        ),
+        RomanceAlteredGift(
+            name="香水", price=8000, tier="luxury", preference="neutral"
+        ),
+    ]
+    apply_romance_outcome(
+        state,
+        make_output(),
+        {"kind": "alter", "money_delta": 0, "affection_delta": 0},
+        make_romance_output(updated_gift_catalog=new_catalog),
+    )
+    sim = state["sim"]
+    catalog = {item["name"]: item for item in sim["gift_catalog"]}
+    assert set(catalog) == {"文庫本", "魔法の指輪", "香水"}
+    # 既存品はIDを引き継ぎ、新規品は未使用の連番を得る
+    assert catalog["文庫本"]["id"] == "g2"
+    assert catalog["香水"]["id"] == "g7"
+    assert catalog["魔法の指輪"]["id"] not in {"g2", "g7"}
+    # 価格はtier帯へクランプされない(無料化の宣言を許す)
+    assert catalog["文庫本"]["price"] == 0
+    hidden = sim["hidden_preferences"]
+    # 消えた品(紅茶セット=g3)の好みは掃除し、preference指定を反映する
+    assert catalog["魔法の指輪"]["id"] in hidden["liked_gift_ids"]
+    assert "g3" not in hidden["liked_gift_ids"]
+    assert "g7" not in hidden["disliked_gift_ids"]
+    assert "g2" in hidden["liked_gift_ids"]
+    # 贈答済み記録は存続する品だけ残る
+    assert sim["given_gifts"] == ["g2"]
+
+
+def test_alter_turn_empty_gift_catalog_is_noop() -> None:
+    state = {"sim": make_sim(), "completed_milestones": []}
+    before = [dict(item) for item in state["sim"]["gift_catalog"]]
+    apply_romance_outcome(
+        state,
+        make_output(),
+        {"kind": "alter", "money_delta": 0, "affection_delta": 0},
+        make_romance_output(updated_gift_catalog=[]),
+    )
+    assert state["sim"]["gift_catalog"] == before

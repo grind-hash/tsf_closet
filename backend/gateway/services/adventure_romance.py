@@ -83,6 +83,57 @@ class RomanceGift(BaseModel):
         return self
 
 
+class RomanceAlteredGift(BaseModel):
+    """現実改変でギフトカタログを書き換えるときの1品目。
+
+    RomanceGift と違い tier 帯への価格クランプを行わない(「全品無料になる」の
+    ような宣言を許すため)。preference は宣言が同時に好みを定めた場合だけ入る。
+    """
+
+    name: str = Field(min_length=1, max_length=80)
+    price: int = Field(default=0, ge=0, le=999_999)
+    tier: Literal["budget", "standard", "luxury"] = "standard"
+    preference: Literal["liked", "disliked", "neutral"] | None = None
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def strip_text(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+    @field_validator("price", mode="before")
+    @classmethod
+    def clamp_price(cls, value: Any) -> Any:
+        # LLM の過大値・文字列で検証エラー→修復リトライへ落とさない
+        try:
+            return max(0, min(999_999, int(value)))
+        except (TypeError, ValueError):
+            return 0
+
+    @field_validator("tier", mode="before")
+    @classmethod
+    def coerce_tier(cls, value: Any) -> Any:
+        if isinstance(value, str) and value.strip().lower() in {
+            "budget",
+            "standard",
+            "luxury",
+        }:
+            return value.strip().lower()
+        return "standard"
+
+    @field_validator("preference", mode="before")
+    @classmethod
+    def coerce_preference(cls, value: Any) -> Any:
+        if isinstance(value, str) and value.strip().lower() in {
+            "liked",
+            "disliked",
+            "neutral",
+        }:
+            return value.strip().lower()
+        return None
+
+
 class RomanceSetupOutput(BaseModel):
     """LLM が1回だけ生成する恋愛シナリオの初期素材。
 
@@ -462,6 +513,85 @@ def _apply_preference_updates(sim: dict[str, Any], romance_output: Any) -> None:
     hidden["disliked_gift_ids"] = sorted(disliked)
 
 
+def apply_gift_catalog_update(sim: dict[str, Any], gifts: list[Any]) -> None:
+    """現実改変ターンのギフトカタログ書換を適用する(全品目の置き換え)。
+
+    宣言後の品揃え全体を受け取り、既存カタログと名前が一致する品目は ID を
+    引き継ぐ(隠し好み・贈答済み記録の参照を壊さないため)。新しい品目には
+    既存 ID と衝突しない連番を振る。空リストは「変更なし」の番兵として no-op。
+    好み(hidden_preferences)と贈答済み(given_gifts)は存続する ID だけ残し、
+    各品目の preference が指定されていればその集合へ移す。
+    """
+    if not gifts:
+        return
+    old_catalog = [
+        item for item in sim.get("gift_catalog", []) if isinstance(item, dict)
+    ]
+    id_by_name = {
+        _normalize_gift_name(str(item.get("name") or "")): str(item.get("id"))
+        for item in old_catalog
+        if str(item.get("name") or "").strip()
+    }
+    used_ids = {str(item.get("id")) for item in old_catalog}
+    next_index = len(old_catalog) + 1
+    new_catalog: list[dict[str, Any]] = []
+    preferences: dict[str, str] = {}
+    seen_names: set[str] = set()
+    for gift in gifts:
+        name = str(getattr(gift, "name", "") or "").strip()
+        key = _normalize_gift_name(name)
+        if not name or key in seen_names:
+            continue
+        seen_names.add(key)
+        gift_id = id_by_name.get(key)
+        if gift_id is None:
+            while f"g{next_index}" in used_ids:
+                next_index += 1
+            gift_id = f"g{next_index}"
+            next_index += 1
+        used_ids.add(gift_id)
+        new_catalog.append(
+            {
+                "id": gift_id,
+                "name": name,
+                "price": int(getattr(gift, "price", 0) or 0),
+                "tier": str(getattr(gift, "tier", "standard") or "standard"),
+            }
+        )
+        preference = getattr(gift, "preference", None)
+        if preference in {"liked", "disliked", "neutral"}:
+            preferences[gift_id] = str(preference)
+    if not new_catalog:
+        return
+    sim["gift_catalog"] = new_catalog
+    surviving_ids = {str(item["id"]) for item in new_catalog}
+    sim["given_gifts"] = [
+        str(item) for item in sim.get("given_gifts", []) if str(item) in surviving_ids
+    ]
+    hidden = sim.get("hidden_preferences")
+    if not isinstance(hidden, dict):
+        return
+    liked = {
+        str(item)
+        for item in hidden.get("liked_gift_ids", [])
+        if str(item) in surviving_ids
+    }
+    disliked = {
+        str(item)
+        for item in hidden.get("disliked_gift_ids", [])
+        if str(item) in surviving_ids
+    } - liked
+    for gift_id, preference in preferences.items():
+        liked.discard(gift_id)
+        disliked.discard(gift_id)
+        if preference == "liked":
+            liked.add(gift_id)
+        elif preference == "disliked":
+            disliked.add(gift_id)
+    hidden["liked_gift_ids"] = sorted(liked)
+    hidden["disliked_gift_ids"] = sorted(disliked)
+
+
 def apply_romance_outcome(
     state: dict[str, Any],
     output: Any,
@@ -490,6 +620,10 @@ def apply_romance_outcome(
         else:
             limit = ROMANCE_ALTER_DELTA_LIMIT
             affection += max(-limit, min(limit, llm_delta))
+        # カタログ書換を好み書換より先に適用する(ID 照合を新カタログで行うため)
+        apply_gift_catalog_update(
+            sim, list(getattr(romance_output, "updated_gift_catalog", None) or [])
+        )
         _apply_preference_updates(sim, romance_output)
         # 宣言が攻略対象の外見を書き換えた場合は sim へ反映し、以後のターンの
         # 立ち絵フォールバック・ビジュアルプロンプトが新しい外見を使うようにする
@@ -726,7 +860,10 @@ ROMANCE_RESOLUTION_GUIDANCE = (
     '"money_set" (integer or null), "start_dating" (boolean), '
     '"updated_liked_gift_ids" (list of gift id strings), '
     '"updated_disliked_gift_ids" (list of gift id strings), '
-    '"updated_partner_appearance" (string or null). '
+    '"updated_partner_appearance" (string or null), '
+    '"updated_total_days" (integer or null), '
+    '"updated_gift_catalog" (list of {"name","price","tier","preference"} '
+    "objects, normally an empty list). "
     "For an ordinary conversation turn score affection_delta with this "
     "rubric: +2 when the partner receives the player's words positively, +3 "
     "when they strike her stated interests, dropped hints, or hidden wishes, "
@@ -757,6 +894,20 @@ ROMANCE_RESOLUTION_GUIDANCE = (
     "features, never clothing; otherwise keep affection_set null, "
     "start_dating false, the lists empty, and updated_partner_appearance "
     "null. Keep updated_partner_appearance null on every non-alter turn. "
+    "updated_total_days and updated_gift_catalog also apply only when "
+    "romance_resolution.kind is alter. If the declaration changes the "
+    "scenario's time limit (the total number of days the player has, shown "
+    "as state.sim.total_days), report the new total as updated_total_days; "
+    "otherwise keep it null. If the declaration rewrites the gift shop's "
+    "lineup in any way (adding, removing, renaming, or repricing gifts), "
+    "output in updated_gift_catalog the complete catalog after the change, "
+    "listing every gift the shop now sells, reusing the exact names of "
+    "unchanged gifts from state.sim.gift_catalog verbatim so they keep "
+    "their identity; set each entry's price in yen and tier "
+    "(budget, standard, or luxury), and set preference to liked, disliked, "
+    "or neutral only when the declaration also states the partner's taste "
+    "for that gift, leaving it null otherwise. Keep updated_gift_catalog an "
+    "empty list whenever the declaration does not change the shop. "
     "Money follows the same rule as affection. Keep money_delta "
     "0 and money_set null on conversation turns and whenever "
     "romance_resolution.kind is work, gift, or confess, because the engine "

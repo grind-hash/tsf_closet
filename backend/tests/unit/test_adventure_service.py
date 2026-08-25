@@ -9,9 +9,11 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from gateway.consts.adventure_romance import (
     ROMANCE_AFFECTION_START,
+    ROMANCE_ALTER_DAYS_MAX,
     ROMANCE_INITIAL_MONEY,
 )
 from gateway.consts.adventure_turns import (
+    ADVENTURE_ALTER_TURNS_MAX,
     ADVENTURE_TURNS_DEFAULT,
     ADVENTURE_TURNS_MAX,
     ADVENTURE_TURNS_MIN,
@@ -55,6 +57,8 @@ from gateway.services.adventure_service import (
     _identity_tags_only,
     _lean_state_for_llm,
     _normalize_reality_rules,
+    _progressive_reality_rules,
+    _apply_time_limit_alteration,
     _partner_appearance_diverged,
     _previous_choice_labels,
     _merge_scene_tags,
@@ -2573,7 +2577,9 @@ async def test_invalid_director_json_is_repaired_once(monkeypatch) -> None:
     repair_call = generate.await_args_list[1]
     assert "compact JSON" in repair_call.args[0]
     assert "under 1200 characters" in repair_call.args[0]
-    assert repair_call.args[1].startswith("Invalid source output:")
+    # 修復プロンプトは検証エラーの提示から始まり、元の不正出力を含む
+    assert repair_call.args[1].startswith("Fix these validation errors:")
+    assert "Invalid source output:" in repair_call.args[1]
 
 
 @pytest.mark.asyncio
@@ -5426,3 +5432,106 @@ async def test_generate_portrait_openrouter_uses_reference_as_edit_source(
     assert "character_references" not in image_kwargs
     prompt = generate_image.await_args.args[0]
     assert prompt.startswith("Redraw the exact character")
+
+
+def test_progressive_reality_rules_detects_per_turn_changes() -> None:
+    rules = [
+        "主人公はターン毎に徐々に女体化する",
+        "誰もその変化に違和感を持たない",
+        "The player becomes more feminine every turn",
+    ]
+    assert _progressive_reality_rules(rules) == [rules[0], rules[2]]
+    assert _progressive_reality_rules([]) == []
+
+
+def test_time_limit_alteration_updates_romance_days() -> None:
+    run = SimpleNamespace(preset="romance", max_turns=14)
+    state = {"sim": {"total_days": 7}}
+    changed = _apply_time_limit_alteration(
+        run,
+        state,
+        SimpleNamespace(updated_total_days=10),
+        input_kind="reality_alter",
+        turn_number=5,
+        epilogue=False,
+    )
+    assert changed
+    assert run.max_turns == 20
+    assert state["sim"]["total_days"] == 10
+
+
+def test_time_limit_alteration_clamps_romance_days() -> None:
+    run = SimpleNamespace(preset="romance", max_turns=14)
+    state = {"sim": {"total_days": 7}}
+    # 現在9手目=5日目より過去へは縮められない
+    _apply_time_limit_alteration(
+        run,
+        state,
+        SimpleNamespace(updated_total_days=1),
+        input_kind="reality_alter",
+        turn_number=9,
+        epilogue=False,
+    )
+    assert run.max_turns == 10
+    assert state["sim"]["total_days"] == 5
+    _apply_time_limit_alteration(
+        run,
+        state,
+        SimpleNamespace(updated_total_days=99),
+        input_kind="reality_alter",
+        turn_number=9,
+        epilogue=False,
+    )
+    assert state["sim"]["total_days"] == ROMANCE_ALTER_DAYS_MAX
+    assert run.max_turns == ROMANCE_ALTER_DAYS_MAX * 2
+
+
+def test_time_limit_alteration_non_romance_and_guards() -> None:
+    run = SimpleNamespace(preset="escape", max_turns=15)
+    state: dict = {}
+    # reality_alter 以外とエピローグでは無視される
+    assert not _apply_time_limit_alteration(
+        run,
+        state,
+        SimpleNamespace(updated_max_turns=25),
+        input_kind="free_text",
+        turn_number=3,
+        epilogue=False,
+    )
+    assert not _apply_time_limit_alteration(
+        run,
+        state,
+        SimpleNamespace(updated_max_turns=25),
+        input_kind="reality_alter",
+        turn_number=3,
+        epilogue=True,
+    )
+    assert run.max_turns == 15
+    assert _apply_time_limit_alteration(
+        run,
+        state,
+        SimpleNamespace(updated_max_turns=25),
+        input_kind="reality_alter",
+        turn_number=3,
+        epilogue=False,
+    )
+    assert run.max_turns == 25
+    _apply_time_limit_alteration(
+        run,
+        state,
+        SimpleNamespace(updated_max_turns=999),
+        input_kind="reality_alter",
+        turn_number=3,
+        epilogue=False,
+    )
+    assert run.max_turns == ADVENTURE_ALTER_TURNS_MAX
+    # 現在の手番より過去へは縮められない
+    _apply_time_limit_alteration(
+        run,
+        state,
+        SimpleNamespace(updated_max_turns=1),
+        input_kind="reality_alter",
+        turn_number=7,
+        epilogue=False,
+    )
+    assert run.max_turns == 7

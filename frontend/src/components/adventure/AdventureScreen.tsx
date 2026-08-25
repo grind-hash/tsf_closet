@@ -19,6 +19,11 @@ import { fetchAnlasBalance } from "../../apis/anlas";
 import { fetchGallerySessions } from "../../apis/gallery";
 import { fetchPromptExpanderEntry } from "../../apis/promptExpander";
 import {
+  ADVENTURE_IMAGE_MODEL_CHOICES,
+  isAdventureImageModelValue,
+  isV5ImageModel,
+} from "../../constants/novelaiImageModels";
+import {
   ANLAS_WARN_SUPPRESSED_KEY,
   DRAW_PARTNER_STORAGE_KEY,
   DRAW_PORTRAIT_STORAGE_KEY,
@@ -162,6 +167,8 @@ type AdventureSetupPrefs = {
   romancePlayerCharacterId: string;
   /** 主人公を「セッションの姿」にしたときのセッションID */
   romancePlayerSessionId: string;
+  /** run 単位のNovelAI画像モデル。"default" はグローバル設定に従う */
+  imageModel: string;
 };
 
 function readSetupPrefs(): Partial<AdventureSetupPrefs> {
@@ -418,10 +425,25 @@ function AdventureHub() {
   const [partnerSpeechStyle, setPartnerSpeechStyle] = useState("");
   const [runFilter, setRunFilter] = useState<RunFilter>("all");
   const [creating, setCreating] = useState(false);
-  const { state: settingsState, isNovelaiV5Active } = useSettings();
+  const { state: settingsState, effectiveNovelaiImageModel } = useSettings();
   // 精密参照は既定OFF。ユーザーが明示的にONした場合のみAnlas追加消費
   const [usePreciseReference, setUsePreciseReference] = useState(false);
   const [startAnlasConfirmOpen, setStartAnlasConfirmOpen] = useState(false);
+  // この run 専用のNovelAI画像モデル。"default" はグローバル設定に従う
+  const [imageModelChoice, setImageModelChoice] = useState<string>(() => {
+    const saved = savedSetupPrefs.imageModel;
+    return typeof saved === "string" && isAdventureImageModelValue(saved)
+      ? saved
+      : "default";
+  });
+  // モデル選択を反映した実効モデルでV5判定する(精密参照の可否・Anlas確認に効く)
+  const setupIsV5 =
+    settingsState.imageProvider === "novelai" &&
+    isV5ImageModel(
+      imageModelChoice === "default"
+        ? effectiveNovelaiImageModel
+        : imageModelChoice,
+    );
   // 前回の選択があればそれを優先し、未保存ならグローバル設定を初期値とする
   const [enableCompositeScene, setEnableCompositeScene] = useState(() =>
     typeof savedSetupPrefs.enableCompositeScene === "boolean"
@@ -465,6 +487,7 @@ function AdventureHub() {
       enableCompositeScene,
       romancePlayerCharacterId: romancePlayerId,
       romancePlayerSessionId,
+      imageModel: imageModelChoice,
     };
     try {
       localStorage.setItem(SETUP_PREFS_STORAGE_KEY, JSON.stringify(prefs));
@@ -479,6 +502,7 @@ function AdventureHub() {
     enableCompositeScene,
     romancePlayerId,
     romancePlayerSessionId,
+    imageModelChoice,
   ]);
 
   // セッションの姿モードで未選択の間は、保存済みセッションIDを解決する。
@@ -719,9 +743,12 @@ function AdventureHub() {
         romance_partner_speech_style:
           effectivePreset === "romance" ? partnerSpeechStyle.trim() : "",
         // V5系モデルは精密参照非対応のため実効値をOFFにする
-        use_precise_reference: usePreciseReference && !isNovelaiV5Active,
+        use_precise_reference: usePreciseReference && !setupIsV5,
         enable_composite_scene: enableCompositeScene,
         respect_clothing_layers: settingsState.respectClothingLayers,
+        // "default" 選択時は送らず、runはグローバル設定に従う
+        image_model:
+          imageModelChoice === "default" ? undefined : imageModelChoice,
         romance_player_character_id:
           startMode === "generated" &&
           preset === "romance" &&
@@ -756,7 +783,7 @@ function AdventureHub() {
     if (
       settingsState.imageProvider === "novelai" &&
       usePreciseReference &&
-      !isNovelaiV5Active &&
+      !setupIsV5 &&
       sessionStorage.getItem(ANLAS_WARN_SUPPRESSED_KEY) !== "true"
     ) {
       setStartAnlasConfirmOpen(true);
@@ -1246,13 +1273,40 @@ function AdventureHub() {
                   )}
                 </p>
               )}
+              {/* この run 専用のNovelAI画像モデル。既定はグローバル設定に従う */}
+              <label className="adventure-image-model-picker">
+                <span className="adventure-precise-toggle__info">
+                  <strong>{t("adventure.imageModel")}</strong>
+                  <small>
+                    {t(
+                      settingsState.imageProvider === "novelai"
+                        ? "adventure.imageModelHint"
+                        : "adventure.imageModelOtherProviderHint",
+                    )}
+                  </small>
+                </span>
+                <select
+                  value={imageModelChoice}
+                  disabled={setupGenerating || loading || creating}
+                  onChange={(event) => setImageModelChoice(event.target.value)}
+                >
+                  <option value="default">
+                    {t("adventure.imageModelDefault")}
+                  </option>
+                  {ADVENTURE_IMAGE_MODEL_CHOICES.map((choice) => (
+                    <option key={choice.value} value={choice.value}>
+                      {choice.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <label className="adventure-precise-toggle">
                 <span className="adventure-precise-toggle__info">
                   <strong>{t("adventure.preciseReference")}</strong>
                   {/* NovelAI以外では効果もAnlas消費もない旨、V5では非対応の旨を明示する */}
                   <small>
                     {t(
-                      isNovelaiV5Active
+                      setupIsV5
                         ? "adventure.preciseReferenceV5Hint"
                         : settingsState.imageProvider === "novelai"
                           ? "adventure.preciseReferenceHint"
@@ -1263,10 +1317,8 @@ function AdventureHub() {
                 <input
                   type="checkbox"
                   className="adventure-precise-toggle__input"
-                  checked={usePreciseReference && !isNovelaiV5Active}
-                  disabled={
-                    setupGenerating || loading || creating || isNovelaiV5Active
-                  }
+                  checked={usePreciseReference && !setupIsV5}
+                  disabled={setupGenerating || loading || creating || setupIsV5}
                   onChange={(event) =>
                     setUsePreciseReference(event.target.checked)
                   }
@@ -1728,7 +1780,7 @@ function AdventurePlay({ runId }: { runId: string }) {
   const {
     state: settingsState,
     setAnlasBalance: setGlobalAnlasBalance,
-    isNovelaiV5Active,
+    effectiveNovelaiImageModel,
   } = useSettings();
   const respectClothingLayers = settingsState.respectClothingLayers;
   const [input, setInput] = useState("");
@@ -1832,12 +1884,19 @@ function AdventurePlay({ runId }: { runId: string }) {
   // streamingがfalseへ戻るたび（＝各ストリーム完了後）に再取得する。
   // Anlasを消費するのはNovelAIプロバイダーのときだけ
   const usePreciseReference = activeRun?.use_precise_reference ?? false;
+  // run 単位のモデル上書きを含めた実効モデルでV5判定する。
+  // ギアの表示・精密参照の可否・利用上限表示の出し分けに使う
+  const runIsV5 =
+    settingsState.imageProvider === "novelai" &&
+    isV5ImageModel(
+      activeRun?.image_model_override ?? effectiveNovelaiImageModel,
+    );
   // V5実効時は毎生成で利用上限が減るため、精密参照OFFでも残高/上限を追跡する
   const anlasApplies =
-    (usePreciseReference || isNovelaiV5Active) &&
+    (usePreciseReference || runIsV5) &&
     settingsState.imageProvider === "novelai";
   // HUD の V5 利用上限表示（実効モデルが V5 のときのみ）
-  const hudUsage = isNovelaiV5Active ? (anlasBalance?.usage ?? null) : null;
+  const hudUsage = runIsV5 ? (anlasBalance?.usage ?? null) : null;
   const hudUsageExhausted =
     hudUsage != null && (hudUsage.percent <= 0 || hudUsage.isNegative);
   const hudUsagePercent =
@@ -2644,7 +2703,7 @@ function AdventurePlay({ runId }: { runId: string }) {
                     </span>
                   </div>
                 ))}
-              {(activeRun.use_precise_reference || isNovelaiV5Active) &&
+              {(activeRun.use_precise_reference || runIsV5) &&
                 anlasBalance &&
                 (sim ? (
                   // romance では他のメトリクスと同じ共通タイルで並べる。
@@ -2659,7 +2718,7 @@ function AdventurePlay({ runId }: { runId: string }) {
                     value={anlasBalance.totalAnlas.toLocaleString()}
                     gaugeRatio={null}
                     badge={
-                      isNovelaiV5Active
+                      runIsV5
                         ? t("adventure.anlasBadgeV5")
                         : t("adventure.anlasBadge")
                     }
@@ -3163,13 +3222,52 @@ function AdventurePlay({ runId }: { runId: string }) {
                       )}
                     </p>
                   )}
+                  {/* この run 専用のNovelAI画像モデル。次の画像生成から反映される */}
+                  <label className="adventure-image-model-picker">
+                    <span className="adventure-precise-toggle__info">
+                      <strong>{t("adventure.imageModel")}</strong>
+                      <small>
+                        {t(
+                          settingsState.imageProvider === "novelai"
+                            ? "adventure.imageModelPlayHint"
+                            : "adventure.imageModelOtherProviderHint",
+                        )}
+                      </small>
+                    </span>
+                    <select
+                      value={activeRun.image_model_override ?? "default"}
+                      disabled={streaming || settingsSaving}
+                      onChange={(event) => {
+                        const next = event.target.value;
+                        setSettingsSaving(true);
+                        void updateSettings({
+                          use_precise_reference:
+                            activeRun.use_precise_reference,
+                          enable_composite_scene:
+                            activeRun.enable_composite_scene,
+                          image_model: next,
+                        })
+                          .catch(() => undefined)
+                          .finally(() => setSettingsSaving(false));
+                      }}
+                    >
+                      <option value="default">
+                        {t("adventure.imageModelDefault")}
+                      </option>
+                      {ADVENTURE_IMAGE_MODEL_CHOICES.map((choice) => (
+                        <option key={choice.value} value={choice.value}>
+                          {choice.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                   <label className="adventure-precise-toggle">
                     <span className="adventure-precise-toggle__info">
                       <strong>{t("adventure.preciseReference")}</strong>
                       {/* NovelAI以外では効果もAnlas消費もない旨、V5では非対応の旨を明示する */}
                       <small>
                         {t(
-                          isNovelaiV5Active
+                          runIsV5
                             ? "adventure.preciseReferenceV5Hint"
                             : settingsState.imageProvider === "novelai"
                               ? "adventure.preciseReferencePlayHint"
@@ -3180,12 +3278,8 @@ function AdventurePlay({ runId }: { runId: string }) {
                     <input
                       type="checkbox"
                       className="adventure-precise-toggle__input"
-                      checked={
-                        activeRun.use_precise_reference && !isNovelaiV5Active
-                      }
-                      disabled={
-                        streaming || settingsSaving || isNovelaiV5Active
-                      }
+                      checked={activeRun.use_precise_reference && !runIsV5}
+                      disabled={streaming || settingsSaving || runIsV5}
                       onChange={(event) => {
                         const next = event.target.checked;
                         setSettingsSaving(true);

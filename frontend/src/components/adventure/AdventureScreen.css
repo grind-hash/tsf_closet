@@ -582,6 +582,54 @@ label.adventure-precise-toggle {
   font-size: 0.92rem;
 }
 
+/* run 単位のNovelAI画像モデル選択。トグルカードと同じ枠で、下段にselectを置く */
+label.adventure-image-model-picker {
+  display: grid;
+  gap: 8px;
+  max-width: min(100%, 560px);
+  padding: 12px 14px;
+  border: 1px solid #3a4148;
+  border-radius: 8px;
+  background: #1a2026;
+}
+
+.adventure-image-model-picker .adventure-precise-toggle__info {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  font-weight: 400;
+}
+
+.adventure-image-model-picker strong {
+  color: #f4f6f8;
+  font-size: 0.92rem;
+}
+
+.adventure-image-model-picker small {
+  color: #aeb7bf;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.adventure-image-model-picker select {
+  min-height: 34px;
+  padding: 0 8px;
+  border: 1px solid #3a4148;
+  border-radius: 6px;
+  color: #f4f6f8;
+  background: #12161a;
+}
+
+.adventure-image-model-picker select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.adventure-image-gen-options .adventure-image-model-picker,
+.adventure-image-settings-popover .adventure-image-model-picker {
+  max-width: none;
+}
+
 .adventure-precise-toggle small {
   color: #aeb7bf;
   font-size: 0.78rem;

@@ -1192,3 +1192,40 @@ test("portrait toggles ride the turn request while the composite scene is on", a
     generate_partner_portrait: false,
   });
 });
+
+test("image model override is chosen from the gear popover", async ({
+  page,
+}) => {
+  await enableAdventure(page);
+  await mockV45ImageModels(page);
+  const state = await mockRomanceApis(page);
+  // 共有モックの settings 応答は上書きモデルを返さないため、ここだけ差し替える
+  await page.route("**/api/adventure/runs/run-1/settings", async (route) => {
+    const body = route.request().postDataJSON() as Record<string, unknown>;
+    state.settingsBodies.push(body);
+    await route.fulfill({
+      json: romanceRunPayload(0, {
+        image_model_override:
+          body.image_model === "default" ? null : body.image_model,
+      }),
+    });
+  });
+  await page.goto("/adventure/run-1");
+
+  await page.getByRole("button", { name: "画像生成設定" }).click();
+  const picker = page.getByLabel("画像生成モデル");
+  await expect(picker).toHaveValue("default");
+  await picker.selectOption("nai-diffusion-5-full");
+
+  // PATCH の応答が反映されるまで待つ(手番は消費しない)
+  await expect(picker).toHaveValue("nai-diffusion-5-full");
+  expect(state.settingsBodies).toHaveLength(1);
+  expect(state.settingsBodies[0]).toMatchObject({
+    image_model: "nai-diffusion-5-full",
+    use_precise_reference: false,
+    enable_composite_scene: false,
+  });
+  // V5 上書き中は精密参照が使えない
+  await expect(page.getByLabel(/精密参照画像を使う/)).toBeDisabled();
+  expect(state.streamBodies).toHaveLength(0);
+});

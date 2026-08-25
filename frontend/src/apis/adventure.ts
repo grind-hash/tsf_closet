@@ -217,6 +217,8 @@ export interface AdventureRun {
   enable_composite_scene: boolean;
   /** 衣装レイヤー考慮。trueのとき外衣に覆われた下着を画像タグから外す */
   respect_clothing_layers: boolean;
+  /** この run 専用の NovelAI 画像モデル上書き。null ならグローバル設定に従う */
+  image_model_override?: string | null;
   /** 物語の語りの人称。旧runは second_person 扱い */
   narration_voice: AdventureNarrationVoice;
   /** first_person のときに使う一人称語 */
@@ -312,6 +314,8 @@ export interface AdventureCreateRequest extends AdventureSetupRequest {
   romance_player_history_id?: string;
   /** romance の攻略対象の口調。空なら人物像からLLMが決める */
   romance_partner_speech_style?: string;
+  /** この run 専用の NovelAI 画像モデル。未指定ならグローバル設定に従う */
+  image_model?: string;
 }
 
 export interface AdventureSettingsUpdateRequest {
@@ -324,6 +328,8 @@ export interface AdventureSettingsUpdateRequest {
   player_speech_custom?: string;
   /** romance 以外の run では無視される */
   partner_speech_style?: string;
+  /** "default" で上書き解除、モデル名で run 単位の上書き。未指定なら維持 */
+  image_model?: string;
 }
 
 export interface AdventureStreamEvent {
@@ -353,6 +359,7 @@ function normalizeRun(run: AdventureRun): AdventureRun {
     use_precise_reference: Boolean(run.use_precise_reference),
     enable_composite_scene: Boolean(run.enable_composite_scene),
     respect_clothing_layers: Boolean(run.respect_clothing_layers),
+    image_model_override: run.image_model_override ?? null,
     // 旧runやモック応答にキーが無くても表示側が undefined を掴まないようにする
     narration_voice: run.narration_voice ?? "second_person",
     narration_pronoun: run.narration_pronoun || "僕",

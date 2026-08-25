@@ -44,6 +44,7 @@ from ..consts.adventure_narration import (
     NARRATION_VOICES,
 )
 from ..consts.adventure_romance import (
+    ROMANCE_ALTER_DAYS_MAX,
     ROMANCE_BACKGROUND_CACHE_MAX,
     ROMANCE_MILESTONES,
     ROMANCE_PLAYER_DEFAULT_CHARACTER_ID,
@@ -58,11 +59,16 @@ from ..consts.adventure_speech import (
     SPEECH_STYLES,
 )
 from ..consts.adventure_turns import (
+    ADVENTURE_ALTER_TURNS_MAX,
     ADVENTURE_TURNS_DEFAULT,
     ADVENTURE_TURNS_MAX,
     ADVENTURE_TURNS_MIN,
 )
-from ..consts.novelai_models import is_v5_image_model, resolve_user_image_model
+from ..consts.novelai_models import (
+    NOVELAI_IMAGE_MODELS,
+    is_v5_image_model,
+    resolve_user_image_model,
+)
 from ..databases.base import async_session_factory
 from ..databases.models import AdventureRun, AdventureTurn
 from ..settings.config import BASE_DIR, settings
@@ -81,6 +87,7 @@ from .adventure_romance import (
     ROMANCE_RESOLUTION_GUIDANCE,
     ROMANCE_VISUAL_GUIDANCE,
     RomanceActionError,
+    RomanceAlteredGift,
     RomanceSetupOutput,
     apply_romance_outcome,
     apply_romance_time_of_day,
@@ -552,6 +559,21 @@ class AdventureResolutionOutput(BaseModel):
     ending_summary: str | None = Field(default=None, max_length=1200)
     bgm: str | None = None
     bgm_reason: str | None = None
+    # 宣言がタイムリミット(総手数)を変更した場合のみ入る。
+    # reality_alter ターン限定で Python 側が範囲を丸めて run.max_turns へ反映する
+    updated_max_turns: int | None = None
+
+    @field_validator("updated_max_turns", mode="before")
+    @classmethod
+    def coerce_updated_max_turns(cls, value: Any) -> Any:
+        # 不正値で検証エラー→修復リトライへ落とさず「変更なし」へ倒す
+        if value is None:
+            return None
+        try:
+            number = int(value)
+        except (TypeError, ValueError):
+            return None
+        return number if number > 0 else None
 
     @field_validator("bgm", mode="before")
     @classmethod
@@ -613,6 +635,38 @@ class AdventureRomanceResolutionOutput(AdventureResolutionOutput):
     # 宣言が攻略対象の外見を書き換えた場合のみ、変更後の外見全体を保持する。
     # reality_alter ターン限定で sim["partner_appearance"] へ反映される
     updated_partner_appearance: str | None = Field(default=None, max_length=600)
+    # 宣言がタイムリミット(日数)を変更した場合のみ入る。reality_alter ターン
+    # 限定で Python 側が範囲を丸めて sim["total_days"] / run.max_turns へ反映する
+    updated_total_days: int | None = None
+    # 宣言がギフトカタログを書き換えた場合のみ、変更後の全品目が入る。
+    # 空リストは「変更なし」。適用規則は adventure_romance.apply_gift_catalog_update
+    updated_gift_catalog: list[RomanceAlteredGift] = Field(
+        default_factory=list, max_length=12
+    )
+
+    @field_validator("updated_total_days", mode="before")
+    @classmethod
+    def coerce_updated_total_days(cls, value: Any) -> Any:
+        # 不正値で検証エラー→修復リトライへ落とさず「変更なし」へ倒す
+        if value is None:
+            return None
+        try:
+            number = int(value)
+        except (TypeError, ValueError):
+            return None
+        return number if number > 0 else None
+
+    @field_validator("updated_gift_catalog", mode="before")
+    @classmethod
+    def coerce_updated_gift_catalog(cls, value: Any) -> Any:
+        # 非リスト・不正な品目で検証エラー→修復リトライへ落とさない
+        if not isinstance(value, list):
+            return []
+        items: list[Any] = []
+        for item in value[:12]:
+            if isinstance(item, dict) and str(item.get("name") or "").strip():
+                items.append(item)
+        return items
 
     @field_validator("affection_delta", mode="before")
     @classmethod
@@ -784,6 +838,8 @@ def _lean_state_for_llm(state: dict[str, Any]) -> dict[str, Any]:
         # 未反映の付与ルール。内容は reality_rules と
         # reality_rule_declared_this_turn で別途渡すため重複して見せない
         "pending_reality_rules",
+        # 画像モデルの run 単位上書き。物語生成には無関係な内部設定
+        "image_model_override",
     }
     return {key: value for key, value in state.items() if key not in omit}
 
@@ -1837,6 +1893,27 @@ _REALITY_DECLARATION_PATTERN = re.compile(
 _MAX_REALITY_RULES = 12
 _MAX_REALITY_RULE_LENGTH = 300
 
+# 「ターン毎に徐々に女体化する」のような、毎ターン進行し続ける改変ルールの検出。
+# 該当ルールが1件でも残っている間は毎ターン外見ロックの更新を許し、
+# 宣言ターン以降もロックに阻まれて変化が止まらないようにする
+_PROGRESSIVE_RULE_PATTERN = re.compile(
+    r"毎ターン|ターン毎|ターンごと|毎手番|手番ごと|徐々に|少しずつ|だんだん|"
+    r"段々|次第に|日に日に|日ごと|日毎|進行していく|進行する|進んでいく|"
+    r"gradual|slowly|step by step|each turn|every turn|per turn|turn by turn|"
+    r"over time|day by day|progressiv|bit by bit|little by little",
+    re.IGNORECASE,
+)
+
+
+def _progressive_reality_rules(rules: Iterable[Any]) -> list[str]:
+    """進行型(毎ターン変化し続ける)の現実改変ルールだけを返す。"""
+    return [
+        rule
+        for rule in _normalize_reality_rules(rules)
+        if _PROGRESSIVE_RULE_PATTERN.search(rule)
+    ]
+
+
 # 全ターン判定へ共通で載せる現実改変の扱い。宣言済みルールが空でも無害。
 _REALITY_RULES_INSTRUCTION = (
     "reality_rules is a list of world-alteration rules the player has declared. "
@@ -1859,8 +1936,74 @@ _REALITY_RULES_INSTRUCTION = (
     "keep ending_status as continue, and never treat the declaration itself as "
     "a suspicious act. Every entry in reality_rules stays in force on every later turn, "
     "so a rule that states how the player looks, what they wear, or how others treat "
-    "them must keep being reflected even long after the turn that established it."
+    "them must keep being reflected even long after the turn that established it. "
+    "Re-read every entry of reality_rules on every turn before writing, and keep the "
+    "world, the NPCs, and the player consistent with all of them at once; never let "
+    "an old rule quietly fade out of the story. "
+    "progressive_reality_rules lists the subset of reality_rules that describe a "
+    "gradual, repeated, or per-turn ongoing change (for example, the player's body "
+    "becoming more feminine every turn). Such a rule is never finished after the turn "
+    "that declared it: on every single turn, including this one, the change it "
+    "describes advances by one clearly noticeable step compared to the previous "
+    "turn's state, and it never reverts to an earlier stage while the rule remains "
+    "in reality_rules. The immutable-identity-signature rule does not protect traits "
+    "that a progressive rule changes: describe those traits one step further "
+    "advanced than the previous turn, and state the newly advanced step concretely."
 )
+
+# 非 romance の resolution へ追加する、タイムリミット変更の申告フィールド。
+# romance 側の updated_total_days は ROMANCE_RESOLUTION_GUIDANCE が説明する
+_TIME_LIMIT_ALTER_INSTRUCTION = (
+    'Add one extra field to the JSON object: "updated_max_turns" (integer or '
+    "null). Keep it null on every turn except when the player's reality "
+    "declaration in this turn (reality_rule_declared_this_turn) explicitly "
+    "changes the mission's time limit or total turn budget; in that case "
+    "report the new total number of turns as updated_max_turns. max_turns in "
+    "the input shows the current budget. Never invent a change the "
+    "declaration does not state."
+)
+
+
+def _apply_time_limit_alteration(
+    run: AdventureRun,
+    state: dict[str, Any],
+    resolution: AdventureResolutionOutput,
+    *,
+    input_kind: str,
+    turn_number: int,
+    epilogue: bool,
+) -> bool:
+    """現実改変宣言によるタイムリミット変更を run.max_turns へ反映する。
+
+    reality_alter ターン限定。romance は updated_total_days(日数)を、その他は
+    updated_max_turns(総手数)を読む。現在の手番(日)を下回らないよう丸め、
+    上限は ADVENTURE_ALTER_TURNS_MAX / ROMANCE_ALTER_DAYS_MAX。エピローグ中は
+    期限が意味を持たないため無視する。反映したら True(呼び出し側が永続化する)。
+    """
+    if epilogue or input_kind != "reality_alter":
+        return False
+    sim = state.get("sim")
+    if run.preset == "romance" and isinstance(sim, dict):
+        days = getattr(resolution, "updated_total_days", None)
+        if not isinstance(days, int):
+            return False
+        current_day, _ = romance_day_slot(turn_number)
+        days = max(current_day, min(ROMANCE_ALTER_DAYS_MAX, days))
+        new_max = days * ROMANCE_SLOTS_PER_DAY
+        if new_max == run.max_turns:
+            return False
+        run.max_turns = new_max
+        sim["total_days"] = days
+        return True
+    turns = getattr(resolution, "updated_max_turns", None)
+    if not isinstance(turns, int):
+        return False
+    new_max = max(turn_number, min(ADVENTURE_ALTER_TURNS_MAX, turns))
+    if new_max == run.max_turns:
+        return False
+    run.max_turns = new_max
+    return True
+
 
 # 選択肢が攻略対象やNPC側の台詞・行動として生成される事故を防ぐ。
 # 台詞入りの選択肢では「主人公が発する言葉」だけを引用させる
@@ -2090,6 +2233,15 @@ _SCENE_PROMPT_SUFFIX = (
 )
 _PLAYER_PROMPT_SUFFIX = ", main protagonist, primary focus, center foreground"
 _NPC_PROMPT_SUFFIX = ", supporting character, secondary focus, behind protagonist"
+# 立ち絵専用の追加ネガティブ。full body + 透過/白背景の組み合わせは
+# キャラクターシート風の複数ビュー・複数人を誘発しやすく、特に V5 で
+# 同一人物が2人並ぶ事故が起きるため、単独1ビューを強制する
+_PORTRAIT_EXTRA_NEGATIVE = (
+    "2girls, 2boys, 3girls, multiple girls, multiple boys, multiple views, "
+    "reference sheet, character sheet, turnaround, variations, "
+    "two people, multiple people, duplicate character, clone"
+)
+
 _PORTRAIT_PROMPT_SUFFIX = ", solo, full body standing portrait, simple background, white background, no shadow"
 # V5系モデルは透過背景をネイティブ生成できるため、白背景ではなく透過を指示する
 # （フロント側の透過処理は既に透過を持つ画像を素通しする）
@@ -2135,6 +2287,10 @@ def _visual_user_payload(
             "reality_rules": turn_context.get("reality_rules", []),
             "reality_rule_declared_this_turn": turn_context.get(
                 "reality_rule_declared_this_turn"
+            ),
+            # 進行型ルール。残っている限り毎ターン外見を一段進めさせる
+            "progressive_reality_rules": turn_context.get(
+                "progressive_reality_rules", []
             ),
             "romance_partner": romance_partner,
         },
@@ -2546,6 +2702,9 @@ Keep the narrative under 800 characters. Never decide the player's feelings, con
         )
         if romance:
             voice_rule = f"{ROMANCE_RESOLUTION_GUIDANCE}\n{voice_rule}"
+        else:
+            # タイムリミット変更の申告。romance は日数ベースの専用フィールドを使う
+            voice_rule = f"{_TIME_LIMIT_ALTER_INSTRUCTION}\n{voice_rule}"
         # 手掛かり抽出OFF時もスキーマは変えず、常に空リストを要求するだけに留める
         if not include_clues:
             voice_rule = (
@@ -2576,7 +2735,7 @@ Base every value strictly on the supplied narrative and game state, and never in
 Return one JSON object only, matching this schema:
 {{"visual_state":{{"location":"...","appearance":"...","clothing":"...","surroundings":"...","main_characters":[{{"name":"...","description":"...","clothing":"...","action":"..."}}]}},"scene_tags":"...","player_tags":"...","npc_tags":["..."]}}
 Write visual_state values in {response_language}. Write scene_tags, player_tags, and npc_tags as concise English comma-separated tags.
-Derive visual_state from previous_visual_state, changing only what the narrative states. Treat required_visual_appearance as an immutable identity signature: copy its sex, hair color, hair length, hairstyle, eye color, and body features exactly into visual_state.appearance, and never replace or supplement those traits unless authored_template_resolution explicitly triggers that change, or reality_rule_declared_this_turn declares a change to the player's own body or identity; in that case rewrite visual_state.appearance to match the declared rule while keeping every unaffected trait, and when the declaration does not concern the player's own body, copy required_visual_appearance unchanged. reality_rules are established facts of this world; keep visual_state, player_tags, and npc_tags consistent with them. The player only puts on, removes, or changes clothing when player_input explicitly chose that action, or when reality_rule_declared_this_turn changes the player's own body or identity; in that case clothing follows the body, so rewrite visual_state.clothing to the outfit that body is actually wearing after the change, and when the declaration swaps or exchanges the player with another character the player now wears the clothing that character was wearing while that character now wears the player's previous clothing, which their entry in main_characters must reflect. Separately, a reality_rules entry may itself state what the player wears or how the player looks; such a rule outranks previous_visual_state, so visual_state.clothing and visual_state.appearance must satisfy it on every turn it remains in reality_rules, not only on the turn it was established. Otherwise keep previous_visual_state.clothing unchanged. Unless layering was explicitly requested, a new garment replaces the previous outfit. Keep visual_state concrete enough to illustrate the main characters, their clothing, and the surrounding location. main_characters contains NPCs, never the player.
+Derive visual_state from previous_visual_state, changing only what the narrative states. Treat required_visual_appearance as an immutable identity signature: copy its sex, hair color, hair length, hairstyle, eye color, and body features exactly into visual_state.appearance, and never replace or supplement those traits unless authored_template_resolution explicitly triggers that change, or reality_rule_declared_this_turn declares a change to the player's own body or identity; in that case rewrite visual_state.appearance to match the declared rule while keeping every unaffected trait, and when the declaration does not concern the player's own body, copy required_visual_appearance unchanged. reality_rules are established facts of this world; keep visual_state, player_tags, and npc_tags consistent with them. The player only puts on, removes, or changes clothing when player_input explicitly chose that action, or when reality_rule_declared_this_turn changes the player's own body or identity; in that case clothing follows the body, so rewrite visual_state.clothing to the outfit that body is actually wearing after the change, and when the declaration swaps or exchanges the player with another character the player now wears the clothing that character was wearing while that character now wears the player's previous clothing, which their entry in main_characters must reflect. Separately, a reality_rules entry may itself state what the player wears or how the player looks; such a rule outranks previous_visual_state, so visual_state.clothing and visual_state.appearance must satisfy it on every turn it remains in reality_rules, not only on the turn it was established. progressive_reality_rules lists the reality rules that describe a gradual, repeated, or per-turn ongoing change (for example, the player's body becoming more feminine every turn); on every turn each such rule advances by one clearly noticeable step, so rewrite the affected traits in visual_state.appearance and player_tags one visible step further advanced than previous_visual_state and required_visual_appearance, never reverting to an earlier stage while the rule remains, and the immutable-identity-signature rule does not protect the traits such a rule changes. Otherwise keep previous_visual_state.clothing unchanged. Unless layering was explicitly requested, a new garment replaces the previous outfit. Keep visual_state concrete enough to illustrate the main characters, their clothing, and the surrounding location. main_characters contains NPCs, never the player.
 When previous_image_tags is provided, treat it as the wording a human editor deliberately chose: reuse its scene_tags, player_tags, and npc_tags as the starting point and edit them only where visual_state or the narrative now requires a change, preserving the rest of the original wording and phrasing style. When previous_image_tags is absent, write the tags from scratch.
 scene_tags contains only environment, camera, composition, lighting, and the observable interaction; it must not contain any character's gender, body, face, hair, or clothing. player_tags describes only the player from visual_state.appearance and visual_state.clothing. The player is always the primary subject in the center foreground. visual_state.clothing is authoritative and must never be replaced with an NPC outfit. npc_tags must contain one entry per NPC in main_characters, in the same order, describing only that NPC; every NPC is a secondary subject placed to the side or behind the player. Never merge player and NPC attributes. Do not add text, UI, split panels, or unstated changes. When authored_scene_tags is provided, reuse those environment tags as the base of scene_tags and only append concrete changes required by the narrative. When authored_visual_style is provided, keep visual_state.location and visual_state.surroundings aligned with it unless the narrative explicitly moves the scene to a new place after a successful exit.{layer_rule}{romance_rule}"""
 
@@ -2926,10 +3085,16 @@ The objective must name a concrete target and an observable end condition that c
         romance_player_session_id: str | None = None,
         romance_player_history_id: str | None = None,
         romance_partner_speech_style: str = "",
+        image_model: str | None = None,
     ) -> dict[str, Any]:
         # Run作成全体(セットアップLLM・開幕画像)のAPI料金を集計して応答へ載せる
         tracker = _CostTracker()
         _cost_tracker.set(tracker)
+        # この run 専用の NovelAI 画像モデル上書き。未指定・未知名は
+        # グローバル設定(nsfw_mode 別のユーザー設定)に従う
+        image_model_override = (
+            image_model if image_model in NOVELAI_IMAGE_MODELS else None
+        )
         narration_voice = normalize_narration_voice(narration_voice)
         narration_pronoun = normalize_narration_pronoun(narration_pronoun)
         player_speech_style = normalize_speech_style(player_speech_style)
@@ -3004,7 +3169,10 @@ The objective must name a concrete target and an observable end condition that c
             nsfw_mode = bool(user_settings.get("nsfw_mode"))
         else:
             nsfw_mode = bool(session_nsfw_mode)
-        image_model = resolve_user_image_model(user_settings, nsfw_mode)
+        # run 単位の上書きがあれば開幕画像から一貫してそのモデルを使う
+        image_model = image_model_override or resolve_user_image_model(
+            user_settings, nsfw_mode
+        )
         if template:
             setting = str(template_localized(template, "setting", language))
             objective = str(template_localized(template, "objective", language))
@@ -3251,6 +3419,8 @@ The objective must name a concrete target and an observable end condition that c
             "enable_composite_scene": bool(enable_composite_scene),
             # 衣装レイヤー考慮。ONなら外衣に覆われた下着を画像タグから外す
             "respect_clothing_layers": bool(respect_clothing_layers),
+            # NovelAI 画像モデルの run 単位上書き。空ならグローバル設定に従う
+            "image_model_override": image_model_override,
             # 語りの人称。旧runは既定の二人称として扱う
             "narration_voice": narration_voice,
             "narration_pronoun": narration_pronoun,
@@ -4260,6 +4430,9 @@ The objective must name a concrete target and an observable end condition that c
                     "player_input": user_input,
                     "reality_rules": list(state.get("reality_rules", [])),
                     "reality_rule_declared_this_turn": declared_rule,
+                    "progressive_reality_rules": _progressive_reality_rules(
+                        state.get("reality_rules", [])
+                    ),
                 },
                 ensure_ascii=False,
             )
@@ -5024,6 +5197,16 @@ The objective must name a concrete target and an observable end condition that c
                     ),
                 )
             turn_number = run.turn_count + 1
+            # 現実改変宣言によるタイムリミット変更。_merge_output の手数切れ
+            # 判定より前に run.max_turns(romance は sim["total_days"] も)へ反映する
+            _apply_time_limit_alteration(
+                run,
+                state,
+                resolution,
+                input_kind=input_kind,
+                turn_number=turn_number,
+                epilogue=epilogue,
+            )
             next_state, next_status, _, _ = self._merge_output(
                 run, output, turn_number, state_override=state, epilogue=epilogue
             )
@@ -5099,6 +5282,8 @@ The objective must name a concrete target and an observable end condition that c
                     )
                 persisted.state_json = json.dumps(next_state, ensure_ascii=False)
                 persisted.turn_count = turn_number
+                # 現実改変でタイムリミットが変わったターンを含めて常に同期する
+                persisted.max_turns = run.max_turns
                 persisted.status = resolved_status
                 persisted.ending_title = resolved_ending_title
                 persisted.ending_summary = resolved_ending_summary
@@ -5196,12 +5381,17 @@ The objective must name a concrete target and an observable end condition that c
             input_kind = "reality_alter"
         # 手番を使わず付与されたルールも、この手番で初めて世界へ反映させる
         declared_this_turn = _take_established_reality_rules(state, declared_rule)
+        reality_rules = list(state.get("reality_rules", []))
+        # 進行型ルール(毎ターン徐々に変化する宣言)が残っている間は、宣言ターン
+        # 以外でも毎ターン外見が進むため、外見ロックの更新を許し続ける
+        progressive_rules = _progressive_reality_rules(reality_rules)
         # 外見ロックの更新は「外見が変わり得る手番」だけに許す。手番を使わない
         # 付与でも、その手番の visual 出力を新しいロックとして採用する
         appearance_update_allowed = (
-            input_kind == "reality_alter" or declared_this_turn is not None
+            input_kind == "reality_alter"
+            or declared_this_turn is not None
+            or bool(progressive_rules)
         )
-        reality_rules = list(state.get("reality_rules", []))
         template = SCENARIO_TEMPLATES.get(str(state.get("scenario_template_id")))
         template_resolution = self._resolve_template_action(template, state, user_input)
         scenario_guidance = PRESETS.get(run.preset, {}).get("guidance", "")
@@ -5252,6 +5442,7 @@ The objective must name a concrete target and an observable end condition that c
             "previous_choices": _previous_choice_labels(state),
             "reality_rules": reality_rules,
             "reality_rule_declared_this_turn": declared_this_turn,
+            "progressive_reality_rules": progressive_rules,
             "required_visual_appearance": appearance_lock,
             # resolution プロンプトの current_bgm ルールが名前参照する
             "current_bgm": state.get("bgm") or get_bgm_default(),
@@ -5417,8 +5608,17 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         return result
 
     @staticmethod
-    async def _resolve_image_model(nsfw_mode: bool) -> str:
-        """ユーザー設定と nsfw_mode から NovelAI 画像生成モデルを解決する。"""
+    async def _resolve_image_model(
+        nsfw_mode: bool, state: dict[str, Any] | None = None
+    ) -> str:
+        """NovelAI 画像生成モデルを解決する。
+
+        run の state に image_model_override があればそれを最優先し、
+        無ければ従来どおりユーザー設定と nsfw_mode から決める。
+        """
+        override = str((state or {}).get("image_model_override") or "")
+        if override in NOVELAI_IMAGE_MODELS:
+            return override
         user_settings = await session_store.get_user_settings()
         return resolve_user_image_model(user_settings, nsfw_mode)
 
@@ -5507,7 +5707,9 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             provider = _image_provider()
             effective_image_model: str | None = None
             if provider == "novelai":
-                effective_image_model = await self._resolve_image_model(nsfw_mode)
+                effective_image_model = await self._resolve_image_model(
+                    nsfw_mode, state
+                )
             character_references = None
             # V5系モデルは精密参照（character reference）非対応
             if use_precise_reference and not is_v5_image_model(effective_image_model):
@@ -5812,7 +6014,9 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 nsfw_mode=nsfw_mode,
                 include_people=False,
                 provider_override="novelai",
-                novelai_model_override=await self._resolve_image_model(nsfw_mode),
+                novelai_model_override=await self._resolve_image_model(
+                    nsfw_mode, _json_load(getattr(run, "state_json", None), {})
+                ),
             )
         else:
             result = await image_service.generate_image(
@@ -5940,7 +6144,9 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             provider = _image_provider()
             effective_image_model: str | None = None
             if provider == "novelai":
-                effective_image_model = await self._resolve_image_model(nsfw_mode)
+                effective_image_model = await self._resolve_image_model(
+                    nsfw_mode, state
+                )
             # 立ち絵はフロント側で背景を透過するため、必ず白背景で生成させる。
             # （V5モデルのみ透過背景をネイティブ生成させる）
             player_prompt = _enhance_adventure_prompt(
@@ -5986,7 +6192,10 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                     # 追加negativeを渡すと provider 側の既定UCが置き換わるため、
                     # 品質系の基本negativeを土台にして結合する
                     negative_prompt=merge_negative_prompt(
-                        settings.novelai_negative_prompt, extra_negative or ""
+                        merge_negative_prompt(
+                            settings.novelai_negative_prompt, extra_negative or ""
+                        ),
+                        _PORTRAIT_EXTRA_NEGATIVE,
                     ),
                     nsfw_mode=nsfw_mode,
                     character_references=character_references,
@@ -6084,7 +6293,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         provider = _image_provider()
         effective_image_model: str | None = None
         if provider == "novelai":
-            effective_image_model = await self._resolve_image_model(nsfw_mode)
+            effective_image_model = await self._resolve_image_model(nsfw_mode, state)
         prompt = _enhance_adventure_prompt(
             partner_tags + _portrait_prompt_suffix(effective_image_model),
             nsfw_mode=nsfw_mode,
@@ -6122,7 +6331,9 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 prompt,
                 image_bytes=None,
                 provider_override="novelai",
-                negative_prompt=settings.novelai_negative_prompt,
+                negative_prompt=merge_negative_prompt(
+                    settings.novelai_negative_prompt, _PORTRAIT_EXTRA_NEGATIVE
+                ),
                 nsfw_mode=nsfw_mode,
                 character_references=character_references,
                 characters=None,
@@ -6443,11 +6654,14 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         player_speech_style: str | None = None,
         player_speech_custom: str | None = None,
         partner_speech_style: str | None = None,
+        image_model: str | None = None,
     ) -> dict[str, Any]:
         """実行中シナリオの画像設定と口調を更新する（次の手番から反映）。
 
         口調はプロンプト注入だけの設定なので、現実改変ルールと同じく手番を
         消費しない。None の項目は既存値を維持する。
+        image_model は "default" で上書き解除(グローバル設定へ復帰)、
+        モデル名で run 単位の上書きを設定する。
         """
         async with self._run_locks[run_id]:
             run = await self.get_run_orm(run_id, with_turns=True)
@@ -6456,6 +6670,10 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             state["enable_composite_scene"] = bool(enable_composite_scene)
             if respect_clothing_layers is not None:
                 state["respect_clothing_layers"] = bool(respect_clothing_layers)
+            if image_model == "default":
+                state.pop("image_model_override", None)
+            elif image_model in NOVELAI_IMAGE_MODELS:
+                state["image_model_override"] = image_model
             if player_speech_style is not None:
                 state["player_speech_style"] = normalize_speech_style(
                     player_speech_style
@@ -6669,7 +6887,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         # 送信経路と同じサフィックス選択（V5のみ透過背景）になるようモデルを解決する
         preview_image_model: str | None = None
         if provider == "novelai":
-            preview_image_model = await self._resolve_image_model(nsfw_mode)
+            preview_image_model = await self._resolve_image_model(nsfw_mode, state)
         payload = {
             "scene_prompt": scene_prompt,
             "player_prompt": player_prompt,
@@ -6765,6 +6983,9 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             # 旧 run でキー未設定なら合成モード扱い（current_image_path に既に合成画像が入っている）
             "enable_composite_scene": bool(state.get("enable_composite_scene", True)),
             "respect_clothing_layers": bool(state.get("respect_clothing_layers")),
+            # run 単位の NovelAI 画像モデル上書き。null ならグローバル設定に従う
+            "image_model_override": str(state.get("image_model_override") or "")
+            or None,
             # 環境変数由来のグローバル設定。通常ゲームは session stats 経由で受け取るが
             # Adventure はそこを見ないため、run のペイロードへ載せる
             "enable_prompt_preview": bool(settings.enable_prompt_preview),
