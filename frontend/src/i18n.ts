@@ -1736,6 +1736,8 @@ const resources = {
             "生成元画像を選ぶと i2i 強度とノイズを調整できます。",
           generate: "生成",
           expanding: "プロンプト化中…",
+          expandingHint:
+            "LLM がプロンプトを作成しています。完了するまでこの欄は編集できません。",
           generating: "生成中…",
           disabledNotConfigured:
             "NovelAI が設定されていないためプロンプト化・提案・生成はできません",
@@ -1777,11 +1779,22 @@ const resources = {
           mangaBadge: "漫画",
           mangaBadgeCount: "漫画 {{count}}コマ",
           restore: "欄へ復元",
+          regenerate: "このプロンプトで再生成",
+          regenerateTitle:
+            "このエントリのプロンプト・設定のまま、新しいシードで生成し直します",
           useAsSource: "i2i元にする",
           useInGame: "通常プレイで使う",
           useInAdventure: "TSFシナリオで使う",
           delete: "削除",
           deleteConfirm: "このエントリと画像を削除しますか？",
+          filterLabel: "履歴の絞り込み",
+          filter: {
+            all: "すべて",
+            normal: "通常",
+            manga: "漫画",
+            uploaded: "アップロード",
+          },
+          filterEmpty: "この条件に一致するエントリはありません。",
         },
         settings: {
           title: "Prompt Expander 設定",
@@ -1794,6 +1807,9 @@ const resources = {
           useMemory: "メモリを使う",
           useMemoryDesc:
             "OFF の場合、このメモリは拡張・提案に使われません（提案はグローバルメモリがあればそちらを参照します）。",
+          restoreSeed: "「欄へ復元」でシードも復元する",
+          restoreSeedDesc:
+            "ON にすると、エントリの「欄へ復元」でそのエントリのシード値を生成パラメータに設定します。OFF の場合、現在のシードは変更しません。",
           importMemory: "メモリ情報を持ってくる",
           importing: "取得中…",
           importConfirm:
@@ -3586,6 +3602,8 @@ const resources = {
             "Select a source image to adjust i2i strength and noise.",
           generate: "Generate",
           expanding: "Converting…",
+          expandingHint:
+            "The LLM is writing the prompt. This field is read-only until it finishes.",
           generating: "Generating…",
           disabledNotConfigured:
             "NovelAI is not configured, so conversion, suggestions and generation are unavailable",
@@ -3627,11 +3645,22 @@ const resources = {
           mangaBadge: "Comic",
           mangaBadgeCount: "Comic {{count}} panels",
           restore: "Restore to fields",
+          regenerate: "Regenerate with this prompt",
+          regenerateTitle:
+            "Generate again with this entry's prompt and settings, using a new random seed",
           useAsSource: "Use as i2i source",
           useInGame: "Use in normal play",
           useInAdventure: "Use in TSF Scenario",
           delete: "Delete",
           deleteConfirm: "Delete this entry and its image?",
+          filterLabel: "Filter history",
+          filter: {
+            all: "All",
+            normal: "Standard",
+            manga: "Comic",
+            uploaded: "Uploaded",
+          },
+          filterEmpty: "No entries match this filter.",
         },
         settings: {
           title: "Prompt Expander settings",
@@ -3644,6 +3673,9 @@ const resources = {
           useMemory: "Use memory",
           useMemoryDesc:
             "When OFF, this memory is not used for expansion or suggestions (suggestions fall back to the global memory if present).",
+          restoreSeed: 'Restore the seed on "Restore to fields"',
+          restoreSeedDesc:
+            "When ON, restoring an entry also copies its seed into the generation parameters. When OFF, the current seed is left unchanged.",
           importMemory: "Import global memory",
           importing: "Importing…",
           importConfirm: "Overwrite the Prompt Expander memory?",

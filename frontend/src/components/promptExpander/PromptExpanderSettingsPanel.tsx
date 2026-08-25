@@ -1,7 +1,8 @@
 /**
  * PromptExpanderSettingsPanel - Prompt Expander の設定パネル（MainLayout の右サイドパネル）
  *
- * テキストモデルと PE ローカルメモリ（テキスト + 使う/使わない + グローバルメモリの取り込み）を扱う。
+ * テキストモデル、「欄へ復元」で seed も戻すかの切替、
+ * PE ローカルメモリ（テキスト + 使う/使わない + グローバルメモリの取り込み）を扱う。
  * 画像モデル / サイズ / seed / i2i 強度・ノイズ / 参照元プロンプトの引き継ぎは
  * 同じ設定だがコンポーザ側に置き、重複させない。
  */
@@ -118,6 +119,19 @@ export default function PromptExpanderSettingsPanel({
           </select>
           <span className="prompt-expander__hint">
             {t("promptExpander.settings.textModelHint")}
+          </span>
+        </div>
+
+        <div className="prompt-expander__field">
+          <PromptExpanderSwitch
+            checked={settings.restore_seed}
+            onChange={(checked) =>
+              void updateSettings({ restore_seed: checked })
+            }
+            label={t("promptExpander.settings.restoreSeed")}
+          />
+          <span className="prompt-expander__hint">
+            {t("promptExpander.settings.restoreSeedDesc")}
           </span>
         </div>
 

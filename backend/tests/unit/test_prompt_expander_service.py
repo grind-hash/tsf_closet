@@ -785,3 +785,140 @@ async def test_generate_entry_persists_manga_flags_only_for_v5(
     )
     assert outcome.entry["manga_mode"] is False
     assert outcome.entry["manga_panel_count"] is None
+
+
+@pytest.mark.asyncio
+async def test_suggest_uses_input_text_and_relaxes_memory_guard(factory, monkeypatch):
+    mock = AsyncMock(
+        return_value=SimpleNamespace(
+            content='{"suggestions":[{"title":"店員","prompt":"1girl, waitress"}]}',
+            cost_usd=None,
+        )
+    )
+    monkeypatch.setattr(pe.llm_service, "generate_text", mock)
+
+    # メモリが無くても下書きがあれば提案できる
+    result = await pe.suggest_character_prompts(
+        text_model="glm-4-6",
+        image_model="nai-diffusion-5-full",
+        mode="tags",
+        count=1,
+        input_text="  カフェで働く少女  ",
+    )
+    assert [s["prompt"] for s in result.suggestions] == ["1girl, waitress"]
+    system, user = mock.await_args.args[0], mock.await_args.args[1]
+    assert "Current prompt draft:\nカフェで働く少女" in user
+    assert "No preference memory is available" in system
+    assert "current prompt draft" in system
+
+    # 空白だけの下書きはメモリ無しと同じ扱い
+    with pytest.raises(pe.PromptExpanderError) as exc:
+        await pe.suggest_character_prompts(
+            text_model="glm-4-6",
+            image_model="nai-diffusion-5-full",
+            mode="tags",
+            count=1,
+            input_text="   ",
+        )
+    assert exc.value.code == "memory_empty"
+
+    # メモリがあるときは下書きの偏りルールだけ付き、メモリ無しルールは付かない
+    async with factory() as db:
+        await pe.PromptExpanderService.save_settings(
+            db, patch={"memory_text": "銀髪が好き"}
+        )
+        await db.commit()
+    await pe.suggest_character_prompts(
+        text_model="glm-4-6",
+        image_model="nai-diffusion-5-full",
+        mode="tags",
+        count=1,
+        input_text="カフェ",
+    )
+    system, user = mock.await_args.args[0], mock.await_args.args[1]
+    assert "銀髪が好き" in system
+    assert "No preference memory is available" not in system
+    assert "current prompt draft" in system
+    assert user.startswith("Current prompt draft:\nカフェ")
+
+
+@pytest.mark.asyncio
+async def test_expand_replaces_false_friend_shorts_only_in_tag_modes(
+    factory, monkeypatch
+):
+    def _set_llm(content: str):
+        monkeypatch.setattr(
+            pe.llm_service,
+            "generate_text",
+            AsyncMock(return_value=SimpleNamespace(content=content, cost_usd=None)),
+        )
+
+    _set_llm("1girl, shorts, smile")
+    result = await pe.expand_prompts(
+        pe.ExpandParams(
+            instruction="白いショーツを穿いた少女",
+            image_model="nai-diffusion-4-5-full",
+            text_model="glm-4-6",
+        )
+    )
+    assert result.positive_prompt == (
+        "1girl, panties, smile, moe, anime, very aesthetic, best quality"
+    )
+    # 語彙注意はシステムプロンプトにも入る
+    system = pe.llm_service.generate_text.await_args.args[0]
+    assert "ショーツ" in system and "panties" in system
+
+    # 指示に「ショーツ」が無ければ shorts はそのまま
+    _set_llm("1girl, shorts, smile")
+    result = await pe.expand_prompts(
+        pe.ExpandParams(
+            instruction="短パンの少女",
+            image_model="nai-diffusion-4-5-full",
+            text_model="glm-4-6",
+        )
+    )
+    assert result.positive_prompt.startswith("1girl, shorts, smile")
+
+    # 日本語文モードは対象外
+    _set_llm("白いショーツ姿の少女が微笑む。")
+    result = await pe.expand_prompts(
+        pe.ExpandParams(
+            instruction="白いショーツ",
+            positive_mode="japanese",
+            image_model="nai-diffusion-4-5-full",
+            text_model="glm-4-6",
+        )
+    )
+    assert result.positive_prompt == "白いショーツ姿の少女が微笑む。"
+    system = pe.llm_service.generate_text.await_args.args[0]
+    assert "Japanese vocabulary note" not in system
+
+    # キャラクターモードでは base と各キャラクターの両方に掛かる（複数語タグは不変）
+    _set_llm(
+        '{"base_prompt":"2girls, shorts","character_prompts":["1girl, shorts","1girl, denim shorts"]}'
+    )
+    result = await pe.expand_prompts(
+        pe.ExpandParams(
+            instruction="ショーツの二人",
+            character_mode=True,
+            image_model="nai-diffusion-4-5-full",
+            text_model="glm-4-6",
+        )
+    )
+    assert result.positive_prompt.startswith("2girls, panties")
+    assert result.character_prompts is not None
+    assert result.character_prompts[0].startswith("1girl, panties")
+    assert result.character_prompts[1].startswith("1girl, denim shorts")
+
+    # ネガティブ（タグ）にも掛かる
+    _set_llm("shorts, hat")
+    result = await pe.expand_prompts(
+        pe.ExpandParams(
+            expand_positive=False,
+            expand_negative=True,
+            negative_instruction="ショーツは描かない",
+            image_model="nai-diffusion-4-5-full",
+            text_model="glm-4-6",
+        )
+    )
+    assert result.negative_prompt == "panties, hat"

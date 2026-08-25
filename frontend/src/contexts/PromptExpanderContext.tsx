@@ -202,7 +202,7 @@ interface PromptExpanderContextValue {
   expandNegative: () => Promise<void>;
   /** 編集済みの拡張結果を欄へ書き戻してカードを閉じる */
   applyExpansion: (edited: PromptExpanderPendingExpansion) => void;
-  /** 編集済みの拡張結果からそのまま生成する（欄は変更しない） */
+  /** 編集済みの拡張結果からそのまま生成する（欄も確認カードも変更しない） */
   generateFromExpansion: (
     edited: PromptExpanderPendingExpansion,
   ) => Promise<void>;
@@ -211,7 +211,10 @@ interface PromptExpanderContextValue {
   runGenerate: () => Promise<void>;
   confirmUsageWarn: (suppress: boolean) => Promise<void>;
   cancelUsageWarn: () => void;
+  /** 拡張ありのエントリは原文を欄へ戻し、変換結果を確認カードとして再現する */
   restoreEntry: (entry: PromptExpanderEntry) => void;
+  /** エントリのプロンプト・設定のまま、seed だけ新規（ランダム）で生成し直す */
+  regenerateEntry: (entry: PromptExpanderEntry) => Promise<void>;
   selectEntryAsSource: (entry: PromptExpanderEntry) => void;
   deleteEntry: (id: string) => Promise<void>;
   suggestCharacters: (
@@ -227,6 +230,7 @@ const DEFAULT_SETTINGS: PromptExpanderSettings = {
   i2i_strength: 0.5,
   i2i_noise: 0,
   seed: null,
+  restore_seed: false,
   memory_text: "",
   use_memory: false,
   confirm_before_generate: true,
@@ -1019,13 +1023,17 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
           characterMode ||
           (edited.characterPrompts !== null &&
             edited.characterPrompts.length > 0);
+        // 原文はクリック時点の入力欄の内容を優先する（拡張後に手直しした分も残す）。
+        // 欄が空なら拡張時のスナップショットへ戻す
+        const liveInstruction =
+          positiveText.trim() || edited.instruction || null;
         fields = {
           positive: edited.positivePrompt ?? "",
           characterMode: withCharacters,
           slots,
           negative: negativeText,
-          positiveOrigin: edited.instruction
-            ? { mode: edited.mode, instruction: edited.instruction }
+          positiveOrigin: liveInstruction
+            ? { mode: edited.mode, instruction: liveInstruction }
             : null,
           negativeOrigin,
         };
@@ -1049,7 +1057,7 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
         return;
       }
       setError(null);
-      setPendingExpansion(null);
+      // 確認カードは残す（同じ内容で繰り返す・微調整して再生成するため）
       await generate(buildGeneratePayload(fields));
     },
     [
@@ -1092,20 +1100,45 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
 
   const restoreEntry = useCallback(
     (entry: PromptExpanderEntry) => {
-      setPositiveText(entry.final_prompt ?? "");
+      const expandMode = entry.positive_expand_mode;
+      const instruction = (entry.instruction ?? "").trim();
+      const finalPrompt = entry.final_prompt ?? "";
+      // 拡張を経て生成したエントリは、原文を欄へ戻し、変換結果を確認カードとして再現する
+      // （そのまま再生成も、原文を直して再プロンプト化もできる）
+      const expanded =
+        entry.kind === "generated" &&
+        expandMode !== "off" &&
+        instruction.length > 0 &&
+        instruction !== finalPrompt.trim();
+      setPositiveText(expanded ? instruction : finalPrompt);
       setNegativeText(entry.final_negative_prompt ?? "");
       const slots = entry.character_prompts ?? [];
       setCharacterMode(slots.length > 0);
       setCharacterSlots(slots);
-      // 復元した内容はそのまま生成する前提なので、拡張由来の印と確認カードは消す
       setPositiveOrigin(null);
       setNegativeOrigin(null);
-      setPendingExpansion(null);
       setExpansionError(null);
+      if (expanded) {
+        setPendingExpansion({
+          target: "positive",
+          mode: expandMode,
+          instruction,
+          positivePrompt: finalPrompt,
+          characterPrompts: slots.length > 0 ? slots : null,
+          negativePrompt: null,
+        });
+      } else {
+        setPendingExpansion(null);
+      }
       const patch: PromptExpanderSettingsPatch = {};
       if (entry.image_model) patch.image_model = entry.image_model;
       if (entry.image_size) patch.image_size = entry.image_size;
-      if (entry.seed !== null && entry.seed !== undefined) {
+      // seed は設定で明示的に ON にしたときだけ戻す（OFF なら現在の seed に触れない）
+      if (
+        settings.restore_seed &&
+        entry.seed !== null &&
+        entry.seed !== undefined
+      ) {
         patch.seed = entry.seed;
       }
       if (entry.i2i_strength !== null && entry.i2i_strength !== undefined) {
@@ -1123,7 +1156,55 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
         void updateSettings(patch);
       }
     },
-    [updateSettings],
+    [settings.restore_seed, updateSettings],
+  );
+
+  const regenerateEntry = useCallback(
+    async (entry: PromptExpanderEntry) => {
+      const prompt = (entry.final_prompt ?? "").trim();
+      if (!activeSession || !prompt) return;
+      const slots = entry.character_prompts ?? [];
+      // エントリに保存されたプロンプト・設定をそのまま使う。seed だけは付けず、毎回新しい乱数にする
+      const payload: PromptExpanderGenerateRequest = {
+        prompt,
+        negative_prompt: entry.final_negative_prompt ?? "",
+        character_prompts: slots,
+        character_mode: entry.character_mode || slots.length > 0,
+        instruction:
+          entry.positive_expand_mode !== "off" ? entry.instruction : null,
+        positive_expand_mode: entry.positive_expand_mode,
+        negative_expand_mode: entry.negative_expand_mode,
+        image_model: entry.image_model ?? settings.image_model,
+        text_model: entry.text_model ?? settings.text_model,
+        image_size: entry.image_size ?? settings.image_size,
+        source_kind: "none",
+        manga_mode: entry.manga_mode,
+        manga_panel_count: entry.manga_mode ? entry.manga_panel_count : null,
+      };
+      // 参照元が履歴/エントリなら同じ元で i2i する（アップロード元は保持していないので t2i に落とす）
+      if (entry.source_kind === "history" && entry.source_history_id) {
+        payload.source_kind = "history";
+        payload.source_history_id = entry.source_history_id;
+      } else if (entry.source_kind === "entry" && entry.source_entry_id) {
+        payload.source_kind = "entry";
+        payload.source_entry_id = entry.source_entry_id;
+      }
+      if (payload.source_kind !== "none") {
+        payload.i2i_strength = entry.i2i_strength ?? settings.i2i_strength;
+        payload.i2i_noise = entry.i2i_noise ?? settings.i2i_noise;
+      }
+      setError(null);
+      await generate(payload);
+    },
+    [
+      activeSession,
+      generate,
+      settings.i2i_noise,
+      settings.i2i_strength,
+      settings.image_model,
+      settings.image_size,
+      settings.text_model,
+    ],
   );
 
   const deleteEntry = useCallback(
@@ -1149,19 +1230,22 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
     async (count: number, mode: PromptExpandMode) => {
       setSuggesting(true);
       try {
+        const draft = positiveText.trim();
         const resp = await suggestCharacterPrompts({
           text_model: settings.text_model,
           image_model: settings.image_model,
           mode,
           count,
           language,
+          // 入力欄の下書きも渡し、メモリだけに寄った似た提案にならないようにする
+          ...(draft ? { input_text: draft } : {}),
         });
         return resp.suggestions;
       } finally {
         setSuggesting(false);
       }
     },
-    [language, settings.image_model, settings.text_model],
+    [language, positiveText, settings.image_model, settings.text_model],
   );
 
   // 生成ボタンの活性条件（理由は画面側で i18n キーに変換する）
@@ -1249,6 +1333,7 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       confirmUsageWarn,
       cancelUsageWarn,
       restoreEntry,
+      regenerateEntry,
       selectEntryAsSource,
       deleteEntry,
       suggestCharacters,
@@ -1312,6 +1397,7 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       confirmUsageWarn,
       cancelUsageWarn,
       restoreEntry,
+      regenerateEntry,
       selectEntryAsSource,
       deleteEntry,
       suggestCharacters,

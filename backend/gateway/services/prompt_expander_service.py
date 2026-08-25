@@ -69,6 +69,7 @@ from .prompt_expander_prompts import (
     parse_character_json,
     parse_manga_json,
     parse_suggestions_json,
+    replace_false_friend_tokens,
     sanitize_by_mode,
 )
 from .session import DEFAULT_USER_ID, session_store
@@ -105,6 +106,8 @@ class PromptExpanderSettings(BaseModel):
     i2i_strength: float = Field(DEFAULT_PROMPT_EXPANDER_I2I_STRENGTH, ge=0.01, le=0.99)
     i2i_noise: float = Field(DEFAULT_PROMPT_EXPANDER_I2I_NOISE, ge=0.0, le=0.99)
     seed: Optional[int] = Field(None, ge=0, le=999999999)
+    # 「欄へ復元」でエントリの seed も生成パラメータへ戻すか
+    restore_seed: bool = False
     memory_text: str = Field("", max_length=PROMPT_EXPANDER_MEMORY_MAX_LEN)
     use_memory: bool = False
     confirm_before_generate: bool = True
@@ -930,6 +933,16 @@ async def expand_prompts(
                 result.character_prompts = None
         except PromptExpanderOutputError as exc:
             raise PromptExpanderError("invalid_llm_output", str(exc)) from exc
+        # タグ形式のときだけ、空似言葉（ショーツ→shorts）の決定的な置換を掛ける
+        if params.manga is not None or params.positive_mode == "tags":
+            result.positive_prompt = replace_false_friend_tokens(
+                result.positive_prompt, instruction
+            )
+            if result.character_prompts:
+                result.character_prompts = [
+                    replace_false_friend_tokens(c, instruction)
+                    for c in result.character_prompts
+                ]
 
     if params.expand_negative:
         negative_instruction = params.negative_instruction.strip()
@@ -951,6 +964,8 @@ async def expand_prompts(
             raise PromptExpanderError(
                 "invalid_llm_output", "空のネガティブプロンプトが返されました"
             )
+        if params.negative_mode == "tags":
+            sanitized = replace_false_friend_tokens(sanitized, negative_instruction)
         result.negative_prompt = sanitized
 
     return result
@@ -969,15 +984,20 @@ async def suggest_character_prompts(
     mode: ExpandMode,
     count: int,
     language: str = "ja",
+    input_text: str | None = None,
     user_id: str = DEFAULT_USER_ID,
 ) -> SuggestResult:
-    """PE メモリ（無ければグローバルメモリ）から好みのキャラクタープロンプトを提案する。"""
+    """PE メモリ（無ければグローバルメモリ）と入力欄の下書きから好みのキャラクタープロンプトを提案する。
+
+    メモリと下書きの両方が空のときだけ memory_empty にする。
+    """
     async with async_session_factory() as db:
         pe_settings = await PromptExpanderService.get_settings(db, user_id=user_id)
     memory_text = (pe_settings.memory_text or "").strip()
     if not memory_text:
         memory_text = (await settings_service.get_memory_text(user_id) or "").strip()
-    if not memory_text:
+    input_clean = (input_text or "").strip()
+    if not memory_text and not input_clean:
         raise PromptExpanderError(
             "memory_empty",
             "メモリ情報がありません。設定でメモリを入力するか「メモリ情報を持ってくる」を実行してください",
@@ -988,6 +1008,7 @@ async def suggest_character_prompts(
         mode=mode,
         nsfw=_image_model_nsfw(image_model),
         language=language,
+        input_text=input_clean or None,
     )
     raw = await _call_llm(system_prompt, user_prompt, text_model)
     try:

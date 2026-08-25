@@ -7,15 +7,21 @@ import pytest
 from gateway.services.prompt_expander_prompts import (
     ADULT_CONTENT_RULE,
     BASE_SYSTEM_PROMPT_TAGS,
-    PromptExpanderOutputError,
+    JAPANESE_TAG_GLOSSARY_RULE,
     SAFE_CONTENT_RULE,
+    SUGGEST_INPUT_BIAS_RULE,
+    SUGGEST_NO_MEMORY_RULE,
+    SUGGEST_USER_PROMPT,
+    PromptExpanderOutputError,
     build_negative_system_prompt,
     build_negative_user_prompt,
     build_positive_system_prompt,
     build_positive_user_prompt,
     build_suggest_characters_prompts,
+    build_suggest_user_prompt,
     parse_character_json,
     parse_suggestions_json,
+    replace_false_friend_tokens,
     sanitize_prose_prompt,
     sanitize_tag_prompt,
 )
@@ -408,3 +414,113 @@ class TestMangaPrompt:
         )
         assert base == "two panels"
         assert characters == ["a", "b"]
+
+
+class TestJapaneseGlossary:
+    def test_glossary_rule_in_tags_and_manga_but_not_japanese(self):
+        from gateway.services.prompt_expander_prompts import MangaOptions
+
+        tags = build_positive_system_prompt(
+            mode="tags", character_mode=False, max_characters=6, nsfw=False
+        )
+        chars = build_positive_system_prompt(
+            mode="tags", character_mode=True, max_characters=6, nsfw=False
+        )
+        manga = build_positive_system_prompt(
+            mode="tags",
+            character_mode=False,
+            max_characters=22,
+            nsfw=False,
+            manga=MangaOptions(),
+        )
+        ja = build_positive_system_prompt(
+            mode="japanese", character_mode=False, max_characters=6, nsfw=False
+        )
+        assert JAPANESE_TAG_GLOSSARY_RULE in tags
+        assert JAPANESE_TAG_GLOSSARY_RULE in chars
+        assert JAPANESE_TAG_GLOSSARY_RULE in manga
+        assert JAPANESE_TAG_GLOSSARY_RULE not in ja
+        assert "ショーツ" in tags and "panties" in tags
+        # 成人向けルールより前（本体の一部）に置かれる
+        assert tags.index(JAPANESE_TAG_GLOSSARY_RULE) < tags.index(
+            "Adult or explicit tags are disabled"
+        )
+
+    def test_glossary_rule_in_negative_tags_only(self):
+        assert JAPANESE_TAG_GLOSSARY_RULE in build_negative_system_prompt(mode="tags")
+        assert JAPANESE_TAG_GLOSSARY_RULE not in build_negative_system_prompt(
+            mode="japanese"
+        )
+
+    @pytest.mark.parametrize(
+        ("prompt", "expected"),
+        [
+            ("1girl, shorts, smile", "1girl, panties, smile"),
+            ("shorts, 1girl", "panties, 1girl"),
+            ("1girl, shorts", "1girl, panties"),
+            ("1girl, Shorts", "1girl, panties"),
+            ("1girl,shorts,smile", "1girl,panties,smile"),
+            # 複数語・連結語はそのまま
+            ("1girl, denim shorts, smile", "1girl, denim shorts, smile"),
+            ("1girl, short shorts", "1girl, short shorts"),
+            ("1girl, boyshorts", "1girl, boyshorts"),
+            ("1girl, shortstack", "1girl, shortstack"),
+        ],
+    )
+    def test_replace_false_friend_tokens(self, prompt, expected):
+        assert replace_false_friend_tokens(prompt, "白いショーツ") == expected
+
+    def test_replace_false_friend_tokens_requires_japanese_word(self):
+        assert replace_false_friend_tokens("1girl, shorts", "short pants") == (
+            "1girl, shorts"
+        )
+        assert replace_false_friend_tokens("1girl, shorts", None) == "1girl, shorts"
+        assert replace_false_friend_tokens("", "ショーツ") == ""
+
+    def test_replace_false_friend_tokens_keeps_multiline_layout(self):
+        prompt = "1girl, shorts\nPanel 1: she smiles, shorts\n「やだ」"
+        assert replace_false_friend_tokens(prompt, "ショーツ") == (
+            "1girl, panties\nPanel 1: she smiles, panties\n「やだ」"
+        )
+
+
+class TestSuggestWithInput:
+    def test_user_prompt_without_input_is_unchanged(self):
+        assert build_suggest_user_prompt(None) == SUGGEST_USER_PROMPT
+        assert build_suggest_user_prompt("   ") == SUGGEST_USER_PROMPT
+
+    def test_user_prompt_with_input_prepends_draft(self):
+        user = build_suggest_user_prompt("  銀髪の少女がカフェで  ")
+        assert user.startswith("Current prompt draft:\n銀髪の少女がカフェで")
+        assert user.endswith(SUGGEST_USER_PROMPT)
+
+    def test_system_prompt_rules_depend_on_memory_and_input(self):
+        system, user = build_suggest_characters_prompts(
+            memory_text="銀髪が好き", count=2, mode="tags", nsfw=False
+        )
+        assert SUGGEST_INPUT_BIAS_RULE not in system
+        assert SUGGEST_NO_MEMORY_RULE not in system
+        assert user == SUGGEST_USER_PROMPT
+
+        system, user = build_suggest_characters_prompts(
+            memory_text="銀髪が好き",
+            count=2,
+            mode="tags",
+            nsfw=False,
+            input_text="カフェで働く少女",
+        )
+        assert SUGGEST_INPUT_BIAS_RULE in system
+        assert SUGGEST_NO_MEMORY_RULE not in system
+        assert "銀髪が好き" in system
+        assert "カフェで働く少女" in user
+
+        system, user = build_suggest_characters_prompts(
+            memory_text="",
+            count=2,
+            mode="tags",
+            nsfw=False,
+            input_text="カフェで働く少女",
+        )
+        assert SUGGEST_INPUT_BIAS_RULE in system
+        assert SUGGEST_NO_MEMORY_RULE in system
+        assert "最優先指示" not in system

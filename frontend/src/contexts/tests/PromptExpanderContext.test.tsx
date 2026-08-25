@@ -26,12 +26,15 @@ interface MockState {
   anlasUsagePercent: number | null;
   /** /expand をこのエラーコードで失敗させる（null なら成功） */
   expandErrorCode: string | null;
+  /** 設定 GET が返す restore_seed */
+  restoreSeed: boolean;
 }
 
 const mockState: MockState = {
   imageModel: "nai-diffusion-4-5-full",
   anlasUsagePercent: null,
   expandErrorCode: null,
+  restoreSeed: false,
 };
 
 const calls: Array<{ url: string; init?: RequestInit }> = [];
@@ -55,6 +58,7 @@ function settingsPayload() {
       i2i_strength: 0.5,
       i2i_noise: 0.1,
       seed: null,
+      restore_seed: mockState.restoreSeed,
       memory_text: "",
       use_memory: false,
       confirm_before_generate: true,
@@ -208,6 +212,15 @@ const fetchMock = vi.fn(
       });
     }
     if (
+      url === "/api/prompt-expander/suggest-characters" &&
+      method === "POST"
+    ) {
+      return jsonResponse({
+        suggestions: [{ title: "銀髪", prompt: "1girl, silver hair" }],
+        text_model: "glm-4-6",
+      });
+    }
+    if (
       url === "/api/prompt-expander/sessions/sess-1/generate" &&
       method === "POST"
     ) {
@@ -279,6 +292,9 @@ function Probe() {
       </button>
       <button type="button" onClick={() => ctx.setPositiveText("a cat girl")}>
         set-positive
+      </button>
+      <button type="button" onClick={() => ctx.setPositiveText("a dog girl")}>
+        set-positive-2
       </button>
       <button type="button" onClick={() => ctx.setPositiveText("")}>
         clear-positive
@@ -388,6 +404,52 @@ function Probe() {
       <button type="button" onClick={() => ctx.restoreEntry(OLD_ENTRY)}>
         restore
       </button>
+      <button
+        type="button"
+        onClick={() =>
+          ctx.restoreEntry({
+            ...OLD_ENTRY,
+            positive_expand_mode: "off",
+            instruction: "1girl, old prompt",
+          })
+        }
+      >
+        restore-plain
+      </button>
+      <button type="button" onClick={() => void ctx.regenerateEntry(OLD_ENTRY)}>
+        regenerate
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          void ctx.regenerateEntry({
+            ...OLD_ENTRY,
+            source_kind: "entry",
+            source_entry_id: "entry-src",
+          })
+        }
+      >
+        regenerate-i2i
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          void ctx.regenerateEntry({
+            ...OLD_ENTRY,
+            kind: "uploaded",
+            final_prompt: "",
+            positive_expand_mode: "off",
+          })
+        }
+      >
+        regenerate-uploaded
+      </button>
+      <button
+        type="button"
+        onClick={() => void ctx.suggestCharacters(2, "tags")}
+      >
+        suggest
+      </button>
       <button type="button" onClick={() => void ctx.confirmUsageWarn(true)}>
         usage-confirm
       </button>
@@ -445,6 +507,7 @@ beforeEach(() => {
   mockState.imageModel = "nai-diffusion-4-5-full";
   mockState.anlasUsagePercent = null;
   mockState.expandErrorCode = null;
+  mockState.restoreSeed = false;
   vi.stubGlobal("fetch", fetchMock);
 });
 
@@ -556,7 +619,10 @@ describe("PromptExpanderContext", () => {
         "entry-new,entry-old",
       ),
     );
-    expect(screen.getByTestId("pending-expansion").textContent).toBe("none");
+    // 確認カードは残す（同じ内容で繰り返す・微調整して再生成できる）
+    expect(screen.getByTestId("pending-expansion").textContent).not.toBe(
+      "none",
+    );
     // 欄の内容は書き換えない（指示のまま）
     expect(screen.getByTestId("positive").textContent).toBe("a cat girl");
     expect(screen.getByTestId("positive-origin").textContent).toBe("none");
@@ -571,6 +637,36 @@ describe("PromptExpanderContext", () => {
     expect(body.positive_expand_mode).toBe("japanese");
     expect(body.negative_expand_mode).toBe("off");
     expect(body.instruction).toBe("a cat girl");
+
+    // 残ったカードからもう一度生成できる。破棄すれば消える
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "generate-from" }));
+    });
+    await waitFor(() => expect(findCalls("/generate", "POST")).toHaveLength(2));
+    fireEvent.click(screen.getByRole("button", { name: "discard" }));
+    expect(screen.getByTestId("pending-expansion").textContent).toBe("none");
+  });
+
+  it("generateFromExpansion saves the field content at click time as the instruction", async () => {
+    await openSessionAndWait();
+    fireEvent.click(screen.getByRole("button", { name: "set-positive" }));
+    await clickAndWaitPending("expand-positive");
+
+    // 拡張後に原文を手直しした場合はその内容が原文として保存される
+    fireEvent.click(screen.getByRole("button", { name: "set-positive-2" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "generate-from" }));
+    });
+    await waitFor(() => expect(findCalls("/generate", "POST")).toHaveLength(1));
+    expect(lastBody("/generate", "POST").instruction).toBe("a dog girl");
+
+    // 欄を空にしたときは拡張時のスナップショットへ戻す
+    fireEvent.click(screen.getByRole("button", { name: "clear-positive" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "generate-from" }));
+    });
+    await waitFor(() => expect(findCalls("/generate", "POST")).toHaveLength(2));
+    expect(lastBody("/generate", "POST").instruction).toBe("a cat girl");
   });
 
   it("expandNegative expands the negative field only, and applying it sets negativeOrigin", async () => {
@@ -646,7 +742,7 @@ describe("PromptExpanderContext", () => {
     expect(findCalls("/prompt-expander/expand", "POST")).toHaveLength(1);
   });
 
-  it("restoreEntry fills fields, clears origins / pending expansion and updates settings", async () => {
+  it("restoreEntry puts the original instruction back, rebuilds the expansion card and updates settings without the seed", async () => {
     await openSessionAndWait();
     fireEvent.click(screen.getByRole("button", { name: "set-positive" }));
     await clickAndWaitPending("expand-positive");
@@ -660,15 +756,23 @@ describe("PromptExpanderContext", () => {
       fireEvent.click(screen.getByRole("button", { name: "restore" }));
     });
 
-    expect(screen.getByTestId("positive").textContent).toBe(
-      "1girl, old prompt",
-    );
+    // 拡張ありのエントリ: 原文を欄へ戻し、変換結果は確認カードとして再現する
+    expect(screen.getByTestId("positive").textContent).toBe("old instruction");
     expect(screen.getByTestId("negative").textContent).toBe("lowres");
     expect(screen.getByTestId("character-mode").textContent).toBe("on");
     expect(screen.getByTestId("slots").textContent).toBe("girl A|girl B");
     expect(screen.getByTestId("positive-origin").textContent).toBe("none");
     expect(screen.getByTestId("negative-origin").textContent).toBe("none");
-    expect(screen.getByTestId("pending-expansion").textContent).toBe("none");
+    expect(
+      JSON.parse(screen.getByTestId("pending-expansion").textContent ?? "{}"),
+    ).toEqual({
+      target: "positive",
+      mode: "tags",
+      instruction: "old instruction",
+      positivePrompt: "1girl, old prompt",
+      characterPrompts: ["girl A", "girl B"],
+      negativePrompt: null,
+    });
     expect(screen.getByTestId("image-model").textContent).toBe(
       "nai-diffusion-5-full",
     );
@@ -679,10 +783,36 @@ describe("PromptExpanderContext", () => {
       const body = JSON.parse(String(putCalls[putCalls.length - 1].init?.body));
       expect(body.image_model).toBe("nai-diffusion-5-full");
       expect(body.image_size).toBe("landscape");
-      expect(body.seed).toBe(12345);
+      // restore_seed が OFF（既定）のときは seed に触れない
+      expect(body).not.toHaveProperty("seed");
       expect(body.i2i_strength).toBe(0.7);
       expect(body.i2i_noise).toBe(0.2);
     });
+
+    // 再現した確認カードからそのまま生成すると、原文と拡張モードのメタデータが付く
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "generate-from" }));
+    });
+    await waitFor(() => expect(findCalls("/generate", "POST")).toHaveLength(1));
+    const body = lastBody("/generate", "POST");
+    expect(body.prompt).toBe("edited prompt");
+    expect(body.positive_expand_mode).toBe("tags");
+    expect(body.instruction).toBe("old instruction");
+    expect(body.character_prompts).toEqual(["edited char"]);
+  });
+
+  it("restoreEntry restores the final prompt directly for entries generated without expansion", async () => {
+    await openSessionAndWait();
+    fireEvent.click(screen.getByRole("button", { name: "set-positive" }));
+    await clickAndWaitPending("expand-positive");
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "restore-plain" }));
+    });
+    expect(screen.getByTestId("positive").textContent).toBe(
+      "1girl, old prompt",
+    );
+    expect(screen.getByTestId("pending-expansion").textContent).toBe("none");
 
     // 復元した内容をそのまま生成すると拡張メタデータは付かない
     await act(async () => {
@@ -694,6 +824,104 @@ describe("PromptExpanderContext", () => {
     expect(body.positive_expand_mode).toBe("off");
     expect(body.instruction).toBeNull();
     expect(body.character_prompts).toEqual(["girl A", "girl B"]);
+  });
+
+  it("restoreEntry copies the seed only when restore_seed is ON", async () => {
+    mockState.restoreSeed = true;
+    try {
+      await openSessionAndWait();
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "restore" }));
+      });
+      await waitFor(() => {
+        const putCalls = findCalls("/prompt-expander/settings", "PUT");
+        expect(putCalls.length).toBeGreaterThan(0);
+        const body = JSON.parse(
+          String(putCalls[putCalls.length - 1].init?.body),
+        );
+        expect(body.seed).toBe(12345);
+        expect(body.image_model).toBe("nai-diffusion-5-full");
+      });
+    } finally {
+      mockState.restoreSeed = false;
+    }
+  });
+
+  it("regenerateEntry posts the entry's prompt and settings without a seed", async () => {
+    await openSessionAndWait();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "regenerate" }));
+    });
+    await waitFor(() => expect(findCalls("/generate", "POST")).toHaveLength(1));
+    const body = lastBody("/generate", "POST");
+    expect(body).not.toHaveProperty("seed");
+    expect(body.prompt).toBe("1girl, old prompt");
+    expect(body.negative_prompt).toBe("lowres");
+    expect(body.character_prompts).toEqual(["girl A", "girl B"]);
+    expect(body.character_mode).toBe(true);
+    expect(body.instruction).toBe("old instruction");
+    expect(body.positive_expand_mode).toBe("tags");
+    expect(body.image_model).toBe("nai-diffusion-5-full");
+    expect(body.image_size).toBe("landscape");
+    expect(body.source_kind).toBe("none");
+    expect(body).not.toHaveProperty("i2i_strength");
+    expect(body.manga_mode).toBe(false);
+    // 欄は触らない
+    expect(screen.getByTestId("positive").textContent).toBe("");
+    await waitFor(() =>
+      expect(screen.getByTestId("entries").textContent).toBe(
+        "entry-new,entry-old",
+      ),
+    );
+
+    // 参照元がエントリなら同じ元で i2i する
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "regenerate-i2i" }));
+    });
+    await waitFor(() => expect(findCalls("/generate", "POST")).toHaveLength(2));
+    const i2iBody = lastBody("/generate", "POST");
+    expect(i2iBody.source_kind).toBe("entry");
+    expect(i2iBody.source_entry_id).toBe("entry-src");
+    expect(i2iBody.i2i_strength).toBe(0.7);
+    expect(i2iBody.i2i_noise).toBe(0.2);
+    expect(i2iBody).not.toHaveProperty("seed");
+
+    // プロンプトの無いアップロードは何も送らない
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: "regenerate-uploaded" }),
+      );
+    });
+    expect(findCalls("/generate", "POST")).toHaveLength(2);
+  });
+
+  it("suggestCharacters sends the current input as input_text only when it is not empty", async () => {
+    await openSessionAndWait();
+    fireEvent.click(screen.getByRole("button", { name: "set-positive" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "suggest" }));
+    });
+    await waitFor(() =>
+      expect(findCalls("/suggest-characters", "POST")).toHaveLength(1),
+    );
+    expect(lastBody("/suggest-characters", "POST")).toMatchObject({
+      text_model: "glm-4-6",
+      image_model: "nai-diffusion-4-5-full",
+      mode: "tags",
+      count: 2,
+      input_text: "a cat girl",
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "clear-positive" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "suggest" }));
+    });
+    await waitFor(() =>
+      expect(findCalls("/suggest-characters", "POST")).toHaveLength(2),
+    );
+    expect(lastBody("/suggest-characters", "POST")).not.toHaveProperty(
+      "input_text",
+    );
   });
 
   it("manga mode is sent to /expand and /generate only while a V5 model is selected", async () => {

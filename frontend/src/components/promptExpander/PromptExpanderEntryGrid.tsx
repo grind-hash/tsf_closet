@@ -75,10 +75,18 @@ export default function PromptExpanderEntryGrid({
               t("promptExpander.entry.uploadedNoText");
             return (
               <li key={entry.id}>
-                <button
-                  type="button"
+                {/* 画像を <button> で包むと右クリックの画像保存が効かないため div[role=button] にする */}
+                <div
                   className={`prompt-expander__entry-grid-item ${selected ? "is-selected" : ""}`}
+                  role="button"
+                  tabIndex={0}
                   onClick={() => onSelect(entry)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      onSelect(entry);
+                    }
+                  }}
                   aria-pressed={selected}
                   title={label}
                 >
@@ -90,7 +98,7 @@ export default function PromptExpanderEntryGrid({
                   <span className="prompt-expander__entry-grid-label">
                     {label}
                   </span>
-                </button>
+                </div>
               </li>
             );
           })}

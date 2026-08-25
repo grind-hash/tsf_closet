@@ -37,11 +37,13 @@
   list-style: none;
 }
 
+/* div[role=button]（<button> だと右クリックの画像保存が効かない） */
 .prompt-expander__entry-grid-item {
   display: flex;
   flex-direction: column;
   gap: 0.3rem;
   width: 100%;
+  box-sizing: border-box;
   padding: 0.35rem;
   border: 2px solid transparent;
   border-radius: 8px;
@@ -57,6 +59,11 @@
 
 .prompt-expander__entry-grid-item.is-selected {
   border-color: var(--accent-color, #e94560);
+}
+
+.prompt-expander__entry-grid-item:focus-visible {
+  outline: 2px solid var(--accent-color, #e94560);
+  outline-offset: 2px;
 }
 
 .prompt-expander__entry-grid-item img {

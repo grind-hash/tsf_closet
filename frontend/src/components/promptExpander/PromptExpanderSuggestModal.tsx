@@ -4,9 +4,10 @@
  * 件数（1〜5）とモード（日本語/タグ）を選んで提案を取得し、各提案を
  * 選択したスロット / 新規スロット（キャラクターモード ON）またはプロンプト欄（OFF）へ挿入する。
  * メモリが空（memory_empty）のときは設定の「メモリ情報を持ってくる」への案内を出す。
+ * 取得した提案は閉じても消さない（キャラクターモードの切替やメモリ確認の後で見返せるように）。
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   PromptExpanderApiError,
@@ -52,16 +53,23 @@ export default function PromptExpanderSuggestModal({
   const [target, setTarget] = useState<string>(NEW_SLOT);
   const [insertedIndex, setInsertedIndex] = useState<number | null>(null);
 
+  // 初回に開いたときだけ欄のモードに合わせる。以降は前回の選択と提案をそのまま残す
+  const initializedRef = useRef(false);
   useEffect(() => {
-    if (open) {
-      setSuggestions([]);
-      setErrorCode(null);
-      setErrorMessage(null);
-      setInsertedIndex(null);
+    if (open && !initializedRef.current) {
+      initializedRef.current = true;
       setMode(positiveMode);
-      setTarget(NEW_SLOT);
     }
   }, [open, positiveMode]);
+
+  // 閉じている間にスロットが減っていたら、存在しない挿入先は「新規スロット」へ戻す
+  useEffect(() => {
+    if (target === NEW_SLOT) return;
+    const slotIndex = Number.parseInt(target, 10);
+    if (Number.isNaN(slotIndex) || slotIndex >= characterSlots.length) {
+      setTarget(NEW_SLOT);
+    }
+  }, [target, characterSlots.length]);
 
   const handleRun = async () => {
     setErrorCode(null);

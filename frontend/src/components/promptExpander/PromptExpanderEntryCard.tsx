@@ -3,7 +3,8 @@
  *
  * 画像（クリックでプレビュー）、主テキスト（指示または最終プロンプト。省略表示 + 全文展開）、
  * 行末のバッジ（モデル / サイズ / seed / 拡張モード / 生成元 / アップロード）、
- * 操作（欄へ復元 / i2i 元にする / 通常プレイで使う / TSFシナリオで使う / 削除）。
+ * 操作（欄へ復元 / このプロンプトで再生成 / i2i 元にする / 通常プレイで使う / TSFシナリオで使う / 削除）。
+ * 画像は <button> で包まない（ブラウザの「名前を付けて画像を保存」が効かなくなるため）。
  */
 
 import { useState } from "react";
@@ -27,6 +28,8 @@ const MAIN_TEXT_LIMIT = 160;
 interface PromptExpanderEntryCardProps {
   entry: PromptExpanderEntry;
   onPreview: (entry: PromptExpanderEntry) => void;
+  /** プレビューモーダルで表示中（または直前まで表示していた）エントリか */
+  isPreviewed?: boolean;
 }
 
 function formatDateTime(iso: string, language: string): string {
@@ -43,14 +46,21 @@ function formatDateTime(iso: string, language: string): string {
 export default function PromptExpanderEntryCard({
   entry,
   onPreview,
+  isPreviewed = false,
 }: PromptExpanderEntryCardProps) {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const { state: settingsState } = useSettings();
   const { clearSession } = useGame();
   const { clearMessages } = useChat();
-  const { restoreEntry, selectEntryAsSource, deleteEntry, source } =
-    usePromptExpander();
+  const {
+    restoreEntry,
+    regenerateEntry,
+    selectEntryAsSource,
+    deleteEntry,
+    source,
+    generating,
+  } = usePromptExpander();
   const [expanded, setExpanded] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
@@ -122,12 +132,26 @@ export default function PromptExpanderEntryCard({
 
   return (
     <li
-      className={`prompt-expander__entry ${isCurrentSource ? "prompt-expander__entry--source" : ""}`}
+      className={[
+        "prompt-expander__entry",
+        isCurrentSource ? "prompt-expander__entry--source" : "",
+        isPreviewed ? "prompt-expander__entry--previewed" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      data-entry-id={entry.id}
     >
-      <button
-        type="button"
+      <div
         className="prompt-expander__entry-image-btn"
+        role="button"
+        tabIndex={0}
         onClick={() => onPreview(entry)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onPreview(entry);
+          }
+        }}
         aria-label={t("promptExpander.entry.preview")}
       >
         <img
@@ -136,7 +160,7 @@ export default function PromptExpanderEntryCard({
           alt=""
           loading="lazy"
         />
-      </button>
+      </div>
       <div className="prompt-expander__entry-body">
         <div className="prompt-expander__entry-row">
           <p className="prompt-expander__entry-text">{truncated}</p>
@@ -206,6 +230,15 @@ export default function PromptExpanderEntryCard({
             disabled={isUploaded && !entry.final_prompt}
           >
             {t("promptExpander.entry.restore")}
+          </button>
+          <button
+            type="button"
+            className="prompt-expander__btn prompt-expander__btn--sm"
+            onClick={() => void regenerateEntry(entry)}
+            disabled={generating || !entry.final_prompt?.trim()}
+            title={t("promptExpander.entry.regenerateTitle")}
+          >
+            {t("promptExpander.entry.regenerate")}
           </button>
           <button
             type="button"

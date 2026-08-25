@@ -37,12 +37,70 @@
   border-color: var(--accent-color, #e94560);
 }
 
+/* プレビューモーダルで表示中（閉じた直後も）のカード。i2i 元の枠色とは別に外側へ光らせる */
+.prompt-expander__entry--previewed {
+  background: var(--hover-bg, #1f2f50);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.55);
+}
+
+/* 画像の包みは <button> ではなく div[role=button]（右クリックの画像保存を効かせる） */
 .prompt-expander__entry-image-btn {
   flex: 0 0 auto;
   padding: 0;
   border: none;
   background: transparent;
   cursor: zoom-in;
+  line-height: 0;
+}
+
+.prompt-expander__entry-image-btn:focus-visible {
+  outline: 2px solid var(--accent-color, #e94560);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* 絞り込みチップ（すべて / 通常 / 漫画 / アップロード） */
+.prompt-expander__entry-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.6rem;
+}
+
+.prompt-expander__entry-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.65rem;
+  border: 1px solid var(--border-color, #333);
+  border-radius: 999px;
+  background: var(--bg-color, #1a1a2e);
+  color: var(--text-color, #eee);
+  font-size: 0.8rem;
+  line-height: 1.2;
+  cursor: pointer;
+  transition:
+    background-color 0.15s,
+    border-color 0.15s;
+}
+
+.prompt-expander__entry-filter-chip:hover {
+  background: var(--hover-bg, #1f2f50);
+}
+
+.prompt-expander__entry-filter-chip.is-active {
+  border-color: var(--accent-color, #e94560);
+  background: var(--accent-color, #e94560);
+  color: #fff;
+  font-weight: 600;
+}
+
+.prompt-expander__entry-filter-count {
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.15);
+  font-size: 0.75rem;
+  font-weight: 500;
 }
 
 .prompt-expander__entry-image {
@@ -211,6 +269,28 @@
   min-width: 100%;
   box-sizing: border-box;
   max-height: 20vh;
+}
+
+/*
+ * 枠を 96vh / 96vw まで広げるため、枠の外（上 40px / 左右 60px）に置かれる共通の
+ * 閉じるボタンと前後ボタンが画面外に出て見切れる。PE のプレビューでは枠の内側に置く。
+ */
+.prompt-expander-preview .image-preview-modal__close {
+  top: 10px;
+  right: 10px;
+  background-color: rgba(0, 0, 0, 0.5);
+}
+
+.prompt-expander-preview .image-preview-modal__nav {
+  background-color: rgba(0, 0, 0, 0.4);
+}
+
+.prompt-expander-preview .image-preview-modal__nav--prev {
+  left: 8px;
+}
+
+.prompt-expander-preview .image-preview-modal__nav--next {
+  right: 8px;
 }
 
 .prompt-expander-preview .prompt-expander__preview-caption {

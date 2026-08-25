@@ -218,6 +218,123 @@
   cursor: not-allowed;
 }
 
+/*
+ * 処理中（LLM プロンプト化 / 画像生成）の進捗表示。通常のヒント文言と区別できるよう、
+ * 回転スピナー + 落ち着いた情報色（ブルー）の帯 + 下端の不確定プログレスバーで示す。
+ * 進行中は異常ではないので、警告色やアクセント色（赤）は使わない。
+ */
+.prompt-expander__progress {
+  --pe-progress-color: var(--info-color, #60a5fa);
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.4rem;
+  padding: 0.5rem 0.75rem 0.65rem;
+  border: 1px solid
+    color-mix(in srgb, var(--pe-progress-color) 45%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--pe-progress-color) 10%, transparent);
+  color: var(--pe-progress-color);
+  font-size: 0.85rem;
+  font-weight: 500;
+  line-height: 1.4;
+  overflow: hidden;
+}
+
+/* 一覧の先頭など、欄の直下ではない場所に置くとき */
+.prompt-expander__progress--block {
+  margin: 0 0 0.6rem;
+}
+
+.prompt-expander__progress-spinner {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  border: 2px solid
+    color-mix(in srgb, var(--pe-progress-color) 30%, transparent);
+  border-top-color: var(--pe-progress-color);
+  border-radius: 50%;
+  animation: prompt-expander-spin 0.8s linear infinite;
+}
+
+.prompt-expander__progress-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.prompt-expander__progress-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: color-mix(in srgb, var(--pe-progress-color) 22%, transparent);
+  overflow: hidden;
+}
+
+.prompt-expander__progress-bar::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 40%;
+  background: var(--pe-progress-color);
+  animation: prompt-expander-indeterminate 1.4s ease-in-out infinite;
+}
+
+@keyframes prompt-expander-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes prompt-expander-indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(250%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .prompt-expander__progress-spinner {
+    animation: none;
+    border-top-color: transparent;
+    border-right-color: var(--pe-progress-color);
+  }
+
+  .prompt-expander__progress-bar::after {
+    animation: none;
+    width: 100%;
+  }
+}
+
+/* LLM でプロンプト化している間の欄（readOnly）。破線の強調枠と緩い明滅で処理中を示す */
+.prompt-expander__textarea--busy {
+  border-style: dashed;
+  border-color: var(--info-color, #60a5fa);
+  cursor: progress;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .prompt-expander__textarea--busy {
+    animation: prompt-expander-busy-pulse 1.2s ease-in-out infinite;
+  }
+
+  @keyframes prompt-expander-busy-pulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.6;
+    }
+  }
+}
+
 /* セグメント型トグル（モード選択）。隣接したボタン群として描き、選択中は塗りつぶす */
 .prompt-expander__radio-group {
   display: inline-flex;

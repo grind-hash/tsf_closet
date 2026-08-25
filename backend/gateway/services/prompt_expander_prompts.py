@@ -62,6 +62,14 @@ Requirements:
 - Prefer specific visual tags over abstract descriptions.
 - End the result with "moe, anime, very aesthetic, best quality"."""
 
+# 日本語の空似言葉（false friend）に関する語彙注意。タグモード・漫画モードの本体に追記する。
+# 「ショーツ」は女性下着（panties）であり、英語の shorts（短パン）ではない。
+JAPANESE_TAG_GLOSSARY_RULE = (
+    '\n- Japanese vocabulary note: the Japanese word ショーツ ("shorts") '
+    'means women\'s underwear; render it as "panties", never as "shorts". Use the tag '
+    '"shorts" only for outerwear explicitly described as such (denim shorts, gym shorts, etc.).'
+)
+
 CHARACTER_SYSTEM_PROMPT_TAGS_TEMPLATE = """You are a NovelAI image generation prompt expert for TSF and outfit-change scenarios.
 Convert the user's Japanese or English instruction into separate NovelAI V4 base and character prompts.
 
@@ -387,6 +395,20 @@ Requirements:
 
 SUGGEST_USER_PROMPT = "Propose the character prompts now."
 
+# 入力欄の下書きがあるとき: メモリだけだと毎回似た提案になるので、下書きを状況の起点にして幅を出す
+SUGGEST_INPUT_BIAS_RULE = (
+    "\n- The user's current prompt draft is included in the request. Treat it as the "
+    "situational starting point: bias each suggestion so it fits or plays against that "
+    "draft, so the set varies around what the user is writing now instead of repeating "
+    "the same designs every time."
+)
+
+# メモリが空で下書きだけあるとき
+SUGGEST_NO_MEMORY_RULE = (
+    "\n- No preference memory is available this time; ground the suggestions in the "
+    "current prompt draft instead of memory."
+)
+
 # ---------------------------------------------------------------------------
 # 共通ルール（移植元の原文）
 # ---------------------------------------------------------------------------
@@ -460,6 +482,8 @@ def build_positive_system_prompt(
             if character_mode
             else BASE_SYSTEM_PROMPT_TAGS
         )
+    if manga is not None or mode == "tags":
+        base += JAPANESE_TAG_GLOSSARY_RULE
     return (
         base
         + _content_rule(nsfw)
@@ -512,6 +536,8 @@ def build_negative_system_prompt(
     base = (
         NEGATIVE_SYSTEM_PROMPT_JA if mode == "japanese" else NEGATIVE_SYSTEM_PROMPT_TAGS
     )
+    if mode == "tags":
+        base += JAPANESE_TAG_GLOSSARY_RULE
     return base + build_memory_priority_instruction(memory_text or "", language)
 
 
@@ -529,6 +555,14 @@ def build_negative_user_prompt(
     )
 
 
+def build_suggest_user_prompt(input_text: str | None = None) -> str:
+    """キャラクター提案の user プロンプト。下書きがあれば前置する。"""
+    draft = (input_text or "").strip()
+    if not draft:
+        return SUGGEST_USER_PROMPT
+    return "Current prompt draft:\n" + draft + "\n\n" + SUGGEST_USER_PROMPT
+
+
 def build_suggest_characters_prompts(
     *,
     memory_text: str,
@@ -536,8 +570,12 @@ def build_suggest_characters_prompts(
     mode: ExpandMode,
     nsfw: bool,
     language: str = "ja",
+    input_text: str | None = None,
 ) -> tuple[str, str]:
-    """キャラクター提案の (system, user) プロンプトを返す。"""
+    """キャラクター提案の (system, user) プロンプトを返す。
+
+    input_text（入力欄の下書き）があれば、メモリに加えて提案の方向付けに使う。
+    """
     if mode == "japanese":
         style_rule = (
             "natural Japanese prose of 1-3 sentences that states the gender explicitly"
@@ -548,14 +586,19 @@ def build_suggest_characters_prompts(
     else:
         style_rule = "concise comma-separated English Danbooru-style tags"
         gender_example = '(for example "1girl" or "1boy")'
-    system = (
-        SUGGEST_CHARACTERS_SYSTEM_PROMPT_TEMPLATE.format(
-            count=count, style_rule=style_rule, gender_example=gender_example
-        )
-        + _content_rule(nsfw)
-        + build_memory_priority_instruction(memory_text or "", language)
+    draft = (input_text or "").strip()
+    memory_clean = (memory_text or "").strip()
+    system = SUGGEST_CHARACTERS_SYSTEM_PROMPT_TEMPLATE.format(
+        count=count, style_rule=style_rule, gender_example=gender_example
     )
-    return system, SUGGEST_USER_PROMPT
+    if draft:
+        system += SUGGEST_INPUT_BIAS_RULE
+        if not memory_clean:
+            system += SUGGEST_NO_MEMORY_RULE
+    system += _content_rule(nsfw) + build_memory_priority_instruction(
+        memory_clean, language
+    )
+    return system, build_suggest_user_prompt(draft)
 
 
 # ---------------------------------------------------------------------------
@@ -605,6 +648,25 @@ def _ensure_quality_tags(prompt: str) -> str:
     if not base:
         return ", ".join(missing)
     return base + ", " + ", ".join(missing)
+
+
+# カンマ区切りの単独トークン "shorts" だけに一致する（denim shorts / boyshorts は不一致）
+_FALSE_FRIEND_SHORTS_PATTERN = re.compile(
+    r"(^|,)(\s*)shorts(\s*)(?=,|$)", re.IGNORECASE | re.MULTILINE
+)
+
+
+def replace_false_friend_tokens(prompt: str, instruction: str | None) -> str:
+    """指示に「ショーツ」が含まれるとき、出力中の単独タグ shorts を panties に置換する。
+
+    LLM が「ショーツ」を英語の shorts（短パン）として直訳した場合の決定的な保険。
+    複数語のタグ（denim shorts）や連結語（boyshorts）は変更しない。空白・改行は保持する。
+    """
+    if not prompt or not instruction or "ショーツ" not in instruction:
+        return prompt
+    return _FALSE_FRIEND_SHORTS_PATTERN.sub(
+        lambda m: f"{m.group(1)}{m.group(2)}panties{m.group(3)}", prompt
+    )
 
 
 def sanitize_tag_prompt(raw: str, *, ensure_quality: bool = True) -> str:

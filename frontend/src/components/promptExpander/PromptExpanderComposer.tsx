@@ -34,6 +34,7 @@ import {
 } from "../../contexts/PromptExpanderContext";
 import PromptExpanderCharacterSlots from "./PromptExpanderCharacterSlots";
 import PromptExpanderExpansionPanel from "./PromptExpanderExpansionPanel";
+import PromptExpanderProgress from "./PromptExpanderProgress";
 import PromptExpanderSection from "./PromptExpanderSection";
 import PromptExpanderSourcePickerModal from "./PromptExpanderSourcePickerModal";
 import PromptExpanderSuggestModal from "./PromptExpanderSuggestModal";
@@ -176,6 +177,9 @@ export default function PromptExpanderComposer() {
   const isV45 = !isV5ImageModel(settings.image_model);
   const mangaSupported = supportsMangaMode(settings.image_model);
   const busy = expanding || generating;
+  // LLM でプロンプト化している欄は読み取り専用にして処理中を示す
+  const positiveBusy = expandingTarget === "positive";
+  const negativeBusy = expandingTarget === "negative";
   const notConfigured = !options.novelaiConfigured;
   const notConfiguredText = t("promptExpander.composer.disabledNotConfigured");
 
@@ -612,16 +616,23 @@ export default function PromptExpanderComposer() {
           </div>
           <textarea
             id="prompt-expander-positive"
-            className="prompt-expander__textarea"
+            className={`prompt-expander__textarea${positiveBusy ? " prompt-expander__textarea--busy" : ""}`}
             rows={5}
             value={positiveText}
             onChange={(e) => setPositiveText(e.target.value)}
+            readOnly={positiveBusy}
+            aria-busy={positiveBusy}
             placeholder={
               mangaActive
                 ? t("promptExpander.composer.promptPlaceholderManga")
                 : t("promptExpander.composer.promptPlaceholder")
             }
           />
+          {positiveBusy && (
+            <PromptExpanderProgress
+              label={t("promptExpander.composer.expandingHint")}
+            />
+          )}
           {mangaActive && (
             <p className="prompt-expander__hint">
               {t("promptExpander.composer.mangaModeFixedHint")}
@@ -654,12 +665,19 @@ export default function PromptExpanderComposer() {
           </div>
           <textarea
             id="prompt-expander-negative"
-            className="prompt-expander__textarea"
+            className={`prompt-expander__textarea${negativeBusy ? " prompt-expander__textarea--busy" : ""}`}
             rows={3}
             value={negativeText}
             onChange={(e) => setNegativeText(e.target.value)}
+            readOnly={negativeBusy}
+            aria-busy={negativeBusy}
             placeholder={t("promptExpander.composer.negativePlaceholder")}
           />
+          {negativeBusy && (
+            <PromptExpanderProgress
+              label={t("promptExpander.composer.expandingHint")}
+            />
+          )}
           <ExpansionErrorNotice target="negative" />
           <PromptExpanderExpansionPanel target="negative" />
         </div>

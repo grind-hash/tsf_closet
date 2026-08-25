@@ -28,6 +28,8 @@ export interface PromptExpanderSettings {
   i2i_strength: number;
   i2i_noise: number;
   seed: number | null;
+  /** 「欄へ復元」でエントリの seed も生成パラメータへ戻すか */
+  restore_seed: boolean;
   memory_text: string;
   use_memory: boolean;
   confirm_before_generate: boolean;
@@ -202,6 +204,8 @@ export interface PromptExpanderSuggestRequest {
   mode: PromptExpandMode;
   count: number;
   language: "ja" | "en";
+  /** 入力欄の下書き。メモリに加えて提案の方向付けに使う（空なら送らない） */
+  input_text?: string;
 }
 
 export interface PromptExpanderSuggestion {

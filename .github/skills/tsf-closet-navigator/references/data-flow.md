@@ -195,14 +195,14 @@ apis/promptExpander.ts
   ├─ /sessions, /sessions/{id}, /sessions/{id}/uploads, /entries, /images/{entry_id}
   ├─ POST /expand                              LLM のみ（NovelAI テキスト glm-4-6 / xialong-v1 固定）
   ├─ POST /sessions/{id}/generate              画像のみ（NovelAI 固定、raw_prompt=True）。応答に entry + anlas
-  └─ POST /suggest-characters                  PE メモリ（無ければグローバルメモリ）から好みのキャラ提案
+  └─ POST /suggest-characters                  PE メモリ（無ければグローバルメモリ）＋ `input_text`（欄の下書き）から好みのキャラ提案。両方空なら memory_empty
       ↓
 prompt_expander_router → prompt_expander_service / prompt_expander_prompts
   ├─ PromptExpanderSession / PromptExpanderEntry
   └─ data/prompt_expander_images/{session_id}/{entry_id}.png
 ```
 
-- 通常ゲームの `image_only` と違い、拡張は欄右上の「拡張」ボタンによる明示操作で、拡張と画像生成は別 API。結果は欄直下のインラインカードで確認・編集してから「欄へ反映」または「この内容で生成」し、下部の「生成」は欄の内容をそのまま送る（拡張の由来は Context の origin として `positive_expand_mode`/`instruction` に載る）。設定 `confirm_before_generate` は API に残るが FE では使わない。SSE は使わない。
+- 通常ゲームの `image_only` と違い、拡張は欄右上の「拡張」ボタンによる明示操作で、拡張と画像生成は別 API。結果は欄直下のインラインカードで確認・編集してから「欄へ反映」または「この内容で生成」（カードは生成後も残り、繰り返し・微調整できる。`instruction` はクリック時点の欄の内容）し、下部の「生成」は欄の内容をそのまま送る（拡張の由来は Context の origin として `positive_expand_mode`/`instruction` に載る）。履歴の「欄へ復元」は拡張ありエントリなら原文を欄へ戻して変換結果をカードとして再現し、「このプロンプトで再生成」はエントリの内容のまま seed 無し（毎回乱数）で `POST /generate` する。タグ/漫画モードの拡張では日本語の「ショーツ」を panties に寄せる語彙ルールと、指示に「ショーツ」があるときの単独タグ `shorts`→`panties` 置換を掛ける。設定 `confirm_before_generate` は API に残るが FE では使わない。SSE は使わない。
 - `raw_prompt=True`（`image_generation.py`）は `_format_prompt` の `、。→", "` 置換・長い接尾辞・`extra_negative`・サーバー既定ネガティブへのフォールバックをすべて無効化する（日本語自然文プロンプトを壊さないため）。SDK の `quality=True` と `uc_preset` は従来どおり。同時に `noise_override=0.0` が既定値へ落ちる不具合も `is not None` 判定に修正した。
 - 正/ネガそれぞれ「日本語で拡張」（V5 向け自然文）と「タグで拡張」（英語タグ、移植元の品質タグ補完あり）。キャラクターモードは JSON `{base_prompt, character_prompts[]}` で、上限は `consts/prompt_expander.max_character_prompts(image_model)`（V5=22 / V4.5=6）。超過は切り詰め、0 件は `invalid_llm_output`。
 - 漫画モード（V5 専用、`supports_manga_mode`）: 設定（`manga_mode` / `manga_panel_count`(0=おまかせ) / `manga_layout` / `manga_dialogue` / `manga_text_language`(auto/ja/en) / `manga_sound_effects` / `manga_reading_direction`(rtl=日本式右上始まりが既定/ltr)）は `PromptExpanderSettings` JSON に保存。FE は V5 選択時だけ `POST /expand` に `manga_mode=true, manga:{...}` を載せ（Context の `mangaActive`）、BE は `MangaOptions` で `build_manga_system_prompt` に差し替えて JSON `{base_tags, panel_description, character_prompts[]}` を `parse_manga_json` で「タグ見出し + コマ説明文」に結合する（キャラモード OFF は character_prompts を無視）。漫画モードは拡張モード（日本語/タグ）に依存せず引用符内のセリフ・効果音以外は常に英語（日本語の説明文は V5 がナレーション枠として描画するため）。FE も漫画モード中は `positive_mode` を `tags` に固定して送る（`effectivePositiveMode`）。V4.5 で送ると `manga_requires_v5`(422)。生成時は `manga_mode` / `manga_panel_count` をエントリ列に残しバッジ・復元に使う（生成内容には影響しない）。

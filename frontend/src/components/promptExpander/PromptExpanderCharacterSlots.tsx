@@ -21,9 +21,13 @@ export default function PromptExpanderCharacterSlots() {
     updateCharacterSlot,
     removeCharacterSlot,
     settings,
+    expandingTarget,
+    characterMode,
   } = usePromptExpander();
 
   const atMax = characterSlots.length >= maxCharacterPrompts;
+  // キャラクターモードでの正プロンプト化中はスロットも結果で置き換わるため、編集を止める
+  const slotsBusy = expandingTarget === "positive" && characterMode;
 
   return (
     <div className="prompt-expander__slots">
@@ -39,7 +43,7 @@ export default function PromptExpanderCharacterSlots() {
             type="button"
             className="prompt-expander__btn prompt-expander__btn--sm"
             onClick={() => addCharacterSlot()}
-            disabled={atMax}
+            disabled={atMax || slotsBusy}
             title={
               atMax
                 ? t("promptExpander.composer.addSlotMax", {
@@ -81,9 +85,11 @@ export default function PromptExpanderCharacterSlots() {
             >
               <span className="prompt-expander__slot-index">{index + 1}</span>
               <textarea
-                className="prompt-expander__textarea prompt-expander__slot-textarea"
+                className={`prompt-expander__textarea prompt-expander__slot-textarea${slotsBusy ? " prompt-expander__textarea--busy" : ""}`}
                 value={slot}
                 rows={2}
+                readOnly={slotsBusy}
+                aria-busy={slotsBusy}
                 onChange={(e) => updateCharacterSlot(index, e.target.value)}
                 placeholder={t("promptExpander.composer.slotPlaceholder")}
                 aria-label={t("promptExpander.composer.slotLabel", {
@@ -95,6 +101,7 @@ export default function PromptExpanderCharacterSlots() {
                   index: index + 1,
                 })}
                 onClick={() => removeCharacterSlot(index)}
+                disabled={slotsBusy}
               />
             </li>
           ))}

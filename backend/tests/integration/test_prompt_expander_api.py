@@ -131,6 +131,18 @@ def test_settings_get_and_put(client: TestClient):
     assert res.status_code == 422
 
 
+def test_settings_restore_seed_roundtrip(client: TestClient):
+    res = client.get("/api/prompt-expander/settings")
+    assert res.json()["settings"]["restore_seed"] is False
+
+    res = client.put("/api/prompt-expander/settings", json={"restore_seed": True})
+    assert res.status_code == 200
+    assert res.json()["settings"]["restore_seed"] is True
+
+    res = client.get("/api/prompt-expander/settings")
+    assert res.json()["settings"]["restore_seed"] is True
+
+
 def test_session_entry_flow(client: TestClient, tmp_path: Path):
     res = client.post("/api/prompt-expander/sessions", json={"title": "テスト"})
     assert res.status_code == 201
@@ -180,6 +192,10 @@ def test_session_entry_flow(client: TestClient, tmp_path: Path):
     res = client.get(f"/api/prompt-expander/images/{entry['id']}")
     assert res.status_code == 200
     assert res.content == _png("purple")
+    # 右クリック保存で拡張子付きのファイル名になるよう inline のままファイル名を付ける
+    assert res.headers["content-disposition"] == (
+        f'inline; filename="{entry["id"]}.png"'
+    )
     assert client.get("/api/prompt-expander/images/missing").status_code == 404
 
     res = client.get(f"/api/prompt-expander/sessions/{session['id']}")
@@ -295,6 +311,27 @@ def test_expand_and_suggest(client: TestClient):
     assert res.json()["suggestions"] == [
         {"title": "銀髪", "prompt": "1girl, silver hair"}
     ]
+
+
+def test_suggest_characters_accepts_input_text_without_memory(client: TestClient):
+    pe.llm_service.generate_text.return_value = SimpleNamespace(
+        content='{"suggestions":[{"title":"店員","prompt":"1girl, waitress"}]}',
+        cost_usd=None,
+    )
+    res = client.post(
+        "/api/prompt-expander/suggest-characters",
+        json={
+            "text_model": "glm-4-6",
+            "image_model": "nai-diffusion-5-full",
+            "count": 1,
+            "input_text": "カフェで働く少女",
+        },
+    )
+    assert res.status_code == 200, res.text
+    assert res.json()["suggestions"] == [{"title": "店員", "prompt": "1girl, waitress"}]
+    system, user = pe.llm_service.generate_text.await_args.args[:2]
+    assert "カフェで働く少女" in user
+    assert "No preference memory is available" in system
 
 
 def test_expand_manga_mode_api(client: TestClient):

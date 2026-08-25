@@ -106,6 +106,7 @@ function settingsPayload() {
       i2i_strength: 0.7,
       i2i_noise: 0,
       seed: null,
+      restore_seed: false,
       memory_text: "",
       use_memory: true,
       confirm_before_generate: true,
@@ -197,6 +198,9 @@ async function mockPromptExpanderApis(page: Page) {
     entries: [entryPayload()] as PromptExpanderEntryPayload[],
     expandBodies: [] as Record<string, unknown>[],
     generateBodies: [] as Record<string, unknown>[],
+    suggestBodies: [] as Record<string, unknown>[],
+    // 設定 PUT の送信内容（部分更新）を順に記録する
+    settingsBodies: [] as Record<string, unknown>[],
     // PUT の部分更新を積み上げて保持する（複数回の設定変更をまたいで検証するため）
     settings: settingsPayload().settings as Record<string, unknown>,
   };
@@ -223,6 +227,7 @@ async function mockPromptExpanderApis(page: Page) {
       const payload = settingsPayload();
       if (route.request().method() === "PUT") {
         const patch = route.request().postDataJSON() as Record<string, unknown>;
+        state.settingsBodies.push(patch);
         state.settings = { ...state.settings, ...patch };
       }
       await route.fulfill({
@@ -318,6 +323,23 @@ async function mockPromptExpanderApis(page: Page) {
             body.expand_positive === false ? null : EXPANDED_PROMPT,
           character_prompts: null,
           negative_prompt: body.expand_negative ? EXPANDED_NEGATIVE : null,
+          text_model: "glm-4-6",
+        },
+      });
+    },
+  );
+  await page.route(
+    (url) => url.pathname === "/api/prompt-expander/suggest-characters",
+    async (route) => {
+      state.suggestBodies.push(
+        route.request().postDataJSON() as Record<string, unknown>,
+      );
+      await route.fulfill({
+        json: {
+          suggestions: [
+            { title: "銀髪の少女", prompt: "1girl, silver hair, blue eyes" },
+            { title: "金髪の少女", prompt: "1girl, blonde hair, green eyes" },
+          ],
           text_model: "glm-4-6",
         },
       });
@@ -557,7 +579,9 @@ test("expand with tags from the field toolbar, edit the inline result and genera
     negative_expand_mode: "off",
     image_model: "nai-diffusion-4-5-full",
   });
-  await expect(card).toBeHidden();
+  // 確認カードは生成後も残る（同じ内容で繰り返す・微調整して再生成できる）
+  await expect(card).toBeVisible();
+  await expect(basePrompt).toHaveValue(edited);
   // 「この内容で生成」は欄を書き換えない（指示のまま残る）
   await expect(positiveField(page)).toHaveValue(instruction);
 
@@ -882,9 +906,11 @@ test("settings open as a right side panel and remember the state", async ({
     .toBe("false");
 });
 
-test("restore fills the composer from an entry", async ({ page }) => {
+test("restore puts the original instruction back and rebuilds the expansion card", async ({
+  page,
+}) => {
   await enableFeatures(page, { experimentalPromptExpanderEnabled: true });
-  await mockPromptExpanderApis(page);
+  const state = await mockPromptExpanderApis(page);
   await openSession(page);
 
   const textarea = positiveField(page);
@@ -894,8 +920,230 @@ test("restore fills the composer from an entry", async ({ page }) => {
     .first()
     .getByRole("button", { name: "欄へ復元" })
     .click();
-  await expect(textarea).toHaveValue(ENTRY_FINAL_PROMPT);
+  // 拡張ありのエントリ: 原文が欄に戻り、変換結果は確認カードとして再現される
+  await expect(textarea).toHaveValue(ENTRY_INSTRUCTION);
   await expect(negativeField(page)).toHaveValue("lowres");
+  const card = page.getByRole("region", { name: "変換結果（プロンプト）" });
+  await expect(card).toBeVisible();
+  await expect(card.getByLabel("ベースプロンプト")).toHaveValue(
+    ENTRY_FINAL_PROMPT,
+  );
+  // 既定では seed は復元しない（設定の部分更新に seed を含めない）
+  await expect.poll(() => state.settingsBodies.length).toBeGreaterThan(0);
+  expect(state.settingsBodies.at(-1)).not.toHaveProperty("seed");
+
+  // 再現したカードからそのまま生成すると、原文と拡張モードのメタデータが付く
+  await card.getByRole("button", { name: "この内容で生成" }).click();
+  await expect.poll(() => state.generateBodies.length).toBe(1);
+  expect(state.generateBodies[0]).toMatchObject({
+    prompt: ENTRY_FINAL_PROMPT,
+    instruction: ENTRY_INSTRUCTION,
+    positive_expand_mode: "tags",
+  });
+  expect(state.generateBodies[0]).not.toHaveProperty("seed");
+});
+
+test("restore copies the seed only after turning the setting on", async ({
+  page,
+}) => {
+  await enableFeatures(page, { experimentalPromptExpanderEnabled: true });
+  const state = await mockPromptExpanderApis(page);
+  await openSession(page);
+
+  await page
+    .locator(".prompt-expander__header")
+    .getByRole("button", { name: "設定", exact: true })
+    .click();
+  const panel = page.getByRole("region", { name: "Prompt Expander 設定" });
+  const restoreSeedSwitch = panel.getByRole("checkbox", {
+    name: "「欄へ復元」でシードも復元する",
+  });
+  await expect(restoreSeedSwitch).not.toBeChecked();
+  await panel
+    .locator(".prompt-expander__switch", {
+      hasText: "「欄へ復元」でシードも復元する",
+    })
+    .click();
+  await expect(restoreSeedSwitch).toBeChecked();
+  await expect.poll(() => state.settings.restore_seed).toBe(true);
+
+  await page
+    .locator(".prompt-expander__entry-list > li")
+    .first()
+    .getByRole("button", { name: "欄へ復元" })
+    .click();
+  await expect.poll(() => state.settings.seed).toBe(12345);
+});
+
+test("regenerate posts the entry's prompt and settings without a seed", async ({
+  page,
+}) => {
+  await enableFeatures(page, { experimentalPromptExpanderEnabled: true });
+  const state = await mockPromptExpanderApis(page);
+  await openSession(page);
+
+  await page
+    .locator(".prompt-expander__entry-list > li")
+    .first()
+    .getByRole("button", { name: "このプロンプトで再生成" })
+    .click();
+  await expect.poll(() => state.generateBodies.length).toBe(1);
+  expect(state.generateBodies[0]).toMatchObject({
+    prompt: ENTRY_FINAL_PROMPT,
+    negative_prompt: "lowres",
+    instruction: ENTRY_INSTRUCTION,
+    positive_expand_mode: "tags",
+    image_model: "nai-diffusion-4-5-full",
+    image_size: "portrait",
+    source_kind: "none",
+  });
+  expect(state.generateBodies[0]).not.toHaveProperty("seed");
+  // 欄は変えず、生成したエントリが一覧の先頭に並ぶ
+  await expect(positiveField(page)).toHaveValue("");
+  await expect(page.locator(".prompt-expander__entry-list > li")).toHaveCount(
+    2,
+  );
+});
+
+test("entry filters narrow the list, drive the preview counter and persist", async ({
+  page,
+}) => {
+  await enableFeatures(page, { experimentalPromptExpanderEnabled: true });
+  const state = await mockPromptExpanderApis(page);
+  state.entries.push(
+    entryPayload({
+      id: "pe-entry-manga",
+      instruction: "漫画のエントリ",
+      final_prompt: "1girl, manga",
+      manga_mode: true,
+      manga_panel_count: 3,
+      image_model: "nai-diffusion-5-full",
+      image_url: "/prompt-expander/images/pe-entry-manga",
+    }),
+    entryPayload({
+      id: "pe-entry-upload",
+      kind: "uploaded",
+      instruction: "アップロードしたメモ",
+      positive_expand_mode: "off",
+      final_prompt: "",
+      image_url: "/prompt-expander/images/pe-entry-upload",
+    }),
+  );
+  await openSession(page);
+
+  const items = page.locator(".prompt-expander__entry-list > li");
+  const filters = page.getByRole("group", { name: "履歴の絞り込み" });
+  await expect(items).toHaveCount(3);
+  await expect(
+    filters.getByRole("button", { name: /^すべて/ }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await expect(filters.getByRole("button", { name: /^すべて/ })).toContainText(
+    "3",
+  );
+  await expect(filters.getByRole("button", { name: /^漫画/ })).toContainText(
+    "1",
+  );
+
+  // 漫画だけに絞ると 1 件になり、選択は localStorage に残る
+  await filters.getByRole("button", { name: /^漫画/ }).click();
+  await expect(items).toHaveCount(1);
+  await expect(items.first()).toContainText("漫画のエントリ");
+  await expect
+    .poll(() =>
+      page.evaluate(() => localStorage.getItem("prompt_expander_entry_filter")),
+    )
+    .toBe("manga");
+
+  // プレビューは絞り込み後の並びで「n / N」を出し、閉じるボタンは画面内に収まる
+  await items.first().getByRole("button", { name: "画像を拡大表示" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
+  await expect(dialog.locator(".image-preview-modal__position")).toHaveText(
+    "1 / 1",
+  );
+  const closeButton = dialog.getByRole("button", { name: "閉じる" });
+  const box = await closeButton.boundingBox();
+  const viewport = page.viewportSize();
+  expect(box).not.toBeNull();
+  expect(box?.y ?? -1).toBeGreaterThanOrEqual(0);
+  expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(
+    viewport?.width ?? 0,
+  );
+  await closeButton.click();
+  await expect(dialog).toBeHidden();
+  // 閉じた後も直前まで見ていたカードは強調されたまま
+  await expect(items.first()).toHaveClass(/prompt-expander__entry--previewed/);
+
+  await page.reload();
+  await expect(positiveField(page)).toBeVisible();
+  await expect(
+    page
+      .getByRole("group", { name: "履歴の絞り込み" })
+      .getByRole("button", { name: /^漫画/ }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await expect(items).toHaveCount(1);
+
+  // すべてに戻すと 3 件。前後移動でカウンタと強調カードが追従する
+  await page
+    .getByRole("group", { name: "履歴の絞り込み" })
+    .getByRole("button", { name: /^すべて/ })
+    .click();
+  await expect(items).toHaveCount(3);
+  await items.first().getByRole("button", { name: "画像を拡大表示" }).click();
+  await expect(dialog.locator(".image-preview-modal__position")).toHaveText(
+    "1 / 3",
+  );
+  await page.keyboard.press("ArrowLeft");
+  await expect(dialog.locator(".image-preview-modal__position")).toHaveText(
+    "2 / 3",
+  );
+  await expect(items.nth(1)).toHaveClass(/prompt-expander__entry--previewed/);
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  await expect(items.nth(1)).toHaveClass(/prompt-expander__entry--previewed/);
+});
+
+test("suggestions include the current input and stay after closing the modal", async ({
+  page,
+}) => {
+  await enableFeatures(page, { experimentalPromptExpanderEnabled: true });
+  const state = await mockPromptExpanderApis(page);
+  await openSession(page);
+
+  await positiveField(page).fill("カフェで働く少女");
+  await positiveToolbar(page).getByRole("button", { name: "✨ 提案" }).click();
+  const dialog = page.getByRole("dialog", {
+    name: "メモリから好みのキャラを提案",
+  });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "提案を取得" }).click();
+  await expect(dialog.locator(".prompt-expander__suggest-item")).toHaveCount(2);
+  // 入力欄の下書きも提案リクエストに載る
+  expect(state.suggestBodies[0]).toMatchObject({
+    input_text: "カフェで働く少女",
+    count: 3,
+  });
+
+  // 閉じて開き直しても提案は残り、再取得は走らない
+  await dialog
+    .locator(".prompt-expander__modal-footer")
+    .getByRole("button", { name: "閉じる" })
+    .click();
+  await expect(dialog).toBeHidden();
+  await positiveToolbar(page).getByRole("button", { name: "✨ 提案" }).click();
+  await expect(dialog).toBeVisible();
+  await expect(dialog.locator(".prompt-expander__suggest-item")).toHaveCount(2);
+  expect(state.suggestBodies).toHaveLength(1);
+
+  // キャラクターモード OFF なので挿入はプロンプト欄の末尾に追記される
+  await dialog
+    .locator(".prompt-expander__suggest-item")
+    .first()
+    .getByRole("button", { name: "挿入" })
+    .click();
+  await expect(positiveField(page)).toHaveValue(
+    "カフェで働く少女\n1girl, silver hair, blue eyes",
+  );
 });
 
 test("use in normal play preloads the welcome screen", async ({ page }) => {

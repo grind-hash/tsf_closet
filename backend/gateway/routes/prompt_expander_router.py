@@ -118,6 +118,7 @@ class PromptExpanderSettingsModel(BaseModel):
     i2i_strength: float
     i2i_noise: float
     seed: Optional[int] = None
+    restore_seed: bool = False
     memory_text: str = ""
     use_memory: bool = False
     confirm_before_generate: bool = True
@@ -163,6 +164,7 @@ class PromptExpanderSettingsUpdateRequest(BaseModel):
     i2i_noise: float | None = Field(None, ge=0.0, le=0.99)
     # seed は明示的に null を送ると解除（exclude_unset で未指定と区別する）
     seed: int | None = Field(None, ge=0, le=999999999)
+    restore_seed: bool | None = None
     memory_text: str | None = Field(None, max_length=PROMPT_EXPANDER_MEMORY_MAX_LEN)
     use_memory: bool | None = None
     confirm_before_generate: bool | None = None
@@ -369,6 +371,8 @@ class SuggestCharactersRequest(BaseModel):
         le=PROMPT_EXPANDER_SUGGESTION_COUNT_MAX,
     )
     language: Literal["ja", "en"] = "ja"
+    # 入力欄の下書き。メモリに加えて提案の方向付けに使う（任意）
+    input_text: str | None = Field(None, max_length=PROMPT_EXPANDER_INSTRUCTION_MAX_LEN)
 
 
 class CharacterSuggestion(BaseModel):
@@ -693,7 +697,14 @@ async def get_entry_image(entry_id: str):
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"code": "image_not_found", "message": "画像が見つかりません"},
         )
-    return FileResponse(path, media_type="image/png")
+    # 右クリック保存時に UUID だけの拡張子なしファイル名にならないよう、
+    # inline のままファイル名を付ける
+    return FileResponse(
+        path,
+        media_type="image/png",
+        filename=f"{entry_id}.png",
+        content_disposition_type="inline",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -748,6 +759,7 @@ async def suggest_characters(body: SuggestCharactersRequest):
             mode=body.mode,
             count=body.count,
             language=body.language,
+            input_text=body.input_text,
             user_id=DEFAULT_USER_ID,
         )
     except PromptExpanderError as exc:
