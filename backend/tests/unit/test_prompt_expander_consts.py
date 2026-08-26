@@ -76,3 +76,53 @@ def test_manga_constants_and_helpers():
     assert normalize_manga_panel_count(-1) == PROMPT_EXPANDER_MANGA_PANEL_COUNT_AUTO
     assert normalize_manga_panel_count(3) == 3
     assert normalize_manga_panel_count(99) == PROMPT_EXPANDER_MANGA_PANEL_COUNT_MAX
+
+
+def test_precise_reference_and_transparency_helpers():
+    from gateway.consts.prompt_expander import (
+        DEFAULT_PROMPT_EXPANDER_REFERENCE_TYPE,
+        PROMPT_EXPANDER_ANLAS_PER_REFERENCE,
+        PROMPT_EXPANDER_REFERENCE_TYPES,
+        TRANSPARENT_BACKGROUND_NEGATIVE_TAGS,
+        TRANSPARENT_BACKGROUND_TAGS_V5,
+        TRANSPARENT_BACKGROUND_TAGS_V45,
+        normalize_reference_type,
+        supports_precise_reference,
+        transparent_background_tags,
+    )
+
+    # 精密参照は V4.5 系だけ（V5 は API 非対応、未知名・None も不可）
+    assert supports_precise_reference("nai-diffusion-4-5-full")
+    assert supports_precise_reference("nai-diffusion-4-5-curated")
+    assert not supports_precise_reference("nai-diffusion-5-full")
+    assert not supports_precise_reference("nai-diffusion-5-curated")
+    assert not supports_precise_reference(None)
+    assert not supports_precise_reference("nai-diffusion-3")
+    assert PROMPT_EXPANDER_REFERENCE_TYPES == ("character", "style", "character&style")
+    assert normalize_reference_type("style") == "style"
+    assert normalize_reference_type("vibe") == DEFAULT_PROMPT_EXPANDER_REFERENCE_TYPE
+    assert normalize_reference_type(None) == "character"
+    assert PROMPT_EXPANDER_ANLAS_PER_REFERENCE == 5
+
+    # 背景透過タグは世代で分岐し、negative は複数人を禁じる語を含まない
+    assert (
+        transparent_background_tags("nai-diffusion-5-full")
+        == TRANSPARENT_BACKGROUND_TAGS_V5
+    )
+    assert transparent_background_tags("nai-diffusion-5-curated") == (
+        "transparent background",
+        "no shadow",
+    )
+    assert (
+        transparent_background_tags("nai-diffusion-4-5-full")
+        == TRANSPARENT_BACKGROUND_TAGS_V45
+    )
+    assert "white background" in transparent_background_tags(
+        "nai-diffusion-4-5-curated"
+    )
+    assert "transparent background" not in transparent_background_tags(None)
+    assert "multiple views" in TRANSPARENT_BACKGROUND_NEGATIVE_TAGS
+    assert not any(
+        "girls" in tag or "people" in tag
+        for tag in TRANSPARENT_BACKGROUND_NEGATIVE_TAGS
+    )

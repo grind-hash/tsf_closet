@@ -296,3 +296,50 @@
 .prompt-expander-preview .prompt-expander__preview-caption {
   max-width: none;
 }
+
+/* 背景透過エントリ: 切り抜き結果が分かるようチェッカーボードを敷き、切り抜き中はスピナーを重ねる */
+.prompt-expander__entry-image-btn--transparent {
+  position: relative;
+}
+
+.prompt-expander__entry-image-btn--transparent .prompt-expander__entry-image,
+.prompt-expander-preview--transparent .image-preview-modal__image {
+  background-color: #cfcfd6;
+  background-image:
+    linear-gradient(45deg, #9a9aa6 25%, transparent 25%),
+    linear-gradient(-45deg, #9a9aa6 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #9a9aa6 75%),
+    linear-gradient(-45deg, transparent 75%, #9a9aa6 75%);
+  background-size: 12px 12px;
+  background-position:
+    0 0,
+    0 6px,
+    6px -6px,
+    -6px 0;
+}
+
+.prompt-expander__entry-image-btn--transparent .prompt-expander__entry-image {
+  object-fit: contain;
+}
+
+.prompt-expander__entry-image-processing {
+  --pe-progress-color: #fff;
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+}
+
+/* 「透過PNGを保存」はダウンロード用の <a> なのでボタンと同じ見た目にする */
+a.prompt-expander__btn {
+  text-decoration: none;
+}
+
+a.prompt-expander__btn.is-disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}

@@ -1618,6 +1618,7 @@ const resources = {
           sectionPrompt: "プロンプト／指示",
           sectionCharacters: "キャラクタープロンプト",
           sectionI2i: "i2i設定",
+          sectionReference: "精密参照（V4.5 系のみ）",
           mangaToggle: "漫画モード",
           mangaSummaryOff: "OFF",
           mangaSummaryUnsupported: "V5 専用（現在のモデルでは無効）",
@@ -1756,6 +1757,40 @@ const resources = {
           i2iNoise: "ノイズ",
           i2iDisabledReason:
             "生成元画像を選ぶと i2i 強度とノイズを調整できます。",
+          transparentToggle: "画像の背景を透過",
+          transparentSummary: "透過",
+          transparentHintV5:
+            "V5 系: プロンプトに transparent background を付けて透過 PNG を生成します。「LLMでプロンプト化」でも背景を描写しない指示を加えます。",
+          transparentHintV45:
+            "V4.5 系: 白背景で生成し、この画面で背景を切り抜いて表示します。サーバーに保存される PNG は白背景のままなので、透過画像はエントリの「透過PNGを保存」から保存してください。",
+          transparentHintManga:
+            "漫画モード中は背景透過は無効です（コマ枠ごと切り抜くことはできないため）。",
+          referenceToggle: "精密参照を使う",
+          referenceSummaryOff: "OFF",
+          referenceSummaryUnsupported: "V4.5 専用（現在のモデルでは無効）",
+          referenceSummaryNoImage: "参照画像なし",
+          referenceSummaryOn:
+            "{{type}} · 強度 {{strength}} · 忠実度 {{fidelity}} · +{{cost}} Anlas",
+          referenceRequiresV45:
+            "精密参照画像（NovelAI character reference）は NAI Diffusion V4.5 系モデル専用です。V5 系では設定は保持されますが、生成には使われません。",
+          referenceHint:
+            "参照画像の人物の顔立ち・体型を固定して生成します。i2i 元とは別に選べるので、参照だけを指定して text-to-image で立ち絵差分（別ポーズ・別衣装）を作れます。",
+          referenceNoImage: "参照画像を選ぶと有効になります。",
+          referenceNone: "参照画像なし",
+          referenceClear: "解除",
+          referenceCostHint:
+            "参照 1 枚あたり +{{cost}} Anlas を追加消費します（無料枠サイズでも消費します）。",
+          referenceCostBadge: "+{{cost}} Anlas",
+          referenceTypeLabel: "参照の種類",
+          referenceType: {
+            character: "キャラクター",
+            style: "画風",
+            characterStyle: "キャラクター＋画風",
+          },
+          referenceStrength: "参照強度",
+          referenceFidelity: "忠実度",
+          referenceDisabledReason:
+            "参照画像を選ぶと参照強度と忠実度を調整できます。",
           generate: "生成",
           expanding: "プロンプト化中…",
           expandingHint:
@@ -1800,6 +1835,14 @@ const resources = {
           badgeUploaded: "アップロード",
           mangaBadge: "漫画",
           mangaBadgeCount: "漫画 {{count}}コマ",
+          referenceBadge: "精密参照",
+          transparentBadge: "透過",
+          useAsReference: "参照にする",
+          downloadTransparent: "透過PNGを保存",
+          transparentProcessing: "背景を切り抜いています…",
+          referenceDetail: "精密参照",
+          referenceDetailValue:
+            "{{type}} · 強度 {{strength}} · 忠実度 {{fidelity}}",
           restore: "欄へ復元",
           regenerate: "このプロンプトで再生成",
           regenerateTitle:
@@ -1845,8 +1888,11 @@ const resources = {
           preview: "プレビュー",
           keepAsEntry: "履歴に残す",
           useAsSource: "i2i元として使う",
+          useAsReference: "精密参照に使う",
           atLeastOne:
             "「履歴に残す」「i2i元として使う」のどちらかを ON にしてください。",
+          atLeastOneReference:
+            "「履歴に残す」「精密参照に使う」のどちらかを ON にしてください。",
           note: "メモ（任意）",
           notePlaceholder: "この画像の説明",
           confirm: "決定",
@@ -1878,6 +1924,7 @@ const resources = {
           tabEntries: "Prompt Expander",
           tabPlay: "プレイセッション",
           playTitle: "プレイセッションから選ぶ",
+          titleReference: "参照画像を選ぶ",
           empty: "エントリがありません。",
           loading: "読み込み中…",
           loadMore: "もっと見る",
@@ -1885,6 +1932,10 @@ const resources = {
           noHistory: "このセッションには画像履歴がありません。",
           playLabelFallback: "プレイ履歴",
           close: "閉じる",
+        },
+        reference: {
+          anlasBody:
+            "精密参照画像の使用により、参照 1 枚あたり {{cost}} Anlas を追加消費します。続行しますか？",
         },
         errors: {
           emptyPrompt: "プロンプト／指示を入力してください。",
@@ -3506,6 +3557,7 @@ const resources = {
           sectionManga: "Comic (panels)",
           sectionCharacters: "Character prompts",
           sectionI2i: "i2i settings",
+          sectionReference: "Precise reference (V4.5 only)",
           mangaToggle: "Comic mode",
           mangaSummaryOff: "Off",
           mangaSummaryUnsupported: "V5 only (inactive with this model)",
@@ -3644,6 +3696,40 @@ const resources = {
           i2iNoise: "Noise",
           i2iDisabledReason:
             "Select a source image to adjust i2i strength and noise.",
+          transparentToggle: "Transparent background",
+          transparentSummary: "transparent",
+          transparentHintV5:
+            'V5: adds "transparent background" to the prompt so NovelAI returns a transparent PNG. LLM conversion is also told not to describe any background.',
+          transparentHintV45:
+            'V4.5: generates on a white background and cuts it out in this screen. The PNG stored on the server keeps the white background, so save the transparent image with "Save transparent PNG" on the entry.',
+          transparentHintManga:
+            "Transparent background is inactive in comic mode (the panel frames cannot be cut out).",
+          referenceToggle: "Use precise reference",
+          referenceSummaryOff: "Off",
+          referenceSummaryUnsupported: "V4.5 only (inactive with this model)",
+          referenceSummaryNoImage: "no reference image",
+          referenceSummaryOn:
+            "{{type}} · strength {{strength}} · fidelity {{fidelity}} · +{{cost}} Anlas",
+          referenceRequiresV45:
+            "Precise reference images (NovelAI character reference) work only with NAI Diffusion V4.5 models. With V5 the settings are kept but not used for generation.",
+          referenceHint:
+            "Locks the face and body of the person in the reference image. It is independent of the i2i source, so you can set only a reference and generate standing-picture variants (new pose / outfit) with text-to-image.",
+          referenceNoImage: "Select a reference image to enable it.",
+          referenceNone: "No reference image",
+          referenceClear: "Clear",
+          referenceCostHint:
+            "Each reference image costs an extra {{cost}} Anlas (even at free-tier sizes).",
+          referenceCostBadge: "+{{cost}} Anlas",
+          referenceTypeLabel: "Reference type",
+          referenceType: {
+            character: "Character",
+            style: "Style",
+            characterStyle: "Character + style",
+          },
+          referenceStrength: "Reference strength",
+          referenceFidelity: "Fidelity",
+          referenceDisabledReason:
+            "Select a reference image to adjust strength and fidelity.",
           generate: "Generate",
           expanding: "Converting…",
           expandingHint:
@@ -3688,6 +3774,14 @@ const resources = {
           badgeUploaded: "Uploaded",
           mangaBadge: "Comic",
           mangaBadgeCount: "Comic {{count}} panels",
+          referenceBadge: "Precise ref",
+          transparentBadge: "Transparent",
+          useAsReference: "Use as reference",
+          downloadTransparent: "Save transparent PNG",
+          transparentProcessing: "Cutting out the background…",
+          referenceDetail: "Precise reference",
+          referenceDetailValue:
+            "{{type}} · strength {{strength}} · fidelity {{fidelity}}",
           restore: "Restore to fields",
           regenerate: "Regenerate with this prompt",
           regenerateTitle:
@@ -3732,8 +3826,11 @@ const resources = {
           preview: "Preview",
           keepAsEntry: "Keep in history",
           useAsSource: "Use as i2i source",
+          useAsReference: "Use as precise reference",
           atLeastOne:
             'Turn on at least one of "Keep in history" or "Use as i2i source".',
+          atLeastOneReference:
+            'Turn on at least one of "Keep in history" or "Use as precise reference".',
           note: "Note (optional)",
           notePlaceholder: "Description of this image",
           confirm: "OK",
@@ -3765,6 +3862,7 @@ const resources = {
           tabEntries: "Prompt Expander",
           tabPlay: "Play sessions",
           playTitle: "Choose from play sessions",
+          titleReference: "Choose a reference image",
           empty: "No entries.",
           loading: "Loading…",
           loadMore: "Load more",
@@ -3772,6 +3870,10 @@ const resources = {
           noHistory: "This session has no image history.",
           playLabelFallback: "Play history",
           close: "Close",
+        },
+        reference: {
+          anlasBody:
+            "Using a precise reference image costs an extra {{cost}} Anlas per reference. Continue?",
         },
         errors: {
           emptyPrompt: "Enter a prompt / instruction.",

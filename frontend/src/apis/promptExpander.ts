@@ -10,6 +10,7 @@ import type {
   PromptExpanderMangaLayout,
   PromptExpanderMangaReadingDirection,
   PromptExpanderMangaTextLanguage,
+  PromptExpanderReferenceType,
   PromptExpanderSourceKind,
   PromptExpandMode,
 } from "../constants/promptExpander";
@@ -45,6 +46,13 @@ export interface PromptExpanderSettings {
   manga_reading_direction: PromptExpanderMangaReadingDirection;
   /** 【】が無くても LLM がナレーション枠を足してよいか（記法で書いたものは常に描く） */
   manga_narration: boolean;
+  /** 精密参照（V4.5 系のみ）の UI トグル。参照画像そのものはセッション内状態 */
+  use_precise_reference: boolean;
+  reference_type: PromptExpanderReferenceType;
+  reference_strength: number;
+  reference_fidelity: number;
+  /** 背景透過（V5 はプロンプト指示、V4.5 は白背景生成 + フロント切り抜き） */
+  transparent_background: boolean;
 }
 
 export type PromptExpanderSettingsPatch = Partial<PromptExpanderSettings>;
@@ -72,6 +80,9 @@ export interface PromptExpanderSettingsResponse {
   max_character_prompts: Record<string, number>;
   image_sizes: PromptExpanderImageSize[];
   novelai_configured: boolean;
+  reference_types?: string[];
+  /** 精密参照 1 枚あたりの Anlas 消費 */
+  anlas_per_reference?: number;
 }
 
 export interface PromptExpanderSession {
@@ -109,6 +120,15 @@ export interface PromptExpanderEntry {
   source_kind: PromptExpanderSourceKind;
   source_history_id: string | null;
   source_entry_id: string | null;
+  /** 背景透過で生成したか（V4.5 は表示時に切り抜く。保存 PNG は白背景のまま） */
+  transparent_background: boolean;
+  /** 精密参照の参照元（"none" 以外なら参照付きで生成した） */
+  reference_kind: PromptExpanderSourceKind;
+  reference_history_id: string | null;
+  reference_entry_id: string | null;
+  reference_type: PromptExpanderReferenceType | null;
+  reference_strength: number | null;
+  reference_fidelity: number | null;
   /** "/prompt-expander/images/{id}" 形式。表示時は promptExpanderImageUrl で API_BASE を付ける */
   image_url: string;
   nsfw: boolean | null;
@@ -148,6 +168,8 @@ export interface PromptExpandRequest {
   current_negative?: string;
   manga_mode?: boolean;
   manga?: PromptExpanderMangaOptions;
+  /** 背景透過 ON: 背景・情景を描写しない規則を LLM に足す */
+  transparent_background?: boolean;
 }
 
 export interface PromptExpandResponse {
@@ -178,6 +200,16 @@ export interface PromptExpanderGenerateRequest {
   source_image?: string;
   manga_mode?: boolean;
   manga_panel_count?: number | null;
+  /** 精密参照（V4.5 系のみ）。"none" 以外のときに対応する ID / 画像が必要 */
+  reference_kind?: PromptExpanderSourceKind;
+  reference_history_id?: string;
+  reference_entry_id?: string;
+  /** reference_kind="upload" のときに必須（base64 または data URL） */
+  reference_image?: string;
+  reference_type?: PromptExpanderReferenceType;
+  reference_strength?: number;
+  reference_fidelity?: number;
+  transparent_background?: boolean;
 }
 
 interface AnlasPayload {

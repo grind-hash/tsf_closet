@@ -39,6 +39,9 @@ from ..consts.prompt_expander import (
     DEFAULT_PROMPT_EXPANDER_MANGA_LAYOUT,
     DEFAULT_PROMPT_EXPANDER_MANGA_READING_DIRECTION,
     DEFAULT_PROMPT_EXPANDER_MANGA_TEXT_LANGUAGE,
+    DEFAULT_PROMPT_EXPANDER_REFERENCE_FIDELITY,
+    DEFAULT_PROMPT_EXPANDER_REFERENCE_STRENGTH,
+    DEFAULT_PROMPT_EXPANDER_REFERENCE_TYPE,
     PROMPT_EXPANDER_IMAGE_SIZES,
     PROMPT_EXPANDER_MANGA_LAYOUTS,
     PROMPT_EXPANDER_MANGA_PANEL_COUNT_AUTO,
@@ -46,10 +49,14 @@ from ..consts.prompt_expander import (
     PROMPT_EXPANDER_MANGA_TEXT_LANGUAGES,
     PROMPT_EXPANDER_MEMORY_MAX_LEN,
     PROMPT_EXPANDER_TITLE_MAX_LEN,
+    TRANSPARENT_BACKGROUND_NEGATIVE_TAGS,
     is_prompt_expander_image_model,
     max_character_prompts,
     normalize_manga_panel_count,
+    normalize_reference_type,
     supports_manga_mode,
+    supports_precise_reference,
+    transparent_background_tags,
 )
 from ..databases.base import async_session_factory
 from ..databases.models import PromptExpanderEntry, PromptExpanderSession, User
@@ -126,6 +133,22 @@ class PromptExpanderSettings(BaseModel):
     manga_reading_direction: str = DEFAULT_PROMPT_EXPANDER_MANGA_READING_DIRECTION
     # 【】が無くても LLM がナレーション枠を足してよいか（記法で書いたものは常に描く）
     manga_narration: bool = False
+    # 精密参照（V4.5 系のみ）。参照画像自体はセッション内状態で、設定には保存しない
+    use_precise_reference: bool = False
+    reference_type: str = DEFAULT_PROMPT_EXPANDER_REFERENCE_TYPE
+    reference_strength: float = Field(
+        DEFAULT_PROMPT_EXPANDER_REFERENCE_STRENGTH, ge=0.0, le=1.0
+    )
+    reference_fidelity: float = Field(
+        DEFAULT_PROMPT_EXPANDER_REFERENCE_FIDELITY, ge=0.0, le=1.0
+    )
+    # 背景透過（V5 はプロンプト指示、V4.5 は白背景生成 + フロント切り抜き）
+    transparent_background: bool = False
+
+    @field_validator("reference_type", mode="before")
+    @classmethod
+    def _coerce_reference_type(cls, value: object) -> str:
+        return normalize_reference_type(value)
 
     @field_validator("manga_reading_direction", mode="before")
     @classmethod
@@ -311,6 +334,31 @@ def _write_png(path: Path, data: bytes) -> None:
     path.write_bytes(data)
 
 
+def _split_tags(text: str) -> list[str]:
+    return [item.strip() for item in text.split(",") if item.strip()]
+
+
+def merge_tags(prompt: str, tags: Sequence[str]) -> str:
+    """カンマ区切りプロンプトの末尾へタグを足す。既にあるタグは重複させない（冪等）。"""
+    existing = {item.lower() for item in _split_tags(prompt)}
+    missing = [tag for tag in tags if tag.lower() not in existing]
+    if not missing:
+        return prompt
+    base = prompt.strip().rstrip(",").rstrip()
+    joined = ", ".join(missing)
+    return f"{base}, {joined}" if base else joined
+
+
+def apply_transparent_background(
+    prompt: str, negative: str, image_model: str | None
+) -> tuple[str, str]:
+    """背景透過用のタグを送信用プロンプトへ足す（エントリの保存値には足さない）。"""
+    return (
+        merge_tags(prompt, transparent_background_tags(image_model)),
+        merge_tags(negative, TRANSPARENT_BACKGROUND_NEGATIVE_TAGS),
+    )
+
+
 # ---------------------------------------------------------------------------
 # ビュー変換
 # ---------------------------------------------------------------------------
@@ -365,6 +413,13 @@ def entry_to_dict(entry: PromptExpanderEntry) -> dict[str, Any]:
         "source_kind": entry.source_kind or "none",
         "source_history_id": entry.source_history_id,
         "source_entry_id": entry.source_entry_id,
+        "transparent_background": bool(entry.transparent_background),
+        "reference_kind": entry.reference_kind or "none",
+        "reference_history_id": entry.reference_history_id,
+        "reference_entry_id": entry.reference_entry_id,
+        "reference_type": entry.reference_type,
+        "reference_strength": entry.reference_strength,
+        "reference_fidelity": entry.reference_fidelity,
         "image_url": f"/prompt-expander/images/{entry.id}",
         "nsfw": entry_nsfw(entry),
         "created_at": _to_iso(entry.created_at),
@@ -635,6 +690,8 @@ class PromptExpanderService:
             final_negative_prompt="",
             character_prompts_json="[]",
             source_kind="none",
+            transparent_background=False,
+            reference_kind="none",
             image_path=entry_image_relpath(session_id, entry_id),
             created_at=datetime.now(),
         )
@@ -790,6 +847,8 @@ class ExpandParams:
     current_negative: Optional[str] = None
     # 漫画モード（None なら通常拡張）
     manga: Optional[MangaOptions] = None
+    # 背景透過 ON のとき、背景・情景を書かせない規則を system prompt に足す（漫画モードでは無視）
+    transparent_background: bool = False
 
 
 @dataclass
@@ -910,6 +969,9 @@ async def expand_prompts(
             language=params.language,
             manga=params.manga,
             manga_notation=notation,
+            transparent_background=(
+                params.transparent_background and params.manga is None
+            ),
         )
         user_prompt = build_positive_user_prompt(
             instruction=instruction,
@@ -1110,6 +1172,16 @@ class GenerateParams:
     # 漫画モードで拡張したプロンプトかどうか（エントリのバッジ・復元用。生成には影響しない）
     manga_mode: bool = False
     manga_panel_count: Optional[int] = None
+    # 精密参照（character reference）。V4.5 系のみ。reference_kind != "none" が唯一の有効判定
+    reference_kind: str = "none"
+    reference_history_id: Optional[str] = None
+    reference_entry_id: Optional[str] = None
+    reference_image: Optional[str] = None
+    reference_type: str = DEFAULT_PROMPT_EXPANDER_REFERENCE_TYPE
+    reference_strength: float = DEFAULT_PROMPT_EXPANDER_REFERENCE_STRENGTH
+    reference_fidelity: float = DEFAULT_PROMPT_EXPANDER_REFERENCE_FIDELITY
+    # 背景透過（接尾辞は保存せず、送信時に image_model から導出して付与する）
+    transparent_background: bool = False
 
 
 @dataclass
@@ -1147,6 +1219,13 @@ async def generate_entry(
             "too_many_characters",
             f"このモデルで指定できるキャラクタープロンプトは最大{limit}件です",
         )
+    # 精密参照は V5 系で API 非対応。料金と結果に影響するので黙って落とさず拒否する
+    reference_requested = params.reference_kind != "none"
+    if reference_requested and not supports_precise_reference(params.image_model):
+        raise PromptExpanderError(
+            "precise_reference_requires_v45",
+            "精密参照画像は NAI Diffusion V4.5 系モデルでのみ使えます",
+        )
 
     async with async_session_factory() as db:
         await PromptExpanderService.get_session(
@@ -1160,6 +1239,20 @@ async def generate_entry(
             source_image=params.source_image,
             user_id=user_id,
             load_image=True,
+        )
+        # 参照画像は i2i 元と同じ解決経路（history / entry / upload）で bytes にする
+        reference = (
+            await resolve_source(
+                db,
+                source_kind=params.reference_kind,
+                source_history_id=params.reference_history_id,
+                source_entry_id=params.reference_entry_id,
+                source_image=params.reference_image,
+                user_id=user_id,
+                load_image=True,
+            )
+            if reference_requested
+            else SourceResolution()
         )
 
     characters_payload: list[dict[str, Any]] | None = None
@@ -1176,12 +1269,34 @@ async def generate_entry(
 
     nsfw = _image_model_nsfw(params.image_model)
     negative = " ".join(params.negative_prompt.split()).strip()
+    # 漫画モードは V5 系モデル専用なので、それ以外では印を残さない
+    manga_mode = bool(params.manga_mode) and supports_manga_mode(params.image_model)
+    # 背景透過はコマ枠を切り抜けないため漫画モードとは両立しない。
+    # タグは送信用にだけ足し、エントリにはユーザー入力のまま保存する
+    transparent = bool(params.transparent_background) and not manga_mode
+    send_prompt, send_negative = (
+        apply_transparent_background(prompt, negative, params.image_model)
+        if transparent
+        else (prompt, negative)
+    )
+    has_reference = reference.image_bytes is not None
+    reference_type = normalize_reference_type(params.reference_type)
+    character_references: list[dict[str, Any]] | None = None
+    if has_reference:
+        character_references = [
+            {
+                "image": reference.image_bytes,
+                "type": reference_type,
+                "strength": params.reference_strength,
+                "fidelity": params.reference_fidelity,
+            }
+        ]
     try:
         result = await image_service.generate_image(
-            prompt,
+            send_prompt,
             image_bytes=source.image_bytes,
             provider_override="novelai",
-            negative_prompt=negative,
+            negative_prompt=send_negative,
             i2i_strength_override=params.i2i_strength,
             i2i_noise_override=params.i2i_noise,
             nsfw_mode=nsfw,
@@ -1190,6 +1305,7 @@ async def generate_entry(
             size_override=params.image_size,
             novelai_model_override=params.image_model,
             raw_prompt=True,
+            character_references=character_references,
         )
     except PromptExpanderError:
         raise
@@ -1201,8 +1317,6 @@ async def generate_entry(
     if not result.images:
         raise PromptExpanderError("image_failed", "画像が返されませんでした")
 
-    # 漫画モードは V5 系モデル専用なので、それ以外では印を残さない
-    manga_mode = bool(params.manga_mode) and supports_manga_mode(params.image_model)
     entry_id = str(uuid.uuid4())
     async with async_session_factory() as db:
         session = await PromptExpanderService.get_session(
@@ -1242,6 +1356,21 @@ async def generate_entry(
             source_entry_id=(
                 params.source_entry_id if params.source_kind == "entry" else None
             ),
+            transparent_background=transparent,
+            reference_kind=params.reference_kind if has_reference else "none",
+            reference_history_id=(
+                params.reference_history_id
+                if has_reference and params.reference_kind == "history"
+                else None
+            ),
+            reference_entry_id=(
+                params.reference_entry_id
+                if has_reference and params.reference_kind == "entry"
+                else None
+            ),
+            reference_type=reference_type if has_reference else None,
+            reference_strength=params.reference_strength if has_reference else None,
+            reference_fidelity=params.reference_fidelity if has_reference else None,
             image_path=entry_image_relpath(session_id, entry_id),
             created_at=datetime.now(),
         )

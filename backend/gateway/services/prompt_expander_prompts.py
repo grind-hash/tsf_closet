@@ -211,6 +211,27 @@ JAPANESE_TAG_GLOSSARY_RULE = (
     '"shorts" only for outerwear explicitly described as such (denim shorts, gym shorts, etc.).'
 )
 
+# 背景透過モード（Prompt Expander の「画像の背景を透過」ON）。本体の「背景を保持する」規則より
+# 優先させ、背景・情景を一切書かせない。背景タグ自体は生成時にサーバーが足すので LLM には書かせない。
+TRANSPARENT_BACKGROUND_RULE_TAGS = (
+    "\n- Transparent background mode is ON: the background will be made transparent "
+    "after generation. This overrides every rule above about preserving or keeping the "
+    "current location or background. Do not output any location, scenery, floor, sky, "
+    "furniture, or background tags, and do not put them in base_prompt. Describe only the "
+    "subject(s): identity, body, clothing, pose, expression, camera framing, and the "
+    'lighting on the figure. Do not add background tags such as "simple background" or '
+    '"white background" yourself; the server appends them.'
+)
+TRANSPARENT_BACKGROUND_RULE_JA = (
+    "\n- Transparent background mode is ON: the background will be made transparent "
+    "after generation. This overrides every rule above about preserving or keeping the "
+    "current location or background. Do not mention any location, scenery, room, floor, "
+    "sky, furniture, or surroundings in the prose, and do not put them in base_prompt. "
+    "Describe only the subject(s): identity, body, clothing, pose, expression, camera "
+    "framing, and the lighting on the figure. Do not write background wording yourself; "
+    "the server appends the background instruction."
+)
+
 CHARACTER_SYSTEM_PROMPT_TAGS_TEMPLATE = """You are a NovelAI image generation prompt expert for TSF and outfit-change scenarios.
 Convert the user's Japanese or English instruction into separate NovelAI V4 base and character prompts.
 
@@ -775,11 +796,13 @@ def build_positive_system_prompt(
     language: str = "ja",
     manga: MangaOptions | None = None,
     manga_notation: MangaNotation | None = None,
+    transparent_background: bool = False,
 ) -> str:
     """正プロンプト拡張の system プロンプトを組み立てる。
 
     構成は移植元と同じく「本体 → 成人向けルール → メモリ節（最優先指示）」。
     manga を渡すと漫画モード（コマ割り・吹き出し）の本体に差し替える。
+    transparent_background は本体直後に背景を書かせない規則を足す（漫画モードでは無視）。
     """
     if manga is not None:
         # 漫画モードは拡張モードに依存しない（引用符内以外は常に英語）
@@ -800,6 +823,12 @@ def build_positive_system_prompt(
             CHARACTER_SYSTEM_PROMPT_TAGS_TEMPLATE.format(max_characters=max_characters)
             if character_mode
             else BASE_SYSTEM_PROMPT_TAGS
+        )
+    if manga is None and transparent_background:
+        base += (
+            TRANSPARENT_BACKGROUND_RULE_JA
+            if mode == "japanese"
+            else TRANSPARENT_BACKGROUND_RULE_TAGS
         )
     if manga is not None or mode == "tags":
         base += JAPANESE_TAG_GLOSSARY_RULE

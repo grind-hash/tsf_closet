@@ -14,6 +14,10 @@ const EXPANDED_PROMPT = "1girl, silver hair, red dress, walking, city street";
 const EXPANDED_NEGATIVE = "lowres, bad anatomy, blurry";
 // ギャラリー画像は API 相対パスで返る（表示側で /api を付ける）
 const GALLERY_IMAGE = "/mock-scene.png";
+// 64x64: ほぼ白 (252,251,250) の背景に赤い 20x20 の正方形。背景切り抜きの対象になる
+// （adventure-portrait-alpha.spec.ts と同じ画像）
+const WHITE_BG_PNG_BASE64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAmUlEQVR4nO3ZsQ3CQBQE0bkR7ZBRAYW7Amd0gx3Qgy84jczL92ulDf84jy9lEidxEidxEidxEidxEidxEidxEidxEidxEidxEidxEidxEveYP7E/35ezr8929wUkTuIkTuIkTuIkTuIkTuIkTuIkTuIkTuIkTuLG/1O/mMRJnMRJnMRJnMRJnMRJnMRJnMRJnMRJnMRJnMS5usCsH/HgCWNvKE7YAAAAAElFTkSuQmCC";
 
 type PromptExpanderSessionPayload = {
   id: string;
@@ -46,6 +50,13 @@ type PromptExpanderEntryPayload = {
   source_kind: "none" | "history" | "entry" | "upload";
   source_history_id: string | null;
   source_entry_id: string | null;
+  transparent_background: boolean;
+  reference_kind: "none" | "history" | "entry" | "upload";
+  reference_history_id: string | null;
+  reference_entry_id: string | null;
+  reference_type: "character" | "style" | "character&style" | null;
+  reference_strength: number | null;
+  reference_fidelity: number | null;
   image_url: string;
   nsfw: boolean | null;
   created_at: string;
@@ -90,6 +101,13 @@ function entryPayload(
     source_kind: "none",
     source_history_id: null,
     source_entry_id: null,
+    transparent_background: false,
+    reference_kind: "none",
+    reference_history_id: null,
+    reference_entry_id: null,
+    reference_type: null,
+    reference_strength: null,
+    reference_fidelity: null,
     image_url: `/prompt-expander/images/${ENTRY_ID}`,
     nsfw: false,
     created_at: "2026-08-01T00:00:00",
@@ -119,6 +137,11 @@ function settingsPayload() {
       manga_sound_effects: true,
       manga_reading_direction: "rtl",
       manga_narration: false,
+      use_precise_reference: false,
+      reference_type: "character",
+      reference_strength: 0.85,
+      reference_fidelity: 1,
+      transparent_background: false,
     },
     text_model_options: [
       { id: "glm-4-6", label: "GLM 4.6" },
@@ -138,6 +161,8 @@ function settingsPayload() {
     },
     image_sizes: ["portrait", "landscape", "square"],
     novelai_configured: true,
+    reference_types: ["character", "style", "character&style"],
+    anlas_per_reference: 5,
   };
 }
 
@@ -288,6 +313,13 @@ async function mockPromptExpanderApis(page: Page) {
         image_model?: string;
         manga_mode?: boolean;
         manga_panel_count?: number | null;
+        transparent_background?: boolean;
+        reference_kind?: "none" | "history" | "entry" | "upload";
+        reference_history_id?: string;
+        reference_entry_id?: string;
+        reference_type?: "character" | "style" | "character&style";
+        reference_strength?: number;
+        reference_fidelity?: number;
       };
       state.generateBodies.push(body);
       generatedCount += 1;
@@ -303,6 +335,19 @@ async function mockPromptExpanderApis(page: Page) {
         manga_mode: body.manga_mode ?? false,
         manga_panel_count: body.manga_mode
           ? (body.manga_panel_count ?? null)
+          : null,
+        transparent_background: body.transparent_background ?? false,
+        reference_kind: body.reference_kind ?? "none",
+        reference_history_id: body.reference_history_id ?? null,
+        reference_entry_id: body.reference_entry_id ?? null,
+        reference_type: body.reference_kind
+          ? (body.reference_type ?? null)
+          : null,
+        reference_strength: body.reference_kind
+          ? (body.reference_strength ?? null)
+          : null,
+        reference_fidelity: body.reference_kind
+          ? (body.reference_fidelity ?? null)
           : null,
         image_url: `/prompt-expander/images/pe-entry-new-${generatedCount}`,
         created_at: "2026-08-02T00:00:00",
@@ -802,6 +847,156 @@ test("comic mode is V5-only, its options are sent with expand/generate, and entr
   expect(state.expandBodies[1]).not.toHaveProperty("manga");
 });
 
+test("precise reference is V4.5-only, needs an image and an Anlas confirm, and is sent with generate", async ({
+  page,
+}) => {
+  await enableFeatures(page, { experimentalPromptExpanderEnabled: true });
+  const state = await mockPromptExpanderApis(page);
+  await openSession(page);
+
+  const heading = page.getByRole("button", { name: "精密参照（V4.5 系のみ）" });
+  await expect(heading).toHaveAttribute("aria-expanded", "false");
+  const section = page.locator(
+    ".prompt-expander__section[data-section-id='reference']",
+  );
+  const toggle = page.getByRole("checkbox", { name: "精密参照を使う" });
+  // 既定の V4.5 では使える
+  await expect(toggle).toBeEnabled();
+  await expect(section).toContainText("OFF");
+  await heading.click();
+  await expect(heading).toHaveAttribute("aria-expanded", "true");
+  await expect(section).toContainText("参照 1 枚あたり +5 Anlas");
+
+  // V5 では無効になり理由が出る（設定は保持される）
+  await page.getByLabel("画像モデル").selectOption("nai-diffusion-5-full");
+  await expect(toggle).toBeDisabled();
+  await expect(section).toContainText("V4.5 専用（現在のモデルでは無効）");
+  await expect(
+    page.getByText(
+      /精密参照画像（NovelAI character reference）は NAI Diffusion V4\.5 系モデル専用です/,
+    ),
+  ).toBeVisible();
+  await page.getByLabel("画像モデル").selectOption("nai-diffusion-4-5-full");
+  await expect(toggle).toBeEnabled();
+
+  // トグル ON にしても参照画像が無ければ有効にならない
+  await section
+    .locator(".prompt-expander__switch", { hasText: "精密参照を使う" })
+    .click();
+  await expect(toggle).toBeChecked();
+  await expect(section).toContainText("参照画像を選ぶと有効になります");
+  await expect(page.getByLabel(/参照強度/)).toBeDisabled();
+
+  // 画像一覧から参照画像を選ぶ（i2i 元は空のまま）
+  await section.getByRole("button", { name: "履歴から選ぶ" }).click();
+  const picker = page.getByRole("dialog", { name: "参照画像を選ぶ" });
+  await expect(picker).toBeVisible();
+  await picker.locator(".prompt-expander__entry-grid-item").first().click();
+  await expect(picker).toBeHidden();
+  await expect(section).toContainText(
+    "キャラクター · 強度 0.85 · 忠実度 1.00 · +5 Anlas",
+  );
+  await expect(page.getByLabel(/参照強度/)).toBeEnabled();
+  await expect(
+    page.locator(".prompt-expander__section[data-section-id='i2i']"),
+  ).toContainText("生成元なし");
+
+  // 生成ボタン脇に追加 Anlas が出て、生成前に確認ダイアログを挟む
+  await positiveField(page).fill("1girl, standing");
+  await expect(page.locator(".prompt-expander__generate-cost")).toHaveText(
+    "+5 Anlas",
+  );
+  await generateButton(page).click();
+  await expect(
+    page.getByRole("heading", { name: "Anlas 追加消費の確認" }),
+  ).toBeVisible();
+  await expect(page.getByText(/精密参照画像の使用により/)).toBeVisible();
+  expect(state.generateBodies).toHaveLength(0);
+  await page.getByRole("button", { name: "続行" }).click();
+  await expect.poll(() => state.generateBodies.length).toBe(1);
+  expect(state.generateBodies[0]).toMatchObject({
+    reference_kind: "entry",
+    reference_entry_id: ENTRY_ID,
+    reference_type: "character",
+    reference_strength: 0.85,
+    reference_fidelity: 1,
+    source_kind: "none",
+    transparent_background: false,
+  });
+  const newest = page.locator(".prompt-expander__entry-list > li").first();
+  await expect(newest.locator(".prompt-expander__badge").last()).toHaveText(
+    "精密参照",
+  );
+
+  // 「参照にする」で生成結果を次の参照に差し替えられる（立ち絵差分の連鎖）
+  await newest.getByRole("button", { name: "参照にする" }).click();
+  await expect(section).toContainText("1girl, standing");
+});
+
+test("transparent background is sent with expand/generate and V4.5 entries are cut out client-side with a PNG download", async ({
+  page,
+}) => {
+  await enableFeatures(page, { experimentalPromptExpanderEnabled: true });
+  const state = await mockPromptExpanderApis(page);
+  // 生成結果は白背景の PNG（切り抜き対象）を返す。後から登録したルートが優先される
+  await page.route(
+    (url) =>
+      url.pathname.startsWith("/api/prompt-expander/images/pe-entry-new"),
+    async (route) => {
+      await route.fulfill({
+        body: Buffer.from(WHITE_BG_PNG_BASE64, "base64"),
+        contentType: "image/png",
+      });
+    },
+  );
+  await openSession(page);
+
+  const toggle = page.getByRole("checkbox", { name: "画像の背景を透過" });
+  await expect(toggle).toBeEnabled();
+  await expect(page.getByText(/V4\.5 系: 白背景で生成し/)).toBeVisible();
+  await page
+    .locator(".prompt-expander__switch", { hasText: "画像の背景を透過" })
+    .click();
+  await expect(toggle).toBeChecked();
+  await expect(
+    page.locator(".prompt-expander__section[data-section-id='params']"),
+  ).toContainText("透過");
+  // V5 では文言が切り替わる（スイッチ自体は無効化しない）
+  await page.getByLabel("画像モデル").selectOption("nai-diffusion-5-full");
+  await expect(
+    page.getByText(/V5 系: プロンプトに transparent background/),
+  ).toBeVisible();
+  await expect(toggle).toBeEnabled();
+  await page.getByLabel("画像モデル").selectOption("nai-diffusion-4-5-full");
+
+  // 拡張にも生成にもフラグが載る
+  await positiveField(page).fill("銀髪の少女の立ち絵");
+  await positiveToolbar(page)
+    .getByRole("button", { name: "LLMでプロンプト化" })
+    .click();
+  await expect.poll(() => state.expandBodies.length).toBe(1);
+  expect(state.expandBodies[0]).toMatchObject({ transparent_background: true });
+  const card = page.getByRole("region", { name: "変換結果（プロンプト）" });
+  await card.getByRole("button", { name: "この内容で生成" }).click();
+  await expect.poll(() => state.generateBodies.length).toBe(1);
+  expect(state.generateBodies[0]).toMatchObject({
+    transparent_background: true,
+  });
+
+  // エントリにはバッジが付き、画像は切り抜かれた blob URL に置き換わり、透過 PNG を保存できる
+  const newest = page.locator(".prompt-expander__entry-list > li").first();
+  await expect(newest.locator(".prompt-expander__badge").last()).toHaveText(
+    "透過",
+  );
+  await expect(newest.locator(".prompt-expander__entry-image")).toHaveAttribute(
+    "src",
+    /^blob:/,
+  );
+  const download = newest.getByRole("link", { name: "透過PNGを保存" });
+  await expect(download).toHaveAttribute("href", /^blob:/);
+  await expect(download).toHaveAttribute("download", /\.png$/);
+});
+
 test("comic notation chips insert markers at the caret and the narration toggle is sent with expand", async ({
   page,
 }) => {
@@ -951,7 +1146,7 @@ test("composer sections collapse, expand and persist to localStorage", async ({
   await mockPromptExpanderApis(page);
   await openSession(page);
 
-  // 並び順: 生成パラメータ → 漫画（コマ割り） → プロンプト／指示 → キャラクタープロンプト → i2i設定
+  // 並び順: 生成パラメータ → 漫画（コマ割り） → プロンプト／指示 → キャラクタープロンプト → i2i設定 → 精密参照
   const headings = page.locator(
     ".prompt-expander__composer .prompt-expander__section-toggle",
   );
@@ -961,6 +1156,7 @@ test("composer sections collapse, expand and persist to localStorage", async ({
     /プロンプト／指示/,
     /キャラクタープロンプト/,
     /i2i設定/,
+    /精密参照（V4.5 系のみ）/,
   ]);
 
   const paramsToggle = page.getByRole("button", { name: "生成パラメータ" });

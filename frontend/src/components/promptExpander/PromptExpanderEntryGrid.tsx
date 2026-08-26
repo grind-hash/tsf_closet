@@ -12,10 +12,28 @@ import {
   type PromptExpanderEntry,
   promptExpanderImageUrl,
 } from "../../apis/promptExpander";
+import { PROMPT_EXPANDER_ALPHA_OPTIONS } from "../../constants/promptExpander";
+import { useTransparentImage } from "../../hooks/useTransparentImage";
 import "./PromptExpanderShared.css";
 import "./PromptExpanderPicker.css";
 
 const PAGE_SIZE = 24;
+
+/** サムネイル。透過エントリはカードと同じ設定で背景を切り抜く（結果はキャッシュを共有） */
+function GridImage({ entry }: { entry: PromptExpanderEntry }) {
+  const originalUrl = promptExpanderImageUrl(entry);
+  const { url } = useTransparentImage(
+    originalUrl,
+    entry.transparent_background,
+    PROMPT_EXPANDER_ALPHA_OPTIONS,
+  );
+  // 退避で revoke された blob URL は原本へ戻す（URL 単位で覚える）
+  const [brokenUrl, setBrokenUrl] = useState<string | null>(null);
+  const src = url && url !== brokenUrl ? url : originalUrl;
+  return (
+    <img src={src} alt="" loading="lazy" onError={() => setBrokenUrl(src)} />
+  );
+}
 
 interface PromptExpanderEntryGridProps {
   selectedEntryId?: string | null;
@@ -77,7 +95,7 @@ export default function PromptExpanderEntryGrid({
               <li key={entry.id}>
                 {/* 画像を <button> で包むと右クリックの画像保存が効かないため div[role=button] にする */}
                 <div
-                  className={`prompt-expander__entry-grid-item ${selected ? "is-selected" : ""}`}
+                  className={`prompt-expander__entry-grid-item ${selected ? "is-selected" : ""} ${entry.transparent_background ? "is-transparent" : ""}`}
                   role="button"
                   tabIndex={0}
                   onClick={() => onSelect(entry)}
@@ -90,11 +108,7 @@ export default function PromptExpanderEntryGrid({
                   aria-pressed={selected}
                   title={label}
                 >
-                  <img
-                    src={promptExpanderImageUrl(entry)}
-                    alt=""
-                    loading="lazy"
-                  />
+                  <GridImage entry={entry} />
                   <span className="prompt-expander__entry-grid-label">
                     {label}
                   </span>

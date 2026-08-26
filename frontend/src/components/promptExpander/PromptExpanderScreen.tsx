@@ -79,6 +79,9 @@ export default function PromptExpanderScreen() {
     pendingUsageWarn,
     confirmUsageWarn,
     cancelUsageWarn,
+    pendingReferenceWarn,
+    confirmReferenceWarn,
+    cancelReferenceWarn,
   } = usePromptExpander();
 
   const sessionId = useMemo(() => {
@@ -119,6 +122,12 @@ export default function PromptExpanderScreen() {
       void confirmUsageWarn(suppress);
     },
     [confirmUsageWarn],
+  );
+  const handleReferenceConfirm = useCallback(
+    (suppress: boolean) => {
+      void confirmReferenceWarn(suppress);
+    },
+    [confirmReferenceWarn],
   );
 
   const errorText = error
@@ -237,6 +246,15 @@ export default function PromptExpanderScreen() {
         body={t("gameplay.v5UsageExhaustedBody")}
         onConfirm={handleUsageConfirm}
         onCancel={cancelUsageWarn}
+      />
+      {/* 精密参照の Anlas 確認。V5 上限警告とはモデル系統で排他だが、同時表示は避ける */}
+      <AdventureAnlasConfirmDialog
+        open={pendingUsageWarn === null && pendingReferenceWarn !== null}
+        body={t("promptExpander.reference.anlasBody", {
+          cost: options.anlasPerReference,
+        })}
+        onConfirm={handleReferenceConfirm}
+        onCancel={cancelReferenceWarn}
       />
 
       {showApiKeyConsent && (

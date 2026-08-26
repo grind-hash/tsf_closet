@@ -10,6 +10,7 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PromptExpanderEntry } from "../../apis/promptExpander";
 import { V5_USAGE_WARN_SUPPRESSED_KEY } from "../../constants/novelaiImageModels";
+import { PROMPT_EXPANDER_ANLAS_WARN_SUPPRESSED_KEY } from "../../constants/promptExpander";
 import { NotificationProvider } from "../NotificationContext";
 import {
   PromptExpanderProvider,
@@ -71,6 +72,11 @@ function settingsPayload() {
       manga_sound_effects: true,
       manga_reading_direction: "rtl",
       manga_narration: false,
+      use_precise_reference: false,
+      reference_type: "character",
+      reference_strength: 0.85,
+      reference_fidelity: 1,
+      transparent_background: false,
     },
     text_model_options: [
       { id: "glm-4-6", label: "GLM 4.6" },
@@ -90,6 +96,8 @@ function settingsPayload() {
     },
     image_sizes: ["portrait", "landscape", "square"],
     novelai_configured: true,
+    reference_types: ["character", "style", "character&style"],
+    anlas_per_reference: 5,
   };
 }
 
@@ -140,6 +148,13 @@ const OLD_ENTRY: PromptExpanderEntry = {
   source_kind: "none",
   source_history_id: null,
   source_entry_id: null,
+  transparent_background: false,
+  reference_kind: "none",
+  reference_history_id: null,
+  reference_entry_id: null,
+  reference_type: null,
+  reference_strength: null,
+  reference_fidelity: null,
   image_url: "/prompt-expander/images/entry-old",
   nsfw: false,
   created_at: "2026-01-01T00:00:00Z",
@@ -293,6 +308,15 @@ function Probe() {
       </div>
       <div data-testid="character-mode">{ctx.characterMode ? "on" : "off"}</div>
       <div data-testid="manga-active">{ctx.mangaActive ? "on" : "off"}</div>
+      <div data-testid="reference-active">
+        {ctx.referenceActive ? "on" : "off"}
+      </div>
+      <div data-testid="transparent-active">
+        {ctx.transparentActive ? "on" : "off"}
+      </div>
+      <div data-testid="pending-reference">
+        {ctx.pendingReferenceWarn ? "yes" : "no"}
+      </div>
       <div data-testid="slots">{ctx.characterSlots.join("|")}</div>
       <div data-testid="anlas">{ctx.anlas ? ctx.anlas.totalAnlas : "none"}</div>
       <div data-testid="error">{ctx.error ?? ""}</div>
@@ -470,6 +494,108 @@ function Probe() {
       </button>
       <button type="button" onClick={() => void ctx.confirmUsageWarn(true)}>
         usage-confirm
+      </button>
+      <button
+        type="button"
+        onClick={() => void ctx.updateSettings({ use_precise_reference: true })}
+      >
+        reference-on
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          // 設定モックはステートレスなので、V5 切替と参照 ON を 1 回の PUT で送る
+          void ctx.updateSettings({
+            image_model: "nai-diffusion-5-full",
+            use_precise_reference: true,
+          })
+        }
+      >
+        reference-on-v5
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          ctx.setReference({
+            kind: "entry",
+            entryId: "entry-ref",
+            thumbnailUrl: "/api/prompt-expander/images/entry-ref",
+            label: "ref",
+          })
+        }
+      >
+        set-reference
+      </button>
+      <button type="button" onClick={() => void ctx.confirmReferenceWarn(true)}>
+        reference-confirm
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          void ctx.updateSettings({ transparent_background: true })
+        }
+      >
+        transparent-on
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          void ctx.updateSettings({
+            image_model: "nai-diffusion-5-full",
+            manga_mode: true,
+            transparent_background: true,
+          })
+        }
+      >
+        transparent-on-manga-v5
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          ctx.restoreEntry({
+            ...OLD_ENTRY,
+            transparent_background: true,
+            reference_kind: "entry",
+            reference_entry_id: "entry-ref",
+            reference_type: "style",
+            reference_strength: 0.5,
+            reference_fidelity: 0.75,
+          })
+        }
+      >
+        restore-ref
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          void ctx.regenerateEntry({
+            ...OLD_ENTRY,
+            image_model: "nai-diffusion-4-5-full",
+            transparent_background: true,
+            reference_kind: "entry",
+            reference_entry_id: "entry-ref",
+            reference_type: "style",
+            reference_strength: 0.5,
+            reference_fidelity: 0.75,
+          })
+        }
+      >
+        regenerate-ref
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          void ctx.regenerateEntry({
+            ...OLD_ENTRY,
+            image_model: "nai-diffusion-4-5-full",
+            reference_kind: "upload",
+            reference_type: "character",
+            reference_strength: 0.85,
+            reference_fidelity: 1,
+          })
+        }
+      >
+        regenerate-ref-upload
       </button>
     </>
   );
@@ -1110,5 +1236,168 @@ describe("PromptExpanderContext", () => {
     });
     await waitFor(() => expect(findCalls("/generate", "POST")).toHaveLength(2));
     expect(screen.getByTestId("pending-usage").textContent).toBe("no");
+  });
+
+  it("precise reference is sent only with the toggle on, a V4.5 model and a selected image, and waits for the Anlas confirm", async () => {
+    await openSessionAndWait();
+    fireEvent.click(screen.getByRole("button", { name: "set-positive" }));
+    // 参照画像だけ選んでもトグルが OFF なら載らない
+    fireEvent.click(screen.getByRole("button", { name: "set-reference" }));
+    expect(screen.getByTestId("reference-active").textContent).toBe("off");
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "run" }));
+    });
+    await waitFor(() => expect(findCalls("/generate", "POST")).toHaveLength(1));
+    expect(lastBody("/generate", "POST")).not.toHaveProperty("reference_kind");
+    expect(lastBody("/generate", "POST").transparent_background).toBe(false);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "reference-on" }));
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("reference-active").textContent).toBe("on"),
+    );
+    // 参照付きの生成は Anlas 確認で止まる
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "run" }));
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("pending-reference").textContent).toBe("yes"),
+    );
+    expect(findCalls("/generate", "POST")).toHaveLength(1);
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: "reference-confirm" }),
+      );
+    });
+    await waitFor(() => expect(findCalls("/generate", "POST")).toHaveLength(2));
+    const body = lastBody("/generate", "POST");
+    expect(body.reference_kind).toBe("entry");
+    expect(body.reference_entry_id).toBe("entry-ref");
+    expect(body.reference_type).toBe("character");
+    expect(body.reference_strength).toBe(0.85);
+    expect(body.reference_fidelity).toBe(1);
+    // i2i 元とは独立
+    expect(body.source_kind).toBe("none");
+    expect(
+      sessionStorage.getItem(PROMPT_EXPANDER_ANLAS_WARN_SUPPRESSED_KEY),
+    ).toBe("true");
+    expect(screen.getByTestId("pending-reference").textContent).toBe("no");
+
+    // 抑止後は確認なしで直接生成する
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "run" }));
+    });
+    await waitFor(() => expect(findCalls("/generate", "POST")).toHaveLength(3));
+    expect(screen.getByTestId("pending-reference").textContent).toBe("no");
+
+    // V5 に切り替えると設定は残るが参照は載らない
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "reference-on-v5" }));
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("reference-active").textContent).toBe("off"),
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "run" }));
+    });
+    await waitFor(() => expect(findCalls("/generate", "POST")).toHaveLength(4));
+    expect(lastBody("/generate", "POST")).not.toHaveProperty("reference_kind");
+  });
+
+  it("transparent_background is sent to /expand and /generate, but not while comic mode is active", async () => {
+    await openSessionAndWait();
+    fireEvent.click(screen.getByRole("button", { name: "set-positive" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "transparent-on" }));
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("transparent-active").textContent).toBe("on"),
+    );
+    await clickAndWaitPending("expand-positive");
+    expect(
+      lastBody("/prompt-expander/expand", "POST").transparent_background,
+    ).toBe(true);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "generate-from" }));
+    });
+    await waitFor(() => expect(findCalls("/generate", "POST")).toHaveLength(1));
+    expect(lastBody("/generate", "POST").transparent_background).toBe(true);
+
+    // 漫画モード（V5）中はコマ枠を切り抜けないので無効（設定は残る）
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "discard" }));
+    });
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: "transparent-on-manga-v5" }),
+      );
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("manga-active").textContent).toBe("on"),
+    );
+    expect(screen.getByTestId("transparent-active").textContent).toBe("off");
+    await clickAndWaitPending("expand-positive");
+    const expandBody = lastBody("/prompt-expander/expand", "POST");
+    expect(expandBody.manga_mode).toBe(true);
+    expect(expandBody.transparent_background).toBe(false);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "generate-from" }));
+    });
+    await waitFor(() => expect(findCalls("/generate", "POST")).toHaveLength(2));
+    expect(lastBody("/generate", "POST").transparent_background).toBe(false);
+  });
+
+  it("restoreEntry restores transparency and reference settings; regenerateEntry re-sends entry references and drops upload ones", async () => {
+    // 参照付きの再生成が Anlas 確認で止まらないよう抑止しておく
+    sessionStorage.setItem(PROMPT_EXPANDER_ANLAS_WARN_SUPPRESSED_KEY, "true");
+    await openSessionAndWait();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "restore-ref" }));
+    });
+    await waitFor(() => {
+      const putCalls = findCalls("/prompt-expander/settings", "PUT");
+      expect(putCalls.length).toBeGreaterThan(0);
+      const body = JSON.parse(String(putCalls[putCalls.length - 1].init?.body));
+      expect(body.transparent_background).toBe(true);
+      expect(body.use_precise_reference).toBe(true);
+      expect(body.reference_type).toBe("style");
+      expect(body.reference_strength).toBe(0.5);
+      expect(body.reference_fidelity).toBe(0.75);
+    });
+    // 参照なしのエントリの復元では透過だけ戻し、参照トグルには触れない
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "restore" }));
+    });
+    await waitFor(() => {
+      const putCalls = findCalls("/prompt-expander/settings", "PUT");
+      const body = JSON.parse(String(putCalls[putCalls.length - 1].init?.body));
+      expect(body.transparent_background).toBe(false);
+      expect(body).not.toHaveProperty("use_precise_reference");
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "regenerate-ref" }));
+    });
+    await waitFor(() => expect(findCalls("/generate", "POST")).toHaveLength(1));
+    const body = lastBody("/generate", "POST");
+    expect(body.reference_kind).toBe("entry");
+    expect(body.reference_entry_id).toBe("entry-ref");
+    expect(body.reference_type).toBe("style");
+    expect(body.reference_strength).toBe(0.5);
+    expect(body.reference_fidelity).toBe(0.75);
+    expect(body.transparent_background).toBe(true);
+    expect(body).not.toHaveProperty("seed");
+
+    // アップロード参照は保持していないので参照なしで再生成する
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: "regenerate-ref-upload" }),
+      );
+    });
+    await waitFor(() => expect(findCalls("/generate", "POST")).toHaveLength(2));
+    const uploadBody = lastBody("/generate", "POST");
+    expect(uploadBody).not.toHaveProperty("reference_kind");
+    expect(uploadBody.transparent_background).toBe(false);
   });
 });

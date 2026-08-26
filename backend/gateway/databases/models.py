@@ -671,6 +671,26 @@ class PromptExpanderEntry(Base):
         ForeignKey("prompt_expander_entries.id", ondelete="SET NULL"),
         nullable=True,
     )
+    # 背景透過で生成したか（接尾辞は保存せず、生成時に image_model から導出する）
+    transparent_background: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, server_default="0"
+    )
+    # 精密参照（character reference）の参照元。none | history | entry | upload
+    reference_kind: Mapped[str] = mapped_column(
+        String, default="none", nullable=False, server_default="none"
+    )
+    reference_history_id: Mapped[Optional[str]] = mapped_column(
+        String, ForeignKey("history.id", ondelete="SET NULL"), nullable=True
+    )
+    reference_entry_id: Mapped[Optional[str]] = mapped_column(
+        String,
+        ForeignKey("prompt_expander_entries.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    # character | style | character&style（参照ありのときだけ値を持つ）
+    reference_type: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    reference_strength: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    reference_fidelity: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     # data/ からの相対パス（例: data/prompt_expander_images/{session_id}/{entry_id}.png）
     image_path: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(

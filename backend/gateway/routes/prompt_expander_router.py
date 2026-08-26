@@ -14,6 +14,10 @@ from pydantic import BaseModel, Field, model_validator
 
 from ..consts.novelai_text_models import NOVELAI_TEXT_MODEL_OPTIONS
 from ..consts.prompt_expander import (
+    DEFAULT_PROMPT_EXPANDER_REFERENCE_FIDELITY,
+    DEFAULT_PROMPT_EXPANDER_REFERENCE_STRENGTH,
+    DEFAULT_PROMPT_EXPANDER_REFERENCE_TYPE,
+    PROMPT_EXPANDER_ANLAS_PER_REFERENCE,
     PROMPT_EXPANDER_CHARACTER_PROMPT_MAX_LEN,
     PROMPT_EXPANDER_IMAGE_MODEL_OPTIONS,
     PROMPT_EXPANDER_IMAGE_SIZES,
@@ -26,6 +30,7 @@ from ..consts.prompt_expander import (
     PROMPT_EXPANDER_MEMORY_MAX_LEN,
     PROMPT_EXPANDER_NEGATIVE_MAX_LEN,
     PROMPT_EXPANDER_PROMPT_MAX_LEN,
+    PROMPT_EXPANDER_REFERENCE_TYPES,
     PROMPT_EXPANDER_SUGGESTION_COUNT_DEFAULT,
     PROMPT_EXPANDER_SUGGESTION_COUNT_MAX,
     PROMPT_EXPANDER_SUGGESTION_COUNT_MIN,
@@ -67,6 +72,7 @@ SourceKindLiteral = Literal["none", "history", "entry", "upload"]
 MangaLayoutLiteral = Literal["auto", "vertical", "horizontal", "grid"]
 MangaTextLanguageLiteral = Literal["auto", "ja", "en"]
 MangaReadingDirectionLiteral = Literal["rtl", "ltr"]
+ReferenceTypeLiteral = Literal["character", "style", "character&style"]
 
 # Literal と定数の整合性を起動時に検証する（どちらかを直し忘れたときに気付くため）
 assert set(ImageModelLiteral.__args__) == set(PROMPT_EXPANDER_IMAGE_MODEL_OPTIONS)  # type: ignore[attr-defined]
@@ -79,6 +85,7 @@ assert set(MangaTextLanguageLiteral.__args__) == set(
 assert set(MangaReadingDirectionLiteral.__args__) == set(
     PROMPT_EXPANDER_MANGA_READING_DIRECTIONS
 )  # type: ignore[attr-defined]
+assert set(ReferenceTypeLiteral.__args__) == set(PROMPT_EXPANDER_REFERENCE_TYPES)  # type: ignore[attr-defined]
 
 
 class MangaOptionsModel(BaseModel):
@@ -133,6 +140,11 @@ class PromptExpanderSettingsModel(BaseModel):
     manga_sound_effects: bool = True
     manga_reading_direction: str = "rtl"
     manga_narration: bool = False
+    use_precise_reference: bool = False
+    reference_type: str = DEFAULT_PROMPT_EXPANDER_REFERENCE_TYPE
+    reference_strength: float = DEFAULT_PROMPT_EXPANDER_REFERENCE_STRENGTH
+    reference_fidelity: float = DEFAULT_PROMPT_EXPANDER_REFERENCE_FIDELITY
+    transparent_background: bool = False
 
 
 class TextModelOption(BaseModel):
@@ -157,6 +169,11 @@ class PromptExpanderSettingsResponse(BaseModel):
     manga_reading_directions: list[str] = Field(
         default_factory=lambda: list(PROMPT_EXPANDER_MANGA_READING_DIRECTIONS)
     )
+    reference_types: list[str] = Field(
+        default_factory=lambda: list(PROMPT_EXPANDER_REFERENCE_TYPES)
+    )
+    # 精密参照 1 枚あたりの Anlas 消費（FE の料金表示の情報源）
+    anlas_per_reference: int = PROMPT_EXPANDER_ANLAS_PER_REFERENCE
 
 
 class PromptExpanderSettingsUpdateRequest(BaseModel):
@@ -184,6 +201,11 @@ class PromptExpanderSettingsUpdateRequest(BaseModel):
     manga_sound_effects: bool | None = None
     manga_reading_direction: MangaReadingDirectionLiteral | None = None
     manga_narration: bool | None = None
+    use_precise_reference: bool | None = None
+    reference_type: ReferenceTypeLiteral | None = None
+    reference_strength: float | None = Field(None, ge=0.0, le=1.0)
+    reference_fidelity: float | None = Field(None, ge=0.0, le=1.0)
+    transparent_background: bool | None = None
 
 
 class SessionCreateRequest(BaseModel):
@@ -229,6 +251,13 @@ class PromptExpanderEntryResponse(BaseModel):
     source_kind: str
     source_history_id: str | None = None
     source_entry_id: str | None = None
+    transparent_background: bool = False
+    reference_kind: str = "none"
+    reference_history_id: str | None = None
+    reference_entry_id: str | None = None
+    reference_type: str | None = None
+    reference_strength: float | None = None
+    reference_fidelity: float | None = None
     image_url: str
     nsfw: bool | None = None
     created_at: str
@@ -280,6 +309,8 @@ class PromptExpandRequest(BaseModel):
     # 漫画モード（V5 専用。manga_mode=True のとき manga の内容で拡張する）
     manga_mode: bool = False
     manga: MangaOptionsModel | None = None
+    # 背景透過 ON のとき、背景・情景を描写しない規則を system prompt に足す
+    transparent_background: bool = False
 
     @model_validator(mode="after")
     def _check(self) -> "PromptExpandRequest":
@@ -349,6 +380,22 @@ class PromptExpanderGenerateRequest(BaseModel):
         ge=PROMPT_EXPANDER_MANGA_PANEL_COUNT_AUTO,
         le=PROMPT_EXPANDER_MANGA_PANEL_COUNT_MAX,
     )
+    # 精密参照（V4.5 系のみ）。reference_kind != "none" が「参照を送った」唯一の根拠
+    reference_kind: SourceKindLiteral = "none"
+    reference_history_id: str | None = Field(None, max_length=80)
+    reference_entry_id: str | None = Field(None, max_length=80)
+    reference_image: str | None = Field(
+        None, max_length=PROMPT_EXPANDER_UPLOAD_MAX_BASE64_LEN
+    )
+    reference_type: ReferenceTypeLiteral = DEFAULT_PROMPT_EXPANDER_REFERENCE_TYPE  # type: ignore[assignment]
+    reference_strength: float = Field(
+        DEFAULT_PROMPT_EXPANDER_REFERENCE_STRENGTH, ge=0.0, le=1.0
+    )
+    reference_fidelity: float = Field(
+        DEFAULT_PROMPT_EXPANDER_REFERENCE_FIDELITY, ge=0.0, le=1.0
+    )
+    # 背景透過（V5 はプロンプト指示、V4.5 は白背景生成 + フロント切り抜き）
+    transparent_background: bool = False
 
     @model_validator(mode="after")
     def _check(self) -> "PromptExpanderGenerateRequest":
@@ -361,6 +408,12 @@ class PromptExpanderGenerateRequest(BaseModel):
             raise ValueError("source_entry_id が必要です")
         if self.source_kind == "upload" and not self.source_image:
             raise ValueError("source_image が必要です")
+        if self.reference_kind == "history" and not self.reference_history_id:
+            raise ValueError("reference_history_id が必要です")
+        if self.reference_kind == "entry" and not self.reference_entry_id:
+            raise ValueError("reference_entry_id が必要です")
+        if self.reference_kind == "upload" and not self.reference_image:
+            raise ValueError("reference_image が必要です")
         return self
 
 
@@ -428,6 +481,7 @@ def _http_error(exc: PromptExpanderError) -> HTTPException:
         "too_many_characters": status.HTTP_422_UNPROCESSABLE_ENTITY,
         "unsupported_image_model": status.HTTP_422_UNPROCESSABLE_ENTITY,
         "manga_requires_v5": status.HTTP_422_UNPROCESSABLE_ENTITY,
+        "precise_reference_requires_v45": status.HTTP_422_UNPROCESSABLE_ENTITY,
         "invalid_llm_output": status.HTTP_502_BAD_GATEWAY,
         "llm_failed": status.HTTP_502_BAD_GATEWAY,
         "image_failed": status.HTTP_502_BAD_GATEWAY,
@@ -622,6 +676,14 @@ async def generate_image(session_id: str, body: PromptExpanderGenerateRequest):
         source_image=body.source_image,
         manga_mode=body.manga_mode,
         manga_panel_count=body.manga_panel_count,
+        reference_kind=body.reference_kind,
+        reference_history_id=body.reference_history_id,
+        reference_entry_id=body.reference_entry_id,
+        reference_image=body.reference_image,
+        reference_type=body.reference_type,
+        reference_strength=body.reference_strength,
+        reference_fidelity=body.reference_fidelity,
+        transparent_background=body.transparent_background,
     )
     try:
         outcome = await pe_service.generate_entry(
@@ -758,6 +820,7 @@ async def expand_prompt(body: PromptExpandRequest):
             if body.manga_mode
             else None
         ),
+        transparent_background=body.transparent_background,
     )
     try:
         result = await pe_service.expand_prompts(params, user_id=DEFAULT_USER_ID)

@@ -114,6 +114,59 @@ export function supportsMangaMode(model: string | null | undefined): boolean {
   return isV5ImageModel(model);
 }
 
+/** 精密参照（NovelAI character reference）の種別 */
+export const PROMPT_EXPANDER_REFERENCE_TYPES = [
+  "character",
+  "style",
+  "character&style",
+] as const;
+export type PromptExpanderReferenceType =
+  (typeof PROMPT_EXPANDER_REFERENCE_TYPES)[number];
+/** 既定は Adventure の立ち絵生成と同じ（立ち絵差分では同一性の固定が目的） */
+export const DEFAULT_PROMPT_EXPANDER_REFERENCE_TYPE: PromptExpanderReferenceType =
+  "character";
+export const DEFAULT_PROMPT_EXPANDER_REFERENCE_STRENGTH = 0.85;
+export const DEFAULT_PROMPT_EXPANDER_REFERENCE_FIDELITY = 1;
+/** 精密参照 1 枚あたりの Anlas 消費（設定応答の anlas_per_reference が無いときの既定） */
+export const PROMPT_EXPANDER_ANLAS_PER_REFERENCE = 5;
+/** 精密参照の Anlas 確認ダイアログを抑止する sessionStorage キー（ブラウザセッション単位） */
+export const PROMPT_EXPANDER_ANLAS_WARN_SUPPRESSED_KEY =
+  "prompt_expander_anlas_warn_suppressed";
+
+/** 精密参照を使える画像モデルか（V4.5 系のみ。V5 は API 非対応） */
+export function supportsPreciseReference(
+  model: string | null | undefined,
+): boolean {
+  return (
+    (PROMPT_EXPANDER_IMAGE_MODEL_OPTIONS as readonly string[]).includes(
+      model ?? "",
+    ) && !isV5ImageModel(model)
+  );
+}
+
+/**
+ * 背景透過をプロンプト指示だけでネイティブに行えるモデルか（V5 系）。
+ * V4.5 系は白背景で生成し、表示時にフロントで切り抜く。
+ */
+export function usesNativeTransparency(
+  model: string | null | undefined,
+): boolean {
+  return isV5ImageModel(model);
+}
+
+/** 参照種別の i18n キー（"character&style" は "&" をキーに使えないため characterStyle に写す） */
+export function referenceTypeI18nKey(
+  type: PromptExpanderReferenceType | string,
+): string {
+  return type === "character&style" ? "characterStyle" : type;
+}
+
+/** V4.5 の白背景画像を切り抜くときの許容差（Adventure の立ち絵と同じ。生成画像の白はわずかに灰色に振れる） */
+export const PROMPT_EXPANDER_ALPHA_OPTIONS = {
+  threshold: 12,
+  featherRadius: 1.8,
+} as const;
+
 /** 漫画モードで選べるコマ数の一覧（0 = おまかせ を先頭に） */
 export function mangaPanelCountOptions(): number[] {
   const counts: number[] = [PROMPT_EXPANDER_MANGA_PANEL_COUNT_AUTO];

@@ -1,9 +1,10 @@
 /**
- * PromptExpanderSourcePickerModal - 生成元（i2i 元）の選択モーダル
+ * PromptExpanderSourcePickerModal - 生成元（i2i 元）／精密参照画像の選択モーダル
  *
  * タブ「Prompt Expander」: 全セッション横断のエントリグリッド
  * タブ「プレイセッション」: AdventureSessionPickerModal を再利用し、
  *   「現在の状態」が選ばれた場合は fetchSessionFrames で最新履歴 ID を解決する。
+ * target="reference" のときは選択結果を i2i 元ではなく精密参照の画像に入れる。
  */
 
 import { useState } from "react";
@@ -13,7 +14,10 @@ import {
   type PromptExpanderEntry,
   promptExpanderImageUrl,
 } from "../../apis/promptExpander";
-import { usePromptExpander } from "../../contexts/PromptExpanderContext";
+import {
+  type PromptExpanderPickerTarget,
+  usePromptExpander,
+} from "../../contexts/PromptExpanderContext";
 import { API_BASE } from "../../utils/api";
 import AdventureSessionPickerModal, {
   type AdventureSourceSelection,
@@ -28,6 +32,8 @@ type PickerTab = "entries" | "play";
 interface PromptExpanderSourcePickerModalProps {
   open: boolean;
   onClose: () => void;
+  /** 選択結果の入れ先（既定は i2i 元） */
+  target?: PromptExpanderPickerTarget;
 }
 
 function galleryMediaUrl(url: string): string {
@@ -46,15 +52,18 @@ function galleryMediaUrl(url: string): string {
 export default function PromptExpanderSourcePickerModal({
   open,
   onClose,
+  target = "source",
 }: PromptExpanderSourcePickerModalProps) {
   const { t } = useTranslation();
-  const { source, setSource } = usePromptExpander();
+  const { source, reference, setSource, setReference } = usePromptExpander();
+  const current = target === "reference" ? reference : source;
+  const assign = target === "reference" ? setReference : setSource;
   const [tab, setTab] = useState<PickerTab>("entries");
   const [resolving, setResolving] = useState(false);
   const [resolveError, setResolveError] = useState<string | null>(null);
 
   const handleEntrySelect = (entry: PromptExpanderEntry) => {
-    setSource({
+    assign({
       kind: "entry",
       entryId: entry.id,
       thumbnailUrl: promptExpanderImageUrl(entry),
@@ -91,7 +100,7 @@ export default function PromptExpanderSourcePickerModal({
       selection.pointLabel?.trim() ||
       selection.characterName?.trim() ||
       t("promptExpander.picker.playLabelFallback");
-    setSource({
+    assign({
       kind: "history",
       historyId,
       thumbnailUrl: galleryMediaUrl(thumbnailUrl),
@@ -144,7 +153,11 @@ export default function PromptExpanderSourcePickerModal({
   return (
     <PromptExpanderModal
       open={open}
-      title={t("promptExpander.picker.title")}
+      title={
+        target === "reference"
+          ? t("promptExpander.picker.titleReference")
+          : t("promptExpander.picker.title")
+      }
       onClose={onClose}
       closeLabel={t("promptExpander.picker.close")}
       size="lg"
@@ -170,7 +183,7 @@ export default function PromptExpanderSourcePickerModal({
         </button>
       </div>
       <PromptExpanderEntryGrid
-        selectedEntryId={source?.kind === "entry" ? source.entryId : null}
+        selectedEntryId={current?.kind === "entry" ? current.entryId : null}
         onSelect={handleEntrySelect}
       />
     </PromptExpanderModal>

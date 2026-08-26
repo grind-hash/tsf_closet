@@ -6,6 +6,7 @@
  * 一覧上部の絞り込みチップ（すべて / 通常 / 漫画 / アップロード）は localStorage に保持し、
  * プレビューの前後移動と「n / N」表示も絞り込み後の並びで行う。
  * プレビュー中（閉じた直後も）のカードは強調し、移動に合わせてスクロールして位置を見失わないようにする。
+ * 背景透過エントリのプレビューはカードと同じく切り抜き後の画像を出す。
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -14,7 +15,9 @@ import {
   type PromptExpanderEntry,
   promptExpanderImageUrl,
 } from "../../apis/promptExpander";
+import { PROMPT_EXPANDER_ALPHA_OPTIONS } from "../../constants/promptExpander";
 import { usePromptExpander } from "../../contexts/PromptExpanderContext";
+import { useTransparentImage } from "../../hooks/useTransparentImage";
 import ImagePreviewModal from "../ImagePreviewModal";
 import PromptExpanderEntryCard from "./PromptExpanderEntryCard";
 import PromptExpanderProgress from "./PromptExpanderProgress";
@@ -113,6 +116,20 @@ export default function PromptExpanderEntryList() {
     previewOpen && previewIndex >= 0
       ? (filteredEntries[previewIndex] ?? null)
       : null;
+  // 透過エントリのプレビューは切り抜き後の画像を出す（カードと同じ設定なのでキャッシュを共有する）
+  const previewOriginalUrl = previewEntry
+    ? promptExpanderImageUrl(previewEntry)
+    : null;
+  const { url: previewTransparentUrl, processing: previewProcessing } =
+    useTransparentImage(
+      previewOriginalUrl,
+      Boolean(previewEntry?.transparent_background),
+      PROMPT_EXPANDER_ALPHA_OPTIONS,
+    );
+  const previewUrl =
+    previewEntry?.transparent_background && previewTransparentUrl
+      ? previewTransparentUrl
+      : previewOriginalUrl;
 
   const openPreview = useCallback((entryId: string) => {
     setPreviewId(entryId);
@@ -209,9 +226,9 @@ export default function PromptExpanderEntryList() {
       </PromptExpanderSection>
 
       <ImagePreviewModal
-        className="prompt-expander-preview"
+        className={`prompt-expander-preview${previewEntry?.transparent_background ? " prompt-expander-preview--transparent" : ""}`}
         isOpen={previewEntry !== null}
-        imageUrl={previewEntry ? promptExpanderImageUrl(previewEntry) : null}
+        imageUrl={previewUrl}
         onClose={() => setPreviewOpen(false)}
         alt={previewEntry?.instruction ?? previewEntry?.final_prompt ?? ""}
         positionLabel={
@@ -225,9 +242,17 @@ export default function PromptExpanderEntryList() {
         onNext={() => movePreview(-1)}
         caption={
           previewEntry ? (
-            <span className="prompt-expander__preview-caption">
-              {previewEntry.final_prompt || previewEntry.instruction || ""}
-            </span>
+            <>
+              {previewProcessing && (
+                <PromptExpanderProgress
+                  className="prompt-expander__progress--block"
+                  label={t("promptExpander.entry.transparentProcessing")}
+                />
+              )}
+              <span className="prompt-expander__preview-caption">
+                {previewEntry.final_prompt || previewEntry.instruction || ""}
+              </span>
+            </>
           ) : undefined
         }
       />

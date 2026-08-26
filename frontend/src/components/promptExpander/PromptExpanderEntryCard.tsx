@@ -2,9 +2,11 @@
  * PromptExpanderEntryCard - エントリ 1 件のカード
  *
  * 画像（クリックでプレビュー）、主テキスト（指示または最終プロンプト。省略表示 + 全文展開）、
- * 行末のバッジ（モデル / サイズ / seed / 拡張モード / 生成元 / アップロード）、
- * 操作（欄へ復元 / このプロンプトで再生成 / i2i 元にする / 通常プレイで使う / TSFシナリオで使う / 削除）。
+ * 行末のバッジ（モデル / サイズ / seed / 拡張モード / 生成元 / アップロード / 精密参照 / 透過）、
+ * 操作（欄へ復元 / このプロンプトで再生成 / i2i 元にする / 参照にする / 通常プレイで使う / TSFシナリオで使う / 削除）。
  * 画像は <button> で包まない（ブラウザの「名前を付けて画像を保存」が効かなくなるため）。
+ * 背景透過エントリは表示時にフロントで切り抜く（V4.5 は白背景で保存されている。V5 のネイティブ透過は素通し）。
+ * 切り抜き後の画像は「透過PNGを保存」からダウンロードできる。
  */
 
 import { useState } from "react";
@@ -14,11 +16,16 @@ import {
   type PromptExpanderEntry,
   promptExpanderImageUrl,
 } from "../../apis/promptExpander";
-import { getPromptExpanderImageModelShortLabel } from "../../constants/promptExpander";
+import {
+  getPromptExpanderImageModelShortLabel,
+  PROMPT_EXPANDER_ALPHA_OPTIONS,
+  referenceTypeI18nKey,
+} from "../../constants/promptExpander";
 import { useChat } from "../../contexts/ChatContext";
 import { useGame } from "../../contexts/GameContext";
 import { usePromptExpander } from "../../contexts/PromptExpanderContext";
 import { useSettings } from "../../contexts/SettingsContext";
+import { useTransparentImage } from "../../hooks/useTransparentImage";
 import PromptExpanderDeleteButton from "./PromptExpanderDeleteButton";
 import "./PromptExpanderShared.css";
 import "./PromptExpanderEntryList.css";
@@ -57,12 +64,30 @@ export default function PromptExpanderEntryCard({
     restoreEntry,
     regenerateEntry,
     selectEntryAsSource,
+    selectEntryAsReference,
     deleteEntry,
     source,
+    reference,
     generating,
   } = usePromptExpander();
   const [expanded, setExpanded] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const originalUrl = promptExpanderImageUrl(entry);
+  // 透過エントリは表示時に背景を切り抜く（既に透過を持つ V5 画像は素通しされる）
+  const { url: transparentUrl, processing } = useTransparentImage(
+    originalUrl,
+    entry.transparent_background,
+    PROMPT_EXPANDER_ALPHA_OPTIONS,
+  );
+  // キャッシュから退避されて revoke された blob URL は原本へ戻す（URL 単位で覚える）
+  const [brokenUrl, setBrokenUrl] = useState<string | null>(null);
+  const cutoutUrl =
+    entry.transparent_background &&
+    transparentUrl &&
+    transparentUrl !== brokenUrl
+      ? transparentUrl
+      : null;
+  const displayUrl = cutoutUrl ?? originalUrl;
 
   const isUploaded = entry.kind === "uploaded";
   const mainText =
@@ -73,13 +98,19 @@ export default function PromptExpanderEntryCard({
     !expanded && mainText.length > MAIN_TEXT_LIMIT
       ? `${mainText.slice(0, MAIN_TEXT_LIMIT)}…`
       : mainText;
+  const hasReference = Boolean(
+    entry.reference_kind && entry.reference_kind !== "none",
+  );
   const hasDetails =
     mainText.length > MAIN_TEXT_LIMIT ||
     Boolean(entry.final_prompt?.trim()) ||
     Boolean(entry.final_negative_prompt?.trim()) ||
-    entry.character_prompts.length > 0;
+    entry.character_prompts.length > 0 ||
+    hasReference;
   const isCurrentSource =
     source?.kind === "entry" && source.entryId === entry.id;
+  const isCurrentReference =
+    reference?.kind === "entry" && reference.entryId === entry.id;
 
   const badges: string[] = [];
   if (entry.image_model) {
@@ -112,6 +143,12 @@ export default function PromptExpanderEntryCard({
         : t("promptExpander.entry.mangaBadge"),
     );
   }
+  if (hasReference) {
+    badges.push(t("promptExpander.entry.referenceBadge"));
+  }
+  if (entry.transparent_background) {
+    badges.push(t("promptExpander.entry.transparentBadge"));
+  }
 
   const handleUseInGame = () => {
     clearSession();
@@ -142,7 +179,14 @@ export default function PromptExpanderEntryCard({
       data-entry-id={entry.id}
     >
       <div
-        className="prompt-expander__entry-image-btn"
+        className={[
+          "prompt-expander__entry-image-btn",
+          entry.transparent_background
+            ? "prompt-expander__entry-image-btn--transparent"
+            : "",
+        ]
+          .filter(Boolean)
+          .join(" ")}
         role="button"
         tabIndex={0}
         onClick={() => onPreview(entry)}
@@ -156,10 +200,24 @@ export default function PromptExpanderEntryCard({
       >
         <img
           className="prompt-expander__entry-image"
-          src={promptExpanderImageUrl(entry)}
+          src={displayUrl}
           alt=""
           loading="lazy"
+          onError={() => setBrokenUrl(displayUrl)}
         />
+        {processing && (
+          <span
+            className="prompt-expander__entry-image-processing"
+            role="status"
+            aria-label={t("promptExpander.entry.transparentProcessing")}
+            title={t("promptExpander.entry.transparentProcessing")}
+          >
+            <span
+              className="prompt-expander__progress-spinner"
+              aria-hidden="true"
+            />
+          </span>
+        )}
       </div>
       <div className="prompt-expander__entry-body">
         <div className="prompt-expander__entry-row">
@@ -220,6 +278,20 @@ export default function PromptExpanderEntryCard({
                 <dd>{entry.final_negative_prompt}</dd>
               </>
             )}
+            {hasReference && entry.reference_type && (
+              <>
+                <dt>{t("promptExpander.entry.referenceDetail")}</dt>
+                <dd>
+                  {t("promptExpander.entry.referenceDetailValue", {
+                    type: t(
+                      `promptExpander.composer.referenceType.${referenceTypeI18nKey(entry.reference_type)}`,
+                    ),
+                    strength: (entry.reference_strength ?? 0).toFixed(2),
+                    fidelity: (entry.reference_fidelity ?? 0).toFixed(2),
+                  })}
+                </dd>
+              </>
+            )}
           </dl>
         )}
         <div className="prompt-expander__entry-actions">
@@ -247,6 +319,27 @@ export default function PromptExpanderEntryCard({
           >
             {t("promptExpander.entry.useAsSource")}
           </button>
+          <button
+            type="button"
+            className={`prompt-expander__btn prompt-expander__btn--sm ${isCurrentReference ? "prompt-expander__btn--primary" : ""}`}
+            onClick={() => selectEntryAsReference(entry)}
+          >
+            {t("promptExpander.entry.useAsReference")}
+          </button>
+          {entry.transparent_background && (
+            // 切り抜き後の blob URL（V5 はサーバーの透過 PNG）をそのまま保存させる
+            <a
+              className={`prompt-expander__btn prompt-expander__btn--sm ${processing ? "is-disabled" : ""}`}
+              href={displayUrl}
+              download={`${entry.id}.png`}
+              aria-disabled={processing}
+              onClick={(e) => {
+                if (processing) e.preventDefault();
+              }}
+            >
+              {t("promptExpander.entry.downloadTransparent")}
+            </a>
+          )}
           <button
             type="button"
             className="prompt-expander__btn prompt-expander__btn--sm"

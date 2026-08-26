@@ -1039,3 +1039,288 @@ async def test_draft_manga_script(factory, monkeypatch):
             )
         )
     assert exc.value.code == "invalid_llm_output"
+
+
+def test_merge_tags_is_idempotent():
+    assert (
+        pe.merge_tags("1girl, smile", ("white background", "no shadow"))
+        == "1girl, smile, white background, no shadow"
+    )
+    # 既にあるタグは大文字小文字を問わず足さず、末尾のカンマも整える
+    assert (
+        pe.merge_tags("1girl, White Background,", ("white background", "no shadow"))
+        == "1girl, White Background, no shadow"
+    )
+    assert pe.merge_tags("", ("multiple views",)) == "multiple views"
+    once = pe.merge_tags("1girl", ("no shadow",))
+    assert pe.merge_tags(once, ("no shadow",)) == once
+    # 日本語自然文（V5）にもカンマ区切りで足す
+    assert (
+        pe.merge_tags("銀髪の少女が微笑んでいる。", ("transparent background",))
+        == "銀髪の少女が微笑んでいる。, transparent background"
+    )
+
+
+def test_apply_transparent_background_by_model():
+    prompt, negative = pe.apply_transparent_background(
+        "1girl", "", "nai-diffusion-5-full"
+    )
+    assert prompt == "1girl, transparent background, no shadow"
+    assert negative == "multiple views, reference sheet, character sheet, turnaround"
+    prompt, negative = pe.apply_transparent_background(
+        "1girl", "lowres", "nai-diffusion-4-5-curated"
+    )
+    assert prompt == "1girl, simple background, white background, no shadow"
+    assert negative.startswith("lowres, multiple views")
+
+
+@pytest.mark.asyncio
+async def test_generate_entry_passes_character_reference_on_v45(factory, monkeypatch):
+    generate_mock = AsyncMock(
+        return_value=ImageGenerationResult(
+            images=[_png("purple")],
+            provider="novelai",
+            model="nai-diffusion-4-5-full",
+            seed=7,
+        )
+    )
+    monkeypatch.setattr(pe.image_service, "generate_image", generate_mock)
+    async with factory() as db:
+        session = await pe.PromptExpanderService.create_session(db, title="s")
+        uploaded = await pe.PromptExpanderService.add_uploaded_entry(
+            db, session_id=session.id, image_base64=_png_base64("green")
+        )
+        await db.commit()
+
+    # upload 参照: bytes がそのまま渡り、エントリには種別と強度だけ残る（ID は無い）
+    outcome = await pe.generate_entry(
+        session.id,
+        pe.GenerateParams(
+            prompt="1girl, standing",
+            image_model="nai-diffusion-4-5-full",
+            reference_kind="upload",
+            reference_image=_png_base64("blue"),
+            reference_type="character&style",
+            reference_strength=0.6,
+            reference_fidelity=0.9,
+        ),
+    )
+    refs = generate_mock.await_args.kwargs["character_references"]
+    assert len(refs) == 1
+    assert refs[0]["type"] == "character&style"
+    assert refs[0]["strength"] == 0.6 and refs[0]["fidelity"] == 0.9
+    assert isinstance(refs[0]["image"], bytes)
+    assert refs[0]["image"] == pe.decode_image_base64(_png_base64("blue"))
+    entry = outcome.entry
+    assert entry["reference_kind"] == "upload"
+    assert entry["reference_entry_id"] is None
+    assert entry["reference_history_id"] is None
+    assert entry["reference_type"] == "character&style"
+    assert entry["reference_strength"] == 0.6
+    assert entry["reference_fidelity"] == 0.9
+    assert entry["transparent_background"] is False
+
+    # entry 参照: 参照元 ID を記録し、i2i 元（image_bytes）とは独立
+    outcome = await pe.generate_entry(
+        session.id,
+        pe.GenerateParams(
+            prompt="1girl, sitting",
+            image_model="nai-diffusion-4-5-curated",
+            reference_kind="entry",
+            reference_entry_id=uploaded.id,
+        ),
+    )
+    kwargs = generate_mock.await_args.kwargs
+    assert kwargs["image_bytes"] is None
+    ref = kwargs["character_references"][0]
+    assert ref["image"] == pe.entry_image_file(session.id, uploaded.id).read_bytes()
+    assert ref["type"] == "character"
+    assert ref["strength"] == 0.85 and ref["fidelity"] == 1.0
+    assert outcome.entry["reference_kind"] == "entry"
+    assert outcome.entry["reference_entry_id"] == uploaded.id
+    assert outcome.entry["reference_type"] == "character"
+
+    # 参照なしなら渡さない
+    outcome = await pe.generate_entry(
+        session.id,
+        pe.GenerateParams(prompt="1girl", image_model="nai-diffusion-4-5-full"),
+    )
+    assert generate_mock.await_args.kwargs["character_references"] is None
+    assert outcome.entry["reference_kind"] == "none"
+    assert outcome.entry["reference_type"] is None
+
+
+@pytest.mark.asyncio
+async def test_generate_entry_rejects_reference_on_v5(factory, monkeypatch):
+    generate_mock = AsyncMock()
+    monkeypatch.setattr(pe.image_service, "generate_image", generate_mock)
+    async with factory() as db:
+        session = await pe.PromptExpanderService.create_session(db, title="s")
+        await db.commit()
+    with pytest.raises(pe.PromptExpanderError) as exc:
+        await pe.generate_entry(
+            session.id,
+            pe.GenerateParams(
+                prompt="1girl",
+                image_model="nai-diffusion-5-full",
+                reference_kind="upload",
+                reference_image=_png_base64(),
+            ),
+        )
+    assert exc.value.code == "precise_reference_requires_v45"
+    generate_mock.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_generate_entry_transparent_background_suffix_by_model(
+    factory, monkeypatch
+):
+    generate_mock = AsyncMock(
+        return_value=ImageGenerationResult(
+            images=[_png("purple")],
+            provider="novelai",
+            model="nai-diffusion-5-full",
+            seed=1,
+        )
+    )
+    monkeypatch.setattr(pe.image_service, "generate_image", generate_mock)
+    async with factory() as db:
+        session = await pe.PromptExpanderService.create_session(db, title="s")
+        await db.commit()
+
+    # V5: transparent background をネイティブ指示。保存値には足さない
+    outcome = await pe.generate_entry(
+        session.id,
+        pe.GenerateParams(
+            prompt="1girl, standing",
+            negative_prompt="lowres",
+            image_model="nai-diffusion-5-full",
+            transparent_background=True,
+        ),
+    )
+    assert generate_mock.await_args.args == (
+        "1girl, standing, transparent background, no shadow",
+    )
+    assert (
+        generate_mock.await_args.kwargs["negative_prompt"]
+        == "lowres, multiple views, reference sheet, character sheet, turnaround"
+    )
+    assert outcome.entry["final_prompt"] == "1girl, standing"
+    assert outcome.entry["final_negative_prompt"] == "lowres"
+    assert outcome.entry["transparent_background"] is True
+
+    # V4.5: 白背景で生成させ、切り抜きはフロント側
+    outcome = await pe.generate_entry(
+        session.id,
+        pe.GenerateParams(
+            prompt="1girl, standing",
+            image_model="nai-diffusion-4-5-full",
+            transparent_background=True,
+        ),
+    )
+    assert generate_mock.await_args.args == (
+        "1girl, standing, simple background, white background, no shadow",
+    )
+    assert (
+        generate_mock.await_args.kwargs["negative_prompt"]
+        == "multiple views, reference sheet, character sheet, turnaround"
+    )
+    assert outcome.entry["transparent_background"] is True
+
+    # 漫画モード（V5）ではコマ枠を切り抜けないので無効
+    outcome = await pe.generate_entry(
+        session.id,
+        pe.GenerateParams(
+            prompt="1girl, border",
+            image_model="nai-diffusion-5-full",
+            manga_mode=True,
+            transparent_background=True,
+        ),
+    )
+    assert generate_mock.await_args.args == ("1girl, border",)
+    assert generate_mock.await_args.kwargs["negative_prompt"] == ""
+    assert outcome.entry["transparent_background"] is False
+    assert outcome.entry["manga_mode"] is True
+
+    # OFF なら従来どおり
+    outcome = await pe.generate_entry(
+        session.id,
+        pe.GenerateParams(prompt="1girl", image_model="nai-diffusion-4-5-full"),
+    )
+    assert generate_mock.await_args.args == ("1girl",)
+    assert outcome.entry["transparent_background"] is False
+
+
+@pytest.mark.asyncio
+async def test_settings_reference_and_transparent_roundtrip(factory):
+    async with factory() as db:
+        current = await pe.PromptExpanderService.get_settings(db)
+        assert current.use_precise_reference is False
+        assert current.reference_type == "character"
+        assert current.reference_strength == 0.85
+        assert current.reference_fidelity == 1.0
+        assert current.transparent_background is False
+        saved = await pe.PromptExpanderService.save_settings(
+            db,
+            patch={
+                "use_precise_reference": True,
+                "reference_type": "style",
+                "reference_strength": 0.5,
+                "reference_fidelity": 0.25,
+                "transparent_background": True,
+            },
+        )
+        await db.commit()
+        assert saved.use_precise_reference is True
+        assert saved.reference_type == "style"
+        assert saved.reference_strength == 0.5
+        assert saved.reference_fidelity == 0.25
+        assert saved.transparent_background is True
+        # 不正な種別は既定へ倒し、範囲外の強度は invalid_settings
+        saved = await pe.PromptExpanderService.save_settings(
+            db, patch={"reference_type": "vibe"}
+        )
+        assert saved.reference_type == "character"
+        with pytest.raises(pe.PromptExpanderError) as exc:
+            await pe.PromptExpanderService.save_settings(
+                db, patch={"reference_strength": 1.5}
+            )
+        assert exc.value.code == "invalid_settings"
+    # 壊れた保存値は該当キーだけ捨てる
+    loaded = pe._settings_from_json(
+        json.dumps({"reference_strength": "x", "transparent_background": True})
+    )
+    assert loaded.reference_strength == 0.85
+    assert loaded.transparent_background is True
+
+
+@pytest.mark.asyncio
+async def test_expand_passes_transparent_rule_only_outside_manga(factory, monkeypatch):
+    mock = AsyncMock(
+        return_value=SimpleNamespace(
+            content="1girl, red dress, moe, anime, very aesthetic, best quality",
+            cost_usd=None,
+        )
+    )
+    monkeypatch.setattr(pe.llm_service, "generate_text", mock)
+    await pe.expand_prompts(
+        pe.ExpandParams(
+            instruction="赤いドレス",
+            expand_positive=True,
+            positive_mode="tags",
+            image_model="nai-diffusion-4-5-full",
+            text_model="glm-4-6",
+            transparent_background=True,
+        )
+    )
+    assert "Transparent background mode is ON" in mock.await_args.args[0]
+    await pe.expand_prompts(
+        pe.ExpandParams(
+            instruction="赤いドレス",
+            expand_positive=True,
+            positive_mode="tags",
+            image_model="nai-diffusion-4-5-full",
+            text_model="glm-4-6",
+        )
+    )
+    assert "Transparent background mode is ON" not in mock.await_args.args[0]

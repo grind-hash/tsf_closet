@@ -1,9 +1,10 @@
 /**
  * PromptExpanderComposer - Prompt Expander の入力欄
  *
- * 上から ① 生成パラメータ ② プロンプト／指示（正 + ネガティブ。各欄の右上に
- * モード切替・拡張・提案のツールバー、拡張結果は欄の直下にインライン表示）
- * ③ キャラクタープロンプト ④ i2i 設定 の開閉セクションと、最下部の「生成」ボタン。
+ * 上から ① 生成パラメータ（背景透過スイッチを含む） ② 漫画 ③ プロンプト／指示（正 + ネガティブ。
+ * 各欄の右上にモード切替・拡張・提案のツールバー、拡張結果は欄の直下にインライン表示）
+ * ④ キャラクタープロンプト ⑤ i2i 設定 ⑥ 精密参照（V4.5 系のみ。i2i 元とは別の参照画像）の
+ * 開閉セクションと、最下部の「生成」ボタン。
  */
 
 import { type ReactNode, useRef, useState } from "react";
@@ -21,16 +22,20 @@ import {
   PROMPT_EXPANDER_MANGA_PANEL_COUNT_AUTO,
   PROMPT_EXPANDER_MANGA_READING_DIRECTIONS,
   PROMPT_EXPANDER_MANGA_TEXT_LANGUAGES,
+  PROMPT_EXPANDER_REFERENCE_TYPES,
   PROMPT_EXPANDER_SEED_MAX,
   type PromptExpanderImageSize,
   type PromptExpanderMangaLayout,
   type PromptExpanderMangaReadingDirection,
   type PromptExpanderMangaTextLanguage,
   type PromptExpandMode,
+  referenceTypeI18nKey,
   supportsMangaMode,
+  usesNativeTransparency,
 } from "../../constants/promptExpander";
 import {
   type PromptExpanderExpansionTarget,
+  type PromptExpanderPickerTarget,
   usePromptExpander,
 } from "../../contexts/PromptExpanderContext";
 import PromptExpanderCharacterSlots from "./PromptExpanderCharacterSlots";
@@ -157,6 +162,12 @@ export default function PromptExpanderComposer() {
     options,
     source,
     clearSource,
+    reference,
+    clearReference,
+    referenceSupported,
+    referenceActive,
+    referenceAnlasCost,
+    transparentActive,
     positiveText,
     setPositiveText,
     positiveMode,
@@ -191,6 +202,17 @@ export default function PromptExpanderComposer() {
 
   const [pickerOpen, setPickerOpen] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
+  // ピッカー／アップロードは i2i 元と精密参照で共用し、開いたときの入れ先だけを覚える
+  const [pickerTarget, setPickerTarget] =
+    useState<PromptExpanderPickerTarget>("source");
+  const openPicker = (target: PromptExpanderPickerTarget) => {
+    setPickerTarget(target);
+    setPickerOpen(true);
+  };
+  const openUpload = (target: PromptExpanderPickerTarget) => {
+    setPickerTarget(target);
+    setUploadOpen(true);
+  };
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [seedDraft, setSeedDraft] = useState<string | null>(null);
   const positiveRef = useRef<HTMLTextAreaElement>(null);
@@ -316,6 +338,32 @@ export default function PromptExpanderComposer() {
           .filter(Boolean)
           .join(" · ");
 
+  // 精密参照セクションの要約（閉じていても状態が分かるように）
+  const referenceKindLabel = reference
+    ? t(`promptExpander.composer.sourceKind.${reference.kind}`)
+    : null;
+  const referenceTypeLabel = t(
+    `promptExpander.composer.referenceType.${referenceTypeI18nKey(settings.reference_type)}`,
+  );
+  const referenceSummary = !referenceSupported
+    ? t("promptExpander.composer.referenceSummaryUnsupported")
+    : !settings.use_precise_reference
+      ? t("promptExpander.composer.referenceSummaryOff")
+      : !reference
+        ? t("promptExpander.composer.referenceSummaryNoImage")
+        : t("promptExpander.composer.referenceSummaryOn", {
+            type: referenceTypeLabel,
+            strength: settings.reference_strength.toFixed(2),
+            fidelity: settings.reference_fidelity.toFixed(2),
+            cost: options.anlasPerReference,
+          });
+  // 背景透過の説明はモデル世代と漫画モードで切り替える（スイッチ自体は常に操作できる）
+  const transparentHint = mangaActive
+    ? t("promptExpander.composer.transparentHintManga")
+    : usesNativeTransparency(settings.image_model)
+      ? t("promptExpander.composer.transparentHintV5")
+      : t("promptExpander.composer.transparentHintV45");
+
   const renderFieldToolbar = (
     target: PromptExpanderExpansionTarget,
     extra?: ReactNode,
@@ -390,6 +438,8 @@ export default function PromptExpanderComposer() {
             {t(`promptExpander.composer.size.${settings.image_size}`)}
             {settings.seed !== null &&
               ` · ${t("promptExpander.entry.seedBadge", { value: settings.seed })}`}
+            {settings.transparent_background &&
+              ` · ${t("promptExpander.composer.transparentSummary")}`}
           </span>
         }
       >
@@ -481,6 +531,22 @@ export default function PromptExpanderComposer() {
               {t("promptExpander.composer.seedHint")}
             </span>
           </div>
+        </div>
+        {/* 背景透過。V5 はプロンプト指示、V4.5 は白背景生成 + 表示時の切り抜き。漫画モード中は無効 */}
+        <div className="prompt-expander__field">
+          <PromptExpanderSwitch
+            checked={settings.transparent_background}
+            onChange={(checked) =>
+              void updateSettings({ transparent_background: checked })
+            }
+            label={t("promptExpander.composer.transparentToggle")}
+            title={transparentHint}
+          />
+          <span
+            className={`prompt-expander__hint ${settings.transparent_background && !transparentActive ? "prompt-expander__hint--warning" : ""}`}
+          >
+            {transparentHint}
+          </span>
         </div>
       </PromptExpanderSection>
 
@@ -857,14 +923,14 @@ export default function PromptExpanderComposer() {
           <button
             type="button"
             className="prompt-expander__btn prompt-expander__btn--sm"
-            onClick={() => setPickerOpen(true)}
+            onClick={() => openPicker("source")}
           >
             {t("promptExpander.composer.pickHistory")}
           </button>
           <button
             type="button"
             className="prompt-expander__btn prompt-expander__btn--sm"
-            onClick={() => setUploadOpen(true)}
+            onClick={() => openUpload("source")}
           >
             {t("promptExpander.composer.uploadImage")}
           </button>
@@ -975,6 +1041,191 @@ export default function PromptExpanderComposer() {
         </div>
       </PromptExpanderSection>
 
+      {/* ⑥ 精密参照（V4.5 系のみ）。i2i 元とは別の参照画像で人物の同一性を固定する */}
+      <PromptExpanderSection
+        id="reference"
+        title={t("promptExpander.composer.sectionReference")}
+        defaultOpen={false}
+        toolbar={
+          <>
+            <span className="prompt-expander__section-summary">
+              {referenceSummary}
+            </span>
+            <PromptExpanderSwitch
+              checked={settings.use_precise_reference}
+              onChange={(checked) =>
+                void updateSettings({ use_precise_reference: checked })
+              }
+              label={t("promptExpander.composer.referenceToggle")}
+              disabled={!referenceSupported}
+              title={
+                referenceSupported
+                  ? undefined
+                  : t("promptExpander.composer.referenceRequiresV45")
+              }
+            />
+          </>
+        }
+      >
+        {!referenceSupported && (
+          <p className="prompt-expander__hint prompt-expander__hint--warning">
+            {t("promptExpander.composer.referenceRequiresV45")}
+          </p>
+        )}
+        <p className="prompt-expander__hint">
+          {t("promptExpander.composer.referenceHint")}
+        </p>
+        <div className="prompt-expander__source-actions">
+          <button
+            type="button"
+            className="prompt-expander__btn prompt-expander__btn--sm"
+            onClick={() => openPicker("reference")}
+          >
+            {t("promptExpander.composer.pickHistory")}
+          </button>
+          <button
+            type="button"
+            className="prompt-expander__btn prompt-expander__btn--sm"
+            onClick={() => openUpload("reference")}
+          >
+            {t("promptExpander.composer.uploadImage")}
+          </button>
+          <button
+            type="button"
+            className="prompt-expander__btn prompt-expander__btn--sm"
+            onClick={clearReference}
+            disabled={!reference}
+            title={
+              reference ? undefined : t("promptExpander.composer.referenceNone")
+            }
+          >
+            {t("promptExpander.composer.referenceClear")}
+          </button>
+        </div>
+        <div className="prompt-expander__source-row">
+          {reference ? (
+            <>
+              <img
+                className="prompt-expander__thumb"
+                src={reference.thumbnailUrl}
+                alt=""
+              />
+              <div className="prompt-expander__source-info">
+                <span className="prompt-expander__source-label">
+                  {reference.label}
+                </span>
+                <span className="prompt-expander__badge">
+                  {referenceKindLabel}
+                </span>
+              </div>
+            </>
+          ) : (
+            <span className="prompt-expander__hint">
+              {t("promptExpander.composer.referenceNone")}
+            </span>
+          )}
+        </div>
+        {settings.use_precise_reference && referenceSupported && !reference && (
+          <p className="prompt-expander__hint prompt-expander__hint--warning">
+            {t("promptExpander.composer.referenceNoImage")}
+          </p>
+        )}
+        <div className="prompt-expander__reference-type">
+          <span className="prompt-expander__label">
+            {t("promptExpander.composer.referenceTypeLabel")}
+          </span>
+          <div
+            className="prompt-expander__radio-group prompt-expander__radio-group--compact"
+            role="radiogroup"
+            aria-label={t("promptExpander.composer.referenceTypeLabel")}
+          >
+            {PROMPT_EXPANDER_REFERENCE_TYPES.map((type) => (
+              <label
+                key={type}
+                className={`prompt-expander__radio ${settings.reference_type === type ? "is-active" : ""}`}
+              >
+                <input
+                  type="radio"
+                  name="prompt-expander-reference-type"
+                  value={type}
+                  checked={settings.reference_type === type}
+                  onChange={() => void updateSettings({ reference_type: type })}
+                />
+                {t(
+                  `promptExpander.composer.referenceType.${referenceTypeI18nKey(type)}`,
+                )}
+              </label>
+            ))}
+          </div>
+        </div>
+        <div className="prompt-expander__field">
+          <label
+            className="prompt-expander__label"
+            htmlFor="prompt-expander-reference-strength"
+          >
+            {t("promptExpander.composer.referenceStrength")}:{" "}
+            {settings.reference_strength.toFixed(2)}
+          </label>
+          <input
+            id="prompt-expander-reference-strength"
+            type="range"
+            className="prompt-expander__range"
+            min={0}
+            max={1}
+            step={0.05}
+            value={settings.reference_strength}
+            disabled={!reference}
+            title={
+              reference
+                ? undefined
+                : t("promptExpander.composer.referenceDisabledReason")
+            }
+            onChange={(e) =>
+              updateSettingsDebounced({
+                reference_strength: Number.parseFloat(e.target.value),
+              })
+            }
+          />
+          <label
+            className="prompt-expander__label"
+            htmlFor="prompt-expander-reference-fidelity"
+          >
+            {t("promptExpander.composer.referenceFidelity")}:{" "}
+            {settings.reference_fidelity.toFixed(2)}
+          </label>
+          <input
+            id="prompt-expander-reference-fidelity"
+            type="range"
+            className="prompt-expander__range"
+            min={0}
+            max={1}
+            step={0.05}
+            value={settings.reference_fidelity}
+            disabled={!reference}
+            title={
+              reference
+                ? undefined
+                : t("promptExpander.composer.referenceDisabledReason")
+            }
+            onChange={(e) =>
+              updateSettingsDebounced({
+                reference_fidelity: Number.parseFloat(e.target.value),
+              })
+            }
+          />
+          {!reference && (
+            <span className="prompt-expander__hint">
+              {t("promptExpander.composer.referenceDisabledReason")}
+            </span>
+          )}
+        </div>
+        <span className="prompt-expander__hint">
+          {t("promptExpander.composer.referenceCostHint", {
+            cost: options.anlasPerReference,
+          })}
+        </span>
+      </PromptExpanderSection>
+
       {/* 生成ボタン */}
       <div className="prompt-expander__generate-row">
         <button
@@ -988,6 +1239,18 @@ export default function PromptExpanderComposer() {
             ? t("promptExpander.composer.generating")
             : t("promptExpander.composer.generate")}
         </button>
+        {referenceActive && (
+          <span
+            className="prompt-expander__generate-cost"
+            title={t("promptExpander.composer.referenceCostHint", {
+              cost: referenceAnlasCost,
+            })}
+          >
+            {t("promptExpander.composer.referenceCostBadge", {
+              cost: referenceAnlasCost,
+            })}
+          </span>
+        )}
         {disabledReasonText && !busy && (
           <span className="prompt-expander__hint prompt-expander__hint--warning">
             {disabledReasonText}
@@ -997,10 +1260,12 @@ export default function PromptExpanderComposer() {
 
       <PromptExpanderSourcePickerModal
         open={pickerOpen}
+        target={pickerTarget}
         onClose={() => setPickerOpen(false)}
       />
       <PromptExpanderUploadDialog
         open={uploadOpen}
+        target={pickerTarget}
         onClose={() => setUploadOpen(false)}
       />
       <PromptExpanderSuggestModal

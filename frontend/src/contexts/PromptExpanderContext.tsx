@@ -52,13 +52,19 @@ import {
 } from "../constants/novelaiImageModels";
 import {
   DEFAULT_PROMPT_EXPANDER_IMAGE_MODEL,
+  DEFAULT_PROMPT_EXPANDER_REFERENCE_FIDELITY,
+  DEFAULT_PROMPT_EXPANDER_REFERENCE_STRENGTH,
+  DEFAULT_PROMPT_EXPANDER_REFERENCE_TYPE,
   getMaxCharacterPrompts,
   NOVELAI_TEXT_MODEL_OPTIONS,
+  PROMPT_EXPANDER_ANLAS_PER_REFERENCE,
+  PROMPT_EXPANDER_ANLAS_WARN_SUPPRESSED_KEY,
   PROMPT_EXPANDER_IMAGE_MODEL_OPTIONS,
   PROMPT_EXPANDER_IMAGE_SIZES,
   type PromptExpanderImageSize,
   type PromptExpandMode,
   supportsMangaMode,
+  supportsPreciseReference,
 } from "../constants/promptExpander";
 import type { AnlasBalance } from "../types";
 import { useNotification } from "./NotificationContext";
@@ -83,6 +89,9 @@ export interface PromptExpanderSource {
   thumbnailUrl: string;
   label: string;
 }
+
+/** 画像ピッカー／アップロードの入れ先（i2i 元 or 精密参照） */
+export type PromptExpanderPickerTarget = "source" | "reference";
 
 /** LLM 拡張の結果（欄の直下のインラインカードで編集可能） */
 export interface PromptExpanderPendingExpansion {
@@ -121,11 +130,15 @@ export interface PromptExpanderOptions {
   maxCharacterPrompts: Record<string, number>;
   imageSizes: PromptExpanderImageSize[];
   novelaiConfigured: boolean;
+  /** 精密参照 1 枚あたりの Anlas 消費 */
+  anlasPerReference: number;
 }
 
 export interface PromptExpanderUploadOptions {
   keepAsEntry: boolean;
+  /** 画像を target（既定は i2i 元）の選択状態に入れる */
   useAsSource: boolean;
+  target?: PromptExpanderPickerTarget;
   note?: string;
 }
 
@@ -157,6 +170,16 @@ interface PromptExpanderContextValue {
   clearExpansionError: () => void;
   // コンポーザ
   source: PromptExpanderSource | null;
+  /** 精密参照に使う画像（i2i 元とは独立。セッション内だけ保持する） */
+  reference: PromptExpanderSource | null;
+  /** 現在の画像モデルで精密参照が使えるか（V4.5 系のみ） */
+  referenceSupported: boolean;
+  /** 精密参照が実際に生成へ載る状態か（設定 ON かつ V4.5 系かつ参照画像あり） */
+  referenceActive: boolean;
+  /** 精密参照で追加消費する Anlas（referenceActive のときだけ > 0） */
+  referenceAnlasCost: number;
+  /** 背景透過が実際に効く状態か（設定 ON かつ漫画モード OFF） */
+  transparentActive: boolean;
   positiveText: string;
   positiveMode: PromptExpandMode;
   positiveOrigin: PromptExpanderPositiveOrigin | null;
@@ -172,6 +195,8 @@ interface PromptExpanderContextValue {
   negativeOrigin: PromptExpanderNegativeOrigin | null;
   pendingExpansion: PromptExpanderPendingExpansion | null;
   pendingUsageWarn: PromptExpanderGenerateRequest | null;
+  /** 精密参照の Anlas 確認待ちの生成ペイロード */
+  pendingReferenceWarn: PromptExpanderGenerateRequest | null;
   anlas: AnlasBalance | null;
   canGenerate: boolean;
   generateDisabledReason: string | null;
@@ -189,6 +214,8 @@ interface PromptExpanderContextValue {
   // アクション: コンポーザ
   setSource: (source: PromptExpanderSource | null) => void;
   clearSource: () => void;
+  setReference: (reference: PromptExpanderSource | null) => void;
+  clearReference: () => void;
   setPositiveText: (text: string) => void;
   setPositiveMode: (mode: PromptExpandMode) => void;
   setCharacterMode: (on: boolean) => void;
@@ -220,11 +247,14 @@ interface PromptExpanderContextValue {
   runGenerate: () => Promise<void>;
   confirmUsageWarn: (suppress: boolean) => Promise<void>;
   cancelUsageWarn: () => void;
+  confirmReferenceWarn: (suppress: boolean) => Promise<void>;
+  cancelReferenceWarn: () => void;
   /** 拡張ありのエントリは原文を欄へ戻し、変換結果を確認カードとして再現する */
   restoreEntry: (entry: PromptExpanderEntry) => void;
   /** エントリのプロンプト・設定のまま、seed だけ新規（ランダム）で生成し直す */
   regenerateEntry: (entry: PromptExpanderEntry) => Promise<void>;
   selectEntryAsSource: (entry: PromptExpanderEntry) => void;
+  selectEntryAsReference: (entry: PromptExpanderEntry) => void;
   deleteEntry: (id: string) => Promise<void>;
   suggestCharacters: (
     count: number,
@@ -272,6 +302,11 @@ const DEFAULT_SETTINGS: PromptExpanderSettings = {
   manga_sound_effects: true,
   manga_reading_direction: "rtl",
   manga_narration: false,
+  use_precise_reference: false,
+  reference_type: DEFAULT_PROMPT_EXPANDER_REFERENCE_TYPE,
+  reference_strength: DEFAULT_PROMPT_EXPANDER_REFERENCE_STRENGTH,
+  reference_fidelity: DEFAULT_PROMPT_EXPANDER_REFERENCE_FIDELITY,
+  transparent_background: false,
 };
 
 const DEFAULT_OPTIONS: PromptExpanderOptions = {
@@ -283,6 +318,7 @@ const DEFAULT_OPTIONS: PromptExpanderOptions = {
   maxCharacterPrompts: {},
   imageSizes: [...PROMPT_EXPANDER_IMAGE_SIZES],
   novelaiConfigured: true,
+  anlasPerReference: PROMPT_EXPANDER_ANLAS_PER_REFERENCE,
 };
 
 const SETTINGS_DEBOUNCE_MS = 400;
@@ -319,6 +355,17 @@ function readUsageWarnSuppressed(): boolean {
   }
 }
 
+function readReferenceWarnSuppressed(): boolean {
+  try {
+    return (
+      sessionStorage.getItem(PROMPT_EXPANDER_ANLAS_WARN_SUPPRESSED_KEY) ===
+      "true"
+    );
+  } catch {
+    return false;
+  }
+}
+
 function applySettingsResponse(
   payload: PromptExpanderSettingsResponse,
   setSettings: (s: PromptExpanderSettings) => void,
@@ -340,6 +387,8 @@ function applySettingsResponse(
         ? payload.image_sizes
         : DEFAULT_OPTIONS.imageSizes,
     novelaiConfigured: payload.novelai_configured !== false,
+    anlasPerReference:
+      payload.anlas_per_reference ?? PROMPT_EXPANDER_ANLAS_PER_REFERENCE,
   });
 }
 
@@ -397,6 +446,10 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
 
   // コンポーザ
   const [source, setSourceState] = useState<PromptExpanderSource | null>(null);
+  // 精密参照の画像。i2i 元と同じ型だが独立して選ぶ（永続化しない）
+  const [reference, setReferenceState] = useState<PromptExpanderSource | null>(
+    null,
+  );
   const [positiveText, setPositiveText] = useState("");
   const [positiveMode, setPositiveMode] = useState<PromptExpandMode>("tags");
   const [positiveOrigin, setPositiveOrigin] =
@@ -417,6 +470,8 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
   const [pendingExpansion, setPendingExpansion] =
     useState<PromptExpanderPendingExpansion | null>(null);
   const [pendingUsageWarn, setPendingUsageWarn] =
+    useState<PromptExpanderGenerateRequest | null>(null);
+  const [pendingReferenceWarn, setPendingReferenceWarn] =
     useState<PromptExpanderGenerateRequest | null>(null);
   const [anlas, setAnlas] = useState<AnlasBalance | null>(globalAnlas);
 
@@ -672,6 +727,13 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
   const effectivePositiveMode: PromptExpandMode = mangaActive
     ? "tags"
     : positiveMode;
+  // 精密参照は V4.5 系でだけ効く（V5 では設定を残したまま無効）。参照画像が無ければ載せない
+  const referenceSupported = supportsPreciseReference(settings.image_model);
+  const referenceActive =
+    settings.use_precise_reference && referenceSupported && reference !== null;
+  const referenceAnlasCost = referenceActive ? options.anlasPerReference : 0;
+  // 背景透過はコマ枠を切り抜けないため漫画モードとは両立しない（設定は残す）
+  const transparentActive = settings.transparent_background && !mangaActive;
   const mangaRequest = useMemo<PromptExpanderMangaOptions>(
     () => ({
       panel_count: settings.manga_panel_count,
@@ -697,6 +759,10 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
     setSourceState(next);
   }, []);
   const clearSource = useCallback(() => setSourceState(null), []);
+  const setReference = useCallback((next: PromptExpanderSource | null) => {
+    setReferenceState(next);
+  }, []);
+  const clearReference = useCallback(() => setReferenceState(null), []);
 
   const addCharacterSlot = useCallback(
     (text: string = "") => {
@@ -723,10 +789,23 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       label: entry.instruction || entry.final_prompt || entry.id,
     });
   }, []);
+  const selectEntryAsReference = useCallback((entry: PromptExpanderEntry) => {
+    setReferenceState({
+      kind: "entry",
+      entryId: entry.id,
+      thumbnailUrl: promptExpanderImageUrl(entry),
+      label: entry.instruction || entry.final_prompt || entry.id,
+    });
+  }, []);
 
   const uploadImage = useCallback(
     async (file: File, uploadOptions: PromptExpanderUploadOptions) => {
       if (!uploadOptions.keepAsEntry && !uploadOptions.useAsSource) return;
+      // 精密参照向けのアップロードは i2i 元ではなく参照画像の選択状態に入れる
+      const assign =
+        uploadOptions.target === "reference"
+          ? setReferenceState
+          : setSourceState;
       setUploading(true);
       try {
         const dataUrl = await readFileAsDataUrl(file);
@@ -742,7 +821,7 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
           setEntries((prev) => [entry, ...prev]);
           bumpSessionEntryCount(activeSession.id, 1, entry.image_url);
           if (uploadOptions.useAsSource) {
-            setSourceState({
+            assign({
               kind: "entry",
               entryId: entry.id,
               thumbnailUrl: promptExpanderImageUrl(entry),
@@ -750,7 +829,7 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
             });
           }
         } else if (uploadOptions.useAsSource) {
-          setSourceState({
+          assign({
             kind: "upload",
             uploadDataUrl: dataUrl,
             thumbnailUrl: dataUrl,
@@ -786,9 +865,24 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
         source_kind: source?.kind ?? "none",
         manga_mode: mangaActive,
         manga_panel_count: mangaActive ? settings.manga_panel_count : null,
+        transparent_background: transparentActive,
       };
       if (settings.seed !== null && settings.seed !== undefined) {
         payload.seed = settings.seed;
+      }
+      // 精密参照は i2i 元とは別の画像を、有効なとき（V4.5 かつ ON かつ選択済み）だけ載せる
+      if (referenceActive && reference) {
+        payload.reference_kind = reference.kind;
+        payload.reference_type = settings.reference_type;
+        payload.reference_strength = settings.reference_strength;
+        payload.reference_fidelity = settings.reference_fidelity;
+        if (reference.kind === "history") {
+          payload.reference_history_id = reference.historyId;
+        } else if (reference.kind === "entry") {
+          payload.reference_entry_id = reference.entryId;
+        } else if (reference.kind === "upload") {
+          payload.reference_image = reference.uploadDataUrl;
+        }
       }
       if (source) {
         payload.i2i_strength = settings.i2i_strength;
@@ -803,7 +897,14 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       }
       return payload;
     },
-    [mangaActive, settings, source],
+    [
+      mangaActive,
+      reference,
+      referenceActive,
+      settings,
+      source,
+      transparentActive,
+    ],
   );
 
   // 確認ゲートを通過した後の実際の生成リクエスト
@@ -837,6 +938,14 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
         !readUsageWarnSuppressed()
       ) {
         setPendingUsageWarn(payload);
+        return;
+      }
+      // 精密参照は参照 1 枚ごとに Anlas を消費するため、生成前に確認を挟む
+      if (
+        (payload.reference_kind ?? "none") !== "none" &&
+        !readReferenceWarnSuppressed()
+      ) {
+        setPendingReferenceWarn(payload);
         return;
       }
       await postGenerate(payload);
@@ -948,6 +1057,8 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
         current_character_prompts: characterMode ? characterSlots : [],
         manga_mode: mangaActive,
         ...(mangaActive ? { manga: mangaRequest } : {}),
+        // 背景透過 ON のときは背景・情景を描写しない規則を LLM に足す
+        transparent_background: transparentActive,
       });
       setPendingExpansion({
         target: "positive",
@@ -976,6 +1087,7 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
     settings.inherit_source_prompts,
     settings.text_model,
     sourceFields,
+    transparentActive,
   ]);
 
   const draftScript = useCallback(async () => {
@@ -1186,6 +1298,32 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
 
   const cancelUsageWarn = useCallback(() => setPendingUsageWarn(null), []);
 
+  const confirmReferenceWarn = useCallback(
+    async (suppress: boolean) => {
+      if (suppress) {
+        try {
+          sessionStorage.setItem(
+            PROMPT_EXPANDER_ANLAS_WARN_SUPPRESSED_KEY,
+            "true",
+          );
+        } catch {
+          // sessionStorage が使えない環境では抑止しない
+        }
+      }
+      const payload = pendingReferenceWarn;
+      setPendingReferenceWarn(null);
+      if (payload) {
+        await postGenerate(payload);
+      }
+    },
+    [pendingReferenceWarn, postGenerate],
+  );
+
+  const cancelReferenceWarn = useCallback(
+    () => setPendingReferenceWarn(null),
+    [],
+  );
+
   const restoreEntry = useCallback(
     (entry: PromptExpanderEntry) => {
       const expandMode = entry.positive_expand_mode;
@@ -1240,6 +1378,27 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       if (entry.manga_mode) {
         patch.manga_panel_count = entry.manga_panel_count ?? 0;
       }
+      // 背景透過の印も戻す。精密参照は参照付きエントリのときだけ ON と強度を戻し、
+      // 参照画像そのものは i2i 元と同じく復元しない（参照なしのエントリでは触らない）
+      patch.transparent_background = Boolean(entry.transparent_background);
+      if (entry.reference_kind && entry.reference_kind !== "none") {
+        patch.use_precise_reference = true;
+        if (entry.reference_type) {
+          patch.reference_type = entry.reference_type;
+        }
+        if (
+          entry.reference_strength !== null &&
+          entry.reference_strength !== undefined
+        ) {
+          patch.reference_strength = entry.reference_strength;
+        }
+        if (
+          entry.reference_fidelity !== null &&
+          entry.reference_fidelity !== undefined
+        ) {
+          patch.reference_fidelity = entry.reference_fidelity;
+        }
+      }
       if (Object.keys(patch).length > 0) {
         void updateSettings(patch);
       }
@@ -1268,7 +1427,24 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
         source_kind: "none",
         manga_mode: entry.manga_mode,
         manga_panel_count: entry.manga_mode ? entry.manga_panel_count : null,
+        transparent_background: Boolean(entry.transparent_background),
       };
+      // 精密参照も同じ参照元で再現する（アップロード参照は保持していないので参照なしに落とす）
+      if (entry.reference_kind === "history" && entry.reference_history_id) {
+        payload.reference_kind = "history";
+        payload.reference_history_id = entry.reference_history_id;
+      } else if (entry.reference_kind === "entry" && entry.reference_entry_id) {
+        payload.reference_kind = "entry";
+        payload.reference_entry_id = entry.reference_entry_id;
+      }
+      if (payload.reference_kind) {
+        payload.reference_type =
+          entry.reference_type ?? settings.reference_type;
+        payload.reference_strength =
+          entry.reference_strength ?? settings.reference_strength;
+        payload.reference_fidelity =
+          entry.reference_fidelity ?? settings.reference_fidelity;
+      }
       // 参照元が履歴/エントリなら同じ元で i2i する（アップロード元は保持していないので t2i に落とす）
       if (entry.source_kind === "history" && entry.source_history_id) {
         payload.source_kind = "history";
@@ -1291,6 +1467,9 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       settings.i2i_strength,
       settings.image_model,
       settings.image_size,
+      settings.reference_fidelity,
+      settings.reference_strength,
+      settings.reference_type,
       settings.text_model,
     ],
   );
@@ -1307,11 +1486,14 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
         if (source?.kind === "entry" && source.entryId === id) {
           setSourceState(null);
         }
+        if (reference?.kind === "entry" && reference.entryId === id) {
+          setReferenceState(null);
+        }
       } catch (err) {
         reportError("Prompt Expander", err);
       }
     },
-    [bumpSessionEntryCount, entries, reportError, source],
+    [bumpSessionEntryCount, entries, reference, reportError, source],
   );
 
   const suggestCharacters = useCallback(
@@ -1379,6 +1561,11 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       expansionError,
       clearExpansionError,
       source,
+      reference,
+      referenceSupported,
+      referenceActive,
+      referenceAnlasCost,
+      transparentActive,
       positiveText,
       positiveMode,
       positiveOrigin,
@@ -1392,6 +1579,7 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       negativeOrigin,
       pendingExpansion,
       pendingUsageWarn,
+      pendingReferenceWarn,
       anlas,
       canGenerate: generateDisabledReason === null,
       generateDisabledReason,
@@ -1406,6 +1594,8 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       importGlobalMemory,
       setSource,
       clearSource,
+      setReference,
+      clearReference,
       setPositiveText,
       setPositiveMode,
       setCharacterMode,
@@ -1425,9 +1615,12 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       runGenerate,
       confirmUsageWarn,
       cancelUsageWarn,
+      confirmReferenceWarn,
+      cancelReferenceWarn,
       restoreEntry,
       regenerateEntry,
       selectEntryAsSource,
+      selectEntryAsReference,
       deleteEntry,
       suggestCharacters,
     }),
@@ -1453,6 +1646,11 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       expansionError,
       clearExpansionError,
       source,
+      reference,
+      referenceSupported,
+      referenceActive,
+      referenceAnlasCost,
+      transparentActive,
       positiveText,
       positiveMode,
       positiveOrigin,
@@ -1466,6 +1664,7 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       negativeOrigin,
       pendingExpansion,
       pendingUsageWarn,
+      pendingReferenceWarn,
       anlas,
       generateDisabledReason,
       loadSessions,
@@ -1479,6 +1678,8 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       importGlobalMemory,
       setSource,
       clearSource,
+      setReference,
+      clearReference,
       setCharacterMode,
       addCharacterSlot,
       updateCharacterSlot,
@@ -1494,9 +1695,12 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       runGenerate,
       confirmUsageWarn,
       cancelUsageWarn,
+      confirmReferenceWarn,
+      cancelReferenceWarn,
       restoreEntry,
       regenerateEntry,
       selectEntryAsSource,
+      selectEntryAsReference,
       deleteEntry,
       suggestCharacters,
     ],

@@ -317,7 +317,9 @@ async function process(
 }
 
 const cache = new Map<string, Promise<string>>();
-const CACHE_LIMIT = 24;
+// Evicted entries revoke their object URL, so the limit must cover every image
+// that can be on screen at once (the Prompt Expander entry list shows dozens).
+const CACHE_LIMIT = 48;
 
 /**
  * Returns an object URL of `src` with its outer background made transparent.

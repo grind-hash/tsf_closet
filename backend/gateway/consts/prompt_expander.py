@@ -54,6 +54,37 @@ PROMPT_EXPANDER_UPLOAD_MAX_BASE64_LEN: Final[int] = 16 * 1024 * 1024
 DEFAULT_PROMPT_EXPANDER_I2I_STRENGTH: Final[float] = 0.7
 DEFAULT_PROMPT_EXPANDER_I2I_NOISE: Final[float] = 0.0
 
+# 精密参照（NovelAI character reference）。V4.5 系のみ対応で、1 枚あたり Anlas を消費する。
+# 立ち絵差分では同一性の固定が目的なので、既定強度は Adventure の立ち絵生成と同じにする
+PROMPT_EXPANDER_REFERENCE_TYPES: Final[tuple[str, ...]] = (
+    "character",
+    "style",
+    "character&style",
+)
+DEFAULT_PROMPT_EXPANDER_REFERENCE_TYPE: Final[str] = "character"
+DEFAULT_PROMPT_EXPANDER_REFERENCE_STRENGTH: Final[float] = 0.85
+DEFAULT_PROMPT_EXPANDER_REFERENCE_FIDELITY: Final[float] = 1.0
+PROMPT_EXPANDER_ANLAS_PER_REFERENCE: Final[int] = 5
+
+# 背景透過。V5 系はプロンプト指示でネイティブ透過 PNG を返し、V4.5 系は白背景で生成して
+# フロントの切り抜き処理（imageAlpha.ts）で透過にする。negative は複数ビュー・キャラクター
+# シート化を抑える語だけに留め、複数人を禁じる語は入れない（複数キャラの透過生成も許すため）
+TRANSPARENT_BACKGROUND_TAGS_V5: Final[tuple[str, ...]] = (
+    "transparent background",
+    "no shadow",
+)
+TRANSPARENT_BACKGROUND_TAGS_V45: Final[tuple[str, ...]] = (
+    "simple background",
+    "white background",
+    "no shadow",
+)
+TRANSPARENT_BACKGROUND_NEGATIVE_TAGS: Final[tuple[str, ...]] = (
+    "multiple views",
+    "reference sheet",
+    "character sheet",
+    "turnaround",
+)
+
 # 漫画モード（NovelAI Diffusion V5 のコマ割り・吹き出し生成を LLM 拡張で支援する）
 # panel_count は 0 が「おまかせ」（LLM が指示文から 2〜4 コマを選ぶ）
 PROMPT_EXPANDER_MANGA_PANEL_COUNT_AUTO: Final[int] = 0
@@ -98,6 +129,31 @@ def is_prompt_expander_image_model(name: str | None) -> bool:
 def supports_manga_mode(image_model: str | None) -> bool:
     """漫画モード（コマ割り・文字描画）は V5 系モデルのみ対応。"""
     return is_v5_image_model(image_model)
+
+
+def supports_precise_reference(image_model: str | None) -> bool:
+    """精密参照（character reference）は V4.5 系モデルのみ対応（V5 は API 非対応）。"""
+    return is_prompt_expander_image_model(image_model) and not is_v5_image_model(
+        image_model
+    )
+
+
+def normalize_reference_type(value: object) -> str:
+    """保存値・入力値を参照種別のいずれかに丸める（不正値は既定値）。"""
+    return (
+        value  # type: ignore[return-value]
+        if isinstance(value, str) and value in PROMPT_EXPANDER_REFERENCE_TYPES
+        else DEFAULT_PROMPT_EXPANDER_REFERENCE_TYPE
+    )
+
+
+def transparent_background_tags(image_model: str | None) -> tuple[str, ...]:
+    """背景透過のために正プロンプト末尾へ足すタグ（モデル世代で分岐）。"""
+    return (
+        TRANSPARENT_BACKGROUND_TAGS_V5
+        if is_v5_image_model(image_model)
+        else TRANSPARENT_BACKGROUND_TAGS_V45
+    )
 
 
 def normalize_manga_panel_count(value: object) -> int:

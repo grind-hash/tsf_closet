@@ -486,3 +486,126 @@ def test_expand_manga_mode_api(client: TestClient):
     assert res.status_code == 200, res.text
     system_prompt = pe.llm_service.generate_text.await_args.args[0]
     assert "Reading order is Western style" in system_prompt
+
+
+def test_settings_reference_and_transparent_fields(client: TestClient):
+    body = client.get("/api/prompt-expander/settings").json()
+    assert body["settings"]["use_precise_reference"] is False
+    assert body["settings"]["reference_type"] == "character"
+    assert body["settings"]["reference_strength"] == 0.85
+    assert body["settings"]["reference_fidelity"] == 1.0
+    assert body["settings"]["transparent_background"] is False
+    assert body["reference_types"] == ["character", "style", "character&style"]
+    assert body["anlas_per_reference"] == 5
+
+    res = client.put(
+        "/api/prompt-expander/settings",
+        json={
+            "use_precise_reference": True,
+            "reference_type": "character&style",
+            "reference_strength": 0.4,
+            "reference_fidelity": 0.7,
+            "transparent_background": True,
+        },
+    )
+    assert res.status_code == 200, res.text
+    saved = res.json()["settings"]
+    assert saved["use_precise_reference"] is True
+    assert saved["reference_type"] == "character&style"
+    assert saved["reference_strength"] == 0.4
+    assert saved["reference_fidelity"] == 0.7
+    assert saved["transparent_background"] is True
+    assert (
+        client.put(
+            "/api/prompt-expander/settings", json={"reference_strength": 1.5}
+        ).status_code
+        == 422
+    )
+    assert (
+        client.put(
+            "/api/prompt-expander/settings", json={"reference_type": "vibe"}
+        ).status_code
+        == 422
+    )
+
+
+def test_generate_with_reference_and_transparent_background(client: TestClient):
+    session_id = client.post("/api/prompt-expander/sessions", json={}).json()["id"]
+    res = client.post(
+        f"/api/prompt-expander/sessions/{session_id}/generate",
+        json={
+            "prompt": "1girl, standing",
+            "image_model": "nai-diffusion-4-5-full",
+            "reference_kind": "upload",
+            "reference_image": _png_b64("blue"),
+            "reference_type": "character",
+            "reference_strength": 0.85,
+            "reference_fidelity": 1.0,
+            "transparent_background": True,
+        },
+    )
+    assert res.status_code == 200, res.text
+    entry = res.json()["entry"]
+    assert entry["reference_kind"] == "upload"
+    assert entry["reference_type"] == "character"
+    assert entry["reference_strength"] == 0.85
+    assert entry["transparent_background"] is True
+    # 保存値は接尾辞なし、送信値は白背景タグ付き（V4.5）
+    assert entry["final_prompt"] == "1girl, standing"
+    call = pe.image_service.generate_image.await_args
+    assert call.args[0] == (
+        "1girl, standing, simple background, white background, no shadow"
+    )
+    assert len(call.kwargs["character_references"]) == 1
+    # 一覧・単体取得でも新項目が返る
+    listed = client.get("/api/prompt-expander/entries").json()["items"][0]
+    assert listed["reference_kind"] == "upload"
+    assert listed["transparent_background"] is True
+
+    # V5 では精密参照は 422
+    res = client.post(
+        f"/api/prompt-expander/sessions/{session_id}/generate",
+        json={
+            "prompt": "1girl",
+            "image_model": "nai-diffusion-5-full",
+            "reference_kind": "upload",
+            "reference_image": _png_b64("blue"),
+        },
+    )
+    assert res.status_code == 422
+    assert res.json()["detail"]["code"] == "precise_reference_requires_v45"
+
+    # 種別と ID の不整合、範囲外の強度は 422
+    res = client.post(
+        f"/api/prompt-expander/sessions/{session_id}/generate",
+        json={
+            "prompt": "1girl",
+            "image_model": "nai-diffusion-4-5-full",
+            "reference_kind": "entry",
+        },
+    )
+    assert res.status_code == 422
+    res = client.post(
+        f"/api/prompt-expander/sessions/{session_id}/generate",
+        json={
+            "prompt": "1girl",
+            "image_model": "nai-diffusion-4-5-full",
+            "reference_strength": 2,
+        },
+    )
+    assert res.status_code == 422
+
+
+def test_expand_accepts_transparent_background(client: TestClient):
+    res = client.post(
+        "/api/prompt-expander/expand",
+        json={
+            "instruction": "赤いドレスに",
+            "image_model": "nai-diffusion-4-5-full",
+            "text_model": "glm-4-6",
+            "transparent_background": True,
+        },
+    )
+    assert res.status_code == 200, res.text
+    system_prompt = pe.llm_service.generate_text.await_args.args[0]
+    assert "Transparent background mode is ON" in system_prompt

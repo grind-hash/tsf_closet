@@ -719,3 +719,66 @@ class TestMangaScriptDraft:
             sanitize_manga_script("   \n  ")
         with pytest.raises(PromptExpanderOutputError):
             sanitize_manga_script("彼女が鏡を見る。体が変わっていく。")
+
+
+class TestTransparentBackgroundRule:
+    def test_rule_added_after_body_for_tags_and_japanese(self):
+        from gateway.services.prompt_expander_prompts import (
+            TRANSPARENT_BACKGROUND_RULE_JA,
+            TRANSPARENT_BACKGROUND_RULE_TAGS,
+        )
+
+        tags = build_positive_system_prompt(
+            mode="tags",
+            character_mode=False,
+            max_characters=6,
+            nsfw=False,
+            transparent_background=True,
+        )
+        assert tags.startswith(
+            BASE_SYSTEM_PROMPT_TAGS + TRANSPARENT_BACKGROUND_RULE_TAGS
+        )
+        # 語彙注意より前（本体直後）に置く
+        assert tags.index(TRANSPARENT_BACKGROUND_RULE_TAGS) < tags.index(
+            JAPANESE_TAG_GLOSSARY_RULE
+        )
+        assert TRANSPARENT_BACKGROUND_RULE_JA not in tags
+
+        prose = build_positive_system_prompt(
+            mode="japanese",
+            character_mode=True,
+            max_characters=22,
+            nsfw=True,
+            memory_text="銀髪が好み",
+            transparent_background=True,
+        )
+        assert TRANSPARENT_BACKGROUND_RULE_JA in prose
+        assert TRANSPARENT_BACKGROUND_RULE_TAGS not in prose
+        # 成人向けルールとメモリ節（最優先指示）は従来どおり後ろに残る
+        assert prose.index(TRANSPARENT_BACKGROUND_RULE_JA) < prose.index(
+            ADULT_CONTENT_RULE
+        )
+        assert prose.index(ADULT_CONTENT_RULE) < prose.index("最優先指示")
+
+    def test_rule_absent_by_default_and_in_manga_mode(self):
+        from gateway.services.prompt_expander_prompts import (
+            MangaOptions,
+            TRANSPARENT_BACKGROUND_RULE_JA,
+            TRANSPARENT_BACKGROUND_RULE_TAGS,
+        )
+
+        plain = build_positive_system_prompt(
+            mode="tags", character_mode=False, max_characters=6, nsfw=False
+        )
+        assert TRANSPARENT_BACKGROUND_RULE_TAGS not in plain
+        # 漫画モードはコマ枠ごと描くので透過ルールを足さない
+        manga = build_positive_system_prompt(
+            mode="tags",
+            character_mode=False,
+            max_characters=22,
+            nsfw=False,
+            manga=MangaOptions(),
+            transparent_background=True,
+        )
+        assert TRANSPARENT_BACKGROUND_RULE_TAGS not in manga
+        assert TRANSPARENT_BACKGROUND_RULE_JA not in manga

@@ -268,3 +268,21 @@
     margin-left: 0;
   }
 }
+
+/* 精密参照 */
+.prompt-expander__reference-type {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin: 0.4rem 0 0.6rem;
+}
+
+/* 生成ボタン脇の追加 Anlas 表示（精密参照が有効なときだけ） */
+.prompt-expander__generate-cost {
+  font-size: 0.8rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent-color, #e94560) 18%, transparent);
+  color: var(--text-color, #eee);
+  white-space: nowrap;
+}
