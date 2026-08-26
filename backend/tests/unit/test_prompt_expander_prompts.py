@@ -289,9 +289,11 @@ class TestMangaPrompt:
         assert "Do not add any speech bubbles" in system
         assert "Do not add sound effects" in system
         assert "renders Japanese prose as caption boxes" in system
-        assert "Do not describe narration boxes, captions" in system
+        # 既定ではナレーション枠は【】で指定したときだけ
+        assert "Do not invent additional narration boxes or captions" in system
+        assert "Do not describe titles, signs, labels" in system
         # 文字系タグは border だけ
-        assert 'and "border". Do not describe' in system
+        assert 'and "border". Do not describe individual panels' in system
 
     def test_manga_single_panel_and_japanese_dialogue_examples(self):
         from gateway.services.prompt_expander_prompts import MangaOptions
@@ -524,3 +526,136 @@ class TestSuggestWithInput:
         assert SUGGEST_INPUT_BIAS_RULE in system
         assert SUGGEST_NO_MEMORY_RULE in system
         assert "最優先指示" not in system
+
+
+class TestMangaNotation:
+    def test_extract_notation_kinds_and_panels(self):
+        from gateway.services.prompt_expander_prompts import extract_manga_notation
+
+        notation = extract_manga_notation(
+            "①放課後の教室【放課後】\n"
+            "2. 体が女性化《ドクン》\n"
+            "3: 太郎「え、これ私…？」『どうして…』「」\n"
+            "10:30に待ち合わせ"
+        )
+        assert [(t.kind, t.text, t.panel) for t in notation.texts] == [
+            ("narration", "放課後", 1),
+            ("sfx", "ドクン", 2),
+            ("speech", "え、これ私…？", 3),
+            ("monologue", "どうして…", 3),
+            ("speech", "", 3),
+        ]
+        assert notation.panel_numbers == (1, 2, 3)
+        assert notation.max_panel == 3
+        assert notation.has_kind("narration") and not notation.has_kind("x")  # type: ignore[arg-type]
+        assert [t.text for t in notation.required_texts()] == [
+            "放課後",
+            "ドクン",
+            "え、これ私…？",
+            "どうして…",
+        ]
+
+    def test_extract_notation_without_markers(self):
+        from gateway.services.prompt_expander_prompts import extract_manga_notation
+
+        notation = extract_manga_notation("男が女になる2コマ漫画")
+        assert not notation.has_texts
+        assert notation.panel_numbers == ()
+        assert notation.max_panel is None
+
+    def test_system_prompt_notation_rules(self):
+        from gateway.services.prompt_expander_prompts import (
+            MangaOptions,
+            extract_manga_notation,
+        )
+
+        notation = extract_manga_notation("①「やだ」\n②『まさか』\n③【三日後】")
+        system = build_positive_system_prompt(
+            mode="tags",
+            character_mode=False,
+            max_characters=22,
+            nsfw=False,
+            manga=MangaOptions(dialogue=False, sound_effects=False),
+            manga_notation=notation,
+        )
+        # 記法の説明と原文維持
+        assert "「...」 is a spoken line (speech bubble)" in system
+        assert "【...】 is narration" in system
+        assert "top right corner" in system
+        assert "Render every marked text verbatim" in system
+        assert "Empty brackets such as 「」 or 【】" in system
+        # おまかせでも記法のコマ番号に合わせる
+        assert "Describe exactly 3 comic panels, following the panel numbers" in system
+        # トグル OFF でも記法があれば文字系タグと吹き出しタグを入れる
+        assert '"text", "speech bubble", "border"' in system
+        assert "beyond the lines marked with 「...」 or 『...』" in system
+        assert "beyond the ones marked with 《...》" in system
+        # セリフ OFF なので思考の雲の例文は出ない
+        assert "thought cloud above the girl" not in system
+
+        auto = build_positive_system_prompt(
+            mode="tags",
+            character_mode=False,
+            max_characters=22,
+            nsfw=False,
+            manga=MangaOptions(
+                narration=True, text_language="ja", reading_direction="ltr"
+            ),
+        )
+        assert "besides the ones marked with 【...】" in auto
+        assert 'reads "三日後。"' in auto
+        assert "top left corner" in auto
+        assert "Decide how many comic panels (between 2 and 4)" in auto
+        assert 'thought cloud above the girl that says "これが私…？"' in auto
+
+    def test_user_prompt_lists_marked_text(self):
+        from gateway.services.prompt_expander_prompts import extract_manga_notation
+
+        notation = extract_manga_notation("①「やだ」【】\n②《ドン》")
+        user = build_positive_user_prompt(
+            instruction="①「やだ」【】\n②《ドン》", manga=True, manga_notation=notation
+        )
+        assert (
+            "Marked text in the instruction (render verbatim, in this order):" in user
+        )
+        assert '1. panel 1, speech bubble: "やだ"' in user
+        assert (
+            "2. panel 1, narration box: (no text given: write suitable content yourself)"
+            in user
+        )
+        assert '3. panel 2, sound effect: "ドン"' in user
+        assert user.endswith("does not explicitly change.")
+        plain = build_positive_user_prompt(
+            instruction="x", manga=True, manga_notation=extract_manga_notation("x")
+        )
+        assert "Marked text" not in plain
+
+    def test_ensure_manga_notation_texts(self):
+        from gateway.services.prompt_expander_prompts import (
+            ensure_manga_notation_texts,
+            extract_manga_notation,
+        )
+
+        notation = extract_manga_notation(
+            "①「やだ」『まさか』\n②【三日後】《ドン》「」"
+        )
+        base = "1girl, There are two panels."
+        characters = [
+            '1girl, There\'s a speech bubble next to the girl that says "やだ"'
+        ]
+        # 出力に含まれるものは補わず、欠けたものだけ定型文で末尾に足す（空括弧は対象外）
+        assert ensure_manga_notation_texts(base, characters, notation) == (
+            "1girl, There are two panels. "
+            'In panel 1, there\'s a thought cloud that says "まさか". '
+            "In panel 2, there's a narration box at the top of the panel that reads "
+            '"三日後". In panel 2, there\'s also a "ドン" visible in the panel.'
+        )
+        complete = (
+            'There\'s a thought cloud that says "まさか". '
+            'A narration box reads "三日後". "ドン" is visible.'
+        )
+        assert ensure_manga_notation_texts(complete, characters, notation) == complete
+        # 記法が無ければそのまま
+        assert (
+            ensure_manga_notation_texts(base, None, extract_manga_notation("x")) == base
+        )

@@ -179,6 +179,20 @@
   margin: 0.6rem 0 0.4rem;
 }
 
+/* 漫画モードの記法チップ（欄の直上、左寄せ） */
+.prompt-expander__notation-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-bottom: 0.35rem;
+}
+
+.prompt-expander__notation-chips .prompt-expander__btn {
+  padding: 0.2rem 0.55rem;
+  font-size: 0.9rem;
+  letter-spacing: 0.05em;
+}
+
 .prompt-expander__seed-row {
   display: flex;
   gap: 0.4rem;

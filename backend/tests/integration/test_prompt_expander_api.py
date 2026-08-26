@@ -131,6 +131,39 @@ def test_settings_get_and_put(client: TestClient):
     assert res.status_code == 422
 
 
+def test_expand_manga_narration_option_and_notation(client: TestClient):
+    pe.llm_service.generate_text.return_value = SimpleNamespace(
+        content=(
+            '{"base_tags":"1girl, japanese text, text, border",'
+            '"panel_description":"There are two comic panels. The first panel shows a girl.",'
+            '"character_prompts":[]}'
+        ),
+        cost_usd=None,
+    )
+    res = client.post(
+        "/api/prompt-expander/expand",
+        json={
+            "instruction": "①鏡を見る\n②【三日後】「え」",
+            "image_model": "nai-diffusion-5-full",
+            "text_model": "glm-4-6",
+            "manga_mode": True,
+            "manga": {"narration": True, "text_language": "ja"},
+        },
+    )
+    assert res.status_code == 200, res.text
+    system, user = pe.llm_service.generate_text.await_args.args[:2]
+    assert "besides the ones marked with 【...】" in system
+    assert '1. panel 2, narration box: "三日後"' in user
+    # 落ちた記法の文字は定型文で補われる
+    assert 'reads "三日後"' in res.json()["positive_prompt"]
+    assert 'says "え"' in res.json()["positive_prompt"]
+
+    res = client.get("/api/prompt-expander/settings")
+    assert res.json()["settings"]["manga_narration"] is False
+    res = client.put("/api/prompt-expander/settings", json={"manga_narration": True})
+    assert res.json()["settings"]["manga_narration"] is True
+
+
 def test_settings_restore_seed_roundtrip(client: TestClient):
     res = client.get("/api/prompt-expander/settings")
     assert res.json()["settings"]["restore_seed"] is False

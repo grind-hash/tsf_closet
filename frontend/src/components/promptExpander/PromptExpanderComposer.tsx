@@ -6,7 +6,8 @@
  * ③ キャラクタープロンプト ④ i2i 設定 の開閉セクションと、最下部の「生成」ボタン。
  */
 
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { isV5ImageModel } from "../../constants/novelaiImageModels";
 import {
@@ -134,6 +135,21 @@ function ExpansionErrorNotice({
   );
 }
 
+/**
+ * 漫画モードの記法をワンクリックで挿入するチップ。
+ * 「」セリフ / 『』モノローグ / 【】ナレーション / 《》効果音 / ① コマ番号（行頭に連番で入る）
+ */
+const NOTATION_CHIPS = [
+  { key: "speech", label: "「」", open: "「", close: "」" },
+  { key: "monologue", label: "『』", open: "『", close: "』" },
+  { key: "narration", label: "【】", open: "【", close: "】" },
+  { key: "sfx", label: "《》", open: "《", close: "》" },
+  { key: "panel", label: "①", open: "", close: "" },
+] as const;
+
+const CIRCLED_ONE = 0x2460;
+const CIRCLED_MAX = 20;
+
 export default function PromptExpanderComposer() {
   const { t } = useTranslation();
   const {
@@ -173,6 +189,39 @@ export default function PromptExpanderComposer() {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [seedDraft, setSeedDraft] = useState<string | null>(null);
+  const positiveRef = useRef<HTMLTextAreaElement>(null);
+
+  // 記法チップ: カーソル位置（選択範囲があればそれを包む）へ挿入し、括弧の内側へカーソルを戻す
+  const insertIntoPositive = (before: string, after: string) => {
+    const el = positiveRef.current;
+    const start = el?.selectionStart ?? positiveText.length;
+    const end = el?.selectionEnd ?? positiveText.length;
+    const selected = positiveText.slice(start, end);
+    const next = `${positiveText.slice(0, start)}${before}${selected}${after}${positiveText.slice(end)}`;
+    // 同期描画してから選択位置を置く（非同期だと React の再描画でカーソルが末尾へ飛ぶ）
+    flushSync(() => setPositiveText(next));
+    const caret = start + before.length + selected.length;
+    const node = positiveRef.current;
+    if (node) {
+      node.focus();
+      node.setSelectionRange(caret, caret);
+    }
+  };
+  const insertPanelNumber = () => {
+    const el = positiveRef.current;
+    const start = el?.selectionStart ?? positiveText.length;
+    const used = Array.from(
+      positiveText.matchAll(/[\u2460-\u2473]/g),
+      (m) => m[0].charCodeAt(0) - CIRCLED_ONE + 1,
+    );
+    const nextNumber = Math.min(
+      (used.length ? Math.max(...used) : 0) + 1,
+      CIRCLED_MAX,
+    );
+    const mark = String.fromCharCode(CIRCLED_ONE + nextNumber - 1);
+    const atLineStart = start === 0 || positiveText[start - 1] === "\n";
+    insertIntoPositive(`${atLineStart ? "" : "\n"}${mark}`, "");
+  };
 
   const isV45 = !isV5ImageModel(settings.image_model);
   const mangaSupported = supportsMangaMode(settings.image_model);
@@ -256,7 +305,12 @@ export default function PromptExpanderComposer() {
                 `promptExpander.composer.mangaTextLanguage.${settings.manga_text_language}`,
               )
             : t("promptExpander.composer.mangaSummaryNoDialogue"),
-        ].join(" · ");
+          settings.manga_narration
+            ? t("promptExpander.composer.mangaSummaryNarration")
+            : null,
+        ]
+          .filter(Boolean)
+          .join(" · ");
 
   const renderFieldToolbar = (
     target: PromptExpanderExpansionTarget,
@@ -577,7 +631,17 @@ export default function PromptExpanderComposer() {
             }
             label={t("promptExpander.composer.mangaSoundEffects")}
           />
+          <PromptExpanderSwitch
+            checked={settings.manga_narration}
+            onChange={(checked) =>
+              void updateSettings({ manga_narration: checked })
+            }
+            label={t("promptExpander.composer.mangaNarration")}
+          />
         </div>
+        <p className="prompt-expander__hint">
+          {t("promptExpander.composer.mangaNarrationHint")}
+        </p>
         <p className="prompt-expander__hint">
           {t("promptExpander.composer.mangaLayoutSizeHint")}
         </p>
@@ -614,8 +678,34 @@ export default function PromptExpanderComposer() {
             </label>
             {renderFieldToolbar("positive", suggestButton(suggestReason))}
           </div>
+          {mangaActive && (
+            <div
+              className="prompt-expander__notation-chips"
+              role="toolbar"
+              aria-label={t("promptExpander.composer.notation.toolbar")}
+            >
+              {NOTATION_CHIPS.map((chip) => (
+                <button
+                  key={chip.key}
+                  type="button"
+                  className="prompt-expander__btn prompt-expander__btn--sm"
+                  onClick={() =>
+                    chip.key === "panel"
+                      ? insertPanelNumber()
+                      : insertIntoPositive(chip.open, chip.close)
+                  }
+                  disabled={positiveBusy}
+                  aria-label={t(`promptExpander.composer.notation.${chip.key}`)}
+                  title={t(`promptExpander.composer.notation.${chip.key}`)}
+                >
+                  {chip.label}
+                </button>
+              ))}
+            </div>
+          )}
           <textarea
             id="prompt-expander-positive"
+            ref={positiveRef}
             className={`prompt-expander__textarea${positiveBusy ? " prompt-expander__textarea--busy" : ""}`}
             rows={5}
             value={positiveText}
@@ -634,9 +724,14 @@ export default function PromptExpanderComposer() {
             />
           )}
           {mangaActive && (
-            <p className="prompt-expander__hint">
-              {t("promptExpander.composer.mangaModeFixedHint")}
-            </p>
+            <>
+              <p className="prompt-expander__hint">
+                {t("promptExpander.composer.mangaNotationHint")}
+              </p>
+              <p className="prompt-expander__hint">
+                {t("promptExpander.composer.mangaModeFixedHint")}
+              </p>
+            </>
           )}
           {positiveMode === "japanese" && isV45 && (
             <p className="prompt-expander__hint prompt-expander__hint--warning">

@@ -43,6 +43,8 @@ export interface PromptExpanderSettings {
   manga_text_language: PromptExpanderMangaTextLanguage;
   manga_sound_effects: boolean;
   manga_reading_direction: PromptExpanderMangaReadingDirection;
+  /** 【】が無くても LLM がナレーション枠を足してよいか（記法で書いたものは常に描く） */
+  manga_narration: boolean;
 }
 
 export type PromptExpanderSettingsPatch = Partial<PromptExpanderSettings>;
@@ -55,6 +57,7 @@ export interface PromptExpanderMangaOptions {
   text_language: PromptExpanderMangaTextLanguage;
   sound_effects: boolean;
   reading_direction: PromptExpanderMangaReadingDirection;
+  narration: boolean;
 }
 
 export interface PromptExpanderTextModelOption {

@@ -94,6 +94,7 @@ class MangaOptionsModel(BaseModel):
     text_language: MangaTextLanguageLiteral = "auto"
     sound_effects: bool = True
     reading_direction: MangaReadingDirectionLiteral = "rtl"
+    narration: bool = False
 
     def to_options(self) -> MangaOptions:
         return MangaOptions(
@@ -103,6 +104,7 @@ class MangaOptionsModel(BaseModel):
             text_language=self.text_language,
             sound_effects=self.sound_effects,
             reading_direction=self.reading_direction,
+            narration=self.narration,
         )
 
 
@@ -130,6 +132,7 @@ class PromptExpanderSettingsModel(BaseModel):
     manga_text_language: str = "auto"
     manga_sound_effects: bool = True
     manga_reading_direction: str = "rtl"
+    manga_narration: bool = False
 
 
 class TextModelOption(BaseModel):
@@ -180,6 +183,7 @@ class PromptExpanderSettingsUpdateRequest(BaseModel):
     manga_text_language: MangaTextLanguageLiteral | None = None
     manga_sound_effects: bool | None = None
     manga_reading_direction: MangaReadingDirectionLiteral | None = None
+    manga_narration: bool | None = None
 
 
 class SessionCreateRequest(BaseModel):

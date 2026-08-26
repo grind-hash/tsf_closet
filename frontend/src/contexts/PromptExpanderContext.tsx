@@ -242,6 +242,7 @@ const DEFAULT_SETTINGS: PromptExpanderSettings = {
   manga_text_language: "auto",
   manga_sound_effects: true,
   manga_reading_direction: "rtl",
+  manga_narration: false,
 };
 
 const DEFAULT_OPTIONS: PromptExpanderOptions = {
@@ -638,10 +639,12 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       text_language: settings.manga_text_language,
       sound_effects: settings.manga_sound_effects,
       reading_direction: settings.manga_reading_direction,
+      narration: settings.manga_narration,
     }),
     [
       settings.manga_dialogue,
       settings.manga_layout,
+      settings.manga_narration,
       settings.manga_panel_count,
       settings.manga_reading_direction,
       settings.manga_sound_effects,

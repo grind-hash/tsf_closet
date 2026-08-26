@@ -922,3 +922,55 @@ async def test_expand_replaces_false_friend_shorts_only_in_tag_modes(
         )
     )
     assert result.negative_prompt == "panties, hat"
+
+
+@pytest.mark.asyncio
+async def test_expand_manga_notation_is_passed_and_enforced(factory, monkeypatch):
+    calls: list[tuple[str, str]] = []
+
+    async def _fake_generate_text(system_prompt, user_prompt, **kwargs):
+        calls.append((system_prompt, user_prompt))
+        # LLM がナレーション【三日後】を落とし、セリフだけ描いた想定
+        return SimpleNamespace(
+            content=(
+                '{"base_tags":"1girl, japanese text, text, speech bubble, border",'
+                '"panel_description":"There are two comic panels. The first panel, at the top right, shows a girl. '
+                'There\'s a speech bubble next to the girl that says \\"え、これ私…？\\". The second panel shows her walking.",'
+                '"character_prompts":[]}'
+            ),
+            cost_usd=None,
+        )
+
+    monkeypatch.setattr(pe.llm_service, "generate_text", _fake_generate_text)
+    result = await pe.expand_prompts(
+        pe.ExpandParams(
+            instruction="①鏡を見る「え、これ私…？」\n②【三日後】街を歩く",
+            image_model="nai-diffusion-5-full",
+            text_model="glm-4-6",
+            manga=pe.MangaOptions(text_language="ja"),
+        )
+    )
+    system, user = calls[-1]
+    assert "Describe exactly 2 comic panels, following the panel numbers" in system
+    assert "Do not invent additional narration boxes" in system
+    assert '1. panel 1, speech bubble: "え、これ私…？"' in user
+    assert '2. panel 2, narration box: "三日後"' in user
+    assert result.positive_prompt is not None
+    assert result.positive_prompt.endswith(
+        'In panel 2, there\'s a narration box at the top of the panel that reads "三日後".'
+    )
+    assert result.positive_prompt.count("え、これ私…？") == 1
+
+
+@pytest.mark.asyncio
+async def test_settings_manga_narration_roundtrip(factory):
+    async with factory() as db:
+        current = await pe.PromptExpanderService.get_settings(db)
+        assert current.manga_narration is False
+        saved = await pe.PromptExpanderService.save_settings(
+            db, patch={"manga_narration": True}
+        )
+        await db.commit()
+        assert saved.manga_narration is True
+    async with factory() as db:
+        assert (await pe.PromptExpanderService.get_settings(db)).manga_narration is True

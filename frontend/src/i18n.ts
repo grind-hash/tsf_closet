@@ -1655,6 +1655,20 @@ const resources = {
           },
           mangaDialogue: "セリフ・吹き出しを入れる",
           mangaSoundEffects: "効果音（擬音）を許可",
+          mangaNarration: "ナレーション枠を自動で入れる",
+          mangaNarrationHint:
+            "OFF でも【】で書いたナレーションは描かれます。ON にすると、場面転換や時間経過で LLM がナレーション枠を足します。",
+          mangaSummaryNarration: "ナレーション自動",
+          mangaNotationHint:
+            "記法: 「セリフ」『モノローグ』【ナレーション】《効果音》、行頭の①②③はコマ番号。空の括弧（「」など）は内容を LLM にお任せします。",
+          notation: {
+            toolbar: "漫画の記法を挿入",
+            speech: "セリフ",
+            monologue: "モノローグ",
+            narration: "ナレーション",
+            sfx: "効果音",
+            panel: "コマ番号",
+          },
           mangaLayoutSizeHint:
             "縦積みは「縦長」、横並びは「横長」のサイズが向いています。コマ数が多いほど各コマは小さく描かれます。読み順は各コマの位置（右上・左上…）として説明文に明示されます。",
           mangaCharacterOnHint:
@@ -1680,7 +1694,7 @@ const resources = {
           promptPlaceholder:
             "NovelAI に渡すプロンプト、または「LLMでプロンプト化」で NovelAI 用プロンプトにする自然文の指示を入力",
           promptPlaceholderManga:
-            "漫画にしたい流れを入力（例: 1コマ目は男が鏡を見る、2コマ目は体が女性化、3コマ目は戸惑うセリフ）。あらすじだけでもコマ割りは LLM が決めます",
+            "漫画にしたい流れを入力。例: ①男が鏡を見る【放課後】 ②体が女性化していく《ドクン》 ③「え、これ私…？」『どうして…』。あらすじだけでもコマ割りとセリフは LLM が決めます",
           expandModeLabel: "出力形式",
           expandJapanese: "日本語文",
           expandTags: "タグ",
@@ -3521,6 +3535,20 @@ const resources = {
           },
           mangaDialogue: "Include speech bubbles",
           mangaSoundEffects: "Allow sound effects",
+          mangaNarration: "Add narration boxes automatically",
+          mangaNarrationHint:
+            "Narration written with 【】 is always drawn even when OFF. When ON, the LLM adds narration boxes for scene changes and time skips.",
+          mangaSummaryNarration: "auto narration",
+          mangaNotationHint:
+            "Notation: 「speech」『thought』【narration】《sound effect》; ①②③ at the start of a line is the panel number. Empty brackets (e.g. 「」) let the LLM write the text.",
+          notation: {
+            toolbar: "Insert comic notation",
+            speech: "Speech",
+            monologue: "Thought",
+            narration: "Narration",
+            sfx: "Sound effect",
+            panel: "Panel number",
+          },
           mangaLayoutSizeHint:
             "Vertical stacks suit the portrait size and side-by-side suits landscape. More panels means each panel is drawn smaller. The reading order is spelled out as each panel's position (top right, top left, ...).",
           mangaCharacterOnHint:
@@ -3546,7 +3574,7 @@ const resources = {
           promptPlaceholder:
             'Prompt passed to NovelAI, or a natural-language instruction that "Convert to prompt" turns into a NovelAI prompt',
           promptPlaceholderManga:
-            "Describe the flow of the comic (e.g. panel 1: a man looks in the mirror, panel 2: his body turns female, panel 3: a confused line). A synopsis alone is fine; the LLM decides the panels",
+            "Describe the flow of the comic, e.g. ① a man looks in the mirror 【After school】 ② his body turns female 《thump》 ③ 「Is this... me?」『Why...』. A synopsis alone is fine; the LLM decides the panels and lines",
           expandModeLabel: "Output format",
           expandJapanese: "Japanese prose",
           expandTags: "Tags",

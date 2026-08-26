@@ -118,6 +118,7 @@ function settingsPayload() {
       manga_text_language: "auto",
       manga_sound_effects: true,
       manga_reading_direction: "rtl",
+      manga_narration: false,
     },
     text_model_options: [
       { id: "glm-4-6", label: "GLM 4.6" },
@@ -785,6 +786,77 @@ test("comic mode is V5-only, its options are sent with expand/generate, and entr
   await expect.poll(() => state.expandBodies.length).toBe(2);
   expect(state.expandBodies[1]).toMatchObject({ manga_mode: false });
   expect(state.expandBodies[1]).not.toHaveProperty("manga");
+});
+
+test("comic notation chips insert markers at the caret and the narration toggle is sent with expand", async ({
+  page,
+}) => {
+  await enableFeatures(page, { experimentalPromptExpanderEnabled: true });
+  const state = await mockPromptExpanderApis(page);
+  await openSession(page);
+
+  await page.getByLabel("画像モデル").selectOption("nai-diffusion-5-full");
+  await page
+    .locator(".prompt-expander__switch", { hasText: "漫画モード" })
+    .click();
+  await expect(
+    page.getByRole("checkbox", { name: "漫画モード" }),
+  ).toBeChecked();
+
+  // 記法チップは漫画モード中だけ欄の上に出る
+  const chips = page.getByRole("toolbar", { name: "漫画の記法を挿入" });
+  await expect(chips).toBeVisible();
+  await expect(page.getByText(/記法: 「セリフ」『モノローグ』/)).toBeVisible();
+
+  const field = positiveField(page);
+  await field.fill("放課後の教室");
+  await field.press("End");
+  // コマ番号は行頭に連番で入る（行の途中なら改行してから）
+  await chips.getByRole("button", { name: "コマ番号" }).click();
+  await expect(field).toHaveValue("放課後の教室\n①");
+  // 括弧はカーソル位置に入り、カーソルは括弧の内側に置かれるのでそのまま打てる
+  await chips.getByRole("button", { name: "セリフ" }).click();
+  await page.keyboard.type("え、これ私…？");
+  await expect(field).toHaveValue("放課後の教室\n①「え、これ私…？」");
+  await field.press("End");
+  await chips.getByRole("button", { name: "ナレーション" }).click();
+  await page.keyboard.type("三日後");
+  await field.press("End");
+  await chips.getByRole("button", { name: "コマ番号" }).click();
+  await chips.getByRole("button", { name: "効果音" }).click();
+  await page.keyboard.type("ドクン");
+  const instruction = "放課後の教室\n①「え、これ私…？」【三日後】\n②《ドクン》";
+  await expect(field).toHaveValue(instruction);
+  // 選択範囲があればそれを包む
+  await field.evaluate((node: HTMLTextAreaElement) => {
+    node.setSelectionRange(0, 6);
+  });
+  await chips.getByRole("button", { name: "モノローグ" }).click();
+  await expect(field).toHaveValue(`『放課後の教室』${instruction.slice(6)}`);
+
+  // 自動ナレーションは既定 OFF。ON にすると設定に保存され、拡張リクエストに載る
+  await page.getByRole("button", { name: "漫画（コマ割り）" }).click();
+  const narrationSwitch = page.getByRole("checkbox", {
+    name: "ナレーション枠を自動で入れる",
+  });
+  await expect(narrationSwitch).not.toBeChecked();
+  await page
+    .locator(".prompt-expander__switch", {
+      hasText: "ナレーション枠を自動で入れる",
+    })
+    .click();
+  await expect(narrationSwitch).toBeChecked();
+  await expect.poll(() => state.settings.manga_narration).toBe(true);
+
+  await positiveToolbar(page)
+    .getByRole("button", { name: "LLMでプロンプト化" })
+    .click();
+  await expect.poll(() => state.expandBodies.length).toBe(1);
+  expect(state.expandBodies[0]).toMatchObject({
+    manga_mode: true,
+    instruction: `『放課後の教室』${instruction.slice(6)}`,
+    manga: { narration: true },
+  });
 });
 
 test("composer sections collapse, expand and persist to localStorage", async ({

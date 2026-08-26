@@ -70,6 +70,7 @@ function settingsPayload() {
       manga_text_language: "auto",
       manga_sound_effects: true,
       manga_reading_direction: "rtl",
+      manga_narration: false,
     },
     text_model_options: [
       { id: "glm-4-6", label: "GLM 4.6" },
@@ -962,6 +963,7 @@ describe("PromptExpanderContext", () => {
       text_language: "ja",
       sound_effects: true,
       reading_direction: "rtl",
+      narration: false,
     });
 
     await act(async () => {

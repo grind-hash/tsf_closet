@@ -66,6 +66,8 @@ from .prompt_expander_prompts import (
     build_positive_system_prompt,
     build_positive_user_prompt,
     build_suggest_characters_prompts,
+    ensure_manga_notation_texts,
+    extract_manga_notation,
     parse_character_json,
     parse_manga_json,
     parse_suggestions_json,
@@ -120,6 +122,8 @@ class PromptExpanderSettings(BaseModel):
     manga_text_language: str = DEFAULT_PROMPT_EXPANDER_MANGA_TEXT_LANGUAGE
     manga_sound_effects: bool = True
     manga_reading_direction: str = DEFAULT_PROMPT_EXPANDER_MANGA_READING_DIRECTION
+    # 【】が無くても LLM がナレーション枠を足してよいか（記法で書いたものは常に描く）
+    manga_narration: bool = False
 
     @field_validator("manga_reading_direction", mode="before")
     @classmethod
@@ -890,6 +894,11 @@ async def expand_prompts(
         instruction = params.instruction.strip()
         if not instruction:
             raise PromptExpanderError("invalid_request", "指示を入力してください")
+        # 漫画モードでは指示文の記法（「」『』【】《》・コマ番号）を抜き出して LLM に渡し、
+        # 出力に原文のまま含まれているかを後で検証する
+        notation = (
+            extract_manga_notation(instruction) if params.manga is not None else None
+        )
         system_prompt = build_positive_system_prompt(
             mode=params.positive_mode,
             character_mode=params.character_mode,
@@ -898,6 +907,7 @@ async def expand_prompts(
             memory_text=memory_text,
             language=params.language,
             manga=params.manga,
+            manga_notation=notation,
         )
         user_prompt = build_positive_user_prompt(
             instruction=instruction,
@@ -906,6 +916,7 @@ async def expand_prompts(
             character_mode=params.character_mode,
             context_description=context_description,
             manga=params.manga is not None,
+            manga_notation=notation,
         )
         raw = await _call_llm(system_prompt, user_prompt, params.text_model)
         try:
@@ -915,6 +926,8 @@ async def expand_prompts(
                     max_characters=max_characters,
                     character_mode=params.character_mode,
                 )
+                if notation is not None:
+                    base = ensure_manga_notation_texts(base, characters, notation)
                 result.positive_prompt = base
                 result.character_prompts = characters
             elif params.character_mode:

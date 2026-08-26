@@ -36,6 +36,147 @@ class MangaOptions:
     sound_effects: bool = True
     # rtl = 日本式（右上始まり、右→左・上→下）、ltr = 西洋式
     reading_direction: MangaReadingDirection = "rtl"
+    # 指示文に【】が無くても、場面転換・時間経過で LLM がナレーション枠を足してよいか
+    narration: bool = False
+
+
+# ---------------------------------------------------------------------------
+# 漫画モードの記法（指示文中の括弧でセリフ・モノローグ・ナレーション・効果音を指定する）
+#   「セリフ」→吹き出し / 『モノローグ』→思考の雲 / 【ナレーション】→ナレーション枠 /
+#   《効果音》→擬音 / 行頭の①②③ または "1:" →コマ番号。空の括弧は内容を LLM に任せる。
+# ---------------------------------------------------------------------------
+
+MangaTextKind = Literal["speech", "monologue", "narration", "sfx"]
+
+
+@dataclass(frozen=True)
+class MangaNotationText:
+    """指示文で括弧により指定された文字要素。text が空なら内容は LLM に任せる。"""
+
+    kind: MangaTextKind
+    text: str
+    # 直近の行頭コマ番号（無ければ None）
+    panel: int | None = None
+
+
+@dataclass(frozen=True)
+class MangaNotation:
+    texts: tuple[MangaNotationText, ...] = ()
+    panel_numbers: tuple[int, ...] = ()
+
+    @property
+    def has_texts(self) -> bool:
+        return bool(self.texts)
+
+    @property
+    def max_panel(self) -> int | None:
+        return max(self.panel_numbers) if self.panel_numbers else None
+
+    def has_kind(self, kind: MangaTextKind) -> bool:
+        return any(item.kind == kind for item in self.texts)
+
+    def required_texts(self) -> list[MangaNotationText]:
+        """原文のまま描くべき（空でない）文字要素。"""
+        return [item for item in self.texts if item.text]
+
+
+_NOTATION_KINDS: tuple[MangaTextKind, ...] = ("speech", "monologue", "narration", "sfx")
+_NOTATION_PATTERN = re.compile(
+    r"「([^「」]*)」|『([^『』]*)』|【([^【】]*)】|《([^《》]*)》"
+)
+# ①〜⑳、または "1:" "1." "1)" 形式（"3:00" のような時刻には一致させない）
+_PANEL_PREFIX_PATTERN = re.compile(
+    r"^\s*(?:([\u2460-\u2473])|([1-9])\s*[:：.．)）](?!\d))"
+)
+
+
+def _panel_number(match: re.Match[str]) -> int:
+    circled, digit = match.group(1), match.group(2)
+    if circled:
+        return ord(circled) - 0x2460 + 1
+    return int(digit)
+
+
+def extract_manga_notation(instruction: str) -> MangaNotation:
+    """指示文から記法（括弧の種類とコマ番号）を抜き出す。"""
+    texts: list[MangaNotationText] = []
+    panels: list[int] = []
+    current: int | None = None
+    for line in (instruction or "").splitlines():
+        prefix = _PANEL_PREFIX_PATTERN.match(line)
+        if prefix:
+            current = _panel_number(prefix)
+            if current not in panels:
+                panels.append(current)
+        for match in _NOTATION_PATTERN.finditer(line):
+            for index, kind in enumerate(_NOTATION_KINDS):
+                value = match.group(index + 1)
+                if value is not None:
+                    texts.append(
+                        MangaNotationText(kind=kind, text=value.strip(), panel=current)
+                    )
+                    break
+    return MangaNotation(texts=tuple(texts), panel_numbers=tuple(panels))
+
+
+_NOTATION_KIND_LABELS: dict[MangaTextKind, str] = {
+    "speech": "speech bubble",
+    "monologue": "thought cloud",
+    "narration": "narration box",
+    "sfx": "sound effect",
+}
+
+# 出力から欠けた文字要素を補うときの定型文（引用符内だけが描画される）
+_NOTATION_SENTENCES: dict[MangaTextKind, str] = {
+    "speech": 'There\'s a speech bubble that says "{text}".',
+    "monologue": 'There\'s a thought cloud that says "{text}".',
+    "narration": 'There\'s a narration box at the top of the panel that reads "{text}".',
+    "sfx": 'There\'s also a "{text}" visible in the panel.',
+}
+
+
+def ensure_manga_notation_texts(
+    base: str, characters: Sequence[str] | None, notation: MangaNotation
+) -> str:
+    """記法で指定された文字が出力に無ければ、定型の英文でベースプロンプト末尾に補う。
+
+    LLM がセリフを言い換えたり落としたりしても、ユーザーの原文が必ず描かれるようにする。
+    """
+    haystack = [base, *(characters or [])]
+    missing = [
+        item
+        for item in notation.required_texts()
+        if not any(item.text in text for text in haystack)
+    ]
+    if not missing:
+        return base
+    sentences: list[str] = []
+    for item in missing:
+        sentence = _NOTATION_SENTENCES[item.kind].format(text=item.text)
+        if item.panel:
+            sentence = f"In panel {item.panel}, {sentence[0].lower()}{sentence[1:]}"
+        sentences.append(sentence)
+    return f"{base.rstrip()} {' '.join(sentences)}"
+
+
+def build_manga_notation_block(notation: MangaNotation) -> str:
+    """user プロンプトに付ける「指示文で指定された文字」の一覧。"""
+    if not notation.has_texts:
+        return ""
+    lines = []
+    for index, item in enumerate(notation.texts, start=1):
+        label = _NOTATION_KIND_LABELS[item.kind]
+        where = f"panel {item.panel}, " if item.panel else ""
+        content = (
+            f'"{item.text}"'
+            if item.text
+            else "(no text given: write suitable content yourself)"
+        )
+        lines.append(f"{index}. {where}{label}: {content}")
+    return (
+        "Marked text in the instruction (render verbatim, in this order):\n"
+        + "\n".join(lines)
+    )
 
 
 # タグモードで末尾に補完する品質タグ（移植元と同一）
@@ -132,10 +273,12 @@ Requirements:
 - base_tags: concise comma-separated English Danbooru-style tags for the whole page only: the total number of distinct characters on the page as count tokens (for example "1girl" or "2boys, 3girls"), style and quality tags, and {text_tags}. Do not describe individual panels or characters here.
 - panel_description: {panel_count_rule} Write it as natural English prose, one or two short sentences per panel (under about 25 words per panel), in reading order. {reading_rule} Name each panel's position on the page (top right, top left, bottom right, bottom left, rightmost, leftmost, full-width bottom, ...). For example: {panel_example} Each panel is one concrete visual scene: who is visible, action, expression, camera, background.{layout_rule}
 - character_prompts: {character_rule}
+- {notation_rule}
 - {dialogue_rule}
 - {sfx_rule}
-- Everything except the text inside quotation marks must be written in English. Never write the panel description, appearance, or actions in Japanese: the image model renders Japanese prose as caption boxes. Japanese may appear only inside the quotation marks of dialogue and sound effects.
-- The only written words that may appear in the image are the quoted dialogue and sound effects. Do not describe narration boxes, captions, titles, signs, labels, or any other on-screen text.
+- {narration_rule}
+- Everything except the text inside quotation marks must be written in English. Never write the panel description, appearance, or actions in Japanese: the image model renders Japanese prose as caption boxes. Japanese may appear only inside the quotation marks of dialogue, thoughts, narration boxes, and sound effects.
+- The only written words that may appear in the image are the quoted dialogue, thoughts, narration boxes, and sound effects allowed above. Do not describe titles, signs, labels, or any other on-screen text.
 - The same character must keep identical identity, hair, eyes, body, and clothing across all panels unless the story explicitly changes them. If a character's appearance changes between panels (for example a TSF transformation), describe each stage inside panel_description{transformation_rule}.
 - Apply every explicit change requested by the user, including TSF/body transformation, clothing, appearance, pose, expression, camera, lighting, and scene changes.
 - Preserve the current prompt's identity, appearance, clothing, and setting unless the instruction explicitly changes them.
@@ -186,6 +329,17 @@ MANGA_SFX_EXAMPLES: dict[str, str] = {
     "en": 'there\'s also a "SLAM" visible on the table',
     "ja": 'there\'s also a "ドン！" visible on the table',
 }
+MANGA_THOUGHT_EXAMPLES: dict[str, str] = {
+    "en": 'There\'s a thought cloud above the girl that says "Is this really me?"',
+    "ja": 'There\'s a thought cloud above the girl that says "これが私…？"',
+}
+MANGA_NARRATION_EXAMPLES: dict[str, str] = {
+    "en": (
+        "There's a narration box at the top of the panel that reads \"Three days "
+        'later."'
+    ),
+    "ja": 'There\'s a narration box at the top of the panel that reads "三日後。"',
+}
 
 MANGA_LAYOUT_RULES: dict[str, dict[str, str]] = {
     "auto": {"rtl": "", "ltr": ""},
@@ -233,9 +387,24 @@ def _manga_text_language_phrase(language: MangaTextLanguage) -> str:
     )
 
 
-def _manga_text_tags(options: MangaOptions) -> str:
-    """base_tags に必ず含めさせる文字描画系タグの説明。"""
-    if not options.dialogue and not options.sound_effects:
+def _manga_text_tags(
+    options: MangaOptions, notation: MangaNotation | None = None
+) -> str:
+    """base_tags に必ず含めさせる文字描画系タグの説明。
+
+    トグルが OFF でも記法で文字が指定されていれば文字系タグを入れる。
+    """
+    has_bubbles = options.dialogue or (
+        notation is not None
+        and (notation.has_kind("speech") or notation.has_kind("monologue"))
+    )
+    has_text = (
+        has_bubbles
+        or options.sound_effects
+        or options.narration
+        or (notation is not None and notation.has_texts)
+    )
+    if not has_text:
         return '"border"'
     if options.text_language == "ja":
         lang_tag = '"japanese text"'
@@ -247,7 +416,7 @@ def _manga_text_tags(options: MangaOptions) -> str:
             "the rendered text)"
         )
     tags = [lang_tag, '"text"']
-    if options.dialogue:
+    if has_bubbles:
         tags.append('"speech bubble"')
     tags.append('"border"')
     return ", ".join(tags)
@@ -258,16 +427,27 @@ def build_manga_system_prompt(
     options: MangaOptions,
     character_mode: bool,
     max_characters: int,
+    notation: MangaNotation | None = None,
 ) -> str:
     """漫画モードの system プロンプト本体（成人向けルール・メモリ節は呼び出し側で付与）。
 
     拡張モード（日本語／タグ）には依存しない。引用符内のセリフ・効果音以外は常に英語。
+    notation（指示文の記法）があれば、コマ数のおまかせは記法のコマ番号に合わせる。
     """
+    notation_max = notation.max_panel if notation is not None else None
     if options.panel_count <= PROMPT_EXPANDER_MANGA_PANEL_COUNT_AUTO:
-        panel_count_rule = (
-            "Decide how many comic panels (between 2 and 4) best fit the user's "
-            "instruction, then describe each panel."
-        )
+        if notation_max:
+            count = min(notation_max, PROMPT_EXPANDER_MANGA_PANEL_COUNT_MAX)
+            plural = "s" if count != 1 else ""
+            panel_count_rule = (
+                f"Describe exactly {count} comic panel{plural}, following the panel "
+                "numbers written in the instruction."
+            )
+        else:
+            panel_count_rule = (
+                "Decide how many comic panels (between 2 and 4) best fit the user's "
+                "instruction, then describe each panel."
+            )
     else:
         count = min(options.panel_count, PROMPT_EXPANDER_MANGA_PANEL_COUNT_MAX)
         plural = "s" if count != 1 else ""
@@ -310,11 +490,24 @@ def build_manga_system_prompt(
 
     text_language = _manga_text_language_phrase(options.text_language)
     example_key = "ja" if options.text_language == "ja" else "en"
+    corner = "top right" if direction == "rtl" else "top left"
+    notation_rule = (
+        "Notation in the user instruction: 「...」 is a spoken line (speech bubble), "
+        "『...』 is an unspoken thought (thought cloud), 【...】 is narration (a "
+        "rectangular narration box, not a bubble, usually in the "
+        f"{corner} corner of the panel), 《...》 is a sound effect, and a line "
+        'starting with ①②③ or "1:" belongs to that panel number. A name written '
+        "right before 「...」 or 『...』 is the speaker. Render every marked text "
+        "verbatim inside the quotation marks of your English sentence (do not "
+        "translate, paraphrase, shorten, or drop it) in the panel it belongs to. "
+        "Empty brackets such as 「」 or 【】 mean: place that kind of text there and "
+        f"write suitable content yourself in {text_language}."
+    )
     if options.dialogue:
         dialogue_rule = (
             "Speech: write every spoken line as an English sentence like: "
-            f'{MANGA_SPEECH_EXAMPLES[example_key]} (use "thought cloud" instead '
-            'of "speech bubble" for unspoken thoughts). Put each line in '
+            f"{MANGA_SPEECH_EXAMPLES[example_key]} and every unspoken thought like: "
+            f"{MANGA_THOUGHT_EXAMPLES[example_key]}. Put each line in "
             f"{speech_target}. Only the text inside the quotes is rendered: it must "
             f"be in {text_language}, short (at most 12 words or 20 Japanese "
             "characters per bubble), and written exactly as it should appear in "
@@ -322,8 +515,8 @@ def build_manga_system_prompt(
         )
     else:
         dialogue_rule = (
-            "Do not add any speech bubbles, thought clouds, captions, or written "
-            "dialogue."
+            "Do not add any speech bubbles, thought clouds, or written dialogue "
+            "beyond the lines marked with 「...」 or 『...』 in the instruction."
         )
     if options.sound_effects:
         sfx_rule = (
@@ -333,7 +526,27 @@ def build_manga_system_prompt(
             f"be in {text_language}."
         )
     else:
-        sfx_rule = "Do not add sound effects or onomatopoeia text."
+        sfx_rule = (
+            "Do not add sound effects or onomatopoeia text beyond the ones marked "
+            "with 《...》 in the instruction."
+        )
+    if options.narration:
+        narration_rule = (
+            "Narration: besides the ones marked with 【...】, you may add at most "
+            "one narration box per panel where a scene change, time skip, or story "
+            "voice helps, written as an English sentence like: "
+            f"{MANGA_NARRATION_EXAMPLES[example_key]}. Put narration boxes in "
+            "panel_description (never in character_prompts). The quoted narration "
+            f"text must be in {text_language} and short (at most 20 Japanese "
+            "characters or 12 words)."
+        )
+    else:
+        narration_rule = (
+            "Narration: add a narration box only where the instruction marks one "
+            "with 【...】, written as an English sentence like: "
+            f"{MANGA_NARRATION_EXAMPLES[example_key]}, in panel_description. Do not "
+            "invent additional narration boxes or captions."
+        )
 
     transformation_rule = (
         " and make that character's character_prompts item describe the final stage"
@@ -342,15 +555,17 @@ def build_manga_system_prompt(
     )
 
     return MANGA_SYSTEM_PROMPT_TEMPLATE.format(
-        text_tags=_manga_text_tags(options),
+        text_tags=_manga_text_tags(options, notation),
         transformation_rule=transformation_rule,
         panel_count_rule=panel_count_rule,
         panel_example=MANGA_PANEL_EXAMPLES[direction],
         reading_rule=MANGA_READING_RULES[direction],
         layout_rule=layout_rule,
         character_rule=character_rule,
+        notation_rule=notation_rule,
         dialogue_rule=dialogue_rule,
         sfx_rule=sfx_rule,
+        narration_rule=narration_rule,
     )
 
 
@@ -457,6 +672,7 @@ def build_positive_system_prompt(
     memory_text: str = "",
     language: str = "ja",
     manga: MangaOptions | None = None,
+    manga_notation: MangaNotation | None = None,
 ) -> str:
     """正プロンプト拡張の system プロンプトを組み立てる。
 
@@ -469,6 +685,7 @@ def build_positive_system_prompt(
             options=manga,
             character_mode=character_mode,
             max_characters=max_characters,
+            notation=manga_notation,
         )
     elif mode == "japanese":
         base = (
@@ -499,6 +716,7 @@ def build_positive_user_prompt(
     character_mode: bool = False,
     context_description: str | None = None,
     manga: bool = False,
+    manga_notation: MangaNotation | None = None,
 ) -> str:
     """正プロンプト拡張の user プロンプトを組み立てる（移植元の形式を踏襲）。"""
     parts = [
@@ -519,6 +737,8 @@ def build_positive_user_prompt(
         )
     parts.append("User instruction:\n" + instruction.strip())
     if manga:
+        if manga_notation is not None and manga_notation.has_texts:
+            parts.append(build_manga_notation_block(manga_notation))
         parts.append(POSITIVE_CLOSING_MANGA)
     else:
         parts.append(
