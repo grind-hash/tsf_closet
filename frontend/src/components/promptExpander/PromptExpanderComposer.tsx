@@ -183,6 +183,10 @@ export default function PromptExpanderComposer() {
     generating,
     expandPositive,
     expandNegative,
+    draftingScript,
+    scriptDraftBackup,
+    draftScript,
+    undoScriptDraft,
   } = usePromptExpander();
 
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -225,9 +229,9 @@ export default function PromptExpanderComposer() {
 
   const isV45 = !isV5ImageModel(settings.image_model);
   const mangaSupported = supportsMangaMode(settings.image_model);
-  const busy = expanding || generating;
-  // LLM でプロンプト化している欄は読み取り専用にして処理中を示す
-  const positiveBusy = expandingTarget === "positive";
+  const busy = expanding || generating || draftingScript;
+  // LLM でプロンプト化／ネーム下書きしている欄は読み取り専用にして処理中を示す
+  const positiveBusy = expandingTarget === "positive" || draftingScript;
   const negativeBusy = expandingTarget === "negative";
   const notConfigured = !options.novelaiConfigured;
   const notConfiguredText = t("promptExpander.composer.disabledNotConfigured");
@@ -701,6 +705,15 @@ export default function PromptExpanderComposer() {
                   {chip.label}
                 </button>
               ))}
+              <button
+                type="button"
+                className="prompt-expander__btn prompt-expander__btn--sm prompt-expander__btn--primary prompt-expander__notation-draft"
+                onClick={() => void draftScript()}
+                disabled={busy || !positiveText.trim()}
+                title={t("promptExpander.composer.draftScriptTitle")}
+              >
+                {t("promptExpander.composer.draftScript")}
+              </button>
             </div>
           )}
           <textarea
@@ -720,8 +733,24 @@ export default function PromptExpanderComposer() {
           />
           {positiveBusy && (
             <PromptExpanderProgress
-              label={t("promptExpander.composer.expandingHint")}
+              label={
+                draftingScript
+                  ? t("promptExpander.composer.draftingHint")
+                  : t("promptExpander.composer.expandingHint")
+              }
             />
+          )}
+          {scriptDraftBackup && positiveText === scriptDraftBackup.script && (
+            <p className="prompt-expander__hint prompt-expander__draft-done">
+              <span>{t("promptExpander.composer.draftDone")}</span>
+              <button
+                type="button"
+                className="prompt-expander__btn prompt-expander__btn--sm"
+                onClick={undoScriptDraft}
+              >
+                {t("promptExpander.composer.draftUndo")}
+              </button>
+            </p>
           )}
           {mangaActive && (
             <>

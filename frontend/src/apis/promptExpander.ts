@@ -221,6 +221,20 @@ export interface PromptExpanderSuggestResponse {
   text_model: string;
 }
 
+/** あらすじ → 記法付きネームの下書き（漫画モード・V5 専用） */
+export interface PromptExpanderMangaScriptRequest {
+  instruction: string;
+  image_model: string;
+  text_model: string;
+  language: "ja" | "en";
+  manga?: PromptExpanderMangaOptions;
+}
+
+export interface PromptExpanderMangaScriptResponse {
+  script: string;
+  text_model: string;
+}
+
 // ----------------------------------------------------------------
 // 共通
 // ----------------------------------------------------------------
@@ -468,6 +482,15 @@ export async function generatePromptExpanderImage(
     entry: payload.entry,
     anlas: convertAnlas(payload.anlas),
   };
+}
+
+export async function draftMangaScript(
+  req: PromptExpanderMangaScriptRequest,
+): Promise<PromptExpanderMangaScriptResponse> {
+  return requestJson<PromptExpanderMangaScriptResponse>(
+    `${BASE}/manga-script`,
+    jsonInit("POST", req),
+  );
 }
 
 export async function suggestCharacterPrompts(

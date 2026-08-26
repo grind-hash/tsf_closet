@@ -303,6 +303,23 @@ class PromptExpandResponse(BaseModel):
     text_model: str
 
 
+class MangaScriptRequest(BaseModel):
+    """あらすじ → 記法付きネームの下書き（漫画モード・V5 専用）。"""
+
+    instruction: str = Field(
+        ..., min_length=1, max_length=PROMPT_EXPANDER_INSTRUCTION_MAX_LEN
+    )
+    image_model: ImageModelLiteral
+    text_model: TextModelLiteral
+    language: Literal["ja", "en"] = "ja"
+    manga: MangaOptionsModel | None = None
+
+
+class MangaScriptResponse(BaseModel):
+    script: str
+    text_model: str
+
+
 class PromptExpanderGenerateRequest(BaseModel):
     prompt: str = Field(..., min_length=1, max_length=PROMPT_EXPANDER_PROMPT_MAX_LEN)
     negative_prompt: str = Field("", max_length=PROMPT_EXPANDER_NEGATIVE_MAX_LEN)
@@ -752,6 +769,22 @@ async def expand_prompt(body: PromptExpandRequest):
         negative_prompt=result.negative_prompt,
         text_model=result.text_model,
     )
+
+
+@router.post("/manga-script", response_model=MangaScriptResponse)
+async def draft_manga_script(body: MangaScriptRequest):
+    params = pe_service.MangaScriptParams(
+        instruction=body.instruction,
+        image_model=body.image_model,
+        text_model=body.text_model,
+        language=body.language,
+        manga=(body.manga or MangaOptionsModel()).to_options(),
+    )
+    try:
+        result = await pe_service.draft_manga_script(params, user_id=DEFAULT_USER_ID)
+    except PromptExpanderError as exc:
+        raise _http_error(exc) from exc
+    return MangaScriptResponse(script=result.script, text_model=result.text_model)
 
 
 @router.post("/suggest-characters", response_model=SuggestCharactersResponse)

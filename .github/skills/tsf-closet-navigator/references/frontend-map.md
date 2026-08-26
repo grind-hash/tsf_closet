@@ -36,7 +36,7 @@
 
 `App.tsx` は `/prompt-expander` 配下だけを `PromptExpanderProvider` で包む（`experimentalPromptExpanderEnabled` が OFF なら `/play/new` へリダイレクト）。
 
-`PromptExpanderContext`（`usePromptExpander()`）は PE セッション一覧/詳細、エントリ、専用設定（`GET/PUT /api/prompt-expander/settings`、生成パラメータはこの設定そのもの）、作業欄状態（参照元、正/ネガの本文と拡張モード、キャラクタースロット）、`pendingExpansion`（欄直下のインライン結果カード。`target: positive|negative`）、`positiveOrigin`/`negativeOrigin`（「欄へ反映」した拡張のモードと指示。履歴メタデータ用。欄が空になると消える）、`pendingUsageWarn`（V5 利用上限の確認）、PE ローカルの `anlas` を持つ。拡張は欄右上の「拡張」ボタン（`expandPositive`/`expandNegative`）→ インライン結果カード（「欄へ反映」`applyExpansion` ／「この内容で生成」`generateFromExpansion`（カードは生成後も残す。原文はクリック時点の欄の内容）／「破棄」）で、下部の「生成」（`runGenerate`）は常に欄の内容をそのまま送る。`restoreEntry` は拡張ありのエントリなら原文を欄へ戻し変換結果を `pendingExpansion` として再現、それ以外は最終プロンプトを欄へ戻す（seed は設定 `restore_seed`=ON のときだけ戻す）。`regenerateEntry` はエントリのプロンプト/設定のまま seed を付けずに生成する。`suggestCharacters` は欄の下書きを `input_text` として送る。設定の `confirm_before_generate` / `inherit_source_prompts` は API には残るが UI の確認トグルは無い（継承トグルは i2i セクション）。通常ゲームの Context や `useGameSSE` には統合しない。
+`PromptExpanderContext`（`usePromptExpander()`）は PE セッション一覧/詳細、エントリ、専用設定（`GET/PUT /api/prompt-expander/settings`、生成パラメータはこの設定そのもの）、作業欄状態（参照元、正/ネガの本文と拡張モード、キャラクタースロット。キャラクタープロンプトの ON/OFF だけは localStorage `prompt_expander_character_mode` に保持して再読み込み後も復元）、`pendingExpansion`（欄直下のインライン結果カード。`target: positive|negative`）、`positiveOrigin`/`negativeOrigin`（「欄へ反映」した拡張のモードと指示。履歴メタデータ用。欄が空になると消える）、`pendingUsageWarn`（V5 利用上限の確認）、PE ローカルの `anlas` を持つ。拡張は欄右上の「拡張」ボタン（`expandPositive`/`expandNegative`）→ インライン結果カード（「欄へ反映」`applyExpansion` ／「この内容で生成」`generateFromExpansion`（カードは生成後も残す。原文はクリック時点の欄の内容）／「破棄」）で、下部の「生成」（`runGenerate`）は常に欄の内容をそのまま送る。`restoreEntry` は拡張ありのエントリなら原文を欄へ戻し変換結果を `pendingExpansion` として再現、それ以外は最終プロンプトを欄へ戻す（seed は設定 `restore_seed`=ON のときだけ戻す）。`regenerateEntry` はエントリのプロンプト/設定のまま seed を付けずに生成する。`suggestCharacters` は欄の下書きを `input_text` として送る。設定の `confirm_before_generate` / `inherit_source_prompts` は API には残るが UI の確認トグルは無い（継承トグルは i2i セクション）。通常ゲームの Context や `useGameSSE` には統合しない。
 
 ### Adventure専用Provider
 
@@ -127,7 +127,7 @@ components/
     PromptExpanderSection.tsx       アコーディオン見出し（aria-expanded、右側ツールバー枠）。開閉は hooks/usePersistedSectionState（localStorage `prompt_expander_sections_open`）
     PromptExpanderDeleteButton.tsx  削除用アイコンボタン（ギャラリー同様ゴミ箱アイコン、ホバーで赤）。削除を赤塗り/赤枠のテキストボタンにしない
     PromptExpanderProgress.tsx      処理中表示（スピナー＋情報色ブルーの帯＋下端の不確定バー）。プロンプト化中と画像生成中で共用。警告色/アクセント色は使わない
-    PromptExpanderComposer.tsx      セクション順: 生成パラメータ → プロンプト／指示（各欄右上にモード切替・「拡張」・「✨提案」）→ キャラクタープロンプト → i2i設定 → 「生成」。漫画モード中は欄の直上に記法チップ（「」『』【】《》①: カーソル位置へ挿入・選択範囲を包む・①は行頭に連番）と凡例、漫画セクションに「ナレーション枠を自動で入れる」トグル（`manga_narration`、既定OFF）
+    PromptExpanderComposer.tsx      セクション順: 生成パラメータ → プロンプト／指示（各欄右上にモード切替・「拡張」・「✨提案」）→ キャラクタープロンプト → i2i設定 → 「生成」。漫画モード中は欄の直上に記法チップ（「」『』【】《》①: カーソル位置へ挿入・選択範囲を包む・①は行頭に連番）と凡例、漫画セクションに「ナレーション枠を自動で入れる」トグル（`manga_narration`、既定OFF）。チップ行末の「あらすじからネームを下書き」（`draftScript` → `POST /manga-script`）は欄を記法付きネームで置き換え、`scriptDraftBackup` で「元の文に戻す」を出す
     PromptExpanderExpansionPanel.tsx 欄直下のインライン拡張結果カード（欄へ反映／この内容で生成／破棄）
     PromptExpanderEntryList.tsx / EntryCard.tsx  履歴セクション（絞り込みチップ すべて/通常/漫画/アップロード = localStorage `prompt_expander_entry_filter`、欄へ復元・このプロンプトで再生成・i2i元・通常プレイ/TSFシナリオへ・削除）。画像は右クリック保存が効くよう <button> で包まず div[role=button]。プレビューは ImagePreviewModal に className="prompt-expander-preview" で 96vw/96vh 拡大（閉じる/前後ボタンは枠内に置き直し、`positionLabel` で n / N、表示中カードは `--previewed` で強調）
     PromptExpanderSettingsPanel.tsx テキストモデル、「欄へ復元」でシードも復元する（`restore_seed`、既定OFF）、PEメモリ＋「メモリ情報を持ってくる」

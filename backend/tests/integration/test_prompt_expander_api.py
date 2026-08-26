@@ -164,6 +164,39 @@ def test_expand_manga_narration_option_and_notation(client: TestClient):
     assert res.json()["settings"]["manga_narration"] is True
 
 
+def test_manga_script_draft_api(client: TestClient):
+    pe.llm_service.generate_text.return_value = SimpleNamespace(
+        content="①鏡を見る「え…？」\n②戸惑う『どうして…』", cost_usd=None
+    )
+    res = client.post(
+        "/api/prompt-expander/manga-script",
+        json={
+            "instruction": "彼女が変わってしまう",
+            "image_model": "nai-diffusion-5-full",
+            "text_model": "glm-4-6",
+            "manga": {"panel_count": 2, "dialogue": True},
+        },
+    )
+    assert res.status_code == 200, res.text
+    assert res.json() == {
+        "script": "①鏡を見る「え…？」\n②戸惑う『どうして…』",
+        "text_model": "glm-4-6",
+    }
+    system = pe.llm_service.generate_text.await_args.args[0]
+    assert "Write exactly 2 panels." in system
+
+    res = client.post(
+        "/api/prompt-expander/manga-script",
+        json={
+            "instruction": "彼女が変わってしまう",
+            "image_model": "nai-diffusion-4-5-full",
+            "text_model": "glm-4-6",
+        },
+    )
+    assert res.status_code == 422
+    assert res.json()["detail"]["code"] == "manga_requires_v5"
+
+
 def test_settings_restore_seed_roundtrip(client: TestClient):
     res = client.get("/api/prompt-expander/settings")
     assert res.json()["settings"]["restore_seed"] is False

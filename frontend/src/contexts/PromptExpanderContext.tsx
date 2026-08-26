@@ -24,6 +24,7 @@ import {
   createPromptExpanderSession,
   deletePromptExpanderEntry,
   deletePromptExpanderSession,
+  draftMangaScript,
   expandPrompt,
   fetchPromptExpanderSession,
   fetchPromptExpanderSessions,
@@ -143,6 +144,10 @@ interface PromptExpanderContextValue {
   loadingSession: boolean;
   expanding: boolean;
   expandingTarget: PromptExpanderExpansionTarget | null;
+  /** 「あらすじからネームを下書き」の実行中 */
+  draftingScript: boolean;
+  /** 直近のネーム下書き（元の文と結果。欄が結果のままなら「元の文に戻す」が使える） */
+  scriptDraftBackup: { source: string; script: string } | null;
   generating: boolean;
   uploading: boolean;
   suggesting: boolean;
@@ -200,6 +205,10 @@ interface PromptExpanderContextValue {
   expandPositive: () => Promise<void>;
   /** ネガティブ欄の内容を拡張し、欄の直下に確認カードを出す */
   expandNegative: () => Promise<void>;
+  /** 正プロンプト欄のあらすじを、記法付きのネームに LLM で書き換える（漫画モード） */
+  draftScript: () => Promise<void>;
+  /** ネーム下書き前の文に戻す */
+  undoScriptDraft: () => void;
   /** 編集済みの拡張結果を欄へ書き戻してカードを閉じる */
   applyExpansion: (edited: PromptExpanderPendingExpansion) => void;
   /** 編集済みの拡張結果からそのまま生成する（欄も確認カードも変更しない） */
@@ -221,6 +230,26 @@ interface PromptExpanderContextValue {
     count: number,
     mode: PromptExpandMode,
   ) => Promise<PromptExpanderSuggestion[]>;
+}
+
+/** キャラクタープロンプトの ON/OFF は作業欄の状態だが、セッション切替や再読み込みをまたいで保つ */
+export const PROMPT_EXPANDER_CHARACTER_MODE_KEY =
+  "prompt_expander_character_mode";
+
+function readPersistedCharacterMode(): boolean {
+  try {
+    return localStorage.getItem(PROMPT_EXPANDER_CHARACTER_MODE_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function writePersistedCharacterMode(on: boolean) {
+  try {
+    localStorage.setItem(PROMPT_EXPANDER_CHARACTER_MODE_KEY, String(on));
+  } catch {
+    // localStorage が使えない環境では保持しない
+  }
 }
 
 const DEFAULT_SETTINGS: PromptExpanderSettings = {
@@ -357,6 +386,11 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
   const [generating, setGenerating] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [suggesting, setSuggesting] = useState(false);
+  const [draftingScript, setDraftingScript] = useState(false);
+  const [scriptDraftBackup, setScriptDraftBackup] = useState<{
+    source: string;
+    script: string;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [expansionError, setExpansionError] =
     useState<PromptExpanderExpansionError | null>(null);
@@ -367,7 +401,14 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
   const [positiveMode, setPositiveMode] = useState<PromptExpandMode>("tags");
   const [positiveOrigin, setPositiveOrigin] =
     useState<PromptExpanderPositiveOrigin | null>(null);
-  const [characterMode, setCharacterMode] = useState(false);
+  const [characterMode, setCharacterModeState] = useState(
+    readPersistedCharacterMode,
+  );
+  // 復元・欄へ反映など内部からの変更も含めて localStorage に保つ
+  const setCharacterMode = useCallback((on: boolean) => {
+    setCharacterModeState(on);
+    writePersistedCharacterMode(on);
+  }, []);
   const [characterSlots, setCharacterSlots] = useState<string[]>([]);
   const [negativeText, setNegativeText] = useState("");
   const [negativeMode, setNegativeMode] = useState<PromptExpandMode>("tags");
@@ -937,6 +978,50 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
     sourceFields,
   ]);
 
+  const draftScript = useCallback(async () => {
+    const synopsis = positiveText.trim();
+    if (!synopsis) {
+      setExpansionError({
+        target: "positive",
+        code: "empty_instruction",
+        message: "empty_instruction",
+      });
+      return;
+    }
+    setExpansionError(null);
+    setDraftingScript(true);
+    try {
+      const resp = await draftMangaScript({
+        instruction: synopsis,
+        image_model: settings.image_model,
+        text_model: settings.text_model,
+        language,
+        manga: mangaRequest,
+      });
+      // 欄をネームで置き換える。元の文は「元の文に戻す」用に保持する
+      setScriptDraftBackup({ source: positiveText, script: resp.script });
+      setPositiveText(resp.script);
+      setPositiveOrigin(null);
+    } catch (err) {
+      failExpansion("positive", err);
+    } finally {
+      setDraftingScript(false);
+    }
+  }, [
+    failExpansion,
+    language,
+    mangaRequest,
+    positiveText,
+    settings.image_model,
+    settings.text_model,
+  ]);
+
+  const undoScriptDraft = useCallback(() => {
+    if (!scriptDraftBackup) return;
+    setPositiveText(scriptDraftBackup.source);
+    setScriptDraftBackup(null);
+  }, [scriptDraftBackup]);
+
   const expandNegative = useCallback(async () => {
     const instruction = negativeText.trim();
     if (!instruction) {
@@ -1014,7 +1099,7 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       setPendingExpansion(null);
       setExpansionError(null);
     },
-    [],
+    [setCharacterMode],
   );
 
   const generateFromExpansion = useCallback(
@@ -1159,7 +1244,7 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
         void updateSettings(patch);
       }
     },
-    [settings.restore_seed, updateSettings],
+    [setCharacterMode, settings.restore_seed, updateSettings],
   );
 
   const regenerateEntry = useCallback(
@@ -1255,7 +1340,7 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
   const generateDisabledReason = useMemo<string | null>(() => {
     if (!options.novelaiConfigured) return "novelai_not_configured";
     if (!activeSession) return "no_session";
-    if (expanding || generating) return "busy";
+    if (expanding || generating || draftingScript) return "busy";
     if (pendingExpansion) return "pending_expansion";
     if (characterSlotsOverCap) return "too_many_characters";
     if (!positiveText.trim()) return "empty_prompt";
@@ -1263,6 +1348,7 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
   }, [
     activeSession,
     characterSlotsOverCap,
+    draftingScript,
     expanding,
     generating,
     options.novelaiConfigured,
@@ -1283,6 +1369,8 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       loadingSession,
       expanding,
       expandingTarget,
+      draftingScript,
+      scriptDraftBackup,
       generating,
       uploading,
       suggesting,
@@ -1329,6 +1417,8 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       uploadImage,
       expandPositive,
       expandNegative,
+      draftScript,
+      undoScriptDraft,
       applyExpansion,
       generateFromExpansion,
       discardExpansion,
@@ -1353,6 +1443,8 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       loadingSession,
       expanding,
       expandingTarget,
+      draftingScript,
+      scriptDraftBackup,
       generating,
       uploading,
       suggesting,
@@ -1387,12 +1479,15 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       importGlobalMemory,
       setSource,
       clearSource,
+      setCharacterMode,
       addCharacterSlot,
       updateCharacterSlot,
       removeCharacterSlot,
       uploadImage,
       expandPositive,
       expandNegative,
+      draftScript,
+      undoScriptDraft,
       applyExpansion,
       generateFromExpansion,
       discardExpansion,

@@ -194,6 +194,7 @@ apis/promptExpander.ts
   ├─ GET/PUT /api/prompt-expander/settings     専用設定（users.prompt_expander_settings_json）
   ├─ /sessions, /sessions/{id}, /sessions/{id}/uploads, /entries, /images/{entry_id}
   ├─ POST /expand                              LLM のみ（NovelAI テキスト glm-4-6 / xialong-v1 固定）
+  ├─ POST /manga-script                        あらすじ → 記法付きネーム（漫画モード・V5 専用、LLM のみ）。FE は結果で入力欄を置き換え「元の文に戻す」を出す
   ├─ POST /sessions/{id}/generate              画像のみ（NovelAI 固定、raw_prompt=True）。応答に entry + anlas
   └─ POST /suggest-characters                  PE メモリ（無ければグローバルメモリ）＋ `input_text`（欄の下書き）から好みのキャラ提案。両方空なら memory_empty
       ↓

@@ -1661,6 +1661,14 @@ const resources = {
           mangaSummaryNarration: "ナレーション自動",
           mangaNotationHint:
             "記法: 「セリフ」『モノローグ』【ナレーション】《効果音》、行頭の①②③はコマ番号。空の括弧（「」など）は内容を LLM にお任せします。",
+          draftScript: "あらすじからネームを下書き",
+          draftScriptTitle:
+            "欄のあらすじを、記法付きのネーム（コマ番号・セリフ・ナレーション）に LLM で書き換えます。手直ししてから「LLMでプロンプト化」してください。元の文には戻せます",
+          draftingHint:
+            "LLM がネームを作成しています。完了するまでこの欄は編集できません。",
+          draftDone:
+            "あらすじからネームを下書きしました。手直ししてから「LLMでプロンプト化」してください。",
+          draftUndo: "元の文に戻す",
           notation: {
             toolbar: "漫画の記法を挿入",
             speech: "セリフ",
@@ -1694,7 +1702,7 @@ const resources = {
           promptPlaceholder:
             "NovelAI に渡すプロンプト、または「LLMでプロンプト化」で NovelAI 用プロンプトにする自然文の指示を入力",
           promptPlaceholderManga:
-            "漫画にしたい流れを入力。例: ①男が鏡を見る【放課後】 ②体が女性化していく《ドクン》 ③「え、これ私…？」『どうして…』。あらすじだけでもコマ割りとセリフは LLM が決めます",
+            "漫画にしたい流れを入力。例: ①男が鏡を見る【放課後】 ②体が女性化していく《ドクン》 ③「え、これ僕…？」『どうして…』。あらすじだけでもコマ割りとセリフは LLM が決めます",
           expandModeLabel: "出力形式",
           expandJapanese: "日本語文",
           expandTags: "タグ",
@@ -3541,6 +3549,14 @@ const resources = {
           mangaSummaryNarration: "auto narration",
           mangaNotationHint:
             "Notation: 「speech」『thought』【narration】《sound effect》; ①②③ at the start of a line is the panel number. Empty brackets (e.g. 「」) let the LLM write the text.",
+          draftScript: "Draft a storyboard from the synopsis",
+          draftScriptTitle:
+            "Rewrites the synopsis in this field into a notated storyboard (panel numbers, lines, narration) with the LLM. Edit it, then convert to prompt. You can revert to the original text",
+          draftingHint:
+            "The LLM is drafting the storyboard. This field is read-only until it finishes.",
+          draftDone:
+            "Drafted a storyboard from the synopsis. Edit it, then convert to prompt.",
+          draftUndo: "Revert to original text",
           notation: {
             toolbar: "Insert comic notation",
             speech: "Speech",

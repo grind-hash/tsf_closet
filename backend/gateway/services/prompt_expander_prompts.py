@@ -323,7 +323,7 @@ MANGA_SPEECH_EXAMPLES: dict[str, str] = {
         "There's a speech bubble next to the girl that says \"Ha ha! That one's a "
         'classic!"'
     ),
-    "ja": 'There\'s a speech bubble next to the girl that says "これ、私にぴったり…！"',
+    "ja": 'There\'s a speech bubble next to the girl that says "これ、僕にぴったり…！"',
 }
 MANGA_SFX_EXAMPLES: dict[str, str] = {
     "en": 'there\'s also a "SLAM" visible on the table',
@@ -331,7 +331,8 @@ MANGA_SFX_EXAMPLES: dict[str, str] = {
 }
 MANGA_THOUGHT_EXAMPLES: dict[str, str] = {
     "en": 'There\'s a thought cloud above the girl that says "Is this really me?"',
-    "ja": 'There\'s a thought cloud above the girl that says "これが私…？"',
+    # TS 直後の人物は一人称が元のまま（僕）なので、例文もそれに合わせる
+    "ja": 'There\'s a thought cloud above the girl that says "これが僕…？"',
 }
 MANGA_NARRATION_EXAMPLES: dict[str, str] = {
     "en": (
@@ -592,6 +593,107 @@ Requirements:
 - Keep every element of the current negative prompt unless the instruction explicitly removes it.
 - Never describe the desired image; describe only undesired content.
 - Do not add generic quality phrases (low resolution, bad anatomy, etc.) unless the user asks for them."""
+
+# ---------------------------------------------------------------------------
+# ネームの下書き（あらすじ → 記法付きのコマ割り台本。プロンプト化の前段）
+# ---------------------------------------------------------------------------
+
+MANGA_SCRIPT_SYSTEM_PROMPT_TEMPLATE = """You are a manga storyboard (ネーム) writer for TSF and outfit-change scenarios.
+Turn the user's synopsis or rough idea into a panel-by-panel comic script. A NovelAI Diffusion V5 prompt writer will later convert this script into an image prompt, so every panel must be a concrete, drawable scene.
+
+Requirements:
+- Output only the script as plain text lines. No title, headings, Markdown, code fences, explanations, or notes.
+- {panel_rule} Start each panel on its own line with a circled number (①, ②, ③, ...) followed by a short description of what is visible in that panel (who, action, expression, camera, background) written in {description_language}. One panel per line.
+- Notation for text drawn in the image, placed on the same line as its panel: 「...」 for a spoken line (write the speaker's name right before it when more than one character appears), 『...』 for an unspoken thought, 【...】 for a narration box, 《...》 for a sound effect. Only the text inside these brackets is drawn: keep each under 20 Japanese characters or 12 words, written in {text_language}.
+- {dialogue_rule}
+- {sfx_rule}
+- {narration_rule}
+- Keep each character's identity, hair, eyes, body, and clothing consistent across panels. If the story involves a transformation, show its stages in order.
+- Follow the synopsis faithfully and add only the details needed to make each panel drawable. Do not use any other brackets or symbols for emphasis."""
+
+MANGA_SCRIPT_USER_PROMPT_TEMPLATE = (
+    "Synopsis:\n{synopsis}\n\nWrite the storyboard script now."
+)
+
+
+def build_manga_script_prompts(
+    *,
+    synopsis: str,
+    options: MangaOptions,
+    nsfw: bool,
+    memory_text: str = "",
+    language: str = "ja",
+) -> tuple[str, str]:
+    """ネーム下書きの (system, user) プロンプトを返す。"""
+    if options.panel_count <= PROMPT_EXPANDER_MANGA_PANEL_COUNT_AUTO:
+        panel_rule = "Write between 2 and 4 panels."
+    else:
+        count = min(options.panel_count, PROMPT_EXPANDER_MANGA_PANEL_COUNT_MAX)
+        plural = "s" if count != 1 else ""
+        panel_rule = f"Write exactly {count} panel{plural}."
+    if options.dialogue:
+        dialogue_rule = (
+            "Give most panels a short spoken line or thought that carries the story; "
+            "do not repeat the description inside the bubble."
+        )
+    else:
+        dialogue_rule = (
+            "Do not write 「...」 or 『...』 lines unless the synopsis explicitly "
+            "provides them."
+        )
+    if options.sound_effects:
+        sfx_rule = (
+            "Add a 《...》 sound effect only where an action needs one (at most one "
+            "per panel)."
+        )
+    else:
+        sfx_rule = (
+            "Do not add 《...》 sound effects unless the synopsis explicitly provides "
+            "them."
+        )
+    if options.narration:
+        narration_rule = (
+            "Add a 【...】 narration box where a scene change, time skip, or story "
+            "voice helps (at most one per panel)."
+        )
+    else:
+        narration_rule = (
+            "Do not add 【...】 narration unless the synopsis explicitly provides it."
+        )
+    system = MANGA_SCRIPT_SYSTEM_PROMPT_TEMPLATE.format(
+        panel_rule=panel_rule,
+        description_language=(
+            "the same language as the synopsis (Japanese for a Japanese synopsis, "
+            "English for an English one)"
+        ),
+        text_language=_manga_text_language_phrase(options.text_language),
+        dialogue_rule=dialogue_rule,
+        sfx_rule=sfx_rule,
+        narration_rule=narration_rule,
+    )
+    system += _content_rule(nsfw) + build_memory_priority_instruction(
+        (memory_text or "").strip(), language
+    )
+    user = MANGA_SCRIPT_USER_PROMPT_TEMPLATE.format(synopsis=synopsis.strip())
+    return system, user
+
+
+def sanitize_manga_script(raw: str) -> str:
+    """ネーム下書きの LLM 出力を、記法付きの行だけに整える。
+
+    コードフェンス・空行を除き、行頭のコマ番号（①〜⑳ または "1:"）が 1 行も無ければ不正とする。
+    """
+    text = _strip_code_fence(raw or "")
+    lines = [line.strip() for line in text.splitlines()]
+    lines = [line for line in lines if line]
+    if not lines:
+        raise PromptExpanderOutputError("空のネームが返されました")
+    if not any(_PANEL_PREFIX_PATTERN.match(line) for line in lines):
+        raise PromptExpanderOutputError(
+            "ネームの形式が不正です（コマ番号で始まる行がありません）"
+        )
+    return "\n".join(lines)
+
 
 # ---------------------------------------------------------------------------
 # メモリに基づくキャラクター提案

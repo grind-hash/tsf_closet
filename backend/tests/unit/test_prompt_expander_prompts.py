@@ -606,7 +606,7 @@ class TestMangaNotation:
         assert 'reads "三日後。"' in auto
         assert "top left corner" in auto
         assert "Decide how many comic panels (between 2 and 4)" in auto
-        assert 'thought cloud above the girl that says "これが私…？"' in auto
+        assert 'thought cloud above the girl that says "これが僕…？"' in auto
 
     def test_user_prompt_lists_marked_text(self):
         from gateway.services.prompt_expander_prompts import extract_manga_notation
@@ -659,3 +659,63 @@ class TestMangaNotation:
         assert (
             ensure_manga_notation_texts(base, None, extract_manga_notation("x")) == base
         )
+
+
+class TestMangaScriptDraft:
+    def test_build_manga_script_prompts_rules(self):
+        from gateway.services.prompt_expander_prompts import (
+            MangaOptions,
+            build_manga_script_prompts,
+        )
+
+        system, user = build_manga_script_prompts(
+            synopsis="  放課後、彼女が制服姿に変わってしまい戸惑う  ",
+            options=MangaOptions(),
+            nsfw=False,
+            memory_text="銀髪が好き",
+        )
+        assert "Write between 2 and 4 panels." in system
+        assert "circled number (①, ②, ③, ...)" in system
+        assert "「...」 for a spoken line" in system
+        assert "Give most panels a short spoken line" in system
+        assert "Add a 《...》 sound effect only where" in system
+        assert "Do not add 【...】 narration unless" in system
+        assert "Adult or explicit tags are disabled" in system
+        assert "銀髪が好き" in system
+        assert user == (
+            "Synopsis:\n放課後、彼女が制服姿に変わってしまい戸惑う\n\n"
+            "Write the storyboard script now."
+        )
+
+        system, _ = build_manga_script_prompts(
+            synopsis="x",
+            options=MangaOptions(
+                panel_count=3,
+                dialogue=False,
+                sound_effects=False,
+                narration=True,
+                text_language="en",
+            ),
+            nsfw=True,
+        )
+        assert "Write exactly 3 panels." in system
+        assert "Do not write 「...」 or 『...』 lines unless" in system
+        assert "Do not add 《...》 sound effects unless" in system
+        assert "Add a 【...】 narration box where" in system
+        assert "written in English." in system
+        assert "Adult content tags are allowed" in system
+
+    def test_sanitize_manga_script(self):
+        from gateway.services.prompt_expander_prompts import sanitize_manga_script
+
+        raw = "```\n①放課後の教室。彼女が鏡を見る「え…？」\n\n②体が変わっていく《ドクン》\n```"
+        assert sanitize_manga_script(raw) == (
+            "①放課後の教室。彼女が鏡を見る「え…？」\n②体が変わっていく《ドクン》"
+        )
+        assert (
+            sanitize_manga_script("1: 鏡を見る\n2: 戸惑う") == "1: 鏡を見る\n2: 戸惑う"
+        )
+        with pytest.raises(PromptExpanderOutputError):
+            sanitize_manga_script("   \n  ")
+        with pytest.raises(PromptExpanderOutputError):
+            sanitize_manga_script("彼女が鏡を見る。体が変わっていく。")

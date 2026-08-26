@@ -193,6 +193,20 @@
   letter-spacing: 0.05em;
 }
 
+/* 「あらすじからネームを下書き」は記法チップの行末（右寄せ） */
+.prompt-expander__notation-chips .prompt-expander__notation-draft {
+  margin-left: auto;
+  letter-spacing: normal;
+  font-size: 0.82rem;
+}
+
+.prompt-expander__draft-done {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 .prompt-expander__seed-row {
   display: flex;
   gap: 0.4rem;

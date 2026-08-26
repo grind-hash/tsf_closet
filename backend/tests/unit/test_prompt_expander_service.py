@@ -974,3 +974,68 @@ async def test_settings_manga_narration_roundtrip(factory):
         assert saved.manga_narration is True
     async with factory() as db:
         assert (await pe.PromptExpanderService.get_settings(db)).manga_narration is True
+
+
+@pytest.mark.asyncio
+async def test_draft_manga_script(factory, monkeypatch):
+    mock = AsyncMock(
+        return_value=SimpleNamespace(
+            content="①放課後の教室。彼女が鏡を見る「え…？」\n②体が変わっていく《ドクン》",
+            cost_usd=None,
+        )
+    )
+    monkeypatch.setattr(pe.llm_service, "generate_text", mock)
+    async with factory() as db:
+        await pe.PromptExpanderService.save_settings(
+            db, patch={"memory_text": "銀髪が好き", "use_memory": True}
+        )
+        await db.commit()
+
+    result = await pe.draft_manga_script(
+        pe.MangaScriptParams(
+            instruction="放課後、彼女が制服姿に変わってしまい戸惑う",
+            image_model="nai-diffusion-5-full",
+            text_model="glm-4-6",
+            manga=pe.MangaOptions(panel_count=2, narration=True),
+        )
+    )
+    assert (
+        result.script
+        == "①放課後の教室。彼女が鏡を見る「え…？」\n②体が変わっていく《ドクン》"
+    )
+    assert result.text_model == "glm-4-6"
+    system, user = mock.await_args.args[:2]
+    assert "Write exactly 2 panels." in system
+    assert "Add a 【...】 narration box where" in system
+    assert "銀髪が好き" in system
+    assert user.startswith("Synopsis:\n放課後、彼女が制服姿に変わってしまい戸惑う")
+
+    # V4.5 では使えない / 空のあらすじは不可 / 形式不正は invalid_llm_output
+    with pytest.raises(pe.PromptExpanderError) as exc:
+        await pe.draft_manga_script(
+            pe.MangaScriptParams(
+                instruction="x",
+                image_model="nai-diffusion-4-5-full",
+                text_model="glm-4-6",
+            )
+        )
+    assert exc.value.code == "manga_requires_v5"
+    with pytest.raises(pe.PromptExpanderError) as exc:
+        await pe.draft_manga_script(
+            pe.MangaScriptParams(
+                instruction="  ",
+                image_model="nai-diffusion-5-full",
+                text_model="glm-4-6",
+            )
+        )
+    assert exc.value.code == "invalid_request"
+    mock.return_value = SimpleNamespace(content="コマ番号のない文章", cost_usd=None)
+    with pytest.raises(pe.PromptExpanderError) as exc:
+        await pe.draft_manga_script(
+            pe.MangaScriptParams(
+                instruction="x",
+                image_model="nai-diffusion-5-full",
+                text_model="glm-4-6",
+            )
+        )
+    assert exc.value.code == "invalid_llm_output"

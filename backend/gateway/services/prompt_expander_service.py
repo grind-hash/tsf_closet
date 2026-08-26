@@ -65,6 +65,7 @@ from .prompt_expander_prompts import (
     build_negative_user_prompt,
     build_positive_system_prompt,
     build_positive_user_prompt,
+    build_manga_script_prompts,
     build_suggest_characters_prompts,
     ensure_manga_notation_texts,
     extract_manga_notation,
@@ -73,6 +74,7 @@ from .prompt_expander_prompts import (
     parse_suggestions_json,
     replace_false_friend_tokens,
     sanitize_by_mode,
+    sanitize_manga_script,
 )
 from .session import DEFAULT_USER_ID, session_store
 from .settings_service import settings_service
@@ -982,6 +984,56 @@ async def expand_prompts(
         result.negative_prompt = sanitized
 
     return result
+
+
+@dataclass
+class MangaScriptParams:
+    instruction: str = ""
+    image_model: str = DEFAULT_PROMPT_EXPANDER_IMAGE_MODEL
+    text_model: str = DEFAULT_NOVELAI_TEXT_MODEL
+    language: str = "ja"
+    manga: MangaOptions = field(default_factory=MangaOptions)
+
+
+@dataclass
+class MangaScriptResult:
+    script: str
+    text_model: str
+
+
+async def draft_manga_script(
+    params: MangaScriptParams, *, user_id: str = DEFAULT_USER_ID
+) -> MangaScriptResult:
+    """あらすじから記法付きのネーム（コマ割り台本）を LLM で下書きする。
+
+    プロンプト化の前段。結果は入力欄へ書き戻し、手直ししてから expand_prompts に渡す想定。
+    """
+    synopsis = params.instruction.strip()
+    if not synopsis:
+        raise PromptExpanderError("invalid_request", "あらすじを入力してください")
+    if not is_prompt_expander_image_model(params.image_model):
+        raise PromptExpanderError("unsupported_image_model", "画像モデルが不正です")
+    if not supports_manga_mode(params.image_model):
+        raise PromptExpanderError(
+            "manga_requires_v5",
+            "漫画モードは NovelAI Diffusion V5 系モデルでのみ使用できます",
+        )
+    async with async_session_factory() as db:
+        pe_settings = await PromptExpanderService.get_settings(db, user_id=user_id)
+    memory_text = pe_settings.memory_text if pe_settings.use_memory else ""
+    system_prompt, user_prompt = build_manga_script_prompts(
+        synopsis=synopsis,
+        options=params.manga,
+        nsfw=_image_model_nsfw(params.image_model),
+        memory_text=memory_text,
+        language=params.language,
+    )
+    raw = await _call_llm(system_prompt, user_prompt, params.text_model)
+    try:
+        script = sanitize_manga_script(raw)
+    except PromptExpanderOutputError as exc:
+        raise PromptExpanderError("invalid_llm_output", str(exc)) from exc
+    return MangaScriptResult(script=script, text_model=params.text_model)
 
 
 @dataclass

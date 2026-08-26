@@ -200,6 +200,7 @@ async function mockPromptExpanderApis(page: Page) {
     expandBodies: [] as Record<string, unknown>[],
     generateBodies: [] as Record<string, unknown>[],
     suggestBodies: [] as Record<string, unknown>[],
+    scriptBodies: [] as Record<string, unknown>[],
     // 設定 PUT の送信内容（部分更新）を順に記録する
     settingsBodies: [] as Record<string, unknown>[],
     // PUT の部分更新を積み上げて保持する（複数回の設定変更をまたいで検証するため）
@@ -324,6 +325,19 @@ async function mockPromptExpanderApis(page: Page) {
             body.expand_positive === false ? null : EXPANDED_PROMPT,
           character_prompts: null,
           negative_prompt: body.expand_negative ? EXPANDED_NEGATIVE : null,
+          text_model: "glm-4-6",
+        },
+      });
+    },
+  );
+  await page.route(
+    (url) => url.pathname === "/api/prompt-expander/manga-script",
+    async (route) => {
+      const body = route.request().postDataJSON() as { instruction: string };
+      state.scriptBodies.push(body);
+      await route.fulfill({
+        json: {
+          script: `①${body.instruction}。彼女が鏡を見る「え…？」\n②体が変わっていく《ドクン》`,
           text_model: "glm-4-6",
         },
       });
@@ -857,6 +871,77 @@ test("comic notation chips insert markers at the caret and the narration toggle 
     instruction: `『放課後の教室』${instruction.slice(6)}`,
     manga: { narration: true },
   });
+});
+
+test("character prompt mode is remembered across reloads", async ({ page }) => {
+  await enableFeatures(page, { experimentalPromptExpanderEnabled: true });
+  await mockPromptExpanderApis(page);
+  await openSession(page);
+
+  const characterSwitch = page.getByRole("checkbox", {
+    name: "キャラクタープロンプト",
+  });
+  await expect(characterSwitch).not.toBeChecked();
+  await page
+    .locator(".prompt-expander__switch", { hasText: "キャラクタープロンプト" })
+    .click();
+  await expect(characterSwitch).toBeChecked();
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        localStorage.getItem("prompt_expander_character_mode"),
+      ),
+    )
+    .toBe("true");
+
+  await page.reload();
+  await expect(positiveField(page)).toBeVisible();
+  await expect(
+    page.getByRole("checkbox", { name: "キャラクタープロンプト" }),
+  ).toBeChecked();
+});
+
+test("draft a storyboard from the synopsis, then revert to the original text", async ({
+  page,
+}) => {
+  await enableFeatures(page, { experimentalPromptExpanderEnabled: true });
+  const state = await mockPromptExpanderApis(page);
+  await openSession(page);
+
+  await page.getByLabel("画像モデル").selectOption("nai-diffusion-5-full");
+  await page
+    .locator(".prompt-expander__switch", { hasText: "漫画モード" })
+    .click();
+  const draftButton = page.getByRole("button", {
+    name: "あらすじからネームを下書き",
+  });
+  // 空欄では押せない
+  await expect(draftButton).toBeDisabled();
+  const field = positiveField(page);
+  await field.fill("放課後、彼女が制服姿に変わってしまい戸惑う");
+  await expect(draftButton).toBeEnabled();
+  await draftButton.click();
+
+  await expect.poll(() => state.scriptBodies.length).toBe(1);
+  expect(state.scriptBodies[0]).toMatchObject({
+    instruction: "放課後、彼女が制服姿に変わってしまい戸惑う",
+    image_model: "nai-diffusion-5-full",
+    manga: { narration: false },
+  });
+  const script =
+    "①放課後、彼女が制服姿に変わってしまい戸惑う。彼女が鏡を見る「え…？」\n②体が変わっていく《ドクン》";
+  await expect(field).toHaveValue(script);
+  await expect(field).toBeEditable();
+  await expect(
+    page.getByText("あらすじからネームを下書きしました。", { exact: false }),
+  ).toBeVisible();
+
+  // 元の文に戻せる。戻すと案内は消える
+  await page.getByRole("button", { name: "元の文に戻す" }).click();
+  await expect(field).toHaveValue("放課後、彼女が制服姿に変わってしまい戸惑う");
+  await expect(page.getByRole("button", { name: "元の文に戻す" })).toHaveCount(
+    0,
+  );
 });
 
 test("composer sections collapse, expand and persist to localStorage", async ({

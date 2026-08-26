@@ -212,6 +212,13 @@ const fetchMock = vi.fn(
         text_model: "glm-4-6",
       });
     }
+    if (url === "/api/prompt-expander/manga-script" && method === "POST") {
+      const body = JSON.parse(String(init?.body));
+      return jsonResponse({
+        script: `①${body.instruction}「え…？」\n②戸惑う『どうして…』`,
+        text_model: "glm-4-6",
+      });
+    }
     if (
       url === "/api/prompt-expander/suggest-characters" &&
       method === "POST"
@@ -280,6 +287,10 @@ function Probe() {
         {ctx.expansionError ? JSON.stringify(ctx.expansionError) : "none"}
       </div>
       <div data-testid="expanding">{ctx.expandingTarget ?? "none"}</div>
+      <div data-testid="drafting">{ctx.draftingScript ? "yes" : "no"}</div>
+      <div data-testid="draft-backup">
+        {ctx.scriptDraftBackup ? ctx.scriptDraftBackup.source : "none"}
+      </div>
       <div data-testid="character-mode">{ctx.characterMode ? "on" : "off"}</div>
       <div data-testid="manga-active">{ctx.mangaActive ? "on" : "off"}</div>
       <div data-testid="slots">{ctx.characterSlots.join("|")}</div>
@@ -357,6 +368,12 @@ function Probe() {
       </button>
       <button type="button" onClick={() => void ctx.expandNegative()}>
         expand-negative
+      </button>
+      <button type="button" onClick={() => void ctx.draftScript()}>
+        draft-script
+      </button>
+      <button type="button" onClick={() => ctx.undoScriptDraft()}>
+        undo-draft
       </button>
       <button
         type="button"
@@ -894,6 +911,74 @@ describe("PromptExpanderContext", () => {
       );
     });
     expect(findCalls("/generate", "POST")).toHaveLength(2);
+  });
+
+  it("characterMode is persisted to localStorage and restored on the next mount", async () => {
+    await openSessionAndWait();
+    expect(screen.getByTestId("character-mode").textContent).toBe("off");
+    fireEvent.click(screen.getByRole("button", { name: "character-on" }));
+    expect(screen.getByTestId("character-mode").textContent).toBe("on");
+    expect(localStorage.getItem("prompt_expander_character_mode")).toBe("true");
+
+    // 再マウント（再読み込み相当）でも ON のまま
+    cleanup();
+    await openSessionAndWait();
+    expect(screen.getByTestId("character-mode").textContent).toBe("on");
+
+    // 復元でスロットが無いエントリを戻すと OFF になり、それも保存される
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "restore-plain" }));
+    });
+    expect(screen.getByTestId("character-mode").textContent).toBe("on");
+    expect(localStorage.getItem("prompt_expander_character_mode")).toBe("true");
+  });
+
+  it("draftScript rewrites the field into a notated storyboard and can be reverted", async () => {
+    await openSessionAndWait();
+    fireEvent.click(screen.getByRole("button", { name: "manga-on-v5" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("manga-active").textContent).toBe("on"),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "set-positive" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "draft-script" }));
+    });
+    await waitFor(() =>
+      expect(findCalls("/prompt-expander/manga-script", "POST")).toHaveLength(
+        1,
+      ),
+    );
+    const body = lastBody("/prompt-expander/manga-script", "POST");
+    expect(body).toMatchObject({
+      instruction: "a cat girl",
+      image_model: "nai-diffusion-5-full",
+      text_model: "glm-4-6",
+      language: "ja",
+      manga: { panel_count: 3, layout: "vertical", narration: false },
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("positive").textContent).toBe(
+        "①a cat girl「え…？」\n②戸惑う『どうして…』",
+      ),
+    );
+    expect(screen.getByTestId("drafting").textContent).toBe("no");
+    expect(screen.getByTestId("draft-backup").textContent).toBe("a cat girl");
+
+    // 元の文に戻せる
+    fireEvent.click(screen.getByRole("button", { name: "undo-draft" }));
+    expect(screen.getByTestId("positive").textContent).toBe("a cat girl");
+    expect(screen.getByTestId("draft-backup").textContent).toBe("none");
+
+    // 空欄では呼ばず、欄のそばのエラーになる
+    fireEvent.click(screen.getByRole("button", { name: "clear-positive" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "draft-script" }));
+    });
+    expect(findCalls("/prompt-expander/manga-script", "POST")).toHaveLength(1);
+    expect(
+      JSON.parse(screen.getByTestId("expansion-error").textContent ?? "{}")
+        .code,
+    ).toBe("empty_instruction");
   });
 
   it("suggestCharacters sends the current input as input_text only when it is not empty", async () => {
