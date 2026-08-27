@@ -3585,9 +3585,11 @@ function AdventurePlay({ runId }: { runId: string }) {
                   available: settingsState.ttsEnabled,
                   enabled: voice.enabled,
                   volume: voice.volume,
+                  speed: voice.speed,
                   status: voice.status,
                   onEnabledChange: voice.setEnabled,
                   onVolumeChange: voice.setVolume,
+                  onSpeedChange: voice.setSpeed,
                   onStop: voice.stop,
                 }}
               />

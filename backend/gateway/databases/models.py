@@ -67,6 +67,9 @@ class User(Base):
     tts_enabled: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     tts_use_gpu: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     tts_engine_dir: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # 音声合成エンジンの待ち受けポート。NULL のときは AIVIS_ENGINE_BASE_URL の
+    # ポートを使う。既定の 10101 が他用途で使用済みの場合などに変更する。
+    tts_engine_port: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     tts_model_dir: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     tts_speaker_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     tts_style_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)

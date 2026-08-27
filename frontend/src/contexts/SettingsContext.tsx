@@ -161,6 +161,8 @@ interface SettingsState {
   ttsEnabled: boolean;
   ttsUseGpu: boolean;
   ttsEngineDir: string;
+  /** 音声合成エンジンの待ち受けポート。null なら backend 既定 (10101) を使う */
+  ttsEnginePort: number | null;
   ttsModelDir: string;
   ttsSpeakerId: string | null;
   ttsStyleId: string | null;
@@ -237,6 +239,7 @@ type SettingsAction =
   | { type: "SET_TTS_ENABLED"; payload: boolean }
   | { type: "SET_TTS_USE_GPU"; payload: boolean }
   | { type: "SET_TTS_ENGINE_DIR"; payload: string }
+  | { type: "SET_TTS_ENGINE_PORT"; payload: number | null }
   | { type: "SET_TTS_MODEL_DIR"; payload: string }
   | { type: "SET_TTS_SPEAKER_ID"; payload: string | null }
   | { type: "SET_TTS_STYLE_ID"; payload: string | null }
@@ -296,6 +299,7 @@ const defaultState: SettingsState = {
   ttsEnabled: false,
   ttsUseGpu: false,
   ttsEngineDir: "contrib/AivisSpeech",
+  ttsEnginePort: null,
   ttsModelDir: "%APPDATA%\\AivisSpeech-Engine\\Models",
   ttsSpeakerId: null,
   ttsStyleId: null,
@@ -458,6 +462,8 @@ function settingsReducer(
       return { ...state, ttsUseGpu: action.payload };
     case "SET_TTS_ENGINE_DIR":
       return { ...state, ttsEngineDir: action.payload };
+    case "SET_TTS_ENGINE_PORT":
+      return { ...state, ttsEnginePort: action.payload };
     case "SET_TTS_MODEL_DIR":
       return { ...state, ttsModelDir: action.payload };
     case "SET_TTS_SPEAKER_ID":
@@ -556,6 +562,7 @@ interface SettingsContextType {
   setTtsEnabled: (enabled: boolean) => void;
   setTtsUseGpu: (enabled: boolean) => void;
   setTtsEngineDir: (engineDir: string) => void;
+  setTtsEnginePort: (port: number) => void;
   setTtsModelDir: (modelDir: string) => void;
   setTtsSpeakerId: (speakerId: string | null) => void;
   setTtsStyleId: (styleId: string | null) => void;
@@ -715,6 +722,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
               ttsEnabled: data.tts_enabled ?? false,
               ttsUseGpu: data.tts_use_gpu ?? false,
               ttsEngineDir: data.tts_engine_dir ?? "contrib/AivisSpeech",
+              ttsEnginePort: data.tts_engine_port ?? null,
               ttsModelDir:
                 data.tts_model_dir ?? "%APPDATA%\\AivisSpeech-Engine\\Models",
               ttsSpeakerId: data.tts_speaker_id ?? null,
@@ -1222,6 +1230,19 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const setTtsEnginePort = useCallback(async (port: number) => {
+    dispatch({ type: "SET_TTS_ENGINE_PORT", payload: port });
+    try {
+      await fetch("/api/settings/user", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tts_engine_port: port }),
+      });
+    } catch (error) {
+      console.error("Failed to save tts_engine_port to backend:", error);
+    }
+  }, []);
+
   const setTtsModelDir = useCallback(async (modelDir: string) => {
     dispatch({ type: "SET_TTS_MODEL_DIR", payload: modelDir });
     try {
@@ -1379,6 +1400,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setTtsEnabled,
     setTtsUseGpu,
     setTtsEngineDir,
+    setTtsEnginePort,
     setTtsModelDir,
     setTtsSpeakerId,
     setTtsStyleId,

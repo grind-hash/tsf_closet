@@ -443,6 +443,7 @@ const resources = {
           disabledHint:
             "設定 > 音声合成 で読み上げを有効にし、話者を選ぶと使えます。",
           volume: "音量",
+          speed: "再生速度",
           stop: "停止",
           replay: "セリフを読み上げ",
           replayHint: "表示中の攻略対象のセリフを読み上げる（再生中なら停止）",
@@ -843,6 +844,17 @@ const resources = {
           useGpuDesc:
             "既定はCPUです。GPU環境がある場合のみ有効化してください。",
           engineDir: "AivisSpeech配置先ディレクトリ",
+          enginePort: "エンジンのポート番号",
+          enginePortDesc:
+            "音声合成エンジンの待ち受けポートです。既定は {{port}} です。このポートが他のソフトで使用済みの場合に変更してください。変更するとスピーカーとスタイルの選択は解除されます。",
+          enginePortInvalid: "ポート番号は 1〜65535 の整数で指定してください。",
+          engineEndpoint: "接続先: {{url}}",
+          externalEngineTitle: "VOICEVOX互換のエンジンに接続中",
+          externalEngineDesc:
+            "このポートでは、VOICEVOX互換のエンジンが動いています。AivisSpeech ではないため、エンジンのダウンロード/起動と音声合成モデル (.aivmx) のインストールは行えません。エンジンの起動と管理は、VOICEVOX互換のエンジン側で行ってください。",
+          externalEngineTerms:
+            "接続先エンジンおよび音声ライブラリの利用規約の順守は利用者の責任となります。本アプリは特定の外部エンジンへの対応を保証するものではありません。",
+          actionChangeEnginePort: "ポート番号を変更中",
           modelDir: "モデル配置先ディレクトリ",
           engineUrl: "AivisSpeech ダウンロードURL",
           modelUrl: "モデル ダウンロードURL",
@@ -2436,6 +2448,7 @@ const resources = {
           disabledHint:
             "Enable speech synthesis and pick a speaker under Settings > Speech synthesis to use this.",
           volume: "Volume",
+          speed: "Playback speed",
           stop: "Stop",
           replay: "Read the lines aloud",
           replayHint: "Read the partner's lines shown now (stops if playing)",
@@ -2840,6 +2853,17 @@ const resources = {
           useGpuDesc:
             "CPU is default. Enable only when GPU runtime is available.",
           engineDir: "AivisSpeech install directory",
+          enginePort: "Engine port",
+          enginePortDesc:
+            "Port the speech synthesis engine listens on. The default is {{port}}. Change it when that port is already used by another program. Changing it clears the selected speaker and style.",
+          enginePortInvalid: "Port must be an integer between 1 and 65535.",
+          engineEndpoint: "Endpoint: {{url}}",
+          externalEngineTitle: "Connected to a VOICEVOX-compatible engine",
+          externalEngineDesc:
+            "A VOICEVOX-compatible engine is answering on this port. It is not AivisSpeech, so engine download/startup and voice model (.aivmx) installation are unavailable. Start and manage the engine on that engine's own side.",
+          externalEngineTerms:
+            "Complying with the terms of the connected engine and its voice libraries is your responsibility. This app does not guarantee support for any particular third-party engine.",
+          actionChangeEnginePort: "Changing the engine port",
           modelDir: "Model directory",
           engineUrl: "AivisSpeech download URL",
           modelUrl: "Model download URL",

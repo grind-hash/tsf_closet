@@ -39,6 +39,7 @@ class UserSettingsResponse(BaseModel):
     tts_enabled: bool = False
     tts_use_gpu: bool = False
     tts_engine_dir: str | None = None
+    tts_engine_port: int | None = None
     tts_model_dir: str | None = None
     tts_speaker_id: str | None = None
     tts_style_id: str | None = None
@@ -63,6 +64,8 @@ class UserSettingsUpdateRequest(BaseModel):
     tts_enabled: bool | None = None
     tts_use_gpu: bool | None = None
     tts_engine_dir: str | None = None
+    # 音声合成エンジンの待ち受けポート。未指定なら AIVIS_ENGINE_BASE_URL のポートを使う。
+    tts_engine_port: int | None = Field(default=None, ge=1, le=65535)
     tts_model_dir: str | None = None
     tts_speaker_id: str | None = None
     tts_style_id: str | None = None
@@ -186,6 +189,7 @@ async def update_user_settings(
             tts_enabled=request.tts_enabled,
             tts_use_gpu=request.tts_use_gpu,
             tts_engine_dir=request.tts_engine_dir,
+            tts_engine_port=request.tts_engine_port,
             tts_model_dir=request.tts_model_dir,
             tts_speaker_id=request.tts_speaker_id,
             tts_style_id=request.tts_style_id,

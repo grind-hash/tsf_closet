@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 
 import type { AdventureVoiceStatus } from "../../hooks/useAdventureVoice";
+import { VOICE_SPEED_OPTIONS } from "../../utils/voicePreferences";
 
 /**
  * Adventure プレイ画面のサウンド操作 UI(BGM + セリフ読み上げ)。
@@ -15,9 +16,12 @@ export interface AdventureVoiceControlProps {
   enabled: boolean;
   /** 0.0〜1.0 */
   volume: number;
+  /** 再生速度の倍率。1.0 が等速 */
+  speed: number;
   status: AdventureVoiceStatus;
   onEnabledChange: (next: boolean) => void;
   onVolumeChange: (next: number) => void;
+  onSpeedChange: (next: number) => void;
   onStop: () => void;
 }
 
@@ -150,6 +154,26 @@ export default function AdventureBgmControl({
                 <span className="adventure-bgm-popover__volume-value">
                   {Math.round(voice.volume * 100)}%
                 </span>
+              </div>
+              <div className="adventure-bgm-popover__volume">
+                <span className="adventure-bgm-popover__volume-label">
+                  {t("adventure.voice.speed")}
+                </span>
+                <select
+                  className="adventure-bgm-popover__speed"
+                  value={voice.speed}
+                  disabled={!voice.available}
+                  onChange={(event) =>
+                    voice.onSpeedChange(Number(event.target.value))
+                  }
+                  aria-label={t("adventure.voice.speed")}
+                >
+                  {VOICE_SPEED_OPTIONS.map((rate) => (
+                    <option key={rate} value={rate}>
+                      {rate}x
+                    </option>
+                  ))}
+                </select>
               </div>
               {voice.available && voice.enabled && (
                 <div className="adventure-bgm-popover__status" role="status">

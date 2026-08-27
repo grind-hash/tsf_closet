@@ -10,6 +10,8 @@ from gateway.services.aivisspeech_service import (
     AivisSpeechService,
 )
 
+ENGINE_BASE_URL = "http://127.0.0.1:10101"
+
 
 def _mock_http_client(monkeypatch, handler):
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
@@ -43,7 +45,7 @@ async def test_wait_for_engine_ready_retries_until_version_responds(
     monkeypatch.setattr("asyncio.sleep", AsyncMock())
     service = AivisSpeechService()
 
-    await service._wait_for_engine_ready(timeout=1.0)
+    await service._wait_for_engine_ready(ENGINE_BASE_URL, timeout=1.0)
 
     assert request_count == 2
 
@@ -70,7 +72,7 @@ async def test_wait_for_engine_ready_reports_process_exit(
     service._engine_log_path = log_path
 
     with pytest.raises(AivisSpeechError, match="engine startup failed"):
-        await service._wait_for_engine_ready(timeout=1.0)
+        await service._wait_for_engine_ready(ENGINE_BASE_URL, timeout=1.0)
 
     assert service._engine_process is None
 
@@ -87,7 +89,7 @@ async def test_wait_for_engine_ready_reports_timeout(monkeypatch, tmp_path) -> N
     service._engine_log_path = log_path
 
     with pytest.raises(AivisSpeechError, match="did not become ready") as exc_info:
-        await service._wait_for_engine_ready(timeout=0.01)
+        await service._wait_for_engine_ready(ENGINE_BASE_URL, timeout=0.01)
 
     message = str(exc_info.value)
     assert "ConnectError" in message
@@ -145,6 +147,12 @@ async def test_synthesize_processes_chunks_sequentially_and_returns_single_wav(
     _mock_http_client(monkeypatch, handler)
     service = AivisSpeechService()
     source = "💭 \n" + "長文音声を安全に分割して合成します。" * 20
+
+    monkeypatch.setattr(
+        AivisSpeechService,
+        "resolve_base_url",
+        AsyncMock(return_value=ENGINE_BASE_URL),
+    )
 
     audio, content_type = await service.synthesize(source, "1234")
 

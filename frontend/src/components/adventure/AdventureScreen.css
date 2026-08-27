@@ -2084,6 +2084,21 @@ button:disabled {
   font-variant-numeric: tabular-nums;
 }
 
+.adventure-bgm-popover__speed {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 3px 6px;
+  border: 1px solid #4a5560;
+  border-radius: 6px;
+  background: #232b33;
+  color: #f4f6f8;
+  font-size: 0.82rem;
+}
+
+.adventure-bgm-popover__speed:disabled {
+  opacity: 0.5;
+}
+
 .adventure-bgm-popover__hint {
   margin: 0;
   padding: 0 4px;

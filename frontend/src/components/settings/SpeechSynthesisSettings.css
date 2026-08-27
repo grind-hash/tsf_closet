@@ -292,6 +292,12 @@
   line-height: 1.5;
 }
 
+/* 利用規約の順守が利用者責任である旨など、読み飛ばされては困る注意書き */
+.speech-settings__modal-text--warning {
+  color: #f87171;
+  font-weight: 700;
+}
+
 .speech-settings__modal-code {
   margin: 0 0 0.7rem;
   padding: 0.5rem 0.6rem;
