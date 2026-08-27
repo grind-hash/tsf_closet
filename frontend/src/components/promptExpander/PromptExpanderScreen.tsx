@@ -12,9 +12,10 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { isV5ImageModel } from "../../constants/novelaiImageModels";
 import { usePromptExpander } from "../../contexts/PromptExpanderContext";
+import { ROUTES } from "../../routes";
 import ApiKeyConsentModal from "../ApiKeyConsentModal";
 import AdventureAnlasConfirmDialog from "../adventure/AdventureAnlasConfirmDialog";
 import { hasApiKeyConsent } from "../apiKeyConsentStorage";
@@ -67,6 +68,7 @@ const ERROR_CODE_KEYS: Record<string, string> = {
 export default function PromptExpanderScreen() {
   const { t } = useTranslation();
   const location = useLocation();
+  const navigate = useNavigate();
   const {
     settings,
     options,
@@ -151,6 +153,26 @@ export default function PromptExpanderScreen() {
         <div className="prompt-expander__scroll">
           <header className="prompt-expander__header">
             <div className="prompt-expander__header-main">
+              {/* セッション作業中は一覧へ戻る導線と、いま開いているセッション名を出す */}
+              {sessionId && (
+                <div className="prompt-expander__breadcrumb">
+                  <button
+                    type="button"
+                    className="prompt-expander__btn prompt-expander__btn--sm"
+                    onClick={() => navigate(ROUTES.PROMPT_EXPANDER)}
+                  >
+                    {t("promptExpander.header.backToList")}
+                  </button>
+                  {activeSession && (
+                    <span
+                      className="prompt-expander__breadcrumb-title"
+                      title={activeSession.title}
+                    >
+                      {activeSession.title}
+                    </span>
+                  )}
+                </div>
+              )}
               <h1 className="prompt-expander__title">
                 {t("promptExpander.header.title")}
                 <span className="feature-chip-experimental">Experimental</span>

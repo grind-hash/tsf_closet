@@ -5,7 +5,7 @@
 ## 起動とルーティング
 
 - `main.tsx`: `BrowserRouter` と全体 Context を提供する。
-- `App.tsx`: `useLocation()` で画面を切り替える。通常ゲームのSSE送信ボディもここで組み立てる。
+- `App.tsx`: `App` が `NotificationContainer` を描いてから `AppRoutes` に委譲し、`AppRoutes` が `useLocation()` で画面を切り替える。通常ゲームのSSE送信ボディは `AppMain` で組み立てる。**通知コンテナはルート分岐より外側に置くこと**: `AppMain` の中に置くと、ギャラリー・設定・Adventure・Prompt Expander で出した通知がキューに溜まったまま描画されず、通常プレイ画面へ移動して初めて出るという不具合になる。
 - `routes/index.tsx`: パス定数と `getGameSessionPath()` を定義する。RouterProviderはまだ使用しない。
 
 | パス                                          | 画面                 | 備考                                           |
@@ -123,7 +123,7 @@ components/
     BgmTestScreen.tsx         BGMカタログ全曲の一覧と試聴(単発再生、fade/loopなし)
 
   promptExpander/
-    PromptExpanderScreen.tsx        セッション一覧/作業画面、Anlas・V5利用上限、同意モーダル。設定は MainLayout の rightPanel（開閉は localStorage `prompt_expander_settings_panel_open`）。レイアウトは `.prompt-expander__scroll`（本文がスクロール）＋ `.prompt-expander__control-bar`（スクロールしない下端）の2段。sticky は使わない（workspace が align-items:start の grid のため吸着範囲がコンポーザ列に縛られる）
+    PromptExpanderScreen.tsx        セッション一覧/作業画面、Anlas・V5利用上限、同意モーダル。作業画面ではヘッダーに「← 一覧へ戻る」（`ROUTES.PROMPT_EXPANDER` へ navigate）と現在のセッション名を出す。設定は MainLayout の rightPanel（開閉は localStorage `prompt_expander_settings_panel_open`）。レイアウトは `.prompt-expander__scroll`（本文がスクロール）＋ `.prompt-expander__control-bar`（スクロールしない下端）の2段。sticky は使わない（workspace が align-items:start の grid のため吸着範囲がコンポーザ列に縛られる）
     PromptExpanderControlBar.tsx    画面下端の常時表示コントロールエリア。現在値チップ（モデル/サイズ/透過/漫画/インペイント/精密参照）、「すべて開く／すべて閉じる」、生成中の進捗、生成ボタン＋`+N Anlas`＋無効理由。生成ボタンはここだけに置く（コンポーザ内には無い）
     PromptExpanderSessionList.tsx   PEセッションの作成/改名/削除/一覧
     PromptExpanderSection.tsx       アコーディオン見出し（aria-expanded、右側ツールバー枠）。開閉は hooks/usePersistedSectionState（localStorage `prompt_expander_sections_open`）
@@ -172,6 +172,7 @@ components/
 ## i18n、CSS、テスト
 
 - i18nは `frontend/src/i18n.ts` に日本語/英語リソースを持つ。新規UI文字列は両言語を更新する。
+- `SideMenu` の `isActive` は完全一致に加えて `pathname.startsWith("{path}/")` も見る。詳細ページ（`/prompt-expander/:id`、`/adventure/:runId`、`/gallery/:sessionId`）で親項目が非活性になると、その項目から一覧へ戻れることに気付けないため。`/play/new` だけは従来どおり特例で先に判定する。
 - 各大規模画面は隣接CSSを持つ。既存レイアウトを保ち、変更画面だけ確認する。
 - `hooks/usePersistedSectionState.ts` はモジュールレベルのストア＋`useSyncExternalStore`で、マウント中のセクションIDと既定値をレジストリに持つ。`setAllPromptExpanderSections(open)` と `usePromptExpanderSectionsAllOpen()` はそのレジストリを見るので、セクションを増やしても固定リストの更新は要らない。
 - Context単体テストは `frontend/src/contexts/tests/`、E2Eは `frontend/tests/e2e/`。

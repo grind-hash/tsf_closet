@@ -583,11 +583,14 @@ async def test_expand_invalid_llm_output_and_suggest(factory, monkeypatch):
         )
     assert exc.value.code == "memory_empty"
 
-    # グローバルメモリへフォールバック
+    # use_memory ON のときだけグローバルメモリへフォールバックする
     async def _global_memory(user_id="default-user"):
         return "銀髪が好き"
 
     monkeypatch.setattr(pe.settings_service, "get_memory_text", _global_memory)
+    async with factory() as db:
+        await pe.PromptExpanderService.save_settings(db, patch={"use_memory": True})
+        await db.commit()
     monkeypatch.setattr(
         pe.llm_service,
         "generate_text",
@@ -789,6 +792,68 @@ async def test_generate_entry_persists_manga_flags_only_for_v5(
 
 
 @pytest.mark.asyncio
+async def test_suggest_respects_use_memory_toggle(factory, monkeypatch):
+    """メモリ OFF のときは PE メモリもグローバルメモリも提案に混ぜない。"""
+    mock = AsyncMock(
+        return_value=SimpleNamespace(
+            content='{"suggestions":[{"title":"店員","prompt":"1girl, waitress"}]}',
+            cost_usd=None,
+        )
+    )
+    monkeypatch.setattr(pe.llm_service, "generate_text", mock)
+
+    global_calls: list[str] = []
+
+    async def _global_memory(user_id="default-user"):
+        global_calls.append(user_id)
+        return "グローバルの好み"
+
+    monkeypatch.setattr(pe.settings_service, "get_memory_text", _global_memory)
+    async with factory() as db:
+        await pe.PromptExpanderService.save_settings(
+            db, patch={"memory_text": "PE の好み", "use_memory": False}
+        )
+        await db.commit()
+
+    # OFF のまま下書きだけで提案する（メモリはどちらも載らない）
+    await pe.suggest_character_prompts(
+        text_model="glm-4-6",
+        image_model="nai-diffusion-5-full",
+        mode="tags",
+        count=1,
+        input_text="カフェで働く少女",
+    )
+    system = mock.await_args.args[0]
+    assert "PE の好み" not in system
+    assert "グローバルの好み" not in system
+    assert "No preference memory is available" in system
+    # グローバルメモリの取得自体を行わない
+    assert global_calls == []
+
+    # OFF かつ下書きも無ければ従来どおり memory_empty
+    with pytest.raises(pe.PromptExpanderError) as exc:
+        await pe.suggest_character_prompts(
+            text_model="glm-4-6",
+            image_model="nai-diffusion-5-full",
+            mode="tags",
+            count=1,
+        )
+    assert exc.value.code == "memory_empty"
+
+    # ON にすれば PE メモリが載る
+    async with factory() as db:
+        await pe.PromptExpanderService.save_settings(db, patch={"use_memory": True})
+        await db.commit()
+    await pe.suggest_character_prompts(
+        text_model="glm-4-6",
+        image_model="nai-diffusion-5-full",
+        mode="tags",
+        count=1,
+    )
+    assert "PE の好み" in mock.await_args.args[0]
+
+
+@pytest.mark.asyncio
 async def test_suggest_uses_input_text_and_relaxes_memory_guard(factory, monkeypatch):
     mock = AsyncMock(
         return_value=SimpleNamespace(
@@ -826,7 +891,7 @@ async def test_suggest_uses_input_text_and_relaxes_memory_guard(factory, monkeyp
     # メモリがあるときは下書きの偏りルールだけ付き、メモリ無しルールは付かない
     async with factory() as db:
         await pe.PromptExpanderService.save_settings(
-            db, patch={"memory_text": "銀髪が好き"}
+            db, patch={"memory_text": "銀髪が好き", "use_memory": True}
         )
         await db.commit()
     await pe.suggest_character_prompts(

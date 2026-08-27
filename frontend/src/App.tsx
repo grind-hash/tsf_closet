@@ -33,6 +33,18 @@ import "./App.css";
 import { useGame } from "./contexts/GameContext";
 
 function App() {
+  return (
+    <>
+      {/* 通知トーストコンテナ。ギャラリー・設定・TSFシナリオ・Prompt Expander でも
+          通知が出るよう、ルート分岐より外側に置く（AppMain の中に置くと通常プレイ
+          画面へ移動するまでキューに溜まったままになる） */}
+      <NotificationContainer />
+      <AppRoutes />
+    </>
+  );
+}
+
+function AppRoutes() {
   // 007-chat-interactive-ux: React Router location
   const location = useLocation();
   const { state: settingsState } = useSettings();
@@ -507,9 +519,6 @@ function AppMain() {
 
   return (
     <div className="app">
-      {/* 通知トーストコンテナ */}
-      <NotificationContainer />
-
       <GamePlayScreen
         onTransform={handleTransform}
         onResetCost={handleResetCost}

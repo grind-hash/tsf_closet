@@ -360,19 +360,23 @@ def test_expand_and_suggest(client: TestClient):
     assert res.status_code == 400
     assert res.json()["detail"]["code"] == "memory_empty"
 
+    # メモリ本文があっても use_memory が OFF なら提案には使わない
     client.put("/api/prompt-expander/settings", json={"memory_text": "銀髪が好き"})
     pe.llm_service.generate_text.return_value = SimpleNamespace(
         content='{"suggestions":[{"title":"銀髪","prompt":"1girl, silver hair"}]}',
         cost_usd=None,
     )
-    res = client.post(
-        "/api/prompt-expander/suggest-characters",
-        json={
-            "text_model": "glm-4-6",
-            "image_model": "nai-diffusion-5-full",
-            "count": 1,
-        },
-    )
+    suggest_body = {
+        "text_model": "glm-4-6",
+        "image_model": "nai-diffusion-5-full",
+        "count": 1,
+    }
+    res = client.post("/api/prompt-expander/suggest-characters", json=suggest_body)
+    assert res.status_code == 400
+    assert res.json()["detail"]["code"] == "memory_empty"
+
+    client.put("/api/prompt-expander/settings", json={"use_memory": True})
+    res = client.post("/api/prompt-expander/suggest-characters", json=suggest_body)
     assert res.status_code == 200, res.text
     assert res.json()["suggestions"] == [
         {"title": "銀髪", "prompt": "1girl, silver hair"}

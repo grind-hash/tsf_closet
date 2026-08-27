@@ -1137,6 +1137,34 @@ test("inpaint sends the drawn mask with the i2i source and the entry can be rege
   });
 });
 
+test("the workspace offers a way back to the session list", async ({
+  page,
+}) => {
+  await enableFeatures(page, { experimentalPromptExpanderEnabled: true });
+  await mockPromptExpanderApis(page);
+  await openSession(page);
+
+  // 作業中はどのセッションを開いているかが分かり、一覧へ戻れる
+  const header = page.locator(".prompt-expander__header");
+  await expect(header).toContainText("テストセッション");
+  await header.getByRole("button", { name: "← 一覧へ戻る" }).click();
+
+  await expect(page).toHaveURL(/\/prompt-expander$/);
+  await expect(
+    page.getByLabel("新しいセッションのタイトル（省略可）"),
+  ).toBeVisible();
+  // 一覧では戻るボタンを出さない
+  await expect(page.getByRole("button", { name: "← 一覧へ戻る" })).toHaveCount(
+    0,
+  );
+
+  // サイドメニューの項目は詳細ページでも選択中として扱う
+  await openSession(page);
+  await expect(
+    page.getByRole("button", { name: /Prompt Expander/ }).first(),
+  ).toHaveAttribute("aria-current", "page");
+});
+
 test("the generate control bar stays visible, summarises the settings and toggles every section", async ({
   page,
 }) => {

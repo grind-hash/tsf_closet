@@ -1174,18 +1174,26 @@ async def suggest_character_prompts(
 ) -> SuggestResult:
     """PE メモリ（無ければグローバルメモリ）と入力欄の下書きから好みのキャラクタープロンプトを提案する。
 
+    メモリの利用可否は expand_prompts / draft_manga_script と同じく設定 use_memory に従う。
+    OFF のときはグローバルメモリにも触れない（PE のメモリを切ったつもりで
+    グローバルの内容が提案に混ざるのを防ぐ）。
     メモリと下書きの両方が空のときだけ memory_empty にする。
     """
     async with async_session_factory() as db:
         pe_settings = await PromptExpanderService.get_settings(db, user_id=user_id)
-    memory_text = (pe_settings.memory_text or "").strip()
-    if not memory_text:
-        memory_text = (await settings_service.get_memory_text(user_id) or "").strip()
+    memory_text = ""
+    if pe_settings.use_memory:
+        memory_text = (pe_settings.memory_text or "").strip()
+        if not memory_text:
+            memory_text = (
+                await settings_service.get_memory_text(user_id) or ""
+            ).strip()
     input_clean = (input_text or "").strip()
     if not memory_text and not input_clean:
         raise PromptExpanderError(
             "memory_empty",
-            "メモリ情報がありません。設定でメモリを入力するか「メモリ情報を持ってくる」を実行してください",
+            "参考にできる情報がありません。欄に下書きを入力するか、"
+            "設定でメモリを ON にして内容を入れてください",
         )
     system_prompt, user_prompt = build_suggest_characters_prompts(
         memory_text=memory_text,

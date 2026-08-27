@@ -1643,6 +1643,7 @@ const resources = {
           title: "Prompt Expander",
           subtitle:
             "自然文の指示をNovelAIプロンプトへ拡張し、ゲームとは独立に画像を生成します",
+          backToList: "← 一覧へ戻る",
           settingsToggle: "設定",
           settingsOpenTitle: "設定パネルを開く",
           settingsClose: "設定を閉じる",
@@ -3703,6 +3704,7 @@ const resources = {
           title: "Prompt Expander",
           subtitle:
             "Expand natural-language instructions into NovelAI prompts and generate images outside of gameplay",
+          backToList: "← Back to list",
           settingsToggle: "Settings",
           settingsOpenTitle: "Open the settings panel",
           settingsClose: "Close settings",

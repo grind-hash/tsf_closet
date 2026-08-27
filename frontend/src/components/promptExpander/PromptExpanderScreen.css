@@ -35,6 +35,24 @@
   min-width: 0;
 }
 
+/* 一覧へ戻る導線 + 現在のセッション名（作業画面のときだけ出る） */
+.prompt-expander__breadcrumb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.6rem;
+  min-width: 0;
+  margin-bottom: 0.1rem;
+}
+
+.prompt-expander__breadcrumb-title {
+  font-size: 0.85rem;
+  color: var(--text-muted, #888);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .prompt-expander__title {
   display: flex;
   align-items: center;

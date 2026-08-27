@@ -170,7 +170,12 @@ export default function SideMenu() {
         location.pathname === ROUTES.GAME
       );
     }
-    return location.pathname === path;
+    // 詳細ページ（/prompt-expander/:id、/adventure/:runId、/gallery/:sessionId）でも
+    // 親の項目を選択中として扱う。セッションを開いたまま項目が非活性になると、
+    // その項目から一覧へ戻れることに気付けない
+    return (
+      location.pathname === path || location.pathname.startsWith(`${path}/`)
+    );
   };
 
   return (
