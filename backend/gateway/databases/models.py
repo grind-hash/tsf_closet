@@ -694,6 +694,11 @@ class PromptExpanderEntry(Base):
     reference_type: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     reference_strength: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     reference_fidelity: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    # インペイント（部分修正）で生成したか。マスクは画像と同じ場所へ _mask.png で残す
+    inpaint: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, server_default="0"
+    )
+    inpaint_mask_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     # data/ からの相対パス（例: data/prompt_expander_images/{session_id}/{entry_id}.png）
     image_path: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(

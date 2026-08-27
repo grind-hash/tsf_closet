@@ -529,6 +529,71 @@ def test_settings_reference_and_transparent_fields(client: TestClient):
     )
 
 
+def test_generate_with_inpaint_mask(client: TestClient):
+    session_id = client.post("/api/prompt-expander/sessions", json={}).json()["id"]
+    base = client.post(
+        f"/api/prompt-expander/sessions/{session_id}/uploads",
+        json={"image": _png_b64("green")},
+    ).json()
+
+    res = client.post(
+        f"/api/prompt-expander/sessions/{session_id}/generate",
+        json={
+            "prompt": "1girl, smiling",
+            "image_model": "nai-diffusion-4-5-full",
+            "source_kind": "entry",
+            "source_entry_id": base["id"],
+            "i2i_strength": 0.8,
+            "inpaint_mask": _png_b64("white"),
+        },
+    )
+    assert res.status_code == 200, res.text
+    entry = res.json()["entry"]
+    assert entry["inpaint"] is True
+    assert entry["mask_url"] == f"/prompt-expander/entries/{entry['id']}/mask"
+    assert pe.image_service.generate_image.await_args.kwargs["mask_bytes"] is not None
+
+    # マスクは配信され、同じ領域で作り直せる
+    mask_res = client.get(f"/api/prompt-expander/entries/{entry['id']}/mask")
+    assert mask_res.status_code == 200
+    assert mask_res.headers["content-type"] == "image/png"
+
+    res = client.post(
+        f"/api/prompt-expander/sessions/{session_id}/generate",
+        json={
+            "prompt": "1girl, angry",
+            "image_model": "nai-diffusion-4-5-full",
+            "source_kind": "entry",
+            "source_entry_id": base["id"],
+            "inpaint_mask_entry_id": entry["id"],
+        },
+    )
+    assert res.status_code == 200, res.text
+    assert res.json()["entry"]["inpaint"] is True
+
+    # 元画像が無いインペイントは 422（黙って通常生成に落とさない）
+    res = client.post(
+        f"/api/prompt-expander/sessions/{session_id}/generate",
+        json={
+            "prompt": "1girl",
+            "image_model": "nai-diffusion-4-5-full",
+            "inpaint_mask": _png_b64("white"),
+        },
+    )
+    assert res.status_code == 422, res.text
+
+    # マスクなしのエントリにはマスク配信が無い
+    plain = client.post(
+        f"/api/prompt-expander/sessions/{session_id}/generate",
+        json={"prompt": "1girl", "image_model": "nai-diffusion-4-5-full"},
+    ).json()["entry"]
+    assert plain["inpaint"] is False and plain["mask_url"] is None
+    assert (
+        client.get(f"/api/prompt-expander/entries/{plain['id']}/mask").status_code
+        == 404
+    )
+
+
 def test_generate_with_reference_and_transparent_background(client: TestClient):
     session_id = client.post("/api/prompt-expander/sessions", json={}).json()["id"]
     res = client.post(
@@ -550,11 +615,12 @@ def test_generate_with_reference_and_transparent_background(client: TestClient):
     assert entry["reference_type"] == "character"
     assert entry["reference_strength"] == 0.85
     assert entry["transparent_background"] is True
-    # 保存値は接尾辞なし、送信値は白背景タグ付き（V4.5）
+    # 保存値は接尾辞なし、送信値は白背景タグ付き（V4.5）。
+    # 強調は API 既定の 2 段（{{}}）が載る
     assert entry["final_prompt"] == "1girl, standing"
     call = pe.image_service.generate_image.await_args
     assert call.args[0] == (
-        "1girl, standing, simple background, white background, no shadow"
+        "1girl, standing, {{simple background}}, {{white background}}, no shadow"
     )
     assert len(call.kwargs["character_references"]) == 1
     # 一覧・単体取得でも新項目が返る

@@ -143,6 +143,9 @@ export default function PromptExpanderEntryCard({
         : t("promptExpander.entry.mangaBadge"),
     );
   }
+  if (entry.inpaint) {
+    badges.push(t("promptExpander.entry.inpaintBadge"));
+  }
   if (hasReference) {
     badges.push(t("promptExpander.entry.referenceBadge"));
   }

@@ -1,21 +1,27 @@
 import { describe, expect, it } from "vitest";
 import { V5_USAGE_WARN_SUPPRESSED_KEY } from "./novelaiImageModels";
 import {
+  appendedTags,
   DEFAULT_PROMPT_EXPANDER_IMAGE_MODEL,
   DEFAULT_PROMPT_EXPANDER_REFERENCE_TYPE,
+  DEFAULT_PROMPT_EXPANDER_TRANSPARENT_EMPHASIS,
   getMaxCharacterPrompts,
   getPromptExpanderImageModelLabel,
   MAX_CHARACTER_PROMPTS_V5,
   MAX_CHARACTER_PROMPTS_V45,
   NOVELAI_TEXT_MODEL_OPTIONS,
+  normalizeTagForMatch,
   PROMPT_EXPANDER_ALPHA_OPTIONS,
   PROMPT_EXPANDER_ANLAS_PER_REFERENCE,
   PROMPT_EXPANDER_ANLAS_WARN_SUPPRESSED_KEY,
   PROMPT_EXPANDER_IMAGE_MODEL_OPTIONS,
   PROMPT_EXPANDER_IMAGE_SIZES,
   PROMPT_EXPANDER_REFERENCE_TYPES,
+  PROMPT_EXPANDER_TRANSPARENT_EMPHASIS_LEVELS,
   referenceTypeI18nKey,
   supportsPreciseReference,
+  transparentBackgroundTags,
+  transparentEmphasisSample,
   usesNativeTransparency,
 } from "./promptExpander";
 
@@ -96,5 +102,45 @@ describe("promptExpander constants", () => {
       threshold: 12,
       featherRadius: 1.8,
     });
+  });
+
+  it("builds the transparent background tail exactly like the backend", () => {
+    // V4.5 は白背景で生成し、強調は背景タグにだけ掛かる（no shadow は素のまま）
+    expect(transparentBackgroundTags("nai-diffusion-4-5-full", 0)).toEqual([
+      "simple background",
+      "white background",
+      "no shadow",
+    ]);
+    expect(transparentBackgroundTags("nai-diffusion-4-5-full", 2)).toEqual([
+      "{{simple background}}",
+      "{{white background}}",
+      "no shadow",
+    ]);
+    // V5 はネイティブ透過なので段数を渡しても素のまま
+    expect(transparentBackgroundTags("nai-diffusion-5-full", 3)).toEqual([
+      "transparent background",
+      "no shadow",
+    ]);
+    expect(DEFAULT_PROMPT_EXPANDER_TRANSPARENT_EMPHASIS).toBe(2);
+    expect([...PROMPT_EXPANDER_TRANSPARENT_EMPHASIS_LEVELS]).toEqual([
+      0, 1, 2, 3,
+    ]);
+    expect(transparentEmphasisSample(2)).toBe("{{ }}");
+  });
+
+  it("hides tags the field already contains, ignoring emphasis syntax", () => {
+    // backend の merge_tags と同じ判定（強調記法や数値強調は照合前に外す）
+    expect(
+      appendedTags("1girl, standing", ["{{white background}}", "no shadow"]),
+    ).toEqual(["{{white background}}", "no shadow"]);
+    expect(
+      appendedTags("1girl, white background", ["{{white background}}"]),
+    ).toEqual([]);
+    expect(
+      appendedTags("1girl, 1.3::White Background::", ["{{white background}}"]),
+    ).toEqual([]);
+    expect(normalizeTagForMatch("{{White Background}}")).toBe(
+      "white background",
+    );
   });
 });

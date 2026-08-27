@@ -121,6 +121,31 @@ def test_precise_reference_and_transparency_helpers():
         "nai-diffusion-4-5-curated"
     )
     assert "transparent background" not in transparent_background_tags(None)
+
+    # 強調は V4.5 の背景タグだけに掛かる。no shadow と V5 は素のまま
+    from gateway.consts.prompt_expander import (
+        DEFAULT_PROMPT_EXPANDER_TRANSPARENT_EMPHASIS,
+        PROMPT_EXPANDER_TRANSPARENT_EMPHASIS_LEVELS,
+        emphasize_tag,
+        normalize_transparent_emphasis,
+    )
+
+    assert emphasize_tag("white background", 0) == "white background"
+    assert emphasize_tag("white background", 2) == "{{white background}}"
+    assert PROMPT_EXPANDER_TRANSPARENT_EMPHASIS_LEVELS == (0, 1, 2, 3)
+    assert DEFAULT_PROMPT_EXPANDER_TRANSPARENT_EMPHASIS == 2
+    assert normalize_transparent_emphasis(1) == 1
+    assert normalize_transparent_emphasis(9) == 2
+    assert normalize_transparent_emphasis(True) == 2
+    assert normalize_transparent_emphasis(None) == 2
+    assert transparent_background_tags("nai-diffusion-4-5-full", 2) == (
+        "{{simple background}}",
+        "{{white background}}",
+        "no shadow",
+    )
+    assert transparent_background_tags("nai-diffusion-5-full", 3) == (
+        TRANSPARENT_BACKGROUND_TAGS_V5
+    )
     assert "multiple views" in TRANSPARENT_BACKGROUND_NEGATIVE_TAGS
     assert not any(
         "girls" in tag or "people" in tag

@@ -161,6 +161,104 @@ export function referenceTypeI18nKey(
   return type === "character&style" ? "characterStyle" : type;
 }
 
+/**
+ * 背景透過タグの強調段数（V4.5 系のみ効く）。
+ * NovelAI の {} 記法は 1 段ごとに重み 1.05 倍で、無強調だと白背景の指定が
+ * 無視されて背景が描かれ、切り抜きが失敗することがあるため既定は 2 段。
+ * V5 はネイティブ透過なので段数を指定しても効かない。
+ */
+export const PROMPT_EXPANDER_TRANSPARENT_EMPHASIS_LEVELS = [
+  0, 1, 2, 3,
+] as const;
+export type PromptExpanderTransparentEmphasis =
+  (typeof PROMPT_EXPANDER_TRANSPARENT_EMPHASIS_LEVELS)[number];
+export const DEFAULT_PROMPT_EXPANDER_TRANSPARENT_EMPHASIS: PromptExpanderTransparentEmphasis = 2;
+
+/**
+ * 背景透過で送信プロンプトの末尾へ足されるタグ（backend consts のミラー）。
+ * エントリの最終プロンプトには保存されないため、欄の下のプレビューで見せる。
+ */
+export const TRANSPARENT_BACKGROUND_TAGS_V5 = [
+  "transparent background",
+  "no shadow",
+] as const;
+export const TRANSPARENT_BACKGROUND_TAGS_V45 = [
+  "simple background",
+  "white background",
+  "no shadow",
+] as const;
+export const TRANSPARENT_BACKGROUND_NEGATIVE_TAGS = [
+  "multiple views",
+  "reference sheet",
+  "character sheet",
+  "turnaround",
+] as const;
+/** 強調対象は背景そのものを決めるタグだけ（no shadow は素のまま） */
+export const TRANSPARENT_BACKGROUND_EMPHASIZED_TAGS: ReadonlySet<string> =
+  new Set(["simple background", "white background"]);
+
+/** NovelAI の {} 記法でタグを強調する（level 0 は素通し） */
+export function emphasizeTag(tag: string, level: number): string {
+  return level <= 0 ? tag : "{".repeat(level) + tag + "}".repeat(level);
+}
+
+/** 背景透過で正プロンプトへ足すタグ。強調は V4.5 の背景タグにだけ効く */
+export function transparentBackgroundTags(
+  model: string | null | undefined,
+  emphasis = 0,
+): string[] {
+  if (usesNativeTransparency(model)) return [...TRANSPARENT_BACKGROUND_TAGS_V5];
+  const level = Math.max(0, emphasis);
+  return TRANSPARENT_BACKGROUND_TAGS_V45.map((tag) =>
+    TRANSPARENT_BACKGROUND_EMPHASIZED_TAGS.has(tag)
+      ? emphasizeTag(tag, level)
+      : tag,
+  );
+}
+
+/** 重み記法や括弧を外して照合用の表記へ整える（backend の normalize_tag_for_match と同じ） */
+export function normalizeTagForMatch(tag: string): string {
+  return tag
+    .toLowerCase()
+    .replace(/\d+(?:\.\d+)?::/g, "")
+    .replace(/::/g, " ")
+    .replace(/[{}[\]()]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * プロンプトへ実際に追加されるタグだけを返す（backend の merge_tags と同じ判定）。
+ * 既に同じタグが入力済みなら追加されないので、プレビューにも出さない。
+ */
+export function appendedTags(
+  prompt: string,
+  tags: readonly string[],
+): string[] {
+  const existing = new Set(
+    prompt
+      .split(",")
+      .map((item) => normalizeTagForMatch(item))
+      .filter((item) => item.length > 0),
+  );
+  return tags.filter((tag) => !existing.has(normalizeTagForMatch(tag)));
+}
+
+/** 強調段数のプレビュー表記（例: 2 -> "{{ }}"） */
+export function transparentEmphasisSample(level: number): string {
+  return level <= 0 ? "—" : `${"{".repeat(level)} ${"}".repeat(level)}`;
+}
+
+/**
+ * インペイント（部分修正）。i2i 元をベース画像として、マスクで塗った領域だけ描き直す。
+ * NovelAI はマスクを 1/8 解像度で扱うため、書き出しのグリッドもそれに合わせる
+ * （固定値にすると landscape / square でマスクの縦横比が崩れる）。
+ */
+export const PROMPT_EXPANDER_MASK_GRID_DIVISOR = 8;
+export const PROMPT_EXPANDER_BRUSH_SIZE_MIN = 4;
+export const PROMPT_EXPANDER_BRUSH_SIZE_MAX = 96;
+export const DEFAULT_PROMPT_EXPANDER_BRUSH_SIZE = 32;
+
 /** V4.5 の白背景画像を切り抜くときの許容差（Adventure の立ち絵と同じ。生成画像の白はわずかに灰色に振れる） */
 export const PROMPT_EXPANDER_ALPHA_OPTIONS = {
   threshold: 12,

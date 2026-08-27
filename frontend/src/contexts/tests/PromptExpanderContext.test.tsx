@@ -155,6 +155,8 @@ const OLD_ENTRY: PromptExpanderEntry = {
   reference_type: null,
   reference_strength: null,
   reference_fidelity: null,
+  inpaint: false,
+  mask_url: null,
   image_url: "/prompt-expander/images/entry-old",
   nsfw: false,
   created_at: "2026-01-01T00:00:00Z",

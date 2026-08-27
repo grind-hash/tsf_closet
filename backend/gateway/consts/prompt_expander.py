@@ -54,6 +54,14 @@ PROMPT_EXPANDER_UPLOAD_MAX_BASE64_LEN: Final[int] = 16 * 1024 * 1024
 DEFAULT_PROMPT_EXPANDER_I2I_STRENGTH: Final[float] = 0.7
 DEFAULT_PROMPT_EXPANDER_I2I_NOISE: Final[float] = 0.0
 
+# インペイント（部分修正）。i2i 元をベース画像に使い、マスクで塗った領域だけを描き直す。
+# 強度・ノイズは i2i の値をそのまま inpaintImg2ImgStrength / noise として使う。
+# NovelAI はマスクを 1/8 解像度で扱うため、書き出し・正規化のグリッドもそれに合わせる。
+PROMPT_EXPANDER_MASK_GRID_DIVISOR: Final[int] = 8
+PROMPT_EXPANDER_BRUSH_SIZE_MIN: Final[int] = 4
+PROMPT_EXPANDER_BRUSH_SIZE_MAX: Final[int] = 96
+DEFAULT_PROMPT_EXPANDER_BRUSH_SIZE: Final[int] = 32
+
 # 精密参照（NovelAI character reference）。V4.5 系のみ対応で、1 枚あたり Anlas を消費する。
 # 立ち絵差分では同一性の固定が目的なので、既定強度は Adventure の立ち絵生成と同じにする
 PROMPT_EXPANDER_REFERENCE_TYPES: Final[tuple[str, ...]] = (
@@ -83,6 +91,17 @@ TRANSPARENT_BACKGROUND_NEGATIVE_TAGS: Final[tuple[str, ...]] = (
     "reference sheet",
     "character sheet",
     "turnaround",
+)
+
+# 背景透過タグの強調（V4.5 系のみ）。NovelAI の {} 記法は 1 段ごとに重み 1.05 倍で、
+# V4/V4.5 でも有効。無強調だと白背景の指定がモデルに無視されて背景が描かれ、
+# フロントの切り抜き（imageAlpha.ts）が失敗することがあるため既定で 2 段掛ける。
+# V5 はネイティブ透過 PNG を返すので強調しない。
+PROMPT_EXPANDER_TRANSPARENT_EMPHASIS_LEVELS: Final[tuple[int, ...]] = (0, 1, 2, 3)
+DEFAULT_PROMPT_EXPANDER_TRANSPARENT_EMPHASIS: Final[int] = 2
+# 強調対象は背景そのものを決めるタグだけ。no shadow は素のまま置く
+TRANSPARENT_BACKGROUND_EMPHASIZED_TAGS: Final[frozenset[str]] = frozenset(
+    {"simple background", "white background"}
 )
 
 # 漫画モード（NovelAI Diffusion V5 のコマ割り・吹き出し生成を LLM 拡張で支援する）
@@ -147,12 +166,39 @@ def normalize_reference_type(value: object) -> str:
     )
 
 
-def transparent_background_tags(image_model: str | None) -> tuple[str, ...]:
-    """背景透過のために正プロンプト末尾へ足すタグ（モデル世代で分岐）。"""
-    return (
-        TRANSPARENT_BACKGROUND_TAGS_V5
-        if is_v5_image_model(image_model)
-        else TRANSPARENT_BACKGROUND_TAGS_V45
+def emphasize_tag(tag: str, level: int) -> str:
+    """NovelAI の {} 記法でタグを強調する。level 0 は素通し。"""
+    if level <= 0:
+        return tag
+    return "{" * level + tag + "}" * level
+
+
+def normalize_transparent_emphasis(value: object) -> int:
+    """保存値・入力値を強調レベルの範囲へ丸める（不正値は既定値）。"""
+    if isinstance(value, bool) or not isinstance(value, int):
+        return DEFAULT_PROMPT_EXPANDER_TRANSPARENT_EMPHASIS
+    if value not in PROMPT_EXPANDER_TRANSPARENT_EMPHASIS_LEVELS:
+        return DEFAULT_PROMPT_EXPANDER_TRANSPARENT_EMPHASIS
+    return value
+
+
+def transparent_background_tags(
+    image_model: str | None, emphasis: int = 0
+) -> tuple[str, ...]:
+    """背景透過のために正プロンプト末尾へ足すタグ（モデル世代で分岐）。
+
+    emphasis は V4.5 系の背景タグにだけ効く。V5 はネイティブ透過なので常に無強調。
+    """
+    if is_v5_image_model(image_model):
+        return TRANSPARENT_BACKGROUND_TAGS_V5
+    level = max(0, emphasis)
+    if level == 0:
+        return TRANSPARENT_BACKGROUND_TAGS_V45
+    return tuple(
+        emphasize_tag(tag, level)
+        if tag in TRANSPARENT_BACKGROUND_EMPHASIZED_TAGS
+        else tag
+        for tag in TRANSPARENT_BACKGROUND_TAGS_V45
     )
 
 

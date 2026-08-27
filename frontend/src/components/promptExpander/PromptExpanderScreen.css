@@ -1,10 +1,20 @@
 /* Prompt Expander 画面全体のレイアウト */
 
+/* 本体だけがスクロールし、下端のコントロールエリアは常に見える位置に留まる */
 .prompt-expander {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
   height: 100%;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.prompt-expander__scroll {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 1rem;
+  min-height: 0;
   padding: 1.25rem 1.5rem;
   overflow-y: auto;
   box-sizing: border-box;
@@ -86,7 +96,7 @@
 }
 
 @media (max-width: 640px) {
-  .prompt-expander {
+  .prompt-expander__scroll {
     padding: 0.9rem;
   }
 }

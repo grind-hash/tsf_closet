@@ -20,6 +20,9 @@ from PIL import Image, ImageFilter
 from .comfy import ComfyUIClient, ComfyUIResult
 from .model_execution_gate import model_execution_gate
 from ..consts.novelai_models import get_image_model_info
+from ..consts.prompt_expander import (
+    PROMPT_EXPANDER_MASK_GRID_DIVISOR as MASK_GRID_DIVISOR,
+)
 from ..settings.config import settings
 from novelai import AsyncNovelAI
 from novelai.types import Character, CharacterReference, GenerateImageParams, I2iParams
@@ -488,8 +491,13 @@ class NovelAIImageClient:
                     f"[Inpaint Debug] Mask size: {mask_img.size}, White pixels: {white_pixels}/{total_pixels} ({100 * white_pixels / total_pixels:.1f}%)"
                 )
 
-                # PoC準拠: 104x152へ縮小→ベース解像度へ最近傍拡大→二値化→任意膨張
-                small_size = (104, 152)
+                # PoC準拠: マスク解像度(ベースの1/8)へ縮小→ベース解像度へ最近傍拡大
+                # →二値化→任意膨張。portrait(832x1216)では従来と同じ104x152になる。
+                # 固定値にすると landscape / square でマスクの縦横比が崩れる
+                small_size = (
+                    max(1, base_img.width // MASK_GRID_DIVISOR),
+                    max(1, base_img.height // MASK_GRID_DIVISOR),
+                )
                 alpha_small = alpha.resize(small_size, Image.NEAREST)
                 alpha_up = alpha_small.resize(base_img.size, Image.NEAREST)
 

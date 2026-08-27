@@ -12,6 +12,7 @@ import type {
   PromptExpanderMangaTextLanguage,
   PromptExpanderReferenceType,
   PromptExpanderSourceKind,
+  PromptExpanderTransparentEmphasis,
   PromptExpandMode,
 } from "../constants/promptExpander";
 import type { AnlasBalance } from "../types";
@@ -53,6 +54,10 @@ export interface PromptExpanderSettings {
   reference_fidelity: number;
   /** 背景透過（V5 はプロンプト指示、V4.5 は白背景生成 + フロント切り抜き） */
   transparent_background: boolean;
+  /** 背景透過タグの強調段数（V4.5 系のみ効く。0=なし 〜 3={{{tag}}}） */
+  transparent_emphasis: PromptExpanderTransparentEmphasis;
+  /** インペイント（部分修正）の UI トグル。マスクそのものはセッション内状態 */
+  use_inpaint: boolean;
 }
 
 export type PromptExpanderSettingsPatch = Partial<PromptExpanderSettings>;
@@ -129,6 +134,10 @@ export interface PromptExpanderEntry {
   reference_type: PromptExpanderReferenceType | null;
   reference_strength: number | null;
   reference_fidelity: number | null;
+  /** インペイント（部分修正）で生成したか。マスクは mask_url から取得できる */
+  inpaint: boolean;
+  /** "/prompt-expander/entries/{id}/mask" 形式。インペイントでないエントリは null */
+  mask_url: string | null;
   /** "/prompt-expander/images/{id}" 形式。表示時は promptExpanderImageUrl で API_BASE を付ける */
   image_url: string;
   nsfw: boolean | null;
@@ -210,6 +219,11 @@ export interface PromptExpanderGenerateRequest {
   reference_strength?: number;
   reference_fidelity?: number;
   transparent_background?: boolean;
+  transparent_emphasis?: number;
+  /** インペイント（部分修正）。新規に描いたマスク（base64 または data URL） */
+  inpaint_mask?: string;
+  /** 過去エントリのマスクを再利用する（inpaint_mask とは排他） */
+  inpaint_mask_entry_id?: string;
 }
 
 interface AnlasPayload {

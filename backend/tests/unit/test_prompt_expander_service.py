@@ -161,9 +161,10 @@ async def test_delete_entry_and_session_images(factory, tmp_path: Path):
         await db.commit()
 
     async with factory() as db:
-        path = await pe.PromptExpanderService.delete_entry(db, entry_id=e1.id)
+        paths = await pe.PromptExpanderService.delete_entry(db, entry_id=e1.id)
         await db.commit()
-    pe.remove_entry_image(path)
+    for path in paths:
+        pe.remove_entry_image(path)
     assert not (tmp_path / "pe_images" / session.id / f"{e1.id}.png").exists()
     assert (tmp_path / "pe_images" / session.id / f"{e2.id}.png").exists()
 
@@ -1061,6 +1062,23 @@ def test_merge_tags_is_idempotent():
     )
 
 
+def test_merge_tags_ignores_emphasis_syntax():
+    """強調記法の有無で重複判定がぶれない（{{white background}} を二重に足さない）。"""
+    assert (
+        pe.merge_tags("1girl, white background", ("{{white background}}",))
+        == "1girl, white background"
+    )
+    assert (
+        pe.merge_tags("1girl, {{White Background}}", ("white background",))
+        == "1girl, {{White Background}}"
+    )
+    # 数値強調も同じタグとして扱う
+    assert (
+        pe.merge_tags("1girl, 1.3::white background::", ("{{white background}}",))
+        == "1girl, 1.3::white background::"
+    )
+
+
 def test_apply_transparent_background_by_model():
     prompt, negative = pe.apply_transparent_background(
         "1girl", "", "nai-diffusion-5-full"
@@ -1072,6 +1090,145 @@ def test_apply_transparent_background_by_model():
     )
     assert prompt == "1girl, simple background, white background, no shadow"
     assert negative.startswith("lowres, multiple views")
+
+
+def test_apply_transparent_background_emphasis():
+    """V4.5 は背景タグだけを強調し、V5 はネイティブ透過なので強調しない。"""
+    prompt, _ = pe.apply_transparent_background(
+        "1girl", "", "nai-diffusion-4-5-full", 2
+    )
+    assert prompt == ("1girl, {{simple background}}, {{white background}}, no shadow")
+    prompt, _ = pe.apply_transparent_background(
+        "1girl", "", "nai-diffusion-4-5-full", 1
+    )
+    assert prompt == "1girl, {simple background}, {white background}, no shadow"
+    # V5 は段数を渡しても素のまま
+    prompt, _ = pe.apply_transparent_background("1girl", "", "nai-diffusion-5-full", 3)
+    assert prompt == "1girl, transparent background, no shadow"
+
+
+@pytest.mark.asyncio
+async def test_generate_entry_inpaint_passes_mask_and_persists_it(factory, monkeypatch):
+    """インペイントはマスクを生成へ渡し、同じ領域で作り直せるよう保存する。"""
+    generate_mock = AsyncMock(
+        return_value=ImageGenerationResult(
+            images=[_png("purple")],
+            provider="novelai",
+            model="nai-diffusion-4-5-full-inpainting",
+            seed=3,
+        )
+    )
+    monkeypatch.setattr(pe.image_service, "generate_image", generate_mock)
+    async with factory() as db:
+        session = await pe.PromptExpanderService.create_session(db, title="s")
+        base = await pe.PromptExpanderService.add_uploaded_entry(
+            db, session_id=session.id, image_base64=_png_base64("green")
+        )
+        await db.commit()
+
+    mask = _png_base64("white")
+    outcome = await pe.generate_entry(
+        session.id,
+        pe.GenerateParams(
+            prompt="1girl, smiling",
+            image_model="nai-diffusion-4-5-full",
+            source_kind="entry",
+            source_entry_id=base.id,
+            i2i_strength=0.8,
+            inpaint_mask=mask,
+        ),
+    )
+    kwargs = generate_mock.await_args.kwargs
+    assert kwargs["mask_bytes"] == pe.decode_image_base64(mask)
+    assert kwargs["image_bytes"] is not None
+    entry = outcome.entry
+    assert entry["inpaint"] is True
+    assert entry["mask_url"] == f"/prompt-expander/entries/{entry['id']}/mask"
+    saved = pe.entry_mask_file(session.id, entry["id"])
+    assert saved.is_file()
+
+    # 保存済みマスクは entry ID 指定で再利用できる（表情差分を作り続けるため）
+    outcome2 = await pe.generate_entry(
+        session.id,
+        pe.GenerateParams(
+            prompt="1girl, angry",
+            image_model="nai-diffusion-4-5-full",
+            source_kind="entry",
+            source_entry_id=base.id,
+            inpaint_mask_entry_id=entry["id"],
+        ),
+    )
+    assert generate_mock.await_args.kwargs["mask_bytes"] == saved.read_bytes()
+    assert outcome2.entry["inpaint"] is True
+
+    # マスクなしの通常生成では mask_bytes を渡さず、印も付かない
+    outcome3 = await pe.generate_entry(
+        session.id,
+        pe.GenerateParams(prompt="1girl", image_model="nai-diffusion-4-5-full"),
+    )
+    assert generate_mock.await_args.kwargs["mask_bytes"] is None
+    assert outcome3.entry["inpaint"] is False
+    assert outcome3.entry["mask_url"] is None
+
+
+@pytest.mark.asyncio
+async def test_generate_entry_inpaint_requires_source(factory, monkeypatch):
+    """元画像が無ければインペイントは成立しないので、黙って i2i に落とさず拒否する。"""
+    generate_mock = AsyncMock(
+        return_value=ImageGenerationResult(images=[_png()], provider="novelai")
+    )
+    monkeypatch.setattr(pe.image_service, "generate_image", generate_mock)
+    async with factory() as db:
+        session = await pe.PromptExpanderService.create_session(db, title="s")
+        await db.commit()
+
+    with pytest.raises(pe.PromptExpanderError) as exc:
+        await pe.generate_entry(
+            session.id,
+            pe.GenerateParams(
+                prompt="1girl",
+                image_model="nai-diffusion-4-5-full",
+                inpaint_mask=_png_base64("white"),
+            ),
+        )
+    assert exc.value.code == "inpaint_requires_source"
+    generate_mock.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_delete_entry_removes_inpaint_mask(factory, monkeypatch, tmp_path: Path):
+    generate_mock = AsyncMock(
+        return_value=ImageGenerationResult(images=[_png()], provider="novelai", seed=1)
+    )
+    monkeypatch.setattr(pe.image_service, "generate_image", generate_mock)
+    async with factory() as db:
+        session = await pe.PromptExpanderService.create_session(db, title="s")
+        base = await pe.PromptExpanderService.add_uploaded_entry(
+            db, session_id=session.id, image_base64=_png_base64("green")
+        )
+        await db.commit()
+
+    outcome = await pe.generate_entry(
+        session.id,
+        pe.GenerateParams(
+            prompt="1girl",
+            image_model="nai-diffusion-4-5-full",
+            source_kind="entry",
+            source_entry_id=base.id,
+            inpaint_mask=_png_base64("white"),
+        ),
+    )
+    entry_id = outcome.entry["id"]
+    mask_path = pe.entry_mask_file(session.id, entry_id)
+    assert mask_path.is_file()
+
+    async with factory() as db:
+        paths = await pe.PromptExpanderService.delete_entry(db, entry_id=entry_id)
+        await db.commit()
+    for path in paths:
+        pe.remove_entry_image(path)
+    assert not mask_path.exists()
+    assert not pe.entry_image_file(session.id, entry_id).exists()
 
 
 @pytest.mark.asyncio

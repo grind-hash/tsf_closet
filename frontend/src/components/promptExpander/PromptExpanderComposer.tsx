@@ -12,6 +12,7 @@ import { flushSync } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { isV5ImageModel } from "../../constants/novelaiImageModels";
 import {
+  appendedTags,
   getPromptExpanderImageModelLabel,
   mangaPanelCountOptions,
   PROMPT_EXPANDER_I2I_NOISE_MAX,
@@ -24,6 +25,7 @@ import {
   PROMPT_EXPANDER_MANGA_TEXT_LANGUAGES,
   PROMPT_EXPANDER_REFERENCE_TYPES,
   PROMPT_EXPANDER_SEED_MAX,
+  PROMPT_EXPANDER_TRANSPARENT_EMPHASIS_LEVELS,
   type PromptExpanderImageSize,
   type PromptExpanderMangaLayout,
   type PromptExpanderMangaReadingDirection,
@@ -31,6 +33,9 @@ import {
   type PromptExpandMode,
   referenceTypeI18nKey,
   supportsMangaMode,
+  TRANSPARENT_BACKGROUND_NEGATIVE_TAGS,
+  transparentBackgroundTags,
+  transparentEmphasisSample,
   usesNativeTransparency,
 } from "../../constants/promptExpander";
 import {
@@ -40,6 +45,7 @@ import {
 } from "../../contexts/PromptExpanderContext";
 import PromptExpanderCharacterSlots from "./PromptExpanderCharacterSlots";
 import PromptExpanderExpansionPanel from "./PromptExpanderExpansionPanel";
+import PromptExpanderInpaintModal from "./PromptExpanderInpaintModal";
 import PromptExpanderProgress from "./PromptExpanderProgress";
 import PromptExpanderSection from "./PromptExpanderSection";
 import PromptExpanderSourcePickerModal from "./PromptExpanderSourcePickerModal";
@@ -141,6 +147,45 @@ function ExpansionErrorNotice({
 }
 
 /**
+ * 背景透過で送信時に足されるタグのプレビュー（欄の直下）。
+ *
+ * 透過タグはエントリの最終プロンプトには保存されず送信プロンプトにだけ載るため、
+ * 強調段数を変えても結果を見るまで効いているか分からない。ここで実物を見せる。
+ */
+function TransparentTailPreview({
+  target,
+}: {
+  target: PromptExpanderExpansionTarget;
+}) {
+  const { t } = useTranslation();
+  const { settings, transparentActive, positiveText, negativeText } =
+    usePromptExpander();
+  if (!transparentActive) return null;
+
+  const isPositive = target === "positive";
+  const tags = isPositive
+    ? transparentBackgroundTags(
+        settings.image_model,
+        settings.transparent_emphasis,
+      )
+    : [...TRANSPARENT_BACKGROUND_NEGATIVE_TAGS];
+  const added = appendedTags(isPositive ? positiveText : negativeText, tags);
+
+  return (
+    <p className="prompt-expander__hint prompt-expander__transparent-tail">
+      <span>{t("promptExpander.composer.transparentTailLabel")}</span>{" "}
+      {added.length > 0 ? (
+        <code className="prompt-expander__transparent-tail-tags">
+          {added.join(", ")}
+        </code>
+      ) : (
+        <span>{t("promptExpander.composer.transparentTailNone")}</span>
+      )}
+    </p>
+  );
+}
+
+/**
  * 漫画モードの記法をワンクリックで挿入するチップ。
  * 「」セリフ / 『』モノローグ / 【】ナレーション / 《》効果音 / ① コマ番号（行頭に連番で入る）
  */
@@ -165,9 +210,11 @@ export default function PromptExpanderComposer() {
     reference,
     clearReference,
     referenceSupported,
-    referenceActive,
-    referenceAnlasCost,
     transparentActive,
+    inpaintMask,
+    inpaintActive,
+    setInpaintMask,
+    clearInpaintMask,
     positiveText,
     setPositiveText,
     positiveMode,
@@ -186,9 +233,6 @@ export default function PromptExpanderComposer() {
     negativeOrigin,
     updateSettings,
     updateSettingsDebounced,
-    runGenerate,
-    canGenerate,
-    generateDisabledReason,
     expanding,
     expandingTarget,
     generating,
@@ -202,6 +246,7 @@ export default function PromptExpanderComposer() {
 
   const [pickerOpen, setPickerOpen] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [inpaintOpen, setInpaintOpen] = useState(false);
   // ピッカー／アップロードは i2i 元と精密参照で共用し、開いたときの入れ先だけを覚える
   const [pickerTarget, setPickerTarget] =
     useState<PromptExpanderPickerTarget>("source");
@@ -257,23 +302,6 @@ export default function PromptExpanderComposer() {
   const negativeBusy = expandingTarget === "negative";
   const notConfigured = !options.novelaiConfigured;
   const notConfiguredText = t("promptExpander.composer.disabledNotConfigured");
-
-  const disabledReasonText = (() => {
-    switch (generateDisabledReason) {
-      case "novelai_not_configured":
-        return notConfiguredText;
-      case "no_session":
-        return t("promptExpander.composer.disabledNoSession");
-      case "too_many_characters":
-        return t("promptExpander.composer.disabledTooMany");
-      case "empty_prompt":
-        return t("promptExpander.composer.disabledEmptyPrompt");
-      case "pending_expansion":
-        return t("promptExpander.composer.disabledPendingExpansion");
-      default:
-        return null;
-    }
-  })();
 
   // 拡張 / 提案ボタンの無効理由（NovelAI 未設定 > 処理中 > 空欄）
   const expandDisabledReason = (text: string): string | null => {
@@ -363,6 +391,22 @@ export default function PromptExpanderComposer() {
     : usesNativeTransparency(settings.image_model)
       ? t("promptExpander.composer.transparentHintV5")
       : t("promptExpander.composer.transparentHintV45");
+  // インペイントの要約（見出し右に出す。効かない組み合わせは理由が分かる文言にする）
+  const inpaintSummary = !settings.use_inpaint
+    ? t("promptExpander.composer.inpaintSummaryOff")
+    : !source
+      ? t("promptExpander.composer.inpaintNoSource")
+      : !inpaintMask
+        ? t("promptExpander.composer.inpaintNoMask")
+        : t("promptExpander.composer.inpaintSummaryOn", {
+            label: inpaintMask.label,
+          });
+  // 強調が効かない組み合わせは選択肢を隠さず、理由の文言だけ差し替える
+  const emphasisHint = !transparentActive
+    ? t("promptExpander.composer.transparentEmphasisDisabledOff")
+    : usesNativeTransparency(settings.image_model)
+      ? t("promptExpander.composer.transparentEmphasisDisabledV5")
+      : null;
 
   const renderFieldToolbar = (
     target: PromptExpanderExpansionTarget,
@@ -546,6 +590,43 @@ export default function PromptExpanderComposer() {
             className={`prompt-expander__hint ${settings.transparent_background && !transparentActive ? "prompt-expander__hint--warning" : ""}`}
           >
             {transparentHint}
+          </span>
+          {/* 白背景の指定が効かないことがあるため、V4.5 では強調段数を選べるようにする。
+              V5・透過 OFF でも隠さず、効かない理由を文言で出す */}
+          <span className="prompt-expander__label">
+            {t("promptExpander.composer.transparentEmphasis")}
+          </span>
+          <div
+            className="prompt-expander__radio-group prompt-expander__radio-group--compact"
+            role="radiogroup"
+            aria-label={t("promptExpander.composer.transparentEmphasis")}
+            title={emphasisHint ?? undefined}
+          >
+            {PROMPT_EXPANDER_TRANSPARENT_EMPHASIS_LEVELS.map((level) => (
+              <label
+                key={level}
+                className={`prompt-expander__radio ${settings.transparent_emphasis === level ? "is-active" : ""}`}
+              >
+                <input
+                  type="radio"
+                  name="prompt-expander-transparent-emphasis"
+                  value={level}
+                  checked={settings.transparent_emphasis === level}
+                  onChange={() =>
+                    void updateSettings({ transparent_emphasis: level })
+                  }
+                />
+                {level === 0
+                  ? t("promptExpander.composer.transparentEmphasisNone")
+                  : transparentEmphasisSample(level)}
+              </label>
+            ))}
+          </div>
+          <span
+            className={`prompt-expander__hint ${emphasisHint ? "prompt-expander__hint--warning" : ""}`}
+          >
+            {emphasisHint ??
+              t("promptExpander.composer.transparentEmphasisHint")}
           </span>
         </div>
       </PromptExpanderSection>
@@ -833,6 +914,7 @@ export default function PromptExpanderComposer() {
               {t("promptExpander.composer.v45JapaneseHint")}
             </p>
           )}
+          <TransparentTailPreview target="positive" />
           <ExpansionErrorNotice target="positive" />
           <PromptExpanderExpansionPanel target="positive" />
         </div>
@@ -868,6 +950,7 @@ export default function PromptExpanderComposer() {
               label={t("promptExpander.composer.expandingHint")}
             />
           )}
+          <TransparentTailPreview target="negative" />
           <ExpansionErrorNotice target="negative" />
           <PromptExpanderExpansionPanel target="negative" />
         </div>
@@ -1041,7 +1124,138 @@ export default function PromptExpanderComposer() {
         </div>
       </PromptExpanderSection>
 
-      {/* ⑥ 精密参照（V4.5 系のみ）。i2i 元とは別の参照画像で人物の同一性を固定する */}
+      {/* ⑥ インペイント（部分修正）。i2i 元をベース画像に使い、マスクの領域だけ描き直す */}
+      <PromptExpanderSection
+        id="inpaint"
+        title={t("promptExpander.composer.sectionInpaint")}
+        defaultOpen={false}
+        toolbar={
+          <>
+            <span className="prompt-expander__section-summary">
+              {inpaintSummary}
+            </span>
+            <PromptExpanderSwitch
+              checked={settings.use_inpaint}
+              onChange={(checked) =>
+                void updateSettings({ use_inpaint: checked })
+              }
+              label={t("promptExpander.composer.inpaintToggle")}
+            />
+          </>
+        }
+      >
+        <p className="prompt-expander__hint">
+          {t("promptExpander.composer.inpaintHint")}
+        </p>
+        <div className="prompt-expander__source-actions">
+          <button
+            type="button"
+            className="prompt-expander__btn prompt-expander__btn--sm"
+            onClick={() => openPicker("source")}
+          >
+            {t("promptExpander.composer.pickHistory")}
+          </button>
+          <button
+            type="button"
+            className="prompt-expander__btn prompt-expander__btn--sm"
+            onClick={() => openUpload("source")}
+          >
+            {t("promptExpander.composer.uploadImage")}
+          </button>
+          <button
+            type="button"
+            className="prompt-expander__btn prompt-expander__btn--sm"
+            onClick={clearSource}
+            disabled={!source}
+            title={
+              source ? undefined : t("promptExpander.composer.inpaintNoSource")
+            }
+          >
+            {t("promptExpander.composer.sourceClear")}
+          </button>
+        </div>
+        <div className="prompt-expander__source-row">
+          {source ? (
+            <>
+              <img
+                className="prompt-expander__thumb"
+                src={source.thumbnailUrl}
+                alt=""
+              />
+              <div className="prompt-expander__source-info">
+                <span className="prompt-expander__source-label">
+                  {source.label}
+                </span>
+                <span className="prompt-expander__badge">
+                  {t("promptExpander.composer.inpaintBaseBadge")}
+                </span>
+              </div>
+            </>
+          ) : (
+            <span className="prompt-expander__hint">
+              {t("promptExpander.composer.inpaintNoSource")}
+            </span>
+          )}
+        </div>
+        <div className="prompt-expander__source-actions">
+          <button
+            type="button"
+            className="prompt-expander__btn prompt-expander__btn--sm"
+            onClick={() => setInpaintOpen(true)}
+            disabled={!source}
+            title={
+              source ? undefined : t("promptExpander.composer.inpaintNoSource")
+            }
+          >
+            {t("promptExpander.composer.editMask")}
+          </button>
+          <button
+            type="button"
+            className="prompt-expander__btn prompt-expander__btn--sm"
+            onClick={clearInpaintMask}
+            disabled={!inpaintMask}
+            title={
+              inpaintMask
+                ? undefined
+                : t("promptExpander.composer.inpaintNoMask")
+            }
+          >
+            {t("promptExpander.composer.clearMask")}
+          </button>
+        </div>
+        <div className="prompt-expander__source-row">
+          {inpaintMask ? (
+            <>
+              <img
+                className="prompt-expander__thumb prompt-expander__thumb--mask"
+                src={inpaintMask.thumbnailUrl}
+                alt=""
+              />
+              <div className="prompt-expander__source-info">
+                <span className="prompt-expander__source-label">
+                  {inpaintMask.label}
+                </span>
+              </div>
+            </>
+          ) : (
+            <span className="prompt-expander__hint">
+              {t("promptExpander.composer.inpaintNoMask")}
+            </span>
+          )}
+        </div>
+        {settings.use_inpaint && !inpaintActive && (
+          <p className="prompt-expander__hint prompt-expander__hint--warning">
+            {source
+              ? t("promptExpander.composer.inpaintNoMask")
+              : t("promptExpander.composer.inpaintNoSource")}
+          </p>
+        )}
+        <span className="prompt-expander__hint">
+          {t("promptExpander.composer.inpaintStrengthHint")}
+        </span>
+      </PromptExpanderSection>
+
+      {/* ⑦ 精密参照（V4.5 系のみ）。i2i 元とは別の参照画像で人物の同一性を固定する */}
       <PromptExpanderSection
         id="reference"
         title={t("promptExpander.composer.sectionReference")}
@@ -1226,37 +1440,7 @@ export default function PromptExpanderComposer() {
         </span>
       </PromptExpanderSection>
 
-      {/* 生成ボタン */}
-      <div className="prompt-expander__generate-row">
-        <button
-          type="button"
-          className="prompt-expander__btn prompt-expander__btn--primary prompt-expander__generate"
-          disabled={!canGenerate}
-          onClick={() => void runGenerate()}
-          title={disabledReasonText ?? undefined}
-        >
-          {generating
-            ? t("promptExpander.composer.generating")
-            : t("promptExpander.composer.generate")}
-        </button>
-        {referenceActive && (
-          <span
-            className="prompt-expander__generate-cost"
-            title={t("promptExpander.composer.referenceCostHint", {
-              cost: referenceAnlasCost,
-            })}
-          >
-            {t("promptExpander.composer.referenceCostBadge", {
-              cost: referenceAnlasCost,
-            })}
-          </span>
-        )}
-        {disabledReasonText && !busy && (
-          <span className="prompt-expander__hint prompt-expander__hint--warning">
-            {disabledReasonText}
-          </span>
-        )}
-      </div>
+      {/* 生成ボタンは画面下端の PromptExpanderControlBar に置く（常に見える位置に保つため） */}
 
       <PromptExpanderSourcePickerModal
         open={pickerOpen}
@@ -1271,6 +1455,15 @@ export default function PromptExpanderComposer() {
       <PromptExpanderSuggestModal
         open={suggestOpen}
         onClose={() => setSuggestOpen(false)}
+      />
+      <PromptExpanderInpaintModal
+        open={inpaintOpen}
+        onClose={() => setInpaintOpen(false)}
+        baseImageUrl={source?.thumbnailUrl ?? null}
+        initialMaskUrl={inpaintMask?.thumbnailUrl ?? null}
+        onApply={(dataUrl, label) =>
+          setInpaintMask({ dataUrl, thumbnailUrl: dataUrl, label })
+        }
       />
     </div>
   );

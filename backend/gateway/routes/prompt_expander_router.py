@@ -17,6 +17,7 @@ from ..consts.prompt_expander import (
     DEFAULT_PROMPT_EXPANDER_REFERENCE_FIDELITY,
     DEFAULT_PROMPT_EXPANDER_REFERENCE_STRENGTH,
     DEFAULT_PROMPT_EXPANDER_REFERENCE_TYPE,
+    DEFAULT_PROMPT_EXPANDER_TRANSPARENT_EMPHASIS,
     PROMPT_EXPANDER_ANLAS_PER_REFERENCE,
     PROMPT_EXPANDER_CHARACTER_PROMPT_MAX_LEN,
     PROMPT_EXPANDER_IMAGE_MODEL_OPTIONS,
@@ -35,6 +36,7 @@ from ..consts.prompt_expander import (
     PROMPT_EXPANDER_SUGGESTION_COUNT_MAX,
     PROMPT_EXPANDER_SUGGESTION_COUNT_MIN,
     PROMPT_EXPANDER_TITLE_MAX_LEN,
+    PROMPT_EXPANDER_TRANSPARENT_EMPHASIS_LEVELS,
     PROMPT_EXPANDER_UPLOAD_MAX_BASE64_LEN,
     max_character_prompts_map,
 )
@@ -52,6 +54,7 @@ from ..services.prompt_expander_service import (
     remove_entry_image,
     remove_session_images,
     resolve_entry_image_file,
+    resolve_entry_mask_file,
     text_model_options,
 )
 from ..services.session import DEFAULT_USER_ID
@@ -73,6 +76,7 @@ MangaLayoutLiteral = Literal["auto", "vertical", "horizontal", "grid"]
 MangaTextLanguageLiteral = Literal["auto", "ja", "en"]
 MangaReadingDirectionLiteral = Literal["rtl", "ltr"]
 ReferenceTypeLiteral = Literal["character", "style", "character&style"]
+TransparentEmphasisLiteral = Literal[0, 1, 2, 3]
 
 # Literal と定数の整合性を起動時に検証する（どちらかを直し忘れたときに気付くため）
 assert set(ImageModelLiteral.__args__) == set(PROMPT_EXPANDER_IMAGE_MODEL_OPTIONS)  # type: ignore[attr-defined]
@@ -86,6 +90,9 @@ assert set(MangaReadingDirectionLiteral.__args__) == set(
     PROMPT_EXPANDER_MANGA_READING_DIRECTIONS
 )  # type: ignore[attr-defined]
 assert set(ReferenceTypeLiteral.__args__) == set(PROMPT_EXPANDER_REFERENCE_TYPES)  # type: ignore[attr-defined]
+assert set(TransparentEmphasisLiteral.__args__) == set(  # type: ignore[attr-defined]
+    PROMPT_EXPANDER_TRANSPARENT_EMPHASIS_LEVELS
+)
 
 
 class MangaOptionsModel(BaseModel):
@@ -145,6 +152,8 @@ class PromptExpanderSettingsModel(BaseModel):
     reference_strength: float = DEFAULT_PROMPT_EXPANDER_REFERENCE_STRENGTH
     reference_fidelity: float = DEFAULT_PROMPT_EXPANDER_REFERENCE_FIDELITY
     transparent_background: bool = False
+    transparent_emphasis: int = DEFAULT_PROMPT_EXPANDER_TRANSPARENT_EMPHASIS
+    use_inpaint: bool = False
 
 
 class TextModelOption(BaseModel):
@@ -206,6 +215,8 @@ class PromptExpanderSettingsUpdateRequest(BaseModel):
     reference_strength: float | None = Field(None, ge=0.0, le=1.0)
     reference_fidelity: float | None = Field(None, ge=0.0, le=1.0)
     transparent_background: bool | None = None
+    transparent_emphasis: TransparentEmphasisLiteral | None = None
+    use_inpaint: bool | None = None
 
 
 class SessionCreateRequest(BaseModel):
@@ -258,6 +269,8 @@ class PromptExpanderEntryResponse(BaseModel):
     reference_type: str | None = None
     reference_strength: float | None = None
     reference_fidelity: float | None = None
+    inpaint: bool = False
+    mask_url: str | None = None
     image_url: str
     nsfw: bool | None = None
     created_at: str
@@ -396,6 +409,14 @@ class PromptExpanderGenerateRequest(BaseModel):
     )
     # 背景透過（V5 はプロンプト指示、V4.5 は白背景生成 + フロント切り抜き）
     transparent_background: bool = False
+    transparent_emphasis: TransparentEmphasisLiteral = (
+        DEFAULT_PROMPT_EXPANDER_TRANSPARENT_EMPHASIS  # type: ignore[assignment]
+    )
+    # インペイント（部分修正）。i2i 元をベース画像に使い、マスクの領域だけ描き直す
+    inpaint_mask: str | None = Field(
+        None, max_length=PROMPT_EXPANDER_UPLOAD_MAX_BASE64_LEN
+    )
+    inpaint_mask_entry_id: str | None = Field(None, max_length=80)
 
     @model_validator(mode="after")
     def _check(self) -> "PromptExpanderGenerateRequest":
@@ -414,6 +435,12 @@ class PromptExpanderGenerateRequest(BaseModel):
             raise ValueError("reference_entry_id が必要です")
         if self.reference_kind == "upload" and not self.reference_image:
             raise ValueError("reference_image が必要です")
+        if self.inpaint_mask and self.inpaint_mask_entry_id:
+            raise ValueError("インペイントマスクの指定はどちらか一方だけです")
+        if (
+            self.inpaint_mask or self.inpaint_mask_entry_id
+        ) and self.source_kind == "none":
+            raise ValueError("インペイントには元画像（i2i 元）が必要です")
         return self
 
 
@@ -470,6 +497,7 @@ def _http_error(exc: PromptExpanderError) -> HTTPException:
         "entry_not_found": status.HTTP_404_NOT_FOUND,
         "history_not_found": status.HTTP_404_NOT_FOUND,
         "image_not_found": status.HTTP_404_NOT_FOUND,
+        "mask_not_found": status.HTTP_404_NOT_FOUND,
         "invalid_source": status.HTTP_400_BAD_REQUEST,
         "invalid_image": status.HTTP_400_BAD_REQUEST,
         "invalid_request": status.HTTP_400_BAD_REQUEST,
@@ -482,6 +510,7 @@ def _http_error(exc: PromptExpanderError) -> HTTPException:
         "unsupported_image_model": status.HTTP_422_UNPROCESSABLE_ENTITY,
         "manga_requires_v5": status.HTTP_422_UNPROCESSABLE_ENTITY,
         "precise_reference_requires_v45": status.HTTP_422_UNPROCESSABLE_ENTITY,
+        "inpaint_requires_source": status.HTTP_422_UNPROCESSABLE_ENTITY,
         "invalid_llm_output": status.HTTP_502_BAD_GATEWAY,
         "llm_failed": status.HTTP_502_BAD_GATEWAY,
         "image_failed": status.HTTP_502_BAD_GATEWAY,
@@ -684,6 +713,9 @@ async def generate_image(session_id: str, body: PromptExpanderGenerateRequest):
         reference_strength=body.reference_strength,
         reference_fidelity=body.reference_fidelity,
         transparent_background=body.transparent_background,
+        transparent_emphasis=body.transparent_emphasis,
+        inpaint_mask=body.inpaint_mask,
+        inpaint_mask_entry_id=body.inpaint_mask_entry_id,
     )
     try:
         outcome = await pe_service.generate_entry(
@@ -755,13 +787,14 @@ async def get_entry(entry_id: str):
 async def delete_entry(entry_id: str):
     try:
         async with async_session_factory() as db:
-            path = await PromptExpanderService.delete_entry(
+            paths = await PromptExpanderService.delete_entry(
                 db, entry_id=entry_id, user_id=DEFAULT_USER_ID
             )
             await db.commit()
     except PromptExpanderError as exc:
         raise _http_error(exc) from exc
-    remove_entry_image(path)
+    for path in paths:
+        remove_entry_image(path)
     return None
 
 
@@ -786,6 +819,30 @@ async def get_entry_image(entry_id: str):
         path,
         media_type="image/png",
         filename=f"{entry_id}.png",
+        content_disposition_type="inline",
+    )
+
+
+@router.get("/entries/{entry_id}/mask")
+async def get_entry_mask(entry_id: str):
+    """インペイントで使ったマスクを返す（同じ領域で差分を作り直すため）。"""
+    try:
+        async with async_session_factory() as db:
+            entry = await PromptExpanderService.get_entry(
+                db, entry_id=entry_id, user_id=DEFAULT_USER_ID
+            )
+            path = resolve_entry_mask_file(entry)
+    except PromptExpanderError as exc:
+        raise _http_error(exc) from exc
+    if path is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "mask_not_found", "message": "マスク画像が見つかりません"},
+        )
+    return FileResponse(
+        path,
+        media_type="image/png",
+        filename=f"{entry_id}_mask.png",
         content_disposition_type="inline",
     )
 

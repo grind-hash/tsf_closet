@@ -42,6 +42,7 @@ from ..consts.prompt_expander import (
     DEFAULT_PROMPT_EXPANDER_REFERENCE_FIDELITY,
     DEFAULT_PROMPT_EXPANDER_REFERENCE_STRENGTH,
     DEFAULT_PROMPT_EXPANDER_REFERENCE_TYPE,
+    DEFAULT_PROMPT_EXPANDER_TRANSPARENT_EMPHASIS,
     PROMPT_EXPANDER_IMAGE_SIZES,
     PROMPT_EXPANDER_MANGA_LAYOUTS,
     PROMPT_EXPANDER_MANGA_PANEL_COUNT_AUTO,
@@ -54,6 +55,7 @@ from ..consts.prompt_expander import (
     max_character_prompts,
     normalize_manga_panel_count,
     normalize_reference_type,
+    normalize_transparent_emphasis,
     supports_manga_mode,
     supports_precise_reference,
     transparent_background_tags,
@@ -62,6 +64,7 @@ from ..databases.base import async_session_factory
 from ..databases.models import PromptExpanderEntry, PromptExpanderSession, User
 from ..settings.config import settings
 from .anlas_service import AnlasBalance, get_anlas_balance
+from .clothing_layers import normalize_tag_for_match
 from .image_generation import ImageGenerationResult, image_service
 from .llm_service import llm_service
 from .prompt_expander_prompts import (
@@ -144,6 +147,15 @@ class PromptExpanderSettings(BaseModel):
     )
     # 背景透過（V5 はプロンプト指示、V4.5 は白背景生成 + フロント切り抜き）
     transparent_background: bool = False
+    # 背景透過タグの強調段数（V4.5 系のみ効く。0=なし 〜 3={{{tag}}}）
+    transparent_emphasis: int = DEFAULT_PROMPT_EXPANDER_TRANSPARENT_EMPHASIS
+    # インペイント（部分修正）。マスク自体は保存せずセッション内状態で持つ
+    use_inpaint: bool = False
+
+    @field_validator("transparent_emphasis", mode="before")
+    @classmethod
+    def _coerce_transparent_emphasis(cls, value: object) -> int:
+        return normalize_transparent_emphasis(value)
 
     @field_validator("reference_type", mode="before")
     @classmethod
@@ -277,6 +289,35 @@ def entry_image_relpath(session_id: str, entry_id: str) -> str:
         return str(path)
 
 
+def entry_mask_file(session_id: str, entry_id: str) -> Path:
+    """インペイントマスクの保存先（画像と同じディレクトリに _mask 付きで置く）。"""
+    return entry_image_dir(session_id) / f"{entry_id}_mask.png"
+
+
+def entry_mask_relpath(session_id: str, entry_id: str) -> str:
+    """DB に保存するマスクの相対パス（data/ の親からの相対）。"""
+    path = entry_mask_file(session_id, entry_id)
+    try:
+        return str(path.relative_to(_images_root().parent.parent))
+    except ValueError:
+        return str(path)
+
+
+def resolve_entry_mask_file(entry: PromptExpanderEntry) -> Path | None:
+    candidates = [entry_mask_file(entry.session_id, entry.id)]
+    if entry.inpaint_mask_path:
+        raw = Path(entry.inpaint_mask_path)
+        candidates.append(raw)
+        candidates.append(_images_root().parent.parent / entry.inpaint_mask_path)
+    for path in candidates:
+        try:
+            if path.is_file():
+                return path
+        except OSError:
+            continue
+    return None
+
+
 def resolve_entry_image_file(entry: PromptExpanderEntry) -> Path | None:
     candidates = [entry_image_file(entry.session_id, entry.id)]
     if entry.image_path:
@@ -297,6 +338,7 @@ def remove_session_images(session_id: str) -> None:
 
 
 def remove_entry_image(path: Path | None) -> None:
+    """エントリの画像・マスクなど、単一ファイルを消す（存在しなくてもよい）。"""
     if path is None:
         return
     try:
@@ -339,9 +381,14 @@ def _split_tags(text: str) -> list[str]:
 
 
 def merge_tags(prompt: str, tags: Sequence[str]) -> str:
-    """カンマ区切りプロンプトの末尾へタグを足す。既にあるタグは重複させない（冪等）。"""
-    existing = {item.lower() for item in _split_tags(prompt)}
-    missing = [tag for tag in tags if tag.lower() not in existing]
+    """カンマ区切りプロンプトの末尾へタグを足す。既にあるタグは重複させない（冪等）。
+
+    比較は normalize_tag_for_match で強調記法（{} や N.N::tag::）を外してから行う。
+    素の "white background" が既にあるプロンプトへ "{{white background}}" を
+    重ねて足さないため。
+    """
+    existing = {normalize_tag_for_match(item) for item in _split_tags(prompt)}
+    missing = [tag for tag in tags if normalize_tag_for_match(tag) not in existing]
     if not missing:
         return prompt
     base = prompt.strip().rstrip(",").rstrip()
@@ -350,11 +397,11 @@ def merge_tags(prompt: str, tags: Sequence[str]) -> str:
 
 
 def apply_transparent_background(
-    prompt: str, negative: str, image_model: str | None
+    prompt: str, negative: str, image_model: str | None, emphasis: int = 0
 ) -> tuple[str, str]:
     """背景透過用のタグを送信用プロンプトへ足す（エントリの保存値には足さない）。"""
     return (
-        merge_tags(prompt, transparent_background_tags(image_model)),
+        merge_tags(prompt, transparent_background_tags(image_model, emphasis)),
         merge_tags(negative, TRANSPARENT_BACKGROUND_NEGATIVE_TAGS),
     )
 
@@ -420,6 +467,10 @@ def entry_to_dict(entry: PromptExpanderEntry) -> dict[str, Any]:
         "reference_type": entry.reference_type,
         "reference_strength": entry.reference_strength,
         "reference_fidelity": entry.reference_fidelity,
+        "inpaint": bool(entry.inpaint),
+        "mask_url": (
+            f"/prompt-expander/entries/{entry.id}/mask" if entry.inpaint else None
+        ),
         "image_url": f"/prompt-expander/images/{entry.id}",
         "nsfw": entry_nsfw(entry),
         "created_at": _to_iso(entry.created_at),
@@ -652,15 +703,22 @@ class PromptExpanderService:
     @staticmethod
     async def delete_entry(
         db: AsyncSession, *, entry_id: str, user_id: str = DEFAULT_USER_ID
-    ) -> Path | None:
-        """エントリ行を削除し、後で消すべき画像ファイルのパスを返す。"""
+    ) -> list[Path]:
+        """エントリ行を削除し、後で消すべきファイル（画像とマスク）のパスを返す。"""
         entry = await PromptExpanderService.get_entry(
             db, entry_id=entry_id, user_id=user_id
         )
-        path = resolve_entry_image_file(entry)
+        paths = [
+            path
+            for path in (
+                resolve_entry_image_file(entry),
+                resolve_entry_mask_file(entry),
+            )
+            if path is not None
+        ]
         await db.delete(entry)
         await db.flush()
-        return path
+        return paths
 
     @staticmethod
     async def add_uploaded_entry(
@@ -1182,12 +1240,35 @@ class GenerateParams:
     reference_fidelity: float = DEFAULT_PROMPT_EXPANDER_REFERENCE_FIDELITY
     # 背景透過（接尾辞は保存せず、送信時に image_model から導出して付与する）
     transparent_background: bool = False
+    # 背景透過タグの強調段数（V4.5 系のみ効く）
+    transparent_emphasis: int = 0
+    # インペイント（部分修正）。i2i 元をベース画像として、マスクの白い領域だけ描き直す。
+    # inpaint_mask は新規に描いたマスク、inpaint_mask_entry_id は過去エントリのマスク再利用
+    inpaint_mask: Optional[str] = None
+    inpaint_mask_entry_id: Optional[str] = None
 
 
 @dataclass
 class GenerateOutcome:
     entry: dict[str, Any]
     result: ImageGenerationResult
+
+
+async def _resolve_inpaint_mask(
+    db: AsyncSession, params: GenerateParams, *, user_id: str
+) -> bytes | None:
+    """インペイントマスクを bytes にする。新規描画と過去エントリの再利用の 2 経路。"""
+    if params.inpaint_mask:
+        return decode_image_base64(params.inpaint_mask)
+    if not params.inpaint_mask_entry_id:
+        return None
+    entry = await PromptExpanderService.get_entry(
+        db, entry_id=params.inpaint_mask_entry_id, user_id=user_id
+    )
+    path = resolve_entry_mask_file(entry)
+    if path is None:
+        raise PromptExpanderError("mask_not_found", "マスク画像が見つかりません")
+    return path.read_bytes()
 
 
 async def generate_entry(
@@ -1254,6 +1335,13 @@ async def generate_entry(
             if reference_requested
             else SourceResolution()
         )
+        # インペイントは i2i 元をベース画像にするため、元画像が無ければ成立しない
+        mask_bytes = await _resolve_inpaint_mask(db, params, user_id=user_id)
+        if mask_bytes is not None and source.image_bytes is None:
+            raise PromptExpanderError(
+                "inpaint_requires_source",
+                "インペイントには元画像（i2i 元）が必要です",
+            )
 
     characters_payload: list[dict[str, Any]] | None = None
     if character_prompts:
@@ -1275,7 +1363,9 @@ async def generate_entry(
     # タグは送信用にだけ足し、エントリにはユーザー入力のまま保存する
     transparent = bool(params.transparent_background) and not manga_mode
     send_prompt, send_negative = (
-        apply_transparent_background(prompt, negative, params.image_model)
+        apply_transparent_background(
+            prompt, negative, params.image_model, params.transparent_emphasis
+        )
         if transparent
         else (prompt, negative)
     )
@@ -1295,6 +1385,7 @@ async def generate_entry(
         result = await image_service.generate_image(
             send_prompt,
             image_bytes=source.image_bytes,
+            mask_bytes=mask_bytes,
             provider_override="novelai",
             negative_prompt=send_negative,
             i2i_strength_override=params.i2i_strength,
@@ -1371,6 +1462,12 @@ async def generate_entry(
             reference_type=reference_type if has_reference else None,
             reference_strength=params.reference_strength if has_reference else None,
             reference_fidelity=params.reference_fidelity if has_reference else None,
+            inpaint=mask_bytes is not None,
+            inpaint_mask_path=(
+                entry_mask_relpath(session_id, entry_id)
+                if mask_bytes is not None
+                else None
+            ),
             image_path=entry_image_relpath(session_id, entry_id),
             created_at=datetime.now(),
         )
@@ -1378,6 +1475,9 @@ async def generate_entry(
         session.updated_at = entry.created_at
         await db.flush()
         _write_png(entry_image_file(session_id, entry_id), result.images[0])
+        # 同じ領域で表情差分を作り続けられるよう、マスクも残して再生成で使えるようにする
+        if mask_bytes is not None:
+            _write_png(entry_mask_file(session_id, entry_id), mask_bytes)
         await db.commit()
         view = entry_to_dict(entry)
     return GenerateOutcome(entry=view, result=result)

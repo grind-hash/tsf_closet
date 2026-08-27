@@ -57,6 +57,8 @@ type PromptExpanderEntryPayload = {
   reference_type: "character" | "style" | "character&style" | null;
   reference_strength: number | null;
   reference_fidelity: number | null;
+  inpaint: boolean;
+  mask_url: string | null;
   image_url: string;
   nsfw: boolean | null;
   created_at: string;
@@ -108,6 +110,8 @@ function entryPayload(
     reference_type: null,
     reference_strength: null,
     reference_fidelity: null,
+    inpaint: false,
+    mask_url: null,
     image_url: `/prompt-expander/images/${ENTRY_ID}`,
     nsfw: false,
     created_at: "2026-08-01T00:00:00",
@@ -142,6 +146,8 @@ function settingsPayload() {
       reference_strength: 0.85,
       reference_fidelity: 1,
       transparent_background: false,
+      transparent_emphasis: 2,
+      use_inpaint: false,
     },
     text_model_options: [
       { id: "glm-4-6", label: "GLM 4.6" },
@@ -320,6 +326,12 @@ async function mockPromptExpanderApis(page: Page) {
         reference_type?: "character" | "style" | "character&style";
         reference_strength?: number;
         reference_fidelity?: number;
+        transparent_emphasis?: number;
+        source_kind?: "none" | "history" | "entry" | "upload";
+        source_history_id?: string;
+        source_entry_id?: string;
+        inpaint_mask?: string;
+        inpaint_mask_entry_id?: string;
       };
       state.generateBodies.push(body);
       generatedCount += 1;
@@ -337,6 +349,14 @@ async function mockPromptExpanderApis(page: Page) {
           ? (body.manga_panel_count ?? null)
           : null,
         transparent_background: body.transparent_background ?? false,
+        source_kind: body.source_kind ?? "none",
+        source_history_id: body.source_history_id ?? null,
+        source_entry_id: body.source_entry_id ?? null,
+        inpaint: Boolean(body.inpaint_mask || body.inpaint_mask_entry_id),
+        mask_url:
+          body.inpaint_mask || body.inpaint_mask_entry_id
+            ? `/prompt-expander/entries/pe-entry-new-${generatedCount}/mask`
+            : null,
         reference_kind: body.reference_kind ?? "none",
         reference_history_id: body.reference_history_id ?? null,
         reference_entry_id: body.reference_entry_id ?? null,
@@ -969,6 +989,25 @@ test("transparent background is sent with expand/generate and V4.5 entries are c
   await expect(toggle).toBeEnabled();
   await page.getByLabel("画像モデル").selectOption("nai-diffusion-4-5-full");
 
+  // 欄の下のプレビューに、送信時へ実際に足されるタグが強調付きで出る
+  // （最終プロンプトには保存されないので、ここでしか確認できない）
+  const tail = page.locator(".prompt-expander__transparent-tail-tags").first();
+  await expect(tail).toHaveText(
+    "{{simple background}}, {{white background}}, no shadow",
+  );
+  const emphasis = page.locator(
+    ".prompt-expander__section[data-section-id='params'] .prompt-expander__radio",
+  );
+  await emphasis.filter({ hasText: "なし" }).click();
+  await expect(page.getByRole("radio", { name: "なし" })).toBeChecked();
+  await expect(tail).toHaveText(
+    "simple background, white background, no shadow",
+  );
+  await emphasis.filter({ hasText: "{{ }}" }).first().click();
+  await expect(tail).toHaveText(
+    "{{simple background}}, {{white background}}, no shadow",
+  );
+
   // 拡張にも生成にもフラグが載る
   await positiveField(page).fill("銀髪の少女の立ち絵");
   await positiveToolbar(page)
@@ -981,7 +1020,12 @@ test("transparent background is sent with expand/generate and V4.5 entries are c
   await expect.poll(() => state.generateBodies.length).toBe(1);
   expect(state.generateBodies[0]).toMatchObject({
     transparent_background: true,
+    transparent_emphasis: 2,
   });
+
+  // 欄に既に入っているタグは二重に足さない（backend の merge_tags と同じ判定）
+  await positiveField(page).fill("1girl, white background");
+  await expect(tail).toHaveText("{{simple background}}, no shadow");
 
   // エントリにはバッジが付き、画像は切り抜かれた blob URL に置き換わり、透過 PNG を保存できる
   const newest = page.locator(".prompt-expander__entry-list > li").first();
@@ -995,6 +1039,158 @@ test("transparent background is sent with expand/generate and V4.5 entries are c
   const download = newest.getByRole("link", { name: "透過PNGを保存" });
   await expect(download).toHaveAttribute("href", /^blob:/);
   await expect(download).toHaveAttribute("download", /\.png$/);
+});
+
+test("inpaint sends the drawn mask with the i2i source and the entry can be regenerated with it", async ({
+  page,
+}) => {
+  await enableFeatures(page, { experimentalPromptExpanderEnabled: true });
+  const state = await mockPromptExpanderApis(page);
+  // マスク一覧（通常ゲームと共用の API）と、i2i 元に使う既存エントリの画像
+  await page.route("**/api/game/masks", async (route) => {
+    await route.fulfill({
+      json: {
+        system: [
+          {
+            id: "system:system_mask_upper_body.png",
+            name: "上半身マスク（頭部以外）",
+            type: "system",
+            url: "/api/game/masks/system/system_mask_upper_body.png",
+          },
+        ],
+        history: [],
+        presets: [],
+      },
+    });
+  });
+  await page.route("**/api/game/masks/system/**", async (route) => {
+    await route.fulfill({
+      body: Buffer.from(WHITE_BG_PNG_BASE64, "base64"),
+      contentType: "image/png",
+    });
+  });
+  await page.route("**/api/prompt-expander/images/**", async (route) => {
+    await route.fulfill({
+      body: Buffer.from(WHITE_BG_PNG_BASE64, "base64"),
+      contentType: "image/png",
+    });
+  });
+  await openSession(page);
+
+  const section = page.locator(
+    ".prompt-expander__section[data-section-id='inpaint']",
+  );
+  await section
+    .getByRole("button", { name: "インペイント（部分修正）" })
+    .click();
+
+  // 元画像が無いうちは「マスクを編集」を押せず、理由が本文にも出る
+  await expect(
+    section.getByRole("button", { name: "マスクを編集" }),
+  ).toBeDisabled();
+  await expect(section).toContainText("元画像を選んでください");
+
+  // 履歴のエントリを i2i 元にすると押せるようになる（ベース画像は i2i 元と共用）
+  await page
+    .locator(".prompt-expander__entry-list > li")
+    .first()
+    .getByRole("button", { name: "i2i元にする" })
+    .click();
+  const editMask = section.getByRole("button", { name: "マスクを編集" });
+  await expect(editMask).toBeEnabled();
+
+  // 定型マスクを選んで確定する（描画キャンバスは Playwright で塗らずプリセットで代用）
+  await editMask.click();
+  const modal = page.getByRole("dialog", { name: "マスクを編集" });
+  await modal.getByRole("button", { name: "上半身マスク（頭部以外）" }).click();
+  await modal.getByRole("button", { name: "このマスクを使う" }).click();
+  await expect(modal).toBeHidden();
+  await expect(section).toContainText("上半身マスク（頭部以外）");
+
+  // トグルが OFF の間はマスクを送らない
+  await positiveField(page).fill("1girl, smiling");
+  await generateButton(page).click();
+  await expect.poll(() => state.generateBodies.length).toBe(1);
+  expect(state.generateBodies[0].inpaint_mask).toBeUndefined();
+
+  // ON にすると mask が載り、i2i 元も一緒に送られる
+  await section
+    .locator(".prompt-expander__switch", { hasText: "インペイントを使う" })
+    .click();
+  await expect(
+    page.getByRole("checkbox", { name: "インペイントを使う" }),
+  ).toBeChecked();
+  await generateButton(page).click();
+  await expect.poll(() => state.generateBodies.length).toBe(2);
+  const body = state.generateBodies[1];
+  expect(String(body.inpaint_mask)).toMatch(/^data:image\/png;base64,/);
+  expect(body.source_kind).toBe("entry");
+
+  // エントリにバッジが付き、「このプロンプトで再生成」は同じマスクを ID で送り直す
+  const newest = page.locator(".prompt-expander__entry-list > li").first();
+  await expect(newest).toContainText("インペイント");
+  await newest.getByRole("button", { name: "このプロンプトで再生成" }).click();
+  await expect.poll(() => state.generateBodies.length).toBe(3);
+  expect(state.generateBodies[2]).toMatchObject({
+    inpaint_mask_entry_id: "pe-entry-new-2",
+    source_kind: "entry",
+  });
+});
+
+test("the generate control bar stays visible, summarises the settings and toggles every section", async ({
+  page,
+}) => {
+  await enableFeatures(page, { experimentalPromptExpanderEnabled: true });
+  await mockPromptExpanderApis(page);
+  await openSession(page);
+
+  // 生成ボタンはコンポーザ内ではなく下端のコントロールエリアにあり、1 つだけ
+  const bar = page.getByRole("toolbar", { name: "生成操作" });
+  await expect(generateButton(page)).toHaveCount(1);
+  await expect(
+    bar.getByRole("button", { name: "生成", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.locator(".prompt-expander__composer .prompt-expander__generate"),
+  ).toHaveCount(0);
+
+  // 現在値のサマリが出る（モデルとサイズは常に、透過は ON のときだけ）
+  await expect(bar).toContainText("NAI Diffusion V4.5 Full");
+  await expect(bar).toContainText("縦長");
+  await expect(bar).not.toContainText("透過");
+  await page
+    .locator(".prompt-expander__switch", { hasText: "画像の背景を透過" })
+    .click();
+  await expect(bar).toContainText("透過");
+
+  // 全セクションを開いても生成ボタンは画面内に留まる
+  await bar.getByRole("button", { name: "すべて開く" }).click();
+  const headings = page.locator(
+    ".prompt-expander__composer .prompt-expander__section-toggle",
+  );
+  const count = await headings.count();
+  for (let i = 0; i < count; i += 1) {
+    await expect(headings.nth(i)).toHaveAttribute("aria-expanded", "true");
+  }
+  await expect(
+    bar.getByRole("button", { name: "生成", exact: true }),
+  ).toBeInViewport();
+
+  // 「すべて閉じる」で畳め、状態は localStorage に残る
+  await bar.getByRole("button", { name: "すべて閉じる" }).click();
+  for (let i = 0; i < count; i += 1) {
+    await expect(headings.nth(i)).toHaveAttribute("aria-expanded", "false");
+  }
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          JSON.parse(
+            localStorage.getItem("prompt_expander_sections_open") ?? "{}",
+          ).params,
+      ),
+    )
+    .toBe(false);
 });
 
 test("comic notation chips insert markers at the caret and the narration toggle is sent with expand", async ({
@@ -1146,7 +1342,8 @@ test("composer sections collapse, expand and persist to localStorage", async ({
   await mockPromptExpanderApis(page);
   await openSession(page);
 
-  // 並び順: 生成パラメータ → 漫画（コマ割り） → プロンプト／指示 → キャラクタープロンプト → i2i設定 → 精密参照
+  // 並び順: 生成パラメータ → 漫画（コマ割り） → プロンプト／指示 → キャラクタープロンプト
+  //         → i2i設定 → インペイント（部分修正） → 精密参照
   const headings = page.locator(
     ".prompt-expander__composer .prompt-expander__section-toggle",
   );
@@ -1156,6 +1353,7 @@ test("composer sections collapse, expand and persist to localStorage", async ({
     /プロンプト／指示/,
     /キャラクタープロンプト/,
     /i2i設定/,
+    /インペイント（部分修正）/,
     /精密参照（V4.5 系のみ）/,
   ]);
 

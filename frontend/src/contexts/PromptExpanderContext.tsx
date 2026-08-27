@@ -55,6 +55,7 @@ import {
   DEFAULT_PROMPT_EXPANDER_REFERENCE_FIDELITY,
   DEFAULT_PROMPT_EXPANDER_REFERENCE_STRENGTH,
   DEFAULT_PROMPT_EXPANDER_REFERENCE_TYPE,
+  DEFAULT_PROMPT_EXPANDER_TRANSPARENT_EMPHASIS,
   getMaxCharacterPrompts,
   NOVELAI_TEXT_MODEL_OPTIONS,
   PROMPT_EXPANDER_ANLAS_PER_REFERENCE,
@@ -92,6 +93,16 @@ export interface PromptExpanderSource {
 
 /** 画像ピッカー／アップロードの入れ先（i2i 元 or 精密参照） */
 export type PromptExpanderPickerTarget = "source" | "reference";
+
+/** インペイントで使うマスク（新規描画 or 過去エントリのマスク再利用） */
+export interface PromptExpanderMask {
+  /** 新規に描いたマスクの data URL */
+  dataUrl?: string;
+  /** 過去エントリのマスクを再利用するときの元エントリ ID */
+  fromEntryId?: string;
+  thumbnailUrl: string;
+  label: string;
+}
 
 /** LLM 拡張の結果（欄の直下のインラインカードで編集可能） */
 export interface PromptExpanderPendingExpansion {
@@ -180,6 +191,10 @@ interface PromptExpanderContextValue {
   referenceAnlasCost: number;
   /** 背景透過が実際に効く状態か（設定 ON かつ漫画モード OFF） */
   transparentActive: boolean;
+  /** インペイントに使うマスク（i2i 元の上に描く。セッション内だけ保持する） */
+  inpaintMask: PromptExpanderMask | null;
+  /** インペイントが実際に生成へ載る状態か（設定 ON かつ i2i 元あり かつ マスクあり） */
+  inpaintActive: boolean;
   positiveText: string;
   positiveMode: PromptExpandMode;
   positiveOrigin: PromptExpanderPositiveOrigin | null;
@@ -216,6 +231,8 @@ interface PromptExpanderContextValue {
   clearSource: () => void;
   setReference: (reference: PromptExpanderSource | null) => void;
   clearReference: () => void;
+  setInpaintMask: (mask: PromptExpanderMask | null) => void;
+  clearInpaintMask: () => void;
   setPositiveText: (text: string) => void;
   setPositiveMode: (mode: PromptExpandMode) => void;
   setCharacterMode: (on: boolean) => void;
@@ -307,6 +324,8 @@ const DEFAULT_SETTINGS: PromptExpanderSettings = {
   reference_strength: DEFAULT_PROMPT_EXPANDER_REFERENCE_STRENGTH,
   reference_fidelity: DEFAULT_PROMPT_EXPANDER_REFERENCE_FIDELITY,
   transparent_background: false,
+  transparent_emphasis: DEFAULT_PROMPT_EXPANDER_TRANSPARENT_EMPHASIS,
+  use_inpaint: false,
 };
 
 const DEFAULT_OPTIONS: PromptExpanderOptions = {
@@ -450,6 +469,9 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
   const [reference, setReferenceState] = useState<PromptExpanderSource | null>(
     null,
   );
+  // インペイントのマスク。ベース画像は i2i 元を使うので、ここには形だけを持つ
+  const [inpaintMask, setInpaintMaskState] =
+    useState<PromptExpanderMask | null>(null);
   const [positiveText, setPositiveText] = useState("");
   const [positiveMode, setPositiveMode] = useState<PromptExpandMode>("tags");
   const [positiveOrigin, setPositiveOrigin] =
@@ -734,6 +756,9 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
   const referenceAnlasCost = referenceActive ? options.anlasPerReference : 0;
   // 背景透過はコマ枠を切り抜けないため漫画モードとは両立しない（設定は残す）
   const transparentActive = settings.transparent_background && !mangaActive;
+  // インペイントは i2i 元をベース画像にするため、元画像とマスクの両方が要る
+  const inpaintActive =
+    settings.use_inpaint && source !== null && inpaintMask !== null;
   const mangaRequest = useMemo<PromptExpanderMangaOptions>(
     () => ({
       panel_count: settings.manga_panel_count,
@@ -763,6 +788,10 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
     setReferenceState(next);
   }, []);
   const clearReference = useCallback(() => setReferenceState(null), []);
+  const setInpaintMask = useCallback((next: PromptExpanderMask | null) => {
+    setInpaintMaskState(next);
+  }, []);
+  const clearInpaintMask = useCallback(() => setInpaintMaskState(null), []);
 
   const addCharacterSlot = useCallback(
     (text: string = "") => {
@@ -867,6 +896,18 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
         manga_panel_count: mangaActive ? settings.manga_panel_count : null,
         transparent_background: transparentActive,
       };
+      // 強調は透過が効くときだけ意味を持つ（V4.5 の白背景指定を効かせるため）
+      if (transparentActive) {
+        payload.transparent_emphasis = settings.transparent_emphasis;
+      }
+      // インペイントは i2i 元をベース画像に使うので、source と併せて載せる
+      if (inpaintActive && inpaintMask) {
+        if (inpaintMask.dataUrl) {
+          payload.inpaint_mask = inpaintMask.dataUrl;
+        } else if (inpaintMask.fromEntryId) {
+          payload.inpaint_mask_entry_id = inpaintMask.fromEntryId;
+        }
+      }
       if (settings.seed !== null && settings.seed !== undefined) {
         payload.seed = settings.seed;
       }
@@ -898,6 +939,8 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       return payload;
     },
     [
+      inpaintActive,
+      inpaintMask,
       mangaActive,
       reference,
       referenceActive,
@@ -1399,6 +1442,16 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
           patch.reference_fidelity = entry.reference_fidelity;
         }
       }
+      // インペイントのマスクは保存済みなので、同じ領域で差分を作り続けられるよう戻す
+      // （ベース画像は i2i 元と同じく復元しない。インペイントでないエントリでは触らない）
+      if (entry.inpaint && entry.mask_url) {
+        patch.use_inpaint = true;
+        setInpaintMaskState({
+          fromEntryId: entry.id,
+          thumbnailUrl: promptExpanderImageUrl(entry.mask_url),
+          label: entry.instruction || entry.id,
+        });
+      }
       if (Object.keys(patch).length > 0) {
         void updateSettings(patch);
       }
@@ -1429,6 +1482,11 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
         manga_panel_count: entry.manga_mode ? entry.manga_panel_count : null,
         transparent_background: Boolean(entry.transparent_background),
       };
+      // 強調段数はエントリに保存していないので、現在の設定に従う
+      // （送らないとルーターの既定値が使われ、「なし」にしていても強調が付く）
+      if (entry.transparent_background) {
+        payload.transparent_emphasis = settings.transparent_emphasis;
+      }
       // 精密参照も同じ参照元で再現する（アップロード参照は保持していないので参照なしに落とす）
       if (entry.reference_kind === "history" && entry.reference_history_id) {
         payload.reference_kind = "history";
@@ -1456,6 +1514,11 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       if (payload.source_kind !== "none") {
         payload.i2i_strength = entry.i2i_strength ?? settings.i2i_strength;
         payload.i2i_noise = entry.i2i_noise ?? settings.i2i_noise;
+        // 保存済みマスクを使い回して、同じ領域のまま作り直す（表情差分の連続生成）。
+        // 元画像を再現できないアップロード由来のときはマスクも落とす
+        if (entry.inpaint) {
+          payload.inpaint_mask_entry_id = entry.id;
+        }
       }
       setError(null);
       await generate(payload);
@@ -1471,6 +1534,7 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       settings.reference_strength,
       settings.reference_type,
       settings.text_model,
+      settings.transparent_emphasis,
     ],
   );
 
@@ -1489,11 +1553,22 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
         if (reference?.kind === "entry" && reference.entryId === id) {
           setReferenceState(null);
         }
+        // マスクの実体は元エントリと一緒に消えるので、参照だけ残さない
+        if (inpaintMask?.fromEntryId === id) {
+          setInpaintMaskState(null);
+        }
       } catch (err) {
         reportError("Prompt Expander", err);
       }
     },
-    [bumpSessionEntryCount, entries, reference, reportError, source],
+    [
+      bumpSessionEntryCount,
+      entries,
+      inpaintMask,
+      reference,
+      reportError,
+      source,
+    ],
   );
 
   const suggestCharacters = useCallback(
@@ -1566,6 +1641,8 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       referenceActive,
       referenceAnlasCost,
       transparentActive,
+      inpaintMask,
+      inpaintActive,
       positiveText,
       positiveMode,
       positiveOrigin,
@@ -1596,6 +1673,8 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       clearSource,
       setReference,
       clearReference,
+      setInpaintMask,
+      clearInpaintMask,
       setPositiveText,
       setPositiveMode,
       setCharacterMode,
@@ -1651,6 +1730,8 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       referenceActive,
       referenceAnlasCost,
       transparentActive,
+      inpaintMask,
+      inpaintActive,
       positiveText,
       positiveMode,
       positiveOrigin,
@@ -1680,6 +1761,8 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       clearSource,
       setReference,
       clearReference,
+      setInpaintMask,
+      clearInpaintMask,
       setCharacterMode,
       addCharacterSlot,
       updateCharacterSlot,

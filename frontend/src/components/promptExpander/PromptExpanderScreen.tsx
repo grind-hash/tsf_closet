@@ -21,6 +21,7 @@ import { hasApiKeyConsent } from "../apiKeyConsentStorage";
 import MainLayout from "../layout/MainLayout";
 import { NovelaiUsageBar } from "../NovelaiUsageBar";
 import PromptExpanderComposer from "./PromptExpanderComposer";
+import PromptExpanderControlBar from "./PromptExpanderControlBar";
 import PromptExpanderEntryList from "./PromptExpanderEntryList";
 import PromptExpanderSessionList from "./PromptExpanderSessionList";
 import PromptExpanderSettingsPanel, {
@@ -147,98 +148,102 @@ export default function PromptExpanderScreen() {
       onToggleRightPanel={toggleSettings}
     >
       <div className="prompt-expander">
-        <header className="prompt-expander__header">
-          <div className="prompt-expander__header-main">
-            <h1 className="prompt-expander__title">
-              {t("promptExpander.header.title")}
-              <span className="feature-chip-experimental">Experimental</span>
-            </h1>
-            <p className="prompt-expander__subtitle">
-              {t("promptExpander.header.subtitle")}
-            </p>
-          </div>
-          <div className="prompt-expander__header-side">
-            {showUsageBar && anlas?.usage && (
-              <NovelaiUsageBar
-                usage={anlas.usage}
-                compact
-                className="prompt-expander__usage-bar"
-              />
-            )}
-            {anlas && (
-              <span
-                className="prompt-expander__anlas"
-                title={t("promptExpander.header.anlasTitle")}
-              >
-                {t("promptExpander.header.anlas", {
-                  value: anlas.totalAnlas.toLocaleString(),
-                })}
-              </span>
-            )}
-            <button
-              type="button"
-              className={`prompt-expander__btn ${showSettings ? "prompt-expander__btn--primary" : ""}`}
-              onClick={toggleSettings}
-              aria-expanded={showSettings}
-              aria-controls={PROMPT_EXPANDER_SETTINGS_PANEL_ID}
-              title={
-                showSettings
-                  ? t("promptExpander.header.settingsClose")
-                  : t("promptExpander.header.settingsOpenTitle")
-              }
-            >
-              {t("promptExpander.header.settingsToggle")}
-            </button>
-          </div>
-        </header>
-
-        {!options.novelaiConfigured && (
-          <p className="prompt-expander__notice" role="status">
-            {t("promptExpander.header.notConfigured")}
-          </p>
-        )}
-
-        {errorText && (
-          <div className="prompt-expander__error-row" role="alert">
-            <p className="prompt-expander__error">{errorText}</p>
-            <button
-              type="button"
-              className="prompt-expander__btn prompt-expander__btn--sm"
-              onClick={clearError}
-            >
-              {t("promptExpander.header.dismissError")}
-            </button>
-          </div>
-        )}
-
-        {sessionId ? (
-          <div className="prompt-expander__workspace">
-            <section
-              className="prompt-expander__workspace-composer"
-              aria-label={t("promptExpander.composer.sectionLabel")}
-            >
-              {loadingSession && !activeSession ? (
-                <p className="prompt-expander__empty">
-                  {t("promptExpander.sessions.loading")}
-                </p>
-              ) : activeSession ? (
-                <PromptExpanderComposer />
-              ) : (
-                <p className="prompt-expander__empty">
-                  {t("promptExpander.sessions.notFound")}
-                </p>
+        <div className="prompt-expander__scroll">
+          <header className="prompt-expander__header">
+            <div className="prompt-expander__header-main">
+              <h1 className="prompt-expander__title">
+                {t("promptExpander.header.title")}
+                <span className="feature-chip-experimental">Experimental</span>
+              </h1>
+              <p className="prompt-expander__subtitle">
+                {t("promptExpander.header.subtitle")}
+              </p>
+            </div>
+            <div className="prompt-expander__header-side">
+              {showUsageBar && anlas?.usage && (
+                <NovelaiUsageBar
+                  usage={anlas.usage}
+                  compact
+                  className="prompt-expander__usage-bar"
+                />
               )}
-            </section>
-            <section
-              className="prompt-expander__workspace-entries"
-              aria-label={t("promptExpander.entry.sectionLabel")}
-            >
-              <PromptExpanderEntryList />
-            </section>
-          </div>
-        ) : (
-          <PromptExpanderSessionList />
-        )}
+              {anlas && (
+                <span
+                  className="prompt-expander__anlas"
+                  title={t("promptExpander.header.anlasTitle")}
+                >
+                  {t("promptExpander.header.anlas", {
+                    value: anlas.totalAnlas.toLocaleString(),
+                  })}
+                </span>
+              )}
+              <button
+                type="button"
+                className={`prompt-expander__btn ${showSettings ? "prompt-expander__btn--primary" : ""}`}
+                onClick={toggleSettings}
+                aria-expanded={showSettings}
+                aria-controls={PROMPT_EXPANDER_SETTINGS_PANEL_ID}
+                title={
+                  showSettings
+                    ? t("promptExpander.header.settingsClose")
+                    : t("promptExpander.header.settingsOpenTitle")
+                }
+              >
+                {t("promptExpander.header.settingsToggle")}
+              </button>
+            </div>
+          </header>
+
+          {!options.novelaiConfigured && (
+            <p className="prompt-expander__notice" role="status">
+              {t("promptExpander.header.notConfigured")}
+            </p>
+          )}
+
+          {errorText && (
+            <div className="prompt-expander__error-row" role="alert">
+              <p className="prompt-expander__error">{errorText}</p>
+              <button
+                type="button"
+                className="prompt-expander__btn prompt-expander__btn--sm"
+                onClick={clearError}
+              >
+                {t("promptExpander.header.dismissError")}
+              </button>
+            </div>
+          )}
+
+          {sessionId ? (
+            <div className="prompt-expander__workspace">
+              <section
+                className="prompt-expander__workspace-composer"
+                aria-label={t("promptExpander.composer.sectionLabel")}
+              >
+                {loadingSession && !activeSession ? (
+                  <p className="prompt-expander__empty">
+                    {t("promptExpander.sessions.loading")}
+                  </p>
+                ) : activeSession ? (
+                  <PromptExpanderComposer />
+                ) : (
+                  <p className="prompt-expander__empty">
+                    {t("promptExpander.sessions.notFound")}
+                  </p>
+                )}
+              </section>
+              <section
+                className="prompt-expander__workspace-entries"
+                aria-label={t("promptExpander.entry.sectionLabel")}
+              >
+                <PromptExpanderEntryList />
+              </section>
+            </div>
+          ) : (
+            <PromptExpanderSessionList />
+          )}
+        </div>
+        {/* セクションを開いても生成操作が隠れないよう、下端に固定して置く */}
+        {sessionId && activeSession && <PromptExpanderControlBar />}
       </div>
 
       <AdventureAnlasConfirmDialog
