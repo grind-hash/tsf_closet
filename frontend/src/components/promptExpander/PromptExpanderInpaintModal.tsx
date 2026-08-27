@@ -9,9 +9,10 @@
  * 固定値にすると landscape / square でマスクの縦横比が崩れる。
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
+  type CanvasPath,
   ReactSketchCanvas,
   type ReactSketchCanvasRef,
 } from "react-sketch-canvas";
@@ -28,9 +29,11 @@ import PromptExpanderModal from "./PromptExpanderModal";
 import "./PromptExpanderShared.css";
 import "./PromptExpanderInpaintModal.css";
 
-/** キャンバスの表示上限（モーダル内に収める） */
-const MAX_CANVAS_WIDTH = 520;
-const MAX_CANVAS_HEIGHT = 460;
+/**
+ * キャンバス置き場（ステージ）の実寸が測れるまでの仮サイズ。
+ * 実際の表示サイズはステージの大きさに合わせて決め直す。
+ */
+const FALLBACK_STAGE_SIZE = { width: 520, height: 460 };
 
 const EMPTY_MASKS: MaskListResponse = { system: [], history: [], presets: [] };
 
@@ -65,8 +68,21 @@ export default function PromptExpanderInpaintModal({
   const [presetName, setPresetName] = useState("");
   const [savingPreset, setSavingPreset] = useState(false);
   const [emptyWarning, setEmptyWarning] = useState(false);
-  const [canvasSize, setCanvasSize] = useState({ width: 384, height: 560 });
+  const stageRef = useRef<HTMLDivElement>(null);
+  const [stageSize, setStageSize] = useState(FALLBACK_STAGE_SIZE);
   const [baseSize, setBaseSize] = useState({ width: 832, height: 1216 });
+
+  // 元画像の縦横比を保ったままステージいっぱいに収める表示サイズ
+  const canvasSize = useMemo(() => {
+    const ratio = Math.min(
+      stageSize.width / baseSize.width,
+      stageSize.height / baseSize.height,
+    );
+    return {
+      width: Math.max(1, Math.floor(baseSize.width * ratio)),
+      height: Math.max(1, Math.floor(baseSize.height * ratio)),
+    };
+  }, [stageSize, baseSize]);
 
   const loadMasks = useCallback(async () => {
     try {
@@ -89,25 +105,69 @@ export default function PromptExpanderInpaintModal({
     void loadMasks();
   }, [open, initialMaskUrl, loadMasks]);
 
-  // 元画像の実寸からキャンバスの表示サイズを決める
+  // 元画像の実寸（マスクの書き出し解像度と表示の縦横比の基準になる）
   useEffect(() => {
     if (!open || !baseImageUrl) return;
     const img = new Image();
     img.crossOrigin = "anonymous";
     img.onload = () => {
-      const ratio = Math.min(
-        MAX_CANVAS_WIDTH / img.naturalWidth,
-        MAX_CANVAS_HEIGHT / img.naturalHeight,
-        1,
-      );
-      setCanvasSize({
-        width: Math.round(img.naturalWidth * ratio),
-        height: Math.round(img.naturalHeight * ratio),
-      });
       setBaseSize({ width: img.naturalWidth, height: img.naturalHeight });
     };
     img.src = baseImageUrl;
   }, [open, baseImageUrl]);
+
+  // ステージの実寸を追いかける（モーダルは画面サイズに追従するため固定値にしない）
+  useEffect(() => {
+    if (!open) return;
+    const stage = stageRef.current;
+    if (!stage || typeof ResizeObserver === "undefined") return;
+    const update = () => {
+      const rect = stage.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+      setStageSize((prev) => {
+        const next = {
+          width: Math.floor(rect.width),
+          height: Math.floor(rect.height),
+        };
+        return prev.width === next.width && prev.height === next.height
+          ? prev
+          : next;
+      });
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(stage);
+    return () => observer.disconnect();
+  }, [open]);
+
+  // 表示サイズが変わったら、描き済みのストロークも同じ比率で置き直す
+  // （ReactSketchCanvas の座標は表示ピクセルなので、そのままだと画像とずれる）
+  const prevCanvasSizeRef = useRef(canvasSize);
+  useEffect(() => {
+    const prev = prevCanvasSizeRef.current;
+    prevCanvasSizeRef.current = canvasSize;
+    if (prev.width === canvasSize.width && prev.height === canvasSize.height) {
+      return;
+    }
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const scaleX = canvasSize.width / prev.width;
+    const scaleY = canvasSize.height / prev.height;
+    void canvas.exportPaths().then((paths: CanvasPath[]) => {
+      if (paths.length === 0) return;
+      canvas.resetCanvas();
+      canvas.loadPaths(
+        paths.map((path) => ({
+          ...path,
+          strokeWidth: path.strokeWidth * scaleX,
+          paths: path.paths.map((pt) => ({
+            x: pt.x * scaleX,
+            y: pt.y * scaleY,
+          })),
+        })),
+      );
+    });
+  }, [canvasSize]);
 
   const selectMask = useCallback(async (mask: MaskInfo) => {
     setBusy(true);
@@ -301,7 +361,7 @@ export default function PromptExpanderInpaintModal({
       title={t("promptExpander.inpaint.modalTitle")}
       onClose={onClose}
       closeLabel={t("common.close")}
-      size="lg"
+      size="xl"
       className="prompt-expander__inpaint-modal"
       footer={
         <>
@@ -375,61 +435,65 @@ export default function PromptExpanderInpaintModal({
             >
               {t("promptExpander.inpaint.clear")}
             </button>
-          </div>
-
-          <div
-            className="prompt-expander__inpaint-canvas"
-            style={{ width: canvasSize.width, height: canvasSize.height }}
-          >
-            {baseImageUrl && (
-              <img
-                className="prompt-expander__inpaint-base"
-                src={baseImageUrl}
-                alt=""
-                style={{ width: canvasSize.width, height: canvasSize.height }}
-                crossOrigin="anonymous"
-              />
-            )}
-            {baseMaskUrl && (
-              <img
-                className="prompt-expander__inpaint-preset"
-                src={baseMaskUrl}
-                alt=""
-                style={{ width: canvasSize.width, height: canvasSize.height }}
-              />
-            )}
-            <div
-              className="prompt-expander__inpaint-overlay"
-              style={{ width: canvasSize.width, height: canvasSize.height }}
-            >
-              <ReactSketchCanvas
-                ref={canvasRef}
-                width={`${canvasSize.width}px`}
-                height={`${canvasSize.height}px`}
-                strokeWidth={brushSize}
-                eraserWidth={brushSize}
-                strokeColor="rgba(233, 69, 96, 0.55)"
-                canvasColor="transparent"
-                style={{ background: "transparent", border: "none" }}
+            <div className="prompt-expander__inpaint-brush">
+              <label
+                className="prompt-expander__label"
+                htmlFor="prompt-expander-brush-size"
+              >
+                {t("promptExpander.inpaint.brushSize")}: {brushSize}
+              </label>
+              <input
+                id="prompt-expander-brush-size"
+                type="range"
+                className="prompt-expander__range"
+                min={PROMPT_EXPANDER_BRUSH_SIZE_MIN}
+                max={PROMPT_EXPANDER_BRUSH_SIZE_MAX}
+                value={brushSize}
+                onChange={(e) => setBrushSize(Number(e.target.value))}
               />
             </div>
           </div>
 
-          <label
-            className="prompt-expander__label"
-            htmlFor="prompt-expander-brush-size"
-          >
-            {t("promptExpander.inpaint.brushSize")}: {brushSize}
-          </label>
-          <input
-            id="prompt-expander-brush-size"
-            type="range"
-            className="prompt-expander__range"
-            min={PROMPT_EXPANDER_BRUSH_SIZE_MIN}
-            max={PROMPT_EXPANDER_BRUSH_SIZE_MAX}
-            value={brushSize}
-            onChange={(e) => setBrushSize(Number(e.target.value))}
-          />
+          <div className="prompt-expander__inpaint-stage" ref={stageRef}>
+            <div
+              className="prompt-expander__inpaint-canvas"
+              style={{ width: canvasSize.width, height: canvasSize.height }}
+            >
+              {baseImageUrl && (
+                <img
+                  className="prompt-expander__inpaint-base"
+                  src={baseImageUrl}
+                  alt=""
+                  style={{ width: canvasSize.width, height: canvasSize.height }}
+                  crossOrigin="anonymous"
+                />
+              )}
+              {baseMaskUrl && (
+                <img
+                  className="prompt-expander__inpaint-preset"
+                  src={baseMaskUrl}
+                  alt=""
+                  style={{ width: canvasSize.width, height: canvasSize.height }}
+                />
+              )}
+              <div
+                className="prompt-expander__inpaint-overlay"
+                style={{ width: canvasSize.width, height: canvasSize.height }}
+              >
+                <ReactSketchCanvas
+                  ref={canvasRef}
+                  width={`${canvasSize.width}px`}
+                  height={`${canvasSize.height}px`}
+                  strokeWidth={brushSize}
+                  eraserWidth={brushSize}
+                  strokeColor="rgba(233, 69, 96, 0.55)"
+                  canvasColor="transparent"
+                  style={{ background: "transparent", border: "none" }}
+                />
+              </div>
+            </div>
+          </div>
+
           {emptyWarning && (
             <p
               className="prompt-expander__hint prompt-expander__hint--warning"

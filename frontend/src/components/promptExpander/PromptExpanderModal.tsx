@@ -14,8 +14,8 @@ interface PromptExpanderModalProps {
   closeLabel: string;
   children: ReactNode;
   footer?: ReactNode;
-  /** ダイアログ幅のバリアント */
-  size?: "sm" | "md" | "lg";
+  /** ダイアログ幅のバリアント（xl は画面いっぱいに近い作業用） */
+  size?: "sm" | "md" | "lg" | "xl";
   className?: string;
 }
 

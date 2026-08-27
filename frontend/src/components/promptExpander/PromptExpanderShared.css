@@ -435,6 +435,14 @@
   height: min(680px, calc(100dvh - 40px));
 }
 
+/* 画像編集など作業領域が要るモーダル。画面の余白 20px を残して広げる */
+.prompt-expander__modal--xl {
+  width: min(1400px, 100%);
+  height: calc(100vh - 40px);
+  height: calc(100dvh - 40px);
+  max-height: none;
+}
+
 .prompt-expander__modal-header {
   display: flex;
   flex: 0 0 auto;
