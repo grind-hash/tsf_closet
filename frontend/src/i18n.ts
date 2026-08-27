@@ -281,9 +281,19 @@ const resources = {
           "OFFが既定です。既定では背景は開始時に1回だけ生成し、行動に応じて中央の立ち絵のみ更新します。ONにすると、立ち絵の更新後に背景を含む合成シーンも直列で再生成するため、1ターンあたりの画像生成が1回増えて待ち時間が長くなります。",
         enableCompositeScenePlayHint:
           "次回のターンから反映されます。ONの間は毎ターン、立ち絵に加えて合成シーンも直列生成されるため待ち時間が長くなります。",
+        enableCompositeSceneOneOnOneHint:
+          "1on1立ち絵モード中は合成シーンを描かないため、この設定は効きません。モードをOFFにすると再び有効になります。",
+        oneOnOneMode: "1on1立ち絵モード",
+        oneOnOneModeHint:
+          "OFFが既定です。ONにすると攻略対象の立ち絵を中央に大きく1枚だけ置き、各ターンの画像生成は背景と攻略対象の立ち絵だけになります（主人公の立ち絵と合成シーンは描きません）。背景は現在地が変わったときだけ描き直し、昼夜の変化では変えません。本文は「名前「セリフ」」の台本形式になり、セリフ読み上げと組み合わせやすくなります。セルフホスト(ComfyUI)では背景を生成できません。",
+        oneOnOneModePlayHint:
+          "次回のターンから反映されます。ONの間は攻略対象の立ち絵だけを描き、背景は現在地が変わったときだけ描き直します（昼夜では変えません）。本文は台本形式になります。",
+        regeneratePartnerPortrait: "攻略対象の立ち絵を再生成",
         drawPortraitEveryTurn: "主人公の立ち絵を毎ターン描く",
         drawPortraitEveryTurnHint:
           "ONが既定です。OFFにすると行動しても主人公の立ち絵を更新せず、直前の立ち絵のまま物語が進みます。合成シーンを描く設定のときは、直前の立ち絵をそのまま参照に使います。この設定はブラウザごとに保存されます。",
+        drawPortraitEveryTurnOneOnOneHint:
+          "1on1立ち絵モード中は主人公の立ち絵を描かないため、この設定は効きません。モードをOFFにすると再び有効になります。",
         drawPartnerEveryTurn: "攻略対象の立ち絵を毎ターン描く",
         drawPartnerEveryTurnHint:
           "ONが既定です。OFFにすると攻略対象の立ち絵を更新せず、直前の立ち絵のまま進行します。合成シーンを描く設定のときは、この立ち絵が合成の参照にも使われます。この設定はブラウザごとに保存されます。",
@@ -413,6 +423,27 @@ const resources = {
           show: "ウィンドウを戻す",
           showHint: "メッセージウィンドウを再表示（H）",
         },
+        sound: {
+          settings: "サウンド設定",
+        },
+        voice: {
+          title: "セリフ読み上げ",
+          enable: "攻略対象のセリフを読み上げる",
+          enableHint:
+            "手番の完了時とトークの返答時に、攻略対象のセリフを AivisSpeech で自動再生します（本文の「名前「セリフ」」行だけを読みます）。再生中はBGMを小さくします。",
+          disabledHint:
+            "設定 > 音声合成 で読み上げを有効にし、話者を選ぶと使えます。",
+          volume: "音量",
+          stop: "停止",
+          replay: "セリフを読み上げ",
+          replayHint: "表示中の攻略対象のセリフを読み上げる（再生中なら停止）",
+          status: {
+            idle: "待機中",
+            loading: "音声を合成中...",
+            playing: "再生中",
+            error: "読み上げに失敗しました",
+          },
+        },
         bgm: {
           settings: "BGM設定",
           enable: "BGMを再生",
@@ -427,6 +458,17 @@ const resources = {
         },
         actionPanel: {
           title: "行動",
+          act: "行動",
+          talk: "トーク",
+          talkHint:
+            "手番を消費せずに攻略対象と会話します（好感度・所持金・日数は変わりません）",
+        },
+        talk: {
+          placeholder: "{{name}}に話しかける",
+          hint: "手番を消費しない雑談です。好感度・所持金・日数は変わらず、会話の内容は次の手番の物語に引き継がれます。",
+          emptyHint: "{{name}}に話しかけてみましょう。手番は消費しません。",
+          you: "あなた",
+          pending: "{{name}}が考えています...",
         },
         freeInput: "行動や会話を自由に入力",
         freeInputHint:
@@ -2227,9 +2269,19 @@ const resources = {
           "Off by default. By default, the background is generated once at the start, and only the centered character sprite updates as you act. When on, the full composite scene (including background) is also regenerated in series after each sprite update, so each turn runs one more image generation and takes longer.",
         enableCompositeScenePlayHint:
           "Applies from the next turn. While on, every turn generates the composite scene in series after the character sprite, so turns take longer.",
+        enableCompositeSceneOneOnOneHint:
+          "One-on-one sprite mode never draws the composite scene, so this setting has no effect until the mode is turned off.",
+        oneOnOneMode: "One-on-one sprite mode",
+        oneOnOneModeHint:
+          "Off by default. When on, only the partner's sprite is shown, large and centered, and each turn generates just the background and the partner sprite (no protagonist sprite, no composite scene). The background is redrawn only when the location changes, never for day/night. The story is written as a script (Name「line」), which pairs well with voice playback. Self-hosted (ComfyUI) cannot generate backgrounds.",
+        oneOnOneModePlayHint:
+          "Applies from the next turn. While on, only the partner sprite is drawn and the background is redrawn only when the location changes (never for day/night). The story is written as a script.",
+        regeneratePartnerPortrait: "Regenerate the partner sprite",
         drawPortraitEveryTurn: "Draw protagonist sprite every turn",
         drawPortraitEveryTurnHint:
           "On by default. When off, the protagonist sprite is not updated as you act; the story continues with the previous sprite. With the composite scene on, the previous sprite is reused as its character reference. This preference is saved per browser.",
+        drawPortraitEveryTurnOneOnOneHint:
+          "One-on-one sprite mode never draws the protagonist sprite, so this setting has no effect until the mode is turned off.",
         drawPartnerEveryTurn: "Draw partner sprite every turn",
         drawPartnerEveryTurnHint:
           "On by default. When off, the partner sprite is not updated; play continues with the previous sprite. With the composite scene on, this sprite is also used as a reference for the composite. This preference is saved per browser.",
@@ -2355,6 +2407,27 @@ const resources = {
           show: "Show window",
           showHint: "Show the message window again (H)",
         },
+        sound: {
+          settings: "Sound settings",
+        },
+        voice: {
+          title: "Voice playback",
+          enable: "Read the partner's lines aloud",
+          enableHint:
+            "After each turn and each talk reply, the partner's lines are played with AivisSpeech (only Name「line」 lines are read). BGM is lowered while a voice plays.",
+          disabledHint:
+            "Enable speech synthesis and pick a speaker under Settings > Speech synthesis to use this.",
+          volume: "Volume",
+          stop: "Stop",
+          replay: "Read the lines aloud",
+          replayHint: "Read the partner's lines shown now (stops if playing)",
+          status: {
+            idle: "Idle",
+            loading: "Synthesizing voice...",
+            playing: "Playing",
+            error: "Voice playback failed",
+          },
+        },
         bgm: {
           settings: "BGM settings",
           enable: "Play BGM",
@@ -2369,6 +2442,17 @@ const resources = {
         },
         actionPanel: {
           title: "Actions",
+          act: "Act",
+          talk: "Talk",
+          talkHint:
+            "Chat with the partner without spending a turn (affection, money, and days do not change)",
+        },
+        talk: {
+          placeholder: "Say something to {{name}}",
+          hint: "A free chat that does not spend a turn. Affection, money, and days stay the same, and what you talk about carries into the next scene.",
+          emptyHint: "Say something to {{name}}. This does not spend a turn.",
+          you: "You",
+          pending: "{{name}} is thinking...",
         },
         freeInput: "Enter an action or dialogue",
         freeInputHint:

@@ -118,3 +118,50 @@ describe("isAdventureTurnTextOnly", () => {
     ).toBe(false);
   });
 });
+
+describe("one-on-one sprite mode", () => {
+  it("counts only the partner sprite even with portrait and composite on", () => {
+    expect(
+      estimateAdventureTurnSeconds({
+        preset: "romance",
+        enableCompositeScene: true,
+        drawPortraitEveryTurn: true,
+        drawPartnerEveryTurn: true,
+        oneOnOneMode: true,
+      }),
+    ).toBe(40);
+  });
+
+  it("is text-only exactly when the partner sprite is off", () => {
+    expect(
+      isAdventureTurnTextOnly({
+        preset: "romance",
+        enableCompositeScene: true,
+        drawPortraitEveryTurn: true,
+        drawPartnerEveryTurn: false,
+        oneOnOneMode: true,
+      }),
+    ).toBe(true);
+    expect(
+      isAdventureTurnTextOnly({
+        preset: "romance",
+        enableCompositeScene: false,
+        drawPortraitEveryTurn: false,
+        drawPartnerEveryTurn: true,
+        oneOnOneMode: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("ignores the flag outside romance", () => {
+    expect(
+      estimateAdventureTurnSeconds({
+        preset: "escape",
+        enableCompositeScene: true,
+        drawPortraitEveryTurn: true,
+        drawPartnerEveryTurn: true,
+        oneOnOneMode: true,
+      }),
+    ).toBe(60);
+  });
+});

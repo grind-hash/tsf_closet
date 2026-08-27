@@ -9,6 +9,12 @@ const streamControl = vi.hoisted(() => ({
   finish: null as (() => void) | null,
 }));
 
+const talkControl = vi.hoisted(() => ({
+  onEvent: null as ((event: StreamEvent) => void) | null,
+  finish: null as (() => void) | null,
+  bodies: [] as unknown[],
+}));
+
 // AdventureProvider は API 料金の累計加算と Anlas 確認判定のために
 // SettingsContext を参照する。Provider 全体を立てずに最小のモックで賄う
 vi.mock("../SettingsContext", () => ({
@@ -30,10 +36,24 @@ vi.mock("../../apis/adventure", () => ({
         streamControl.finish = resolve;
       }),
   ),
+  streamAdventureTalk: vi.fn(
+    (_runId: string, body: unknown, onEvent: (event: StreamEvent) => void) =>
+      new Promise<void>((resolve) => {
+        talkControl.bodies.push(body);
+        talkControl.onEvent = onEvent;
+        talkControl.finish = resolve;
+      }),
+  ),
+  canActOnRun: (run: { status?: string; epilogue?: boolean } | null) =>
+    run?.status === "active" || Boolean(run?.epilogue),
   fetchAdventureRun: vi.fn(async () => ({
     id: "run-1",
+    preset: "romance",
+    status: "active",
+    turn_count: 2,
     turns: [],
     choices: [],
+    talk_log: [],
   })),
   fetchAdventureRuns: vi.fn(async () => []),
   fetchAdventureTemplates: vi.fn(async () => []),
@@ -52,6 +72,9 @@ function StreamProbe() {
     activeRun,
     loadRun,
     submitTurn,
+    submitTalk,
+    talking,
+    talkDraft,
     phase,
     phaseStep,
     streamingNarrative,
@@ -59,6 +82,17 @@ function StreamProbe() {
   return (
     <>
       <div data-testid="run">{activeRun?.id ?? "none"}</div>
+      <div data-testid="turn-count">{activeRun?.turn_count ?? "none"}</div>
+      <div data-testid="talking">{talking ? "yes" : "no"}</div>
+      <div data-testid="talk-draft">{talkDraft}</div>
+      <div data-testid="talk-log">
+        {(activeRun?.talk_log ?? [])
+          .map((entry) => `${entry.role}:${entry.text}`)
+          .join("|")}
+      </div>
+      <button type="button" onClick={() => void submitTalk("  やあ  ")}>
+        talk
+      </button>
       <div data-testid="phase">{phase ?? "none"}</div>
       <div data-testid="phase-step">
         {phaseStep
@@ -110,6 +144,9 @@ describe("AdventureContext turn stream", () => {
   beforeEach(() => {
     streamControl.onEvent = null;
     streamControl.finish = null;
+    talkControl.onEvent = null;
+    talkControl.finish = null;
+    talkControl.bodies = [];
   });
 
   afterEach(() => {
@@ -180,5 +217,89 @@ describe("AdventureContext turn stream", () => {
     expect(screen.getByTestId("phase-step").textContent).toBe("composite:2/2");
 
     await finishTurnStream();
+  });
+
+  it("keeps the partner sub-step (1on1 mode has no portrait step)", async () => {
+    await startTurnStream();
+
+    act(() => {
+      streamControl.onEvent?.({
+        type: "status",
+        data: {
+          phase: "image_generation",
+          step: "partner",
+          step_index: 1,
+          step_count: 1,
+        },
+      });
+    });
+    expect(screen.getByTestId("phase-step").textContent).toBe("partner:1/1");
+
+    await finishTurnStream();
+  });
+});
+
+describe("AdventureContext talk stream", () => {
+  beforeEach(() => {
+    streamControl.onEvent = null;
+    streamControl.finish = null;
+    talkControl.onEvent = null;
+    talkControl.finish = null;
+    talkControl.bodies = [];
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("appends talk entries without touching the turn count", async () => {
+    render(
+      <AdventureProvider>
+        <StreamProbe />
+      </AdventureProvider>,
+    );
+    act(() => {
+      screen.getByRole("button", { name: "load" }).click();
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("run").textContent).toBe("run-1"),
+    );
+    act(() => {
+      screen.getByRole("button", { name: "talk" }).click();
+    });
+    await waitFor(() => expect(talkControl.onEvent).not.toBeNull());
+    expect(talkControl.bodies).toEqual([{ user_input: "やあ" }]);
+    expect(screen.getByTestId("talking").textContent).toBe("yes");
+
+    act(() => {
+      talkControl.onEvent?.({ type: "talk_chunk", data: { chunk: "\nやっ" } });
+      talkControl.onEvent?.({ type: "talk_chunk", data: { chunk: "ほー" } });
+    });
+    expect(screen.getByTestId("talk-draft").textContent).toBe("やっほー");
+
+    act(() => {
+      talkControl.onEvent?.({
+        type: "talk_done",
+        data: {
+          user_entry: { id: "u1", role: "user", text: "やあ", after_turn: 2 },
+          partner_entry: {
+            id: "p1",
+            role: "partner",
+            text: "やっほー",
+            after_turn: 2,
+          },
+          turn_count: 2,
+        },
+      });
+      talkControl.finish?.();
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("talking").textContent).toBe("no"),
+    );
+    expect(screen.getByTestId("talk-log").textContent).toBe(
+      "user:やあ|partner:やっほー",
+    );
+    expect(screen.getByTestId("turn-count").textContent).toBe("2");
+    expect(screen.getByTestId("talk-draft").textContent).toBe("");
   });
 });

@@ -4833,3 +4833,171 @@ button:disabled {
     display: none;
   }
 }
+
+/*
+ * 1on1 立ち絵モード(romance): 攻略対象の立ち絵を中央に大きく1枚だけ置く。
+ * 並置用の --partner(右寄せ・縮小)を打ち消し、基底の中央配置へ戻す
+ */
+.adventure-stage__portrait--solo {
+  left: 50%;
+  height: 96%;
+  max-width: 92%;
+}
+
+/* 行動 / トーク のセグメント型トグル(romance の行動パネル見出し) */
+.adventure-segments--pair {
+  flex: 1 1 auto;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.adventure-segments--pair button {
+  min-height: 32px;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.adventure-messagebox--romance .adventure-segments--pair button.is-active {
+  border-color: #f08fb7;
+  color: #14181c;
+  background: #f08fb7;
+}
+
+/* 台本形式(名前「セリフ」)の本文 */
+.adventure-messagebox__line {
+  margin: 0 0 0.45em;
+  white-space: pre-wrap;
+}
+
+.adventure-messagebox__line:last-child {
+  margin-bottom: 0;
+}
+
+.adventure-messagebox__line--dialogue {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6em;
+}
+
+.adventure-messagebox__speaker {
+  flex: 0 0 auto;
+  color: #efb85a;
+  font-family: var(--font-sans, sans-serif);
+  font-weight: 700;
+}
+
+.adventure-messagebox--romance .adventure-messagebox__speaker {
+  color: #ff9ec7;
+}
+
+/* 🔊 再読み上げ(メッセージ窓のメタ行) */
+.adventure-messagebox__voice-button {
+  flex: 0 0 auto;
+  min-height: 28px;
+  padding: 2px 10px;
+  border: 1px solid #4a535c;
+  border-radius: 999px;
+  color: #cbd2d7;
+  background: #1c2228;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.adventure-messagebox__voice-button[aria-pressed="true"] {
+  border-color: #efb85a;
+  color: #efb85a;
+}
+
+.adventure-messagebox__voice-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* トークモードの会話スレッド(行動パネル内) */
+.adventure-talk-thread {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+  max-height: 40vh;
+  padding: 4px 2px;
+  overflow-y: auto;
+  font-family: var(--font-sans, sans-serif);
+  font-size: 0.86rem;
+  line-height: 1.6;
+}
+
+.adventure-talk-thread__entry {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6em;
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.adventure-talk-thread__entry--user {
+  color: #cbd2d7;
+}
+
+.adventure-talk-thread__entry--user .adventure-messagebox__speaker {
+  color: #aeb7bf;
+}
+
+.adventure-talk-thread__empty {
+  margin: 0;
+  color: #aeb7bf;
+  font-size: 0.8rem;
+}
+
+.adventure-talk-thread .adventure-progress {
+  margin-top: 2px;
+}
+
+/* サウンドポップオーバーの見出しと読み上げ状態行 */
+.adventure-bgm-popover__section {
+  margin: 0;
+  padding: 2px 4px 0;
+  color: #efb85a;
+  font-family: var(--font-sans, sans-serif);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.adventure-bgm-popover__section + .adventure-bgm-popover__section,
+.adventure-bgm-popover__volume + .adventure-bgm-popover__section,
+.adventure-bgm-popover__hint + .adventure-bgm-popover__section {
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1px solid #2c343b;
+}
+
+.adventure-bgm-popover__status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 4px;
+  color: #aeb7bf;
+  font-size: 0.78rem;
+}
+
+.adventure-bgm-popover__status .adventure-progress {
+  margin-top: 0;
+}
+
+.adventure-bgm-popover__stop {
+  min-height: 28px;
+  padding: 2px 10px;
+  border: 1px solid #4a535c;
+  border-radius: 6px;
+  color: #e9edf0;
+  background: #242b31;
+  font-size: 0.76rem;
+  cursor: pointer;
+}
+
+.adventure-bgm-popover__stop:disabled {
+  opacity: 0.45;
+  cursor: default;
+}

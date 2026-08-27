@@ -1239,3 +1239,160 @@ test("image model override is chosen from the gear popover", async ({
   await expect(page.getByLabel(/精密参照画像を使う/)).toBeDisabled();
   expect(state.streamBodies).toHaveLength(0);
 });
+
+// 設定画面の音声合成(TTS)が実DBで有効でもテスト結果が変わらないよう、
+// ユーザー設定の GET を OFF に固定する
+async function mockTtsDisabled(page: Page) {
+  await page.route("**/api/settings/user", async (route) => {
+    if (route.request().method() !== "GET") {
+      await route.continue();
+      return;
+    }
+    const response = await route.fetch();
+    const json = await response.json();
+    json.tts_enabled = false;
+    await route.fulfill({ response, json });
+  });
+}
+
+test("one-on-one sprite mode shows only the partner sprite and toggles from the gear popover", async ({
+  page,
+}) => {
+  await enableAdventure(page);
+  const state = await mockRomanceApis(page);
+  const oneOnOneRun = romanceRunPayload(0, {
+    one_on_one_mode: true,
+    opening_narrative:
+      "美咲「こんにちは、また会えたね」\n夕日が書店に差し込む。",
+  });
+  await page.route("**/api/adventure/runs/run-1", async (route) => {
+    await route.fulfill({ json: oneOnOneRun });
+  });
+  await page.route("**/api/adventure/runs/run-1/settings", async (route) => {
+    const body = route.request().postDataJSON() as Record<string, unknown>;
+    state.settingsBodies.push(body);
+    await route.fulfill({
+      json: romanceRunPayload(0, {
+        one_on_one_mode: body.one_on_one_mode === true,
+      }),
+    });
+  });
+  await page.goto("/adventure/run-1");
+
+  // 攻略対象の立ち絵だけを中央に置き、主人公の立ち絵は並置しない
+  const partnerSprite = page.getByAltText("攻略対象の立ち絵");
+  await expect(partnerSprite).toBeVisible();
+  await expect(partnerSprite).toHaveClass(/adventure-stage__portrait--solo/);
+  await expect(
+    page.locator(".adventure-stage__frame .adventure-stage__portrait--paired"),
+  ).toHaveCount(0);
+  await expect(
+    page.locator(".adventure-stage__frame img[alt='主人公のポートレート']"),
+  ).toHaveCount(0);
+  // 台本形式の行は話者ラベル付きで描かれる
+  const speaker = page.locator(".adventure-messagebox__speaker").first();
+  await expect(speaker).toHaveText("美咲");
+  await expect(
+    page.locator(".adventure-messagebox__line--dialogue").first(),
+  ).toContainText("「こんにちは、また会えたね」");
+  await expect(
+    page.locator(".adventure-messagebox__line--narration").first(),
+  ).toHaveText("夕日が書店に差し込む。");
+
+  // ⚙のトグルは ON。OFF へ戻すと PATCH だけが飛び、手番は消費しない
+  await page.getByRole("button", { name: "画像生成設定" }).click();
+  // 合成シーン等のヒント文にも「1on1立ち絵モード」が含まれるため名前の先頭で絞る
+  const toggle = page.getByRole("checkbox", { name: /^1on1立ち絵モード/ });
+  await expect(toggle).toBeChecked();
+  // 1on1 中は無効になる設定を隠さず文言で説明する
+  await expect(
+    page.getByText(/1on1立ち絵モード中は合成シーンを描かないため/),
+  ).toBeVisible();
+  // input は視覚的に隠れるため、スイッチのラベルをクリックする
+  await page
+    .locator(".adventure-image-settings-popover .adventure-one-on-one-toggle")
+    .click();
+  await expect(toggle).not.toBeChecked();
+  expect(state.settingsBodies).toHaveLength(1);
+  expect(state.settingsBodies[0]).toMatchObject({
+    one_on_one_mode: false,
+    use_precise_reference: false,
+    enable_composite_scene: false,
+  });
+  expect(state.streamBodies).toHaveLength(0);
+});
+
+test("talk mode chats with the partner without consuming a turn", async ({
+  page,
+}) => {
+  await enableAdventure(page);
+  const state = await mockRomanceApis(page);
+  const talkBodies: Record<string, unknown>[] = [];
+  await page.route("**/api/adventure/runs/run-1/talk/stream", async (route) => {
+    talkBodies.push(route.request().postDataJSON() as Record<string, unknown>);
+    const done = {
+      user_entry: { id: "u1", role: "user", text: "やあ", after_turn: 0 },
+      partner_entry: {
+        id: "p1",
+        role: "partner",
+        text: "やっほー、来てくれたんだ",
+        after_turn: 0,
+      },
+      turn_count: 0,
+    };
+    await route.fulfill({
+      contentType: "text/event-stream",
+      body: `event: status\ndata: {"phase":"talk"}\n\nevent: talk_chunk\ndata: {"chunk":"やっほー、"}\n\nevent: talk_chunk\ndata: {"chunk":"来てくれたんだ"}\n\nevent: talk_done\ndata: ${JSON.stringify(done)}\n\nevent: complete\ndata: {"status":"active"}\n\n`,
+    });
+  });
+  await page.goto("/adventure/run-1");
+
+  // 既定は行動モード。選択肢とバイトが出ている
+  await expect(page.getByRole("button", { name: "バイト" })).toBeVisible();
+  await page.getByRole("button", { name: "トーク" }).click();
+  await expect(page.getByRole("button", { name: "バイト" })).toHaveCount(0);
+  await expect(page.locator(".adventure-choices")).toHaveCount(0);
+  await expect(page.getByText(/美咲に話しかけてみましょう/)).toBeVisible();
+
+  const field = page.getByLabel("美咲に話しかける");
+  await field.fill("やあ");
+  await page.getByRole("button", { name: "送信" }).click();
+
+  const thread = page.locator(".adventure-talk-thread");
+  await expect(
+    thread.locator(".adventure-talk-thread__entry--partner"),
+  ).toContainText("やっほー、来てくれたんだ");
+  await expect(
+    thread.locator(".adventure-talk-thread__entry--user"),
+  ).toContainText("やあ");
+  expect(talkBodies).toEqual([{ user_input: "やあ" }]);
+  // 手番は消費されず、Day 表示も変わらない
+  expect(state.streamBodies).toHaveLength(0);
+  await expect(page.locator(".adventure-hud__day")).toContainText("1");
+
+  // 行動へ戻すと選択肢が復帰する
+  await page.getByRole("button", { name: "行動", exact: true }).click();
+  await expect(page.getByRole("button", { name: "バイト" })).toBeVisible();
+});
+
+test("sound popover shows the voice toggle disabled while TTS is off", async ({
+  page,
+}) => {
+  await enableAdventure(page);
+  await mockTtsDisabled(page);
+  await mockRomanceApis(page);
+  await page.goto("/adventure/run-1");
+
+  await page.getByRole("button", { name: "サウンド設定" }).click();
+  // トグルスイッチの input は視覚的に隠れるため、文言の表示と disabled で確認する
+  await expect(page.getByText("攻略対象のセリフを読み上げる")).toBeVisible();
+  const voiceToggle = page.getByRole("checkbox", {
+    name: /^攻略対象のセリフを読み上げる/,
+  });
+  await expect(voiceToggle).toBeDisabled();
+  await expect(
+    page.getByText(/設定 > 音声合成 で読み上げを有効にし/),
+  ).toBeVisible();
+  // BGM の設定は従来どおり同じポップオーバーに残る
+  await expect(page.getByText("BGMを再生")).toBeVisible();
+});

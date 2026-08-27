@@ -155,6 +155,11 @@ sequenceDiagram
 - **並列なのは②と③だけ**で、①の本文が確定してから走る。③は本文を入力に取るため。
 - **画像は③の中で直列**に生成する（背景 → 主人公の立ち絵 → 攻略対象の立ち絵 →
   合成シーン）。立ち絵と合成で同じシードを使い、衣装の描画差を抑える。
+  **1on1 立ち絵モード**（romance の `state_json["one_on_one_mode"]`）では
+  主人公の立ち絵と合成シーンを設定に関わらず省き、背景（現在地が変わった
+  ときだけ。キーは時間帯を含まない現在地のみで、昼夜タグも落として生成する）と
+  攻略対象の立ち絵だけを描く。本文は台本形式（`名前「セリフ」` の独立行）で
+  書かせ、FE が話者ラベル表示と読み上げ対象の抽出に使う。
   **OpenRouter のときだけ**、従量課金APIで同時リクエストが可能なため
   背景・主人公・攻略対象を `asyncio.gather` で並列生成する（合成のみ後段）。
   `model_execution_gate` も OpenRouter は直列化しない。並列時の state 保存は
@@ -170,7 +175,7 @@ sequenceDiagram
 - SSE イベントは `status` / `narrative_chunk` / `narrative_done` / `portrait_image` /
   `partner_image` / `background_image` / `image` / `cost` / `turn` / `complete` /
   `error`。通常ゲームの `useSSE` には流さず、`apis/adventure.ts` の専用パーサで
-  処理する。
+  処理する。トーク（5. 参照）は同じパーサで `talk_chunk` / `talk_done` を扱う。
 
 ---
 
@@ -251,11 +256,23 @@ sequenceDiagram
 
     rect rgb(240, 245, 240)
         Note over U,DB: 画像設定の変更
-        U->>C: 精密参照 / 合成モード / 衣装レイヤー
+        U->>C: 精密参照 / 合成モード / 衣装レイヤー / 1on1 立ち絵モード
         C->>R: PATCH /runs/{id}/settings
         R->>SV: update_run_settings
         SV->>DB: state_json を更新
         SV-->>C: run 全体
+    end
+
+    rect rgb(250, 240, 245)
+        Note over U,DB: トーク（romance。手番を消費しない会話）
+        U->>C: 「トーク」で自由入力を送信
+        C->>R: POST /runs/{id}/talk/stream
+        R->>SV: stream_talk
+        SV->>SV: 攻略対象として返答（LLM 1回、画像なし）
+        SV-->>C: talk_chunk（逐次）
+        SV->>DB: state_json.talk_log だけを更新（上限40件）
+        SV-->>C: talk_done / cost / complete
+        Note over SV: turn_count・status・sim・AdventureTurn には触れない。<br/>最後の手番以降の分は次の手番へ recent_talk として渡る。<br/>採点（好感度・金銭）には影響させない
     end
 
     rect rgb(245, 240, 240)
@@ -299,11 +316,11 @@ sequenceDiagram
     U->>M: scene_tags / player_tags / npc_tags を編集
     M->>C: regenerateImage
     C->>R: POST /runs/{id}/image/stream
-    R->>SV: 立ち絵 または 合成シーンの生成
+    R->>SV: 立ち絵 または 合成シーン、または攻略対象の立ち絵（target: partner。1on1 の↻）の生成
     Note over SV: 編集内容は prompt_override として渡るので<br/>画像タグ生成のLLM呼び出しは走らない
     SV->>I: 画像生成
     I-->>SV: 画像
-    SV-->>C: image / portrait_image
+    SV-->>C: image / portrait_image / partner_image
     opt OpenRouter利用時
         SV-->>C: cost（このストリームのAPI料金）
     end

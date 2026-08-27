@@ -61,6 +61,8 @@
 - `POST /runs/{run_id}/choices/regenerate`
 - `PATCH /runs/{run_id}/settings`
 - `PATCH /runs/{run_id}/reality-rules`（現実改変ルールの全件置換。手番を消費しない）
+- `POST /runs/{run_id}/talk/stream`（romance のトークモード。手番を消費しない会話の SSE。`talk_chunk` / `talk_done`）
+- `POST /runs/{run_id}/image/stream` の `target` は `scene` / `portrait` / `partner`（攻略対象の立ち絵のみ。1on1 立ち絵モードの↻）
 - `GET /images/{run_id}/{filename}`
 
 ### FastAPI アプリ直下の互換/補助API
@@ -120,7 +122,7 @@
 | ファイル                                              | 主な責務                                                                                                                                                                       |
 | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `adventure_service.py`                                | Run作成、ディレクター/解決、ターン、画像、実効画像の直列化。BGMキーは `gateway/data/bgm/catalog.json`（ローダは `consts/adventure_bgm.py`、mtimeホットリロード）が唯一の情報源 |
-| `adventure_romance.py`                                | romance プリセットの決定論ロジック（日数/好感度/金銭/ギフト採点/告白）。境界値は `consts/adventure_romance.py`                                                                 |
+| `adventure_romance.py`                                | romance プリセットの決定論ロジック（日数/好感度/金銭/ギフト採点/告白）。境界値は `consts/adventure_romance.py`。1on1 立ち絵モードの台本ルール `romance_script_format_guidance`・現在地キー `romance_location_key`・昼夜タグ除去 `strip_romance_time_of_day`、トークモードの `romance_talk_system_prompt` と `talk_log` 操作（`append_talk_entry` / `recent_talk_entries` / `public_talk_log` / `normalize_talk_reply`）もここ |
 | `adventure_template_loader.py`                        | `scenarios/*.json` の検証とローカライズ                                                                                                                                        |
 | `favorite_service.py`                                 | FavoriteOutfit CRUD                                                                                                                                                            |
 | `export_service.py`                                   | MarkdownとNovel HTML ZIP生成                                                                                                                                                   |

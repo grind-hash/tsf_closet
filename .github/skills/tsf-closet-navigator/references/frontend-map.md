@@ -42,7 +42,7 @@
 
 `App.tsx` は `/adventure` 配下だけを `AdventureProvider` で包む。
 
-`AdventureContext` は Run/Template、activeRun、セットアップ生成、ターン/画像ストリーム、フェーズ、逐次ナラティブ、エラーを管理する。 直前に開いた run ID は `lastRunId`（`utils/adventureLastRun.ts`、localStorage `adventure_last_run_id`）として公開し、Hub の再開バナーと SideMenu の「直前のシナリオへ」が参照する。通常ゲームの `GameContext` や `useGameSSE` に統合しない。
+`AdventureContext` は Run/Template、activeRun、セットアップ生成、ターン/画像ストリーム、フェーズ、逐次ナラティブ、エラーを管理する。romance のトークモード（手番を消費しない会話）は `submitTalk` / `talking` / `talkDraft` / `pendingTalkInput` で、`talk_done` を `activeRun.talk_log` に追記する（手番送信とは `streaming || talking` で相互排他）。 直前に開いた run ID は `lastRunId`（`utils/adventureLastRun.ts`、localStorage `adventure_last_run_id`）として公開し、Hub の再開バナーと SideMenu の「直前のシナリオへ」が参照する。通常ゲームの `GameContext` や `useGameSSE` に統合しない。
 
 ## 主な設定境界
 
@@ -73,7 +73,8 @@
 | `useInfiniteScroll`   | IntersectionObserverによる追加読込                                                                                                                                                                                                                              |
 | `useTagSuggest`       | タグ候補取得                                                                                                                                                                                                                                                    |
 | `useTransparentImage` | 透過画像の読込とフォールバック                                                                                                                                                                                                                                  |
-| `useAdventureBgm`     | Adventure BGMのループ再生、fade、autoplay/404対応。キー→URL対応はマウント時に `GET /api/adventure/bgm` で取得（未知キーは既定曲へ）。mute/volumeの永続化は `utils/bgmPreferences.ts`(localStorage `adventure_bgm_prefs`)へ集約し、BGMテスト画面と音量を共有する |
+| `useAdventureBgm`     | Adventure BGMのループ再生、fade、autoplay/404対応。キー→URL対応はマウント時に `GET /api/adventure/bgm` で取得（未知キーは既定曲へ）。mute/volumeの永続化は `utils/bgmPreferences.ts`(localStorage `adventure_bgm_prefs`)へ集約し、BGMテスト画面と音量を共有する。`setDucked` でセリフ読み上げ中に音量を下げる |
+| `useAdventureVoice`   | Adventure(romance)のセリフ読み上げ。AivisSpeech で合成した音声を専用 Audio で再生し、古い合成結果はリクエスト id で捨てる。ON/OFF・音量は `utils/voicePreferences.ts`(localStorage `adventure_voice_prefs`、既定OFF)。グローバル `ttsEnabled` と話者が無ければ no-op |
 
 ## APIモジュール
 
@@ -116,7 +117,7 @@ components/
     AdventureImagePromptModal.tsx
     AdventureGiftShopModal.tsx    romance のギフト購入（gift_id 送信）
     AdventureAttributeModal.tsx   romance の属性付与（現実改変プレフィックス組み立て）
-    AdventureBgmControl.tsx       BGMボタン+ポップオーバー（mute/volume表示。再生は useAdventureBgm）
+    AdventureBgmControl.tsx       サウンドボタン(♪)+ポップオーバー。BGM(mute/volume)とセリフ読み上げ(ON/OFF・音量・状態・停止。TTS無効時は disabled+案内)を並べる。再生は useAdventureBgm / useAdventureVoice
 
   bgm/
     BgmTestScreen.tsx         BGMカタログ全曲の一覧と試聴(単発再生、fade/loopなし)
@@ -172,4 +173,5 @@ components/
 - 各大規模画面は隣接CSSを持つ。既存レイアウトを保ち、変更画面だけ確認する。
 - Context単体テストは `frontend/src/contexts/tests/`、E2Eは `frontend/tests/e2e/`。
 - 主な対象E2E: `action-mode.spec.ts`、`image-only-preview.spec.ts`、`adventure-mode.spec.ts`、`adventure-portrait-alpha.spec.ts`、`prompt-expander.spec.ts`。
+- Adventure の台本形式ユーティリティは `utils/adventureDialogue.ts`（`parseDialogueSegments` / `partnerLines` / `joinForSpeech` / `stripStageDirections`）。1on1 立ち絵モードの見積もりは `utils/adventureTurnTimeEstimate.ts` の `oneOnOneMode`。
 - 定数ミラー: `constants/promptExpander.ts`（画像モデル4種、キャラ上限 V5=22/V4.5=6、サイズ、漫画モードのコマ数/レイアウト/セリフ言語と `supportsMangaMode`、精密参照の種別/既定強度/`PROMPT_EXPANDER_ANLAS_PER_REFERENCE`/`PROMPT_EXPANDER_ANLAS_WARN_SUPPRESSED_KEY`/`supportsPreciseReference`、背景透過の `usesNativeTransparency`/`PROMPT_EXPANDER_ALPHA_OPTIONS`）。`V5_USAGE_WARN_SUPPRESSED_KEY` は `constants/novelaiImageModels.ts` に集約。

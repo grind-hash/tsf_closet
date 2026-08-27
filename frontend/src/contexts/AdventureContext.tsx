@@ -15,6 +15,7 @@ import {
   type AdventureSettingsUpdateRequest,
   type AdventureSetup,
   type AdventureSetupRequest,
+  type AdventureTalkEntry,
   type AdventureTemplate,
   type AdventureTurn,
   canActOnRun,
@@ -29,6 +30,7 @@ import {
   rewindAdventureRun,
   startAdventureEpilogue,
   streamAdventureImage,
+  streamAdventureTalk,
   streamAdventureTurn,
   updateAdventureRealityRules,
   updateAdventureRunSettings,
@@ -77,7 +79,9 @@ export function readDrawPartnerEveryTurn(): boolean {
   return readDrawEveryTurn(DRAW_PARTNER_STORAGE_KEY);
 }
 
-export type AdventureImageStep = "portrait" | "composite";
+// 攻略対象(partner)は romance で主人公の次に描かれる工程。捨てると進捗バーが
+// 主人公工程に張り付き、1on1 立ち絵モード(主人公工程なし)では 0% のままになる
+export type AdventureImageStep = "portrait" | "partner" | "composite";
 
 export interface AdventurePhaseStep {
   step: AdventureImageStep;
@@ -110,6 +114,14 @@ interface AdventureContextValue {
     inputKind: AdventureInputKind,
     options?: { giftId?: string },
   ) => Promise<void>;
+  /** トークモード(romance)。手番を消費せず攻略対象と会話する */
+  talking: boolean;
+  /** ストリーミング中の攻略対象の返答(途中経過) */
+  talkDraft: string;
+  /** 送信済みでまだ talk_log に載っていない自分のメッセージ */
+  pendingTalkInput: string | null;
+  /** 返答の確定後に攻略対象のエントリを返す(読み上げのトリガに使う)。失敗時は null */
+  submitTalk: (text: string) => Promise<AdventureTalkEntry | null>;
   /** Anlas確認ダイアログ待ちのターン送信(romanceで精密参照ON時のみ) */
   pendingAnlasTurn: {
     input: string;
@@ -144,7 +156,9 @@ function parsePhaseStep(
   data: Record<string, unknown>,
 ): AdventurePhaseStep | null {
   const step = data.step;
-  if (step !== "portrait" && step !== "composite") return null;
+  if (step !== "portrait" && step !== "partner" && step !== "composite") {
+    return null;
+  }
   return {
     step,
     index: Number(data.step_index ?? 1),
@@ -171,6 +185,9 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
   const [phaseStep, setPhaseStep] = useState<AdventurePhaseStep | null>(null);
   const [streamingNarrative, setStreamingNarrative] = useState("");
   const [pendingUserInput, setPendingUserInput] = useState<string | null>(null);
+  const [talking, setTalking] = useState(false);
+  const [talkDraft, setTalkDraft] = useState("");
+  const [pendingTalkInput, setPendingTalkInput] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   // 直前に開いた/作成した run。Hub の再開バナーと SideMenu の導線が参照する
   const [lastRunId, setLastRunId] = useState<string | null>(() =>
@@ -291,6 +308,8 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     setPendingAnlasTurn(null);
     setPendingUsageWarnTurn(null);
+    setTalkDraft("");
+    setPendingTalkInput(null);
   }, [activeRun?.id]);
 
   const performSubmitTurn = useCallback(
@@ -299,7 +318,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       inputKind: AdventureInputKind,
       options?: { giftId?: string },
     ) => {
-      if (!activeRun || streaming) return;
+      if (!activeRun || streaming || talking) return;
       const runId = activeRun.id;
       // 立ち絵の毎ターン生成OFFは、合成モード・精密参照の有無に関わらず効く
       const generatePortrait = readDrawPortraitEveryTurn();
@@ -434,7 +453,73 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
         setPendingUserInput(null);
       }
     },
-    [activeRun, streaming, addTotalCost],
+    [activeRun, streaming, talking, addTotalCost],
+  );
+
+  // トークモード: 手番・好感度・画像を一切動かさず、talk_log だけを伸ばす。
+  // 次の手番の fetchAdventureRun でサーバ側と同期されるため再取得はしない
+  const submitTalk = useCallback(
+    async (text: string): Promise<AdventureTalkEntry | null> => {
+      if (!activeRun || streaming || talking || !canActOnRun(activeRun)) {
+        return null;
+      }
+      const runId = activeRun.id;
+      const message = text.trim();
+      if (!message) return null;
+      setTalking(true);
+      setTalkDraft("");
+      setPendingTalkInput(message);
+      setError(null);
+      let partnerEntry: AdventureTalkEntry | null = null;
+      try {
+        await streamAdventureTalk(runId, { user_input: message }, (event) => {
+          if (event.type === "talk_chunk") {
+            const chunk = String(event.data.chunk ?? "");
+            if (chunk) {
+              setTalkDraft((current) =>
+                current ? current + chunk : chunk.replace(/^\s+/, ""),
+              );
+            }
+          } else if (event.type === "talk_done") {
+            const userEntry = event.data.user_entry as
+              | AdventureTalkEntry
+              | undefined;
+            const partner = event.data.partner_entry as
+              | AdventureTalkEntry
+              | undefined;
+            const entries = [userEntry, partner].filter(
+              (entry): entry is AdventureTalkEntry => Boolean(entry?.id),
+            );
+            partnerEntry = partner?.id ? partner : null;
+            setPendingTalkInput(null);
+            setTalkDraft("");
+            setActiveRun((current) =>
+              current && current.id === runId
+                ? {
+                    ...current,
+                    talk_log: [...(current.talk_log ?? []), ...entries],
+                  }
+                : current,
+            );
+          } else if (event.type === "cost") {
+            const cost = Number(event.data.cost_usd);
+            if (Number.isFinite(cost) && cost > 0) {
+              addTotalCost(cost);
+            }
+          } else if (event.type === "error") {
+            setError(String(event.data.message ?? "Talk failed"));
+          }
+        });
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : String(caught));
+      } finally {
+        setTalking(false);
+        setTalkDraft("");
+        setPendingTalkInput(null);
+      }
+      return partnerEntry;
+    },
+    [activeRun, streaming, talking, addTotalCost],
   );
 
   // 送信経路(選択肢・自由入力・ギフト・属性付与)が分散しても漏れないよう、
@@ -525,7 +610,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
 
   const regenerateImage = useCallback(
     async (options?: AdventureImageRegenerateOptions) => {
-      if (!activeRun || streaming) return;
+      if (!activeRun || streaming || talking) return;
       setStreaming(true);
       setPhase("image_generation");
       setPhaseStep(null);
@@ -584,6 +669,25 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
                   : current,
               );
             }
+          } else if (event.type === "partner_image") {
+            // target: "partner" で攻略対象の立ち絵だけを作り直したとき(1on1)
+            const partnerUrl = normalizeAdventureImageUrl(event.data.image_url);
+            const regeneratedTurnId = event.data.turn_id;
+            if (partnerUrl) {
+              setActiveRun((current) =>
+                current
+                  ? {
+                      ...current,
+                      partner_portrait_url: partnerUrl,
+                      turns: current.turns.map((turn) =>
+                        turn.id === regeneratedTurnId
+                          ? { ...turn, partner_portrait_url: partnerUrl }
+                          : turn,
+                      ),
+                    }
+                  : current,
+              );
+            }
           } else if (event.type === "cost") {
             const cost = Number(event.data.cost_usd);
             if (Number.isFinite(cost) && cost > 0) {
@@ -601,7 +705,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
         setPhaseStep(null);
       }
     },
-    [activeRun, streaming, addTotalCost],
+    [activeRun, streaming, talking, addTotalCost],
   );
 
   const regenerateChoices = useCallback(async () => {
@@ -648,6 +752,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
                   use_precise_reference: updated.use_precise_reference,
                   enable_composite_scene: updated.enable_composite_scene,
                   respect_clothing_layers: updated.respect_clothing_layers,
+                  one_on_one_mode: updated.one_on_one_mode,
                   image_model_override: updated.image_model_override,
                   player_speech_style: updated.player_speech_style,
                   player_speech_custom: updated.player_speech_custom,
@@ -746,6 +851,10 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       phaseStep,
       streamingNarrative,
       pendingUserInput,
+      talking,
+      talkDraft,
+      pendingTalkInput,
+      submitTalk,
       error,
       loadRuns,
       loadTemplates,
@@ -780,6 +889,10 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       phaseStep,
       streamingNarrative,
       pendingUserInput,
+      talking,
+      talkDraft,
+      pendingTalkInput,
+      submitTalk,
       error,
       loadRuns,
       loadTemplates,

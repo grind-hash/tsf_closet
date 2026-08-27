@@ -862,3 +862,99 @@ def test_alter_turn_empty_gift_catalog_is_noop() -> None:
         make_romance_output(updated_gift_catalog=[]),
     )
     assert state["sim"]["gift_catalog"] == before
+
+
+def test_strip_romance_time_of_day_removes_day_and_night_tags() -> None:
+    from gateway.services.adventure_romance import strip_romance_time_of_day
+
+    stripped = strip_romance_time_of_day(
+        "night, school rooftop, Nighttime, dark sky, wide shot, daytime, sunset"
+    )
+    assert stripped == "school rooftop, wide shot"
+    assert strip_romance_time_of_day("") == ""
+
+
+def test_romance_location_key_normalizes_case_and_whitespace() -> None:
+    from gateway.services.adventure_romance import romance_location_key
+
+    assert romance_location_key("  School Rooftop ") == "school rooftop"
+    assert romance_location_key("") == ""
+    assert len(romance_location_key("x" * 200)) == 80
+
+
+def test_talk_log_helpers_bound_and_filter_by_turn() -> None:
+    from gateway.consts.adventure_romance import ROMANCE_TALK_LOG_MAX
+    from gateway.services.adventure_romance import (
+        append_talk_entry,
+        public_talk_log,
+        recent_talk_entries,
+    )
+
+    state: dict = {}
+    for index in range(ROMANCE_TALK_LOG_MAX + 6):
+        append_talk_entry(
+            state,
+            role="user" if index % 2 == 0 else "partner",
+            text=f"  line {index}  ",
+            after_turn=index // 10,
+        )
+    assert len(state["talk_log"]) == ROMANCE_TALK_LOG_MAX
+    # 古い分から捨てられる
+    assert state["talk_log"][0]["text"] == "line 6"
+    recent = recent_talk_entries(state, 4)
+    assert recent and all(
+        item["role"] in {"user", "partner"} and item["text"].startswith("line 4")
+        for item in recent
+    )
+    assert recent_talk_entries(state, 99) == []
+    public = public_talk_log(state)
+    assert public[0]["id"] and public[0]["after_turn"] == 0
+    assert {"id", "role", "text", "after_turn"} == set(public[0])
+
+
+def test_normalize_talk_reply_strips_name_prefix_and_brackets() -> None:
+    from gateway.consts.adventure_romance import ROMANCE_TALK_REPLY_MAX
+    from gateway.services.adventure_romance import normalize_talk_reply
+
+    assert (
+        normalize_talk_reply("美咲「やっほー、元気？」", "美咲") == "やっほー、元気？"
+    )
+    assert (
+        normalize_talk_reply("美咲：「（笑って）そうだね」", "美咲")
+        == "（笑って）そうだね"
+    )
+    assert normalize_talk_reply("```\nそうだね\n```", "美咲") == "そうだね"
+    assert normalize_talk_reply("うん、「好き」", "美咲") == "うん、「好き」"
+    assert len(normalize_talk_reply("あ" * 1000, "美咲")) == ROMANCE_TALK_REPLY_MAX
+
+
+def test_romance_script_and_talk_prompts_include_names() -> None:
+    from gateway.services.adventure_romance import (
+        ROMANCE_RECENT_TALK_GUIDANCE,
+        ROMANCE_VISUAL_GUIDANCE,
+        romance_script_format_guidance,
+        romance_script_names,
+        romance_talk_system_prompt,
+    )
+
+    assert romance_script_names({"partner_name": "美咲"}, "ja") == ("美咲", "主人公")
+    assert romance_script_names(
+        {"partner_name": "Misaki", "player_name": "Ken"}, "en"
+    ) == (
+        "Misaki",
+        "Ken",
+    )
+    guidance = romance_script_format_guidance("美咲", "主人公")
+    assert "美咲「...」" in guidance and "主人公「...」" in guidance
+    prompt = romance_talk_system_prompt(
+        "ja",
+        partner_name="美咲",
+        player_name="主人公",
+        speech_rule="SPEECH REGISTER: x",
+    )
+    assert "You are 美咲" in prompt and "Japanese" in prompt
+    assert prompt.endswith("SPEECH REGISTER: x")
+    assert "hidden_preferences" in prompt
+    # 現在地の固定ルールは全 romance run の visual プロンプトに載る
+    assert "previous_visual_state.location verbatim" in ROMANCE_VISUAL_GUIDANCE
+    assert "affection_delta" in ROMANCE_RECENT_TALK_GUIDANCE

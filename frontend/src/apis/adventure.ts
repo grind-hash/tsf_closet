@@ -126,8 +126,20 @@ export interface AdventureSim {
 export interface AdventureImageRegenerateOptions
   extends Partial<AdventureImagePrompt> {
   redraw_from_reference: boolean;
-  /** portrait は立ち絵だけを作り直す。既定は場面画像 */
-  target?: "scene" | "portrait";
+  /**
+   * portrait は主人公の立ち絵だけ、partner は romance の攻略対象の立ち絵だけを
+   * 作り直す(1on1 立ち絵モードの↻)。既定は場面画像
+   */
+  target?: "scene" | "portrait" | "partner";
+}
+
+/** トークモード(手番を消費しない会話)の1件。romance のみ */
+export interface AdventureTalkEntry {
+  id: string;
+  role: "user" | "partner";
+  text: string;
+  /** この会話が交わされた時点の turn_count。次の手番の文脈になる */
+  after_turn: number;
 }
 
 export interface AdventureTurn {
@@ -241,6 +253,13 @@ export interface AdventureRun {
   sim?: AdventureSim | null;
   /** romance のみ。開幕(手番0)時点の公開シミュ状態 */
   opening_sim?: AdventureSim | null;
+  /**
+   * 1on1 立ち絵モード(romance のみ)。ON なら攻略対象の立ち絵を中央に1枚だけ置き、
+   * 手番の画像は背景(現在地変化時のみ)と攻略対象だけを生成する
+   */
+  one_on_one_mode: boolean;
+  /** romance のみ。トークモードの会話ログ(古い順) */
+  talk_log?: AdventureTalkEntry[];
   turns: AdventureTurn[];
   created_at: string | null;
   updated_at: string | null;
@@ -316,6 +335,8 @@ export interface AdventureCreateRequest extends AdventureSetupRequest {
   romance_partner_speech_style?: string;
   /** この run 専用の NovelAI 画像モデル。未指定ならグローバル設定に従う */
   image_model?: string;
+  /** 1on1 立ち絵モード(romance のみ)。既定 false */
+  one_on_one_mode?: boolean;
 }
 
 export interface AdventureSettingsUpdateRequest {
@@ -330,6 +351,8 @@ export interface AdventureSettingsUpdateRequest {
   partner_speech_style?: string;
   /** "default" で上書き解除、モデル名で run 単位の上書き。未指定なら維持 */
   image_model?: string;
+  /** 1on1 立ち絵モード。未指定なら維持(romance 以外では無視される) */
+  one_on_one_mode?: boolean;
 }
 
 export interface AdventureStreamEvent {
@@ -342,6 +365,8 @@ export interface AdventureStreamEvent {
     | "portrait_image"
     | "partner_image"
     | "background_image"
+    | "talk_chunk"
+    | "talk_done"
     | "cost"
     | "complete"
     | "error";
@@ -359,6 +384,8 @@ function normalizeRun(run: AdventureRun): AdventureRun {
     use_precise_reference: Boolean(run.use_precise_reference),
     enable_composite_scene: Boolean(run.enable_composite_scene),
     respect_clothing_layers: Boolean(run.respect_clothing_layers),
+    one_on_one_mode: Boolean(run.one_on_one_mode),
+    talk_log: run.talk_log ?? [],
     image_model_override: run.image_model_override ?? null,
     // 旧runやモック応答にキーが無くても表示側が undefined を掴まないようにする
     narration_voice: run.narration_voice ?? "second_person",
@@ -557,6 +584,23 @@ export async function streamAdventureTurn(
 ): Promise<void> {
   const response = await fetch(
     `${API_BASE}/adventure/runs/${runId}/turns/stream`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  );
+  await readSse(response, onEvent);
+}
+
+/** トークモード: 手番を消費せずに攻略対象と会話する(romance のみ) */
+export async function streamAdventureTalk(
+  runId: string,
+  body: { user_input: string },
+  onEvent: (event: AdventureStreamEvent) => void,
+): Promise<void> {
+  const response = await fetch(
+    `${API_BASE}/adventure/runs/${runId}/talk/stream`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },

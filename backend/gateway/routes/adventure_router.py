@@ -18,7 +18,11 @@ from ..consts.adventure_narration import (
     NARRATION_VOICE_DEFAULT,
     NarrationVoice,
 )
-from ..consts.adventure_romance import ROMANCE_DAYS_MAX, ROMANCE_SLOTS_PER_DAY
+from ..consts.adventure_romance import (
+    ROMANCE_DAYS_MAX,
+    ROMANCE_SLOTS_PER_DAY,
+    ROMANCE_TALK_INPUT_MAX,
+)
 from ..consts.adventure_setup import SCENARIO_CONSTRAINTS_MAX_ITEMS
 from ..consts.adventure_speech import (
     PARTNER_SPEECH_STYLE_MAX_LENGTH,
@@ -151,6 +155,9 @@ class AdventureCreateRequest(BaseModel):
     )
     # この run 専用の NovelAI 画像モデル。未指定ならグローバル設定に従う
     image_model: AdventureImageModel | None = None
+    # 1on1 立ち絵モード(romance 専用。他プリセットでは無視される)。
+    # ONなら手番の画像は背景(現在地変化時のみ)と攻略対象の立ち絵だけになる
+    one_on_one_mode: bool = False
 
 
 class AdventureSettingsUpdateRequest(BaseModel):
@@ -168,6 +175,13 @@ class AdventureSettingsUpdateRequest(BaseModel):
     )
     # "default" で run 単位の上書きを解除。未指定(None)なら既存値を維持する
     image_model: Literal["default"] | AdventureImageModel | None = None
+    # 1on1 立ち絵モード。未指定なら既存値を維持する(romance 以外では無視)
+    one_on_one_mode: bool | None = None
+
+
+class AdventureTalkRequest(BaseModel):
+    # トークモード(手番を消費しない会話)の1メッセージ。romance 専用
+    user_input: str = Field(min_length=1, max_length=ROMANCE_TALK_INPUT_MAX)
 
 
 class AdventureRealityRulesUpdateRequest(BaseModel):
@@ -215,8 +229,9 @@ class AdventureImageRequest(BaseModel):
     player_tags: str = Field(default="", max_length=1200)
     npc_tags: list[str] = Field(default_factory=list, max_length=3)
     redraw_from_reference: bool = True
-    # portrait は立ち絵だけを作り直す。生成失敗ターンからの復旧に使う
-    target: Literal["scene", "portrait"] = "scene"
+    # portrait は立ち絵だけを作り直す。生成失敗ターンからの復旧に使う。
+    # partner は romance の攻略対象の立ち絵だけを作り直す(1on1 立ち絵モードの↻)
+    target: Literal["scene", "portrait", "partner"] = "scene"
 
 
 def _http_error(error: AdventureError) -> HTTPException:
@@ -279,6 +294,7 @@ async def create_run(request: AdventureCreateRequest) -> dict:
             romance_player_history_id=request.romance_player_history_id,
             romance_partner_speech_style=request.romance_partner_speech_style,
             image_model=request.image_model,
+            one_on_one_mode=request.one_on_one_mode,
         )
     except AdventureError as error:
         raise _http_error(error) from error
@@ -343,6 +359,7 @@ async def update_run_settings(
             player_speech_custom=request.player_speech_custom,
             partner_speech_style=request.partner_speech_style,
             image_model=request.image_model,
+            one_on_one_mode=request.one_on_one_mode,
         )
     except AdventureError as error:
         raise _http_error(error) from error
@@ -408,6 +425,38 @@ async def play_turn(run_id: str, request: AdventureTurnRequest) -> EventSourceRe
     return EventSourceResponse(event_generator())
 
 
+@router.post("/runs/{run_id}/talk/stream")
+async def talk_stream(
+    run_id: str, request: AdventureTalkRequest
+) -> EventSourceResponse:
+    """トークモード: 手番を消費せずに攻略対象と会話する(romance 専用)。"""
+
+    async def event_generator() -> AsyncGenerator[dict, None]:
+        try:
+            async for event in adventure_service.stream_talk(
+                run_id=run_id, user_input=request.user_input
+            ):
+                yield {
+                    "event": event["event"],
+                    "data": json.dumps(event["data"], ensure_ascii=False),
+                }
+        except AdventureError as error:
+            yield {
+                "event": "error",
+                "data": json.dumps(
+                    {
+                        "code": error.code,
+                        "message": str(error),
+                        "phase": "talk",
+                        "retryable": error.code == "invalid_model_output",
+                    },
+                    ensure_ascii=False,
+                ),
+            }
+
+    return EventSourceResponse(event_generator())
+
+
 @router.post("/runs/{run_id}/image/stream")
 async def regenerate_image(
     run_id: str, request: AdventureImageRequest | None = None
@@ -439,6 +488,13 @@ async def regenerate_image(
                 yield {
                     "event": "portrait_image",
                     "data": json.dumps(portrait, ensure_ascii=False),
+                }
+            elif options.target == "partner":
+                partner = await adventure_service.generate_partner_portrait(run_id)
+                cost_usd = partner.pop("cost_usd", None)
+                yield {
+                    "event": "partner_image",
+                    "data": json.dumps(partner, ensure_ascii=False),
                 }
             else:
                 image = await adventure_service.generate_image(

@@ -5535,3 +5535,410 @@ def test_time_limit_alteration_non_romance_and_guards() -> None:
         epilogue=False,
     )
     assert run.max_turns == 7
+
+
+def _romance_settings_run(state: dict, *, preset: str = "romance") -> SimpleNamespace:
+    return SimpleNamespace(
+        id="run-1",
+        source_session_id=None,
+        source_history_id=None,
+        preset=preset,
+        title="テスト",
+        objective="仲良くなる",
+        constraints_json="[]",
+        status="active",
+        turn_count=0,
+        max_turns=14,
+        ending_title=None,
+        ending_summary=None,
+        language="ja",
+        current_image_path="current.png",
+        initial_image_path="initial.png",
+        snapshot_json="{}",
+        created_at=None,
+        updated_at=None,
+        state_json=json.dumps(state, ensure_ascii=False),
+        turns=[],
+    )
+
+
+@pytest.mark.asyncio
+async def test_update_run_settings_one_on_one_mode_round_trip(monkeypatch) -> None:
+    service = AdventureService()
+    state = json.loads(make_romance_run().state_json)
+    state.update({"choices": [], "opening_narrative": "開始"})
+    run = _romance_settings_run(state)
+    persisted = SimpleNamespace(id="run-1", state_json=run.state_json, updated_at=None)
+
+    class FakeDatabase:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, _exc_type, _exc, _traceback):
+            return None
+
+        async def get(self, model, record_id):
+            return persisted if model is AdventureRun and record_id == "run-1" else None
+
+        async def commit(self):
+            return None
+
+    monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.async_session_factory", FakeDatabase
+    )
+
+    result = await service.update_run_settings(
+        "run-1",
+        use_precise_reference=False,
+        enable_composite_scene=False,
+        one_on_one_mode=True,
+    )
+
+    assert result["one_on_one_mode"] is True
+    assert result["talk_log"] == []
+    assert json.loads(persisted.state_json)["one_on_one_mode"] is True
+
+    # None は据え置き
+    run.state_json = persisted.state_json
+    result = await service.update_run_settings(
+        "run-1", use_precise_reference=False, enable_composite_scene=False
+    )
+    assert result["one_on_one_mode"] is True
+
+
+@pytest.mark.asyncio
+async def test_update_run_settings_ignores_one_on_one_for_non_romance(
+    monkeypatch,
+) -> None:
+    service = AdventureService()
+    state = {
+        "choices": [],
+        "clues": [],
+        "milestones": [],
+        "completed_milestones": [],
+        "opening_narrative": "開始",
+        "visual_state": {"location": "room", "appearance": "1girl"},
+    }
+    run = _romance_settings_run(state, preset="escape")
+    persisted = SimpleNamespace(id="run-1", state_json=run.state_json, updated_at=None)
+
+    class FakeDatabase:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, _exc_type, _exc, _traceback):
+            return None
+
+        async def get(self, model, record_id):
+            return persisted if model is AdventureRun and record_id == "run-1" else None
+
+        async def commit(self):
+            return None
+
+    monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.async_session_factory", FakeDatabase
+    )
+
+    result = await service.update_run_settings(
+        "run-1",
+        use_precise_reference=False,
+        enable_composite_scene=False,
+        one_on_one_mode=True,
+    )
+    assert result["one_on_one_mode"] is False
+    assert "one_on_one_mode" not in json.loads(persisted.state_json)
+    assert "talk_log" not in result
+
+
+def test_rewind_keep_keys_and_lean_state_cover_one_on_one_and_talk_log() -> None:
+    assert "one_on_one_mode" in AdventureService._REWIND_KEEP_KEYS
+    lean = _lean_state_for_llm(
+        {"one_on_one_mode": True, "talk_log": [{"text": "x"}], "clues": []}
+    )
+    assert lean == {"clues": []}
+
+
+@pytest.mark.asyncio
+async def test_ensure_romance_background_uses_location_only_key_without_slot(
+    monkeypatch, tmp_path
+) -> None:
+    service = AdventureService()
+    service._images_dir = tmp_path
+    run_dir = tmp_path / "run-1"
+    run_dir.mkdir()
+    state: dict = {"background_cache": {}}
+    run = SimpleNamespace(
+        id="run-1",
+        state_json=json.dumps(state),
+        background_image_path=None,
+    )
+    generated = run_dir / "background-abc12345.png"
+
+    async def fake_generate(
+        run_id, *, scene_tags, nsfw_mode, filename="background.png"
+    ):
+        generated.write_bytes(b"bg")
+        return generated
+
+    generate_mock = AsyncMock(side_effect=fake_generate)
+    monkeypatch.setattr(service, "_generate_background_image_unlocked", generate_mock)
+    monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
+
+    first = await service._ensure_romance_background_unlocked(
+        "run-1", scene_tags="campus", location="Campus", slot=None, nsfw_mode=False
+    )
+    assert first is not None
+    path, cache = first
+    assert path == generated
+    assert list(cache) == ["campus"]
+    assert generate_mock.await_count == 1
+
+    # 同じ場所なら昼夜が変わっても(タグが変わっても)描き直さない
+    run.state_json = json.dumps({"background_cache": cache})
+    run.background_image_path = str(generated)
+    second = await service._ensure_romance_background_unlocked(
+        "run-1",
+        scene_tags="campus, night",
+        location=" campus ",
+        slot=None,
+        nsfw_mode=False,
+    )
+    assert second is not None and second[0] == generated
+    assert generate_mock.await_count == 1
+
+    # 通常モードは従来どおり時間帯付きのキー
+    third = await service._ensure_romance_background_unlocked(
+        "run-1", scene_tags="campus", location="campus", slot="night", nsfw_mode=False
+    )
+    assert third is not None and "campus|night" in third[1]
+    assert generate_mock.await_count == 2
+
+
+def test_build_turn_contexts_adds_recent_talk_and_script_names() -> None:
+    service = AdventureService()
+    run = make_romance_run(turn_count=2)
+    run.turns = []
+    run.objective = "仲良くなる"
+    run.language = "ja"
+    state = json.loads(run.state_json)
+    state["one_on_one_mode"] = True
+    state["sim"]["player_name"] = "ケン"
+    state["talk_log"] = [
+        {"id": "a", "role": "user", "text": "古い話", "after_turn": 1},
+        {"id": "b", "role": "user", "text": "やあ", "after_turn": 2},
+        {"id": "c", "role": "partner", "text": "やっほー", "after_turn": 2},
+    ]
+
+    contexts = service._build_turn_contexts(
+        run,
+        state,
+        user_input="散歩に誘う",
+        input_kind="free_text",
+        gift_id=None,
+        epilogue=False,
+    )
+
+    assert contexts.script_names == ("美咲", "ケン")
+    assert contexts.turn_context["recent_talk"] == [
+        {"role": "user", "text": "やあ"},
+        {"role": "partner", "text": "やっほー"},
+    ]
+    assert "talk_log" not in contexts.turn_context["state"]
+    assert "one_on_one_mode" not in contexts.turn_context["state"]
+
+    state["one_on_one_mode"] = False
+    state["talk_log"] = []
+    contexts = service._build_turn_contexts(
+        run,
+        state,
+        user_input="散歩に誘う",
+        input_kind="free_text",
+        gift_id=None,
+        epilogue=False,
+    )
+    assert contexts.script_names is None
+    assert "recent_talk" not in contexts.turn_context
+
+
+def test_narrative_prompts_include_script_format_only_with_names() -> None:
+    service = AdventureService()
+    plain = service._narrative_system_prompt("ja", romance=True)
+    scripted = service._narrative_system_prompt(
+        "ja", romance=True, script_names=("美咲", "主人公")
+    )
+    assert "SCRIPT FORMAT" not in plain
+    assert "recent_talk" in plain
+    # 台本形式は最後に置き、最も新しい指示として効かせる
+    assert scripted.rstrip().endswith("separate lines with \\n.")
+    assert "SCRIPT FORMAT" in scripted and "美咲「...」" in scripted
+    director = service._director_system_prompt(
+        "ja", romance=True, script_names=("美咲", "主人公")
+    )
+    assert "SCRIPT FORMAT" in director
+    resolution = service._resolution_system_prompt("ja", romance=True)
+    assert "never change affection_delta" in resolution
+
+
+@pytest.mark.asyncio
+async def test_stream_talk_appends_log_without_consuming_turn(monkeypatch) -> None:
+    service = AdventureService()
+    run = make_romance_run(turn_count=3)
+    run.id = "run-1"
+    run.status = "active"
+    run.language = "ja"
+    run.text_model = "glm-4-6"
+    run.turns = [
+        SimpleNamespace(turn_number=3, user_input="挨拶", narrative="美咲が笑った。")
+    ]
+    persisted = SimpleNamespace(
+        id="run-1", state_json=run.state_json, turn_count=3, status="active"
+    )
+
+    class FakeDatabase:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, _exc_type, _exc, _traceback):
+            return None
+
+        async def get(self, model, record_id):
+            return persisted if model is AdventureRun and record_id == "run-1" else None
+
+        async def commit(self):
+            return None
+
+    captured: dict = {}
+
+    async def fake_stream(system_prompt, user_prompt, **kwargs):
+        captured["system"] = system_prompt
+        captured["user"] = json.loads(user_prompt)
+        yield "美咲「"
+        yield "やっほー、元気？」"
+
+    monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.llm_service.generate_feeling_stream",
+        fake_stream,
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.async_session_factory", FakeDatabase
+    )
+
+    events = [
+        event
+        async for event in service.stream_talk(run_id="run-1", user_input="  やあ  ")
+    ]
+
+    assert [event["event"] for event in events] == [
+        "status",
+        "talk_chunk",
+        "talk_chunk",
+        "talk_done",
+        "complete",
+    ]
+    assert events[0]["data"] == {"phase": "talk"}
+    done = events[3]["data"]
+    assert done["turn_count"] == 3
+    assert done["user_entry"]["text"] == "やあ"
+    assert done["partner_entry"]["text"] == "やっほー、元気？"
+    assert done["partner_entry"]["after_turn"] == 3
+    saved = json.loads(persisted.state_json)
+    assert [item["role"] for item in saved["talk_log"]] == ["user", "partner"]
+    assert persisted.turn_count == 3 and persisted.status == "active"
+    assert "You are 美咲" in captured["system"]
+    assert captured["user"]["player_message"] == "やあ"
+    assert captured["user"]["talk_history"] == []
+    assert captured["user"]["recent_turns"][0]["narrative"] == "美咲が笑った。"
+
+
+@pytest.mark.asyncio
+async def test_stream_talk_rejects_non_romance_and_finished_runs(monkeypatch) -> None:
+    service = AdventureService()
+    run = SimpleNamespace(
+        id="run-1", preset="escape", status="active", state_json="{}", turns=[]
+    )
+    monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
+    with pytest.raises(AdventureError) as error:
+        async for _ in service.stream_talk(run_id="run-1", user_input="やあ"):
+            pass
+    assert error.value.code == "talk_unavailable"
+
+    finished = make_romance_run(turn_count=14)
+    finished.id = "run-1"
+    finished.status = "success"
+    finished.turns = []
+    monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=finished))
+    with pytest.raises(AdventureError) as error:
+        async for _ in service.stream_talk(run_id="run-1", user_input="やあ"):
+            pass
+    assert error.value.code == "run_completed"
+
+
+@pytest.mark.asyncio
+async def test_generate_partner_portrait_uses_state_tags_and_patches_turn(
+    monkeypatch, tmp_path
+) -> None:
+    service = AdventureService()
+    service._images_dir = tmp_path
+    run = make_romance_run(turn_count=2)
+    run.id = "run-1"
+    state = json.loads(run.state_json)
+    state["visual_state"]["main_characters"] = [
+        {"name": "美咲", "description": "笑顔", "clothing": "制服"}
+    ]
+    state["last_image_prompt"] = {
+        "scene_tags": "campus",
+        "player_tags": "1boy",
+        "npc_tags": ["1girl, brown hair, school uniform, smile"],
+    }
+    run.state_json = json.dumps(state, ensure_ascii=False)
+    run.turns = [SimpleNamespace(id="turn-2", turn_number=2)]
+    persisted_turn = SimpleNamespace(
+        id="turn-2", state_delta_json=json.dumps({"sim": {}})
+    )
+    partner_path = tmp_path / "run-1" / "partner-2-abcd1234.png"
+
+    class FakeDatabase:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, _exc_type, _exc, _traceback):
+            return None
+
+        async def get(self, model, record_id):
+            return (
+                persisted_turn
+                if model is AdventureTurn and record_id == "turn-2"
+                else None
+            )
+
+        async def commit(self):
+            return None
+
+    generate = AsyncMock(return_value=partner_path)
+    monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
+    monkeypatch.setattr(service, "_generate_partner_portrait_unlocked", generate)
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.async_session_factory", FakeDatabase
+    )
+
+    result = await service.generate_partner_portrait("run-1")
+
+    assert generate.await_args.kwargs == {
+        "partner_tags": "1girl, brown hair, school uniform, smile",
+        "turn_number": 2,
+    }
+    assert result["turn_id"] == "turn-2"
+    assert result["image_url"].endswith("partner-2-abcd1234.png")
+    assert json.loads(persisted_turn.state_delta_json)["partner_portrait_path"] == str(
+        partner_path
+    )
+
+    # 相手が場面に居ないターンは sim の外見で補う
+    state["visual_state"]["main_characters"] = []
+    state["sim"]["partner_appearance"] = "1girl, brown hair"
+    run.state_json = json.dumps(state, ensure_ascii=False)
+    await service.generate_partner_portrait("run-1")
+    assert generate.await_args.kwargs["partner_tags"] == "1girl, brown hair"

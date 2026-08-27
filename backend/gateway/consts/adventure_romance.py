@@ -153,6 +153,18 @@ ROMANCE_DATING_MILESTONE_ID: str = "start_dating"
 # 主人公(自分)の既定テンプレートキャラクター。開始セッションの人物は攻略対象になる
 ROMANCE_PLAYER_DEFAULT_CHARACTER_ID: str = "char1"
 
+# トークモード(手番を消費しない会話)。ログは run の state_json["talk_log"] に
+# 保持し、件数上限を超えた分は古い順に捨てる
+ROMANCE_TALK_LOG_MAX: int = 40
+# 1メッセージの入力上限と、LLM 返答を切り詰める長さ
+ROMANCE_TALK_INPUT_MAX: int = 500
+ROMANCE_TALK_REPLY_MAX: int = 400
+# 次の手番・次のトークへ文脈として渡す直近件数
+ROMANCE_TALK_CONTEXT_MAX: int = 12
+
+# 1on1 の台本形式やトークで主人公名が無いときの呼称
+ROMANCE_PLAYER_NAME_FALLBACK: dict[str, str] = {"ja": "主人公", "en": "You"}
+
 __all__ = [
     "ROMANCE_DAYS_DEFAULT",
     "ROMANCE_DAYS_MIN",
@@ -187,4 +199,9 @@ __all__ = [
     "ROMANCE_MILESTONES",
     "ROMANCE_DATING_MILESTONE_ID",
     "ROMANCE_PLAYER_DEFAULT_CHARACTER_ID",
+    "ROMANCE_TALK_LOG_MAX",
+    "ROMANCE_TALK_INPUT_MAX",
+    "ROMANCE_TALK_REPLY_MAX",
+    "ROMANCE_TALK_CONTEXT_MAX",
+    "ROMANCE_PLAYER_NAME_FALLBACK",
 ]

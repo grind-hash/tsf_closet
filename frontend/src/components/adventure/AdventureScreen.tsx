@@ -33,6 +33,7 @@ import {
 } from "../../contexts/AdventureContext";
 import { useSettings } from "../../contexts/SettingsContext";
 import { useAdventureBgm } from "../../hooks/useAdventureBgm";
+import { useAdventureVoice } from "../../hooks/useAdventureVoice";
 import {
   type TimedProgressSegment,
   useTimedProgress,
@@ -43,6 +44,12 @@ import {
   type AdventureAnlasEstimate,
   estimateAdventureAnlas,
 } from "../../utils/adventureAnlasEstimate";
+import {
+  joinForSpeech,
+  parseDialogueSegments,
+  partnerLines,
+  stripStageDirections,
+} from "../../utils/adventureDialogue";
 import {
   ADVENTURE_PROGRESS_BUDGET_MS,
   estimateAdventureTurnSeconds,
@@ -163,6 +170,8 @@ type AdventureSetupPrefs = {
   speechStyle: AdventureSpeechStyle;
   speechCustom: string;
   enableCompositeScene: boolean;
+  /** 1on1 立ち絵モード(romance のみ)。既定 OFF */
+  oneOnOneMode: boolean;
   /** romance の主人公(自分)。テンプレキャラID または __session__。次回にも引き継ぐ */
   romancePlayerCharacterId: string;
   /** 主人公を「セッションの姿」にしたときのセッションID */
@@ -445,6 +454,9 @@ function AdventureHub() {
         : imageModelChoice,
     );
   // 前回の選択があればそれを優先し、未保存ならグローバル設定を初期値とする
+  const [oneOnOneMode, setOneOnOneMode] = useState(
+    () => savedSetupPrefs.oneOnOneMode === true,
+  );
   const [enableCompositeScene, setEnableCompositeScene] = useState(() =>
     typeof savedSetupPrefs.enableCompositeScene === "boolean"
       ? savedSetupPrefs.enableCompositeScene
@@ -485,6 +497,7 @@ function AdventureHub() {
       speechStyle,
       speechCustom: speechCustom.trim(),
       enableCompositeScene,
+      oneOnOneMode,
       romancePlayerCharacterId: romancePlayerId,
       romancePlayerSessionId,
       imageModel: imageModelChoice,
@@ -500,6 +513,7 @@ function AdventureHub() {
     speechStyle,
     speechCustom,
     enableCompositeScene,
+    oneOnOneMode,
     romancePlayerId,
     romancePlayerSessionId,
     imageModelChoice,
@@ -582,11 +596,13 @@ function AdventureHub() {
   const effectivePreset =
     startMode === "authored" ? (selectedScenarioPreset ?? preset) : preset;
   // 生成時間の見積もりと「テキストのみ」告知は同じ設定から導く
+  const setupOneOnOne = effectivePreset === "romance" && oneOnOneMode;
   const setupImageSettings = {
     preset: effectivePreset,
     enableCompositeScene,
     drawPortraitEveryTurn,
     drawPartnerEveryTurn,
+    oneOnOneMode: setupOneOnOne,
   };
 
   // 直前に開いた run を再取得済みの一覧から引く。削除済み・終了済みなら出さない
@@ -745,6 +761,7 @@ function AdventureHub() {
         // V5系モデルは精密参照非対応のため実効値をOFFにする
         use_precise_reference: usePreciseReference && !setupIsV5,
         enable_composite_scene: enableCompositeScene,
+        one_on_one_mode: setupOneOnOne,
         respect_clothing_layers: settingsState.respectClothingLayers,
         // "default" 選択時は送らず、runはグローバル設定に従う
         image_model:
@@ -1300,6 +1317,23 @@ function AdventureHub() {
                   ))}
                 </select>
               </label>
+              {/* 1on1 立ち絵モード(romance 専用)。攻略対象の立ち絵だけを描く */}
+              {effectivePreset === "romance" && (
+                <label className="adventure-precise-toggle adventure-one-on-one-toggle">
+                  <span className="adventure-precise-toggle__info">
+                    <strong>{t("adventure.oneOnOneMode")}</strong>
+                    <small>{t("adventure.oneOnOneModeHint")}</small>
+                  </span>
+                  <input
+                    type="checkbox"
+                    className="adventure-precise-toggle__input"
+                    checked={oneOnOneMode}
+                    disabled={setupGenerating || loading || creating}
+                    onChange={(event) => setOneOnOneMode(event.target.checked)}
+                  />
+                  <span className="adventure-precise-toggle__switch" />
+                </label>
+              )}
               <label className="adventure-precise-toggle">
                 <span className="adventure-precise-toggle__info">
                   <strong>{t("adventure.preciseReference")}</strong>
@@ -1328,7 +1362,13 @@ function AdventureHub() {
               <label className="adventure-precise-toggle">
                 <span className="adventure-precise-toggle__info">
                   <strong>{t("adventure.enableCompositeScene")}</strong>
-                  <small>{t("adventure.enableCompositeSceneHint")}</small>
+                  <small>
+                    {t(
+                      setupOneOnOne
+                        ? "adventure.enableCompositeSceneOneOnOneHint"
+                        : "adventure.enableCompositeSceneHint",
+                    )}
+                  </small>
                 </span>
                 <input
                   type="checkbox"
@@ -1345,7 +1385,13 @@ function AdventureHub() {
               <label className="adventure-precise-toggle">
                 <span className="adventure-precise-toggle__info">
                   <strong>{t("adventure.drawPortraitEveryTurn")}</strong>
-                  <small>{t("adventure.drawPortraitEveryTurnHint")}</small>
+                  <small>
+                    {t(
+                      setupOneOnOne
+                        ? "adventure.drawPortraitEveryTurnOneOnOneHint"
+                        : "adventure.drawPortraitEveryTurnHint",
+                    )}
+                  </small>
                 </span>
                 <input
                   type="checkbox"
@@ -1663,8 +1709,8 @@ interface AdventureStageFrame {
   turnNumber: number;
   /** ステージ／サムネイル用の代表画像 */
   imageUrl: string;
-  /** imageUrl が合成シーンか立ち絵かを示す */
-  kind: "composite" | "portrait";
+  /** imageUrl が合成シーンか立ち絵か、1on1 の攻略対象立ち絵かを示す */
+  kind: "composite" | "portrait" | "partner";
   /** 非合成モードの背景。romance ではこの手番の現在地・時間帯のもの */
   backgroundUrl: string | null;
   /** この手番の立ち絵（白背景の元画像）。無ければ null */
@@ -1750,6 +1796,46 @@ function HudTile({
   );
 }
 
+/**
+ * 台本形式(名前「セリフ」)の本文を、話者ラベル付きの行と地の文に分けて描く。
+ * 名前付き行が無ければ本文全体が1つの地の文になる
+ */
+function AdventureScriptText({
+  text,
+  speakers,
+}: {
+  text: string;
+  speakers: string[];
+}) {
+  const segments = parseDialogueSegments(text, speakers);
+  return (
+    <>
+      {segments.map((segment, index) =>
+        segment.kind === "dialogue" ? (
+          <p
+            // biome-ignore lint/suspicious/noArrayIndexKey: 本文の行は順序固定で識別子を持たない
+            key={index}
+            className="adventure-messagebox__line adventure-messagebox__line--dialogue"
+          >
+            <span className="adventure-messagebox__speaker">
+              {segment.speaker}
+            </span>
+            <span>「{segment.text}」</span>
+          </p>
+        ) : (
+          <p
+            // biome-ignore lint/suspicious/noArrayIndexKey: 本文の行は順序固定で識別子を持たない
+            key={index}
+            className="adventure-messagebox__line adventure-messagebox__line--narration"
+          >
+            {segment.text}
+          </p>
+        ),
+      )}
+    </>
+  );
+}
+
 function AdventurePlay({ runId }: { runId: string }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -1761,6 +1847,10 @@ function AdventurePlay({ runId }: { runId: string }) {
     phaseStep,
     streamingNarrative,
     pendingUserInput,
+    talking,
+    talkDraft,
+    pendingTalkInput,
+    submitTalk,
     error,
     loadRun,
     submitTurn,
@@ -1821,6 +1911,9 @@ function AdventurePlay({ runId }: { runId: string }) {
   const [drawPartnerEveryTurn, setDrawPartnerEveryTurn] = useState(
     readDrawPartnerEveryTurn,
   );
+  // romance の行動パネル: 行動(手番を消費) / トーク(手番を消費しない会話)
+  const [actionMode, setActionMode] = useState<"act" | "talk">("act");
+  const talkThreadRef = useRef<HTMLDivElement>(null);
   const [resultDismissed, setResultDismissed] = useState(false);
   const [anlasBalance, setAnlasBalance] = useState<AnlasBalance | null>(null);
 
@@ -1948,7 +2041,62 @@ function AdventurePlay({ runId }: { runId: string }) {
     const list: AdventureStageFrame[] = [];
     const runBackground =
       activeRun.background_image_url ?? activeRun.current_image_url ?? null;
-    if (activeRun.enable_composite_scene) {
+    if (activeRun.preset === "romance" && activeRun.one_on_one_mode) {
+      // 1on1 立ち絵モード: 代表画像は攻略対象の立ち絵。生成の無い手番も
+      // フレームにし、立ち絵と背景は直前の1枚を引き継ぐ
+      let lastPartnerUrl = activeRun.opening_partner_portrait_url ?? null;
+      let lastBackgroundUrl = runBackground;
+      let lastBgm: AdventureBgmKey = activeRun.opening_bgm ?? "daily";
+      let lastBgmReason: string | null = activeRun.opening_bgm_reason ?? null;
+      list.push({
+        key: "opening",
+        turnNumber: 0,
+        imageUrl:
+          lastPartnerUrl ?? runBackground ?? activeRun.opening_image_url,
+        kind: "partner",
+        backgroundUrl: runBackground,
+        portraitUrl: null,
+        portraitStatus: null,
+        sceneUrl: null,
+        userInput: null,
+        inputKind: null,
+        narrative: activeRun.opening_narrative,
+        location: null,
+        sim: activeRun.opening_sim ?? null,
+        partnerNote: null,
+        partnerUrl: lastPartnerUrl,
+        bgm: lastBgm,
+        bgmReason: lastBgmReason,
+      });
+      for (const turn of activeRun.turns) {
+        if (turn.bgm) {
+          lastBgm = turn.bgm;
+          lastBgmReason = turn.bgm_reason ?? null;
+        }
+        lastPartnerUrl = turn.partner_portrait_url ?? lastPartnerUrl;
+        lastBackgroundUrl = turn.background_image_url ?? lastBackgroundUrl;
+        list.push({
+          key: turn.id,
+          turnNumber: turn.turn_number,
+          imageUrl:
+            lastPartnerUrl ?? lastBackgroundUrl ?? activeRun.current_image_url,
+          kind: "partner",
+          backgroundUrl: lastBackgroundUrl,
+          portraitUrl: null,
+          portraitStatus: null,
+          sceneUrl: null,
+          userInput: turn.user_input,
+          inputKind: turn.input_kind,
+          narrative: turn.narrative,
+          location: turn.location,
+          sim: turn.sim ?? null,
+          partnerNote: turn.partner_note ?? null,
+          partnerUrl: lastPartnerUrl,
+          bgm: lastBgm,
+          bgmReason: lastBgmReason,
+        });
+      }
+    } else if (activeRun.enable_composite_scene) {
       // 合成モードでは攻略対象の立ち絵をターンごとに再生成しないが、
       // ライトボックスの攻略対象タブ用に直近の1枚(最低でも開幕分)を引き継ぐ
       let lastPartnerUrl = activeRun.opening_partner_portrait_url ?? null;
@@ -2111,7 +2259,79 @@ function AdventurePlay({ runId }: { runId: string }) {
     autoplayBlocked: bgmAutoplayBlocked,
     setMuted: setBgmMuted,
     setVolume: setBgmVolume,
+    setDucked: setBgmDucked,
   } = useAdventureBgm(currentBgm?.key ?? null);
+
+  // セリフ読み上げ(AivisSpeech)。設定画面の TTS が有効なときだけ動く
+  const voice = useAdventureVoice({
+    available: settingsState.ttsEnabled,
+    speakerId:
+      settingsState.ttsStyleId?.trim() ||
+      settingsState.ttsSpeakerId?.trim() ||
+      null,
+    engineDir: settingsState.ttsEngineDir,
+    useGpu: settingsState.ttsUseGpu,
+  });
+  const { canSpeak: voiceCanSpeak, speak: voiceSpeak } = voice;
+  const voicePlaying = voice.status === "playing";
+  useEffect(() => {
+    setBgmDucked(voicePlaying);
+  }, [voicePlaying, setBgmDucked]);
+
+  // run が変わったら行動モードへ戻す
+  // biome-ignore lint/correctness/useExhaustiveDependencies: activeRun.id の変化を検知して行動モードへ戻すための依存
+  useEffect(() => {
+    setActionMode("act");
+  }, [activeRun?.id]);
+
+  // 読み上げ(1): 新しい手番が届いたら攻略対象のセリフだけを読む。
+  // 初回ロード・run 切替では読まない(その時点の最新手番を控えるだけ)
+  const spokenTurnRef = useRef<{ runId: string; turnId: string | null } | null>(
+    null,
+  );
+  useEffect(() => {
+    if (!activeRun) return;
+    const latest = activeRun.turns.at(-1) ?? null;
+    const previous = spokenTurnRef.current;
+    spokenTurnRef.current = { runId: activeRun.id, turnId: latest?.id ?? null };
+    if (!previous || previous.runId !== activeRun.id) return;
+    if (!latest || previous.turnId === latest.id) return;
+    if (activeRun.preset !== "romance" || !voiceCanSpeak) return;
+    const name = activeRun.sim?.partner_name?.trim() ?? "";
+    const text = joinForSpeech(partnerLines(latest.narrative, name));
+    if (text) void voiceSpeak(text, `turn:${latest.id}`);
+  }, [activeRun, voiceCanSpeak, voiceSpeak]);
+
+  // 読み上げ(2): トークの返答が確定したら、その返答を読む
+  const spokenTalkRef = useRef<{
+    runId: string;
+    entryId: string | null;
+  } | null>(null);
+  useEffect(() => {
+    if (!activeRun) return;
+    const lastPartner =
+      [...(activeRun.talk_log ?? [])]
+        .reverse()
+        .find((entry) => entry.role === "partner") ?? null;
+    const previous = spokenTalkRef.current;
+    spokenTalkRef.current = {
+      runId: activeRun.id,
+      entryId: lastPartner?.id ?? null,
+    };
+    if (!previous || previous.runId !== activeRun.id) return;
+    if (!lastPartner || previous.entryId === lastPartner.id) return;
+    if (!voiceCanSpeak) return;
+    const text = stripStageDirections(lastPartner.text);
+    if (text) void voiceSpeak(text, `talk:${lastPartner.id}`);
+  }, [activeRun, voiceCanSpeak, voiceSpeak]);
+
+  // トークスレッドは常に末尾(最新の返答)を見せる
+  const talkLogLength = activeRun?.talk_log?.length ?? 0;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: talk_log の件数と下書きの変化で末尾へスクロールする
+  useEffect(() => {
+    const node = talkThreadRef.current;
+    if (node) node.scrollTop = node.scrollHeight;
+  }, [talkLogLength, talkDraft, pendingTalkInput]);
 
   const submit = useCallback(
     (
@@ -2120,7 +2340,7 @@ function AdventurePlay({ runId }: { runId: string }) {
       options?: { giftId?: string },
     ) => {
       const trimmed = value.trim();
-      if (!trimmed || streaming || !canActOnRun(activeRun)) return;
+      if (!trimmed || streaming || talking || !canActOnRun(activeRun)) return;
       setInput("");
       // 「現実改変：〜」はサーバ側でも検出されるが、送信種別も合わせておく
       const effectiveKind =
@@ -2129,7 +2349,18 @@ function AdventurePlay({ runId }: { runId: string }) {
           : kind;
       void submitTurn(trimmed, effectiveKind, options);
     },
-    [activeRun, streaming, submitTurn],
+    [activeRun, streaming, talking, submitTurn],
+  );
+
+  // トークモードの送信。手番は消費しない
+  const submitTalkMessage = useCallback(
+    (value: string) => {
+      const trimmed = value.trim();
+      if (!trimmed || streaming || talking || !canActOnRun(activeRun)) return;
+      setInput("");
+      void submitTalk(trimmed);
+    },
+    [activeRun, streaming, talking, submitTalk],
   );
 
   useEffect(() => {
@@ -2167,8 +2398,16 @@ function AdventurePlay({ runId }: { runId: string }) {
         return;
       }
       // Anlas確認ダイアログ表示中は数字キー送信で保留中の送信を上書きしない。
-      // 過去フレーム閲覧中は行動UIを非表示にしているため送信もしない
-      if (logOpen || pendingAnlasTurn || selectedFrameIndex !== null) return;
+      // 過去フレーム閲覧中は行動UIを非表示にしているため送信もしない。
+      // トークモード中は選択肢を出していないため数字キーも効かせない
+      if (
+        logOpen ||
+        pendingAnlasTurn ||
+        selectedFrameIndex !== null ||
+        actionMode === "talk"
+      ) {
+        return;
+      }
       const choice = (activeRun?.choices ?? []).filter((item) =>
         item.label.trim(),
       )[Number(event.key) - 1];
@@ -2185,10 +2424,18 @@ function AdventurePlay({ runId }: { runId: string }) {
     selectedFrameIndex,
     bgmMuted,
     setBgmMuted,
+    actionMode,
   ]);
 
   const portraitSource = useMemo(() => {
-    if (!activeRun || activeRun.enable_composite_scene) return null;
+    // 1on1 立ち絵モードでは主人公の立ち絵をステージに出さない
+    if (
+      !activeRun ||
+      activeRun.enable_composite_scene ||
+      (activeRun.preset === "romance" && activeRun.one_on_one_mode)
+    ) {
+      return null;
+    }
     if (selectedFrameIndex !== null) {
       return (
         frames[selectedFrameIndex]?.imageUrl ?? activeRun.portrait_image_url
@@ -2209,7 +2456,8 @@ function AdventurePlay({ runId }: { runId: string }) {
   );
   // romance 非合成モードの攻略対象立ち絵。過去フレーム閲覧中はその手番の1枚を表示する
   const stagePartnerSource =
-    activeRun?.preset === "romance" && !activeRun?.enable_composite_scene
+    activeRun?.preset === "romance" &&
+    (!activeRun?.enable_composite_scene || activeRun?.one_on_one_mode)
       ? selectedFrameIndex !== null
         ? (frames[selectedFrameIndex]?.partnerUrl ?? null)
         : (activeRun?.partner_portrait_url ?? null)
@@ -2272,7 +2520,7 @@ function AdventurePlay({ runId }: { runId: string }) {
   // 概要ビューは画像をシーンのまま維持し、右側の詳細だけを差し替える
   const needsComposite =
     (lightboxView === "scene" || lightboxView === "overview") &&
-    lightboxFrame?.kind === "portrait" &&
+    (lightboxFrame?.kind === "portrait" || lightboxFrame?.kind === "partner") &&
     Boolean(lightboxFrame.backgroundUrl);
   // ステージ用の transparentPortraitUrl はモーダルと別フレームを指しうるので流用しない。
   // 同一 src なら utils/imageAlpha のモジュールキャッシュに当たるため追加コストは無い。
@@ -2291,6 +2539,8 @@ function AdventurePlay({ runId }: { runId: string }) {
   // narrativeフェーズはテキスト自体が進捗になるため対象外（スピナー維持）。
   const enableCompositeScene = activeRun?.enable_composite_scene ?? false;
   const isRomancePreset = activeRun?.preset === "romance";
+  // 1on1 立ち絵モード: 主人公立ち絵と合成シーンの工程は走らない
+  const oneOnOneActive = isRomancePreset && Boolean(activeRun?.one_on_one_mode);
   const progressSegments = useMemo<TimedProgressSegment[] | null>(() => {
     if (!streaming || phase === null || phase === "narrative") return null;
     if (pendingUserInput !== null) {
@@ -2302,7 +2552,7 @@ function AdventurePlay({ runId }: { runId: string }) {
       ];
       // 立ち絵の毎ターン生成OFFの間はバックエンドが該当の生成をスキップするため
       // 工程表示も揃える。順序は主人公→攻略対象→合成シーンの直列生成に対応する
-      if (drawPortraitEveryTurn) {
+      if (drawPortraitEveryTurn && !oneOnOneActive) {
         segments.push({
           key: "portrait",
           budgetMs: ADVENTURE_PROGRESS_BUDGET_MS.portrait,
@@ -2314,7 +2564,7 @@ function AdventurePlay({ runId }: { runId: string }) {
           budgetMs: ADVENTURE_PROGRESS_BUDGET_MS.partner,
         });
       }
-      if (enableCompositeScene) {
+      if (enableCompositeScene && !oneOnOneActive) {
         segments.push({
           key: "composite",
           budgetMs: ADVENTURE_PROGRESS_BUDGET_MS.composite,
@@ -2339,16 +2589,19 @@ function AdventurePlay({ runId }: { runId: string }) {
     drawPartnerEveryTurn,
     enableCompositeScene,
     isRomancePreset,
+    oneOnOneActive,
   ]);
   const progressActiveKey = useMemo(() => {
     if (!progressSegments) return null;
     if (pendingUserInput !== null) {
       if (phase === "clue_check") return "clue_check";
-      if (phase === "image_generation") return phaseStep?.step ?? "portrait";
+      if (phase === "image_generation") {
+        return phaseStep?.step ?? (oneOnOneActive ? "partner" : "portrait");
+      }
       return null;
     }
     return phase === "image_generation" ? "image_single" : null;
-  }, [progressSegments, pendingUserInput, phase, phaseStep]);
+  }, [progressSegments, pendingUserInput, phase, phaseStep, oneOnOneActive]);
   const stageProgress = useTimedProgress(progressSegments, progressActiveKey);
 
   if (loading || !activeRun || activeRun.id !== runId) {
@@ -2364,13 +2617,17 @@ function AdventurePlay({ runId }: { runId: string }) {
     ? t(`adventure.phaseStep.${phaseStep.step}`)
     : t(`adventure.phase.${phase ?? "narrative"}`);
   const isViewingPast = selectedFrameIndex !== null;
-  const isCompositeMode = activeRun.enable_composite_scene;
+  // 1on1 立ち絵モード(romance): 背景の上に攻略対象の立ち絵だけを置く
+  const isOneOnOne =
+    activeRun.preset === "romance" && Boolean(activeRun.one_on_one_mode);
+  const isCompositeMode = activeRun.enable_composite_scene && !isOneOnOne;
   // 生成時間の見積もりと「テキストのみ」告知は同じ設定から導く
   const playImageSettings = {
     preset: activeRun.preset,
     enableCompositeScene: activeRun.enable_composite_scene,
     drawPortraitEveryTurn,
     drawPartnerEveryTurn,
+    oneOnOneMode: isOneOnOne,
   };
   const effectiveIndex =
     selectedFrameIndex ?? (frames.length > 0 ? frames.length - 1 : -1);
@@ -2378,11 +2635,15 @@ function AdventurePlay({ runId }: { runId: string }) {
     effectiveIndex >= 0 ? frames[effectiveIndex] : undefined;
   const backgroundUrl =
     activeRun.background_image_url ?? activeRun.current_image_url;
-  const displayedImageUrl = isCompositeMode
+  const displayedImageUrl = isOneOnOne
     ? isViewingPast
-      ? (selectedFrame?.imageUrl ?? activeRun.current_image_url)
-      : activeRun.current_image_url
-    : backgroundUrl;
+      ? (selectedFrame?.backgroundUrl ?? backgroundUrl)
+      : backgroundUrl
+    : isCompositeMode
+      ? isViewingPast
+        ? (selectedFrame?.imageUrl ?? activeRun.current_image_url)
+        : activeRun.current_image_url
+      : backgroundUrl;
   const displayedPortraitUrl = transparentPortraitUrl;
 
   // ターンストリップ専用。モーダルの送りはここを通さない
@@ -2477,8 +2738,30 @@ function AdventurePlay({ runId }: { runId: string }) {
     isViewingPast ? selectedFrame : frames[frames.length - 1],
   ) ?? { day: sim?.day ?? 1, slot: sim?.slot ?? "day" };
   const stagePortraitFailed =
+    !isOneOnOne &&
     (isViewingPast ? selectedFrame : frames[frames.length - 1])
       ?.portraitStatus === "failed";
+  // トークモード(romance): 行動パネルを会話スレッドに切り替える
+  const talkMode = Boolean(sim) && actionMode === "talk";
+  const playerDisplayName = sim?.player_name?.trim() || t("adventure.talk.you");
+  const currentTalkEntries = (activeRun.talk_log ?? []).filter(
+    (entry) => entry.after_turn === activeRun.turn_count,
+  );
+  const lastPartnerTalk =
+    [...(activeRun.talk_log ?? [])]
+      .reverse()
+      .find((entry) => entry.role === "partner") ?? null;
+  // 🔊 の再読み上げ対象。トーク中は最新の返答、それ以外は表示中フレームのセリフ
+  const voiceReplayText =
+    talkMode && lastPartnerTalk
+      ? stripStageDirections(lastPartnerTalk.text)
+      : joinForSpeech(partnerLines(activeNarrative, partnerName));
+  const voiceReplayKey =
+    talkMode && lastPartnerTalk
+      ? `talk:${lastPartnerTalk.id}`
+      : `frame:${selectedFrame?.key ?? "latest"}`;
+  const voiceReplayActive =
+    voice.currentKey === voiceReplayKey && voice.status !== "idle";
   // 進行中に加え、終了後でもエピローグ移行済みなら操作パネルを出す
   const canAct = canActOnRun(activeRun);
   const isEpilogue = Boolean(activeRun.epilogue);
@@ -3111,7 +3394,11 @@ function AdventurePlay({ runId }: { runId: string }) {
               {transparentPartnerUrl && (
                 <img
                   key={transparentPartnerUrl}
-                  className="adventure-stage__portrait adventure-stage__portrait--partner"
+                  className={`adventure-stage__portrait ${
+                    isOneOnOne
+                      ? "adventure-stage__portrait--solo"
+                      : "adventure-stage__portrait--partner"
+                  }`}
                   src={transparentPartnerUrl}
                   alt={t("adventure.romance.partnerPortraitAlt")}
                 />
@@ -3173,10 +3460,29 @@ function AdventurePlay({ runId }: { runId: string }) {
               <button
                 type="button"
                 className="adventure-stage__regenerate"
-                onClick={() => setPromptModalOpen(true)}
-                disabled={streaming || isViewingPast}
-                title={t("adventure.regenerateImage")}
-                aria-label={t("adventure.regenerateImage")}
+                onClick={() => {
+                  // 1on1 立ち絵モードでは合成シーンを使わないため、
+                  // 攻略対象の立ち絵だけを描き直す
+                  if (isOneOnOne) {
+                    void regenerateImage({
+                      redraw_from_reference: true,
+                      target: "partner",
+                    });
+                    return;
+                  }
+                  setPromptModalOpen(true);
+                }}
+                disabled={streaming || talking || isViewingPast}
+                title={t(
+                  isOneOnOne
+                    ? "adventure.regeneratePartnerPortrait"
+                    : "adventure.regenerateImage",
+                )}
+                aria-label={t(
+                  isOneOnOne
+                    ? "adventure.regeneratePartnerPortrait"
+                    : "adventure.regenerateImage",
+                )}
               >
                 ↻
               </button>
@@ -3204,6 +3510,15 @@ function AdventurePlay({ runId }: { runId: string }) {
                 }}
                 onMutedChange={setBgmMuted}
                 onVolumeChange={setBgmVolume}
+                voice={{
+                  available: settingsState.ttsEnabled,
+                  enabled: voice.enabled,
+                  volume: voice.volume,
+                  status: voice.status,
+                  onEnabledChange: voice.setEnabled,
+                  onVolumeChange: voice.setVolume,
+                  onStop: voice.stop,
+                }}
               />
               {imageSettingsOpen && (
                 <div className="adventure-image-settings-popover">
@@ -3261,6 +3576,35 @@ function AdventurePlay({ runId }: { runId: string }) {
                       ))}
                     </select>
                   </label>
+                  {/* 1on1 立ち絵モード(romance 専用)。次の手番から反映 */}
+                  {activeRun.preset === "romance" && (
+                    <label className="adventure-precise-toggle adventure-one-on-one-toggle">
+                      <span className="adventure-precise-toggle__info">
+                        <strong>{t("adventure.oneOnOneMode")}</strong>
+                        <small>{t("adventure.oneOnOneModePlayHint")}</small>
+                      </span>
+                      <input
+                        type="checkbox"
+                        className="adventure-precise-toggle__input"
+                        checked={isOneOnOne}
+                        disabled={streaming || settingsSaving}
+                        onChange={(event) => {
+                          const next = event.target.checked;
+                          setSettingsSaving(true);
+                          void updateSettings({
+                            use_precise_reference:
+                              activeRun.use_precise_reference,
+                            enable_composite_scene:
+                              activeRun.enable_composite_scene,
+                            one_on_one_mode: next,
+                          })
+                            .catch(() => undefined)
+                            .finally(() => setSettingsSaving(false));
+                        }}
+                      />
+                      <span className="adventure-precise-toggle__switch" />
+                    </label>
+                  )}
                   <label className="adventure-precise-toggle">
                     <span className="adventure-precise-toggle__info">
                       <strong>{t("adventure.preciseReference")}</strong>
@@ -3298,7 +3642,11 @@ function AdventurePlay({ runId }: { runId: string }) {
                     <span className="adventure-precise-toggle__info">
                       <strong>{t("adventure.enableCompositeScene")}</strong>
                       <small>
-                        {t("adventure.enableCompositeScenePlayHint")}
+                        {t(
+                          isOneOnOne
+                            ? "adventure.enableCompositeSceneOneOnOneHint"
+                            : "adventure.enableCompositeScenePlayHint",
+                        )}
                       </small>
                     </span>
                     <input
@@ -3324,7 +3672,13 @@ function AdventurePlay({ runId }: { runId: string }) {
                   <label className="adventure-precise-toggle">
                     <span className="adventure-precise-toggle__info">
                       <strong>{t("adventure.drawPortraitEveryTurn")}</strong>
-                      <small>{t("adventure.drawPortraitEveryTurnHint")}</small>
+                      <small>
+                        {t(
+                          isOneOnOne
+                            ? "adventure.drawPortraitEveryTurnOneOnOneHint"
+                            : "adventure.drawPortraitEveryTurnHint",
+                        )}
+                      </small>
                     </span>
                     <input
                       type="checkbox"
@@ -3412,6 +3766,29 @@ function AdventurePlay({ runId }: { runId: string }) {
             inert={messageWindowHidden}
           >
             <div className="adventure-messagebox__meta">
+              {sim && (
+                <button
+                  type="button"
+                  className="adventure-messagebox__voice-button"
+                  disabled={!voice.canSpeak || !voiceReplayText}
+                  aria-pressed={voiceReplayActive}
+                  aria-label={t("adventure.voice.replay")}
+                  title={t(
+                    voice.canSpeak
+                      ? "adventure.voice.replayHint"
+                      : "adventure.voice.disabledHint",
+                  )}
+                  onClick={() => {
+                    if (voiceReplayActive) {
+                      voice.stop();
+                      return;
+                    }
+                    void voice.speak(voiceReplayText, voiceReplayKey);
+                  }}
+                >
+                  🔊
+                </button>
+              )}
               <button
                 type="button"
                 className="adventure-messagebox__log-button"
@@ -3440,12 +3817,26 @@ function AdventurePlay({ runId }: { runId: string }) {
             )}
 
             <div className="adventure-messagebox__text" ref={messageTextRef}>
-              <p className="adventure-messagebox__narrative">
-                {activeNarrative}
-                {isStreamingNarrative && (
-                  <span className="adventure-transcript__caret" />
-                )}
-              </p>
+              {sim ? (
+                // romance は台本形式(名前「セリフ」)の行を話者付きで描く。
+                // 名前付き行が無い本文はそのまま1段落になる
+                <div className="adventure-messagebox__narrative">
+                  <AdventureScriptText
+                    text={activeNarrative}
+                    speakers={[partnerName, playerDisplayName]}
+                  />
+                  {isStreamingNarrative && (
+                    <span className="adventure-transcript__caret" />
+                  )}
+                </div>
+              ) : (
+                <p className="adventure-messagebox__narrative">
+                  {activeNarrative}
+                  {isStreamingNarrative && (
+                    <span className="adventure-transcript__caret" />
+                  )}
+                </p>
+              )}
               {streaming && !isStageLoading && (
                 <div className="adventure-progress">
                   <span />
@@ -3464,24 +3855,53 @@ function AdventurePlay({ runId }: { runId: string }) {
                 ) : (
                   <>
                     <div className="adventure-controls__header">
-                      <span className="adventure-controls__title">
-                        {t("adventure.actionPanel.title")}
-                      </span>
-                      <button
-                        type="button"
-                        className="adventure-choices__regenerate"
-                        onClick={() => void regenerateChoices()}
-                        disabled={streaming}
-                        title={t("adventure.regenerateChoices")}
-                      >
-                        {streaming && phase === "clue_check"
-                          ? t("adventure.regeneratingChoices")
-                          : t("adventure.regenerateChoices")}
-                      </button>
+                      {sim ? (
+                        // romance: 行動(手番を消費) / トーク(消費しない会話)の切替
+                        <div
+                          className="adventure-segments adventure-segments--pair"
+                          role="group"
+                          aria-label={t("adventure.actionPanel.title")}
+                        >
+                          <button
+                            type="button"
+                            className={actionMode === "act" ? "is-active" : ""}
+                            aria-pressed={actionMode === "act"}
+                            onClick={() => setActionMode("act")}
+                          >
+                            {t("adventure.actionPanel.act")}
+                          </button>
+                          <button
+                            type="button"
+                            className={actionMode === "talk" ? "is-active" : ""}
+                            aria-pressed={actionMode === "talk"}
+                            title={t("adventure.actionPanel.talkHint")}
+                            onClick={() => setActionMode("talk")}
+                          >
+                            {t("adventure.actionPanel.talk")}
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="adventure-controls__title">
+                          {t("adventure.actionPanel.title")}
+                        </span>
+                      )}
+                      {!talkMode && (
+                        <button
+                          type="button"
+                          className="adventure-choices__regenerate"
+                          onClick={() => void regenerateChoices()}
+                          disabled={streaming || talking}
+                          title={t("adventure.regenerateChoices")}
+                        >
+                          {streaming && phase === "clue_check"
+                            ? t("adventure.regeneratingChoices")
+                            : t("adventure.regenerateChoices")}
+                        </button>
+                      )}
                     </div>
 
                     {/* 生成中は前ターンの選択肢が残留するため、無効化ではなく非表示にする */}
-                    {!streaming && (
+                    {!streaming && !talkMode && (
                       <div className="adventure-choices">
                         {availableChoices.map((choice, index) => (
                           <button
@@ -3498,15 +3918,17 @@ function AdventurePlay({ runId }: { runId: string }) {
                         ))}
                       </div>
                     )}
-                    {!streaming && availableChoices.length === 0 && (
-                      <p className="adventure-choices__empty">
-                        {t("adventure.emptyChoices")}
-                      </p>
-                    )}
+                    {!streaming &&
+                      !talkMode &&
+                      availableChoices.length === 0 && (
+                        <p className="adventure-choices__empty">
+                          {t("adventure.emptyChoices")}
+                        </p>
+                      )}
 
                     {/* romance 専用の行動ボタン行。どの行動も1スロット消費する。
                     選択肢と同様、生成中は非表示にする */}
-                    {!streaming && sim && (
+                    {!streaming && sim && !talkMode && (
                       <div className="adventure-romance-actions">
                         <button
                           type="button"
@@ -3562,10 +3984,71 @@ function AdventurePlay({ runId }: { runId: string }) {
                     {/* 自由入力は既定の操作なので常設。streaming中も入力自体は許可し
                     （無効化するとフォーカスが外れて次の数字キーが選択肢送信になる）、
                     送信は submit() 側のガードとボタンの disabled で止める */}
+                    {talkMode && (
+                      <div
+                        className="adventure-talk-thread"
+                        ref={talkThreadRef}
+                        aria-live="polite"
+                      >
+                        {currentTalkEntries.length === 0 &&
+                          pendingTalkInput === null && (
+                            <p className="adventure-talk-thread__empty">
+                              {t("adventure.talk.emptyHint", {
+                                name: partnerName,
+                              })}
+                            </p>
+                          )}
+                        {currentTalkEntries.map((entry) => (
+                          <p
+                            key={entry.id}
+                            className={`adventure-talk-thread__entry adventure-talk-thread__entry--${entry.role}`}
+                          >
+                            <span className="adventure-messagebox__speaker">
+                              {entry.role === "partner"
+                                ? partnerName
+                                : playerDisplayName}
+                            </span>
+                            <span>{entry.text}</span>
+                          </p>
+                        ))}
+                        {pendingTalkInput !== null && (
+                          <>
+                            <p className="adventure-talk-thread__entry adventure-talk-thread__entry--user">
+                              <span className="adventure-messagebox__speaker">
+                                {playerDisplayName}
+                              </span>
+                              <span>{pendingTalkInput}</span>
+                            </p>
+                            {talkDraft ? (
+                              <p className="adventure-talk-thread__entry adventure-talk-thread__entry--partner">
+                                <span className="adventure-messagebox__speaker">
+                                  {partnerName}
+                                </span>
+                                <span>
+                                  {talkDraft}
+                                  <span className="adventure-transcript__caret" />
+                                </span>
+                              </p>
+                            ) : (
+                              <div className="adventure-progress">
+                                <span />
+                                {t("adventure.talk.pending", {
+                                  name: partnerName,
+                                })}
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    )}
                     <form
                       className="adventure-freeinput"
                       onSubmit={(event) => {
                         event.preventDefault();
+                        if (talkMode) {
+                          submitTalkMessage(input);
+                          return;
+                        }
                         submit(input, "free_text");
                       }}
                     >
@@ -3573,17 +4056,33 @@ function AdventurePlay({ runId }: { runId: string }) {
                         type="text"
                         className="adventure-freeinput__field"
                         value={input}
-                        maxLength={1000}
+                        maxLength={talkMode ? 500 : 1000}
                         onChange={(event) => setInput(event.target.value)}
-                        placeholder={t("adventure.freeInput")}
-                        aria-label={t("adventure.freeInput")}
-                        title={t("adventure.freeInputHint")}
+                        placeholder={
+                          talkMode
+                            ? t("adventure.talk.placeholder", {
+                                name: partnerName,
+                              })
+                            : t("adventure.freeInput")
+                        }
+                        aria-label={
+                          talkMode
+                            ? t("adventure.talk.placeholder", {
+                                name: partnerName,
+                              })
+                            : t("adventure.freeInput")
+                        }
+                        title={t(
+                          talkMode
+                            ? "adventure.talk.hint"
+                            : "adventure.freeInputHint",
+                        )}
                         enterKeyHint="send"
                       />
                       <button
                         type="submit"
                         className="adventure-freeinput__submit"
-                        disabled={!input.trim() || streaming}
+                        disabled={!input.trim() || streaming || talking}
                       >
                         {t("adventure.send")}
                       </button>
