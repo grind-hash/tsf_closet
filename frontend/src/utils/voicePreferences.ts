@@ -12,9 +12,10 @@ export interface VoicePreferences {
   volume: number;
 }
 
+// 音声の初期音量は 100% ではなく 50% にする(BGM と同じ)
 export const DEFAULT_VOICE_PREFERENCES: VoicePreferences = {
   enabled: false,
-  volume: 1,
+  volume: 0.5,
 };
 
 export function loadVoicePreferences(): VoicePreferences {

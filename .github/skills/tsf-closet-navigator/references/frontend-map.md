@@ -74,7 +74,7 @@
 | `useTagSuggest`       | タグ候補取得                                                                                                                                                                                                                                                    |
 | `useTransparentImage` | 透過画像の読込とフォールバック                                                                                                                                                                                                                                  |
 | `useAdventureBgm`     | Adventure BGMのループ再生、fade、autoplay/404対応。キー→URL対応はマウント時に `GET /api/adventure/bgm` で取得（未知キーは既定曲へ）。mute/volumeの永続化は `utils/bgmPreferences.ts`(localStorage `adventure_bgm_prefs`)へ集約し、BGMテスト画面と音量を共有する。`setDucked` でセリフ読み上げ中に音量を下げる |
-| `useAdventureVoice`   | Adventure(romance)のセリフ読み上げ。AivisSpeech で合成した音声を専用 Audio で再生し、古い合成結果はリクエスト id で捨てる。ON/OFF・音量は `utils/voicePreferences.ts`(localStorage `adventure_voice_prefs`、既定OFF)。グローバル `ttsEnabled` と話者が無ければ no-op |
+| `useAdventureVoice`   | Adventure(romance)のセリフ読み上げ。AivisSpeech で合成した音声を専用 Audio で再生し、古い合成結果はリクエスト id で捨てる。ON/OFF・音量は `utils/voicePreferences.ts`(localStorage `adventure_voice_prefs`、既定OFF・音量50%)。グローバル `ttsEnabled` と話者が無ければ no-op |
 
 ## APIモジュール
 
