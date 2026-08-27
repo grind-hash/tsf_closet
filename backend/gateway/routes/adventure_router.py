@@ -18,6 +18,7 @@ from ..consts.adventure_narration import (
     NARRATION_VOICE_DEFAULT,
     NarrationVoice,
 )
+from ..consts.adventure_romance import ROMANCE_DAYS_MAX, ROMANCE_SLOTS_PER_DAY
 from ..consts.adventure_setup import SCENARIO_CONSTRAINTS_MAX_ITEMS
 from ..consts.adventure_speech import (
     PARTNER_SPEECH_STYLE_MAX_LENGTH,
@@ -34,6 +35,13 @@ from ..services.adventure_service import (
     AdventureError,
     AdventureImagePromptOutput,
     adventure_service,
+)
+
+# scenario_max_turns の受理上限。romance は日数×2 を手数として送るため、
+# 通常プリセットの上限(ADVENTURE_TURNS_MAX)より広く取る。
+# 非 romance の超過分はサービス側の clamp_generated_max_turns が丸める
+SCENARIO_MAX_TURNS_REQUEST_MAX = max(
+    ADVENTURE_TURNS_MAX, ROMANCE_DAYS_MAX * ROMANCE_SLOTS_PER_DAY
 )
 
 router = APIRouter(prefix="/adventure", tags=["Adventure"])
@@ -68,7 +76,7 @@ class AdventureSetupGenerateRequest(BaseModel):
     scenario_max_turns: int = Field(
         default=ADVENTURE_TURNS_DEFAULT,
         ge=ADVENTURE_TURNS_MIN,
-        le=ADVENTURE_TURNS_MAX,
+        le=SCENARIO_MAX_TURNS_REQUEST_MAX,
     )
     # ユーザーが入力済みの舞台・ゴール・制約。空でなければ生成の下書きとして
     # LLM に渡し、意味を保ったまま仕上げ・補完させる（AdventureCreateRequest と同じ上限）
@@ -111,7 +119,7 @@ class AdventureCreateRequest(BaseModel):
     scenario_max_turns: int = Field(
         default=ADVENTURE_TURNS_DEFAULT,
         ge=ADVENTURE_TURNS_MIN,
-        le=ADVENTURE_TURNS_MAX,
+        le=SCENARIO_MAX_TURNS_REQUEST_MAX,
     )
     # 語りの人称。既定は従来どおりの二人称
     narration_voice: NarrationVoice = NARRATION_VOICE_DEFAULT

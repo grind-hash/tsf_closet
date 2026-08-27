@@ -102,7 +102,7 @@ const MAX_MAX_TURNS = 30;
 // 1日=昼夜2ターンなので scenario_max_turns には日数×2 を送る
 const ROMANCE_DEFAULT_DAYS = 7;
 const ROMANCE_MIN_DAYS = 5;
-const ROMANCE_MAX_DAYS = 15;
+const ROMANCE_MAX_DAYS = 30;
 const ROMANCE_DAY_OPTIONS = Array.from(
   { length: ROMANCE_MAX_DAYS - ROMANCE_MIN_DAYS + 1 },
   (_, index) => ROMANCE_MIN_DAYS + index,

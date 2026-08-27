@@ -10,12 +10,12 @@ from __future__ import annotations
 
 ROMANCE_DAYS_DEFAULT: int = 7
 ROMANCE_DAYS_MIN: int = 5
-ROMANCE_DAYS_MAX: int = 15
+ROMANCE_DAYS_MAX: int = 30
 ROMANCE_SLOTS_PER_DAY: int = 2
 
 # 現実改変宣言によるタイムリミット(日数)変更で許す上限。
-# 作成時の上限(15日)より広く取り、宣言で延長するプレイを許容する
-ROMANCE_ALTER_DAYS_MAX: int = 30
+# 作成時の上限(30日)より広く取り、宣言で延長するプレイを許容する
+ROMANCE_ALTER_DAYS_MAX: int = 60
 
 ROMANCE_AFFECTION_START: int = 10
 ROMANCE_AFFECTION_MIN: int = 0

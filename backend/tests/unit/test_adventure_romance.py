@@ -2,17 +2,24 @@ import random
 from types import SimpleNamespace
 
 import pytest
+from pydantic import ValidationError
 
 from gateway.consts.adventure_romance import (
     ROMANCE_AFFECTION_START,
     ROMANCE_ALTER_MONEY_LIMIT,
     ROMANCE_CONFESSION_FAIL_PENALTY,
+    ROMANCE_DAYS_MAX,
     ROMANCE_GIFT_POINTS,
     ROMANCE_INITIAL_MONEY,
     ROMANCE_MILESTONES,
     ROMANCE_MONEY_MAX,
+    ROMANCE_SLOTS_PER_DAY,
     ROMANCE_WORK_ENCOUNTER_BONUS,
     ROMANCE_WORK_WAGE,
+)
+from gateway.routes.adventure_router import (
+    AdventureCreateRequest,
+    AdventureSetupGenerateRequest,
 )
 from gateway.services.adventure_romance import (
     ROMANCE_NARRATIVE_GUIDANCE,
@@ -98,7 +105,33 @@ def test_clamp_romance_max_turns_bounds_and_evenness() -> None:
     assert clamp_romance_max_turns(9) == 10
     assert clamp_romance_max_turns(14) == 14
     assert clamp_romance_max_turns(15) == 14
-    assert clamp_romance_max_turns(99) == 30
+    assert clamp_romance_max_turns(99) == ROMANCE_DAYS_MAX * ROMANCE_SLOTS_PER_DAY
+    assert clamp_romance_max_turns(ROMANCE_DAYS_MAX * ROMANCE_SLOTS_PER_DAY) == 60
+
+
+def test_request_models_accept_max_romance_days_as_turns() -> None:
+    # 恋愛シミュレーションは日数×2 を scenario_max_turns として送るため、
+    # 最大日数(30日=60手)がルーターのバリデーションを通る必要がある
+    max_turns = ROMANCE_DAYS_MAX * ROMANCE_SLOTS_PER_DAY
+    assert max_turns == 60
+    create = AdventureCreateRequest(
+        preset="romance",
+        source_session_id="session-1",
+        scenario_max_turns=max_turns,
+    )
+    assert create.scenario_max_turns == max_turns
+    setup = AdventureSetupGenerateRequest(
+        preset="romance",
+        source_session_id="session-1",
+        scenario_max_turns=max_turns,
+    )
+    assert setup.scenario_max_turns == max_turns
+    with pytest.raises(ValidationError):
+        AdventureCreateRequest(
+            preset="romance",
+            source_session_id="session-1",
+            scenario_max_turns=max_turns + 1,
+        )
 
 
 def test_stage_thresholds() -> None:
@@ -303,7 +336,7 @@ def test_repeated_gift_is_rejected_before_consuming_a_turn() -> None:
 
 
 def test_confession_threshold_scales_with_days() -> None:
-    # 15日=75(上限)、7日=41、5日=32。日数不明の旧データは従来の75に倒す
+    # 15日以上=75(上限で飽和)、7日=41、5日=32。日数不明の旧データは従来の75に倒す
     assert romance_confession_threshold(15) == 75
     assert romance_confession_threshold(7) == 41
     assert romance_confession_threshold(5) == 32

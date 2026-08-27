@@ -337,6 +337,16 @@ test("start a romance run with day select and show the romance HUD", async ({
   // ターン数入力の代わりに日数セレクト（既定7日）が出る
   const daySelect = page.getByLabel(/日数/);
   await expect(daySelect).toHaveValue("7");
+  // 5〜30日を選べる（backend/gateway/consts/adventure_romance.py と揃える）
+  await expect(daySelect.locator("option")).toHaveCount(26);
+  await expect(daySelect.locator("option").first()).toHaveAttribute(
+    "value",
+    "5",
+  );
+  await expect(daySelect.locator("option").last()).toHaveAttribute(
+    "value",
+    "30",
+  );
   // 主人公(自分)セレクト。既定は男性キャラ char1
   const playerSelect = page.getByLabel(/主人公（自分）/);
   await expect(playerSelect).toHaveValue("char1");
