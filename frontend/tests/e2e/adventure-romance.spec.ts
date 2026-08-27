@@ -1255,25 +1255,25 @@ async function mockTtsDisabled(page: Page) {
   });
 }
 
-test("one-on-one sprite mode shows only the partner sprite and toggles from the gear popover", async ({
+test("companion mode shows only the partner sprite and toggles from the gear popover", async ({
   page,
 }) => {
   await enableAdventure(page);
   const state = await mockRomanceApis(page);
-  const oneOnOneRun = romanceRunPayload(0, {
-    one_on_one_mode: true,
+  const companionRun = romanceRunPayload(0, {
+    companion_mode: true,
     opening_narrative:
       "美咲「こんにちは、また会えたね」\n夕日が書店に差し込む。",
   });
   await page.route("**/api/adventure/runs/run-1", async (route) => {
-    await route.fulfill({ json: oneOnOneRun });
+    await route.fulfill({ json: companionRun });
   });
   await page.route("**/api/adventure/runs/run-1/settings", async (route) => {
     const body = route.request().postDataJSON() as Record<string, unknown>;
     state.settingsBodies.push(body);
     await route.fulfill({
       json: romanceRunPayload(0, {
-        one_on_one_mode: body.one_on_one_mode === true,
+        companion_mode: body.companion_mode === true,
       }),
     });
   });
@@ -1301,21 +1301,21 @@ test("one-on-one sprite mode shows only the partner sprite and toggles from the 
 
   // ⚙のトグルは ON。OFF へ戻すと PATCH だけが飛び、手番は消費しない
   await page.getByRole("button", { name: "画像生成設定" }).click();
-  // 合成シーン等のヒント文にも「1on1立ち絵モード」が含まれるため名前の先頭で絞る
-  const toggle = page.getByRole("checkbox", { name: /^1on1立ち絵モード/ });
+  // 合成シーン等のヒント文にも「対面会話モード」が含まれるため名前の先頭で絞る
+  const toggle = page.getByRole("checkbox", { name: /^対面会話モード/ });
   await expect(toggle).toBeChecked();
-  // 1on1 中は無効になる設定を隠さず文言で説明する
+  // 対面会話 中は無効になる設定を隠さず文言で説明する
   await expect(
-    page.getByText(/1on1立ち絵モード中は合成シーンを描かないため/),
+    page.getByText(/対面会話モード中は合成シーンを描かないため/),
   ).toBeVisible();
   // input は視覚的に隠れるため、スイッチのラベルをクリックする
   await page
-    .locator(".adventure-image-settings-popover .adventure-one-on-one-toggle")
+    .locator(".adventure-image-settings-popover .adventure-companion-toggle")
     .click();
   await expect(toggle).not.toBeChecked();
   expect(state.settingsBodies).toHaveLength(1);
   expect(state.settingsBodies[0]).toMatchObject({
-    one_on_one_mode: false,
+    companion_mode: false,
     use_precise_reference: false,
     enable_composite_scene: false,
   });
@@ -1395,4 +1395,50 @@ test("sound popover shows the voice toggle disabled while TTS is off", async ({
   ).toBeVisible();
   // BGM の設定は従来どおり同じポップオーバーに残る
   await expect(page.getByText("BGMを再生")).toBeVisible();
+});
+
+test("companion mode replaces the day select with a turn budget in setup", async ({
+  page,
+}) => {
+  await enableAdventure(page);
+  const state = await mockRomanceApis(page);
+  const setupBodies: Record<string, unknown>[] = [];
+  await page.route("**/api/adventure/setup/generate", async (route) => {
+    setupBodies.push(route.request().postDataJSON() as Record<string, unknown>);
+    await route.fulfill({
+      json: {
+        setting: "大学の学生食堂",
+        objective: "20ターン以内にリンと親しくなり、交際を始める",
+        constraints: ["リンは昼休みしか会えない"],
+      },
+    });
+  });
+  await page.goto("/adventure");
+  await page.getByRole("button", { name: /^恋愛シミュレーション/ }).click();
+
+  // 既定は日数セレクト。対面会話モードを ON にするとターン数セレクトに変わる
+  await expect(page.getByRole("combobox", { name: /^日数/ })).toBeVisible();
+  await page
+    .locator(".adventure-setup-generator .adventure-companion-toggle")
+    .click();
+  await expect(page.getByRole("combobox", { name: /^日数/ })).toHaveCount(0);
+  const turnSelect = page.getByRole("combobox", { name: /^ターン数/ });
+  await expect(turnSelect).toHaveValue("20");
+  await turnSelect.selectOption("30");
+
+  await page.getByRole("button", { name: "ミッション案を自動生成" }).click();
+  await expect(page.getByLabel("ゴール")).toHaveValue(
+    "20ターン以内にリンと親しくなり、交際を始める",
+  );
+  expect(setupBodies[0]).toMatchObject({
+    scenario_max_turns: 30,
+    companion_mode: true,
+  });
+
+  await page.getByRole("button", { name: "シナリオを開始" }).click();
+  await expect(page).toHaveURL(/\/adventure\/run-1$/);
+  expect(state.createBodies[0]).toMatchObject({
+    scenario_max_turns: 30,
+    companion_mode: true,
+  });
 });

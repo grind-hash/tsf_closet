@@ -162,7 +162,7 @@ ROMANCE_TALK_REPLY_MAX: int = 400
 # 次の手番・次のトークへ文脈として渡す直近件数
 ROMANCE_TALK_CONTEXT_MAX: int = 12
 
-# 1on1 の台本形式やトークで主人公名が無いときの呼称
+# 対面会話モードの台本形式やトークで主人公名が無いときの呼称
 ROMANCE_PLAYER_NAME_FALLBACK: dict[str, str] = {"ja": "主人公", "en": "You"}
 
 __all__ = [

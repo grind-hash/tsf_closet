@@ -83,6 +83,7 @@ from .clothing_layers import (
 )
 from .image_generation import image_service
 from .adventure_romance import (
+    ROMANCE_COMPANION_RESOLUTION_GUIDANCE,
     ROMANCE_NARRATIVE_GUIDANCE,
     ROMANCE_RECENT_TALK_GUIDANCE,
     ROMANCE_RESOLUTION_GUIDANCE,
@@ -102,6 +103,7 @@ from .adventure_romance import (
     public_talk_log,
     recent_talk_entries,
     resolve_romance_action,
+    romance_companion_narrative_guidance,
     romance_day_slot,
     romance_location_key,
     romance_script_format_guidance,
@@ -851,8 +853,8 @@ def _lean_state_for_llm(state: dict[str, Any]) -> dict[str, Any]:
         "pending_reality_rules",
         # 画像モデルの run 単位上書き。物語生成には無関係な内部設定
         "image_model_override",
-        # 1on1 立ち絵モードは画像工程だけの設定。台本形式はシステムプロンプト側に載せる
-        "one_on_one_mode",
+        # 対面会話モードは画像工程だけの設定。台本形式はシステムプロンプト側に載せる
+        "companion_mode",
         # トークログは必要な分だけ recent_talk として別途渡す
         "talk_log",
     }
@@ -2257,6 +2259,12 @@ _PORTRAIT_EXTRA_NEGATIVE = (
     "two people, multiple people, duplicate character, clone"
 )
 
+# 攻略対象の立ち絵は V5 で同一人物が2人並ぶ絵になりやすいため、さらに抑止語を足す
+_PARTNER_SOLO_NEGATIVE = (
+    "twins, mirror image, side by side, two figures, split view, "
+    "before and after, comparison"
+)
+
 _PORTRAIT_PROMPT_SUFFIX = ", solo, full body standing portrait, simple background, white background, no shadow"
 # V5系モデルは透過背景をネイティブ生成できるため、白背景ではなく透過を指示する
 # （フロント側の透過処理は既に透過を持つ画像を素通しする）
@@ -2313,6 +2321,10 @@ def _visual_user_payload(
     )
 
 
+# 対面会話モードでは半日枠が無いため、判定結果のうち時間帯のキーを LLM に見せない
+_COMPANION_HIDDEN_RESOLUTION_KEYS = frozenset({"day", "slot", "next_day", "next_slot"})
+
+
 @dataclass
 class _TurnContexts:
     """1手番のLLM呼び出しに渡す文脈と、その組み立て過程で決まる値。
@@ -2338,7 +2350,7 @@ class _TurnContexts:
     romance_resolution: dict[str, Any] | None
     appearance_lock: str
     previous_choice_key: tuple[str, ...]
-    # 1on1 立ち絵モードのときだけ (攻略対象名, 主人公名)。台本形式の指示に使う
+    # 対面会話モードのときだけ (攻略対象名, 主人公名)。台本形式の指示に使う
     script_names: tuple[str, str] | None = None
 
 
@@ -2600,11 +2612,17 @@ class AdventureService:
         response_language = "Japanese" if language == "ja" else "English"
         voice_rule = _narration_voice_instruction(narration_voice, narration_pronoun)
         if romance:
-            voice_rule = f"{ROMANCE_NARRATIVE_GUIDANCE}\n{voice_rule}"
+            # 対面会話モード(script_names あり)は半日枠でなく1往復の会話にする
+            romance_rule = (
+                romance_companion_narrative_guidance(*script_names)
+                if script_names
+                else ROMANCE_NARRATIVE_GUIDANCE
+            )
+            voice_rule = f"{romance_rule}\n{voice_rule}"
         if speech_rule:
             voice_rule = f"{voice_rule}\n{speech_rule}"
         if script_names:
-            # 1on1 立ち絵モード: 台本形式は最後に置き、最も新しい指示として効かせる
+            # 対面会話モード: 台本形式は最後に置き、最も新しい指示として効かせる
             voice_rule = (
                 f"{voice_rule}\n{romance_script_format_guidance(*script_names)}"
             )
@@ -2700,14 +2718,17 @@ Return JSON only and keep the entire response under 1200 characters. Do not repe
         response_language = "Japanese" if language == "ja" else "English"
         voice_rule = _narration_voice_instruction(narration_voice, narration_pronoun)
         if romance:
-            voice_rule = (
-                f"{ROMANCE_NARRATIVE_GUIDANCE}\n{ROMANCE_RECENT_TALK_GUIDANCE}\n"
-                f"{voice_rule}"
+            # 対面会話モード(script_names あり)は半日枠でなく1往復の会話にする
+            romance_rule = (
+                romance_companion_narrative_guidance(*script_names)
+                if script_names
+                else ROMANCE_NARRATIVE_GUIDANCE
             )
+            voice_rule = f"{romance_rule}\n{ROMANCE_RECENT_TALK_GUIDANCE}\n{voice_rule}"
         if speech_rule:
             voice_rule = f"{voice_rule}\n{speech_rule}"
         if script_names:
-            # 1on1 立ち絵モード: 台本形式は最後に置き、最も新しい指示として効かせる
+            # 対面会話モード: 台本形式は最後に置き、最も新しい指示として効かせる
             voice_rule = (
                 f"{voice_rule}\n{romance_script_format_guidance(*script_names)}"
             )
@@ -2725,6 +2746,7 @@ Keep the narrative under 800 characters. Never decide the player's feelings, con
         narration_pronoun: str = NARRATION_PRONOUN_DEFAULT,
         romance: bool = False,
         include_clues: bool = True,
+        companion: bool = False,
     ) -> str:
         response_language = "Japanese" if language == "ja" else "English"
         # 選択肢ラベルは行動フレーズなので、人称を載せない旨を併記する
@@ -2735,10 +2757,13 @@ Keep the narrative under 800 characters. Never decide the player's feelings, con
             "second-person subject."
         )
         if romance:
-            voice_rule = (
-                f"{ROMANCE_RESOLUTION_GUIDANCE}\n{ROMANCE_RECENT_TALK_GUIDANCE}\n"
-                f"{voice_rule}"
+            # 対面会話モードは昼夜の枠が無く、選択肢も次の一言にする
+            romance_rule = (
+                ROMANCE_COMPANION_RESOLUTION_GUIDANCE
+                if companion
+                else ROMANCE_RESOLUTION_GUIDANCE
             )
+            voice_rule = f"{romance_rule}\n{ROMANCE_RECENT_TALK_GUIDANCE}\n{voice_rule}"
         else:
             # タイムリミット変更の申告。romance は日数ベースの専用フィールドを使う
             voice_rule = f"{_TIME_LIMIT_ALTER_INSTRUCTION}\n{voice_rule}"
@@ -2822,6 +2847,7 @@ scene_tags contains only environment, camera, composition, lighting, and the obs
         narration_pronoun: str = NARRATION_PRONOUN_DEFAULT,
         romance: bool = False,
         include_clues: bool = True,
+        companion: bool = False,
     ) -> AdventureResolutionOutput:
         return await self._generate_structured_output(
             AdventureRomanceResolutionOutput if romance else AdventureResolutionOutput,
@@ -2831,6 +2857,7 @@ scene_tags contains only environment, camera, composition, lighting, and the obs
                 narration_pronoun=narration_pronoun,
                 romance=romance,
                 include_clues=include_clues,
+                companion=companion,
             ),
             user_prompt=json.dumps(
                 {**turn_context, "narrative": narrative}, ensure_ascii=False
@@ -2854,6 +2881,7 @@ scene_tags contains only environment, camera, composition, lighting, and the obs
         narration_pronoun: str,
         previous_choice_key: tuple[str, ...],
         romance_sim: dict[str, Any] | None = None,
+        companion: bool = False,
     ) -> list[dict[str, str]]:
         """再生成専用。既出と同一の3択が返ったら1回だけ引き直す。
 
@@ -2872,6 +2900,7 @@ scene_tags contains only environment, camera, composition, lighting, and the obs
                 narration_voice=narration_voice,
                 narration_pronoun=narration_pronoun,
                 romance=romance_sim is not None,
+                companion=companion,
             )
             choices = _sanitize_choices(
                 [choice.model_dump() for choice in resolution.choices],
@@ -2950,15 +2979,28 @@ scene_tags contains only environment, camera, composition, lighting, and the obs
         max_turns: int = ADVENTURE_TURNS_DEFAULT,
         preset: str = "",
         draft: dict[str, Any] | None = None,
+        companion: bool = False,
     ) -> str:
         response_language = "Japanese" if language == "ja" else "English"
         if preset == "romance":
-            days = clamp_romance_max_turns(max_turns) // ROMANCE_SLOTS_PER_DAY
-            prompt = f"""You design a concise setup for a {days}-day romance simulation in which the player aims to start dating one partner character.
+            romance_turns = clamp_romance_max_turns(max_turns)
+            days = romance_turns // ROMANCE_SLOTS_PER_DAY
+            # 対面会話モードは日数でなくターン数(1ターン=1往復)で尺を示す
+            horizon = (
+                f"a romance simulation of {romance_turns} turns, where each turn is "
+                "one face-to-face exchange with the partner and there are no days "
+                "or times of day,"
+                if companion
+                else f"a {days}-day romance simulation"
+            )
+            within = (
+                f"within {romance_turns} turns" if companion else f"within {days} days"
+            )
+            prompt = f"""You design a concise setup for {horizon} in which the player aims to start dating one partner character.
 Return one JSON object only, in {response_language}, matching this schema:
 {{"setting":"...","objective":"...","constraints":["...","..."]}}
 The constraints array must contain between 1 and 4 items.
-The partner is the character shown in source_snapshot; keep their appearance and situation consistent with it. source_snapshot deliberately contains no name for the partner: invent a fitting new name from their appearance and situation, and use that name in the objective. Never name the partner after the player. The player is a separate person courting that partner; never treat the snapshot character as the player. The setting describes where the player and the partner cross paths in daily life. The objective must name the partner and state that the player starts dating them within {days} days. Constraints must create romantic complications such as schedules, shyness, or circumstances, without dictating the player's feelings, consent, memories, bodily sensations, or voluntary actions. Do not introduce another body transformation or assign physical traits that conflict with source_snapshot.appearance."""
+The partner is the character shown in source_snapshot; keep their appearance and situation consistent with it. source_snapshot deliberately contains no name for the partner: invent a fitting new name from their appearance and situation, and use that name in the objective. Never name the partner after the player. The player is a separate person courting that partner; never treat the snapshot character as the player. The setting describes where the player and the partner cross paths in daily life. The objective must name the partner and state that the player starts dating them {within}. Constraints must create romantic complications such as schedules, shyness, or circumstances, without dictating the player's feelings, consent, memories, bodily sensations, or voluntary actions. Do not introduce another body transformation or assign physical traits that conflict with source_snapshot.appearance."""
             if draft:
                 prompt += _SETUP_DRAFT_GUIDANCE + _SETUP_DRAFT_ROMANCE_GUIDANCE
             return prompt
@@ -2981,8 +3023,11 @@ The objective must name a concrete target and an observable end condition that c
         max_turns: int = ADVENTURE_TURNS_DEFAULT,
         preset: str = "",
         draft: dict[str, Any] | None = None,
+        companion: bool = False,
     ) -> AdventureSetupOutput:
-        system_prompt = self._setup_system_prompt(language, max_turns, preset, draft)
+        system_prompt = self._setup_system_prompt(
+            language, max_turns, preset, draft, companion=companion
+        )
         raw = await _generate_text(system_prompt, prompt, text_model=text_model)
         try:
             return _validate_model_json(AdventureSetupOutput, raw)
@@ -3020,6 +3065,7 @@ The objective must name a concrete target and an observable end condition that c
         draft_setting: str = "",
         draft_objective: str = "",
         draft_constraints: Sequence[str] | None = None,
+        companion_mode: bool = False,
     ) -> dict[str, Any]:
         preset_config = PRESETS.get(preset)
         if preset_config is None:
@@ -3063,6 +3109,9 @@ The objective must name a concrete target and an observable end condition that c
         }
         if user_draft:
             prompt_payload["user_draft"] = user_draft
+        companion = preset == "romance" and bool(companion_mode)
+        if companion:
+            prompt_payload["companion_mode"] = True
         prompt = json.dumps(prompt_payload, ensure_ascii=False)
         tracker = _CostTracker()
         _cost_tracker.set(tracker)
@@ -3073,6 +3122,7 @@ The objective must name a concrete target and an observable end condition that c
             max_turns=turn_budget,
             preset=preset,
             draft=user_draft or None,
+            companion=companion,
         )
         payload = generated.model_dump()
         if tracker.total_usd > 0:
@@ -3123,7 +3173,7 @@ The objective must name a concrete target and an observable end condition that c
         romance_player_history_id: str | None = None,
         romance_partner_speech_style: str = "",
         image_model: str | None = None,
-        one_on_one_mode: bool = False,
+        companion_mode: bool = False,
     ) -> dict[str, Any]:
         # Run作成全体(セットアップLLM・開幕画像)のAPI料金を集計して応答へ載せる
         tracker = _CostTracker()
@@ -3297,11 +3347,18 @@ The objective must name a concrete target and an observable end condition that c
             romance_days = max_turns // ROMANCE_SLOTS_PER_DAY
             romance_setup = await self._generate_structured_output(
                 RomanceSetupOutput,
-                system_prompt=romance_setup_system_prompt(language, romance_days),
+                system_prompt=romance_setup_system_prompt(
+                    language,
+                    romance_days,
+                    companion=bool(companion_mode),
+                    turns=max_turns,
+                ),
                 user_prompt=json.dumps(
                     {
                         "task": "Design the romance simulation setup.",
                         "days": romance_days,
+                        "turns": max_turns,
+                        "companion_mode": bool(companion_mode),
                         "setting": setting,
                         "objective": objective,
                         "constraints": constraints,
@@ -3361,16 +3418,23 @@ The objective must name a concrete target and an observable end condition that c
                     "relationship_origin": romance_setup.relationship_origin,
                     "job_name": romance_setup.job_name,
                     "player_name": romance_player_name,
-                    "total_days": max_turns // ROMANCE_SLOTS_PER_DAY,
-                    "opening_slot": {"day": 1, "slot": "day"},
+                    # 対面会話モードには昼夜の枠が無く、尺はターン数で示す
+                    **(
+                        {"total_turns": max_turns, "companion_mode": True}
+                        if companion_mode
+                        else {
+                            "total_days": max_turns // ROMANCE_SLOTS_PER_DAY,
+                            "opening_slot": {"day": 1, "slot": "day"},
+                        }
+                    ),
                 }
                 if romance_setup is not None
                 else None,
             },
             ensure_ascii=False,
         )
-        # 1on1 立ち絵モードは romance 専用。開幕本文も台本形式で書かせる
-        one_on_one_mode = bool(one_on_one_mode) and romance_setup is not None
+        # 対面会話モードは romance 専用。開幕本文も台本形式で書かせる
+        companion_mode = bool(companion_mode) and romance_setup is not None
         opening = await self._generate_director_output(
             prompt=prompt,
             language=language,
@@ -3391,7 +3455,7 @@ The objective must name a concrete target and an observable end condition that c
                 },
                 language,
             )
-            if one_on_one_mode and romance_setup is not None
+            if companion_mode and romance_setup is not None
             else None,
             fallback_appearance=appearance
             or str(snapshot.get("appearance") or "")
@@ -3476,8 +3540,8 @@ The objective must name a concrete target and an observable end condition that c
             # 主人公のセリフの口調。旧runは既定の丁寧語として扱う
             "player_speech_style": player_speech_style,
             "player_speech_custom": player_speech_custom,
-            # 1on1 立ち絵モード(romance 専用)。ONなら手番の画像は背景+攻略対象だけ
-            "one_on_one_mode": one_on_one_mode,
+            # 対面会話モード(romance 専用)。ONなら手番の画像は背景+攻略対象だけ
+            "companion_mode": companion_mode,
         }
         if romance_setup is not None:
             state["sim"] = init_romance_state(
@@ -3662,13 +3726,19 @@ The objective must name a concrete target and an observable end condition that c
                     "required_visual_appearance": appearance_lock,
                     "reality_rules": list(state.get("reality_rules", [])),
                 }
-                if romance_sim is not None:
-                    # 再生成される選択肢は「これから行動する枠」(turn_count+1)向け
+                companion = romance_sim is not None and bool(
+                    state.get("companion_mode")
+                )
+                if romance_sim is not None and not companion:
+                    # 再生成される選択肢は「これから行動する枠」(turn_count+1)向け。
+                    # 対面会話モードには昼夜の枠が無い
                     next_day, next_slot = romance_day_slot(run.turn_count + 1)
                     turn_context["romance_next_slot"] = {
                         "day": next_day,
                         "slot": next_slot,
                     }
+                if companion:
+                    turn_context["companion_mode"] = True
                 try:
                     choices = await self._generate_fresh_choices(
                         narrative=narrative,
@@ -3678,6 +3748,7 @@ The objective must name a concrete target and an observable end condition that c
                         narration_pronoun=narration_pronoun,
                         previous_choice_key=previous_choice_key,
                         romance_sim=romance_sim,
+                        companion=companion,
                     )
                 except Exception as error:
                     logger.warning(
@@ -3842,8 +3913,8 @@ The objective must name a concrete target and an observable end condition that c
         # 口調は物語の出来事ではなく設定なので、巻き戻しても最新の選択を残す
         "player_speech_style",
         "player_speech_custom",
-        # 1on1 立ち絵モードも表示設定。トークログは巻き戻し先のスナップショットに従う
-        "one_on_one_mode",
+        # 対面会話モードも表示設定。トークログは巻き戻し先のスナップショットに従う
+        "companion_mode",
     )
 
     async def rewind_to_turn(self, run_id: str, turn_number: int) -> dict[str, Any]:
@@ -4836,6 +4907,7 @@ The objective must name a concrete target and an observable end condition that c
                         narration_pronoun=narration_pronoun,
                         romance=romance_sim is not None,
                         include_clues=generate_clues,
+                        companion=contexts.script_names is not None,
                     )
                     await queue.put(("resolution", resolution))
                 except Exception as error:
@@ -4914,10 +4986,10 @@ The objective must name a concrete target and an observable end condition that c
                 # この背景が img2img の下地、非合成モードではステージ背景になるため、
                 # 合成シーンより前に確定させる
                 fresh_background_path: Path | None = None
-                # 1on1 立ち絵モード(romance 専用): 手番の画像は背景+攻略対象だけ。
+                # 対面会話モード(romance 専用): 手番の画像は背景+攻略対象だけ。
                 # 背景は現在地が変わったときだけ描き直し、昼夜では変えない
-                one_on_one = romance_sim is not None and bool(
-                    state.get("one_on_one_mode")
+                companion = romance_sim is not None and bool(
+                    state.get("companion_mode")
                 )
                 location_changed = romance_location_key(
                     str(previous_visual.get("location") or "")
@@ -4928,7 +5000,7 @@ The objective must name a concrete target and an observable end condition that c
                     if romance_sim is None:
                         return
                     background_slot: str | None
-                    if one_on_one:
+                    if companion:
                         if not location_changed and getattr(
                             run, "background_image_path", None
                         ):
@@ -4965,14 +5037,14 @@ The objective must name a concrete target and an observable end condition that c
                 # 描き直さないため、ステージの絵が更新されなくなる
                 enable_composite = (
                     False
-                    if one_on_one
+                    if companion
                     else bool(state.get("enable_composite_scene", True))
                 )
                 # 立ち絵の毎ターン生成OFF。合成モード・精密参照の有無に関わらず効く。
                 # 主人公と攻略対象は個別に省略でき、省略した側は前ターンの1枚を
                 # 使い回す。合成モードでは前ターンの立ち絵をキャラクター参照へ流用する。
-                # 1on1 立ち絵モードでは主人公立ち絵と合成シーンを設定に関わらず省く
-                skip_player_portrait = True if one_on_one else not generate_portrait
+                # 対面会話モードでは主人公立ち絵と合成シーンを設定に関わらず省く
+                skip_player_portrait = True if companion else not generate_portrait
                 draw_partner_portrait = (
                     romance_sim is not None and generate_partner_portrait
                 )
@@ -5646,8 +5718,17 @@ The objective must name a concrete target and an observable end condition that c
             recent_talk = recent_talk_entries(state, run.turn_count)
             if recent_talk:
                 turn_context["recent_talk"] = recent_talk
-            if state.get("one_on_one_mode"):
+            if state.get("companion_mode"):
                 script_names = romance_script_names(romance_sim, run.language)
+                turn_context["companion_mode"] = True
+                if romance_resolution is not None:
+                    # 対面会話モードには昼夜の枠が無い。判定結果は残し、
+                    # 時間帯のキーだけを LLM から隠す
+                    turn_context["romance_resolution"] = {
+                        key: value
+                        for key, value in romance_resolution.items()
+                        if key not in _COMPANION_HIDDEN_RESOLUTION_KEYS
+                    }
         if epilogue:
             turn_context["epilogue"] = True
         visual_turn_context = {
@@ -5844,7 +5925,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         return ", ".join(part for part in (partner_appearance, clothing) if part)
 
     async def generate_partner_portrait(self, run_id: str) -> dict[str, Any]:
-        """romance の攻略対象の立ち絵だけを作り直す(1on1 立ち絵モードの↻)。"""
+        """romance の攻略対象の立ち絵だけを作り直す(対面会話モードの↻)。"""
         tracker = _CostTracker()
         _cost_tracker.set(tracker)
         async with self._run_locks[run_id]:
@@ -6333,7 +6414,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
 
         同じ (現在地, 時間帯) では生成せず既存画像を使い回す。生成上限に達した
         場合と現在地が不明な場合は None を返し、既存の背景をそのまま使わせる。
-        slot が None のとき(1on1 立ち絵モード)は現在地だけをキーにし、
+        slot が None のとき(対面会話モード)は現在地だけをキーにし、
         昼夜が変わっても同じ場所なら描き直さない。
         """
         # selfhost(ComfyUI)は背景のtxt2imgを生成できない。毎ターン例外と警告を
@@ -6612,7 +6693,8 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 image_bytes=None,
                 provider_override="novelai",
                 negative_prompt=merge_negative_prompt(
-                    settings.novelai_negative_prompt, _PORTRAIT_EXTRA_NEGATIVE
+                    settings.novelai_negative_prompt,
+                    f"{_PORTRAIT_EXTRA_NEGATIVE}, {_PARTNER_SOLO_NEGATIVE}",
                 ),
                 nsfw_mode=nsfw_mode,
                 character_references=character_references,
@@ -6696,9 +6778,9 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             # 立ち絵と合成シーンで同一シードを使い、衣装の描画差を抑える
             opening_seed = random.randint(0, 999_999_999)
 
-            # 1on1 立ち絵モード: 開幕背景も現在地キーでキャッシュに登録し、
+            # 対面会話モード: 開幕背景も現在地キーでキャッシュに登録し、
             # 手番1で同じ場所なら描き直さない(時間帯タグは落として生成する)
-            one_on_one = bool(state.get("one_on_one_mode")) and isinstance(
+            companion = bool(state.get("companion_mode")) and isinstance(
                 state.get("sim"), dict
             )
             seeded_background_cache: dict[str, str] | None = None
@@ -6709,7 +6791,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 # image_prompt(変換前)は後続の prompt_override 用に温存する。
                 # 背景の失敗で開幕全体を止めない(セルフホストは生成不可で常にここ)
                 try:
-                    if one_on_one:
+                    if companion:
                         ensured = await self._ensure_romance_background_unlocked(
                             run_id,
                             scene_tags=strip_romance_time_of_day(
@@ -6813,7 +6895,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             run = await self.get_run_orm(run_id)
             state = _json_load(run.state_json, {})
             enable_composite_scene = bool(state.get("enable_composite_scene"))
-            if enable_composite_scene and not one_on_one:
+            if enable_composite_scene and not companion:
                 await self._generate_image_unlocked(
                     run_id,
                     None,
@@ -6967,7 +7049,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         player_speech_custom: str | None = None,
         partner_speech_style: str | None = None,
         image_model: str | None = None,
-        one_on_one_mode: bool | None = None,
+        companion_mode: bool | None = None,
     ) -> dict[str, Any]:
         """実行中シナリオの画像設定と口調を更新する（次の手番から反映）。
 
@@ -6999,9 +7081,9 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 state["sim"]["partner_speech_style"] = normalize_partner_speech_style(
                     partner_speech_style
                 )
-            # 1on1 立ち絵モードは romance 専用。他プリセットでは無視する
-            if one_on_one_mode is not None and run.preset == "romance":
-                state["one_on_one_mode"] = bool(one_on_one_mode)
+            # 対面会話モードは romance 専用。他プリセットでは無視する
+            if companion_mode is not None and run.preset == "romance":
+                state["companion_mode"] = bool(companion_mode)
             async with async_session_factory() as db:
                 persisted = await db.get(AdventureRun, run.id)
                 if persisted is None:
@@ -7134,6 +7216,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                     narration_voice=contexts.narration_voice,
                     narration_pronoun=contexts.narration_pronoun,
                     romance=romance,
+                    companion=contexts.script_names is not None,
                 ),
                 "user": turn_user_prompt,
             },
@@ -7205,7 +7288,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         preview_image_model: str | None = None
         if provider == "novelai":
             preview_image_model = await self._resolve_image_model(nsfw_mode, state)
-        # 1on1 立ち絵モードでは攻略対象の立ち絵だけを描くため、そのプロンプトも示す
+        # 対面会話モードでは攻略対象の立ち絵だけを描くため、そのプロンプトも示す
         partner_tags = self._partner_portrait_tags_from_state(
             state, npc_tags=list(image_prompt.npc_tags)
         )
@@ -7223,7 +7306,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             )
             if partner_tags
             else "",
-            "one_on_one_mode": bool(state.get("one_on_one_mode"))
+            "companion_mode": bool(state.get("companion_mode"))
             and run.preset == "romance",
             "negative_prompt": merge_negative_prompt(
                 settings.novelai_negative_prompt, extra_negative or ""
@@ -7330,9 +7413,9 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             "player_speech_custom": normalize_speech_custom(
                 state.get("player_speech_custom")
             ),
-            # 1on1 立ち絵モード(romance 専用)。旧 run・他プリセットは OFF
-            "one_on_one_mode": run.preset == "romance"
-            and bool(state.get("one_on_one_mode")),
+            # 対面会話モード(romance 専用)。旧 run・他プリセットは OFF
+            "companion_mode": run.preset == "romance"
+            and bool(state.get("companion_mode")),
             "background_image_url": (
                 self.image_url(run.id, Path(run.background_image_path))
                 if getattr(run, "background_image_path", None)

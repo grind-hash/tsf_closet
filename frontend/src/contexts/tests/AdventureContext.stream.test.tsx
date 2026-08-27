@@ -219,7 +219,7 @@ describe("AdventureContext turn stream", () => {
     await finishTurnStream();
   });
 
-  it("keeps the partner sub-step (1on1 mode has no portrait step)", async () => {
+  it("keeps the partner sub-step (対面会話 mode has no portrait step)", async () => {
     await startTurnStream();
 
     act(() => {

@@ -4835,7 +4835,7 @@ button:disabled {
 }
 
 /*
- * 1on1 立ち絵モード(romance): 攻略対象の立ち絵を中央に大きく1枚だけ置く。
+ * 対面会話モード(romance): 攻略対象の立ち絵を中央に大きく1枚だけ置く。
  * 並置用の --partner(右寄せ・縮小)を打ち消し、基底の中央配置へ戻す
  */
 .adventure-stage__portrait--solo {

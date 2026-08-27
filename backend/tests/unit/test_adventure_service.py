@@ -5563,7 +5563,7 @@ def _romance_settings_run(state: dict, *, preset: str = "romance") -> SimpleName
 
 
 @pytest.mark.asyncio
-async def test_update_run_settings_one_on_one_mode_round_trip(monkeypatch) -> None:
+async def test_update_run_settings_companion_mode_round_trip(monkeypatch) -> None:
     service = AdventureService()
     state = json.loads(make_romance_run().state_json)
     state.update({"choices": [], "opening_narrative": "開始"})
@@ -5592,23 +5592,23 @@ async def test_update_run_settings_one_on_one_mode_round_trip(monkeypatch) -> No
         "run-1",
         use_precise_reference=False,
         enable_composite_scene=False,
-        one_on_one_mode=True,
+        companion_mode=True,
     )
 
-    assert result["one_on_one_mode"] is True
+    assert result["companion_mode"] is True
     assert result["talk_log"] == []
-    assert json.loads(persisted.state_json)["one_on_one_mode"] is True
+    assert json.loads(persisted.state_json)["companion_mode"] is True
 
     # None は据え置き
     run.state_json = persisted.state_json
     result = await service.update_run_settings(
         "run-1", use_precise_reference=False, enable_composite_scene=False
     )
-    assert result["one_on_one_mode"] is True
+    assert result["companion_mode"] is True
 
 
 @pytest.mark.asyncio
-async def test_update_run_settings_ignores_one_on_one_for_non_romance(
+async def test_update_run_settings_ignores_companion_for_non_romance(
     monkeypatch,
 ) -> None:
     service = AdventureService()
@@ -5645,17 +5645,17 @@ async def test_update_run_settings_ignores_one_on_one_for_non_romance(
         "run-1",
         use_precise_reference=False,
         enable_composite_scene=False,
-        one_on_one_mode=True,
+        companion_mode=True,
     )
-    assert result["one_on_one_mode"] is False
-    assert "one_on_one_mode" not in json.loads(persisted.state_json)
+    assert result["companion_mode"] is False
+    assert "companion_mode" not in json.loads(persisted.state_json)
     assert "talk_log" not in result
 
 
-def test_rewind_keep_keys_and_lean_state_cover_one_on_one_and_talk_log() -> None:
-    assert "one_on_one_mode" in AdventureService._REWIND_KEEP_KEYS
+def test_rewind_keep_keys_and_lean_state_cover_companion_and_talk_log() -> None:
+    assert "companion_mode" in AdventureService._REWIND_KEEP_KEYS
     lean = _lean_state_for_llm(
-        {"one_on_one_mode": True, "talk_log": [{"text": "x"}], "clues": []}
+        {"companion_mode": True, "talk_log": [{"text": "x"}], "clues": []}
     )
     assert lean == {"clues": []}
 
@@ -5723,7 +5723,7 @@ def test_build_turn_contexts_adds_recent_talk_and_script_names() -> None:
     run.objective = "仲良くなる"
     run.language = "ja"
     state = json.loads(run.state_json)
-    state["one_on_one_mode"] = True
+    state["companion_mode"] = True
     state["sim"]["player_name"] = "ケン"
     state["talk_log"] = [
         {"id": "a", "role": "user", "text": "古い話", "after_turn": 1},
@@ -5746,9 +5746,9 @@ def test_build_turn_contexts_adds_recent_talk_and_script_names() -> None:
         {"role": "partner", "text": "やっほー"},
     ]
     assert "talk_log" not in contexts.turn_context["state"]
-    assert "one_on_one_mode" not in contexts.turn_context["state"]
+    assert "companion_mode" not in contexts.turn_context["state"]
 
-    state["one_on_one_mode"] = False
+    state["companion_mode"] = False
     state["talk_log"] = []
     contexts = service._build_turn_contexts(
         run,
@@ -5942,3 +5942,62 @@ async def test_generate_partner_portrait_uses_state_tags_and_patches_turn(
     run.state_json = json.dumps(state, ensure_ascii=False)
     await service.generate_partner_portrait("run-1")
     assert generate.await_args.kwargs["partner_tags"] == "1girl, brown hair"
+
+
+def test_companion_mode_prompts_replace_half_day_pacing_and_hide_slots() -> None:
+    service = AdventureService()
+    names = ("美咲", "主人公")
+    narrative = service._narrative_system_prompt("ja", romance=True, script_names=names)
+    assert "COMPANION MODE" in narrative
+    assert "one half-day slot" not in narrative
+    assert "SCRIPT FORMAT" in narrative
+    plain = service._narrative_system_prompt("ja", romance=True)
+    assert "COMPANION MODE" not in plain and "one half-day slot" in plain
+    director = service._director_system_prompt("ja", romance=True, script_names=names)
+    assert "COMPANION MODE" in director and "one half-day slot" not in director
+    resolution = service._resolution_system_prompt("ja", romance=True, companion=True)
+    assert "COMPANION MODE" in resolution
+    assert "romance_resolution.next_day" not in resolution
+    assert "affection_delta" in resolution
+    plain_resolution = service._resolution_system_prompt("ja", romance=True)
+    assert "romance_resolution.next_day" in plain_resolution
+
+    # 対面会話モードでは判定結果から昼夜のキーを隠し、判定側の値は残す
+    run = make_romance_run(turn_count=2)
+    run.turns = []
+    run.objective = "仲良くなる"
+    run.language = "ja"
+    state = json.loads(run.state_json)
+    state["companion_mode"] = True
+    contexts = service._build_turn_contexts(
+        run,
+        state,
+        user_input="こんにちは",
+        input_kind="free_text",
+        gift_id=None,
+        epilogue=False,
+    )
+    assert contexts.turn_context["companion_mode"] is True
+    prompt_resolution = contexts.turn_context["romance_resolution"]
+    assert not {"day", "slot", "next_day", "next_slot"} & set(prompt_resolution)
+    assert "kind" in prompt_resolution
+    assert contexts.romance_resolution is not None
+    assert "slot" in contexts.romance_resolution
+
+
+def test_setup_prompts_use_turns_in_companion_mode() -> None:
+    from gateway.services.adventure_romance import romance_setup_system_prompt
+
+    service = AdventureService()
+    days_prompt = service._setup_system_prompt("ja", 20, "romance")
+    assert "10-day romance simulation" in days_prompt
+    assert "within 10 days" in days_prompt
+    turns_prompt = service._setup_system_prompt("ja", 20, "romance", companion=True)
+    assert "20 turns" in turns_prompt and "face-to-face" in turns_prompt
+    assert "within 20 turns" in turns_prompt and "-day" not in turns_prompt
+    setup_prompt = romance_setup_system_prompt("ja", 10, companion=True, turns=20)
+    assert (
+        "20 turns" in setup_prompt and "within 20 turns of conversation" in setup_prompt
+    )
+    assert "10-day" not in setup_prompt
+    assert "7-day romance simulation" in romance_setup_system_prompt("ja", 7)

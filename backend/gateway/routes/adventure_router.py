@@ -89,6 +89,8 @@ class AdventureSetupGenerateRequest(BaseModel):
     scenario_constraints: list[str] = Field(
         default_factory=list, max_length=SCENARIO_CONSTRAINTS_MAX_ITEMS
     )
+    # 対面会話モード(romance 専用)。ゴール文面を日数でなくターン数で書かせる
+    companion_mode: bool = False
 
 
 class AdventureCreateRequest(BaseModel):
@@ -155,9 +157,9 @@ class AdventureCreateRequest(BaseModel):
     )
     # この run 専用の NovelAI 画像モデル。未指定ならグローバル設定に従う
     image_model: AdventureImageModel | None = None
-    # 1on1 立ち絵モード(romance 専用。他プリセットでは無視される)。
+    # 対面会話モード(romance 専用。他プリセットでは無視される)。
     # ONなら手番の画像は背景(現在地変化時のみ)と攻略対象の立ち絵だけになる
-    one_on_one_mode: bool = False
+    companion_mode: bool = False
 
 
 class AdventureSettingsUpdateRequest(BaseModel):
@@ -175,8 +177,8 @@ class AdventureSettingsUpdateRequest(BaseModel):
     )
     # "default" で run 単位の上書きを解除。未指定(None)なら既存値を維持する
     image_model: Literal["default"] | AdventureImageModel | None = None
-    # 1on1 立ち絵モード。未指定なら既存値を維持する(romance 以外では無視)
-    one_on_one_mode: bool | None = None
+    # 対面会話モード。未指定なら既存値を維持する(romance 以外では無視)
+    companion_mode: bool | None = None
 
 
 class AdventureTalkRequest(BaseModel):
@@ -230,7 +232,7 @@ class AdventureImageRequest(BaseModel):
     npc_tags: list[str] = Field(default_factory=list, max_length=3)
     redraw_from_reference: bool = True
     # portrait は立ち絵だけを作り直す。生成失敗ターンからの復旧に使う。
-    # partner は romance の攻略対象の立ち絵だけを作り直す(1on1 立ち絵モードの↻)
+    # partner は romance の攻略対象の立ち絵だけを作り直す(対面会話モードの↻)
     target: Literal["scene", "portrait", "partner"] = "scene"
 
 
@@ -262,6 +264,7 @@ async def generate_setup(request: AdventureSetupGenerateRequest) -> dict:
             draft_setting=request.scenario_setting,
             draft_objective=request.scenario_objective,
             draft_constraints=request.scenario_constraints,
+            companion_mode=request.companion_mode,
         )
     except AdventureError as error:
         raise _http_error(error) from error
@@ -294,7 +297,7 @@ async def create_run(request: AdventureCreateRequest) -> dict:
             romance_player_history_id=request.romance_player_history_id,
             romance_partner_speech_style=request.romance_partner_speech_style,
             image_model=request.image_model,
-            one_on_one_mode=request.one_on_one_mode,
+            companion_mode=request.companion_mode,
         )
     except AdventureError as error:
         raise _http_error(error) from error
@@ -359,7 +362,7 @@ async def update_run_settings(
             player_speech_custom=request.player_speech_custom,
             partner_speech_style=request.partner_speech_style,
             image_model=request.image_model,
-            one_on_one_mode=request.one_on_one_mode,
+            companion_mode=request.companion_mode,
         )
     except AdventureError as error:
         raise _http_error(error) from error

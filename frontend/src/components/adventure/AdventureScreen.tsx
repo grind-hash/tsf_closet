@@ -108,6 +108,9 @@ const MAX_MAX_TURNS = 30;
 // 恋愛シミュレーションの日数。backend/gateway/consts/adventure_romance.py と揃える。
 // 1日=昼夜2ターンなので scenario_max_turns には日数×2 を送る
 const ROMANCE_DEFAULT_DAYS = 7;
+// 対面会話モードは日数でなくターン数(1ターン=1往復)。romance のクランプ(10〜60、偶数)に合わせる
+const COMPANION_DEFAULT_TURNS = 20;
+const COMPANION_TURN_OPTIONS = [10, 14, 20, 30, 40, 60] as const;
 const ROMANCE_MIN_DAYS = 5;
 const ROMANCE_MAX_DAYS = 30;
 const ROMANCE_DAY_OPTIONS = Array.from(
@@ -170,8 +173,8 @@ type AdventureSetupPrefs = {
   speechStyle: AdventureSpeechStyle;
   speechCustom: string;
   enableCompositeScene: boolean;
-  /** 1on1 立ち絵モード(romance のみ)。既定 OFF */
-  oneOnOneMode: boolean;
+  /** 対面会話モード(romance のみ)。既定 OFF */
+  companionMode: boolean;
   /** romance の主人公(自分)。テンプレキャラID または __session__。次回にも引き継ぐ */
   romancePlayerCharacterId: string;
   /** 主人公を「セッションの姿」にしたときのセッションID */
@@ -410,6 +413,10 @@ function AdventureHub() {
   );
   // romance はターン数入力の代わりに日数セレクトを使う
   const [romanceDays, setRomanceDays] = useState(ROMANCE_DEFAULT_DAYS);
+  // 対面会話モードは日数の代わりにターン数を選ぶ
+  const [companionTurns, setCompanionTurns] = useState<number>(
+    COMPANION_DEFAULT_TURNS,
+  );
   const [detailsOpen, setDetailsOpen] = useState(false);
   // localStorageの読み出しは初回マウント時の一度だけに限定する
   const [savedSetupPrefs] = useState(readSetupPrefs);
@@ -454,8 +461,8 @@ function AdventureHub() {
         : imageModelChoice,
     );
   // 前回の選択があればそれを優先し、未保存ならグローバル設定を初期値とする
-  const [oneOnOneMode, setOneOnOneMode] = useState(
-    () => savedSetupPrefs.oneOnOneMode === true,
+  const [companionMode, setCompanionMode] = useState(
+    () => savedSetupPrefs.companionMode === true,
   );
   const [enableCompositeScene, setEnableCompositeScene] = useState(() =>
     typeof savedSetupPrefs.enableCompositeScene === "boolean"
@@ -497,7 +504,7 @@ function AdventureHub() {
       speechStyle,
       speechCustom: speechCustom.trim(),
       enableCompositeScene,
-      oneOnOneMode,
+      companionMode,
       romancePlayerCharacterId: romancePlayerId,
       romancePlayerSessionId,
       imageModel: imageModelChoice,
@@ -513,7 +520,7 @@ function AdventureHub() {
     speechStyle,
     speechCustom,
     enableCompositeScene,
-    oneOnOneMode,
+    companionMode,
     romancePlayerId,
     romancePlayerSessionId,
     imageModelChoice,
@@ -596,13 +603,13 @@ function AdventureHub() {
   const effectivePreset =
     startMode === "authored" ? (selectedScenarioPreset ?? preset) : preset;
   // 生成時間の見積もりと「テキストのみ」告知は同じ設定から導く
-  const setupOneOnOne = effectivePreset === "romance" && oneOnOneMode;
+  const setupCompanion = effectivePreset === "romance" && companionMode;
   const setupImageSettings = {
     preset: effectivePreset,
     enableCompositeScene,
     drawPortraitEveryTurn,
     drawPartnerEveryTurn,
-    oneOnOneMode: setupOneOnOne,
+    companionMode: setupCompanion,
   };
 
   // 直前に開いた run を再取得済みの一覧から引く。削除済み・終了済みなら出さない
@@ -674,9 +681,13 @@ function AdventureHub() {
   const effectiveMaxTurns = clampMaxTurns(
     Number.parseInt(scenarioMaxTurns, 10),
   );
-  // romance は日数×2 をターン予算として送る
+  // romance は日数×2 をターン予算として送る。対面会話モードはターン数そのまま
   const effectiveScenarioTurns =
-    preset === "romance" ? romanceDays * 2 : effectiveMaxTurns;
+    preset === "romance"
+      ? companionMode
+        ? companionTurns
+        : romanceDays * 2
+      : effectiveMaxTurns;
 
   const openScenarioPicker = () => {
     setScenarioPickerTab(selectedReplayRunId ? "played" : "authored");
@@ -701,6 +712,7 @@ function AdventureHub() {
         source_prompt_expander_entry_id: sourcePeEntryId,
         preset,
         scenario_max_turns: effectiveScenarioTurns,
+        companion_mode: preset === "romance" && companionMode,
         ...(draftSetting ? { scenario_setting: draftSetting } : {}),
         ...(draftObjective ? { scenario_objective: draftObjective } : {}),
         ...(draftConstraints.length > 0
@@ -761,7 +773,7 @@ function AdventureHub() {
         // V5系モデルは精密参照非対応のため実効値をOFFにする
         use_precise_reference: usePreciseReference && !setupIsV5,
         enable_composite_scene: enableCompositeScene,
-        one_on_one_mode: setupOneOnOne,
+        companion_mode: setupCompanion,
         respect_clothing_layers: settingsState.respectClothingLayers,
         // "default" 選択時は送らず、runはグローバル設定に従う
         image_model:
@@ -936,27 +948,68 @@ function AdventureHub() {
                     アクセシブル名にヒント全文が混ざる */}
                 {preset === "romance" ? (
                   <>
-                    <label className="adventure-setup-turns">
-                      <span className="adventure-setup-turns__label">
-                        {t("adventure.romance.days")}
+                    {/* 対面会話モード(1手番=1往復・昼夜なし)。ON なら日数でなくターン数を選ぶ */}
+                    <label className="adventure-precise-toggle adventure-companion-toggle">
+                      <span className="adventure-precise-toggle__info">
+                        <strong>{t("adventure.companionMode")}</strong>
+                        <small>{t("adventure.companionModeHint")}</small>
                       </span>
-                      <select
-                        value={romanceDays}
+                      <input
+                        type="checkbox"
+                        className="adventure-precise-toggle__input"
+                        checked={companionMode}
                         disabled={setupGenerating || loading || creating}
                         onChange={(event) =>
-                          setRomanceDays(Number(event.target.value))
+                          setCompanionMode(event.target.checked)
                         }
-                      >
-                        {ROMANCE_DAY_OPTIONS.map((days) => (
-                          <option key={days} value={days}>
-                            {days}
-                          </option>
-                        ))}
-                      </select>
-                      <span className="adventure-setup-turns__unit">
-                        {t("adventure.romance.daysUnit")}
-                      </span>
+                      />
+                      <span className="adventure-precise-toggle__switch" />
                     </label>
+                    {companionMode ? (
+                      <label className="adventure-setup-turns">
+                        <span className="adventure-setup-turns__label">
+                          {t("adventure.companionTurns")}
+                        </span>
+                        <select
+                          value={companionTurns}
+                          disabled={setupGenerating || loading || creating}
+                          onChange={(event) =>
+                            setCompanionTurns(Number(event.target.value))
+                          }
+                        >
+                          {COMPANION_TURN_OPTIONS.map((turns) => (
+                            <option key={turns} value={turns}>
+                              {turns}
+                            </option>
+                          ))}
+                        </select>
+                        <span className="adventure-setup-turns__unit">
+                          {t("adventure.companionTurnsUnit")}
+                        </span>
+                      </label>
+                    ) : (
+                      <label className="adventure-setup-turns">
+                        <span className="adventure-setup-turns__label">
+                          {t("adventure.romance.days")}
+                        </span>
+                        <select
+                          value={romanceDays}
+                          disabled={setupGenerating || loading || creating}
+                          onChange={(event) =>
+                            setRomanceDays(Number(event.target.value))
+                          }
+                        >
+                          {ROMANCE_DAY_OPTIONS.map((days) => (
+                            <option key={days} value={days}>
+                              {days}
+                            </option>
+                          ))}
+                        </select>
+                        <span className="adventure-setup-turns__unit">
+                          {t("adventure.romance.daysUnit")}
+                        </span>
+                      </label>
+                    )}
                     <label
                       className="adventure-setup-turns"
                       title={t("adventure.romance.playerHint")}
@@ -1033,10 +1086,12 @@ function AdventureHub() {
                 </button>
                 <small className="adventure-setup-turns__hint">
                   {preset === "romance"
-                    ? t("adventure.romance.daysHint", {
-                        min: ROMANCE_MIN_DAYS,
-                        max: ROMANCE_MAX_DAYS,
-                      })
+                    ? companionMode
+                      ? t("adventure.companionTurnsHint")
+                      : t("adventure.romance.daysHint", {
+                          min: ROMANCE_MIN_DAYS,
+                          max: ROMANCE_MAX_DAYS,
+                        })
                     : t("adventure.maxTurnsHint", {
                         min: MIN_MAX_TURNS,
                         max: MAX_MAX_TURNS,
@@ -1317,23 +1372,6 @@ function AdventureHub() {
                   ))}
                 </select>
               </label>
-              {/* 1on1 立ち絵モード(romance 専用)。攻略対象の立ち絵だけを描く */}
-              {effectivePreset === "romance" && (
-                <label className="adventure-precise-toggle adventure-one-on-one-toggle">
-                  <span className="adventure-precise-toggle__info">
-                    <strong>{t("adventure.oneOnOneMode")}</strong>
-                    <small>{t("adventure.oneOnOneModeHint")}</small>
-                  </span>
-                  <input
-                    type="checkbox"
-                    className="adventure-precise-toggle__input"
-                    checked={oneOnOneMode}
-                    disabled={setupGenerating || loading || creating}
-                    onChange={(event) => setOneOnOneMode(event.target.checked)}
-                  />
-                  <span className="adventure-precise-toggle__switch" />
-                </label>
-              )}
               <label className="adventure-precise-toggle">
                 <span className="adventure-precise-toggle__info">
                   <strong>{t("adventure.preciseReference")}</strong>
@@ -1364,8 +1402,8 @@ function AdventureHub() {
                   <strong>{t("adventure.enableCompositeScene")}</strong>
                   <small>
                     {t(
-                      setupOneOnOne
-                        ? "adventure.enableCompositeSceneOneOnOneHint"
+                      setupCompanion
+                        ? "adventure.enableCompositeSceneCompanionHint"
                         : "adventure.enableCompositeSceneHint",
                     )}
                   </small>
@@ -1387,8 +1425,8 @@ function AdventureHub() {
                   <strong>{t("adventure.drawPortraitEveryTurn")}</strong>
                   <small>
                     {t(
-                      setupOneOnOne
-                        ? "adventure.drawPortraitEveryTurnOneOnOneHint"
+                      setupCompanion
+                        ? "adventure.drawPortraitEveryTurnCompanionHint"
                         : "adventure.drawPortraitEveryTurnHint",
                     )}
                   </small>
@@ -1709,7 +1747,7 @@ interface AdventureStageFrame {
   turnNumber: number;
   /** ステージ／サムネイル用の代表画像 */
   imageUrl: string;
-  /** imageUrl が合成シーンか立ち絵か、1on1 の攻略対象立ち絵かを示す */
+  /** imageUrl が合成シーンか立ち絵か、対面会話モードの攻略対象立ち絵かを示す */
   kind: "composite" | "portrait" | "partner";
   /** 非合成モードの背景。romance ではこの手番の現在地・時間帯のもの */
   backgroundUrl: string | null;
@@ -2041,8 +2079,8 @@ function AdventurePlay({ runId }: { runId: string }) {
     const list: AdventureStageFrame[] = [];
     const runBackground =
       activeRun.background_image_url ?? activeRun.current_image_url ?? null;
-    if (activeRun.preset === "romance" && activeRun.one_on_one_mode) {
-      // 1on1 立ち絵モード: 代表画像は攻略対象の立ち絵。生成の無い手番も
+    if (activeRun.preset === "romance" && activeRun.companion_mode) {
+      // 対面会話モード: 代表画像は攻略対象の立ち絵。生成の無い手番も
       // フレームにし、立ち絵と背景は直前の1枚を引き継ぐ
       let lastPartnerUrl = activeRun.opening_partner_portrait_url ?? null;
       let lastBackgroundUrl = runBackground;
@@ -2428,11 +2466,11 @@ function AdventurePlay({ runId }: { runId: string }) {
   ]);
 
   const portraitSource = useMemo(() => {
-    // 1on1 立ち絵モードでは主人公の立ち絵をステージに出さない
+    // 対面会話モードでは主人公の立ち絵をステージに出さない
     if (
       !activeRun ||
       activeRun.enable_composite_scene ||
-      (activeRun.preset === "romance" && activeRun.one_on_one_mode)
+      (activeRun.preset === "romance" && activeRun.companion_mode)
     ) {
       return null;
     }
@@ -2457,7 +2495,7 @@ function AdventurePlay({ runId }: { runId: string }) {
   // romance 非合成モードの攻略対象立ち絵。過去フレーム閲覧中はその手番の1枚を表示する
   const stagePartnerSource =
     activeRun?.preset === "romance" &&
-    (!activeRun?.enable_composite_scene || activeRun?.one_on_one_mode)
+    (!activeRun?.enable_composite_scene || activeRun?.companion_mode)
       ? selectedFrameIndex !== null
         ? (frames[selectedFrameIndex]?.partnerUrl ?? null)
         : (activeRun?.partner_portrait_url ?? null)
@@ -2539,8 +2577,8 @@ function AdventurePlay({ runId }: { runId: string }) {
   // narrativeフェーズはテキスト自体が進捗になるため対象外（スピナー維持）。
   const enableCompositeScene = activeRun?.enable_composite_scene ?? false;
   const isRomancePreset = activeRun?.preset === "romance";
-  // 1on1 立ち絵モード: 主人公立ち絵と合成シーンの工程は走らない
-  const oneOnOneActive = isRomancePreset && Boolean(activeRun?.one_on_one_mode);
+  // 対面会話モード: 主人公立ち絵と合成シーンの工程は走らない
+  const companionActive = isRomancePreset && Boolean(activeRun?.companion_mode);
   const progressSegments = useMemo<TimedProgressSegment[] | null>(() => {
     if (!streaming || phase === null || phase === "narrative") return null;
     if (pendingUserInput !== null) {
@@ -2552,7 +2590,7 @@ function AdventurePlay({ runId }: { runId: string }) {
       ];
       // 立ち絵の毎ターン生成OFFの間はバックエンドが該当の生成をスキップするため
       // 工程表示も揃える。順序は主人公→攻略対象→合成シーンの直列生成に対応する
-      if (drawPortraitEveryTurn && !oneOnOneActive) {
+      if (drawPortraitEveryTurn && !companionActive) {
         segments.push({
           key: "portrait",
           budgetMs: ADVENTURE_PROGRESS_BUDGET_MS.portrait,
@@ -2564,7 +2602,7 @@ function AdventurePlay({ runId }: { runId: string }) {
           budgetMs: ADVENTURE_PROGRESS_BUDGET_MS.partner,
         });
       }
-      if (enableCompositeScene && !oneOnOneActive) {
+      if (enableCompositeScene && !companionActive) {
         segments.push({
           key: "composite",
           budgetMs: ADVENTURE_PROGRESS_BUDGET_MS.composite,
@@ -2589,19 +2627,19 @@ function AdventurePlay({ runId }: { runId: string }) {
     drawPartnerEveryTurn,
     enableCompositeScene,
     isRomancePreset,
-    oneOnOneActive,
+    companionActive,
   ]);
   const progressActiveKey = useMemo(() => {
     if (!progressSegments) return null;
     if (pendingUserInput !== null) {
       if (phase === "clue_check") return "clue_check";
       if (phase === "image_generation") {
-        return phaseStep?.step ?? (oneOnOneActive ? "partner" : "portrait");
+        return phaseStep?.step ?? (companionActive ? "partner" : "portrait");
       }
       return null;
     }
     return phase === "image_generation" ? "image_single" : null;
-  }, [progressSegments, pendingUserInput, phase, phaseStep, oneOnOneActive]);
+  }, [progressSegments, pendingUserInput, phase, phaseStep, companionActive]);
   const stageProgress = useTimedProgress(progressSegments, progressActiveKey);
 
   if (loading || !activeRun || activeRun.id !== runId) {
@@ -2617,17 +2655,17 @@ function AdventurePlay({ runId }: { runId: string }) {
     ? t(`adventure.phaseStep.${phaseStep.step}`)
     : t(`adventure.phase.${phase ?? "narrative"}`);
   const isViewingPast = selectedFrameIndex !== null;
-  // 1on1 立ち絵モード(romance): 背景の上に攻略対象の立ち絵だけを置く
-  const isOneOnOne =
-    activeRun.preset === "romance" && Boolean(activeRun.one_on_one_mode);
-  const isCompositeMode = activeRun.enable_composite_scene && !isOneOnOne;
+  // 対面会話モード(romance): 背景の上に攻略対象の立ち絵だけを置く
+  const isCompanion =
+    activeRun.preset === "romance" && Boolean(activeRun.companion_mode);
+  const isCompositeMode = activeRun.enable_composite_scene && !isCompanion;
   // 生成時間の見積もりと「テキストのみ」告知は同じ設定から導く
   const playImageSettings = {
     preset: activeRun.preset,
     enableCompositeScene: activeRun.enable_composite_scene,
     drawPortraitEveryTurn,
     drawPartnerEveryTurn,
-    oneOnOneMode: isOneOnOne,
+    companionMode: isCompanion,
   };
   const effectiveIndex =
     selectedFrameIndex ?? (frames.length > 0 ? frames.length - 1 : -1);
@@ -2635,7 +2673,7 @@ function AdventurePlay({ runId }: { runId: string }) {
     effectiveIndex >= 0 ? frames[effectiveIndex] : undefined;
   const backgroundUrl =
     activeRun.background_image_url ?? activeRun.current_image_url;
-  const displayedImageUrl = isOneOnOne
+  const displayedImageUrl = isCompanion
     ? isViewingPast
       ? (selectedFrame?.backgroundUrl ?? backgroundUrl)
       : backgroundUrl
@@ -2738,7 +2776,7 @@ function AdventurePlay({ runId }: { runId: string }) {
     isViewingPast ? selectedFrame : frames[frames.length - 1],
   ) ?? { day: sim?.day ?? 1, slot: sim?.slot ?? "day" };
   const stagePortraitFailed =
-    !isOneOnOne &&
+    !isCompanion &&
     (isViewingPast ? selectedFrame : frames[frames.length - 1])
       ?.portraitStatus === "failed";
   // トークモード(romance): 行動パネルを会話スレッドに切り替える
@@ -2858,7 +2896,40 @@ function AdventurePlay({ runId }: { runId: string }) {
               </div>
             )}
             <div className="adventure-hud__metrics">
-              {sim ? (
+              {sim && isCompanion ? (
+                // 対面会話モード: 昼夜の枠が無いのでターン数(1ターン=1往復)を出す
+                <HudTile
+                  className="adventure-hud__day is-day"
+                  title={
+                    stageEpilogue
+                      ? t("adventure.epilogueTurnsHint")
+                      : t("adventure.companion.turnCounterHint", {
+                          turn: activeRun.turn_count,
+                          max: activeRun.max_turns,
+                        })
+                  }
+                  label={t("adventure.companion.turnLabel")}
+                  value={
+                    stageEpilogue ? (
+                      t("adventure.epilogueLabel")
+                    ) : (
+                      <>
+                        {activeRun.turn_count}
+                        <i>/{activeRun.max_turns}</i>
+                      </>
+                    )
+                  }
+                  gaugeRatio={stageEpilogue ? null : turnRatio}
+                  badge={
+                    stageEpilogue
+                      ? null
+                      : t("adventure.companion.turnsLeft", {
+                          count: activeRun.remaining_turns,
+                        })
+                  }
+                  badgeClassName="adventure-hud__slot is-day"
+                />
+              ) : sim ? (
                 // エピローグでは期限が無いため「N日目」の開放表示に切り替え、
                 // 残りターンのゲージも出さない
                 <HudTile
@@ -3395,7 +3466,7 @@ function AdventurePlay({ runId }: { runId: string }) {
                 <img
                   key={transparentPartnerUrl}
                   className={`adventure-stage__portrait ${
-                    isOneOnOne
+                    isCompanion
                       ? "adventure-stage__portrait--solo"
                       : "adventure-stage__portrait--partner"
                   }`}
@@ -3461,9 +3532,9 @@ function AdventurePlay({ runId }: { runId: string }) {
                 type="button"
                 className="adventure-stage__regenerate"
                 onClick={() => {
-                  // 1on1 立ち絵モードでは合成シーンを使わないため、
+                  // 対面会話モードでは合成シーンを使わないため、
                   // 攻略対象の立ち絵だけを描き直す
-                  if (isOneOnOne) {
+                  if (isCompanion) {
                     void regenerateImage({
                       redraw_from_reference: true,
                       target: "partner",
@@ -3474,12 +3545,12 @@ function AdventurePlay({ runId }: { runId: string }) {
                 }}
                 disabled={streaming || talking || isViewingPast}
                 title={t(
-                  isOneOnOne
+                  isCompanion
                     ? "adventure.regeneratePartnerPortrait"
                     : "adventure.regenerateImage",
                 )}
                 aria-label={t(
-                  isOneOnOne
+                  isCompanion
                     ? "adventure.regeneratePartnerPortrait"
                     : "adventure.regenerateImage",
                 )}
@@ -3576,17 +3647,17 @@ function AdventurePlay({ runId }: { runId: string }) {
                       ))}
                     </select>
                   </label>
-                  {/* 1on1 立ち絵モード(romance 専用)。次の手番から反映 */}
+                  {/* 対面会話モード(romance 専用)。次の手番から反映 */}
                   {activeRun.preset === "romance" && (
-                    <label className="adventure-precise-toggle adventure-one-on-one-toggle">
+                    <label className="adventure-precise-toggle adventure-companion-toggle">
                       <span className="adventure-precise-toggle__info">
-                        <strong>{t("adventure.oneOnOneMode")}</strong>
-                        <small>{t("adventure.oneOnOneModePlayHint")}</small>
+                        <strong>{t("adventure.companionMode")}</strong>
+                        <small>{t("adventure.companionModePlayHint")}</small>
                       </span>
                       <input
                         type="checkbox"
                         className="adventure-precise-toggle__input"
-                        checked={isOneOnOne}
+                        checked={isCompanion}
                         disabled={streaming || settingsSaving}
                         onChange={(event) => {
                           const next = event.target.checked;
@@ -3596,7 +3667,7 @@ function AdventurePlay({ runId }: { runId: string }) {
                               activeRun.use_precise_reference,
                             enable_composite_scene:
                               activeRun.enable_composite_scene,
-                            one_on_one_mode: next,
+                            companion_mode: next,
                           })
                             .catch(() => undefined)
                             .finally(() => setSettingsSaving(false));
@@ -3643,8 +3714,8 @@ function AdventurePlay({ runId }: { runId: string }) {
                       <strong>{t("adventure.enableCompositeScene")}</strong>
                       <small>
                         {t(
-                          isOneOnOne
-                            ? "adventure.enableCompositeSceneOneOnOneHint"
+                          isCompanion
+                            ? "adventure.enableCompositeSceneCompanionHint"
                             : "adventure.enableCompositeScenePlayHint",
                         )}
                       </small>
@@ -3674,8 +3745,8 @@ function AdventurePlay({ runId }: { runId: string }) {
                       <strong>{t("adventure.drawPortraitEveryTurn")}</strong>
                       <small>
                         {t(
-                          isOneOnOne
-                            ? "adventure.drawPortraitEveryTurnOneOnOneHint"
+                          isCompanion
+                            ? "adventure.drawPortraitEveryTurnCompanionHint"
                             : "adventure.drawPortraitEveryTurnHint",
                         )}
                       </small>
@@ -4442,7 +4513,7 @@ function AdventurePlay({ runId }: { runId: string }) {
                       </ul>
                     </section>
                   )}
-                  {sim && (
+                  {sim && !isCompanion && (
                     <section className="image-preview-modal__detail-section">
                       <h2 className="image-preview-modal__detail-label">
                         {t("adventure.romance.days")}
@@ -4513,7 +4584,7 @@ function AdventurePlay({ runId }: { runId: string }) {
                     <p className="image-preview-modal__detail-text">
                       {lightboxFrame.turnNumber === 0
                         ? t("adventure.turnStrip.opening")
-                        : sim && lightboxDaySlot
+                        : sim && lightboxDaySlot && !isCompanion
                           ? lightboxFrame.sim?.epilogue
                             ? t("adventure.romance.previewTurnEpilogue", {
                                 day: lightboxDaySlot.day,

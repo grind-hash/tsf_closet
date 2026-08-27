@@ -119,7 +119,7 @@ describe("isAdventureTurnTextOnly", () => {
   });
 });
 
-describe("one-on-one sprite mode", () => {
+describe("companion mode", () => {
   it("counts only the partner sprite even with portrait and composite on", () => {
     expect(
       estimateAdventureTurnSeconds({
@@ -127,7 +127,7 @@ describe("one-on-one sprite mode", () => {
         enableCompositeScene: true,
         drawPortraitEveryTurn: true,
         drawPartnerEveryTurn: true,
-        oneOnOneMode: true,
+        companionMode: true,
       }),
     ).toBe(40);
   });
@@ -139,7 +139,7 @@ describe("one-on-one sprite mode", () => {
         enableCompositeScene: true,
         drawPortraitEveryTurn: true,
         drawPartnerEveryTurn: false,
-        oneOnOneMode: true,
+        companionMode: true,
       }),
     ).toBe(true);
     expect(
@@ -148,7 +148,7 @@ describe("one-on-one sprite mode", () => {
         enableCompositeScene: false,
         drawPortraitEveryTurn: false,
         drawPartnerEveryTurn: true,
-        oneOnOneMode: true,
+        companionMode: true,
       }),
     ).toBe(false);
   });
@@ -160,7 +160,7 @@ describe("one-on-one sprite mode", () => {
         enableCompositeScene: true,
         drawPortraitEveryTurn: true,
         drawPartnerEveryTurn: true,
-        oneOnOneMode: true,
+        companionMode: true,
       }),
     ).toBe(60);
   });

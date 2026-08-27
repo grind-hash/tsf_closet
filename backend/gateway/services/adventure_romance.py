@@ -223,7 +223,7 @@ _TIME_OF_DAY_TAG_KEYS: frozenset[str] = frozenset(
 def strip_romance_time_of_day(scene_tags: str) -> str:
     """scene_tags から昼夜を示すタグをすべて取り除く。
 
-    1on1 立ち絵モードの背景は現在地ごとに1枚だけ持ち、時間帯では描き直さない。
+    対面会話モードの背景は現在地ごとに1枚だけ持ち、時間帯では描き直さない。
     LLM は previous_image_tags から前ターンの照明タグを引き継ぐため、生成前に
     昼夜どちらのタグも落として時間帯に依存しない背景にする。
     """
@@ -806,7 +806,7 @@ def public_sim_view(
     }
 
 
-ROMANCE_NARRATIVE_GUIDANCE = (
+_ROMANCE_NARRATIVE_CORE = (
     "This scenario is a romance simulation. The player is their own separate "
     "character, named in state.sim.player_name, whose appearance is "
     "required_visual_appearance; the player is courting the partner. The "
@@ -849,7 +849,11 @@ ROMANCE_NARRATIVE_GUIDANCE = (
     "partner's feelings toward the player; treat such mental changes as real "
     "and immediate. When offering choices, never duplicate the dedicated "
     "action buttons (part-time work, buying or giving a shop gift, granting "
-    "an attribute, confessing); offer conversation and date beats instead. "
+    "an attribute, confessing); offer conversation and date beats instead."
+)
+
+# 通常の romance: 1手番 = 半日枠。場面を数ビートで膨らませる
+_ROMANCE_NARRATIVE_HALF_DAY_PACING = (
     "Pacing: one turn always covers one half-day slot. romance_resolution.day "
     "and romance_resolution.slot name the slot being narrated: a day slot "
     "spans roughly morning to late afternoon, and a night slot early evening "
@@ -875,6 +879,38 @@ ROMANCE_NARRATIVE_GUIDANCE = (
     "Name that plan in a few words, as the examples above are worded; the slot "
     "it covers is set by the plan itself, not by how long the label is."
 )
+
+ROMANCE_NARRATIVE_GUIDANCE = (
+    f"{_ROMANCE_NARRATIVE_CORE} {_ROMANCE_NARRATIVE_HALF_DAY_PACING}"
+)
+
+
+def romance_companion_narrative_guidance(partner_name: str, player_name: str) -> str:
+    """対面会話モード(companion_mode)の物語ガイダンス。
+
+    1手番 = 1往復の会話。半日枠の場面描写・時間経過・昼夜をやめ、
+    「短い反応の地の文 + 攻略対象のセリフ1つ」だけを書かせる。
+    """
+    return (
+        f"{_ROMANCE_NARRATIVE_CORE} "
+        "COMPANION MODE: one turn is exactly one face-to-face exchange, never a "
+        "half day. Treat player_input as what the player just said or did to "
+        f"{partner_name} right now. Write at most one short narration sentence "
+        f"describing {partner_name}'s visible reaction (expression, gesture, "
+        f"tone), then exactly one spoken line from {partner_name} that answers "
+        f"{player_name} directly, one to three short sentences, and stop there. "
+        f"Never write {player_name}'s own spoken line (player_input already is "
+        "it), never skip time, and never mention days, nights, or hours "
+        "passing; state.sim.total_days is an internal budget you must not "
+        "mention. The scene stays where it is unless player_input moves it. "
+        "Let the affection stage colour the warmth of the reply. Choices must "
+        f"be short things {player_name} could say or do next in this "
+        "conversation (a line of dialogue or a small gesture), never plans "
+        "that fill a half day. When romance_resolution is absent you are "
+        f"writing the opening: {partner_name} notices {player_name} and greets "
+        "them in one line."
+    )
+
 
 ROMANCE_VISUAL_GUIDANCE = (
     "This scene is from a romance simulation. The player is the primary "
@@ -926,7 +962,7 @@ ROMANCE_RECENT_TALK_GUIDANCE = (
     "affection_delta, money, or any other score: score only this turn's action."
 )
 
-ROMANCE_RESOLUTION_GUIDANCE = (
+_ROMANCE_RESOLUTION_CORE = (
     'Add these extra fields to the JSON object: "affection_delta" (integer), '
     '"affection_set" (integer or null), "money_delta" (integer), '
     '"money_set" (integer or null), "start_dating" (boolean), '
@@ -992,7 +1028,11 @@ ROMANCE_RESOLUTION_GUIDANCE = (
     "continue; the engine decides milestones and endings. choices must stay "
     "romance-flavoured actions for the next slot, and must never duplicate "
     "the dedicated action buttons (part-time work, buying or giving a shop "
-    "gift, granting an attribute, confessing). "
+    "gift, granting an attribute, confessing)."
+)
+
+# 通常の romance: 選択肢は次の半日枠を埋める計画
+_ROMANCE_RESOLUTION_HALF_DAY_CHOICES = (
     "romance_resolution.next_day and romance_resolution.next_slot (or "
     "romance_next_slot when only regenerating choices) identify the upcoming "
     "slot those choices belong to: a day slot spans roughly morning to late "
@@ -1007,14 +1047,44 @@ ROMANCE_RESOLUTION_GUIDANCE = (
     "just reached."
 )
 
+ROMANCE_RESOLUTION_GUIDANCE = (
+    f"{_ROMANCE_RESOLUTION_CORE} {_ROMANCE_RESOLUTION_HALF_DAY_CHOICES}"
+)
 
-def romance_setup_system_prompt(language: str, days: int) -> str:
-    """RomanceSetupOutput 生成用のシステムプロンプト。"""
+# 対面会話モード: 選択肢は次に言う/する一言。昼夜の枠は無い
+ROMANCE_COMPANION_RESOLUTION_GUIDANCE = (
+    f"{_ROMANCE_RESOLUTION_CORE} "
+    "COMPANION MODE: there are no day or night slots; one turn is one "
+    "face-to-face exchange. choices must be the next short things the player "
+    "could say or do in this conversation (a brief line of dialogue or a small "
+    "gesture, each within the label length rule), never half-day plans. Score "
+    "affection_delta with the conversation rubric above for this single "
+    "exchange."
+)
+
+
+def romance_setup_system_prompt(
+    language: str, days: int, *, companion: bool = False, turns: int = 0
+) -> str:
+    """RomanceSetupOutput 生成用のシステムプロンプト。
+
+    companion(対面会話モード)では日数でなくターン数(1ターン=1往復)で尺を示す。
+    """
     response_language = "Japanese" if language == "ja" else "English"
-    return f"""You design the setup of a {days}-day romance simulation where the player tries to start dating one partner character.
+    if companion:
+        horizon = (
+            f"a romance simulation lasting {turns} turns, where each turn is one "
+            "face-to-face exchange with the partner and there are no days or "
+            "times of day"
+        )
+        within = f"within {turns} turns of conversation"
+    else:
+        horizon = f"a {days}-day romance simulation"
+        within = f"within {days} days"
+    return f"""You design the setup of {horizon} where the player tries to start dating one partner character.
 Return one JSON object only, in {response_language}, matching this schema:
 {{"partner_name":"...","partner_profile":"...","partner_speech_style":"...","relationship_origin":"...","job_name":"...","gift_catalog":[{{"name":"...","price":1500,"tier":"budget|standard|luxury"}}],"liked_gift_names":["..."],"disliked_gift_names":["..."],"likes_hint":"...","dislikes_hint":"..."}}
-The partner is the character shown in source_snapshot; keep their appearance and situation consistent with it. source_snapshot deliberately contains no name for the partner: when the supplied setting or objective already names the partner, reuse that name as partner_name; otherwise invent a fitting new name from their appearance. Never use player_name as the partner's name. The player is a separate person courting that partner; never treat the snapshot character as the player. partner_profile describes personality and daily life. partner_speech_style states, in {response_language}, exactly how the partner speaks, in one short sentence a writer can follow verbatim: politeness level (敬体 or 常体), first-person pronoun, how they address the player, sentence endings, and any verbal tic. Make it match the personality in partner_profile, so a brash or casual personality actually speaks casually rather than politely. relationship_origin describes how the player and the partner currently know each other, at an acquaintance level that can grow into dating within {days} days. job_name is a part-time job the player can work at, where the partner occasionally appears. gift_catalog must contain 8 to 12 concrete purchasable gifts with prices inside their tier band: budget 500-2000, standard 2001-6000, luxury 6001-15000. liked_gift_names and disliked_gift_names must each pick exactly 2 or 3 names verbatim from gift_catalog, reflecting the partner's personality. likes_hint and dislikes_hint describe those tastes indirectly, as hints the partner might drop in conversation, without naming the exact gifts. Keep every value concise."""
+The partner is the character shown in source_snapshot; keep their appearance and situation consistent with it. source_snapshot deliberately contains no name for the partner: when the supplied setting or objective already names the partner, reuse that name as partner_name; otherwise invent a fitting new name from their appearance. Never use player_name as the partner's name. The player is a separate person courting that partner; never treat the snapshot character as the player. partner_profile describes personality and daily life. partner_speech_style states, in {response_language}, exactly how the partner speaks, in one short sentence a writer can follow verbatim: politeness level (敬体 or 常体), first-person pronoun, how they address the player, sentence endings, and any verbal tic. Make it match the personality in partner_profile, so a brash or casual personality actually speaks casually rather than politely. relationship_origin describes how the player and the partner currently know each other, at an acquaintance level that can grow into dating {within}. job_name is a part-time job the player can work at, where the partner occasionally appears. gift_catalog must contain 8 to 12 concrete purchasable gifts with prices inside their tier band: budget 500-2000, standard 2001-6000, luxury 6001-15000. liked_gift_names and disliked_gift_names must each pick exactly 2 or 3 names verbatim from gift_catalog, reflecting the partner's personality. likes_hint and dislikes_hint describe those tastes indirectly, as hints the partner might drop in conversation, without naming the exact gifts. Keep every value concise."""
 
 
 def romance_script_names(sim: dict[str, Any], language: str) -> tuple[str, str]:
@@ -1029,7 +1099,7 @@ def romance_script_names(sim: dict[str, Any], language: str) -> tuple[str, str]:
 
 
 def romance_script_format_guidance(partner_name: str, player_name: str) -> str:
-    """1on1 立ち絵モードの台本形式ルール。
+    """対面会話モードの台本形式ルール。
 
     攻略対象のセリフを `名前「…」` の独立行にさせ、フロントが話者ラベル表示と
     読み上げ対象の抽出を機械的に行えるようにする。

@@ -80,7 +80,7 @@ export function readDrawPartnerEveryTurn(): boolean {
 }
 
 // 攻略対象(partner)は romance で主人公の次に描かれる工程。捨てると進捗バーが
-// 主人公工程に張り付き、1on1 立ち絵モード(主人公工程なし)では 0% のままになる
+// 主人公工程に張り付き、対面会話モード(主人公工程なし)では 0% のままになる
 export type AdventureImageStep = "portrait" | "partner" | "composite";
 
 export interface AdventurePhaseStep {
@@ -670,7 +670,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
               );
             }
           } else if (event.type === "partner_image") {
-            // target: "partner" で攻略対象の立ち絵だけを作り直したとき(1on1)
+            // target: "partner" で攻略対象の立ち絵だけを作り直したとき(対面会話)
             const partnerUrl = normalizeAdventureImageUrl(event.data.image_url);
             const regeneratedTurnId = event.data.turn_id;
             if (partnerUrl) {
@@ -752,7 +752,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
                   use_precise_reference: updated.use_precise_reference,
                   enable_composite_scene: updated.enable_composite_scene,
                   respect_clothing_layers: updated.respect_clothing_layers,
-                  one_on_one_mode: updated.one_on_one_mode,
+                  companion_mode: updated.companion_mode,
                   image_model_override: updated.image_model_override,
                   player_speech_style: updated.player_speech_style,
                   player_speech_custom: updated.player_speech_custom,

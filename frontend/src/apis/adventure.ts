@@ -128,7 +128,7 @@ export interface AdventureImageRegenerateOptions
   redraw_from_reference: boolean;
   /**
    * portrait は主人公の立ち絵だけ、partner は romance の攻略対象の立ち絵だけを
-   * 作り直す(1on1 立ち絵モードの↻)。既定は場面画像
+   * 作り直す(対面会話モードの↻)。既定は場面画像
    */
   target?: "scene" | "portrait" | "partner";
 }
@@ -254,10 +254,10 @@ export interface AdventureRun {
   /** romance のみ。開幕(手番0)時点の公開シミュ状態 */
   opening_sim?: AdventureSim | null;
   /**
-   * 1on1 立ち絵モード(romance のみ)。ON なら攻略対象の立ち絵を中央に1枚だけ置き、
+   * 対面会話モード(romance のみ)。ON なら攻略対象の立ち絵を中央に1枚だけ置き、
    * 手番の画像は背景(現在地変化時のみ)と攻略対象だけを生成する
    */
-  one_on_one_mode: boolean;
+  companion_mode: boolean;
   /** romance のみ。トークモードの会話ログ(古い順) */
   talk_log?: AdventureTalkEntry[];
   turns: AdventureTurn[];
@@ -295,6 +295,8 @@ export interface AdventureSetupRequest {
   scenario_setting?: string;
   scenario_objective?: string;
   scenario_constraints?: string[];
+  /** 対面会話モード(romance のみ)。ゴール文面を日数でなくターン数で書かせる */
+  companion_mode?: boolean;
 }
 
 export interface AdventureSetup {
@@ -335,8 +337,8 @@ export interface AdventureCreateRequest extends AdventureSetupRequest {
   romance_partner_speech_style?: string;
   /** この run 専用の NovelAI 画像モデル。未指定ならグローバル設定に従う */
   image_model?: string;
-  /** 1on1 立ち絵モード(romance のみ)。既定 false */
-  one_on_one_mode?: boolean;
+  /** 対面会話モード(romance のみ)。既定 false */
+  companion_mode?: boolean;
 }
 
 export interface AdventureSettingsUpdateRequest {
@@ -351,8 +353,8 @@ export interface AdventureSettingsUpdateRequest {
   partner_speech_style?: string;
   /** "default" で上書き解除、モデル名で run 単位の上書き。未指定なら維持 */
   image_model?: string;
-  /** 1on1 立ち絵モード。未指定なら維持(romance 以外では無視される) */
-  one_on_one_mode?: boolean;
+  /** 対面会話モード。未指定なら維持(romance 以外では無視される) */
+  companion_mode?: boolean;
 }
 
 export interface AdventureStreamEvent {
@@ -384,7 +386,7 @@ function normalizeRun(run: AdventureRun): AdventureRun {
     use_precise_reference: Boolean(run.use_precise_reference),
     enable_composite_scene: Boolean(run.enable_composite_scene),
     respect_clothing_layers: Boolean(run.respect_clothing_layers),
-    one_on_one_mode: Boolean(run.one_on_one_mode),
+    companion_mode: Boolean(run.companion_mode),
     talk_log: run.talk_log ?? [],
     image_model_override: run.image_model_override ?? null,
     // 旧runやモック応答にキーが無くても表示側が undefined を掴まないようにする

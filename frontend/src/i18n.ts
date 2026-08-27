@@ -281,19 +281,28 @@ const resources = {
           "OFFが既定です。既定では背景は開始時に1回だけ生成し、行動に応じて中央の立ち絵のみ更新します。ONにすると、立ち絵の更新後に背景を含む合成シーンも直列で再生成するため、1ターンあたりの画像生成が1回増えて待ち時間が長くなります。",
         enableCompositeScenePlayHint:
           "次回のターンから反映されます。ONの間は毎ターン、立ち絵に加えて合成シーンも直列生成されるため待ち時間が長くなります。",
-        enableCompositeSceneOneOnOneHint:
-          "1on1立ち絵モード中は合成シーンを描かないため、この設定は効きません。モードをOFFにすると再び有効になります。",
-        oneOnOneMode: "1on1立ち絵モード",
-        oneOnOneModeHint:
-          "OFFが既定です。ONにすると攻略対象の立ち絵を中央に大きく1枚だけ置き、各ターンの画像生成は背景と攻略対象の立ち絵だけになります（主人公の立ち絵と合成シーンは描きません）。背景は現在地が変わったときだけ描き直し、昼夜の変化では変えません。本文は「名前「セリフ」」の台本形式になり、セリフ読み上げと組み合わせやすくなります。セルフホスト(ComfyUI)では背景を生成できません。",
-        oneOnOneModePlayHint:
-          "次回のターンから反映されます。ONの間は攻略対象の立ち絵だけを描き、背景は現在地が変わったときだけ描き直します（昼夜では変えません）。本文は台本形式になります。",
+        enableCompositeSceneCompanionHint:
+          "対面会話モード中は合成シーンを描かないため、この設定は効きません。モードをOFFにすると再び有効になります。",
+        companionMode: "対面会話モード",
+        companionModeHint:
+          "OFFが既定です。ONにすると攻略対象が目の前に立ち、1ターン＝1往復の会話になります（あなたの一言に、短い反応と相手のセリフ1つで返ります）。昼・夜の区切りは無く、決めた回数の往復で進みます。画像は背景（場所が変わったときだけ）と攻略対象の立ち絵だけを生成し、返ってきたセリフはそのまま読み上げに使えます。セルフホスト(ComfyUI)では背景を生成できません。",
+        companionModePlayHint:
+          "次のターンから反映されます。ONの間は1ターン＝1往復の会話になり、攻略対象の立ち絵だけを描き、背景は場所が変わったときだけ描き直します（昼夜の区切りはありません）。",
+        companionTurns: "ターン数",
+        companionTurnsUnit: "ターン",
+        companionTurnsHint:
+          "対面会話モードでは1ターン＝1往復の会話です。回数を使い切るとシナリオの結果が確定します。手番を使わない雑談は「トーク」でできます。",
+        companion: {
+          turnLabel: "ターン",
+          turnCounterHint: "{{turn}} / {{max}} ターン（1ターン＝1往復の会話）",
+          turnsLeft: "残り{{count}}",
+        },
         regeneratePartnerPortrait: "攻略対象の立ち絵を再生成",
         drawPortraitEveryTurn: "主人公の立ち絵を毎ターン描く",
         drawPortraitEveryTurnHint:
           "ONが既定です。OFFにすると行動しても主人公の立ち絵を更新せず、直前の立ち絵のまま物語が進みます。合成シーンを描く設定のときは、直前の立ち絵をそのまま参照に使います。この設定はブラウザごとに保存されます。",
-        drawPortraitEveryTurnOneOnOneHint:
-          "1on1立ち絵モード中は主人公の立ち絵を描かないため、この設定は効きません。モードをOFFにすると再び有効になります。",
+        drawPortraitEveryTurnCompanionHint:
+          "対面会話モード中は主人公の立ち絵を描かないため、この設定は効きません。モードをOFFにすると再び有効になります。",
         drawPartnerEveryTurn: "攻略対象の立ち絵を毎ターン描く",
         drawPartnerEveryTurnHint:
           "ONが既定です。OFFにすると攻略対象の立ち絵を更新せず、直前の立ち絵のまま進行します。合成シーンを描く設定のときは、この立ち絵が合成の参照にも使われます。この設定はブラウザごとに保存されます。",
@@ -2269,19 +2278,28 @@ const resources = {
           "Off by default. By default, the background is generated once at the start, and only the centered character sprite updates as you act. When on, the full composite scene (including background) is also regenerated in series after each sprite update, so each turn runs one more image generation and takes longer.",
         enableCompositeScenePlayHint:
           "Applies from the next turn. While on, every turn generates the composite scene in series after the character sprite, so turns take longer.",
-        enableCompositeSceneOneOnOneHint:
-          "One-on-one sprite mode never draws the composite scene, so this setting has no effect until the mode is turned off.",
-        oneOnOneMode: "One-on-one sprite mode",
-        oneOnOneModeHint:
-          "Off by default. When on, only the partner's sprite is shown, large and centered, and each turn generates just the background and the partner sprite (no protagonist sprite, no composite scene). The background is redrawn only when the location changes, never for day/night. The story is written as a script (Name「line」), which pairs well with voice playback. Self-hosted (ComfyUI) cannot generate backgrounds.",
-        oneOnOneModePlayHint:
-          "Applies from the next turn. While on, only the partner sprite is drawn and the background is redrawn only when the location changes (never for day/night). The story is written as a script.",
+        enableCompositeSceneCompanionHint:
+          "Face-to-face mode never draws the composite scene, so this setting has no effect until the mode is turned off.",
+        companionMode: "Face-to-face mode",
+        companionModeHint:
+          "Off by default. When on, the partner stands right in front of you and each turn is one exchange: your line gets a short reaction plus one spoken reply. There are no day/night slots; the scenario runs on a turn budget instead of days. Only the background (when the location changes) and the partner sprite are generated, and the reply can be read aloud as is. Self-hosted (ComfyUI) cannot generate backgrounds.",
+        companionModePlayHint:
+          "Applies from the next turn. While on, each turn is one exchange, only the partner sprite is drawn, and the background is redrawn only when the location changes (no day/night slots).",
+        companionTurns: "Turns",
+        companionTurnsUnit: "turns",
+        companionTurnsHint:
+          "In face-to-face mode one turn is one exchange. The scenario resolves when the turns run out. Use Talk for chat that does not spend a turn.",
+        companion: {
+          turnLabel: "Turn",
+          turnCounterHint: "{{turn}} / {{max}} turns (one exchange per turn)",
+          turnsLeft: "{{count}} left",
+        },
         regeneratePartnerPortrait: "Regenerate the partner sprite",
         drawPortraitEveryTurn: "Draw protagonist sprite every turn",
         drawPortraitEveryTurnHint:
           "On by default. When off, the protagonist sprite is not updated as you act; the story continues with the previous sprite. With the composite scene on, the previous sprite is reused as its character reference. This preference is saved per browser.",
-        drawPortraitEveryTurnOneOnOneHint:
-          "One-on-one sprite mode never draws the protagonist sprite, so this setting has no effect until the mode is turned off.",
+        drawPortraitEveryTurnCompanionHint:
+          "Face-to-face mode never draws the protagonist sprite, so this setting has no effect until the mode is turned off.",
         drawPartnerEveryTurn: "Draw partner sprite every turn",
         drawPartnerEveryTurnHint:
           "On by default. When off, the partner sprite is not updated; play continues with the previous sprite. With the composite scene on, this sprite is also used as a reference for the composite. This preference is saved per browser.",
