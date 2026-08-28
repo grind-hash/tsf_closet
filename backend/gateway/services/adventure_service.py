@@ -52,6 +52,14 @@ from ..consts.adventure_romance import (
     ROMANCE_TALK_FALLBACK_DELTA,
 )
 from ..consts.adventure_setup import SCENARIO_CONSTRAINTS_MAX_ITEMS
+from ..consts.companion_avatar import (
+    avatar_expression_keys,
+    avatar_gesture_keys,
+    avatar_resolution_instruction,
+    normalize_avatar_expression,
+    normalize_avatar_gesture,
+    parse_talk_header,
+)
 from ..consts.adventure_speech import (
     PARTNER_SPEECH_STYLE_MAX_LENGTH,
     SPEECH_CUSTOM_MAX_LENGTH,
@@ -114,6 +122,7 @@ from .adventure_romance import (
     strip_romance_time_of_day,
 )
 from .adventure_template_loader import SCENARIO_TEMPLATES, template_localized
+from .avatar_service import avatar_exists, avatar_file_url
 from .llm_service import llm_service
 from .prompt_expander_service import (
     PromptExpanderError,
@@ -494,6 +503,19 @@ class AdventureDirectorOutput(BaseModel):
     ending_summary: str | None = Field(default=None, max_length=1200)
     bgm: str | None = None
     bgm_reason: str | None = None
+    # 対面会話モードの 3D アバター向け。語彙外は None(FE が neutral/idle に倒す)
+    partner_expression: str | None = None
+    partner_gesture: str | None = None
+
+    @field_validator("partner_expression", mode="before")
+    @classmethod
+    def coerce_partner_expression(cls, value: Any) -> Any:
+        return normalize_avatar_expression(value)
+
+    @field_validator("partner_gesture", mode="before")
+    @classmethod
+    def coerce_partner_gesture(cls, value: Any) -> Any:
+        return normalize_avatar_gesture(value)
 
     @field_validator("bgm", mode="before")
     @classmethod
@@ -572,9 +594,22 @@ class AdventureResolutionOutput(BaseModel):
     ending_summary: str | None = Field(default=None, max_length=1200)
     bgm: str | None = None
     bgm_reason: str | None = None
+    # 対面会話モードの 3D アバター向け。語彙外は None(FE が neutral/idle に倒す)
+    partner_expression: str | None = None
+    partner_gesture: str | None = None
     # 宣言がタイムリミット(総手数)を変更した場合のみ入る。
     # reality_alter ターン限定で Python 側が範囲を丸めて run.max_turns へ反映する
     updated_max_turns: int | None = None
+
+    @field_validator("partner_expression", mode="before")
+    @classmethod
+    def coerce_partner_expression(cls, value: Any) -> Any:
+        return normalize_avatar_expression(value)
+
+    @field_validator("partner_gesture", mode="before")
+    @classmethod
+    def coerce_partner_gesture(cls, value: Any) -> Any:
+        return normalize_avatar_gesture(value)
 
     @field_validator("updated_max_turns", mode="before")
     @classmethod
@@ -855,10 +890,70 @@ def _lean_state_for_llm(state: dict[str, Any]) -> dict[str, Any]:
         "image_model_override",
         # 対面会話モードは画像工程だけの設定。台本形式はシステムプロンプト側に載せる
         "companion_mode",
+        # 3D アバターの登録 ID は表示設定。LLM には無関係
+        "companion_avatar_id",
+        # 表情・身振りは手番ごとの表示用出力。次の手番の入力にはしない
+        "partner_expression",
+        "partner_gesture",
         # トークログは必要な分だけ recent_talk として別途渡す
         "talk_log",
     }
     return {key: value for key, value in state.items() if key not in omit}
+
+
+class _TalkHeaderBuffer:
+    """トーク返答の先頭ヘッダ行を配信前に取り除く小さなバッファ。
+
+    対面会話モードの返答は ``[expression=.. gesture=..]`` で始まる。改行か
+    一定長までは溜め、先頭が ``[`` でないと分かった時点で即時に流す。
+    """
+
+    _LIMIT = 64
+
+    def __init__(self, *, enabled: bool) -> None:
+        self._pending = ""
+        self._decided = not enabled
+
+    def feed(self, chunk: str) -> list[str]:
+        if self._decided:
+            return [chunk]
+        self._pending += chunk
+        stripped = self._pending.lstrip()
+        if stripped and not stripped.startswith("["):
+            return self._release()
+        if "\n" in self._pending or len(self._pending) >= self._LIMIT:
+            return self._release()
+        return []
+
+    def flush(self) -> list[str]:
+        if self._decided:
+            return []
+        return self._release()
+
+    def _release(self) -> list[str]:
+        self._decided = True
+        _, _, rest = parse_talk_header(self._pending)
+        self._pending = ""
+        return [rest] if rest else []
+
+
+def _companion_avatar_id(run: AdventureRun, state: dict[str, Any]) -> str | None:
+    """romance run に割り当てた 3D アバターの登録 ID。未設定・他プリセットは None。"""
+    if run.preset != "romance":
+        return None
+    value = str(state.get("companion_avatar_id") or "").strip()
+    return value or None
+
+
+async def _validate_companion_avatar(avatar_id: str | None) -> str | None:
+    """登録済みアバター ID を検証して返す。空は None、未登録は avatar_not_found。"""
+    value = str(avatar_id or "").strip()
+    if not value:
+        return None
+    async with async_session_factory() as db:
+        if not await avatar_exists(db, value):
+            raise AdventureError("avatar_not_found", "3Dモデルが見つかりません")
+    return value
 
 
 def _previous_choice_labels(state: dict[str, Any]) -> list[str]:
@@ -2764,6 +2859,9 @@ Keep the narrative under 800 characters. Never decide the player's feelings, con
                 else ROMANCE_RESOLUTION_GUIDANCE
             )
             voice_rule = f"{romance_rule}\n{ROMANCE_RECENT_TALK_GUIDANCE}\n{voice_rule}"
+            if companion:
+                # 3D アバター向けの表情・身振り。語彙は consts/companion_avatar が唯一
+                voice_rule = f"{avatar_resolution_instruction()}\n{voice_rule}"
         else:
             # タイムリミット変更の申告。romance は日数ベースの専用フィールドを使う
             voice_rule = f"{_TIME_LIMIT_ALTER_INSTRUCTION}\n{voice_rule}"
@@ -2773,9 +2871,15 @@ Keep the narrative under 800 characters. Never decide the player's feelings, con
                 "Clue tracking is disabled for this turn: discovered_clues must "
                 "always be an empty list.\n" + voice_rule
             )
+        avatar_schema = (
+            f',"partner_expression":"{"|".join(avatar_expression_keys())}"'
+            f',"partner_gesture":"{"|".join(avatar_gesture_keys())}"'
+            if romance and companion
+            else ""
+        )
         return f"""You resolve the mechanical outcome of one adventure turn that has already been narrated.
 Return one JSON object only, in {response_language}, matching this schema:
-{{"choices":[{{"id":"...","label":"..."}},{{"id":"...","label":"..."}},{{"id":"...","label":"..."}}],"discovered_clues":[],"completed_milestones":[],"ending_status":"continue|success|partial|failure","ending_title":null,"ending_summary":null,"bgm":"{"|".join(get_bgm_keys())}","bgm_reason":"..."}}
+{{"choices":[{{"id":"...","label":"..."}},{{"id":"...","label":"..."}},{{"id":"...","label":"..."}}],"discovered_clues":[],"completed_milestones":[],"ending_status":"continue|success|partial|failure","ending_title":null,"ending_summary":null,"bgm":"{"|".join(get_bgm_keys())}","bgm_reason":"..."{avatar_schema}}}
 Base every value strictly on the supplied narrative and game state, and never invent events the narrative does not contain. bgm selects the background music category for the scene and must be exactly one of: {get_bgm_prompt_guide()}. current_bgm is the music already playing: keep bgm identical to current_bgm unless the location, scene, mood, or story phase has clearly changed, and never change it for a single line of dialogue, a momentary emotion, or a brief reaction. {BGM_SELECTION_RULES} bgm_reason briefly states, in {response_language}, why that bgm category fits this scene, in 200 characters or fewer. Never output a filename, a path, or any value outside this list. choices must offer exactly three distinct actions the player could take next. discovered_clues must contain only new information the narrative actually revealed, and must not repeat state.clues. completed_milestones must contain milestone ID strings only, never objects, and only when the narrated action actually earns them. Keep ending_status as continue unless the narrative itself concludes the mission, and fill ending_title and ending_summary only in that case. Never decide the player's feelings, consent, or voluntary actions. When authored_template_resolution is provided, treat it as authoritative and never report a score, transformation, or ending beyond its event. Keep the entire response compact.
 {_CHOICES_PERSPECTIVE_INSTRUCTION}
 {_CHOICES_LENGTH_INSTRUCTION}
@@ -3174,10 +3278,13 @@ The objective must name a concrete target and an observable end condition that c
         romance_partner_speech_style: str = "",
         image_model: str | None = None,
         companion_mode: bool = False,
+        companion_avatar_id: str | None = None,
     ) -> dict[str, Any]:
         # Run作成全体(セットアップLLM・開幕画像)のAPI料金を集計して応答へ載せる
         tracker = _CostTracker()
         _cost_tracker.set(tracker)
+        # 対面会話モードの 3D アバター。LLM や画像生成に入る前に存在確認する
+        companion_avatar = await _validate_companion_avatar(companion_avatar_id)
         # この run 専用の NovelAI 画像モデル上書き。未指定・未知名は
         # グローバル設定(nsfw_mode 別のユーザー設定)に従う
         image_model_override = (
@@ -3542,6 +3649,8 @@ The objective must name a concrete target and an observable end condition that c
             "player_speech_custom": player_speech_custom,
             # 対面会話モード(romance 専用)。ONなら手番の画像は背景+攻略対象だけ
             "companion_mode": companion_mode,
+            # 対面会話モードで攻略対象の立ち絵の代わりに描く VRM の登録 ID
+            "companion_avatar_id": companion_avatar,
         }
         if romance_setup is not None:
             state["sim"] = init_romance_state(
@@ -3841,14 +3950,19 @@ The objective must name a concrete target and an observable end condition that c
                 },
                 ensure_ascii=False,
             )
+            companion = bool(state.get("companion_mode"))
             yield {"event": "status", "data": {"phase": "talk"}}
             reply = ""
+            # 対面会話モードでは先頭ヘッダ行 [expression=.. gesture=..] を
+            # 表示前に剥がすため、1 行分だけ溜めてから流す
+            header = _TalkHeaderBuffer(enabled=companion)
             async for chunk in llm_service.generate_feeling_stream(
                 romance_talk_system_prompt(
                     run.language,
                     partner_name=partner_name,
                     player_name=player_name,
                     speech_rule=_speech_rule_from_state(state),
+                    companion=companion,
                 ),
                 user_prompt,
                 provider_override=_text_provider(),
@@ -3858,7 +3972,13 @@ The objective must name a concrete target and an observable end condition that c
                 if not chunk:
                     continue
                 reply += chunk
-                yield {"event": "talk_chunk", "data": {"chunk": chunk}}
+                for visible in header.feed(chunk):
+                    yield {"event": "talk_chunk", "data": {"chunk": visible}}
+            for visible in header.flush():
+                yield {"event": "talk_chunk", "data": {"chunk": visible}}
+            talk_expression, talk_gesture, _ = parse_talk_header(
+                _strip_json_fence(reply)
+            )
             reply = normalize_talk_reply(_strip_json_fence(reply), partner_name)
             if not reply:
                 raise AdventureError(
@@ -3869,7 +3989,12 @@ The objective must name a concrete target and an observable end condition that c
                 state, role="user", text=message, after_turn=run.turn_count
             )
             partner_entry = append_talk_entry(
-                state, role="partner", text=reply, after_turn=run.turn_count
+                state,
+                role="partner",
+                text=reply,
+                after_turn=run.turn_count,
+                expression=talk_expression,
+                gesture=talk_gesture,
             )
             async with self._persist_locks[run_id], async_session_factory() as db:
                 persisted = await db.get(AdventureRun, run.id)
@@ -3915,6 +4040,7 @@ The objective must name a concrete target and an observable end condition that c
         "player_speech_custom",
         # 対面会話モードも表示設定。トークログは巻き戻し先のスナップショットに従う
         "companion_mode",
+        "companion_avatar_id",
     )
 
     async def rewind_to_turn(self, run_id: str, turn_number: int) -> dict[str, Any]:
@@ -4129,6 +4255,9 @@ The objective must name a concrete target and an observable end condition that c
             # 理由はキー更新時だけ書き換え、キーと理由のペアを崩さない
             state["bgm"] = output.bgm
             state["bgm_reason"] = output.bgm_reason
+        # 表情・身振りは手番ごとの表示用出力。据え置きせず毎手番上書きする
+        state["partner_expression"] = output.partner_expression
+        state["partner_gesture"] = output.partner_gesture
 
         if epilogue:
             # エピローグでは LLM 申告や max_turns 到達で run を終わらせない。
@@ -5409,6 +5538,8 @@ The objective must name a concrete target and an observable end condition that c
                 ending_summary=resolution.ending_summary,
                 bgm=resolution.bgm,
                 bgm_reason=resolution.bgm_reason,
+                partner_expression=resolution.partner_expression,
+                partner_gesture=resolution.partner_gesture,
             )
             if romance_resolution is not None:
                 # sim を更新し、milestone と ending_status を Python 算出値で上書き
@@ -7022,6 +7153,13 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             )
             note = str((partner_entry or {}).get("description") or "").strip()
             result["partner_note"] = note or None
+            # 対面会話モードの 3D アバター向け。旧ターンや語彙外は None
+            result["partner_expression"] = normalize_avatar_expression(
+                state_delta.get("partner_expression")
+            )
+            result["partner_gesture"] = normalize_avatar_gesture(
+                state_delta.get("partner_gesture")
+            )
             # このターン確定時点の攻略対象立ち絵。過去フレーム表示に使う
             partner_sprite = Path(str(state_delta.get("partner_portrait_path") or ""))
             result["partner_portrait_url"] = (
@@ -7050,6 +7188,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         partner_speech_style: str | None = None,
         image_model: str | None = None,
         companion_mode: bool | None = None,
+        companion_avatar_id: str | None = None,
     ) -> dict[str, Any]:
         """実行中シナリオの画像設定と口調を更新する（次の手番から反映）。
 
@@ -7084,6 +7223,14 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             # 対面会話モードは romance 専用。他プリセットでは無視する
             if companion_mode is not None and run.preset == "romance":
                 state["companion_mode"] = bool(companion_mode)
+            # 3D アバターは "none"(または空)で解除、ID で設定。None は据え置き
+            if companion_avatar_id is not None and run.preset == "romance":
+                if companion_avatar_id.strip() in {"", "none"}:
+                    state.pop("companion_avatar_id", None)
+                else:
+                    state["companion_avatar_id"] = await _validate_companion_avatar(
+                        companion_avatar_id
+                    )
             async with async_session_factory() as db:
                 persisted = await db.get(AdventureRun, run.id)
                 if persisted is None:
@@ -7416,6 +7563,13 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             # 対面会話モード(romance 専用)。旧 run・他プリセットは OFF
             "companion_mode": run.preset == "romance"
             and bool(state.get("companion_mode")),
+            # 対面会話モードで描く 3D アバター(未設定は null。URL は DB を引かない)
+            "companion_avatar_id": _companion_avatar_id(run, state),
+            "companion_avatar_url": (
+                avatar_file_url(_companion_avatar_id(run, state) or "")
+                if _companion_avatar_id(run, state)
+                else None
+            ),
             "background_image_url": (
                 self.image_url(run.id, Path(run.background_image_path))
                 if getattr(run, "background_image_path", None)

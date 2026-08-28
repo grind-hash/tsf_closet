@@ -1,8 +1,16 @@
 import type { TFunction } from "i18next";
 import type { ReactNode } from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useTranslation } from "react-i18next";
-import { useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import type {
   AdventureBgmKey,
   AdventureInputKind,
@@ -19,6 +27,12 @@ import { fetchAnlasBalance } from "../../apis/anlas";
 import { fetchGallerySessions } from "../../apis/gallery";
 import { fetchPromptExpanderEntry } from "../../apis/promptExpander";
 import {
+  type AvatarExpressionKey,
+  type AvatarGestureKey,
+  normalizeAvatarExpression,
+  normalizeAvatarGesture,
+} from "../../constants/companionAvatar";
+import {
   ADVENTURE_IMAGE_MODEL_CHOICES,
   isAdventureImageModelValue,
   isV5ImageModel,
@@ -31,6 +45,7 @@ import {
   readDrawPortraitEveryTurn,
   useAdventure,
 } from "../../contexts/AdventureContext";
+import { useNotification } from "../../contexts/NotificationContext";
 import { useSettings } from "../../contexts/SettingsContext";
 import { useAdventureBgm } from "../../hooks/useAdventureBgm";
 import { useAdventureVoice } from "../../hooks/useAdventureVoice";
@@ -39,6 +54,7 @@ import {
   useTimedProgress,
 } from "../../hooks/useTimedProgress";
 import { useTransparentImage } from "../../hooks/useTransparentImage";
+import { ROUTES } from "../../routes";
 import type { AnlasBalance, Character, GallerySession } from "../../types";
 import {
   type AdventureAnlasEstimate,
@@ -166,6 +182,11 @@ const SCENARIO_CONSTRAINTS_MAX_LENGTH = 2000;
 // 精密参照はAnlasを追加消費するため保存対象に含めず、常に既定OFFから始める
 const SETUP_PREFS_STORAGE_KEY = "adventure_setup_prefs";
 
+// 3D モデル(VRM)のステージは three.js を含むため遅延読込する
+const CompanionAvatarStage = lazy(
+  () => import("./avatar/CompanionAvatarStage"),
+);
+
 type AdventureSetupPrefs = {
   narrationVoice: AdventureNarrationVoice;
   narrationPronoun: string;
@@ -175,6 +196,8 @@ type AdventureSetupPrefs = {
   enableCompositeScene: boolean;
   /** 対面会話モード(romance のみ)。既定 OFF */
   companionMode: boolean;
+  /** 対面会話モードで描く 3D モデル(VRM)の登録 ID。"" は「なし(立ち絵)」 */
+  companionAvatarId: string;
   /** romance の主人公(自分)。テンプレキャラID または __session__。次回にも引き継ぐ */
   romancePlayerCharacterId: string;
   /** 主人公を「セッションの姿」にしたときのセッションID */
@@ -384,6 +407,7 @@ function AdventureHub() {
     removeRun,
     clearError,
     lastRunId,
+    avatarModels,
   } = useAdventure();
   // 1ページ目のセッション一覧。既定選択と保存済みIDの解決に使う(一覧表示はモーダル側)
   const [sessions, setSessions] = useState<GallerySession[]>([]);
@@ -464,6 +488,11 @@ function AdventureHub() {
   const [companionMode, setCompanionMode] = useState(
     () => savedSetupPrefs.companionMode === true,
   );
+  const [companionAvatarId, setCompanionAvatarId] = useState(() =>
+    typeof savedSetupPrefs.companionAvatarId === "string"
+      ? savedSetupPrefs.companionAvatarId
+      : "",
+  );
   const [enableCompositeScene, setEnableCompositeScene] = useState(() =>
     typeof savedSetupPrefs.enableCompositeScene === "boolean"
       ? savedSetupPrefs.enableCompositeScene
@@ -505,6 +534,7 @@ function AdventureHub() {
       speechCustom: speechCustom.trim(),
       enableCompositeScene,
       companionMode,
+      companionAvatarId,
       romancePlayerCharacterId: romancePlayerId,
       romancePlayerSessionId,
       imageModel: imageModelChoice,
@@ -521,6 +551,7 @@ function AdventureHub() {
     speechCustom,
     enableCompositeScene,
     companionMode,
+    companionAvatarId,
     romancePlayerId,
     romancePlayerSessionId,
     imageModelChoice,
@@ -604,6 +635,9 @@ function AdventureHub() {
     startMode === "authored" ? (selectedScenarioPreset ?? preset) : preset;
   // 生成時間の見積もりと「テキストのみ」告知は同じ設定から導く
   const setupCompanion = effectivePreset === "romance" && companionMode;
+  const setupAvatarKnown =
+    companionAvatarId !== "" &&
+    avatarModels.some((model) => model.id === companionAvatarId);
   const setupImageSettings = {
     preset: effectivePreset,
     enableCompositeScene,
@@ -774,6 +808,9 @@ function AdventureHub() {
         use_precise_reference: usePreciseReference && !setupIsV5,
         enable_composite_scene: enableCompositeScene,
         companion_mode: setupCompanion,
+        // 登録済みモデルに限って送る(削除済みの保存値は「なし」に倒す)
+        companion_avatar_id:
+          setupCompanion && setupAvatarKnown ? companionAvatarId : undefined,
         respect_clothing_layers: settingsState.respectClothingLayers,
         // "default" 選択時は送らず、runはグローバル設定に従う
         image_model:
@@ -964,6 +1001,40 @@ function AdventureHub() {
                         }
                       />
                       <span className="adventure-precise-toggle__switch" />
+                    </label>
+                    {/* 3D モデル(VRM)。対面会話モード OFF でも隠さず、文言で説明する */}
+                    <label className="adventure-setup-turns adventure-setup-avatar">
+                      <span className="adventure-setup-turns__label">
+                        {t("adventure.avatar.selectLabel")}
+                      </span>
+                      <select
+                        value={setupAvatarKnown ? companionAvatarId : ""}
+                        disabled={setupGenerating || loading || creating}
+                        onChange={(event) =>
+                          setCompanionAvatarId(event.target.value)
+                        }
+                      >
+                        <option value="">{t("adventure.avatar.none")}</option>
+                        {avatarModels.map((model) => (
+                          <option key={model.id} value={model.id}>
+                            {model.name}
+                          </option>
+                        ))}
+                      </select>
+                      <span className="adventure-setup-turns__hint">
+                        {avatarModels.length === 0 ? (
+                          <>
+                            {t("adventure.avatar.noModelsHint")}{" "}
+                            <Link to={ROUTES.SETTINGS}>
+                              {t("adventure.avatar.registerLink")}
+                            </Link>
+                          </>
+                        ) : companionMode ? (
+                          t("adventure.avatar.setupHint")
+                        ) : (
+                          t("adventure.avatar.companionOffHint")
+                        )}
+                      </span>
                     </label>
                     {companionMode ? (
                       <label className="adventure-setup-turns">
@@ -1771,6 +1842,9 @@ interface AdventureStageFrame {
   bgm: AdventureBgmKey;
   /** この手番のBGM選曲理由。キーと対で引き継ぎ、旧runでは null */
   bgmReason: string | null;
+  /** 対面会話モードの 3D モデル向け。攻略対象の表情・身振り(無ければ null) */
+  partnerExpression?: AvatarExpressionKey | null;
+  partnerGesture?: AvatarGestureKey | null;
 }
 
 /**
@@ -1904,7 +1978,11 @@ function AdventurePlay({ runId }: { runId: string }) {
     rewindRun,
     startEpilogue,
     clearError,
+    avatarModels,
+    companionAvatarFailed,
+    setCompanionAvatarFailed,
   } = useAdventure();
+  const { showNotification } = useNotification();
   const {
     state: settingsState,
     setAnlasBalance: setGlobalAnlasBalance,
@@ -2132,6 +2210,8 @@ function AdventurePlay({ runId }: { runId: string }) {
           partnerUrl: lastPartnerUrl,
           bgm: lastBgm,
           bgmReason: lastBgmReason,
+          partnerExpression: normalizeAvatarExpression(turn.partner_expression),
+          partnerGesture: normalizeAvatarGesture(turn.partner_gesture),
         });
       }
     } else if (activeRun.enable_composite_scene) {
@@ -2579,6 +2659,11 @@ function AdventurePlay({ runId }: { runId: string }) {
   const isRomancePreset = activeRun?.preset === "romance";
   // 対面会話モード: 主人公立ち絵と合成シーンの工程は走らない
   const companionActive = isRomancePreset && Boolean(activeRun?.companion_mode);
+  // 対面会話モードで 3D モデルを表示中は攻略対象の立ち絵を毎ターン描かない
+  const avatarActive =
+    companionActive &&
+    Boolean(activeRun?.companion_avatar_url) &&
+    !companionAvatarFailed;
   const progressSegments = useMemo<TimedProgressSegment[] | null>(() => {
     if (!streaming || phase === null || phase === "narrative") return null;
     if (pendingUserInput !== null) {
@@ -2596,7 +2681,7 @@ function AdventurePlay({ runId }: { runId: string }) {
           budgetMs: ADVENTURE_PROGRESS_BUDGET_MS.portrait,
         });
       }
-      if (isRomancePreset && drawPartnerEveryTurn) {
+      if (isRomancePreset && drawPartnerEveryTurn && !avatarActive) {
         segments.push({
           key: "partner",
           budgetMs: ADVENTURE_PROGRESS_BUDGET_MS.partner,
@@ -2628,6 +2713,7 @@ function AdventurePlay({ runId }: { runId: string }) {
     enableCompositeScene,
     isRomancePreset,
     companionActive,
+    avatarActive,
   ]);
   const progressActiveKey = useMemo(() => {
     if (!progressSegments) return null;
@@ -2664,7 +2750,7 @@ function AdventurePlay({ runId }: { runId: string }) {
     preset: activeRun.preset,
     enableCompositeScene: activeRun.enable_composite_scene,
     drawPortraitEveryTurn,
-    drawPartnerEveryTurn,
+    drawPartnerEveryTurn: drawPartnerEveryTurn && !avatarActive,
     companionMode: isCompanion,
   };
   const effectiveIndex =
@@ -2800,6 +2886,36 @@ function AdventurePlay({ runId }: { runId: string }) {
       : `frame:${selectedFrame?.key ?? "latest"}`;
   const voiceReplayActive =
     voice.currentKey === voiceReplayKey && voice.status !== "idle";
+  // 3D モデルの表情・身振り。トーク中は最新の返答、それ以外は表示中フレームの値
+  const avatarExpression: AvatarExpressionKey | null =
+    talkMode && lastPartnerTalk
+      ? normalizeAvatarExpression(lastPartnerTalk.expression)
+      : (selectedFrame?.partnerExpression ?? null);
+  const avatarGesture: AvatarGestureKey | null =
+    talkMode && lastPartnerTalk
+      ? normalizeAvatarGesture(lastPartnerTalk.gesture)
+      : (selectedFrame?.partnerGesture ?? null);
+  // 身振りの再生トリガ。読み上げ可能なら声の開始(到着・🔊再生)に合わせ、
+  // 読み上げ不可ならセリフ/フレームの切り替わりで再生する
+  const avatarGestureKey = voiceCanSpeak
+    ? (voice.status === "loading" || voice.status === "playing") &&
+      voice.currentKey
+      ? voice.currentKey
+      : null
+    : voiceReplayKey;
+  const avatarUrl = activeRun.companion_avatar_url ?? null;
+  const showAvatar =
+    isCompanion && Boolean(avatarUrl) && !companionAvatarFailed;
+  // CompanionAvatarStage は onError を ref で持つため、関数の同一性は不要
+  const handleAvatarError = (caught: unknown) => {
+    console.warn("3Dモデルの読込に失敗しました", caught);
+    setCompanionAvatarFailed(true);
+    showNotification(
+      "warning",
+      t("adventure.avatar.loadFailedTitle"),
+      t("adventure.avatar.loadFailed"),
+    );
+  };
   // 進行中に加え、終了後でもエピローグ移行済みなら操作パネルを出す
   const canAct = canActOnRun(activeRun);
   const isEpilogue = Boolean(activeRun.epilogue);
@@ -3462,17 +3578,30 @@ function AdventurePlay({ runId }: { runId: string }) {
                   alt={t("adventure.portraitAlt")}
                 />
               )}
-              {transparentPartnerUrl && (
-                <img
-                  key={transparentPartnerUrl}
-                  className={`adventure-stage__portrait ${
-                    isCompanion
-                      ? "adventure-stage__portrait--solo"
-                      : "adventure-stage__portrait--partner"
-                  }`}
-                  src={transparentPartnerUrl}
-                  alt={t("adventure.romance.partnerPortraitAlt")}
-                />
+              {showAvatar && avatarUrl ? (
+                <Suspense fallback={null}>
+                  <CompanionAvatarStage
+                    fileUrl={avatarUrl}
+                    expression={avatarExpression}
+                    gesture={avatarGesture}
+                    gestureKey={avatarGestureKey}
+                    getVoiceLevel={voice.getLevel}
+                    onError={handleAvatarError}
+                  />
+                </Suspense>
+              ) : (
+                transparentPartnerUrl && (
+                  <img
+                    key={transparentPartnerUrl}
+                    className={`adventure-stage__portrait ${
+                      isCompanion
+                        ? "adventure-stage__portrait--solo"
+                        : "adventure-stage__portrait--partner"
+                    }`}
+                    src={transparentPartnerUrl}
+                    alt={t("adventure.romance.partnerPortraitAlt")}
+                  />
+                )
               )}
               {isStageLoading && !isViewingPast && (
                 <div className="adventure-stage__loading" role="status">
@@ -3676,6 +3805,64 @@ function AdventurePlay({ runId }: { runId: string }) {
                         }}
                       />
                       <span className="adventure-precise-toggle__switch" />
+                    </label>
+                  )}
+                  {/* 3D モデル(VRM)。対面会話モード OFF でも隠さず、文言で説明する */}
+                  {activeRun.preset === "romance" && (
+                    <label className="adventure-setup-turns adventure-setup-avatar">
+                      <span className="adventure-setup-turns__label">
+                        {t("adventure.avatar.selectLabel")}
+                      </span>
+                      <select
+                        value={activeRun.companion_avatar_id ?? ""}
+                        disabled={streaming || settingsSaving}
+                        onChange={(event) => {
+                          const next = event.target.value;
+                          setSettingsSaving(true);
+                          void updateSettings({
+                            use_precise_reference:
+                              activeRun.use_precise_reference,
+                            enable_composite_scene:
+                              activeRun.enable_composite_scene,
+                            companion_avatar_id: next || "none",
+                          })
+                            .catch(() => undefined)
+                            .finally(() => setSettingsSaving(false));
+                        }}
+                      >
+                        <option value="">{t("adventure.avatar.none")}</option>
+                        {activeRun.companion_avatar_id &&
+                          !avatarModels.some(
+                            (model) =>
+                              model.id === activeRun.companion_avatar_id,
+                          ) && (
+                            <option
+                              value={activeRun.companion_avatar_id}
+                              disabled
+                            >
+                              {t("adventure.avatar.deletedModel")}
+                            </option>
+                          )}
+                        {avatarModels.map((model) => (
+                          <option key={model.id} value={model.id}>
+                            {model.name}
+                          </option>
+                        ))}
+                      </select>
+                      <span className="adventure-setup-turns__hint">
+                        {avatarModels.length === 0 ? (
+                          <>
+                            {t("adventure.avatar.noModelsHint")}{" "}
+                            <Link to={ROUTES.SETTINGS}>
+                              {t("adventure.avatar.registerLink")}
+                            </Link>
+                          </>
+                        ) : isCompanion ? (
+                          t("adventure.avatar.playHint")
+                        ) : (
+                          t("adventure.avatar.companionOffHint")
+                        )}
+                      </span>
                     </label>
                   )}
                   <label className="adventure-precise-toggle">

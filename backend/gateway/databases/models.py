@@ -715,3 +715,31 @@ class PromptExpanderEntry(Base):
         ),
         Index("idx_prompt_expander_entries_created", "created_at"),
     )
+
+
+class AvatarModel(Base):
+    """ユーザーが登録した 3D アバター(VRM)。
+
+    ファイル本体は settings.avatar_models_dir に ``{id}.vrm`` の名前で置き、
+    file_path にはその bare filename だけを持つ(クライアントのファイル名は
+    使わない)。meta_json は VRM の meta を正規化した JSON。
+    """
+
+    __tablename__ = "avatar_models"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    name: Mapped[str] = mapped_column(String(80), nullable=False)
+    file_path: Mapped[str] = mapped_column(Text, nullable=False)
+    file_size: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # "0" (VRM 0.x) または "1" (VRM 1.0)
+    vrm_spec_version: Mapped[str] = mapped_column(
+        String, nullable=False, default="0", server_default="0"
+    )
+    meta_json: Mapped[str] = mapped_column(
+        Text, nullable=False, default="{}", server_default="{}"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        default=func.current_timestamp(), nullable=False
+    )
+
+    __table_args__ = (Index("idx_avatar_models_created", "created_at"),)

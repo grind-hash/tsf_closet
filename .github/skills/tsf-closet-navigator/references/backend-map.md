@@ -1,6 +1,6 @@
 # バックエンド アーキテクチャマップ
 
-> 最終検証: 2026-08-10 | 対象: `backend/gateway`、`backend/migrations`
+> 最終検証: 2026-08-28 | 対象: `backend/gateway`、`backend/migrations`
 
 ## FastAPI 構成
 
@@ -26,6 +26,7 @@
 | `/api/memory`       | `routes/memory_router.py`       | ユーザーメモ本文、生成ジョブ、状態、取消、分析エクスポート                      |
 | `/api/aivisspeech`  | `routes/aivisspeech_router.py`  | エンジン/モデル管理、話者一覧、音声合成                                         |
 | `/api/prompt-expander` | `routes/prompt_expander_router.py` | Prompt Expander（実験的）: 専用設定、セッション/エントリ、アップロード、LLM 拡張、NovelAI 生成、画像/マスク配信、キャラ提案 |
+| `/api/avatars` | `routes/avatar_router.py` | 3D モデル(VRM)の登録（唯一の `UploadFile` multipart。`POST` 201、400 `invalid_vrm`、413 `file_too_large`）、一覧 `{items}`、改名 `PATCH`、削除 204、配信 `GET /{id}/file`（`model/gltf-binary`、inline）。Adventure 対面会話モードで攻略対象の代わりに描く |
 
 ### `game_router.py` の主要操作
 
@@ -122,6 +123,7 @@
 
 | ファイル                                              | 主な責務                                                                                                                                                                       |
 | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `avatar_service.py`                                   | 3D モデル(VRM)の検証・保存・配信。GLB ヘッダと JSON チャンクだけを読み `extensions.VRM`(0.x) / `VRMC_vrm`(1.0) の meta を `{title, author, license, license_url, allowed_user, commercial}` に正規化（追加依存なし）。アップロードは `settings.avatar_models_dir`（既定 `data/avatar_models`）へ `.part` にストリーム書きし、`settings.avatar_upload_max_bytes`（既定 128 MiB。画像プロキシ用 `multipart_max_part_size` 8 MiB は使わない）を超えたら中断、検証後に `{id}.vrm` へ `os.replace`。`resolve_avatar_file` は bare filename しか通さない。`AvatarError.code` は `invalid_vrm` / `file_too_large` / `avatar_not_found` / `file_missing` |
 | `adventure_service.py`                                | Run作成、ディレクター/解決、ターン、画像、実効画像の直列化。BGMキーは `gateway/data/bgm/catalog.json`（ローダは `consts/adventure_bgm.py`、mtimeホットリロード）が唯一の情報源 |
 | `adventure_romance.py`                                | romance プリセットの決定論ロジック（日数/好感度/金銭/ギフト採点/告白）。境界値は `consts/adventure_romance.py`。対面会話モードの台本ルール `romance_script_format_guidance`・現在地キー `romance_location_key`・昼夜タグ除去 `strip_romance_time_of_day`、トークモードの `romance_talk_system_prompt` と `talk_log` 操作（`append_talk_entry` / `recent_talk_entries` / `public_talk_log` / `normalize_talk_reply`）もここ |
 | `adventure_template_loader.py`                        | `scenarios/*.json` の検証とローカライズ                                                                                                                                        |
@@ -149,6 +151,7 @@
 | `SessionCharacter`                                      | セッション人物の外見、位置、ロック、主人公フラグ                       |
 | `CharacterPreset`                                       | 再利用可能な人物定義                                                   |
 | `FavoriteOutfit`                                        | UserとHistoryを結ぶお気に入り                                          |
+| `AvatarModel`                                           | 登録済み 3D モデル(VRM)。`name`(80)・`file_path`(bare filename `{id}.vrm`)・`file_size`・`vrm_spec_version`("0"/"1")・`meta_json`・`created_at`。migration `019_add_avatar_models`。`user_id` は持たない |
 | `PromptExpanderSession`、`PromptExpanderEntry`          | Prompt Expander の履歴（1セッション複数エントリ）。エントリは指示・拡張モード・最終プロンプト/ネガ/キャラプロンプト・モデル・seed・i2i 強度/ノイズ・サイズ・漫画モード（`manga_mode` / `manga_panel_count`）・参照元（history/entry/upload）・背景透過の印（`transparent_background`）・精密参照（`reference_kind` / `reference_history_id` / `reference_entry_id`（FK SET NULL） / `reference_type` / `reference_strength` / `reference_fidelity`。migration `015_add_prompt_expander_reference`）・インペイント（`inpaint` / `inpaint_mask_path`。migration `018_add_prompt_expander_inpaint`）・画像パス |
 | `PlaySummary`                                           | セッション要約とタイムライン                                           |
 | `UserAchievement`、`AchievementCount`、`AchievedEnding` | 実績/エンディング進捗                                                  |

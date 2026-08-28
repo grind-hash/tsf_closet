@@ -35,6 +35,7 @@ import {
   updateAdventureRealityRules,
   updateAdventureRunSettings,
 } from "../apis/adventure";
+import { type AvatarModel, listAvatarModels } from "../apis/avatars";
 import {
   isV5ImageModel,
   V5_USAGE_WARN_SUPPRESSED_KEY,
@@ -148,6 +149,15 @@ interface AdventureContextValue {
   /** 付与済みの現実改変ルールを丸ごと置き換える(手番は消費しない) */
   updateRealityRules: (rules: string[]) => Promise<void>;
   clearError: () => void;
+  /** 登録済みの 3D モデル(VRM)。セットアップと⚙ポップオーバーの選択肢 */
+  avatarModels: AvatarModel[];
+  refreshAvatarModels: () => Promise<void>;
+  /**
+   * 対面会話モードの 3D モデルの読込に失敗したか。true の間は立ち絵へ戻し、
+   * 手番の攻略対象立ち絵も従来どおり生成する。run 切替でリセット
+   */
+  companionAvatarFailed: boolean;
+  setCompanionAvatarFailed: (failed: boolean) => void;
 }
 
 const AdventureContext = createContext<AdventureContextValue | null>(null);
@@ -303,6 +313,22 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
     options?: { giftId?: string };
   } | null>(null);
 
+  const [avatarModels, setAvatarModels] = useState<AvatarModel[]>([]);
+  const [companionAvatarFailed, setCompanionAvatarFailed] = useState(false);
+
+  const refreshAvatarModels = useCallback(async () => {
+    try {
+      setAvatarModels(await listAvatarModels());
+    } catch (caught) {
+      // 一覧が取れなくてもプレイは続けられる(選択肢が空になるだけ)
+      console.warn("3Dモデル一覧の取得に失敗しました", caught);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshAvatarModels();
+  }, [refreshAvatarModels]);
+
   // 確認待ちの送信を別の run へ持ち越さない
   // biome-ignore lint/correctness/useExhaustiveDependencies: activeRun.id の変化を検知して保留をクリアするための依存
   useEffect(() => {
@@ -310,7 +336,8 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
     setPendingUsageWarnTurn(null);
     setTalkDraft("");
     setPendingTalkInput(null);
-  }, [activeRun?.id]);
+    setCompanionAvatarFailed(false);
+  }, [activeRun?.id, activeRun?.companion_avatar_id]);
 
   const performSubmitTurn = useCallback(
     async (
@@ -322,7 +349,15 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       const runId = activeRun.id;
       // 立ち絵の毎ターン生成OFFは、合成モード・精密参照の有無に関わらず効く
       const generatePortrait = readDrawPortraitEveryTurn();
-      const generatePartnerPortrait = readDrawPartnerEveryTurn();
+      // 対面会話モードで 3D モデルを表示中は攻略対象の立ち絵を描き直さない
+      // (開幕分はフォールバック用に残る)。読込失敗中は従来どおり描く
+      const avatarActive =
+        activeRun.preset === "romance" &&
+        activeRun.companion_mode &&
+        Boolean(activeRun.companion_avatar_id) &&
+        !companionAvatarFailed;
+      const generatePartnerPortrait =
+        readDrawPartnerEveryTurn() && !avatarActive;
       setStreaming(true);
       setPhase("narrative");
       setPhaseStep(null);
@@ -453,7 +488,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
         setPendingUserInput(null);
       }
     },
-    [activeRun, streaming, talking, addTotalCost],
+    [activeRun, streaming, talking, addTotalCost, companionAvatarFailed],
   );
 
   // トークモード: 手番・好感度・画像を一切動かさず、talk_log だけを伸ばす。
@@ -753,6 +788,8 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
                   enable_composite_scene: updated.enable_composite_scene,
                   respect_clothing_layers: updated.respect_clothing_layers,
                   companion_mode: updated.companion_mode,
+                  companion_avatar_id: updated.companion_avatar_id,
+                  companion_avatar_url: updated.companion_avatar_url,
                   image_model_override: updated.image_model_override,
                   player_speech_style: updated.player_speech_style,
                   player_speech_custom: updated.player_speech_custom,
@@ -876,6 +913,10 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       rewindRun,
       startEpilogue,
       clearError: () => setError(null),
+      avatarModels,
+      refreshAvatarModels,
+      companionAvatarFailed,
+      setCompanionAvatarFailed,
     }),
     [
       runs,
@@ -913,6 +954,9 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       updateRealityRules,
       rewindRun,
       startEpilogue,
+      avatarModels,
+      refreshAvatarModels,
+      companionAvatarFailed,
     ],
   );
 

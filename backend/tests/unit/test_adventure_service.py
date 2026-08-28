@@ -6001,3 +6001,331 @@ def test_setup_prompts_use_turns_in_companion_mode() -> None:
     )
     assert "10-day" not in setup_prompt
     assert "7-day romance simulation" in romance_setup_system_prompt("ja", 7)
+
+
+# ---------------------------------------------------------------------------
+# 対面会話モードの 3D アバター(VRM): 表情・身振り・アバター割り当て
+# ---------------------------------------------------------------------------
+
+
+def _three_choices() -> list[dict]:
+    return [
+        {"id": "c1", "label": "話しかける"},
+        {"id": "c2", "label": "手を振る"},
+        {"id": "c3", "label": "黙って見る"},
+    ]
+
+
+def test_resolution_outputs_normalize_partner_expression_and_gesture() -> None:
+    from gateway.services.adventure_service import (
+        AdventureDirectorOutput,
+        AdventureRomanceResolutionOutput,
+    )
+
+    resolution = AdventureRomanceResolutionOutput.model_validate(
+        {
+            "choices": _three_choices(),
+            "partner_expression": " HAPPY ",
+            "partner_gesture": "wave",
+        }
+    )
+    assert resolution.partner_expression == "happy"
+    assert resolution.partner_gesture is None
+    # 欠落は None(FE が neutral / idle に倒す)
+    plain = AdventureRomanceResolutionOutput.model_validate(
+        {"choices": _three_choices()}
+    )
+    assert plain.partner_expression is None and plain.partner_gesture is None
+    director = AdventureDirectorOutput.model_validate(
+        {
+            "narrative": "美咲が笑った。",
+            "choices": _three_choices(),
+            "visual_state": {
+                "location": "教室",
+                "appearance": "黒髪の少女",
+                "clothing": "制服",
+                "surroundings": "放課後の教室",
+                "main_characters": [],
+            },
+            "partner_expression": 42,
+            "partner_gesture": "Shake-Head",
+        }
+    )
+    assert director.partner_expression is None
+    assert director.partner_gesture == "shake_head"
+
+
+def test_resolution_prompt_mentions_avatar_vocabulary_only_in_companion_mode() -> None:
+    service = AdventureService()
+    companion = service._resolution_system_prompt("ja", romance=True, companion=True)
+    plain = service._resolution_system_prompt("ja", romance=True, companion=False)
+    escape = service._resolution_system_prompt("ja", romance=False, companion=True)
+    assert (
+        '"partner_expression":"neutral|happy|sad|angry|surprised|relaxed"' in companion
+    )
+    assert '"partner_gesture":"idle|nod|' in companion
+    assert "bounce (" in companion and "look_away (" in companion
+    assert "partner_expression" not in plain
+    assert "partner_expression" not in escape
+
+
+def test_rewind_keep_keys_and_lean_state_cover_companion_avatar() -> None:
+    from gateway.services.adventure_service import _lean_state_for_llm
+
+    assert "companion_avatar_id" in AdventureService._REWIND_KEEP_KEYS
+    lean = _lean_state_for_llm(
+        {
+            "companion_avatar_id": "av1",
+            "partner_expression": "happy",
+            "partner_gesture": "nod",
+            "clues": [],
+        }
+    )
+    assert set(lean) == {"clues"}
+
+
+def test_serialize_turn_emits_partner_expression_and_gesture() -> None:
+    service = AdventureService()
+    state = json.loads(make_romance_run().state_json)
+    state["partner_expression"] = "HAPPY"
+    state["partner_gesture"] = "nod"
+
+    def _turn(state_delta: dict) -> SimpleNamespace:
+        return SimpleNamespace(
+            id="t1",
+            run_id="run-1",
+            turn_number=1,
+            client_turn_id=None,
+            user_input="やあ",
+            input_kind="talk",
+            narrative="美咲「やっほー」",
+            choices_json="[]",
+            image_path=None,
+            portrait_image_path=None,
+            image_status=None,
+            portrait_status=None,
+            created_at=None,
+            state_delta_json=json.dumps(state_delta, ensure_ascii=False),
+        )
+
+    result = service._serialize_turn(_turn(state))
+    assert result["partner_expression"] == "happy"
+    assert result["partner_gesture"] == "nod"
+    # 旧ターン(キー欠落)は None
+    state.pop("partner_expression")
+    state.pop("partner_gesture")
+    legacy = service._serialize_turn(_turn(state))
+    assert legacy["partner_expression"] is None and legacy["partner_gesture"] is None
+
+
+@pytest.mark.asyncio
+async def test_update_run_settings_companion_avatar_round_trip(monkeypatch) -> None:
+    service = AdventureService()
+    state = json.loads(make_romance_run().state_json)
+    state.update({"choices": [], "opening_narrative": "開始"})
+    run = _romance_settings_run(state)
+    persisted = SimpleNamespace(id="run-1", state_json=run.state_json, updated_at=None)
+
+    class FakeDatabase:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, _exc_type, _exc, _traceback):
+            return None
+
+        async def get(self, model, record_id):
+            return persisted if model is AdventureRun and record_id == "run-1" else None
+
+        async def commit(self):
+            return None
+
+    exists = AsyncMock(return_value=True)
+    monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.async_session_factory", FakeDatabase
+    )
+    monkeypatch.setattr("gateway.services.adventure_service.avatar_exists", exists)
+
+    result = await service.update_run_settings(
+        "run-1",
+        use_precise_reference=False,
+        enable_composite_scene=False,
+        companion_avatar_id="av1",
+    )
+    assert result["companion_avatar_id"] == "av1"
+    assert result["companion_avatar_url"] == "/avatars/av1/file"
+    assert json.loads(persisted.state_json)["companion_avatar_id"] == "av1"
+    assert exists.await_args.args[1] == "av1"
+
+    # None は据え置き
+    run.state_json = persisted.state_json
+    result = await service.update_run_settings(
+        "run-1", use_precise_reference=False, enable_composite_scene=False
+    )
+    assert result["companion_avatar_id"] == "av1"
+
+    # 未登録 ID は拒否し、既存値を壊さない
+    exists.return_value = False
+    with pytest.raises(AdventureError) as error:
+        await service.update_run_settings(
+            "run-1",
+            use_precise_reference=False,
+            enable_composite_scene=False,
+            companion_avatar_id="missing",
+        )
+    assert error.value.code == "avatar_not_found"
+    assert json.loads(persisted.state_json)["companion_avatar_id"] == "av1"
+
+    # "none" で解除
+    run.state_json = persisted.state_json
+    result = await service.update_run_settings(
+        "run-1",
+        use_precise_reference=False,
+        enable_composite_scene=False,
+        companion_avatar_id="none",
+    )
+    assert result["companion_avatar_id"] is None
+    assert result["companion_avatar_url"] is None
+    assert "companion_avatar_id" not in json.loads(persisted.state_json)
+
+
+def _companion_talk_run() -> tuple[SimpleNamespace, SimpleNamespace]:
+    run = make_romance_run(turn_count=3)
+    run.id = "run-1"
+    run.status = "active"
+    run.language = "ja"
+    run.text_model = "glm-4-6"
+    run.turns = [
+        SimpleNamespace(turn_number=3, user_input="挨拶", narrative="美咲が笑った。")
+    ]
+    state = json.loads(run.state_json)
+    state["companion_mode"] = True
+    run.state_json = json.dumps(state, ensure_ascii=False)
+    persisted = SimpleNamespace(
+        id="run-1", state_json=run.state_json, turn_count=3, status="active"
+    )
+    return run, persisted
+
+
+def _fake_database(persisted: SimpleNamespace):
+    class FakeDatabase:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, _exc_type, _exc, _traceback):
+            return None
+
+        async def get(self, model, record_id):
+            return persisted if model is AdventureRun and record_id == "run-1" else None
+
+        async def commit(self):
+            return None
+
+    return FakeDatabase
+
+
+@pytest.mark.asyncio
+async def test_stream_talk_companion_strips_header_and_records_expression(
+    monkeypatch,
+) -> None:
+    service = AdventureService()
+    run, persisted = _companion_talk_run()
+    captured: dict = {}
+
+    async def fake_stream(system_prompt, user_prompt, **kwargs):
+        captured["system"] = system_prompt
+        # ヘッダがチャンク境界で分断されても剥がせる
+        yield "[expression=hap"
+        yield "py gesture=nod]\n"
+        yield "やっほー、"
+        yield "元気？"
+
+    monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.llm_service.generate_feeling_stream",
+        fake_stream,
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.async_session_factory",
+        _fake_database(persisted),
+    )
+
+    events = [
+        event async for event in service.stream_talk(run_id="run-1", user_input="やあ")
+    ]
+    chunks = [e["data"]["chunk"] for e in events if e["event"] == "talk_chunk"]
+    assert chunks == ["やっほー、", "元気？"]
+    done = next(e for e in events if e["event"] == "talk_done")["data"]
+    assert done["partner_entry"]["text"] == "やっほー、元気？"
+    assert done["partner_entry"]["expression"] == "happy"
+    assert done["partner_entry"]["gesture"] == "nod"
+    assert "expression" not in done["user_entry"]
+    assert "[expression=<key> gesture=<key>]" in captured["system"]
+    saved = json.loads(persisted.state_json)
+    assert saved["talk_log"][-1]["expression"] == "happy"
+    assert saved["talk_log"][-1]["gesture"] == "nod"
+
+
+@pytest.mark.asyncio
+async def test_stream_talk_companion_without_header_streams_immediately(
+    monkeypatch,
+) -> None:
+    service = AdventureService()
+    run, persisted = _companion_talk_run()
+
+    async def fake_stream(system_prompt, user_prompt, **kwargs):
+        yield "やっほー"
+        yield "！"
+
+    monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.llm_service.generate_feeling_stream",
+        fake_stream,
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.async_session_factory",
+        _fake_database(persisted),
+    )
+
+    events = [
+        event async for event in service.stream_talk(run_id="run-1", user_input="やあ")
+    ]
+    chunks = [e["data"]["chunk"] for e in events if e["event"] == "talk_chunk"]
+    assert chunks == ["やっほー", "！"]
+    done = next(e for e in events if e["event"] == "talk_done")["data"]
+    assert done["partner_entry"]["expression"] is None
+    assert done["partner_entry"]["gesture"] is None
+
+
+@pytest.mark.asyncio
+async def test_stream_talk_non_companion_does_not_request_header(monkeypatch) -> None:
+    service = AdventureService()
+    run, persisted = _companion_talk_run()
+    state = json.loads(run.state_json)
+    state["companion_mode"] = False
+    run.state_json = json.dumps(state, ensure_ascii=False)
+    persisted.state_json = run.state_json
+    captured: dict = {}
+
+    async def fake_stream(system_prompt, user_prompt, **kwargs):
+        captured["system"] = system_prompt
+        yield "[expression=happy gesture=nod]\n"
+        yield "やっほー"
+
+    monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.llm_service.generate_feeling_stream",
+        fake_stream,
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.async_session_factory",
+        _fake_database(persisted),
+    )
+
+    events = [
+        event async for event in service.stream_talk(run_id="run-1", user_input="やあ")
+    ]
+    assert "[expression=<key> gesture=<key>]" not in captured["system"]
+    # ヘッダ指示が無くても、万一付いてきたら保存本文からは剥がす
+    done = next(e for e in events if e["event"] == "talk_done")["data"]
+    assert done["partner_entry"]["text"] == "やっほー"

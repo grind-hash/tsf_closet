@@ -909,7 +909,11 @@ def test_talk_log_helpers_bound_and_filter_by_turn() -> None:
     assert recent_talk_entries(state, 99) == []
     public = public_talk_log(state)
     assert public[0]["id"] and public[0]["after_turn"] == 0
-    assert {"id", "role", "text", "after_turn"} == set(public[0])
+    # 3D アバター向けの expression / gesture は user 行にも None で載る
+    assert {"id", "role", "text", "after_turn", "expression", "gesture"} == set(
+        public[0]
+    )
+    assert public[0]["expression"] is None and public[0]["gesture"] is None
 
 
 def test_normalize_talk_reply_strips_name_prefix_and_brackets() -> None:

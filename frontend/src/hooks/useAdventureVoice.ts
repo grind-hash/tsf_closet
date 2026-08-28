@@ -12,6 +12,10 @@ import {
 } from "../apis/speechSynthesis";
 import { clamp01 } from "../utils/bgmPreferences";
 import {
+  createVoiceLevelMeter,
+  type VoiceLevelMeter,
+} from "../utils/voiceLevelMeter";
+import {
   clampVoiceSpeed,
   loadVoicePreferences,
   saveVoicePreferences,
@@ -46,6 +50,11 @@ export interface UseAdventureVoiceResult {
   /** text を合成して再生する。前の読み上げは打ち切る。key は再生中表示の識別用 */
   speak: (text: string, key: string) => Promise<void>;
   stop: () => void;
+  /**
+   * 再生中の声の音量レベル(0..1)。3D モデルの口パク用で、毎フレーム呼ぶ。
+   * 再生していないときや Web Audio が使えないときは 0
+   */
+  getLevel: () => number;
 }
 
 export function useAdventureVoice(
@@ -57,6 +66,8 @@ export function useAdventureVoice(
   const [currentKey, setCurrentKey] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const urlRef = useRef<string | null>(null);
+  /** 口パク用の音量メーター。Audio 要素ごとに1回だけ接続する */
+  const meterRef = useRef<VoiceLevelMeter | null>(null);
   /** 単調増加のリクエスト id。古い合成結果や遅延した play() の結果を捨てる */
   const requestIdRef = useRef(0);
   const enabledRef = useRef(prefs.enabled);
@@ -90,8 +101,12 @@ export function useAdventureVoice(
       setError("playback_failed");
     });
     audioRef.current = audio;
+    if (!meterRef.current) meterRef.current = createVoiceLevelMeter();
+    meterRef.current.attach(audio);
     return audio;
   }, []);
+
+  const getLevel = useCallback(() => meterRef.current?.getLevel() ?? 0, []);
 
   const stop = useCallback(() => {
     requestIdRef.current += 1;
@@ -190,6 +205,8 @@ export function useAdventureVoice(
       }
       audioRef.current = null;
       releaseUrl();
+      meterRef.current?.dispose();
+      meterRef.current = null;
     };
   }, [releaseUrl]);
 
@@ -206,5 +223,6 @@ export function useAdventureVoice(
     setSpeed,
     speak,
     stop,
+    getLevel,
   };
 }

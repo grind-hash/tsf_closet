@@ -160,6 +160,8 @@ class AdventureCreateRequest(BaseModel):
     # 対面会話モード(romance 専用。他プリセットでは無視される)。
     # ONなら手番の画像は背景(現在地変化時のみ)と攻略対象の立ち絵だけになる
     companion_mode: bool = False
+    # 対面会話モードで攻略対象の立ち絵の代わりに描く 3D アバター(VRM)の登録 ID
+    companion_avatar_id: str | None = Field(default=None, max_length=80)
 
 
 class AdventureSettingsUpdateRequest(BaseModel):
@@ -179,6 +181,8 @@ class AdventureSettingsUpdateRequest(BaseModel):
     image_model: Literal["default"] | AdventureImageModel | None = None
     # 対面会話モード。未指定なら既存値を維持する(romance 以外では無視)
     companion_mode: bool | None = None
+    # 3D アバター。"none" で解除、登録 ID で設定。未指定(None)なら既存値を維持する
+    companion_avatar_id: str | None = Field(default=None, max_length=80)
 
 
 class AdventureTalkRequest(BaseModel):
@@ -239,7 +243,8 @@ class AdventureImageRequest(BaseModel):
 def _http_error(error: AdventureError) -> HTTPException:
     status = (
         404
-        if error.code in {"run_not_found", "source_not_found", "image_not_found"}
+        if error.code
+        in {"run_not_found", "source_not_found", "image_not_found", "avatar_not_found"}
         else 400
     )
     return HTTPException(
@@ -298,6 +303,7 @@ async def create_run(request: AdventureCreateRequest) -> dict:
             romance_partner_speech_style=request.romance_partner_speech_style,
             image_model=request.image_model,
             companion_mode=request.companion_mode,
+            companion_avatar_id=request.companion_avatar_id,
         )
     except AdventureError as error:
         raise _http_error(error) from error
@@ -363,6 +369,7 @@ async def update_run_settings(
             partner_speech_style=request.partner_speech_style,
             image_model=request.image_model,
             companion_mode=request.companion_mode,
+            companion_avatar_id=request.companion_avatar_id,
         )
     except AdventureError as error:
         raise _http_error(error) from error

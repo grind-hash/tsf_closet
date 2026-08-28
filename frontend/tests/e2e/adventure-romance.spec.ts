@@ -1442,3 +1442,78 @@ test("companion mode replaces the day select with a turn budget in setup", async
     companion_mode: true,
   });
 });
+
+test("companion mode swaps the partner sprite for the 3D avatar and falls back when it cannot load", async ({
+  page,
+}) => {
+  await enableAdventure(page);
+  await mockRomanceApis(page);
+  const avatarList = [
+    {
+      id: "av1",
+      name: "Alicia Solid",
+      file_size: 1024,
+      vrm_spec_version: "0",
+      meta: {
+        title: "Alicia Solid",
+        author: "DWANGO",
+        license: "Other",
+        license_url: null,
+        allowed_user: "Everyone",
+        commercial: "Allow",
+      },
+      file_url: "/avatars/av1/file",
+      created_at: "2026-08-28T10:00:00",
+    },
+  ];
+  await page.route("**/api/avatars", async (route) => {
+    await route.fulfill({ json: { items: avatarList } });
+  });
+  // ファイル配信は待たせたままにして、読込中のステージを観察する
+  let releaseFile: (() => void) | null = null;
+  const fileBlocked = new Promise<void>((resolve) => {
+    releaseFile = resolve;
+  });
+  await page.route("**/api/avatars/av1/file", async (route) => {
+    await fileBlocked;
+    await route.fulfill({
+      status: 404,
+      json: { detail: { code: "file_missing", message: "missing" } },
+    });
+  });
+  const companionRun = romanceRunPayload(0, {
+    companion_mode: true,
+    companion_avatar_id: "av1",
+    companion_avatar_url: "/avatars/av1/file",
+  });
+  await page.route("**/api/adventure/runs/run-1", async (route) => {
+    await route.fulfill({ json: companionRun });
+  });
+  await page.goto("/adventure/run-1");
+
+  // 3D モデル表示中: canvas を持つステージが出て、攻略対象の立ち絵は描かない
+  const stage = page.locator(".adventure-stage__frame .adventure-avatar-stage");
+  await expect(stage).toBeVisible();
+  await expect(stage.locator("canvas")).toHaveCount(1);
+  await expect(stage.locator(".adventure-avatar-stage__loading")).toBeVisible();
+  await expect(page.getByAltText("攻略対象の立ち絵")).toHaveCount(0);
+
+  // ⚙ には登録済みモデルの選択肢が並び、現在のモデルが選ばれている
+  await page.getByRole("button", { name: "画像生成設定" }).click();
+  const select = page.locator(
+    ".adventure-image-settings-popover .adventure-setup-avatar select",
+  );
+  await expect(select).toHaveValue("av1");
+  await expect(select.locator("option")).toHaveText([
+    "なし（立ち絵を表示）",
+    "Alicia Solid",
+  ]);
+
+  // 読込に失敗したら立ち絵へ戻し、通知で理由を出す
+  releaseFile?.();
+  await expect(page.getByAltText("攻略対象の立ち絵")).toBeVisible({
+    timeout: 15000,
+  });
+  await expect(stage).toHaveCount(0);
+  await expect(page.getByText("3Dモデルを表示できません")).toBeVisible();
+});

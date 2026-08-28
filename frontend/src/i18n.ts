@@ -292,6 +292,23 @@ const resources = {
         companionTurnsUnit: "ターン",
         companionTurnsHint:
           "対面会話モードでは1ターン＝1往復の会話です。回数を使い切るとシナリオの結果が確定します。手番を使わない雑談は「トーク」でできます。",
+        avatar: {
+          selectLabel: "攻略対象の3Dモデル",
+          none: "なし（立ち絵を表示）",
+          setupHint:
+            "対面会話モードで、攻略対象の立ち絵の代わりに登録済みの3Dモデル（VRM）を表示します。読み上げに合わせて口が動き、返答ごとに表情と身振りが変わります。3Dモデル表示中は攻略対象の立ち絵を毎ターン描きません。",
+          companionOffHint:
+            "対面会話モードがONのときだけ使われます（OFFの間は選んでも立ち絵のままです）。",
+          playHint:
+            "次のターンから反映されます。3Dモデル表示中は攻略対象の立ち絵を毎ターン描きません。",
+          noModelsHint: "登録済みの3Dモデルがありません。",
+          registerLink: "設定画面の「3Dモデル」で登録する",
+          loading: "3Dモデルを読み込み中…",
+          loadFailedTitle: "3Dモデルを表示できません",
+          loadFailed:
+            "3Dモデルの読み込みに失敗したため、立ち絵で表示します。設定画面で登録し直すか、別のモデルを選んでください。",
+          deletedModel: "（削除済みのモデル）",
+        },
         companion: {
           turnLabel: "ターン",
           turnCounterHint: "{{turn}} / {{max}} ターン（1ターン＝1往復の会話）",
@@ -815,6 +832,60 @@ const resources = {
           error: "プレイメモの操作に失敗しました",
           updateWarning:
             "今回の結果は保存されましたが、自動メモを更新できませんでした。",
+        },
+        avatar: {
+          sectionTitle: "3Dモデル (VRM)",
+          description:
+            "TSFシナリオの対面会話モードで、攻略対象の代わりに表示する3Dモデルを登録します。対応形式はVRM（0.x / 1.0）だけです。FBXやPMXはUnity + UniVRMやBlenderのVRMアドオンでVRMに変換してから登録してください。モデルの利用条件は各配布元の規約に従ってください。",
+          dropZone: "ここにVRMファイルをドロップ、またはクリックして選択",
+          dropActive: "ドロップして登録",
+          uploading: "{{name}} を登録しています…",
+          empty: "登録済みの3Dモデルはありません。",
+          author: "作者",
+          license: "ライセンス",
+          size: "サイズ",
+          registeredAt: "登録日",
+          spec0: "VRM 0.x",
+          spec1: "VRM 1.0",
+          preview: "プレビュー",
+          rename: "名前を変更",
+          renamePrompt: "新しい名前",
+          delete: "削除",
+          deleteConfirm:
+            "「{{name}}」を削除しますか？このモデルを使っているシナリオは立ち絵に戻ります。",
+          limit: "1ファイル {{size}} MiB まで",
+          errors: {
+            notVrm:
+              "VRMファイルではありません。VRM形式（.vrm）に変換してから登録してください。",
+            tooLarge: "ファイルが大きすぎます。",
+            failed: "登録に失敗しました。",
+            loadFailed: "一覧を取得できませんでした。",
+          },
+          previewTitle: "3Dモデルのプレビュー",
+          previewExpression: "表情",
+          previewGesture: "身振り",
+          previewPlay: "身振りを再生",
+          previewHint:
+            "読み上げが無いので口は動きません。表情と身振りの見え方だけを確認できます。",
+          close: "閉じる",
+          expressions: {
+            neutral: "ふつう",
+            happy: "うれしい",
+            sad: "かなしい",
+            angry: "おこる",
+            surprised: "おどろき",
+            relaxed: "リラックス",
+          },
+          gestures: {
+            idle: "なし",
+            nod: "うなずく",
+            shake_head: "首を振る",
+            tilt_head: "首をかしげる",
+            lean_forward: "前のめり",
+            lean_back: "のけぞる",
+            look_away: "目をそらす",
+            bounce: "はずむ",
+          },
         },
         speech: {
           sectionTitle: "音声合成 (AivisSpeech)",
@@ -2359,6 +2430,23 @@ const resources = {
         companionTurnsUnit: "turns",
         companionTurnsHint:
           "In face-to-face mode one turn is one exchange. The scenario resolves when the turns run out. Use Talk for chat that does not spend a turn.",
+        avatar: {
+          selectLabel: "Partner's 3D model",
+          none: "None (show the sprite)",
+          setupHint:
+            "In face-to-face mode, shows a registered 3D model (VRM) instead of the partner sprite. The mouth moves with the voice, and the expression and gesture change with every reply. While the 3D model is shown, the partner sprite is not redrawn each turn.",
+          companionOffHint:
+            "Used only while face-to-face mode is on (the sprite stays while it is off).",
+          playHint:
+            "Applies from the next turn. While the 3D model is shown, the partner sprite is not redrawn each turn.",
+          noModelsHint: "No 3D models are registered yet.",
+          registerLink: "Register one under “3D models” in Settings",
+          loading: "Loading the 3D model…",
+          loadFailedTitle: "Cannot show the 3D model",
+          loadFailed:
+            "The 3D model failed to load, so the sprite is shown instead. Re-register it in Settings or pick another model.",
+          deletedModel: "(deleted model)",
+        },
         companion: {
           turnLabel: "Turn",
           turnCounterHint: "{{turn}} / {{max}} turns (one exchange per turn)",
@@ -2882,6 +2970,60 @@ const resources = {
           error: "Failed to update play memory",
           updateWarning:
             "The result was saved, but the automatic memory could not be updated.",
+        },
+        avatar: {
+          sectionTitle: "3D models (VRM)",
+          description:
+            "Register 3D models shown instead of the partner in the TSF scenario face-to-face mode. Only VRM (0.x / 1.0) is supported. Convert FBX or PMX to VRM first (Unity + UniVRM, or the Blender VRM add-on). Follow each model's own license terms.",
+          dropZone: "Drop a VRM file here, or click to choose one",
+          dropActive: "Drop to register",
+          uploading: "Registering {{name}}…",
+          empty: "No 3D models are registered.",
+          author: "Author",
+          license: "License",
+          size: "Size",
+          registeredAt: "Registered",
+          spec0: "VRM 0.x",
+          spec1: "VRM 1.0",
+          preview: "Preview",
+          rename: "Rename",
+          renamePrompt: "New name",
+          delete: "Delete",
+          deleteConfirm:
+            "Delete “{{name}}”? Scenarios using this model fall back to the sprite.",
+          limit: "Up to {{size}} MiB per file",
+          errors: {
+            notVrm:
+              "Not a VRM file. Convert the model to VRM (.vrm) and try again.",
+            tooLarge: "The file is too large.",
+            failed: "Registration failed.",
+            loadFailed: "Could not load the list.",
+          },
+          previewTitle: "3D model preview",
+          previewExpression: "Expression",
+          previewGesture: "Gesture",
+          previewPlay: "Play gesture",
+          previewHint:
+            "There is no voice here, so the mouth stays still. Use this to check expressions and gestures only.",
+          close: "Close",
+          expressions: {
+            neutral: "Neutral",
+            happy: "Happy",
+            sad: "Sad",
+            angry: "Angry",
+            surprised: "Surprised",
+            relaxed: "Relaxed",
+          },
+          gestures: {
+            idle: "None",
+            nod: "Nod",
+            shake_head: "Shake head",
+            tilt_head: "Tilt head",
+            lean_forward: "Lean forward",
+            lean_back: "Lean back",
+            look_away: "Look away",
+            bounce: "Bounce",
+          },
         },
         speech: {
           sectionTitle: "Speech Synthesis (AivisSpeech)",

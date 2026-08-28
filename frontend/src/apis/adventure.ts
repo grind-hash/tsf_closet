@@ -140,6 +140,9 @@ export interface AdventureTalkEntry {
   text: string;
   /** この会話が交わされた時点の turn_count。次の手番の文脈になる */
   after_turn: number;
+  /** 3D モデル向けの表情・身振り(攻略対象の行のみ。旧ログ・語彙外は null) */
+  expression?: string | null;
+  gesture?: string | null;
 }
 
 export interface AdventureTurn {
@@ -148,6 +151,9 @@ export interface AdventureTurn {
   client_turn_id: string;
   user_input: string;
   input_kind: AdventureInputKind;
+  /** 対面会話モードの 3D モデル向け。攻略対象の表情・身振り(旧ターンは null) */
+  partner_expression?: string | null;
+  partner_gesture?: string | null;
   narrative: string;
   /** このターン時点の現在地。旧ターンでは null */
   location: string | null;
@@ -258,6 +264,9 @@ export interface AdventureRun {
    * 手番の画像は背景(現在地変化時のみ)と攻略対象だけを生成する
    */
   companion_mode: boolean;
+  /** 対面会話モードで描く 3D モデル(VRM)の登録 ID と配信 URL。未設定は null */
+  companion_avatar_id?: string | null;
+  companion_avatar_url?: string | null;
   /** romance のみ。トークモードの会話ログ(古い順) */
   talk_log?: AdventureTalkEntry[];
   turns: AdventureTurn[];
@@ -339,6 +348,8 @@ export interface AdventureCreateRequest extends AdventureSetupRequest {
   image_model?: string;
   /** 対面会話モード(romance のみ)。既定 false */
   companion_mode?: boolean;
+  /** 対面会話モードで攻略対象の立ち絵の代わりに描く 3D モデル(VRM)の登録 ID */
+  companion_avatar_id?: string;
 }
 
 export interface AdventureSettingsUpdateRequest {
@@ -355,6 +366,8 @@ export interface AdventureSettingsUpdateRequest {
   image_model?: string;
   /** 対面会話モード。未指定なら維持(romance 以外では無視される) */
   companion_mode?: boolean;
+  /** 3D モデル。"none" で解除、登録 ID で設定。未指定なら既存値を維持 */
+  companion_avatar_id?: string;
 }
 
 export interface AdventureStreamEvent {
@@ -387,6 +400,8 @@ function normalizeRun(run: AdventureRun): AdventureRun {
     enable_composite_scene: Boolean(run.enable_composite_scene),
     respect_clothing_layers: Boolean(run.respect_clothing_layers),
     companion_mode: Boolean(run.companion_mode),
+    companion_avatar_id: run.companion_avatar_id ?? null,
+    companion_avatar_url: withApiBase(run.companion_avatar_url ?? null),
     talk_log: run.talk_log ?? [],
     image_model_override: run.image_model_override ?? null,
     // 旧runやモック応答にキーが無くても表示側が undefined を掴まないようにする

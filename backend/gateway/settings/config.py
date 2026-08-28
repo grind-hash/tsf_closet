@@ -182,6 +182,15 @@ class Settings:
     preset_masks_dir: Path = _resolve_path(
         os.getenv("PRESET_MASKS_DIR", "data/preset_masks")
     )
+    # 3D アバター(VRM)の保存先 (デフォルト: data/avatar_models)
+    avatar_models_dir: Path = _resolve_path(
+        os.getenv("AVATAR_MODELS_DIR", "data/avatar_models")
+    )
+    # VRM アップロードの上限バイト数 (デフォルト: 128 MiB)。
+    # multipart_max_part_size(8 MiB)は画像プロキシ専用で、VRM には使わない
+    avatar_upload_max_bytes: int = int(
+        os.getenv("AVATAR_UPLOAD_MAX_BYTES", str(128 * 1024 * 1024))
+    )
     history_max_count: int = int(os.getenv("HISTORY_MAX_COUNT", "50"))
 
     # AivisSpeech (Windows only)

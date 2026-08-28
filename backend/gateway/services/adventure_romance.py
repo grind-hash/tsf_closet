@@ -14,6 +14,12 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from ..consts.companion_avatar import (
+    avatar_talk_header_instruction,
+    normalize_avatar_expression,
+    normalize_avatar_gesture,
+    parse_talk_header,
+)
 from ..consts.adventure_romance import (
     ROMANCE_AFFECTION_MAX,
     ROMANCE_AFFECTION_MIN,
@@ -1122,7 +1128,12 @@ def romance_script_format_guidance(partner_name: str, player_name: str) -> str:
 
 
 def romance_talk_system_prompt(
-    language: str, *, partner_name: str, player_name: str, speech_rule: str
+    language: str,
+    *,
+    partner_name: str,
+    player_name: str,
+    speech_rule: str,
+    companion: bool = False,
 ) -> str:
     """トークモード(手番を消費しない会話)で攻略対象として返答させる system prompt。"""
     response_language = "Japanese" if language == "ja" else "English"
@@ -1145,6 +1156,9 @@ def romance_talk_system_prompt(
     )
     if speech_rule:
         rule = f"{rule}\n{speech_rule}"
+    if companion:
+        # 対面会話モードの 3D アバター向け。先頭ヘッダ行は配信前に剥がされる
+        rule = f"{rule}\n{avatar_talk_header_instruction()}"
     return rule
 
 
@@ -1158,15 +1172,28 @@ def _talk_log(state: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def append_talk_entry(
-    state: dict[str, Any], *, role: str, text: str, after_turn: int
+    state: dict[str, Any],
+    *,
+    role: str,
+    text: str,
+    after_turn: int,
+    expression: str | None = None,
+    gesture: str | None = None,
 ) -> dict[str, Any]:
-    """トークログへ1件追記し、上限を超えた古い分を捨てる。追記した項目を返す。"""
-    entry = {
+    """トークログへ1件追記し、上限を超えた古い分を捨てる。追記した項目を返す。
+
+    expression / gesture は対面会話モードの 3D アバター向けで、攻略対象の
+    行にだけ持たせる(語彙外は None)。
+    """
+    entry: dict[str, Any] = {
         "id": uuid.uuid4().hex[:8],
         "role": "partner" if role == "partner" else "user",
         "text": " ".join(str(text or "").split()).strip(),
         "after_turn": max(0, int(after_turn)),
     }
+    if entry["role"] == "partner":
+        entry["expression"] = normalize_avatar_expression(expression)
+        entry["gesture"] = normalize_avatar_gesture(gesture)
     log = _talk_log(state)
     log.append(entry)
     state["talk_log"] = log[-ROMANCE_TALK_LOG_MAX:]
@@ -1192,6 +1219,9 @@ def public_talk_log(state: dict[str, Any]) -> list[dict[str, Any]]:
             "role": "partner" if item.get("role") == "partner" else "user",
             "text": str(item.get("text") or ""),
             "after_turn": max(0, int(item.get("after_turn") or 0)),
+            # 3D アバター向け。user 行と旧ログは None
+            "expression": normalize_avatar_expression(item.get("expression")),
+            "gesture": normalize_avatar_gesture(item.get("gesture")),
         }
         for item in _talk_log(state)
     ]
@@ -1212,6 +1242,9 @@ def normalize_talk_reply(text: str, partner_name: str) -> str:
     表示と読み上げに使う前にここで揃える。
     """
     reply = _TALK_FENCE_RE.sub("", str(text or "").strip()).strip()
+    # 対面会話モードの先頭ヘッダ行は、モードに関わらず防御的に剥がす
+    _, _, reply = parse_talk_header(reply)
+    reply = reply.strip()
     name = str(partner_name or "").strip()
     if name:
         prefix = re.compile(rf"^\s*{re.escape(name)}\s*[「『:：]\s*")

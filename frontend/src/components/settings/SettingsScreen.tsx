@@ -8,6 +8,7 @@ import { useSettings } from "../../contexts/SettingsContext";
 import type { HistoryLookbackTarget } from "../../utils/historyLookback";
 import MainLayout from "../layout/MainLayout";
 import { NovelaiUsageBar } from "../NovelaiUsageBar";
+import AvatarModelSettings from "./AvatarModelSettings";
 import MemorySettings from "./MemorySettings";
 import SelfProfileEditor from "./SelfProfileEditor";
 import SpeechSynthesisSettings from "./SpeechSynthesisSettings";
@@ -557,6 +558,21 @@ export default function SettingsScreen() {
               </span>
             </h2>
             <SpeechSynthesisSettings />
+          </section>
+
+          {/* 3Dモデル(VRM): TSFシナリオの対面会話モードで使う */}
+          <section className="settings-screen__section">
+            <h2 className="settings-screen__section-title">
+              {t("settings.avatar.sectionTitle")}
+              <span
+                className="feature-chip-experimental"
+                data-feature-version="v0.7.0"
+                style={{ marginLeft: "0.5rem" }}
+              >
+                Experimental
+              </span>
+            </h2>
+            <AvatarModelSettings />
           </section>
 
           {/* 通知設定 */}

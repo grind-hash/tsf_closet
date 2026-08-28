@@ -5016,3 +5016,28 @@ button:disabled {
   opacity: 0.45;
   cursor: default;
 }
+
+/* 3D モデル(VRM)の選択行。セットアップと⚙ポップオーバーで共用 */
+.adventure-card .adventure-setup-avatar,
+.adventure-image-settings-popover .adventure-setup-avatar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.adventure-setup-avatar select {
+  flex: 1 1 160px;
+  min-height: 36px;
+  max-width: 100%;
+  padding: 0 10px;
+  border: 1px solid #4a535c;
+  border-radius: 6px;
+  color: #e9edf0;
+  background: #242b31;
+  font-size: 0.9rem;
+}
+
+.adventure-setup-avatar .adventure-setup-turns__hint a {
+  color: #9ec5ff;
+}
