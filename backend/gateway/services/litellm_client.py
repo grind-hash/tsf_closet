@@ -211,6 +211,7 @@ class LiteLLMClient:
         self,
         system_prompt: str,
         user_prompt: str,
+        history: list[dict[str, str]] | None = None,
     ) -> AsyncGenerator[str, None]:
         """心境テキストをストリーミング生成する (心理状態用モデル: gpt-oss:20b対応)
 
@@ -221,6 +222,8 @@ class LiteLLMClient:
         Args:
             system_prompt: システムプロンプト
             user_prompt: ユーザープロンプト
+            history: system と最後の user の間に挟む過去のやり取り
+                ({"role": "user"|"assistant", "content": str} の列)
 
         Yields:
             テキストチャンク (トークン単位、思考過程は除外)
@@ -228,12 +231,19 @@ class LiteLLMClient:
         Raises:
             LiteLLMClientError: API呼び出しに失敗した場合
         """
+        messages: list[dict[str, str]] = [
+            {"role": "system", "content": system_prompt},
+            *[
+                {"role": str(item["role"]), "content": str(item["content"])}
+                for item in history or []
+                if str(item.get("role") or "") in {"user", "assistant"}
+                and str(item.get("content") or "")
+            ],
+            {"role": "user", "content": user_prompt},
+        ]
         payload = {
             "model": self.feeling_model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
+            "messages": messages,
             "max_tokens": 4096,
             "stream": True,
         }

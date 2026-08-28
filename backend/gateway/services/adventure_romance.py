@@ -7,6 +7,7 @@ day/slot は状態に保存せず turn_number から導出する(冪等リトラ
 
 from __future__ import annotations
 
+import json
 import random
 import re
 import uuid
@@ -47,6 +48,7 @@ from ..consts.adventure_romance import (
     ROMANCE_STAGE_THRESHOLDS,
     ROMANCE_TALK_CONTEXT_MAX,
     ROMANCE_TALK_DELTA_LIMIT,
+    ROMANCE_TALK_HISTORY_MAX,
     ROMANCE_TALK_INPUT_MAX,
     ROMANCE_TALK_LOG_MAX,
     ROMANCE_TALK_REPLY_MAX,
@@ -956,16 +958,21 @@ ROMANCE_VISUAL_GUIDANCE = (
 )
 
 # トークモード(手番を消費しない会話)の内容を次の手番へ渡すときの扱い。
-# 物語の連続性には使うが、採点(好感度・金銭)には一切影響させない
+# 物語の連続性には使うが、採点(好感度・金銭)には一切影響させない。
+# 手番をまたいだ直近分を渡すため、各行の after_turn でどの場面の後の
+# 会話かを示す
 ROMANCE_RECENT_TALK_GUIDANCE = (
-    "recent_talk, when present, is a free chat the player and the partner had "
-    "after the previous scene and before this one, in chronological order "
-    "(role user = the player, role partner = the partner). Treat it as things "
-    "they actually said to each other in the meantime: keep the partner's "
-    "memory of it and let it colour tone and callbacks, but do not retell it "
-    "as new events. It consumed no story time and is not a player action for "
-    "this turn; the player's action is player_input. It must never change "
-    "affection_delta, money, or any other score: score only this turn's action."
+    "recent_talk, when present, lists the most recent free chats the player "
+    "and the partner had between scenes, in chronological order (role user = "
+    "the player, role partner = the partner). Each line's after_turn is the "
+    "scene number it followed: after_turn equal to next_turn - 1 means it "
+    "happened right after the latest scene; smaller values are older chats "
+    "the partner still remembers. Treat them as things they actually said to "
+    "each other: keep the partner's memory of them and let them colour tone "
+    "and callbacks, but do not retell them as new events. They consumed no "
+    "story time and are not a player action for this turn; the player's "
+    "action is player_input. They must never change affection_delta, money, "
+    "or any other score: score only this turn's action."
 )
 
 _ROMANCE_RESOLUTION_CORE = (
@@ -1134,31 +1141,50 @@ def romance_talk_system_prompt(
     player_name: str,
     speech_rule: str,
     companion: bool = False,
+    context: dict[str, Any] | None = None,
 ) -> str:
-    """トークモード(手番を消費しない会話)で攻略対象として返答させる system prompt。"""
+    """トークモード(手番を消費しない会話)で攻略対象として返答させる system prompt。
+
+    会話そのものはチャット履歴(user/assistant メッセージ)と最後の user
+    メッセージで渡すため、system prompt には人物設定・関係性・場面などの
+    文脈(context)を JSON で添える。
+    """
     response_language = "Japanese" if language == "ja" else "English"
     rule = (
         f"You are {partner_name}, the partner character of a romance simulation, "
-        f"chatting directly with {player_name} between scenes. Reply in "
-        f"{response_language} with {partner_name}'s spoken words only, in the "
-        "first person, as one to three short sentences. You may add at most one "
-        "brief action or expression in parentheses before or after the words. Do "
-        "not write narration, the player's lines, your name as a prefix, corner "
-        "brackets, JSON, markdown, or any commentary. Stay in the current scene "
-        "(current_scene) and wear what it says you wear; nothing in the story "
-        "advances during this chat, so do not start a date, move to another "
-        "place, give or receive gifts, or decide anything on the player's behalf. "
-        "Let your warmth follow sim.stage and sim.affection. reality_rules are "
-        "true facts of this world; never find them strange. hidden_preferences "
-        "is secret game data: you may hint at your tastes naturally but must "
-        "never list, name, or confirm them outright. Keep talk_history "
-        "consistent and do not repeat yourself."
+        f"chatting directly with {player_name} between scenes. The messages in "
+        f"this conversation are the actual chat between {player_name} (user) "
+        f"and you (assistant) so far, oldest first; the last user message is "
+        f"what {player_name} just said. Remember everything said earlier in "
+        "this chat and in context.recent_scenes: answer the latest message as a "
+        "continuation of that conversation, pick up its topic, and never restart "
+        "as if you were meeting for the first time or repeat an earlier reply. "
+        f"Reply in {response_language} with {partner_name}'s spoken words only, "
+        "in the first person, as one to three short sentences. You may add at "
+        "most one brief action or expression in parentheses before or after the "
+        "words. Do not write narration, the player's lines, your name as a "
+        "prefix, corner brackets, JSON, markdown, or any commentary. Stay in the "
+        "current scene (context.current_scene) and wear what it says you wear; "
+        "nothing in the story advances during this chat, so do not start a date, "
+        "move to another place, give or receive gifts, or decide anything on the "
+        "player's behalf. context.relationship is the current state of your "
+        "relationship: let your warmth, distance, and honesty follow "
+        "relationship.stage and relationship.affection, and when "
+        "relationship.dating is true speak as an established couple. "
+        "context.recent_scenes are the latest story scenes with how each one "
+        "changed your affection (affection_change): what happened there, and "
+        "how it made you feel, is fresh in your memory. context.reality_rules "
+        "are true facts of this world; never find them strange. "
+        "context.hidden_preferences is secret game data: you may hint at your "
+        "tastes naturally but must never list, name, or confirm them outright."
     )
     if speech_rule:
         rule = f"{rule}\n{speech_rule}"
     if companion:
         # 対面会話モードの 3D アバター向け。先頭ヘッダ行は配信前に剥がされる
         rule = f"{rule}\n{avatar_talk_header_instruction()}"
+    if context:
+        rule = f"{rule}\n\ncontext:\n{json.dumps(context, ensure_ascii=False)}"
     return rule
 
 
@@ -1201,14 +1227,83 @@ def append_talk_entry(
 
 
 def recent_talk_entries(state: dict[str, Any], turn_count: int) -> list[dict[str, Any]]:
-    """最後の手番以降(=次の手番の文脈になる)のトークを {role, text} で返す。"""
+    """次の手番の文脈として渡す直近のトークを {role, text, after_turn} で返す。
+
+    手番をまたいで最新から ROMANCE_TALK_CONTEXT_MAX 件まで含める。以前は
+    最後の手番以降の分だけに絞っていたが、それ以前の会話を攻略対象が忘れて
+    しまうため、どの場面の後の会話かを after_turn で示しつつ渡す。
+    turn_count より後の after_turn を持つ行(巻き戻し後の不整合)は除く。
+    """
     current = max(0, int(turn_count))
     entries = [
-        {"role": str(item.get("role") or "user"), "text": str(item.get("text") or "")}
+        {
+            "role": str(item.get("role") or "user"),
+            "text": str(item.get("text") or ""),
+            "after_turn": max(0, int(item.get("after_turn") or 0)),
+        }
         for item in _talk_log(state)
-        if int(item.get("after_turn") or 0) == current and str(item.get("text") or "")
+        if int(item.get("after_turn") or 0) <= current and str(item.get("text") or "")
     ]
     return entries[-ROMANCE_TALK_CONTEXT_MAX:]
+
+
+def talk_history_messages(
+    state: dict[str, Any], turn_count: int
+) -> list[dict[str, str]]:
+    """トークの LLM 呼び出しへ渡すチャット履歴(OpenAI 形式のメッセージ)。
+
+    手番をまたいで最新から ROMANCE_TALK_HISTORY_MAX 件を、主人公の発言を
+    user、攻略対象の返答を assistant として返す。会話を JSON の一項目でなく
+    メッセージ列として渡すことで、モデルが直前のやり取りを踏まえて返答する。
+    """
+    current = max(0, int(turn_count))
+    messages = [
+        {
+            "role": "assistant" if item.get("role") == "partner" else "user",
+            "content": str(item.get("text") or ""),
+        }
+        for item in _talk_log(state)
+        if int(item.get("after_turn") or 0) <= current and str(item.get("text") or "")
+    ]
+    return messages[-ROMANCE_TALK_HISTORY_MAX:]
+
+
+def talk_relationship_context(
+    sim: dict[str, Any],
+    state: dict[str, Any],
+    turn_count: int,
+    *,
+    epilogue: bool = False,
+) -> dict[str, Any]:
+    """トークの system prompt へ渡す関係性の要約。
+
+    好感度・段階・交際中か・贈った品・達成済みの節目を、攻略対象の態度を
+    決める材料として渡す。金銭やカタログなど会話に関係ない値は含めない。
+    """
+    view = public_sim_view(sim, turn_count, epilogue=epilogue)
+    catalog = {
+        str(item.get("id")): str(item.get("name") or "")
+        for item in sim.get("gift_catalog", [])
+        if isinstance(item, dict)
+    }
+    labels = {item["id"]: item["label"] for item in ROMANCE_MILESTONES}
+    completed = [
+        str(item)
+        for item in state.get("completed_milestones", [])
+        if isinstance(item, str)
+    ]
+    return {
+        "affection": view["affection"],
+        "stage": view["stage"],
+        "dating": bool(sim.get("confessed")),
+        "day": view["day"],
+        "slot": view["slot"],
+        "total_days": view["total_days"],
+        "epilogue": bool(epilogue),
+        "relationship_origin": str(sim.get("relationship_origin") or ""),
+        "given_gifts": [catalog.get(item, item) for item in view["given_gift_ids"]],
+        "completed_milestones": [labels.get(item, item) for item in completed],
+    }
 
 
 def public_talk_log(state: dict[str, Any]) -> list[dict[str, Any]]:

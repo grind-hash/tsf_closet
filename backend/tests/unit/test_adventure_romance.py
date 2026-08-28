@@ -883,7 +883,10 @@ def test_romance_location_key_normalizes_case_and_whitespace() -> None:
 
 
 def test_talk_log_helpers_bound_and_filter_by_turn() -> None:
-    from gateway.consts.adventure_romance import ROMANCE_TALK_LOG_MAX
+    from gateway.consts.adventure_romance import (
+        ROMANCE_TALK_CONTEXT_MAX,
+        ROMANCE_TALK_LOG_MAX,
+    )
     from gateway.services.adventure_romance import (
         append_talk_entry,
         public_talk_log,
@@ -901,12 +904,23 @@ def test_talk_log_helpers_bound_and_filter_by_turn() -> None:
     assert len(state["talk_log"]) == ROMANCE_TALK_LOG_MAX
     # 古い分から捨てられる
     assert state["talk_log"][0]["text"] == "line 6"
+    # 手番をまたいで最新から ROMANCE_TALK_CONTEXT_MAX 件。after_turn で場面を示す
     recent = recent_talk_entries(state, 4)
-    assert recent and all(
-        item["role"] in {"user", "partner"} and item["text"].startswith("line 4")
+    assert len(recent) == ROMANCE_TALK_CONTEXT_MAX
+    assert [item["text"] for item in recent][-2:] == ["line 44", "line 45"]
+    assert all(
+        item["role"] in {"user", "partner"} and item["after_turn"] <= 4
         for item in recent
     )
-    assert recent_talk_entries(state, 99) == []
+    assert {item["after_turn"] for item in recent} == {3, 4}
+    # turn_count より後の行(巻き戻し後の残骸)は渡さない
+    older = recent_talk_entries(state, 3)
+    assert older[-1] == {"role": "partner", "text": "line 39", "after_turn": 3}
+    assert all(item["after_turn"] <= 3 for item in older)
+    assert [item["text"] for item in recent_talk_entries(state, 0)] == [
+        f"line {index}" for index in range(6, 10)
+    ]
+    assert recent_talk_entries({}, 5) == []
     public = public_talk_log(state)
     assert public[0]["id"] and public[0]["after_turn"] == 0
     # 3D アバター向けの expression / gesture は user 行にも None で載る
@@ -914,6 +928,91 @@ def test_talk_log_helpers_bound_and_filter_by_turn() -> None:
         public[0]
     )
     assert public[0]["expression"] is None and public[0]["gesture"] is None
+
+
+def test_talk_history_messages_as_chat_turns_across_scenes() -> None:
+    from gateway.consts.adventure_romance import ROMANCE_TALK_HISTORY_MAX
+    from gateway.services.adventure_romance import (
+        append_talk_entry,
+        talk_history_messages,
+    )
+
+    state: dict = {}
+    append_talk_entry(state, role="user", text="おはよう", after_turn=1)
+    append_talk_entry(state, role="partner", text="おはよ", after_turn=1)
+    append_talk_entry(state, role="user", text="  元気？ ", after_turn=3)
+    append_talk_entry(state, role="partner", text="", after_turn=3)
+    append_talk_entry(state, role="user", text="未来", after_turn=4)
+
+    # 手番をまたいで残し、主人公=user / 攻略対象=assistant に写す。空行と
+    # turn_count より後の行は除く
+    assert talk_history_messages(state, 3) == [
+        {"role": "user", "content": "おはよう"},
+        {"role": "assistant", "content": "おはよ"},
+        {"role": "user", "content": "元気？"},
+    ]
+    assert talk_history_messages({}, 3) == []
+
+    state = {}
+    for index in range(ROMANCE_TALK_HISTORY_MAX + 4):
+        append_talk_entry(
+            state,
+            role="user" if index % 2 == 0 else "partner",
+            text=f"m{index}",
+            after_turn=1,
+        )
+    messages = talk_history_messages(state, 1)
+    assert len(messages) == ROMANCE_TALK_HISTORY_MAX
+    assert messages[-1]["content"] == f"m{ROMANCE_TALK_HISTORY_MAX + 3}"
+
+
+def test_talk_relationship_context_summarizes_affection_results() -> None:
+    from gateway.services.adventure_romance import (
+        romance_stage,
+        talk_relationship_context,
+    )
+
+    sim = {
+        "total_days": 7,
+        "affection": 42,
+        "money": 3000,
+        "confessed": True,
+        "relationship_origin": "同じサークル",
+        "gift_catalog": [{"id": "g1", "name": "花束", "price": 1200}],
+        "given_gifts": ["g1", "unknown"],
+        "hidden_preferences": {"liked_gift_ids": ["g1"]},
+    }
+    state = {"completed_milestones": ["become_friends", "custom_goal"]}
+    context = talk_relationship_context(sim, state, 3)
+    assert context["affection"] == 42
+    assert context["stage"] == romance_stage(42)
+    assert context["dating"] is True
+    assert (context["day"], context["slot"]) == (2, "night")
+    assert context["total_days"] == 7 and context["epilogue"] is False
+    assert context["relationship_origin"] == "同じサークル"
+    # 贈った品と節目は ID でなく表示名で渡す。未知の ID はそのまま
+    assert context["given_gifts"] == ["花束", "unknown"]
+    assert context["completed_milestones"] == ["友人になる", "custom_goal"]
+    # 隠し好み・金銭・カタログは含めない
+    assert "hidden_preferences" not in context and "money" not in context
+
+
+def test_romance_talk_system_prompt_embeds_context_and_memory_rules() -> None:
+    from gateway.services.adventure_romance import romance_talk_system_prompt
+
+    prompt = romance_talk_system_prompt(
+        "ja",
+        partner_name="美咲",
+        player_name="太郎",
+        speech_rule="",
+        context={"relationship": {"affection": 5}},
+    )
+    assert prompt.startswith("You are 美咲")
+    assert "never restart" in prompt and "context.recent_scenes" in prompt
+    assert prompt.endswith('context:\n{"relationship": {"affection": 5}}')
+    assert "context:" not in romance_talk_system_prompt(
+        "ja", partner_name="美咲", player_name="太郎", speech_rule=""
+    )
 
 
 def test_normalize_talk_reply_strips_name_prefix_and_brackets() -> None:

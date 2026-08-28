@@ -48,6 +48,29 @@ class LLMResult:
     model: Optional[str] = None
 
 
+def build_chat_messages(
+    system_prompt: str,
+    user_prompt: str,
+    history: list[dict[str, str]] | None = None,
+) -> list[dict[str, str]]:
+    """OpenAI 互換の messages 配列を組み立てる。
+
+    history には過去のやり取り({"role": "user"|"assistant", "content": str})
+    を古い順に渡す。role が user/assistant 以外、または content が空の要素は
+    無視する。system と最後の user の間に挟むことで、会話の続きとして
+    応答させる。
+    """
+    messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
+    for item in history or []:
+        role = str(item.get("role") or "")
+        content = str(item.get("content") or "")
+        if role not in {"user", "assistant"} or not content:
+            continue
+        messages.append({"role": role, "content": content})
+    messages.append({"role": "user", "content": user_prompt})
+    return messages
+
+
 # =============================================================================
 # OpenRouter LLMクライアント
 # =============================================================================
@@ -170,18 +193,18 @@ class OpenRouterLLMClient:
         system_prompt: str,
         user_prompt: str,
         usage_callback: Optional[Callable[[Optional[float]], None]] = None,
+        history: list[dict[str, str]] | None = None,
     ) -> AsyncGenerator[str, None]:
         """テキストをストリーミング生成する
 
         usage_callback を渡すと、ストリーム末尾のusageチャンクから
         取得したAPI料金(USD)を通知する。
+        history は system と最後の user の間に挟む過去のやり取り
+        ({"role": "user"|"assistant", "content": str} の列)。
         """
         payload = {
             "model": self.llm_model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
+            "messages": build_chat_messages(system_prompt, user_prompt, history),
             "max_tokens": 4096,
             "stream": True,
             # 最終チャンクに usage / cost を含める
@@ -324,19 +347,18 @@ class NovelAILLMClient:
         user_prompt: str,
         model_override: Optional[str] = None,
         max_tokens: int = 4096,
+        history: list[dict[str, str]] | None = None,
     ) -> AsyncGenerator[str, None]:
         """テキストをストリーミング生成する
 
         SSEフォーマットでレスポンスを受け取り、delta.contentを順次yield。
+        history は system と最後の user の間に挟む過去のやり取り。
         """
         effective_model = model_override or self.model
         sampling_params = _NOVELAI_MODEL_PARAMS.get(effective_model, {})
         payload = {
             "model": effective_model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
+            "messages": build_chat_messages(system_prompt, user_prompt, history),
             "max_tokens": max_tokens,
             "stream": True,  # 必須: falseだとtoken_idsが返される
             **sampling_params,
@@ -510,6 +532,7 @@ class LLMService:
         novelai_model_override: Optional[str] = None,
         max_tokens: Optional[int] = None,
         usage_callback: Optional[Callable[[Optional[float]], None]] = None,
+        history: list[dict[str, str]] | None = None,
     ) -> AsyncGenerator[str, None]:
         """心境テキストをストリーミング生成する
 
@@ -518,6 +541,8 @@ class LLMService:
             user_prompt: ユーザープロンプト
             provider_override: プロバイダー指定（省略時は設定値）
             usage_callback: OpenRouter利用時にAPI料金(USD)を受け取るコールバック
+            history: system と最後の user の間に挟む過去のやり取り
+                ({"role": "user"|"assistant", "content": str} の列)
 
         Yields:
             テキストチャンク
@@ -526,12 +551,16 @@ class LLMService:
 
         if provider == "openrouter":
             async for chunk in self._get_openrouter_client().generate_text_stream(
-                system_prompt, user_prompt, usage_callback=usage_callback
+                system_prompt,
+                user_prompt,
+                usage_callback=usage_callback,
+                history=history,
             ):
                 yield chunk
         elif provider == "novelai":
             nai_kwargs: dict[str, Any] = {
                 "model_override": novelai_model_override,
+                "history": history,
             }
             if max_tokens is not None:
                 nai_kwargs["max_tokens"] = max_tokens
@@ -543,7 +572,7 @@ class LLMService:
             # セルフホスト (LiteLLM Proxy)
             litellm = self._get_litellm_client()
             async for chunk in litellm.generate_feeling_stream(
-                system_prompt, user_prompt
+                system_prompt, user_prompt, history=history
             ):
                 yield chunk
 

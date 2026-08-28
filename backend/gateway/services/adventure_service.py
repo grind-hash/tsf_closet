@@ -50,6 +50,7 @@ from ..consts.adventure_romance import (
     ROMANCE_PLAYER_DEFAULT_CHARACTER_ID,
     ROMANCE_SLOTS_PER_DAY,
     ROMANCE_TALK_FALLBACK_DELTA,
+    ROMANCE_TALK_SCENE_CONTEXT_MAX,
 )
 from ..consts.adventure_setup import SCENARIO_CONSTRAINTS_MAX_ITEMS
 from ..consts.companion_avatar import (
@@ -120,6 +121,8 @@ from .adventure_romance import (
     romance_talk_system_prompt,
     strip_duplicate_action_choices,
     strip_romance_time_of_day,
+    talk_history_messages,
+    talk_relationship_context,
 )
 from .adventure_template_loader import SCENARIO_TEMPLATES, template_localized
 from .avatar_service import avatar_exists, avatar_file_url
@@ -935,6 +938,54 @@ class _TalkHeaderBuffer:
         _, _, rest = parse_talk_header(self._pending)
         self._pending = ""
         return [rest] if rest else []
+
+
+def _turn_affection(turn: Any) -> int | None:
+    """手番適用後の好感度。state_delta_json が無い旧データや欠落は None。"""
+    raw = getattr(turn, "state_delta_json", None)
+    delta = _json_load(raw, {}) if raw else {}
+    sim = delta.get("sim") if isinstance(delta, dict) else None
+    if not isinstance(sim, dict) or sim.get("affection") is None:
+        return None
+    try:
+        return int(sim.get("affection"))
+    except (TypeError, ValueError):
+        return None
+
+
+def _talk_recent_scenes(turns: list[Any]) -> list[dict[str, Any]]:
+    """トークの文脈へ渡す直近の場面。各手番後の好感度とその増減を添える。
+
+    state_delta_json は手番適用後の全 state のスナップショットなので、そこから
+    sim.affection を読み、直前の手番との差分を affection_change にする。渡す
+    範囲の一つ前の手番を増減の起点にし、比較対象が無い場合は None。
+    """
+    recent = turns[-ROMANCE_TALK_SCENE_CONTEXT_MAX:]
+    previous: int | None = None
+    if len(turns) > len(recent):
+        previous = _turn_affection(turns[-len(recent) - 1])
+    scenes: list[dict[str, Any]] = []
+    for turn in recent:
+        after = _turn_affection(turn)
+        change = (
+            after - previous if after is not None and previous is not None else None
+        )
+        day, slot = romance_day_slot(int(turn.turn_number))
+        scenes.append(
+            {
+                "turn": int(turn.turn_number),
+                "day": day,
+                "slot": slot,
+                "player_action": turn.user_input,
+                "input_kind": getattr(turn, "input_kind", None),
+                "narrative": turn.narrative,
+                "affection_after": after,
+                "affection_change": change,
+            }
+        )
+        if after is not None:
+            previous = after
+    return scenes
 
 
 def _companion_avatar_id(run: AdventureRun, state: dict[str, Any]) -> str | None:
@@ -3753,8 +3804,85 @@ The objective must name a concrete target and an observable end condition that c
 
     async def get_run(self, run_id: str) -> dict[str, Any]:
         run = await self.get_run_orm(run_id, with_turns=True)
+        await self._drop_missing_companion_avatar(run)
         turns = sorted(run.turns, key=lambda item: item.turn_number)
         return self._serialize_run(run, turns)
+
+    async def _drop_missing_companion_avatar(self, run: AdventureRun) -> None:
+        """登録が消えた 3D アバターの割り当てを run から外す(自己修復)。
+
+        アバター削除時は detach_companion_avatar で外すが、それ以前に削除された
+        run や手番中に削除された run には残り得る。残すと run を開くたびに
+        ファイル配信が 404 になり 3D 表示が失敗するため、開く時点で存在を
+        確かめて外す。
+        """
+        state = _json_load(run.state_json, {})
+        avatar_id = _companion_avatar_id(run, state)
+        if not avatar_id:
+            return
+        async with async_session_factory() as db:
+            if await avatar_exists(db, avatar_id):
+                return
+        logger.warning(
+            "Companion avatar %s assigned to run %s no longer exists; detaching",
+            avatar_id,
+            run.id,
+        )
+        state.pop("companion_avatar_id", None)
+        run.state_json = json.dumps(state, ensure_ascii=False)
+        async with self._persist_locks[run.id], async_session_factory() as db:
+            persisted = await db.get(AdventureRun, run.id)
+            if persisted is None:
+                return
+            persisted_state = _json_load(persisted.state_json, {})
+            if str(persisted_state.get("companion_avatar_id") or "") != avatar_id:
+                return
+            persisted_state.pop("companion_avatar_id", None)
+            persisted.state_json = json.dumps(persisted_state, ensure_ascii=False)
+            persisted.updated_at = datetime.now()
+            await db.commit()
+
+    async def detach_companion_avatar(self, avatar_id: str) -> int:
+        """削除したアバターの割り当てを全 run の state から外し、件数を返す。
+
+        残したままだと run を開くたびに削除済み ID のファイル配信が 404 になる。
+        state_json に ID を含む run だけを候補にし、手番中の書き込みと競合
+        しないよう run ごとの persist ロック下で最新 state を読み直して書き戻す。
+        """
+        value = str(avatar_id or "").strip()
+        if not value:
+            return 0
+        async with async_session_factory() as db:
+            run_ids = list(
+                (
+                    await db.execute(
+                        select(AdventureRun.id).where(
+                            AdventureRun.state_json.contains(value)
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+        detached = 0
+        for run_id in run_ids:
+            async with self._persist_locks[run_id], async_session_factory() as db:
+                persisted = await db.get(AdventureRun, run_id)
+                if persisted is None:
+                    continue
+                state = _json_load(persisted.state_json, {})
+                if str(state.get("companion_avatar_id") or "").strip() != value:
+                    continue
+                state.pop("companion_avatar_id", None)
+                persisted.state_json = json.dumps(state, ensure_ascii=False)
+                persisted.updated_at = datetime.now()
+                await db.commit()
+                detached += 1
+        if detached:
+            logger.info(
+                "Detached deleted avatar %s from %d adventure run(s)", value, detached
+            )
+        return detached
 
     async def regenerate_choices(self, run_id: str) -> dict[str, Any]:
         """現在場面の選択肢だけを再生成する。手番・物語・手掛かりは変更しない。"""
@@ -3917,39 +4045,32 @@ The objective must name a concrete target and an observable end condition that c
             partner_name, player_name = romance_script_names(sim, run.language)
             turns = sorted(run.turns, key=lambda item: item.turn_number)
             epilogue = bool(state.get("epilogue"))
-            day, slot = romance_day_slot(run.turn_count + 1)
             visual_state = state.get("visual_state", {})
-            user_prompt = json.dumps(
-                {
-                    "task": (
-                        "Reply as the partner in a free chat between scenes. "
-                        "Nothing in the story advances."
-                    ),
-                    "partner": {
-                        "name": partner_name,
-                        "profile": str(sim.get("partner_profile") or ""),
-                        "speech_style": str(sim.get("partner_speech_style") or ""),
-                        "appearance": str(sim.get("partner_appearance") or ""),
-                        "relationship_origin": str(
-                            sim.get("relationship_origin") or ""
-                        ),
-                    },
-                    "player_name": player_name,
-                    "sim": public_sim_view(sim, run.turn_count, epilogue=epilogue),
-                    "hidden_preferences": sim.get("hidden_preferences"),
-                    "current_scene": _sanitize_visual_state(visual_state),
-                    "reality_rules": list(state.get("reality_rules", [])),
-                    "day": day,
-                    "slot": slot,
-                    "recent_turns": [
-                        {"user_input": item.user_input, "narrative": item.narrative}
-                        for item in turns[-3:]
-                    ],
-                    "talk_history": recent_talk_entries(state, run.turn_count),
-                    "player_message": message,
+            # 人物設定・関係性・場面は system prompt の context として渡し、
+            # 会話そのものは過去ログを user/assistant メッセージ列、今回の
+            # 発言を最後の user メッセージにして「会話の続き」として答えさせる。
+            # (JSON の一項目に履歴を埋めるだけでは直前のやり取りを踏まえない)
+            context = {
+                "task": (
+                    "Reply as the partner in a free chat between scenes. "
+                    "Nothing in the story advances."
+                ),
+                "partner": {
+                    "name": partner_name,
+                    "profile": str(sim.get("partner_profile") or ""),
+                    "speech_style": str(sim.get("partner_speech_style") or ""),
+                    "appearance": str(sim.get("partner_appearance") or ""),
                 },
-                ensure_ascii=False,
-            )
+                "player_name": player_name,
+                "relationship": talk_relationship_context(
+                    sim, state, run.turn_count, epilogue=epilogue
+                ),
+                "hidden_preferences": sim.get("hidden_preferences"),
+                "current_scene": _sanitize_visual_state(visual_state),
+                "reality_rules": list(state.get("reality_rules", [])),
+                "recent_scenes": _talk_recent_scenes(turns),
+            }
+            history = talk_history_messages(state, run.turn_count)
             companion = bool(state.get("companion_mode"))
             yield {"event": "status", "data": {"phase": "talk"}}
             reply = ""
@@ -3963,11 +4084,13 @@ The objective must name a concrete target and an observable end condition that c
                     player_name=player_name,
                     speech_rule=_speech_rule_from_state(state),
                     companion=companion,
+                    context=context,
                 ),
-                user_prompt,
+                message,
                 provider_override=_text_provider(),
                 novelai_model_override=run.text_model,
                 usage_callback=_record_cost,
+                history=history,
             ):
                 if not chunk:
                     continue

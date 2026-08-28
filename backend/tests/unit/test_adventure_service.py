@@ -5741,9 +5741,11 @@ def test_build_turn_contexts_adds_recent_talk_and_script_names() -> None:
     )
 
     assert contexts.script_names == ("美咲", "ケン")
+    # 以前の手番のトークも after_turn 付きで渡し、攻略対象が忘れないようにする
     assert contexts.turn_context["recent_talk"] == [
-        {"role": "user", "text": "やあ"},
-        {"role": "partner", "text": "やっほー"},
+        {"role": "user", "text": "古い話", "after_turn": 1},
+        {"role": "user", "text": "やあ", "after_turn": 2},
+        {"role": "partner", "text": "やっほー", "after_turn": 2},
     ]
     assert "talk_log" not in contexts.turn_context["state"]
     assert "companion_mode" not in contexts.turn_context["state"]
@@ -5813,7 +5815,8 @@ async def test_stream_talk_appends_log_without_consuming_turn(monkeypatch) -> No
 
     async def fake_stream(system_prompt, user_prompt, **kwargs):
         captured["system"] = system_prompt
-        captured["user"] = json.loads(user_prompt)
+        captured["user"] = user_prompt
+        captured["history"] = kwargs.get("history")
         yield "美咲「"
         yield "やっほー、元気？」"
 
@@ -5848,9 +5851,126 @@ async def test_stream_talk_appends_log_without_consuming_turn(monkeypatch) -> No
     assert [item["role"] for item in saved["talk_log"]] == ["user", "partner"]
     assert persisted.turn_count == 3 and persisted.status == "active"
     assert "You are 美咲" in captured["system"]
-    assert captured["user"]["player_message"] == "やあ"
-    assert captured["user"]["talk_history"] == []
-    assert captured["user"]["recent_turns"][0]["narrative"] == "美咲が笑った。"
+    # 今回の発言は最後の user メッセージ、履歴はチャット形式で別渡し
+    assert captured["user"] == "やあ"
+    assert captured["history"] == []
+    context = json.loads(captured["system"].split("context:\n", 1)[1])
+    assert context["recent_scenes"][0]["narrative"] == "美咲が笑った。"
+    assert context["relationship"]["affection"] == 10
+    assert context["relationship"]["dating"] is False
+    assert "sim" not in context and "talk_history" not in context
+
+
+@pytest.mark.asyncio
+async def test_stream_talk_passes_chat_history_and_affection_results(
+    monkeypatch,
+) -> None:
+    service = AdventureService()
+    run = make_romance_run(turn_count=3)
+    run.id = "run-1"
+    run.status = "active"
+    run.language = "ja"
+    run.text_model = "glm-4-6"
+
+    def turn(number: int, affection: int | None, text: str) -> SimpleNamespace:
+        delta = {"sim": {"affection": affection}} if affection is not None else {}
+        return SimpleNamespace(
+            turn_number=number,
+            user_input=f"行動{number}",
+            input_kind="talk",
+            narrative=text,
+            state_delta_json=json.dumps(delta),
+        )
+
+    run.turns = [turn(3, 14, "三"), turn(1, 12, "一"), turn(2, 15, "二")]
+    state = json.loads(run.state_json)
+    state["talk_log"] = [
+        {"id": "a", "role": "user", "text": "おはよう", "after_turn": 1},
+        {"id": "b", "role": "partner", "text": "おはよ", "after_turn": 1},
+        {"id": "c", "role": "user", "text": "お酒は飲める？", "after_turn": 3},
+        {"id": "d", "role": "partner", "text": "飲んだことない", "after_turn": 3},
+    ]
+    run.state_json = json.dumps(state, ensure_ascii=False)
+    persisted = SimpleNamespace(
+        id="run-1", state_json=run.state_json, turn_count=3, status="active"
+    )
+    captured: dict = {}
+
+    async def fake_stream(system_prompt, user_prompt, **kwargs):
+        captured["system"] = system_prompt
+        captured["user"] = user_prompt
+        captured["history"] = kwargs.get("history")
+        yield "すっぱいんだ。"
+
+    monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.llm_service.generate_feeling_stream",
+        fake_stream,
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.async_session_factory",
+        _fake_database(persisted),
+    )
+
+    events = [
+        event
+        async for event in service.stream_talk(run_id="run-1", user_input="すっぱい")
+    ]
+    assert events[-1]["event"] == "complete"
+    # 以前の手番のトークも含め、主人公=user / 攻略対象=assistant の会話として渡す
+    assert captured["history"] == [
+        {"role": "user", "content": "おはよう"},
+        {"role": "assistant", "content": "おはよ"},
+        {"role": "user", "content": "お酒は飲める？"},
+        {"role": "assistant", "content": "飲んだことない"},
+    ]
+    assert captured["user"] == "すっぱい"
+    context = json.loads(captured["system"].split("context:\n", 1)[1])
+    # 直近の場面は手番順に並び、各手番後の好感度と増減を添える
+    scenes = context["recent_scenes"]
+    assert [item["turn"] for item in scenes] == [1, 2, 3]
+    assert [item["affection_after"] for item in scenes] == [12, 15, 14]
+    assert [item["affection_change"] for item in scenes] == [None, 3, -1]
+    assert scenes[0]["input_kind"] == "talk" and scenes[0]["narrative"] == "一"
+    assert (scenes[2]["day"], scenes[2]["slot"]) == (2, "day")
+    # 今回の会話は手番をまたいだログの末尾に追記される
+    saved = json.loads(persisted.state_json)
+    assert [item["text"] for item in saved["talk_log"]][-2:] == [
+        "すっぱい",
+        "すっぱいんだ。",
+    ]
+
+
+def test_talk_recent_scenes_bounds_and_uses_previous_turn_as_baseline() -> None:
+    from gateway.consts.adventure_romance import ROMANCE_TALK_SCENE_CONTEXT_MAX
+    from gateway.services.adventure_service import _talk_recent_scenes
+
+    def turn(number: int, affection: int | None) -> SimpleNamespace:
+        return SimpleNamespace(
+            turn_number=number,
+            user_input=f"行動{number}",
+            narrative=f"場面{number}",
+            state_delta_json=(
+                json.dumps({"sim": {"affection": affection}})
+                if affection is not None
+                else None
+            ),
+        )
+
+    total = ROMANCE_TALK_SCENE_CONTEXT_MAX + 2
+    turns = [turn(number, 10 + number) for number in range(1, total + 1)]
+    scenes = _talk_recent_scenes(turns)
+    assert len(scenes) == ROMANCE_TALK_SCENE_CONTEXT_MAX
+    assert scenes[0]["turn"] == 3
+    # 渡す範囲の一つ前(手番2)を起点にするため、先頭の増減も求まる
+    assert scenes[0]["affection_change"] == 1
+    assert all(item["affection_change"] == 1 for item in scenes)
+    # 旧データ(state_delta_json 無し)は None で埋め、input_kind 欠落にも耐える
+    legacy = _talk_recent_scenes([turn(1, None), turn(2, 20)])
+    assert legacy[0]["affection_after"] is None
+    assert legacy[0]["input_kind"] is None
+    assert legacy[1]["affection_change"] is None
+    assert _talk_recent_scenes([]) == []
 
 
 @pytest.mark.asyncio
@@ -6187,6 +6307,94 @@ async def test_update_run_settings_companion_avatar_round_trip(monkeypatch) -> N
     assert result["companion_avatar_id"] is None
     assert result["companion_avatar_url"] is None
     assert "companion_avatar_id" not in json.loads(persisted.state_json)
+
+
+@pytest.mark.asyncio
+async def test_get_run_detaches_missing_companion_avatar(monkeypatch) -> None:
+    service = AdventureService()
+    state = json.loads(make_romance_run().state_json)
+    state.update(
+        {
+            "choices": [],
+            "opening_narrative": "開始",
+            "companion_mode": True,
+            "companion_avatar_id": "gone",
+        }
+    )
+    run = _romance_settings_run(state)
+    persisted = SimpleNamespace(id="run-1", state_json=run.state_json, updated_at=None)
+    exists = AsyncMock(return_value=True)
+    monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.async_session_factory",
+        _fake_database(persisted),
+    )
+    monkeypatch.setattr("gateway.services.adventure_service.avatar_exists", exists)
+
+    # 登録が残っていれば据え置き
+    result = await service.get_run("run-1")
+    assert result["companion_avatar_id"] == "gone"
+    assert result["companion_avatar_url"] == "/avatars/gone/file"
+    assert json.loads(persisted.state_json)["companion_avatar_id"] == "gone"
+
+    # 登録が消えていれば state から外し、URL も返さない(404 配信を防ぐ)
+    exists.return_value = False
+    result = await service.get_run("run-1")
+    assert result["companion_avatar_id"] is None
+    assert result["companion_avatar_url"] is None
+    assert result["companion_mode"] is True
+    assert "companion_avatar_id" not in json.loads(persisted.state_json)
+    assert "companion_avatar_id" not in json.loads(run.state_json)
+
+
+@pytest.mark.asyncio
+async def test_detach_companion_avatar_clears_only_matching_runs(monkeypatch) -> None:
+    service = AdventureService()
+    run_a = SimpleNamespace(
+        id="run-a",
+        state_json=json.dumps({"companion_avatar_id": "av1", "sim": {}}),
+        updated_at=None,
+    )
+    run_b = SimpleNamespace(
+        id="run-b",
+        state_json=json.dumps({"companion_avatar_id": "av1-other"}),
+        updated_at=None,
+    )
+    rows = {"run-a": run_a, "run-b": run_b}
+    commits: list[str] = []
+
+    class FakeResult:
+        def scalars(self):
+            return self
+
+        def all(self):
+            # state_json の部分一致候補。実際の一致は state を読んで判定する
+            return ["run-a", "run-b", "run-missing"]
+
+    class FakeDatabase:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, _exc_type, _exc, _traceback):
+            return None
+
+        async def execute(self, _statement):
+            return FakeResult()
+
+        async def get(self, model, record_id):
+            return rows.get(record_id) if model is AdventureRun else None
+
+        async def commit(self):
+            commits.append("commit")
+
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.async_session_factory", FakeDatabase
+    )
+    assert await service.detach_companion_avatar("av1") == 1
+    assert "companion_avatar_id" not in json.loads(run_a.state_json)
+    assert json.loads(run_b.state_json)["companion_avatar_id"] == "av1-other"
+    assert commits == ["commit"]
+    assert await service.detach_companion_avatar("  ") == 0
 
 
 def _companion_talk_run() -> tuple[SimpleNamespace, SimpleNamespace]:

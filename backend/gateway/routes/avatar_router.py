@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from ..databases.base import async_session_factory
 from ..services import avatar_service
+from ..services.adventure_service import adventure_service
 from ..services.avatar_service import AVATAR_NAME_MAX_LEN, AvatarError
 from ..settings.config import settings
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/avatars", tags=["avatars"])
 
@@ -80,6 +85,17 @@ async def delete_avatar(avatar_id: str) -> None:
             await avatar_service.delete_avatar(db, avatar_id)
     except AvatarError as error:
         raise _http_error(error) from error
+    # このモデルを表示中の Adventure run から割り当てを外す。残すと run を
+    # 開くたびに削除済み ID のファイル配信が 404 になり、3D 表示が失敗する。
+    # 削除自体は完了しているため、解除に失敗しても応答は成功のまま記録に残す
+    try:
+        await adventure_service.detach_companion_avatar(avatar_id)
+    except Exception as error:  # noqa: BLE001
+        logger.warning(
+            "Failed to detach deleted avatar %s from adventure runs: %s",
+            avatar_id,
+            error,
+        )
     return None
 
 
