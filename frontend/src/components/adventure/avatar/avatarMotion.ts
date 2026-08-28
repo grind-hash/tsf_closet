@@ -1,9 +1,9 @@
 /**
  * VRM アバターの手続き的モーション(純粋関数)。
  *
- * three.js に依存せず、姿勢オフセット・口形状・まばたきの重みだけを計算する。
- * 実際のボーン回転や表情適用は描画側(three-vrm を使う層)が担当する。
- * 角度はラジアン、位置はメートル。
+ * three.js に依存せず、姿勢オフセット・待機姿勢の関節角・口形状・まばたきの
+ * 重みだけを計算する。実際のボーン回転や表情適用は描画側(three-vrm を使う層)が
+ * 担当する。角度はラジアン、位置はメートル。
  */
 
 import type { AvatarGestureKey } from "../../../constants/companionAvatar";
@@ -19,6 +19,8 @@ export interface PoseOffsets {
   spinePitch: number;
   /** 腰の上下オフセット(メートル)。正で上 */
   hipsY: number;
+  /** 両腕を体側から持ち上げる角度。正で腕が体から離れる(待機姿勢に加算) */
+  armLift: number;
 }
 
 export const POSE_KEYS: readonly (keyof PoseOffsets)[] = [
@@ -27,6 +29,7 @@ export const POSE_KEYS: readonly (keyof PoseOffsets)[] = [
   "headRoll",
   "spinePitch",
   "hipsY",
+  "armLift",
 ];
 
 export const ZERO_POSE: PoseOffsets = Object.freeze({
@@ -35,6 +38,7 @@ export const ZERO_POSE: PoseOffsets = Object.freeze({
   headRoll: 0,
   spinePitch: 0,
   hipsY: 0,
+  armLift: 0,
 });
 
 /** キーフレーム。t は 0..1 の正規化時刻、v は値 */
@@ -202,7 +206,10 @@ export function sampleGesture(
   return pose;
 }
 
-/** 呼吸(3.5 秒周期)と緩やかな揺れ(7 秒・11 秒周期)を合成した待機姿勢 */
+/**
+ * 呼吸(3.5 秒周期)と緩やかな揺れ(7 秒・9 秒・11 秒周期)を合成した待機姿勢。
+ * 腕は吸気で体からわずかに離れ、別周期の揺れも重ねて静止して見えないようにする
+ */
 export function idlePose(timeSec: number): PoseOffsets {
   const breath = Math.sin((TWO_PI * timeSec) / 3.5);
   return {
@@ -211,6 +218,7 @@ export function idlePose(timeSec: number): PoseOffsets {
     headRoll: 0.015 * Math.sin((TWO_PI * timeSec) / 11),
     spinePitch: 0.015 * breath,
     hipsY: 0.004 * breath,
+    armLift: 0.012 * breath + 0.006 * Math.sin((TWO_PI * timeSec) / 9),
   };
 }
 
@@ -221,7 +229,124 @@ export function addPose(a: PoseOffsets, b: PoseOffsets): PoseOffsets {
     headRoll: a.headRoll + b.headRoll,
     spinePitch: a.spinePitch + b.spinePitch,
     hipsY: a.hipsY + b.hipsY,
+    armLift: a.armLift + b.armLift,
   };
+}
+
+/* ------------------------------------------------------------------------ */
+/* 待機姿勢(腕・肘・指)                                                     */
+/* ------------------------------------------------------------------------ */
+
+export type Vec3 = readonly [number, number, number];
+
+/** 回転軸(単位ベクトル)と角度(ラジアン) */
+export interface AxisAngle {
+  axis: Vec3;
+  angle: number;
+}
+
+/**
+ * VRM の rest ポーズ(T ポーズ、手のひらは下向き)における「下」。
+ * three-vrm の normalized bone はどの関節でも rest の局所系がワールド系と一致する
+ * ため、この向きは腕・指どのボーンの局所系でも同じ意味を持つ
+ */
+export const DOWN: Vec3 = [0, -1, 0];
+
+export function cross(a: Vec3, b: Vec3): Vec3 {
+  return [
+    a[1] * b[2] - a[2] * b[1],
+    a[2] * b[0] - a[0] * b[2],
+    a[0] * b[1] - a[1] * b[0],
+  ];
+}
+
+/** 単位ベクトル化。長さがほぼ 0 なら null */
+export function normalize(v: Vec3): Vec3 | null {
+  const length = Math.hypot(v[0], v[1], v[2]);
+  if (!(length > 1e-6)) return null;
+  return [v[0] / length, v[1] / length, v[2] / length];
+}
+
+/**
+ * ボーンの向き from を toward の側へ angle だけ傾ける回転を返す。
+ * 軸は from × toward なので、モデルが +X / -X どちらに腕を伸ばしていても
+ * (VRM 1.0 は +Z 向き、0.x は -Z 向き)符号を意識せずに同じ意図の回転が得られる。
+ * from と toward が平行なら null
+ */
+export function tiltTowards(
+  from: Vec3,
+  toward: Vec3,
+  angle: number,
+): AxisAngle | null {
+  const axis = normalize(cross(from, toward));
+  if (!axis) return null;
+  return { axis, angle };
+}
+
+export type ArmSide = "left" | "right";
+
+export interface ArmRestAngles {
+  /** T ポーズから腕を体側へ下ろす角度。π/2 で真下 */
+  lower: number;
+  /** 下ろした腕を前方へ振る角度 */
+  forward: number;
+  /** 肘を前方へ曲げる角度 */
+  bend: number;
+}
+
+/**
+ * 待機姿勢の腕の角度。左右をわずかに変え、鏡写しの硬さを避ける。
+ * lower は肩幅の広い衣装でも体にめり込まず、かつ A ポーズに見えない範囲に置く
+ */
+export const ARM_REST: Record<ArmSide, ArmRestAngles> = {
+  left: { lower: 1.3, forward: 0.07, bend: 0.28 },
+  right: { lower: 1.3, forward: 0.09, bend: 0.34 },
+};
+
+export const FINGER_NAMES = [
+  "thumb",
+  "index",
+  "middle",
+  "ring",
+  "little",
+] as const;
+export type FingerName = (typeof FINGER_NAMES)[number];
+export type FingerSegment =
+  | "metacarpal"
+  | "proximal"
+  | "intermediate"
+  | "distal";
+
+/** 指ごとの関節列(根元から先端へ)。VRM 1.0 の命名で、0.x は three-vrm が読み替える */
+export const FINGER_SEGMENTS: Record<FingerName, readonly FingerSegment[]> = {
+  thumb: ["metacarpal", "proximal", "distal"],
+  index: ["proximal", "intermediate", "distal"],
+  middle: ["proximal", "intermediate", "distal"],
+  ring: ["proximal", "intermediate", "distal"],
+  little: ["proximal", "intermediate", "distal"],
+};
+
+/**
+ * 力を抜いた手の指の曲げ角(FINGER_SEGMENTS と同じ順)。
+ * 人差し指が最も浅く小指へ向かって深くなる。親指の付け根(中手骨)は動かさない
+ */
+export const FINGER_CURL: Record<FingerName, readonly number[]> = {
+  thumb: [0, 0.15, 0.2],
+  index: [0.3, 0.35, 0.2],
+  middle: [0.38, 0.42, 0.25],
+  ring: [0.45, 0.48, 0.28],
+  little: [0.5, 0.52, 0.3],
+};
+
+/** three-vrm の humanoid ボーン名(例: leftIndexProximal)を組み立てる */
+export function fingerBoneName(
+  side: ArmSide,
+  finger: FingerName,
+  segment: FingerSegment,
+): string {
+  const capitalize = (word: string): string =>
+    word.charAt(0).toUpperCase() + word.slice(1);
+  return `${side}${capitalize(finger)}${capitalize(segment)}`;
 }
 
 /** VRM の口形状プリセット(aa / ih / ou)の重み。各 0..1 */

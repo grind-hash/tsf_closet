@@ -1,14 +1,23 @@
+import { Quaternion, Vector3 } from "three";
 import { describe, expect, it } from "vitest";
 import {
   AVATAR_GESTURES,
   type AvatarGestureKey,
 } from "../../../constants/companionAvatar";
 import {
+  ARM_REST,
+  type ArmSide,
+  type AxisAngle,
   addPose,
   BLINK_CLOSE_SEC,
   BLINK_OPEN_SEC,
   BLINK_TOTAL_SEC,
   blinkWeight,
+  DOWN,
+  FINGER_CURL,
+  FINGER_NAMES,
+  FINGER_SEGMENTS,
+  fingerBoneName,
   GESTURE_CLIPS,
   gestureDuration,
   idlePose,
@@ -18,6 +27,8 @@ import {
   POSE_KEYS,
   type PoseOffsets,
   sampleGesture,
+  tiltTowards,
+  type Vec3,
   ZERO_POSE,
 } from "./avatarMotion";
 
@@ -90,14 +101,29 @@ describe("avatarMotion idle and helpers", () => {
       expect(Math.abs(pose.hipsY)).toBeLessThanOrEqual(0.004 + 1e-12);
       expect(Math.abs(pose.headYaw)).toBeLessThanOrEqual(0.03 + 1e-12);
       expect(Math.abs(pose.headRoll)).toBeLessThanOrEqual(0.015 + 1e-12);
+      expect(Math.abs(pose.armLift)).toBeLessThanOrEqual(0.018 + 1e-12);
     }
     expectZeroPose(idlePose(0));
   });
 
   it("adds poses channel-wise", () => {
     const sum = addPose(
-      { headPitch: 1, headYaw: 2, headRoll: 3, spinePitch: 4, hipsY: 5 },
-      { headPitch: 10, headYaw: 20, headRoll: 30, spinePitch: 40, hipsY: 50 },
+      {
+        headPitch: 1,
+        headYaw: 2,
+        headRoll: 3,
+        spinePitch: 4,
+        hipsY: 5,
+        armLift: 6,
+      },
+      {
+        headPitch: 10,
+        headYaw: 20,
+        headRoll: 30,
+        spinePitch: 40,
+        hipsY: 50,
+        armLift: 60,
+      },
     );
     expect(sum).toEqual({
       headPitch: 11,
@@ -105,6 +131,7 @@ describe("avatarMotion idle and helpers", () => {
       headRoll: 33,
       spinePitch: 44,
       hipsY: 55,
+      armLift: 66,
     });
   });
 
@@ -143,5 +170,119 @@ describe("avatarMotion idle and helpers", () => {
     expect(isBlinkDone(0)).toBe(false);
     expect(isBlinkDone(BLINK_CLOSE_SEC)).toBe(false);
     expect(isBlinkDone(BLINK_TOTAL_SEC)).toBe(true);
+  });
+});
+
+/* 描画側と同じ手順で回転を合成し、姿勢の向きを three.js で検証する */
+
+function quatOf(tilt: AxisAngle | null): Quaternion {
+  if (!tilt) throw new Error("tilt is null");
+  return new Quaternion().setFromAxisAngle(
+    new Vector3(...tilt.axis),
+    tilt.angle,
+  );
+}
+
+function rotate(v: Vec3, q: Quaternion): Vector3 {
+  return new Vector3(...v).applyQuaternion(q);
+}
+
+/**
+ * 想定する rest 姿勢の組み合わせ。VRM 1.0 は +Z 向き(左腕 +X)、0.x は -Z 向き
+ * (左腕 -X)。右腕は常に左腕の逆方向
+ */
+const RIGS: Array<{ label: string; facing: 1 | -1; leftArmX: 1 | -1 }> = [
+  { label: "vrm1", facing: 1, leftArmX: 1 },
+  { label: "vrm0", facing: -1, leftArmX: -1 },
+];
+
+describe("avatarMotion rest pose geometry", () => {
+  it("tilts a direction toward the target and rejects parallel inputs", () => {
+    const from: Vec3 = [1, 0, 0];
+    const toward: Vec3 = [0, -1, 0];
+    const tilt = tiltTowards(from, toward, 0.5);
+    expect(tilt).not.toBeNull();
+    const axis = new Vector3(...(tilt as AxisAngle).axis);
+    expect(axis.length()).toBeCloseTo(1, 9);
+    const before = new Vector3(...from).dot(new Vector3(...toward));
+    const after = rotate(from, quatOf(tilt)).dot(new Vector3(...toward));
+    expect(after).toBeGreaterThan(before);
+    expect(tiltTowards(from, [2, 0, 0], 0.5)).toBeNull();
+    expect(tiltTowards(from, [-1, 0, 0], 0.5)).toBeNull();
+    expect(tiltTowards([0, 0, 0], toward, 0.5)).toBeNull();
+  });
+
+  it("keeps the rest angles within a natural standing range", () => {
+    for (const side of ["left", "right"] as const) {
+      const angles = ARM_REST[side];
+      // 真下(π/2)より手前で止め、A ポーズ(0.9 以下)にも万歳にもならない
+      expect(angles.lower).toBeGreaterThan(1.1);
+      expect(angles.lower).toBeLessThan(Math.PI / 2);
+      expect(angles.forward).toBeGreaterThan(0);
+      expect(angles.forward).toBeLessThan(0.3);
+      expect(angles.bend).toBeGreaterThan(0);
+      expect(angles.bend).toBeLessThan(0.7);
+    }
+    expect(ARM_REST.left).not.toEqual(ARM_REST.right);
+  });
+
+  it.each(RIGS)("hangs both arms down, slightly forward, for $label", ({
+    facing,
+    leftArmX,
+  }) => {
+    const forward: Vec3 = [0, 0, facing];
+    const sides: Array<[ArmSide, number]> = [
+      ["left", leftArmX],
+      ["right", -leftArmX],
+    ];
+    for (const [side, lateral] of sides) {
+      const armDir: Vec3 = [lateral, 0, 0];
+      const angles = ARM_REST[side];
+      const upper = quatOf(tiltTowards(DOWN, forward, angles.forward)).multiply(
+        quatOf(tiltTowards(armDir, DOWN, angles.lower)),
+      );
+      const upperDir = rotate(armDir, upper);
+      // 腕は下を向き、体の外側にわずかに開き、少し前へ出る
+      expect(upperDir.y).toBeLessThan(-0.9);
+      expect(upperDir.x * lateral).toBeGreaterThan(0);
+      expect(upperDir.z * facing).toBeGreaterThan(0);
+      // 肘は前へ曲がる: 前腕は上腕よりさらに前を向く
+      const elbow = quatOf(tiltTowards(armDir, forward, angles.bend));
+      const forearmDir = rotate(armDir, upper.clone().multiply(elbow));
+      expect(forearmDir.z * facing).toBeGreaterThan(upperDir.z * facing);
+      expect(forearmDir.y).toBeLessThan(-0.8);
+    }
+  });
+
+  it.each(RIGS)("curls fingers toward the palm for $label", ({ leftArmX }) => {
+    for (const lateral of [leftArmX, -leftArmX]) {
+      const fingerDir: Vec3 = [lateral, 0, 0];
+      for (const finger of FINGER_NAMES) {
+        const curls = FINGER_CURL[finger];
+        expect(curls).toHaveLength(FINGER_SEGMENTS[finger].length);
+        let total = new Quaternion();
+        for (const curl of curls) {
+          expect(curl).toBeGreaterThanOrEqual(0);
+          expect(curl).toBeLessThan(0.8);
+          total = total.multiply(quatOf(tiltTowards(fingerDir, DOWN, curl)));
+        }
+        const tip = rotate(fingerDir, total);
+        // 手のひら(rest では下向き)側へ曲がり、反り返らない
+        expect(tip.y).toBeLessThan(-0.3);
+        expect(tip.x * lateral).toBeGreaterThan(0);
+      }
+    }
+    // 人差し指より小指のほうが深く握る
+    expect(FINGER_CURL.little[0]).toBeGreaterThan(FINGER_CURL.index[0]);
+  });
+
+  it("builds three-vrm bone names for fingers", () => {
+    expect(fingerBoneName("left", "thumb", "metacarpal")).toBe(
+      "leftThumbMetacarpal",
+    );
+    expect(fingerBoneName("right", "index", "intermediate")).toBe(
+      "rightIndexIntermediate",
+    );
+    expect(fingerBoneName("left", "little", "distal")).toBe("leftLittleDistal");
   });
 });

@@ -3,10 +3,17 @@
  *
  * three.js + @pixiv/three-vrm で VRM を読み込み、対面会話モードのステージ上で
  * 呼吸・まばたき・視線・口パク・表情・手続き的な身振りを毎フレーム合成する。
- * 全身モーション素材は使わず、頭・背骨・腰の回転と位置だけを動かす。
+ * 全身モーション素材は使わず、読込時に腕・肘・指を力を抜いた待機姿勢へ置き、
+ * 以降は頭・背骨・腰の回転と位置、腕の開きだけを動かす。
  */
 
-import { type VRM, VRMLoaderPlugin, VRMUtils } from "@pixiv/three-vrm";
+import {
+  type VRM,
+  type VRMHumanBoneName,
+  type VRMHumanoid,
+  VRMLoaderPlugin,
+  VRMUtils,
+} from "@pixiv/three-vrm";
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import {
@@ -17,16 +24,25 @@ import {
 } from "../../../constants/companionAvatar";
 import { smoothLevel } from "../../../utils/voiceLevelMeter";
 import {
+  ARM_REST,
+  type ArmSide,
   addPose,
   BLINK_CLOSE_SEC,
   BLINK_OPEN_SEC,
   blinkWeight,
+  DOWN,
+  FINGER_CURL,
+  FINGER_NAMES,
+  FINGER_SEGMENTS,
+  fingerBoneName,
   GESTURE_CLIPS,
   gestureDuration,
   idlePose,
   mouthWeightsFromLevel,
   nextBlinkDelay,
   sampleGesture,
+  tiltTowards,
+  type Vec3,
   ZERO_POSE,
 } from "./avatarMotion";
 
@@ -65,20 +81,134 @@ const MAX_PIXEL_RATIO = 1.5;
 const CAMERA_FOV_DEG = 18;
 const EXPRESSION_FADE_TAU = 0.12;
 const EXPRESSION_MAX_WEIGHT = 0.9;
-/**
- * 腕を下ろす角度(rad)。VRM の rest は T/A ポーズなので初期姿勢で下げる。
- * normalized bone では左腕(+X 方向)を Z 軸の正回転で下げる(負だと万歳になる)
- */
-const ARM_LOWER_ANGLE = 1.15;
-const LOWER_ARM_BEND = 0.2;
 /** 上半身の見せ方: 外接ボックスの上端からモデル全高のこの割合までを収める */
 const FRAME_VISIBLE_RATIO = 0.62;
 const FRAME_HEADROOM_RATIO = 0.06;
+
+/** 片腕の待機姿勢。上腕は毎フレーム armLift を加えて組み直す */
+interface ArmRig {
+  upperArm: THREE.Object3D;
+  /** 上腕を体側へ下ろす回転軸(rest 局所系) */
+  lowerAxis: THREE.Vector3;
+  /** T ポーズから下ろす角度 */
+  lowerAngle: number;
+  /** 下ろした後に前方へ振る回転 */
+  forwardQuat: THREE.Quaternion;
+}
 
 interface RestPose {
   head: THREE.Euler;
   spine: THREE.Euler;
   hipsY: number;
+  arms: ArmRig[];
+}
+
+const ARM_SIDES: readonly ArmSide[] = ["left", "right"];
+
+function toVec3(v: THREE.Vector3): Vec3 {
+  return [v.x, v.y, v.z];
+}
+
+function axisOf(axis: Vec3): THREE.Vector3 {
+  return new THREE.Vector3(axis[0], axis[1], axis[2]);
+}
+
+/**
+ * 子ボーンの rest 位置から親ボーンの向きを求める。
+ * normalized bone は rest の局所系がワールド系と一致するため、子の position が
+ * そのまま親ボーンの伸びる方向になる
+ */
+function boneDirection(child: THREE.Object3D | null): Vec3 | null {
+  if (!child) return null;
+  const length = child.position.length();
+  if (!(length > 1e-6)) return null;
+  return toVec3(child.position.clone().divideScalar(length));
+}
+
+/**
+ * 指を手のひら側へ軽く曲げる。指の向きは根元 2 関節の位置関係から取り、
+ * 同じ指の各関節に共通の軸を使う(rest では指は一直線なので十分)
+ */
+function applyFingerCurl(humanoid: VRMHumanoid, side: ArmSide): void {
+  for (const finger of FINGER_NAMES) {
+    const segments = FINGER_SEGMENTS[finger];
+    const curls = FINGER_CURL[finger];
+    const nodes = segments.map((segment) =>
+      humanoid.getNormalizedBoneNode(
+        fingerBoneName(side, finger, segment) as VRMHumanBoneName,
+      ),
+    );
+    const direction = boneDirection(nodes[1] ?? null);
+    if (!direction || !nodes[0]) continue;
+    const tilt = tiltTowards(direction, DOWN, 1);
+    if (!tilt) continue;
+    const axis = axisOf(tilt.axis);
+    nodes.forEach((node, index) => {
+      const angle = curls[index] ?? 0;
+      if (node && angle !== 0) node.quaternion.setFromAxisAngle(axis, angle);
+    });
+  }
+}
+
+/**
+ * 腕を体側へ下ろし、肘を前へ曲げ、指を軽く握った待機姿勢にする。
+ * 回転軸は実際のボーンの向きから求めるので、腕が +X に伸びる VRM 1.0 でも
+ * -X に伸びる 0.x でも同じ見た目になる。前方は左腕の向きから判定する
+ * (Y 上・右手系では 左 = 上 × 前 なので、左腕の X の符号がそのまま前の Z の符号)
+ */
+function applyArmRestPose(
+  humanoid: VRMHumanoid,
+  specVersion: "0" | "1",
+): ArmRig[] {
+  const leftArmDir = boneDirection(
+    humanoid.getNormalizedBoneNode("leftLowerArm"),
+  );
+  const facing =
+    leftArmDir && Math.abs(leftArmDir[0]) > 1e-3
+      ? Math.sign(leftArmDir[0])
+      : specVersion === "0"
+        ? -1
+        : 1;
+  const forward: Vec3 = [0, 0, facing];
+  const rigs: ArmRig[] = [];
+  for (const side of ARM_SIDES) {
+    const upperArm = humanoid.getNormalizedBoneNode(`${side}UpperArm`);
+    const lowerArm = humanoid.getNormalizedBoneNode(`${side}LowerArm`);
+    const hand = humanoid.getNormalizedBoneNode(`${side}Hand`);
+    const armDir = boneDirection(lowerArm);
+    if (!upperArm || !lowerArm || !armDir) continue;
+    const angles = ARM_REST[side];
+    const lowerTilt = tiltTowards(armDir, DOWN, angles.lower);
+    const forwardTilt = tiltTowards(DOWN, forward, angles.forward);
+    if (!lowerTilt || !forwardTilt) continue;
+    const rig: ArmRig = {
+      upperArm,
+      lowerAxis: axisOf(lowerTilt.axis),
+      lowerAngle: lowerTilt.angle,
+      forwardQuat: new THREE.Quaternion().setFromAxisAngle(
+        axisOf(forwardTilt.axis),
+        forwardTilt.angle,
+      ),
+    };
+    applyArmLift(rig, 0);
+    const bend = tiltTowards(
+      boneDirection(hand) ?? armDir,
+      forward,
+      angles.bend,
+    );
+    if (bend)
+      lowerArm.quaternion.setFromAxisAngle(axisOf(bend.axis), bend.angle);
+    applyFingerCurl(humanoid, side);
+    rigs.push(rig);
+  }
+  return rigs;
+}
+
+/** 上腕の回転を「下ろす(lift ぶん戻す)→ 前へ振る」の順で組み直す */
+function applyArmLift(rig: ArmRig, lift: number): void {
+  rig.upperArm.quaternion
+    .setFromAxisAngle(rig.lowerAxis, rig.lowerAngle - lift)
+    .premultiply(rig.forwardQuat);
 }
 
 interface ActiveGesture {
@@ -169,16 +299,9 @@ export function createVrmAvatarEngine(
     frameCamera();
   }
 
-  function applyRestPose(model: VRM): RestPose {
+  function applyRestPose(model: VRM, specVersion: "0" | "1"): RestPose {
     const humanoid = model.humanoid;
-    const leftUpperArm = humanoid.getNormalizedBoneNode("leftUpperArm");
-    const rightUpperArm = humanoid.getNormalizedBoneNode("rightUpperArm");
-    const leftLowerArm = humanoid.getNormalizedBoneNode("leftLowerArm");
-    const rightLowerArm = humanoid.getNormalizedBoneNode("rightLowerArm");
-    if (leftUpperArm) leftUpperArm.rotation.z = ARM_LOWER_ANGLE;
-    if (rightUpperArm) rightUpperArm.rotation.z = -ARM_LOWER_ANGLE;
-    if (leftLowerArm) leftLowerArm.rotation.z = LOWER_ARM_BEND;
-    if (rightLowerArm) rightLowerArm.rotation.z = -LOWER_ARM_BEND;
+    const arms = applyArmRestPose(humanoid, specVersion);
     const head = humanoid.getNormalizedBoneNode("head");
     const spine = humanoid.getNormalizedBoneNode("spine");
     const hips = humanoid.getNormalizedBoneNode("hips");
@@ -186,6 +309,7 @@ export function createVrmAvatarEngine(
       head: head ? head.rotation.clone() : new THREE.Euler(),
       spine: spine ? spine.rotation.clone() : new THREE.Euler(),
       hipsY: hips ? hips.position.y : 0,
+      arms,
     };
   }
 
@@ -227,7 +351,7 @@ export function createVrmAvatarEngine(
     if (loaded.lookAt) loaded.lookAt.target = camera;
     scene.add(loaded.scene);
     vrm = loaded;
-    rest = applyRestPose(loaded);
+    rest = applyRestPose(loaded, specVersion);
     loaded.update(0);
     measureModel(loaded);
 
@@ -348,6 +472,7 @@ export function createVrmAvatarEngine(
     }
     if (spine) spine.rotation.x = restPose.spine.x + pose.spinePitch;
     if (hips) hips.position.y = restPose.hipsY + pose.hipsY;
+    for (const arm of restPose.arms) applyArmLift(arm, pose.armLift);
   }
 
   function frame(): void {

@@ -120,8 +120,8 @@ components/
     AdventureAttributeModal.tsx   romance の属性付与（現実改変プレフィックス組み立て）
     AdventureBgmControl.tsx       サウンドボタン(♪)+ポップオーバー。BGM(mute/volume)とセリフ読み上げ(ON/OFF・音量・状態・停止。TTS無効時は disabled+案内)を並べる。再生は useAdventureBgm / useAdventureVoice
     avatar/CompanionAvatarStage.tsx  対面会話モードの 3D モデル(VRM)ステージ。攻略対象 <img> の代わりに `.adventure-stage__frame` 内へ置く(default export、`React.lazy` で three.js を別チャンクに)。canvas はエンジンごとに動的生成(開発モードの二重 effect で Context Lost を拾わないため)
-    avatar/vrmAvatarEngine.ts        React 非依存の描画エンジン(three + @pixiv/three-vrm)。読込・腕下ろし・外接ボックス基準の上半身フレーミング・呼吸/揺れ・まばたき・視線・音量口パク・表情クロスフェード・手続き的ジェスチャー・dispose
-    avatar/avatarMotion.ts           three 非依存の純関数(ジェスチャーのキーフレーム表、idlePose、mouthWeightsFromLevel、blink)。vitest 対象
+    avatar/vrmAvatarEngine.ts        React 非依存の描画エンジン(three + @pixiv/three-vrm)。読込・待機姿勢(ボーンの実方向から回転軸を求めて腕下ろし・肘曲げ・指の握り。VRM 0.x/1.0 の向き差を吸収)・外接ボックス基準の上半身フレーミング・呼吸/揺れ・まばたき・視線・音量口パク・表情クロスフェード・手続き的ジェスチャー・dispose
+    avatar/avatarMotion.ts           three 非依存の純関数(ジェスチャーのキーフレーム表、idlePose、待機姿勢の関節角 ARM_REST/FINGER_CURL と tiltTowards、mouthWeightsFromLevel、blink)。vitest 対象
 
   bgm/
     BgmTestScreen.tsx         BGMカタログ全曲の一覧と試聴(単発再生、fade/loopなし)
