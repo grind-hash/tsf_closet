@@ -79,7 +79,8 @@ export default function PromptExpanderEntryCard({
     entry.transparent_background,
     PROMPT_EXPANDER_ALPHA_OPTIONS,
   );
-  // キャッシュから退避されて revoke された blob URL は原本へ戻す（URL 単位で覚える）
+  // 表示中の blob URL は useTransparentImage が保持するため通常は失効しないが、
+  // 読み込みに失敗した URL は原本へ戻す（URL 単位で覚える）
   const [brokenUrl, setBrokenUrl] = useState<string | null>(null);
   const cutoutUrl =
     entry.transparent_background &&

@@ -27,7 +27,7 @@ function GridImage({ entry }: { entry: PromptExpanderEntry }) {
     entry.transparent_background,
     PROMPT_EXPANDER_ALPHA_OPTIONS,
   );
-  // 退避で revoke された blob URL は原本へ戻す（URL 単位で覚える）
+  // 読み込みに失敗した blob URL は原本へ戻す（表示中は保持されるので通常は起きない）
   const [brokenUrl, setBrokenUrl] = useState<string | null>(null);
   const src = url && url !== brokenUrl ? url : originalUrl;
   return (

@@ -316,20 +316,28 @@ async function process(
   return URL.createObjectURL(blob);
 }
 
-const cache = new Map<string, Promise<string>>();
-// Evicted entries revoke their object URL, so the limit must cover every image
-// that can be on screen at once (the Prompt Expander entry list shows dozens).
-const CACHE_LIMIT = 48;
+export interface TransparentImageHandle {
+  /** Resolves to the transparent object URL, or to `src` itself when the image already has alpha. */
+  url: Promise<string>;
+  /** Drops this consumer's hold. Calling it more than once is a no-op. */
+  release: () => void;
+}
 
-/**
- * Returns an object URL of `src` with its outer background made transparent.
- * Results are memoized per source URL and option set.
- */
-export function removeImageBackground(
+interface CacheEntry {
+  url: Promise<string>;
+  /** Consumers currently displaying the URL. Held entries are never evicted. */
+  refs: number;
+}
+
+type BackgroundProcessor = (
   src: string,
-  options: RemoveBackgroundOptions = {},
-): Promise<string> {
-  const resolved: Required<RemoveBackgroundOptions> = {
+  options: Required<RemoveBackgroundOptions>,
+) => Promise<string>;
+
+function resolveOptions(
+  options: RemoveBackgroundOptions,
+): Required<RemoveBackgroundOptions> {
+  return {
     targetColor:
       options.targetColor === undefined
         ? DEFAULT_OPTIONS.targetColor
@@ -338,32 +346,127 @@ export function removeImageBackground(
     featherRadius: options.featherRadius ?? DEFAULT_OPTIONS.featherRadius,
     timeout: options.timeout ?? DEFAULT_OPTIONS.timeout,
   };
-  const key = [
+}
+
+function cacheKey(
+  src: string,
+  options: Required<RemoveBackgroundOptions>,
+): string {
+  return [
     src,
-    resolved.threshold,
-    resolved.featherRadius,
-    resolved.targetColor
-      ? `${resolved.targetColor.r},${resolved.targetColor.g},${resolved.targetColor.b}`
+    options.threshold,
+    options.featherRadius,
+    options.targetColor
+      ? `${options.targetColor.r},${options.targetColor.g},${options.targetColor.b}`
       : "auto",
   ].join("|");
+}
 
-  const cached = cache.get(key);
-  if (cached) return cached;
+function revokeIfObjectUrl(url: string): void {
+  if (url.startsWith("blob:")) URL.revokeObjectURL(url);
+}
 
-  const pending = process(src, resolved).catch((error) => {
-    cache.delete(key);
-    throw error;
-  });
-  cache.set(key, pending);
+/**
+ * Memoizes processed URLs per source + option set.
+ *
+ * Evicting an entry revokes its object URL. The browser re-fetches that URL
+ * when the user picks "Save image as..." or follows an <a download> link, and
+ * a revoked blob URL fails there as a network error even though the <img>
+ * keeps showing the decoded bitmap. Entries are therefore only evicted while
+ * no consumer holds them; the cache may temporarily exceed `limit` when
+ * everything in it is on screen.
+ */
+export function createTransparentImageCache(
+  processor: BackgroundProcessor,
+  limit: number,
+) {
+  const entries = new Map<string, CacheEntry>();
 
-  if (cache.size > CACHE_LIMIT) {
-    const oldestKey = cache.keys().next().value;
-    if (oldestKey !== undefined) {
-      const oldest = cache.get(oldestKey);
-      cache.delete(oldestKey);
-      void oldest?.then((url) => URL.revokeObjectURL(url)).catch(() => {});
+  /** Drops unheld entries (oldest first) until the cache fits, keeping the newcomer. */
+  function trim(newestKey: string): void {
+    for (const [key, entry] of entries) {
+      if (entries.size <= limit) return;
+      if (entry.refs > 0 || key === newestKey) continue;
+      entries.delete(key);
+      void entry.url.then(revokeIfObjectUrl).catch(() => {});
     }
   }
 
-  return pending;
+  function lookup(src: string, options: RemoveBackgroundOptions): CacheEntry {
+    const resolved = resolveOptions(options);
+    const key = cacheKey(src, resolved);
+    const existing = entries.get(key);
+    if (existing) return existing;
+
+    const entry: CacheEntry = {
+      refs: 0,
+      url: processor(src, resolved).catch((error) => {
+        // Failed results are not memoized so the next request retries.
+        if (entries.get(key) === entry) entries.delete(key);
+        throw error;
+      }),
+    };
+    entries.set(key, entry);
+    trim(key);
+    return entry;
+  }
+
+  return {
+    /** Returns the processed URL and keeps it alive until `release` is called. */
+    retain(
+      src: string,
+      options: RemoveBackgroundOptions = {},
+    ): TransparentImageHandle {
+      const entry = lookup(src, options);
+      entry.refs += 1;
+      let released = false;
+      return {
+        url: entry.url,
+        release: () => {
+          if (released) return;
+          released = true;
+          entry.refs -= 1;
+        },
+      };
+    },
+    /** Returns the processed URL without holding it; a later eviction may revoke it. */
+    resolve(
+      src: string,
+      options: RemoveBackgroundOptions = {},
+    ): Promise<string> {
+      return lookup(src, options).url;
+    },
+    get size(): number {
+      return entries.size;
+    },
+  };
+}
+
+// Entries still on screen are held by useTransparentImage and survive
+// eviction, so this only bounds the number of off-screen results kept around.
+const CACHE_LIMIT = 48;
+
+const defaultCache = createTransparentImageCache(process, CACHE_LIMIT);
+
+/**
+ * Returns an object URL of `src` with its outer background made transparent
+ * and holds it for the caller. Release the handle once the URL leaves the
+ * screen so the cache can reclaim it.
+ */
+export function retainTransparentImage(
+  src: string,
+  options: RemoveBackgroundOptions = {},
+): TransparentImageHandle {
+  return defaultCache.retain(src, options);
+}
+
+/**
+ * Returns an object URL of `src` with its outer background made transparent.
+ * The result is not held; prefer `retainTransparentImage` when it is displayed.
+ */
+export function removeImageBackground(
+  src: string,
+  options: RemoveBackgroundOptions = {},
+): Promise<string> {
+  return defaultCache.resolve(src, options);
 }
