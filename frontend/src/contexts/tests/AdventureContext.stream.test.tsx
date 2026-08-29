@@ -78,6 +78,7 @@ function StreamProbe() {
     phase,
     phaseStep,
     streamingNarrative,
+    narrativeSettled,
   } = useAdventure();
   return (
     <>
@@ -100,6 +101,9 @@ function StreamProbe() {
           : "none"}
       </div>
       <div data-testid="narrative">{streamingNarrative}</div>
+      <div data-testid="narrative-settled">
+        {narrativeSettled ? "yes" : "no"}
+      </div>
       <button type="button" onClick={() => void loadRun("run-1")}>
         load
       </button>
@@ -176,6 +180,50 @@ describe("AdventureContext turn stream", () => {
     );
 
     await finishTurnStream();
+  });
+
+  it("marks the narrative settled at narrative_done until the stream ends", async () => {
+    await startTurnStream();
+    const settled = () => screen.getByTestId("narrative-settled").textContent;
+    expect(settled()).toBe("no");
+
+    act(() => {
+      streamControl.onEvent?.({
+        type: "narrative_chunk",
+        data: { chunk: "扉が開いた。" },
+      });
+    });
+    expect(settled()).toBe("no");
+
+    // 本文の確定と同じレンダーで settled になる(先読み読み上げが全文を読めるように)
+    act(() => {
+      streamControl.onEvent?.({
+        type: "narrative_done",
+        data: { narrative: "扉が開いた。" },
+      });
+    });
+    expect(settled()).toBe("yes");
+    expect(screen.getByTestId("narrative").textContent).toBe("扉が開いた。");
+
+    // turn 到着後も保持する(到着時の読み上げが先読み済みを判定できるように)
+    act(() => {
+      streamControl.onEvent?.({
+        type: "turn",
+        data: {
+          id: "turn-3",
+          turn_number: 3,
+          user_input: "観察する",
+          input_kind: "free_text",
+          narrative: "扉が開いた。",
+          choices: [],
+        },
+      });
+    });
+    expect(settled()).toBe("yes");
+    expect(screen.getByTestId("turn-count").textContent).toBe("3");
+
+    await finishTurnStream();
+    expect(settled()).toBe("no");
   });
 
   it("tracks image generation sub-steps from status events", async () => {

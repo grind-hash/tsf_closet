@@ -1848,6 +1848,14 @@ interface AdventureStageFrame {
 }
 
 /**
+ * 手番のセリフ読み上げの識別キー。turn id は本文確定(narrative_done)時点で
+ * 未確定のため手番番号で識別し、先読みと到着時の読み上げで同じキーになる
+ */
+function turnVoiceKey(runId: string, turnNumber: number): string {
+  return `turn:${runId}:${turnNumber}`;
+}
+
+/**
  * フレームが描いている日付と時間帯。サーバの scene_day/scene_slot が唯一の情報源。
  * sim.day/slot は「次に行動する枠」で常に半日先を指すため使わない。
  */
@@ -1959,6 +1967,7 @@ function AdventurePlay({ runId }: { runId: string }) {
     phaseStep,
     streamingNarrative,
     pendingUserInput,
+    narrativeSettled,
     talking,
     talkDraft,
     pendingTalkInput,
@@ -2402,6 +2411,12 @@ function AdventurePlay({ runId }: { runId: string }) {
     setActionMode("act");
   }, [activeRun?.id]);
 
+  // 読み上げ(0)で先読みした手番の控え。turn 到着時の読み上げ(1)が同じ手番を
+  // 読み直さないための識別に使う(turn id は先読み時点で未確定なので手番番号)
+  const earlySpokenRef = useRef<{ runId: string; turnNumber: number } | null>(
+    null,
+  );
+
   // 読み上げ(1): 新しい手番が届いたら攻略対象のセリフだけを読む。
   // 初回ロード・run 切替では読まない(その時点の最新手番を控えるだけ)
   const spokenTurnRef = useRef<{ runId: string; turnId: string | null } | null>(
@@ -2415,9 +2430,19 @@ function AdventurePlay({ runId }: { runId: string }) {
     if (!previous || previous.runId !== activeRun.id) return;
     if (!latest || previous.turnId === latest.id) return;
     if (activeRun.preset !== "romance" || !voiceCanSpeak) return;
+    const early = earlySpokenRef.current;
+    if (
+      early &&
+      early.runId === activeRun.id &&
+      early.turnNumber === latest.turn_number
+    ) {
+      return;
+    }
     const name = activeRun.sim?.partner_name?.trim() ?? "";
     const text = joinForSpeech(partnerLines(latest.narrative, name));
-    if (text) void voiceSpeak(text, `turn:${latest.id}`);
+    if (text) {
+      void voiceSpeak(text, turnVoiceKey(activeRun.id, latest.turn_number));
+    }
   }, [activeRun, voiceCanSpeak, voiceSpeak]);
 
   // 読み上げ(2): トークの返答が確定したら、その返答を読む
@@ -2664,6 +2689,11 @@ function AdventurePlay({ runId }: { runId: string }) {
     companionActive &&
     Boolean(activeRun?.companion_avatar_url) &&
     !companionAvatarFailed;
+  // 3D モデル表示中はステージを覆わない(モデルが暗く隠れるため)。進捗は本文の
+  // カーソルと行動パネルの進捗行で示し、読み上げ可能なら本文の確定
+  // (narrative_done)で判定を待たずに喋り始める
+  const quietStage = avatarActive;
+  const earlyVoice = quietStage && voiceCanSpeak;
   const progressSegments = useMemo<TimedProgressSegment[] | null>(() => {
     if (!streaming || phase === null || phase === "narrative") return null;
     if (pendingUserInput !== null) {
@@ -2728,6 +2758,39 @@ function AdventurePlay({ runId }: { runId: string }) {
   }, [progressSegments, pendingUserInput, phase, phaseStep, companionActive]);
   const stageProgress = useTimedProgress(progressSegments, progressActiveKey);
 
+  // 読み上げ(0): 3D モデル表示中は本文の確定で先読みする。判定と保存を待たずに
+  // 喋り始めるため、turn 到着時の読み上げ(1)は控えを見て同じ手番を読まない。
+  // 控えはストリーム終了(narrativeSettled=false)で必ず消す(巻き戻し後に同じ
+  // 番号の手番を作り直しても読めるようにする)
+  useEffect(() => {
+    if (!narrativeSettled) {
+      earlySpokenRef.current = null;
+      return;
+    }
+    if (!activeRun || !earlyVoice || pendingUserInput === null) return;
+    const turnNumber = activeRun.turn_count + 1;
+    const spoken = earlySpokenRef.current;
+    if (
+      spoken &&
+      spoken.runId === activeRun.id &&
+      spoken.turnNumber === turnNumber
+    ) {
+      return;
+    }
+    const name = activeRun.sim?.partner_name?.trim() ?? "";
+    const text = joinForSpeech(partnerLines(streamingNarrative, name));
+    if (!text) return;
+    earlySpokenRef.current = { runId: activeRun.id, turnNumber };
+    void voiceSpeak(text, turnVoiceKey(activeRun.id, turnNumber));
+  }, [
+    narrativeSettled,
+    streamingNarrative,
+    pendingUserInput,
+    activeRun,
+    earlyVoice,
+    voiceSpeak,
+  ]);
+
   if (loading || !activeRun || activeRun.id !== runId) {
     return (
       <MainLayout>
@@ -2737,6 +2800,13 @@ function AdventurePlay({ runId }: { runId: string }) {
   }
 
   const isStageLoading = streaming && phase !== null;
+  // quietStage(3D モデル表示中)ではステージのオーバーレイと減光を出さず、
+  // 判定・画像工程の進捗は行動パネルに出す(本文が流れている間はカーソルだけ)
+  const showStageOverlay = isStageLoading && !quietStage;
+  const controlsProgressVisible =
+    quietStage &&
+    isStageLoading &&
+    (pendingUserInput === null || narrativeSettled);
   const phaseLabel = phaseStep
     ? t(`adventure.phaseStep.${phaseStep.step}`)
     : t(`adventure.phase.${phase ?? "narrative"}`);
@@ -2880,10 +2950,15 @@ function AdventurePlay({ runId }: { runId: string }) {
     talkMode && lastPartnerTalk
       ? stripStageDirections(lastPartnerTalk.text)
       : joinForSpeech(partnerLines(activeNarrative, partnerName));
+  const frameReplayKey = `frame:${selectedFrame?.key ?? "latest"}`;
+  // 本文ストリーム中の手番は先読み(読み上げ(0))と同じキーにし、🔊 が先読みの
+  // 再生中表示と停止を兼ねるようにする
   const voiceReplayKey =
     talkMode && lastPartnerTalk
       ? `talk:${lastPartnerTalk.id}`
-      : `frame:${selectedFrame?.key ?? "latest"}`;
+      : isStreamingNarrative
+        ? turnVoiceKey(activeRun.id, activeRun.turn_count + 1)
+        : frameReplayKey;
   const voiceReplayActive =
     voice.currentKey === voiceReplayKey && voice.status !== "idle";
   // 3D モデルの表情・身振り。トーク中は最新の返答、それ以外は表示中フレームの値
@@ -2895,14 +2970,25 @@ function AdventurePlay({ runId }: { runId: string }) {
     talkMode && lastPartnerTalk
       ? normalizeAvatarGesture(lastPartnerTalk.gesture)
       : (selectedFrame?.partnerGesture ?? null);
-  // 身振りの再生トリガ。読み上げ可能なら声の開始(到着・🔊再生)に合わせ、
-  // 読み上げ不可ならセリフ/フレームの切り替わりで再生する
+  // 身振りの再生トリガ。読み上げ可能なら声の開始(到着・先読み・🔊再生)に合わせ、
+  // 読み上げ不可ならセリフ/フレームの切り替わりで再生する。
+  // 先読み中は表示中フレームがまだ前の手番なので、手番のキーはフレームの手番と
+  // 一致した時点(turn 到着でフレームが増えたとき)に初めて再生し、前の手番の
+  // 身振りを誤って再生しない
+  const frameTurnVoiceKey = selectedFrame
+    ? turnVoiceKey(activeRun.id, selectedFrame.turnNumber)
+    : null;
+  const voiceBusy = voice.status === "loading" || voice.status === "playing";
   const avatarGestureKey = voiceCanSpeak
-    ? (voice.status === "loading" || voice.status === "playing") &&
-      voice.currentKey
-      ? voice.currentKey
+    ? voiceBusy && voice.currentKey
+      ? voice.currentKey.startsWith("turn:") &&
+        voice.currentKey !== frameTurnVoiceKey
+        ? null
+        : voice.currentKey
       : null
-    : voiceReplayKey;
+    : talkMode && lastPartnerTalk
+      ? `talk:${lastPartnerTalk.id}`
+      : frameReplayKey;
   const avatarUrl = activeRun.companion_avatar_url ?? null;
   const showAvatar =
     isCompanion && Boolean(avatarUrl) && !companionAvatarFailed;
@@ -3548,7 +3634,7 @@ function AdventurePlay({ runId }: { runId: string }) {
               </aside>
             )}
           </div>
-          <section className="adventure-stage" aria-busy={isStageLoading}>
+          <section className="adventure-stage" aria-busy={showStageOverlay}>
             <div
               className={`adventure-stage__frame ${isCompositeMode ? "is-composite" : "is-background"}`}
             >
@@ -3560,7 +3646,7 @@ function AdventurePlay({ runId }: { runId: string }) {
                 aria-label={t("adventure.viewFullScreen")}
               >
                 <img
-                  className={isStageLoading ? "is-generating" : undefined}
+                  className={showStageOverlay ? "is-generating" : undefined}
                   src={displayedImageUrl}
                   alt={activeRun.title}
                 />
@@ -3603,7 +3689,7 @@ function AdventurePlay({ runId }: { runId: string }) {
                   />
                 )
               )}
-              {isStageLoading && !isViewingPast && (
+              {showStageOverlay && !isViewingPast && (
                 <div className="adventure-stage__loading" role="status">
                   {progressSegments && progressActiveKey ? (
                     <span className="adventure-progressbar" aria-hidden>
@@ -4085,19 +4171,19 @@ function AdventurePlay({ runId }: { runId: string }) {
                     text={activeNarrative}
                     speakers={[partnerName, playerDisplayName]}
                   />
-                  {isStreamingNarrative && (
+                  {isStreamingNarrative && !narrativeSettled && (
                     <span className="adventure-transcript__caret" />
                   )}
                 </div>
               ) : (
                 <p className="adventure-messagebox__narrative">
                   {activeNarrative}
-                  {isStreamingNarrative && (
+                  {isStreamingNarrative && !narrativeSettled && (
                     <span className="adventure-transcript__caret" />
                   )}
                 </p>
               )}
-              {streaming && !isStageLoading && (
+              {streaming && !isStageLoading && !quietStage && (
                 <div className="adventure-progress">
                   <span />
                   {phaseLabel}
@@ -4153,12 +4239,25 @@ function AdventurePlay({ runId }: { runId: string }) {
                           disabled={streaming || talking}
                           title={t("adventure.regenerateChoices")}
                         >
-                          {streaming && phase === "clue_check"
+                          {streaming &&
+                          phase === "clue_check" &&
+                          !controlsProgressVisible
                             ? t("adventure.regeneratingChoices")
                             : t("adventure.regenerateChoices")}
                         </button>
                       )}
                     </div>
+
+                    {/* 3D モデル表示中はステージを覆わず、判定の進捗をここに出す */}
+                    {controlsProgressVisible && !talkMode && (
+                      <div
+                        className="adventure-progress adventure-controls__progress"
+                        role="status"
+                      >
+                        <span />
+                        {phaseLabel}
+                      </div>
+                    )}
 
                     {/* 生成中は前ターンの選択肢が残留するため、無効化ではなく非表示にする */}
                     {!streaming && !talkMode && (

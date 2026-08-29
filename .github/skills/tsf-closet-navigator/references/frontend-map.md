@@ -42,7 +42,7 @@
 
 `App.tsx` は `/adventure` 配下だけを `AdventureProvider` で包む。
 
-`AdventureContext` は Run/Template、activeRun、セットアップ生成、ターン/画像ストリーム、フェーズ、逐次ナラティブ、エラーを管理する。romance のトークモード（手番を消費しない会話）は `submitTalk` / `talking` / `talkDraft` / `pendingTalkInput` で、`talk_done` を `activeRun.talk_log` に追記する（手番送信とは `streaming || talking` で相互排他）。 直前に開いた run ID は `lastRunId`（`utils/adventureLastRun.ts`、localStorage `adventure_last_run_id`）として公開し、Hub の再開バナーと SideMenu の「直前のシナリオへ」が参照する。通常ゲームの `GameContext` や `useGameSSE` に統合しない。3D モデル(VRM)は `avatarModels` / `refreshAvatarModels`（Provider マウント時に `GET /api/avatars`）と `companionAvatarFailed` / `setCompanionAvatarFailed`（読込失敗で立ち絵へ戻す。run や割当が変わるとリセット）を持ち、`performSubmitTurn` はアバター表示中に `generate_partner_portrait:false` を送る。
+`AdventureContext` は Run/Template、activeRun、セットアップ生成、ターン/画像ストリーム、フェーズ、逐次ナラティブ、エラーを管理する。`narrativeSettled` は手番ストリームの本文（`narrative_done`）が確定したかで、3D モデル表示中の先読み読み上げと行動パネル進捗（`quietStage`）の切替に使う（`turn` 到着後も保持し、ストリーム終了で false）。romance のトークモード（手番を消費しない会話）は `submitTalk` / `talking` / `talkDraft` / `pendingTalkInput` で、`talk_done` を `activeRun.talk_log` に追記する（手番送信とは `streaming || talking` で相互排他）。 直前に開いた run ID は `lastRunId`（`utils/adventureLastRun.ts`、localStorage `adventure_last_run_id`）として公開し、Hub の再開バナーと SideMenu の「直前のシナリオへ」が参照する。通常ゲームの `GameContext` や `useGameSSE` に統合しない。3D モデル(VRM)は `avatarModels` / `refreshAvatarModels`（Provider マウント時に `GET /api/avatars`）と `companionAvatarFailed` / `setCompanionAvatarFailed`（読込失敗で立ち絵へ戻す。run や割当が変わるとリセット）を持ち、`performSubmitTurn` はアバター表示中に `generate_partner_portrait:false` を送る。
 
 ## 主な設定境界
 

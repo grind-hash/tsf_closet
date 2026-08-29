@@ -2556,6 +2556,21 @@ button:disabled {
   animation: adventure-spin 0.8s linear infinite;
 }
 
+/* 3D モデル表示中の判定・画像工程の進捗。ステージを覆わず行動パネル内に出す */
+.adventure-controls__progress {
+  margin-top: 0;
+  padding: 6px 0;
+}
+
+.adventure-messagebox--romance .adventure-controls__progress {
+  color: #ff9ec7;
+}
+
+.adventure-messagebox--romance .adventure-controls__progress span {
+  border-color: #ff9ec7;
+  border-right-color: transparent;
+}
+
 @keyframes adventure-spin {
   to {
     transform: rotate(360deg);

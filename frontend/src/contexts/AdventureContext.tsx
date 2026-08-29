@@ -101,6 +101,8 @@ interface AdventureContextValue {
   phaseStep: AdventurePhaseStep | null;
   streamingNarrative: string;
   pendingUserInput: string | null;
+  /** 手番ストリームの本文(narrative_done)が確定したか。ストリーム終了で false に戻る */
+  narrativeSettled: boolean;
   error: string | null;
   loadRuns: () => Promise<void>;
   loadTemplates: () => Promise<void>;
@@ -195,6 +197,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
   const [phaseStep, setPhaseStep] = useState<AdventurePhaseStep | null>(null);
   const [streamingNarrative, setStreamingNarrative] = useState("");
   const [pendingUserInput, setPendingUserInput] = useState<string | null>(null);
+  const [narrativeSettled, setNarrativeSettled] = useState(false);
   const [talking, setTalking] = useState(false);
   const [talkDraft, setTalkDraft] = useState("");
   const [pendingTalkInput, setPendingTalkInput] = useState<string | null>(null);
@@ -363,6 +366,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       setPhaseStep(null);
       setStreamingNarrative("");
       setPendingUserInput(input);
+      setNarrativeSettled(false);
       setError(null);
       try {
         await streamAdventureTurn(
@@ -392,6 +396,8 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
               }
             } else if (event.type === "narrative_done") {
               setStreamingNarrative(String(event.data.narrative ?? ""));
+              // turn 到着まで保持する(先読み読み上げ済みの判定に使う)
+              setNarrativeSettled(true);
             } else if (event.type === "turn") {
               const turn = event.data as unknown as AdventureTurn;
               setStreamingNarrative("");
@@ -486,6 +492,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
         setPhaseStep(null);
         setStreamingNarrative("");
         setPendingUserInput(null);
+        setNarrativeSettled(false);
       }
     },
     [activeRun, streaming, talking, addTotalCost, companionAvatarFailed],
@@ -888,6 +895,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       phaseStep,
       streamingNarrative,
       pendingUserInput,
+      narrativeSettled,
       talking,
       talkDraft,
       pendingTalkInput,
@@ -930,6 +938,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       phaseStep,
       streamingNarrative,
       pendingUserInput,
+      narrativeSettled,
       talking,
       talkDraft,
       pendingTalkInput,

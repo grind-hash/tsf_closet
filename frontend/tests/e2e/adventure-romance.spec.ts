@@ -1,3 +1,5 @@
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
 import { expect, type Page, test } from "@playwright/test";
 
@@ -1516,4 +1518,242 @@ test("companion mode swaps the partner sprite for the 3D avatar and falls back w
   });
   await expect(stage).toHaveCount(0);
   await expect(page.getByText("3Dモデルを表示できません")).toBeVisible();
+});
+
+// 無音の WAV(ヘッダのみ)。読み上げのモック応答に使う
+function silentWav(): Buffer {
+  const header = Buffer.alloc(44);
+  header.write("RIFF", 0);
+  header.writeUInt32LE(36, 4);
+  header.write("WAVE", 8);
+  header.write("fmt ", 12);
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
+  header.writeUInt16LE(1, 22);
+  header.writeUInt32LE(8000, 24);
+  header.writeUInt32LE(16000, 28);
+  header.writeUInt16LE(2, 32);
+  header.writeUInt16LE(16, 34);
+  header.write("data", 36);
+  header.writeUInt32LE(0, 40);
+  return header;
+}
+
+test("companion avatar keeps the stage uncovered and reads the line at narrative_done", async ({
+  page,
+}) => {
+  await enableAdventure(page);
+  await page.addInitScript(() => {
+    window.localStorage.setItem(
+      "adventure_voice_prefs",
+      JSON.stringify({ enabled: true, volume: 0.5, speed: 1 }),
+    );
+  });
+  // 設定画面の TTS を有効・話者ありに固定する(実DBに依存しない)
+  await page.route("**/api/settings/user", async (route) => {
+    if (route.request().method() !== "GET") {
+      await route.continue();
+      return;
+    }
+    const response = await route.fetch();
+    const json = await response.json();
+    json.tts_enabled = true;
+    json.tts_speaker_id = "spk-1";
+    json.tts_style_id = null;
+    await route.fulfill({ response, json });
+  });
+  const synthesizeBodies: Array<Record<string, unknown>> = [];
+  await page.route("**/api/aivisspeech/status", async (route) => {
+    await route.fulfill({
+      json: { process: "running", engine_http: "ok", platform: "linux" },
+    });
+  });
+  await page.route("**/api/aivisspeech/synthesize", async (route) => {
+    synthesizeBodies.push(
+      route.request().postDataJSON() as Record<string, unknown>,
+    );
+    await route.fulfill({ contentType: "audio/wav", body: silentWav() });
+  });
+  await mockRomanceApis(page);
+  await page.route("**/api/avatars", async (route) => {
+    await route.fulfill({
+      json: {
+        items: [
+          {
+            id: "av1",
+            name: "Alicia Solid",
+            file_size: 1024,
+            vrm_spec_version: "0",
+            meta: {
+              title: "Alicia Solid",
+              author: "DWANGO",
+              license: "Other",
+              license_url: null,
+              allowed_user: "Everyone",
+              commercial: "Allow",
+            },
+            file_url: "/avatars/av1/file",
+            created_at: "2026-08-28T10:00:00",
+          },
+        ],
+      },
+    });
+  });
+  // モデルの読込を保留したままにして、3D ステージ表示中(読込中)の状態を保つ
+  let releaseFile: (() => void) | null = null;
+  const fileBlocked = new Promise<void>((resolve) => {
+    releaseFile = resolve;
+  });
+  await page.route("**/api/avatars/av1/file", async (route) => {
+    await fileBlocked;
+    await route.fulfill({
+      status: 404,
+      json: { detail: { code: "file_missing", message: "missing" } },
+    });
+  });
+  const companionOverrides = {
+    companion_mode: true,
+    companion_avatar_id: "av1",
+    companion_avatar_url: "/avatars/av1/file",
+  };
+  const companionRun = romanceRunPayload(0, companionOverrides);
+  const narrative =
+    "美咲は少し驚いた顔をした。\n美咲「こんにちは、ユウヤさん」";
+  const turn = {
+    id: "turn-1",
+    turn_number: 1,
+    client_turn_id: "client-1",
+    user_input: "美咲に話しかける",
+    input_kind: "choice",
+    narrative,
+    location: "商店街の書店",
+    choices: companionRun.choices,
+    image_url: null,
+    image_status: "not_requested",
+    portrait_image_url: null,
+    portrait_status: "not_requested",
+    created_at: "2026-08-01T00:10:00",
+    run_status: "active",
+    remaining_turns: 13,
+    clues: [],
+    completed_milestones: [],
+    sim: simPayload({ affection: 13 }),
+    partner_expression: "happy",
+    partner_gesture: "wave",
+  };
+  let turnDone = false;
+  await page.route("**/api/adventure/runs/run-1", async (route) => {
+    await route.fulfill({
+      json: turnDone
+        ? romanceRunPayload(1, { ...companionOverrides, turns: [turn] })
+        : companionRun,
+    });
+  });
+
+  // route.fulfill は応答を一括で返すため narrative_done と turn の間を観察できない。
+  // 実際に流れる SSE サーバへ転送し、本文確定の前後と turn の直前で止める
+  let releaseNarrative: (() => void) | null = null;
+  let releaseTurn: (() => void) | null = null;
+  const narrativeGate = new Promise<void>((resolve) => {
+    releaseNarrative = resolve;
+  });
+  const turnGate = new Promise<void>((resolve) => {
+    releaseTurn = resolve;
+  });
+  const server = createServer((req, res) => {
+    let raw = "";
+    req.on("data", (chunk: Buffer | string) => {
+      raw += chunk.toString();
+    });
+    req.on("end", () => {
+      void (async () => {
+        const body = JSON.parse(raw || "{}") as Record<string, unknown>;
+        res.writeHead(200, {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+        });
+        res.write('event: status\ndata: {"phase":"narrative"}\n\n');
+        res.write(
+          `event: narrative_chunk\ndata: ${JSON.stringify({
+            chunk: "美咲は少し驚いた顔をした。\n",
+          })}\n\n`,
+        );
+        await narrativeGate;
+        res.write(
+          `event: narrative_chunk\ndata: ${JSON.stringify({
+            chunk: "美咲「こんにちは、ユウヤさん」",
+          })}\n\n`,
+        );
+        res.write(
+          `event: narrative_done\ndata: ${JSON.stringify({ narrative })}\n\n`,
+        );
+        res.write('event: status\ndata: {"phase":"clue_check"}\n\n');
+        await turnGate;
+        turnDone = true;
+        res.write(
+          `event: turn\ndata: ${JSON.stringify({
+            ...turn,
+            client_turn_id: String(body.client_turn_id ?? "client-1"),
+          })}\n\n`,
+        );
+        res.write('event: complete\ndata: {"status":"active"}\n\n');
+        res.end();
+      })();
+    });
+  });
+  await new Promise<void>((resolve) => {
+    server.listen(0, "127.0.0.1", () => resolve());
+  });
+  const { port } = server.address() as AddressInfo;
+  await page.route(
+    "**/api/adventure/runs/run-1/turns/stream",
+    async (route) => {
+      await route.continue({ url: `http://127.0.0.1:${port}/turns/stream` });
+    },
+  );
+
+  try {
+    await page.goto("/adventure/run-1");
+    await expect(
+      page.locator(".adventure-stage__frame .adventure-avatar-stage"),
+    ).toBeVisible();
+    await page.getByRole("button", { name: /美咲に話しかける/ }).click();
+
+    // 本文ストリーム中: ステージは覆われず、本文のカーソルだけが出る
+    await expect(page.getByText("美咲は少し驚いた顔をした。")).toBeVisible();
+    await expect(page.locator(".adventure-transcript__caret")).toBeVisible();
+    await expect(page.locator(".adventure-stage__loading")).toHaveCount(0);
+    await expect(
+      page.locator(".adventure-controls .adventure-progress"),
+    ).toHaveCount(0);
+    expect(synthesizeBodies).toHaveLength(0);
+
+    // 本文確定: turn を待たずに読み上げが始まり、判定の進捗は行動パネルに出る
+    releaseNarrative?.();
+    await expect.poll(() => synthesizeBodies.length).toBe(1);
+    expect(synthesizeBodies[0]).toMatchObject({
+      text: "こんにちは、ユウヤさん。",
+    });
+    await expect(
+      page.locator(".adventure-controls .adventure-progress"),
+    ).toContainText("行動の結果を判定中");
+    await expect(page.locator(".adventure-stage__loading")).toHaveCount(0);
+    await expect(page.locator(".adventure-transcript__caret")).toHaveCount(0);
+    await expect(page.locator(".adventure-choices")).toHaveCount(0);
+
+    // turn 到着: 選択肢が出て、同じセリフを読み直さない
+    releaseTurn?.();
+    await expect(page.locator(".adventure-choices")).toBeVisible();
+    await expect(
+      page.locator(".adventure-controls .adventure-progress"),
+    ).toHaveCount(0);
+    await expect(page.locator(".adventure-stage__loading")).toHaveCount(0);
+    await page.waitForTimeout(500);
+    expect(synthesizeBodies).toHaveLength(1);
+  } finally {
+    releaseFile?.();
+    await new Promise<void>((resolve) => {
+      server.close(() => resolve());
+    });
+  }
 });

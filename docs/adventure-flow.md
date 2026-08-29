@@ -179,6 +179,9 @@ sequenceDiagram
   `partner_image` / `background_image` / `image` / `cost` / `turn` / `complete` /
   `error`。通常ゲームの `useSSE` には流さず、`apis/adventure.ts` の専用パーサで
   処理する。トーク（5. 参照）は同じパーサで `talk_chunk` / `talk_done` を扱う。
+- **3D モデル表示中の FE** は `narrative_done` の時点で攻略対象のセリフの読み上げを
+  始め（②の判定と保存を待たない）、ステージの進捗オーバーレイを出さずに判定中の
+  進捗を行動パネルに出す。表情・身振りは `turn` で届くので、その時点で切り替える。
 
 ---
 
