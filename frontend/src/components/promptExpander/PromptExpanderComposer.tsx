@@ -7,7 +7,13 @@
  * 開閉セクションと、最下部の「生成」ボタン。
  */
 
-import { type ReactNode, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { flushSync } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { isV5ImageModel } from "../../constants/novelaiImageModels";
@@ -38,12 +44,20 @@ import {
   transparentEmphasisSample,
   usesNativeTransparency,
 } from "../../constants/promptExpander";
+import { useNotification } from "../../contexts/NotificationContext";
 import {
   type PromptExpanderExpansionTarget,
   type PromptExpanderPickerTarget,
   usePromptExpander,
 } from "../../contexts/PromptExpanderContext";
+import { openPromptExpanderSection } from "../../hooks/usePersistedSectionState";
+import { useWindowFileDrop } from "../../hooks/useWindowFileDrop";
+import FileDropOverlay from "../ui/FileDropOverlay";
 import PromptExpanderCharacterSlots from "./PromptExpanderCharacterSlots";
+import PromptExpanderDropChooserModal, {
+  type PromptExpanderDropChooserOptions,
+  type PromptExpanderDropDestination,
+} from "./PromptExpanderDropChooserModal";
 import PromptExpanderExpansionPanel from "./PromptExpanderExpansionPanel";
 import PromptExpanderInpaintModal from "./PromptExpanderInpaintModal";
 import PromptExpanderProgress from "./PromptExpanderProgress";
@@ -203,6 +217,7 @@ const CIRCLED_MAX = 20;
 export default function PromptExpanderComposer() {
   const { t } = useTranslation();
   const {
+    activeSession,
     settings,
     options,
     source,
@@ -242,6 +257,8 @@ export default function PromptExpanderComposer() {
     scriptDraftBackup,
     draftScript,
     undoScriptDraft,
+    uploadImage,
+    uploading,
   } = usePromptExpander();
 
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -258,6 +275,67 @@ export default function PromptExpanderComposer() {
     setPickerTarget(target);
     setUploadOpen(true);
   };
+
+  // 画面全体への画像ドロップ: NovelAI 風に「何に使うか」を選ばせてから入れ先へ送る
+  const { showNotification } = useNotification();
+  const [droppedFile, setDroppedFile] = useState<File | null>(null);
+  const [revealSectionId, setRevealSectionId] =
+    useState<PromptExpanderDropDestination | null>(null);
+  const handleDroppedFiles = useCallback(
+    (files: File[]) => {
+      const image = files.find((file) => file.type.startsWith("image/"));
+      if (!image) {
+        showNotification(
+          "warning",
+          t("promptExpander.drop.title"),
+          t("promptExpander.drop.notImage"),
+        );
+        return;
+      }
+      setDroppedFile(image);
+    },
+    [showNotification, t],
+  );
+  const isFileDragging = useWindowFileDrop({
+    enabled: activeSession !== null,
+    onFiles: handleDroppedFiles,
+  });
+  const handleDropChoose = async (
+    destination: PromptExpanderDropDestination,
+    dropOptions: PromptExpanderDropChooserOptions,
+  ) => {
+    if (!droppedFile) return;
+    const target: PromptExpanderPickerTarget =
+      destination === "reference" ? "reference" : "source";
+    const ok = await uploadImage(droppedFile, {
+      keepAsEntry: dropOptions.keepAsEntry,
+      useAsSource: true,
+      target,
+      note: dropOptions.note,
+    });
+    // 失敗は Context が通知済み。ダイアログは開いたままにして選び直せるようにする
+    if (!ok) return;
+    setDroppedFile(null);
+    if (destination === "inpaint") {
+      if (!settings.use_inpaint) void updateSettings({ use_inpaint: true });
+      // 元画像が入ったので、続けてマスクを描けるように編集モーダルを開く
+      setInpaintOpen(true);
+    } else if (destination === "reference" && !settings.use_precise_reference) {
+      void updateSettings({ use_precise_reference: true });
+    }
+    openPromptExpanderSection(destination);
+    setRevealSectionId(destination);
+  };
+  // 入れ先セクションが開いた描画後にそこへスクロールする
+  useEffect(() => {
+    if (!revealSectionId) return;
+    setRevealSectionId(null);
+    document
+      .querySelector(
+        `.prompt-expander__section[data-section-id="${revealSectionId}"]`,
+      )
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [revealSectionId]);
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [seedDraft, setSeedDraft] = useState<string | null>(null);
   const positiveRef = useRef<HTMLTextAreaElement>(null);
@@ -1465,6 +1543,23 @@ export default function PromptExpanderComposer() {
           setInpaintMask({ dataUrl, thumbnailUrl: dataUrl, label })
         }
       />
+      <PromptExpanderDropChooserModal
+        file={droppedFile}
+        onClose={() => setDroppedFile(null)}
+        onChoose={(destination, dropOptions) =>
+          void handleDropChoose(destination, dropOptions)
+        }
+        busy={uploading}
+        referenceSupported={referenceSupported}
+      />
+      {/* 画面全体への画像ドロップ用オーバーレイ（表示のみ。drop 自体は window で受ける） */}
+      {isFileDragging && (
+        <FileDropOverlay
+          testId="prompt-expander-drop-overlay"
+          title={t("promptExpander.drop.overlayTitle")}
+          hint={t("promptExpander.drop.overlayHint")}
+        />
+      )}
     </div>
   );
 }

@@ -212,6 +212,7 @@ type SettingsAction =
   | { type: "SET_SOUND_ENABLED"; payload: boolean }
   | { type: "SET_SOUND_VOLUME"; payload: number }
   | { type: "TOGGLE_PANEL" }
+  | { type: "SET_PANEL_OPEN"; payload: boolean }
   | { type: "LOAD_SETTINGS"; payload: Partial<SettingsState> }
   | { type: "RESET_SETTINGS" }
   | { type: "ADD_PRECISE_REFERENCE"; payload: PreciseReference }
@@ -401,6 +402,8 @@ function settingsReducer(
       return { ...state, soundVolume: action.payload };
     case "TOGGLE_PANEL":
       return { ...state, rightPanelOpen: !state.rightPanelOpen };
+    case "SET_PANEL_OPEN":
+      return { ...state, rightPanelOpen: action.payload };
     case "LOAD_SETTINGS":
       return { ...state, ...action.payload };
     case "RESET_SETTINGS":
@@ -529,6 +532,7 @@ interface SettingsContextType {
   setSoundEnabled: (enabled: boolean) => void;
   setSoundVolume: (volume: number) => void;
   togglePanel: () => void;
+  setPanelOpen: (open: boolean) => void;
   resetSettings: () => void;
   addPreciseReference: (ref: PreciseReference) => void;
   updatePreciseReference: (
@@ -1061,6 +1065,10 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "TOGGLE_PANEL" });
   }, []);
 
+  const setPanelOpen = useCallback((open: boolean) => {
+    dispatch({ type: "SET_PANEL_OPEN", payload: open });
+  }, []);
+
   const resetSettings = useCallback(() => {
     dispatch({ type: "RESET_SETTINGS" });
   }, []);
@@ -1373,6 +1381,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setSoundEnabled,
     setSoundVolume,
     togglePanel,
+    setPanelOpen,
     resetSettings,
     addPreciseReference,
     updatePreciseReference,

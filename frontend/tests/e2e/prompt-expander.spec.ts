@@ -234,6 +234,8 @@ async function mockPromptExpanderApis(page: Page) {
     scriptBodies: [] as Record<string, unknown>[],
     // 設定 PUT の送信内容（部分更新）を順に記録する
     settingsBodies: [] as Record<string, unknown>[],
+    // 画像アップロード POST の送信内容を順に記録する
+    uploadBodies: [] as { image: string; instruction?: string }[],
     // PUT の部分更新を積み上げて保持する（複数回の設定変更をまたいで検証するため）
     settings: settingsPayload().settings as Record<string, unknown>,
   };
@@ -449,6 +451,27 @@ async function mockPromptExpanderApis(page: Page) {
         return;
       }
       await route.fulfill({ json: entry });
+    },
+  );
+  await page.route(
+    (url) =>
+      /^\/api\/prompt-expander\/sessions\/[^/]+\/uploads$/.test(url.pathname),
+    async (route) => {
+      const body = route.request().postDataJSON() as {
+        image: string;
+        instruction?: string;
+      };
+      state.uploadBodies.push(body);
+      const id = `pe-entry-upload-${state.uploadBodies.length}`;
+      const entry = entryPayload({
+        id,
+        kind: "uploaded",
+        instruction: body.instruction ?? "",
+        final_prompt: "",
+        image_url: `/prompt-expander/images/${id}`,
+      });
+      state.entries.unshift(entry);
+      await route.fulfill({ status: 201, json: entry });
     },
   );
   return state;
@@ -1880,4 +1903,152 @@ test("romance player picker does not offer the Prompt Expander tab", async ({
   await expect(
     picker.getByRole("tab", { name: "Prompt Expander" }),
   ).toHaveCount(0);
+});
+
+// 画面全体へのドロップ用: PNG 1 枚を含む DataTransfer をブラウザ側で作る
+async function createImageDataTransfer(page: Page, name: string) {
+  return page.evaluateHandle(
+    ({ fileName, base64 }) => {
+      const raw = base64.replace(/^data:[^,]*,/, "");
+      const bytes = Uint8Array.from(atob(raw), (c) => c.charCodeAt(0));
+      const transfer = new DataTransfer();
+      transfer.items.add(new File([bytes], fileName, { type: "image/png" }));
+      return transfer;
+    },
+    { fileName: name, base64: WHITE_BG_PNG_BASE64 },
+  );
+}
+
+// 画面（メインコンテンツ）へ画像をドロップし、使い道ダイアログを返す
+async function dropImageOnScreen(page: Page, name: string) {
+  const overlay = page.getByTestId("prompt-expander-drop-overlay");
+  const content = page.locator(".main-layout__content");
+  const dataTransfer = await createImageDataTransfer(page, name);
+  await content.dispatchEvent("dragenter", { dataTransfer });
+  await expect(overlay).toBeVisible();
+  await expect(overlay).toContainText("ドロップして画像を使う");
+  await content.dispatchEvent("dragover", { dataTransfer });
+  await content.dispatchEvent("drop", { dataTransfer });
+  await dataTransfer.dispose();
+  await expect(overlay).toBeHidden();
+  const dialog = page.getByRole("dialog", {
+    name: "この画像で何をしたいですか？",
+  });
+  await expect(dialog).toBeVisible();
+  await expect(
+    dialog.locator(".prompt-expander__upload-preview"),
+  ).toBeVisible();
+  await expect(dialog).toContainText(name);
+  return dialog;
+}
+
+test("dropping an image anywhere asks what to use it for; i2i source uploads it and reveals the section", async ({
+  page,
+}) => {
+  await enableFeatures(page, { experimentalPromptExpanderEnabled: true });
+  const state = await mockPromptExpanderApis(page);
+  await openSession(page);
+
+  // i2i セクションを閉じた状態から始め、ドロップ後に開くことを確認する
+  const heading = page.getByRole("button", { name: "i2i設定" });
+  if ((await heading.getAttribute("aria-expanded")) === "true") {
+    await heading.click();
+  }
+  await expect(heading).toHaveAttribute("aria-expanded", "false");
+
+  const dialog = await dropImageOnScreen(page, "dropped-i2i.png");
+  await dialog.getByRole("button", { name: /^i2i元にする/ }).click();
+  await expect(dialog).toBeHidden();
+
+  // 既定は「履歴に残す」ON なのでアップロード API に送られ、i2i 元に入る
+  await expect.poll(() => state.uploadBodies.length).toBe(1);
+  expect(state.uploadBodies[0].image).toMatch(/^data:image\/png;base64,/);
+  await expect(heading).toHaveAttribute("aria-expanded", "true");
+  const section = page.locator(
+    ".prompt-expander__section[data-section-id='i2i']",
+  );
+  await expect(section).toContainText("dropped-i2i.png");
+  await expect(section).toBeInViewport();
+  // 履歴一覧の先頭にアップロード分が増える
+  await expect(page.locator(".prompt-expander__entry-list > li")).toHaveCount(
+    2,
+  );
+});
+
+test("dropping an image and choosing inpaint turns inpaint on and opens the mask editor", async ({
+  page,
+}) => {
+  await enableFeatures(page, { experimentalPromptExpanderEnabled: true });
+  const state = await mockPromptExpanderApis(page);
+  await openSession(page);
+
+  const heading = page.getByRole("button", {
+    name: "インペイント（部分修正）",
+  });
+  await expect(heading).toHaveAttribute("aria-expanded", "false");
+
+  const dialog = await dropImageOnScreen(page, "dropped-inpaint.png");
+  await dialog.getByRole("button", { name: /^インペイントの元にする/ }).click();
+  await expect(dialog).toBeHidden();
+
+  // インペイントが ON になり、続けてマスク編集モーダルが開く
+  await expect
+    .poll(() => state.settingsBodies.some((b) => b.use_inpaint === true))
+    .toBe(true);
+  const maskDialog = page.getByRole("dialog", { name: "マスクを編集" });
+  await expect(maskDialog).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(maskDialog).toBeHidden();
+
+  await expect(heading).toHaveAttribute("aria-expanded", "true");
+  const section = page.locator(
+    ".prompt-expander__section[data-section-id='inpaint']",
+  );
+  await expect(section).toContainText("dropped-inpaint.png");
+  await expect(section).toBeInViewport();
+});
+
+test("dropping an image and choosing precise reference is V4.5-only and turns the reference on", async ({
+  page,
+}) => {
+  await enableFeatures(page, { experimentalPromptExpanderEnabled: true });
+  const state = await mockPromptExpanderApis(page);
+  await openSession(page);
+
+  // V5 では精密参照の選択肢が無効になり理由が出る
+  await page.getByLabel("画像モデル").selectOption("nai-diffusion-5-full");
+  let dialog = await dropImageOnScreen(page, "dropped-ref.png");
+  const referenceChoice = dialog.getByRole("button", {
+    name: /^精密参照にする/,
+  });
+  await expect(referenceChoice).toBeDisabled();
+  await expect(dialog).toContainText("V4.5");
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+
+  // V4.5 に戻すと選べる。「履歴に残す」を OFF にして参照だけに入れる
+  await page.getByLabel("画像モデル").selectOption("nai-diffusion-4-5-full");
+  dialog = await dropImageOnScreen(page, "dropped-ref.png");
+  await dialog
+    .locator(".prompt-expander__switch", { hasText: "履歴に残す" })
+    .click();
+  await dialog.getByRole("button", { name: /^精密参照にする/ }).click();
+  await expect(dialog).toBeHidden();
+
+  expect(state.uploadBodies).toHaveLength(0);
+  await expect
+    .poll(() =>
+      state.settingsBodies.some((b) => b.use_precise_reference === true),
+    )
+    .toBe(true);
+  const heading = page.getByRole("button", { name: "精密参照（V4.5 系のみ）" });
+  await expect(heading).toHaveAttribute("aria-expanded", "true");
+  const section = page.locator(
+    ".prompt-expander__section[data-section-id='reference']",
+  );
+  await expect(section).toContainText("dropped-ref.png");
+  await expect(
+    page.getByRole("checkbox", { name: "精密参照を使う" }),
+  ).toBeChecked();
+  await expect(section).toBeInViewport();
 });

@@ -35,6 +35,11 @@ import { useChat } from "../contexts/ChatContext";
 import { useGame } from "../contexts/GameContext";
 import { useNotification } from "../contexts/NotificationContext";
 import { useSettings } from "../contexts/SettingsContext";
+import {
+  PRECISE_REFERENCE_SECTION_ID,
+  usePreciseReferenceFiles,
+} from "../hooks/usePreciseReferenceFiles";
+import { useWindowFileDrop } from "../hooks/useWindowFileDrop";
 import type {
   ChangeSettings,
   ChatMessage,
@@ -67,6 +72,7 @@ import RightPanel from "./layout/RightPanel";
 import { NovelaiUsageBar } from "./NovelaiUsageBar";
 import CharacterPanel from "./panel/CharacterPanel";
 import CharacterStatePanel from "./panel/CharacterStatePanel";
+import FileDropOverlay from "./ui/FileDropOverlay";
 import ImageOverlay from "./ui/ImageOverlay";
 import "./GamePlayScreen.css";
 import "./chat/ChatContainer.css";
@@ -144,6 +150,7 @@ export default function GamePlayScreen({
     setInpaintMask,
     clearInpaintMask,
     togglePanel,
+    setPanelOpen,
     isNovelaiV5Active,
   } = useSettings();
   const sessionId = gameState.sessionId;
@@ -623,6 +630,59 @@ export default function GamePlayScreen({
   const handleToggleRightPanel = useCallback(() => {
     togglePanel();
   }, [togglePanel]);
+
+  // 画面全体への画像ドロップ → 精密参照画像に追加（NovelAI 選択時のみ受け付ける）
+  const { addFiles: addPreciseReferenceFiles } = usePreciseReferenceFiles();
+  const isPreciseRefDropEnabled = imageProvider === "novelai";
+  const canAddPreciseReference = isPreciseRefDropEnabled && !isNovelaiV5Active;
+  const [pendingPreciseRefScroll, setPendingPreciseRefScroll] = useState(false);
+
+  const handleScreenPreciseRefDrop = useCallback(
+    async (files: File[]) => {
+      if (!canAddPreciseReference) {
+        showNotification(
+          "warning",
+          t("gameplay.preciseRefDropResultTitle"),
+          t("rightPanel.preciseReferenceV5Unavailable"),
+        );
+        return;
+      }
+      const { addedCount, error } = await addPreciseReferenceFiles(files);
+      if (error) {
+        showNotification(
+          addedCount > 0 ? "warning" : "error",
+          t("gameplay.preciseRefDropResultTitle"),
+          error,
+        );
+      }
+      if (addedCount > 0) {
+        // 右パネルを開き、描画後に精密参照セクションへスクロールする（下の effect）
+        setPanelOpen(true);
+        setPendingPreciseRefScroll(true);
+      }
+    },
+    [
+      addPreciseReferenceFiles,
+      canAddPreciseReference,
+      setPanelOpen,
+      showNotification,
+      t,
+    ],
+  );
+
+  const isFileDragging = useWindowFileDrop({
+    enabled: isPreciseRefDropEnabled,
+    onFiles: handleScreenPreciseRefDrop,
+  });
+
+  // ドロップ後: 右パネルが開いた描画を待ってから精密参照セクションへスクロール
+  useEffect(() => {
+    if (!pendingPreciseRefScroll || !showRightPanel) return;
+    setPendingPreciseRefScroll(false);
+    document
+      .getElementById(PRECISE_REFERENCE_SECTION_ID)
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [pendingPreciseRefScroll, showRightPanel]);
 
   // マスク編集保存
   const handleMaskSave = useCallback(
@@ -2113,6 +2173,24 @@ export default function GamePlayScreen({
             </div>
           </div>
         </div>
+      )}
+
+      {/* 画面全体への画像ドロップ用オーバーレイ（表示のみ。drop 自体は window で受ける） */}
+      {isFileDragging && (
+        <FileDropOverlay
+          testId="precise-ref-drop-overlay"
+          unavailable={!canAddPreciseReference}
+          title={
+            canAddPreciseReference
+              ? t("gameplay.preciseRefDropTitle")
+              : t("rightPanel.preciseReferenceV5Unavailable")
+          }
+          hint={
+            canAddPreciseReference
+              ? t("gameplay.preciseRefDropHint")
+              : undefined
+          }
+        />
       )}
     </MainLayout>
   );

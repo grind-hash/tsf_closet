@@ -23,12 +23,15 @@ import {
 import { useChat } from "../../contexts/ChatContext";
 import { useGame } from "../../contexts/GameContext";
 import { useSettings } from "../../contexts/SettingsContext";
+import {
+  PRECISE_REFERENCE_SECTION_ID,
+  usePreciseReferenceFiles,
+} from "../../hooks/usePreciseReferenceFiles";
 import type {
   ChangeScope,
   PreciseReferenceType,
   PreserveElement,
 } from "../../types";
-import { generateUUID } from "../../utils/generateUUID";
 import { isHistoryLookbackEnabled } from "../../utils/historyLookback";
 import { NovelaiUsageBar } from "../NovelaiUsageBar";
 import MemorySettings from "../settings/MemorySettings";
@@ -60,8 +63,6 @@ interface PreservePreset {
 
 const ATTRIBUTE_PRESET_STORAGE_KEY = "attribute_presets";
 const PRESERVE_PRESET_STORAGE_KEY = "preserve_presets";
-const ALLOWED_MIME_TYPES = ["image/png", "image/jpeg", "image/webp"];
-const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
 const PRESERVE_ELEMENTS: PreserveElement[] = [
   "background",
   "hairstyle",
@@ -88,7 +89,6 @@ export default function RightPanel({
     setLanguage,
     setChangeSettings,
     setInpaintSettings,
-    addPreciseReference,
     updatePreciseReference,
     removePreciseReference,
     setSeed,
@@ -494,80 +494,15 @@ export default function RightPanel({
   const [preciseRefError, setPreciseRefError] = useState<string | null>(null);
   const [isPreciseRefDragging, setIsPreciseRefDragging] = useState(false);
 
-  // 精密参照画像を検証し、元の順序を保って追加する
+  // 精密参照画像の検証・追加は画面全体ドロップ（GamePlayScreen）と共通のフックに委譲
+  const { addFiles: addPreciseReferenceFiles } = usePreciseReferenceFiles();
   const addPreciseRefFiles = useCallback(
     async (files: File[]) => {
       setPreciseRefError(null);
-
-      const validFiles: File[] = [];
-      let firstValidationError: string | null = null;
-      let hasMaxCountError = false;
-      let remainingSlots = Math.max(
-        0,
-        6 - settingsState.preciseReferences.length,
-      );
-
-      for (const file of files) {
-        if (!ALLOWED_MIME_TYPES.includes(file.type)) {
-          firstValidationError ??= t("rightPanel.preciseRefTypeError", {
-            name: file.name,
-          });
-          continue;
-        }
-
-        if (file.size > MAX_FILE_SIZE_BYTES) {
-          firstValidationError ??= t("rightPanel.preciseRefSizeError", {
-            name: file.name,
-          });
-          continue;
-        }
-
-        if (remainingSlots === 0) {
-          hasMaxCountError = true;
-          continue;
-        }
-
-        validFiles.push(file);
-        remainingSlots -= 1;
-      }
-
-      const imageDataList = await Promise.all(
-        validFiles.map(
-          (file) =>
-            new Promise<string | null>((resolve) => {
-              const reader = new FileReader();
-              reader.onload = () =>
-                resolve(
-                  typeof reader.result === "string" ? reader.result : null,
-                );
-              reader.onerror = () => resolve(null);
-              reader.readAsDataURL(file);
-            }),
-        ),
-      );
-
-      validFiles.forEach((file, index) => {
-        const imageData = imageDataList[index];
-        if (imageData) {
-          addPreciseReference({
-            id: generateUUID(),
-            imageData,
-            fileName: file.name,
-            type: "character&style",
-            strength: 0.6,
-            fidelity: 1.0,
-            enabled: true,
-          });
-        }
-      });
-
-      if (hasMaxCountError) {
-        setPreciseRefError(t("rightPanel.preciseRefMaxError"));
-      } else if (firstValidationError) {
-        setPreciseRefError(firstValidationError);
-      }
+      const { error } = await addPreciseReferenceFiles(files);
+      setPreciseRefError(error);
     },
-    [addPreciseReference, settingsState.preciseReferences.length, t],
+    [addPreciseReferenceFiles],
   );
 
   const handlePreciseRefFileChange = useCallback(
@@ -1569,6 +1504,8 @@ export default function RightPanel({
 
             {/* Precise Reference Images Section */}
             <div
+              id={PRECISE_REFERENCE_SECTION_ID}
+              data-testid="precise-reference-section"
               className="right-panel__form-group"
               style={{ marginTop: "1rem" }}
             >

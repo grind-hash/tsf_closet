@@ -66,6 +66,12 @@ function setSectionOpen(id: string, open: boolean) {
   emit();
 }
 
+/** 指定セクションを開く（画面ドロップ後に入れ先を見せる用途。開いていれば何もしない） */
+export function openPromptExpanderSection(id: string) {
+  if (readMap()[id] === true) return;
+  setSectionOpen(id, true);
+}
+
 /** 表示中のセクションをまとめて開閉する（画面下部のコントロールエリアから呼ぶ） */
 export function setAllPromptExpanderSections(open: boolean) {
   const next = { ...readMap() };

@@ -1473,6 +1473,9 @@ const resources = {
         anlasTitle: "Anlas 追加消費の確認",
         anlasCancel: "キャンセル",
         anlasDoNotShowAgain: "ブラウザを閉じるまで表示しない",
+        preciseRefDropTitle: "ドロップして精密参照画像に追加",
+        preciseRefDropHint: "PNG / JPEG / WebP・10MBまで・最大6枚",
+        preciseRefDropResultTitle: "精密参照画像の追加",
         novelaiUsageLabel: "V5上限",
         novelaiUsageExhausted: "上限到達",
         novelaiUsageTooltip: "NAI Diffusion V5 の残り生成量: {{percent}}%",
@@ -2125,6 +2128,21 @@ const resources = {
           confirm: "決定",
           cancel: "キャンセル",
           uploading: "アップロード中…",
+        },
+        drop: {
+          title: "この画像で何をしたいですか？",
+          overlayTitle: "ドロップして画像を使う",
+          overlayHint: "i2i元・インペイント・精密参照から選べます",
+          notImage:
+            "画像ファイル（PNG / JPEG / WebP など）をドロップしてください",
+          useAsSource: "i2i元にする",
+          useAsSourceDesc: "この画像を元に生成し直します",
+          useAsInpaint: "インペイントの元にする",
+          useAsInpaintDesc:
+            "この画像の一部を描き直します（続けてマスクを編集）",
+          useAsReference: "精密参照にする",
+          useAsReferenceDesc:
+            "人物の同一性を固定する参照画像にします（Anlas を追加消費）",
         },
         suggest: {
           title: "メモリから好みのキャラを提案",
@@ -3640,6 +3658,9 @@ const resources = {
         anlasTitle: "Confirm additional Anlas usage",
         anlasCancel: "Cancel",
         anlasDoNotShowAgain: "Don't show again until browser closes",
+        preciseRefDropTitle: "Drop to add as a precise reference image",
+        preciseRefDropHint: "PNG / JPEG / WebP, up to 10MB, max 6 images",
+        preciseRefDropResultTitle: "Precise reference images",
         anlasProceed: "Proceed",
         novelaiUsageLabel: "V5 limit",
         novelaiUsageExhausted: "Exhausted",
@@ -4289,6 +4310,19 @@ const resources = {
           confirm: "OK",
           cancel: "Cancel",
           uploading: "Uploading…",
+        },
+        drop: {
+          title: "What do you want to do with this image?",
+          overlayTitle: "Drop to use this image",
+          overlayHint: "Choose i2i source, inpaint, or precise reference",
+          notImage: "Please drop an image file (PNG / JPEG / WebP, etc.)",
+          useAsSource: "Use as i2i source",
+          useAsSourceDesc: "Regenerate based on this image",
+          useAsInpaint: "Use for inpainting",
+          useAsInpaintDesc: "Redraw part of this image (then edit the mask)",
+          useAsReference: "Use as precise reference",
+          useAsReferenceDesc:
+            "Lock the character's identity with this reference (extra Anlas)",
         },
         suggest: {
           title: "Suggest characters from memory",

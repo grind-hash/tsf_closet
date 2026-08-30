@@ -241,10 +241,11 @@ interface PromptExpanderContextValue {
   removeCharacterSlot: (index: number) => void;
   setNegativeText: (text: string) => void;
   setNegativeMode: (mode: PromptExpandMode) => void;
+  /** 画像を入れ先へ送る。失敗時は通知して false を返す */
   uploadImage: (
     file: File,
     options: PromptExpanderUploadOptions,
-  ) => Promise<void>;
+  ) => Promise<boolean>;
   /** 正プロンプト欄の指示を拡張し、欄の直下に確認カードを出す */
   expandPositive: () => Promise<void>;
   /** ネガティブ欄の内容を拡張し、欄の直下に確認カードを出す */
@@ -828,8 +829,13 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const uploadImage = useCallback(
-    async (file: File, uploadOptions: PromptExpanderUploadOptions) => {
-      if (!uploadOptions.keepAsEntry && !uploadOptions.useAsSource) return;
+    async (
+      file: File,
+      uploadOptions: PromptExpanderUploadOptions,
+    ): Promise<boolean> => {
+      if (!uploadOptions.keepAsEntry && !uploadOptions.useAsSource) {
+        return false;
+      }
       // 精密参照向けのアップロードは i2i 元ではなく参照画像の選択状態に入れる
       const assign =
         uploadOptions.target === "reference"
@@ -865,8 +871,10 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
             label: uploadOptions.note?.trim() || file.name,
           });
         }
+        return true;
       } catch (err) {
         reportError("Prompt Expander", err);
+        return false;
       } finally {
         setUploading(false);
       }
