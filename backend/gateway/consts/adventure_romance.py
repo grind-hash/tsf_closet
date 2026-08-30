@@ -169,6 +169,9 @@ ROMANCE_TALK_SCENE_CONTEXT_MAX: int = 5
 
 # 対面会話モードの台本形式やトークで主人公名が無いときの呼称
 ROMANCE_PLAYER_NAME_FALLBACK: dict[str, str] = {"ja": "主人公", "en": "You"}
+# セットアップで指定する主人公の呼び名(攻略対象がセリフで呼ぶ名前)の上限。
+# 空ならテンプレートキャラクター名またはセッションの主人公名を使う
+ROMANCE_PLAYER_NAME_MAX_LENGTH: int = 40
 
 __all__ = [
     "ROMANCE_DAYS_DEFAULT",
@@ -211,4 +214,5 @@ __all__ = [
     "ROMANCE_TALK_HISTORY_MAX",
     "ROMANCE_TALK_SCENE_CONTEXT_MAX",
     "ROMANCE_PLAYER_NAME_FALLBACK",
+    "ROMANCE_PLAYER_NAME_MAX_LENGTH",
 ]

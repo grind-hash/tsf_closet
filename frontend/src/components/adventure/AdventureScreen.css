@@ -4659,6 +4659,11 @@ button:disabled {
   font-size: 0.85rem;
 }
 
+/* romance: 主人公の呼び名。名前が収まる幅にし、ターン数入力の幅指定を上書きする */
+.adventure-card .adventure-setup-turns--player-name input {
+  width: 11em;
+}
+
 /* romance 非合成モード: 主人公と攻略対象の立ち絵を左右に並置する */
 .adventure-stage__portrait--paired {
   left: 30%;

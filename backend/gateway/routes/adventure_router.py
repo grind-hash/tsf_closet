@@ -20,6 +20,7 @@ from ..consts.adventure_narration import (
 )
 from ..consts.adventure_romance import (
     ROMANCE_DAYS_MAX,
+    ROMANCE_PLAYER_NAME_MAX_LENGTH,
     ROMANCE_SLOTS_PER_DAY,
     ROMANCE_TALK_INPUT_MAX,
 )
@@ -151,6 +152,11 @@ class AdventureCreateRequest(BaseModel):
     # session_id があればテンプレートキャラクターより優先される
     romance_player_session_id: str | None = Field(default=None, max_length=80)
     romance_player_history_id: str | None = Field(default=None, max_length=80)
+    # romance の主人公の呼び名(攻略対象がセリフで呼ぶ名前)。空なら
+    # テンプレートキャラクター名またはセッションの主人公名を使う
+    romance_player_name: str = Field(
+        default="", max_length=ROMANCE_PLAYER_NAME_MAX_LENGTH
+    )
     # romance の攻略対象の口調。空なら人物像からLLMが自動で決める
     romance_partner_speech_style: str = Field(
         default="", max_length=PARTNER_SPEECH_STYLE_MAX_LENGTH
@@ -300,6 +306,7 @@ async def create_run(request: AdventureCreateRequest) -> dict:
             romance_player_character_id=request.romance_player_character_id,
             romance_player_session_id=request.romance_player_session_id,
             romance_player_history_id=request.romance_player_history_id,
+            romance_player_name=request.romance_player_name,
             romance_partner_speech_style=request.romance_partner_speech_style,
             image_model=request.image_model,
             companion_mode=request.companion_mode,

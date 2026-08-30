@@ -1061,3 +1061,23 @@ def test_romance_script_and_talk_prompts_include_names() -> None:
     # 現在地の固定ルールは全 romance run の visual プロンプトに載る
     assert "previous_visual_state.location verbatim" in ROMANCE_VISUAL_GUIDANCE
     assert "affection_delta" in ROMANCE_RECENT_TALK_GUIDANCE
+
+
+def test_normalize_player_name_collapses_whitespace_and_caps_length() -> None:
+    """呼び名はプロンプトと HUD に入るため、1行に畳んで上限で切る。"""
+    from gateway.consts.adventure_romance import ROMANCE_PLAYER_NAME_MAX_LENGTH
+    from gateway.services.adventure_romance import normalize_player_name
+
+    assert normalize_player_name("  ユウ\nヤ  ") == "ユウ ヤ"
+    assert normalize_player_name(None) == ""
+    assert normalize_player_name("   ") == ""
+    assert len(normalize_player_name("あ" * 100)) == ROMANCE_PLAYER_NAME_MAX_LENGTH
+
+
+def test_setup_prompt_asks_for_a_name_based_form_of_address() -> None:
+    """攻略対象の呼びかけは player_name から組み立て、「あなた」呼びにしない。"""
+    from gateway.services.adventure_romance import romance_setup_system_prompt
+
+    prompt = romance_setup_system_prompt("ja", 7)
+    assert "built from player_name" in prompt
+    assert "「あなた」" in prompt

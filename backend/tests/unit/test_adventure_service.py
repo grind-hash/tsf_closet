@@ -6764,3 +6764,34 @@ async def test_stream_talk_non_companion_does_not_request_header(monkeypatch) ->
     # ヘッダ指示が無くても、万一付いてきたら保存本文からは剥がす
     done = next(e for e in events if e["event"] == "talk_done")["data"]
     assert done["partner_entry"]["text"] == "やっほー"
+
+
+def test_speech_rule_names_the_player_inside_dialogue() -> None:
+    """二人称の語りがセリフへ漏れて「あなたさん」と呼ばれないよう、名前で呼ばせる。"""
+    from gateway.services.adventure_service import (
+        _speech_rule_from_state,
+        _speech_style_instruction,
+    )
+
+    rule = _speech_style_instruction("polite", "", player_name="ユウヤ")
+    assert "「ユウヤ」" in rule
+    assert "never 「あなたさん」" in rule
+    # 名前が無い(romance 以外)なら呼び名の指示は付けない
+    assert "あなたさん" not in _speech_style_instruction("polite", "")
+
+    rule = _speech_rule_from_state(
+        {
+            "player_speech_style": "casual",
+            "sim": {"partner_name": "ミク", "player_name": "ユウヤ"},
+        }
+    )
+    assert "「ユウヤ」" in rule
+
+
+def test_romance_replay_player_name_restores_stored_name() -> None:
+    """リプレイで主人公の選択を引き継ぐときは、呼び名も元 run から復元する。"""
+    from gateway.services.adventure_service import _romance_replay_player_name
+
+    assert _romance_replay_player_name({"sim": {"player_name": " ユウヤ "}}) == "ユウヤ"
+    assert _romance_replay_player_name({"sim": {}}) == ""
+    assert _romance_replay_player_name({}) == ""

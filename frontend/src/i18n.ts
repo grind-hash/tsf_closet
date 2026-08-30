@@ -113,6 +113,10 @@ const resources = {
           playerFromSession: "セッションの姿を使う",
           playerSession: "主人公にするセッション",
           playerState: "主人公の姿（時点）",
+          playerName: "呼び名",
+          playerNameHint:
+            "攻略対象がセリフで主人公を呼ぶ名前。選んだキャラクターの名前が入るので、必要なら書き換えてください。空欄なら選んだキャラクターの名前になります",
+          playerNamePlaceholder: "例: ユウヤ",
           partnerPortraitAlt: "攻略対象の立ち絵",
           partnerLabel: "攻略対象",
           partnerSpeechStyle: "攻略対象の口調",
@@ -2278,6 +2282,10 @@ const resources = {
           playerFromSession: "Use a session state",
           playerSession: "Session for your character",
           playerState: "Your appearance (point in time)",
+          playerName: "Name",
+          playerNameHint:
+            "The name the partner uses for your character in dialogue. It is prefilled from the selected character; edit it if you like. Leave it blank to use the selected character's name.",
+          playerNamePlaceholder: "e.g. Yuya",
           partnerPortraitAlt: "Partner portrait",
           partnerLabel: "Love interest",
           partnerSpeechStyle: "Partner's speech style",

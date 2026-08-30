@@ -179,6 +179,8 @@ const SPEECH_STYLES: AdventureSpeechStyle[] = [
 const DEFAULT_SPEECH_STYLE: AdventureSpeechStyle = "polite";
 const SPEECH_CUSTOM_MAX_LENGTH = 120;
 const PARTNER_SPEECH_STYLE_MAX_LENGTH = 200;
+// backend/gateway/consts/adventure_romance.py の ROMANCE_PLAYER_NAME_MAX_LENGTH と揃える
+const ROMANCE_PLAYER_NAME_MAX_LENGTH = 40;
 // 制約(1行1件)の上限件数。backend の consts/adventure_setup.py と合わせる
 const SCENARIO_CONSTRAINTS_MAX_ITEMS = 20;
 const SCENARIO_CONSTRAINTS_MAX_LENGTH = 2000;
@@ -263,6 +265,8 @@ type AdventureSetupPrefs = {
   romancePlayerCharacterId: string;
   /** 主人公を「セッションの姿」にしたときのセッションID */
   romancePlayerSessionId: string;
+  /** romance の主人公の呼び名。"" は選択したキャラクターの名前に従う */
+  romancePlayerName: string;
   /** run 単位のNovelAI画像モデル。"default" はグローバル設定に従う */
   imageModel: string;
 };
@@ -577,6 +581,14 @@ function AdventureHub() {
   // 主人公を「セッションの姿」にする場合の選択。保存済みIDは sessions ロード後に解決する
   const [playerSelection, setPlayerSelection] =
     useState<AdventureSourceSelection | null>(null);
+  // romance の主人公の呼び名(攻略対象がセリフで呼ぶ名前)。選択したキャラクターの
+  // 名前を既定値として埋め、ユーザーが書き換えた値は選択を変えても保持する
+  const [romancePlayerName, setRomancePlayerName] = useState(() => {
+    const saved = savedSetupPrefs.romancePlayerName;
+    return typeof saved === "string"
+      ? saved.slice(0, ROMANCE_PLAYER_NAME_MAX_LENGTH)
+      : "";
+  });
 
   // 既存の送信・保存ロジックは選択オブジェクトから派生したIDを参照する
   const sourceSessionId = sourceSelection?.sessionId ?? "";
@@ -586,6 +598,25 @@ function AdventureHub() {
   const hasSource = Boolean(sourceSessionId || sourcePeEntryId);
   const romancePlayerSessionId = playerSelection?.sessionId ?? "";
   const romancePlayerHistoryId = playerSelection?.historyId;
+  // 呼び名の既定値。テンプレキャラならその名前、セッションの姿なら紐づく主人公名
+  const romancePlayerDefaultName =
+    romancePlayerId === ROMANCE_PLAYER_SESSION_VALUE
+      ? (playerSelection?.characterName ?? "")
+      : (playerCharacters.find((character) => character.id === romancePlayerId)
+          ?.name ?? "");
+  const previousPlayerDefaultNameRef = useRef("");
+  useEffect(() => {
+    // 候補の読み込み前やセッション未解決の間(既定値が空)は何もしない
+    if (!romancePlayerDefaultName) return;
+    const previous = previousPlayerDefaultNameRef.current;
+    previousPlayerDefaultNameRef.current = romancePlayerDefaultName;
+    // 未入力か既定値のままなら新しい既定値へ追従し、書き換え済みなら保持する
+    setRomancePlayerName((current) =>
+      current.trim() === "" || current === previous
+        ? romancePlayerDefaultName
+        : current,
+    );
+  }, [romancePlayerDefaultName]);
 
   useEffect(() => {
     const prefs: AdventureSetupPrefs = {
@@ -598,6 +629,7 @@ function AdventureHub() {
       companionAvatarId,
       romancePlayerCharacterId: romancePlayerId,
       romancePlayerSessionId,
+      romancePlayerName,
       imageModel: imageModelChoice,
     };
     try {
@@ -615,6 +647,7 @@ function AdventureHub() {
     companionAvatarId,
     romancePlayerId,
     romancePlayerSessionId,
+    romancePlayerName,
     imageModelChoice,
   ]);
 
@@ -894,6 +927,11 @@ function AdventureHub() {
           romancePlayerId === ROMANCE_PLAYER_SESSION_VALUE
             ? romancePlayerHistoryId
             : undefined,
+        // 空欄はサーバ側で選択したキャラクターの名前へ倒す
+        romance_player_name:
+          startMode === "generated" && preset === "romance"
+            ? romancePlayerName.trim() || undefined
+            : undefined,
       });
       navigate(`/adventure/${run.id}`);
     } catch {
@@ -1171,6 +1209,27 @@ function AdventureHub() {
                           {t("adventure.romance.playerFromSession")}
                         </option>
                       </select>
+                    </label>
+                    <label
+                      className="adventure-setup-turns adventure-setup-turns--player-name"
+                      title={t("adventure.romance.playerNameHint")}
+                    >
+                      <span className="adventure-setup-turns__label">
+                        {t("adventure.romance.playerName")}
+                      </span>
+                      <input
+                        type="text"
+                        maxLength={ROMANCE_PLAYER_NAME_MAX_LENGTH}
+                        value={romancePlayerName}
+                        disabled={setupGenerating || loading || creating}
+                        placeholder={
+                          romancePlayerDefaultName ||
+                          t("adventure.romance.playerNamePlaceholder")
+                        }
+                        onChange={(event) =>
+                          setRomancePlayerName(event.target.value)
+                        }
+                      />
                     </label>
                   </>
                 ) : (

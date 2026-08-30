@@ -108,6 +108,7 @@ from .adventure_romance import (
     apply_romance_time_of_day,
     clamp_romance_max_turns,
     init_romance_state,
+    normalize_player_name,
     normalize_talk_input,
     normalize_talk_reply,
     opening_sim_view,
@@ -1737,6 +1738,14 @@ def _romance_replay_player_selection(
     return None, None, None
 
 
+def _romance_replay_player_name(replay_state: dict[str, Any]) -> str:
+    """リプレイ元 run の sim から主人公の呼び名を復元する。無ければ空文字。"""
+    replay_sim = (
+        replay_state["sim"] if isinstance(replay_state.get("sim"), dict) else {}
+    )
+    return normalize_player_name(str(replay_sim.get("player_name") or ""))
+
+
 def _romance_partner_visual_entry(
     main_characters: list[Any], npc_tags: list[str], partner_name: str
 ) -> tuple[dict[str, str] | None, str]:
@@ -2340,12 +2349,16 @@ def _speech_style_instruction(
     *,
     partner_style: str = "",
     partner_name: str = "",
+    player_name: str = "",
 ) -> str:
     """セリフの口調指示を返す。プロンプト末尾に置いて直近性を効かせる。
 
     主人公と(romance なら)攻略対象の両方を1ブロックにまとめる。相手の口調は
     user prompt の state.sim にも載るが、名前参照だけでは守られないため、
     人称指示と同じ末尾位置で実際の文言を再掲する。
+
+    player_name があれば、セリフの中では主人公をその名前で呼ばせる。二人称の
+    語り(「あなた」)がセリフへ漏れて「あなたさん」のような呼びかけになるのを防ぐ。
     """
     style = normalize_speech_style(style)
     if style == "custom":
@@ -2368,7 +2381,24 @@ def _speech_style_instruction(
             f"far the relationship has progressed: 「{partner_style}」 Never "
             "converge their register onto the player's."
         )
-    return "SPEECH REGISTER: " + player_rule + partner_rule + " " + _SPEECH_STYLE_GUARD
+    address_rule = ""
+    player_name = normalize_player_name(player_name)
+    if player_name:
+        address_rule = (
+            f" Inside quoted dialogue, other characters call the player character "
+            f"by name, 「{player_name}」, shortened or combined with an honorific or "
+            "nickname as their own speech style names. The narration's "
+            '"you"/「あなた」 is the narrator\'s voice only: never let a character '
+            "use it as the player's name (never 「あなたさん」)."
+        )
+    return (
+        "SPEECH REGISTER: "
+        + player_rule
+        + partner_rule
+        + address_rule
+        + " "
+        + _SPEECH_STYLE_GUARD
+    )
 
 
 def normalize_narration_pronoun(value: str | None) -> str:
@@ -2424,6 +2454,7 @@ def _speech_rule_from_state(state: dict[str, Any]) -> str:
         state.get("player_speech_custom"),
         partner_style=str(sim.get("partner_speech_style") or ""),
         partner_name=str(sim.get("partner_name") or ""),
+        player_name=str(sim.get("player_name") or ""),
     )
 
 
@@ -3400,6 +3431,7 @@ The objective must name a concrete target and an observable end condition that c
         romance_player_character_id: str | None = None,
         romance_player_session_id: str | None = None,
         romance_player_history_id: str | None = None,
+        romance_player_name: str = "",
         romance_partner_speech_style: str = "",
         image_model: str | None = None,
         companion_mode: bool = False,
@@ -3422,6 +3454,8 @@ The objective must name a concrete target and an observable end condition that c
         romance_partner_speech_style = normalize_partner_speech_style(
             romance_partner_speech_style
         )
+        # 主人公の呼び名の上書き。空ならテンプレート名・セッション名へ倒す
+        player_name_override = normalize_player_name(romance_player_name)
         replay_run = None
         replay_state: dict[str, Any] = {}
         if replay_run_id:
@@ -3455,6 +3489,9 @@ The objective must name a concrete target and an observable end condition that c
                         romance_player_session_id,
                         romance_player_history_id,
                     ) = _romance_replay_player_selection(replay_state)
+                    # 主人公の選択ごと引き継ぐときは呼び名も元 run に揃える
+                    if not player_name_override:
+                        player_name_override = _romance_replay_player_name(replay_state)
         template = (
             SCENARIO_TEMPLATES.get(scenario_template_id)
             if scenario_template_id
@@ -3576,6 +3613,9 @@ The objective must name a concrete target and an observable end condition that c
                 player_appearance = _romance_template_player_appearance(template_player)
                 romance_player_name = template_player.name
                 romance_player_ref = template_player.id
+            # セットアップで呼び名が指定されていればそちらを優先する
+            if player_name_override:
+                romance_player_name = player_name_override
             romance_days = max_turns // ROMANCE_SLOTS_PER_DAY
             romance_setup = await self._generate_structured_output(
                 RomanceSetupOutput,
@@ -3678,6 +3718,7 @@ The objective must name a concrete target and an observable end condition that c
                 player_speech_custom,
                 partner_style=romance_partner_speech_style,
                 partner_name=romance_setup.partner_name if romance_setup else "",
+                player_name=romance_player_name,
             ),
             romance=romance_setup is not None,
             script_names=romance_script_names(

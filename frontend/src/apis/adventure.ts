@@ -348,6 +348,8 @@ export interface AdventureCreateRequest extends AdventureSetupRequest {
   /** romance の主人公を特定セッション時点の変身状態にする場合に指定 */
   romance_player_session_id?: string;
   romance_player_history_id?: string;
+  /** romance の主人公の呼び名(攻略対象がセリフで呼ぶ名前)。空ならキャラクター名 */
+  romance_player_name?: string;
   /** romance の攻略対象の口調。空なら人物像からLLMが決める */
   romance_partner_speech_style?: string;
   /** この run 専用の NovelAI 画像モデル。未指定ならグローバル設定に従う */

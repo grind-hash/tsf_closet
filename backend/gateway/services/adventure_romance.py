@@ -40,6 +40,7 @@ from ..consts.adventure_romance import (
     ROMANCE_MONEY_MAX,
     ROMANCE_MONEY_MIN,
     ROMANCE_PLAYER_NAME_FALLBACK,
+    ROMANCE_PLAYER_NAME_MAX_LENGTH,
     ROMANCE_RESERVED_CHOICE_PATTERNS,
     ROMANCE_SLOT_CONFLICT_TAGS,
     ROMANCE_SLOT_SCENE_TAGS,
@@ -1097,7 +1098,16 @@ def romance_setup_system_prompt(
     return f"""You design the setup of {horizon} where the player tries to start dating one partner character.
 Return one JSON object only, in {response_language}, matching this schema:
 {{"partner_name":"...","partner_profile":"...","partner_speech_style":"...","relationship_origin":"...","job_name":"...","gift_catalog":[{{"name":"...","price":1500,"tier":"budget|standard|luxury"}}],"liked_gift_names":["..."],"disliked_gift_names":["..."],"likes_hint":"...","dislikes_hint":"..."}}
-The partner is the character shown in source_snapshot; keep their appearance and situation consistent with it. source_snapshot deliberately contains no name for the partner: when the supplied setting or objective already names the partner, reuse that name as partner_name; otherwise invent a fitting new name from their appearance. Never use player_name as the partner's name. The player is a separate person courting that partner; never treat the snapshot character as the player. partner_profile describes personality and daily life. partner_speech_style states, in {response_language}, exactly how the partner speaks, in one short sentence a writer can follow verbatim: politeness level (敬体 or 常体), first-person pronoun, how they address the player, sentence endings, and any verbal tic. Make it match the personality in partner_profile, so a brash or casual personality actually speaks casually rather than politely. relationship_origin describes how the player and the partner currently know each other, at an acquaintance level that can grow into dating {within}. job_name is a part-time job the player can work at, where the partner occasionally appears. gift_catalog must contain 8 to 12 concrete purchasable gifts with prices inside their tier band: budget 500-2000, standard 2001-6000, luxury 6001-15000. liked_gift_names and disliked_gift_names must each pick exactly 2 or 3 names verbatim from gift_catalog, reflecting the partner's personality. likes_hint and dislikes_hint describe those tastes indirectly, as hints the partner might drop in conversation, without naming the exact gifts. Keep every value concise."""
+The partner is the character shown in source_snapshot; keep their appearance and situation consistent with it. source_snapshot deliberately contains no name for the partner: when the supplied setting or objective already names the partner, reuse that name as partner_name; otherwise invent a fitting new name from their appearance. Never use player_name as the partner's name. The player is a separate person courting that partner; never treat the snapshot character as the player. partner_profile describes personality and daily life. partner_speech_style states, in {response_language}, exactly how the partner speaks, in one short sentence a writer can follow verbatim: politeness level (敬体 or 常体), first-person pronoun, how they address the player (built from player_name, for example with an honorific, by given name or surname alone, or as a nickname; never as a bare "you"/「あなた」), sentence endings, and any verbal tic. Make it match the personality in partner_profile, so a brash or casual personality actually speaks casually rather than politely. relationship_origin describes how the player and the partner currently know each other, at an acquaintance level that can grow into dating {within}. job_name is a part-time job the player can work at, where the partner occasionally appears. gift_catalog must contain 8 to 12 concrete purchasable gifts with prices inside their tier band: budget 500-2000, standard 2001-6000, luxury 6001-15000. liked_gift_names and disliked_gift_names must each pick exactly 2 or 3 names verbatim from gift_catalog, reflecting the partner's personality. likes_hint and dislikes_hint describe those tastes indirectly, as hints the partner might drop in conversation, without naming the exact gifts. Keep every value concise."""
+
+
+def normalize_player_name(value: str | None) -> str:
+    """セットアップで指定された主人公の呼び名を1行に正規化する。
+
+    プロンプトと HUD の両方へ入るため、改行を含む空白を畳み、上限で切る。
+    空文字は「指定なし」を表し、呼び出し側がテンプレート名等へ倒す。
+    """
+    return " ".join(str(value or "").split()).strip()[:ROMANCE_PLAYER_NAME_MAX_LENGTH]
 
 
 def romance_script_names(sim: dict[str, Any], language: str) -> tuple[str, str]:

@@ -353,6 +353,18 @@ test("start a romance run with day select and show the romance HUD", async ({
   const playerSelect = page.getByLabel(/主人公（自分）/);
   await expect(playerSelect).toHaveValue("char1");
   await expect(playerSelect.locator("option").first()).toHaveText("水瀬ユウヤ");
+  // 呼び名は選んだキャラクターの名前で埋まり、未編集なら選択に追従する
+  const playerName = page.getByLabel(/呼び名/);
+  await expect(playerName).toHaveValue("水瀬ユウヤ");
+  await playerSelect.selectOption("char2");
+  await expect(playerName).toHaveValue("星野エミ");
+  await playerSelect.selectOption("char1");
+  await expect(playerName).toHaveValue("水瀬ユウヤ");
+  // 書き換えた呼び名は選択を変えても保持される
+  await playerName.fill("ユウヤ");
+  await playerSelect.selectOption("char2");
+  await expect(playerName).toHaveValue("ユウヤ");
+  await playerSelect.selectOption("char1");
   await page.getByRole("button", { name: "ミッション案を自動生成" }).click();
   await expect(page.getByLabel("ゴール")).toHaveValue(
     "7日以内に美咲と想いを通わせ、交際を始める",
@@ -360,11 +372,12 @@ test("start a romance run with day select and show the romance HUD", async ({
   await page.getByRole("button", { name: "シナリオを開始" }).click();
 
   await expect(page).toHaveURL(/\/adventure\/run-1$/);
-  // 主人公(自分)は既定でテンプレキャラ char1 を送る
+  // 主人公(自分)は既定でテンプレキャラ char1 を送り、呼び名は入力値を送る
   expect(state.createBodies[0]).toMatchObject({
     preset: "romance",
     scenario_max_turns: 14,
     romance_player_character_id: "char1",
+    romance_player_name: "ユウヤ",
   });
   // romance HUD: Day/時間帯・好感度・所持金(タイルはラベルと値が別要素)
   const dayTile = page.locator(".adventure-hud__day");
@@ -548,6 +561,8 @@ test("player can be a transformed state from a session", async ({ page }) => {
   await expect(playerSource.getByRole("group")).toContainText(
     "テストキャラクター",
   );
+  // 呼び名はセッションに紐づく主人公名で埋まる
+  await expect(page.getByLabel(/呼び名/)).toHaveValue("テストキャラクター");
   // 選択モーダルを開き、セッション内の変身時点を選ぶ
   await playerSource.getByRole("button", { name: "変更" }).click();
   const picker = page.getByRole("dialog", { name: "主人公にするセッション" });
@@ -566,6 +581,7 @@ test("player can be a transformed state from a session", async ({ page }) => {
   expect(state.createBodies[0]).toMatchObject({
     romance_player_session_id: "session-1",
     romance_player_history_id: "h1",
+    romance_player_name: "テストキャラクター",
   });
   expect(state.createBodies[0]).not.toHaveProperty(
     "romance_player_character_id",
