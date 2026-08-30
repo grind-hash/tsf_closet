@@ -1,0 +1,201 @@
+/* Prompt Expander インペイント（マスク編集）モーダル */
+
+/* モーダル本文いっぱいに広げ、左（キャンバス）と右（マスク一覧）を横並びにする */
+.prompt-expander__inpaint {
+  display: flex;
+  flex: 1 1 auto;
+  gap: 1rem 1.25rem;
+  align-items: stretch;
+  min-height: 0;
+}
+
+.prompt-expander__inpaint-canvas-col {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+  min-height: 0;
+}
+
+.prompt-expander__inpaint-side {
+  display: flex;
+  flex: 0 0 280px;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.prompt-expander__inpaint-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+/* ブラシサイズはツールバーの右端に寄せ、キャンバスの縦幅を削らない */
+.prompt-expander__inpaint-brush {
+  display: flex;
+  flex: 1 1 200px;
+  align-items: center;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.prompt-expander__inpaint-brush .prompt-expander__label {
+  white-space: nowrap;
+}
+
+.prompt-expander__inpaint-brush .prompt-expander__range {
+  width: auto;
+  flex: 0 1 200px;
+  min-width: 80px;
+}
+
+/* キャンバスの置き場。ここの実寸を測って画像の表示サイズを決める */
+.prompt-expander__inpaint-stage {
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* 背景画像・プリセット・描画キャンバスを重ねる */
+.prompt-expander__inpaint-canvas {
+  position: relative;
+  flex: 0 0 auto;
+  border: 1px solid var(--border-color, #333);
+  border-radius: 8px;
+  overflow: hidden;
+  /* 透過画像でも塗った範囲が見えるようチェッカーボードを敷く */
+  background-color: #2a2a3e;
+  background-image:
+    linear-gradient(45deg, #23233a 25%, transparent 25%),
+    linear-gradient(-45deg, #23233a 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #23233a 75%),
+    linear-gradient(-45deg, transparent 75%, #23233a 75%);
+  background-size: 16px 16px;
+  background-position:
+    0 0,
+    0 8px,
+    8px -8px,
+    -8px 0;
+  touch-action: none;
+}
+
+.prompt-expander__inpaint-base {
+  display: block;
+}
+
+.prompt-expander__inpaint-preset {
+  position: absolute;
+  top: 0;
+  left: 0;
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.prompt-expander__inpaint-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+/* マスク一覧 */
+.prompt-expander__mask-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.prompt-expander__mask-item {
+  position: relative;
+  min-width: 0;
+}
+
+.prompt-expander__mask-btn {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  width: 100%;
+  padding: 0.25rem;
+  border: 1px solid var(--border-color, #333);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-color, #eee);
+  cursor: pointer;
+}
+
+.prompt-expander__mask-btn:hover {
+  background: var(--hover-bg, #1f2f50);
+}
+
+.prompt-expander__mask-btn.is-active {
+  border-color: var(--accent-color, #e94560);
+}
+
+.prompt-expander__mask-btn img {
+  width: 100%;
+  aspect-ratio: 104 / 152;
+  object-fit: contain;
+  background: #11111c;
+  border-radius: 4px;
+}
+
+.prompt-expander__mask-name {
+  font-size: 0.68rem;
+  line-height: 1.2;
+  color: var(--text-muted, #888);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 削除アイコンはサムネイルの右上に重ねる（ギャラリーと同じ体裁） */
+.prompt-expander__mask-delete {
+  position: absolute;
+  top: 0.15rem;
+  right: 0.15rem;
+}
+
+.prompt-expander__inpaint-save {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.prompt-expander__inpaint-save .prompt-expander__input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* 狭い画面では縦積みにし、モーダル本文のスクロールに任せる */
+@media (max-width: 760px) {
+  .prompt-expander__inpaint {
+    flex: 0 0 auto;
+    flex-direction: column;
+    min-height: auto;
+  }
+
+  .prompt-expander__inpaint-canvas-col {
+    flex: 0 0 auto;
+  }
+
+  .prompt-expander__inpaint-stage {
+    flex: 0 0 auto;
+    height: 60vh;
+    height: 60dvh;
+  }
+
+  .prompt-expander__inpaint-side {
+    flex: 0 0 auto;
+    overflow-y: visible;
+  }
+}

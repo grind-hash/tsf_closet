@@ -14,6 +14,8 @@ const resources = {
         adventureDesc: "変身後の状態から目的攻略に挑戦",
         bgmTest: "BGMテスト",
         bgmTestDesc: "TSFシナリオのBGMを試聴",
+        promptExpander: "Prompt Expander",
+        promptExpanderDesc: "指示からNovelAIプロンプトを拡張して画像を生成",
         endings: "エンディング",
         endingsDesc: "達成したエンディングを確認",
         achievements: "実績",
@@ -50,6 +52,8 @@ const resources = {
           openHistory: "{{name}} の時点を選ぶ",
           close: "選択画面を閉じる",
           notSelected: "未選択",
+          tabPromptExpander: "Prompt Expander",
+          promptExpanderOrigin: "Prompt Expander",
         },
         startMode: "開始方式",
         startModes: {
@@ -109,6 +113,10 @@ const resources = {
           playerFromSession: "セッションの姿を使う",
           playerSession: "主人公にするセッション",
           playerState: "主人公の姿（時点）",
+          playerName: "呼び名",
+          playerNameHint:
+            "攻略対象がセリフで主人公を呼ぶ名前。選んだキャラクターの名前が入るので、必要なら書き換えてください。空欄なら選んだキャラクターの名前になります",
+          playerNamePlaceholder: "例: ユウヤ",
           partnerPortraitAlt: "攻略対象の立ち絵",
           partnerLabel: "攻略対象",
           partnerSpeechStyle: "攻略対象の口調",
@@ -253,6 +261,14 @@ const resources = {
         },
         imageGenOptions: "生成オプション",
         imageSettings: "画像生成設定",
+        imageModel: "画像生成モデル",
+        imageModelDefault: "設定に従う（既定）",
+        imageModelHint:
+          "このシナリオ専用のNovelAIモデルを選べます。既定では設定画面のモデル（NSFW設定に応じてFull/Curatedが切り替わる）を使います。Curated系は非NSFW向けです。",
+        imageModelPlayHint:
+          "次回の画像生成から反映されます。Curated系は非NSFW向けです。V5系では精密参照が使えません。",
+        imageModelOtherProviderHint:
+          "この設定はNovelAI画像プロバイダー専用です。現在のプロバイダー(OpenRouter/セルフホスト)では選択しても効果はありません。",
         preciseReference: "精密参照画像を使う",
         preciseReferenceHint:
           "OFFが既定です。ONにすると開始画像をNovelAI精密参照に使い、参照1枚あたり5 Anlasを追加消費します。顔の固定が強まります。",
@@ -269,9 +285,47 @@ const resources = {
           "OFFが既定です。既定では背景は開始時に1回だけ生成し、行動に応じて中央の立ち絵のみ更新します。ONにすると、立ち絵の更新後に背景を含む合成シーンも直列で再生成するため、1ターンあたりの画像生成が1回増えて待ち時間が長くなります。",
         enableCompositeScenePlayHint:
           "次回のターンから反映されます。ONの間は毎ターン、立ち絵に加えて合成シーンも直列生成されるため待ち時間が長くなります。",
+        enableCompositeSceneCompanionHint:
+          "対面会話モード中は合成シーンを描かないため、この設定は効きません。モードをOFFにすると再び有効になります。",
+        companionMode: "対面会話モード",
+        companionModeHint:
+          "OFFが既定です。ONにすると攻略対象が目の前に立ち、1ターン＝1往復の会話になります（あなたの一言に、短い反応と相手のセリフ1つで返ります）。昼・夜の区切りは無く、決めた回数の往復で進みます。画像は背景（場所が変わったときだけ）と攻略対象の立ち絵だけを生成し、返ってきたセリフはそのまま読み上げに使えます。セルフホスト(ComfyUI)では背景を生成できません。",
+        companionModePlayHint:
+          "次のターンから反映されます。ONの間は1ターン＝1往復の会話になり、攻略対象の立ち絵だけを描き、背景は場所が変わったときだけ描き直します（昼夜の区切りはありません）。",
+        companionTurns: "ターン数",
+        companionTurnsUnit: "ターン",
+        companionTurnsHint:
+          "対面会話モードでは1ターン＝1往復の会話です。回数を使い切るとシナリオの結果が確定します。手番を使わない雑談は「トーク」でできます。",
+        avatar: {
+          selectLabel: "攻略対象の3Dモデル",
+          none: "なし（立ち絵を表示）",
+          setupHint:
+            "対面会話モードで、攻略対象の立ち絵の代わりに登録済みの3Dモデル（VRM）を表示します。読み上げに合わせて口が動き、返答ごとに表情と身振りが変わります。3Dモデル表示中は攻略対象の立ち絵を毎ターン描きません。",
+          companionOffHint:
+            "対面会話モードがONのときだけ使われます（OFFの間は選んでも立ち絵のままです）。",
+          playHint:
+            "次のターンから反映されます。3Dモデル表示中は攻略対象の立ち絵を毎ターン描きません。",
+          noModelsHint: "登録済みの3Dモデルがありません。",
+          registerLink: "設定画面の「3Dモデル」で登録する",
+          loading: "3Dモデルを読み込み中…",
+          loadFailedTitle: "3Dモデルを表示できません",
+          loadFailed:
+            "3Dモデルの読み込みに失敗したため、立ち絵で表示します。設定画面で登録し直すか、別のモデルを選んでください。",
+          deletedModel: "（削除済みのモデル）",
+          wardrobeHint:
+            "「{{character}}」には衣装差分が{{total}}種あります。着替えの場面では、本文に合わせてモデルが切り替わります（設定画面の「3Dモデル」で分類を変えられます）。",
+        },
+        companion: {
+          turnLabel: "ターン",
+          turnCounterHint: "{{turn}} / {{max}} ターン（1ターン＝1往復の会話）",
+          turnsLeft: "残り{{count}}",
+        },
+        regeneratePartnerPortrait: "攻略対象の立ち絵を再生成",
         drawPortraitEveryTurn: "主人公の立ち絵を毎ターン描く",
         drawPortraitEveryTurnHint:
           "ONが既定です。OFFにすると行動しても主人公の立ち絵を更新せず、直前の立ち絵のまま物語が進みます。合成シーンを描く設定のときは、直前の立ち絵をそのまま参照に使います。この設定はブラウザごとに保存されます。",
+        drawPortraitEveryTurnCompanionHint:
+          "対面会話モード中は主人公の立ち絵を描かないため、この設定は効きません。モードをOFFにすると再び有効になります。",
         drawPartnerEveryTurn: "攻略対象の立ち絵を毎ターン描く",
         drawPartnerEveryTurnHint:
           "ONが既定です。OFFにすると攻略対象の立ち絵を更新せず、直前の立ち絵のまま進行します。合成シーンを描く設定のときは、この立ち絵が合成の参照にも使われます。この設定はブラウザごとに保存されます。",
@@ -401,6 +455,28 @@ const resources = {
           show: "ウィンドウを戻す",
           showHint: "メッセージウィンドウを再表示（H）",
         },
+        sound: {
+          settings: "サウンド設定",
+        },
+        voice: {
+          title: "セリフ読み上げ",
+          enable: "攻略対象のセリフを読み上げる",
+          enableHint:
+            "手番の完了時とトークの返答時に、攻略対象のセリフを AivisSpeech で自動再生します（本文の「名前「セリフ」」行だけを読みます）。再生中はBGMを小さくします。",
+          disabledHint:
+            "設定 > 音声合成 で読み上げを有効にし、話者を選ぶと使えます。",
+          volume: "音量",
+          speed: "再生速度",
+          stop: "停止",
+          replay: "セリフを読み上げ",
+          replayHint: "表示中の攻略対象のセリフを読み上げる（再生中なら停止）",
+          status: {
+            idle: "待機中",
+            loading: "音声を合成中...",
+            playing: "再生中",
+            error: "読み上げに失敗しました",
+          },
+        },
         bgm: {
           settings: "BGM設定",
           enable: "BGMを再生",
@@ -415,6 +491,17 @@ const resources = {
         },
         actionPanel: {
           title: "行動",
+          act: "行動",
+          talk: "トーク",
+          talkHint:
+            "手番を消費せずに攻略対象と会話します（好感度・所持金・日数は変わりません）",
+        },
+        talk: {
+          placeholder: "{{name}}に話しかける",
+          hint: "手番を消費しない雑談です。好感度・所持金・日数は変わらず、会話の内容は次の手番の物語に引き継がれます。",
+          emptyHint: "{{name}}に話しかけてみましょう。手番は消費しません。",
+          you: "あなた",
+          pending: "{{name}}が考えています...",
         },
         freeInput: "行動や会話を自由に入力",
         freeInputHint:
@@ -573,6 +660,9 @@ const resources = {
         experimentalAdventure: "TSFシナリオ",
         experimentalAdventureDesc:
           "変身後の状態から独立したノベルゲームを開始できるメニューを表示します",
+        experimentalPromptExpander: "Prompt Expander",
+        experimentalPromptExpanderDesc:
+          "自然文の指示をLLMでNovelAIプロンプトに拡張し、ゲームとは独立に画像を生成・保存できる画面をメニューに表示します",
         adventureEnableCompositeScene: "背景と人物を同時に描く（既定）",
         adventureEnableCompositeSceneDesc:
           "新規シナリオ作成時の初期値です。ONの場合、中央の立ち絵の更新後に背景を含む合成シーンも直列で再生成するため、1ターンあたりの画像生成が2回になり待ち時間が長くなります。作成画面でシナリオごとに上書きできます。",
@@ -749,6 +839,93 @@ const resources = {
           updateWarning:
             "今回の結果は保存されましたが、自動メモを更新できませんでした。",
         },
+        avatar: {
+          sectionTitle: "3Dモデル (VRM)",
+          description:
+            "TSFシナリオの対面会話モードで、攻略対象の代わりに表示する3Dモデルを登録します。対応形式はVRM（0.x / 1.0）だけです。FBXやPMXはUnity + UniVRMやBlenderのVRMアドオンでVRMに変換してから登録してください。モデルの利用条件は各配布元の規約に従ってください。",
+          namingRule:
+            "同じキャラクターの衣装差分は、まとめて登録できます。ファイル名が「キャラクター名_衣装_髪型Ver.vrm」の形なら、最初の「_」までをキャラクター名として自動で分類します（例: サクラ_水着_髪束ねたVer.vrm → キャラクター「サクラ」、差分「水着 髪束ねたVer」）。分類はあとから各モデルの「キャラクターを編集」で付け替えられます。同じキャラクターの差分が2つ以上あると、対面会話モードで着替えの場面に合わせてモデルが切り替わります。",
+          dropZone:
+            "ここにVRMファイルをドロップ、またはクリックして選択（複数可）",
+          dropActive: "ドロップして登録",
+          uploading: "{{name}} を登録しています…",
+          uploadingProgress:
+            "{{name}} を登録しています…（{{index}}/{{total}}）",
+          uploadPartialFailure: "{{failed}}件の登録に失敗しました: {{names}}",
+          empty: "登録済みの3Dモデルはありません。",
+          ungrouped: "キャラクター未設定",
+          variantCount: "{{total}}種の差分",
+          summary: "登録 {{total}}件・キャラクター {{characters}}",
+          summaryEmpty: "登録済みのモデルはありません",
+          showVariants: "差分を表示",
+          hideVariants: "差分を隠す",
+          autoClassify: "ファイル名から自動分類",
+          autoClassifyHint:
+            "モデル名（登録時のファイル名。VRMに名前が埋め込まれている場合はその名前）が「キャラクター名_衣装_髪型Ver」の形のモデルのうち、キャラクター未設定のものと差分の説明が空のものだけを分類します。設定済みの分類は変えません。",
+          autoClassifyDone: "{{total}}件を分類しました。",
+          autoClassifyNone:
+            "ファイル名から分類できるモデルはありませんでした。",
+          characterGroupHint:
+            "対面会話モードでは、着替えの場面に合わせてこの中からモデルが切り替わります。",
+          renameCharacter: "キャラクター名を変更",
+          renameCharacterPrompt:
+            "新しいキャラクター名（この{{total}}件すべてに適用）",
+          editCharacter: "キャラクターを編集",
+          modelName: "モデル名",
+          characterName: "キャラクター名",
+          characterNamePlaceholder: "空欄で未設定にする",
+          variantLabel: "差分の説明",
+          variantLabelPlaceholder: "例: 水着 髪束ねたVer",
+          variantLabelHint:
+            "着替え先を選ぶときの手掛かりになります。衣装と髪型が分かる短い言葉にしてください。",
+          save: "保存",
+          cancel: "キャンセル",
+          author: "作者",
+          license: "ライセンス",
+          size: "サイズ",
+          registeredAt: "登録日",
+          spec0: "VRM 0.x",
+          spec1: "VRM 1.0",
+          preview: "プレビュー",
+          rename: "名前を変更",
+          renamePrompt: "新しい名前",
+          delete: "削除",
+          deleteConfirm:
+            "「{{name}}」を削除しますか？このモデルを使っているシナリオは立ち絵に戻ります。",
+          limit: "1ファイル {{size}} MiB まで",
+          errors: {
+            notVrm:
+              "VRMファイルではありません。VRM形式（.vrm）に変換してから登録してください。",
+            tooLarge: "ファイルが大きすぎます。",
+            failed: "登録に失敗しました。",
+            loadFailed: "一覧を取得できませんでした。",
+          },
+          previewTitle: "3Dモデルのプレビュー",
+          previewExpression: "表情",
+          previewGesture: "身振り",
+          previewPlay: "身振りを再生",
+          previewHint:
+            "読み上げが無いので口は動きません。表情と身振りの見え方だけを確認できます。",
+          close: "閉じる",
+          expressions: {
+            neutral: "ふつう",
+            happy: "うれしい",
+            sad: "かなしい",
+            angry: "おこる",
+            surprised: "おどろき",
+            relaxed: "リラックス",
+          },
+          gestures: {
+            idle: "なし",
+            nod: "うなずく",
+            shake_head: "首を振る",
+            tilt_head: "首をかしげる",
+            lean_forward: "前のめり",
+            lean_back: "のけぞる",
+            look_away: "目をそらす",
+            bounce: "はずむ",
+          },
+        },
         speech: {
           sectionTitle: "音声合成 (AivisSpeech)",
           section1Title: "1. エンジンの設定",
@@ -777,6 +954,17 @@ const resources = {
           useGpuDesc:
             "既定はCPUです。GPU環境がある場合のみ有効化してください。",
           engineDir: "AivisSpeech配置先ディレクトリ",
+          enginePort: "エンジンのポート番号",
+          enginePortDesc:
+            "音声合成エンジンの待ち受けポートです。既定は {{port}} です。このポートが他のソフトで使用済みの場合に変更してください。変更するとスピーカーとスタイルの選択は解除されます。",
+          enginePortInvalid: "ポート番号は 1〜65535 の整数で指定してください。",
+          engineEndpoint: "接続先: {{url}}",
+          externalEngineTitle: "VOICEVOX互換のエンジンに接続中",
+          externalEngineDesc:
+            "このポートでは、VOICEVOX互換のエンジンが動いています。AivisSpeech ではないため、エンジンのダウンロード/起動と音声合成モデル (.aivmx) のインストールは行えません。エンジンの起動と管理は、VOICEVOX互換のエンジン側で行ってください。",
+          externalEngineTerms:
+            "接続先エンジンおよび音声ライブラリの利用規約の順守は利用者の責任となります。本アプリは特定の外部エンジンへの対応を保証するものではありません。",
+          actionChangeEnginePort: "ポート番号を変更中",
           modelDir: "モデル配置先ディレクトリ",
           engineUrl: "AivisSpeech ダウンロードURL",
           modelUrl: "モデル ダウンロードURL",
@@ -897,9 +1085,6 @@ const resources = {
         aivisEngineStop: "停止",
         aivisEngineDockerManaged: "Docker管理（{{command}}）",
         sectionAttributes: "属性付与",
-        sectionPreserve: "保持する要素",
-        preserveDeprecatedNotice:
-          "この機能は v0.8.0 で削除予定です。保持したい内容は、設定画面で「プレイメモ」を有効にしたうえで「ユーザーメモ」に記述してご利用ください。",
         sectionLanguage: "言語",
         sectionSummary: "現在の設定",
         presets: "プリセット:",
@@ -907,7 +1092,6 @@ const resources = {
         saveAttributePreset: "💾 保存",
         attributePlaceholder: "例: グラビアポーズ得意",
         realityAttrNotify: "現実改変時の属性自動追加通知",
-        preservePlaceholder: "例: 瞳の色は青のまま",
         presetNamePlaceholder: "プリセット名",
         preciseRefTypeError: "{{name}}: PNG, JPEG, WebP のみ対応しています",
         preciseRefSizeError: "{{name}}: ファイルサイズが10MBを超えています",
@@ -915,12 +1099,8 @@ const resources = {
         difficultyLabel: "難易度",
         languageLabel: "言語",
         inpaintLabel: "インペイント",
-        preserveLabel: "保持",
         nsfwLabel: "NSFW",
         attributesLabel: "属性",
-        preserveElementsLabel: "保持要素",
-        changeScope: "変更対象:",
-        otherPreserve: "その他の保持指定:",
         novelaiImageSettings: "NovelAI 画像設定",
         directPrompt: "直接プロンプト:",
         directPromptPlaceholder: "例: maid headdress, frills, white apron",
@@ -948,26 +1128,9 @@ const resources = {
         strength: "強度",
         fidelity: "忠実度",
         clickToAddTitle: "クリックで追加: {{items}}",
-        clickToApplyTitle: "クリックで適用: {{items}}",
         deletePresetAria: "{{name}}を削除",
         loadingDots: "...",
-        preserveElements: {
-          background: "背景を保持する",
-          hairstyle: "髪型を保持する",
-          pose: "ポーズを保持する",
-          expression: "表情を保持する",
-          accessories: "アクセサリを保持する",
-        },
-        changeScopes: {
-          full: "全身",
-          upper: "上半身のみ",
-          lower: "下半身のみ",
-          accessories: "アクセサリのみ",
-          shoes: "靴のみ",
-        },
-        savePreservePresetTitle: "現在の保持設定をプリセットとして保存",
         attributePresetModalTitle: "属性プリセットを保存",
-        preservePresetModalTitle: "保持設定プリセットを保存",
         seedLabel: "シード値",
         seedPlaceholder: "ランダム",
         seedClear: "シードをクリア",
@@ -1246,6 +1409,9 @@ const resources = {
           customImageSection: "または自分の画像を使用",
           selectImage: "📁 画像を選択",
           createdCharacters: "作成したキャラクター",
+          selectFromPromptExpander: "Prompt Expander から選択",
+          promptExpanderLoadError:
+            "Prompt Expander の画像の読み込みに失敗しました",
           customImageAlt: "カスタム画像",
           namePlaceholder: "名前",
           descriptionPlaceholder: "説明",
@@ -1286,6 +1452,9 @@ const resources = {
         anlasTitle: "Anlas 追加消費の確認",
         anlasCancel: "キャンセル",
         anlasDoNotShowAgain: "ブラウザを閉じるまで表示しない",
+        preciseRefDropTitle: "ドロップして精密参照画像に追加",
+        preciseRefDropHint: "PNG / JPEG / WebP・10MBまで・最大6枚",
+        preciseRefDropResultTitle: "精密参照画像の追加",
         novelaiUsageLabel: "V5上限",
         novelaiUsageExhausted: "上限到達",
         novelaiUsageTooltip: "NAI Diffusion V5 の残り生成量: {{percent}}%",
@@ -1557,6 +1726,448 @@ const resources = {
           save_prompt: "プリセット名を入力",
         },
       },
+      promptExpander: {
+        header: {
+          title: "Prompt Expander",
+          subtitle:
+            "自然文の指示をNovelAIプロンプトへ拡張し、ゲームとは独立に画像を生成します",
+          backToList: "← 一覧へ戻る",
+          settingsToggle: "設定",
+          settingsOpenTitle: "設定パネルを開く",
+          settingsClose: "設定を閉じる",
+          anlas: "Anlas: {{value}}",
+          anlasTitle: "NovelAI Anlas 残高",
+          notConfigured:
+            "NovelAI の API キーが設定されていないため、拡張と生成は実行できません。バックエンドの設定を確認してください。",
+          dismissError: "閉じる",
+        },
+        sessions: {
+          title: "セッション",
+          newPlaceholder: "新しいセッションのタイトル（省略可）",
+          create: "新規セッション",
+          creating: "作成中…",
+          empty:
+            "セッションがありません。上の入力欄からセッションを作成してください。",
+          loading: "読み込み中…",
+          notFound: "セッションが見つかりません。",
+          untitled: "無題のセッション",
+          noThumb: "画像なし",
+          entryCount: "{{count}} 件",
+          updatedAt: "更新: {{value}}",
+          open: "{{title}} を開く",
+          rename: "名前変更",
+          renameLabel: "セッション名",
+          renameSave: "保存",
+          renameCancel: "キャンセル",
+          delete: "削除",
+          deleteConfirm:
+            "セッション「{{title}}」を削除しますか？含まれるエントリと画像もすべて削除されます。",
+        },
+        composer: {
+          sectionLabel: "プロンプト入力",
+          sectionParams: "生成パラメータ",
+          sectionManga: "漫画（コマ割り）",
+          sectionPrompt: "プロンプト／指示",
+          sectionCharacters: "キャラクタープロンプト",
+          sectionI2i: "i2i設定",
+          sectionInpaint: "インペイント（部分修正）",
+          sectionReference: "精密参照（V4.5 系のみ）",
+          mangaToggle: "漫画モード",
+          mangaSummaryOff: "OFF",
+          mangaSummaryUnsupported: "V5 専用（現在のモデルでは無効）",
+          mangaSummaryNoDialogue: "セリフなし",
+          mangaRequiresV5:
+            "漫画モード（コマ割り・吹き出しの文字描画）は NAI Diffusion V5 系モデル専用です。V4.5 では設定は保持されますが、拡張には使われません。",
+          mangaHint:
+            "「LLMでプロンプト化」のときに、指示文からコマ割りとセリフ付きのプロンプトを LLM が組み立てます。「1コマ目…2コマ目…」と書いても、あらすじだけでも構いません。欄の内容をそのまま生成するときには影響しません。",
+          mangaModeFixedHint:
+            "漫画モード中はコマ説明・外見を英語で組み立てます（日本語の説明文は画像内にナレーション枠として描かれてしまうため）。日本語は「」内のセリフ・効果音だけに使い、言語は漫画セクションで選べます。",
+          mangaPanelCount: "コマ数",
+          mangaPanelAuto: "おまかせ（2〜4コマ）",
+          mangaPanelValue: "{{count}}コマ",
+          mangaLayoutLabel: "コマ割り",
+          mangaLayout: {
+            auto: "おまかせ",
+            vertical: "縦積み",
+            horizontal: "横並び",
+            grid: "グリッド（2列）",
+          },
+          mangaReadingDirectionLabel: "読み順",
+          mangaReadingDirection: {
+            rtl: "右から左（日本式: 右上から）",
+            ltr: "左から右（西洋式: 左上から）",
+          },
+          mangaReadingDirectionShort: {
+            rtl: "右→左",
+            ltr: "左→右",
+          },
+          mangaTextLanguageLabel: "セリフの言語",
+          mangaTextLanguage: {
+            auto: "指示文に合わせる",
+            ja: "日本語",
+            en: "English",
+          },
+          mangaDialogue: "セリフ・吹き出しを入れる",
+          mangaSoundEffects: "効果音（擬音）を許可",
+          mangaNarration: "ナレーション枠を自動で入れる",
+          mangaNarrationHint:
+            "OFF でも【】で書いたナレーションは描かれます。ON にすると、場面転換や時間経過で LLM がナレーション枠を足します。",
+          mangaSummaryNarration: "ナレーション自動",
+          mangaNotationHint:
+            "記法: 「セリフ」『モノローグ』【ナレーション】《効果音》、行頭の①②③はコマ番号。空の括弧（「」など）は内容を LLM にお任せします。",
+          draftScript: "あらすじからネームを下書き",
+          draftScriptTitle:
+            "欄のあらすじを、記法付きのネーム（コマ番号・セリフ・ナレーション）に LLM で書き換えます。手直ししてから「LLMでプロンプト化」してください。元の文には戻せます",
+          draftingHint:
+            "LLM がネームを作成しています。完了するまでこの欄は編集できません。",
+          draftDone:
+            "あらすじからネームを下書きしました。手直ししてから「LLMでプロンプト化」してください。",
+          draftUndo: "元の文に戻す",
+          notation: {
+            toolbar: "漫画の記法を挿入",
+            speech: "セリフ",
+            monologue: "モノローグ",
+            narration: "ナレーション",
+            sfx: "効果音",
+            panel: "コマ番号",
+          },
+          mangaLayoutSizeHint:
+            "縦積みは「縦長」、横並びは「横長」のサイズが向いています。コマ数が多いほど各コマは小さく描かれます。読み順は各コマの位置（右上・左上…）として説明文に明示されます。",
+          mangaCharacterOnHint:
+            "キャラクタープロンプト ON: 登場人物ごとに外見とセリフを分けて組み立てます（複数人の会話向け）。",
+          mangaCharacterOffHint:
+            "キャラクタープロンプト OFF: 外見もセリフもベースプロンプトにまとめます（1 人の変身シーケンス向け）。",
+          i2iSummaryOn: "生成元: {{kind}}",
+          i2iSummaryOff: "生成元なし",
+          sourceNone: "生成元なし（text-to-image で生成します）",
+          sourceClear: "解除",
+          inpaintToggle: "インペイントを使う",
+          inpaintHint:
+            "i2i 元の画像にマスクを描き、塗った領域だけを描き直します。立ち絵の表情差分など、顔だけを変えたいときに使います。",
+          inpaintSummaryOff: "OFF",
+          inpaintSummaryOn: "マスク: {{label}}",
+          inpaintNoSource: "元画像を選んでください（i2i 元と共通です）",
+          inpaintNoMask: "マスクが未設定です",
+          inpaintBaseBadge: "インペイント元",
+          inpaintStrengthHint:
+            "描き直しの強さとノイズは「i2i設定」の値を使います。",
+          editMask: "マスクを編集",
+          clearMask: "マスクを消す",
+          pickHistory: "履歴から選ぶ",
+          uploadImage: "画像をアップロード",
+          inheritSource: "参照元のプロンプトを引き継ぐ",
+          inheritSourceHint:
+            "LLM でプロンプト化するときに、生成元のプロンプト（履歴の外見説明 / エントリの最終プロンプト）を土台にします",
+          sourceKind: {
+            none: "なし",
+            history: "プレイ履歴",
+            entry: "Prompt Expander",
+            upload: "アップロード",
+          },
+          promptLabel: "プロンプト／指示",
+          promptPlaceholder:
+            "NovelAI に渡すプロンプト、または「LLMでプロンプト化」で NovelAI 用プロンプトにする自然文の指示を入力",
+          promptPlaceholderManga:
+            "漫画にしたい流れを入力。例: ①男が鏡を見る【放課後】 ②体が女性化していく《ドクン》 ③「え、これ僕…？」『どうして…』。あらすじだけでもコマ割りとセリフは LLM が決めます",
+          expandModeLabel: "出力形式",
+          expandJapanese: "日本語文",
+          expandTags: "タグ",
+          expandButton: "LLMでプロンプト化",
+          expandPositiveTitle:
+            "この欄の内容を指示として、LLM で NovelAI 用のプロンプトに変換します（選んだ出力形式で）",
+          expandNegativeTitle:
+            "この欄の内容を指示として、LLM でネガティブプロンプトに変換します（選んだ出力形式で）",
+          expandDisabledEmpty: "プロンプト化する内容を入力してください",
+          expandEmptyPositive:
+            "プロンプト／指示を入力してからプロンプト化してください。",
+          expandEmptyNegative:
+            "ネガティブプロンプト欄に避けたい内容を入力してからプロンプト化してください。",
+          expandFailed: "プロンプト化に失敗しました: {{message}}",
+          positiveToolbar: "プロンプト欄の操作",
+          negativeToolbar: "ネガティブ欄の操作",
+          suggestButton: "✨ 提案",
+          suggestNeedsCharacterMode:
+            "キャラクタープロンプトを ON にすると提案をスロットへ挿入できます",
+          applyExpansion: "欄へ反映",
+          originTitle: "LLM の変換結果を反映済み（指示: {{instruction}}）",
+          v45JapaneseHint:
+            "V4.5 では日本語プロンプトの精度が落ちます。出力形式は「タグ」を推奨します。",
+          characterToggle: "キャラクタープロンプト",
+          characterOffHint:
+            "ON にすると登場人物ごとのプロンプト欄を使えます（V5: 最大22、V4.5: 最大6）",
+          characterCounter: "{{count}} / {{max}}",
+          addSlot: "＋ 追加",
+          addSlotMax: "このモデルのキャラクタープロンプトは最大 {{max}} 件です",
+          removeSlot: "キャラクター {{index}} を削除",
+          slotLabel: "キャラクター {{index}}",
+          slotPlaceholder: "このキャラクターの外見・ポーズなど",
+          noSlots: "キャラクタープロンプトはまだありません。",
+          suggestFromMemory: "メモリから好みのキャラを提案",
+          overCapWarning:
+            "{{model}} のキャラクタープロンプト上限（{{max}}件）を超えています。超過分を削除するまで生成できません。",
+          negativeLabel: "ネガティブプロンプト",
+          negativePlaceholder: "避けたい要素（任意）",
+          imageModel: "画像モデル",
+          imageSize: "サイズ",
+          size: {
+            portrait: "縦長",
+            landscape: "横長",
+            square: "正方形",
+          },
+          seed: "Seed",
+          seedPlaceholder: "ランダム",
+          seedClear: "Seed をクリア",
+          seedHint: "空欄 = ランダム。同じ画像を再現したい場合に指定します。",
+          i2iStrength: "i2i 強度",
+          i2iNoise: "ノイズ",
+          i2iDisabledReason:
+            "生成元画像を選ぶと i2i 強度とノイズを調整できます。",
+          transparentToggle: "画像の背景を透過",
+          transparentSummary: "透過",
+          transparentHintV5:
+            "V5 系: プロンプトに transparent background を付けて透過 PNG を生成します。「LLMでプロンプト化」でも背景を描写しない指示を加えます。",
+          transparentHintV45:
+            "V4.5 系: 白背景で生成し、この画面で背景を切り抜いて表示します。サーバーに保存される PNG は白背景のままなので、透過画像はエントリの「透過PNGを保存」から保存してください。",
+          transparentHintManga:
+            "漫画モード中は背景透過は無効です（コマ枠ごと切り抜くことはできないため）。",
+          transparentEmphasis: "背景透過タグの強調",
+          transparentEmphasisNone: "なし",
+          transparentEmphasisHint:
+            "白背景の指定が効かず背景が描かれてしまうときに強めます。{ } 1 組で約 1.05 倍です。",
+          transparentEmphasisDisabledOff:
+            "背景透過が有効なときだけ使われます。",
+          transparentEmphasisDisabledV5:
+            "V5 系はネイティブ透過のため強調は使いません（V4.5 系を選ぶと効きます）。",
+          transparentTailLabel: "送信時に追加:",
+          transparentTailNone: "なし（すべて欄に入力済み）",
+          referenceToggle: "精密参照を使う",
+          referenceSummaryOff: "OFF",
+          referenceSummaryUnsupported: "V4.5 専用（現在のモデルでは無効）",
+          referenceSummaryNoImage: "参照画像なし",
+          referenceSummaryOn:
+            "{{type}} · 強度 {{strength}} · 忠実度 {{fidelity}} · +{{cost}} Anlas",
+          referenceRequiresV45:
+            "精密参照画像（NovelAI character reference）は NAI Diffusion V4.5 系モデル専用です。V5 系では設定は保持されますが、生成には使われません。",
+          referenceHint:
+            "参照画像の人物の顔立ち・体型を固定して生成します。i2i 元とは別に選べるので、参照だけを指定して text-to-image で立ち絵差分（別ポーズ・別衣装）を作れます。",
+          referenceNoImage: "参照画像を選ぶと有効になります。",
+          referenceNone: "参照画像なし",
+          referenceClear: "解除",
+          referenceCostHint:
+            "参照 1 枚あたり +{{cost}} Anlas を追加消費します（無料枠サイズでも消費します）。",
+          referenceCostBadge: "+{{cost}} Anlas",
+          referenceTypeLabel: "参照の種類",
+          referenceType: {
+            character: "キャラクター",
+            style: "画風",
+            characterStyle: "キャラクター＋画風",
+          },
+          referenceStrength: "参照強度",
+          referenceFidelity: "忠実度",
+          referenceDisabledReason:
+            "参照画像を選ぶと参照強度と忠実度を調整できます。",
+          generate: "生成",
+          expanding: "プロンプト化中…",
+          expandingHint:
+            "LLM がプロンプトを作成しています。完了するまでこの欄は編集できません。",
+          generating: "生成中…",
+          disabledNotConfigured:
+            "NovelAI が設定されていないためプロンプト化・提案・生成はできません",
+          disabledNoSession: "セッションを開いてください",
+          disabledTooMany: "キャラクタープロンプトが上限を超えています",
+          disabledEmptyPrompt: "プロンプト／指示を入力してください",
+          disabledPendingExpansion:
+            "変換結果を「欄へ反映」するか「破棄」してから生成してください",
+          generatingHint: "画像を生成しています…",
+        },
+        inpaint: {
+          modalTitle: "マスクを編集",
+          modalHint:
+            "描き直したい範囲を塗ります。顔だけの形などはプリセットとして保存すると次から 1 クリックで呼べます。",
+          toolbarLabel: "マスク編集ツール",
+          brush: "ブラシ",
+          eraser: "消しゴム",
+          undo: "元に戻す",
+          redo: "やり直す",
+          clear: "クリア",
+          brushSize: "ブラシサイズ",
+          applyMask: "このマスクを使う",
+          maskDrawn: "手描きのマスク",
+          emptyMask:
+            "まだ何も塗られていません。描き直したい範囲を塗ってください。",
+          systemMasks: "定型マスク",
+          presetMasks: "保存したマスク",
+          noMasks: "まだありません",
+          savePreset: "プリセットとして保存",
+          presetNamePlaceholder: "名前（例: 顔）",
+          deletePreset: "このプリセットを削除",
+          presetSharedHint: "マスクのプリセットは通常のプレイ画面と共通です。",
+        },
+        controlBar: {
+          label: "生成操作",
+          expandAll: "すべて開く",
+          collapseAll: "すべて閉じる",
+          chipTransparent: "透過",
+          chipManga: "漫画",
+          chipInpaint: "インペイント",
+          chipReference: "精密参照",
+        },
+        expansion: {
+          titlePositive: "変換結果（プロンプト）",
+          titleNegative: "変換結果（ネガティブ）",
+          hint: "内容を確認・編集してから、欄へ反映するか、この内容でそのまま生成します。",
+          basePrompt: "ベースプロンプト",
+          characterPrompt: "キャラクター {{index}}",
+          negativePrompt: "ネガティブプロンプト",
+          confirm: "この内容で生成",
+          discard: "破棄",
+        },
+        entry: {
+          sectionLabel: "エントリ一覧",
+          loading: "読み込み中…",
+          empty: "まだエントリがありません。左の入力欄から生成してください。",
+          generatingNotice: "画像を生成しています…",
+          preview: "画像を拡大表示",
+          expandFull: "全文を表示",
+          collapse: "折りたたむ",
+          instruction: "指示",
+          finalPrompt: "最終プロンプト",
+          negativePrompt: "ネガティブ",
+          characterPrompts: "キャラクター",
+          uploadedNoText: "（アップロード画像）",
+          seedBadge: "seed {{value}}",
+          expandBadge: {
+            japanese: "日本語文で変換",
+            tags: "タグで変換",
+          },
+          badgeUploaded: "アップロード",
+          mangaBadge: "漫画",
+          mangaBadgeCount: "漫画 {{count}}コマ",
+          inpaintBadge: "インペイント",
+          referenceBadge: "精密参照",
+          transparentBadge: "透過",
+          useAsReference: "参照にする",
+          downloadTransparent: "透過PNGを保存",
+          transparentProcessing: "背景を切り抜いています…",
+          referenceDetail: "精密参照",
+          referenceDetailValue:
+            "{{type}} · 強度 {{strength}} · 忠実度 {{fidelity}}",
+          restore: "欄へ復元",
+          regenerate: "このプロンプトで再生成",
+          regenerateTitle:
+            "このエントリのプロンプト・設定のまま、新しいシードで生成し直します",
+          useAsSource: "i2i元にする",
+          useInGame: "通常プレイで使う",
+          useInAdventure: "TSFシナリオで使う",
+          delete: "削除",
+          deleteConfirm: "このエントリと画像を削除しますか？",
+          filterLabel: "履歴の絞り込み",
+          filter: {
+            all: "すべて",
+            normal: "通常",
+            manga: "漫画",
+            uploaded: "アップロード",
+          },
+          filterEmpty: "この条件に一致するエントリはありません。",
+        },
+        settings: {
+          title: "Prompt Expander 設定",
+          textModel: "テキストモデル（プロンプト化・提案に使用）",
+          textModelHint: "NovelAI のテキスト生成モデルを切り替えます。",
+          memory: "Prompt Expander メモリ",
+          memoryPlaceholder:
+            "好みの設定・キャラクター像などを書いておくと、拡張と提案の参考にします",
+          memoryCount: "{{count}} / {{max}} 文字",
+          useMemory: "メモリを使う",
+          useMemoryDesc:
+            "OFF の場合、このメモリは拡張・提案に使われません（提案はグローバルメモリがあればそちらを参照します）。",
+          restoreSeed: "「欄へ復元」でシードも復元する",
+          restoreSeedDesc:
+            "ON にすると、エントリの「欄へ復元」でそのエントリのシード値を生成パラメータに設定します。OFF の場合、現在のシードは変更しません。",
+          importMemory: "メモリ情報を持ってくる",
+          importing: "取得中…",
+          importConfirm:
+            "Prompt Expander メモリを上書きします。よろしいですか？",
+          importDone: "グローバルメモリを取り込みました。",
+          importEmpty: "取り込めるグローバルメモリがありません。",
+        },
+        upload: {
+          title: "画像をアップロード",
+          choose: "画像ファイル",
+          preview: "プレビュー",
+          keepAsEntry: "履歴に残す",
+          useAsSource: "i2i元として使う",
+          useAsReference: "精密参照に使う",
+          atLeastOne:
+            "「履歴に残す」「i2i元として使う」のどちらかを ON にしてください。",
+          atLeastOneReference:
+            "「履歴に残す」「精密参照に使う」のどちらかを ON にしてください。",
+          note: "メモ（任意）",
+          notePlaceholder: "この画像の説明",
+          confirm: "決定",
+          cancel: "キャンセル",
+          uploading: "アップロード中…",
+        },
+        drop: {
+          title: "この画像で何をしたいですか？",
+          overlayTitle: "ドロップして画像を使う",
+          overlayHint: "i2i元・インペイント・精密参照から選べます",
+          notImage:
+            "画像ファイル（PNG / JPEG / WebP など）をドロップしてください",
+          useAsSource: "i2i元にする",
+          useAsSourceDesc: "この画像を元に生成し直します",
+          useAsInpaint: "インペイントの元にする",
+          useAsInpaintDesc:
+            "この画像の一部を描き直します（続けてマスクを編集）",
+          useAsReference: "精密参照にする",
+          useAsReferenceDesc:
+            "人物の同一性を固定する参照画像にします（Anlas を追加消費）",
+        },
+        suggest: {
+          title: "メモリから好みのキャラを提案",
+          count: "件数",
+          mode: "形式",
+          run: "提案を取得",
+          running: "取得中…",
+          insertTarget: "挿入先",
+          newSlot: "新しいスロット",
+          slotN: "スロット {{index}}: {{preview}}",
+          emptySlot: "（空）",
+          intoPrompt:
+            "キャラクタープロンプトが OFF のため、提案はプロンプト欄の末尾に追記されます。",
+          insert: "挿入",
+          inserted: "挿入済み",
+          memoryEmpty: "参照できるメモリがありません。",
+          memoryEmptyHint:
+            "設定パネルの「メモリ情報を持ってくる」でグローバルメモリを取り込むか、Prompt Expander メモリを入力してください。",
+          empty: "「提案を取得」を押すと候補が表示されます。",
+          close: "閉じる",
+        },
+        picker: {
+          title: "生成元を選ぶ",
+          tabEntries: "Prompt Expander",
+          tabPlay: "プレイセッション",
+          playTitle: "プレイセッションから選ぶ",
+          titleReference: "参照画像を選ぶ",
+          empty: "エントリがありません。",
+          loading: "読み込み中…",
+          loadMore: "もっと見る",
+          resolving: "最新の履歴を取得しています…",
+          noHistory: "このセッションには画像履歴がありません。",
+          playLabelFallback: "プレイ履歴",
+          close: "閉じる",
+        },
+        reference: {
+          anlasBody:
+            "精密参照画像の使用により、参照 1 枚あたり {{cost}} Anlas を追加消費します。続行しますか？",
+        },
+        errors: {
+          emptyPrompt: "プロンプト／指示を入力してください。",
+          tooManyCharacters:
+            "キャラクタープロンプトが上限を超えています。超過分を削除してください。",
+          noSession: "セッションを開いてから実行してください。",
+        },
+      },
     },
   },
   en: {
@@ -1571,6 +2182,9 @@ const resources = {
         adventureDesc: "Play an objective adventure from a transformed state",
         bgmTest: "BGM Test",
         bgmTestDesc: "Preview the TSF Scenario background music",
+        promptExpander: "Prompt Expander",
+        promptExpanderDesc:
+          "Expand instructions into NovelAI prompts and generate images",
         endings: "Endings",
         endingsDesc: "View unlocked endings",
         achievements: "Achievements",
@@ -1607,6 +2221,8 @@ const resources = {
           openHistory: "Pick a moment from {{name}}",
           close: "Close the picker",
           notSelected: "Not selected",
+          tabPromptExpander: "Prompt Expander",
+          promptExpanderOrigin: "Prompt Expander",
         },
         startMode: "Start Mode",
         startModes: {
@@ -1666,6 +2282,10 @@ const resources = {
           playerFromSession: "Use a session state",
           playerSession: "Session for your character",
           playerState: "Your appearance (point in time)",
+          playerName: "Name",
+          playerNameHint:
+            "The name the partner uses for your character in dialogue. It is prefilled from the selected character; edit it if you like. Leave it blank to use the selected character's name.",
+          playerNamePlaceholder: "e.g. Yuya",
           partnerPortraitAlt: "Partner portrait",
           partnerLabel: "Love interest",
           partnerSpeechStyle: "Partner's speech style",
@@ -1811,6 +2431,14 @@ const resources = {
         },
         imageGenOptions: "Generation Options",
         imageSettings: "Image Generation Settings",
+        imageModel: "Image Model",
+        imageModelDefault: "Follow global settings (default)",
+        imageModelHint:
+          "Choose a NovelAI model used only for this scenario. By default it follows the model from the settings screen (Full/Curated depending on the NSFW setting). Curated models are for non-NSFW content.",
+        imageModelPlayHint:
+          "Applies from the next image generation. Curated models are for non-NSFW content. Precise references are unavailable on V5 models.",
+        imageModelOtherProviderHint:
+          "This option only applies to the NovelAI image provider. With your current provider (OpenRouter / self-hosted) it has no effect.",
         preciseReference: "Use precise character reference",
         preciseReferenceHint:
           "Off by default. When on, the starting image is used as a NovelAI character reference and costs 5 extra Anlas per reference, while face consistency improves.",
@@ -1827,9 +2455,47 @@ const resources = {
           "Off by default. By default, the background is generated once at the start, and only the centered character sprite updates as you act. When on, the full composite scene (including background) is also regenerated in series after each sprite update, so each turn runs one more image generation and takes longer.",
         enableCompositeScenePlayHint:
           "Applies from the next turn. While on, every turn generates the composite scene in series after the character sprite, so turns take longer.",
+        enableCompositeSceneCompanionHint:
+          "Face-to-face mode never draws the composite scene, so this setting has no effect until the mode is turned off.",
+        companionMode: "Face-to-face mode",
+        companionModeHint:
+          "Off by default. When on, the partner stands right in front of you and each turn is one exchange: your line gets a short reaction plus one spoken reply. There are no day/night slots; the scenario runs on a turn budget instead of days. Only the background (when the location changes) and the partner sprite are generated, and the reply can be read aloud as is. Self-hosted (ComfyUI) cannot generate backgrounds.",
+        companionModePlayHint:
+          "Applies from the next turn. While on, each turn is one exchange, only the partner sprite is drawn, and the background is redrawn only when the location changes (no day/night slots).",
+        companionTurns: "Turns",
+        companionTurnsUnit: "turns",
+        companionTurnsHint:
+          "In face-to-face mode one turn is one exchange. The scenario resolves when the turns run out. Use Talk for chat that does not spend a turn.",
+        avatar: {
+          selectLabel: "Partner's 3D model",
+          none: "None (show the sprite)",
+          setupHint:
+            "In face-to-face mode, shows a registered 3D model (VRM) instead of the partner sprite. The mouth moves with the voice, and the expression and gesture change with every reply. While the 3D model is shown, the partner sprite is not redrawn each turn.",
+          companionOffHint:
+            "Used only while face-to-face mode is on (the sprite stays while it is off).",
+          playHint:
+            "Applies from the next turn. While the 3D model is shown, the partner sprite is not redrawn each turn.",
+          noModelsHint: "No 3D models are registered yet.",
+          registerLink: "Register one under “3D models” in Settings",
+          loading: "Loading the 3D model…",
+          loadFailedTitle: "Cannot show the 3D model",
+          loadFailed:
+            "The 3D model failed to load, so the sprite is shown instead. Re-register it in Settings or pick another model.",
+          deletedModel: "(deleted model)",
+          wardrobeHint:
+            "“{{character}}” has {{total}} outfit variants. When the partner changes clothes in the story, the model switches to match (adjust the grouping under “3D models” in Settings).",
+        },
+        companion: {
+          turnLabel: "Turn",
+          turnCounterHint: "{{turn}} / {{max}} turns (one exchange per turn)",
+          turnsLeft: "{{count}} left",
+        },
+        regeneratePartnerPortrait: "Regenerate the partner sprite",
         drawPortraitEveryTurn: "Draw protagonist sprite every turn",
         drawPortraitEveryTurnHint:
           "On by default. When off, the protagonist sprite is not updated as you act; the story continues with the previous sprite. With the composite scene on, the previous sprite is reused as its character reference. This preference is saved per browser.",
+        drawPortraitEveryTurnCompanionHint:
+          "Face-to-face mode never draws the protagonist sprite, so this setting has no effect until the mode is turned off.",
         drawPartnerEveryTurn: "Draw partner sprite every turn",
         drawPartnerEveryTurnHint:
           "On by default. When off, the partner sprite is not updated; play continues with the previous sprite. With the composite scene on, this sprite is also used as a reference for the composite. This preference is saved per browser.",
@@ -1955,6 +2621,28 @@ const resources = {
           show: "Show window",
           showHint: "Show the message window again (H)",
         },
+        sound: {
+          settings: "Sound settings",
+        },
+        voice: {
+          title: "Voice playback",
+          enable: "Read the partner's lines aloud",
+          enableHint:
+            "After each turn and each talk reply, the partner's lines are played with AivisSpeech (only Name「line」 lines are read). BGM is lowered while a voice plays.",
+          disabledHint:
+            "Enable speech synthesis and pick a speaker under Settings > Speech synthesis to use this.",
+          volume: "Volume",
+          speed: "Playback speed",
+          stop: "Stop",
+          replay: "Read the lines aloud",
+          replayHint: "Read the partner's lines shown now (stops if playing)",
+          status: {
+            idle: "Idle",
+            loading: "Synthesizing voice...",
+            playing: "Playing",
+            error: "Voice playback failed",
+          },
+        },
         bgm: {
           settings: "BGM settings",
           enable: "Play BGM",
@@ -1969,6 +2657,17 @@ const resources = {
         },
         actionPanel: {
           title: "Actions",
+          act: "Act",
+          talk: "Talk",
+          talkHint:
+            "Chat with the partner without spending a turn (affection, money, and days do not change)",
+        },
+        talk: {
+          placeholder: "Say something to {{name}}",
+          hint: "A free chat that does not spend a turn. Affection, money, and days stay the same, and what you talk about carries into the next scene.",
+          emptyHint: "Say something to {{name}}. This does not spend a turn.",
+          you: "You",
+          pending: "{{name}} is thinking...",
         },
         freeInput: "Enter an action or dialogue",
         freeInputHint:
@@ -2129,6 +2828,9 @@ const resources = {
         experimentalAdventure: "TSF Scenario",
         experimentalAdventureDesc:
           "Show the separate visual-novel mode that starts from a transformed state",
+        experimentalPromptExpander: "Prompt Expander",
+        experimentalPromptExpanderDesc:
+          "Show a standalone screen that expands natural-language instructions into NovelAI prompts and generates images outside of gameplay",
         adventureEnableCompositeScene:
           "Draw background and character together (default)",
         adventureEnableCompositeSceneDesc:
@@ -2307,6 +3009,92 @@ const resources = {
           updateWarning:
             "The result was saved, but the automatic memory could not be updated.",
         },
+        avatar: {
+          sectionTitle: "3D models (VRM)",
+          description:
+            "Register 3D models shown instead of the partner in the TSF scenario face-to-face mode. Only VRM (0.x / 1.0) is supported. Convert FBX or PMX to VRM first (Unity + UniVRM, or the Blender VRM add-on). Follow each model's own license terms.",
+          namingRule:
+            "Outfit variants of the same character can be registered together. When a file is named “Character_Outfit_HairVer.vrm”, everything before the first “_” becomes the character name automatically (e.g. Sakura_Swimsuit_TiedHair.vrm → character “Sakura”, variant “Swimsuit TiedHair”). You can regroup any model later with “Edit character”. When a character has two or more variants, face-to-face mode switches the model to match the partner changing clothes.",
+          dropZone:
+            "Drop VRM files here, or click to choose (multiple allowed)",
+          dropActive: "Drop to register",
+          uploading: "Registering {{name}}…",
+          uploadingProgress: "Registering {{name}}… ({{index}}/{{total}})",
+          uploadPartialFailure:
+            "{{failed}} file(s) failed to register: {{names}}",
+          empty: "No 3D models are registered.",
+          ungrouped: "No character set",
+          variantCount: "{{total}} variants",
+          summary: "{{total}} registered · {{characters}} characters",
+          summaryEmpty: "No models registered",
+          showVariants: "Show variants",
+          hideVariants: "Hide variants",
+          autoClassify: "Auto-classify from file names",
+          autoClassifyHint:
+            "For models whose name (the file name at registration, or the name embedded in the VRM) follows “Character_Outfit_HairVer”, fills in only a missing character or an empty variant description. Existing groupings are left unchanged.",
+          autoClassifyDone: "Classified {{total}} model(s).",
+          autoClassifyNone: "No model could be classified from its file name.",
+          characterGroupHint:
+            "In face-to-face mode the model switches among these when the partner changes clothes.",
+          renameCharacter: "Rename character",
+          renameCharacterPrompt:
+            "New character name (applies to all {{total}} models)",
+          editCharacter: "Edit character",
+          modelName: "Model name",
+          characterName: "Character name",
+          characterNamePlaceholder: "Leave empty to ungroup",
+          variantLabel: "Variant description",
+          variantLabelPlaceholder: "e.g. Swimsuit, tied hair",
+          variantLabelHint:
+            "Used as the hint for choosing the outfit to change into. Keep it short and describe the outfit and hairstyle.",
+          save: "Save",
+          cancel: "Cancel",
+          author: "Author",
+          license: "License",
+          size: "Size",
+          registeredAt: "Registered",
+          spec0: "VRM 0.x",
+          spec1: "VRM 1.0",
+          preview: "Preview",
+          rename: "Rename",
+          renamePrompt: "New name",
+          delete: "Delete",
+          deleteConfirm:
+            "Delete “{{name}}”? Scenarios using this model fall back to the sprite.",
+          limit: "Up to {{size}} MiB per file",
+          errors: {
+            notVrm:
+              "Not a VRM file. Convert the model to VRM (.vrm) and try again.",
+            tooLarge: "The file is too large.",
+            failed: "Registration failed.",
+            loadFailed: "Could not load the list.",
+          },
+          previewTitle: "3D model preview",
+          previewExpression: "Expression",
+          previewGesture: "Gesture",
+          previewPlay: "Play gesture",
+          previewHint:
+            "There is no voice here, so the mouth stays still. Use this to check expressions and gestures only.",
+          close: "Close",
+          expressions: {
+            neutral: "Neutral",
+            happy: "Happy",
+            sad: "Sad",
+            angry: "Angry",
+            surprised: "Surprised",
+            relaxed: "Relaxed",
+          },
+          gestures: {
+            idle: "None",
+            nod: "Nod",
+            shake_head: "Shake head",
+            tilt_head: "Tilt head",
+            lean_forward: "Lean forward",
+            lean_back: "Lean back",
+            look_away: "Look away",
+            bounce: "Bounce",
+          },
+        },
         speech: {
           sectionTitle: "Speech Synthesis (AivisSpeech)",
           section1Title: "1. Engine settings",
@@ -2335,6 +3123,17 @@ const resources = {
           useGpuDesc:
             "CPU is default. Enable only when GPU runtime is available.",
           engineDir: "AivisSpeech install directory",
+          enginePort: "Engine port",
+          enginePortDesc:
+            "Port the speech synthesis engine listens on. The default is {{port}}. Change it when that port is already used by another program. Changing it clears the selected speaker and style.",
+          enginePortInvalid: "Port must be an integer between 1 and 65535.",
+          engineEndpoint: "Endpoint: {{url}}",
+          externalEngineTitle: "Connected to a VOICEVOX-compatible engine",
+          externalEngineDesc:
+            "A VOICEVOX-compatible engine is answering on this port. It is not AivisSpeech, so engine download/startup and voice model (.aivmx) installation are unavailable. Start and manage the engine on that engine's own side.",
+          externalEngineTerms:
+            "Complying with the terms of the connected engine and its voice libraries is your responsibility. This app does not guarantee support for any particular third-party engine.",
+          actionChangeEnginePort: "Changing the engine port",
           modelDir: "Model directory",
           engineUrl: "AivisSpeech download URL",
           modelUrl: "Model download URL",
@@ -2452,9 +3251,6 @@ const resources = {
         aivisEngineStop: "Stop",
         aivisEngineDockerManaged: "Docker managed ({{command}})",
         sectionAttributes: "Attributes",
-        sectionPreserve: "Preserve Elements",
-        preserveDeprecatedNotice:
-          "This feature will be removed in v0.8.0. Enable Play Memory in Settings and write what you want preserved into User Memory instead.",
         sectionLanguage: "Language",
         sectionSummary: "Current Settings",
         presets: "Presets:",
@@ -2462,7 +3258,6 @@ const resources = {
         saveAttributePreset: "💾 Save",
         attributePlaceholder: "e.g. Skilled at gravure poses",
         realityAttrNotify: "Notify on reality change auto-attributes",
-        preservePlaceholder: "e.g. Keep eye color blue",
         presetNamePlaceholder: "Preset name",
         preciseRefTypeError: "{{name}}: Only PNG, JPEG, WebP are supported",
         preciseRefSizeError: "{{name}}: File size exceeds 10MB",
@@ -2470,12 +3265,8 @@ const resources = {
         difficultyLabel: "Difficulty",
         languageLabel: "Language",
         inpaintLabel: "Inpaint",
-        preserveLabel: "Preserve",
         nsfwLabel: "NSFW",
         attributesLabel: "Attributes",
-        preserveElementsLabel: "Preserve Elements",
-        changeScope: "Change Scope:",
-        otherPreserve: "Other Preserve Rules:",
         novelaiImageSettings: "NovelAI Image Settings",
         directPrompt: "Direct Prompt:",
         directPromptPlaceholder: "e.g. maid headdress, frills, white apron",
@@ -2503,26 +3294,9 @@ const resources = {
         strength: "Strength",
         fidelity: "Fidelity",
         clickToAddTitle: "Click to add: {{items}}",
-        clickToApplyTitle: "Click to apply: {{items}}",
         deletePresetAria: "Delete {{name}}",
         loadingDots: "...",
-        preserveElements: {
-          background: "Preserve background",
-          hairstyle: "Preserve hairstyle",
-          pose: "Preserve pose",
-          expression: "Preserve expression",
-          accessories: "Preserve accessories",
-        },
-        changeScopes: {
-          full: "Full body",
-          upper: "Upper body only",
-          lower: "Lower body only",
-          accessories: "Accessories only",
-          shoes: "Shoes only",
-        },
-        savePreservePresetTitle: "Save current preserve settings as preset",
         attributePresetModalTitle: "Save attribute preset",
-        preservePresetModalTitle: "Save preserve preset",
         seedLabel: "Seed",
         seedPlaceholder: "Random",
         seedClear: "Clear seed",
@@ -2800,6 +3574,8 @@ const resources = {
           customImageSection: "Or use your own image",
           selectImage: "📁 Select Image",
           createdCharacters: "Created Characters",
+          selectFromPromptExpander: "Select from Prompt Expander",
+          promptExpanderLoadError: "Failed to load the Prompt Expander image",
           customImageAlt: "Custom image",
           namePlaceholder: "Name",
           descriptionPlaceholder: "Description",
@@ -2840,6 +3616,9 @@ const resources = {
         anlasTitle: "Confirm additional Anlas usage",
         anlasCancel: "Cancel",
         anlasDoNotShowAgain: "Don't show again until browser closes",
+        preciseRefDropTitle: "Drop to add as a precise reference image",
+        preciseRefDropHint: "PNG / JPEG / WebP, up to 10MB, max 6 images",
+        preciseRefDropResultTitle: "Precise reference images",
         anlasProceed: "Proceed",
         novelaiUsageLabel: "V5 limit",
         novelaiUsageExhausted: "Exhausted",
@@ -3108,6 +3887,444 @@ const resources = {
           save: "Save preset",
           saving: "Saving…",
           save_prompt: "Enter preset name",
+        },
+      },
+      promptExpander: {
+        header: {
+          title: "Prompt Expander",
+          subtitle:
+            "Expand natural-language instructions into NovelAI prompts and generate images outside of gameplay",
+          backToList: "← Back to list",
+          settingsToggle: "Settings",
+          settingsOpenTitle: "Open the settings panel",
+          settingsClose: "Close settings",
+          anlas: "Anlas: {{value}}",
+          anlasTitle: "NovelAI Anlas balance",
+          notConfigured:
+            "NovelAI API key is not configured, so expansion and generation are unavailable. Check the backend settings.",
+          dismissError: "Dismiss",
+        },
+        sessions: {
+          title: "Sessions",
+          newPlaceholder: "New session title (optional)",
+          create: "New session",
+          creating: "Creating…",
+          empty: "No sessions yet. Create one from the field above.",
+          loading: "Loading…",
+          notFound: "Session not found.",
+          untitled: "Untitled session",
+          noThumb: "No image",
+          entryCount: "{{count}} entries",
+          updatedAt: "Updated: {{value}}",
+          open: "Open {{title}}",
+          rename: "Rename",
+          renameLabel: "Session title",
+          renameSave: "Save",
+          renameCancel: "Cancel",
+          delete: "Delete",
+          deleteConfirm:
+            'Delete session "{{title}}"? All entries and images in it will be removed.',
+        },
+        composer: {
+          sectionLabel: "Prompt composer",
+          sectionParams: "Generation parameters",
+          sectionPrompt: "Prompt / Instruction",
+          sectionManga: "Comic (panels)",
+          sectionCharacters: "Character prompts",
+          sectionI2i: "i2i settings",
+          sectionInpaint: "Inpaint (partial redraw)",
+          sectionReference: "Precise reference (V4.5 only)",
+          mangaToggle: "Comic mode",
+          mangaSummaryOff: "Off",
+          mangaSummaryUnsupported: "V5 only (inactive with this model)",
+          mangaSummaryNoDialogue: "no dialogue",
+          mangaRequiresV5:
+            "Comic mode (panel layout and speech-bubble text) works only with NAI Diffusion V5 models. With V4.5 the settings are kept but not used for expansion.",
+          mangaHint:
+            'When you convert with the LLM, it builds a prompt with panels and speech bubbles from your instruction. You can write "panel 1 ... panel 2 ..." or just a synopsis. Generating the field as-is is not affected.',
+          mangaModeFixedHint:
+            "In comic mode the panel descriptions and appearance are always written in English (Japanese prose would be rendered as caption boxes in the image). Japanese is used only inside the quoted dialogue and sound effects; pick the language in the comic section.",
+          mangaPanelCount: "Panels",
+          mangaPanelAuto: "Auto (2-4 panels)",
+          mangaPanelValue: "{{count}} panel(s)",
+          mangaLayoutLabel: "Layout",
+          mangaLayout: {
+            auto: "Auto",
+            vertical: "Vertical stack",
+            horizontal: "Side by side",
+            grid: "Grid (2 columns)",
+          },
+          mangaReadingDirectionLabel: "Reading order",
+          mangaReadingDirection: {
+            rtl: "Right to left (Japanese: start top right)",
+            ltr: "Left to right (Western: start top left)",
+          },
+          mangaReadingDirectionShort: {
+            rtl: "R→L",
+            ltr: "L→R",
+          },
+          mangaTextLanguageLabel: "Dialogue language",
+          mangaTextLanguage: {
+            auto: "Match the instruction",
+            ja: "Japanese",
+            en: "English",
+          },
+          mangaDialogue: "Include speech bubbles",
+          mangaSoundEffects: "Allow sound effects",
+          mangaNarration: "Add narration boxes automatically",
+          mangaNarrationHint:
+            "Narration written with 【】 is always drawn even when OFF. When ON, the LLM adds narration boxes for scene changes and time skips.",
+          mangaSummaryNarration: "auto narration",
+          mangaNotationHint:
+            "Notation: 「speech」『thought』【narration】《sound effect》; ①②③ at the start of a line is the panel number. Empty brackets (e.g. 「」) let the LLM write the text.",
+          draftScript: "Draft a storyboard from the synopsis",
+          draftScriptTitle:
+            "Rewrites the synopsis in this field into a notated storyboard (panel numbers, lines, narration) with the LLM. Edit it, then convert to prompt. You can revert to the original text",
+          draftingHint:
+            "The LLM is drafting the storyboard. This field is read-only until it finishes.",
+          draftDone:
+            "Drafted a storyboard from the synopsis. Edit it, then convert to prompt.",
+          draftUndo: "Revert to original text",
+          notation: {
+            toolbar: "Insert comic notation",
+            speech: "Speech",
+            monologue: "Thought",
+            narration: "Narration",
+            sfx: "Sound effect",
+            panel: "Panel number",
+          },
+          mangaLayoutSizeHint:
+            "Vertical stacks suit the portrait size and side-by-side suits landscape. More panels means each panel is drawn smaller. The reading order is spelled out as each panel's position (top right, top left, ...).",
+          mangaCharacterOnHint:
+            "Character prompts ON: appearance and lines are split per character (good for conversations).",
+          mangaCharacterOffHint:
+            "Character prompts OFF: appearance and lines go into the base prompt (good for a single-person transformation sequence).",
+          i2iSummaryOn: "Source: {{kind}}",
+          i2iSummaryOff: "No source",
+          sourceNone: "No source (text-to-image)",
+          sourceClear: "Clear",
+          inpaintToggle: "Use inpaint",
+          inpaintHint:
+            "Paint a mask on the i2i source image and only the painted area is redrawn. Use it to change just the face, e.g. expression variants of a standing portrait.",
+          inpaintSummaryOff: "Off",
+          inpaintSummaryOn: "Mask: {{label}}",
+          inpaintNoSource: "Select a source image (shared with the i2i source)",
+          inpaintNoMask: "No mask set",
+          inpaintBaseBadge: "Inpaint source",
+          inpaintStrengthHint:
+            'Redraw strength and noise come from the "i2i settings" section.',
+          editMask: "Edit mask",
+          clearMask: "Clear mask",
+          pickHistory: "Pick from history",
+          uploadImage: "Upload image",
+          inheritSource: "Inherit source prompts",
+          inheritSourceHint:
+            "Use the source's prompts (history appearance / entry final prompt) as the base when converting with the LLM",
+          sourceKind: {
+            none: "None",
+            history: "Play history",
+            entry: "Prompt Expander",
+            upload: "Upload",
+          },
+          promptLabel: "Prompt / Instruction",
+          promptPlaceholder:
+            'Prompt passed to NovelAI, or a natural-language instruction that "Convert to prompt" turns into a NovelAI prompt',
+          promptPlaceholderManga:
+            "Describe the flow of the comic, e.g. ① a man looks in the mirror 【After school】 ② his body turns female 《thump》 ③ 「Is this... me?」『Why...』. A synopsis alone is fine; the LLM decides the panels and lines",
+          expandModeLabel: "Output format",
+          expandJapanese: "Japanese prose",
+          expandTags: "Tags",
+          expandButton: "Convert to prompt",
+          expandPositiveTitle:
+            "Use this field as the instruction and convert it into a NovelAI prompt with the LLM (in the selected output format)",
+          expandNegativeTitle:
+            "Use this field as the instruction and convert it into a negative prompt with the LLM (in the selected output format)",
+          expandDisabledEmpty: "Enter something to convert",
+          expandEmptyPositive:
+            "Enter a prompt / instruction before converting.",
+          expandEmptyNegative:
+            "Enter what to avoid in the negative prompt field before converting.",
+          expandFailed: "Conversion failed: {{message}}",
+          positiveToolbar: "Prompt field actions",
+          negativeToolbar: "Negative field actions",
+          suggestButton: "✨ Suggest",
+          suggestNeedsCharacterMode:
+            "Turn on character prompts to insert suggestions into a slot",
+          applyExpansion: "Apply to field",
+          originTitle: "LLM conversion applied (instruction: {{instruction}})",
+          v45JapaneseHint:
+            'Japanese prompts are less accurate on V4.5. The "Tags" output format is recommended.',
+          characterToggle: "Character prompts",
+          characterOffHint:
+            "Turn on to use per-character prompt slots (V5: up to 22, V4.5: up to 6)",
+          characterCounter: "{{count}} / {{max}}",
+          addSlot: "+ Add",
+          addSlotMax: "This model allows up to {{max}} character prompts",
+          removeSlot: "Remove character {{index}}",
+          slotLabel: "Character {{index}}",
+          slotPlaceholder: "Appearance, pose, etc. of this character",
+          noSlots: "No character prompts yet.",
+          suggestFromMemory: "Suggest characters from memory",
+          overCapWarning:
+            "Exceeds the character prompt limit ({{max}}) for {{model}}. Remove the extra slots to generate.",
+          negativeLabel: "Negative prompt",
+          negativePlaceholder: "Things to avoid (optional)",
+          imageModel: "Image model",
+          imageSize: "Size",
+          size: {
+            portrait: "Portrait",
+            landscape: "Landscape",
+            square: "Square",
+          },
+          seed: "Seed",
+          seedPlaceholder: "Random",
+          seedClear: "Clear seed",
+          seedHint: "Empty = random. Set a value to reproduce the same image.",
+          i2iStrength: "i2i strength",
+          i2iNoise: "Noise",
+          i2iDisabledReason:
+            "Select a source image to adjust i2i strength and noise.",
+          transparentToggle: "Transparent background",
+          transparentSummary: "transparent",
+          transparentHintV5:
+            'V5: adds "transparent background" to the prompt so NovelAI returns a transparent PNG. LLM conversion is also told not to describe any background.',
+          transparentHintV45:
+            'V4.5: generates on a white background and cuts it out in this screen. The PNG stored on the server keeps the white background, so save the transparent image with "Save transparent PNG" on the entry.',
+          transparentHintManga:
+            "Transparent background is inactive in comic mode (the panel frames cannot be cut out).",
+          transparentEmphasis: "Emphasis on transparency tags",
+          transparentEmphasisNone: "None",
+          transparentEmphasisHint:
+            "Strengthen this when the white background is ignored and a scene gets drawn. Each { } pair is about 1.05x.",
+          transparentEmphasisDisabledOff:
+            "Only used while transparent background is on.",
+          transparentEmphasisDisabledV5:
+            "V5 returns a natively transparent PNG, so emphasis is not applied (choose a V4.5 model to use it).",
+          transparentTailLabel: "Appended on send:",
+          transparentTailNone: "none (already in the field)",
+          referenceToggle: "Use precise reference",
+          referenceSummaryOff: "Off",
+          referenceSummaryUnsupported: "V4.5 only (inactive with this model)",
+          referenceSummaryNoImage: "no reference image",
+          referenceSummaryOn:
+            "{{type}} · strength {{strength}} · fidelity {{fidelity}} · +{{cost}} Anlas",
+          referenceRequiresV45:
+            "Precise reference images (NovelAI character reference) work only with NAI Diffusion V4.5 models. With V5 the settings are kept but not used for generation.",
+          referenceHint:
+            "Locks the face and body of the person in the reference image. It is independent of the i2i source, so you can set only a reference and generate standing-picture variants (new pose / outfit) with text-to-image.",
+          referenceNoImage: "Select a reference image to enable it.",
+          referenceNone: "No reference image",
+          referenceClear: "Clear",
+          referenceCostHint:
+            "Each reference image costs an extra {{cost}} Anlas (even at free-tier sizes).",
+          referenceCostBadge: "+{{cost}} Anlas",
+          referenceTypeLabel: "Reference type",
+          referenceType: {
+            character: "Character",
+            style: "Style",
+            characterStyle: "Character + style",
+          },
+          referenceStrength: "Reference strength",
+          referenceFidelity: "Fidelity",
+          referenceDisabledReason:
+            "Select a reference image to adjust strength and fidelity.",
+          generate: "Generate",
+          expanding: "Converting…",
+          expandingHint:
+            "The LLM is writing the prompt. This field is read-only until it finishes.",
+          generating: "Generating…",
+          disabledNotConfigured:
+            "NovelAI is not configured, so conversion, suggestions and generation are unavailable",
+          disabledNoSession: "Open a session first",
+          disabledTooMany: "Too many character prompts",
+          disabledEmptyPrompt: "Enter a prompt / instruction",
+          disabledPendingExpansion:
+            "Apply or discard the conversion result before generating",
+          generatingHint: "Generating the image…",
+        },
+        inpaint: {
+          modalTitle: "Edit mask",
+          modalHint:
+            "Paint the area you want redrawn. Save a shape such as the face as a preset to reuse it with one click.",
+          toolbarLabel: "Mask editing tools",
+          brush: "Brush",
+          eraser: "Eraser",
+          undo: "Undo",
+          redo: "Redo",
+          clear: "Clear",
+          brushSize: "Brush size",
+          applyMask: "Use this mask",
+          maskDrawn: "Hand-drawn mask",
+          emptyMask: "Nothing is painted yet. Paint the area you want redrawn.",
+          systemMasks: "Built-in masks",
+          presetMasks: "Saved masks",
+          noMasks: "None yet",
+          savePreset: "Save as preset",
+          presetNamePlaceholder: "Name (e.g. Face)",
+          deletePreset: "Delete this preset",
+          presetSharedHint:
+            "Mask presets are shared with the main play screen.",
+        },
+        controlBar: {
+          label: "Generation controls",
+          expandAll: "Expand all",
+          collapseAll: "Collapse all",
+          chipTransparent: "Transparent",
+          chipManga: "Comic",
+          chipInpaint: "Inpaint",
+          chipReference: "Precise ref",
+        },
+        expansion: {
+          titlePositive: "Conversion result (prompt)",
+          titleNegative: "Conversion result (negative)",
+          hint: "Review and edit the result, then apply it to the field or generate with it as-is.",
+          basePrompt: "Base prompt",
+          characterPrompt: "Character {{index}}",
+          negativePrompt: "Negative prompt",
+          confirm: "Generate with this",
+          discard: "Discard",
+        },
+        entry: {
+          sectionLabel: "Entries",
+          loading: "Loading…",
+          empty: "No entries yet. Generate one from the composer.",
+          generatingNotice: "Generating image…",
+          preview: "Open image preview",
+          expandFull: "Show full text",
+          collapse: "Collapse",
+          instruction: "Instruction",
+          finalPrompt: "Final prompt",
+          negativePrompt: "Negative",
+          characterPrompts: "Characters",
+          uploadedNoText: "(uploaded image)",
+          seedBadge: "seed {{value}}",
+          expandBadge: {
+            japanese: "JA prose (LLM)",
+            tags: "Tags (LLM)",
+          },
+          badgeUploaded: "Uploaded",
+          mangaBadge: "Comic",
+          mangaBadgeCount: "Comic {{count}} panels",
+          inpaintBadge: "Inpaint",
+          referenceBadge: "Precise ref",
+          transparentBadge: "Transparent",
+          useAsReference: "Use as reference",
+          downloadTransparent: "Save transparent PNG",
+          transparentProcessing: "Cutting out the background…",
+          referenceDetail: "Precise reference",
+          referenceDetailValue:
+            "{{type}} · strength {{strength}} · fidelity {{fidelity}}",
+          restore: "Restore to fields",
+          regenerate: "Regenerate with this prompt",
+          regenerateTitle:
+            "Generate again with this entry's prompt and settings, using a new random seed",
+          useAsSource: "Use as i2i source",
+          useInGame: "Use in normal play",
+          useInAdventure: "Use in TSF Scenario",
+          delete: "Delete",
+          deleteConfirm: "Delete this entry and its image?",
+          filterLabel: "Filter history",
+          filter: {
+            all: "All",
+            normal: "Standard",
+            manga: "Comic",
+            uploaded: "Uploaded",
+          },
+          filterEmpty: "No entries match this filter.",
+        },
+        settings: {
+          title: "Prompt Expander settings",
+          textModel: "Text model (conversion / suggestions)",
+          textModelHint: "Switches the NovelAI text generation model.",
+          memory: "Prompt Expander memory",
+          memoryPlaceholder:
+            "Write down preferences and character ideas; used as a reference for expansion and suggestions",
+          memoryCount: "{{count}} / {{max}} chars",
+          useMemory: "Use memory",
+          useMemoryDesc:
+            "When OFF, this memory is not used for expansion or suggestions (suggestions fall back to the global memory if present).",
+          restoreSeed: 'Restore the seed on "Restore to fields"',
+          restoreSeedDesc:
+            "When ON, restoring an entry also copies its seed into the generation parameters. When OFF, the current seed is left unchanged.",
+          importMemory: "Import global memory",
+          importing: "Importing…",
+          importConfirm: "Overwrite the Prompt Expander memory?",
+          importDone: "Imported the global memory.",
+          importEmpty: "There is no global memory to import.",
+        },
+        upload: {
+          title: "Upload image",
+          choose: "Image file",
+          preview: "Preview",
+          keepAsEntry: "Keep in history",
+          useAsSource: "Use as i2i source",
+          useAsReference: "Use as precise reference",
+          atLeastOne:
+            'Turn on at least one of "Keep in history" or "Use as i2i source".',
+          atLeastOneReference:
+            'Turn on at least one of "Keep in history" or "Use as precise reference".',
+          note: "Note (optional)",
+          notePlaceholder: "Description of this image",
+          confirm: "OK",
+          cancel: "Cancel",
+          uploading: "Uploading…",
+        },
+        drop: {
+          title: "What do you want to do with this image?",
+          overlayTitle: "Drop to use this image",
+          overlayHint: "Choose i2i source, inpaint, or precise reference",
+          notImage: "Please drop an image file (PNG / JPEG / WebP, etc.)",
+          useAsSource: "Use as i2i source",
+          useAsSourceDesc: "Regenerate based on this image",
+          useAsInpaint: "Use for inpainting",
+          useAsInpaintDesc: "Redraw part of this image (then edit the mask)",
+          useAsReference: "Use as precise reference",
+          useAsReferenceDesc:
+            "Lock the character's identity with this reference (extra Anlas)",
+        },
+        suggest: {
+          title: "Suggest characters from memory",
+          count: "Count",
+          mode: "Format",
+          run: "Get suggestions",
+          running: "Loading…",
+          insertTarget: "Insert into",
+          newSlot: "New slot",
+          slotN: "Slot {{index}}: {{preview}}",
+          emptySlot: "(empty)",
+          intoPrompt:
+            "Character prompts are OFF, so suggestions are appended to the prompt field.",
+          insert: "Insert",
+          inserted: "Inserted",
+          memoryEmpty: "No memory available to reference.",
+          memoryEmptyHint:
+            'Import the global memory with "Import global memory" in the settings panel, or write a Prompt Expander memory.',
+          empty: 'Press "Get suggestions" to see candidates.',
+          close: "Close",
+        },
+        picker: {
+          title: "Choose a source",
+          tabEntries: "Prompt Expander",
+          tabPlay: "Play sessions",
+          playTitle: "Choose from play sessions",
+          titleReference: "Choose a reference image",
+          empty: "No entries.",
+          loading: "Loading…",
+          loadMore: "Load more",
+          resolving: "Fetching the latest history…",
+          noHistory: "This session has no image history.",
+          playLabelFallback: "Play history",
+          close: "Close",
+        },
+        reference: {
+          anlasBody:
+            "Using a precise reference image costs an extra {{cost}} Anlas per reference. Continue?",
+        },
+        errors: {
+          emptyPrompt: "Enter a prompt / instruction.",
+          tooManyCharacters:
+            "Too many character prompts. Remove the extra slots.",
+          noSession: "Open a session first.",
         },
       },
     },

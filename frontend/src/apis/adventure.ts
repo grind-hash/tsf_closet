@@ -126,8 +126,23 @@ export interface AdventureSim {
 export interface AdventureImageRegenerateOptions
   extends Partial<AdventureImagePrompt> {
   redraw_from_reference: boolean;
-  /** portrait は立ち絵だけを作り直す。既定は場面画像 */
-  target?: "scene" | "portrait";
+  /**
+   * portrait は主人公の立ち絵だけ、partner は romance の攻略対象の立ち絵だけを
+   * 作り直す(対面会話モードの↻)。既定は場面画像
+   */
+  target?: "scene" | "portrait" | "partner";
+}
+
+/** トークモード(手番を消費しない会話)の1件。romance のみ */
+export interface AdventureTalkEntry {
+  id: string;
+  role: "user" | "partner";
+  text: string;
+  /** この会話が交わされた時点の turn_count。次の手番の文脈になる */
+  after_turn: number;
+  /** 3D モデル向けの表情・身振り(攻略対象の行のみ。旧ログ・語彙外は null) */
+  expression?: string | null;
+  gesture?: string | null;
 }
 
 export interface AdventureTurn {
@@ -136,6 +151,15 @@ export interface AdventureTurn {
   client_turn_id: string;
   user_input: string;
   input_kind: AdventureInputKind;
+  /** 対面会話モードの 3D モデル向け。攻略対象の表情・身振り(旧ターンは null) */
+  partner_expression?: string | null;
+  partner_gesture?: string | null;
+  /**
+   * このターン確定時点の 3D モデル(VRM)。着替え(衣装差分の切替)が起きると
+   * 前ターンと変わる。romance 以外・旧ターン・未設定は null
+   */
+  companion_avatar_id?: string | null;
+  companion_avatar_url?: string | null;
   narrative: string;
   /** このターン時点の現在地。旧ターンでは null */
   location: string | null;
@@ -171,6 +195,8 @@ export interface AdventureRun {
   id: string;
   source_session_id: string | null;
   source_history_id: string | null;
+  /** Prompt Expander のエントリから開始した run。セッション由来なら null */
+  source_prompt_expander_entry_id: string | null;
   preset: AdventurePreset;
   scenario_template_id: string | null;
   title: string;
@@ -215,6 +241,8 @@ export interface AdventureRun {
   enable_composite_scene: boolean;
   /** 衣装レイヤー考慮。trueのとき外衣に覆われた下着を画像タグから外す */
   respect_clothing_layers: boolean;
+  /** この run 専用の NovelAI 画像モデル上書き。null ならグローバル設定に従う */
+  image_model_override?: string | null;
   /** 物語の語りの人称。旧runは second_person 扱い */
   narration_voice: AdventureNarrationVoice;
   /** first_person のときに使う一人称語 */
@@ -237,6 +265,16 @@ export interface AdventureRun {
   sim?: AdventureSim | null;
   /** romance のみ。開幕(手番0)時点の公開シミュ状態 */
   opening_sim?: AdventureSim | null;
+  /**
+   * 対面会話モード(romance のみ)。ON なら攻略対象の立ち絵を中央に1枚だけ置き、
+   * 手番の画像は背景(現在地変化時のみ)と攻略対象だけを生成する
+   */
+  companion_mode: boolean;
+  /** 対面会話モードで描く 3D モデル(VRM)の登録 ID と配信 URL。未設定は null */
+  companion_avatar_id?: string | null;
+  companion_avatar_url?: string | null;
+  /** romance のみ。トークモードの会話ログ(古い順) */
+  talk_log?: AdventureTalkEntry[];
   turns: AdventureTurn[];
   created_at: string | null;
   updated_at: string | null;
@@ -257,8 +295,11 @@ export interface AdventureTemplate {
 }
 
 export interface AdventureSetupRequest {
-  source_session_id: string;
+  /** 開始セッション。Prompt Expander エントリから開始する場合は省略可 */
+  source_session_id?: string;
   source_history_id?: string;
+  /** Prompt Expander のエントリから開始する。session と両方あればこちらが優先される */
+  source_prompt_expander_entry_id?: string;
   preset: AdventurePreset;
   /** 自動生成タイプのターン数。未指定なら15。作品シナリオ・リプレイでは無視される */
   scenario_max_turns?: number;
@@ -269,6 +310,8 @@ export interface AdventureSetupRequest {
   scenario_setting?: string;
   scenario_objective?: string;
   scenario_constraints?: string[];
+  /** 対面会話モード(romance のみ)。ゴール文面を日数でなくターン数で書かせる */
+  companion_mode?: boolean;
 }
 
 export interface AdventureSetup {
@@ -305,8 +348,16 @@ export interface AdventureCreateRequest extends AdventureSetupRequest {
   /** romance の主人公を特定セッション時点の変身状態にする場合に指定 */
   romance_player_session_id?: string;
   romance_player_history_id?: string;
+  /** romance の主人公の呼び名(攻略対象がセリフで呼ぶ名前)。空ならキャラクター名 */
+  romance_player_name?: string;
   /** romance の攻略対象の口調。空なら人物像からLLMが決める */
   romance_partner_speech_style?: string;
+  /** この run 専用の NovelAI 画像モデル。未指定ならグローバル設定に従う */
+  image_model?: string;
+  /** 対面会話モード(romance のみ)。既定 false */
+  companion_mode?: boolean;
+  /** 対面会話モードで攻略対象の立ち絵の代わりに描く 3D モデル(VRM)の登録 ID */
+  companion_avatar_id?: string;
 }
 
 export interface AdventureSettingsUpdateRequest {
@@ -319,6 +370,12 @@ export interface AdventureSettingsUpdateRequest {
   player_speech_custom?: string;
   /** romance 以外の run では無視される */
   partner_speech_style?: string;
+  /** "default" で上書き解除、モデル名で run 単位の上書き。未指定なら維持 */
+  image_model?: string;
+  /** 対面会話モード。未指定なら維持(romance 以外では無視される) */
+  companion_mode?: boolean;
+  /** 3D モデル。"none" で解除、登録 ID で設定。未指定なら既存値を維持 */
+  companion_avatar_id?: string;
 }
 
 export interface AdventureStreamEvent {
@@ -331,6 +388,8 @@ export interface AdventureStreamEvent {
     | "portrait_image"
     | "partner_image"
     | "background_image"
+    | "talk_chunk"
+    | "talk_done"
     | "cost"
     | "complete"
     | "error";
@@ -348,6 +407,11 @@ function normalizeRun(run: AdventureRun): AdventureRun {
     use_precise_reference: Boolean(run.use_precise_reference),
     enable_composite_scene: Boolean(run.enable_composite_scene),
     respect_clothing_layers: Boolean(run.respect_clothing_layers),
+    companion_mode: Boolean(run.companion_mode),
+    companion_avatar_id: run.companion_avatar_id ?? null,
+    companion_avatar_url: withApiBase(run.companion_avatar_url ?? null),
+    talk_log: run.talk_log ?? [],
+    image_model_override: run.image_model_override ?? null,
     // 旧runやモック応答にキーが無くても表示側が undefined を掴まないようにする
     narration_voice: run.narration_voice ?? "second_person",
     narration_pronoun: run.narration_pronoun || "僕",
@@ -545,6 +609,23 @@ export async function streamAdventureTurn(
 ): Promise<void> {
   const response = await fetch(
     `${API_BASE}/adventure/runs/${runId}/turns/stream`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  );
+  await readSse(response, onEvent);
+}
+
+/** トークモード: 手番を消費せずに攻略対象と会話する(romance のみ) */
+export async function streamAdventureTalk(
+  runId: string,
+  body: { user_input: string },
+  onEvent: (event: AdventureStreamEvent) => void,
+): Promise<void> {
+  const response = await fetch(
+    `${API_BASE}/adventure/runs/${runId}/talk/stream`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },

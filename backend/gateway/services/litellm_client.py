@@ -211,6 +211,7 @@ class LiteLLMClient:
         self,
         system_prompt: str,
         user_prompt: str,
+        history: list[dict[str, str]] | None = None,
     ) -> AsyncGenerator[str, None]:
         """心境テキストをストリーミング生成する (心理状態用モデル: gpt-oss:20b対応)
 
@@ -221,6 +222,8 @@ class LiteLLMClient:
         Args:
             system_prompt: システムプロンプト
             user_prompt: ユーザープロンプト
+            history: system と最後の user の間に挟む過去のやり取り
+                ({"role": "user"|"assistant", "content": str} の列)
 
         Yields:
             テキストチャンク (トークン単位、思考過程は除外)
@@ -228,12 +231,19 @@ class LiteLLMClient:
         Raises:
             LiteLLMClientError: API呼び出しに失敗した場合
         """
+        messages: list[dict[str, str]] = [
+            {"role": "system", "content": system_prompt},
+            *[
+                {"role": str(item["role"]), "content": str(item["content"])}
+                for item in history or []
+                if str(item.get("role") or "") in {"user", "assistant"}
+                and str(item.get("content") or "")
+            ],
+            {"role": "user", "content": user_prompt},
+        ]
         payload = {
             "model": self.feeling_model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
+            "messages": messages,
             "max_tokens": 4096,
             "stream": True,
         }
@@ -325,9 +335,6 @@ class LiteLLMClient:
         self,
         instruction: str,
         current_description: str = "",
-        preserve_elements: list[str] | None = None,
-        change_scope: str = "full",
-        custom_preserve_text: str = "",
         *,
         provider: str = "selfhost",
         extra_system_suffix: str = "",
@@ -342,9 +349,6 @@ class LiteLLMClient:
         Args:
             instruction: ユーザーの着せ替え指示（日本語）
             current_description: 現在の画像の説明（オプション）
-            preserve_elements: 保持する要素のリスト
-            change_scope: 変更対象 (full, upper, lower, accessories, shoes)
-            custom_preserve_text: カスタム保持指示（自由記述）
             extra_system_suffix: システムプロンプト末尾に付与する追加指示（メモリ優先指示等）
 
         Returns:
@@ -361,9 +365,6 @@ class LiteLLMClient:
         user_prompt = build_image_edit_prompt(
             instruction=instruction,
             current_description=current_description,
-            preserve_elements=preserve_elements,
-            change_scope=change_scope,
-            custom_preserve_text=custom_preserve_text,
         )
 
         system_prompt = get_image_edit_system_prompt(

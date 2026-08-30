@@ -7,12 +7,20 @@ day/slot は状態に保存せず turn_number から導出する(冪等リトラ
 
 from __future__ import annotations
 
+import json
 import random
 import re
+import uuid
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from ..consts.companion_avatar import (
+    avatar_talk_header_instruction,
+    normalize_avatar_expression,
+    normalize_avatar_gesture,
+    parse_talk_header,
+)
 from ..consts.adventure_romance import (
     ROMANCE_AFFECTION_MAX,
     ROMANCE_AFFECTION_MIN,
@@ -31,13 +39,20 @@ from ..consts.adventure_romance import (
     ROMANCE_MILESTONES,
     ROMANCE_MONEY_MAX,
     ROMANCE_MONEY_MIN,
+    ROMANCE_PLAYER_NAME_FALLBACK,
+    ROMANCE_PLAYER_NAME_MAX_LENGTH,
     ROMANCE_RESERVED_CHOICE_PATTERNS,
     ROMANCE_SLOT_CONFLICT_TAGS,
     ROMANCE_SLOT_SCENE_TAGS,
     ROMANCE_SLOTS_PER_DAY,
     ROMANCE_STAGE_MILESTONE_IDS,
     ROMANCE_STAGE_THRESHOLDS,
+    ROMANCE_TALK_CONTEXT_MAX,
     ROMANCE_TALK_DELTA_LIMIT,
+    ROMANCE_TALK_HISTORY_MAX,
+    ROMANCE_TALK_INPUT_MAX,
+    ROMANCE_TALK_LOG_MAX,
+    ROMANCE_TALK_REPLY_MAX,
     ROMANCE_WORK_ENCOUNTER_BONUS,
     ROMANCE_WORK_ENCOUNTER_RATE,
     ROMANCE_WORK_WAGE,
@@ -81,6 +96,57 @@ class RomanceGift(BaseModel):
         low, high = ROMANCE_GIFT_TIER_PRICES[self.tier]
         self.price = max(low, min(high, self.price))
         return self
+
+
+class RomanceAlteredGift(BaseModel):
+    """現実改変でギフトカタログを書き換えるときの1品目。
+
+    RomanceGift と違い tier 帯への価格クランプを行わない(「全品無料になる」の
+    ような宣言を許すため)。preference は宣言が同時に好みを定めた場合だけ入る。
+    """
+
+    name: str = Field(min_length=1, max_length=80)
+    price: int = Field(default=0, ge=0, le=999_999)
+    tier: Literal["budget", "standard", "luxury"] = "standard"
+    preference: Literal["liked", "disliked", "neutral"] | None = None
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def strip_text(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+    @field_validator("price", mode="before")
+    @classmethod
+    def clamp_price(cls, value: Any) -> Any:
+        # LLM の過大値・文字列で検証エラー→修復リトライへ落とさない
+        try:
+            return max(0, min(999_999, int(value)))
+        except (TypeError, ValueError):
+            return 0
+
+    @field_validator("tier", mode="before")
+    @classmethod
+    def coerce_tier(cls, value: Any) -> Any:
+        if isinstance(value, str) and value.strip().lower() in {
+            "budget",
+            "standard",
+            "luxury",
+        }:
+            return value.strip().lower()
+        return "standard"
+
+    @field_validator("preference", mode="before")
+    @classmethod
+    def coerce_preference(cls, value: Any) -> Any:
+        if isinstance(value, str) and value.strip().lower() in {
+            "liked",
+            "disliked",
+            "neutral",
+        }:
+            return value.strip().lower()
+        return None
 
 
 class RomanceSetupOutput(BaseModel):
@@ -144,6 +210,44 @@ def apply_romance_time_of_day(scene_tags: str, slot: str) -> str:
         kept.append(item)
     merged = ", ".join([*wanted, *kept])
     return merged[:_SCENE_TAGS_MAX].rstrip(", ")
+
+
+_TIME_OF_DAY_TAG_KEYS: frozenset[str] = frozenset(
+    {
+        *(
+            item.strip().casefold()
+            for tags in ROMANCE_SLOT_SCENE_TAGS.values()
+            for item in tags.split(",")
+            if item.strip()
+        ),
+        *(
+            item.casefold()
+            for conflicts in ROMANCE_SLOT_CONFLICT_TAGS.values()
+            for item in conflicts
+        ),
+    }
+)
+
+
+def strip_romance_time_of_day(scene_tags: str) -> str:
+    """scene_tags から昼夜を示すタグをすべて取り除く。
+
+    対面会話モードの背景は現在地ごとに1枚だけ持ち、時間帯では描き直さない。
+    LLM は previous_image_tags から前ターンの照明タグを引き継ぐため、生成前に
+    昼夜どちらのタグも落として時間帯に依存しない背景にする。
+    """
+    kept: list[str] = []
+    for raw in scene_tags.split(","):
+        item = raw.strip()
+        if not item or item.casefold() in _TIME_OF_DAY_TAG_KEYS:
+            continue
+        kept.append(item)
+    return ", ".join(kept)[:_SCENE_TAGS_MAX].rstrip(", ")
+
+
+def romance_location_key(location: str) -> str:
+    """背景キャッシュと現在地変化判定に使う現在地の正規化キー。"""
+    return str(location or "").strip().casefold()[:80]
 
 
 def strip_duplicate_action_choices(
@@ -462,6 +566,85 @@ def _apply_preference_updates(sim: dict[str, Any], romance_output: Any) -> None:
     hidden["disliked_gift_ids"] = sorted(disliked)
 
 
+def apply_gift_catalog_update(sim: dict[str, Any], gifts: list[Any]) -> None:
+    """現実改変ターンのギフトカタログ書換を適用する(全品目の置き換え)。
+
+    宣言後の品揃え全体を受け取り、既存カタログと名前が一致する品目は ID を
+    引き継ぐ(隠し好み・贈答済み記録の参照を壊さないため)。新しい品目には
+    既存 ID と衝突しない連番を振る。空リストは「変更なし」の番兵として no-op。
+    好み(hidden_preferences)と贈答済み(given_gifts)は存続する ID だけ残し、
+    各品目の preference が指定されていればその集合へ移す。
+    """
+    if not gifts:
+        return
+    old_catalog = [
+        item for item in sim.get("gift_catalog", []) if isinstance(item, dict)
+    ]
+    id_by_name = {
+        _normalize_gift_name(str(item.get("name") or "")): str(item.get("id"))
+        for item in old_catalog
+        if str(item.get("name") or "").strip()
+    }
+    used_ids = {str(item.get("id")) for item in old_catalog}
+    next_index = len(old_catalog) + 1
+    new_catalog: list[dict[str, Any]] = []
+    preferences: dict[str, str] = {}
+    seen_names: set[str] = set()
+    for gift in gifts:
+        name = str(getattr(gift, "name", "") or "").strip()
+        key = _normalize_gift_name(name)
+        if not name or key in seen_names:
+            continue
+        seen_names.add(key)
+        gift_id = id_by_name.get(key)
+        if gift_id is None:
+            while f"g{next_index}" in used_ids:
+                next_index += 1
+            gift_id = f"g{next_index}"
+            next_index += 1
+        used_ids.add(gift_id)
+        new_catalog.append(
+            {
+                "id": gift_id,
+                "name": name,
+                "price": int(getattr(gift, "price", 0) or 0),
+                "tier": str(getattr(gift, "tier", "standard") or "standard"),
+            }
+        )
+        preference = getattr(gift, "preference", None)
+        if preference in {"liked", "disliked", "neutral"}:
+            preferences[gift_id] = str(preference)
+    if not new_catalog:
+        return
+    sim["gift_catalog"] = new_catalog
+    surviving_ids = {str(item["id"]) for item in new_catalog}
+    sim["given_gifts"] = [
+        str(item) for item in sim.get("given_gifts", []) if str(item) in surviving_ids
+    ]
+    hidden = sim.get("hidden_preferences")
+    if not isinstance(hidden, dict):
+        return
+    liked = {
+        str(item)
+        for item in hidden.get("liked_gift_ids", [])
+        if str(item) in surviving_ids
+    }
+    disliked = {
+        str(item)
+        for item in hidden.get("disliked_gift_ids", [])
+        if str(item) in surviving_ids
+    } - liked
+    for gift_id, preference in preferences.items():
+        liked.discard(gift_id)
+        disliked.discard(gift_id)
+        if preference == "liked":
+            liked.add(gift_id)
+        elif preference == "disliked":
+            disliked.add(gift_id)
+    hidden["liked_gift_ids"] = sorted(liked)
+    hidden["disliked_gift_ids"] = sorted(disliked)
+
+
 def apply_romance_outcome(
     state: dict[str, Any],
     output: Any,
@@ -490,6 +673,10 @@ def apply_romance_outcome(
         else:
             limit = ROMANCE_ALTER_DELTA_LIMIT
             affection += max(-limit, min(limit, llm_delta))
+        # カタログ書換を好み書換より先に適用する(ID 照合を新カタログで行うため)
+        apply_gift_catalog_update(
+            sim, list(getattr(romance_output, "updated_gift_catalog", None) or [])
+        )
         _apply_preference_updates(sim, romance_output)
         # 宣言が攻略対象の外見を書き換えた場合は sim へ反映し、以後のターンの
         # 立ち絵フォールバック・ビジュアルプロンプトが新しい外見を使うようにする
@@ -628,7 +815,7 @@ def public_sim_view(
     }
 
 
-ROMANCE_NARRATIVE_GUIDANCE = (
+_ROMANCE_NARRATIVE_CORE = (
     "This scenario is a romance simulation. The player is their own separate "
     "character, named in state.sim.player_name, whose appearance is "
     "required_visual_appearance; the player is courting the partner. The "
@@ -671,7 +858,11 @@ ROMANCE_NARRATIVE_GUIDANCE = (
     "partner's feelings toward the player; treat such mental changes as real "
     "and immediate. When offering choices, never duplicate the dedicated "
     "action buttons (part-time work, buying or giving a shop gift, granting "
-    "an attribute, confessing); offer conversation and date beats instead. "
+    "an attribute, confessing); offer conversation and date beats instead."
+)
+
+# 通常の romance: 1手番 = 半日枠。場面を数ビートで膨らませる
+_ROMANCE_NARRATIVE_HALF_DAY_PACING = (
     "Pacing: one turn always covers one half-day slot. romance_resolution.day "
     "and romance_resolution.slot name the slot being narrated: a day slot "
     "spans roughly morning to late afternoon, and a night slot early evening "
@@ -698,6 +889,38 @@ ROMANCE_NARRATIVE_GUIDANCE = (
     "it covers is set by the plan itself, not by how long the label is."
 )
 
+ROMANCE_NARRATIVE_GUIDANCE = (
+    f"{_ROMANCE_NARRATIVE_CORE} {_ROMANCE_NARRATIVE_HALF_DAY_PACING}"
+)
+
+
+def romance_companion_narrative_guidance(partner_name: str, player_name: str) -> str:
+    """対面会話モード(companion_mode)の物語ガイダンス。
+
+    1手番 = 1往復の会話。半日枠の場面描写・時間経過・昼夜をやめ、
+    「短い反応の地の文 + 攻略対象のセリフ1つ」だけを書かせる。
+    """
+    return (
+        f"{_ROMANCE_NARRATIVE_CORE} "
+        "COMPANION MODE: one turn is exactly one face-to-face exchange, never a "
+        "half day. Treat player_input as what the player just said or did to "
+        f"{partner_name} right now. Write at most one short narration sentence "
+        f"describing {partner_name}'s visible reaction (expression, gesture, "
+        f"tone), then exactly one spoken line from {partner_name} that answers "
+        f"{player_name} directly, one to three short sentences, and stop there. "
+        f"Never write {player_name}'s own spoken line (player_input already is "
+        "it), never skip time, and never mention days, nights, or hours "
+        "passing; state.sim.total_days is an internal budget you must not "
+        "mention. The scene stays where it is unless player_input moves it. "
+        "Let the affection stage colour the warmth of the reply. Choices must "
+        f"be short things {player_name} could say or do next in this "
+        "conversation (a line of dialogue or a small gesture), never plans "
+        "that fill a half day. When romance_resolution is absent you are "
+        f"writing the opening: {partner_name} notices {player_name} and greets "
+        "them in one line."
+    )
+
+
 ROMANCE_VISUAL_GUIDANCE = (
     "This scene is from a romance simulation. The player is the primary "
     "subject as usual and required_visual_appearance is the player's identity "
@@ -720,13 +943,49 @@ ROMANCE_VISUAL_GUIDANCE = (
     "never drawn female."
 )
 
-ROMANCE_RESOLUTION_GUIDANCE = (
+# 背景キャッシュは visual_state.location をキーにする。言い換えで別キーになると
+# 同じ場所の背景を無駄に描き直すため、移動しない限り前手番の文字列を写させる
+ROMANCE_LOCATION_STABILITY_GUIDANCE = (
+    "visual_state.location is a stable place identifier used to decide whether "
+    "the background must be redrawn. When the characters stay in the same "
+    "place, copy previous_visual_state.location verbatim, character for "
+    "character, even if the time of day, weather, lighting, or mood changed. "
+    "Change it only when the narrative actually moves the characters somewhere "
+    "else, and then name the new place in a few concrete words (a building or "
+    "spot, not a time, weather, or feeling)."
+)
+ROMANCE_VISUAL_GUIDANCE = (
+    f"{ROMANCE_VISUAL_GUIDANCE} {ROMANCE_LOCATION_STABILITY_GUIDANCE}"
+)
+
+# トークモード(手番を消費しない会話)の内容を次の手番へ渡すときの扱い。
+# 物語の連続性には使うが、採点(好感度・金銭)には一切影響させない。
+# 手番をまたいだ直近分を渡すため、各行の after_turn でどの場面の後の
+# 会話かを示す
+ROMANCE_RECENT_TALK_GUIDANCE = (
+    "recent_talk, when present, lists the most recent free chats the player "
+    "and the partner had between scenes, in chronological order (role user = "
+    "the player, role partner = the partner). Each line's after_turn is the "
+    "scene number it followed: after_turn equal to next_turn - 1 means it "
+    "happened right after the latest scene; smaller values are older chats "
+    "the partner still remembers. Treat them as things they actually said to "
+    "each other: keep the partner's memory of them and let them colour tone "
+    "and callbacks, but do not retell them as new events. They consumed no "
+    "story time and are not a player action for this turn; the player's "
+    "action is player_input. They must never change affection_delta, money, "
+    "or any other score: score only this turn's action."
+)
+
+_ROMANCE_RESOLUTION_CORE = (
     'Add these extra fields to the JSON object: "affection_delta" (integer), '
     '"affection_set" (integer or null), "money_delta" (integer), '
     '"money_set" (integer or null), "start_dating" (boolean), '
     '"updated_liked_gift_ids" (list of gift id strings), '
     '"updated_disliked_gift_ids" (list of gift id strings), '
-    '"updated_partner_appearance" (string or null). '
+    '"updated_partner_appearance" (string or null), '
+    '"updated_total_days" (integer or null), '
+    '"updated_gift_catalog" (list of {"name","price","tier","preference"} '
+    "objects, normally an empty list). "
     "For an ordinary conversation turn score affection_delta with this "
     "rubric: +2 when the partner receives the player's words positively, +3 "
     "when they strike her stated interests, dropped hints, or hidden wishes, "
@@ -757,6 +1016,20 @@ ROMANCE_RESOLUTION_GUIDANCE = (
     "features, never clothing; otherwise keep affection_set null, "
     "start_dating false, the lists empty, and updated_partner_appearance "
     "null. Keep updated_partner_appearance null on every non-alter turn. "
+    "updated_total_days and updated_gift_catalog also apply only when "
+    "romance_resolution.kind is alter. If the declaration changes the "
+    "scenario's time limit (the total number of days the player has, shown "
+    "as state.sim.total_days), report the new total as updated_total_days; "
+    "otherwise keep it null. If the declaration rewrites the gift shop's "
+    "lineup in any way (adding, removing, renaming, or repricing gifts), "
+    "output in updated_gift_catalog the complete catalog after the change, "
+    "listing every gift the shop now sells, reusing the exact names of "
+    "unchanged gifts from state.sim.gift_catalog verbatim so they keep "
+    "their identity; set each entry's price in yen and tier "
+    "(budget, standard, or luxury), and set preference to liked, disliked, "
+    "or neutral only when the declaration also states the partner's taste "
+    "for that gift, leaving it null otherwise. Keep updated_gift_catalog an "
+    "empty list whenever the declaration does not change the shop. "
     "Money follows the same rule as affection. Keep money_delta "
     "0 and money_set null on conversation turns and whenever "
     "romance_resolution.kind is work, gift, or confess, because the engine "
@@ -769,7 +1042,11 @@ ROMANCE_RESOLUTION_GUIDANCE = (
     "continue; the engine decides milestones and endings. choices must stay "
     "romance-flavoured actions for the next slot, and must never duplicate "
     "the dedicated action buttons (part-time work, buying or giving a shop "
-    "gift, granting an attribute, confessing). "
+    "gift, granting an attribute, confessing)."
+)
+
+# 通常の romance: 選択肢は次の半日枠を埋める計画
+_ROMANCE_RESOLUTION_HALF_DAY_CHOICES = (
     "romance_resolution.next_day and romance_resolution.next_slot (or "
     "romance_next_slot when only regenerating choices) identify the upcoming "
     "slot those choices belong to: a day slot spans roughly morning to late "
@@ -784,11 +1061,306 @@ ROMANCE_RESOLUTION_GUIDANCE = (
     "just reached."
 )
 
+ROMANCE_RESOLUTION_GUIDANCE = (
+    f"{_ROMANCE_RESOLUTION_CORE} {_ROMANCE_RESOLUTION_HALF_DAY_CHOICES}"
+)
 
-def romance_setup_system_prompt(language: str, days: int) -> str:
-    """RomanceSetupOutput 生成用のシステムプロンプト。"""
+# 対面会話モード: 選択肢は次に言う/する一言。昼夜の枠は無い
+ROMANCE_COMPANION_RESOLUTION_GUIDANCE = (
+    f"{_ROMANCE_RESOLUTION_CORE} "
+    "COMPANION MODE: there are no day or night slots; one turn is one "
+    "face-to-face exchange. choices must be the next short things the player "
+    "could say or do in this conversation (a brief line of dialogue or a small "
+    "gesture, each within the label length rule), never half-day plans. Score "
+    "affection_delta with the conversation rubric above for this single "
+    "exchange."
+)
+
+
+def romance_setup_system_prompt(
+    language: str, days: int, *, companion: bool = False, turns: int = 0
+) -> str:
+    """RomanceSetupOutput 生成用のシステムプロンプト。
+
+    companion(対面会話モード)では日数でなくターン数(1ターン=1往復)で尺を示す。
+    """
     response_language = "Japanese" if language == "ja" else "English"
-    return f"""You design the setup of a {days}-day romance simulation where the player tries to start dating one partner character.
+    if companion:
+        horizon = (
+            f"a romance simulation lasting {turns} turns, where each turn is one "
+            "face-to-face exchange with the partner and there are no days or "
+            "times of day"
+        )
+        within = f"within {turns} turns of conversation"
+    else:
+        horizon = f"a {days}-day romance simulation"
+        within = f"within {days} days"
+    return f"""You design the setup of {horizon} where the player tries to start dating one partner character.
 Return one JSON object only, in {response_language}, matching this schema:
 {{"partner_name":"...","partner_profile":"...","partner_speech_style":"...","relationship_origin":"...","job_name":"...","gift_catalog":[{{"name":"...","price":1500,"tier":"budget|standard|luxury"}}],"liked_gift_names":["..."],"disliked_gift_names":["..."],"likes_hint":"...","dislikes_hint":"..."}}
-The partner is the character shown in source_snapshot; keep their appearance and situation consistent with it. source_snapshot deliberately contains no name for the partner: when the supplied setting or objective already names the partner, reuse that name as partner_name; otherwise invent a fitting new name from their appearance. Never use player_name as the partner's name. The player is a separate person courting that partner; never treat the snapshot character as the player. partner_profile describes personality and daily life. partner_speech_style states, in {response_language}, exactly how the partner speaks, in one short sentence a writer can follow verbatim: politeness level (敬体 or 常体), first-person pronoun, how they address the player, sentence endings, and any verbal tic. Make it match the personality in partner_profile, so a brash or casual personality actually speaks casually rather than politely. relationship_origin describes how the player and the partner currently know each other, at an acquaintance level that can grow into dating within {days} days. job_name is a part-time job the player can work at, where the partner occasionally appears. gift_catalog must contain 8 to 12 concrete purchasable gifts with prices inside their tier band: budget 500-2000, standard 2001-6000, luxury 6001-15000. liked_gift_names and disliked_gift_names must each pick exactly 2 or 3 names verbatim from gift_catalog, reflecting the partner's personality. likes_hint and dislikes_hint describe those tastes indirectly, as hints the partner might drop in conversation, without naming the exact gifts. Keep every value concise."""
+The partner is the character shown in source_snapshot; keep their appearance and situation consistent with it. source_snapshot deliberately contains no name for the partner: when the supplied setting or objective already names the partner, reuse that name as partner_name; otherwise invent a fitting new name from their appearance. Never use player_name as the partner's name. The player is a separate person courting that partner; never treat the snapshot character as the player. partner_profile describes personality and daily life. partner_speech_style states, in {response_language}, exactly how the partner speaks, in one short sentence a writer can follow verbatim: politeness level (敬体 or 常体), first-person pronoun, how they address the player (built from player_name, for example with an honorific, by given name or surname alone, or as a nickname; never as a bare "you"/「あなた」), sentence endings, and any verbal tic. Make it match the personality in partner_profile, so a brash or casual personality actually speaks casually rather than politely. relationship_origin describes how the player and the partner currently know each other, at an acquaintance level that can grow into dating {within}. job_name is a part-time job the player can work at, where the partner occasionally appears. gift_catalog must contain 8 to 12 concrete purchasable gifts with prices inside their tier band: budget 500-2000, standard 2001-6000, luxury 6001-15000. liked_gift_names and disliked_gift_names must each pick exactly 2 or 3 names verbatim from gift_catalog, reflecting the partner's personality. likes_hint and dislikes_hint describe those tastes indirectly, as hints the partner might drop in conversation, without naming the exact gifts. Keep every value concise."""
+
+
+def normalize_player_name(value: str | None) -> str:
+    """セットアップで指定された主人公の呼び名を1行に正規化する。
+
+    プロンプトと HUD の両方へ入るため、改行を含む空白を畳み、上限で切る。
+    空文字は「指定なし」を表し、呼び出し側がテンプレート名等へ倒す。
+    """
+    return " ".join(str(value or "").split()).strip()[:ROMANCE_PLAYER_NAME_MAX_LENGTH]
+
+
+def romance_script_names(sim: dict[str, Any], language: str) -> tuple[str, str]:
+    """台本形式・トークで使う (攻略対象名, 主人公名)。主人公名が無ければ既定呼称。"""
+    partner_name = str(sim.get("partner_name") or "").strip()
+    player_name = str(sim.get("player_name") or "").strip()
+    if not player_name:
+        player_name = ROMANCE_PLAYER_NAME_FALLBACK.get(
+            language, ROMANCE_PLAYER_NAME_FALLBACK["en"]
+        )
+    return partner_name, player_name
+
+
+def romance_script_format_guidance(partner_name: str, player_name: str) -> str:
+    """対面会話モードの台本形式ルール。
+
+    攻略対象のセリフを `名前「…」` の独立行にさせ、フロントが話者ラベル表示と
+    読み上げ対象の抽出を機械的に行えるようにする。
+    """
+    return (
+        "SCRIPT FORMAT: Write the scene as a visual-novel script. Put every "
+        "spoken line on its own line, starting with the speaker's name followed "
+        "immediately by the line in corner brackets, with nothing else on that "
+        f"line: {partner_name}「...」 for the partner and {player_name}「...」 for "
+        "the player. Never put two speakers on one line and never wrap a spoken "
+        "line in quotation marks other than 「」. Everything that is not speech "
+        "is narration: plain prose lines with no name prefix and no corner "
+        "brackets, following the narration voice rule. Keep stage directions "
+        "inside narration, not inside the brackets. Alternate narration and "
+        "dialogue naturally; the partner should speak at least twice, each line "
+        "one to three short sentences. Use exactly these names as prefixes and "
+        "do not abbreviate or translate them. When the narrative is a JSON "
+        "string value, separate lines with \\n."
+    )
+
+
+def romance_talk_system_prompt(
+    language: str,
+    *,
+    partner_name: str,
+    player_name: str,
+    speech_rule: str,
+    companion: bool = False,
+    context: dict[str, Any] | None = None,
+) -> str:
+    """トークモード(手番を消費しない会話)で攻略対象として返答させる system prompt。
+
+    会話そのものはチャット履歴(user/assistant メッセージ)と最後の user
+    メッセージで渡すため、system prompt には人物設定・関係性・場面などの
+    文脈(context)を JSON で添える。
+    """
+    response_language = "Japanese" if language == "ja" else "English"
+    rule = (
+        f"You are {partner_name}, the partner character of a romance simulation, "
+        f"chatting directly with {player_name} between scenes. The messages in "
+        f"this conversation are the actual chat between {player_name} (user) "
+        f"and you (assistant) so far, oldest first; the last user message is "
+        f"what {player_name} just said. Remember everything said earlier in "
+        "this chat and in context.recent_scenes: answer the latest message as a "
+        "continuation of that conversation, pick up its topic, and never restart "
+        "as if you were meeting for the first time or repeat an earlier reply. "
+        f"Reply in {response_language} with {partner_name}'s spoken words only, "
+        "in the first person, as one to three short sentences. You may add at "
+        "most one brief action or expression in parentheses before or after the "
+        "words. Do not write narration, the player's lines, your name as a "
+        "prefix, corner brackets, JSON, markdown, or any commentary. Stay in the "
+        "current scene (context.current_scene) and wear what it says you wear; "
+        "nothing in the story advances during this chat, so do not start a date, "
+        "move to another place, give or receive gifts, or decide anything on the "
+        "player's behalf. context.relationship is the current state of your "
+        "relationship: let your warmth, distance, and honesty follow "
+        "relationship.stage and relationship.affection, and when "
+        "relationship.dating is true speak as an established couple. "
+        "context.recent_scenes are the latest story scenes with how each one "
+        "changed your affection (affection_change): what happened there, and "
+        "how it made you feel, is fresh in your memory. context.reality_rules "
+        "are true facts of this world; never find them strange. "
+        "context.hidden_preferences is secret game data: you may hint at your "
+        "tastes naturally but must never list, name, or confirm them outright."
+    )
+    if speech_rule:
+        rule = f"{rule}\n{speech_rule}"
+    if companion:
+        # 対面会話モードの 3D アバター向け。先頭ヘッダ行は配信前に剥がされる
+        rule = f"{rule}\n{avatar_talk_header_instruction()}"
+    if context:
+        rule = f"{rule}\n\ncontext:\n{json.dumps(context, ensure_ascii=False)}"
+    return rule
+
+
+def _talk_log(state: dict[str, Any]) -> list[dict[str, Any]]:
+    log = state.get("talk_log")
+    return (
+        [item for item in log if isinstance(item, dict)]
+        if isinstance(log, list)
+        else []
+    )
+
+
+def append_talk_entry(
+    state: dict[str, Any],
+    *,
+    role: str,
+    text: str,
+    after_turn: int,
+    expression: str | None = None,
+    gesture: str | None = None,
+) -> dict[str, Any]:
+    """トークログへ1件追記し、上限を超えた古い分を捨てる。追記した項目を返す。
+
+    expression / gesture は対面会話モードの 3D アバター向けで、攻略対象の
+    行にだけ持たせる(語彙外は None)。
+    """
+    entry: dict[str, Any] = {
+        "id": uuid.uuid4().hex[:8],
+        "role": "partner" if role == "partner" else "user",
+        "text": " ".join(str(text or "").split()).strip(),
+        "after_turn": max(0, int(after_turn)),
+    }
+    if entry["role"] == "partner":
+        entry["expression"] = normalize_avatar_expression(expression)
+        entry["gesture"] = normalize_avatar_gesture(gesture)
+    log = _talk_log(state)
+    log.append(entry)
+    state["talk_log"] = log[-ROMANCE_TALK_LOG_MAX:]
+    return entry
+
+
+def recent_talk_entries(state: dict[str, Any], turn_count: int) -> list[dict[str, Any]]:
+    """次の手番の文脈として渡す直近のトークを {role, text, after_turn} で返す。
+
+    手番をまたいで最新から ROMANCE_TALK_CONTEXT_MAX 件まで含める。以前は
+    最後の手番以降の分だけに絞っていたが、それ以前の会話を攻略対象が忘れて
+    しまうため、どの場面の後の会話かを after_turn で示しつつ渡す。
+    turn_count より後の after_turn を持つ行(巻き戻し後の不整合)は除く。
+    """
+    current = max(0, int(turn_count))
+    entries = [
+        {
+            "role": str(item.get("role") or "user"),
+            "text": str(item.get("text") or ""),
+            "after_turn": max(0, int(item.get("after_turn") or 0)),
+        }
+        for item in _talk_log(state)
+        if int(item.get("after_turn") or 0) <= current and str(item.get("text") or "")
+    ]
+    return entries[-ROMANCE_TALK_CONTEXT_MAX:]
+
+
+def talk_history_messages(
+    state: dict[str, Any], turn_count: int
+) -> list[dict[str, str]]:
+    """トークの LLM 呼び出しへ渡すチャット履歴(OpenAI 形式のメッセージ)。
+
+    手番をまたいで最新から ROMANCE_TALK_HISTORY_MAX 件を、主人公の発言を
+    user、攻略対象の返答を assistant として返す。会話を JSON の一項目でなく
+    メッセージ列として渡すことで、モデルが直前のやり取りを踏まえて返答する。
+    """
+    current = max(0, int(turn_count))
+    messages = [
+        {
+            "role": "assistant" if item.get("role") == "partner" else "user",
+            "content": str(item.get("text") or ""),
+        }
+        for item in _talk_log(state)
+        if int(item.get("after_turn") or 0) <= current and str(item.get("text") or "")
+    ]
+    return messages[-ROMANCE_TALK_HISTORY_MAX:]
+
+
+def talk_relationship_context(
+    sim: dict[str, Any],
+    state: dict[str, Any],
+    turn_count: int,
+    *,
+    epilogue: bool = False,
+) -> dict[str, Any]:
+    """トークの system prompt へ渡す関係性の要約。
+
+    好感度・段階・交際中か・贈った品・達成済みの節目を、攻略対象の態度を
+    決める材料として渡す。金銭やカタログなど会話に関係ない値は含めない。
+    """
+    view = public_sim_view(sim, turn_count, epilogue=epilogue)
+    catalog = {
+        str(item.get("id")): str(item.get("name") or "")
+        for item in sim.get("gift_catalog", [])
+        if isinstance(item, dict)
+    }
+    labels = {item["id"]: item["label"] for item in ROMANCE_MILESTONES}
+    completed = [
+        str(item)
+        for item in state.get("completed_milestones", [])
+        if isinstance(item, str)
+    ]
+    return {
+        "affection": view["affection"],
+        "stage": view["stage"],
+        "dating": bool(sim.get("confessed")),
+        "day": view["day"],
+        "slot": view["slot"],
+        "total_days": view["total_days"],
+        "epilogue": bool(epilogue),
+        "relationship_origin": str(sim.get("relationship_origin") or ""),
+        "given_gifts": [catalog.get(item, item) for item in view["given_gift_ids"]],
+        "completed_milestones": [labels.get(item, item) for item in completed],
+    }
+
+
+def public_talk_log(state: dict[str, Any]) -> list[dict[str, Any]]:
+    """API 応答用に整形したトークログ。"""
+    return [
+        {
+            "id": str(item.get("id") or ""),
+            "role": "partner" if item.get("role") == "partner" else "user",
+            "text": str(item.get("text") or ""),
+            "after_turn": max(0, int(item.get("after_turn") or 0)),
+            # 3D アバター向け。user 行と旧ログは None
+            "expression": normalize_avatar_expression(item.get("expression")),
+            "gesture": normalize_avatar_gesture(item.get("gesture")),
+        }
+        for item in _talk_log(state)
+    ]
+
+
+_TALK_FENCE_RE = re.compile(r"^```[a-zA-Z]*\s*|\s*```$")
+
+
+def normalize_talk_input(text: str) -> str:
+    """トークの入力を空白畳み込みと上限で正規化する。"""
+    return " ".join(str(text or "").split()).strip()[:ROMANCE_TALK_INPUT_MAX]
+
+
+def normalize_talk_reply(text: str, partner_name: str) -> str:
+    """LLM の返答から名前プレフィックスと括弧を剥がし、上限で切り詰める。
+
+    system prompt で禁じていても `名前「…」` 形式で返すモデルがあるため、
+    表示と読み上げに使う前にここで揃える。
+    """
+    reply = _TALK_FENCE_RE.sub("", str(text or "").strip()).strip()
+    # 対面会話モードの先頭ヘッダ行は、モードに関わらず防御的に剥がす
+    _, _, reply = parse_talk_header(reply)
+    reply = reply.strip()
+    name = str(partner_name or "").strip()
+    if name:
+        prefix = re.compile(rf"^\s*{re.escape(name)}\s*[「『:：]\s*")
+        reply = prefix.sub("", reply, count=1)
+    reply = reply.strip()
+    if reply[:1] in "「『" and reply[-1:] in "」』":
+        reply = reply[1:-1].strip()
+    elif reply[-1:] in "」』" and reply.count("「") + reply.count("『") < reply.count(
+        "」"
+    ) + reply.count("』"):
+        # 名前プレフィックスを剥がした後に閉じ括弧だけが残ったケース
+        reply = reply[:-1].strip()
+    reply = " ".join(reply.split())
+    return reply[:ROMANCE_TALK_REPLY_MAX].strip()

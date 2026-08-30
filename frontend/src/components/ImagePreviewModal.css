@@ -167,6 +167,21 @@
   background-color: rgba(255, 255, 255, 0.3);
 }
 
+/* 一覧の何件目を表示中か（呼び出し側が positionLabel を渡したときだけ描画） */
+.image-preview-modal__position {
+  position: absolute;
+  z-index: 2;
+  top: 10px;
+  left: 10px;
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  background-color: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  pointer-events: none;
+}
+
 .image-preview-modal__favorite {
   position: absolute;
   z-index: 2;

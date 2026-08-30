@@ -4,7 +4,6 @@
  *
  * 構成:
  * - 属性設定UI
- * - 保持する要素設定
  * - インペイント設定（NovelAIのみ）
  * - その他のオプション設定
  *
@@ -23,12 +22,11 @@ import {
 import { useChat } from "../../contexts/ChatContext";
 import { useGame } from "../../contexts/GameContext";
 import { useSettings } from "../../contexts/SettingsContext";
-import type {
-  ChangeScope,
-  PreciseReferenceType,
-  PreserveElement,
-} from "../../types";
-import { generateUUID } from "../../utils/generateUUID";
+import {
+  PRECISE_REFERENCE_SECTION_ID,
+  usePreciseReferenceFiles,
+} from "../../hooks/usePreciseReferenceFiles";
+import type { PreciseReferenceType } from "../../types";
 import { isHistoryLookbackEnabled } from "../../utils/historyLookback";
 import { NovelaiUsageBar } from "../NovelaiUsageBar";
 import MemorySettings from "../settings/MemorySettings";
@@ -49,33 +47,7 @@ interface AttributePreset {
   createdAt?: string;
 }
 
-// 保持要素プリセットの型
-interface PreservePreset {
-  id: string;
-  name: string;
-  preserveElements: PreserveElement[];
-  changeScope: ChangeScope;
-  customPreserveText: string;
-}
-
 const ATTRIBUTE_PRESET_STORAGE_KEY = "attribute_presets";
-const PRESERVE_PRESET_STORAGE_KEY = "preserve_presets";
-const ALLOWED_MIME_TYPES = ["image/png", "image/jpeg", "image/webp"];
-const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
-const PRESERVE_ELEMENTS: PreserveElement[] = [
-  "background",
-  "hairstyle",
-  "pose",
-  "expression",
-  "accessories",
-];
-const CHANGE_SCOPES: ChangeScope[] = [
-  "full",
-  "upper",
-  "lower",
-  "accessories",
-  "shoes",
-];
 
 export default function RightPanel({
   onClose,
@@ -86,9 +58,7 @@ export default function RightPanel({
   const {
     state: settingsState,
     setLanguage,
-    setChangeSettings,
     setInpaintSettings,
-    addPreciseReference,
     updatePreciseReference,
     removePreciseReference,
     setSeed,
@@ -218,13 +188,6 @@ export default function RightPanel({
         instruction: chatState.inputText.trim(),
         transformation_type: transformationType,
         instruction_type: instructionType,
-        preserve_elements:
-          settingsState.changeSettings.preserveElements.length > 0
-            ? settingsState.changeSettings.preserveElements
-            : undefined,
-        change_scope: settingsState.changeSettings.changeScope,
-        custom_preserve_text:
-          settingsState.changeSettings.customPreserveText || undefined,
         use_play_memory: settingsState.playMemoryEnabled,
         respect_clothing_layers: settingsState.respectClothingLayers,
         use_history_lookback: isHistoryLookbackEnabled(
@@ -246,7 +209,6 @@ export default function RightPanel({
     chatState.inputText,
     settingsState.respectClothingLayers,
     chatState.instructionType,
-    settingsState.changeSettings,
     settingsState.playMemoryEnabled,
     settingsState.historyLookbackTargets,
   ]);
@@ -284,20 +246,6 @@ export default function RightPanel({
   const [showPresetSaveModal, setShowPresetSaveModal] = useState(false);
   const [presetName, setPresetName] = useState("");
 
-  // 保持要素プリセット
-  const [preservePresets, setPreservePresets] = useState<PreservePreset[]>(
-    () => {
-      try {
-        const saved = localStorage.getItem(PRESERVE_PRESET_STORAGE_KEY);
-        return saved ? JSON.parse(saved) : [];
-      } catch {
-        return [];
-      }
-    },
-  );
-  const [showPreserveSaveModal, setShowPreserveSaveModal] = useState(false);
-  const [preservePresetName, setPreservePresetName] = useState("");
-
   const difficultyOptions: Array<{
     id: "easy" | "normal" | "hard";
     label: string;
@@ -311,40 +259,6 @@ export default function RightPanel({
     { id: "ja", label: t("settings.ja") },
     { id: "en", label: t("settings.en") },
   ];
-
-  const getPreserveElementLabel = (element: PreserveElement) => {
-    switch (element) {
-      case "background":
-        return t("rightPanel.preserveElements.background");
-      case "hairstyle":
-        return t("rightPanel.preserveElements.hairstyle");
-      case "pose":
-        return t("rightPanel.preserveElements.pose");
-      case "expression":
-        return t("rightPanel.preserveElements.expression");
-      case "accessories":
-        return t("rightPanel.preserveElements.accessories");
-      default:
-        return element;
-    }
-  };
-
-  const getChangeScopeLabel = (scope: ChangeScope) => {
-    switch (scope) {
-      case "full":
-        return t("rightPanel.changeScopes.full");
-      case "upper":
-        return t("rightPanel.changeScopes.upper");
-      case "lower":
-        return t("rightPanel.changeScopes.lower");
-      case "accessories":
-        return t("rightPanel.changeScopes.accessories");
-      case "shoes":
-        return t("rightPanel.changeScopes.shoes");
-      default:
-        return scope;
-    }
-  };
 
   // 属性追加ハンドラー
   const handleAddAttribute = async () => {
@@ -398,25 +312,6 @@ export default function RightPanel({
     }
   };
 
-  // 保持要素トグル
-  const handleTogglePreserveElement = (element: PreserveElement) => {
-    const current = settingsState.changeSettings.preserveElements;
-    const newElements = current.includes(element)
-      ? current.filter((e) => e !== element)
-      : [...current, element];
-    setChangeSettings({ preserveElements: newElements });
-  };
-
-  // 変更対象変更
-  const handleChangeScopeChange = (scope: ChangeScope) => {
-    setChangeSettings({ changeScope: scope });
-  };
-
-  // 自由記述変更
-  const handleCustomPreserveTextChange = (text: string) => {
-    setChangeSettings({ customPreserveText: text });
-  };
-
   // 属性プリセット保存
   const handleSaveAttributePreset = () => {
     if (!presetName.trim() || gameState.attributes.length === 0) return;
@@ -453,121 +348,21 @@ export default function RightPanel({
     localStorage.setItem(ATTRIBUTE_PRESET_STORAGE_KEY, JSON.stringify(updated));
   };
 
-  // 保持要素プリセット保存
-  const handleSavePreservePreset = () => {
-    if (!preservePresetName.trim()) return;
-
-    const newPreset: PreservePreset = {
-      id: Date.now().toString(),
-      name: preservePresetName.trim(),
-      preserveElements: [...settingsState.changeSettings.preserveElements],
-      changeScope: settingsState.changeSettings.changeScope,
-      customPreserveText: settingsState.changeSettings.customPreserveText,
-    };
-
-    const updated = [...preservePresets, newPreset];
-    setPreservePresets(updated);
-    localStorage.setItem(PRESERVE_PRESET_STORAGE_KEY, JSON.stringify(updated));
-    setShowPreserveSaveModal(false);
-    setPreservePresetName("");
-  };
-
-  // 保持要素プリセット読み込み
-  const handleLoadPreservePreset = (preset: PreservePreset) => {
-    setChangeSettings({
-      preserveElements: preset.preserveElements,
-      changeScope: preset.changeScope,
-      customPreserveText: preset.customPreserveText,
-    });
-  };
-
-  // 保持要素プリセット削除
-  const handleDeletePreservePreset = (id: string) => {
-    const updated = preservePresets.filter((p) => p.id !== id);
-    setPreservePresets(updated);
-    localStorage.setItem(PRESERVE_PRESET_STORAGE_KEY, JSON.stringify(updated));
-  };
-
   const isNovelAI = settingsState.imageProvider === "novelai";
 
   // Validation error for precise reference files
   const [preciseRefError, setPreciseRefError] = useState<string | null>(null);
   const [isPreciseRefDragging, setIsPreciseRefDragging] = useState(false);
 
-  // 精密参照画像を検証し、元の順序を保って追加する
+  // 精密参照画像の検証・追加は画面全体ドロップ（GamePlayScreen）と共通のフックに委譲
+  const { addFiles: addPreciseReferenceFiles } = usePreciseReferenceFiles();
   const addPreciseRefFiles = useCallback(
     async (files: File[]) => {
       setPreciseRefError(null);
-
-      const validFiles: File[] = [];
-      let firstValidationError: string | null = null;
-      let hasMaxCountError = false;
-      let remainingSlots = Math.max(
-        0,
-        6 - settingsState.preciseReferences.length,
-      );
-
-      for (const file of files) {
-        if (!ALLOWED_MIME_TYPES.includes(file.type)) {
-          firstValidationError ??= t("rightPanel.preciseRefTypeError", {
-            name: file.name,
-          });
-          continue;
-        }
-
-        if (file.size > MAX_FILE_SIZE_BYTES) {
-          firstValidationError ??= t("rightPanel.preciseRefSizeError", {
-            name: file.name,
-          });
-          continue;
-        }
-
-        if (remainingSlots === 0) {
-          hasMaxCountError = true;
-          continue;
-        }
-
-        validFiles.push(file);
-        remainingSlots -= 1;
-      }
-
-      const imageDataList = await Promise.all(
-        validFiles.map(
-          (file) =>
-            new Promise<string | null>((resolve) => {
-              const reader = new FileReader();
-              reader.onload = () =>
-                resolve(
-                  typeof reader.result === "string" ? reader.result : null,
-                );
-              reader.onerror = () => resolve(null);
-              reader.readAsDataURL(file);
-            }),
-        ),
-      );
-
-      validFiles.forEach((file, index) => {
-        const imageData = imageDataList[index];
-        if (imageData) {
-          addPreciseReference({
-            id: generateUUID(),
-            imageData,
-            fileName: file.name,
-            type: "character&style",
-            strength: 0.6,
-            fidelity: 1.0,
-            enabled: true,
-          });
-        }
-      });
-
-      if (hasMaxCountError) {
-        setPreciseRefError(t("rightPanel.preciseRefMaxError"));
-      } else if (firstValidationError) {
-        setPreciseRefError(firstValidationError);
-      }
+      const { error } = await addPreciseReferenceFiles(files);
+      setPreciseRefError(error);
     },
-    [addPreciseReference, settingsState.preciseReferences.length, t],
+    [addPreciseReferenceFiles],
   );
 
   const handlePreciseRefFileChange = useCallback(
@@ -819,118 +614,6 @@ export default function RightPanel({
               {t("rightPanel.realityAttrNotify")}
             </span>
           </label>
-        </section>
-
-        {/* 保持する要素セクション (v0.8.0 で削除予定) */}
-        <section className="right-panel__section">
-          <h4 className="right-panel__section-title">
-            {t("rightPanel.sectionPreserve")}
-            <span
-              className="feature-chip-deprecated"
-              data-removal-version="v0.8.0"
-              title={t("rightPanel.preserveDeprecatedNotice")}
-            >
-              Deprecated
-            </span>
-          </h4>
-          <small className="right-panel__hint right-panel__hint--deprecated">
-            {t("rightPanel.preserveDeprecatedNotice")}
-          </small>
-
-          {/* 保持要素プリセットチップ */}
-          {preservePresets.length > 0 && (
-            <div className="right-panel__attribute-presets">
-              <span className="right-panel__preset-label">
-                {t("rightPanel.presets")}
-              </span>
-              {preservePresets.map((preset) => (
-                <span
-                  key={preset.id}
-                  className="right-panel__preset-chip"
-                  onClick={() => handleLoadPreservePreset(preset)}
-                  title={t("rightPanel.clickToApplyTitle", {
-                    items: preset.preserveElements
-                      .map((e) => getPreserveElementLabel(e))
-                      .join(", "),
-                  })}
-                >
-                  <span>{preset.name}</span>
-                  <button
-                    type="button"
-                    className="right-panel__preset-delete"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDeletePreservePreset(preset.id);
-                    }}
-                    aria-label={t("rightPanel.deletePresetAria", {
-                      name: preset.name,
-                    })}
-                  >
-                    ×
-                  </button>
-                </span>
-              ))}
-            </div>
-          )}
-
-          <div className="right-panel__preserve-checkboxes">
-            {PRESERVE_ELEMENTS.map((element) => (
-              <label key={element} className="right-panel__checkbox">
-                <input
-                  type="checkbox"
-                  checked={settingsState.changeSettings.preserveElements.includes(
-                    element,
-                  )}
-                  onChange={() => handleTogglePreserveElement(element)}
-                />
-                <span>{getPreserveElementLabel(element)}</span>
-              </label>
-            ))}
-          </div>
-
-          <div className="right-panel__form-group">
-            <label className="right-panel__label">
-              {t("rightPanel.changeScope")}
-            </label>
-            <select
-              className="right-panel__select"
-              value={settingsState.changeSettings.changeScope}
-              onChange={(e) =>
-                handleChangeScopeChange(e.target.value as ChangeScope)
-              }
-            >
-              {CHANGE_SCOPES.map((scope) => (
-                <option key={scope} value={scope}>
-                  {getChangeScopeLabel(scope)}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="right-panel__form-group">
-            <label className="right-panel__label">
-              {t("rightPanel.otherPreserve")}
-            </label>
-            <input
-              type="text"
-              className="right-panel__input"
-              value={settingsState.changeSettings.customPreserveText}
-              onChange={(e) => handleCustomPreserveTextChange(e.target.value)}
-              placeholder={t("rightPanel.preservePlaceholder")}
-            />
-          </div>
-
-          {/* 保持要素プリセット保存ボタン */}
-          <div className="right-panel__attribute-actions">
-            <button
-              type="button"
-              className="right-panel__btn-secondary"
-              onClick={() => setShowPreserveSaveModal(true)}
-              title={t("rightPanel.savePreservePresetTitle")}
-            >
-              {t("rightPanel.saveAttributePreset")}
-            </button>
-          </div>
         </section>
 
         {/* 衣装レイヤー考慮トグル */}
@@ -1569,6 +1252,8 @@ export default function RightPanel({
 
             {/* Precise Reference Images Section */}
             <div
+              id={PRECISE_REFERENCE_SECTION_ID}
+              data-testid="precise-reference-section"
               className="right-panel__form-group"
               style={{ marginTop: "1rem" }}
             >
@@ -2073,14 +1758,6 @@ export default function RightPanel({
                 {gameState.attributes.map((a) => a.text).join(", ")}
               </li>
             )}
-            {settingsState.changeSettings.preserveElements.length > 0 && (
-              <li>
-                {t("rightPanel.preserveLabel")}:{" "}
-                {settingsState.changeSettings.preserveElements
-                  .map((e) => getPreserveElementLabel(e))
-                  .join(", ")}
-              </li>
-            )}
           </ul>
         </section>
       </div>
@@ -2113,51 +1790,6 @@ export default function RightPanel({
                 onClick={() => {
                   setShowPresetSaveModal(false);
                   setPresetName("");
-                }}
-              >
-                {t("common.cancel")}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 保持要素プリセット保存モーダル */}
-      {showPreserveSaveModal && (
-        <div className="right-panel__modal-overlay">
-          <div className="right-panel__modal">
-            <h4>{t("rightPanel.preservePresetModalTitle")}</h4>
-            <p className="right-panel__modal-info">
-              {t("rightPanel.preserveElementsLabel")}:{" "}
-              {settingsState.changeSettings.preserveElements.length > 0
-                ? settingsState.changeSettings.preserveElements
-                    .map((e) => getPreserveElementLabel(e))
-                    .join(", ")
-                : t("common.none")}
-            </p>
-            <input
-              type="text"
-              className="right-panel__input"
-              value={preservePresetName}
-              onChange={(e) => setPreservePresetName(e.target.value)}
-              placeholder={t("rightPanel.presetNamePlaceholder")}
-              autoFocus
-            />
-            <div className="right-panel__modal-actions">
-              <button
-                type="button"
-                className="right-panel__btn-primary"
-                onClick={handleSavePreservePreset}
-                disabled={!preservePresetName.trim()}
-              >
-                {t("common.save")}
-              </button>
-              <button
-                type="button"
-                className="right-panel__btn-secondary"
-                onClick={() => {
-                  setShowPreserveSaveModal(false);
-                  setPreservePresetName("");
                 }}
               >
                 {t("common.cancel")}

@@ -25,17 +25,12 @@ import {
 import i18n from "../i18n";
 import type {
   AnlasBalance,
-  ChangeSettings,
   InpaintMaskState,
   InpaintSettings,
   InstructionType,
   PreciseReference,
 } from "../types";
-import {
-  DEFAULT_CHANGE_SETTINGS,
-  DEFAULT_INPAINT_MASK_STATE,
-  DEFAULT_INPAINT_SETTINGS,
-} from "../types";
+import { DEFAULT_INPAINT_MASK_STATE, DEFAULT_INPAINT_SETTINGS } from "../types";
 import {
   DEFAULT_HISTORY_LOOKBACK_TARGETS,
   type HistoryLookbackTarget,
@@ -88,14 +83,12 @@ interface SettingsState {
   inpaintEnabled: boolean; // 007: インペイントトグル
   inpaintMask: InpaintMaskState;
 
-  // 変更設定
-  changeSettings: ChangeSettings;
-
   // 通知設定
   showAchievementNotifications: boolean;
   showRealityAttributeNotification: boolean;
   experimentalEndingEnabled: boolean;
   experimentalAdventureEnabled: boolean;
+  experimentalPromptExpanderEnabled: boolean;
   playMemoryEnabled: boolean;
   playMemorySystemEnabled: boolean;
   playMemoryUserEnabled: boolean;
@@ -160,6 +153,8 @@ interface SettingsState {
   ttsEnabled: boolean;
   ttsUseGpu: boolean;
   ttsEngineDir: string;
+  /** 音声合成エンジンの待ち受けポート。null なら backend 既定 (10101) を使う */
+  ttsEnginePort: number | null;
   ttsModelDir: string;
   ttsSpeakerId: string | null;
   ttsStyleId: string | null;
@@ -196,11 +191,11 @@ type SettingsAction =
   | { type: "SET_INPAINT_MASK"; payload: InpaintMaskState }
   | { type: "CLEAR_INPAINT_MASK" }
   | { type: "TOGGLE_INPAINT" }
-  | { type: "SET_CHANGE_SETTINGS"; payload: Partial<ChangeSettings> }
   | { type: "SET_SHOW_ACHIEVEMENT_NOTIFICATIONS"; payload: boolean }
   | { type: "SET_SHOW_REALITY_ATTRIBUTE_NOTIFICATION"; payload: boolean }
   | { type: "SET_EXPERIMENTAL_ENDING_ENABLED"; payload: boolean }
   | { type: "SET_EXPERIMENTAL_ADVENTURE_ENABLED"; payload: boolean }
+  | { type: "SET_EXPERIMENTAL_PROMPT_EXPANDER_ENABLED"; payload: boolean }
   | { type: "SET_PLAY_MEMORY_ENABLED"; payload: boolean }
   | { type: "SET_PLAY_MEMORY_SYSTEM_ENABLED"; payload: boolean }
   | { type: "SET_PLAY_MEMORY_USER_ENABLED"; payload: boolean }
@@ -208,6 +203,7 @@ type SettingsAction =
   | { type: "SET_SOUND_ENABLED"; payload: boolean }
   | { type: "SET_SOUND_VOLUME"; payload: number }
   | { type: "TOGGLE_PANEL" }
+  | { type: "SET_PANEL_OPEN"; payload: boolean }
   | { type: "LOAD_SETTINGS"; payload: Partial<SettingsState> }
   | { type: "RESET_SETTINGS" }
   | { type: "ADD_PRECISE_REFERENCE"; payload: PreciseReference }
@@ -235,6 +231,7 @@ type SettingsAction =
   | { type: "SET_TTS_ENABLED"; payload: boolean }
   | { type: "SET_TTS_USE_GPU"; payload: boolean }
   | { type: "SET_TTS_ENGINE_DIR"; payload: string }
+  | { type: "SET_TTS_ENGINE_PORT"; payload: number | null }
   | { type: "SET_TTS_MODEL_DIR"; payload: string }
   | { type: "SET_TTS_SPEAKER_ID"; payload: string | null }
   | { type: "SET_TTS_STYLE_ID"; payload: string | null }
@@ -262,11 +259,11 @@ const defaultState: SettingsState = {
   inpaintSettings: DEFAULT_INPAINT_SETTINGS,
   inpaintEnabled: false,
   inpaintMask: DEFAULT_INPAINT_MASK_STATE,
-  changeSettings: DEFAULT_CHANGE_SETTINGS,
   showAchievementNotifications: true,
   showRealityAttributeNotification: true,
   experimentalEndingEnabled: false,
   experimentalAdventureEnabled: false,
+  experimentalPromptExpanderEnabled: false,
   playMemoryEnabled: false,
   playMemorySystemEnabled: true,
   playMemoryUserEnabled: true,
@@ -293,6 +290,7 @@ const defaultState: SettingsState = {
   ttsEnabled: false,
   ttsUseGpu: false,
   ttsEngineDir: "contrib/AivisSpeech",
+  ttsEnginePort: null,
   ttsModelDir: "%APPDATA%\\AivisSpeech-Engine\\Models",
   ttsSpeakerId: null,
   ttsStyleId: null,
@@ -365,11 +363,6 @@ function settingsReducer(
         inpaintEnabled: true,
         inpaintSettings: { ...state.inpaintSettings, enabled: true },
       };
-    case "SET_CHANGE_SETTINGS":
-      return {
-        ...state,
-        changeSettings: { ...state.changeSettings, ...action.payload },
-      };
     case "SET_SHOW_ACHIEVEMENT_NOTIFICATIONS":
       return { ...state, showAchievementNotifications: action.payload };
     case "SET_SHOW_REALITY_ATTRIBUTE_NOTIFICATION":
@@ -378,6 +371,8 @@ function settingsReducer(
       return { ...state, experimentalEndingEnabled: action.payload };
     case "SET_EXPERIMENTAL_ADVENTURE_ENABLED":
       return { ...state, experimentalAdventureEnabled: action.payload };
+    case "SET_EXPERIMENTAL_PROMPT_EXPANDER_ENABLED":
+      return { ...state, experimentalPromptExpanderEnabled: action.payload };
     case "SET_PLAY_MEMORY_ENABLED":
       return { ...state, playMemoryEnabled: action.payload };
     case "SET_PLAY_MEMORY_SYSTEM_ENABLED":
@@ -392,6 +387,8 @@ function settingsReducer(
       return { ...state, soundVolume: action.payload };
     case "TOGGLE_PANEL":
       return { ...state, rightPanelOpen: !state.rightPanelOpen };
+    case "SET_PANEL_OPEN":
+      return { ...state, rightPanelOpen: action.payload };
     case "LOAD_SETTINGS":
       return { ...state, ...action.payload };
     case "RESET_SETTINGS":
@@ -453,6 +450,8 @@ function settingsReducer(
       return { ...state, ttsUseGpu: action.payload };
     case "SET_TTS_ENGINE_DIR":
       return { ...state, ttsEngineDir: action.payload };
+    case "SET_TTS_ENGINE_PORT":
+      return { ...state, ttsEnginePort: action.payload };
     case "SET_TTS_MODEL_DIR":
       return { ...state, ttsModelDir: action.payload };
     case "SET_TTS_SPEAKER_ID":
@@ -505,11 +504,11 @@ interface SettingsContextType {
   ) => void;
   clearInpaintMask: () => void;
   toggleInpaint: () => void;
-  setChangeSettings: (settings: Partial<ChangeSettings>) => void;
   setShowAchievementNotifications: (show: boolean) => void;
   setShowRealityAttributeNotification: (show: boolean) => void;
   setExperimentalEndingEnabled: (enabled: boolean) => void;
   setExperimentalAdventureEnabled: (enabled: boolean) => void;
+  setExperimentalPromptExpanderEnabled: (enabled: boolean) => void;
   setPlayMemoryEnabled: (enabled: boolean) => void;
   setPlayMemorySystemEnabled: (enabled: boolean) => void;
   setPlayMemoryUserEnabled: (enabled: boolean) => void;
@@ -517,6 +516,7 @@ interface SettingsContextType {
   setSoundEnabled: (enabled: boolean) => void;
   setSoundVolume: (volume: number) => void;
   togglePanel: () => void;
+  setPanelOpen: (open: boolean) => void;
   resetSettings: () => void;
   addPreciseReference: (ref: PreciseReference) => void;
   updatePreciseReference: (
@@ -550,6 +550,7 @@ interface SettingsContextType {
   setTtsEnabled: (enabled: boolean) => void;
   setTtsUseGpu: (enabled: boolean) => void;
   setTtsEngineDir: (engineDir: string) => void;
+  setTtsEnginePort: (port: number) => void;
   setTtsModelDir: (modelDir: string) => void;
   setTtsSpeakerId: (speakerId: string | null) => void;
   setTtsStyleId: (styleId: string | null) => void;
@@ -575,6 +576,8 @@ const STORAGE_KEY = "app_settings";
 // to avoid race condition where the save effect overwrites before dispatch is processed
 function loadInitialState(initial: SettingsState): SettingsState {
   try {
+    // v0.8.0 で削除した「保持する要素」プリセットの残骸を破棄する
+    localStorage.removeItem("preserve_presets");
     const saved = localStorage.getItem(STORAGE_KEY);
     const legacyTotalCost = localStorage.getItem("api_total_cost");
     if (saved) {
@@ -582,11 +585,13 @@ function loadInitialState(initial: SettingsState): SettingsState {
       // imageProviderはバックエンドから取得するため除外
       const { imageProvider: _ignored, ...rest } = parsed;
       // novelaiTextModelとnovelaiTierはバックエンド/API経由のため除外
+      // v0.8.0 で削除した「保持する要素」設定は読み込まない
       const {
         novelaiTextModel: _nai,
         novelaiTier: _tier,
         novelaiImageModel: _naiImg,
         novelaiCuratedImageModel: _naiCuratedImg,
+        changeSettings: _legacyChangeSettings,
         ...filtered
       } = rest;
       return {
@@ -709,6 +714,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
               ttsEnabled: data.tts_enabled ?? false,
               ttsUseGpu: data.tts_use_gpu ?? false,
               ttsEngineDir: data.tts_engine_dir ?? "contrib/AivisSpeech",
+              ttsEnginePort: data.tts_engine_port ?? null,
               ttsModelDir:
                 data.tts_model_dir ?? "%APPDATA%\\AivisSpeech-Engine\\Models",
               ttsSpeakerId: data.tts_speaker_id ?? null,
@@ -992,10 +998,6 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "CLEAR_INPAINT_MASK" });
   }, []);
 
-  const setChangeSettings = useCallback((settings: Partial<ChangeSettings>) => {
-    dispatch({ type: "SET_CHANGE_SETTINGS", payload: settings });
-  }, []);
-
   const setShowAchievementNotifications = useCallback((show: boolean) => {
     dispatch({ type: "SET_SHOW_ACHIEVEMENT_NOTIFICATIONS", payload: show });
   }, []);
@@ -1013,6 +1015,15 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const setExperimentalAdventureEnabled = useCallback((enabled: boolean) => {
     dispatch({ type: "SET_EXPERIMENTAL_ADVENTURE_ENABLED", payload: enabled });
   }, []);
+  const setExperimentalPromptExpanderEnabled = useCallback(
+    (enabled: boolean) => {
+      dispatch({
+        type: "SET_EXPERIMENTAL_PROMPT_EXPANDER_ENABLED",
+        payload: enabled,
+      });
+    },
+    [],
+  );
   const setPlayMemoryEnabled = useCallback((enabled: boolean) => {
     dispatch({ type: "SET_PLAY_MEMORY_ENABLED", payload: enabled });
   }, []);
@@ -1036,6 +1047,10 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
 
   const togglePanel = useCallback(() => {
     dispatch({ type: "TOGGLE_PANEL" });
+  }, []);
+
+  const setPanelOpen = useCallback((open: boolean) => {
+    dispatch({ type: "SET_PANEL_OPEN", payload: open });
   }, []);
 
   const resetSettings = useCallback(() => {
@@ -1207,6 +1222,19 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const setTtsEnginePort = useCallback(async (port: number) => {
+    dispatch({ type: "SET_TTS_ENGINE_PORT", payload: port });
+    try {
+      await fetch("/api/settings/user", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tts_engine_port: port }),
+      });
+    } catch (error) {
+      console.error("Failed to save tts_engine_port to backend:", error);
+    }
+  }, []);
+
   const setTtsModelDir = useCallback(async (modelDir: string) => {
     dispatch({ type: "SET_TTS_MODEL_DIR", payload: modelDir });
     try {
@@ -1324,11 +1352,11 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setInpaintMask,
     clearInpaintMask,
     toggleInpaint,
-    setChangeSettings,
     setShowAchievementNotifications,
     setShowRealityAttributeNotification,
     setExperimentalEndingEnabled,
     setExperimentalAdventureEnabled,
+    setExperimentalPromptExpanderEnabled,
     setPlayMemoryEnabled,
     setPlayMemorySystemEnabled,
     setPlayMemoryUserEnabled,
@@ -1336,6 +1364,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setSoundEnabled,
     setSoundVolume,
     togglePanel,
+    setPanelOpen,
     resetSettings,
     addPreciseReference,
     updatePreciseReference,
@@ -1363,6 +1392,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setTtsEnabled,
     setTtsUseGpu,
     setTtsEngineDir,
+    setTtsEnginePort,
     setTtsModelDir,
     setTtsSpeakerId,
     setTtsStyleId,

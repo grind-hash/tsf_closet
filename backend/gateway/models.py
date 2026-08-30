@@ -344,15 +344,6 @@ class PlayRequest(BaseModel):
     costume_image: Optional[str] = Field(
         None, description="Base64エンコードされた参照衣装画像"
     )
-    # 変更範囲コントロール
-    preserve_elements: Optional[List[str]] = Field(
-        None,
-        description="保持する要素のリスト (background, hairstyle, pose, expression, accessories)",
-    )
-    change_scope: str = Field(
-        "full", description="変更対象 (full, upper, lower, accessories, shoes)"
-    )
-    custom_preserve_text: str = Field("", description="カスタム保持指示（自由記述）")
     # NovelAI専用: マスク & プロンプト制御
     mask_image: Optional[str] = Field(
         None,

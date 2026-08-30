@@ -21,6 +21,8 @@ import SettingsScreen from "../components/settings/SettingsScreen";
  * /gallery              → ギャラリー画面
  * /achievements         → 実績画面
  * /settings             → 設定画面
+ * /prompt-expander      → Prompt Expander（セッション一覧）
+ * /prompt-expander/:sessionId → Prompt Expander（セッション詳細）
  *
  * 注: /gameはバックエンドAPIで使用されているため、フロントエンドは/playを使用
  */
@@ -41,6 +43,8 @@ export const ROUTES = {
   // /adventure 配下に置かないこと。App.tsx が startsWith("/adventure") で
   // AdventureScreen へ流し、パス2階層目を runId として解釈するため衝突する
   BGM_TEST: "/bgm-test",
+  PROMPT_EXPANDER: "/prompt-expander",
+  PROMPT_EXPANDER_SESSION: "/prompt-expander/:sessionId",
 } as const;
 
 // セッションID付きのゲームURLを生成するヘルパー

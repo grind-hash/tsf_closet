@@ -103,6 +103,7 @@ class SettingsService:
             "tts_enabled": False,
             "tts_use_gpu": False,
             "tts_engine_dir": None,
+            "tts_engine_port": None,
             "tts_model_dir": None,
             "tts_speaker_id": None,
             "tts_style_id": None,
@@ -132,6 +133,7 @@ class SettingsService:
             "tts_enabled": bool(user.tts_enabled),
             "tts_use_gpu": bool(user.tts_use_gpu),
             "tts_engine_dir": user.tts_engine_dir,
+            "tts_engine_port": getattr(user, "tts_engine_port", None),
             "tts_model_dir": user.tts_model_dir,
             "tts_speaker_id": user.tts_speaker_id,
             "tts_style_id": user.tts_style_id,
@@ -171,6 +173,7 @@ class SettingsService:
         tts_enabled: bool | None = None,
         tts_use_gpu: bool | None = None,
         tts_engine_dir: str | None = None,
+        tts_engine_port: int | None = None,
         tts_model_dir: str | None = None,
         tts_speaker_id: str | None = None,
         tts_style_id: str | None = None,
@@ -191,6 +194,7 @@ class SettingsService:
                 tts_enabled,
                 tts_use_gpu,
                 tts_engine_dir,
+                tts_engine_port,
                 tts_model_dir,
                 tts_speaker_id,
                 tts_style_id,
@@ -255,6 +259,8 @@ class SettingsService:
                 user.tts_use_gpu = 1 if tts_use_gpu else 0
             if tts_engine_dir is not None:
                 user.tts_engine_dir = tts_engine_dir.strip() or None
+            if tts_engine_port is not None:
+                user.tts_engine_port = tts_engine_port
             if tts_model_dir is not None:
                 user.tts_model_dir = tts_model_dir.strip() or None
             if tts_speaker_id is not None:

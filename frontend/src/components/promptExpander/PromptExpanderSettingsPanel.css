@@ -1,0 +1,75 @@
+/* Prompt Expander 設定パネル（MainLayout の右サイドパネル内） */
+
+.prompt-expander__settings {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-height: 100%;
+  box-sizing: border-box;
+  color: var(--text-color, #eee);
+}
+
+.prompt-expander__settings-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.9rem 1rem;
+  border-bottom: 1px solid var(--border-color, #333);
+  background: var(--side-menu-bg, #16213e);
+}
+
+.prompt-expander__settings-title {
+  margin: 0;
+  font-size: 1rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prompt-expander__settings-close {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-muted, #888);
+  font-size: 1rem;
+  cursor: pointer;
+  transition:
+    background-color 0.2s,
+    color 0.2s;
+}
+
+.prompt-expander__settings-close:hover {
+  background: var(--hover-bg, #1f2f50);
+  color: var(--text-color, #eee);
+}
+
+.prompt-expander__settings-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 1.1rem;
+  padding: 1rem;
+}
+
+.prompt-expander__settings-memory {
+  min-height: 12rem;
+}
+
+.prompt-expander__settings-memory-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem 0.8rem;
+}

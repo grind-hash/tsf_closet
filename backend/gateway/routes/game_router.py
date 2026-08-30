@@ -178,15 +178,6 @@ class PlayStreamRequest(BaseModel):
     character_image: Optional[str] = Field(None, description="Base64エンコード画像")
     base_history_id: Optional[str] = Field(None, description="履歴からのベース画像ID")
     costume_image: Optional[str] = Field(None, description="衣装参照画像（Base64）")
-    # 変更範囲コントロール
-    preserve_elements: Optional[list[str]] = Field(
-        None,
-        description="保持する要素のリスト (background, hairstyle, pose, expression, accessories)",
-    )
-    change_scope: str = Field(
-        "full", description="変更対象 (full, upper, lower, accessories, shoes)"
-    )
-    custom_preserve_text: str = Field("", description="カスタム保持指示（自由記述）")
     # 変身タイプ
     transformation_type: str = Field(
         "costume", description="変身タイプ (costume=衣装変更, reality=現実改変)"
@@ -313,9 +304,6 @@ async def play_game_stream(request: PlayStreamRequest) -> EventSourceResponse:
             instruction=request.instruction,
             base_history_id=request.base_history_id,
             costume_image=request.costume_image,
-            preserve_elements=request.preserve_elements,
-            change_scope=request.change_scope,
-            custom_preserve_text=request.custom_preserve_text,
             language_override=request.language,
             transformation_type=request.transformation_type,
             mask_image=request.mask_image,
@@ -1731,9 +1719,6 @@ async def preview_prompt(request: PlayRequest) -> dict:
         session_id=request.session_id,
         instruction=instruction,
         transformation_type=request.transformation_type,
-        preserve_elements=request.preserve_elements,
-        change_scope=request.change_scope,
-        custom_preserve_text=request.custom_preserve_text,
         instruction_type=request.instruction_type,
         respect_clothing_layers=request.respect_clothing_layers,
         use_history_lookback=request.use_history_lookback,

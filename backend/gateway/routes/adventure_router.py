@@ -8,7 +8,7 @@ from typing import Literal
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sse_starlette.sse import EventSourceResponse
 
 from ..consts.adventure_bgm import get_bgm_catalog, resolve_bgm_audio_path
@@ -17,6 +17,12 @@ from ..consts.adventure_narration import (
     NARRATION_PRONOUN_MAX_LENGTH,
     NARRATION_VOICE_DEFAULT,
     NarrationVoice,
+)
+from ..consts.adventure_romance import (
+    ROMANCE_DAYS_MAX,
+    ROMANCE_PLAYER_NAME_MAX_LENGTH,
+    ROMANCE_SLOTS_PER_DAY,
+    ROMANCE_TALK_INPUT_MAX,
 )
 from ..consts.adventure_setup import SCENARIO_CONSTRAINTS_MAX_ITEMS
 from ..consts.adventure_speech import (
@@ -36,19 +42,46 @@ from ..services.adventure_service import (
     adventure_service,
 )
 
+# scenario_max_turns の受理上限。romance は日数×2 を手数として送るため、
+# 通常プリセットの上限(ADVENTURE_TURNS_MAX)より広く取る。
+# 非 romance の超過分はサービス側の clamp_generated_max_turns が丸める
+SCENARIO_MAX_TURNS_REQUEST_MAX = max(
+    ADVENTURE_TURNS_MAX, ROMANCE_DAYS_MAX * ROMANCE_SLOTS_PER_DAY
+)
+
 router = APIRouter(prefix="/adventure", tags=["Adventure"])
+
+# run 単位で上書きできる NovelAI 画像モデル（consts/novelai_models.py と同期）
+AdventureImageModel = Literal[
+    "nai-diffusion-4-5-full",
+    "nai-diffusion-4-5-curated",
+    "nai-diffusion-5-full",
+    "nai-diffusion-5-curated",
+]
 
 
 class AdventureSetupGenerateRequest(BaseModel):
-    source_session_id: str = Field(min_length=1)
+    # 開始素材はゲームセッション（＋履歴時点）か Prompt Expander エントリのどちらか。
+    # 両方あれば Prompt Expander エントリを優先する
+    source_session_id: str | None = Field(default=None, min_length=1)
     source_history_id: str | None = None
+    source_prompt_expander_entry_id: str | None = Field(default=None, max_length=80)
     preset: Literal["infiltration", "escape", "negotiation", "disguise", "romance"]
+
+    @model_validator(mode="after")
+    def _require_source(self) -> "AdventureSetupGenerateRequest":
+        if not self.source_session_id and not self.source_prompt_expander_entry_id:
+            raise ValueError(
+                "source_session_id か source_prompt_expander_entry_id のいずれかが必要です"
+            )
+        return self
+
     # 自動生成のゴール文面は「N手以内に〜」という尺で書かれるため、
     # 案の生成時点でもターン予算を渡す
     scenario_max_turns: int = Field(
         default=ADVENTURE_TURNS_DEFAULT,
         ge=ADVENTURE_TURNS_MIN,
-        le=ADVENTURE_TURNS_MAX,
+        le=SCENARIO_MAX_TURNS_REQUEST_MAX,
     )
     # ユーザーが入力済みの舞台・ゴール・制約。空でなければ生成の下書きとして
     # LLM に渡し、意味を保ったまま仕上げ・補完させる（AdventureCreateRequest と同じ上限）
@@ -57,13 +90,30 @@ class AdventureSetupGenerateRequest(BaseModel):
     scenario_constraints: list[str] = Field(
         default_factory=list, max_length=SCENARIO_CONSTRAINTS_MAX_ITEMS
     )
+    # 対面会話モード(romance 専用)。ゴール文面を日数でなくターン数で書かせる
+    companion_mode: bool = False
 
 
 class AdventureCreateRequest(BaseModel):
-    source_session_id: str = Field(min_length=1)
+    source_session_id: str | None = Field(default=None, min_length=1)
     source_history_id: str | None = None
+    source_prompt_expander_entry_id: str | None = Field(default=None, max_length=80)
     preset: Literal["infiltration", "escape", "negotiation", "disguise", "romance"]
     custom_setup: str = Field(default="", max_length=1000)
+
+    @model_validator(mode="after")
+    def _require_source(self) -> "AdventureCreateRequest":
+        # リプレイ（replay_run_id）は元 run から素材を引き継ぐため素材未指定を許す
+        if (
+            not self.source_session_id
+            and not self.source_prompt_expander_entry_id
+            and not self.replay_run_id
+        ):
+            raise ValueError(
+                "source_session_id か source_prompt_expander_entry_id のいずれかが必要です"
+            )
+        return self
+
     scenario_setting: str = Field(default="", max_length=600)
     scenario_objective: str = Field(default="", max_length=600)
     scenario_constraints: list[str] = Field(
@@ -76,7 +126,7 @@ class AdventureCreateRequest(BaseModel):
     scenario_max_turns: int = Field(
         default=ADVENTURE_TURNS_DEFAULT,
         ge=ADVENTURE_TURNS_MIN,
-        le=ADVENTURE_TURNS_MAX,
+        le=SCENARIO_MAX_TURNS_REQUEST_MAX,
     )
     # 語りの人称。既定は従来どおりの二人称
     narration_voice: NarrationVoice = NARRATION_VOICE_DEFAULT
@@ -102,10 +152,22 @@ class AdventureCreateRequest(BaseModel):
     # session_id があればテンプレートキャラクターより優先される
     romance_player_session_id: str | None = Field(default=None, max_length=80)
     romance_player_history_id: str | None = Field(default=None, max_length=80)
+    # romance の主人公の呼び名(攻略対象がセリフで呼ぶ名前)。空なら
+    # テンプレートキャラクター名またはセッションの主人公名を使う
+    romance_player_name: str = Field(
+        default="", max_length=ROMANCE_PLAYER_NAME_MAX_LENGTH
+    )
     # romance の攻略対象の口調。空なら人物像からLLMが自動で決める
     romance_partner_speech_style: str = Field(
         default="", max_length=PARTNER_SPEECH_STYLE_MAX_LENGTH
     )
+    # この run 専用の NovelAI 画像モデル。未指定ならグローバル設定に従う
+    image_model: AdventureImageModel | None = None
+    # 対面会話モード(romance 専用。他プリセットでは無視される)。
+    # ONなら手番の画像は背景(現在地変化時のみ)と攻略対象の立ち絵だけになる
+    companion_mode: bool = False
+    # 対面会話モードで攻略対象の立ち絵の代わりに描く 3D アバター(VRM)の登録 ID
+    companion_avatar_id: str | None = Field(default=None, max_length=80)
 
 
 class AdventureSettingsUpdateRequest(BaseModel):
@@ -121,6 +183,17 @@ class AdventureSettingsUpdateRequest(BaseModel):
     partner_speech_style: str | None = Field(
         default=None, max_length=PARTNER_SPEECH_STYLE_MAX_LENGTH
     )
+    # "default" で run 単位の上書きを解除。未指定(None)なら既存値を維持する
+    image_model: Literal["default"] | AdventureImageModel | None = None
+    # 対面会話モード。未指定なら既存値を維持する(romance 以外では無視)
+    companion_mode: bool | None = None
+    # 3D アバター。"none" で解除、登録 ID で設定。未指定(None)なら既存値を維持する
+    companion_avatar_id: str | None = Field(default=None, max_length=80)
+
+
+class AdventureTalkRequest(BaseModel):
+    # トークモード(手番を消費しない会話)の1メッセージ。romance 専用
+    user_input: str = Field(min_length=1, max_length=ROMANCE_TALK_INPUT_MAX)
 
 
 class AdventureRealityRulesUpdateRequest(BaseModel):
@@ -168,14 +241,16 @@ class AdventureImageRequest(BaseModel):
     player_tags: str = Field(default="", max_length=1200)
     npc_tags: list[str] = Field(default_factory=list, max_length=3)
     redraw_from_reference: bool = True
-    # portrait は立ち絵だけを作り直す。生成失敗ターンからの復旧に使う
-    target: Literal["scene", "portrait"] = "scene"
+    # portrait は立ち絵だけを作り直す。生成失敗ターンからの復旧に使う。
+    # partner は romance の攻略対象の立ち絵だけを作り直す(対面会話モードの↻)
+    target: Literal["scene", "portrait", "partner"] = "scene"
 
 
 def _http_error(error: AdventureError) -> HTTPException:
     status = (
         404
-        if error.code in {"run_not_found", "source_not_found", "image_not_found"}
+        if error.code
+        in {"run_not_found", "source_not_found", "image_not_found", "avatar_not_found"}
         else 400
     )
     return HTTPException(
@@ -194,11 +269,13 @@ async def generate_setup(request: AdventureSetupGenerateRequest) -> dict:
         return await adventure_service.generate_setup(
             source_session_id=request.source_session_id,
             source_history_id=request.source_history_id,
+            source_prompt_expander_entry_id=request.source_prompt_expander_entry_id,
             preset=request.preset,
             max_turns=request.scenario_max_turns,
             draft_setting=request.scenario_setting,
             draft_objective=request.scenario_objective,
             draft_constraints=request.scenario_constraints,
+            companion_mode=request.companion_mode,
         )
     except AdventureError as error:
         raise _http_error(error) from error
@@ -210,6 +287,7 @@ async def create_run(request: AdventureCreateRequest) -> dict:
         return await adventure_service.create_run(
             source_session_id=request.source_session_id,
             source_history_id=request.source_history_id,
+            source_prompt_expander_entry_id=request.source_prompt_expander_entry_id,
             preset=request.preset,
             custom_setup=request.custom_setup,
             scenario_setting=request.scenario_setting,
@@ -228,7 +306,11 @@ async def create_run(request: AdventureCreateRequest) -> dict:
             romance_player_character_id=request.romance_player_character_id,
             romance_player_session_id=request.romance_player_session_id,
             romance_player_history_id=request.romance_player_history_id,
+            romance_player_name=request.romance_player_name,
             romance_partner_speech_style=request.romance_partner_speech_style,
+            image_model=request.image_model,
+            companion_mode=request.companion_mode,
+            companion_avatar_id=request.companion_avatar_id,
         )
     except AdventureError as error:
         raise _http_error(error) from error
@@ -292,6 +374,9 @@ async def update_run_settings(
             player_speech_style=request.player_speech_style,
             player_speech_custom=request.player_speech_custom,
             partner_speech_style=request.partner_speech_style,
+            image_model=request.image_model,
+            companion_mode=request.companion_mode,
+            companion_avatar_id=request.companion_avatar_id,
         )
     except AdventureError as error:
         raise _http_error(error) from error
@@ -357,6 +442,38 @@ async def play_turn(run_id: str, request: AdventureTurnRequest) -> EventSourceRe
     return EventSourceResponse(event_generator())
 
 
+@router.post("/runs/{run_id}/talk/stream")
+async def talk_stream(
+    run_id: str, request: AdventureTalkRequest
+) -> EventSourceResponse:
+    """トークモード: 手番を消費せずに攻略対象と会話する(romance 専用)。"""
+
+    async def event_generator() -> AsyncGenerator[dict, None]:
+        try:
+            async for event in adventure_service.stream_talk(
+                run_id=run_id, user_input=request.user_input
+            ):
+                yield {
+                    "event": event["event"],
+                    "data": json.dumps(event["data"], ensure_ascii=False),
+                }
+        except AdventureError as error:
+            yield {
+                "event": "error",
+                "data": json.dumps(
+                    {
+                        "code": error.code,
+                        "message": str(error),
+                        "phase": "talk",
+                        "retryable": error.code == "invalid_model_output",
+                    },
+                    ensure_ascii=False,
+                ),
+            }
+
+    return EventSourceResponse(event_generator())
+
+
 @router.post("/runs/{run_id}/image/stream")
 async def regenerate_image(
     run_id: str, request: AdventureImageRequest | None = None
@@ -388,6 +505,13 @@ async def regenerate_image(
                 yield {
                     "event": "portrait_image",
                     "data": json.dumps(portrait, ensure_ascii=False),
+                }
+            elif options.target == "partner":
+                partner = await adventure_service.generate_partner_portrait(run_id)
+                cost_usd = partner.pop("cost_usd", None)
+                yield {
+                    "event": "partner_image",
+                    "data": json.dumps(partner, ensure_ascii=False),
                 }
             else:
                 image = await adventure_service.generate_image(

@@ -30,12 +30,17 @@ import {
   deleteHistoryEntry,
   deleteLatestHistory,
 } from "../apis/game";
+import { V5_USAGE_WARN_SUPPRESSED_KEY } from "../constants/novelaiImageModels";
 import { useChat } from "../contexts/ChatContext";
 import { useGame } from "../contexts/GameContext";
 import { useNotification } from "../contexts/NotificationContext";
 import { useSettings } from "../contexts/SettingsContext";
+import {
+  PRECISE_REFERENCE_SECTION_ID,
+  usePreciseReferenceFiles,
+} from "../hooks/usePreciseReferenceFiles";
+import { useWindowFileDrop } from "../hooks/useWindowFileDrop";
 import type {
-  ChangeSettings,
   ChatMessage,
   ConversationMessage,
   InstructionType,
@@ -66,19 +71,17 @@ import RightPanel from "./layout/RightPanel";
 import { NovelaiUsageBar } from "./NovelaiUsageBar";
 import CharacterPanel from "./panel/CharacterPanel";
 import CharacterStatePanel from "./panel/CharacterStatePanel";
+import FileDropOverlay from "./ui/FileDropOverlay";
 import ImageOverlay from "./ui/ImageOverlay";
 import "./GamePlayScreen.css";
 import "./chat/ChatContainer.css";
 
 const ANLAS_WARN_SUPPRESSED_KEY = "anlas_warn_suppressed";
-// V5 利用上限使い切り警告の抑止キー（ブラウザセッション単位）
-const V5_USAGE_WARN_SUPPRESSED_KEY = "v5_usage_warn_suppressed";
 
 interface GamePlayScreenProps {
   onTransform: (
     instruction: string,
     costumeImage?: string,
-    changeSettings?: ChangeSettings,
     transformationType?: string,
     options?: {
       maskImage?: string;
@@ -145,6 +148,7 @@ export default function GamePlayScreen({
     setInpaintMask,
     clearInpaintMask,
     togglePanel,
+    setPanelOpen,
     isNovelaiV5Active,
   } = useSettings();
   const sessionId = gameState.sessionId;
@@ -153,7 +157,6 @@ export default function GamePlayScreen({
   const feelingText = gameState.feelingText;
   const isTransforming = gameState.isTransforming;
   const chatHistory = gameState.conversationHistory;
-  const changeSettings = settingsState.changeSettings;
   const totalCost = settingsState.totalCost;
   const showCost = settingsState.showCost;
   const imageProvider = settingsState.imageProvider;
@@ -226,7 +229,6 @@ export default function GamePlayScreen({
   // Anlas cost confirmation dialog for precise references
   const [anlasConfirmPending, setAnlasConfirmPending] = useState<{
     message: string;
-    changeSettings: ChangeSettings;
     transformationType: string;
     transformOptions: Record<string, unknown> | undefined;
     anlasCost: number;
@@ -238,7 +240,6 @@ export default function GamePlayScreen({
   // V5 利用上限の使い切り警告ダイアログ（Anlas 消費で生成が続く状態）
   const [usageWarnPending, setUsageWarnPending] = useState<{
     message: string;
-    changeSettings: ChangeSettings;
     transformationType: string;
     transformOptions: Record<string, unknown> | undefined;
     instructionType?: string;
@@ -625,6 +626,59 @@ export default function GamePlayScreen({
     togglePanel();
   }, [togglePanel]);
 
+  // 画面全体への画像ドロップ → 精密参照画像に追加（NovelAI 選択時のみ受け付ける）
+  const { addFiles: addPreciseReferenceFiles } = usePreciseReferenceFiles();
+  const isPreciseRefDropEnabled = imageProvider === "novelai";
+  const canAddPreciseReference = isPreciseRefDropEnabled && !isNovelaiV5Active;
+  const [pendingPreciseRefScroll, setPendingPreciseRefScroll] = useState(false);
+
+  const handleScreenPreciseRefDrop = useCallback(
+    async (files: File[]) => {
+      if (!canAddPreciseReference) {
+        showNotification(
+          "warning",
+          t("gameplay.preciseRefDropResultTitle"),
+          t("rightPanel.preciseReferenceV5Unavailable"),
+        );
+        return;
+      }
+      const { addedCount, error } = await addPreciseReferenceFiles(files);
+      if (error) {
+        showNotification(
+          addedCount > 0 ? "warning" : "error",
+          t("gameplay.preciseRefDropResultTitle"),
+          error,
+        );
+      }
+      if (addedCount > 0) {
+        // 右パネルを開き、描画後に精密参照セクションへスクロールする（下の effect）
+        setPanelOpen(true);
+        setPendingPreciseRefScroll(true);
+      }
+    },
+    [
+      addPreciseReferenceFiles,
+      canAddPreciseReference,
+      setPanelOpen,
+      showNotification,
+      t,
+    ],
+  );
+
+  const isFileDragging = useWindowFileDrop({
+    enabled: isPreciseRefDropEnabled,
+    onFiles: handleScreenPreciseRefDrop,
+  });
+
+  // ドロップ後: 右パネルが開いた描画を待ってから精密参照セクションへスクロール
+  useEffect(() => {
+    if (!pendingPreciseRefScroll || !showRightPanel) return;
+    setPendingPreciseRefScroll(false);
+    document
+      .getElementById(PRECISE_REFERENCE_SECTION_ID)
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [pendingPreciseRefScroll, showRightPanel]);
+
   // マスク編集保存
   const handleMaskSave = useCallback(
     (maskData: string | null, maskId: string | null) => {
@@ -892,7 +946,6 @@ export default function GamePlayScreen({
           setUsageWarnDoNotShowAgain(false);
           setUsageWarnPending({
             message,
-            changeSettings,
             transformationType,
             transformOptions: transformOptions as
               | Record<string, unknown>
@@ -916,7 +969,6 @@ export default function GamePlayScreen({
             onTransform(
               message,
               undefined,
-              changeSettings,
               transformationType,
               transformOptions,
               backendInstructionType,
@@ -928,7 +980,6 @@ export default function GamePlayScreen({
           setAnlasDoNotShowAgain(false);
           setAnlasConfirmPending({
             message,
-            changeSettings,
             transformationType,
             transformOptions: transformOptions as
               | Record<string, unknown>
@@ -943,7 +994,6 @@ export default function GamePlayScreen({
         onTransform(
           message,
           undefined,
-          changeSettings,
           transformationType,
           transformOptions,
           backendInstructionType,
@@ -960,7 +1010,6 @@ export default function GamePlayScreen({
       updateMessage,
       setMessageStreaming,
       onTransform,
-      changeSettings,
       chatHistory,
       setConversationHistory,
       imageProvider,
@@ -1129,7 +1178,6 @@ export default function GamePlayScreen({
       onTransform(
         message,
         undefined,
-        changeSettings,
         transformationType,
         transformOptions,
         backendInstructionType,
@@ -1149,7 +1197,6 @@ export default function GamePlayScreen({
       addMessage,
       upsertPendingIdentity,
       onTransform,
-      changeSettings,
       imageProvider,
       inpaintSettings,
       settingsState.inpaintEnabled,
@@ -1164,7 +1211,6 @@ export default function GamePlayScreen({
     if (!anlasConfirmPending) return;
     const {
       message,
-      changeSettings: cs,
       transformationType,
       transformOptions,
       instructionType: pendingInstructionType,
@@ -1178,7 +1224,6 @@ export default function GamePlayScreen({
     onTransform(
       message,
       undefined,
-      cs,
       transformationType,
       transformOptions,
       pendingInstructionType,
@@ -1197,7 +1242,6 @@ export default function GamePlayScreen({
     if (!usageWarnPending) return;
     const {
       message,
-      changeSettings: cs,
       transformationType,
       transformOptions,
       instructionType: pendingInstructionType,
@@ -1211,7 +1255,6 @@ export default function GamePlayScreen({
     onTransform(
       message,
       undefined,
-      cs,
       transformationType,
       transformOptions,
       pendingInstructionType,
@@ -2114,6 +2157,24 @@ export default function GamePlayScreen({
             </div>
           </div>
         </div>
+      )}
+
+      {/* 画面全体への画像ドロップ用オーバーレイ（表示のみ。drop 自体は window で受ける） */}
+      {isFileDragging && (
+        <FileDropOverlay
+          testId="precise-ref-drop-overlay"
+          unavailable={!canAddPreciseReference}
+          title={
+            canAddPreciseReference
+              ? t("gameplay.preciseRefDropTitle")
+              : t("rightPanel.preciseReferenceV5Unavailable")
+          }
+          hint={
+            canAddPreciseReference
+              ? t("gameplay.preciseRefDropHint")
+              : undefined
+          }
+        />
       )}
     </MainLayout>
   );

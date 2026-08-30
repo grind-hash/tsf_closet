@@ -952,9 +952,6 @@ class GameService:
         self,
         instruction: str,
         current_description: str,
-        preserve_elements: list[str] | None = None,
-        change_scope: str = "full",
-        custom_preserve_text: str = "",
         nsfw_mode: bool = False,
         novelai_model_override: str | None = None,
         use_memory: bool = True,
@@ -971,9 +968,6 @@ class GameService:
         Args:
             instruction: ユーザーの着せ替え指示（日本語）
             current_description: 現在の画像の説明
-            preserve_elements: 保持する要素のリスト
-            change_scope: 変更対象 (full, upper, lower, accessories, shoes)
-            custom_preserve_text: カスタム保持指示（自由記述）
             nsfw_mode: NSFWモードかどうか
             suppress_gender_discomfort_cues: 性別適合時に恥ずかしさ・官能キューを抑止
 
@@ -994,9 +988,6 @@ class GameService:
             result = await llm_service.generate_image_edit_prompt(
                 instruction=instruction + history_context,
                 current_description=current_description,
-                preserve_elements=preserve_elements,
-                change_scope=change_scope,
-                custom_preserve_text=custom_preserve_text,
                 provider_override=settings.image_provider,
                 nsfw_mode=nsfw_mode,
                 extra_system_suffix=memory_priority_suffix,
@@ -1474,9 +1465,6 @@ class GameService:
         instruction: str,
         base_history_id: str | None = None,
         costume_image: str | None = None,
-        preserve_elements: list[str] | None = None,
-        change_scope: str = "full",
-        custom_preserve_text: str = "",
         transformation_type: str = "costume",
         mask_image: str | None = None,
         mask_id: str | None = None,
@@ -1514,9 +1502,6 @@ class GameService:
             instruction: 着せ替え/現実改変指示
             base_history_id: 履歴からのベース画像ID
             costume_image: 衣装参照画像（Base64）
-            preserve_elements: 保持する要素のリスト
-            change_scope: 変更対象 (full, upper, lower, accessories, shoes)
-            custom_preserve_text: カスタム保持指示（自由記述）
             transformation_type: 変身タイプ (costume=衣装変更, reality=現実改変)
             nsfw_mode_override: ユーザー設定からのNSFWモード（Noneの場合はセッション設定を使用）
             difficulty_override: ユーザー設定からの難易度（Noneの場合はセッション設定を使用）
@@ -2893,9 +2878,6 @@ class GameService:
                 ) = await self._generate_image_edit_prompt(
                     instruction=image_instruction + attribute_context,
                     current_description=before_desc,
-                    preserve_elements=preserve_elements,
-                    change_scope=change_scope,
-                    custom_preserve_text=custom_preserve_text,
                     nsfw_mode=effective_nsfw_mode,
                     novelai_model_override=effective_novelai_text_model,
                     use_memory=use_memory,
@@ -3874,9 +3856,6 @@ class GameService:
         session_id: str | None,
         instruction: str,
         transformation_type: str = "costume",
-        preserve_elements: list[str] | None = None,
-        change_scope: str = "full",
-        custom_preserve_text: str = "",
         instruction_type: str | None = None,
         respect_clothing_layers: bool = False,
         use_history_lookback: bool | None = None,
@@ -4093,9 +4072,6 @@ class GameService:
             image_edit_prompt, _ = await self._generate_image_edit_prompt(
                 instruction=instruction,
                 current_description=current_description,
-                preserve_elements=preserve_elements,
-                change_scope=change_scope,
-                custom_preserve_text=custom_preserve_text,
                 nsfw_mode=nsfw_mode,
                 novelai_model_override=effective_novelai_text_model,
                 respect_clothing_layers=respect_clothing_layers,

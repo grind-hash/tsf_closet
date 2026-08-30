@@ -1,8 +1,16 @@
 import type { TFunction } from "i18next";
 import type { ReactNode } from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useTranslation } from "react-i18next";
-import { useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import type {
   AdventureBgmKey,
   AdventureInputKind,
@@ -16,7 +24,24 @@ import type {
 } from "../../apis/adventure";
 import { canActOnRun } from "../../apis/adventure";
 import { fetchAnlasBalance } from "../../apis/anlas";
+import {
+  type AvatarModel,
+  avatarVariantLabel,
+  groupAvatarModels,
+} from "../../apis/avatars";
 import { fetchGallerySessions } from "../../apis/gallery";
+import { fetchPromptExpanderEntry } from "../../apis/promptExpander";
+import {
+  type AvatarExpressionKey,
+  type AvatarGestureKey,
+  normalizeAvatarExpression,
+  normalizeAvatarGesture,
+} from "../../constants/companionAvatar";
+import {
+  ADVENTURE_IMAGE_MODEL_CHOICES,
+  isAdventureImageModelValue,
+  isV5ImageModel,
+} from "../../constants/novelaiImageModels";
 import {
   ANLAS_WARN_SUPPRESSED_KEY,
   DRAW_PARTNER_STORAGE_KEY,
@@ -25,18 +50,27 @@ import {
   readDrawPortraitEveryTurn,
   useAdventure,
 } from "../../contexts/AdventureContext";
+import { useNotification } from "../../contexts/NotificationContext";
 import { useSettings } from "../../contexts/SettingsContext";
 import { useAdventureBgm } from "../../hooks/useAdventureBgm";
+import { useAdventureVoice } from "../../hooks/useAdventureVoice";
 import {
   type TimedProgressSegment,
   useTimedProgress,
 } from "../../hooks/useTimedProgress";
 import { useTransparentImage } from "../../hooks/useTransparentImage";
+import { ROUTES } from "../../routes";
 import type { AnlasBalance, Character, GallerySession } from "../../types";
 import {
   type AdventureAnlasEstimate,
   estimateAdventureAnlas,
 } from "../../utils/adventureAnlasEstimate";
+import {
+  joinForSpeech,
+  parseDialogueSegments,
+  partnerLines,
+  stripStageDirections,
+} from "../../utils/adventureDialogue";
 import {
   ADVENTURE_PROGRESS_BUDGET_MS,
   estimateAdventureTurnSeconds,
@@ -53,6 +87,7 @@ import AdventureImagePromptModal from "./AdventureImagePromptModal";
 import AdventurePromptPreviewModal from "./AdventurePromptPreviewModal";
 import AdventureSessionPickerModal, {
   type AdventureSourceSelection,
+  selectionFromPromptExpanderEntry,
   selectionFromSession,
 } from "./AdventureSessionPickerModal";
 import AdventureSpeechStyleModal from "./AdventureSpeechStyleModal";
@@ -82,6 +117,7 @@ const PRESETS: AdventurePreset[] = [
 ];
 
 function mediaUrl(url: string): string {
+  if (url.startsWith(`${API_BASE}/`)) return url;
   return url.startsWith("/") ? `${API_BASE}${url}` : url;
 }
 
@@ -93,8 +129,11 @@ const MAX_MAX_TURNS = 30;
 // 恋愛シミュレーションの日数。backend/gateway/consts/adventure_romance.py と揃える。
 // 1日=昼夜2ターンなので scenario_max_turns には日数×2 を送る
 const ROMANCE_DEFAULT_DAYS = 7;
+// 対面会話モードは日数でなくターン数(1ターン=1往復)。romance のクランプ(10〜60、偶数)に合わせる
+const COMPANION_DEFAULT_TURNS = 20;
+const COMPANION_TURN_OPTIONS = [10, 14, 20, 30, 40, 60] as const;
 const ROMANCE_MIN_DAYS = 5;
-const ROMANCE_MAX_DAYS = 15;
+const ROMANCE_MAX_DAYS = 30;
 const ROMANCE_DAY_OPTIONS = Array.from(
   { length: ROMANCE_MAX_DAYS - ROMANCE_MIN_DAYS + 1 },
   (_, index) => ROMANCE_MIN_DAYS + index,
@@ -140,6 +179,8 @@ const SPEECH_STYLES: AdventureSpeechStyle[] = [
 const DEFAULT_SPEECH_STYLE: AdventureSpeechStyle = "polite";
 const SPEECH_CUSTOM_MAX_LENGTH = 120;
 const PARTNER_SPEECH_STYLE_MAX_LENGTH = 200;
+// backend/gateway/consts/adventure_romance.py の ROMANCE_PLAYER_NAME_MAX_LENGTH と揃える
+const ROMANCE_PLAYER_NAME_MAX_LENGTH = 40;
 // 制約(1行1件)の上限件数。backend の consts/adventure_setup.py と合わせる
 const SCENARIO_CONSTRAINTS_MAX_ITEMS = 20;
 const SCENARIO_CONSTRAINTS_MAX_LENGTH = 2000;
@@ -148,6 +189,67 @@ const SCENARIO_CONSTRAINTS_MAX_LENGTH = 2000;
 // 精密参照はAnlasを追加消費するため保存対象に含めず、常に既定OFFから始める
 const SETUP_PREFS_STORAGE_KEY = "adventure_setup_prefs";
 
+// 3D モデル(VRM)のステージは three.js を含むため遅延読込する
+const CompanionAvatarStage = lazy(
+  () => import("./avatar/CompanionAvatarStage"),
+);
+
+/**
+ * 3D モデル選択の option 群。同じキャラクターの衣装差分は optgroup にまとめ、
+ * 差分ラベルで見せる(未分類はモデル名のまま)
+ */
+function AvatarModelOptions({ models }: { models: AvatarModel[] }) {
+  return (
+    <>
+      {groupAvatarModels(models).map((group) =>
+        group.character === null ? (
+          group.models.map((model) => (
+            <option key={model.id} value={model.id}>
+              {model.name}
+            </option>
+          ))
+        ) : (
+          <optgroup
+            key={`character:${group.character}`}
+            label={group.character}
+          >
+            {group.models.map((model) => (
+              <option key={model.id} value={model.id}>
+                {avatarVariantLabel(model)}
+              </option>
+            ))}
+          </optgroup>
+        ),
+      )}
+    </>
+  );
+}
+
+/** 選択中モデルに衣装差分(同じキャラクター 2 件以上)があるときだけ出す説明 */
+function AvatarWardrobeHint({
+  models,
+  selectedId,
+}: {
+  models: AvatarModel[];
+  selectedId: string | null | undefined;
+}) {
+  const { t } = useTranslation();
+  const selected = models.find((model) => model.id === selectedId);
+  if (!selected?.character_name) return null;
+  const total = models.filter(
+    (model) => model.character_name === selected.character_name,
+  ).length;
+  if (total < 2) return null;
+  return (
+    <span className="adventure-setup-turns__hint adventure-setup-avatar__wardrobe">
+      {t("adventure.avatar.wardrobeHint", {
+        character: selected.character_name,
+        total,
+      })}
+    </span>
+  );
+}
+
 type AdventureSetupPrefs = {
   narrationVoice: AdventureNarrationVoice;
   narrationPronoun: string;
@@ -155,10 +257,18 @@ type AdventureSetupPrefs = {
   speechStyle: AdventureSpeechStyle;
   speechCustom: string;
   enableCompositeScene: boolean;
+  /** 対面会話モード(romance のみ)。既定 OFF */
+  companionMode: boolean;
+  /** 対面会話モードで描く 3D モデル(VRM)の登録 ID。"" は「なし(立ち絵)」 */
+  companionAvatarId: string;
   /** romance の主人公(自分)。テンプレキャラID または __session__。次回にも引き継ぐ */
   romancePlayerCharacterId: string;
   /** 主人公を「セッションの姿」にしたときのセッションID */
   romancePlayerSessionId: string;
+  /** romance の主人公の呼び名。"" は選択したキャラクターの名前に従う */
+  romancePlayerName: string;
+  /** run 単位のNovelAI画像モデル。"default" はグローバル設定に従う */
+  imageModel: string;
 };
 
 function readSetupPrefs(): Partial<AdventureSetupPrefs> {
@@ -250,7 +360,11 @@ function SourceSelectionSummary({
       </button>
     );
   }
-  const name = selection.characterName ?? t("adventure.unnamedCharacter");
+  // Prompt Expander 由来はキャラ名を持たないため、出どころのラベルを主見出しにする
+  const name =
+    selection.origin === "prompt_expander"
+      ? t("adventure.sourcePicker.promptExpanderOrigin")
+      : (selection.characterName ?? t("adventure.unnamedCharacter"));
   const state = selection.pointLabel ?? t("adventure.currentState");
   return (
     <div
@@ -340,8 +454,11 @@ function AdventureRunRow({
 function AdventureHub() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const replayRunId = (useLocation().state as { replayRunId?: string } | null)
+  const location = useLocation();
+  const replayRunId = (location.state as { replayRunId?: string } | null)
     ?.replayRunId;
+  // Prompt Expander のエントリカードからの導線(/adventure?pe_entry=<id>)
+  const peEntryParam = new URLSearchParams(location.search).get("pe_entry");
   const {
     runs,
     templates,
@@ -355,6 +472,7 @@ function AdventureHub() {
     removeRun,
     clearError,
     lastRunId,
+    avatarModels,
   } = useAdventure();
   // 1ページ目のセッション一覧。既定選択と保存済みIDの解決に使う(一覧表示はモーダル側)
   const [sessions, setSessions] = useState<GallerySession[]>([]);
@@ -384,6 +502,10 @@ function AdventureHub() {
   );
   // romance はターン数入力の代わりに日数セレクトを使う
   const [romanceDays, setRomanceDays] = useState(ROMANCE_DEFAULT_DAYS);
+  // 対面会話モードは日数の代わりにターン数を選ぶ
+  const [companionTurns, setCompanionTurns] = useState<number>(
+    COMPANION_DEFAULT_TURNS,
+  );
   const [detailsOpen, setDetailsOpen] = useState(false);
   // localStorageの読み出しは初回マウント時の一度だけに限定する
   const [savedSetupPrefs] = useState(readSetupPrefs);
@@ -408,11 +530,34 @@ function AdventureHub() {
   const [partnerSpeechStyle, setPartnerSpeechStyle] = useState("");
   const [runFilter, setRunFilter] = useState<RunFilter>("all");
   const [creating, setCreating] = useState(false);
-  const { state: settingsState, isNovelaiV5Active } = useSettings();
+  const { state: settingsState, effectiveNovelaiImageModel } = useSettings();
   // 精密参照は既定OFF。ユーザーが明示的にONした場合のみAnlas追加消費
   const [usePreciseReference, setUsePreciseReference] = useState(false);
   const [startAnlasConfirmOpen, setStartAnlasConfirmOpen] = useState(false);
+  // この run 専用のNovelAI画像モデル。"default" はグローバル設定に従う
+  const [imageModelChoice, setImageModelChoice] = useState<string>(() => {
+    const saved = savedSetupPrefs.imageModel;
+    return typeof saved === "string" && isAdventureImageModelValue(saved)
+      ? saved
+      : "default";
+  });
+  // モデル選択を反映した実効モデルでV5判定する(精密参照の可否・Anlas確認に効く)
+  const setupIsV5 =
+    settingsState.imageProvider === "novelai" &&
+    isV5ImageModel(
+      imageModelChoice === "default"
+        ? effectiveNovelaiImageModel
+        : imageModelChoice,
+    );
   // 前回の選択があればそれを優先し、未保存ならグローバル設定を初期値とする
+  const [companionMode, setCompanionMode] = useState(
+    () => savedSetupPrefs.companionMode === true,
+  );
+  const [companionAvatarId, setCompanionAvatarId] = useState(() =>
+    typeof savedSetupPrefs.companionAvatarId === "string"
+      ? savedSetupPrefs.companionAvatarId
+      : "",
+  );
   const [enableCompositeScene, setEnableCompositeScene] = useState(() =>
     typeof savedSetupPrefs.enableCompositeScene === "boolean"
       ? savedSetupPrefs.enableCompositeScene
@@ -436,12 +581,42 @@ function AdventureHub() {
   // 主人公を「セッションの姿」にする場合の選択。保存済みIDは sessions ロード後に解決する
   const [playerSelection, setPlayerSelection] =
     useState<AdventureSourceSelection | null>(null);
+  // romance の主人公の呼び名(攻略対象がセリフで呼ぶ名前)。選択したキャラクターの
+  // 名前を既定値として埋め、ユーザーが書き換えた値は選択を変えても保持する
+  const [romancePlayerName, setRomancePlayerName] = useState(() => {
+    const saved = savedSetupPrefs.romancePlayerName;
+    return typeof saved === "string"
+      ? saved.slice(0, ROMANCE_PLAYER_NAME_MAX_LENGTH)
+      : "";
+  });
 
   // 既存の送信・保存ロジックは選択オブジェクトから派生したIDを参照する
   const sourceSessionId = sourceSelection?.sessionId ?? "";
   const sourceHistoryId = sourceSelection?.historyId;
+  const sourcePeEntryId = sourceSelection?.promptExpanderEntryId;
+  // 開始元はセッションか Prompt Expander エントリのどちらかがあればよい
+  const hasSource = Boolean(sourceSessionId || sourcePeEntryId);
   const romancePlayerSessionId = playerSelection?.sessionId ?? "";
   const romancePlayerHistoryId = playerSelection?.historyId;
+  // 呼び名の既定値。テンプレキャラならその名前、セッションの姿なら紐づく主人公名
+  const romancePlayerDefaultName =
+    romancePlayerId === ROMANCE_PLAYER_SESSION_VALUE
+      ? (playerSelection?.characterName ?? "")
+      : (playerCharacters.find((character) => character.id === romancePlayerId)
+          ?.name ?? "");
+  const previousPlayerDefaultNameRef = useRef("");
+  useEffect(() => {
+    // 候補の読み込み前やセッション未解決の間(既定値が空)は何もしない
+    if (!romancePlayerDefaultName) return;
+    const previous = previousPlayerDefaultNameRef.current;
+    previousPlayerDefaultNameRef.current = romancePlayerDefaultName;
+    // 未入力か既定値のままなら新しい既定値へ追従し、書き換え済みなら保持する
+    setRomancePlayerName((current) =>
+      current.trim() === "" || current === previous
+        ? romancePlayerDefaultName
+        : current,
+    );
+  }, [romancePlayerDefaultName]);
 
   useEffect(() => {
     const prefs: AdventureSetupPrefs = {
@@ -450,8 +625,12 @@ function AdventureHub() {
       speechStyle,
       speechCustom: speechCustom.trim(),
       enableCompositeScene,
+      companionMode,
+      companionAvatarId,
       romancePlayerCharacterId: romancePlayerId,
       romancePlayerSessionId,
+      romancePlayerName,
+      imageModel: imageModelChoice,
     };
     try {
       localStorage.setItem(SETUP_PREFS_STORAGE_KEY, JSON.stringify(prefs));
@@ -464,8 +643,12 @@ function AdventureHub() {
     speechStyle,
     speechCustom,
     enableCompositeScene,
+    companionMode,
+    companionAvatarId,
     romancePlayerId,
     romancePlayerSessionId,
+    romancePlayerName,
+    imageModelChoice,
   ]);
 
   // セッションの姿モードで未選択の間は、保存済みセッションIDを解決する。
@@ -515,6 +698,25 @@ function AdventureHub() {
     setSelectedReplayRunId(replayRunId);
   }, [replayRunId]);
 
+  // ?pe_entry=<id> で開かれたら、そのエントリを開始元に据えてクエリを消す。
+  // StrictMode の二重実行と、navigate 後の再実行を ref で抑止する
+  const peDeepLinkHandledRef = useRef(false);
+  const promptExpanderEnabled = settingsState.experimentalPromptExpanderEnabled;
+  useEffect(() => {
+    if (!peEntryParam || !promptExpanderEnabled) return;
+    if (peDeepLinkHandledRef.current) return;
+    peDeepLinkHandledRef.current = true;
+    navigate("/adventure", { replace: true });
+    void fetchPromptExpanderEntry(peEntryParam)
+      .then((entry) => {
+        setSourceSelection(selectionFromPromptExpanderEntry(entry));
+      })
+      .catch((caught: unknown) => {
+        // 取得できなければ既定の開始セッション選択に倒す
+        console.warn("Failed to load Prompt Expander entry:", caught);
+      });
+  }, [peEntryParam, promptExpanderEnabled, navigate]);
+
   const selectedTemplate = templates.find(
     (template) => template.id === selectedTemplateId,
   );
@@ -526,11 +728,16 @@ function AdventureHub() {
   const effectivePreset =
     startMode === "authored" ? (selectedScenarioPreset ?? preset) : preset;
   // 生成時間の見積もりと「テキストのみ」告知は同じ設定から導く
+  const setupCompanion = effectivePreset === "romance" && companionMode;
+  const setupAvatarKnown =
+    companionAvatarId !== "" &&
+    avatarModels.some((model) => model.id === companionAvatarId);
   const setupImageSettings = {
     preset: effectivePreset,
     enableCompositeScene,
     drawPortraitEveryTurn,
     drawPartnerEveryTurn,
+    companionMode: setupCompanion,
   };
 
   // 直前に開いた run を再取得済みの一覧から引く。削除済み・終了済みなら出さない
@@ -602,9 +809,13 @@ function AdventureHub() {
   const effectiveMaxTurns = clampMaxTurns(
     Number.parseInt(scenarioMaxTurns, 10),
   );
-  // romance は日数×2 をターン予算として送る
+  // romance は日数×2 をターン予算として送る。対面会話モードはターン数そのまま
   const effectiveScenarioTurns =
-    preset === "romance" ? romanceDays * 2 : effectiveMaxTurns;
+    preset === "romance"
+      ? companionMode
+        ? companionTurns
+        : romanceDays * 2
+      : effectiveMaxTurns;
 
   const openScenarioPicker = () => {
     setScenarioPickerTab(selectedReplayRunId ? "played" : "authored");
@@ -616,7 +827,7 @@ function AdventureHub() {
   const tooManyConstraints = constraintCount > SCENARIO_CONSTRAINTS_MAX_ITEMS;
 
   const handleGenerateSetup = async () => {
-    if (!sourceSessionId || tooManyConstraints) return;
+    if (!hasSource || tooManyConstraints) return;
     // 入力済みの舞台・ゴール・制約は下書きとして渡し、LLM に意味を保ったまま
     // 仕上げ・補完させる。空の項目はキー自体を送らない
     const draftSetting = scenarioSetting.trim();
@@ -624,10 +835,12 @@ function AdventureHub() {
     const draftConstraints = splitConstraintLines(scenarioConstraints);
     try {
       const generated = await generateSetup({
-        source_session_id: sourceSessionId,
+        source_session_id: sourceSessionId || undefined,
         source_history_id: sourceHistoryId,
+        source_prompt_expander_entry_id: sourcePeEntryId,
         preset,
         scenario_max_turns: effectiveScenarioTurns,
+        companion_mode: preset === "romance" && companionMode,
         ...(draftSetting ? { scenario_setting: draftSetting } : {}),
         ...(draftObjective ? { scenario_objective: draftObjective } : {}),
         ...(draftConstraints.length > 0
@@ -644,7 +857,7 @@ function AdventureHub() {
   };
 
   const startDisabledReason = (): string | null => {
-    if (!sourceSessionId) return t("adventure.disabledReason.noSession");
+    if (!hasSource) return t("adventure.disabledReason.noSession");
     if (startMode === "generated" && !scenarioObjective.trim())
       return t("adventure.disabledReason.noObjective");
     if (startMode === "generated" && tooManyConstraints)
@@ -658,14 +871,15 @@ function AdventureHub() {
   };
 
   const performCreate = async () => {
-    if (!sourceSessionId) return;
+    if (!hasSource) return;
     const authoredTemplate =
       startMode === "authored" && !selectedReplayRun ? selectedTemplate : null;
     setCreating(true);
     try {
       const run = await createRun({
-        source_session_id: sourceSessionId,
+        source_session_id: sourceSessionId || undefined,
         source_history_id: sourceHistoryId,
+        source_prompt_expander_entry_id: sourcePeEntryId,
         preset: selectedReplayRun?.preset ?? authoredTemplate?.preset ?? preset,
         custom_setup: "",
         scenario_setting: startMode === "generated" ? scenarioSetting : "",
@@ -685,9 +899,16 @@ function AdventureHub() {
         romance_partner_speech_style:
           effectivePreset === "romance" ? partnerSpeechStyle.trim() : "",
         // V5系モデルは精密参照非対応のため実効値をOFFにする
-        use_precise_reference: usePreciseReference && !isNovelaiV5Active,
+        use_precise_reference: usePreciseReference && !setupIsV5,
         enable_composite_scene: enableCompositeScene,
+        companion_mode: setupCompanion,
+        // 登録済みモデルに限って送る(削除済みの保存値は「なし」に倒す)
+        companion_avatar_id:
+          setupCompanion && setupAvatarKnown ? companionAvatarId : undefined,
         respect_clothing_layers: settingsState.respectClothingLayers,
+        // "default" 選択時は送らず、runはグローバル設定に従う
+        image_model:
+          imageModelChoice === "default" ? undefined : imageModelChoice,
         romance_player_character_id:
           startMode === "generated" &&
           preset === "romance" &&
@@ -706,6 +927,11 @@ function AdventureHub() {
           romancePlayerId === ROMANCE_PLAYER_SESSION_VALUE
             ? romancePlayerHistoryId
             : undefined,
+        // 空欄はサーバ側で選択したキャラクターの名前へ倒す
+        romance_player_name:
+          startMode === "generated" && preset === "romance"
+            ? romancePlayerName.trim() || undefined
+            : undefined,
       });
       navigate(`/adventure/${run.id}`);
     } catch {
@@ -718,11 +944,11 @@ function AdventureHub() {
   // 精密参照ONの開始はオープニング画像生成からAnlasを消費するため確認を挟む。
   // Anlasを消費するのはNovelAIプロバイダーのときだけ
   const handleCreate = async () => {
-    if (!sourceSessionId) return;
+    if (!hasSource) return;
     if (
       settingsState.imageProvider === "novelai" &&
       usePreciseReference &&
-      !isNovelaiV5Active &&
+      !setupIsV5 &&
       sessionStorage.getItem(ANLAS_WARN_SUPPRESSED_KEY) !== "true"
     ) {
       setStartAnlasConfirmOpen(true);
@@ -858,27 +1084,102 @@ function AdventureHub() {
                     アクセシブル名にヒント全文が混ざる */}
                 {preset === "romance" ? (
                   <>
-                    <label className="adventure-setup-turns">
-                      <span className="adventure-setup-turns__label">
-                        {t("adventure.romance.days")}
+                    {/* 対面会話モード(1手番=1往復・昼夜なし)。ON なら日数でなくターン数を選ぶ */}
+                    <label className="adventure-precise-toggle adventure-companion-toggle">
+                      <span className="adventure-precise-toggle__info">
+                        <strong>{t("adventure.companionMode")}</strong>
+                        <small>{t("adventure.companionModeHint")}</small>
                       </span>
-                      <select
-                        value={romanceDays}
+                      <input
+                        type="checkbox"
+                        className="adventure-precise-toggle__input"
+                        checked={companionMode}
                         disabled={setupGenerating || loading || creating}
                         onChange={(event) =>
-                          setRomanceDays(Number(event.target.value))
+                          setCompanionMode(event.target.checked)
+                        }
+                      />
+                      <span className="adventure-precise-toggle__switch" />
+                    </label>
+                    {/* 3D モデル(VRM)。対面会話モード OFF でも隠さず、文言で説明する */}
+                    <label className="adventure-setup-turns adventure-setup-avatar">
+                      <span className="adventure-setup-turns__label">
+                        {t("adventure.avatar.selectLabel")}
+                      </span>
+                      <select
+                        value={setupAvatarKnown ? companionAvatarId : ""}
+                        disabled={setupGenerating || loading || creating}
+                        onChange={(event) =>
+                          setCompanionAvatarId(event.target.value)
                         }
                       >
-                        {ROMANCE_DAY_OPTIONS.map((days) => (
-                          <option key={days} value={days}>
-                            {days}
-                          </option>
-                        ))}
+                        <option value="">{t("adventure.avatar.none")}</option>
+                        <AvatarModelOptions models={avatarModels} />
                       </select>
-                      <span className="adventure-setup-turns__unit">
-                        {t("adventure.romance.daysUnit")}
+                      <span className="adventure-setup-turns__hint">
+                        {avatarModels.length === 0 ? (
+                          <>
+                            {t("adventure.avatar.noModelsHint")}{" "}
+                            <Link to={ROUTES.SETTINGS}>
+                              {t("adventure.avatar.registerLink")}
+                            </Link>
+                          </>
+                        ) : companionMode ? (
+                          t("adventure.avatar.setupHint")
+                        ) : (
+                          t("adventure.avatar.companionOffHint")
+                        )}
                       </span>
+                      <AvatarWardrobeHint
+                        models={avatarModels}
+                        selectedId={setupAvatarKnown ? companionAvatarId : null}
+                      />
                     </label>
+                    {companionMode ? (
+                      <label className="adventure-setup-turns">
+                        <span className="adventure-setup-turns__label">
+                          {t("adventure.companionTurns")}
+                        </span>
+                        <select
+                          value={companionTurns}
+                          disabled={setupGenerating || loading || creating}
+                          onChange={(event) =>
+                            setCompanionTurns(Number(event.target.value))
+                          }
+                        >
+                          {COMPANION_TURN_OPTIONS.map((turns) => (
+                            <option key={turns} value={turns}>
+                              {turns}
+                            </option>
+                          ))}
+                        </select>
+                        <span className="adventure-setup-turns__unit">
+                          {t("adventure.companionTurnsUnit")}
+                        </span>
+                      </label>
+                    ) : (
+                      <label className="adventure-setup-turns">
+                        <span className="adventure-setup-turns__label">
+                          {t("adventure.romance.days")}
+                        </span>
+                        <select
+                          value={romanceDays}
+                          disabled={setupGenerating || loading || creating}
+                          onChange={(event) =>
+                            setRomanceDays(Number(event.target.value))
+                          }
+                        >
+                          {ROMANCE_DAY_OPTIONS.map((days) => (
+                            <option key={days} value={days}>
+                              {days}
+                            </option>
+                          ))}
+                        </select>
+                        <span className="adventure-setup-turns__unit">
+                          {t("adventure.romance.daysUnit")}
+                        </span>
+                      </label>
+                    )}
                     <label
                       className="adventure-setup-turns"
                       title={t("adventure.romance.playerHint")}
@@ -909,6 +1210,27 @@ function AdventureHub() {
                         </option>
                       </select>
                     </label>
+                    <label
+                      className="adventure-setup-turns adventure-setup-turns--player-name"
+                      title={t("adventure.romance.playerNameHint")}
+                    >
+                      <span className="adventure-setup-turns__label">
+                        {t("adventure.romance.playerName")}
+                      </span>
+                      <input
+                        type="text"
+                        maxLength={ROMANCE_PLAYER_NAME_MAX_LENGTH}
+                        value={romancePlayerName}
+                        disabled={setupGenerating || loading || creating}
+                        placeholder={
+                          romancePlayerDefaultName ||
+                          t("adventure.romance.playerNamePlaceholder")
+                        }
+                        onChange={(event) =>
+                          setRomancePlayerName(event.target.value)
+                        }
+                      />
+                    </label>
                   </>
                 ) : (
                   <label className="adventure-setup-turns">
@@ -938,7 +1260,7 @@ function AdventureHub() {
                 <button
                   type="button"
                   disabled={
-                    !sourceSessionId ||
+                    !hasSource ||
                     setupGenerating ||
                     loading ||
                     tooManyConstraints
@@ -955,10 +1277,12 @@ function AdventureHub() {
                 </button>
                 <small className="adventure-setup-turns__hint">
                   {preset === "romance"
-                    ? t("adventure.romance.daysHint", {
-                        min: ROMANCE_MIN_DAYS,
-                        max: ROMANCE_MAX_DAYS,
-                      })
+                    ? companionMode
+                      ? t("adventure.companionTurnsHint")
+                      : t("adventure.romance.daysHint", {
+                          min: ROMANCE_MIN_DAYS,
+                          max: ROMANCE_MAX_DAYS,
+                        })
                     : t("adventure.maxTurnsHint", {
                         min: MIN_MAX_TURNS,
                         max: MAX_MAX_TURNS,
@@ -1212,13 +1536,40 @@ function AdventureHub() {
                   )}
                 </p>
               )}
+              {/* この run 専用のNovelAI画像モデル。既定はグローバル設定に従う */}
+              <label className="adventure-image-model-picker">
+                <span className="adventure-precise-toggle__info">
+                  <strong>{t("adventure.imageModel")}</strong>
+                  <small>
+                    {t(
+                      settingsState.imageProvider === "novelai"
+                        ? "adventure.imageModelHint"
+                        : "adventure.imageModelOtherProviderHint",
+                    )}
+                  </small>
+                </span>
+                <select
+                  value={imageModelChoice}
+                  disabled={setupGenerating || loading || creating}
+                  onChange={(event) => setImageModelChoice(event.target.value)}
+                >
+                  <option value="default">
+                    {t("adventure.imageModelDefault")}
+                  </option>
+                  {ADVENTURE_IMAGE_MODEL_CHOICES.map((choice) => (
+                    <option key={choice.value} value={choice.value}>
+                      {choice.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <label className="adventure-precise-toggle">
                 <span className="adventure-precise-toggle__info">
                   <strong>{t("adventure.preciseReference")}</strong>
                   {/* NovelAI以外では効果もAnlas消費もない旨、V5では非対応の旨を明示する */}
                   <small>
                     {t(
-                      isNovelaiV5Active
+                      setupIsV5
                         ? "adventure.preciseReferenceV5Hint"
                         : settingsState.imageProvider === "novelai"
                           ? "adventure.preciseReferenceHint"
@@ -1229,10 +1580,8 @@ function AdventureHub() {
                 <input
                   type="checkbox"
                   className="adventure-precise-toggle__input"
-                  checked={usePreciseReference && !isNovelaiV5Active}
-                  disabled={
-                    setupGenerating || loading || creating || isNovelaiV5Active
-                  }
+                  checked={usePreciseReference && !setupIsV5}
+                  disabled={setupGenerating || loading || creating || setupIsV5}
                   onChange={(event) =>
                     setUsePreciseReference(event.target.checked)
                   }
@@ -1242,7 +1591,13 @@ function AdventureHub() {
               <label className="adventure-precise-toggle">
                 <span className="adventure-precise-toggle__info">
                   <strong>{t("adventure.enableCompositeScene")}</strong>
-                  <small>{t("adventure.enableCompositeSceneHint")}</small>
+                  <small>
+                    {t(
+                      setupCompanion
+                        ? "adventure.enableCompositeSceneCompanionHint"
+                        : "adventure.enableCompositeSceneHint",
+                    )}
+                  </small>
                 </span>
                 <input
                   type="checkbox"
@@ -1259,7 +1614,13 @@ function AdventureHub() {
               <label className="adventure-precise-toggle">
                 <span className="adventure-precise-toggle__info">
                   <strong>{t("adventure.drawPortraitEveryTurn")}</strong>
-                  <small>{t("adventure.drawPortraitEveryTurnHint")}</small>
+                  <small>
+                    {t(
+                      setupCompanion
+                        ? "adventure.drawPortraitEveryTurnCompanionHint"
+                        : "adventure.drawPortraitEveryTurnHint",
+                    )}
+                  </small>
                 </span>
                 <input
                   type="checkbox"
@@ -1532,6 +1893,11 @@ function AdventureHub() {
             pickerTarget === "source" ? handleSourceSelect : handlePlayerSelect
           }
           onClose={() => setPickerTarget(null)}
+          // 主人公(player)側は変身後の姿を選ぶ用途なので Prompt Expander は出さない
+          allowPromptExpander={
+            pickerTarget === "source" &&
+            settingsState.experimentalPromptExpanderEnabled
+          }
         />
       )}
       {creating && (
@@ -1572,8 +1938,8 @@ interface AdventureStageFrame {
   turnNumber: number;
   /** ステージ／サムネイル用の代表画像 */
   imageUrl: string;
-  /** imageUrl が合成シーンか立ち絵かを示す */
-  kind: "composite" | "portrait";
+  /** imageUrl が合成シーンか立ち絵か、対面会話モードの攻略対象立ち絵かを示す */
+  kind: "composite" | "portrait" | "partner";
   /** 非合成モードの背景。romance ではこの手番の現在地・時間帯のもの */
   backgroundUrl: string | null;
   /** この手番の立ち絵（白背景の元画像）。無ければ null */
@@ -1596,6 +1962,17 @@ interface AdventureStageFrame {
   bgm: AdventureBgmKey;
   /** この手番のBGM選曲理由。キーと対で引き継ぎ、旧runでは null */
   bgmReason: string | null;
+  /** 対面会話モードの 3D モデル向け。攻略対象の表情・身振り(無ければ null) */
+  partnerExpression?: AvatarExpressionKey | null;
+  partnerGesture?: AvatarGestureKey | null;
+}
+
+/**
+ * 手番のセリフ読み上げの識別キー。turn id は本文確定(narrative_done)時点で
+ * 未確定のため手番番号で識別し、先読みと到着時の読み上げで同じキーになる
+ */
+function turnVoiceKey(runId: string, turnNumber: number): string {
+  return `turn:${runId}:${turnNumber}`;
 }
 
 /**
@@ -1659,6 +2036,46 @@ function HudTile({
   );
 }
 
+/**
+ * 台本形式(名前「セリフ」)の本文を、話者ラベル付きの行と地の文に分けて描く。
+ * 名前付き行が無ければ本文全体が1つの地の文になる
+ */
+function AdventureScriptText({
+  text,
+  speakers,
+}: {
+  text: string;
+  speakers: string[];
+}) {
+  const segments = parseDialogueSegments(text, speakers);
+  return (
+    <>
+      {segments.map((segment, index) =>
+        segment.kind === "dialogue" ? (
+          <p
+            // biome-ignore lint/suspicious/noArrayIndexKey: 本文の行は順序固定で識別子を持たない
+            key={index}
+            className="adventure-messagebox__line adventure-messagebox__line--dialogue"
+          >
+            <span className="adventure-messagebox__speaker">
+              {segment.speaker}
+            </span>
+            <span>「{segment.text}」</span>
+          </p>
+        ) : (
+          <p
+            // biome-ignore lint/suspicious/noArrayIndexKey: 本文の行は順序固定で識別子を持たない
+            key={index}
+            className="adventure-messagebox__line adventure-messagebox__line--narration"
+          >
+            {segment.text}
+          </p>
+        ),
+      )}
+    </>
+  );
+}
+
 function AdventurePlay({ runId }: { runId: string }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -1670,6 +2087,11 @@ function AdventurePlay({ runId }: { runId: string }) {
     phaseStep,
     streamingNarrative,
     pendingUserInput,
+    narrativeSettled,
+    talking,
+    talkDraft,
+    pendingTalkInput,
+    submitTalk,
     error,
     loadRun,
     submitTurn,
@@ -1685,11 +2107,15 @@ function AdventurePlay({ runId }: { runId: string }) {
     rewindRun,
     startEpilogue,
     clearError,
+    avatarModels,
+    companionAvatarFailed,
+    setCompanionAvatarFailed,
   } = useAdventure();
+  const { showNotification } = useNotification();
   const {
     state: settingsState,
     setAnlasBalance: setGlobalAnlasBalance,
-    isNovelaiV5Active,
+    effectiveNovelaiImageModel,
   } = useSettings();
   const respectClothingLayers = settingsState.respectClothingLayers;
   const [input, setInput] = useState("");
@@ -1730,6 +2156,9 @@ function AdventurePlay({ runId }: { runId: string }) {
   const [drawPartnerEveryTurn, setDrawPartnerEveryTurn] = useState(
     readDrawPartnerEveryTurn,
   );
+  // romance の行動パネル: 行動(手番を消費) / トーク(手番を消費しない会話)
+  const [actionMode, setActionMode] = useState<"act" | "talk">("act");
+  const talkThreadRef = useRef<HTMLDivElement>(null);
   const [resultDismissed, setResultDismissed] = useState(false);
   const [anlasBalance, setAnlasBalance] = useState<AnlasBalance | null>(null);
 
@@ -1793,12 +2222,19 @@ function AdventurePlay({ runId }: { runId: string }) {
   // streamingがfalseへ戻るたび（＝各ストリーム完了後）に再取得する。
   // Anlasを消費するのはNovelAIプロバイダーのときだけ
   const usePreciseReference = activeRun?.use_precise_reference ?? false;
+  // run 単位のモデル上書きを含めた実効モデルでV5判定する。
+  // ギアの表示・精密参照の可否・利用上限表示の出し分けに使う
+  const runIsV5 =
+    settingsState.imageProvider === "novelai" &&
+    isV5ImageModel(
+      activeRun?.image_model_override ?? effectiveNovelaiImageModel,
+    );
   // V5実効時は毎生成で利用上限が減るため、精密参照OFFでも残高/上限を追跡する
   const anlasApplies =
-    (usePreciseReference || isNovelaiV5Active) &&
+    (usePreciseReference || runIsV5) &&
     settingsState.imageProvider === "novelai";
   // HUD の V5 利用上限表示（実効モデルが V5 のときのみ）
-  const hudUsage = isNovelaiV5Active ? (anlasBalance?.usage ?? null) : null;
+  const hudUsage = runIsV5 ? (anlasBalance?.usage ?? null) : null;
   const hudUsageExhausted =
     hudUsage != null && (hudUsage.percent <= 0 || hudUsage.isNegative);
   const hudUsagePercent =
@@ -1850,7 +2286,64 @@ function AdventurePlay({ runId }: { runId: string }) {
     const list: AdventureStageFrame[] = [];
     const runBackground =
       activeRun.background_image_url ?? activeRun.current_image_url ?? null;
-    if (activeRun.enable_composite_scene) {
+    if (activeRun.preset === "romance" && activeRun.companion_mode) {
+      // 対面会話モード: 代表画像は攻略対象の立ち絵。生成の無い手番も
+      // フレームにし、立ち絵と背景は直前の1枚を引き継ぐ
+      let lastPartnerUrl = activeRun.opening_partner_portrait_url ?? null;
+      let lastBackgroundUrl = runBackground;
+      let lastBgm: AdventureBgmKey = activeRun.opening_bgm ?? "daily";
+      let lastBgmReason: string | null = activeRun.opening_bgm_reason ?? null;
+      list.push({
+        key: "opening",
+        turnNumber: 0,
+        imageUrl:
+          lastPartnerUrl ?? runBackground ?? activeRun.opening_image_url,
+        kind: "partner",
+        backgroundUrl: runBackground,
+        portraitUrl: null,
+        portraitStatus: null,
+        sceneUrl: null,
+        userInput: null,
+        inputKind: null,
+        narrative: activeRun.opening_narrative,
+        location: null,
+        sim: activeRun.opening_sim ?? null,
+        partnerNote: null,
+        partnerUrl: lastPartnerUrl,
+        bgm: lastBgm,
+        bgmReason: lastBgmReason,
+      });
+      for (const turn of activeRun.turns) {
+        if (turn.bgm) {
+          lastBgm = turn.bgm;
+          lastBgmReason = turn.bgm_reason ?? null;
+        }
+        lastPartnerUrl = turn.partner_portrait_url ?? lastPartnerUrl;
+        lastBackgroundUrl = turn.background_image_url ?? lastBackgroundUrl;
+        list.push({
+          key: turn.id,
+          turnNumber: turn.turn_number,
+          imageUrl:
+            lastPartnerUrl ?? lastBackgroundUrl ?? activeRun.current_image_url,
+          kind: "partner",
+          backgroundUrl: lastBackgroundUrl,
+          portraitUrl: null,
+          portraitStatus: null,
+          sceneUrl: null,
+          userInput: turn.user_input,
+          inputKind: turn.input_kind,
+          narrative: turn.narrative,
+          location: turn.location,
+          sim: turn.sim ?? null,
+          partnerNote: turn.partner_note ?? null,
+          partnerUrl: lastPartnerUrl,
+          bgm: lastBgm,
+          bgmReason: lastBgmReason,
+          partnerExpression: normalizeAvatarExpression(turn.partner_expression),
+          partnerGesture: normalizeAvatarGesture(turn.partner_gesture),
+        });
+      }
+    } else if (activeRun.enable_composite_scene) {
       // 合成モードでは攻略対象の立ち絵をターンごとに再生成しないが、
       // ライトボックスの攻略対象タブ用に直近の1枚(最低でも開幕分)を引き継ぐ
       let lastPartnerUrl = activeRun.opening_partner_portrait_url ?? null;
@@ -2013,7 +2506,95 @@ function AdventurePlay({ runId }: { runId: string }) {
     autoplayBlocked: bgmAutoplayBlocked,
     setMuted: setBgmMuted,
     setVolume: setBgmVolume,
+    setDucked: setBgmDucked,
   } = useAdventureBgm(currentBgm?.key ?? null);
+
+  // セリフ読み上げ(AivisSpeech)。設定画面の TTS が有効なときだけ動く
+  const voice = useAdventureVoice({
+    available: settingsState.ttsEnabled,
+    speakerId:
+      settingsState.ttsStyleId?.trim() ||
+      settingsState.ttsSpeakerId?.trim() ||
+      null,
+    engineDir: settingsState.ttsEngineDir,
+    useGpu: settingsState.ttsUseGpu,
+  });
+  const { canSpeak: voiceCanSpeak, speak: voiceSpeak } = voice;
+  const voicePlaying = voice.status === "playing";
+  useEffect(() => {
+    setBgmDucked(voicePlaying);
+  }, [voicePlaying, setBgmDucked]);
+
+  // run が変わったら行動モードへ戻す
+  // biome-ignore lint/correctness/useExhaustiveDependencies: activeRun.id の変化を検知して行動モードへ戻すための依存
+  useEffect(() => {
+    setActionMode("act");
+  }, [activeRun?.id]);
+
+  // 読み上げ(0)で先読みした手番の控え。turn 到着時の読み上げ(1)が同じ手番を
+  // 読み直さないための識別に使う(turn id は先読み時点で未確定なので手番番号)
+  const earlySpokenRef = useRef<{ runId: string; turnNumber: number } | null>(
+    null,
+  );
+
+  // 読み上げ(1): 新しい手番が届いたら攻略対象のセリフだけを読む。
+  // 初回ロード・run 切替では読まない(その時点の最新手番を控えるだけ)
+  const spokenTurnRef = useRef<{ runId: string; turnId: string | null } | null>(
+    null,
+  );
+  useEffect(() => {
+    if (!activeRun) return;
+    const latest = activeRun.turns.at(-1) ?? null;
+    const previous = spokenTurnRef.current;
+    spokenTurnRef.current = { runId: activeRun.id, turnId: latest?.id ?? null };
+    if (!previous || previous.runId !== activeRun.id) return;
+    if (!latest || previous.turnId === latest.id) return;
+    if (activeRun.preset !== "romance" || !voiceCanSpeak) return;
+    const early = earlySpokenRef.current;
+    if (
+      early &&
+      early.runId === activeRun.id &&
+      early.turnNumber === latest.turn_number
+    ) {
+      return;
+    }
+    const name = activeRun.sim?.partner_name?.trim() ?? "";
+    const text = joinForSpeech(partnerLines(latest.narrative, name));
+    if (text) {
+      void voiceSpeak(text, turnVoiceKey(activeRun.id, latest.turn_number));
+    }
+  }, [activeRun, voiceCanSpeak, voiceSpeak]);
+
+  // 読み上げ(2): トークの返答が確定したら、その返答を読む
+  const spokenTalkRef = useRef<{
+    runId: string;
+    entryId: string | null;
+  } | null>(null);
+  useEffect(() => {
+    if (!activeRun) return;
+    const lastPartner =
+      [...(activeRun.talk_log ?? [])]
+        .reverse()
+        .find((entry) => entry.role === "partner") ?? null;
+    const previous = spokenTalkRef.current;
+    spokenTalkRef.current = {
+      runId: activeRun.id,
+      entryId: lastPartner?.id ?? null,
+    };
+    if (!previous || previous.runId !== activeRun.id) return;
+    if (!lastPartner || previous.entryId === lastPartner.id) return;
+    if (!voiceCanSpeak) return;
+    const text = stripStageDirections(lastPartner.text);
+    if (text) void voiceSpeak(text, `talk:${lastPartner.id}`);
+  }, [activeRun, voiceCanSpeak, voiceSpeak]);
+
+  // トークスレッドは常に末尾(最新の返答)を見せる
+  const talkLogLength = activeRun?.talk_log?.length ?? 0;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: talk_log の件数と下書きの変化で末尾へスクロールする
+  useEffect(() => {
+    const node = talkThreadRef.current;
+    if (node) node.scrollTop = node.scrollHeight;
+  }, [talkLogLength, talkDraft, pendingTalkInput]);
 
   const submit = useCallback(
     (
@@ -2022,7 +2603,7 @@ function AdventurePlay({ runId }: { runId: string }) {
       options?: { giftId?: string },
     ) => {
       const trimmed = value.trim();
-      if (!trimmed || streaming || !canActOnRun(activeRun)) return;
+      if (!trimmed || streaming || talking || !canActOnRun(activeRun)) return;
       setInput("");
       // 「現実改変：〜」はサーバ側でも検出されるが、送信種別も合わせておく
       const effectiveKind =
@@ -2031,7 +2612,18 @@ function AdventurePlay({ runId }: { runId: string }) {
           : kind;
       void submitTurn(trimmed, effectiveKind, options);
     },
-    [activeRun, streaming, submitTurn],
+    [activeRun, streaming, talking, submitTurn],
+  );
+
+  // トークモードの送信。手番は消費しない
+  const submitTalkMessage = useCallback(
+    (value: string) => {
+      const trimmed = value.trim();
+      if (!trimmed || streaming || talking || !canActOnRun(activeRun)) return;
+      setInput("");
+      void submitTalk(trimmed);
+    },
+    [activeRun, streaming, talking, submitTalk],
   );
 
   useEffect(() => {
@@ -2069,8 +2661,16 @@ function AdventurePlay({ runId }: { runId: string }) {
         return;
       }
       // Anlas確認ダイアログ表示中は数字キー送信で保留中の送信を上書きしない。
-      // 過去フレーム閲覧中は行動UIを非表示にしているため送信もしない
-      if (logOpen || pendingAnlasTurn || selectedFrameIndex !== null) return;
+      // 過去フレーム閲覧中は行動UIを非表示にしているため送信もしない。
+      // トークモード中は選択肢を出していないため数字キーも効かせない
+      if (
+        logOpen ||
+        pendingAnlasTurn ||
+        selectedFrameIndex !== null ||
+        actionMode === "talk"
+      ) {
+        return;
+      }
       const choice = (activeRun?.choices ?? []).filter((item) =>
         item.label.trim(),
       )[Number(event.key) - 1];
@@ -2087,10 +2687,18 @@ function AdventurePlay({ runId }: { runId: string }) {
     selectedFrameIndex,
     bgmMuted,
     setBgmMuted,
+    actionMode,
   ]);
 
   const portraitSource = useMemo(() => {
-    if (!activeRun || activeRun.enable_composite_scene) return null;
+    // 対面会話モードでは主人公の立ち絵をステージに出さない
+    if (
+      !activeRun ||
+      activeRun.enable_composite_scene ||
+      (activeRun.preset === "romance" && activeRun.companion_mode)
+    ) {
+      return null;
+    }
     if (selectedFrameIndex !== null) {
       return (
         frames[selectedFrameIndex]?.imageUrl ?? activeRun.portrait_image_url
@@ -2111,7 +2719,8 @@ function AdventurePlay({ runId }: { runId: string }) {
   );
   // romance 非合成モードの攻略対象立ち絵。過去フレーム閲覧中はその手番の1枚を表示する
   const stagePartnerSource =
-    activeRun?.preset === "romance" && !activeRun?.enable_composite_scene
+    activeRun?.preset === "romance" &&
+    (!activeRun?.enable_composite_scene || activeRun?.companion_mode)
       ? selectedFrameIndex !== null
         ? (frames[selectedFrameIndex]?.partnerUrl ?? null)
         : (activeRun?.partner_portrait_url ?? null)
@@ -2174,7 +2783,7 @@ function AdventurePlay({ runId }: { runId: string }) {
   // 概要ビューは画像をシーンのまま維持し、右側の詳細だけを差し替える
   const needsComposite =
     (lightboxView === "scene" || lightboxView === "overview") &&
-    lightboxFrame?.kind === "portrait" &&
+    (lightboxFrame?.kind === "portrait" || lightboxFrame?.kind === "partner") &&
     Boolean(lightboxFrame.backgroundUrl);
   // ステージ用の transparentPortraitUrl はモーダルと別フレームを指しうるので流用しない。
   // 同一 src なら utils/imageAlpha のモジュールキャッシュに当たるため追加コストは無い。
@@ -2193,6 +2802,18 @@ function AdventurePlay({ runId }: { runId: string }) {
   // narrativeフェーズはテキスト自体が進捗になるため対象外（スピナー維持）。
   const enableCompositeScene = activeRun?.enable_composite_scene ?? false;
   const isRomancePreset = activeRun?.preset === "romance";
+  // 対面会話モード: 主人公立ち絵と合成シーンの工程は走らない
+  const companionActive = isRomancePreset && Boolean(activeRun?.companion_mode);
+  // 対面会話モードで 3D モデルを表示中は攻略対象の立ち絵を毎ターン描かない
+  const avatarActive =
+    companionActive &&
+    Boolean(activeRun?.companion_avatar_url) &&
+    !companionAvatarFailed;
+  // 3D モデル表示中はステージを覆わない(モデルが暗く隠れるため)。進捗は本文の
+  // カーソルと行動パネルの進捗行で示し、読み上げ可能なら本文の確定
+  // (narrative_done)で判定を待たずに喋り始める
+  const quietStage = avatarActive;
+  const earlyVoice = quietStage && voiceCanSpeak;
   const progressSegments = useMemo<TimedProgressSegment[] | null>(() => {
     if (!streaming || phase === null || phase === "narrative") return null;
     if (pendingUserInput !== null) {
@@ -2204,19 +2825,19 @@ function AdventurePlay({ runId }: { runId: string }) {
       ];
       // 立ち絵の毎ターン生成OFFの間はバックエンドが該当の生成をスキップするため
       // 工程表示も揃える。順序は主人公→攻略対象→合成シーンの直列生成に対応する
-      if (drawPortraitEveryTurn) {
+      if (drawPortraitEveryTurn && !companionActive) {
         segments.push({
           key: "portrait",
           budgetMs: ADVENTURE_PROGRESS_BUDGET_MS.portrait,
         });
       }
-      if (isRomancePreset && drawPartnerEveryTurn) {
+      if (isRomancePreset && drawPartnerEveryTurn && !avatarActive) {
         segments.push({
           key: "partner",
           budgetMs: ADVENTURE_PROGRESS_BUDGET_MS.partner,
         });
       }
-      if (enableCompositeScene) {
+      if (enableCompositeScene && !companionActive) {
         segments.push({
           key: "composite",
           budgetMs: ADVENTURE_PROGRESS_BUDGET_MS.composite,
@@ -2241,17 +2862,54 @@ function AdventurePlay({ runId }: { runId: string }) {
     drawPartnerEveryTurn,
     enableCompositeScene,
     isRomancePreset,
+    companionActive,
+    avatarActive,
   ]);
   const progressActiveKey = useMemo(() => {
     if (!progressSegments) return null;
     if (pendingUserInput !== null) {
       if (phase === "clue_check") return "clue_check";
-      if (phase === "image_generation") return phaseStep?.step ?? "portrait";
+      if (phase === "image_generation") {
+        return phaseStep?.step ?? (companionActive ? "partner" : "portrait");
+      }
       return null;
     }
     return phase === "image_generation" ? "image_single" : null;
-  }, [progressSegments, pendingUserInput, phase, phaseStep]);
+  }, [progressSegments, pendingUserInput, phase, phaseStep, companionActive]);
   const stageProgress = useTimedProgress(progressSegments, progressActiveKey);
+
+  // 読み上げ(0): 3D モデル表示中は本文の確定で先読みする。判定と保存を待たずに
+  // 喋り始めるため、turn 到着時の読み上げ(1)は控えを見て同じ手番を読まない。
+  // 控えはストリーム終了(narrativeSettled=false)で必ず消す(巻き戻し後に同じ
+  // 番号の手番を作り直しても読めるようにする)
+  useEffect(() => {
+    if (!narrativeSettled) {
+      earlySpokenRef.current = null;
+      return;
+    }
+    if (!activeRun || !earlyVoice || pendingUserInput === null) return;
+    const turnNumber = activeRun.turn_count + 1;
+    const spoken = earlySpokenRef.current;
+    if (
+      spoken &&
+      spoken.runId === activeRun.id &&
+      spoken.turnNumber === turnNumber
+    ) {
+      return;
+    }
+    const name = activeRun.sim?.partner_name?.trim() ?? "";
+    const text = joinForSpeech(partnerLines(streamingNarrative, name));
+    if (!text) return;
+    earlySpokenRef.current = { runId: activeRun.id, turnNumber };
+    void voiceSpeak(text, turnVoiceKey(activeRun.id, turnNumber));
+  }, [
+    narrativeSettled,
+    streamingNarrative,
+    pendingUserInput,
+    activeRun,
+    earlyVoice,
+    voiceSpeak,
+  ]);
 
   if (loading || !activeRun || activeRun.id !== runId) {
     return (
@@ -2262,17 +2920,28 @@ function AdventurePlay({ runId }: { runId: string }) {
   }
 
   const isStageLoading = streaming && phase !== null;
+  // quietStage(3D モデル表示中)ではステージのオーバーレイと減光を出さず、
+  // 判定・画像工程の進捗は行動パネルに出す(本文が流れている間はカーソルだけ)
+  const showStageOverlay = isStageLoading && !quietStage;
+  const controlsProgressVisible =
+    quietStage &&
+    isStageLoading &&
+    (pendingUserInput === null || narrativeSettled);
   const phaseLabel = phaseStep
     ? t(`adventure.phaseStep.${phaseStep.step}`)
     : t(`adventure.phase.${phase ?? "narrative"}`);
   const isViewingPast = selectedFrameIndex !== null;
-  const isCompositeMode = activeRun.enable_composite_scene;
+  // 対面会話モード(romance): 背景の上に攻略対象の立ち絵だけを置く
+  const isCompanion =
+    activeRun.preset === "romance" && Boolean(activeRun.companion_mode);
+  const isCompositeMode = activeRun.enable_composite_scene && !isCompanion;
   // 生成時間の見積もりと「テキストのみ」告知は同じ設定から導く
   const playImageSettings = {
     preset: activeRun.preset,
     enableCompositeScene: activeRun.enable_composite_scene,
     drawPortraitEveryTurn,
-    drawPartnerEveryTurn,
+    drawPartnerEveryTurn: drawPartnerEveryTurn && !avatarActive,
+    companionMode: isCompanion,
   };
   const effectiveIndex =
     selectedFrameIndex ?? (frames.length > 0 ? frames.length - 1 : -1);
@@ -2280,11 +2949,15 @@ function AdventurePlay({ runId }: { runId: string }) {
     effectiveIndex >= 0 ? frames[effectiveIndex] : undefined;
   const backgroundUrl =
     activeRun.background_image_url ?? activeRun.current_image_url;
-  const displayedImageUrl = isCompositeMode
+  const displayedImageUrl = isCompanion
     ? isViewingPast
-      ? (selectedFrame?.imageUrl ?? activeRun.current_image_url)
-      : activeRun.current_image_url
-    : backgroundUrl;
+      ? (selectedFrame?.backgroundUrl ?? backgroundUrl)
+      : backgroundUrl
+    : isCompositeMode
+      ? isViewingPast
+        ? (selectedFrame?.imageUrl ?? activeRun.current_image_url)
+        : activeRun.current_image_url
+      : backgroundUrl;
   const displayedPortraitUrl = transparentPortraitUrl;
 
   // ターンストリップ専用。モーダルの送りはここを通さない
@@ -2379,8 +3052,76 @@ function AdventurePlay({ runId }: { runId: string }) {
     isViewingPast ? selectedFrame : frames[frames.length - 1],
   ) ?? { day: sim?.day ?? 1, slot: sim?.slot ?? "day" };
   const stagePortraitFailed =
+    !isCompanion &&
     (isViewingPast ? selectedFrame : frames[frames.length - 1])
       ?.portraitStatus === "failed";
+  // トークモード(romance): 行動パネルを会話スレッドに切り替える
+  const talkMode = Boolean(sim) && actionMode === "talk";
+  const playerDisplayName = sim?.player_name?.trim() || t("adventure.talk.you");
+  const currentTalkEntries = (activeRun.talk_log ?? []).filter(
+    (entry) => entry.after_turn === activeRun.turn_count,
+  );
+  const lastPartnerTalk =
+    [...(activeRun.talk_log ?? [])]
+      .reverse()
+      .find((entry) => entry.role === "partner") ?? null;
+  // 🔊 の再読み上げ対象。トーク中は最新の返答、それ以外は表示中フレームのセリフ
+  const voiceReplayText =
+    talkMode && lastPartnerTalk
+      ? stripStageDirections(lastPartnerTalk.text)
+      : joinForSpeech(partnerLines(activeNarrative, partnerName));
+  const frameReplayKey = `frame:${selectedFrame?.key ?? "latest"}`;
+  // 本文ストリーム中の手番は先読み(読み上げ(0))と同じキーにし、🔊 が先読みの
+  // 再生中表示と停止を兼ねるようにする
+  const voiceReplayKey =
+    talkMode && lastPartnerTalk
+      ? `talk:${lastPartnerTalk.id}`
+      : isStreamingNarrative
+        ? turnVoiceKey(activeRun.id, activeRun.turn_count + 1)
+        : frameReplayKey;
+  const voiceReplayActive =
+    voice.currentKey === voiceReplayKey && voice.status !== "idle";
+  // 3D モデルの表情・身振り。トーク中は最新の返答、それ以外は表示中フレームの値
+  const avatarExpression: AvatarExpressionKey | null =
+    talkMode && lastPartnerTalk
+      ? normalizeAvatarExpression(lastPartnerTalk.expression)
+      : (selectedFrame?.partnerExpression ?? null);
+  const avatarGesture: AvatarGestureKey | null =
+    talkMode && lastPartnerTalk
+      ? normalizeAvatarGesture(lastPartnerTalk.gesture)
+      : (selectedFrame?.partnerGesture ?? null);
+  // 身振りの再生トリガ。読み上げ可能なら声の開始(到着・先読み・🔊再生)に合わせ、
+  // 読み上げ不可ならセリフ/フレームの切り替わりで再生する。
+  // 先読み中は表示中フレームがまだ前の手番なので、手番のキーはフレームの手番と
+  // 一致した時点(turn 到着でフレームが増えたとき)に初めて再生し、前の手番の
+  // 身振りを誤って再生しない
+  const frameTurnVoiceKey = selectedFrame
+    ? turnVoiceKey(activeRun.id, selectedFrame.turnNumber)
+    : null;
+  const voiceBusy = voice.status === "loading" || voice.status === "playing";
+  const avatarGestureKey = voiceCanSpeak
+    ? voiceBusy && voice.currentKey
+      ? voice.currentKey.startsWith("turn:") &&
+        voice.currentKey !== frameTurnVoiceKey
+        ? null
+        : voice.currentKey
+      : null
+    : talkMode && lastPartnerTalk
+      ? `talk:${lastPartnerTalk.id}`
+      : frameReplayKey;
+  const avatarUrl = activeRun.companion_avatar_url ?? null;
+  const showAvatar =
+    isCompanion && Boolean(avatarUrl) && !companionAvatarFailed;
+  // CompanionAvatarStage は onError を ref で持つため、関数の同一性は不要
+  const handleAvatarError = (caught: unknown) => {
+    console.warn("3Dモデルの読込に失敗しました", caught);
+    setCompanionAvatarFailed(true);
+    showNotification(
+      "warning",
+      t("adventure.avatar.loadFailedTitle"),
+      t("adventure.avatar.loadFailed"),
+    );
+  };
   // 進行中に加え、終了後でもエピローグ移行済みなら操作パネルを出す
   const canAct = canActOnRun(activeRun);
   const isEpilogue = Boolean(activeRun.epilogue);
@@ -2477,7 +3218,40 @@ function AdventurePlay({ runId }: { runId: string }) {
               </div>
             )}
             <div className="adventure-hud__metrics">
-              {sim ? (
+              {sim && isCompanion ? (
+                // 対面会話モード: 昼夜の枠が無いのでターン数(1ターン=1往復)を出す
+                <HudTile
+                  className="adventure-hud__day is-day"
+                  title={
+                    stageEpilogue
+                      ? t("adventure.epilogueTurnsHint")
+                      : t("adventure.companion.turnCounterHint", {
+                          turn: activeRun.turn_count,
+                          max: activeRun.max_turns,
+                        })
+                  }
+                  label={t("adventure.companion.turnLabel")}
+                  value={
+                    stageEpilogue ? (
+                      t("adventure.epilogueLabel")
+                    ) : (
+                      <>
+                        {activeRun.turn_count}
+                        <i>/{activeRun.max_turns}</i>
+                      </>
+                    )
+                  }
+                  gaugeRatio={stageEpilogue ? null : turnRatio}
+                  badge={
+                    stageEpilogue
+                      ? null
+                      : t("adventure.companion.turnsLeft", {
+                          count: activeRun.remaining_turns,
+                        })
+                  }
+                  badgeClassName="adventure-hud__slot is-day"
+                />
+              ) : sim ? (
                 // エピローグでは期限が無いため「N日目」の開放表示に切り替え、
                 // 残りターンのゲージも出さない
                 <HudTile
@@ -2605,7 +3379,7 @@ function AdventurePlay({ runId }: { runId: string }) {
                     </span>
                   </div>
                 ))}
-              {(activeRun.use_precise_reference || isNovelaiV5Active) &&
+              {(activeRun.use_precise_reference || runIsV5) &&
                 anlasBalance &&
                 (sim ? (
                   // romance では他のメトリクスと同じ共通タイルで並べる。
@@ -2620,7 +3394,7 @@ function AdventurePlay({ runId }: { runId: string }) {
                     value={anlasBalance.totalAnlas.toLocaleString()}
                     gaugeRatio={null}
                     badge={
-                      isNovelaiV5Active
+                      runIsV5
                         ? t("adventure.anlasBadgeV5")
                         : t("adventure.anlasBadge")
                     }
@@ -2980,7 +3754,7 @@ function AdventurePlay({ runId }: { runId: string }) {
               </aside>
             )}
           </div>
-          <section className="adventure-stage" aria-busy={isStageLoading}>
+          <section className="adventure-stage" aria-busy={showStageOverlay}>
             <div
               className={`adventure-stage__frame ${isCompositeMode ? "is-composite" : "is-background"}`}
             >
@@ -2992,7 +3766,7 @@ function AdventurePlay({ runId }: { runId: string }) {
                 aria-label={t("adventure.viewFullScreen")}
               >
                 <img
-                  className={isStageLoading ? "is-generating" : undefined}
+                  className={showStageOverlay ? "is-generating" : undefined}
                   src={displayedImageUrl}
                   alt={activeRun.title}
                 />
@@ -3010,15 +3784,32 @@ function AdventurePlay({ runId }: { runId: string }) {
                   alt={t("adventure.portraitAlt")}
                 />
               )}
-              {transparentPartnerUrl && (
-                <img
-                  key={transparentPartnerUrl}
-                  className="adventure-stage__portrait adventure-stage__portrait--partner"
-                  src={transparentPartnerUrl}
-                  alt={t("adventure.romance.partnerPortraitAlt")}
-                />
+              {showAvatar && avatarUrl ? (
+                <Suspense fallback={null}>
+                  <CompanionAvatarStage
+                    fileUrl={avatarUrl}
+                    expression={avatarExpression}
+                    gesture={avatarGesture}
+                    gestureKey={avatarGestureKey}
+                    getVoiceLevel={voice.getLevel}
+                    onError={handleAvatarError}
+                  />
+                </Suspense>
+              ) : (
+                transparentPartnerUrl && (
+                  <img
+                    key={transparentPartnerUrl}
+                    className={`adventure-stage__portrait ${
+                      isCompanion
+                        ? "adventure-stage__portrait--solo"
+                        : "adventure-stage__portrait--partner"
+                    }`}
+                    src={transparentPartnerUrl}
+                    alt={t("adventure.romance.partnerPortraitAlt")}
+                  />
+                )
               )}
-              {isStageLoading && !isViewingPast && (
+              {showStageOverlay && !isViewingPast && (
                 <div className="adventure-stage__loading" role="status">
                   {progressSegments && progressActiveKey ? (
                     <span className="adventure-progressbar" aria-hidden>
@@ -3075,10 +3866,29 @@ function AdventurePlay({ runId }: { runId: string }) {
               <button
                 type="button"
                 className="adventure-stage__regenerate"
-                onClick={() => setPromptModalOpen(true)}
-                disabled={streaming || isViewingPast}
-                title={t("adventure.regenerateImage")}
-                aria-label={t("adventure.regenerateImage")}
+                onClick={() => {
+                  // 対面会話モードでは合成シーンを使わないため、
+                  // 攻略対象の立ち絵だけを描き直す
+                  if (isCompanion) {
+                    void regenerateImage({
+                      redraw_from_reference: true,
+                      target: "partner",
+                    });
+                    return;
+                  }
+                  setPromptModalOpen(true);
+                }}
+                disabled={streaming || talking || isViewingPast}
+                title={t(
+                  isCompanion
+                    ? "adventure.regeneratePartnerPortrait"
+                    : "adventure.regenerateImage",
+                )}
+                aria-label={t(
+                  isCompanion
+                    ? "adventure.regeneratePartnerPortrait"
+                    : "adventure.regenerateImage",
+                )}
               >
                 ↻
               </button>
@@ -3106,6 +3916,17 @@ function AdventurePlay({ runId }: { runId: string }) {
                 }}
                 onMutedChange={setBgmMuted}
                 onVolumeChange={setBgmVolume}
+                voice={{
+                  available: settingsState.ttsEnabled,
+                  enabled: voice.enabled,
+                  volume: voice.volume,
+                  speed: voice.speed,
+                  status: voice.status,
+                  onEnabledChange: voice.setEnabled,
+                  onVolumeChange: voice.setVolume,
+                  onSpeedChange: voice.setSpeed,
+                  onStop: voice.stop,
+                }}
               />
               {imageSettingsOpen && (
                 <div className="adventure-image-settings-popover">
@@ -3124,13 +3945,139 @@ function AdventurePlay({ runId }: { runId: string }) {
                       )}
                     </p>
                   )}
+                  {/* この run 専用のNovelAI画像モデル。次の画像生成から反映される */}
+                  <label className="adventure-image-model-picker">
+                    <span className="adventure-precise-toggle__info">
+                      <strong>{t("adventure.imageModel")}</strong>
+                      <small>
+                        {t(
+                          settingsState.imageProvider === "novelai"
+                            ? "adventure.imageModelPlayHint"
+                            : "adventure.imageModelOtherProviderHint",
+                        )}
+                      </small>
+                    </span>
+                    <select
+                      value={activeRun.image_model_override ?? "default"}
+                      disabled={streaming || settingsSaving}
+                      onChange={(event) => {
+                        const next = event.target.value;
+                        setSettingsSaving(true);
+                        void updateSettings({
+                          use_precise_reference:
+                            activeRun.use_precise_reference,
+                          enable_composite_scene:
+                            activeRun.enable_composite_scene,
+                          image_model: next,
+                        })
+                          .catch(() => undefined)
+                          .finally(() => setSettingsSaving(false));
+                      }}
+                    >
+                      <option value="default">
+                        {t("adventure.imageModelDefault")}
+                      </option>
+                      {ADVENTURE_IMAGE_MODEL_CHOICES.map((choice) => (
+                        <option key={choice.value} value={choice.value}>
+                          {choice.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {/* 対面会話モード(romance 専用)。次の手番から反映 */}
+                  {activeRun.preset === "romance" && (
+                    <label className="adventure-precise-toggle adventure-companion-toggle">
+                      <span className="adventure-precise-toggle__info">
+                        <strong>{t("adventure.companionMode")}</strong>
+                        <small>{t("adventure.companionModePlayHint")}</small>
+                      </span>
+                      <input
+                        type="checkbox"
+                        className="adventure-precise-toggle__input"
+                        checked={isCompanion}
+                        disabled={streaming || settingsSaving}
+                        onChange={(event) => {
+                          const next = event.target.checked;
+                          setSettingsSaving(true);
+                          void updateSettings({
+                            use_precise_reference:
+                              activeRun.use_precise_reference,
+                            enable_composite_scene:
+                              activeRun.enable_composite_scene,
+                            companion_mode: next,
+                          })
+                            .catch(() => undefined)
+                            .finally(() => setSettingsSaving(false));
+                        }}
+                      />
+                      <span className="adventure-precise-toggle__switch" />
+                    </label>
+                  )}
+                  {/* 3D モデル(VRM)。対面会話モード OFF でも隠さず、文言で説明する */}
+                  {activeRun.preset === "romance" && (
+                    <label className="adventure-setup-turns adventure-setup-avatar">
+                      <span className="adventure-setup-turns__label">
+                        {t("adventure.avatar.selectLabel")}
+                      </span>
+                      <select
+                        value={activeRun.companion_avatar_id ?? ""}
+                        disabled={streaming || settingsSaving}
+                        onChange={(event) => {
+                          const next = event.target.value;
+                          setSettingsSaving(true);
+                          void updateSettings({
+                            use_precise_reference:
+                              activeRun.use_precise_reference,
+                            enable_composite_scene:
+                              activeRun.enable_composite_scene,
+                            companion_avatar_id: next || "none",
+                          })
+                            .catch(() => undefined)
+                            .finally(() => setSettingsSaving(false));
+                        }}
+                      >
+                        <option value="">{t("adventure.avatar.none")}</option>
+                        {activeRun.companion_avatar_id &&
+                          !avatarModels.some(
+                            (model) =>
+                              model.id === activeRun.companion_avatar_id,
+                          ) && (
+                            <option
+                              value={activeRun.companion_avatar_id}
+                              disabled
+                            >
+                              {t("adventure.avatar.deletedModel")}
+                            </option>
+                          )}
+                        <AvatarModelOptions models={avatarModels} />
+                      </select>
+                      <span className="adventure-setup-turns__hint">
+                        {avatarModels.length === 0 ? (
+                          <>
+                            {t("adventure.avatar.noModelsHint")}{" "}
+                            <Link to={ROUTES.SETTINGS}>
+                              {t("adventure.avatar.registerLink")}
+                            </Link>
+                          </>
+                        ) : isCompanion ? (
+                          t("adventure.avatar.playHint")
+                        ) : (
+                          t("adventure.avatar.companionOffHint")
+                        )}
+                      </span>
+                      <AvatarWardrobeHint
+                        models={avatarModels}
+                        selectedId={activeRun.companion_avatar_id}
+                      />
+                    </label>
+                  )}
                   <label className="adventure-precise-toggle">
                     <span className="adventure-precise-toggle__info">
                       <strong>{t("adventure.preciseReference")}</strong>
                       {/* NovelAI以外では効果もAnlas消費もない旨、V5では非対応の旨を明示する */}
                       <small>
                         {t(
-                          isNovelaiV5Active
+                          runIsV5
                             ? "adventure.preciseReferenceV5Hint"
                             : settingsState.imageProvider === "novelai"
                               ? "adventure.preciseReferencePlayHint"
@@ -3141,12 +4088,8 @@ function AdventurePlay({ runId }: { runId: string }) {
                     <input
                       type="checkbox"
                       className="adventure-precise-toggle__input"
-                      checked={
-                        activeRun.use_precise_reference && !isNovelaiV5Active
-                      }
-                      disabled={
-                        streaming || settingsSaving || isNovelaiV5Active
-                      }
+                      checked={activeRun.use_precise_reference && !runIsV5}
+                      disabled={streaming || settingsSaving || runIsV5}
                       onChange={(event) => {
                         const next = event.target.checked;
                         setSettingsSaving(true);
@@ -3165,7 +4108,11 @@ function AdventurePlay({ runId }: { runId: string }) {
                     <span className="adventure-precise-toggle__info">
                       <strong>{t("adventure.enableCompositeScene")}</strong>
                       <small>
-                        {t("adventure.enableCompositeScenePlayHint")}
+                        {t(
+                          isCompanion
+                            ? "adventure.enableCompositeSceneCompanionHint"
+                            : "adventure.enableCompositeScenePlayHint",
+                        )}
                       </small>
                     </span>
                     <input
@@ -3191,7 +4138,13 @@ function AdventurePlay({ runId }: { runId: string }) {
                   <label className="adventure-precise-toggle">
                     <span className="adventure-precise-toggle__info">
                       <strong>{t("adventure.drawPortraitEveryTurn")}</strong>
-                      <small>{t("adventure.drawPortraitEveryTurnHint")}</small>
+                      <small>
+                        {t(
+                          isCompanion
+                            ? "adventure.drawPortraitEveryTurnCompanionHint"
+                            : "adventure.drawPortraitEveryTurnHint",
+                        )}
+                      </small>
                     </span>
                     <input
                       type="checkbox"
@@ -3279,6 +4232,29 @@ function AdventurePlay({ runId }: { runId: string }) {
             inert={messageWindowHidden}
           >
             <div className="adventure-messagebox__meta">
+              {sim && (
+                <button
+                  type="button"
+                  className="adventure-messagebox__voice-button"
+                  disabled={!voice.canSpeak || !voiceReplayText}
+                  aria-pressed={voiceReplayActive}
+                  aria-label={t("adventure.voice.replay")}
+                  title={t(
+                    voice.canSpeak
+                      ? "adventure.voice.replayHint"
+                      : "adventure.voice.disabledHint",
+                  )}
+                  onClick={() => {
+                    if (voiceReplayActive) {
+                      voice.stop();
+                      return;
+                    }
+                    void voice.speak(voiceReplayText, voiceReplayKey);
+                  }}
+                >
+                  🔊
+                </button>
+              )}
               <button
                 type="button"
                 className="adventure-messagebox__log-button"
@@ -3307,13 +4283,27 @@ function AdventurePlay({ runId }: { runId: string }) {
             )}
 
             <div className="adventure-messagebox__text" ref={messageTextRef}>
-              <p className="adventure-messagebox__narrative">
-                {activeNarrative}
-                {isStreamingNarrative && (
-                  <span className="adventure-transcript__caret" />
-                )}
-              </p>
-              {streaming && !isStageLoading && (
+              {sim ? (
+                // romance は台本形式(名前「セリフ」)の行を話者付きで描く。
+                // 名前付き行が無い本文はそのまま1段落になる
+                <div className="adventure-messagebox__narrative">
+                  <AdventureScriptText
+                    text={activeNarrative}
+                    speakers={[partnerName, playerDisplayName]}
+                  />
+                  {isStreamingNarrative && !narrativeSettled && (
+                    <span className="adventure-transcript__caret" />
+                  )}
+                </div>
+              ) : (
+                <p className="adventure-messagebox__narrative">
+                  {activeNarrative}
+                  {isStreamingNarrative && !narrativeSettled && (
+                    <span className="adventure-transcript__caret" />
+                  )}
+                </p>
+              )}
+              {streaming && !isStageLoading && !quietStage && (
                 <div className="adventure-progress">
                   <span />
                   {phaseLabel}
@@ -3331,24 +4321,66 @@ function AdventurePlay({ runId }: { runId: string }) {
                 ) : (
                   <>
                     <div className="adventure-controls__header">
-                      <span className="adventure-controls__title">
-                        {t("adventure.actionPanel.title")}
-                      </span>
-                      <button
-                        type="button"
-                        className="adventure-choices__regenerate"
-                        onClick={() => void regenerateChoices()}
-                        disabled={streaming}
-                        title={t("adventure.regenerateChoices")}
-                      >
-                        {streaming && phase === "clue_check"
-                          ? t("adventure.regeneratingChoices")
-                          : t("adventure.regenerateChoices")}
-                      </button>
+                      {sim ? (
+                        // romance: 行動(手番を消費) / トーク(消費しない会話)の切替
+                        <div
+                          className="adventure-segments adventure-segments--pair"
+                          role="group"
+                          aria-label={t("adventure.actionPanel.title")}
+                        >
+                          <button
+                            type="button"
+                            className={actionMode === "act" ? "is-active" : ""}
+                            aria-pressed={actionMode === "act"}
+                            onClick={() => setActionMode("act")}
+                          >
+                            {t("adventure.actionPanel.act")}
+                          </button>
+                          <button
+                            type="button"
+                            className={actionMode === "talk" ? "is-active" : ""}
+                            aria-pressed={actionMode === "talk"}
+                            title={t("adventure.actionPanel.talkHint")}
+                            onClick={() => setActionMode("talk")}
+                          >
+                            {t("adventure.actionPanel.talk")}
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="adventure-controls__title">
+                          {t("adventure.actionPanel.title")}
+                        </span>
+                      )}
+                      {!talkMode && (
+                        <button
+                          type="button"
+                          className="adventure-choices__regenerate"
+                          onClick={() => void regenerateChoices()}
+                          disabled={streaming || talking}
+                          title={t("adventure.regenerateChoices")}
+                        >
+                          {streaming &&
+                          phase === "clue_check" &&
+                          !controlsProgressVisible
+                            ? t("adventure.regeneratingChoices")
+                            : t("adventure.regenerateChoices")}
+                        </button>
+                      )}
                     </div>
 
+                    {/* 3D モデル表示中はステージを覆わず、判定の進捗をここに出す */}
+                    {controlsProgressVisible && !talkMode && (
+                      <div
+                        className="adventure-progress adventure-controls__progress"
+                        role="status"
+                      >
+                        <span />
+                        {phaseLabel}
+                      </div>
+                    )}
+
                     {/* 生成中は前ターンの選択肢が残留するため、無効化ではなく非表示にする */}
-                    {!streaming && (
+                    {!streaming && !talkMode && (
                       <div className="adventure-choices">
                         {availableChoices.map((choice, index) => (
                           <button
@@ -3365,15 +4397,17 @@ function AdventurePlay({ runId }: { runId: string }) {
                         ))}
                       </div>
                     )}
-                    {!streaming && availableChoices.length === 0 && (
-                      <p className="adventure-choices__empty">
-                        {t("adventure.emptyChoices")}
-                      </p>
-                    )}
+                    {!streaming &&
+                      !talkMode &&
+                      availableChoices.length === 0 && (
+                        <p className="adventure-choices__empty">
+                          {t("adventure.emptyChoices")}
+                        </p>
+                      )}
 
                     {/* romance 専用の行動ボタン行。どの行動も1スロット消費する。
                     選択肢と同様、生成中は非表示にする */}
-                    {!streaming && sim && (
+                    {!streaming && sim && !talkMode && (
                       <div className="adventure-romance-actions">
                         <button
                           type="button"
@@ -3429,10 +4463,71 @@ function AdventurePlay({ runId }: { runId: string }) {
                     {/* 自由入力は既定の操作なので常設。streaming中も入力自体は許可し
                     （無効化するとフォーカスが外れて次の数字キーが選択肢送信になる）、
                     送信は submit() 側のガードとボタンの disabled で止める */}
+                    {talkMode && (
+                      <div
+                        className="adventure-talk-thread"
+                        ref={talkThreadRef}
+                        aria-live="polite"
+                      >
+                        {currentTalkEntries.length === 0 &&
+                          pendingTalkInput === null && (
+                            <p className="adventure-talk-thread__empty">
+                              {t("adventure.talk.emptyHint", {
+                                name: partnerName,
+                              })}
+                            </p>
+                          )}
+                        {currentTalkEntries.map((entry) => (
+                          <p
+                            key={entry.id}
+                            className={`adventure-talk-thread__entry adventure-talk-thread__entry--${entry.role}`}
+                          >
+                            <span className="adventure-messagebox__speaker">
+                              {entry.role === "partner"
+                                ? partnerName
+                                : playerDisplayName}
+                            </span>
+                            <span>{entry.text}</span>
+                          </p>
+                        ))}
+                        {pendingTalkInput !== null && (
+                          <>
+                            <p className="adventure-talk-thread__entry adventure-talk-thread__entry--user">
+                              <span className="adventure-messagebox__speaker">
+                                {playerDisplayName}
+                              </span>
+                              <span>{pendingTalkInput}</span>
+                            </p>
+                            {talkDraft ? (
+                              <p className="adventure-talk-thread__entry adventure-talk-thread__entry--partner">
+                                <span className="adventure-messagebox__speaker">
+                                  {partnerName}
+                                </span>
+                                <span>
+                                  {talkDraft}
+                                  <span className="adventure-transcript__caret" />
+                                </span>
+                              </p>
+                            ) : (
+                              <div className="adventure-progress">
+                                <span />
+                                {t("adventure.talk.pending", {
+                                  name: partnerName,
+                                })}
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    )}
                     <form
                       className="adventure-freeinput"
                       onSubmit={(event) => {
                         event.preventDefault();
+                        if (talkMode) {
+                          submitTalkMessage(input);
+                          return;
+                        }
                         submit(input, "free_text");
                       }}
                     >
@@ -3440,17 +4535,33 @@ function AdventurePlay({ runId }: { runId: string }) {
                         type="text"
                         className="adventure-freeinput__field"
                         value={input}
-                        maxLength={1000}
+                        maxLength={talkMode ? 500 : 1000}
                         onChange={(event) => setInput(event.target.value)}
-                        placeholder={t("adventure.freeInput")}
-                        aria-label={t("adventure.freeInput")}
-                        title={t("adventure.freeInputHint")}
+                        placeholder={
+                          talkMode
+                            ? t("adventure.talk.placeholder", {
+                                name: partnerName,
+                              })
+                            : t("adventure.freeInput")
+                        }
+                        aria-label={
+                          talkMode
+                            ? t("adventure.talk.placeholder", {
+                                name: partnerName,
+                              })
+                            : t("adventure.freeInput")
+                        }
+                        title={t(
+                          talkMode
+                            ? "adventure.talk.hint"
+                            : "adventure.freeInputHint",
+                        )}
                         enterKeyHint="send"
                       />
                       <button
                         type="submit"
                         className="adventure-freeinput__submit"
-                        disabled={!input.trim() || streaming}
+                        disabled={!input.trim() || streaming || talking}
                       >
                         {t("adventure.send")}
                       </button>
@@ -3810,7 +4921,7 @@ function AdventurePlay({ runId }: { runId: string }) {
                       </ul>
                     </section>
                   )}
-                  {sim && (
+                  {sim && !isCompanion && (
                     <section className="image-preview-modal__detail-section">
                       <h2 className="image-preview-modal__detail-label">
                         {t("adventure.romance.days")}
@@ -3881,7 +4992,7 @@ function AdventurePlay({ runId }: { runId: string }) {
                     <p className="image-preview-modal__detail-text">
                       {lightboxFrame.turnNumber === 0
                         ? t("adventure.turnStrip.opening")
-                        : sim && lightboxDaySlot
+                        : sim && lightboxDaySlot && !isCompanion
                           ? lightboxFrame.sim?.epilogue
                             ? t("adventure.romance.previewTurnEpilogue", {
                                 day: lightboxDaySlot.day,

@@ -2,23 +2,31 @@ import random
 from types import SimpleNamespace
 
 import pytest
+from pydantic import ValidationError
 
 from gateway.consts.adventure_romance import (
     ROMANCE_AFFECTION_START,
     ROMANCE_ALTER_MONEY_LIMIT,
     ROMANCE_CONFESSION_FAIL_PENALTY,
+    ROMANCE_DAYS_MAX,
     ROMANCE_GIFT_POINTS,
     ROMANCE_INITIAL_MONEY,
     ROMANCE_MILESTONES,
     ROMANCE_MONEY_MAX,
+    ROMANCE_SLOTS_PER_DAY,
     ROMANCE_WORK_ENCOUNTER_BONUS,
     ROMANCE_WORK_WAGE,
+)
+from gateway.routes.adventure_router import (
+    AdventureCreateRequest,
+    AdventureSetupGenerateRequest,
 )
 from gateway.services.adventure_romance import (
     ROMANCE_NARRATIVE_GUIDANCE,
     ROMANCE_RESOLUTION_GUIDANCE,
     ROMANCE_VISUAL_GUIDANCE,
     RomanceActionError,
+    RomanceAlteredGift,
     RomanceGift,
     RomanceSetupOutput,
     apply_romance_outcome,
@@ -97,7 +105,33 @@ def test_clamp_romance_max_turns_bounds_and_evenness() -> None:
     assert clamp_romance_max_turns(9) == 10
     assert clamp_romance_max_turns(14) == 14
     assert clamp_romance_max_turns(15) == 14
-    assert clamp_romance_max_turns(99) == 30
+    assert clamp_romance_max_turns(99) == ROMANCE_DAYS_MAX * ROMANCE_SLOTS_PER_DAY
+    assert clamp_romance_max_turns(ROMANCE_DAYS_MAX * ROMANCE_SLOTS_PER_DAY) == 60
+
+
+def test_request_models_accept_max_romance_days_as_turns() -> None:
+    # 恋愛シミュレーションは日数×2 を scenario_max_turns として送るため、
+    # 最大日数(30日=60手)がルーターのバリデーションを通る必要がある
+    max_turns = ROMANCE_DAYS_MAX * ROMANCE_SLOTS_PER_DAY
+    assert max_turns == 60
+    create = AdventureCreateRequest(
+        preset="romance",
+        source_session_id="session-1",
+        scenario_max_turns=max_turns,
+    )
+    assert create.scenario_max_turns == max_turns
+    setup = AdventureSetupGenerateRequest(
+        preset="romance",
+        source_session_id="session-1",
+        scenario_max_turns=max_turns,
+    )
+    assert setup.scenario_max_turns == max_turns
+    with pytest.raises(ValidationError):
+        AdventureCreateRequest(
+            preset="romance",
+            source_session_id="session-1",
+            scenario_max_turns=max_turns + 1,
+        )
 
 
 def test_stage_thresholds() -> None:
@@ -302,7 +336,7 @@ def test_repeated_gift_is_rejected_before_consuming_a_turn() -> None:
 
 
 def test_confession_threshold_scales_with_days() -> None:
-    # 15日=75(上限)、7日=41、5日=32。日数不明の旧データは従来の75に倒す
+    # 15日以上=75(上限で飽和)、7日=41、5日=32。日数不明の旧データは従来の75に倒す
     assert romance_confession_threshold(15) == 75
     assert romance_confession_threshold(7) == 41
     assert romance_confession_threshold(5) == 32
@@ -776,3 +810,274 @@ def test_public_sim_view_exposes_partner_appearance() -> None:
     )
     sim["partner_appearance"] = "male, 1boy, black hair"
     assert public_sim_view(sim, 1)["partner_appearance"] == "male, 1boy, black hair"
+
+
+def test_alter_turn_rewrites_gift_catalog_and_preserves_ids() -> None:
+    """現実改変のカタログ書換。既存品はIDを引き継ぎ、好みと贈答記録を掃除する。"""
+    state = {
+        "sim": make_sim(given_gifts=["g1", "g2"]),
+        "completed_milestones": [],
+    }
+    new_catalog = [
+        RomanceAlteredGift(name="文庫本", price=0, tier="budget"),
+        RomanceAlteredGift(
+            name="魔法の指輪", price=100, tier="luxury", preference="liked"
+        ),
+        RomanceAlteredGift(
+            name="香水", price=8000, tier="luxury", preference="neutral"
+        ),
+    ]
+    apply_romance_outcome(
+        state,
+        make_output(),
+        {"kind": "alter", "money_delta": 0, "affection_delta": 0},
+        make_romance_output(updated_gift_catalog=new_catalog),
+    )
+    sim = state["sim"]
+    catalog = {item["name"]: item for item in sim["gift_catalog"]}
+    assert set(catalog) == {"文庫本", "魔法の指輪", "香水"}
+    # 既存品はIDを引き継ぎ、新規品は未使用の連番を得る
+    assert catalog["文庫本"]["id"] == "g2"
+    assert catalog["香水"]["id"] == "g7"
+    assert catalog["魔法の指輪"]["id"] not in {"g2", "g7"}
+    # 価格はtier帯へクランプされない(無料化の宣言を許す)
+    assert catalog["文庫本"]["price"] == 0
+    hidden = sim["hidden_preferences"]
+    # 消えた品(紅茶セット=g3)の好みは掃除し、preference指定を反映する
+    assert catalog["魔法の指輪"]["id"] in hidden["liked_gift_ids"]
+    assert "g3" not in hidden["liked_gift_ids"]
+    assert "g7" not in hidden["disliked_gift_ids"]
+    assert "g2" in hidden["liked_gift_ids"]
+    # 贈答済み記録は存続する品だけ残る
+    assert sim["given_gifts"] == ["g2"]
+
+
+def test_alter_turn_empty_gift_catalog_is_noop() -> None:
+    state = {"sim": make_sim(), "completed_milestones": []}
+    before = [dict(item) for item in state["sim"]["gift_catalog"]]
+    apply_romance_outcome(
+        state,
+        make_output(),
+        {"kind": "alter", "money_delta": 0, "affection_delta": 0},
+        make_romance_output(updated_gift_catalog=[]),
+    )
+    assert state["sim"]["gift_catalog"] == before
+
+
+def test_strip_romance_time_of_day_removes_day_and_night_tags() -> None:
+    from gateway.services.adventure_romance import strip_romance_time_of_day
+
+    stripped = strip_romance_time_of_day(
+        "night, school rooftop, Nighttime, dark sky, wide shot, daytime, sunset"
+    )
+    assert stripped == "school rooftop, wide shot"
+    assert strip_romance_time_of_day("") == ""
+
+
+def test_romance_location_key_normalizes_case_and_whitespace() -> None:
+    from gateway.services.adventure_romance import romance_location_key
+
+    assert romance_location_key("  School Rooftop ") == "school rooftop"
+    assert romance_location_key("") == ""
+    assert len(romance_location_key("x" * 200)) == 80
+
+
+def test_talk_log_helpers_bound_and_filter_by_turn() -> None:
+    from gateway.consts.adventure_romance import (
+        ROMANCE_TALK_CONTEXT_MAX,
+        ROMANCE_TALK_LOG_MAX,
+    )
+    from gateway.services.adventure_romance import (
+        append_talk_entry,
+        public_talk_log,
+        recent_talk_entries,
+    )
+
+    state: dict = {}
+    for index in range(ROMANCE_TALK_LOG_MAX + 6):
+        append_talk_entry(
+            state,
+            role="user" if index % 2 == 0 else "partner",
+            text=f"  line {index}  ",
+            after_turn=index // 10,
+        )
+    assert len(state["talk_log"]) == ROMANCE_TALK_LOG_MAX
+    # 古い分から捨てられる
+    assert state["talk_log"][0]["text"] == "line 6"
+    # 手番をまたいで最新から ROMANCE_TALK_CONTEXT_MAX 件。after_turn で場面を示す
+    recent = recent_talk_entries(state, 4)
+    assert len(recent) == ROMANCE_TALK_CONTEXT_MAX
+    assert [item["text"] for item in recent][-2:] == ["line 44", "line 45"]
+    assert all(
+        item["role"] in {"user", "partner"} and item["after_turn"] <= 4
+        for item in recent
+    )
+    assert {item["after_turn"] for item in recent} == {3, 4}
+    # turn_count より後の行(巻き戻し後の残骸)は渡さない
+    older = recent_talk_entries(state, 3)
+    assert older[-1] == {"role": "partner", "text": "line 39", "after_turn": 3}
+    assert all(item["after_turn"] <= 3 for item in older)
+    assert [item["text"] for item in recent_talk_entries(state, 0)] == [
+        f"line {index}" for index in range(6, 10)
+    ]
+    assert recent_talk_entries({}, 5) == []
+    public = public_talk_log(state)
+    assert public[0]["id"] and public[0]["after_turn"] == 0
+    # 3D アバター向けの expression / gesture は user 行にも None で載る
+    assert {"id", "role", "text", "after_turn", "expression", "gesture"} == set(
+        public[0]
+    )
+    assert public[0]["expression"] is None and public[0]["gesture"] is None
+
+
+def test_talk_history_messages_as_chat_turns_across_scenes() -> None:
+    from gateway.consts.adventure_romance import ROMANCE_TALK_HISTORY_MAX
+    from gateway.services.adventure_romance import (
+        append_talk_entry,
+        talk_history_messages,
+    )
+
+    state: dict = {}
+    append_talk_entry(state, role="user", text="おはよう", after_turn=1)
+    append_talk_entry(state, role="partner", text="おはよ", after_turn=1)
+    append_talk_entry(state, role="user", text="  元気？ ", after_turn=3)
+    append_talk_entry(state, role="partner", text="", after_turn=3)
+    append_talk_entry(state, role="user", text="未来", after_turn=4)
+
+    # 手番をまたいで残し、主人公=user / 攻略対象=assistant に写す。空行と
+    # turn_count より後の行は除く
+    assert talk_history_messages(state, 3) == [
+        {"role": "user", "content": "おはよう"},
+        {"role": "assistant", "content": "おはよ"},
+        {"role": "user", "content": "元気？"},
+    ]
+    assert talk_history_messages({}, 3) == []
+
+    state = {}
+    for index in range(ROMANCE_TALK_HISTORY_MAX + 4):
+        append_talk_entry(
+            state,
+            role="user" if index % 2 == 0 else "partner",
+            text=f"m{index}",
+            after_turn=1,
+        )
+    messages = talk_history_messages(state, 1)
+    assert len(messages) == ROMANCE_TALK_HISTORY_MAX
+    assert messages[-1]["content"] == f"m{ROMANCE_TALK_HISTORY_MAX + 3}"
+
+
+def test_talk_relationship_context_summarizes_affection_results() -> None:
+    from gateway.services.adventure_romance import (
+        romance_stage,
+        talk_relationship_context,
+    )
+
+    sim = {
+        "total_days": 7,
+        "affection": 42,
+        "money": 3000,
+        "confessed": True,
+        "relationship_origin": "同じサークル",
+        "gift_catalog": [{"id": "g1", "name": "花束", "price": 1200}],
+        "given_gifts": ["g1", "unknown"],
+        "hidden_preferences": {"liked_gift_ids": ["g1"]},
+    }
+    state = {"completed_milestones": ["become_friends", "custom_goal"]}
+    context = talk_relationship_context(sim, state, 3)
+    assert context["affection"] == 42
+    assert context["stage"] == romance_stage(42)
+    assert context["dating"] is True
+    assert (context["day"], context["slot"]) == (2, "night")
+    assert context["total_days"] == 7 and context["epilogue"] is False
+    assert context["relationship_origin"] == "同じサークル"
+    # 贈った品と節目は ID でなく表示名で渡す。未知の ID はそのまま
+    assert context["given_gifts"] == ["花束", "unknown"]
+    assert context["completed_milestones"] == ["友人になる", "custom_goal"]
+    # 隠し好み・金銭・カタログは含めない
+    assert "hidden_preferences" not in context and "money" not in context
+
+
+def test_romance_talk_system_prompt_embeds_context_and_memory_rules() -> None:
+    from gateway.services.adventure_romance import romance_talk_system_prompt
+
+    prompt = romance_talk_system_prompt(
+        "ja",
+        partner_name="美咲",
+        player_name="太郎",
+        speech_rule="",
+        context={"relationship": {"affection": 5}},
+    )
+    assert prompt.startswith("You are 美咲")
+    assert "never restart" in prompt and "context.recent_scenes" in prompt
+    assert prompt.endswith('context:\n{"relationship": {"affection": 5}}')
+    assert "context:" not in romance_talk_system_prompt(
+        "ja", partner_name="美咲", player_name="太郎", speech_rule=""
+    )
+
+
+def test_normalize_talk_reply_strips_name_prefix_and_brackets() -> None:
+    from gateway.consts.adventure_romance import ROMANCE_TALK_REPLY_MAX
+    from gateway.services.adventure_romance import normalize_talk_reply
+
+    assert (
+        normalize_talk_reply("美咲「やっほー、元気？」", "美咲") == "やっほー、元気？"
+    )
+    assert (
+        normalize_talk_reply("美咲：「（笑って）そうだね」", "美咲")
+        == "（笑って）そうだね"
+    )
+    assert normalize_talk_reply("```\nそうだね\n```", "美咲") == "そうだね"
+    assert normalize_talk_reply("うん、「好き」", "美咲") == "うん、「好き」"
+    assert len(normalize_talk_reply("あ" * 1000, "美咲")) == ROMANCE_TALK_REPLY_MAX
+
+
+def test_romance_script_and_talk_prompts_include_names() -> None:
+    from gateway.services.adventure_romance import (
+        ROMANCE_RECENT_TALK_GUIDANCE,
+        ROMANCE_VISUAL_GUIDANCE,
+        romance_script_format_guidance,
+        romance_script_names,
+        romance_talk_system_prompt,
+    )
+
+    assert romance_script_names({"partner_name": "美咲"}, "ja") == ("美咲", "主人公")
+    assert romance_script_names(
+        {"partner_name": "Misaki", "player_name": "Ken"}, "en"
+    ) == (
+        "Misaki",
+        "Ken",
+    )
+    guidance = romance_script_format_guidance("美咲", "主人公")
+    assert "美咲「...」" in guidance and "主人公「...」" in guidance
+    prompt = romance_talk_system_prompt(
+        "ja",
+        partner_name="美咲",
+        player_name="主人公",
+        speech_rule="SPEECH REGISTER: x",
+    )
+    assert "You are 美咲" in prompt and "Japanese" in prompt
+    assert prompt.endswith("SPEECH REGISTER: x")
+    assert "hidden_preferences" in prompt
+    # 現在地の固定ルールは全 romance run の visual プロンプトに載る
+    assert "previous_visual_state.location verbatim" in ROMANCE_VISUAL_GUIDANCE
+    assert "affection_delta" in ROMANCE_RECENT_TALK_GUIDANCE
+
+
+def test_normalize_player_name_collapses_whitespace_and_caps_length() -> None:
+    """呼び名はプロンプトと HUD に入るため、1行に畳んで上限で切る。"""
+    from gateway.consts.adventure_romance import ROMANCE_PLAYER_NAME_MAX_LENGTH
+    from gateway.services.adventure_romance import normalize_player_name
+
+    assert normalize_player_name("  ユウ\nヤ  ") == "ユウ ヤ"
+    assert normalize_player_name(None) == ""
+    assert normalize_player_name("   ") == ""
+    assert len(normalize_player_name("あ" * 100)) == ROMANCE_PLAYER_NAME_MAX_LENGTH
+
+
+def test_setup_prompt_asks_for_a_name_based_form_of_address() -> None:
+    """攻略対象の呼びかけは player_name から組み立て、「あなた」呼びにしない。"""
+    from gateway.services.adventure_romance import romance_setup_system_prompt
+
+    prompt = romance_setup_system_prompt("ja", 7)
+    assert "built from player_name" in prompt
+    assert "「あなた」" in prompt

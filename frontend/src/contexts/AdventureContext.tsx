@@ -15,6 +15,7 @@ import {
   type AdventureSettingsUpdateRequest,
   type AdventureSetup,
   type AdventureSetupRequest,
+  type AdventureTalkEntry,
   type AdventureTemplate,
   type AdventureTurn,
   canActOnRun,
@@ -29,10 +30,20 @@ import {
   rewindAdventureRun,
   startAdventureEpilogue,
   streamAdventureImage,
+  streamAdventureTalk,
   streamAdventureTurn,
   updateAdventureRealityRules,
   updateAdventureRunSettings,
 } from "../apis/adventure";
+import {
+  type AvatarModel,
+  avatarModelFileUrl,
+  listAvatarModels,
+} from "../apis/avatars";
+import {
+  isV5ImageModel,
+  V5_USAGE_WARN_SUPPRESSED_KEY,
+} from "../constants/novelaiImageModels";
 import {
   clearLastAdventureRunId,
   readLastAdventureRunId,
@@ -53,8 +64,9 @@ export const DRAW_PARTNER_STORAGE_KEY = "adventure_draw_partner_every_turn";
 export const ANLAS_WARN_SUPPRESSED_KEY = "adventure_anlas_warn_suppressed";
 
 // V5 利用上限使い切り後の生成はAnlasを消費するため警告する。
-// 抑止キーは通常ゲーム側と共有(ブラウザセッション単位)
-export const V5_USAGE_WARN_SUPPRESSED_KEY = "v5_usage_warn_suppressed";
+// 抑止キーは通常ゲーム側 / Prompt Expander と共有(ブラウザセッション単位)。
+// 定数本体は constants/novelaiImageModels.ts にあり、互換のため再エクスポートする
+export { V5_USAGE_WARN_SUPPRESSED_KEY };
 
 function readDrawEveryTurn(storageKey: string): boolean {
   try {
@@ -72,7 +84,9 @@ export function readDrawPartnerEveryTurn(): boolean {
   return readDrawEveryTurn(DRAW_PARTNER_STORAGE_KEY);
 }
 
-export type AdventureImageStep = "portrait" | "composite";
+// 攻略対象(partner)は romance で主人公の次に描かれる工程。捨てると進捗バーが
+// 主人公工程に張り付き、対面会話モード(主人公工程なし)では 0% のままになる
+export type AdventureImageStep = "portrait" | "partner" | "composite";
 
 export interface AdventurePhaseStep {
   step: AdventureImageStep;
@@ -91,6 +105,8 @@ interface AdventureContextValue {
   phaseStep: AdventurePhaseStep | null;
   streamingNarrative: string;
   pendingUserInput: string | null;
+  /** 手番ストリームの本文(narrative_done)が確定したか。ストリーム終了で false に戻る */
+  narrativeSettled: boolean;
   error: string | null;
   loadRuns: () => Promise<void>;
   loadTemplates: () => Promise<void>;
@@ -105,6 +121,14 @@ interface AdventureContextValue {
     inputKind: AdventureInputKind,
     options?: { giftId?: string },
   ) => Promise<void>;
+  /** トークモード(romance)。手番を消費せず攻略対象と会話する */
+  talking: boolean;
+  /** ストリーミング中の攻略対象の返答(途中経過) */
+  talkDraft: string;
+  /** 送信済みでまだ talk_log に載っていない自分のメッセージ */
+  pendingTalkInput: string | null;
+  /** 返答の確定後に攻略対象のエントリを返す(読み上げのトリガに使う)。失敗時は null */
+  submitTalk: (text: string) => Promise<AdventureTalkEntry | null>;
   /** Anlas確認ダイアログ待ちのターン送信(romanceで精密参照ON時のみ) */
   pendingAnlasTurn: {
     input: string;
@@ -131,6 +155,15 @@ interface AdventureContextValue {
   /** 付与済みの現実改変ルールを丸ごと置き換える(手番は消費しない) */
   updateRealityRules: (rules: string[]) => Promise<void>;
   clearError: () => void;
+  /** 登録済みの 3D モデル(VRM)。セットアップと⚙ポップオーバーの選択肢 */
+  avatarModels: AvatarModel[];
+  refreshAvatarModels: () => Promise<void>;
+  /**
+   * 対面会話モードの 3D モデルの読込に失敗したか。true の間は立ち絵へ戻し、
+   * 手番の攻略対象立ち絵も従来どおり生成する。run 切替でリセット
+   */
+  companionAvatarFailed: boolean;
+  setCompanionAvatarFailed: (failed: boolean) => void;
 }
 
 const AdventureContext = createContext<AdventureContextValue | null>(null);
@@ -139,7 +172,9 @@ function parsePhaseStep(
   data: Record<string, unknown>,
 ): AdventurePhaseStep | null {
   const step = data.step;
-  if (step !== "portrait" && step !== "composite") return null;
+  if (step !== "portrait" && step !== "partner" && step !== "composite") {
+    return null;
+  }
   return {
     step,
     index: Number(data.step_index ?? 1),
@@ -152,7 +187,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
   const {
     state: settingsState,
     addTotalCost,
-    isNovelaiV5Active,
+    effectiveNovelaiImageModel,
   } = useSettings();
   const imageProvider = settingsState.imageProvider;
   const anlasUsage = settingsState.anlasBalance?.usage ?? null;
@@ -166,6 +201,10 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
   const [phaseStep, setPhaseStep] = useState<AdventurePhaseStep | null>(null);
   const [streamingNarrative, setStreamingNarrative] = useState("");
   const [pendingUserInput, setPendingUserInput] = useState<string | null>(null);
+  const [narrativeSettled, setNarrativeSettled] = useState(false);
+  const [talking, setTalking] = useState(false);
+  const [talkDraft, setTalkDraft] = useState("");
+  const [pendingTalkInput, setPendingTalkInput] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   // 直前に開いた/作成した run。Hub の再開バナーと SideMenu の導線が参照する
   const [lastRunId, setLastRunId] = useState<string | null>(() =>
@@ -281,12 +320,36 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
     options?: { giftId?: string };
   } | null>(null);
 
+  const [avatarModels, setAvatarModels] = useState<AvatarModel[]>([]);
+  const [companionAvatarFailed, setCompanionAvatarFailed] = useState(false);
+
+  const refreshAvatarModels = useCallback(async () => {
+    try {
+      setAvatarModels(await listAvatarModels());
+    } catch (caught) {
+      // 一覧が取れなくてもプレイは続けられる(選択肢が空になるだけ)
+      console.warn("3Dモデル一覧の取得に失敗しました", caught);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshAvatarModels();
+  }, [refreshAvatarModels]);
+
   // 確認待ちの送信を別の run へ持ち越さない
   // biome-ignore lint/correctness/useExhaustiveDependencies: activeRun.id の変化を検知して保留をクリアするための依存
   useEffect(() => {
     setPendingAnlasTurn(null);
     setPendingUsageWarnTurn(null);
+    setTalkDraft("");
+    setPendingTalkInput(null);
   }, [activeRun?.id]);
+
+  // 3D モデルの読込失敗は run の切替と割り当ての変更(手動・着替え)でやり直す
+  // biome-ignore lint/correctness/useExhaustiveDependencies: run と割り当ての変化を検知して失敗状態を戻すための依存
+  useEffect(() => {
+    setCompanionAvatarFailed(false);
+  }, [activeRun?.id, activeRun?.companion_avatar_id]);
 
   const performSubmitTurn = useCallback(
     async (
@@ -294,16 +357,25 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       inputKind: AdventureInputKind,
       options?: { giftId?: string },
     ) => {
-      if (!activeRun || streaming) return;
+      if (!activeRun || streaming || talking) return;
       const runId = activeRun.id;
       // 立ち絵の毎ターン生成OFFは、合成モード・精密参照の有無に関わらず効く
       const generatePortrait = readDrawPortraitEveryTurn();
-      const generatePartnerPortrait = readDrawPartnerEveryTurn();
+      // 対面会話モードで 3D モデルを表示中は攻略対象の立ち絵を描き直さない
+      // (開幕分はフォールバック用に残る)。読込失敗中は従来どおり描く
+      const avatarActive =
+        activeRun.preset === "romance" &&
+        activeRun.companion_mode &&
+        Boolean(activeRun.companion_avatar_id) &&
+        !companionAvatarFailed;
+      const generatePartnerPortrait =
+        readDrawPartnerEveryTurn() && !avatarActive;
       setStreaming(true);
       setPhase("narrative");
       setPhaseStep(null);
       setStreamingNarrative("");
       setPendingUserInput(input);
+      setNarrativeSettled(false);
       setError(null);
       try {
         await streamAdventureTurn(
@@ -333,6 +405,8 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
               }
             } else if (event.type === "narrative_done") {
               setStreamingNarrative(String(event.data.narrative ?? ""));
+              // turn 到着まで保持する(先読み読み上げ済みの判定に使う)
+              setNarrativeSettled(true);
             } else if (event.type === "turn") {
               const turn = event.data as unknown as AdventureTurn;
               setStreamingNarrative("");
@@ -358,6 +432,17 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
                       // romance の好感度ゲージはターン確定と同時に動かす。
                       // 最終整合はストリーム後の run 全再取得が担う
                       sim: turn.sim ?? current.sim,
+                      // 着替え(衣装差分の切替)は turn 到着と同時にモデルを差し替える。
+                      // 未設定(null)は据え置き(解除は設定変更だけが行う)
+                      ...(turn.companion_avatar_id &&
+                      turn.companion_avatar_id !== current.companion_avatar_id
+                        ? {
+                            companion_avatar_id: turn.companion_avatar_id,
+                            companion_avatar_url: avatarModelFileUrl(
+                              turn.companion_avatar_id,
+                            ),
+                          }
+                        : {}),
                     }
                   : current,
               );
@@ -427,9 +512,76 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
         setPhaseStep(null);
         setStreamingNarrative("");
         setPendingUserInput(null);
+        setNarrativeSettled(false);
       }
     },
-    [activeRun, streaming, addTotalCost],
+    [activeRun, streaming, talking, addTotalCost, companionAvatarFailed],
+  );
+
+  // トークモード: 手番・好感度・画像を一切動かさず、talk_log だけを伸ばす。
+  // 次の手番の fetchAdventureRun でサーバ側と同期されるため再取得はしない
+  const submitTalk = useCallback(
+    async (text: string): Promise<AdventureTalkEntry | null> => {
+      if (!activeRun || streaming || talking || !canActOnRun(activeRun)) {
+        return null;
+      }
+      const runId = activeRun.id;
+      const message = text.trim();
+      if (!message) return null;
+      setTalking(true);
+      setTalkDraft("");
+      setPendingTalkInput(message);
+      setError(null);
+      let partnerEntry: AdventureTalkEntry | null = null;
+      try {
+        await streamAdventureTalk(runId, { user_input: message }, (event) => {
+          if (event.type === "talk_chunk") {
+            const chunk = String(event.data.chunk ?? "");
+            if (chunk) {
+              setTalkDraft((current) =>
+                current ? current + chunk : chunk.replace(/^\s+/, ""),
+              );
+            }
+          } else if (event.type === "talk_done") {
+            const userEntry = event.data.user_entry as
+              | AdventureTalkEntry
+              | undefined;
+            const partner = event.data.partner_entry as
+              | AdventureTalkEntry
+              | undefined;
+            const entries = [userEntry, partner].filter(
+              (entry): entry is AdventureTalkEntry => Boolean(entry?.id),
+            );
+            partnerEntry = partner?.id ? partner : null;
+            setPendingTalkInput(null);
+            setTalkDraft("");
+            setActiveRun((current) =>
+              current && current.id === runId
+                ? {
+                    ...current,
+                    talk_log: [...(current.talk_log ?? []), ...entries],
+                  }
+                : current,
+            );
+          } else if (event.type === "cost") {
+            const cost = Number(event.data.cost_usd);
+            if (Number.isFinite(cost) && cost > 0) {
+              addTotalCost(cost);
+            }
+          } else if (event.type === "error") {
+            setError(String(event.data.message ?? "Talk failed"));
+          }
+        });
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : String(caught));
+      } finally {
+        setTalking(false);
+        setTalkDraft("");
+        setPendingTalkInput(null);
+      }
+      return partnerEntry;
+    },
+    [activeRun, streaming, talking, addTotalCost],
   );
 
   // 送信経路(選択肢・自由入力・ギフト・属性付与)が分散しても漏れないよう、
@@ -441,12 +593,18 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       options?: { giftId?: string },
     ) => {
       if (!activeRun || streaming) return;
+      // run 単位のモデル上書きを含めた実効モデルで V5 かを判定する
+      const isV5ForActiveRun =
+        imageProvider === "novelai" &&
+        isV5ImageModel(
+          activeRun.image_model_override ?? effectiveNovelaiImageModel,
+        );
       // V5 利用上限を使い切った状態での生成はAnlasを消費するため警告する
       const usageExhausted =
         anlasUsage != null &&
         (anlasUsage.percent <= 0 || anlasUsage.isNegative);
       if (
-        isNovelaiV5Active &&
+        isV5ForActiveRun &&
         usageExhausted &&
         sessionStorage.getItem(V5_USAGE_WARN_SUPPRESSED_KEY) !== "true"
       ) {
@@ -458,7 +616,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       // (V5実効時は精密参照が使われないため対象外)
       if (
         imageProvider === "novelai" &&
-        !isNovelaiV5Active &&
+        !isV5ForActiveRun &&
         activeRun.preset === "romance" &&
         activeRun.use_precise_reference &&
         sessionStorage.getItem(ANLAS_WARN_SUPPRESSED_KEY) !== "true"
@@ -473,7 +631,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       streaming,
       performSubmitTurn,
       imageProvider,
-      isNovelaiV5Active,
+      effectiveNovelaiImageModel,
       anlasUsage,
     ],
   );
@@ -514,7 +672,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
 
   const regenerateImage = useCallback(
     async (options?: AdventureImageRegenerateOptions) => {
-      if (!activeRun || streaming) return;
+      if (!activeRun || streaming || talking) return;
       setStreaming(true);
       setPhase("image_generation");
       setPhaseStep(null);
@@ -573,6 +731,25 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
                   : current,
               );
             }
+          } else if (event.type === "partner_image") {
+            // target: "partner" で攻略対象の立ち絵だけを作り直したとき(対面会話)
+            const partnerUrl = normalizeAdventureImageUrl(event.data.image_url);
+            const regeneratedTurnId = event.data.turn_id;
+            if (partnerUrl) {
+              setActiveRun((current) =>
+                current
+                  ? {
+                      ...current,
+                      partner_portrait_url: partnerUrl,
+                      turns: current.turns.map((turn) =>
+                        turn.id === regeneratedTurnId
+                          ? { ...turn, partner_portrait_url: partnerUrl }
+                          : turn,
+                      ),
+                    }
+                  : current,
+              );
+            }
           } else if (event.type === "cost") {
             const cost = Number(event.data.cost_usd);
             if (Number.isFinite(cost) && cost > 0) {
@@ -590,7 +767,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
         setPhaseStep(null);
       }
     },
-    [activeRun, streaming, addTotalCost],
+    [activeRun, streaming, talking, addTotalCost],
   );
 
   const regenerateChoices = useCallback(async () => {
@@ -637,6 +814,10 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
                   use_precise_reference: updated.use_precise_reference,
                   enable_composite_scene: updated.enable_composite_scene,
                   respect_clothing_layers: updated.respect_clothing_layers,
+                  companion_mode: updated.companion_mode,
+                  companion_avatar_id: updated.companion_avatar_id,
+                  companion_avatar_url: updated.companion_avatar_url,
+                  image_model_override: updated.image_model_override,
                   player_speech_style: updated.player_speech_style,
                   player_speech_custom: updated.player_speech_custom,
                   sim: updated.sim,
@@ -734,6 +915,11 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       phaseStep,
       streamingNarrative,
       pendingUserInput,
+      narrativeSettled,
+      talking,
+      talkDraft,
+      pendingTalkInput,
+      submitTalk,
       error,
       loadRuns,
       loadTemplates,
@@ -755,6 +941,10 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       rewindRun,
       startEpilogue,
       clearError: () => setError(null),
+      avatarModels,
+      refreshAvatarModels,
+      companionAvatarFailed,
+      setCompanionAvatarFailed,
     }),
     [
       runs,
@@ -768,6 +958,11 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       phaseStep,
       streamingNarrative,
       pendingUserInput,
+      narrativeSettled,
+      talking,
+      talkDraft,
+      pendingTalkInput,
+      submitTalk,
       error,
       loadRuns,
       loadTemplates,
@@ -788,6 +983,9 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       updateRealityRules,
       rewindRun,
       startEpilogue,
+      avatarModels,
+      refreshAvatarModels,
+      companionAvatarFailed,
     ],
   );
 

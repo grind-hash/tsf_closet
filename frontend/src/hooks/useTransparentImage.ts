@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   type RemoveBackgroundOptions,
-  removeImageBackground,
+  retainTransparentImage,
 } from "../utils/imageAlpha";
 
 interface TransparentImageResult {
@@ -13,6 +13,9 @@ interface TransparentImageResult {
 /**
  * Strips the flat background of `src` (white by default) and returns a
  * transparent object URL. Falls back to the original source on failure.
+ *
+ * The URL is held for as long as the component uses it: a revoked blob URL
+ * still renders in <img>, but "Save image as..." re-fetches it and fails.
  */
 export function useTransparentImage(
   src: string | null | undefined,
@@ -39,7 +42,8 @@ export function useTransparentImage(
     let cancelled = false;
     setProcessing(true);
 
-    removeImageBackground(src, { threshold, featherRadius })
+    const handle = retainTransparentImage(src, { threshold, featherRadius });
+    handle.url
       .then((processedUrl) => {
         if (!cancelled) setUrl(processedUrl);
       })
@@ -53,6 +57,7 @@ export function useTransparentImage(
 
     return () => {
       cancelled = true;
+      handle.release();
     };
   }, [src, enabled, threshold, featherRadius]);
 

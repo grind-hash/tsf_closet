@@ -20,13 +20,15 @@
     "@fontsource/inter": "^5.2.8",
     "@fontsource/noto-sans-jp": "^5.2.9",
     "@fontsource/roboto-mono": "^5.2.8",
+    "@pixiv/three-vrm": "^3.5.5",
     "@xyflow/react": "^12.10.1",
     "i18next": "^25.8.7",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-i18next": "^16.5.4",
     "react-router-dom": "^7.13.0",
-    "react-sketch-canvas": "^6.2.0"
+    "react-sketch-canvas": "^6.2.0",
+    "three": "^0.185.1"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.3",
@@ -35,6 +37,7 @@
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.5",
     "@types/react-dom": "^19.2.3",
+    "@types/three": "^0.185.4",
     "@vitejs/plugin-react": "^5.1.1",
     "jsdom": "^27.2.0",
     "prettier": "^3.9.5",

@@ -116,7 +116,8 @@ export interface AudioPreferences {
 
 const defaultAudioPreferences: AudioPreferences = {
   muted: true,
-  volume: 0.8,
+  // 音声の初期音量は 100% ではなく 50% にする(Adventure の BGM・読み上げと同じ)
+  volume: 0.5,
   playbackRate: 1,
 };
 

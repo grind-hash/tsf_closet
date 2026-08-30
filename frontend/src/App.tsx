@@ -14,14 +14,16 @@ import GamePlayScreen from "./components/GamePlayScreen";
 import GalleryScreen from "./components/gallery/GalleryScreen";
 import NovelAIWarningModal from "./components/NovelAIWarningModal";
 import NotificationContainer from "./components/notifications/NotificationContainer";
+import PromptExpanderScreen from "./components/promptExpander/PromptExpanderScreen";
 import SessionListModal from "./components/SessionListModal";
 import SettingsScreen from "./components/settings/SettingsScreen";
 import { AdventureProvider } from "./contexts/AdventureContext";
+import { PromptExpanderProvider } from "./contexts/PromptExpanderContext";
 import { useSettings } from "./contexts/SettingsContext";
 import { useGameSSE } from "./hooks/useGameSSE";
 import { getGameSessionPath } from "./routes";
 // MainLayout は各画面コンポーネント内で使用
-import type { ChangeSettings, NovelAISubscriptionResponse } from "./types";
+import type { NovelAISubscriptionResponse } from "./types";
 import { DEFAULT_INPAINT_SETTINGS } from "./types";
 import { API_BASE } from "./utils/api";
 import { isHistoryLookbackEnabled } from "./utils/historyLookback";
@@ -31,6 +33,18 @@ import "./App.css";
 import { useGame } from "./contexts/GameContext";
 
 function App() {
+  return (
+    <>
+      {/* 通知トーストコンテナ。ギャラリー・設定・TSFシナリオ・Prompt Expander でも
+          通知が出るよう、ルート分岐より外側に置く（AppMain の中に置くと通常プレイ
+          画面へ移動するまでキューに溜まったままになる） */}
+      <NotificationContainer />
+      <AppRoutes />
+    </>
+  );
+}
+
+function AppRoutes() {
   // 007-chat-interactive-ux: React Router location
   const location = useLocation();
   const { state: settingsState } = useSettings();
@@ -69,6 +83,17 @@ function App() {
       <AdventureProvider>
         <AdventureScreen />
       </AdventureProvider>
+    );
+  }
+  // Prompt Expander（実験機能）。ゲートは設定画面のトグルで切り替える
+  if (location.pathname.startsWith("/prompt-expander")) {
+    if (!settingsState.experimentalPromptExpanderEnabled) {
+      return <Navigate to="/play/new" replace />;
+    }
+    return (
+      <PromptExpanderProvider>
+        <PromptExpanderScreen />
+      </PromptExpanderProvider>
     );
   }
 
@@ -319,7 +344,6 @@ function AppMain() {
     (
       instruction: string,
       costumeImage?: string,
-      settings?: ChangeSettings,
       transformationType: string = "costume",
       options?: {
         maskImage?: string;
@@ -421,13 +445,6 @@ function AppMain() {
       if (options?.imageOnlyTextToImage) {
         body.image_only_text_to_image = true;
       }
-      // Add change settings
-      if (settings) {
-        body.preserve_elements = settings.preserveElements;
-        body.change_scope = settings.changeScope;
-        body.custom_preserve_text = settings.customPreserveText;
-      }
-
       // Build character_references for NovelAI precise reference images
       // (V5系モデルは精密参照非対応のため送らない)
       if (
@@ -494,9 +511,6 @@ function AppMain() {
 
   return (
     <div className="app">
-      {/* 通知トーストコンテナ */}
-      <NotificationContainer />
-
       <GamePlayScreen
         onTransform={handleTransform}
         onResetCost={handleResetCost}

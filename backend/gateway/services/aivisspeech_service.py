@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import re
 import socket
@@ -18,6 +19,14 @@ from urllib.parse import urlparse
 import httpx
 
 from ..settings.app_settings import BASE_DIR, settings
+
+logger = logging.getLogger(__name__)
+
+# brand_name returned by the bundled engine from /engine_manifest. A compatible
+# third-party engine reports a different brand, and the management features
+# specific to the bundled engine (aivmx model install, bundled run.exe) do not
+# apply to it.
+AIVIS_ENGINE_BRAND = "AivisSpeech"
 
 
 class AivisSpeechError(Exception):
@@ -40,6 +49,67 @@ class AivisSpeechService:
                 "engine with `docker compose up -d aivis` instead and use the "
                 "health check to confirm it is reachable."
             )
+
+    @staticmethod
+    def _default_engine_port() -> int:
+        """Return the port declared by AIVIS_ENGINE_BASE_URL."""
+        parsed = urlparse(settings.aivis_engine_base_url)
+        if parsed.port is not None:
+            return parsed.port
+        return 443 if parsed.scheme == "https" else 80
+
+    @staticmethod
+    def _build_base_url(port: int) -> str:
+        """Rebuild the engine base URL with the given port.
+
+        Only the port is user-configurable. Scheme and host stay under
+        AIVIS_ENGINE_BASE_URL so container deployments keep working.
+        """
+        parsed = urlparse(settings.aivis_engine_base_url)
+        host = parsed.hostname or "127.0.0.1"
+        if ":" in host:
+            host = f"[{host}]"
+        return f"{parsed.scheme or 'http'}://{host}:{port}"
+
+    async def resolve_engine_port(self) -> int:
+        """Return the user-configured engine port, or the default when unset."""
+        from .settings_service import settings_service
+
+        try:
+            user_settings = await settings_service.get_user_settings()
+        except Exception:
+            logger.warning(
+                "Failed to read tts_engine_port; using the default engine port",
+                exc_info=True,
+            )
+            return self._default_engine_port()
+
+        port = user_settings.get("tts_engine_port")
+        if isinstance(port, int) and not isinstance(port, bool) and 1 <= port <= 65535:
+            return port
+        return self._default_engine_port()
+
+    async def resolve_base_url(self) -> str:
+        """Return the base URL of the engine this app should talk to."""
+        return self._build_base_url(await self.resolve_engine_port())
+
+    @staticmethod
+    async def _fetch_engine_brand(
+        client: httpx.AsyncClient, base_url: str
+    ) -> str | None:
+        """Return brand_name from /engine_manifest, identifying the engine."""
+        try:
+            response = await client.get(f"{base_url}/engine_manifest")
+            if response.status_code >= 400:
+                return None
+            payload = response.json()
+        except (httpx.HTTPError, ValueError):
+            return None
+
+        if not isinstance(payload, dict):
+            return None
+        brand = payload.get("brand_name") or payload.get("name")
+        return str(brand) if brand else None
 
     @staticmethod
     def _expand_path(path_value: str) -> Path:
@@ -201,8 +271,11 @@ class AivisSpeechService:
     ) -> dict[str, Any]:
         self._ensure_windows()
 
+        port = await self.resolve_engine_port()
+        base_url = self._build_base_url(port)
+
         if self._is_running(self._engine_process):
-            await self._wait_for_engine_ready()
+            await self._wait_for_engine_ready(base_url)
             assert self._engine_process is not None
             return {
                 "status": "already_running",
@@ -213,9 +286,12 @@ class AivisSpeechService:
             self._engine_process = None
             self._close_engine_log()
 
-        pid_on_port = self._find_pid_on_port(10101)
+        pid_on_port = self._find_pid_on_port(port)
         if pid_on_port is not None:
-            await self._wait_for_engine_ready()
+            # Something already serves the configured port. It may be the bundled
+            # engine from a previous run, or a separately started compatible
+            # engine; either way the app just connects to it.
+            await self._wait_for_engine_ready(base_url)
             return {
                 "status": "already_running_external",
                 "pid": pid_on_port,
@@ -228,7 +304,9 @@ class AivisSpeechService:
         # so ensure it exists before starting the engine.
         self._default_model_dir().mkdir(parents=True, exist_ok=True)
 
-        args = [str(run_exe), "--host", "127.0.0.1"]
+        # Bind the bundled engine to the configured port so it matches where the
+        # app looks for it (the default 10101 may be taken by another program).
+        args = [str(run_exe), "--host", "127.0.0.1", "--port", str(port)]
         if use_gpu:
             args.append("--use_gpu")
 
@@ -254,11 +332,12 @@ class AivisSpeechService:
         self._engine_log_path = log_path
 
         process = self._engine_process
-        await self._wait_for_engine_ready()
+        await self._wait_for_engine_ready(base_url)
 
         return {
             "status": "started",
             "pid": process.pid,
+            "port": port,
             "run_exe": str(run_exe),
             "log_path": str(log_path),
         }
@@ -282,7 +361,9 @@ class AivisSpeechService:
             return text[-max_chars:]
         return text or "(empty log)"
 
-    async def _wait_for_engine_ready(self, timeout: float | None = None) -> None:
+    async def _wait_for_engine_ready(
+        self, base_url: str, timeout: float | None = None
+    ) -> None:
         startup_timeout = (
             settings.aivis_engine_startup_timeout if timeout is None else timeout
         )
@@ -291,7 +372,7 @@ class AivisSpeechService:
 
         loop = asyncio.get_running_loop()
         deadline = loop.time() + startup_timeout
-        endpoint = f"{settings.aivis_engine_base_url}/version"
+        endpoint = f"{base_url}/version"
         last_error = "health check not completed"
 
         async with httpx.AsyncClient(timeout=httpx.Timeout(2.5)) as client:
@@ -342,7 +423,7 @@ class AivisSpeechService:
         if not self._is_running(self._engine_process):
             self._engine_process = None
             self._close_engine_log()
-            pid_on_port = self._find_pid_on_port(10101)
+            pid_on_port = self._find_pid_on_port(await self.resolve_engine_port())
             if pid_on_port is None:
                 return {"status": "not_running"}
 
@@ -436,7 +517,7 @@ class AivisSpeechService:
         file_path = self._resolve_install_model_file(model_path)
 
         timeout = httpx.Timeout(120.0)
-        endpoint = f"{settings.aivis_engine_base_url}/aivm_models/install"
+        endpoint = f"{await self.resolve_base_url()}/aivm_models/install"
 
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
@@ -470,7 +551,7 @@ class AivisSpeechService:
 
     async def get_speakers(self) -> list[dict[str, Any]]:
         timeout = httpx.Timeout(20.0)
-        endpoint = f"{settings.aivis_engine_base_url}/speakers"
+        endpoint = f"{await self.resolve_base_url()}/speakers"
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.get(endpoint)
             response.raise_for_status()
@@ -607,7 +688,7 @@ class AivisSpeechService:
         operation_timeout = httpx.Timeout(
             settings.aivis_synthesis_timeout, connect=connect_timeout
         )
-        base = settings.aivis_engine_base_url
+        base = await self.resolve_base_url()
         wav_chunks: list[bytes] = []
         total_chunks = len(chunks)
 
@@ -662,25 +743,36 @@ class AivisSpeechService:
     async def get_status(self) -> dict[str, Any]:
         tracked_running = self._is_running(self._engine_process)
 
+        port = await self.resolve_engine_port()
+        base_url = self._build_base_url(port)
+        host = urlparse(base_url).hostname or "127.0.0.1"
+
         # netstat-based PID lookup only works on Windows. On Linux the engine
         # runs inside the `aivis` Docker container, so fall back to a plain
         # TCP health check against the published port instead.
         if sys.platform == "win32":
-            pid_on_port = self._find_pid_on_port(10101)
+            pid_on_port = self._find_pid_on_port(port)
             port_open = pid_on_port is not None
         else:
             pid_on_port = None
-            port_open = self._is_port_open("127.0.0.1", 10101)
+            port_open = self._is_port_open(host, port)
 
         process_status = "running" if tracked_running or port_open else "stopped"
-        endpoint = f"{settings.aivis_engine_base_url}/version"
+        endpoint = f"{base_url}/version"
 
         engine_http = "unreachable"
+        engine_version: str | None = None
+        engine_brand: str | None = None
         try:
             async with httpx.AsyncClient(timeout=httpx.Timeout(2.5)) as client:
                 response = await client.get(endpoint)
                 if response.status_code < 400:
                     engine_http = "ok"
+                    try:
+                        engine_version = str(response.json())
+                    except ValueError:
+                        engine_version = None
+                    engine_brand = await self._fetch_engine_brand(client, base_url)
                 else:
                     engine_http = f"error:{response.status_code}"
         except Exception:
@@ -698,7 +790,15 @@ class AivisSpeechService:
             "pid": self._engine_process.pid if tracked_running else pid_on_port,
             "managed": tracked_running,
             "engine_http": engine_http,
-            "engine_base_url": settings.aivis_engine_base_url,
+            "engine_base_url": base_url,
+            "engine_port": port,
+            "default_engine_port": self._default_engine_port(),
+            "engine_version": engine_version,
+            # brand_name from /engine_manifest. "AivisSpeech" means the bundled
+            # engine; anything else is a compatible third-party engine for which
+            # the bundled engine's setup steps do not apply.
+            "engine_brand": engine_brand,
+            "aivis_engine_brand": AIVIS_ENGINE_BRAND,
             "default_engine_download_url": settings.aivis_engine_download_url,
             "default_model_url": settings.aivis_default_model_url,
             "default_model_dir": str(self._default_model_dir()),

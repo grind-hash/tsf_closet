@@ -55,7 +55,12 @@ export interface UseAdventureBgmResult {
   autoplayBlocked: boolean;
   setMuted: (next: boolean) => void;
   setVolume: (next: number) => void;
+  /** セリフ読み上げ中など、一時的に BGM を下げる(ダッキング) */
+  setDucked: (ducked: boolean) => void;
 }
+
+/** ダッキング中の BGM 音量係数 */
+export const BGM_DUCK_FACTOR = 0.3;
 
 /**
  * `bgmKey` が示す BGM をループ再生する。null/undefined は停止（run 未ロード時）。
@@ -111,6 +116,8 @@ export function useAdventureBgm(
   const rafRef = useRef<number | null>(null);
   const mutedRef = useRef(prefs.muted);
   const volumeRef = useRef(prefs.volume);
+  /** ダッキング係数。実効音量 = master × fade 係数 × duck 係数 */
+  const duckFactorRef = useRef(1);
   /** キーごとに一度だけ daily へ fallback するためのフラグ */
   const fallbackTriedRef = useRef(false);
   const retryHandlerRef = useRef<(() => void) | null>(null);
@@ -118,8 +125,19 @@ export function useAdventureBgm(
   const applyEffectiveVolume = useCallback(() => {
     const audio = audioRef.current;
     if (!audio) return;
-    audio.volume = clamp01(volumeRef.current) * clamp01(fadeFactorRef.current);
+    audio.volume =
+      clamp01(volumeRef.current) *
+      clamp01(fadeFactorRef.current) *
+      clamp01(duckFactorRef.current);
   }, []);
+
+  const setDucked = useCallback(
+    (ducked: boolean) => {
+      duckFactorRef.current = ducked ? BGM_DUCK_FACTOR : 1;
+      applyEffectiveVolume();
+    },
+    [applyEffectiveVolume],
+  );
 
   const clearRetryListeners = useCallback(() => {
     const handler = retryHandlerRef.current;
@@ -402,5 +420,6 @@ export function useAdventureBgm(
     autoplayBlocked,
     setMuted,
     setVolume,
+    setDucked,
   };
 }

@@ -10,7 +10,16 @@ import json
 from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import Boolean, ForeignKey, Index, Integer, String, Text, func
+from sqlalchemy import (
+    Boolean,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base
@@ -58,6 +67,9 @@ class User(Base):
     tts_enabled: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     tts_use_gpu: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     tts_engine_dir: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # 音声合成エンジンの待ち受けポート。NULL のときは AIVIS_ENGINE_BASE_URL の
+    # ポートを使う。既定の 10101 が他用途で使用済みの場合などに変更する。
+    tts_engine_port: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     tts_model_dir: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     tts_speaker_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     tts_style_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
@@ -66,6 +78,10 @@ class User(Base):
     )
     self_profile_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     memory_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Prompt Expander 専用設定（JSON）。スキーマは services/prompt_expander_service.PromptExpanderSettings
+    prompt_expander_settings_json: Mapped[Optional[str]] = mapped_column(
+        Text, nullable=True
+    )
 
     sessions: Mapped[List["Session"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
@@ -74,6 +90,9 @@ class User(Base):
         back_populates="user", cascade="all, delete-orphan"
     )
     adventure_runs: Mapped[List["AdventureRun"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    prompt_expander_sessions: Mapped[List["PromptExpanderSession"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
 
@@ -292,6 +311,11 @@ class AdventureRun(Base):
     )
     source_history_id: Mapped[Optional[str]] = mapped_column(
         String, ForeignKey("history.id", ondelete="SET NULL"), nullable=True
+    )
+    # Prompt Expander のエントリを開始素材にした場合の ID。
+    # run は開始画像をコピーして保持するため FK は張らない（SQLite の table rebuild 回避）
+    source_prompt_expander_entry_id: Mapped[Optional[str]] = mapped_column(
+        String, nullable=True
     )
     preset: Mapped[str] = mapped_column(String, nullable=False)
     title: Mapped[str] = mapped_column(String, nullable=False)
@@ -558,4 +582,174 @@ class FavoriteOutfit(Base):
         ),
         Index("idx_favorite_outfits_user_created", "user_id", "created_at"),
         Index("idx_favorite_outfits_history_id", "history_id"),
+    )
+
+
+class PromptExpanderSession(Base):
+    """Prompt Expander のセッション（1セッション複数エントリ）."""
+
+    __tablename__ = "prompt_expander_sessions"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    title: Mapped[str] = mapped_column(
+        String(120), default="", nullable=False, server_default=""
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        default=func.current_timestamp(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        default=func.current_timestamp(),
+        onupdate=func.current_timestamp(),
+        nullable=False,
+    )
+
+    user: Mapped["User"] = relationship(back_populates="prompt_expander_sessions")
+    entries: Mapped[List["PromptExpanderEntry"]] = relationship(
+        back_populates="session", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        Index("idx_prompt_expander_sessions_user_updated", "user_id", "updated_at"),
+    )
+
+
+class PromptExpanderEntry(Base):
+    """Prompt Expander の履歴エントリ（生成画像またはアップロード画像）."""
+
+    __tablename__ = "prompt_expander_entries"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    session_id: Mapped[str] = mapped_column(
+        String,
+        ForeignKey("prompt_expander_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    # generated | uploaded
+    kind: Mapped[str] = mapped_column(String, nullable=False, default="generated")
+    # 拡張前のユーザー指示（拡張 OFF のときは final_prompt と同じ文面）
+    instruction: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # off | japanese | tags
+    positive_expand_mode: Mapped[str] = mapped_column(
+        String, default="off", nullable=False, server_default="off"
+    )
+    negative_expand_mode: Mapped[str] = mapped_column(
+        String, default="off", nullable=False, server_default="off"
+    )
+    character_mode: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, server_default="0"
+    )
+    final_prompt: Mapped[str] = mapped_column(
+        Text, default="", nullable=False, server_default=""
+    )
+    final_negative_prompt: Mapped[str] = mapped_column(
+        Text, default="", nullable=False, server_default=""
+    )
+    # list[str] を JSON で保持
+    character_prompts_json: Mapped[str] = mapped_column(
+        Text, default="[]", nullable=False, server_default="[]"
+    )
+    image_model: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    text_model: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    seed: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    i2i_strength: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    i2i_noise: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    image_size: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    # 漫画モード（V5 のコマ割り）で拡張したプロンプトか。panel_count は None がおまかせ
+    manga_mode: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, server_default="0"
+    )
+    manga_panel_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    # none | history | entry | upload
+    source_kind: Mapped[str] = mapped_column(
+        String, default="none", nullable=False, server_default="none"
+    )
+    source_history_id: Mapped[Optional[str]] = mapped_column(
+        String, ForeignKey("history.id", ondelete="SET NULL"), nullable=True
+    )
+    source_entry_id: Mapped[Optional[str]] = mapped_column(
+        String,
+        ForeignKey("prompt_expander_entries.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    # 背景透過で生成したか（接尾辞は保存せず、生成時に image_model から導出する）
+    transparent_background: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, server_default="0"
+    )
+    # 精密参照（character reference）の参照元。none | history | entry | upload
+    reference_kind: Mapped[str] = mapped_column(
+        String, default="none", nullable=False, server_default="none"
+    )
+    reference_history_id: Mapped[Optional[str]] = mapped_column(
+        String, ForeignKey("history.id", ondelete="SET NULL"), nullable=True
+    )
+    reference_entry_id: Mapped[Optional[str]] = mapped_column(
+        String,
+        ForeignKey("prompt_expander_entries.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    # character | style | character&style（参照ありのときだけ値を持つ）
+    reference_type: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    reference_strength: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    reference_fidelity: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    # インペイント（部分修正）で生成したか。マスクは画像と同じ場所へ _mask.png で残す
+    inpaint: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, server_default="0"
+    )
+    inpaint_mask_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # data/ からの相対パス（例: data/prompt_expander_images/{session_id}/{entry_id}.png）
+    image_path: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        default=func.current_timestamp(), nullable=False
+    )
+
+    session: Mapped["PromptExpanderSession"] = relationship(back_populates="entries")
+
+    __table_args__ = (
+        Index(
+            "idx_prompt_expander_entries_session_created",
+            "session_id",
+            "created_at",
+        ),
+        Index("idx_prompt_expander_entries_created", "created_at"),
+    )
+
+
+class AvatarModel(Base):
+    """ユーザーが登録した 3D アバター(VRM)。
+
+    ファイル本体は settings.avatar_models_dir に ``{id}.vrm`` の名前で置き、
+    file_path にはその bare filename だけを持つ(クライアントのファイル名は
+    使わない)。meta_json は VRM の meta を正規化した JSON。
+    """
+
+    __tablename__ = "avatar_models"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    name: Mapped[str] = mapped_column(String(80), nullable=False)
+    # 同じキャラクターの衣装差分をまとめるグループ名。空(None)は未分類。
+    # 登録時はファイル名 ``名前_衣装_….vrm`` から自動で入れ、最終的にはユーザーが
+    # 付け替える。run は個々のモデル ID を参照するため、付け替えても壊れない
+    character_name: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    # グループ内での差分の説明(「水着 髪束ねたVer」など)。LLM が着替え先を
+    # 選ぶときの手掛かりと、一覧・選択 UI の表示名に使う
+    variant_label: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    file_path: Mapped[str] = mapped_column(Text, nullable=False)
+    file_size: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # "0" (VRM 0.x) または "1" (VRM 1.0)
+    vrm_spec_version: Mapped[str] = mapped_column(
+        String, nullable=False, default="0", server_default="0"
+    )
+    meta_json: Mapped[str] = mapped_column(
+        Text, nullable=False, default="{}", server_default="{}"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        default=func.current_timestamp(), nullable=False
+    )
+
+    __table_args__ = (
+        Index("idx_avatar_models_created", "created_at"),
+        Index("idx_avatar_models_character", "character_name"),
     )

@@ -34,6 +34,8 @@ interface ImagePreviewModalProps {
   media?: ReactNode;
   /** ルート要素へ追加するテーマ用クラス（呼び出し側スタイルでの上書き用） */
   className?: string;
+  /** 一覧の何件目を表示中か（例: "3 / 24"）。未指定時は非表示 */
+  positionLabel?: string;
 }
 
 export default function ImagePreviewModal({
@@ -53,6 +55,7 @@ export default function ImagePreviewModal({
   captionPlacement = "below",
   media,
   className,
+  positionLabel,
 }: ImagePreviewModalProps) {
   const { t } = useTranslation();
   const resolvedAlt = alt || t("imagePreview.imageAlt");
@@ -149,6 +152,10 @@ export default function ImagePreviewModal({
         >
           ✕
         </button>
+
+        {positionLabel && (
+          <span className="image-preview-modal__position">{positionLabel}</span>
+        )}
 
         {canFavorite && (
           <button

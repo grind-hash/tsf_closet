@@ -23,6 +23,7 @@ export default function SpeechSynthesisSettings() {
     setTtsEnabled,
     setTtsUseGpu,
     setTtsEngineDir,
+    setTtsEnginePort,
     setTtsSpeakerId,
     setTtsStyleId,
     setTtsOutputFormat,
@@ -37,12 +38,25 @@ export default function SpeechSynthesisSettings() {
   const [isModelGuideOpen, setIsModelGuideOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [showGpuChangeHint, setShowGpuChangeHint] = useState(false);
+  const [portDraft, setPortDraft] = useState<string | null>(null);
 
   const modelHubUrl =
     "https://hub.aivis-project.com/aivm-models/7fc08a41-b64d-456d-8b22-8e1284674775";
   const targetModelFileName = "zonoko.aivmx";
   const isLinux = statusInfo?.platform === "linux";
   const dockerHint = statusInfo?.docker_hint ?? "docker compose up -d aivis";
+  const defaultEnginePort = statusInfo?.default_engine_port ?? 10101;
+  const effectivePort =
+    state.ttsEnginePort ?? statusInfo?.engine_port ?? defaultEnginePort;
+  // brand_name が AivisSpeech 以外なら互換仕様の外部エンジン。エンジンのダウンロード/
+  // 起動や .aivmx のインストールは適用できないため UI から外す。検出したブランド名は
+  // 断定的な表示になるため画面には出さない。未接続 (null) のときは通常手順を残す。
+  const externalEngineName =
+    statusInfo?.engine_brand &&
+    statusInfo.engine_brand !== statusInfo.aivis_engine_brand
+      ? statusInfo.engine_brand
+      : null;
+  const isExternalEngine = externalEngineName !== null;
   const modelPathDisplay =
     statusInfo?.default_model_dir ?? "%APPDATA%/AivisSpeech-Engine/Models";
 
@@ -143,7 +157,9 @@ export default function SpeechSynthesisSettings() {
   }, [refreshStatus]);
 
   useEffect(() => {
-    if (statusInfo?.process !== "running") {
+    // engine_http を優先して判定する。process はポート上のプロセス検出に依存し、
+    // アプリ管理外のエンジンでは stopped のままになることがある。
+    if (statusInfo?.engine_http !== "ok" && statusInfo?.process !== "running") {
       return;
     }
     if (!state.ttsSpeakerId && !state.ttsStyleId) {
@@ -337,6 +353,44 @@ export default function SpeechSynthesisSettings() {
     }
   };
 
+  const handleCommitEnginePort = async () => {
+    if (portDraft === null) {
+      return;
+    }
+
+    const parsed = Number.parseInt(portDraft, 10);
+    setPortDraft(null);
+
+    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) {
+      setStatusText(t("settings.speech.enginePortInvalid"));
+      return;
+    }
+    if (parsed === effectivePort) {
+      return;
+    }
+
+    setBusy(true);
+    try {
+      markAction("settings.speech.actionChangeEnginePort");
+      await setTtsEnginePort(parsed);
+      // スピーカー/スタイルIDはエンジンごとに異なるため、接続先を変えたら破棄する。
+      // 残したままだと別キャラで合成されるか、合成リクエストが失敗する。
+      setSpeakers([]);
+      await setTtsSpeakerId(null);
+      await setTtsStyleId(null);
+      setSetupStage("initial");
+      const status = await refreshStatus();
+      setStatusText(
+        `${t("settings.speech.status")}: ${status.engine_http} (${status.process})`,
+      );
+      setCurrentAction(t("settings.speech.actionIdle"));
+    } catch (error) {
+      setOperationFailed(error);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const handleHealthCheck = async () => {
     setBusy(true);
     try {
@@ -407,7 +461,65 @@ export default function SpeechSynthesisSettings() {
             </label>
           </div>
 
-          {isLinux ? (
+          <div className="settings-screen__item">
+            <div className="settings-screen__item-header">
+              <span className="settings-screen__item-label">
+                {t("settings.speech.enginePort")}
+              </span>
+              <span className="settings-screen__item-desc">
+                {t("settings.speech.enginePortDesc", {
+                  port: defaultEnginePort,
+                })}
+              </span>
+            </div>
+            <input
+              className="speech-settings__input"
+              type="number"
+              min={1}
+              max={65535}
+              step={1}
+              disabled={busy}
+              value={portDraft ?? String(effectivePort)}
+              onChange={(e) => setPortDraft(e.target.value)}
+              onBlur={() => void handleCommitEnginePort()}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.currentTarget.blur();
+                }
+              }}
+            />
+            {statusInfo?.engine_base_url && (
+              <p className="speech-settings__modal-text">
+                {t("settings.speech.engineEndpoint", {
+                  url: statusInfo.engine_base_url,
+                })}
+              </p>
+            )}
+          </div>
+
+          {isExternalEngine && (
+            <div className="speech-settings__guide">
+              <p className="speech-settings__guide-title">
+                {t("settings.speech.externalEngineTitle")}
+              </p>
+              <p className="speech-settings__modal-text">
+                {t("settings.speech.externalEngineDesc")}
+              </p>
+              <p className="speech-settings__modal-text speech-settings__modal-text--warning">
+                {t("settings.speech.externalEngineTerms")}
+              </p>
+              <button
+                className="speech-settings__button"
+                type="button"
+                disabled={busy}
+                onClick={() => void handleHealthCheck()}
+              >
+                {t("settings.speech.refreshStatus")}
+              </button>
+            </div>
+          )}
+
+          {isExternalEngine ? null : isLinux ? (
             <div className="speech-settings__guide">
               <p className="speech-settings__guide-title">
                 {t("settings.speech.linuxNoticeTitle")}
@@ -602,52 +714,54 @@ export default function SpeechSynthesisSettings() {
         </details>
       </div>
 
-      <div className="settings-screen__item">
-        <div className="speech-settings__guide speech-settings__guide--section">
-          <p className="speech-settings__guide-title">
-            {t("settings.speech.section2Title")}
-          </p>
-          <button
-            className="speech-settings__button"
-            type="button"
-            disabled={busy}
-            onClick={() => void handleDownloadModel()}
-          >
-            {t("settings.speech.downloadModel")}
-          </button>
-          <p className="speech-settings__modal-text">
-            {t("settings.speech.modelPlacementHint", {
-              path: modelPathDisplay,
-            })}
-          </p>
-          {isLinux ? (
-            <p className="speech-settings__modal-text">
-              {t("settings.speech.linuxModelRestartHint", {
-                command: "docker compose restart aivis",
-              })}
+      {!isExternalEngine && (
+        <div className="settings-screen__item">
+          <div className="speech-settings__guide speech-settings__guide--section">
+            <p className="speech-settings__guide-title">
+              {t("settings.speech.section2Title")}
             </p>
-          ) : (
             <button
-              className="speech-settings__button speech-settings__button--primary"
+              className="speech-settings__button"
               type="button"
               disabled={busy}
-              onClick={() => void handleConfirmModelPlaced()}
+              onClick={() => void handleDownloadModel()}
             >
-              {busy ? (
-                <span className="speech-settings__button-loading">
-                  <span
-                    className="speech-settings__spinner speech-settings__spinner--sm"
-                    aria-hidden="true"
-                  />
-                  {t("settings.speech.processing")}
-                </span>
-              ) : (
-                t("settings.speech.installModel")
-              )}
+              {t("settings.speech.downloadModel")}
             </button>
-          )}
+            <p className="speech-settings__modal-text">
+              {t("settings.speech.modelPlacementHint", {
+                path: modelPathDisplay,
+              })}
+            </p>
+            {isLinux ? (
+              <p className="speech-settings__modal-text">
+                {t("settings.speech.linuxModelRestartHint", {
+                  command: "docker compose restart aivis",
+                })}
+              </p>
+            ) : (
+              <button
+                className="speech-settings__button speech-settings__button--primary"
+                type="button"
+                disabled={busy}
+                onClick={() => void handleConfirmModelPlaced()}
+              >
+                {busy ? (
+                  <span className="speech-settings__button-loading">
+                    <span
+                      className="speech-settings__spinner speech-settings__spinner--sm"
+                      aria-hidden="true"
+                    />
+                    {t("settings.speech.processing")}
+                  </span>
+                ) : (
+                  t("settings.speech.installModel")
+                )}
+              </button>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="settings-screen__item">
         <div className="speech-settings__guide speech-settings__guide--section">

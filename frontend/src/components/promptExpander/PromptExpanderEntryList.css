@@ -1,0 +1,345 @@
+/* Prompt Expander エントリ一覧 / カード */
+
+.prompt-expander__entries {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+/* 一覧は開閉セクション（history）に入れる。見出しはセッション名 */
+.prompt-expander__entries-section .prompt-expander__section-heading {
+  font-size: 1rem;
+}
+
+.prompt-expander__entries-section > .prompt-expander__section-body {
+  padding: 0.7rem 0.7rem 0.8rem;
+}
+
+.prompt-expander__entry-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.prompt-expander__entry {
+  display: flex;
+  gap: 0.7rem;
+  padding: 0.6rem;
+  border: 1px solid var(--border-color, #333);
+  border-radius: 8px;
+  background: var(--side-menu-bg, #16213e);
+}
+
+.prompt-expander__entry--source {
+  border-color: var(--accent-color, #e94560);
+}
+
+/* プレビューモーダルで表示中（閉じた直後も）のカード。i2i 元の枠色とは別に外側へ光らせる */
+.prompt-expander__entry--previewed {
+  background: var(--hover-bg, #1f2f50);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.55);
+}
+
+/* 画像の包みは <button> ではなく div[role=button]（右クリックの画像保存を効かせる） */
+.prompt-expander__entry-image-btn {
+  flex: 0 0 auto;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: zoom-in;
+  line-height: 0;
+}
+
+.prompt-expander__entry-image-btn:focus-visible {
+  outline: 2px solid var(--accent-color, #e94560);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* 絞り込みチップ（すべて / 通常 / 漫画 / アップロード） */
+.prompt-expander__entry-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.6rem;
+}
+
+.prompt-expander__entry-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.65rem;
+  border: 1px solid var(--border-color, #333);
+  border-radius: 999px;
+  background: var(--bg-color, #1a1a2e);
+  color: var(--text-color, #eee);
+  font-size: 0.8rem;
+  line-height: 1.2;
+  cursor: pointer;
+  transition:
+    background-color 0.15s,
+    border-color 0.15s;
+}
+
+.prompt-expander__entry-filter-chip:hover {
+  background: var(--hover-bg, #1f2f50);
+}
+
+.prompt-expander__entry-filter-chip.is-active {
+  border-color: var(--accent-color, #e94560);
+  background: var(--accent-color, #e94560);
+  color: #fff;
+  font-weight: 600;
+}
+
+.prompt-expander__entry-filter-count {
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.15);
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.prompt-expander__entry-image {
+  display: block;
+  width: 120px;
+  height: 120px;
+  border-radius: 6px;
+  object-fit: cover;
+  background: var(--bg-color, #1a1a2e);
+}
+
+.prompt-expander__entry-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.prompt-expander__entry-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.prompt-expander__entry-text {
+  flex: 1 1 auto;
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  min-width: 0;
+}
+
+.prompt-expander__entry-badges {
+  display: flex;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.25rem;
+  max-width: 45%;
+}
+
+.prompt-expander__entry-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.8rem;
+  font-size: 0.72rem;
+  color: var(--text-muted, #888);
+}
+
+.prompt-expander__entry-toggle {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--accent-hover, #ff6b6b);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.prompt-expander__entry-toggle:hover {
+  text-decoration: underline;
+}
+
+.prompt-expander__entry-details {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.25rem 0.6rem;
+  margin: 0;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--border-color, #333);
+  border-radius: 6px;
+  background: var(--bg-color, #1a1a2e);
+  font-size: 0.8rem;
+}
+
+.prompt-expander__entry-details dt {
+  color: var(--text-muted, #888);
+  white-space: nowrap;
+}
+
+.prompt-expander__entry-details dd {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.prompt-expander__entry-characters {
+  margin: 0;
+  padding-left: 1.2rem;
+}
+
+.prompt-expander__entry-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: auto;
+}
+
+/* 削除アイコンは行末に寄せる */
+.prompt-expander__entry-actions .prompt-expander__icon-btn {
+  margin-left: auto;
+}
+
+.prompt-expander__preview-caption {
+  display: block;
+  max-width: 720px;
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+@media (max-width: 640px) {
+  .prompt-expander__entry {
+    flex-direction: column;
+  }
+
+  .prompt-expander__entry-image {
+    width: 100%;
+    height: auto;
+    max-height: 320px;
+  }
+
+  .prompt-expander__entry-row {
+    flex-direction: column;
+  }
+
+  .prompt-expander__entry-badges {
+    max-width: none;
+    justify-content: flex-start;
+  }
+}
+
+/*
+ * 画像プレビュー（ImagePreviewModal）を画面の大部分で表示する。
+ * 下キャプション付き（__content--captioned）の固定幅と画像の高さ制限を PE では広げる。
+ * 枠の幅は画像だけで決まるよう、キャプションは幅の算出に寄与させない（width:0 + min-width:100%）。
+ * キャプションの表示とスクロールは共通 CSS のまま。
+ */
+.prompt-expander-preview .image-preview-modal__content {
+  max-width: min(96vw, 1600px);
+  max-height: 96vh;
+}
+
+.prompt-expander-preview .image-preview-modal__content--captioned {
+  width: auto;
+}
+
+.prompt-expander-preview .image-preview-modal__image,
+.prompt-expander-preview
+  .image-preview-modal__content--captioned
+  .image-preview-modal__image {
+  width: auto;
+  max-width: 100%;
+  max-height: calc(96vh - 3rem);
+}
+
+.prompt-expander-preview
+  .image-preview-modal__content--captioned
+  .image-preview-modal__caption {
+  width: 0;
+  min-width: 100%;
+  box-sizing: border-box;
+  max-height: 20vh;
+}
+
+/*
+ * 枠を 96vh / 96vw まで広げるため、枠の外（上 40px / 左右 60px）に置かれる共通の
+ * 閉じるボタンと前後ボタンが画面外に出て見切れる。PE のプレビューでは枠の内側に置く。
+ */
+.prompt-expander-preview .image-preview-modal__close {
+  top: 10px;
+  right: 10px;
+  background-color: rgba(0, 0, 0, 0.5);
+}
+
+.prompt-expander-preview .image-preview-modal__nav {
+  background-color: rgba(0, 0, 0, 0.4);
+}
+
+.prompt-expander-preview .image-preview-modal__nav--prev {
+  left: 8px;
+}
+
+.prompt-expander-preview .image-preview-modal__nav--next {
+  right: 8px;
+}
+
+.prompt-expander-preview .prompt-expander__preview-caption {
+  max-width: none;
+}
+
+/* 背景透過エントリ: 切り抜き結果が分かるようチェッカーボードを敷き、切り抜き中はスピナーを重ねる */
+.prompt-expander__entry-image-btn--transparent {
+  position: relative;
+}
+
+.prompt-expander__entry-image-btn--transparent .prompt-expander__entry-image,
+.prompt-expander-preview--transparent .image-preview-modal__image {
+  background-color: #cfcfd6;
+  background-image:
+    linear-gradient(45deg, #9a9aa6 25%, transparent 25%),
+    linear-gradient(-45deg, #9a9aa6 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #9a9aa6 75%),
+    linear-gradient(-45deg, transparent 75%, #9a9aa6 75%);
+  background-size: 12px 12px;
+  background-position:
+    0 0,
+    0 6px,
+    6px -6px,
+    -6px 0;
+}
+
+.prompt-expander__entry-image-btn--transparent .prompt-expander__entry-image {
+  object-fit: contain;
+}
+
+.prompt-expander__entry-image-processing {
+  --pe-progress-color: #fff;
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+}
+
+/* 「透過PNGを保存」はダウンロード用の <a> なのでボタンと同じ見た目にする */
+a.prompt-expander__btn {
+  text-decoration: none;
+}
+
+a.prompt-expander__btn.is-disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}

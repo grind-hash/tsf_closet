@@ -25,6 +25,11 @@ export interface AdventureTurnImageSettings {
   enableCompositeScene: boolean;
   drawPortraitEveryTurn: boolean;
   drawPartnerEveryTurn: boolean;
+  /**
+   * 対面会話モード(romance のみ)。ON のとき主人公立ち絵と合成シーンは
+   * 設定に関わらず生成されず、攻略対象の立ち絵だけが描かれる
+   */
+  companionMode?: boolean;
 }
 
 /**
@@ -45,15 +50,17 @@ export function estimateAdventureTurnSeconds(
     enableCompositeScene,
     drawPortraitEveryTurn,
     drawPartnerEveryTurn,
+    companionMode = false,
   } = params;
+  const companion = preset === "romance" && companionMode;
   let seconds = TURN_BASE_SECONDS;
-  if (drawPortraitEveryTurn) {
+  if (drawPortraitEveryTurn && !companion) {
     seconds += ADVENTURE_PROGRESS_BUDGET_MS.portrait / 1000;
   }
   if (preset === "romance" && drawPartnerEveryTurn) {
     seconds += ADVENTURE_PROGRESS_BUDGET_MS.partner / 1000;
   }
-  if (enableCompositeScene) {
+  if (enableCompositeScene && !companion) {
     seconds += ADVENTURE_PROGRESS_BUDGET_MS.composite / 1000;
   }
   return Math.round(seconds / 5) * 5;
@@ -72,7 +79,11 @@ export function isAdventureTurnTextOnly(
     enableCompositeScene,
     drawPortraitEveryTurn,
     drawPartnerEveryTurn,
+    companionMode = false,
   } = params;
+  if (preset === "romance" && companionMode) {
+    return !drawPartnerEveryTurn;
+  }
   if (enableCompositeScene || drawPortraitEveryTurn) return false;
   return !(preset === "romance" && drawPartnerEveryTurn);
 }

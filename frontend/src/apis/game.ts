@@ -3,7 +3,7 @@
  * プロンプトプレビュー・最新履歴削除など
  */
 
-import type { ChangeScope, InstructionType, PreserveElement } from "../types";
+import type { InstructionType } from "../types";
 import { API_BASE } from "../utils/api";
 
 // プロンプトプレビュー リクエスト
@@ -12,9 +12,6 @@ export interface PreviewPromptRequest {
   instruction: string;
   transformation_type?: string;
   instruction_type?: InstructionType | string;
-  preserve_elements?: PreserveElement[];
-  change_scope?: ChangeScope;
-  custom_preserve_text?: string;
   use_play_memory?: boolean;
   respect_clothing_layers?: boolean;
   use_history_lookback?: boolean;

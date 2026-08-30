@@ -6,6 +6,7 @@
  * - 新規プレイ
  * - ギャラリー
  * - TSFシナリオ / BGMテスト（実験設定で有効化）
+ * - Prompt Expander（実験設定で有効化）
  * - 実績
  * - 設定
  */
@@ -37,6 +38,7 @@ const getMenuItems = (
   t: (key: string) => string,
   showEndingMenu: boolean,
   showAdventureMenu: boolean,
+  showPromptExpanderMenu: boolean,
 ): MenuItem[] => {
   return [
     {
@@ -68,6 +70,17 @@ const getMenuItems = (
             icon: "♪",
             path: ROUTES.BGM_TEST,
             description: t("menu.bgmTestDesc"),
+          },
+        ]
+      : []),
+    ...(showPromptExpanderMenu
+      ? [
+          {
+            id: "prompt-expander",
+            label: t("menu.promptExpander"),
+            icon: "✨",
+            path: ROUTES.PROMPT_EXPANDER,
+            description: t("menu.promptExpanderDesc"),
           },
         ]
       : []),
@@ -112,6 +125,7 @@ export default function SideMenu() {
     t,
     settingsState.experimentalEndingEnabled,
     settingsState.experimentalAdventureEnabled,
+    settingsState.experimentalPromptExpanderEnabled,
   );
 
   // プレイ中のゲームがあるかどうか
@@ -156,7 +170,12 @@ export default function SideMenu() {
         location.pathname === ROUTES.GAME
       );
     }
-    return location.pathname === path;
+    // 詳細ページ（/prompt-expander/:id、/adventure/:runId、/gallery/:sessionId）でも
+    // 親の項目を選択中として扱う。セッションを開いたまま項目が非活性になると、
+    // その項目から一覧へ戻れることに気付けない
+    return (
+      location.pathname === path || location.pathname.startsWith(`${path}/`)
+    );
   };
 
   return (

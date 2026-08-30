@@ -6,6 +6,15 @@ export interface AivisStatus {
   managed?: boolean;
   engine_http: string;
   engine_base_url: string;
+  /** 実際に接続しているポート（ユーザー設定 > AIVIS_ENGINE_BASE_URL の順で解決） */
+  engine_port: number;
+  /** AIVIS_ENGINE_BASE_URL 由来の既定ポート */
+  default_engine_port: number;
+  engine_version: string | null;
+  /** /engine_manifest の brand_name。同梱エンジンの判別だけに使い、画面には出さない */
+  engine_brand: string | null;
+  /** AivisSpeech 本体を示す brand_name。engine_brand との比較に使う */
+  aivis_engine_brand: string;
   default_engine_download_url: string;
   default_model_url: string;
   default_model_dir: string;

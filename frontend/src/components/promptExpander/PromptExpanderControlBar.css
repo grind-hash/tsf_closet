@@ -1,0 +1,50 @@
+/* Prompt Expander 画面下部の常時表示コントロールエリア */
+
+.prompt-expander__control-bar {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  padding: 0.6rem 1.5rem;
+  border-top: 1px solid var(--border-color, #333);
+  /* スクロールする本文が透けないよう不透明にする */
+  background: var(--side-menu-bg, #16213e);
+}
+
+.prompt-expander__control-bar-left,
+.prompt-expander__control-bar-right {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.7rem;
+  min-width: 0;
+}
+
+.prompt-expander__control-bar-right {
+  justify-content: flex-end;
+  margin-left: auto;
+}
+
+.prompt-expander__control-bar-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.prompt-expander__control-bar-progress {
+  min-width: 180px;
+}
+
+@media (max-width: 640px) {
+  .prompt-expander__control-bar {
+    padding: 0.5rem 0.9rem;
+  }
+
+  /* 狭い画面では生成操作を優先し、現在値サマリは畳む */
+  .prompt-expander__control-bar-summary {
+    display: none;
+  }
+}

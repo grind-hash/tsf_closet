@@ -20,6 +20,9 @@ from PIL import Image, ImageFilter
 from .comfy import ComfyUIClient, ComfyUIResult
 from .model_execution_gate import model_execution_gate
 from ..consts.novelai_models import get_image_model_info
+from ..consts.prompt_expander import (
+    PROMPT_EXPANDER_MASK_GRID_DIVISOR as MASK_GRID_DIVISOR,
+)
 from ..settings.config import settings
 from novelai import AsyncNovelAI
 from novelai.types import Character, CharacterReference, GenerateImageParams, I2iParams
@@ -431,6 +434,7 @@ class NovelAIImageClient:
         characters: Optional[List[Dict[str, Any]]] = None,
         size_override: Optional[str] = None,
         model_override: Optional[str] = None,
+        raw_prompt: bool = False,
     ) -> ImageGenerationResult:
         """画像生成 / 画像変換 (i2i)"""
         client = await self._get_client()
@@ -445,8 +449,14 @@ class NovelAIImageClient:
             strength = self.i2i_strength
         if strength > 0.99:
             strength = 0.99
-        noise = noise_override or self.i2i_noise
-        neg_prompt = negative_prompt_override or self.negative_prompt
+        # 0.0 は有効な指定値なので None 判定で既定値へ落とす
+        noise = noise_override if noise_override is not None else self.i2i_noise
+        if raw_prompt:
+            # 生プロンプト経路: 指定されたネガティブをそのまま使う（空なら空。
+            # サーバー既定のネガティブへは落とさない）
+            neg_prompt = negative_prompt_override or ""
+        else:
+            neg_prompt = negative_prompt_override or self.negative_prompt
 
         normalized_mask = mask_bytes
         logger.info(
@@ -481,8 +491,13 @@ class NovelAIImageClient:
                     f"[Inpaint Debug] Mask size: {mask_img.size}, White pixels: {white_pixels}/{total_pixels} ({100 * white_pixels / total_pixels:.1f}%)"
                 )
 
-                # PoC準拠: 104x152へ縮小→ベース解像度へ最近傍拡大→二値化→任意膨張
-                small_size = (104, 152)
+                # PoC準拠: マスク解像度(ベースの1/8)へ縮小→ベース解像度へ最近傍拡大
+                # →二値化→任意膨張。portrait(832x1216)では従来と同じ104x152になる。
+                # 固定値にすると landscape / square でマスクの縦横比が崩れる
+                small_size = (
+                    max(1, base_img.width // MASK_GRID_DIVISOR),
+                    max(1, base_img.height // MASK_GRID_DIVISOR),
+                )
                 alpha_small = alpha.resize(small_size, Image.NEAREST)
                 alpha_up = alpha_small.resize(base_img.size, Image.NEAREST)
 
@@ -522,7 +537,10 @@ class NovelAIImageClient:
 
         multiple_people = bool(characters and len(characters) > 1)
 
-        if multiple_people:
+        if raw_prompt:
+            # 生プロンプト経路: 分割防止などの自動ネガティブを足さない
+            extra_negative = ""
+        elif multiple_people:
             extra_negative = ", split screen, before and after, mirrored panels"
         else:
             extra_negative = ", split screen, before and after, side by side, duplicate characters, mirrored panels, two people, multiple people, clone, twin, copy body, duplicate body"
@@ -592,16 +610,26 @@ class NovelAIImageClient:
 
         # NOTE: GenerateImageParamsのmodelはSDKのリテラル制約に合わせてベースモデルを入れる
         # （V5モデル名はLiteral非対応のため、送信直前のreq.model上書きで差し替える）
+        if raw_prompt:
+            # 生プロンプト経路: 空白の圧縮のみ行い、句読点置換や接尾辞を付けない
+            # （日本語の自然文プロンプトを壊さないため）
+            formatted_prompt = " ".join(prompt.strip().split())
+            formatted_negative = neg_prompt or None
+        else:
+            formatted_prompt = self._format_prompt(
+                prompt, multiple_people=multiple_people
+            )
+            formatted_negative = (
+                (neg_prompt + extra_negative) if neg_prompt else extra_negative
+            )
         params = GenerateImageParams(
-            prompt=self._format_prompt(prompt, multiple_people=multiple_people),
+            prompt=formatted_prompt,
             model=model_info.sdk_base_model,
             size=size_override or self.size,
             steps=self.steps,
             scale=self.scale,
             uc_preset=self.uc_preset,  # uc_presetは文字列リテラルでOK
-            negative_prompt=(neg_prompt + extra_negative)
-            if neg_prompt
-            else extra_negative,
+            negative_prompt=formatted_negative,
             quality=True,  # 自動でQUALITY_TAGSを付与
             i2i=i2i_params,
             n_samples=1,
@@ -818,6 +846,7 @@ class ImageGenerationService:
         characters: Optional[List[Dict[str, Any]]] = None,
         size_override: Optional[str] = None,
         novelai_model_override: Optional[str] = None,
+        raw_prompt: bool = False,
         **comfy_kwargs: Any,
     ) -> ImageGenerationResult:
         """画像を生成する
@@ -884,6 +913,7 @@ class ImageGenerationService:
                     characters=characters,
                     size_override=size_override,
                     model_override=novelai_model_override,
+                    raw_prompt=raw_prompt,
                 )
         else:
             # セルフホスト (ComfyUI)

@@ -10,8 +10,12 @@ from __future__ import annotations
 
 ROMANCE_DAYS_DEFAULT: int = 7
 ROMANCE_DAYS_MIN: int = 5
-ROMANCE_DAYS_MAX: int = 15
+ROMANCE_DAYS_MAX: int = 30
 ROMANCE_SLOTS_PER_DAY: int = 2
+
+# 現実改変宣言によるタイムリミット(日数)変更で許す上限。
+# 作成時の上限(30日)より広く取り、宣言で延長するプレイを許容する
+ROMANCE_ALTER_DAYS_MAX: int = 60
 
 ROMANCE_AFFECTION_START: int = 10
 ROMANCE_AFFECTION_MIN: int = 0
@@ -149,10 +153,31 @@ ROMANCE_DATING_MILESTONE_ID: str = "start_dating"
 # 主人公(自分)の既定テンプレートキャラクター。開始セッションの人物は攻略対象になる
 ROMANCE_PLAYER_DEFAULT_CHARACTER_ID: str = "char1"
 
+# トークモード(手番を消費しない会話)。ログは run の state_json["talk_log"] に
+# 保持し、件数上限を超えた分は古い順に捨てる
+ROMANCE_TALK_LOG_MAX: int = 40
+# 1メッセージの入力上限と、LLM 返答を切り詰める長さ
+ROMANCE_TALK_INPUT_MAX: int = 500
+ROMANCE_TALK_REPLY_MAX: int = 400
+# 次の手番へ文脈として渡す直近件数(手番をまたいで最新から数える)
+ROMANCE_TALK_CONTEXT_MAX: int = 12
+# トークの LLM 呼び出しへチャット履歴(user/assistant メッセージ)として渡す
+# 直近件数。手番をまたいで最新から数える
+ROMANCE_TALK_HISTORY_MAX: int = 24
+# トークの LLM 呼び出しへ渡す直近の場面(手番)数。好感度の推移も併せて渡す
+ROMANCE_TALK_SCENE_CONTEXT_MAX: int = 5
+
+# 対面会話モードの台本形式やトークで主人公名が無いときの呼称
+ROMANCE_PLAYER_NAME_FALLBACK: dict[str, str] = {"ja": "主人公", "en": "You"}
+# セットアップで指定する主人公の呼び名(攻略対象がセリフで呼ぶ名前)の上限。
+# 空ならテンプレートキャラクター名またはセッションの主人公名を使う
+ROMANCE_PLAYER_NAME_MAX_LENGTH: int = 40
+
 __all__ = [
     "ROMANCE_DAYS_DEFAULT",
     "ROMANCE_DAYS_MIN",
     "ROMANCE_DAYS_MAX",
+    "ROMANCE_ALTER_DAYS_MAX",
     "ROMANCE_SLOTS_PER_DAY",
     "ROMANCE_AFFECTION_START",
     "ROMANCE_AFFECTION_MIN",
@@ -182,4 +207,12 @@ __all__ = [
     "ROMANCE_MILESTONES",
     "ROMANCE_DATING_MILESTONE_ID",
     "ROMANCE_PLAYER_DEFAULT_CHARACTER_ID",
+    "ROMANCE_TALK_LOG_MAX",
+    "ROMANCE_TALK_INPUT_MAX",
+    "ROMANCE_TALK_REPLY_MAX",
+    "ROMANCE_TALK_CONTEXT_MAX",
+    "ROMANCE_TALK_HISTORY_MAX",
+    "ROMANCE_TALK_SCENE_CONTEXT_MAX",
+    "ROMANCE_PLAYER_NAME_FALLBACK",
+    "ROMANCE_PLAYER_NAME_MAX_LENGTH",
 ]

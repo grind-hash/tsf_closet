@@ -1,3 +1,5 @@
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
 import { expect, type Page, test } from "@playwright/test";
 
@@ -337,10 +339,32 @@ test("start a romance run with day select and show the romance HUD", async ({
   // ターン数入力の代わりに日数セレクト（既定7日）が出る
   const daySelect = page.getByLabel(/日数/);
   await expect(daySelect).toHaveValue("7");
+  // 5〜30日を選べる（backend/gateway/consts/adventure_romance.py と揃える）
+  await expect(daySelect.locator("option")).toHaveCount(26);
+  await expect(daySelect.locator("option").first()).toHaveAttribute(
+    "value",
+    "5",
+  );
+  await expect(daySelect.locator("option").last()).toHaveAttribute(
+    "value",
+    "30",
+  );
   // 主人公(自分)セレクト。既定は男性キャラ char1
   const playerSelect = page.getByLabel(/主人公（自分）/);
   await expect(playerSelect).toHaveValue("char1");
   await expect(playerSelect.locator("option").first()).toHaveText("水瀬ユウヤ");
+  // 呼び名は選んだキャラクターの名前で埋まり、未編集なら選択に追従する
+  const playerName = page.getByLabel(/呼び名/);
+  await expect(playerName).toHaveValue("水瀬ユウヤ");
+  await playerSelect.selectOption("char2");
+  await expect(playerName).toHaveValue("星野エミ");
+  await playerSelect.selectOption("char1");
+  await expect(playerName).toHaveValue("水瀬ユウヤ");
+  // 書き換えた呼び名は選択を変えても保持される
+  await playerName.fill("ユウヤ");
+  await playerSelect.selectOption("char2");
+  await expect(playerName).toHaveValue("ユウヤ");
+  await playerSelect.selectOption("char1");
   await page.getByRole("button", { name: "ミッション案を自動生成" }).click();
   await expect(page.getByLabel("ゴール")).toHaveValue(
     "7日以内に美咲と想いを通わせ、交際を始める",
@@ -348,11 +372,12 @@ test("start a romance run with day select and show the romance HUD", async ({
   await page.getByRole("button", { name: "シナリオを開始" }).click();
 
   await expect(page).toHaveURL(/\/adventure\/run-1$/);
-  // 主人公(自分)は既定でテンプレキャラ char1 を送る
+  // 主人公(自分)は既定でテンプレキャラ char1 を送り、呼び名は入力値を送る
   expect(state.createBodies[0]).toMatchObject({
     preset: "romance",
     scenario_max_turns: 14,
     romance_player_character_id: "char1",
+    romance_player_name: "ユウヤ",
   });
   // romance HUD: Day/時間帯・好感度・所持金(タイルはラベルと値が別要素)
   const dayTile = page.locator(".adventure-hud__day");
@@ -536,6 +561,8 @@ test("player can be a transformed state from a session", async ({ page }) => {
   await expect(playerSource.getByRole("group")).toContainText(
     "テストキャラクター",
   );
+  // 呼び名はセッションに紐づく主人公名で埋まる
+  await expect(page.getByLabel(/呼び名/)).toHaveValue("テストキャラクター");
   // 選択モーダルを開き、セッション内の変身時点を選ぶ
   await playerSource.getByRole("button", { name: "変更" }).click();
   const picker = page.getByRole("dialog", { name: "主人公にするセッション" });
@@ -554,6 +581,7 @@ test("player can be a transformed state from a session", async ({ page }) => {
   expect(state.createBodies[0]).toMatchObject({
     romance_player_session_id: "session-1",
     romance_player_history_id: "h1",
+    romance_player_name: "テストキャラクター",
   });
   expect(state.createBodies[0]).not.toHaveProperty(
     "romance_player_character_id",
@@ -1191,4 +1219,710 @@ test("portrait toggles ride the turn request while the composite scene is on", a
     generate_portrait: false,
     generate_partner_portrait: false,
   });
+});
+
+test("image model override is chosen from the gear popover", async ({
+  page,
+}) => {
+  await enableAdventure(page);
+  await mockV45ImageModels(page);
+  const state = await mockRomanceApis(page);
+  // 共有モックの settings 応答は上書きモデルを返さないため、ここだけ差し替える
+  await page.route("**/api/adventure/runs/run-1/settings", async (route) => {
+    const body = route.request().postDataJSON() as Record<string, unknown>;
+    state.settingsBodies.push(body);
+    await route.fulfill({
+      json: romanceRunPayload(0, {
+        image_model_override:
+          body.image_model === "default" ? null : body.image_model,
+      }),
+    });
+  });
+  await page.goto("/adventure/run-1");
+
+  await page.getByRole("button", { name: "画像生成設定" }).click();
+  const picker = page.getByLabel("画像生成モデル");
+  await expect(picker).toHaveValue("default");
+  await picker.selectOption("nai-diffusion-5-full");
+
+  // PATCH の応答が反映されるまで待つ(手番は消費しない)
+  await expect(picker).toHaveValue("nai-diffusion-5-full");
+  expect(state.settingsBodies).toHaveLength(1);
+  expect(state.settingsBodies[0]).toMatchObject({
+    image_model: "nai-diffusion-5-full",
+    use_precise_reference: false,
+    enable_composite_scene: false,
+  });
+  // V5 上書き中は精密参照が使えない
+  await expect(page.getByLabel(/精密参照画像を使う/)).toBeDisabled();
+  expect(state.streamBodies).toHaveLength(0);
+});
+
+// 設定画面の音声合成(TTS)が実DBで有効でもテスト結果が変わらないよう、
+// ユーザー設定の GET を OFF に固定する
+async function mockTtsDisabled(page: Page) {
+  await page.route("**/api/settings/user", async (route) => {
+    if (route.request().method() !== "GET") {
+      await route.continue();
+      return;
+    }
+    const response = await route.fetch();
+    const json = await response.json();
+    json.tts_enabled = false;
+    await route.fulfill({ response, json });
+  });
+}
+
+test("companion mode shows only the partner sprite and toggles from the gear popover", async ({
+  page,
+}) => {
+  await enableAdventure(page);
+  const state = await mockRomanceApis(page);
+  const companionRun = romanceRunPayload(0, {
+    companion_mode: true,
+    opening_narrative:
+      "美咲「こんにちは、また会えたね」\n夕日が書店に差し込む。",
+  });
+  await page.route("**/api/adventure/runs/run-1", async (route) => {
+    await route.fulfill({ json: companionRun });
+  });
+  await page.route("**/api/adventure/runs/run-1/settings", async (route) => {
+    const body = route.request().postDataJSON() as Record<string, unknown>;
+    state.settingsBodies.push(body);
+    await route.fulfill({
+      json: romanceRunPayload(0, {
+        companion_mode: body.companion_mode === true,
+      }),
+    });
+  });
+  await page.goto("/adventure/run-1");
+
+  // 攻略対象の立ち絵だけを中央に置き、主人公の立ち絵は並置しない
+  const partnerSprite = page.getByAltText("攻略対象の立ち絵");
+  await expect(partnerSprite).toBeVisible();
+  await expect(partnerSprite).toHaveClass(/adventure-stage__portrait--solo/);
+  await expect(
+    page.locator(".adventure-stage__frame .adventure-stage__portrait--paired"),
+  ).toHaveCount(0);
+  await expect(
+    page.locator(".adventure-stage__frame img[alt='主人公のポートレート']"),
+  ).toHaveCount(0);
+  // 台本形式の行は話者ラベル付きで描かれる
+  const speaker = page.locator(".adventure-messagebox__speaker").first();
+  await expect(speaker).toHaveText("美咲");
+  await expect(
+    page.locator(".adventure-messagebox__line--dialogue").first(),
+  ).toContainText("「こんにちは、また会えたね」");
+  await expect(
+    page.locator(".adventure-messagebox__line--narration").first(),
+  ).toHaveText("夕日が書店に差し込む。");
+
+  // ⚙のトグルは ON。OFF へ戻すと PATCH だけが飛び、手番は消費しない
+  await page.getByRole("button", { name: "画像生成設定" }).click();
+  // 合成シーン等のヒント文にも「対面会話モード」が含まれるため名前の先頭で絞る
+  const toggle = page.getByRole("checkbox", { name: /^対面会話モード/ });
+  await expect(toggle).toBeChecked();
+  // 対面会話 中は無効になる設定を隠さず文言で説明する
+  await expect(
+    page.getByText(/対面会話モード中は合成シーンを描かないため/),
+  ).toBeVisible();
+  // input は視覚的に隠れるため、スイッチのラベルをクリックする
+  await page
+    .locator(".adventure-image-settings-popover .adventure-companion-toggle")
+    .click();
+  await expect(toggle).not.toBeChecked();
+  expect(state.settingsBodies).toHaveLength(1);
+  expect(state.settingsBodies[0]).toMatchObject({
+    companion_mode: false,
+    use_precise_reference: false,
+    enable_composite_scene: false,
+  });
+  expect(state.streamBodies).toHaveLength(0);
+});
+
+test("talk mode chats with the partner without consuming a turn", async ({
+  page,
+}) => {
+  await enableAdventure(page);
+  const state = await mockRomanceApis(page);
+  const talkBodies: Record<string, unknown>[] = [];
+  await page.route("**/api/adventure/runs/run-1/talk/stream", async (route) => {
+    talkBodies.push(route.request().postDataJSON() as Record<string, unknown>);
+    const done = {
+      user_entry: { id: "u1", role: "user", text: "やあ", after_turn: 0 },
+      partner_entry: {
+        id: "p1",
+        role: "partner",
+        text: "やっほー、来てくれたんだ",
+        after_turn: 0,
+      },
+      turn_count: 0,
+    };
+    await route.fulfill({
+      contentType: "text/event-stream",
+      body: `event: status\ndata: {"phase":"talk"}\n\nevent: talk_chunk\ndata: {"chunk":"やっほー、"}\n\nevent: talk_chunk\ndata: {"chunk":"来てくれたんだ"}\n\nevent: talk_done\ndata: ${JSON.stringify(done)}\n\nevent: complete\ndata: {"status":"active"}\n\n`,
+    });
+  });
+  await page.goto("/adventure/run-1");
+
+  // 既定は行動モード。選択肢とバイトが出ている
+  await expect(page.getByRole("button", { name: "バイト" })).toBeVisible();
+  await page.getByRole("button", { name: "トーク" }).click();
+  await expect(page.getByRole("button", { name: "バイト" })).toHaveCount(0);
+  await expect(page.locator(".adventure-choices")).toHaveCount(0);
+  await expect(page.getByText(/美咲に話しかけてみましょう/)).toBeVisible();
+
+  const field = page.getByLabel("美咲に話しかける");
+  await field.fill("やあ");
+  await page.getByRole("button", { name: "送信" }).click();
+
+  const thread = page.locator(".adventure-talk-thread");
+  await expect(
+    thread.locator(".adventure-talk-thread__entry--partner"),
+  ).toContainText("やっほー、来てくれたんだ");
+  await expect(
+    thread.locator(".adventure-talk-thread__entry--user"),
+  ).toContainText("やあ");
+  expect(talkBodies).toEqual([{ user_input: "やあ" }]);
+  // 手番は消費されず、Day 表示も変わらない
+  expect(state.streamBodies).toHaveLength(0);
+  await expect(page.locator(".adventure-hud__day")).toContainText("1");
+
+  // 行動へ戻すと選択肢が復帰する
+  await page.getByRole("button", { name: "行動", exact: true }).click();
+  await expect(page.getByRole("button", { name: "バイト" })).toBeVisible();
+});
+
+test("sound popover shows the voice toggle disabled while TTS is off", async ({
+  page,
+}) => {
+  await enableAdventure(page);
+  await mockTtsDisabled(page);
+  await mockRomanceApis(page);
+  await page.goto("/adventure/run-1");
+
+  await page.getByRole("button", { name: "サウンド設定" }).click();
+  // トグルスイッチの input は視覚的に隠れるため、文言の表示と disabled で確認する
+  await expect(page.getByText("攻略対象のセリフを読み上げる")).toBeVisible();
+  const voiceToggle = page.getByRole("checkbox", {
+    name: /^攻略対象のセリフを読み上げる/,
+  });
+  await expect(voiceToggle).toBeDisabled();
+  await expect(
+    page.getByText(/設定 > 音声合成 で読み上げを有効にし/),
+  ).toBeVisible();
+  // BGM の設定は従来どおり同じポップオーバーに残る
+  await expect(page.getByText("BGMを再生")).toBeVisible();
+});
+
+test("companion mode replaces the day select with a turn budget in setup", async ({
+  page,
+}) => {
+  await enableAdventure(page);
+  const state = await mockRomanceApis(page);
+  const setupBodies: Record<string, unknown>[] = [];
+  await page.route("**/api/adventure/setup/generate", async (route) => {
+    setupBodies.push(route.request().postDataJSON() as Record<string, unknown>);
+    await route.fulfill({
+      json: {
+        setting: "大学の学生食堂",
+        objective: "20ターン以内にリンと親しくなり、交際を始める",
+        constraints: ["リンは昼休みしか会えない"],
+      },
+    });
+  });
+  await page.goto("/adventure");
+  await page.getByRole("button", { name: /^恋愛シミュレーション/ }).click();
+
+  // 既定は日数セレクト。対面会話モードを ON にするとターン数セレクトに変わる
+  await expect(page.getByRole("combobox", { name: /^日数/ })).toBeVisible();
+  await page
+    .locator(".adventure-setup-generator .adventure-companion-toggle")
+    .click();
+  await expect(page.getByRole("combobox", { name: /^日数/ })).toHaveCount(0);
+  const turnSelect = page.getByRole("combobox", { name: /^ターン数/ });
+  await expect(turnSelect).toHaveValue("20");
+  await turnSelect.selectOption("30");
+
+  await page.getByRole("button", { name: "ミッション案を自動生成" }).click();
+  await expect(page.getByLabel("ゴール")).toHaveValue(
+    "20ターン以内にリンと親しくなり、交際を始める",
+  );
+  expect(setupBodies[0]).toMatchObject({
+    scenario_max_turns: 30,
+    companion_mode: true,
+  });
+
+  await page.getByRole("button", { name: "シナリオを開始" }).click();
+  await expect(page).toHaveURL(/\/adventure\/run-1$/);
+  expect(state.createBodies[0]).toMatchObject({
+    scenario_max_turns: 30,
+    companion_mode: true,
+  });
+});
+
+test("companion mode swaps the partner sprite for the 3D avatar and falls back when it cannot load", async ({
+  page,
+}) => {
+  await enableAdventure(page);
+  await mockRomanceApis(page);
+  const avatarList = [
+    {
+      id: "av1",
+      name: "Alicia Solid",
+      file_size: 1024,
+      vrm_spec_version: "0",
+      meta: {
+        title: "Alicia Solid",
+        author: "DWANGO",
+        license: "Other",
+        license_url: null,
+        allowed_user: "Everyone",
+        commercial: "Allow",
+      },
+      file_url: "/avatars/av1/file",
+      created_at: "2026-08-28T10:00:00",
+    },
+  ];
+  await page.route("**/api/avatars", async (route) => {
+    await route.fulfill({ json: { items: avatarList } });
+  });
+  // ファイル配信は待たせたままにして、読込中のステージを観察する
+  let releaseFile: (() => void) | null = null;
+  const fileBlocked = new Promise<void>((resolve) => {
+    releaseFile = resolve;
+  });
+  await page.route("**/api/avatars/av1/file", async (route) => {
+    await fileBlocked;
+    await route.fulfill({
+      status: 404,
+      json: { detail: { code: "file_missing", message: "missing" } },
+    });
+  });
+  const companionRun = romanceRunPayload(0, {
+    companion_mode: true,
+    companion_avatar_id: "av1",
+    companion_avatar_url: "/avatars/av1/file",
+  });
+  await page.route("**/api/adventure/runs/run-1", async (route) => {
+    await route.fulfill({ json: companionRun });
+  });
+  await page.goto("/adventure/run-1");
+
+  // 3D モデル表示中: canvas を持つステージが出て、攻略対象の立ち絵は描かない
+  const stage = page.locator(".adventure-stage__frame .adventure-avatar-stage");
+  await expect(stage).toBeVisible();
+  await expect(stage.locator("canvas")).toHaveCount(1);
+  await expect(stage.locator(".adventure-avatar-stage__loading")).toBeVisible();
+  await expect(page.getByAltText("攻略対象の立ち絵")).toHaveCount(0);
+
+  // ⚙ には登録済みモデルの選択肢が並び、現在のモデルが選ばれている
+  await page.getByRole("button", { name: "画像生成設定" }).click();
+  const select = page.locator(
+    ".adventure-image-settings-popover .adventure-setup-avatar select",
+  );
+  await expect(select).toHaveValue("av1");
+  await expect(select.locator("option")).toHaveText([
+    "なし（立ち絵を表示）",
+    "Alicia Solid",
+  ]);
+
+  // 読込に失敗したら立ち絵へ戻し、通知で理由を出す
+  releaseFile?.();
+  await expect(page.getByAltText("攻略対象の立ち絵")).toBeVisible({
+    timeout: 15000,
+  });
+  await expect(stage).toHaveCount(0);
+  await expect(page.getByText("3Dモデルを表示できません")).toBeVisible();
+});
+
+// 無音の WAV(ヘッダのみ)。読み上げのモック応答に使う
+function silentWav(): Buffer {
+  const header = Buffer.alloc(44);
+  header.write("RIFF", 0);
+  header.writeUInt32LE(36, 4);
+  header.write("WAVE", 8);
+  header.write("fmt ", 12);
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
+  header.writeUInt16LE(1, 22);
+  header.writeUInt32LE(8000, 24);
+  header.writeUInt32LE(16000, 28);
+  header.writeUInt16LE(2, 32);
+  header.writeUInt16LE(16, 34);
+  header.write("data", 36);
+  header.writeUInt32LE(0, 40);
+  return header;
+}
+
+test("companion avatar keeps the stage uncovered and reads the line at narrative_done", async ({
+  page,
+}) => {
+  await enableAdventure(page);
+  await page.addInitScript(() => {
+    window.localStorage.setItem(
+      "adventure_voice_prefs",
+      JSON.stringify({ enabled: true, volume: 0.5, speed: 1 }),
+    );
+  });
+  // 設定画面の TTS を有効・話者ありに固定する(実DBに依存しない)
+  await page.route("**/api/settings/user", async (route) => {
+    if (route.request().method() !== "GET") {
+      await route.continue();
+      return;
+    }
+    const response = await route.fetch();
+    const json = await response.json();
+    json.tts_enabled = true;
+    json.tts_speaker_id = "spk-1";
+    json.tts_style_id = null;
+    await route.fulfill({ response, json });
+  });
+  const synthesizeBodies: Array<Record<string, unknown>> = [];
+  await page.route("**/api/aivisspeech/status", async (route) => {
+    await route.fulfill({
+      json: { process: "running", engine_http: "ok", platform: "linux" },
+    });
+  });
+  await page.route("**/api/aivisspeech/synthesize", async (route) => {
+    synthesizeBodies.push(
+      route.request().postDataJSON() as Record<string, unknown>,
+    );
+    await route.fulfill({ contentType: "audio/wav", body: silentWav() });
+  });
+  await mockRomanceApis(page);
+  await page.route("**/api/avatars", async (route) => {
+    await route.fulfill({
+      json: {
+        items: [
+          {
+            id: "av1",
+            name: "Alicia Solid",
+            file_size: 1024,
+            vrm_spec_version: "0",
+            meta: {
+              title: "Alicia Solid",
+              author: "DWANGO",
+              license: "Other",
+              license_url: null,
+              allowed_user: "Everyone",
+              commercial: "Allow",
+            },
+            file_url: "/avatars/av1/file",
+            created_at: "2026-08-28T10:00:00",
+          },
+        ],
+      },
+    });
+  });
+  // モデルの読込を保留したままにして、3D ステージ表示中(読込中)の状態を保つ
+  let releaseFile: (() => void) | null = null;
+  const fileBlocked = new Promise<void>((resolve) => {
+    releaseFile = resolve;
+  });
+  await page.route("**/api/avatars/av1/file", async (route) => {
+    await fileBlocked;
+    await route.fulfill({
+      status: 404,
+      json: { detail: { code: "file_missing", message: "missing" } },
+    });
+  });
+  const companionOverrides = {
+    companion_mode: true,
+    companion_avatar_id: "av1",
+    companion_avatar_url: "/avatars/av1/file",
+  };
+  const companionRun = romanceRunPayload(0, companionOverrides);
+  const narrative =
+    "美咲は少し驚いた顔をした。\n美咲「こんにちは、ユウヤさん」";
+  const turn = {
+    id: "turn-1",
+    turn_number: 1,
+    client_turn_id: "client-1",
+    user_input: "美咲に話しかける",
+    input_kind: "choice",
+    narrative,
+    location: "商店街の書店",
+    choices: companionRun.choices,
+    image_url: null,
+    image_status: "not_requested",
+    portrait_image_url: null,
+    portrait_status: "not_requested",
+    created_at: "2026-08-01T00:10:00",
+    run_status: "active",
+    remaining_turns: 13,
+    clues: [],
+    completed_milestones: [],
+    sim: simPayload({ affection: 13 }),
+    partner_expression: "happy",
+    partner_gesture: "wave",
+  };
+  let turnDone = false;
+  await page.route("**/api/adventure/runs/run-1", async (route) => {
+    await route.fulfill({
+      json: turnDone
+        ? romanceRunPayload(1, { ...companionOverrides, turns: [turn] })
+        : companionRun,
+    });
+  });
+
+  // route.fulfill は応答を一括で返すため narrative_done と turn の間を観察できない。
+  // 実際に流れる SSE サーバへ転送し、本文確定の前後と turn の直前で止める
+  let releaseNarrative: (() => void) | null = null;
+  let releaseTurn: (() => void) | null = null;
+  const narrativeGate = new Promise<void>((resolve) => {
+    releaseNarrative = resolve;
+  });
+  const turnGate = new Promise<void>((resolve) => {
+    releaseTurn = resolve;
+  });
+  const server = createServer((req, res) => {
+    let raw = "";
+    req.on("data", (chunk: Buffer | string) => {
+      raw += chunk.toString();
+    });
+    req.on("end", () => {
+      void (async () => {
+        const body = JSON.parse(raw || "{}") as Record<string, unknown>;
+        res.writeHead(200, {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+        });
+        res.write('event: status\ndata: {"phase":"narrative"}\n\n');
+        res.write(
+          `event: narrative_chunk\ndata: ${JSON.stringify({
+            chunk: "美咲は少し驚いた顔をした。\n",
+          })}\n\n`,
+        );
+        await narrativeGate;
+        res.write(
+          `event: narrative_chunk\ndata: ${JSON.stringify({
+            chunk: "美咲「こんにちは、ユウヤさん」",
+          })}\n\n`,
+        );
+        res.write(
+          `event: narrative_done\ndata: ${JSON.stringify({ narrative })}\n\n`,
+        );
+        res.write('event: status\ndata: {"phase":"clue_check"}\n\n');
+        await turnGate;
+        turnDone = true;
+        res.write(
+          `event: turn\ndata: ${JSON.stringify({
+            ...turn,
+            client_turn_id: String(body.client_turn_id ?? "client-1"),
+          })}\n\n`,
+        );
+        res.write('event: complete\ndata: {"status":"active"}\n\n');
+        res.end();
+      })();
+    });
+  });
+  await new Promise<void>((resolve) => {
+    server.listen(0, "127.0.0.1", () => resolve());
+  });
+  const { port } = server.address() as AddressInfo;
+  await page.route(
+    "**/api/adventure/runs/run-1/turns/stream",
+    async (route) => {
+      await route.continue({ url: `http://127.0.0.1:${port}/turns/stream` });
+    },
+  );
+
+  try {
+    await page.goto("/adventure/run-1");
+    await expect(
+      page.locator(".adventure-stage__frame .adventure-avatar-stage"),
+    ).toBeVisible();
+    await page.getByRole("button", { name: /美咲に話しかける/ }).click();
+
+    // 本文ストリーム中: ステージは覆われず、本文のカーソルだけが出る
+    await expect(page.getByText("美咲は少し驚いた顔をした。")).toBeVisible();
+    await expect(page.locator(".adventure-transcript__caret")).toBeVisible();
+    await expect(page.locator(".adventure-stage__loading")).toHaveCount(0);
+    await expect(
+      page.locator(".adventure-controls .adventure-progress"),
+    ).toHaveCount(0);
+    expect(synthesizeBodies).toHaveLength(0);
+
+    // 本文確定: turn を待たずに読み上げが始まり、判定の進捗は行動パネルに出る
+    releaseNarrative?.();
+    await expect.poll(() => synthesizeBodies.length).toBe(1);
+    expect(synthesizeBodies[0]).toMatchObject({
+      text: "こんにちは、ユウヤさん。",
+    });
+    await expect(
+      page.locator(".adventure-controls .adventure-progress"),
+    ).toContainText("行動の結果を判定中");
+    await expect(page.locator(".adventure-stage__loading")).toHaveCount(0);
+    await expect(page.locator(".adventure-transcript__caret")).toHaveCount(0);
+    await expect(page.locator(".adventure-choices")).toHaveCount(0);
+
+    // turn 到着: 選択肢が出て、同じセリフを読み直さない
+    releaseTurn?.();
+    await expect(page.locator(".adventure-choices")).toBeVisible();
+    await expect(
+      page.locator(".adventure-controls .adventure-progress"),
+    ).toHaveCount(0);
+    await expect(page.locator(".adventure-stage__loading")).toHaveCount(0);
+    await page.waitForTimeout(500);
+    expect(synthesizeBodies).toHaveLength(1);
+  } finally {
+    releaseFile?.();
+    await new Promise<void>((resolve) => {
+      server.close(() => resolve());
+    });
+  }
+});
+
+test("a turn in which the partner changes clothes switches the 3D model to the sibling variant", async ({
+  page,
+}) => {
+  await enableAdventure(page);
+  const companionOverrides = {
+    companion_mode: true,
+    companion_avatar_id: "av1",
+    companion_avatar_url: "/avatars/av1/file",
+  };
+  const companionRun = romanceRunPayload(0, companionOverrides);
+  await mockRomanceApis(page, companionRun);
+  // 同じキャラクター「サクラ」の衣装差分 2 件
+  const variant = (id: string, label: string) => ({
+    id,
+    name: "サクラ",
+    character_name: "サクラ",
+    variant_label: label,
+    file_size: 1024,
+    vrm_spec_version: "0",
+    meta: {
+      title: "サクラ",
+      author: "someone",
+      license: null,
+      license_url: null,
+      allowed_user: null,
+      commercial: null,
+    },
+    file_url: `/avatars/${id}/file`,
+    created_at: "2026-08-28T10:00:00",
+  });
+  await page.route("**/api/avatars", async (route) => {
+    await route.fulfill({
+      json: {
+        items: [
+          variant("av1", "水着 髪束ねたVer"),
+          variant("av2", "ドレス ロングヘアVer"),
+        ],
+      },
+    });
+  });
+  // モデルの読込は保留し、どのファイルが要求されたかだけを記録する
+  const fileRequests: string[] = [];
+  let releaseFiles: (() => void) | null = null;
+  const filesBlocked = new Promise<void>((resolve) => {
+    releaseFiles = resolve;
+  });
+  await page.route("**/api/avatars/*/file", async (route) => {
+    fileRequests.push(new URL(route.request().url()).pathname);
+    await filesBlocked;
+    await route.fulfill({
+      status: 404,
+      json: { detail: { code: "file_missing", message: "missing" } },
+    });
+  });
+  const narrative = "美咲は奥で着替えて戻ってきた。\n美咲「どう？似合う？」";
+  const turn = {
+    id: "turn-1",
+    turn_number: 1,
+    client_turn_id: "client-1",
+    user_input: "美咲に話しかける",
+    input_kind: "choice",
+    narrative,
+    location: "商店街の書店",
+    choices: companionRun.choices,
+    image_url: null,
+    image_status: "not_requested",
+    portrait_image_url: null,
+    portrait_status: "not_requested",
+    created_at: "2026-08-01T00:10:00",
+    run_status: "active",
+    remaining_turns: 13,
+    clues: [],
+    completed_milestones: [],
+    sim: simPayload({ affection: 13 }),
+    partner_expression: "happy",
+    partner_gesture: "bounce",
+    // 判定が「ドレス」を選んだ手番: この時点のモデルが turn に載る
+    companion_avatar_id: "av2",
+    companion_avatar_url: "/avatars/av2/file",
+  };
+  let turnDone = false;
+  const switchedOverrides = {
+    ...companionOverrides,
+    companion_avatar_id: "av2",
+    companion_avatar_url: "/avatars/av2/file",
+  };
+  await page.route("**/api/adventure/runs/run-1", async (route) => {
+    await route.fulfill({
+      json: turnDone
+        ? romanceRunPayload(1, { ...switchedOverrides, turns: [turn] })
+        : companionRun,
+    });
+  });
+  await page.route(
+    "**/api/adventure/runs/run-1/turns/stream",
+    async (route) => {
+      const body = route.request().postDataJSON() as Record<string, unknown>;
+      turnDone = true;
+      const payload = {
+        ...turn,
+        client_turn_id: String(body.client_turn_id ?? "client-1"),
+      };
+      await route.fulfill({
+        contentType: "text/event-stream",
+        body: `event: status\ndata: {"phase":"narrative"}\n\nevent: narrative_done\ndata: ${JSON.stringify(
+          { narrative },
+        )}\n\nevent: turn\ndata: ${JSON.stringify(payload)}\n\nevent: complete\ndata: {"status":"active"}\n\n`,
+      });
+    },
+  );
+
+  try {
+    await page.goto("/adventure/run-1");
+    const stage = page.locator(
+      ".adventure-stage__frame .adventure-avatar-stage",
+    );
+    await expect(stage).toBeVisible();
+    await expect.poll(() => fileRequests).toEqual(["/api/avatars/av1/file"]);
+
+    // ⚙ の選択肢はキャラクターごとの optgroup に差分ラベルで並び、差分の説明が出る
+    await page.getByRole("button", { name: "画像生成設定" }).click();
+    const popover = page.locator(".adventure-image-settings-popover");
+    const select = popover.locator(".adventure-setup-avatar select");
+    await expect(select).toHaveValue("av1");
+    await expect(select.locator("optgroup")).toHaveAttribute("label", "サクラ");
+    await expect(select.locator("option")).toHaveCount(3);
+    await expect(select.locator("optgroup option")).toContainText([
+      /Ver$/,
+      /Ver$/,
+    ]);
+    await expect(select).toContainText("水着 髪束ねたVer");
+    await expect(select).toContainText("ドレス ロングヘアVer");
+    await expect(popover).toContainText("「サクラ」には衣装差分が2種あります");
+    await page.getByRole("button", { name: "画像生成設定" }).click();
+
+    // 着替えた手番が届くと、run の再取得を待たずにモデルが差し替わる
+    await page.getByRole("button", { name: /美咲に話しかける/ }).click();
+    await expect(page.getByText("どう？似合う？")).toBeVisible();
+    await expect
+      .poll(() => fileRequests.includes("/api/avatars/av2/file"))
+      .toBe(true);
+    await expect(stage).toBeVisible();
+    await page.getByRole("button", { name: "画像生成設定" }).click();
+    await expect(
+      page.locator(
+        ".adventure-image-settings-popover .adventure-setup-avatar select",
+      ),
+    ).toHaveValue("av2");
+  } finally {
+    releaseFiles?.();
+  }
 });
