@@ -150,7 +150,7 @@ tavily-remote MCP を利用してライブラリ選定を行う際は、以下�
 
 - ✅ `useGame()` で sessionId, currentImage, stats, history, attributes 等を取得
 - ✅ `useChat()` で messages, inputText, instructionType 等を取得
-- ✅ `useSettings()` で imageProvider, changeSettings, nsfw 等を取得
+- ✅ `useSettings()` で imageProvider, inpaintSettings, nsfw 等を取得
 - ✅ API 呼び出しと状態更新は Context 内のアクション関数で完結させる
 
 #### リファクタリング観点

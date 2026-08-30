@@ -1229,82 +1229,29 @@ def enhance_prompt_for_novelai(prompt: str) -> str:
 IMAGE_EDIT_USER_PROMPT_TEMPLATE = """ユーザーの指示: {instruction}
 
 現在の画像の人物の服装: {current_description}
-{preservation_section}
+
 上記の指示に基づいて、Qwen Image Edit用の英語プロンプトを生成してください。
 必ず「現在の服装」から「指示された衣装」への変更として記述してください。
-{scope_note}
+
 プロンプトのみを出力:"""
-
-# 保持要素の英訳マッピング
-PRESERVE_ELEMENT_ENGLISH = {
-    "background": "the background",
-    "hairstyle": "the hairstyle and hair color",
-    "pose": "the pose and body posture",
-    "expression": "the facial expression",
-    "accessories": "the accessories (jewelry, hair accessories, etc.)",
-}
-
-# 変更対象の英訳マッピング
-CHANGE_SCOPE_ENGLISH = {
-    "full": None,  # 全身の場合は特別な指示なし
-    "upper": "Only change the upper body clothing (top, shirt, jacket, etc.). Keep the lower body clothing unchanged.",
-    "lower": "Only change the lower body clothing (pants, skirt, shorts, etc.). Keep the upper body clothing unchanged.",
-    "accessories": "Only change or add accessories. Keep all clothing items unchanged.",
-    "shoes": "Only change the shoes or footwear. Keep all other clothing items unchanged.",
-}
 
 
 def build_image_edit_prompt(
     instruction: str,
     current_description: str = "",
-    preserve_elements: list[str] | None = None,
-    change_scope: str = "full",
-    custom_preserve_text: str = "",
 ) -> str:
     """画像編集プロンプト生成用のユーザープロンプトを構築
 
     Args:
         instruction: ユーザーの着せ替え指示（日本語）
         current_description: 現在の画像の説明（オプション）
-        preserve_elements: 保持する要素のリスト（オプション）
-        change_scope: 変更対象 (full, upper, lower, accessories, shoes)
-        custom_preserve_text: カスタム保持指示（自由記述、日本語）
 
     Returns:
         構築されたプロンプト
     """
-    # 保持セクションを構築
-    preservation_lines = []
-
-    if preserve_elements:
-        english_elements = []
-        for elem in preserve_elements:
-            if elem in PRESERVE_ELEMENT_ENGLISH:
-                english_elements.append(PRESERVE_ELEMENT_ENGLISH[elem])
-        if english_elements:
-            preservation_lines.append(
-                f"保持する要素: {', '.join(english_elements)} (Keep these unchanged)"
-            )
-
-    if custom_preserve_text:
-        preservation_lines.append(f"追加の保持指示: {custom_preserve_text}")
-
-    preservation_section = ""
-    if preservation_lines:
-        preservation_section = "\n" + "\n".join(preservation_lines) + "\n"
-
-    # 変更対象の注記を構築
-    scope_note = ""
-    if change_scope != "full" and change_scope in CHANGE_SCOPE_ENGLISH:
-        scope_instruction = CHANGE_SCOPE_ENGLISH[change_scope]
-        if scope_instruction:
-            scope_note = f"\n**重要な制限: {scope_instruction}**\n"
-
     return IMAGE_EDIT_USER_PROMPT_TEMPLATE.format(
         instruction=instruction,
         current_description=current_description or "不明",
-        preservation_section=preservation_section,
-        scope_note=scope_note,
     )
 
 

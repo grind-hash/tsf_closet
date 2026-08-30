@@ -359,32 +359,6 @@
   color: var(--accent-color, #e94560);
 }
 
-/* 保持要素チェックボックス */
-.right-panel__preserve-checkboxes {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  margin-bottom: 1rem;
-}
-
-.right-panel__checkbox {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  cursor: pointer;
-}
-
-.right-panel__checkbox input {
-  width: 18px;
-  height: 18px;
-  accent-color: var(--accent-color, #e94560);
-}
-
-.right-panel__checkbox span {
-  font-size: 0.875rem;
-  color: var(--text-color, #eee);
-}
-
 /* フォームグループ */
 .right-panel__form-group {
   margin-bottom: 0.75rem;
@@ -488,13 +462,6 @@
   margin-top: 0.25rem;
   font-size: 0.7rem;
   color: var(--text-muted, #666);
-}
-
-/* 削除予定機能の注意文 */
-.right-panel__hint--deprecated {
-  margin-top: 0;
-  margin-bottom: 0.5rem;
-  color: var(--text-warning, #e0a050);
 }
 
 /* ボタン */

@@ -335,9 +335,6 @@ class LiteLLMClient:
         self,
         instruction: str,
         current_description: str = "",
-        preserve_elements: list[str] | None = None,
-        change_scope: str = "full",
-        custom_preserve_text: str = "",
         *,
         provider: str = "selfhost",
         extra_system_suffix: str = "",
@@ -352,9 +349,6 @@ class LiteLLMClient:
         Args:
             instruction: ユーザーの着せ替え指示（日本語）
             current_description: 現在の画像の説明（オプション）
-            preserve_elements: 保持する要素のリスト
-            change_scope: 変更対象 (full, upper, lower, accessories, shoes)
-            custom_preserve_text: カスタム保持指示（自由記述）
             extra_system_suffix: システムプロンプト末尾に付与する追加指示（メモリ優先指示等）
 
         Returns:
@@ -371,9 +365,6 @@ class LiteLLMClient:
         user_prompt = build_image_edit_prompt(
             instruction=instruction,
             current_description=current_description,
-            preserve_elements=preserve_elements,
-            change_scope=change_scope,
-            custom_preserve_text=custom_preserve_text,
         )
 
         system_prompt = get_image_edit_system_prompt(

@@ -25,17 +25,12 @@ import {
 import i18n from "../i18n";
 import type {
   AnlasBalance,
-  ChangeSettings,
   InpaintMaskState,
   InpaintSettings,
   InstructionType,
   PreciseReference,
 } from "../types";
-import {
-  DEFAULT_CHANGE_SETTINGS,
-  DEFAULT_INPAINT_MASK_STATE,
-  DEFAULT_INPAINT_SETTINGS,
-} from "../types";
+import { DEFAULT_INPAINT_MASK_STATE, DEFAULT_INPAINT_SETTINGS } from "../types";
 import {
   DEFAULT_HISTORY_LOOKBACK_TARGETS,
   type HistoryLookbackTarget,
@@ -87,9 +82,6 @@ interface SettingsState {
   inpaintSettings: InpaintSettings;
   inpaintEnabled: boolean; // 007: インペイントトグル
   inpaintMask: InpaintMaskState;
-
-  // 変更設定
-  changeSettings: ChangeSettings;
 
   // 通知設定
   showAchievementNotifications: boolean;
@@ -199,7 +191,6 @@ type SettingsAction =
   | { type: "SET_INPAINT_MASK"; payload: InpaintMaskState }
   | { type: "CLEAR_INPAINT_MASK" }
   | { type: "TOGGLE_INPAINT" }
-  | { type: "SET_CHANGE_SETTINGS"; payload: Partial<ChangeSettings> }
   | { type: "SET_SHOW_ACHIEVEMENT_NOTIFICATIONS"; payload: boolean }
   | { type: "SET_SHOW_REALITY_ATTRIBUTE_NOTIFICATION"; payload: boolean }
   | { type: "SET_EXPERIMENTAL_ENDING_ENABLED"; payload: boolean }
@@ -268,7 +259,6 @@ const defaultState: SettingsState = {
   inpaintSettings: DEFAULT_INPAINT_SETTINGS,
   inpaintEnabled: false,
   inpaintMask: DEFAULT_INPAINT_MASK_STATE,
-  changeSettings: DEFAULT_CHANGE_SETTINGS,
   showAchievementNotifications: true,
   showRealityAttributeNotification: true,
   experimentalEndingEnabled: false,
@@ -372,11 +362,6 @@ function settingsReducer(
         ...state,
         inpaintEnabled: true,
         inpaintSettings: { ...state.inpaintSettings, enabled: true },
-      };
-    case "SET_CHANGE_SETTINGS":
-      return {
-        ...state,
-        changeSettings: { ...state.changeSettings, ...action.payload },
       };
     case "SET_SHOW_ACHIEVEMENT_NOTIFICATIONS":
       return { ...state, showAchievementNotifications: action.payload };
@@ -519,7 +504,6 @@ interface SettingsContextType {
   ) => void;
   clearInpaintMask: () => void;
   toggleInpaint: () => void;
-  setChangeSettings: (settings: Partial<ChangeSettings>) => void;
   setShowAchievementNotifications: (show: boolean) => void;
   setShowRealityAttributeNotification: (show: boolean) => void;
   setExperimentalEndingEnabled: (enabled: boolean) => void;
@@ -592,6 +576,8 @@ const STORAGE_KEY = "app_settings";
 // to avoid race condition where the save effect overwrites before dispatch is processed
 function loadInitialState(initial: SettingsState): SettingsState {
   try {
+    // v0.8.0 で削除した「保持する要素」プリセットの残骸を破棄する
+    localStorage.removeItem("preserve_presets");
     const saved = localStorage.getItem(STORAGE_KEY);
     const legacyTotalCost = localStorage.getItem("api_total_cost");
     if (saved) {
@@ -599,11 +585,13 @@ function loadInitialState(initial: SettingsState): SettingsState {
       // imageProviderはバックエンドから取得するため除外
       const { imageProvider: _ignored, ...rest } = parsed;
       // novelaiTextModelとnovelaiTierはバックエンド/API経由のため除外
+      // v0.8.0 で削除した「保持する要素」設定は読み込まない
       const {
         novelaiTextModel: _nai,
         novelaiTier: _tier,
         novelaiImageModel: _naiImg,
         novelaiCuratedImageModel: _naiCuratedImg,
+        changeSettings: _legacyChangeSettings,
         ...filtered
       } = rest;
       return {
@@ -1010,10 +998,6 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "CLEAR_INPAINT_MASK" });
   }, []);
 
-  const setChangeSettings = useCallback((settings: Partial<ChangeSettings>) => {
-    dispatch({ type: "SET_CHANGE_SETTINGS", payload: settings });
-  }, []);
-
   const setShowAchievementNotifications = useCallback((show: boolean) => {
     dispatch({ type: "SET_SHOW_ACHIEVEMENT_NOTIFICATIONS", payload: show });
   }, []);
@@ -1368,7 +1352,6 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setInpaintMask,
     clearInpaintMask,
     toggleInpaint,
-    setChangeSettings,
     setShowAchievementNotifications,
     setShowRealityAttributeNotification,
     setExperimentalEndingEnabled,

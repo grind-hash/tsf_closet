@@ -41,7 +41,6 @@ import {
 } from "../hooks/usePreciseReferenceFiles";
 import { useWindowFileDrop } from "../hooks/useWindowFileDrop";
 import type {
-  ChangeSettings,
   ChatMessage,
   ConversationMessage,
   InstructionType,
@@ -83,7 +82,6 @@ interface GamePlayScreenProps {
   onTransform: (
     instruction: string,
     costumeImage?: string,
-    changeSettings?: ChangeSettings,
     transformationType?: string,
     options?: {
       maskImage?: string;
@@ -159,7 +157,6 @@ export default function GamePlayScreen({
   const feelingText = gameState.feelingText;
   const isTransforming = gameState.isTransforming;
   const chatHistory = gameState.conversationHistory;
-  const changeSettings = settingsState.changeSettings;
   const totalCost = settingsState.totalCost;
   const showCost = settingsState.showCost;
   const imageProvider = settingsState.imageProvider;
@@ -232,7 +229,6 @@ export default function GamePlayScreen({
   // Anlas cost confirmation dialog for precise references
   const [anlasConfirmPending, setAnlasConfirmPending] = useState<{
     message: string;
-    changeSettings: ChangeSettings;
     transformationType: string;
     transformOptions: Record<string, unknown> | undefined;
     anlasCost: number;
@@ -244,7 +240,6 @@ export default function GamePlayScreen({
   // V5 利用上限の使い切り警告ダイアログ（Anlas 消費で生成が続く状態）
   const [usageWarnPending, setUsageWarnPending] = useState<{
     message: string;
-    changeSettings: ChangeSettings;
     transformationType: string;
     transformOptions: Record<string, unknown> | undefined;
     instructionType?: string;
@@ -951,7 +946,6 @@ export default function GamePlayScreen({
           setUsageWarnDoNotShowAgain(false);
           setUsageWarnPending({
             message,
-            changeSettings,
             transformationType,
             transformOptions: transformOptions as
               | Record<string, unknown>
@@ -975,7 +969,6 @@ export default function GamePlayScreen({
             onTransform(
               message,
               undefined,
-              changeSettings,
               transformationType,
               transformOptions,
               backendInstructionType,
@@ -987,7 +980,6 @@ export default function GamePlayScreen({
           setAnlasDoNotShowAgain(false);
           setAnlasConfirmPending({
             message,
-            changeSettings,
             transformationType,
             transformOptions: transformOptions as
               | Record<string, unknown>
@@ -1002,7 +994,6 @@ export default function GamePlayScreen({
         onTransform(
           message,
           undefined,
-          changeSettings,
           transformationType,
           transformOptions,
           backendInstructionType,
@@ -1019,7 +1010,6 @@ export default function GamePlayScreen({
       updateMessage,
       setMessageStreaming,
       onTransform,
-      changeSettings,
       chatHistory,
       setConversationHistory,
       imageProvider,
@@ -1188,7 +1178,6 @@ export default function GamePlayScreen({
       onTransform(
         message,
         undefined,
-        changeSettings,
         transformationType,
         transformOptions,
         backendInstructionType,
@@ -1208,7 +1197,6 @@ export default function GamePlayScreen({
       addMessage,
       upsertPendingIdentity,
       onTransform,
-      changeSettings,
       imageProvider,
       inpaintSettings,
       settingsState.inpaintEnabled,
@@ -1223,7 +1211,6 @@ export default function GamePlayScreen({
     if (!anlasConfirmPending) return;
     const {
       message,
-      changeSettings: cs,
       transformationType,
       transformOptions,
       instructionType: pendingInstructionType,
@@ -1237,7 +1224,6 @@ export default function GamePlayScreen({
     onTransform(
       message,
       undefined,
-      cs,
       transformationType,
       transformOptions,
       pendingInstructionType,
@@ -1256,7 +1242,6 @@ export default function GamePlayScreen({
     if (!usageWarnPending) return;
     const {
       message,
-      changeSettings: cs,
       transformationType,
       transformOptions,
       instructionType: pendingInstructionType,
@@ -1270,7 +1255,6 @@ export default function GamePlayScreen({
     onTransform(
       message,
       undefined,
-      cs,
       transformationType,
       transformOptions,
       pendingInstructionType,

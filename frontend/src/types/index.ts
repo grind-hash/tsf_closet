@@ -286,43 +286,6 @@ export const DEFAULT_INPAINT_MASK_STATE: InpaintMaskState = {
   selectedMaskId: null,
 };
 
-// ========================================
-// Change Scope Control Types
-// ========================================
-
-// Preserve element options
-export type PreserveElement =
-  | "background"
-  | "hairstyle"
-  | "pose"
-  | "expression"
-  | "accessories";
-
-// Change scope options
-export type ChangeScope = "full" | "upper" | "lower" | "accessories" | "shoes";
-
-// Change settings for a session
-export interface ChangeSettings {
-  preserveElements: PreserveElement[];
-  changeScope: ChangeScope;
-  customPreserveText: string;
-}
-
-// Global preset for change settings
-export interface GlobalPreset {
-  id: string;
-  name: string;
-  settings: ChangeSettings;
-  createdAt: string;
-}
-
-// Default change settings
-export const DEFAULT_CHANGE_SETTINGS: ChangeSettings = {
-  preserveElements: [],
-  changeScope: "full",
-  customPreserveText: "",
-};
-
 // =============================================================================
 // 007-chat-interactive-ux: 新規型定義
 // =============================================================================

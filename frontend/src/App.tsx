@@ -23,7 +23,7 @@ import { useSettings } from "./contexts/SettingsContext";
 import { useGameSSE } from "./hooks/useGameSSE";
 import { getGameSessionPath } from "./routes";
 // MainLayout は各画面コンポーネント内で使用
-import type { ChangeSettings, NovelAISubscriptionResponse } from "./types";
+import type { NovelAISubscriptionResponse } from "./types";
 import { DEFAULT_INPAINT_SETTINGS } from "./types";
 import { API_BASE } from "./utils/api";
 import { isHistoryLookbackEnabled } from "./utils/historyLookback";
@@ -344,7 +344,6 @@ function AppMain() {
     (
       instruction: string,
       costumeImage?: string,
-      settings?: ChangeSettings,
       transformationType: string = "costume",
       options?: {
         maskImage?: string;
@@ -446,13 +445,6 @@ function AppMain() {
       if (options?.imageOnlyTextToImage) {
         body.image_only_text_to_image = true;
       }
-      // Add change settings
-      if (settings) {
-        body.preserve_elements = settings.preserveElements;
-        body.change_scope = settings.changeScope;
-        body.custom_preserve_text = settings.customPreserveText;
-      }
-
       // Build character_references for NovelAI precise reference images
       // (V5系モデルは精密参照非対応のため送らない)
       if (

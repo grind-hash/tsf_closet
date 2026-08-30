@@ -125,27 +125,3 @@ img {
   pointer-events: none;
   user-select: none;
 }
-
-/* ── Feature badge: "Deprecated" label ──
-   data-removal-version marks the release that drops the feature.
-   Unlike the other chips this one keeps pointer events so the
-   title tooltip works on hover. ── */
-.feature-chip-deprecated {
-  display: inline-flex;
-  align-items: center;
-  padding: 0.1rem 0.4rem;
-  margin-left: 0.35rem;
-  font-size: 0.6rem;
-  font-weight: 600;
-  line-height: 1;
-  text-transform: none;
-  letter-spacing: normal;
-  color: #f87171;
-  background-color: rgba(248, 113, 113, 0.15);
-  border: 1px solid rgba(248, 113, 113, 0.4);
-  border-radius: 8px;
-  white-space: nowrap;
-  vertical-align: middle;
-  cursor: help;
-  user-select: none;
-}

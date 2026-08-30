@@ -617,9 +617,6 @@ class LLMService:
         self,
         instruction: str,
         current_description: str,
-        preserve_elements: list[str] | None = None,
-        change_scope: str = "full",
-        custom_preserve_text: str = "",
         provider_override: Optional[str] = None,
         nsfw_mode: bool = False,
         extra_system_suffix: str = "",
@@ -630,9 +627,6 @@ class LLMService:
         Args:
             instruction: ユーザーの着せ替え指示
             current_description: 現在の画像の説明
-            preserve_elements: 保持する要素のリスト
-            change_scope: 変更対象 (full, upper, lower, accessories, shoes)
-            custom_preserve_text: カスタム保持指示（自由記述）
             provider_override: プロバイダー指定（省略時は設定値）
             nsfw_mode: NSFWモードかどうか
             extra_system_suffix: システムプロンプト末尾に付与する追加指示（メモリ優先指示等）
@@ -657,9 +651,6 @@ class LLMService:
         user_prompt = build_image_edit_prompt(
             instruction=instruction,
             current_description=current_description,
-            preserve_elements=preserve_elements,
-            change_scope=change_scope,
-            custom_preserve_text=custom_preserve_text,
         )
 
         if provider == "openrouter":
@@ -672,9 +663,6 @@ class LLMService:
             content = await litellm.generate_image_edit_prompt(
                 instruction=instruction,
                 current_description=current_description,
-                preserve_elements=preserve_elements,
-                change_scope=change_scope,
-                custom_preserve_text=custom_preserve_text,
                 provider=provider,
                 extra_system_suffix=extra_system_suffix,
                 nsfw_mode=nsfw_mode,
