@@ -31,6 +31,8 @@ import {
   BLINK_OPEN_SEC,
   blinkWeight,
   DOWN,
+  detectFacing,
+  type Facing,
   FINGER_CURL,
   FINGER_NAMES,
   FINGER_SEGMENTS,
@@ -40,6 +42,7 @@ import {
   idlePose,
   mouthWeightsFromLevel,
   nextBlinkDelay,
+  poseToBoneRotation,
   sampleGesture,
   tiltTowards,
   type Vec3,
@@ -101,6 +104,8 @@ interface RestPose {
   spine: THREE.Euler;
   hipsY: number;
   arms: ArmRig[];
+  /** normalized bone の局所系での前方の Z 符号。頭・背骨の傾きの向きに使う */
+  facing: Facing;
 }
 
 const ARM_SIDES: readonly ArmSide[] = ["left", "right"];
@@ -153,22 +158,9 @@ function applyFingerCurl(humanoid: VRMHumanoid, side: ArmSide): void {
 /**
  * 腕を体側へ下ろし、肘を前へ曲げ、指を軽く握った待機姿勢にする。
  * 回転軸は実際のボーンの向きから求めるので、腕が +X に伸びる VRM 1.0 でも
- * -X に伸びる 0.x でも同じ見た目になる。前方は左腕の向きから判定する
- * (Y 上・右手系では 左 = 上 × 前 なので、左腕の X の符号がそのまま前の Z の符号)
+ * -X に伸びる 0.x でも同じ見た目になる
  */
-function applyArmRestPose(
-  humanoid: VRMHumanoid,
-  specVersion: "0" | "1",
-): ArmRig[] {
-  const leftArmDir = boneDirection(
-    humanoid.getNormalizedBoneNode("leftLowerArm"),
-  );
-  const facing =
-    leftArmDir && Math.abs(leftArmDir[0]) > 1e-3
-      ? Math.sign(leftArmDir[0])
-      : specVersion === "0"
-        ? -1
-        : 1;
+function applyArmRestPose(humanoid: VRMHumanoid, facing: Facing): ArmRig[] {
   const forward: Vec3 = [0, 0, facing];
   const rigs: ArmRig[] = [];
   for (const side of ARM_SIDES) {
@@ -301,7 +293,11 @@ export function createVrmAvatarEngine(
 
   function applyRestPose(model: VRM, specVersion: "0" | "1"): RestPose {
     const humanoid = model.humanoid;
-    const arms = applyArmRestPose(humanoid, specVersion);
+    const facing = detectFacing(
+      boneDirection(humanoid.getNormalizedBoneNode("leftLowerArm")),
+      specVersion,
+    );
+    const arms = applyArmRestPose(humanoid, facing);
     const head = humanoid.getNormalizedBoneNode("head");
     const spine = humanoid.getNormalizedBoneNode("spine");
     const hips = humanoid.getNormalizedBoneNode("hips");
@@ -310,6 +306,7 @@ export function createVrmAvatarEngine(
       spine: spine ? spine.rotation.clone() : new THREE.Euler(),
       hipsY: hips ? hips.position.y : 0,
       arms,
+      facing,
     };
   }
 
@@ -463,14 +460,16 @@ export function createVrmAvatarEngine(
     const head = humanoid.getNormalizedBoneNode("head");
     const spine = humanoid.getNormalizedBoneNode("spine");
     const hips = humanoid.getNormalizedBoneNode("hips");
+    // モデル基準の「前・左」をボーン局所系の回転へ(0.x は前後・左右の傾きが反転する)
+    const rotation = poseToBoneRotation(pose, restPose.facing);
     if (head) {
       head.rotation.set(
-        restPose.head.x + pose.headPitch,
-        restPose.head.y + pose.headYaw,
-        restPose.head.z + pose.headRoll,
+        restPose.head.x + rotation.head[0],
+        restPose.head.y + rotation.head[1],
+        restPose.head.z + rotation.head[2],
       );
     }
-    if (spine) spine.rotation.x = restPose.spine.x + pose.spinePitch;
+    if (spine) spine.rotation.x = restPose.spine.x + rotation.spineX;
     if (hips) hips.position.y = restPose.hipsY + pose.hipsY;
     for (const arm of restPose.arms) applyArmLift(arm, pose.armLift);
   }

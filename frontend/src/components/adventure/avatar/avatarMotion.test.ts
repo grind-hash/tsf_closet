@@ -1,4 +1,4 @@
-import { Quaternion, Vector3 } from "three";
+import { Euler, Quaternion, Vector3 } from "three";
 import { describe, expect, it } from "vitest";
 import {
   AVATAR_GESTURES,
@@ -14,6 +14,8 @@ import {
   BLINK_TOTAL_SEC,
   blinkWeight,
   DOWN,
+  detectFacing,
+  type Facing,
   FINGER_CURL,
   FINGER_NAMES,
   FINGER_SEGMENTS,
@@ -26,6 +28,7 @@ import {
   nextBlinkDelay,
   POSE_KEYS,
   type PoseOffsets,
+  poseToBoneRotation,
   sampleGesture,
   tiltTowards,
   type Vec3,
@@ -284,5 +287,68 @@ describe("avatarMotion rest pose geometry", () => {
       "rightIndexIntermediate",
     );
     expect(fingerBoneName("left", "little", "distal")).toBe("leftLittleDistal");
+  });
+});
+
+describe("avatarMotion facing and bone rotation", () => {
+  it("reads the facing from the left arm and falls back to the spec version", () => {
+    expect(detectFacing([1, 0, 0], "0")).toBe(1);
+    expect(detectFacing([-0.7, 0.1, 0], "1")).toBe(-1);
+    expect(detectFacing(null, "1")).toBe(1);
+    expect(detectFacing(null, "0")).toBe(-1);
+    // X 成分がほぼ 0 なら腕からは判定せず仕様版に従う
+    expect(detectFacing([1e-6, -1, 0], "0")).toBe(-1);
+  });
+
+  /** 頭・背骨の Euler 回転で単位ベクトルを回した結果 */
+  function rotateBy(head: Vec3, v: Vec3): Vector3 {
+    return new Vector3(...v).applyEuler(new Euler(...head));
+  }
+
+  const UP: Vec3 = [0, 1, 0];
+
+  it.each(RIGS)("maps model-relative offsets onto bone axes for $label", ({
+    facing,
+  }) => {
+    const forward: Vec3 = [0, 0, facing];
+    const left: Vec3 = [facing, 0, 0];
+    const pitch = poseToBoneRotation(
+      { ...ZERO_POSE, headPitch: 0.3, spinePitch: 0.2 },
+      facing,
+    );
+    // 前傾: 頭頂と上体の先端が前(モデルの向き)へ動く
+    expect(
+      rotateBy(pitch.head, UP).dot(new Vector3(...forward)),
+    ).toBeGreaterThan(0.1);
+    expect(
+      rotateBy([pitch.spineX, 0, 0], UP).dot(new Vector3(...forward)),
+    ).toBeGreaterThan(0.1);
+    // 左向き: 顔の向きがモデルの左へ回る
+    const yaw = poseToBoneRotation({ ...ZERO_POSE, headYaw: 0.3 }, facing);
+    expect(
+      rotateBy(yaw.head, forward).dot(new Vector3(...left)),
+    ).toBeGreaterThan(0.1);
+    // 左肩側へ傾げ: 頭頂がモデルの左へ動く
+    const roll = poseToBoneRotation({ ...ZERO_POSE, headRoll: 0.3 }, facing);
+    expect(rotateBy(roll.head, UP).dot(new Vector3(...left))).toBeGreaterThan(
+      0.1,
+    );
+    // 0 は 0 のまま(facing が -1 のとき -0 になるため絶対値で比べる)
+    const zero = poseToBoneRotation(ZERO_POSE, facing);
+    expect(zero.head.map(Math.abs)).toEqual([0, 0, 0]);
+    expect(Math.abs(zero.spineX)).toBe(0);
+  });
+
+  it.each(
+    RIGS,
+  )("leans forward toward the viewer and back away from it for $label", ({
+    facing,
+  }) => {
+    const forwardZ = (key: AvatarGestureKey, f: Facing): number => {
+      const rotation = poseToBoneRotation(sampleGesture(key, 0.5), f);
+      return rotateBy([rotation.spineX, 0, 0], UP).z * f;
+    };
+    expect(forwardZ("lean_forward", facing)).toBeGreaterThan(0.05);
+    expect(forwardZ("lean_back", facing)).toBeLessThan(-0.05);
   });
 });

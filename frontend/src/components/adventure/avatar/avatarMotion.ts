@@ -8,6 +8,10 @@
 
 import type { AvatarGestureKey } from "../../../constants/companionAvatar";
 
+/**
+ * モデル基準の姿勢オフセット。「前」「左」はモデル自身から見た向きで、
+ * ボーンの局所回転へは poseToBoneRotation で前方の符号を掛けて変換する
+ */
 export interface PoseOffsets {
   /** 頭の前後の傾き。正で前(うなずき方向) */
   headPitch: number;
@@ -230,6 +234,52 @@ export function addPose(a: PoseOffsets, b: PoseOffsets): PoseOffsets {
     spinePitch: a.spinePitch + b.spinePitch,
     hipsY: a.hipsY + b.hipsY,
     armLift: a.armLift + b.armLift,
+  };
+}
+
+/* ------------------------------------------------------------------------ */
+/* 前方の判定と、姿勢オフセットからボーン回転への変換                          */
+/* ------------------------------------------------------------------------ */
+
+/** normalized bone の局所系でモデルが向いている Z の符号。VRM 1.0 は +1、0.x は -1 */
+export type Facing = 1 | -1;
+
+/**
+ * 左腕の向きから前方の Z 符号を求める。
+ * Y 上・右手系では 左 = 上 × 前 なので、左腕の X の符号がそのまま前の Z の符号になる。
+ * 腕の向きが取れないときは仕様版から推定する(1.0 は +Z 向き、0.x は -Z 向き)
+ */
+export function detectFacing(
+  leftArmDir: Vec3 | null,
+  specVersion: "0" | "1",
+): Facing {
+  if (leftArmDir && Math.abs(leftArmDir[0]) > 1e-3) {
+    return leftArmDir[0] > 0 ? 1 : -1;
+  }
+  return specVersion === "0" ? -1 : 1;
+}
+
+export interface BoneRotations {
+  /** 頭の Euler 角(XYZ 順、ラジアン) */
+  head: Vec3;
+  /** 背骨の X 軸回りの回転(ラジアン) */
+  spineX: number;
+}
+
+/**
+ * モデル基準の姿勢オフセットを normalized bone の局所回転へ変換する。
+ * normalized bone の局所系は読込時のシーン系と一致し、0.x モデルは -Z 向きのまま
+ * (表示ではシーンごと 180° 回して +Z 向きに揃えている)。そのため X 軸回り(前後の傾き)
+ * と Z 軸回り(左右の傾げ)は前方の符号で反転し、Y 軸回り(左右の向き)は不変。
+ * +Z 向きでは X 正回転で頭頂が +Z(前)へ、Z 正回転で頭頂が -X(右肩側)へ動く
+ */
+export function poseToBoneRotation(
+  pose: PoseOffsets,
+  facing: Facing,
+): BoneRotations {
+  return {
+    head: [facing * pose.headPitch, pose.headYaw, -facing * pose.headRoll],
+    spineX: facing * pose.spinePitch,
   };
 }
 
