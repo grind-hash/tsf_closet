@@ -154,6 +154,12 @@ export interface AdventureTurn {
   /** 対面会話モードの 3D モデル向け。攻略対象の表情・身振り(旧ターンは null) */
   partner_expression?: string | null;
   partner_gesture?: string | null;
+  /**
+   * このターン確定時点の 3D モデル(VRM)。着替え(衣装差分の切替)が起きると
+   * 前ターンと変わる。romance 以外・旧ターン・未設定は null
+   */
+  companion_avatar_id?: string | null;
+  companion_avatar_url?: string | null;
   narrative: string;
   /** このターン時点の現在地。旧ターンでは null */
   location: string | null;

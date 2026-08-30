@@ -15,6 +15,9 @@ from gateway.databases.base import Base
 from gateway.services import avatar_service
 from gateway.services.avatar_service import (
     AvatarError,
+    avatar_display_name,
+    avatar_variant_label,
+    classify_avatar_filename,
     parse_vrm_meta,
     sanitize_avatar_name,
     serialize_avatar,
@@ -68,6 +71,10 @@ VRM1_PAYLOAD = {
         }
     },
 }
+
+
+# meta.title が無い VRM。モデル名がファイル名になるケース(自動分類の再適用対象)
+NO_TITLE_PAYLOAD = {"asset": {}, "extensions": {"VRM": {"meta": {"author": "X"}}}}
 
 
 def _write(tmp_path: Path, name: str, data: bytes) -> Path:
@@ -127,6 +134,25 @@ def test_sanitize_avatar_name() -> None:
     assert sanitize_avatar_name("", fallback="alicia") == "alicia"
     assert sanitize_avatar_name(None, fallback="  ") == "VRM"
     assert len(sanitize_avatar_name("x" * 200)) == 80
+
+
+@pytest.mark.parametrize(
+    ("stem", "expected"),
+    [
+        # 先頭の "_" までがキャラクター名、残りが差分("_" は空白へ)
+        ("サクラ_水着_髪束ねたVer", ("サクラ", "水着 髪束ねたVer")),
+        ("サクラ_ドレス", ("サクラ", "ドレス")),
+        ("  Sakura_Swimsuit__Tied  ", ("Sakura", "Swimsuit Tied")),
+        # 区切りが無い・どちらかが空なら未分類
+        ("Alicia Solid", (None, None)),
+        ("_水着", (None, None)),
+        ("サクラ_", (None, None)),
+        ("サクラ_   ", (None, None)),
+        ("", (None, None)),
+    ],
+)
+def test_classify_avatar_filename(stem: str, expected: tuple) -> None:
+    assert classify_avatar_filename(stem) == expected
 
 
 @pytest.fixture
@@ -192,6 +218,153 @@ async def test_save_upload_name_precedence(session_factory):
         )
     assert explicit.name == "Custom"
     assert from_file.name == "my model"
+
+
+async def test_save_upload_classifies_character_from_filename(session_factory):
+    async with session_factory() as db:
+        auto = await avatar_service.save_upload(
+            db, _upload(make_glb(VRM0_PAYLOAD), filename="サクラ_水着_髪束ねたVer.vrm")
+        )
+        plain = await avatar_service.save_upload(
+            db, _upload(make_glb(VRM0_PAYLOAD), filename="alicia.vrm")
+        )
+        # 空文字を明示すると形式に合っていても未分類
+        forced_plain = await avatar_service.save_upload(
+            db,
+            _upload(make_glb(VRM0_PAYLOAD), filename="サクラ_ドレス.vrm"),
+            character_name="",
+        )
+        # キャラクター名を手で指定しても、差分はファイル名から流用する
+        manual = await avatar_service.save_upload(
+            db,
+            _upload(make_glb(VRM0_PAYLOAD), filename="サクラ_ニット_ロングヘアVer.vrm"),
+            character_name="  Sakura ",
+        )
+        explicit = await avatar_service.save_upload(
+            db,
+            _upload(make_glb(VRM0_PAYLOAD), filename="alicia.vrm"),
+            character_name="Alicia",
+            variant_label=" 制服 ",
+        )
+    assert (auto.character_name, auto.variant_label) == ("サクラ", "水着 髪束ねたVer")
+    # モデル名は従来どおり meta.title を優先する
+    assert auto.name == "Alicia Solid"
+    assert (plain.character_name, plain.variant_label) == (None, None)
+    assert (forced_plain.character_name, forced_plain.variant_label) == (None, None)
+    assert (manual.character_name, manual.variant_label) == (
+        "Sakura",
+        "ニット ロングヘアVer",
+    )
+    assert (explicit.character_name, explicit.variant_label) == ("Alicia", "制服")
+    serialized = serialize_avatar(auto)
+    assert serialized["character_name"] == "サクラ"
+    assert serialized["variant_label"] == "水着 髪束ねたVer"
+    assert serialize_avatar(plain)["character_name"] is None
+    assert avatar_variant_label(auto) == "水着 髪束ねたVer"
+    assert avatar_variant_label(plain) == "Alicia Solid"
+    assert avatar_display_name(auto) == "サクラ / 水着 髪束ねたVer"
+    assert avatar_display_name(plain) == "Alicia Solid"
+
+
+async def test_update_avatar_and_list_variants(session_factory):
+    async with session_factory() as db:
+        swim = await avatar_service.save_upload(
+            db, _upload(make_glb(VRM0_PAYLOAD), filename="サクラ_水着.vrm")
+        )
+        dress = await avatar_service.save_upload(
+            db, _upload(make_glb(VRM0_PAYLOAD), filename="サクラ_ドレス.vrm")
+        )
+        other = await avatar_service.save_upload(
+            db, _upload(make_glb(VRM0_PAYLOAD), filename="alicia.vrm")
+        )
+        # 同じキャラクターは差分ラベル順(自身を含む)。未分類は自身だけ
+        ids = [m.id for m in await avatar_service.list_avatar_variants(db, swim.id)]
+        assert ids == [dress.id, swim.id]
+        assert [
+            m.id for m in await avatar_service.list_avatar_variants(db, other.id)
+        ] == [other.id]
+        assert await avatar_service.list_avatar_variants(db, "missing") == []
+
+        # 未分類のモデルをユーザーが同じキャラクターへ付け替える(削除せずに分類)
+        joined = await avatar_service.update_avatar(
+            db, other.id, character_name=" サクラ ", variant_label="制服"
+        )
+        assert (joined.character_name, joined.variant_label) == ("サクラ", "制服")
+        assert joined.name == "Alicia Solid"
+        # 差分ラベルの文字順(ドレス < 制服 < 水着)
+        ids = [m.id for m in await avatar_service.list_avatar_variants(db, swim.id)]
+        assert ids == [dress.id, joined.id, swim.id]
+
+        # None は据え置き、空文字は解除
+        renamed = await avatar_service.update_avatar(db, swim.id, name="Swim")
+        assert renamed.name == "Swim" and renamed.character_name == "サクラ"
+        detached = await avatar_service.update_avatar(
+            db, dress.id, character_name="", variant_label=""
+        )
+        assert (detached.character_name, detached.variant_label) == (None, None)
+        ids = [m.id for m in await avatar_service.list_avatar_variants(db, swim.id)]
+        assert ids == [joined.id, swim.id]
+        with pytest.raises(AvatarError):
+            await avatar_service.update_avatar(db, "missing", name="x")
+
+
+async def test_auto_classify_fills_only_empty_fields(session_factory):
+    glb = make_glb(NO_TITLE_PAYLOAD)
+    async with session_factory() as db:
+        # 更新前に登録したモデル相当: 名前(ファイル名)は規則に合うが分類は空
+        legacy = await avatar_service.save_upload(
+            db, _upload(glb, filename="サクラ_水着_髪束ねたVer.vrm"), character_name=""
+        )
+        # キャラクターだけ手で付けた(差分ラベルが空)
+        half = await avatar_service.save_upload(
+            db,
+            _upload(glb, filename="サクラ_ドレス.vrm"),
+            character_name="別名",
+            variant_label="",
+        )
+        # ユーザーが決めた分類は変えない
+        decided = await avatar_service.save_upload(
+            db,
+            _upload(glb, filename="サクラ_ニット.vrm"),
+            character_name="別名",
+            variant_label="手入力",
+        )
+        # 規則に合わない名前は据え置き
+        plain = await avatar_service.save_upload(
+            db, _upload(glb, filename="alicia.vrm")
+        )
+        # meta.title があるモデルは名前がファイル名でないため対象にならない
+        titled = await avatar_service.save_upload(
+            db,
+            _upload(make_glb(VRM0_PAYLOAD), filename="サクラ_バスタオル.vrm"),
+            character_name="",
+        )
+        updated = await avatar_service.auto_classify_avatars(db)
+    assert sorted(m.id for m in updated) == sorted([legacy.id, half.id])
+    async with session_factory() as db:
+        by_id = {m.id: m for m in await avatar_service.list_avatars(db)}
+    assert (by_id[legacy.id].character_name, by_id[legacy.id].variant_label) == (
+        "サクラ",
+        "水着 髪束ねたVer",
+    )
+    # キャラクター名は手入力を保ち、差分ラベルだけ埋まる
+    assert (by_id[half.id].character_name, by_id[half.id].variant_label) == (
+        "別名",
+        "ドレス",
+    )
+    assert (by_id[decided.id].character_name, by_id[decided.id].variant_label) == (
+        "別名",
+        "手入力",
+    )
+    assert (by_id[plain.id].character_name, by_id[plain.id].variant_label) == (
+        None,
+        None,
+    )
+    assert by_id[titled.id].name == "Alicia Solid"
+    assert by_id[titled.id].character_name is None
+    # 二度目は何も更新しない
+    async with session_factory() as db:
+        assert await avatar_service.auto_classify_avatars(db) == []
 
 
 async def test_save_upload_rejects_oversize_and_cleans_temp(

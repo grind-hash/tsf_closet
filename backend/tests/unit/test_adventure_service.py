@@ -36,6 +36,7 @@ from gateway.services.adventure_service import (
     AdventureError,
     AdventureImagePromptOutput,
     AdventureResolutionOutput,
+    AdventureRomanceResolutionOutput,
     AdventureService,
     AdventureVisualOutput,
     AdventureVisualState,
@@ -56,6 +57,8 @@ from gateway.services.adventure_service import (
     _compose_scene_base_tags,
     _identity_tags_only,
     _lean_state_for_llm,
+    _resolve_outfit_choice,
+    _wardrobe_context,
     _normalize_reality_rules,
     _progressive_reality_rules,
     _apply_time_limit_alteration,
@@ -6187,6 +6190,230 @@ def test_resolution_prompt_mentions_avatar_vocabulary_only_in_companion_mode() -
     assert "bounce (" in companion and "look_away (" in companion
     assert "partner_expression" not in plain
     assert "partner_expression" not in escape
+
+
+def test_resolution_prompt_includes_partner_outfit_only_with_wardrobe() -> None:
+    service = AdventureService()
+    with_outfits = service._resolution_system_prompt(
+        "ja", romance=True, companion=True, outfit_keys=("1", "2", "3")
+    )
+    assert '"partner_outfit":"1|2|3"' in with_outfits
+    assert "partner_outfit is the key" in with_outfits
+    assert "exactly one of: 1, 2, 3" in with_outfits
+    # 衣装差分が無い(1 件以下)対面会話モードでは載せない
+    plain = service._resolution_system_prompt("ja", romance=True, companion=True)
+    assert "partner_outfit" not in plain
+    # 対面会話モード外では候補を渡しても載せない
+    off = service._resolution_system_prompt(
+        "ja", romance=True, companion=False, outfit_keys=("1", "2")
+    )
+    assert "partner_outfit" not in off
+
+
+def test_narrative_prompt_mentions_wardrobe_only_in_companion_mode() -> None:
+    service = AdventureService()
+    names = ("美咲", "ケン")
+    with_wardrobe = service._narrative_system_prompt(
+        "ja", romance=True, script_names=names, wardrobe=True
+    )
+    assert "partner_wardrobe" in with_wardrobe
+    # 台本形式の指示は最後に残す(最も新しい指示として効かせる)
+    assert with_wardrobe.rfind("SCRIPT FORMAT") > with_wardrobe.rfind(
+        "partner_wardrobe"
+    )
+    assert "partner_wardrobe" not in service._narrative_system_prompt(
+        "ja", romance=True, script_names=names
+    )
+    # 対面会話モード(script_names)でなければ wardrobe は無視する
+    assert "partner_wardrobe" not in service._narrative_system_prompt(
+        "ja", romance=True, wardrobe=True
+    )
+
+
+def test_resolution_output_coerces_partner_outfit_key() -> None:
+    numeric = AdventureRomanceResolutionOutput.model_validate(
+        {"choices": _three_choices(), "partner_outfit": 2}
+    )
+    assert numeric.partner_outfit == "2"
+    padded = AdventureResolutionOutput.model_validate(
+        {"choices": _three_choices(), "partner_outfit": "  1 "}
+    )
+    assert padded.partner_outfit == "1"
+    # 欠落・空・真偽値は None(据え置き)
+    for value in (None, "", "   ", True):
+        output = AdventureResolutionOutput.model_validate(
+            {"choices": _three_choices(), "partner_outfit": value}
+        )
+        assert output.partner_outfit is None
+
+
+_OUTFIT_OPTIONS = [
+    {"key": "1", "id": "av-swim", "label": "水着 髪束ねたVer", "current": True},
+    {"key": "2", "id": "av-dress", "label": "ドレス", "current": False},
+]
+
+
+def test_resolve_outfit_choice_maps_key_id_or_label() -> None:
+    assert _resolve_outfit_choice("2", _OUTFIT_OPTIONS) == "av-dress"
+    assert _resolve_outfit_choice(" 1 ", _OUTFIT_OPTIONS) == "av-swim"
+    # LLM がラベルや ID をそのまま返しても受ける
+    assert _resolve_outfit_choice("ドレス", _OUTFIT_OPTIONS) == "av-dress"
+    assert _resolve_outfit_choice("av-dress", _OUTFIT_OPTIONS) == "av-dress"
+    # 候補外・欠落・候補無しは None(据え置き)
+    assert _resolve_outfit_choice("9", _OUTFIT_OPTIONS) is None
+    assert _resolve_outfit_choice(None, _OUTFIT_OPTIONS) is None
+    assert _resolve_outfit_choice("1", []) is None
+
+
+def test_wardrobe_context_exposes_keys_and_labels_only() -> None:
+    assert _wardrobe_context(_OUTFIT_OPTIONS) == {
+        "current": {"key": "1", "label": "水着 髪束ねたVer"},
+        "options": [
+            {"key": "1", "label": "水着 髪束ねたVer"},
+            {"key": "2", "label": "ドレス"},
+        ],
+    }
+    # 現在の装いが候補に無い(直前に付け替えられた)場合も落ちない
+    context = _wardrobe_context(
+        [{**item, "current": False} for item in _OUTFIT_OPTIONS]
+    )
+    assert context["current"] is None and len(context["options"]) == 2
+
+
+def test_build_turn_contexts_adds_partner_wardrobe_in_companion_mode() -> None:
+    service = AdventureService()
+    run = make_romance_run(turn_count=1)
+    run.turns = []
+    run.objective = "仲良くなる"
+    run.language = "ja"
+    state = json.loads(run.state_json)
+    state["companion_mode"] = True
+    state["companion_avatar_id"] = "av-swim"
+
+    contexts = service._build_turn_contexts(
+        run,
+        json.loads(json.dumps(state)),
+        user_input="着替えてきて",
+        input_kind="free_text",
+        gift_id=None,
+        epilogue=False,
+        outfit_options=_OUTFIT_OPTIONS,
+    )
+    assert contexts.turn_context["partner_wardrobe"] == _wardrobe_context(
+        _OUTFIT_OPTIONS
+    )
+    assert contexts.outfit_options == _OUTFIT_OPTIONS
+    # ID は LLM に見せない
+    assert "av-swim" not in json.dumps(contexts.turn_context, ensure_ascii=False)
+
+    # 対面会話モード OFF では候補を渡しても載せない
+    state["companion_mode"] = False
+    plain = service._build_turn_contexts(
+        run,
+        json.loads(json.dumps(state)),
+        user_input="着替えてきて",
+        input_kind="free_text",
+        gift_id=None,
+        epilogue=False,
+        outfit_options=_OUTFIT_OPTIONS,
+    )
+    assert "partner_wardrobe" not in plain.turn_context
+    assert plain.outfit_options == []
+
+
+@pytest.mark.asyncio
+async def test_companion_outfit_options_lists_variants_only_with_two_or_more(
+    monkeypatch,
+) -> None:
+    service = AdventureService()
+    state = json.loads(make_romance_run().state_json)
+    state.update({"companion_mode": True, "companion_avatar_id": "av-swim"})
+    run = _romance_settings_run(state)
+
+    class FakeDatabase:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, _exc_type, _exc, _traceback):
+            return None
+
+    variants = [
+        SimpleNamespace(id="av-dress", name="サクラ", variant_label="ドレス"),
+        SimpleNamespace(id="av-swim", name="サクラ", variant_label=None),
+    ]
+    listing = AsyncMock(return_value=variants)
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.async_session_factory", FakeDatabase
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.list_avatar_variants", listing
+    )
+
+    options = await service._companion_outfit_options(run, state)
+    assert options == [
+        {"key": "1", "id": "av-dress", "label": "ドレス", "current": False},
+        # 差分ラベルが無いモデルはモデル名で見せる
+        {"key": "2", "id": "av-swim", "label": "サクラ", "current": True},
+    ]
+    assert listing.await_args.args[1] == "av-swim"
+
+    # 差分が 1 件だけなら着替え候補は無い
+    listing.return_value = variants[1:]
+    assert await service._companion_outfit_options(run, state) == []
+
+    # 対面会話モード OFF・モデル未設定・他プリセットでは DB を引かない
+    listing.reset_mock()
+    listing.return_value = variants
+    assert (
+        await service._companion_outfit_options(run, {**state, "companion_mode": False})
+        == []
+    )
+    assert (
+        await service._companion_outfit_options(
+            run, {**state, "companion_avatar_id": ""}
+        )
+        == []
+    )
+    escape = _romance_settings_run(state, preset="escape")
+    assert await service._companion_outfit_options(escape, state) == []
+    assert listing.await_count == 0
+
+    # 取得失敗は空(その手番は着替えないだけで、手番は止めない)
+    listing.side_effect = RuntimeError("db down")
+    assert await service._companion_outfit_options(run, state) == []
+
+
+def test_serialize_turn_emits_companion_avatar_of_that_turn() -> None:
+    service = AdventureService()
+    state = json.loads(make_romance_run().state_json)
+    state["companion_avatar_id"] = "av-dress"
+
+    def _turn(state_delta: dict) -> SimpleNamespace:
+        return SimpleNamespace(
+            id="t1",
+            run_id="run-1",
+            turn_number=1,
+            client_turn_id=None,
+            user_input="着替えてきて",
+            input_kind="free_text",
+            narrative="美咲「どう？」",
+            choices_json="[]",
+            image_path=None,
+            portrait_image_path=None,
+            image_status=None,
+            portrait_status=None,
+            created_at=None,
+            state_delta_json=json.dumps(state_delta, ensure_ascii=False),
+        )
+
+    result = service._serialize_turn(_turn(state))
+    assert result["companion_avatar_id"] == "av-dress"
+    assert result["companion_avatar_url"] == "/avatars/av-dress/file"
+    # モデル未設定の手番・旧ターンは None
+    state.pop("companion_avatar_id")
+    legacy = service._serialize_turn(_turn(state))
+    assert legacy["companion_avatar_id"] is None
+    assert legacy["companion_avatar_url"] is None
 
 
 def test_rewind_keep_keys_and_lean_state_cover_companion_avatar() -> None:

@@ -13,7 +13,7 @@ import shutil
 import uuid
 from collections import defaultdict
 from collections.abc import AsyncGenerator, Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal, TypeVar
@@ -57,8 +57,11 @@ from ..consts.companion_avatar import (
     avatar_expression_keys,
     avatar_gesture_keys,
     avatar_resolution_instruction,
+    avatar_wardrobe_narrative_instruction,
+    avatar_wardrobe_resolution_instruction,
     normalize_avatar_expression,
     normalize_avatar_gesture,
+    normalize_avatar_outfit_key,
     parse_talk_header,
 )
 from ..consts.adventure_speech import (
@@ -125,7 +128,12 @@ from .adventure_romance import (
     talk_relationship_context,
 )
 from .adventure_template_loader import SCENARIO_TEMPLATES, template_localized
-from .avatar_service import avatar_exists, avatar_file_url
+from .avatar_service import (
+    avatar_exists,
+    avatar_file_url,
+    avatar_variant_label,
+    list_avatar_variants,
+)
 from .llm_service import llm_service
 from .prompt_expander_service import (
     PromptExpanderError,
@@ -600,6 +608,9 @@ class AdventureResolutionOutput(BaseModel):
     # 対面会話モードの 3D アバター向け。語彙外は None(FE が neutral/idle に倒す)
     partner_expression: str | None = None
     partner_gesture: str | None = None
+    # 衣装差分(同じキャラクターの VRM が 2 件以上)があるときだけ載る着替え先の
+    # キー("1","2",…)。stream_turn が登録 ID へ写す。欠落・空は据え置き
+    partner_outfit: str | None = None
     # 宣言がタイムリミット(総手数)を変更した場合のみ入る。
     # reality_alter ターン限定で Python 側が範囲を丸めて run.max_turns へ反映する
     updated_max_turns: int | None = None
@@ -613,6 +624,11 @@ class AdventureResolutionOutput(BaseModel):
     @classmethod
     def coerce_partner_gesture(cls, value: Any) -> Any:
         return normalize_avatar_gesture(value)
+
+    @field_validator("partner_outfit", mode="before")
+    @classmethod
+    def coerce_partner_outfit(cls, value: Any) -> Any:
+        return normalize_avatar_outfit_key(value)
 
     @field_validator("updated_max_turns", mode="before")
     @classmethod
@@ -1005,6 +1021,46 @@ async def _validate_companion_avatar(avatar_id: str | None) -> str | None:
         if not await avatar_exists(db, value):
             raise AdventureError("avatar_not_found", "3Dモデルが見つかりません")
     return value
+
+
+def _wardrobe_context(options: list[dict[str, Any]]) -> dict[str, Any]:
+    """turn_context.partner_wardrobe。現在の装いと候補(キーとラベル)だけを見せる。"""
+    current = next((item for item in options if item.get("current")), None)
+    return {
+        "current": (
+            {"key": str(current["key"]), "label": str(current["label"])}
+            if current
+            else None
+        ),
+        "options": [
+            {"key": str(item["key"]), "label": str(item["label"])} for item in options
+        ],
+    }
+
+
+def _resolve_outfit_choice(
+    value: str | None, options: list[dict[str, Any]]
+) -> str | None:
+    """判定が返した partner_outfit を登録 ID へ写す。候補外・欠落は None。
+
+    キー("1")で照合し、LLM がラベルや ID をそのまま返した場合も受け付ける。
+    """
+    if not options:
+        return None
+    key = normalize_avatar_outfit_key(value)
+    if key is None:
+        return None
+    folded = key.casefold()
+    for item in options:
+        if str(item.get("key")) == key:
+            return str(item["id"])
+    for item in options:
+        if (
+            str(item.get("id")) == key
+            or str(item.get("label", "")).casefold() == folded
+        ):
+            return str(item["id"])
+    return None
 
 
 def _previous_choice_labels(state: dict[str, Any]) -> list[str]:
@@ -2498,6 +2554,9 @@ class _TurnContexts:
     previous_choice_key: tuple[str, ...]
     # 対面会話モードのときだけ (攻略対象名, 主人公名)。台本形式の指示に使う
     script_names: tuple[str, str] | None = None
+    # 対面会話モードで表示中の 3D モデルと同じキャラクターの衣装差分(2 件以上の
+    # ときだけ)。各要素は {key, id, label, current}。_companion_outfit_options 参照
+    outfit_options: list[dict[str, Any]] = field(default_factory=list)
 
 
 def _take_established_reality_rules(
@@ -2860,6 +2919,7 @@ Return JSON only and keep the entire response under 1200 characters. Do not repe
         speech_rule: str = "",
         romance: bool = False,
         script_names: tuple[str, str] | None = None,
+        wardrobe: bool = False,
     ) -> str:
         response_language = "Japanese" if language == "ja" else "English"
         voice_rule = _narration_voice_instruction(narration_voice, narration_pronoun)
@@ -2874,6 +2934,9 @@ Return JSON only and keep the entire response under 1200 characters. Do not repe
         if speech_rule:
             voice_rule = f"{voice_rule}\n{speech_rule}"
         if script_names:
+            if wardrobe:
+                # 衣装差分(turn_context.partner_wardrobe)がある手番だけ着替えを許す
+                voice_rule = f"{voice_rule}\n{avatar_wardrobe_narrative_instruction()}"
             # 対面会話モード: 台本形式は最後に置き、最も新しい指示として効かせる
             voice_rule = (
                 f"{voice_rule}\n{romance_script_format_guidance(*script_names)}"
@@ -2893,6 +2956,7 @@ Keep the narrative under 800 characters. Never decide the player's feelings, con
         romance: bool = False,
         include_clues: bool = True,
         companion: bool = False,
+        outfit_keys: tuple[str, ...] = (),
     ) -> str:
         response_language = "Japanese" if language == "ja" else "English"
         # 選択肢ラベルは行動フレーズなので、人称を載せない旨を併記する
@@ -2913,6 +2977,12 @@ Keep the narrative under 800 characters. Never decide the player's feelings, con
             if companion:
                 # 3D アバター向けの表情・身振り。語彙は consts/companion_avatar が唯一
                 voice_rule = f"{avatar_resolution_instruction()}\n{voice_rule}"
+                if outfit_keys:
+                    # 衣装差分の切替。キーは手番ごとに組み直す短い番号
+                    voice_rule = (
+                        f"{avatar_wardrobe_resolution_instruction(outfit_keys)}\n"
+                        f"{voice_rule}"
+                    )
         else:
             # タイムリミット変更の申告。romance は日数ベースの専用フィールドを使う
             voice_rule = f"{_TIME_LIMIT_ALTER_INSTRUCTION}\n{voice_rule}"
@@ -2928,6 +2998,8 @@ Keep the narrative under 800 characters. Never decide the player's feelings, con
             if romance and companion
             else ""
         )
+        if avatar_schema and outfit_keys:
+            avatar_schema += f',"partner_outfit":"{"|".join(outfit_keys)}"'
         return f"""You resolve the mechanical outcome of one adventure turn that has already been narrated.
 Return one JSON object only, in {response_language}, matching this schema:
 {{"choices":[{{"id":"...","label":"..."}},{{"id":"...","label":"..."}},{{"id":"...","label":"..."}}],"discovered_clues":[],"completed_milestones":[],"ending_status":"continue|success|partial|failure","ending_title":null,"ending_summary":null,"bgm":"{"|".join(get_bgm_keys())}","bgm_reason":"..."{avatar_schema}}}
@@ -3003,6 +3075,7 @@ scene_tags contains only environment, camera, composition, lighting, and the obs
         romance: bool = False,
         include_clues: bool = True,
         companion: bool = False,
+        outfit_keys: tuple[str, ...] = (),
     ) -> AdventureResolutionOutput:
         return await self._generate_structured_output(
             AdventureRomanceResolutionOutput if romance else AdventureResolutionOutput,
@@ -3013,6 +3086,7 @@ scene_tags contains only environment, camera, composition, lighting, and the obs
                 romance=romance,
                 include_clues=include_clues,
                 companion=companion,
+                outfit_keys=outfit_keys,
             ),
             user_prompt=json.dumps(
                 {**turn_context, "narrative": narrative}, ensure_ascii=False
@@ -3841,6 +3915,40 @@ The objective must name a concrete target and an observable end condition that c
             persisted.state_json = json.dumps(persisted_state, ensure_ascii=False)
             persisted.updated_at = datetime.now()
             await db.commit()
+
+    async def _companion_outfit_options(
+        self, run: AdventureRun, state: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        """表示中の 3D モデルと同じキャラクターとして登録された衣装差分。
+
+        対面会話モードでモデルを表示中、かつ差分が 2 件以上あるときだけ返す。
+        LLM には手番ごとに組み直す短いキー("1","2",…)で選ばせ、ID は見せない。
+        取得に失敗しても手番は止めない(その手番は着替えが起きないだけ)。
+        """
+        if run.preset != "romance" or not state.get("companion_mode"):
+            return []
+        avatar_id = _companion_avatar_id(run, state)
+        if not avatar_id:
+            return []
+        try:
+            async with async_session_factory() as db:
+                variants = await list_avatar_variants(db, avatar_id)
+        except Exception as error:  # noqa: BLE001
+            logger.warning(
+                "Failed to load outfit variants for avatar %s: %s", avatar_id, error
+            )
+            return []
+        if len(variants) < 2:
+            return []
+        return [
+            {
+                "key": str(index),
+                "id": model.id,
+                "label": avatar_variant_label(model),
+                "current": model.id == avatar_id,
+            }
+            for index, model in enumerate(variants, start=1)
+        ]
 
     async def detach_companion_avatar(self, avatar_id: str) -> int:
         """削除したアバターの割り当てを全 run の state から外し、件数を返す。
@@ -5074,6 +5182,8 @@ The objective must name a concrete target and an observable end condition that c
                         persisted_run.opening_state_json = run.opening_state_json
                         await db.commit()
 
+            # 衣装差分(同じキャラクターの VRM)があれば、物語と判定の両方へ渡す
+            outfit_options = await self._companion_outfit_options(run, state)
             contexts = self._build_turn_contexts(
                 run,
                 state,
@@ -5081,6 +5191,7 @@ The objective must name a concrete target and an observable end condition that c
                 input_kind=input_kind,
                 gift_id=gift_id,
                 epilogue=epilogue,
+                outfit_options=outfit_options,
             )
             input_kind = contexts.input_kind
             narration_voice = contexts.narration_voice
@@ -5105,6 +5216,7 @@ The objective must name a concrete target and an observable end condition that c
                     speech_rule=contexts.speech_rule,
                     romance=romance_sim is not None,
                     script_names=contexts.script_names,
+                    wardrobe=bool(contexts.outfit_options),
                 ),
                 json.dumps(turn_context, ensure_ascii=False),
                 provider_override=_text_provider(),
@@ -5160,6 +5272,9 @@ The objective must name a concrete target and an observable end condition that c
                         romance=romance_sim is not None,
                         include_clues=generate_clues,
                         companion=contexts.script_names is not None,
+                        outfit_keys=tuple(
+                            str(option["key"]) for option in contexts.outfit_options
+                        ),
                     )
                     await queue.put(("resolution", resolution))
                 except Exception as error:
@@ -5650,6 +5765,11 @@ The objective must name a concrete target and an observable end condition that c
                 # 手掛かりは後段の _enforce_template_output が別途追加するため無傷
                 resolution.discovered_clues = []
 
+            # 着替え(衣装差分の切替)。判定が返したキーを登録 ID へ写す。
+            # 候補外・欠落は None で据え置き
+            partner_avatar_id = _resolve_outfit_choice(
+                resolution.partner_outfit, contexts.outfit_options
+            )
             output = AdventureDirectorOutput(
                 narrative=narrative,
                 choices=resolution.choices,
@@ -5724,6 +5844,12 @@ The objective must name a concrete target and an observable end condition that c
                 turn_number=turn_number,
                 epilogue=epilogue,
             )
+            if partner_avatar_id and partner_avatar_id != _companion_avatar_id(
+                run, state
+            ):
+                # state_override 経由で state_delta にも載り、_serialize_turn が
+                # companion_avatar_id / url として配信する
+                state["companion_avatar_id"] = partner_avatar_id
             next_state, next_status, _, _ = self._merge_output(
                 run, output, turn_number, state_override=state, epilogue=epilogue
             )
@@ -5883,6 +6009,7 @@ The objective must name a concrete target and an observable end condition that c
         input_kind: str,
         gift_id: str | None,
         epilogue: bool,
+        outfit_options: list[dict[str, Any]] | None = None,
     ) -> _TurnContexts:
         """1手番のLLMへ渡す文脈を組み立てる。
 
@@ -5975,6 +6102,9 @@ The objective must name a concrete target and an observable end condition that c
             if state.get("companion_mode"):
                 script_names = romance_script_names(romance_sim, run.language)
                 turn_context["companion_mode"] = True
+                if outfit_options:
+                    # 着替え先の候補。物語生成と判定の両方が同じ一覧を見る
+                    turn_context["partner_wardrobe"] = _wardrobe_context(outfit_options)
                 if romance_resolution is not None:
                     # 対面会話モードには昼夜の枠が無い。判定結果は残し、
                     # 時間帯のキーだけを LLM から隠す
@@ -6005,6 +6135,7 @@ The objective must name a concrete target and an observable end condition that c
             appearance_lock=appearance_lock,
             previous_choice_key=_choice_label_key(state.get("choices")),
             script_names=script_names,
+            outfit_options=list(outfit_options or []) if script_names else [],
         )
 
     def _apply_partner_appearance_lock(
@@ -7283,6 +7414,13 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             result["partner_gesture"] = normalize_avatar_gesture(
                 state_delta.get("partner_gesture")
             )
+            # このターン確定時点の 3D モデル。着替えで切り替わった手番で FE が
+            # run 全体の再取得を待たずにモデルを差し替えるために配信する
+            turn_avatar_id = str(state_delta.get("companion_avatar_id") or "").strip()
+            result["companion_avatar_id"] = turn_avatar_id or None
+            result["companion_avatar_url"] = (
+                avatar_file_url(turn_avatar_id) if turn_avatar_id else None
+            )
             # このターン確定時点の攻略対象立ち絵。過去フレーム表示に使う
             partner_sprite = Path(str(state_delta.get("partner_portrait_path") or ""))
             result["partner_portrait_url"] = (
@@ -7444,6 +7582,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         # 宣言の追記や未反映付与の取り出しが走るため、必ずコピー上で組み立てる
         state = copy.deepcopy(_json_load(run.state_json, {}))
         epilogue = bool(state.get("epilogue"))
+        outfit_options = await self._companion_outfit_options(run, state)
         contexts = self._build_turn_contexts(
             run,
             state,
@@ -7451,6 +7590,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             input_kind=input_kind,
             gift_id=gift_id,
             epilogue=epilogue,
+            outfit_options=outfit_options,
         )
         romance = contexts.romance_sim is not None
         turn_user_prompt = json.dumps(contexts.turn_context, ensure_ascii=False)
@@ -7477,6 +7617,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                     speech_rule=contexts.speech_rule,
                     romance=romance,
                     script_names=contexts.script_names,
+                    wardrobe=bool(contexts.outfit_options),
                 ),
                 "user": turn_user_prompt,
             },
@@ -7487,6 +7628,9 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                     narration_pronoun=contexts.narration_pronoun,
                     romance=romance,
                     companion=contexts.script_names is not None,
+                    outfit_keys=tuple(
+                        str(option["key"]) for option in contexts.outfit_options
+                    ),
                 ),
                 "user": turn_user_prompt,
             },

@@ -88,6 +88,28 @@ AVATAR_TALK_HEADER_INSTRUCTION: str = (
     "else; the spoken words must not repeat it."
 )
 
+# 衣装差分(同じキャラクターとして登録した VRM が 2 件以上)があるときだけ、
+# 物語生成へ載せる指示。着替えは player_input か場面が求めたときに限る
+AVATAR_WARDROBE_NARRATIVE_INSTRUCTION: str = (
+    "partner_wardrobe lists the looks (outfit and hairstyle variants of the "
+    "partner's 3D model) the partner can wear: partner_wardrobe.current is what "
+    "the partner is wearing right now and partner_wardrobe.options are the only "
+    "other looks available. The partner changes clothes or hairstyle only when "
+    "player_input asks for it or the scene plainly calls for it (bathing, "
+    "swimming, dressing up to go out); when that happens, pick one option and "
+    "describe the partner in it so the new look is recognizable from its label. "
+    "Otherwise keep the current look and never mention the list itself."
+)
+
+# 判定(resolution)プロンプトへ載せる指示。衣装差分があるときだけ使う
+AVATAR_WARDROBE_RESOLUTION_INSTRUCTION: str = (
+    "partner_outfit is the key of the partner_wardrobe option the partner is "
+    "wearing at the end of this turn's narrative, exactly one of: {keys}. "
+    "partner_wardrobe.current.key is what the partner wore before this turn: "
+    "keep that key unless the narrative clearly shows the partner now in "
+    "different clothes or a different hairstyle that matches another option."
+)
+
 # 先頭ヘッダ行。改行が無い・カンマ区切り・大文字でも受ける
 TALK_HEADER_RE = re.compile(
     r"^\s*\[\s*expression\s*=\s*([A-Za-z_\-]+)\s*[,\s]\s*gesture\s*=\s*([A-Za-z_\-]+)"
@@ -123,19 +145,42 @@ def avatar_talk_header_instruction() -> str:
     )
 
 
+def avatar_wardrobe_narrative_instruction() -> str:
+    return AVATAR_WARDROBE_NARRATIVE_INSTRUCTION
+
+
+def avatar_wardrobe_resolution_instruction(keys: tuple[str, ...]) -> str:
+    return AVATAR_WARDROBE_RESOLUTION_INSTRUCTION.format(keys=", ".join(keys))
+
+
+def normalize_avatar_outfit_key(value: object) -> str | None:
+    """LLM が返した衣装キーを文字列に整える。空・非文字列相当は None。"""
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
+    text = str(value).strip()
+    return text[:80] if text else None
+
+
 __all__ = [
     "AVATAR_EXPRESSIONS",
     "AVATAR_EXPRESSION_DEFAULT",
     "AVATAR_GESTURES",
     "AVATAR_GESTURE_DEFAULT",
+    "AVATAR_WARDROBE_NARRATIVE_INSTRUCTION",
+    "AVATAR_WARDROBE_RESOLUTION_INSTRUCTION",
     "TALK_HEADER_RE",
     "avatar_expression_keys",
     "avatar_gesture_keys",
     "avatar_resolution_instruction",
     "avatar_talk_header_instruction",
+    "avatar_wardrobe_narrative_instruction",
+    "avatar_wardrobe_resolution_instruction",
     "get_avatar_expression_guide",
     "get_avatar_gesture_guide",
     "normalize_avatar_expression",
     "normalize_avatar_gesture",
+    "normalize_avatar_outfit_key",
     "parse_talk_header",
 ]

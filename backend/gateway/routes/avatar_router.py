@@ -1,4 +1,4 @@
-"""3D アバター(VRM)の登録・一覧・改名・削除・配信 API。"""
+"""3D アバター(VRM)の登録・一覧・更新(改名/キャラクター分類)・削除・配信 API。"""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import logging
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from ..databases.base import async_session_factory
 from ..services import avatar_service
@@ -19,8 +19,22 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/avatars", tags=["avatars"])
 
 
-class AvatarRenameRequest(BaseModel):
-    name: str = Field(min_length=1, max_length=AVATAR_NAME_MAX_LEN)
+class AvatarUpdateRequest(BaseModel):
+    """None の項目は据え置き。character_name / variant_label は空文字で解除。"""
+
+    name: str | None = Field(default=None, min_length=1, max_length=AVATAR_NAME_MAX_LEN)
+    character_name: str | None = Field(default=None, max_length=AVATAR_NAME_MAX_LEN)
+    variant_label: str | None = Field(default=None, max_length=AVATAR_NAME_MAX_LEN)
+
+    @model_validator(mode="after")
+    def require_any_field(self) -> AvatarUpdateRequest:
+        if (
+            self.name is None
+            and self.character_name is None
+            and self.variant_label is None
+        ):
+            raise ValueError("no fields to update")
+        return self
 
 
 def _http_error(error: AvatarError) -> HTTPException:
@@ -40,6 +54,11 @@ async def upload_avatar(
     request: Request,
     file: UploadFile = File(...),
     name: str | None = Form(default=None, max_length=AVATAR_NAME_MAX_LEN),
+    # 未指定ならファイル名 ``名前_衣装_….vrm`` から自動分類する。FastAPI は空の
+    # フォーム欄を未指定(None)に落とすため、「未分類で登録」は auto_classify=false
+    character_name: str | None = Form(default=None, max_length=AVATAR_NAME_MAX_LEN),
+    variant_label: str | None = Form(default=None, max_length=AVATAR_NAME_MAX_LEN),
+    auto_classify: bool = Form(default=True),
 ) -> dict:
     # 本体を読む前に Content-Length で明らかな超過を弾く(粗いゲート)
     declared = request.headers.get("content-length", "")
@@ -53,12 +72,35 @@ async def upload_avatar(
         )
     try:
         async with async_session_factory() as db:
-            model = await avatar_service.save_upload(db, file, name=name)
+            model = await avatar_service.save_upload(
+                db,
+                file,
+                name=name,
+                character_name=(
+                    character_name
+                    if character_name is not None or auto_classify
+                    else ""
+                ),
+                variant_label=variant_label,
+            )
     except AvatarError as error:
         raise _http_error(error) from error
     finally:
         await file.close()
     return avatar_service.serialize_avatar(model)
+
+
+@router.post("/auto-classify")
+async def auto_classify_avatars() -> dict:
+    """未設定の項目だけをモデル名の規則(``名前_衣装_…``)で埋める。設定済みは変えない。"""
+    async with async_session_factory() as db:
+        updated = await avatar_service.auto_classify_avatars(db)
+        models = await avatar_service.list_avatars(db)
+    return {
+        "updated": len(updated),
+        "updated_ids": [model.id for model in updated],
+        "items": [avatar_service.serialize_avatar(model) for model in models],
+    }
 
 
 @router.get("")
@@ -69,10 +111,16 @@ async def list_avatars() -> dict:
 
 
 @router.patch("/{avatar_id}")
-async def rename_avatar(avatar_id: str, request: AvatarRenameRequest) -> dict:
+async def update_avatar(avatar_id: str, request: AvatarUpdateRequest) -> dict:
     try:
         async with async_session_factory() as db:
-            model = await avatar_service.rename_avatar(db, avatar_id, request.name)
+            model = await avatar_service.update_avatar(
+                db,
+                avatar_id,
+                name=request.name,
+                character_name=request.character_name,
+                variant_label=request.variant_label,
+            )
     except AvatarError as error:
         raise _http_error(error) from error
     return avatar_service.serialize_avatar(model)

@@ -35,7 +35,11 @@ import {
   updateAdventureRealityRules,
   updateAdventureRunSettings,
 } from "../apis/adventure";
-import { type AvatarModel, listAvatarModels } from "../apis/avatars";
+import {
+  type AvatarModel,
+  avatarModelFileUrl,
+  listAvatarModels,
+} from "../apis/avatars";
 import {
   isV5ImageModel,
   V5_USAGE_WARN_SUPPRESSED_KEY,
@@ -339,6 +343,11 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
     setPendingUsageWarnTurn(null);
     setTalkDraft("");
     setPendingTalkInput(null);
+  }, [activeRun?.id]);
+
+  // 3D モデルの読込失敗は run の切替と割り当ての変更(手動・着替え)でやり直す
+  // biome-ignore lint/correctness/useExhaustiveDependencies: run と割り当ての変化を検知して失敗状態を戻すための依存
+  useEffect(() => {
     setCompanionAvatarFailed(false);
   }, [activeRun?.id, activeRun?.companion_avatar_id]);
 
@@ -423,6 +432,17 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
                       // romance の好感度ゲージはターン確定と同時に動かす。
                       // 最終整合はストリーム後の run 全再取得が担う
                       sim: turn.sim ?? current.sim,
+                      // 着替え(衣装差分の切替)は turn 到着と同時にモデルを差し替える。
+                      // 未設定(null)は据え置き(解除は設定変更だけが行う)
+                      ...(turn.companion_avatar_id &&
+                      turn.companion_avatar_id !== current.companion_avatar_id
+                        ? {
+                            companion_avatar_id: turn.companion_avatar_id,
+                            companion_avatar_url: avatarModelFileUrl(
+                              turn.companion_avatar_id,
+                            ),
+                          }
+                        : {}),
                     }
                   : current,
               );

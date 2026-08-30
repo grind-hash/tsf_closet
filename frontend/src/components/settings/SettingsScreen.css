@@ -380,3 +380,50 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* 折りたたみセクション(3Dモデル)。見出しはボタンで、閉じている間は下余白を消す */
+.settings-screen__section--collapsible.is-collapsed
+.settings-screen__section-title {
+  margin-bottom: 0;
+}
+
+.settings-screen__section-toggle {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.settings-screen__section-toggle:hover,
+.settings-screen__section-toggle:focus-visible {
+  color: var(--text-primary, #eee);
+  outline: none;
+}
+
+.settings-screen__section-chevron {
+  display: inline-block;
+  transition: transform 0.15s ease;
+}
+
+.settings-screen__section--collapsible.is-collapsed
+  .settings-screen__section-chevron {
+  transform: rotate(-90deg);
+}
+
+.settings-screen__section-summary {
+  margin-left: 0.5rem;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+  opacity: 0.85;
+}

@@ -1,3 +1,4 @@
+import { useCallback, useState } from "react";
 /**
  * SettingsScreen - 設定画面
  * 007-chat-interactive-ux
@@ -8,7 +9,9 @@ import { useSettings } from "../../contexts/SettingsContext";
 import type { HistoryLookbackTarget } from "../../utils/historyLookback";
 import MainLayout from "../layout/MainLayout";
 import { NovelaiUsageBar } from "../NovelaiUsageBar";
-import AvatarModelSettings from "./AvatarModelSettings";
+import AvatarModelSettings, {
+  type AvatarModelSummary,
+} from "./AvatarModelSettings";
 import MemorySettings from "./MemorySettings";
 import SelfProfileEditor from "./SelfProfileEditor";
 import SpeechSynthesisSettings from "./SpeechSynthesisSettings";
@@ -30,8 +33,41 @@ const HISTORY_LOOKBACK_TARGETS: Array<{
   },
 ];
 
+/** 3Dモデルセクションの開閉。モデルが増えると長くなるため既定は閉じる */
+const SETTINGS_AVATAR_SECTION_OPEN_KEY = "settings_avatar_section_open";
+
+function readAvatarSectionOpen(): boolean {
+  try {
+    return (
+      window.localStorage.getItem(SETTINGS_AVATAR_SECTION_OPEN_KEY) === "1"
+    );
+  } catch {
+    return false;
+  }
+}
+
 export default function SettingsScreen() {
   const { t } = useTranslation();
+  const [avatarSectionOpen, setAvatarSectionOpen] = useState(
+    readAvatarSectionOpen,
+  );
+  const [avatarSummary, setAvatarSummary] = useState<AvatarModelSummary | null>(
+    null,
+  );
+  const toggleAvatarSection = useCallback(() => {
+    setAvatarSectionOpen((current) => {
+      const next = !current;
+      try {
+        window.localStorage.setItem(
+          SETTINGS_AVATAR_SECTION_OPEN_KEY,
+          next ? "1" : "0",
+        );
+      } catch {
+        // 保存できなくても開閉は続行する
+      }
+      return next;
+    });
+  }, []);
   const {
     state,
     setDifficulty,
@@ -560,21 +596,6 @@ export default function SettingsScreen() {
             <SpeechSynthesisSettings />
           </section>
 
-          {/* 3Dモデル(VRM): TSFシナリオの対面会話モードで使う */}
-          <section className="settings-screen__section">
-            <h2 className="settings-screen__section-title">
-              {t("settings.avatar.sectionTitle")}
-              <span
-                className="feature-chip-experimental"
-                data-feature-version="v0.7.0"
-                style={{ marginLeft: "0.5rem" }}
-              >
-                Experimental
-              </span>
-            </h2>
-            <AvatarModelSettings />
-          </section>
-
           {/* 通知設定 */}
           <section className="settings-screen__section">
             <h2 className="settings-screen__section-title">
@@ -972,6 +993,51 @@ export default function SettingsScreen() {
                   {t("settings.experimentalPlayMemoryWarning")}
                 </p>
               )}
+            </div>
+          </section>
+
+          {/* 3Dモデル(VRM): TSFシナリオの対面会話モードで使う。モデルが増えると
+              一覧が長くなるため既定で閉じ、最下部(リセットの手前)に置く。閉じて
+              いる間も中身は DOM に残し(hidden)、見出しの要約(件数)を出す */}
+          <section
+            className={`settings-screen__section settings-screen__section--collapsible${
+              avatarSectionOpen ? " is-open" : " is-collapsed"
+            }`}
+          >
+            <h2 className="settings-screen__section-title">
+              <button
+                type="button"
+                className="settings-screen__section-toggle"
+                aria-expanded={avatarSectionOpen}
+                aria-controls="settings-avatar-section"
+                data-testid="settings-avatar-toggle"
+                onClick={toggleAvatarSection}
+              >
+                <span className="settings-screen__section-chevron" aria-hidden>
+                  ▾
+                </span>
+                {t("settings.avatar.sectionTitle")}
+                <span
+                  className="feature-chip-experimental"
+                  data-feature-version="v0.7.0"
+                  style={{ marginLeft: "0.5rem" }}
+                >
+                  Experimental
+                </span>
+                {avatarSummary !== null && (
+                  <span className="settings-screen__section-summary">
+                    {avatarSummary.total === 0
+                      ? t("settings.avatar.summaryEmpty")
+                      : t("settings.avatar.summary", {
+                          total: avatarSummary.total,
+                          characters: avatarSummary.characters,
+                        })}
+                  </span>
+                )}
+              </button>
+            </h2>
+            <div id="settings-avatar-section" hidden={!avatarSectionOpen}>
+              <AvatarModelSettings onSummaryChange={setAvatarSummary} />
             </div>
           </section>
 

@@ -308,6 +308,8 @@ const resources = {
           loadFailed:
             "3Dモデルの読み込みに失敗したため、立ち絵で表示します。設定画面で登録し直すか、別のモデルを選んでください。",
           deletedModel: "（削除済みのモデル）",
+          wardrobeHint:
+            "「{{character}}」には衣装差分が{{total}}種あります。着替えの場面では、本文に合わせてモデルが切り替わります（設定画面の「3Dモデル」で分類を変えられます）。",
         },
         companion: {
           turnLabel: "ターン",
@@ -837,10 +839,43 @@ const resources = {
           sectionTitle: "3Dモデル (VRM)",
           description:
             "TSFシナリオの対面会話モードで、攻略対象の代わりに表示する3Dモデルを登録します。対応形式はVRM（0.x / 1.0）だけです。FBXやPMXはUnity + UniVRMやBlenderのVRMアドオンでVRMに変換してから登録してください。モデルの利用条件は各配布元の規約に従ってください。",
-          dropZone: "ここにVRMファイルをドロップ、またはクリックして選択",
+          namingRule:
+            "同じキャラクターの衣装差分は、まとめて登録できます。ファイル名が「キャラクター名_衣装_髪型Ver.vrm」の形なら、最初の「_」までをキャラクター名として自動で分類します（例: サクラ_水着_髪束ねたVer.vrm → キャラクター「サクラ」、差分「水着 髪束ねたVer」）。分類はあとから各モデルの「キャラクターを編集」で付け替えられます。同じキャラクターの差分が2つ以上あると、対面会話モードで着替えの場面に合わせてモデルが切り替わります。",
+          dropZone:
+            "ここにVRMファイルをドロップ、またはクリックして選択（複数可）",
           dropActive: "ドロップして登録",
           uploading: "{{name}} を登録しています…",
+          uploadingProgress:
+            "{{name}} を登録しています…（{{index}}/{{total}}）",
+          uploadPartialFailure: "{{failed}}件の登録に失敗しました: {{names}}",
           empty: "登録済みの3Dモデルはありません。",
+          ungrouped: "キャラクター未設定",
+          variantCount: "{{total}}種の差分",
+          summary: "登録 {{total}}件・キャラクター {{characters}}",
+          summaryEmpty: "登録済みのモデルはありません",
+          showVariants: "差分を表示",
+          hideVariants: "差分を隠す",
+          autoClassify: "ファイル名から自動分類",
+          autoClassifyHint:
+            "モデル名（登録時のファイル名。VRMに名前が埋め込まれている場合はその名前）が「キャラクター名_衣装_髪型Ver」の形のモデルのうち、キャラクター未設定のものと差分の説明が空のものだけを分類します。設定済みの分類は変えません。",
+          autoClassifyDone: "{{total}}件を分類しました。",
+          autoClassifyNone:
+            "ファイル名から分類できるモデルはありませんでした。",
+          characterGroupHint:
+            "対面会話モードでは、着替えの場面に合わせてこの中からモデルが切り替わります。",
+          renameCharacter: "キャラクター名を変更",
+          renameCharacterPrompt:
+            "新しいキャラクター名（この{{total}}件すべてに適用）",
+          editCharacter: "キャラクターを編集",
+          modelName: "モデル名",
+          characterName: "キャラクター名",
+          characterNamePlaceholder: "空欄で未設定にする",
+          variantLabel: "差分の説明",
+          variantLabelPlaceholder: "例: 水着 髪束ねたVer",
+          variantLabelHint:
+            "着替え先を選ぶときの手掛かりになります。衣装と髪型が分かる短い言葉にしてください。",
+          save: "保存",
+          cancel: "キャンセル",
           author: "作者",
           license: "ライセンス",
           size: "サイズ",
@@ -2446,6 +2481,8 @@ const resources = {
           loadFailed:
             "The 3D model failed to load, so the sprite is shown instead. Re-register it in Settings or pick another model.",
           deletedModel: "(deleted model)",
+          wardrobeHint:
+            "“{{character}}” has {{total}} outfit variants. When the partner changes clothes in the story, the model switches to match (adjust the grouping under “3D models” in Settings).",
         },
         companion: {
           turnLabel: "Turn",
@@ -2975,10 +3012,42 @@ const resources = {
           sectionTitle: "3D models (VRM)",
           description:
             "Register 3D models shown instead of the partner in the TSF scenario face-to-face mode. Only VRM (0.x / 1.0) is supported. Convert FBX or PMX to VRM first (Unity + UniVRM, or the Blender VRM add-on). Follow each model's own license terms.",
-          dropZone: "Drop a VRM file here, or click to choose one",
+          namingRule:
+            "Outfit variants of the same character can be registered together. When a file is named “Character_Outfit_HairVer.vrm”, everything before the first “_” becomes the character name automatically (e.g. Sakura_Swimsuit_TiedHair.vrm → character “Sakura”, variant “Swimsuit TiedHair”). You can regroup any model later with “Edit character”. When a character has two or more variants, face-to-face mode switches the model to match the partner changing clothes.",
+          dropZone:
+            "Drop VRM files here, or click to choose (multiple allowed)",
           dropActive: "Drop to register",
           uploading: "Registering {{name}}…",
+          uploadingProgress: "Registering {{name}}… ({{index}}/{{total}})",
+          uploadPartialFailure:
+            "{{failed}} file(s) failed to register: {{names}}",
           empty: "No 3D models are registered.",
+          ungrouped: "No character set",
+          variantCount: "{{total}} variants",
+          summary: "{{total}} registered · {{characters}} characters",
+          summaryEmpty: "No models registered",
+          showVariants: "Show variants",
+          hideVariants: "Hide variants",
+          autoClassify: "Auto-classify from file names",
+          autoClassifyHint:
+            "For models whose name (the file name at registration, or the name embedded in the VRM) follows “Character_Outfit_HairVer”, fills in only a missing character or an empty variant description. Existing groupings are left unchanged.",
+          autoClassifyDone: "Classified {{total}} model(s).",
+          autoClassifyNone: "No model could be classified from its file name.",
+          characterGroupHint:
+            "In face-to-face mode the model switches among these when the partner changes clothes.",
+          renameCharacter: "Rename character",
+          renameCharacterPrompt:
+            "New character name (applies to all {{total}} models)",
+          editCharacter: "Edit character",
+          modelName: "Model name",
+          characterName: "Character name",
+          characterNamePlaceholder: "Leave empty to ungroup",
+          variantLabel: "Variant description",
+          variantLabelPlaceholder: "e.g. Swimsuit, tied hair",
+          variantLabelHint:
+            "Used as the hint for choosing the outfit to change into. Keep it short and describe the outfit and hairstyle.",
+          save: "Save",
+          cancel: "Cancel",
           author: "Author",
           license: "License",
           size: "Size",

@@ -15,7 +15,7 @@ from gateway.databases.base import Base
 from gateway.databases.models import AdventureRun, User
 from gateway.services.session import DEFAULT_USER_ID
 from gateway.settings.config import settings
-from tests.unit.test_avatar_service import VRM0_PAYLOAD, make_glb
+from tests.unit.test_avatar_service import NO_TITLE_PAYLOAD, VRM0_PAYLOAD, make_glb
 
 avatar_router_module = importlib.import_module("gateway.routes.avatar_router")
 adventure_service_module = importlib.import_module("gateway.services.adventure_service")
@@ -70,8 +70,25 @@ def test_upload_list_file_rename_delete(app: FastAPI, tmp_path: Path) -> None:
 
         resp = client.patch(f"/api/avatars/{avatar_id}", json={"name": "Renamed"})
         assert resp.status_code == 200 and resp.json()["name"] == "Renamed"
+        assert resp.json()["character_name"] is None
         resp = client.patch(f"/api/avatars/{avatar_id}", json={"name": ""})
         assert resp.status_code == 422
+        # 何も指定しない更新は 422
+        assert client.patch(f"/api/avatars/{avatar_id}", json={}).status_code == 422
+
+        # キャラクター分類の付け替え。未指定の name は据え置き
+        resp = client.patch(
+            f"/api/avatars/{avatar_id}",
+            json={"character_name": "サクラ", "variant_label": "水着"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["name"] == "Renamed"
+        assert resp.json()["character_name"] == "サクラ"
+        assert resp.json()["variant_label"] == "水着"
+        # 空文字で未分類へ戻す
+        resp = client.patch(f"/api/avatars/{avatar_id}", json={"character_name": ""})
+        assert resp.status_code == 200 and resp.json()["character_name"] is None
+        assert resp.json()["variant_label"] == "水着"
 
         resp = client.delete(f"/api/avatars/{avatar_id}")
         assert resp.status_code == 204
@@ -126,6 +143,75 @@ async def test_delete_detaches_avatar_from_adventure_runs(app: FastAPI) -> None:
     assert "companion_avatar_id" not in json.loads(using.state_json)
     assert json.loads(using.state_json)["companion_mode"] is True
     assert json.loads(other.state_json)["companion_avatar_id"] == "someone-else"
+
+
+def test_upload_classifies_character_from_filename(app: FastAPI) -> None:
+    """``名前_衣装_….vrm`` は同じキャラクターとして自動分類し、指定があれば従う。"""
+    glb = make_glb(VRM0_PAYLOAD, b"bin")
+    with TestClient(app) as client:
+        auto = client.post(
+            "/api/avatars",
+            files={"file": ("サクラ_水着_髪束ねたVer.vrm", glb, "model/gltf-binary")},
+        )
+        assert auto.status_code == 201, auto.text
+        assert auto.json()["character_name"] == "サクラ"
+        assert auto.json()["variant_label"] == "水着 髪束ねたVer"
+
+        # 空のフォーム欄は FastAPI が未指定に落とすため、未分類は auto_classify=false
+        forced = client.post(
+            "/api/avatars",
+            files={"file": ("サクラ_ドレス.vrm", glb, "model/gltf-binary")},
+            data={"auto_classify": "false"},
+        )
+        assert forced.status_code == 201, forced.text
+        assert forced.json()["character_name"] is None
+        assert forced.json()["variant_label"] is None
+
+        explicit = client.post(
+            "/api/avatars",
+            files={"file": ("plain.vrm", glb, "model/gltf-binary")},
+            data={"character_name": "サクラ", "variant_label": "制服"},
+        )
+        assert explicit.status_code == 201, explicit.text
+        assert explicit.json()["character_name"] == "サクラ"
+        assert explicit.json()["variant_label"] == "制服"
+
+        items = client.get("/api/avatars").json()["items"]
+        assert sorted(item["character_name"] or "" for item in items) == [
+            "",
+            "サクラ",
+            "サクラ",
+        ]
+
+
+def test_auto_classify_endpoint_updates_unset_models(app: FastAPI) -> None:
+    glb = make_glb(NO_TITLE_PAYLOAD, b"bin")
+    with TestClient(app) as client:
+        legacy = client.post(
+            "/api/avatars",
+            files={"file": ("サクラ_水着.vrm", glb, "model/gltf-binary")},
+            data={"auto_classify": "false"},
+        ).json()
+        assert legacy["character_name"] is None
+        decided = client.post(
+            "/api/avatars",
+            files={"file": ("サクラ_ドレス.vrm", glb, "model/gltf-binary")},
+            data={"character_name": "別名", "variant_label": "手入力"},
+        ).json()
+
+        resp = client.post("/api/avatars/auto-classify")
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["updated"] == 1 and body["updated_ids"] == [legacy["id"]]
+        by_id = {item["id"]: item for item in body["items"]}
+        assert by_id[legacy["id"]]["character_name"] == "サクラ"
+        assert by_id[legacy["id"]]["variant_label"] == "水着"
+        assert by_id[decided["id"]]["character_name"] == "別名"
+        assert by_id[decided["id"]]["variant_label"] == "手入力"
+
+        # 二度目は更新なし、一覧はそのまま返る
+        again = client.post("/api/avatars/auto-classify").json()
+        assert again["updated"] == 0 and len(again["items"]) == 2
 
 
 def test_upload_rejects_invalid_and_oversize(app: FastAPI, monkeypatch) -> None:

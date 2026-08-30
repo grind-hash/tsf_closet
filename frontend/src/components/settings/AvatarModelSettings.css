@@ -172,3 +172,184 @@
   font-size: 0.72rem;
   white-space: nowrap;
 }
+
+.avatar-settings__groups {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.avatar-settings__group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.avatar-settings__group-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+}
+
+.avatar-settings__group-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.avatar-settings__group.is-ungrouped .avatar-settings__group-title {
+  font-weight: 500;
+  opacity: 0.8;
+}
+
+.avatar-settings__group-count {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(120, 130, 150, 0.18);
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.avatar-settings__group-hint {
+  margin: 0;
+  font-size: 0.78rem;
+  opacity: 0.75;
+}
+
+.avatar-settings__subname {
+  font-size: 0.78rem;
+  opacity: 0.7;
+  overflow-wrap: anywhere;
+}
+
+.avatar-settings__edit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px 12px;
+  margin-top: 6px;
+  padding: 10px 12px;
+  border: 1px dashed rgba(140, 150, 165, 0.45);
+  border-radius: 8px;
+  background: rgba(120, 130, 150, 0.06);
+}
+
+.avatar-settings__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 1 180px;
+  min-width: 0;
+  font-size: 0.78rem;
+}
+
+.avatar-settings__field input {
+  padding: 6px 8px;
+  border: 1px solid rgba(140, 150, 165, 0.5);
+  border-radius: 6px;
+  background: rgba(20, 24, 32, 0.35);
+  color: inherit;
+  font: inherit;
+  font-size: 0.85rem;
+}
+
+.avatar-settings__field input:focus-visible {
+  outline: none;
+  border-color: #6aa9ff;
+}
+
+.avatar-settings__field-hint {
+  flex: 1 1 100%;
+  font-size: 0.74rem;
+  opacity: 0.7;
+}
+
+.avatar-settings__edit-actions {
+  display: inline-flex;
+  gap: 8px;
+}
+
+.avatar-settings__action--primary {
+  border-color: #6aa9ff;
+  background: rgba(106, 169, 255, 0.18);
+}
+
+.avatar-settings__action:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.avatar-settings__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+}
+
+.avatar-settings__toolbar .avatar-settings__action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.avatar-settings__toolbar-hint {
+  flex: 1 1 260px;
+  font-size: 0.74rem;
+  line-height: 1.5;
+  opacity: 0.7;
+}
+
+.avatar-settings__notice {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: rgba(106, 169, 255, 0.12);
+  color: #9ec5ff;
+  font-size: 0.85rem;
+}
+
+.avatar-settings__group-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px 2px 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.avatar-settings__group-toggle:hover,
+.avatar-settings__group-toggle:focus-visible {
+  color: #9ec5ff;
+  outline: none;
+}
+
+/* 開閉の矢印は装飾なので CSS で描き、見出しのテキストには含めない */
+.avatar-settings__group-toggle::before {
+  content: "▾";
+  display: inline-block;
+  font-size: 0.8rem;
+  opacity: 0.7;
+  transition: transform 0.15s ease;
+}
+
+.avatar-settings__group.is-collapsed .avatar-settings__group-toggle::before {
+  transform: rotate(-90deg);
+}
+
+.avatar-settings__group-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* display: flex が UA の hidden 既定(display: none)に勝つため明示する */
+.avatar-settings__group-body[hidden] {
+  display: none;
+}

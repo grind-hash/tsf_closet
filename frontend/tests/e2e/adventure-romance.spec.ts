@@ -1757,3 +1757,156 @@ test("companion avatar keeps the stage uncovered and reads the line at narrative
     });
   }
 });
+
+test("a turn in which the partner changes clothes switches the 3D model to the sibling variant", async ({
+  page,
+}) => {
+  await enableAdventure(page);
+  const companionOverrides = {
+    companion_mode: true,
+    companion_avatar_id: "av1",
+    companion_avatar_url: "/avatars/av1/file",
+  };
+  const companionRun = romanceRunPayload(0, companionOverrides);
+  await mockRomanceApis(page, companionRun);
+  // 同じキャラクター「サクラ」の衣装差分 2 件
+  const variant = (id: string, label: string) => ({
+    id,
+    name: "サクラ",
+    character_name: "サクラ",
+    variant_label: label,
+    file_size: 1024,
+    vrm_spec_version: "0",
+    meta: {
+      title: "サクラ",
+      author: "someone",
+      license: null,
+      license_url: null,
+      allowed_user: null,
+      commercial: null,
+    },
+    file_url: `/avatars/${id}/file`,
+    created_at: "2026-08-28T10:00:00",
+  });
+  await page.route("**/api/avatars", async (route) => {
+    await route.fulfill({
+      json: {
+        items: [
+          variant("av1", "水着 髪束ねたVer"),
+          variant("av2", "ドレス ロングヘアVer"),
+        ],
+      },
+    });
+  });
+  // モデルの読込は保留し、どのファイルが要求されたかだけを記録する
+  const fileRequests: string[] = [];
+  let releaseFiles: (() => void) | null = null;
+  const filesBlocked = new Promise<void>((resolve) => {
+    releaseFiles = resolve;
+  });
+  await page.route("**/api/avatars/*/file", async (route) => {
+    fileRequests.push(new URL(route.request().url()).pathname);
+    await filesBlocked;
+    await route.fulfill({
+      status: 404,
+      json: { detail: { code: "file_missing", message: "missing" } },
+    });
+  });
+  const narrative = "美咲は奥で着替えて戻ってきた。\n美咲「どう？似合う？」";
+  const turn = {
+    id: "turn-1",
+    turn_number: 1,
+    client_turn_id: "client-1",
+    user_input: "美咲に話しかける",
+    input_kind: "choice",
+    narrative,
+    location: "商店街の書店",
+    choices: companionRun.choices,
+    image_url: null,
+    image_status: "not_requested",
+    portrait_image_url: null,
+    portrait_status: "not_requested",
+    created_at: "2026-08-01T00:10:00",
+    run_status: "active",
+    remaining_turns: 13,
+    clues: [],
+    completed_milestones: [],
+    sim: simPayload({ affection: 13 }),
+    partner_expression: "happy",
+    partner_gesture: "bounce",
+    // 判定が「ドレス」を選んだ手番: この時点のモデルが turn に載る
+    companion_avatar_id: "av2",
+    companion_avatar_url: "/avatars/av2/file",
+  };
+  let turnDone = false;
+  const switchedOverrides = {
+    ...companionOverrides,
+    companion_avatar_id: "av2",
+    companion_avatar_url: "/avatars/av2/file",
+  };
+  await page.route("**/api/adventure/runs/run-1", async (route) => {
+    await route.fulfill({
+      json: turnDone
+        ? romanceRunPayload(1, { ...switchedOverrides, turns: [turn] })
+        : companionRun,
+    });
+  });
+  await page.route(
+    "**/api/adventure/runs/run-1/turns/stream",
+    async (route) => {
+      const body = route.request().postDataJSON() as Record<string, unknown>;
+      turnDone = true;
+      const payload = {
+        ...turn,
+        client_turn_id: String(body.client_turn_id ?? "client-1"),
+      };
+      await route.fulfill({
+        contentType: "text/event-stream",
+        body: `event: status\ndata: {"phase":"narrative"}\n\nevent: narrative_done\ndata: ${JSON.stringify(
+          { narrative },
+        )}\n\nevent: turn\ndata: ${JSON.stringify(payload)}\n\nevent: complete\ndata: {"status":"active"}\n\n`,
+      });
+    },
+  );
+
+  try {
+    await page.goto("/adventure/run-1");
+    const stage = page.locator(
+      ".adventure-stage__frame .adventure-avatar-stage",
+    );
+    await expect(stage).toBeVisible();
+    await expect.poll(() => fileRequests).toEqual(["/api/avatars/av1/file"]);
+
+    // ⚙ の選択肢はキャラクターごとの optgroup に差分ラベルで並び、差分の説明が出る
+    await page.getByRole("button", { name: "画像生成設定" }).click();
+    const popover = page.locator(".adventure-image-settings-popover");
+    const select = popover.locator(".adventure-setup-avatar select");
+    await expect(select).toHaveValue("av1");
+    await expect(select.locator("optgroup")).toHaveAttribute("label", "サクラ");
+    await expect(select.locator("option")).toHaveCount(3);
+    await expect(select.locator("optgroup option")).toContainText([
+      /Ver$/,
+      /Ver$/,
+    ]);
+    await expect(select).toContainText("水着 髪束ねたVer");
+    await expect(select).toContainText("ドレス ロングヘアVer");
+    await expect(popover).toContainText("「サクラ」には衣装差分が2種あります");
+    await page.getByRole("button", { name: "画像生成設定" }).click();
+
+    // 着替えた手番が届くと、run の再取得を待たずにモデルが差し替わる
+    await page.getByRole("button", { name: /美咲に話しかける/ }).click();
+    await expect(page.getByText("どう？似合う？")).toBeVisible();
+    await expect
+      .poll(() => fileRequests.includes("/api/avatars/av2/file"))
+      .toBe(true);
+    await expect(stage).toBeVisible();
+    await page.getByRole("button", { name: "画像生成設定" }).click();
+    await expect(
+      page.locator(
+        ".adventure-image-settings-popover .adventure-setup-avatar select",
+      ),
+    ).toHaveValue("av2");
+  } finally {
+    releaseFiles?.();
+  }
+});

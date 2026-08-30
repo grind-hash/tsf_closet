@@ -91,7 +91,7 @@
 | `apis/achievements.ts`    | 実績一覧/詳細                                                    |
 | `apis/anlas.ts`           | NovelAI Anlas残高                                                |
 | `apis/promptExpander.ts`  | PE 設定/セッション/エントリ/アップロード/拡張/生成/キャラ提案、`promptExpanderImageUrl` |
-| `apis/avatars.ts`         | 3D モデル(VRM)の一覧/アップロード(唯一の `FormData` 送信)/改名/削除、`avatarModelFileUrl`、`AvatarApiError.code`（`invalid_vrm` / `file_too_large`） |
+| `apis/avatars.ts`         | 3D モデル(VRM)の一覧/アップロード(唯一の `FormData` 送信。`uploadAvatarModel(file, {name?, characterName?, variantLabel?})`)/更新 `updateAvatarModel(id, {name?, character_name?, variant_label?})`（`renameAvatarModel` はその包み）/削除、`avatarModelFileUrl`、`AvatarApiError.code`（`invalid_vrm` / `file_too_large`）、一括分類 `autoClassifyAvatarModels`（`POST /auto-classify`）。衣装差分の表示補助 `groupAvatarModels`（キャラクター別、未分類は末尾、グループ内は差分ラベル順）/ `avatarVariantLabel` / `avatarDisplayName` / `classifyAvatarFilename`（backend の規則のミラー。編集フォームの事前入力用） |
 
 ## UI構成
 
@@ -160,7 +160,7 @@ components/
     PlayMemorySettings.tsx    セッションプレイメモ設定
     MemorySettings.tsx        ユーザーメモ生成/編集
     SpeechSynthesisSettings.tsx
-    AvatarModelSettings.tsx   3Dモデル(VRM)の登録(ドロップゾーン+隠し file input、スピナー)、一覧(名前・作者・ライセンス(リンク)・サイズ・登録日、行末に VRM 0.x/1.0 バッジとゴミ箱アイコン)、改名、削除確認
+    AvatarModelSettings.tsx   3Dモデル(VRM)の登録(ドロップゾーン+隠し file input `multiple`。複数ファイルを順に登録し、進捗 i/n をスピナーに出す。失敗分は飛ばして続ける)、キャラクター別のグループ表示(`groupAvatarModels`。見出しはキャラクター名の toggle ボタン(`aria-expanded`)・差分数・「キャラクター名を変更」(全件 PATCH)。キャラクターは既定で閉じ、開閉は localStorage `avatar_settings_group_open` に保持。未分類は末尾「キャラクター未設定」で常に展開。付け替え・自動分類で入ったグループは開く。`data-testid="avatar-group"`)、ドロップゾーン下のツールバー「ファイル名から自動分類」(`POST /api/avatars/auto-classify`。未設定の項目だけ埋め、結果を `role="status"` に出す)、親へ `onSummaryChange({total, characters})` で件数を知らせる(設定画面の見出し要約用)、各行に差分ラベル(未分類はモデル名)・モデル名(副次)・作者・ライセンス(リンク)・サイズ・登録日、行末に VRM 0.x/1.0 バッジとゴミ箱アイコン、「キャラクターを編集」でインライン編集(キャラクター名は既存名の datalist、差分の説明。未設定の欄は `classifyAvatarFilename(model.name)` で事前入力。空欄で解除。`data-testid="avatar-character-editor"`)、改名、削除確認。設定画面(`SettingsScreen`)では最下部(リセットの手前)の折りたたみセクションに置き、既定は閉じる(localStorage `settings_avatar_section_open`、`data-testid="settings-avatar-toggle"`、見出しに「登録 N件・キャラクター M」の要約)
     AvatarPreviewModal.tsx    登録済み VRM のプレビュー(表情 6 種・身振り 8 種を LLM 無しで確認。口は動かない)
     SelfProfileEditor.tsx
 ```
@@ -184,4 +184,4 @@ components/
 - Context単体テストは `frontend/src/contexts/tests/`、E2Eは `frontend/tests/e2e/`。
 - 主な対象E2E: `action-mode.spec.ts`、`image-only-preview.spec.ts`、`adventure-mode.spec.ts`、`adventure-portrait-alpha.spec.ts`、`prompt-expander.spec.ts`。
 - Adventure の台本形式ユーティリティは `utils/adventureDialogue.ts`（`parseDialogueSegments` / `partnerLines` / `joinForSpeech` / `stripStageDirections`）。対面会話モードの見積もりは `utils/adventureTurnTimeEstimate.ts` の `companionMode`。
-- 定数ミラー: `constants/promptExpander.ts`（画像モデル4種、キャラ上限 V5=22/V4.5=6、サイズ、漫画モードのコマ数/レイアウト/セリフ言語と `supportsMangaMode`、精密参照の種別/既定強度/`PROMPT_EXPANDER_ANLAS_PER_REFERENCE`/`PROMPT_EXPANDER_ANLAS_WARN_SUPPRESSED_KEY`/`supportsPreciseReference`、背景透過の `usesNativeTransparency`/`PROMPT_EXPANDER_ALPHA_OPTIONS`）。`V5_USAGE_WARN_SUPPRESSED_KEY` は `constants/novelaiImageModels.ts` に集約。`constants/companionAvatar.ts` は 3D モデルの表情 6 種・身振り 8 種で、backend `consts/companion_avatar.py` と完全一致させる（LLM に選ばせる語彙＝FE が実装している語彙）。
+- 定数ミラー: `constants/promptExpander.ts`（画像モデル4種、キャラ上限 V5=22/V4.5=6、サイズ、漫画モードのコマ数/レイアウト/セリフ言語と `supportsMangaMode`、精密参照の種別/既定強度/`PROMPT_EXPANDER_ANLAS_PER_REFERENCE`/`PROMPT_EXPANDER_ANLAS_WARN_SUPPRESSED_KEY`/`supportsPreciseReference`、背景透過の `usesNativeTransparency`/`PROMPT_EXPANDER_ALPHA_OPTIONS`）。`V5_USAGE_WARN_SUPPRESSED_KEY` は `constants/novelaiImageModels.ts` に集約。`constants/companionAvatar.ts` は 3D モデルの表情 6 種・身振り 8 種で、backend `consts/companion_avatar.py` と完全一致させる（LLM に選ばせる語彙＝FE が実装している語彙）。衣装差分のキー("1","2",…)は手番ごとにバックエンドが組み直すため FE に定数は無い。

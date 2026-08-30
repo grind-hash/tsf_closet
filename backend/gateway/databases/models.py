@@ -729,6 +729,13 @@ class AvatarModel(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
     name: Mapped[str] = mapped_column(String(80), nullable=False)
+    # 同じキャラクターの衣装差分をまとめるグループ名。空(None)は未分類。
+    # 登録時はファイル名 ``名前_衣装_….vrm`` から自動で入れ、最終的にはユーザーが
+    # 付け替える。run は個々のモデル ID を参照するため、付け替えても壊れない
+    character_name: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    # グループ内での差分の説明(「水着 髪束ねたVer」など)。LLM が着替え先を
+    # 選ぶときの手掛かりと、一覧・選択 UI の表示名に使う
+    variant_label: Mapped[str | None] = mapped_column(String(80), nullable=True)
     file_path: Mapped[str] = mapped_column(Text, nullable=False)
     file_size: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     # "0" (VRM 0.x) または "1" (VRM 1.0)
@@ -742,4 +749,7 @@ class AvatarModel(Base):
         default=func.current_timestamp(), nullable=False
     )
 
-    __table_args__ = (Index("idx_avatar_models_created", "created_at"),)
+    __table_args__ = (
+        Index("idx_avatar_models_created", "created_at"),
+        Index("idx_avatar_models_character", "character_name"),
+    )
