@@ -4,7 +4,29 @@ import {
   parseDialogueSegments,
   partnerLines,
   stripStageDirections,
+  stripTalkHeader,
 } from "./adventureDialogue";
+
+describe("stripTalkHeader", () => {
+  it("strips the canonical header line", () => {
+    expect(stripTalkHeader("[expression=happy gesture=nod]\nやっほー")).toBe(
+      "やっほー",
+    );
+  });
+
+  it("strips malformed shorthand headers the LLM sometimes emits", () => {
+    expect(stripTalkHeader("[surprised=tilt_head] えっと…")).toBe("えっと…");
+    expect(stripTalkHeader("[happy, wave_hand]やっほー")).toBe("やっほー");
+    expect(stripTalkHeader("[gesture: nod]うん")).toBe("うん");
+  });
+
+  it("keeps brackets that are not headers", () => {
+    expect(stripTalkHeader("[こんにちは] やっほー")).toBe(
+      "[こんにちは] やっほー",
+    );
+    expect(stripTalkHeader("やっほー")).toBe("やっほー");
+  });
+});
 
 describe("parseDialogueSegments", () => {
   it("splits name-prefixed lines into dialogue and merges narration", () => {

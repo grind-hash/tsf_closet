@@ -70,6 +70,7 @@ import {
   parseDialogueSegments,
   partnerLines,
   stripStageDirections,
+  stripTalkHeader,
 } from "../../utils/adventureDialogue";
 import {
   ADVENTURE_PROGRESS_BUDGET_MS,
@@ -2584,7 +2585,7 @@ function AdventurePlay({ runId }: { runId: string }) {
     if (!previous || previous.runId !== activeRun.id) return;
     if (!lastPartner || previous.entryId === lastPartner.id) return;
     if (!voiceCanSpeak) return;
-    const text = stripStageDirections(lastPartner.text);
+    const text = stripStageDirections(stripTalkHeader(lastPartner.text));
     if (text) void voiceSpeak(text, `talk:${lastPartner.id}`);
   }, [activeRun, voiceCanSpeak, voiceSpeak]);
 
@@ -3068,7 +3069,7 @@ function AdventurePlay({ runId }: { runId: string }) {
   // 🔊 の再読み上げ対象。トーク中は最新の返答、それ以外は表示中フレームのセリフ
   const voiceReplayText =
     talkMode && lastPartnerTalk
-      ? stripStageDirections(lastPartnerTalk.text)
+      ? stripStageDirections(stripTalkHeader(lastPartnerTalk.text))
       : joinForSpeech(partnerLines(activeNarrative, partnerName));
   const frameReplayKey = `frame:${selectedFrame?.key ?? "latest"}`;
   // 本文ストリーム中の手番は先読み(読み上げ(0))と同じキーにし、🔊 が先読みの
@@ -4487,7 +4488,11 @@ function AdventurePlay({ runId }: { runId: string }) {
                                 ? partnerName
                                 : playerDisplayName}
                             </span>
-                            <span>{entry.text}</span>
+                            <span>
+                              {entry.role === "partner"
+                                ? stripTalkHeader(entry.text)
+                                : entry.text}
+                            </span>
                           </p>
                         ))}
                         {pendingTalkInput !== null && (

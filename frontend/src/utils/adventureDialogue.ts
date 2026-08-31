@@ -6,6 +6,11 @@
  * 取り出す。地の文は括弧なしの行としてそのまま残す。
  */
 
+import {
+  normalizeAvatarExpression,
+  normalizeAvatarGesture,
+} from "../constants/companionAvatar";
+
 export interface DialogueSegment {
   kind: "narration" | "dialogue";
   /** dialogue のときの話者名 */
@@ -94,4 +99,30 @@ export function stripStageDirections(text: string): string {
     .replace(/[「」『』]/g, "")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+/** トーク返答の先頭ヘッダの角括弧ブロック(1行・120文字まで) */
+const TALK_HEADER_BLOCK_RE = /^\s*\[([^[\]\n]{1,120})\]\s*/;
+const TALK_HEADER_LABEL_RE = /(?:expression|gesture)\s*[=:]/i;
+const TALK_HEADER_TOKEN_RE = /[A-Za-z][A-Za-z_-]*/g;
+
+/**
+ * トーク返答の先頭ヘッダをセリフから取り除く。バックエンドの
+ * parse_talk_header と同じ規則で、正規形([expression=.. gesture=..])に加え
+ * LLM が略記した変形([surprised=tilt_head] 等)も受ける。剥がし損ねて
+ * 保存されたログの表示・読み上げ前の防御に使う。語彙もラベルも含まない
+ * 角括弧はセリフの一部として残す
+ */
+export function stripTalkHeader(text: string): string {
+  const match = TALK_HEADER_BLOCK_RE.exec(text);
+  if (!match) return text;
+  const body = match[1];
+  const tokens = body.match(TALK_HEADER_TOKEN_RE) ?? [];
+  const hasVocab = tokens.some(
+    (token) =>
+      normalizeAvatarExpression(token) !== null ||
+      normalizeAvatarGesture(token) !== null,
+  );
+  if (!TALK_HEADER_LABEL_RE.test(body) && !hasVocab) return text;
+  return text.slice(match[0].length);
 }

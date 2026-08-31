@@ -59,6 +59,24 @@ def test_parse_talk_header_variants() -> None:
         None,
         "hi",
     )
+    # 略記・変形ヘッダも受ける([<表情>=<身振り>] や値だけの列挙)
+    assert parse_talk_header("[surprised=tilt_head] えっと…") == (
+        "surprised",
+        "tilt_head",
+        "えっと…",
+    )
+    assert parse_talk_header("[happy, wave_hand]\nやっほー") == (
+        "happy",
+        "wave_hand",
+        "やっほー",
+    )
+    assert parse_talk_header("[gesture: nod]\nうん") == (None, "nod", "うん")
+    # 語彙もラベルも含まない角括弧はセリフとして残す
+    assert parse_talk_header("[こんにちは] やっほー") == (
+        None,
+        None,
+        "[こんにちは] やっほー",
+    )
     # ヘッダが無ければそのまま
     assert parse_talk_header("やっほー") == (None, None, "やっほー")
     assert parse_talk_header("") == (None, None, "")
