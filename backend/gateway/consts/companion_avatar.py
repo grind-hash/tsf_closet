@@ -31,6 +31,16 @@ AVATAR_GESTURES: dict[str, str] = {
     "lean_back": "pulling back, startled, shy, or hesitant",
     "look_away": "turning the face away, embarrassed or sulking",
     "bounce": "a light happy bounce of excitement",
+    "bow": "a polite bow for greetings, thanks, or apology",
+    "look_down": "lowering the gaze, shy, sad, or lost in thought",
+    "perk_up": "straightening up suddenly, alert or realizing something",
+    "shrink": "curling up small, anxious, guilty, or apologetic",
+    "sway": "swaying side to side, happy, playful, or humming",
+    "double_bounce": "bouncing twice, thrilled and unable to stay still",
+    "wave_hand": "waving one hand, a friendly hello or goodbye",
+    "raise_hand": "raising one hand high, volunteering or eager agreement",
+    "reach_out": "reaching one hand toward you, offering, inviting, or worried",
+    "cheer": "throwing both arms up in celebration or triumph",
 }
 
 AVATAR_EXPRESSION_DEFAULT = "neutral"

@@ -9,6 +9,8 @@ import {
   type ArmSide,
   type AxisAngle,
   addPose,
+  armChannels,
+  axisBetween,
   BLINK_CLOSE_SEC,
   BLINK_OPEN_SEC,
   BLINK_TOTAL_SEC,
@@ -69,14 +71,36 @@ describe("avatarMotion clips", () => {
     }
   });
 
-  it("keeps every sample finite and within +-0.5", () => {
+  it("keeps every sample finite and within its channel limit", () => {
+    // 回転はラジアン、hips はメートル。腕系は振り上げがあるため上限が大きい
+    const limits: Record<keyof PoseOffsets, number> = {
+      headPitch: 0.5,
+      headYaw: 0.5,
+      headRoll: 0.5,
+      spinePitch: 0.5,
+      spineYaw: 0.5,
+      spineRoll: 0.5,
+      hipsY: 0.06,
+      hipsX: 0.06,
+      armLift: 0.3,
+      armLiftL: 2,
+      armLiftR: 2,
+      armForwardL: 1.5,
+      armForwardR: 1.5,
+      elbowL: 0.6,
+      elbowR: 0.6,
+      elbowUpL: 2,
+      elbowUpR: 2,
+      palmTurnL: 2,
+      palmTurnR: 2,
+    };
     for (const key of CLIP_KEYS) {
       for (let step = 0; step <= 20; step++) {
         const pose = sampleGesture(key, step / 20);
         for (const channel of POSE_KEYS) {
           const value = pose[channel];
           expect(Number.isFinite(value)).toBe(true);
-          expect(Math.abs(value)).toBeLessThanOrEqual(0.5);
+          expect(Math.abs(value)).toBeLessThanOrEqual(limits[channel]);
         }
       }
     }
@@ -86,6 +110,25 @@ describe("avatarMotion clips", () => {
     expect(sampleGesture("nod", 0.3).headPitch).toBeCloseTo(0.35, 9);
     expect(sampleGesture("look_away", 0.5).headYaw).toBeCloseTo(0.45, 9);
     expect(GESTURE_CLIPS.look_away.releaseLookAt).toBe(true);
+  });
+
+  it("plays the new clips on their intended channels", () => {
+    expect(sampleGesture("bow", 0.45).spinePitch).toBeCloseTo(0.32, 9);
+    expect(GESTURE_CLIPS.bow.releaseLookAt).toBe(true);
+    expect(GESTURE_CLIPS.look_down.releaseLookAt).toBe(true);
+    expect(sampleGesture("wave_hand", 0.46).elbowUpR).toBeCloseTo(1.7, 9);
+    expect(sampleGesture("wave_hand", 0.46).armLiftR).toBeCloseTo(0.95, 9);
+    expect(sampleGesture("wave_hand", 0.46).palmTurnR).toBeCloseTo(1.4, 9);
+    expect(sampleGesture("raise_hand", 0.25).palmTurnR).toBeCloseTo(1.1, 9);
+    // 片腕の身振りは左腕を動かさない
+    expect(sampleGesture("wave_hand", 0.46).armLiftL).toBe(0);
+    expect(sampleGesture("raise_hand", 0.25).armLiftR).toBeCloseTo(1.75, 9);
+    expect(sampleGesture("raise_hand", 0.25).elbowR).toBeCloseTo(-0.2, 9);
+    expect(sampleGesture("reach_out", 0.5).armForwardR).toBeCloseTo(1.3, 9);
+    expect(sampleGesture("cheer", 0.22).armLiftL).toBeCloseTo(1.7, 9);
+    expect(sampleGesture("cheer", 0.22).armLiftR).toBeCloseTo(1.8, 9);
+    expect(sampleGesture("sway", 0.2).hipsX).toBeCloseTo(0.02, 9);
+    expect(sampleGesture("sway", 0.2).spineRoll).toBeCloseTo(0.1, 9);
   });
 
   it("does not mutate ZERO_POSE through returned poses", () => {
@@ -111,30 +154,42 @@ describe("avatarMotion idle and helpers", () => {
 
   it("adds poses channel-wise", () => {
     const sum = addPose(
-      {
-        headPitch: 1,
-        headYaw: 2,
-        headRoll: 3,
-        spinePitch: 4,
-        hipsY: 5,
-        armLift: 6,
-      },
-      {
-        headPitch: 10,
-        headYaw: 20,
-        headRoll: 30,
-        spinePitch: 40,
-        hipsY: 50,
-        armLift: 60,
-      },
+      { ...ZERO_POSE, headPitch: 1, spineYaw: 2, hipsX: 3, armLiftR: 4 },
+      { ...ZERO_POSE, headPitch: 10, spineYaw: 20, hipsX: 30, armLiftR: 40 },
     );
     expect(sum).toEqual({
+      ...ZERO_POSE,
       headPitch: 11,
-      headYaw: 22,
-      headRoll: 33,
-      spinePitch: 44,
-      hipsY: 55,
-      armLift: 66,
+      spineYaw: 22,
+      hipsX: 33,
+      armLiftR: 44,
+    });
+  });
+
+  it("splits pose channels per arm and adds the shared lift", () => {
+    const pose = {
+      ...ZERO_POSE,
+      armLift: 0.5,
+      armLiftL: 1,
+      armLiftR: 2,
+      armForwardR: 0.25,
+      elbowL: -0.2,
+      elbowUpR: 1.5,
+      palmTurnR: 0.75,
+    };
+    expect(armChannels(pose, "left")).toEqual({
+      lift: 1.5,
+      forward: 0,
+      elbow: -0.2,
+      elbowUp: 0,
+      palmTurn: 0,
+    });
+    expect(armChannels(pose, "right")).toEqual({
+      lift: 2.5,
+      forward: 0.25,
+      elbow: 0,
+      elbowUp: 1.5,
+      palmTurn: 0.75,
     });
   });
 
@@ -215,6 +270,22 @@ describe("avatarMotion rest pose geometry", () => {
     expect(tiltTowards([0, 0, 0], toward, 0.5)).toBeNull();
   });
 
+  it("derives a frontal-plane raise axis from the arm direction", () => {
+    for (const lateral of [1, -1]) {
+      const armDir: Vec3 = [lateral, 0, 0];
+      const axis = axisBetween(armDir, [0, 1, 0]);
+      expect(axis).not.toBeNull();
+      const raised = rotate(
+        armDir,
+        new Quaternion().setFromAxisAngle(new Vector3(...(axis as Vec3)), 1.2),
+      );
+      // 前腕は前額面内で持ち上がり、左右どちらの腕でも上を向く
+      expect(raised.y).toBeGreaterThan(0.8);
+      expect(Math.abs(raised.z)).toBeLessThan(1e-9);
+    }
+    expect(axisBetween([1, 0, 0], [2, 0, 0])).toBeNull();
+  });
+
   it("keeps the rest angles within a natural standing range", () => {
     for (const side of ["left", "right"] as const) {
       const angles = ARM_REST[side];
@@ -255,6 +326,23 @@ describe("avatarMotion rest pose geometry", () => {
       expect(forearmDir.z * facing).toBeGreaterThan(upperDir.z * facing);
       expect(forearmDir.y).toBeLessThan(-0.8);
     }
+  });
+
+  it.each(RIGS)("turns the palm toward the front for $label", ({ facing }) => {
+    const forward: Vec3 = [0, 0, facing];
+    const axis = axisBetween(DOWN, forward);
+    expect(axis).not.toBeNull();
+    // ひねり軸は rest の骨軸(±X)と平行 = 前腕まわりの純粋なひねり
+    expect(Math.abs((axis as Vec3)[0])).toBeCloseTo(1, 9);
+    // 手のひらの rest 法線(DOWN)が 90 度のひねりで前方を向く
+    const palm = rotate(
+      DOWN,
+      new Quaternion().setFromAxisAngle(
+        new Vector3(...(axis as Vec3)),
+        Math.PI / 2,
+      ),
+    );
+    expect(palm.z * facing).toBeGreaterThan(0.99);
   });
 
   it.each(RIGS)("curls fingers toward the palm for $label", ({ leftArmX }) => {
@@ -321,7 +409,7 @@ describe("avatarMotion facing and bone rotation", () => {
       rotateBy(pitch.head, UP).dot(new Vector3(...forward)),
     ).toBeGreaterThan(0.1);
     expect(
-      rotateBy([pitch.spineX, 0, 0], UP).dot(new Vector3(...forward)),
+      rotateBy(pitch.spine, UP).dot(new Vector3(...forward)),
     ).toBeGreaterThan(0.1);
     // 左向き: 顔の向きがモデルの左へ回る
     const yaw = poseToBoneRotation({ ...ZERO_POSE, headYaw: 0.3 }, facing);
@@ -333,10 +421,23 @@ describe("avatarMotion facing and bone rotation", () => {
     expect(rotateBy(roll.head, UP).dot(new Vector3(...left))).toBeGreaterThan(
       0.1,
     );
+    // 上体のひねり: 前方がモデルの左へ回る
+    const spinYaw = poseToBoneRotation({ ...ZERO_POSE, spineYaw: 0.3 }, facing);
+    expect(
+      rotateBy(spinYaw.spine, forward).dot(new Vector3(...left)),
+    ).toBeGreaterThan(0.1);
+    // 上体の傾げ: 上体の先端がモデルの左へ動く
+    const spinRoll = poseToBoneRotation(
+      { ...ZERO_POSE, spineRoll: 0.3 },
+      facing,
+    );
+    expect(
+      rotateBy(spinRoll.spine, UP).dot(new Vector3(...left)),
+    ).toBeGreaterThan(0.1);
     // 0 は 0 のまま(facing が -1 のとき -0 になるため絶対値で比べる)
     const zero = poseToBoneRotation(ZERO_POSE, facing);
     expect(zero.head.map(Math.abs)).toEqual([0, 0, 0]);
-    expect(Math.abs(zero.spineX)).toBe(0);
+    expect(zero.spine.map(Math.abs)).toEqual([0, 0, 0]);
   });
 
   it.each(
@@ -346,7 +447,7 @@ describe("avatarMotion facing and bone rotation", () => {
   }) => {
     const forwardZ = (key: AvatarGestureKey, f: Facing): number => {
       const rotation = poseToBoneRotation(sampleGesture(key, 0.5), f);
-      return rotateBy([rotation.spineX, 0, 0], UP).z * f;
+      return rotateBy(rotation.spine, UP).z * f;
     };
     expect(forwardZ("lean_forward", facing)).toBeGreaterThan(0.05);
     expect(forwardZ("lean_back", facing)).toBeLessThan(-0.05);

@@ -27,6 +27,16 @@ export const AVATAR_GESTURES = [
   "lean_back",
   "look_away",
   "bounce",
+  "bow",
+  "look_down",
+  "perk_up",
+  "shrink",
+  "sway",
+  "double_bounce",
+  "wave_hand",
+  "raise_hand",
+  "reach_out",
+  "cheer",
 ] as const;
 export type AvatarGestureKey = (typeof AVATAR_GESTURES)[number];
 

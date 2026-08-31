@@ -21,10 +21,36 @@ export interface PoseOffsets {
   headRoll: number;
   /** 上体の前後の傾き。正で前傾 */
   spinePitch: number;
+  /** 上体の左右のひねり。正で左向き */
+  spineYaw: number;
+  /** 上体の左右の傾げ。正で左肩側へ */
+  spineRoll: number;
   /** 腰の上下オフセット(メートル)。正で上 */
   hipsY: number;
+  /** 腰の左右オフセット(メートル)。正でモデルの左へ */
+  hipsX: number;
   /** 両腕を体側から持ち上げる角度。正で腕が体から離れる(待機姿勢に加算) */
   armLift: number;
+  /** 左腕だけを持ち上げる角度(armLift に加算) */
+  armLiftL: number;
+  /** 右腕だけを持ち上げる角度(armLift に加算) */
+  armLiftR: number;
+  /** 左腕を前方へ振る追加角。正で前へ */
+  armForwardL: number;
+  /** 右腕を前方へ振る追加角。正で前へ */
+  armForwardR: number;
+  /** 左肘の前方曲げの追加角。負で待機姿勢より伸ばす(0 未満には曲がらない) */
+  elbowL: number;
+  /** 右肘の前方曲げの追加角。負で待機姿勢より伸ばす(0 未満には曲がらない) */
+  elbowR: number;
+  /** 左前腕を前額面で上へ振り上げる角度(手を振る・挙手用)。0 以上 */
+  elbowUpL: number;
+  /** 右前腕を前額面で上へ振り上げる角度(手を振る・挙手用)。0 以上 */
+  elbowUpR: number;
+  /** 左前腕のひねり。正で手のひらがモデルの前方(視聴者側)を向く。0 以上 */
+  palmTurnL: number;
+  /** 右前腕のひねり。正で手のひらがモデルの前方(視聴者側)を向く。0 以上 */
+  palmTurnR: number;
 }
 
 export const POSE_KEYS: readonly (keyof PoseOffsets)[] = [
@@ -32,8 +58,21 @@ export const POSE_KEYS: readonly (keyof PoseOffsets)[] = [
   "headYaw",
   "headRoll",
   "spinePitch",
+  "spineYaw",
+  "spineRoll",
   "hipsY",
+  "hipsX",
   "armLift",
+  "armLiftL",
+  "armLiftR",
+  "armForwardL",
+  "armForwardR",
+  "elbowL",
+  "elbowR",
+  "elbowUpL",
+  "elbowUpR",
+  "palmTurnL",
+  "palmTurnR",
 ];
 
 export const ZERO_POSE: PoseOffsets = Object.freeze({
@@ -41,8 +80,21 @@ export const ZERO_POSE: PoseOffsets = Object.freeze({
   headYaw: 0,
   headRoll: 0,
   spinePitch: 0,
+  spineYaw: 0,
+  spineRoll: 0,
   hipsY: 0,
+  hipsX: 0,
   armLift: 0,
+  armLiftL: 0,
+  armLiftR: 0,
+  armForwardL: 0,
+  armForwardR: 0,
+  elbowL: 0,
+  elbowR: 0,
+  elbowUpL: 0,
+  elbowUpR: 0,
+  palmTurnL: 0,
+  palmTurnR: 0,
 });
 
 /** キーフレーム。t は 0..1 の正規化時刻、v は値 */
@@ -140,6 +192,12 @@ export const GESTURE_CLIPS: Record<
         [0.75, 0.45],
         [1, 0],
       ],
+      spineYaw: [
+        [0, 0],
+        [0.3, 0.12],
+        [0.75, 0.12],
+        [1, 0],
+      ],
     },
   },
   bounce: {
@@ -150,6 +208,297 @@ export const GESTURE_CLIPS: Record<
         [0.25, 0.03],
         [0.5, -0.005],
         [0.7, 0.015],
+        [1, 0],
+      ],
+    },
+  },
+  bow: {
+    duration: 1.8,
+    releaseLookAt: true,
+    keys: {
+      spinePitch: [
+        [0, 0],
+        [0.3, 0.32],
+        [0.65, 0.32],
+        [1, 0],
+      ],
+      headPitch: [
+        [0, 0],
+        [0.3, 0.22],
+        [0.65, 0.22],
+        [1, 0],
+      ],
+    },
+  },
+  look_down: {
+    duration: 1.6,
+    releaseLookAt: true,
+    keys: {
+      headPitch: [
+        [0, 0],
+        [0.3, 0.3],
+        [0.75, 0.3],
+        [1, 0],
+      ],
+      spinePitch: [
+        [0, 0],
+        [0.3, 0.05],
+        [0.75, 0.05],
+        [1, 0],
+      ],
+    },
+  },
+  perk_up: {
+    duration: 1.1,
+    keys: {
+      spinePitch: [
+        [0, 0],
+        [0.25, -0.1],
+        [0.7, -0.08],
+        [1, 0],
+      ],
+      headPitch: [
+        [0, 0],
+        [0.25, -0.08],
+        [0.7, -0.06],
+        [1, 0],
+      ],
+      hipsY: [
+        [0, 0],
+        [0.25, 0.012],
+        [0.7, 0.008],
+        [1, 0],
+      ],
+    },
+  },
+  shrink: {
+    duration: 1.8,
+    keys: {
+      hipsY: [
+        [0, 0],
+        [0.35, -0.03],
+        [0.75, -0.03],
+        [1, 0],
+      ],
+      spinePitch: [
+        [0, 0],
+        [0.35, 0.14],
+        [0.75, 0.14],
+        [1, 0],
+      ],
+      headPitch: [
+        [0, 0],
+        [0.35, 0.18],
+        [0.75, 0.18],
+        [1, 0],
+      ],
+      armLift: [
+        [0, 0],
+        [0.35, -0.03],
+        [0.75, -0.03],
+        [1, 0],
+      ],
+    },
+  },
+  sway: {
+    duration: 2.4,
+    keys: {
+      spineRoll: [
+        [0, 0],
+        [0.2, 0.1],
+        [0.5, -0.1],
+        [0.8, 0.1],
+        [1, 0],
+      ],
+      hipsX: [
+        [0, 0],
+        [0.2, 0.02],
+        [0.5, -0.02],
+        [0.8, 0.02],
+        [1, 0],
+      ],
+      headRoll: [
+        [0, 0],
+        [0.2, -0.05],
+        [0.5, 0.05],
+        [0.8, -0.05],
+        [1, 0],
+      ],
+    },
+  },
+  double_bounce: {
+    duration: 1.3,
+    keys: {
+      hipsY: [
+        [0, 0],
+        [0.18, 0.03],
+        [0.34, -0.004],
+        [0.5, 0.028],
+        [0.66, -0.003],
+        [0.82, 0.012],
+        [1, 0],
+      ],
+      armLift: [
+        [0, 0],
+        [0.18, 0.12],
+        [0.5, 0.1],
+        [0.82, 0.04],
+        [1, 0],
+      ],
+    },
+  },
+  wave_hand: {
+    duration: 2.2,
+    keys: {
+      armLiftR: [
+        [0, 0],
+        [0.14, 0.95],
+        [0.82, 0.95],
+        [1, 0],
+      ],
+      armForwardR: [
+        [0, 0],
+        [0.14, 0.15],
+        [0.82, 0.15],
+        [1, 0],
+      ],
+      elbowUpR: [
+        [0, 0],
+        [0.14, 1.5],
+        [0.3, 1.1],
+        [0.46, 1.7],
+        [0.62, 1.1],
+        [0.82, 1.5],
+        [1, 0],
+      ],
+      palmTurnR: [
+        [0, 0],
+        [0.14, 1.4],
+        [0.82, 1.4],
+        [1, 0],
+      ],
+      headRoll: [
+        [0, 0],
+        [0.2, 0.06],
+        [0.8, 0.06],
+        [1, 0],
+      ],
+    },
+  },
+  raise_hand: {
+    duration: 1.6,
+    keys: {
+      armLiftR: [
+        [0, 0],
+        [0.25, 1.75],
+        [0.7, 1.7],
+        [1, 0],
+      ],
+      elbowUpR: [
+        [0, 0],
+        [0.25, 0.35],
+        [0.7, 0.3],
+        [1, 0],
+      ],
+      palmTurnR: [
+        [0, 0],
+        [0.25, 1.1],
+        [0.7, 1.05],
+        [1, 0],
+      ],
+      elbowR: [
+        [0, 0],
+        [0.25, -0.2],
+        [0.7, -0.2],
+        [1, 0],
+      ],
+      spinePitch: [
+        [0, 0],
+        [0.25, -0.05],
+        [0.7, -0.05],
+        [1, 0],
+      ],
+    },
+  },
+  reach_out: {
+    duration: 2,
+    keys: {
+      armForwardR: [
+        [0, 0],
+        [0.35, 1.3],
+        [0.7, 1.3],
+        [1, 0],
+      ],
+      armLiftR: [
+        [0, 0],
+        [0.35, 0.15],
+        [0.7, 0.15],
+        [1, 0],
+      ],
+      elbowR: [
+        [0, 0],
+        [0.35, -0.25],
+        [0.7, -0.25],
+        [1, 0],
+      ],
+      spinePitch: [
+        [0, 0],
+        [0.35, 0.08],
+        [0.7, 0.08],
+        [1, 0],
+      ],
+    },
+  },
+  cheer: {
+    duration: 1.7,
+    keys: {
+      armLiftL: [
+        [0, 0],
+        [0.22, 1.7],
+        [0.7, 1.6],
+        [1, 0],
+      ],
+      armLiftR: [
+        [0, 0],
+        [0.22, 1.8],
+        [0.7, 1.7],
+        [1, 0],
+      ],
+      elbowUpL: [
+        [0, 0],
+        [0.22, 0.3],
+        [0.7, 0.25],
+        [1, 0],
+      ],
+      elbowUpR: [
+        [0, 0],
+        [0.22, 0.25],
+        [0.7, 0.2],
+        [1, 0],
+      ],
+      palmTurnL: [
+        [0, 0],
+        [0.22, 0.7],
+        [0.7, 0.65],
+        [1, 0],
+      ],
+      palmTurnR: [
+        [0, 0],
+        [0.22, 0.75],
+        [0.7, 0.7],
+        [1, 0],
+      ],
+      hipsY: [
+        [0, 0],
+        [0.15, 0.025],
+        [0.35, -0.003],
+        [0.55, 0.015],
+        [1, 0],
+      ],
+      headPitch: [
+        [0, 0],
+        [0.22, -0.08],
+        [0.7, -0.06],
         [1, 0],
       ],
     },
@@ -217,7 +566,7 @@ export function sampleGesture(
 export function idlePose(timeSec: number): PoseOffsets {
   const breath = Math.sin((TWO_PI * timeSec) / 3.5);
   return {
-    headPitch: 0,
+    ...ZERO_POSE,
     headYaw: 0.03 * Math.sin((TWO_PI * timeSec) / 7),
     headRoll: 0.015 * Math.sin((TWO_PI * timeSec) / 11),
     spinePitch: 0.015 * breath,
@@ -227,14 +576,9 @@ export function idlePose(timeSec: number): PoseOffsets {
 }
 
 export function addPose(a: PoseOffsets, b: PoseOffsets): PoseOffsets {
-  return {
-    headPitch: a.headPitch + b.headPitch,
-    headYaw: a.headYaw + b.headYaw,
-    headRoll: a.headRoll + b.headRoll,
-    spinePitch: a.spinePitch + b.spinePitch,
-    hipsY: a.hipsY + b.hipsY,
-    armLift: a.armLift + b.armLift,
-  };
+  const sum: PoseOffsets = { ...a };
+  for (const key of POSE_KEYS) sum[key] = a[key] + b[key];
+  return sum;
 }
 
 /* ------------------------------------------------------------------------ */
@@ -262,8 +606,8 @@ export function detectFacing(
 export interface BoneRotations {
   /** 頭の Euler 角(XYZ 順、ラジアン) */
   head: Vec3;
-  /** 背骨の X 軸回りの回転(ラジアン) */
-  spineX: number;
+  /** 背骨の Euler 角(XYZ 順、ラジアン) */
+  spine: Vec3;
 }
 
 /**
@@ -279,7 +623,7 @@ export function poseToBoneRotation(
 ): BoneRotations {
   return {
     head: [facing * pose.headPitch, pose.headYaw, -facing * pose.headRoll],
-    spineX: facing * pose.spinePitch,
+    spine: [facing * pose.spinePitch, pose.spineYaw, -facing * pose.spineRoll],
   };
 }
 
@@ -301,6 +645,9 @@ export interface AxisAngle {
  * ため、この向きは腕・指どのボーンの局所系でも同じ意味を持つ
  */
 export const DOWN: Vec3 = [0, -1, 0];
+
+/** rest ポーズにおける「上」。DOWN と同様、どのボーンの局所系でも同じ意味を持つ */
+export const UP: Vec3 = [0, 1, 0];
 
 export function cross(a: Vec3, b: Vec3): Vec3 {
   return [
@@ -328,9 +675,14 @@ export function tiltTowards(
   toward: Vec3,
   angle: number,
 ): AxisAngle | null {
-  const axis = normalize(cross(from, toward));
+  const axis = axisBetween(from, toward);
   if (!axis) return null;
   return { axis, angle };
+}
+
+/** from を toward の側へ倒す回転軸(from × toward の単位ベクトル)。平行なら null */
+export function axisBetween(from: Vec3, toward: Vec3): Vec3 | null {
+  return normalize(cross(from, toward));
 }
 
 export type ArmSide = "left" | "right";
@@ -352,6 +704,40 @@ export const ARM_REST: Record<ArmSide, ArmRestAngles> = {
   left: { lower: 1.3, forward: 0.07, bend: 0.28 },
   right: { lower: 1.3, forward: 0.09, bend: 0.34 },
 };
+
+/** 片腕ぶんの姿勢チャンネル。PoseOffsets から左右いずれかを取り出したもの */
+export interface ArmChannels {
+  /** 体側から持ち上げる角度(armLift + 片腕ぶん) */
+  lift: number;
+  /** 前方へ振る追加角 */
+  forward: number;
+  /** 肘の前方曲げの追加角 */
+  elbow: number;
+  /** 前腕を前額面で上へ振り上げる角度 */
+  elbowUp: number;
+  /** 前腕のひねり。正で手のひらが前方を向く */
+  palmTurn: number;
+}
+
+/** 姿勢オフセットから片腕ぶんのチャンネルを取り出す */
+export function armChannels(pose: PoseOffsets, side: ArmSide): ArmChannels {
+  if (side === "left") {
+    return {
+      lift: pose.armLift + pose.armLiftL,
+      forward: pose.armForwardL,
+      elbow: pose.elbowL,
+      elbowUp: pose.elbowUpL,
+      palmTurn: pose.palmTurnL,
+    };
+  }
+  return {
+    lift: pose.armLift + pose.armLiftR,
+    forward: pose.armForwardR,
+    elbow: pose.elbowR,
+    elbowUp: pose.elbowUpR,
+    palmTurn: pose.palmTurnR,
+  };
+}
 
 export const FINGER_NAMES = [
   "thumb",
