@@ -1584,11 +1584,19 @@ test("companion avatar keeps the stage uncovered and reads the line at narrative
       json: { process: "running", engine_http: "ok", platform: "linux" },
     });
   });
-  await page.route("**/api/aivisspeech/synthesize", async (route) => {
+  // 3D モデル表示中の読み上げは viseme タイムライン付きの合成を使う
+  await page.route("**/api/aivisspeech/synthesize-timed", async (route) => {
     synthesizeBodies.push(
       route.request().postDataJSON() as Record<string, unknown>,
     );
-    await route.fulfill({ contentType: "audio/wav", body: silentWav() });
+    await route.fulfill({
+      json: {
+        audio_base64: silentWav().toString("base64"),
+        content_type: "audio/wav",
+        duration_sec: 0.2,
+        timeline: [{ t0: 0, t1: 0.2, viseme: "oh", w: 1 }],
+      },
+    });
   });
   await mockRomanceApis(page);
   await page.route("**/api/avatars", async (route) => {
@@ -1925,4 +1933,115 @@ test("a turn in which the partner changes clothes switches the 3D model to the s
   } finally {
     releaseFiles?.();
   }
+});
+
+test("talk mode voice input fills the field via speech recognition", async ({
+  page,
+}) => {
+  await enableAdventure(page);
+  await mockRomanceApis(page);
+  const talkBodies: Record<string, unknown>[] = [];
+  await page.route("**/api/adventure/runs/run-1/talk/stream", async (route) => {
+    talkBodies.push(route.request().postDataJSON() as Record<string, unknown>);
+    await route.fulfill({
+      contentType: "text/event-stream",
+      body: 'event: complete\ndata: {"status":"active"}\n\n',
+    });
+  });
+  // Playwright の Chromium では実サービスへ届かないため、偽の認識器を注入する
+  await page.addInitScript(() => {
+    class FakeSpeechRecognition {
+      lang = "";
+      interimResults = false;
+      continuous = false;
+      maxAlternatives = 1;
+      onresult: ((event: unknown) => void) | null = null;
+      onerror: ((event: { error?: string }) => void) | null = null;
+      onend: (() => void) | null = null;
+      start(): void {
+        (
+          window as unknown as { __fakeRecognition?: FakeSpeechRecognition }
+        ).__fakeRecognition = this;
+      }
+      abort(): void {
+        this.onend?.();
+      }
+    }
+    Object.defineProperty(window, "webkitSpeechRecognition", {
+      value: FakeSpeechRecognition,
+      configurable: true,
+    });
+    Object.defineProperty(window, "SpeechRecognition", {
+      value: undefined,
+      configurable: true,
+    });
+  });
+  await page.goto("/adventure/run-1");
+  await page.getByRole("button", { name: "トーク" }).click();
+
+  // 聞き取り中はラベルが「聞き取り中...」へ変わるため、クラスで参照する
+  const mic = page.locator(".adventure-freeinput__mic");
+  await expect(mic).toHaveAccessibleName("マイクで話す");
+  await expect(
+    page.getByRole("button", { name: "認識したらすぐ送る" }),
+  ).toBeVisible();
+  await mic.click();
+  await expect(mic).toHaveAttribute("aria-pressed", "true");
+
+  // 暫定テキストは入力欄へそのまま流れる
+  await page.evaluate(() => {
+    const holder = window as unknown as {
+      __fakeRecognition?: {
+        onresult?: (event: unknown) => void;
+      };
+    };
+    holder.__fakeRecognition?.onresult?.({
+      resultIndex: 0,
+      results: { 0: { isFinal: false, 0: { transcript: "やあ" } }, length: 1 },
+    });
+  });
+  await expect(page.getByLabel("美咲に話しかける")).toHaveValue("やあ");
+
+  // 確定テキストで置き換わり、聞き取りが終わる
+  await page.evaluate(() => {
+    const holder = window as unknown as {
+      __fakeRecognition?: {
+        onresult?: (event: unknown) => void;
+        onend?: () => void;
+      };
+    };
+    holder.__fakeRecognition?.onresult?.({
+      resultIndex: 0,
+      results: {
+        0: { isFinal: true, 0: { transcript: "やあ、元気？" } },
+        length: 1,
+      },
+    });
+    holder.__fakeRecognition?.onend?.();
+  });
+  await expect(page.getByLabel("美咲に話しかける")).toHaveValue("やあ、元気？");
+  await expect(mic).toHaveAttribute("aria-pressed", "false");
+  // 自動送信は既定 OFF なので、確認するまで送信されない
+  expect(talkBodies).toEqual([]);
+});
+
+test("talk mode hides the mic button when speech recognition is unavailable", async ({
+  page,
+}) => {
+  await enableAdventure(page);
+  await mockRomanceApis(page);
+  await page.addInitScript(() => {
+    Object.defineProperty(window, "webkitSpeechRecognition", {
+      value: undefined,
+      configurable: true,
+    });
+    Object.defineProperty(window, "SpeechRecognition", {
+      value: undefined,
+      configurable: true,
+    });
+  });
+  await page.goto("/adventure/run-1");
+  await page.getByRole("button", { name: "トーク" }).click();
+  await expect(page.getByLabel("美咲に話しかける")).toBeVisible();
+  await expect(page.locator(".adventure-freeinput__mic")).toHaveCount(0);
 });

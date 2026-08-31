@@ -2739,13 +2739,13 @@ button:disabled {
 }
 
 .adventure-freeinput {
-  display: grid;
+  display: flex;
   flex: 0 0 auto;
-  grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
 }
 
 .adventure-freeinput__field {
+  flex: 1 1 auto;
   min-width: 0;
   min-height: 36px;
   padding: 6px 10px;
@@ -2775,6 +2775,63 @@ button:disabled {
 .adventure-freeinput__submit:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+/* トークモードの音声入力(マイク)。聞き取り中はパルスで処理中と分かる見た目 */
+.adventure-freeinput__mic {
+  min-width: 40px;
+  min-height: 36px;
+  padding: 4px 10px;
+  border: 1px solid #4a535c;
+  border-radius: 6px;
+  color: #eef2f6;
+  background: #1c2228;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.adventure-freeinput__mic.is-listening {
+  border-color: #e06c75;
+  animation: adventure-mic-pulse 1.2s ease-in-out infinite;
+}
+
+.adventure-freeinput__mic:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+@keyframes adventure-mic-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgb(224 108 117 / 45%);
+  }
+
+  50% {
+    box-shadow: 0 0 0 6px rgb(224 108 117 / 0%);
+  }
+}
+
+.adventure-freeinput__autosend {
+  min-height: 36px;
+  padding: 4px 10px;
+  border: 1px solid #4a535c;
+  border-radius: 6px;
+  color: #9aa7b4;
+  background: #1c2228;
+  font-size: 0.72rem;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.adventure-freeinput__autosend.is-on {
+  border-color: rgb(239 184 90 / 55%);
+  color: #efb85a;
+}
+
+.adventure-freeinput__mic-error {
+  margin: 4px 0 0;
+  color: #e06c75;
+  font-size: 0.72rem;
 }
 
 .adventure-ending {

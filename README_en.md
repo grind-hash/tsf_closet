@@ -64,6 +64,16 @@ Give natural-language instructions to change character outfits and watch AI tran
 | **Share Preview**         | Save summary card as OGP-style image (1200×630) or copy to clipboard   |
 | **Inpaint / Masks**       | Partial outfit changes (system / history / preset masks)               |
 | **Character Chat**        | Chat with characters beyond dress-up instructions                      |
+| **TSF Scenario**          | Novel-game mode starting from a transformed state, with 5 mission types incl. romance sim (experimental) |
+| **Face-to-Face Mode**     | One turn = one exchange with the partner; 3D model (VRM) display and voice input (experimental) |
+| **Prompt Expander**       | Expand natural-language instructions into NovelAI prompts and generate images independently (experimental) |
+| **Speech Synthesis**      | Reads lines aloud via AivisSpeech (experimental)                       |
+| **NAI Diffusion V5**      | Per-NSFW/SFW model selection and remaining-usage display               |
+| **Memory**                | Preference memory (across plays) and play memory (within a play) feed generation |
+| **Favorite Outfits**      | Star history images, label them, and resume from the favorites tab     |
+| **Branch / Compare**      | Start a new session from any history image; Before/After slider        |
+| **Export**                | Save chat history as Markdown / novel-style HTML ZIP                   |
+| **Multiple Characters**   | Persistent appearances across sessions and character presets (experimental) |
 | **Multilingual**          | Japanese / English switching (with conversation language validation)   |
 
 ---
@@ -81,13 +91,17 @@ Give natural-language instructions to change character outfits and watch AI tran
 │  FastAPI Backend   │────▶│  Image Generation                │
 │  :8000             │     │  ├ ComfyUI (selfhost, GPU)       │
 │                    │     │  ├ OpenRouter API (cloud)         │
-│  ├ Game Router     │     │  └ NovelAI Image API             │
-│  ├ Gallery Router  │     └──────────────────────────────────┘
-│  ├ Achievements    │     ┌──────────────────────────────────┐
-│  ├ Settings Router │────▶│  LLM / Vision                   │
-│  └ Health          │     │  ├ LiteLLM → Ollama (selfhost)  │
-└────────────────────┘     │  ├ OpenRouter Vision / LLM      │
-                           │  └ NovelAI Text API              │
+│  ├ Game / Chars    │     │  └ NovelAI Image API             │
+│  ├ Adventure       │     └──────────────────────────────────┘
+│  ├ Prompt Expander │     ┌──────────────────────────────────┐
+│  ├ Gallery / Favs  │────▶│  LLM / Vision                   │
+│  ├ Achievements    │     │  ├ LiteLLM → Ollama (selfhost)  │
+│  ├ Memory          │     │  ├ OpenRouter Vision / LLM      │
+│  ├ Avatars (VRM)   │     │  └ NovelAI Text API              │
+│  ├ AivisSpeech     │     └──────────────────────────────────┘
+│  ├ Settings        │     ┌──────────────────────────────────┐
+│  └ Health          │────▶│  Speech Synthesis                │
+└────────────────────┘     │  └ AivisSpeech Engine (TTS)      │
                            └──────────────────────────────────┘
 ```
 
@@ -218,6 +232,12 @@ Text generation (mood text) can also be switched via `FEELING_PROVIDER`.
 > - R18 / NSFW image generation and editing are **not supported** (no compatible models found at this time).
 > - Since nano banana is used internally, some prompts like "bunny girl" may trigger content filters and cause image generation errors.
 
+> **NAI Diffusion V5**
+>
+> - The image models used for NSFW and SFW (V4.5 Full / V5 Full / V4.5 Curated / V5 Curated) can each be selected in the settings screen.
+> - Remaining V5 usage is displayed (generation after the cap consumes Anlas).
+> - Precise reference is available only with V4.5 models.
+
 ---
 
 ## Game System
@@ -261,6 +281,80 @@ When Bloom reaches certain thresholds, the character delivers special dialogue:
 ### Achievement System (12 Types)
 
 Achievements are automatically unlocked based on conditions such as transform count, cross-dressing count, collection count, and bloom level.
+
+---
+
+## TSF Scenario (Adventure Mode)
+
+An experimental mode that starts an independent novel-game scenario from a transformed state (any point of a session). Enable "TSF Scenario" under "Experimental" in the settings screen to show it in the main menu.
+
+- **Missions**: 5 types — Romance Simulation, Infiltration, Escape & Return, Negotiation, and Impersonation & Dress-Up. Stage, goal, and constraints can be AI-generated, entered directly, or chosen from a bundled story scenario
+- **Romance Simulation**: day-based progression (day/night), affection, money, part-time jobs, a gift shop, confession, and an epilogue after the ending. The protagonist can use an appearance from another session, and you can set the name the partner calls the protagonist
+- **Reality Alteration**: declare world rules with "reality: ..." that apply to every later judgement (attributes can also be granted without spending a turn)
+- **Talk**: free chat that does not spend a turn. Affection, money, and days stay the same, and the conversation carries into the next scene
+- **Auto BGM**: picks background music to match the scene (tracks made with Suno AI); a BGM test screen is available
+- **Narration & Speech Styles**: choose the narrative person (first / second / third) and the speech styles of the protagonist and the partner
+- **More**: turn rewind, scene-image prompt editing and regeneration, a log view, and Anlas cost estimates
+- Playable with OpenRouter / selfhost (ComfyUI) in addition to NovelAI (some features are limited depending on the provider)
+
+See [docs/adventure-flow.md](docs/adventure-flow.md) for the detailed processing flow (Japanese).
+
+<!-- TODO: screenshot repo_resources/screen08_adventure_title.png (mission select) / repo_resources/screen09_adventure_sim.png (romance sim HUD) -->
+
+### Face-to-Face Mode
+
+A mode available in the romance simulation (off by default). The partner stands right in front of you and one turn becomes one exchange. There is no day/night split; the outcome settles after the configured number of exchanges.
+
+- Only the partner's portrait and the background (when the location changes) are generated. Selfhost (ComfyUI) cannot generate backgrounds
+- Line read-aloud is supported: only the partner's scripted lines are played via AivisSpeech, and the BGM is ducked while a line plays
+- Microphone voice input is supported (Chrome / Edge). It uses the browser's speech recognition, so in Chrome your voice is sent to Google's servers
+
+<!-- TODO: screenshot repo_resources/screen10_adventure_companion.png (face-to-face mode + 3D model) -->
+
+---
+
+## 3D Model (VRM) Avatars
+
+In face-to-face mode, a 3D model (VRM 0.x / 1.0) can replace the partner's portrait. Register models by drag & drop under "3D Model (VRM)" in the settings screen.
+
+- The mouth moves in sync with the phoneme timing of the read-aloud voice, and the expression and gesture change with every reply
+- Files named like `CharacterName_Outfit_HairVer.vrm` are auto-classified into characters and outfit variants. With two or more variants of the same character, the model switches to match outfit changes in the story
+- A preview of registered models lets you check expressions and gestures
+- Convert FBX or PMX to VRM before registering, and follow each model's distribution terms
+
+<!-- TODO: screenshot repo_resources/screen13_avatar_preview.png (3D model preview) -->
+
+---
+
+## Prompt Expander
+
+An experimental screen that expands natural-language instructions into NovelAI prompts with an LLM and generates images independently of the game. Enable "Prompt Expander" under "Experimental" in the settings screen to show it in the main menu.
+
+- Output format is selectable (Japanese text / tags). History is managed per session with restore, regenerate, use-as-i2i-source, and hand-off to normal play / TSF Scenario
+- Character prompts are supported (up to 22 slots on V5 models, 6 on V4.5). Preferred character ideas can be suggested from memory and inserted into slots
+- Manga (panel) mode (NAI Diffusion V5 models only): choose panel count, layout, reading order (Japanese right-to-left by default), and dialogue language. A synopsis can be drafted into notation-annotated script
+- Inpainting (partial fixes), precise reference (V4.5 models only; each reference costs additional Anlas), transparent backgrounds, and drag & drop onto the screen are supported
+
+<!-- TODO: screenshot repo_resources/screen11_prompt_expander.png (manga mode) -->
+
+---
+
+## Speech Synthesis (AivisSpeech)
+
+An experimental feature that reads lines aloud with the AivisSpeech engine. Enable it under "Speech Synthesis (AivisSpeech)" in the settings screen.
+
+- Supports chat read-aloud in normal play and automatic line playback in the TSF Scenario (face-to-face mode)
+- VOICEVOX-compatible engines can also be connected
+- The default voice volume is 50%; volume and playback speed are adjustable
+
+<!-- TODO: screenshot repo_resources/screen12_settings_tts.png (speech synthesis settings) -->
+
+---
+
+## Memory (Preference Memory / Play Memory)
+
+- **Preference Memory**: analyzes past play logs and auto-generates your preferred situations. Freely editable, and applied across plays to instructions, suggestions, and image generation
+- **Play Memory (experimental)**: automatically summarizes the course of each play and feeds it back into generation within that play. Settings you want to keep can be written as a user memo. When enabled, an auto memo is generated per chat, so responses may take longer
 
 ---
 
@@ -308,6 +402,18 @@ Achievements are automatically unlocked based on conditions such as transform co
 | `GET`  | `/user` | Get user settings       |
 | `PUT`  | `/user` | Update user settings    |
 
+### Other Routers (Overview)
+
+| Prefix                 | Description                                                                            |
+| ---------------------- | --------------------------------------------------------------------------------------- |
+| `/api/adventure`       | TSF Scenario (runs / templates / turn SSE / talk SSE / reality rules / rewind / BGM)     |
+| `/api/prompt-expander` | Prompt Expander (sessions / entries / expansion / generation / manga script / settings)  |
+| `/api/avatars`         | 3D model (VRM) registration, auto-classification, and file serving                       |
+| `/api/aivisspeech`     | Speech synthesis (`/synthesize`, `/synthesize-timed` with viseme timeline, engine mgmt.) |
+| `/api/memory`          | Preference memory generation jobs and text editing                                       |
+| `/api/favorites`       | Favorite outfits (list / add / relabel)                                                  |
+| `/api/game` (multi)    | Session characters and character presets                                                 |
+
 ### SSE Events (`/api/game/play/stream`)
 
 | Event         | Data                                       |
@@ -337,6 +443,7 @@ Achievements are automatically unlocked based on conditions such as transform co
 | `IMAGE_PROVIDER`             | Image gen provider (`selfhost` / `openrouter` / `novelai`) | `selfhost` |
 | `IMAGE_DESCRIPTION_PROVIDER` | Image description provider                                 | `selfhost` |
 | `FEELING_PROVIDER`           | Mood text provider                                         | `selfhost` |
+| `ENABLE_PROMPT_PREVIEW`      | Prompt preview feature for the TSF Scenario                | `false`    |
 
 ### ComfyUI (selfhost)
 
@@ -348,33 +455,37 @@ Achievements are automatically unlocked based on conditions such as transform co
 
 ### LiteLLM (selfhost)
 
-| Variable                | Default                                      |
-| ----------------------- | -------------------------------------------- |
-| `LITELLM_BASE_URL`      | `http://127.0.0.1:4000`                      |
-| `LITELLM_LLAVA_MODEL`   | `ollama/ministral-3:3b-instruct-2512-q4_K_M` |
-| `LITELLM_LLM_MODEL`     | `ollama/ministral-3:3b-instruct-2512-q4_K_M` |
-| `LITELLM_FEELING_MODEL` | `ollama/ministral-3:3b-instruct-2512-q4_K_M` |
+| Variable                | Default (.env.example)                        |
+| ----------------------- | --------------------------------------------- |
+| `LITELLM_BASE_URL`      | `http://127.0.0.1:4000`                       |
+| `LITELLM_LLAVA_MODEL`   | `ollama/ministral-3:14b-instruct-2512-q4_K_M` |
+| `LITELLM_LLM_MODEL`     | `ollama/ministral-3:14b-instruct-2512-q4_K_M` |
+| `LITELLM_FEELING_MODEL` | `ollama/ministral-3:14b-instruct-2512-q4_K_M` |
+
+In the selfhost configuration (`.env.example.selfhost`) the default for all three models is `gemma4:e4b`.
 
 ### OpenRouter
 
-| Variable                  | Default                         |
+| Variable                  | Default (.env.example)          |
 | ------------------------- | ------------------------------- |
 | `OPENROUTER_API_KEY`      | (required)                      |
 | `OPENROUTER_IMAGE_MODEL`  | `google/gemini-2.5-flash-image` |
-| `OPENROUTER_VISION_MODEL` | `mistralai/ministral-14b-2512`  |
-| `OPENROUTER_LLM_MODEL`    | `x-ai/grok-4.1-fast`            |
+| `OPENROUTER_VISION_MODEL` | `google/gemini-3-flash-preview` |
+| `OPENROUTER_LLM_MODEL`    | `google/gemini-3-flash-preview` |
 
 ### NovelAI
 
-| Variable                | Default                             |
-| ----------------------- | ----------------------------------- |
-| `NOVELAI_API_KEY`       | (required)                          |
-| `NOVELAI_MODEL`         | `nai-diffusion-4-5-full`            |
-| `NOVELAI_INPAINT_MODEL` | `nai-diffusion-4-5-full-inpainting` |
-| `NOVELAI_STEPS`         | `28`                                |
-| `NOVELAI_SCALE`         | `5.0`                               |
-| `NOVELAI_I2I_STRENGTH`  | `0.9`                               |
-| `NOVELAI_TEXT_MODEL`    | `glm-4-6`                           |
+| Variable                        | Default                                |
+| ------------------------------- | -------------------------------------- |
+| `NOVELAI_API_KEY`               | (required)                             |
+| `NOVELAI_MODEL`                 | `nai-diffusion-4-5-full`               |
+| `NOVELAI_INPAINT_MODEL`         | `nai-diffusion-4-5-full-inpainting`    |
+| `NOVELAI_CURATED_MODEL`         | `nai-diffusion-4-5-curated`            |
+| `NOVELAI_CURATED_INPAINT_MODEL` | `nai-diffusion-4-5-curated-inpainting` |
+| `NOVELAI_STEPS`                 | `28`                                   |
+| `NOVELAI_SCALE`                 | `5.0`                                  |
+| `NOVELAI_I2I_STRENGTH`          | `0.9`                                  |
+| `NOVELAI_TEXT_MODEL`            | `glm-4-6`                              |
 
 ### Data Persistence
 
@@ -414,13 +525,16 @@ You can also upload custom images through the UI when starting a game.
 
 ## Frontend Screens
 
-| Path            | Screen           |
-| --------------- | ---------------- |
-| `/` `/play`     | Main game screen |
-| `/gallery`      | Gallery          |
-| `/achievements` | Achievement list |
-| `/endings`      | Ending list      |
-| `/settings`     | Settings         |
+| Path               | Screen                                    |
+| ------------------ | ----------------------------------------- |
+| `/` `/play`        | Main game screen                          |
+| `/gallery`         | Gallery                                   |
+| `/achievements`    | Achievement list                          |
+| `/endings`         | Ending list (enabled via Experimental)    |
+| `/adventure`       | TSF Scenario (enabled via Experimental)   |
+| `/bgm-test`        | BGM test (with TSF Scenario enabled)      |
+| `/prompt-expander` | Prompt Expander (enabled via Experimental) |
+| `/settings`        | Settings                                  |
 
 ---
 
@@ -462,14 +576,20 @@ This project was forked from [wakuwaku-transform-magic](https://github.com/nata-
 - Complete rewrite for the TSF (gender transformation) theme
 - Parameter system redesign (Excitement → Bloom / Shame / Adaptation)
 - Ending condition redesign
-- NovelAI provider added
+- NovelAI provider added (including NAI Diffusion V5 support)
 - Inpaint / mask feature added
 - Achievement system added
-- Gallery feature expanded
+- Gallery feature expanded (favorite outfits, transform comparison, keyword search, session branching)
 - Conversation (chat) feature added
 - Multilingual support (i18next)
 - Portable build script
 - Image quality improvements
+- TSF Scenario (adventure mode) added
+- Face-to-face mode and 3D model (VRM) avatars added
+- Prompt Expander added
+- Speech synthesis (AivisSpeech) added
+- Preference memory / play memory added
+- Persistent multiple characters and character presets added
 
 ---
 

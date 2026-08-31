@@ -82,13 +82,72 @@ export function partnerLines(text: string, partnerName: string): string[] {
     .filter(Boolean);
 }
 
+/** 文末とみなす記号。閉じ括弧は直前の文末記号を兼ねる */
+const SENTENCE_END_RE = /[。！？!?…」』]$/;
+
+/** 文末記号が無い行に句点を補う(joinForSpeech と同じ規則の単行版) */
+export function ensureSentenceEnd(line: string): string {
+  const trimmed = line.trim();
+  if (!trimmed) return "";
+  return SENTENCE_END_RE.test(trimmed) ? trimmed : `${trimmed}。`;
+}
+
 /** 読み上げ用に複数行を1本へ結合する。文末記号が無い行には句点を補う */
 export function joinForSpeech(lines: string[]): string {
-  return lines
-    .map((line) => line.trim())
+  return lines.map(ensureSentenceEnd).filter(Boolean).join("");
+}
+
+/** 読み上げセグメントの最小文字数。これ未満の断片は隣へ結合する */
+const SPEECH_SEGMENT_MIN_CHARS = 10;
+/** 読み上げセグメントの目安上限。超える文は読点で再分割する */
+const SPEECH_SEGMENT_MAX_CHARS = 120;
+
+/** 長すぎる文を読点(等)で SPEECH_SEGMENT_MAX_CHARS 以下に切る */
+function splitLongSentence(sentence: string): string[] {
+  const pieces: string[] = [];
+  let rest = sentence;
+  while (rest.length > SPEECH_SEGMENT_MAX_CHARS) {
+    const window = rest.slice(0, SPEECH_SEGMENT_MAX_CHARS + 1);
+    const cut = Math.max(window.lastIndexOf("、"), window.lastIndexOf("，"));
+    if (cut < SPEECH_SEGMENT_MIN_CHARS) break;
+    pieces.push(rest.slice(0, cut + 1));
+    rest = rest.slice(cut + 1).trim();
+  }
+  if (rest) pieces.push(rest);
+  return pieces;
+}
+
+/**
+ * 逐次読み上げ用にテキストを文単位のセグメントへ分割する。
+ * 細切れの合成リクエストを避けるため、短い断片は次の文とまとめ、
+ * 長すぎる文は読点で再分割する。結合しても元の文字列順は変えない。
+ */
+export function splitForSpeech(text: string): string[] {
+  const source = text.trim();
+  if (!source) return [];
+  const fragments = source
+    .split(/(?<=[。！？!?…])/)
+    .map((sentence) => sentence.trim())
     .filter(Boolean)
-    .map((line) => (/[。！？!?…」』]$/.test(line) ? line : `${line}。`))
-    .join("");
+    .flatMap(splitLongSentence);
+
+  const segments: string[] = [];
+  let current = "";
+  for (const fragment of fragments) {
+    current = current ? `${current}${fragment}` : fragment;
+    if (current.length >= SPEECH_SEGMENT_MIN_CHARS) {
+      segments.push(current);
+      current = "";
+    }
+  }
+  if (current) {
+    if (segments.length > 0 && current.length < SPEECH_SEGMENT_MIN_CHARS) {
+      segments[segments.length - 1] += current;
+    } else {
+      segments.push(current);
+    }
+  }
+  return segments;
 }
 
 /** ト書き(括弧書き)と鉤括弧を落とし、読み上げに不要な記号を除く */

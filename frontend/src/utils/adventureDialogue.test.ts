@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  ensureSentenceEnd,
   joinForSpeech,
   parseDialogueSegments,
   partnerLines,
+  splitForSpeech,
   stripStageDirections,
   stripTalkHeader,
 } from "./adventureDialogue";
@@ -84,5 +86,58 @@ describe("partnerLines / joinForSpeech / stripStageDirections", () => {
         "（笑って）そうだね、「好き」って言った (small nod)",
       ),
     ).toBe("そうだね、好きって言った");
+  });
+});
+
+describe("ensureSentenceEnd", () => {
+  it("appends a period only when the line lacks a sentence-ending mark", () => {
+    expect(ensureSentenceEnd("おはよう")).toBe("おはよう。");
+    expect(ensureSentenceEnd("暑いね！")).toBe("暑いね！");
+    expect(ensureSentenceEnd("そうかな…")).toBe("そうかな…");
+    expect(ensureSentenceEnd("  ")).toBe("");
+  });
+});
+
+describe("splitForSpeech", () => {
+  it("splits text into sentence segments", () => {
+    expect(
+      splitForSpeech("今日は良い天気ですね。散歩に行きませんか？"),
+    ).toEqual(["今日は良い天気ですね。", "散歩に行きませんか？"]);
+  });
+
+  it("merges short fragments with the following sentence", () => {
+    expect(
+      splitForSpeech(
+        "え？そうなの？知らなかったよ、全然気づかなかった。明日一緒に見に行こうよ。",
+      ),
+    ).toEqual([
+      "え？そうなの？知らなかったよ、全然気づかなかった。",
+      "明日一緒に見に行こうよ。",
+    ]);
+  });
+
+  it("merges a short trailing fragment into the previous segment", () => {
+    expect(splitForSpeech("知らなかった、教えてくれる？ね？")).toEqual([
+      "知らなかった、教えてくれる？ね？",
+    ]);
+  });
+
+  it("re-splits an overlong sentence at pause marks", () => {
+    const long = `${"あ".repeat(100)}、${"い".repeat(100)}、${"う".repeat(20)}。`;
+    expect(splitForSpeech(long)).toEqual([
+      `${"あ".repeat(100)}、`,
+      `${"い".repeat(100)}、`,
+      `${"う".repeat(20)}。`,
+    ]);
+  });
+
+  it("keeps an overlong sentence without pause marks as one segment", () => {
+    const long = `${"あ".repeat(150)}。`;
+    expect(splitForSpeech(long)).toEqual([long]);
+  });
+
+  it("returns an empty list for blank input", () => {
+    expect(splitForSpeech("")).toEqual([]);
+    expect(splitForSpeech("  \n ")).toEqual([]);
   });
 });

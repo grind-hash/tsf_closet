@@ -11,6 +11,7 @@ import type {
   AvatarExpressionKey,
   AvatarGestureKey,
 } from "../../../constants/companionAvatar";
+import type { VisemeFrame } from "../../../utils/visemeTimeline";
 import { createVrmAvatarEngine, type VrmAvatarEngine } from "./vrmAvatarEngine";
 import "./CompanionAvatarStage.css";
 
@@ -22,6 +23,11 @@ export interface CompanionAvatarStageProps {
   gestureKey: string | null;
   /** 口パク用の音量レベル(0..1)。毎フレーム呼ばれる */
   getVoiceLevel: () => number;
+  /**
+   * viseme 口パクの供給元(毎フレーム呼ばれる)。null を返す間は
+   * getVoiceLevel の音量ベース口パクへフォールバックする
+   */
+  getVisemeFrame?: (() => VisemeFrame | null) | null;
   onReady?: () => void;
   onError: (error: unknown) => void;
 }
@@ -34,6 +40,7 @@ export default function CompanionAvatarStage({
   gesture,
   gestureKey,
   getVoiceLevel,
+  getVisemeFrame,
   onReady,
   onError,
 }: CompanionAvatarStageProps) {
@@ -47,6 +54,8 @@ export default function CompanionAvatarStage({
   onErrorRef.current = onError;
   const getVoiceLevelRef = useRef(getVoiceLevel);
   getVoiceLevelRef.current = getVoiceLevel;
+  const getVisemeFrameRef = useRef(getVisemeFrame);
+  getVisemeFrameRef.current = getVisemeFrame;
   const gestureRef = useRef(gesture);
   gestureRef.current = gesture;
 
@@ -76,6 +85,7 @@ export default function CompanionAvatarStage({
       return;
     }
     engine.setLevelSource(() => getVoiceLevelRef.current());
+    engine.setVisemeSource(() => getVisemeFrameRef.current?.() ?? null);
     engineRef.current = engine;
     return () => {
       engineRef.current = null;

@@ -503,6 +503,22 @@ const resources = {
           you: "あなた",
           pending: "{{name}}が考えています...",
         },
+        mic: {
+          start: "マイクで話す",
+          startHint:
+            "ブラウザの音声認識で話した内容を入力欄に入れます。Chrome では音声が Google のサーバーへ送られます。",
+          listening: "聞き取り中... もう一度押すと止まります",
+          autoSend: "認識したらすぐ送る",
+          autoSendHint:
+            "話し終わると認識結果をそのまま送信します。OFF のときは内容を確認してから送れます。",
+          error: {
+            "not-allowed":
+              "マイクの使用が許可されていません。ブラウザの設定を確認してください。",
+            "no-speech": "聞き取れませんでした。もう一度お試しください。",
+            network: "音声認識サービスに接続できませんでした。",
+            unknown: "音声認識を開始できませんでした。",
+          },
+        },
         freeInput: "行動や会話を自由に入力",
         freeInputHint:
           "行動や会話をそのまま入力できます。「現実改変：〜」で始めると、以降のすべての判定に適用される世界ルールとして登録されます。",
@@ -2678,6 +2694,22 @@ const resources = {
           emptyHint: "Say something to {{name}}. This does not spend a turn.",
           you: "You",
           pending: "{{name}} is thinking...",
+        },
+        mic: {
+          start: "Speak with the microphone",
+          startHint:
+            "Uses the browser's speech recognition to fill the input field. In Chrome your voice is sent to Google's servers.",
+          listening: "Listening... press again to stop",
+          autoSend: "Send right after recognition",
+          autoSendHint:
+            "Sends the recognized text as soon as you finish speaking. When off, you can review it before sending.",
+          error: {
+            "not-allowed":
+              "Microphone access is not allowed. Please check your browser settings.",
+            "no-speech": "Could not hear anything. Please try again.",
+            network: "Could not reach the speech recognition service.",
+            unknown: "Could not start speech recognition.",
+          },
         },
         freeInput: "Enter an action or dialogue",
         freeInputHint:

@@ -53,7 +53,14 @@ import {
 import { useNotification } from "../../contexts/NotificationContext";
 import { useSettings } from "../../contexts/SettingsContext";
 import { useAdventureBgm } from "../../hooks/useAdventureBgm";
-import { useAdventureVoice } from "../../hooks/useAdventureVoice";
+import {
+  useAdventureVoice,
+  type VoiceSegment,
+} from "../../hooks/useAdventureVoice";
+import {
+  type SpeechInputErrorCode,
+  useSpeechInput,
+} from "../../hooks/useSpeechInput";
 import {
   type TimedProgressSegment,
   useTimedProgress,
@@ -66,9 +73,11 @@ import {
   estimateAdventureAnlas,
 } from "../../utils/adventureAnlasEstimate";
 import {
+  ensureSentenceEnd,
   joinForSpeech,
   parseDialogueSegments,
   partnerLines,
+  splitForSpeech,
   stripStageDirections,
   stripTalkHeader,
 } from "../../utils/adventureDialogue";
@@ -78,6 +87,10 @@ import {
   isAdventureTurnTextOnly,
 } from "../../utils/adventureTurnTimeEstimate";
 import { API_BASE } from "../../utils/api";
+import {
+  loadSpeechInputPreferences,
+  saveSpeechInputPreferences,
+} from "../../utils/speechInputPreferences";
 import ImagePreviewModal from "../ImagePreviewModal";
 import MainLayout from "../layout/MainLayout";
 import AdventureAnlasConfirmDialog from "./AdventureAnlasConfirmDialog";
@@ -1977,6 +1990,31 @@ function turnVoiceKey(runId: string, turnNumber: number): string {
 }
 
 /**
+ * 台本の行(攻略対象のセリフ)を読み上げセグメントへ変換する。
+ * id は「行番号:文番号」で安定させ、ストリーミング中に同じ確定行を
+ * 繰り返し渡しても appendSegments 側の重複判定で一度だけ読まれる
+ */
+function linesToVoiceSegments(
+  lines: string[],
+  groupKey: string,
+): VoiceSegment[] {
+  return lines.flatMap((line, lineIndex) =>
+    splitForSpeech(ensureSentenceEnd(line)).map((text, partIndex) => ({
+      id: `${groupKey}#${lineIndex}:${partIndex}`,
+      text,
+    })),
+  );
+}
+
+/** 単一テキストを文単位の読み上げセグメントへ変換する */
+function textToVoiceSegments(text: string, groupKey: string): VoiceSegment[] {
+  return splitForSpeech(text).map((part, index) => ({
+    id: `${groupKey}#${index}`,
+    text: part,
+  }));
+}
+
+/**
  * フレームが描いている日付と時間帯。サーバの scene_day/scene_slot が唯一の情報源。
  * sim.day/slot は「次に行動する枠」で常に半日先を指すため使わない。
  */
@@ -2078,7 +2116,7 @@ function AdventureScriptText({
 }
 
 function AdventurePlay({ runId }: { runId: string }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const {
     activeRun,
@@ -2520,7 +2558,11 @@ function AdventurePlay({ runId }: { runId: string }) {
     engineDir: settingsState.ttsEngineDir,
     useGpu: settingsState.ttsUseGpu,
   });
-  const { canSpeak: voiceCanSpeak, speak: voiceSpeak } = voice;
+  const {
+    canSpeak: voiceCanSpeak,
+    speakSegments: voiceSpeakSegments,
+    appendSegments: voiceAppendSegments,
+  } = voice;
   const voicePlaying = voice.status === "playing";
   useEffect(() => {
     setBgmDucked(voicePlaying);
@@ -2537,6 +2579,10 @@ function AdventurePlay({ runId }: { runId: string }) {
   const earlySpokenRef = useRef<{ runId: string; turnNumber: number } | null>(
     null,
   );
+  // 身振りキーのラッチ。逐次給餌でキューが一時枯渇すると currentKey が
+  // key→null→key と揺れるため、ストリーム中は最後の非 null キーを保持して
+  // 同じ身振りの再再生を防ぐ(値の設定は avatarGestureKey の算出直後)
+  const latchedGestureKeyRef = useRef<string | null>(null);
 
   // 読み上げ(1): 新しい手番が届いたら攻略対象のセリフだけを読む。
   // 初回ロード・run 切替では読まない(その時点の最新手番を控えるだけ)
@@ -2560,11 +2606,13 @@ function AdventurePlay({ runId }: { runId: string }) {
       return;
     }
     const name = activeRun.sim?.partner_name?.trim() ?? "";
-    const text = joinForSpeech(partnerLines(latest.narrative, name));
-    if (text) {
-      void voiceSpeak(text, turnVoiceKey(activeRun.id, latest.turn_number));
-    }
-  }, [activeRun, voiceCanSpeak, voiceSpeak]);
+    const groupKey = turnVoiceKey(activeRun.id, latest.turn_number);
+    const segments = linesToVoiceSegments(
+      partnerLines(latest.narrative, name),
+      groupKey,
+    );
+    if (segments.length > 0) voiceSpeakSegments(segments, groupKey);
+  }, [activeRun, voiceCanSpeak, voiceSpeakSegments]);
 
   // 読み上げ(2): トークの返答が確定したら、その返答を読む
   const spokenTalkRef = useRef<{
@@ -2586,8 +2634,11 @@ function AdventurePlay({ runId }: { runId: string }) {
     if (!lastPartner || previous.entryId === lastPartner.id) return;
     if (!voiceCanSpeak) return;
     const text = stripStageDirections(stripTalkHeader(lastPartner.text));
-    if (text) void voiceSpeak(text, `talk:${lastPartner.id}`);
-  }, [activeRun, voiceCanSpeak, voiceSpeak]);
+    if (!text) return;
+    const groupKey = `talk:${lastPartner.id}`;
+    const segments = textToVoiceSegments(text, groupKey);
+    if (segments.length > 0) voiceSpeakSegments(segments, groupKey);
+  }, [activeRun, voiceCanSpeak, voiceSpeakSegments]);
 
   // トークスレッドは常に末尾(最新の返答)を見せる
   const talkLogLength = activeRun?.talk_log?.length ?? 0;
@@ -2626,6 +2677,53 @@ function AdventurePlay({ runId }: { runId: string }) {
     },
     [activeRun, streaming, talking, submitTalk],
   );
+
+  // 音声入力(トークモード)。暫定テキストは入力欄へ流し込み、確定で置き換える。
+  // 自動送信は既定 OFF(認識結果を確認してから送る)
+  const [speechPrefs, setSpeechPrefs] = useState(loadSpeechInputPreferences);
+  const speechPrefsRef = useRef(speechPrefs);
+  speechPrefsRef.current = speechPrefs;
+  const [speechError, setSpeechError] = useState<SpeechInputErrorCode | null>(
+    null,
+  );
+  /** 聞き取り開始時点の入力欄の内容。認識結果はこの後ろへ足す */
+  const micBaseRef = useRef("");
+  const speech = useSpeechInput({
+    lang: i18n.language?.toLowerCase().startsWith("ja") ? "ja-JP" : "en-US",
+    onInterim: (text) => setInput(micBaseRef.current + text),
+    onFinal: (text) => {
+      const merged = `${micBaseRef.current}${text}`;
+      setInput(merged);
+      if (speechPrefsRef.current.autoSend && merged.trim()) {
+        submitTalkMessage(merged);
+      }
+    },
+    onError: (code) => setSpeechError(code),
+  });
+  const toggleSpeechAutoSend = useCallback(() => {
+    setSpeechPrefs((prev) => {
+      const merged = { ...prev, autoSend: !prev.autoSend };
+      saveSpeechInputPreferences(merged);
+      return merged;
+    });
+  }, []);
+
+  // 読み上げが始まったら聞き取りを止める(モデルの声を拾わない)。
+  // トークモードを離れたときも止める
+  const speechListening = speech.listening;
+  const speechStop = speech.stop;
+  const talkModeActive = Boolean(activeRun?.sim) && actionMode === "talk";
+  const voiceStatus = voice.status;
+  useEffect(() => {
+    if (!speechListening) return;
+    if (
+      !talkModeActive ||
+      voiceStatus === "loading" ||
+      voiceStatus === "playing"
+    ) {
+      speechStop();
+    }
+  }, [speechListening, talkModeActive, voiceStatus, speechStop]);
 
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
@@ -2879,37 +2977,37 @@ function AdventurePlay({ runId }: { runId: string }) {
   }, [progressSegments, pendingUserInput, phase, phaseStep, companionActive]);
   const stageProgress = useTimedProgress(progressSegments, progressActiveKey);
 
-  // 読み上げ(0): 3D モデル表示中は本文の確定で先読みする。判定と保存を待たずに
-  // 喋り始めるため、turn 到着時の読み上げ(1)は控えを見て同じ手番を読まない。
-  // 控えはストリーム終了(narrativeSettled=false)で必ず消す(巻き戻し後に同じ
-  // 番号の手番を作り直しても読めるようにする)
+  // 読み上げ(0): 3D モデル表示中は本文のストリーム中から確定済みの行を逐次
+  // 給餌して読み始める(行は後続の改行が来た時点で内容確定、narrative_done で
+  // 全文確定)。同じ確定行を毎チャンク渡しても appendSegments の重複判定で
+  // 一度だけ読まれる。判定と保存を待たずに喋り始めるため、turn 到着時の
+  // 読み上げ(1)は控えを見て同じ手番を読まない。控えはストリーム終了
+  // (pendingUserInput=null)で必ず消す(巻き戻し後に同じ番号の手番を
+  // 作り直しても読めるようにする)
   useEffect(() => {
-    if (!narrativeSettled) {
+    if (pendingUserInput === null) {
       earlySpokenRef.current = null;
       return;
     }
-    if (!activeRun || !earlyVoice || pendingUserInput === null) return;
-    const turnNumber = activeRun.turn_count + 1;
-    const spoken = earlySpokenRef.current;
-    if (
-      spoken &&
-      spoken.runId === activeRun.id &&
-      spoken.turnNumber === turnNumber
-    ) {
-      return;
-    }
+    if (!activeRun || !earlyVoice) return;
+    const settledText = narrativeSettled
+      ? streamingNarrative
+      : streamingNarrative.slice(0, streamingNarrative.lastIndexOf("\n") + 1);
+    if (!settledText) return;
     const name = activeRun.sim?.partner_name?.trim() ?? "";
-    const text = joinForSpeech(partnerLines(streamingNarrative, name));
-    if (!text) return;
+    const lines = partnerLines(settledText, name);
+    if (lines.length === 0) return;
+    const turnNumber = activeRun.turn_count + 1;
+    const groupKey = turnVoiceKey(activeRun.id, turnNumber);
     earlySpokenRef.current = { runId: activeRun.id, turnNumber };
-    void voiceSpeak(text, turnVoiceKey(activeRun.id, turnNumber));
+    voiceAppendSegments(linesToVoiceSegments(lines, groupKey), groupKey);
   }, [
     narrativeSettled,
     streamingNarrative,
     pendingUserInput,
     activeRun,
     earlyVoice,
-    voiceSpeak,
+    voiceAppendSegments,
   ]);
 
   if (loading || !activeRun || activeRun.id !== runId) {
@@ -3110,6 +3208,16 @@ function AdventurePlay({ runId }: { runId: string }) {
     : talkMode && lastPartnerTalk
       ? `talk:${lastPartnerTalk.id}`
       : frameReplayKey;
+  // ストリーム中の一時枯渇(key→null→key)で同じ身振りが再再生されないよう、
+  // ストリーム中だけ最後の非 null キーを効かせる。ストリーム外では素通しにし、
+  // 🔊 での再読み上げ(null→同じキー)による再再生は従来どおり残す
+  if (avatarGestureKey !== null) {
+    latchedGestureKeyRef.current = avatarGestureKey;
+  } else if (!streaming) {
+    latchedGestureKeyRef.current = null;
+  }
+  const effectiveAvatarGestureKey =
+    avatarGestureKey ?? (streaming ? latchedGestureKeyRef.current : null);
   const avatarUrl = activeRun.companion_avatar_url ?? null;
   const showAvatar =
     isCompanion && Boolean(avatarUrl) && !companionAvatarFailed;
@@ -3791,8 +3899,9 @@ function AdventurePlay({ runId }: { runId: string }) {
                     fileUrl={avatarUrl}
                     expression={avatarExpression}
                     gesture={avatarGesture}
-                    gestureKey={avatarGestureKey}
+                    gestureKey={effectiveAvatarGestureKey}
                     getVoiceLevel={voice.getLevel}
+                    getVisemeFrame={voice.getMouthFrame}
                     onError={handleAvatarError}
                   />
                 </Suspense>
@@ -4250,7 +4359,10 @@ function AdventurePlay({ runId }: { runId: string }) {
                       voice.stop();
                       return;
                     }
-                    void voice.speak(voiceReplayText, voiceReplayKey);
+                    voice.speakSegments(
+                      textToVoiceSegments(voiceReplayText, voiceReplayKey),
+                      voiceReplayKey,
+                    );
                   }}
                 >
                   🔊
@@ -4563,6 +4675,52 @@ function AdventurePlay({ runId }: { runId: string }) {
                         )}
                         enterKeyHint="send"
                       />
+                      {talkMode && speech.supported && (
+                        <>
+                          <button
+                            type="button"
+                            className={`adventure-freeinput__mic${
+                              speech.listening ? " is-listening" : ""
+                            }`}
+                            disabled={streaming || talking}
+                            aria-pressed={speech.listening}
+                            aria-label={t(
+                              speech.listening
+                                ? "adventure.mic.listening"
+                                : "adventure.mic.start",
+                            )}
+                            title={t(
+                              speech.listening
+                                ? "adventure.mic.listening"
+                                : "adventure.mic.startHint",
+                            )}
+                            onClick={() => {
+                              if (speech.listening) {
+                                speech.stop();
+                                return;
+                              }
+                              setSpeechError(null);
+                              // 読み上げ中の声をマイクが拾わないよう先に止める
+                              voice.stop();
+                              micBaseRef.current = input;
+                              speech.start();
+                            }}
+                          >
+                            🎤
+                          </button>
+                          <button
+                            type="button"
+                            className={`adventure-freeinput__autosend${
+                              speechPrefs.autoSend ? " is-on" : ""
+                            }`}
+                            aria-pressed={speechPrefs.autoSend}
+                            title={t("adventure.mic.autoSendHint")}
+                            onClick={toggleSpeechAutoSend}
+                          >
+                            {t("adventure.mic.autoSend")}
+                          </button>
+                        </>
+                      )}
                       <button
                         type="submit"
                         className="adventure-freeinput__submit"
@@ -4571,6 +4729,14 @@ function AdventurePlay({ runId }: { runId: string }) {
                         {t("adventure.send")}
                       </button>
                     </form>
+                    {talkMode && speechError && (
+                      <p
+                        className="adventure-freeinput__mic-error"
+                        role="status"
+                      >
+                        {t(`adventure.mic.error.${speechError}`)}
+                      </p>
+                    )}
                   </>
                 )}
               </div>

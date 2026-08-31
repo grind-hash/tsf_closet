@@ -23,17 +23,20 @@ import {
   type AvatarExpressionKey,
   type AvatarGestureKey,
 } from "../../../constants/companionAvatar";
+import type { VisemeFrame } from "../../../utils/visemeTimeline";
 import { smoothLevel } from "../../../utils/voiceLevelMeter";
 import {
   ARM_REST,
   type ArmChannels,
   type ArmSide,
   addPose,
+  approachMouthTargets,
   armChannels,
   axisBetween,
   BLINK_CLOSE_SEC,
   BLINK_OPEN_SEC,
   blinkWeight,
+  CLOSED_MOUTH_TARGETS,
   DOWN,
   detectFacing,
   type Facing,
@@ -44,7 +47,9 @@ import {
   GESTURE_CLIPS,
   gestureDuration,
   idlePose,
+  type MouthTargets,
   mouthWeightsFromLevel,
+  mouthWeightsFromViseme,
   nextBlinkDelay,
   poseToBoneRotation,
   sampleGesture,
@@ -71,6 +76,11 @@ export interface VrmAvatarEngine {
   setExpression: (key: AvatarExpressionKey | null) => void;
   playGesture: (key: AvatarGestureKey | null) => void;
   setLevelSource: (getLevel: () => number) => void;
+  /**
+   * viseme 口パクの供給元。null を返す間は音量ベースの口パクへ
+   * フォールバックする。解除は null を渡す
+   */
+  setVisemeSource: (source: (() => VisemeFrame | null) | null) => void;
   dispose: () => void;
 }
 
@@ -305,7 +315,9 @@ export function createVrmAvatarEngine(
 
   let gesture: ActiveGesture | null = null;
   let getLevel: () => number = () => 0;
+  let getViseme: (() => VisemeFrame | null) | null = null;
   let smoothedLevel = 0;
+  let mouthTargets: MouthTargets = { ...CLOSED_MOUTH_TARGETS };
 
   let blinkTimer = nextBlinkDelay(Math.random);
   let blinkElapsed = -1;
@@ -408,7 +420,7 @@ export function createVrmAvatarEngine(
 
     const manager = loaded.expressionManager;
     availableExpressions = new Set(
-      [...EMOTION_PRESETS, "aa", "ih", "ou", "blink"].filter(
+      [...EMOTION_PRESETS, "aa", "ih", "ou", "ee", "oh", "blink"].filter(
         (name) => manager?.getExpression(name) != null,
       ),
     );
@@ -443,6 +455,10 @@ export function createVrmAvatarEngine(
 
   function setLevelSource(source: () => number): void {
     getLevel = source;
+  }
+
+  function setVisemeSource(source: (() => VisemeFrame | null) | null): void {
+    getViseme = source;
   }
 
   function updateBlink(delta: number, model: VRM): void {
@@ -484,17 +500,42 @@ export function createVrmAvatarEngine(
   function updateMouth(delta: number, model: VRM): void {
     const manager = model.expressionManager;
     if (!manager) return;
-    let raw = 0;
-    try {
-      raw = getLevel();
-    } catch {
-      raw = 0;
+    let frame: VisemeFrame | null = null;
+    if (getViseme) {
+      try {
+        frame = getViseme();
+      } catch {
+        frame = null;
+      }
     }
-    smoothedLevel = smoothLevel(smoothedLevel, raw, delta);
-    const weights = mouthWeightsFromLevel(smoothedLevel, elapsed);
-    if (availableExpressions.has("aa")) manager.setValue("aa", weights.aa);
-    if (availableExpressions.has("ih")) manager.setValue("ih", weights.ih);
-    if (availableExpressions.has("ou")) manager.setValue("ou", weights.ou);
+    let target: MouthTargets;
+    if (frame) {
+      // viseme 経路: タイムラインが示す口形へ追従する
+      target = mouthWeightsFromViseme(
+        frame.viseme,
+        frame.w,
+        availableExpressions.has("ee"),
+        availableExpressions.has("oh"),
+      );
+    } else {
+      // 音量経路(タイムライン無し・非再生時)。ee / oh は 0 へ戻す
+      let raw = 0;
+      try {
+        raw = getLevel();
+      } catch {
+        raw = 0;
+      }
+      smoothedLevel = smoothLevel(smoothedLevel, raw, delta);
+      const weights = mouthWeightsFromLevel(smoothedLevel, elapsed);
+      target = { aa: weights.aa, ih: weights.ih, ou: weights.ou, ee: 0, oh: 0 };
+    }
+    // 適用値は常に mouthTargets へ書き戻し、経路切替でも口形が飛ばないようにする
+    mouthTargets = approachMouthTargets(mouthTargets, target, delta);
+    if (availableExpressions.has("aa")) manager.setValue("aa", mouthTargets.aa);
+    if (availableExpressions.has("ih")) manager.setValue("ih", mouthTargets.ih);
+    if (availableExpressions.has("ou")) manager.setValue("ou", mouthTargets.ou);
+    if (availableExpressions.has("ee")) manager.setValue("ee", mouthTargets.ee);
+    if (availableExpressions.has("oh")) manager.setValue("oh", mouthTargets.oh);
   }
 
   function updatePose(model: VRM, restPose: RestPose): void {
@@ -598,5 +639,12 @@ export function createVrmAvatarEngine(
     renderer.forceContextLoss();
   }
 
-  return { load, setExpression, playGesture, setLevelSource, dispose };
+  return {
+    load,
+    setExpression,
+    playGesture,
+    setLevelSource,
+    setVisemeSource,
+    dispose,
+  };
 }

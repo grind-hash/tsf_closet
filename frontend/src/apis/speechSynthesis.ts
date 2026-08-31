@@ -209,6 +209,50 @@ export async function getAivisSpeakers(): Promise<AivisSpeaker[]> {
   return parseJsonOrThrow<AivisSpeaker[]>(res);
 }
 
+/** 口パク用の口形状イベント。時刻は合成音声の先頭からの秒(メディア時刻) */
+export interface VisemeEvent {
+  t0: number;
+  t1: number;
+  viseme: string;
+  w: number;
+}
+
+/** 合成音声と viseme タイムラインの対 */
+export interface TimedSpeech {
+  blob: Blob;
+  timeline: VisemeEvent[];
+  durationSec: number;
+}
+
+interface SynthesizeTimedResponse {
+  audio_base64: string;
+  content_type: string;
+  duration_sec: number;
+  timeline: VisemeEvent[];
+}
+
+/** 音声合成と口パク用タイムラインを同時に取得する(3D モデル表示用) */
+export async function synthesizeSpeechTimed(
+  payload: SynthesizePayload,
+): Promise<TimedSpeech> {
+  const res = await fetch(`${API_BASE}/aivisspeech/synthesize-timed`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await parseJsonOrThrow<SynthesizeTimedResponse>(res);
+  const binary = atob(data.audio_base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return {
+    blob: new Blob([bytes], { type: data.content_type || "audio/wav" }),
+    timeline: Array.isArray(data.timeline) ? data.timeline : [],
+    durationSec: data.duration_sec ?? 0,
+  };
+}
+
 export async function synthesizeSpeech(
   payload: SynthesizePayload,
 ): Promise<Blob> {

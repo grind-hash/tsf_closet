@@ -809,6 +809,76 @@ export function mouthWeightsFromLevel(
   };
 }
 
+/** viseme 口パク用の口形状ターゲット(aa/ih/ou/ee/oh)。各 0..1 */
+export interface MouthTargets {
+  aa: number;
+  ih: number;
+  ou: number;
+  ee: number;
+  oh: number;
+}
+
+export const CLOSED_MOUTH_TARGETS: MouthTargets = {
+  aa: 0,
+  ih: 0,
+  ou: 0,
+  ee: 0,
+  oh: 0,
+};
+
+/**
+ * viseme とその重みから口形状ターゲットを作る。
+ * モデルに ee / oh のプリセットが無い場合は近い口形(ee→ih、oh→ou)へ
+ * 振り替える。viseme が null(閉口区間)なら全チャンネル 0
+ */
+export function mouthWeightsFromViseme(
+  viseme: string | null,
+  w: number,
+  hasEe: boolean,
+  hasOh: boolean,
+): MouthTargets {
+  const targets: MouthTargets = { ...CLOSED_MOUTH_TARGETS };
+  if (!viseme) return targets;
+  const resolved =
+    viseme === "ee" && !hasEe
+      ? "ih"
+      : viseme === "oh" && !hasOh
+        ? "ou"
+        : viseme;
+  if (resolved in targets) {
+    targets[resolved as keyof MouthTargets] = clamp01(w);
+  }
+  return targets;
+}
+
+/** 口を開く方向の追従時定数(秒) */
+export const MOUTH_ATTACK_SEC = 0.03;
+/** 口を閉じる方向の追従時定数(秒) */
+export const MOUTH_RELEASE_SEC = 0.09;
+
+/**
+ * 口形状ターゲットへの指数追従。チャンネルごとに attack/release を使い分け、
+ * モーラ境界で口形が瞬時に切り替わるのを和らげる
+ */
+export function approachMouthTargets(
+  current: MouthTargets,
+  target: MouthTargets,
+  deltaSec: number,
+): MouthTargets {
+  const dt = Math.max(deltaSec, 0);
+  const step = (from: number, to: number): number => {
+    const tau = to > from ? MOUTH_ATTACK_SEC : MOUTH_RELEASE_SEC;
+    return from + (to - from) * (1 - Math.exp(-dt / tau));
+  };
+  return {
+    aa: step(current.aa, target.aa),
+    ih: step(current.ih, target.ih),
+    ou: step(current.ou, target.ou),
+    ee: step(current.ee, target.ee),
+    oh: step(current.oh, target.oh),
+  };
+}
+
 /** 次のまばたきまでの間隔(秒)。2.5..6.0 の一様分布 */
 export function nextBlinkDelay(random: () => number): number {
   return 2.5 + random() * 3.5;

@@ -9,12 +9,14 @@ import {
   type ArmSide,
   type AxisAngle,
   addPose,
+  approachMouthTargets,
   armChannels,
   axisBetween,
   BLINK_CLOSE_SEC,
   BLINK_OPEN_SEC,
   BLINK_TOTAL_SEC,
   blinkWeight,
+  CLOSED_MOUTH_TARGETS,
   DOWN,
   detectFacing,
   type Facing,
@@ -27,6 +29,7 @@ import {
   idlePose,
   isBlinkDone,
   mouthWeightsFromLevel,
+  mouthWeightsFromViseme,
   nextBlinkDelay,
   POSE_KEYS,
   type PoseOffsets,
@@ -451,5 +454,60 @@ describe("avatarMotion facing and bone rotation", () => {
     };
     expect(forwardZ("lean_forward", facing)).toBeGreaterThan(0.05);
     expect(forwardZ("lean_back", facing)).toBeLessThan(-0.05);
+  });
+});
+
+describe("mouthWeightsFromViseme", () => {
+  it("activates only the channel for the viseme", () => {
+    expect(mouthWeightsFromViseme("aa", 1, true, true)).toEqual({
+      ...CLOSED_MOUTH_TARGETS,
+      aa: 1,
+    });
+    expect(mouthWeightsFromViseme("oh", 0.4, true, true)).toEqual({
+      ...CLOSED_MOUTH_TARGETS,
+      oh: 0.4,
+    });
+  });
+
+  it("falls back ee->ih and oh->ou when presets are missing", () => {
+    expect(mouthWeightsFromViseme("ee", 1, false, true)).toEqual({
+      ...CLOSED_MOUTH_TARGETS,
+      ih: 1,
+    });
+    expect(mouthWeightsFromViseme("oh", 1, true, false)).toEqual({
+      ...CLOSED_MOUTH_TARGETS,
+      ou: 1,
+    });
+    // プリセットがあるときは振り替えない
+    expect(mouthWeightsFromViseme("ee", 1, true, true).ee).toBe(1);
+  });
+
+  it("returns closed mouth for null or unknown visemes and clamps weight", () => {
+    expect(mouthWeightsFromViseme(null, 1, true, true)).toEqual(
+      CLOSED_MOUTH_TARGETS,
+    );
+    expect(mouthWeightsFromViseme("xx", 1, true, true)).toEqual(
+      CLOSED_MOUTH_TARGETS,
+    );
+    expect(mouthWeightsFromViseme("aa", 2, true, true).aa).toBe(1);
+  });
+});
+
+describe("approachMouthTargets", () => {
+  const open = { ...CLOSED_MOUTH_TARGETS, aa: 1 };
+
+  it("opens faster than it closes", () => {
+    const opened = approachMouthTargets(CLOSED_MOUTH_TARGETS, open, 0.03);
+    const closed = approachMouthTargets(open, CLOSED_MOUTH_TARGETS, 0.03);
+    expect(opened.aa).toBeGreaterThan(0.5);
+    expect(1 - closed.aa).toBeLessThan(0.5);
+  });
+
+  it("converges to the target and ignores negative delta", () => {
+    const settled = approachMouthTargets(CLOSED_MOUTH_TARGETS, open, 10);
+    expect(settled.aa).toBeCloseTo(1, 3);
+    expect(approachMouthTargets(CLOSED_MOUTH_TARGETS, open, -1)).toEqual(
+      CLOSED_MOUTH_TARGETS,
+    );
   });
 });
