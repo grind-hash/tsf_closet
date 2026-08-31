@@ -75,7 +75,13 @@ def test_prompt_instructions_mention_schema_and_keys() -> None:
     assert "partner_expression" in resolution and "partner_gesture" in resolution
     for key in (*AVATAR_EXPRESSIONS, *AVATAR_GESTURES):
         assert key in resolution
+    # idle へ逃げず、説明に合う最も具体的な身振りを選ばせる
+    assert "idle only when the partner stays still" in resolution
     talk = avatar_talk_header_instruction()
     assert "[expression=<key> gesture=<key>]" in talk
     for key in (*AVATAR_EXPRESSIONS, *AVATAR_GESTURES):
         assert key in talk
+    # トークにも説明つきの語彙が載る(キー名だけでは意味が伝わらない)
+    for description in AVATAR_GESTURES.values():
+        assert description in talk
+    assert "rather than defaulting to neutral and idle" in talk

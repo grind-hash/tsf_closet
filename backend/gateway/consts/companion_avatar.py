@@ -85,8 +85,11 @@ AVATAR_RESOLUTION_INSTRUCTION: str = (
     "partner_expression is the partner's facial expression during this turn's "
     "narrative, exactly one of: {expressions}. partner_gesture is one visible "
     "motion matching the partner's reaction in that narrative, exactly one of: "
-    "{gestures}. Choose both from the narrative text only; when nothing clearly "
-    "fits use neutral and idle."
+    "{gestures}. Choose both from the narrative text only. Pick the most "
+    "specific gesture whose description matches what the partner visibly does "
+    "or how the reaction feels; prefer a hand or body movement over a generic "
+    "nod when the descriptions offer one, and use idle only when the partner "
+    "stays still. When nothing clearly fits use neutral and idle."
 )
 
 # トーク返答の先頭ヘッダ行の指示。対面会話モードのときだけ使う
@@ -94,6 +97,8 @@ AVATAR_TALK_HEADER_INSTRUCTION: str = (
     "Begin your reply with exactly one header line of the form "
     "[expression=<key> gesture=<key>] followed by a newline, then the spoken "
     "words. expression is one of: {expressions}. gesture is one of: {gestures}. "
+    "Pick the pair whose descriptions best match the feeling of your reply, "
+    "using the full vocabulary rather than defaulting to neutral and idle. "
     "The header is machine-read and never shown, so it must not contain anything "
     "else; the spoken words must not repeat it."
 )
@@ -149,9 +154,11 @@ def avatar_resolution_instruction() -> str:
 
 
 def avatar_talk_header_instruction() -> str:
+    # トークは物語本文を経由しないため、キー名だけでは身振りの意味が伝わらない。
+    # 判定プロンプトと同じく説明つきの語彙を渡す
     return AVATAR_TALK_HEADER_INSTRUCTION.format(
-        expressions=", ".join(AVATAR_EXPRESSIONS),
-        gestures=", ".join(AVATAR_GESTURES),
+        expressions=get_avatar_expression_guide(),
+        gestures=get_avatar_gesture_guide(),
     )
 
 
