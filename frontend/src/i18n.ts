@@ -320,6 +320,17 @@ const resources = {
           turnCounterHint: "{{turn}} / {{max}} ターン（1ターン＝1往復の会話）",
           turnsLeft: "残り{{count}}",
         },
+        partnerPortrait: {
+          note: "立ち絵は前の手番のまま（{{reason}}）",
+          reason: {
+            scene_unchanged: "場面に変化がなかったため",
+            partner_absent: "この場面に相手が登場していないため",
+            not_requested: "この手番は立ち絵を描かない設定だったため",
+            failed: "立ち絵の生成に失敗したため",
+            visual_failed: "場面の読み取りに失敗したため",
+            unknown: "理由は記録されていません",
+          },
+        },
         regeneratePartnerPortrait: "攻略対象の立ち絵を再生成",
         drawPortraitEveryTurn: "主人公の立ち絵を毎ターン描く",
         drawPortraitEveryTurnHint:
@@ -2515,6 +2526,17 @@ const resources = {
           turnLabel: "Turn",
           turnCounterHint: "{{turn}} / {{max}} turns (one exchange per turn)",
           turnsLeft: "{{count}} left",
+        },
+        partnerPortrait: {
+          note: "Partner sprite kept from the previous turn ({{reason}})",
+          reason: {
+            scene_unchanged: "the scene did not change",
+            partner_absent: "the partner is not in this scene",
+            not_requested: "sprite drawing was off for this turn",
+            failed: "the sprite could not be generated",
+            visual_failed: "the scene could not be analyzed",
+            unknown: "no reason was recorded",
+          },
         },
         regeneratePartnerPortrait: "Regenerate the partner sprite",
         drawPortraitEveryTurn: "Draw protagonist sprite every turn",

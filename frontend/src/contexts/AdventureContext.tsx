@@ -741,9 +741,15 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
                   ? {
                       ...current,
                       partner_portrait_url: partnerUrl,
+                      partner_portrait_status: "generated",
+                      // 再取得しないため、据え置きの案内もここで消す
                       turns: current.turns.map((turn) =>
                         turn.id === regeneratedTurnId
-                          ? { ...turn, partner_portrait_url: partnerUrl }
+                          ? {
+                              ...turn,
+                              partner_portrait_url: partnerUrl,
+                              partner_portrait_status: "generated",
+                            }
                           : turn,
                       ),
                     }

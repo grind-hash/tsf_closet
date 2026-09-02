@@ -43,6 +43,15 @@ from ..consts.adventure_narration import (
     NARRATION_VOICE_DEFAULT,
     NARRATION_VOICES,
 )
+from ..consts.adventure_partner_portrait import (
+    PARTNER_PORTRAIT_FAILED,
+    PARTNER_PORTRAIT_GENERATED,
+    PARTNER_PORTRAIT_NOT_REQUESTED,
+    PARTNER_PORTRAIT_PARTNER_ABSENT,
+    PARTNER_PORTRAIT_SCENE_UNCHANGED,
+    PARTNER_PORTRAIT_VISUAL_FAILED,
+    normalize_partner_portrait_status,
+)
 from ..consts.adventure_romance import (
     ROMANCE_ALTER_DAYS_MAX,
     ROMANCE_BACKGROUND_CACHE_MAX,
@@ -881,6 +890,8 @@ def _lean_state_for_llm(state: dict[str, Any]) -> dict[str, Any]:
         "partner_image_path",
         "partner_portrait_path",
         "opening_partner_portrait_path",
+        # 立ち絵を描いたか/据え置いた理由の表示用記録。LLM には不要
+        "partner_portrait_status",
         # 背景キャッシュもファイルパスの索引で、LLM には不要
         "background_cache",
         "background_image_path",
@@ -5323,6 +5334,22 @@ The objective must name a concrete target and an observable end condition that c
                     await queue.put(("resolution_error", error))
 
             async def visual_producer() -> None:
+                async def skip_partner(code: str) -> None:
+                    # 攻略対象の立ち絵を描かなかった理由の記録(romance のみ)。
+                    # 毎ターン描く OFF はどのゲートで止まっても not_requested にまとめる。
+                    # 消費側は終了判定フラグを立てるメッセージで読み取りを止めるため、
+                    # 必ずそれより前に積む
+                    if romance_sim is None:
+                        return
+                    await queue.put(
+                        (
+                            "partner_skipped",
+                            code
+                            if generate_partner_portrait
+                            else PARTNER_PORTRAIT_NOT_REQUESTED,
+                        )
+                    )
+
                 try:
                     visual = await self._generate_visual_output(
                         narrative=narrative,
@@ -5347,6 +5374,7 @@ The objective must name a concrete target and an observable end condition that c
                     )
                 except Exception as error:
                     logger.warning("Adventure visual generation failed: %s", error)
+                    await skip_partner(PARTNER_PORTRAIT_VISUAL_FAILED)
                     await queue.put(("visual_error", error))
                     return
                 if template:
@@ -5387,6 +5415,7 @@ The objective must name a concrete target and an observable end condition that c
                     or _image_tags_changed(state.get("last_image_prompt"), visual)
                 )
                 if not should_generate_image:
+                    await skip_partner(PARTNER_PORTRAIT_SCENE_UNCHANGED)
                     await queue.put(("portrait_skipped", None))
                     await queue.put(("image_skipped", None))
                     return
@@ -5464,6 +5493,7 @@ The objective must name a concrete target and an observable end condition that c
                     and not draw_partner_portrait
                 ):
                     await background_step()
+                    await skip_partner(PARTNER_PORTRAIT_NOT_REQUESTED)
                     await queue.put(("portrait_skipped", None))
                     await queue.put(("image_skipped", None))
                     return
@@ -5510,6 +5540,11 @@ The objective must name a concrete target and an observable end condition that c
                         str(romance_sim.get("partner_name") or ""),
                         str(romance_sim.get("partner_appearance") or ""),
                     )
+                if romance_sim is not None and not partner_tags:
+                    # 相手が場面に居ない(タグを組めない)手番は描き直さず前の1枚を残す。
+                    # 合成モードで毎ターン描く OFF のときもここに落ちるが、
+                    # skip_partner が not_requested に写す
+                    await skip_partner(PARTNER_PORTRAIT_PARTNER_ABSENT)
 
                 async def partner_step() -> Path | None:
                     if not partner_tags:
@@ -5527,6 +5562,7 @@ The objective must name a concrete target and an observable end condition that c
                             "Adventure partner portrait generation failed: %s",
                             error,
                         )
+                        await skip_partner(PARTNER_PORTRAIT_FAILED)
                         return None
                     await queue.put(("partner_portrait", path))
                     return path
@@ -5648,6 +5684,8 @@ The objective must name a concrete target and an observable end condition that c
             visual_output: AdventureVisualOutput | None = None
             portrait_path: Path | None = None
             partner_sprite_path: Path | None = None
+            # 攻略対象の立ち絵を描いたか/据え置いた理由(romance のみ記録される)
+            partner_portrait_status: str | None = None
             background_path: Path | None = None
             background_cache: dict[str, str] | None = None
             image_path: Path | None = None
@@ -5705,12 +5743,17 @@ The objective must name a concrete target and an observable end condition that c
                         # romance の攻略対象立ち絵(非合成モードのみ)。
                         # 最終の state コミットが古いパスで上書きしないよう保持する
                         partner_sprite_path = payload
+                        partner_portrait_status = PARTNER_PORTRAIT_GENERATED
                         yield {
                             "event": "partner_image",
                             "data": {
                                 "image_url": self.image_url(run.id, payload),
                             },
                         }
+                    elif kind == "partner_skipped":
+                        # 攻略対象の立ち絵を据え置いた理由。表示用の記録だけで、
+                        # 終了判定のフラグには関与しない
+                        partner_portrait_status = str(payload)
                     elif kind == "image":
                         image_path = payload
                         image_done = True
@@ -5894,12 +5937,22 @@ The objective must name a concrete target and an observable end condition that c
             next_state, next_status, _, _ = self._merge_output(
                 run, output, turn_number, state_override=state, epilogue=epilogue
             )
-            if visual_output is not None and portrait_path is not None:
+            # 立ち絵(主人公または攻略対象)を描いた手番はタグを更新する。対面会話モードは
+            # 主人公立ち絵を常に省くため、主人公側だけを条件にすると開幕値のまま凍り、
+            # 「場面に変化なし」判定・visual LLM の previous_image_tags・↻ の再描画タグが
+            # すべて開幕基準になる
+            if visual_output is not None and (
+                portrait_path is not None or partner_sprite_path is not None
+            ):
                 next_state["last_image_prompt"] = _image_prompt_payload(visual_output)
             # このターンで生成した攻略対象立ち絵を state と state_delta に反映する。
             # 生成ヘルパのDB保存はこの後の全stateコミットで上書きされるため必須
             if partner_sprite_path is not None:
                 next_state["partner_portrait_path"] = str(partner_sprite_path)
+            if romance_sim is not None:
+                # state_delta は全 state なので、書かないと前手番の値が残る。
+                # None は「記録なし」として FE が理由未記録の文言に倒す
+                next_state["partner_portrait_status"] = partner_portrait_status
             # 背景キャッシュも同じ理由で state へ書き戻す
             if background_cache is not None:
                 next_state["background_cache"] = background_cache
@@ -6379,6 +6432,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                     if persisted_turn is not None:
                         delta = _json_load(persisted_turn.state_delta_json, {})
                         delta["partner_portrait_path"] = str(partner_path)
+                        delta["partner_portrait_status"] = PARTNER_PORTRAIT_GENERATED
                         persisted_turn.state_delta_json = json.dumps(
                             delta, ensure_ascii=False
                         )
@@ -7167,6 +7221,9 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 raise AdventureError("run_not_found", "アドベンチャーが見つかりません")
             persisted_state = _json_load(persisted_run.state_json, {})
             persisted_state["partner_portrait_path"] = str(partner_path)
+            # ↻(手番外の描き直し)で run の記録も「描いた」に戻す。stream_turn 経由は
+            # 最終コミットが同値で上書きする
+            persisted_state["partner_portrait_status"] = PARTNER_PORTRAIT_GENERATED
             if turn_number == 0:
                 # 開幕フレーム表示用に、開幕時の1枚は別キーでも保持する
                 persisted_state["opening_partner_portrait_path"] = str(partner_path)
@@ -7468,6 +7525,10 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 self.image_url(turn.run_id, partner_sprite)
                 if partner_sprite.is_file()
                 else None
+            )
+            # この手番で立ち絵を描いたか、据え置いた理由。旧ターンは None
+            result["partner_portrait_status"] = normalize_partner_portrait_status(
+                state_delta.get("partner_portrait_status")
             )
             # このターン確定時点の背景。過去フレームを当時の場所・時間帯で見せる
             turn_background = Path(str(state_delta.get("background_image_path") or ""))
@@ -7918,6 +7979,10 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 self.image_url(run.id, opening_partner)
                 if opening_partner.is_file()
                 else None
+            )
+            # 最新手番で立ち絵を描いたか、据え置いた理由。旧 run は None
+            response["partner_portrait_status"] = normalize_partner_portrait_status(
+                state.get("partner_portrait_status")
             )
             # トークモード(手番を消費しない会話)のログ
             response["talk_log"] = public_talk_log(state)

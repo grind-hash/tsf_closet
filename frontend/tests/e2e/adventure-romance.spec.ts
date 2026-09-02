@@ -1340,6 +1340,100 @@ test("companion mode shows only the partner sprite and toggles from the gear pop
   expect(state.streamBodies).toHaveLength(0);
 });
 
+test("companion mode explains why the partner sprite was carried over", async ({
+  page,
+}) => {
+  await enableAdventure(page);
+  const baseTurn = {
+    client_turn_id: "c",
+    input_kind: "choice",
+    location: "商店街の書店",
+    choices: [
+      { id: "a", label: "感想を聞く" },
+      { id: "b", label: "隣に座る" },
+      { id: "c", label: "店を出る" },
+    ],
+    image_url: null,
+    image_status: "not_requested",
+    portrait_image_url: null,
+    portrait_status: "not_requested",
+    created_at: "2026-08-01T00:10:00",
+    partner_note: "笑顔で手を振っている",
+    partner_portrait_url: "/mock-partner-turn.png",
+  };
+  const carriedOverRun = romanceRunPayload(2, {
+    companion_mode: true,
+    partner_portrait_url: "/mock-partner-turn.png",
+    partner_portrait_status: "scene_unchanged",
+    turns: [
+      {
+        ...baseTurn,
+        id: "turn-1",
+        turn_number: 1,
+        user_input: "挨拶する",
+        narrative: "美咲「こんにちは」",
+        sim: simPayload({ affection: 12 }),
+        partner_portrait_status: "generated",
+      },
+      {
+        ...baseTurn,
+        id: "turn-2",
+        turn_number: 2,
+        user_input: "天気の話をする",
+        narrative: "美咲「いい天気だね」",
+        sim: simPayload({ affection: 13 }),
+        // 場面が前手番と同じだったため描き直されず、URL も前手番と同じ
+        partner_portrait_status: "scene_unchanged",
+      },
+    ],
+  });
+  await mockRomanceApis(page, carriedOverRun);
+  await page.goto("/adventure/run-1");
+
+  // メッセージ窓のメタ行に理由付きの案内が全文で出る
+  const note = page.locator(".adventure-messagebox__portrait-note");
+  await expect(note).toContainText(
+    "立ち絵は前の手番のまま（場面に変化がなかったため）",
+  );
+
+  // ターン詳細の攻略対象カードにも同じ案内が出て、描いた手番(1)には出ない
+  await page.locator(".adventure-stage__image-button").click();
+  const modal = page.locator(".image-preview-modal__overlay");
+  await expect(
+    modal.getByText("立ち絵は前の手番のまま（場面に変化がなかったため）"),
+  ).toBeVisible();
+  await page.locator(".image-preview-modal__nav--prev").click();
+  await expect(modal.getByText("12/100")).toBeVisible();
+  await expect(modal.getByText(/立ち絵は前の手番のまま/)).toHaveCount(0);
+  await page.keyboard.press("Escape");
+
+  // 過去フレーム(手番1)を表示中は案内も追随して消える
+  await page.getByRole("button", { name: "ログ" }).click();
+  await page.getByAltText("手番 1 の場面").click();
+  await expect(page.getByText("過去の場面を表示中")).toBeVisible();
+  await expect(note).toHaveCount(0);
+
+  // 最新手番で描き直していれば案内は出ない
+  const redrawnRun = {
+    ...carriedOverRun,
+    partner_portrait_status: "generated",
+    turns: [
+      carriedOverRun.turns[0],
+      {
+        ...carriedOverRun.turns[1],
+        partner_portrait_url: "/mock-partner.png",
+        partner_portrait_status: "generated",
+      },
+    ],
+  };
+  await page.route("**/api/adventure/runs/run-1", async (route) => {
+    await route.fulfill({ json: redrawnRun });
+  });
+  await page.goto("/adventure/run-1");
+  await expect(page.getByAltText("攻略対象の立ち絵")).toBeVisible();
+  await expect(note).toHaveCount(0);
+});
+
 test("talk mode chats with the partner without consuming a turn", async ({
   page,
 }) => {

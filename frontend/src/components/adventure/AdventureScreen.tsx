@@ -1972,6 +1972,10 @@ interface AdventureStageFrame {
   partnerNote: string | null;
   /** romance 非合成のみ。この手番時点の攻略対象の立ち絵(白背景の元画像) */
   partnerUrl: string | null;
+  /** romance のみ。この手番で攻略対象の立ち絵を描いたか、据え置いた理由。旧ターンは null */
+  partnerStatus: AdventurePartnerPortraitStatus | null;
+  /** 攻略対象の立ち絵がこの手番で描き直されず前の1枚のままか(開幕・合成モードは false) */
+  partnerInherited: boolean;
   /** この手番時点のBGMカテゴリ。据え置きターンは直前の値を引き継ぐ */
   bgm: AdventureBgmKey;
   /** この手番のBGM選曲理由。キーと対で引き継ぎ、旧runでは null */
@@ -1987,6 +1991,31 @@ interface AdventureStageFrame {
  */
 function turnVoiceKey(runId: string, turnNumber: number): string {
   return `turn:${runId}:${turnNumber}`;
+}
+
+/**
+ * 攻略対象の立ち絵がその手番で描き直されず、前の1枚のままかを判定する。
+ * status が記録された手番はそれを信じる。SSE 由来の turn は URL に API_BASE が
+ * 付かず GET 由来の前手番と一致しないため、URL 比較は status の無い旧ターン専用
+ */
+function partnerPortraitInherited(
+  turn: AdventureTurn,
+  previousPartnerUrl: string | null,
+): boolean {
+  if (turn.partner_portrait_status) {
+    return turn.partner_portrait_status !== "generated";
+  }
+  return (
+    !turn.partner_portrait_url ||
+    turn.partner_portrait_url === previousPartnerUrl
+  );
+}
+
+/** 据え置き理由の i18n キー末尾。未記録(旧ターン)は unknown */
+function partnerPortraitReasonKey(
+  status: AdventurePartnerPortraitStatus | null,
+): string {
+  return status && status !== "generated" ? status : "unknown";
 }
 
 /**
@@ -2349,6 +2378,8 @@ function AdventurePlay({ runId }: { runId: string }) {
         sim: activeRun.opening_sim ?? null,
         partnerNote: null,
         partnerUrl: lastPartnerUrl,
+        partnerStatus: null,
+        partnerInherited: false,
         bgm: lastBgm,
         bgmReason: lastBgmReason,
       });
@@ -2357,6 +2388,8 @@ function AdventurePlay({ runId }: { runId: string }) {
           lastBgm = turn.bgm;
           lastBgmReason = turn.bgm_reason ?? null;
         }
+        // 引き継ぎ判定は lastPartnerUrl を進める前に行う
+        const partnerInherited = partnerPortraitInherited(turn, lastPartnerUrl);
         lastPartnerUrl = turn.partner_portrait_url ?? lastPartnerUrl;
         lastBackgroundUrl = turn.background_image_url ?? lastBackgroundUrl;
         list.push({
@@ -2376,6 +2409,8 @@ function AdventurePlay({ runId }: { runId: string }) {
           sim: turn.sim ?? null,
           partnerNote: turn.partner_note ?? null,
           partnerUrl: lastPartnerUrl,
+          partnerStatus: turn.partner_portrait_status ?? null,
+          partnerInherited,
           bgm: lastBgm,
           bgmReason: lastBgmReason,
           partnerExpression: normalizeAvatarExpression(turn.partner_expression),
@@ -2405,6 +2440,8 @@ function AdventurePlay({ runId }: { runId: string }) {
           sim: activeRun.opening_sim ?? null,
           partnerNote: null,
           partnerUrl: lastPartnerUrl,
+          partnerStatus: null,
+          partnerInherited: false,
           bgm: lastBgm,
           bgmReason: lastBgmReason,
         });
@@ -2434,6 +2471,9 @@ function AdventurePlay({ runId }: { runId: string }) {
           sim: turn.sim ?? null,
           partnerNote: turn.partner_note ?? null,
           partnerUrl: lastPartnerUrl,
+          partnerStatus: turn.partner_portrait_status ?? null,
+          // 合成モードでは立ち絵をステージに出さないため案内も出さない
+          partnerInherited: false,
           bgm: lastBgm,
           bgmReason: lastBgmReason,
         });
@@ -2460,6 +2500,8 @@ function AdventurePlay({ runId }: { runId: string }) {
           sim: activeRun.opening_sim ?? null,
           partnerNote: null,
           partnerUrl: lastPartnerUrl,
+          partnerStatus: null,
+          partnerInherited: false,
           bgm: lastBgm,
           bgmReason: lastBgmReason,
         });
@@ -2472,6 +2514,8 @@ function AdventurePlay({ runId }: { runId: string }) {
           lastBgmReason = turn.bgm_reason ?? null;
         }
         if (!turn.portrait_image_url) continue;
+        // 「前の1枚」は前フレーム(立ち絵のある手番)のもの
+        const partnerInherited = partnerPortraitInherited(turn, lastPartnerUrl);
         lastPartnerUrl = turn.partner_portrait_url ?? lastPartnerUrl;
         list.push({
           key: turn.id,
@@ -2490,6 +2534,8 @@ function AdventurePlay({ runId }: { runId: string }) {
           sim: turn.sim ?? null,
           partnerNote: turn.partner_note ?? null,
           partnerUrl: lastPartnerUrl,
+          partnerStatus: turn.partner_portrait_status ?? null,
+          partnerInherited,
           bgm: lastBgm,
           bgmReason: lastBgmReason,
         });
@@ -3046,6 +3092,19 @@ function AdventurePlay({ runId }: { runId: string }) {
     selectedFrameIndex ?? (frames.length > 0 ? frames.length - 1 : -1);
   const selectedFrame =
     effectiveIndex >= 0 ? frames[effectiveIndex] : undefined;
+  // 攻略対象の立ち絵を据え置いた手番の案内。立ち絵をステージに出している
+  // (合成でなく 3D モデルも非表示)ときだけ表示中フレームに追随し、
+  // 新しい手番のストリーム中は前手番の案内を出さない
+  const partnerPortraitNote =
+    isRomancePreset &&
+    !isCompositeMode &&
+    !avatarActive &&
+    !streaming &&
+    selectedFrame !== undefined &&
+    selectedFrame.turnNumber > 0 &&
+    selectedFrame.partnerInherited
+      ? selectedFrame
+      : null;
   const backgroundUrl =
     activeRun.background_image_url ?? activeRun.current_image_url;
   const displayedImageUrl = isCompanion
@@ -4368,6 +4427,19 @@ function AdventurePlay({ runId }: { runId: string }) {
                   🔊
                 </button>
               )}
+              {partnerPortraitNote && (
+                // section 自体が aria-live なので role="status" は付けない
+                <span className="adventure-messagebox__portrait-note">
+                  <span aria-hidden>🖼</span>
+                  {t("adventure.partnerPortrait.note", {
+                    reason: t(
+                      `adventure.partnerPortrait.reason.${partnerPortraitReasonKey(
+                        partnerPortraitNote.partnerStatus,
+                      )}`,
+                    ),
+                  })}
+                </span>
+              )}
               <button
                 type="button"
                 className="adventure-messagebox__log-button"
@@ -5151,6 +5223,17 @@ function AdventurePlay({ runId }: { runId: string }) {
                       {lightboxFrame.partnerNote && (
                         <p className="image-preview-modal__detail-text">
                           {lightboxFrame.partnerNote}
+                        </p>
+                      )}
+                      {lightboxFrame.partnerInherited && (
+                        <p className="image-preview-modal__detail-text adventure-preview-partner__portrait-note">
+                          {t("adventure.partnerPortrait.note", {
+                            reason: t(
+                              `adventure.partnerPortrait.reason.${partnerPortraitReasonKey(
+                                lightboxFrame.partnerStatus,
+                              )}`,
+                            ),
+                          })}
                         </p>
                       )}
                     </section>
