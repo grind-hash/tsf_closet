@@ -5362,32 +5362,68 @@ async def test_generate_background_image_openrouter_uses_txt2img(
 
 
 @pytest.mark.asyncio
-async def test_generate_background_image_selfhost_unsupported(
+async def test_generate_background_image_selfhost_uses_txt2img(
     monkeypatch, tmp_path
 ) -> None:
-    """ComfyUIはtxt2imgを持たないため背景生成はエラーになる(呼び出し側で握る)。"""
+    """selfhost(ComfyUI)でも編集元画像なしの txt2img で横長の背景を生成する。"""
     monkeypatch.setattr(app_settings, "image_provider", "selfhost")
     service = AdventureService()
     service._images_dir = tmp_path
-    run, _persisted_run, FakeDatabase = _make_background_run_fixtures(tmp_path)
+    run, persisted_run, FakeDatabase = _make_background_run_fixtures(tmp_path)
 
-    generate_image = AsyncMock()
+    generate_image = AsyncMock(return_value=SimpleNamespace(images=[b"bg"]))
+    generate_scenery = AsyncMock()
     monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
     monkeypatch.setattr(
         "gateway.services.adventure_service.image_service.generate_image",
         generate_image,
     )
     monkeypatch.setattr(
+        "gateway.services.adventure_service.image_service.generate_scenery",
+        generate_scenery,
+    )
+    monkeypatch.setattr(
         "gateway.services.adventure_service.async_session_factory", FakeDatabase
     )
 
-    with pytest.raises(AdventureError) as excinfo:
-        await service._generate_background_image_unlocked(
-            "run-1", scene_tags="scenery tags", nsfw_mode=False
-        )
+    background_path = await service._generate_background_image_unlocked(
+        "run-1", scene_tags="scenery tags", nsfw_mode=False
+    )
 
-    assert excinfo.value.code == "image_generation_failed"
-    generate_image.assert_not_awaited()
+    generate_scenery.assert_not_awaited()
+    image_kwargs = generate_image.await_args.kwargs
+    assert image_kwargs["provider_override"] == "selfhost"
+    assert image_kwargs["image_bytes"] is None
+    assert image_kwargs["size_override"] == "landscape"
+    assert "no people" in generate_image.await_args.args[0]
+    assert "no humans" in generate_image.await_args.args[0]
+    assert background_path.read_bytes() == b"bg"
+    assert persisted_run.background_image_path == str(background_path)
+
+
+@pytest.mark.asyncio
+async def test_ensure_romance_background_selfhost_generates(
+    monkeypatch, tmp_path
+) -> None:
+    """selfhost でも現在地キーで背景を生成し、キャッシュへ登録する。"""
+    monkeypatch.setattr(app_settings, "image_provider", "selfhost")
+    service = AdventureService()
+    service._images_dir = tmp_path
+    run = SimpleNamespace(id="run-1", state_json="{}", background_image_path=None)
+    monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
+    generated = tmp_path / "run-1" / "background-abcd1234.png"
+    generate = AsyncMock(return_value=generated)
+    monkeypatch.setattr(service, "_generate_background_image_unlocked", generate)
+
+    result = await service._ensure_romance_background_unlocked(
+        "run-1", scene_tags="cafe", location="喫茶店", slot=None, nsfw_mode=False
+    )
+
+    assert result is not None
+    path, cache = result
+    assert path == generated
+    assert cache == {"喫茶店": generated.name}
+    generate.assert_awaited_once()
 
 
 @pytest.mark.asyncio

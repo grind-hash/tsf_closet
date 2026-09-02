@@ -52,6 +52,12 @@ DEFAULT_WORKFLOWS: Final[dict[str, str]] = {
     "instruct_game_nsfw": "workflows/qwen_image_edit_template_local_nsfw.json",
     # 参照画像付きワークフロー (衣装画像を参照として指定する場合)
     "instruct_game_with_reference": "workflows/instruct_game_template.json",
+    # txt2img (背景など編集元画像が無い生成用)。編集用と同じモデル構成で
+    # LoadImage を EmptySD3LatentImage に置き換えたもの
+    "qwen_image_txt2img_local": "workflows/qwen_image_txt2img_template_local.json",
+    "qwen_image_txt2img_local_nsfw": (
+        "workflows/qwen_image_txt2img_template_local_nsfw.json"
+    ),
 }
 
 
@@ -63,6 +69,13 @@ class Settings:
     comfyui_base_url: str = os.getenv("COMFYUI_BASE_URL", "http://127.0.0.1:8188")
     comfyui_workflow_path: Path = _resolve_path(
         os.getenv("COMFYUI_WORKFLOW_PATH", "workflows/qwen_image_edit_template.json")
+    )
+    # txt2img 用ワークフロー。未設定なら編集用ワークフローの命名規則から導出する
+    # (get_txt2img_workflow_path を参照)
+    comfyui_txt2img_workflow_path: Path | None = (
+        _resolve_path(os.environ["COMFYUI_TXT2IMG_WORKFLOW_PATH"])
+        if os.getenv("COMFYUI_TXT2IMG_WORKFLOW_PATH")
+        else None
     )
     comfyui_client_id: str = os.getenv("COMFYUI_CLIENT_ID", "fastapi-openai-gateway")
     comfyui_request_timeout: float = float(os.getenv("COMFYUI_REQUEST_TIMEOUT", "180"))
@@ -236,6 +249,26 @@ class Settings:
         path = workflow_path or self.comfyui_workflow_path
         if not path.exists():
             raise FileNotFoundError(f"ComfyUI workflow template not found: {path}")
+
+    def get_txt2img_workflow_path(self, edit_workflow_path: Path | None = None) -> Path:
+        """編集元画像なしの生成(背景など)に使うワークフローのパスを返す。
+
+        優先順位:
+        1. COMFYUI_TXT2IMG_WORKFLOW_PATH
+        2. 編集用ワークフローのファイル名の "image_edit" を "image_txt2img" に
+           置き換えたファイル (例: qwen_image_edit_template_local_nsfw.json →
+           qwen_image_txt2img_template_local_nsfw.json) が存在すればそれ
+        3. 同梱の qwen_image_txt2img_template_local.json
+        """
+        if self.comfyui_txt2img_workflow_path is not None:
+            return self.comfyui_txt2img_workflow_path
+        edit_path = edit_workflow_path or self.comfyui_workflow_path
+        derived_name = edit_path.name.replace("image_edit", "image_txt2img")
+        if derived_name != edit_path.name:
+            derived_path = edit_path.with_name(derived_name)
+            if derived_path.exists():
+                return derived_path
+        return _resolve_path(DEFAULT_WORKFLOWS["qwen_image_txt2img_local"])
 
     def get_workflow_path(self, workflow_name: str | None = None) -> Path:
         """ワークフロー名からパスを取得する。

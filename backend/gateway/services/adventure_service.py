@@ -6832,13 +6832,6 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         """
         run = await self.get_run_orm(run_id)
         provider = _image_provider()
-        if provider == "selfhost":
-            # ComfyUIの編集ワークフローはtxt2imgを持たないため背景は作れない。
-            # 呼び出し側は既存背景(無ければ初期画像)のまま続行する
-            raise AdventureError(
-                "image_generation_failed",
-                "背景画像はセルフホストプロバイダーでは生成できません",
-            )
         # scene_tags は「観察可能な相互作用」を含みうるため、no humans 等の
         # 除外タグを前置して人物非表示を強く指示する
         scenery_prompt = _enhance_adventure_prompt(
@@ -6857,12 +6850,15 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 ),
             )
         else:
+            # OpenRouter は txt2img、selfhost(ComfyUI) は txt2img 用ワークフローで
+            # 編集元画像なしに描く。横長固定で人物を含めない
             result = await image_service.generate_image(
                 "Generate one wide background scenery illustration containing "
                 "no people at all.\n" + scenery_prompt,
                 image_bytes=None,
                 provider_override=provider,
                 nsfw_mode=nsfw_mode,
+                size_override="landscape",
             )
         _record_cost(getattr(result, "cost_usd", None))
         if not result.images:
@@ -6897,10 +6893,6 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         slot が None のとき(対面会話モード)は現在地だけをキーにし、
         昼夜が変わっても同じ場所なら描き直さない。
         """
-        # selfhost(ComfyUI)は背景のtxt2imgを生成できない。毎ターン例外と警告を
-        # 出さないよう、ここで静かに既存背景のまま進める
-        if _image_provider() == "selfhost":
-            return None
         location_key = romance_location_key(location)
         if not location_key:
             return None
@@ -7185,15 +7177,10 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             )
         else:
             # 参照は追加課金なしで常に使い、同一性を保つ。参照が無いときは
-            # OpenRouterはtxt2img、ComfyUIは生成不可なのでエラーにする
+            # OpenRouter / ComfyUI とも txt2img で新規に描く
             edit_source: bytes | None = (
                 reference_path.read_bytes() if reference_path.is_file() else None
             )
-            if provider == "selfhost" and edit_source is None:
-                raise AdventureError(
-                    "image_generation_failed",
-                    "相手の立ち絵の編集元画像が見つかりません",
-                )
             instruction = (
                 "Redraw the exact character from the attached image with the "
                 "same face, hair, and identity, as described below.\n"
@@ -7205,6 +7192,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 image_bytes=edit_source,
                 provider_override=provider,
                 nsfw_mode=nsfw_mode,
+                size_override="portrait",
             )
         _record_cost(getattr(result, "cost_usd", None))
         if not result.images:
@@ -7272,7 +7260,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 nonlocal seeded_background_cache
                 # 背景には時間帯タグ適用済みの scene_tags を渡す。
                 # image_prompt(変換前)は後続の prompt_override 用に温存する。
-                # 背景の失敗で開幕全体を止めない(セルフホストは生成不可で常にここ)
+                # 背景の失敗で開幕全体を止めない
                 try:
                     if companion:
                         ensured = await self._ensure_romance_background_unlocked(

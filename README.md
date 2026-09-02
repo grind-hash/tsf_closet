@@ -305,7 +305,7 @@ GPU 環境がないユーザー向けに、Windows ポータブル配布パッ�
 
 恋愛シミュレーションで有効化できるモードです (既定 OFF)。攻略対象が目の前に立ち、1 ターン = 1 往復の会話になります。昼・夜の区切りは無く、設定したターン数の往復で結果が確定します。
 
-- 画像は攻略対象の立ち絵と背景 (場所が変わったときだけ) のみを生成します。セルフホスト (ComfyUI) では背景を生成できません
+- 画像は攻略対象の立ち絵と背景 (場所が変わったときだけ) のみを生成します。セルフホスト (ComfyUI) では背景を txt2img 用ワークフロー (`COMFYUI_TXT2IMG_WORKFLOW_PATH`) で生成します
 - セリフ読み上げに対応。本文の「名前「セリフ」」行だけを AivisSpeech で自動再生し、再生中は BGM の音量を下げます
 - マイクによる音声入力に対応 (Chrome / Edge)。ブラウザの音声認識を使うため、Chrome では音声が Google のサーバーへ送られます
 
@@ -451,6 +451,7 @@ AivisSpeech エンジンによるセリフの読み上げに対応した実験�
 | ------------------------- | ----------------------------------------- |
 | `COMFYUI_BASE_URL`        | `http://127.0.0.1:8188`                   |
 | `COMFYUI_WORKFLOW_PATH`   | `workflows/qwen_image_edit_template.json` |
+| `COMFYUI_TXT2IMG_WORKFLOW_PATH` | 未設定時は `COMFYUI_WORKFLOW_PATH` のファイル名の `image_edit` を `image_txt2img` に置き換えたもの (無ければ `workflows/qwen_image_txt2img_template_local.json`) |
 | `COMFYUI_REQUEST_TIMEOUT` | `180`                                     |
 
 ### LiteLLM (selfhost)

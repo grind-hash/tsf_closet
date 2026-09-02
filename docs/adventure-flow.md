@@ -151,7 +151,9 @@ sequenceDiagram
   次のように劣化する: 非NovelAIではキャラクター枠・negative prompt・seed が
   使えず1本のプロンプトへ畳む（`_flatten_scene_prompt`）。参照画像は追加費用
   なしで常に使う（精密参照トグルはNovelAI専用）。selfhost（ComfyUI）は
-  txt2img を持たないため背景は生成せず、立ち絵・合成は既存画像の編集で賄う。
+  背景を txt2img 用ワークフロー（`COMFYUI_TXT2IMG_WORKFLOW_PATH`、既定は編集用
+  テンプレート名の `image_edit` を `image_txt2img` に置き換えたもの）で生成し、
+  立ち絵・合成は既存画像の編集で賄う。
 - **並列なのは②と③だけ**で、①の本文が確定してから走る。③は本文を入力に取るため。
 - **画像は③の中で直列**に生成する（背景 → 主人公の立ち絵 → 攻略対象の立ち絵 →
   合成シーン）。立ち絵と合成で同じシードを使い、衣装の描画差を抑える。
@@ -230,7 +232,7 @@ sequenceDiagram
     SV->>DB: AdventureRun を作成
     SV->>SV: _generate_opening_visuals
     SV->>I: 背景 / 主人公の立ち絵 / 攻略対象の立ち絵 / 合成シーン
-    Note over SV: 失敗しても run 作成は成功扱いにする<br/>OpenRouterでは背景・立ち絵を並列生成する<br/>selfhostは背景をスキップする
+    Note over SV: 失敗しても run 作成は成功扱いにする<br/>OpenRouterでは背景・立ち絵を並列生成する<br/>selfhostはtxt2imgワークフローで背景を描く
     SV-->>C: run（OpenRouterでは cost_usd を含む）
     C-->>U: プレイ画面へ
 ```

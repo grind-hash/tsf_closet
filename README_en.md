@@ -305,7 +305,7 @@ See [docs/adventure-flow.md](docs/adventure-flow.md) for the detailed processing
 
 A mode available in the romance simulation (off by default). The partner stands right in front of you and one turn becomes one exchange. There is no day/night split; the outcome settles after the configured number of exchanges.
 
-- Only the partner's portrait and the background (when the location changes) are generated. Selfhost (ComfyUI) cannot generate backgrounds
+- Only the partner's portrait and the background (when the location changes) are generated. Selfhost (ComfyUI) generates the background with a txt2img workflow (`COMFYUI_TXT2IMG_WORKFLOW_PATH`)
 - Line read-aloud is supported: only the partner's scripted lines are played via AivisSpeech, and the BGM is ducked while a line plays
 - Microphone voice input is supported (Chrome / Edge). It uses the browser's speech recognition, so in Chrome your voice is sent to Google's servers
 
@@ -451,6 +451,7 @@ An experimental feature that reads lines aloud with the AivisSpeech engine. Enab
 | ------------------------- | ----------------------------------------- |
 | `COMFYUI_BASE_URL`        | `http://127.0.0.1:8188`                   |
 | `COMFYUI_WORKFLOW_PATH`   | `workflows/qwen_image_edit_template.json` |
+| `COMFYUI_TXT2IMG_WORKFLOW_PATH` | When unset, the `COMFYUI_WORKFLOW_PATH` file name with `image_edit` replaced by `image_txt2img` (falls back to `workflows/qwen_image_txt2img_template_local.json`) |
 | `COMFYUI_REQUEST_TIMEOUT` | `180`                                     |
 
 ### LiteLLM (selfhost)

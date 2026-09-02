@@ -1668,6 +1668,19 @@ button:disabled {
   opacity: 0.42;
 }
 
+/* 背景が無いとき(対面会話モードで背景が未生成・生成失敗)の無地ステージ。
+   主人公の開始画像を背景に流用せず、立ち絵の後ろを柔らかく照らすだけにする */
+.adventure-stage__backdrop {
+  width: 100%;
+  height: 100%;
+  background: radial-gradient(
+    ellipse 70% 55% at 50% 38%,
+    rgb(58 52 74 / 90%) 0%,
+    rgb(28 26 38 / 95%) 55%,
+    rgb(8 10 12 / 100%) 100%
+  );
+}
+
 .adventure-stage__scrim {
   position: absolute;
   inset: 0;

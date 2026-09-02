@@ -100,26 +100,81 @@ class ComfyUIClient:
                 if prompt_payload.get("111")
                 else "N/A",
             )
-            payload = self._build_prompt_payload(prompt_payload)
-
-            response = await client.post("/prompt", json=payload)
-            if response.status_code >= 400:
-                error_text = response.text
-                print(f"ComfyUI error response ({response.status_code}): {error_text}")
-                raise ComfyUIError(
-                    f"ComfyUI prompt failed ({response.status_code}): {error_text}"
-                )
-            prompt_id = response.json().get("prompt_id")
-            print(prompt_id)
-            if not prompt_id:
-                raise ComfyUIError("ComfyUI did not return a prompt_id")
-
-            images = await self._wait_for_images(client, prompt_id, limit=limit)
+            images = await self._submit_and_collect(client, prompt_payload, limit=limit)
 
         if not images:
             raise ComfyUIError("ComfyUI completed without producing images")
 
         return ComfyUIResult(images=images)
+
+    async def text_to_image(
+        self,
+        *,
+        prompt: str,
+        negative_prompt: str = "",
+        width: int = 1216,
+        height: int = 832,
+        seed: Optional[int] = None,
+        replacements: Optional[Dict[str, Any]] = None,
+        limit: Optional[int] = None,
+        workflow_path: Optional[Path] = None,
+    ) -> ComfyUIResult:
+        """編集元画像なしで生成する(背景など)。
+
+        txt2img 用テンプレートは編集用と同じモデル構成で、LoadImage の代わりに
+        EmptySD3LatentImage を latent に繋ぐ。__PROMPT__ / __NEGATIVE_PROMPT__ /
+        __SEED__ に加えて __WIDTH__ / __HEIGHT__ を置換する。
+        workflow_path 未指定時は settings.get_txt2img_workflow_path() に従う。
+        """
+        target_workflow_path = workflow_path or settings.get_txt2img_workflow_path()
+        if not target_workflow_path.exists():
+            raise ComfyUIError(
+                f"ComfyUI txt2img workflow template not found: {target_workflow_path}"
+            )
+        template = self._load_template(target_workflow_path)
+        replacements = dict(replacements or {})
+        replacements.setdefault("__PROMPT__", prompt)
+        replacements.setdefault("__NEGATIVE_PROMPT__", negative_prompt or "")
+        replacements.setdefault(
+            "__SEED__", seed if seed is not None else random.randint(0, 2**63 - 1)
+        )
+        replacements.setdefault("__WIDTH__", int(width))
+        replacements.setdefault("__HEIGHT__", int(height))
+
+        async with httpx.AsyncClient(
+            base_url=self.base_url, timeout=self.request_timeout
+        ) as client:
+            prompt_payload = self._apply_replacements(template, replacements)
+            images = await self._submit_and_collect(client, prompt_payload, limit=limit)
+
+        if not images:
+            raise ComfyUIError("ComfyUI completed without producing images")
+
+        return ComfyUIResult(images=images)
+
+    async def _submit_and_collect(
+        self,
+        client: httpx.AsyncClient,
+        prompt_payload: Dict[str, Any],
+        *,
+        limit: Optional[int] = None,
+    ) -> List[bytes]:
+        """置換済みグラフをキューへ投入し、完了した出力画像を返す。"""
+        payload = self._build_prompt_payload(prompt_payload)
+
+        response = await client.post("/prompt", json=payload)
+        if response.status_code >= 400:
+            error_text = response.text
+            print(f"ComfyUI error response ({response.status_code}): {error_text}")
+            raise ComfyUIError(
+                f"ComfyUI prompt failed ({response.status_code}): {error_text}"
+            )
+        prompt_id = response.json().get("prompt_id")
+        print(prompt_id)
+        if not prompt_id:
+            raise ComfyUIError("ComfyUI did not return a prompt_id")
+
+        return await self._wait_for_images(client, prompt_id, limit=limit)
 
     def _load_template(self, workflow_path: Optional[Path] = None) -> Dict[str, Any]:
         target_path = workflow_path or self.workflow_path

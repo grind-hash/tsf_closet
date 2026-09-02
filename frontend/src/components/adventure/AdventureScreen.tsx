@@ -2356,18 +2356,21 @@ function AdventurePlay({ runId }: { runId: string }) {
       activeRun.background_image_url ?? activeRun.current_image_url ?? null;
     if (activeRun.preset === "romance" && activeRun.companion_mode) {
       // 対面会話モード: 代表画像は攻略対象の立ち絵。生成の無い手番も
-      // フレームにし、立ち絵と背景は直前の1枚を引き継ぐ
+      // フレームにし、立ち絵と背景は直前の1枚を引き継ぐ。
+      // 背景は生成済みの1枚だけを使い、無ければ null(無地のステージ)にする。
+      // current_image_url は主人公の開始画像に落ちうるため背景へ流用しない
       let lastPartnerUrl = activeRun.opening_partner_portrait_url ?? null;
-      let lastBackgroundUrl = runBackground;
+      let lastBackgroundUrl: string | null =
+        activeRun.background_image_url ?? null;
       let lastBgm: AdventureBgmKey = activeRun.opening_bgm ?? "daily";
       let lastBgmReason: string | null = activeRun.opening_bgm_reason ?? null;
       list.push({
         key: "opening",
         turnNumber: 0,
         imageUrl:
-          lastPartnerUrl ?? runBackground ?? activeRun.opening_image_url,
+          lastPartnerUrl ?? lastBackgroundUrl ?? activeRun.opening_image_url,
         kind: "partner",
-        backgroundUrl: runBackground,
+        backgroundUrl: lastBackgroundUrl,
         portraitUrl: null,
         portraitStatus: null,
         sceneUrl: null,
@@ -3105,8 +3108,11 @@ function AdventurePlay({ runId }: { runId: string }) {
     selectedFrame.partnerInherited
       ? selectedFrame
       : null;
-  const backgroundUrl =
-    activeRun.background_image_url ?? activeRun.current_image_url;
+  // 対面会話モードの背景は生成済みの1枚だけ。無ければ無地のステージにし、
+  // 主人公の開始画像(current_image_url)を背景に敷かない
+  const backgroundUrl = isCompanion
+    ? (activeRun.background_image_url ?? null)
+    : (activeRun.background_image_url ?? activeRun.current_image_url);
   const displayedImageUrl = isCompanion
     ? isViewingPast
       ? (selectedFrame?.backgroundUrl ?? backgroundUrl)
@@ -3933,11 +3939,15 @@ function AdventurePlay({ runId }: { runId: string }) {
                 disabled={frames.length === 0}
                 aria-label={t("adventure.viewFullScreen")}
               >
-                <img
-                  className={showStageOverlay ? "is-generating" : undefined}
-                  src={displayedImageUrl}
-                  alt={activeRun.title}
-                />
+                {displayedImageUrl ? (
+                  <img
+                    className={showStageOverlay ? "is-generating" : undefined}
+                    src={displayedImageUrl}
+                    alt={activeRun.title}
+                  />
+                ) : (
+                  <div className="adventure-stage__backdrop" aria-hidden />
+                )}
               </button>
               <div className="adventure-stage__scrim" aria-hidden />
               {displayedPortraitUrl && (

@@ -1340,6 +1340,66 @@ test("companion mode shows only the partner sprite and toggles from the gear pop
   expect(state.streamBodies).toHaveLength(0);
 });
 
+test("companion mode shows a plain backdrop instead of the protagonist image when no background exists", async ({
+  page,
+}) => {
+  await enableAdventure(page);
+  await mockRomanceApis(page);
+  await page.route("**/api/mock-protagonist.png", async (route) => {
+    await route.fulfill({ path: IMAGE_PATH, contentType: "image/png" });
+  });
+  // 背景が未生成(生成失敗・未対応)の run。current_image_url は主人公の開始画像
+  const companionRun = romanceRunPayload(0, {
+    companion_mode: true,
+    background_image_url: null,
+    current_image_url: "/mock-protagonist.png",
+  });
+  await page.route("**/api/adventure/runs/run-1", async (route) => {
+    await route.fulfill({ json: companionRun });
+  });
+  await page.goto("/adventure/run-1");
+
+  // 攻略対象の立ち絵は出しつつ、背景には主人公画像を敷かず無地のステージにする
+  await expect(page.getByAltText("攻略対象の立ち絵")).toBeVisible();
+  const frame = page.locator(".adventure-stage__frame");
+  await expect(frame.locator(".adventure-stage__backdrop")).toBeVisible();
+  await expect(frame.locator(".adventure-stage__image-button img")).toHaveCount(
+    0,
+  );
+  await expect(
+    page.locator(".adventure-stage__frame img[src*='mock-protagonist']"),
+  ).toHaveCount(0);
+});
+
+test("companion mode keeps the generated background on the stage", async ({
+  page,
+}) => {
+  await enableAdventure(page);
+  await mockRomanceApis(page);
+  for (const name of ["mock-background", "mock-protagonist"]) {
+    await page.route(`**/api/${name}.png`, async (route) => {
+      await route.fulfill({ path: IMAGE_PATH, contentType: "image/png" });
+    });
+  }
+  const companionRun = romanceRunPayload(0, {
+    companion_mode: true,
+    background_image_url: "/mock-background.png",
+    current_image_url: "/mock-protagonist.png",
+  });
+  await page.route("**/api/adventure/runs/run-1", async (route) => {
+    await route.fulfill({ json: companionRun });
+  });
+  await page.goto("/adventure/run-1");
+
+  const stageImage = page.locator(
+    ".adventure-stage__frame .adventure-stage__image-button img",
+  );
+  await expect(stageImage).toHaveAttribute("src", /mock-background/);
+  await expect(
+    page.locator(".adventure-stage__frame .adventure-stage__backdrop"),
+  ).toHaveCount(0);
+});
+
 test("companion mode explains why the partner sprite was carried over", async ({
   page,
 }) => {
