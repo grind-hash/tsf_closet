@@ -70,6 +70,15 @@
     color 0.2s;
 }
 
+/* 遊び方ガイドの未読ドット。初回訪問で消える */
+.side-menu__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: var(--accent-color, #e94560);
+  flex-shrink: 0;
+}
+
 .side-menu__item:hover {
   background-color: var(--hover-bg, #1f2f50);
 }

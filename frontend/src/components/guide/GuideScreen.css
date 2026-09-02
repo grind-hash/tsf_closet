@@ -1,0 +1,194 @@
+/**
+ * GuideScreen CSS
+ * 遊び方ガイド。設定画面とトーンを揃えたカード一覧
+ */
+
+.guide-screen {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 2rem;
+  overflow-y: auto;
+}
+
+.guide-screen__header {
+  margin-bottom: 2rem;
+  flex-shrink: 0;
+  max-width: 720px;
+}
+
+.guide-screen__title {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--text-color, #eee);
+}
+
+.guide-screen__intro {
+  margin: 0.5rem 0 0;
+  font-size: 0.875rem;
+  color: var(--text-muted, #888);
+}
+
+.guide-screen__cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 1.5rem;
+  align-content: start;
+}
+
+.guide-screen__card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  background-color: var(--card-bg, #16213e);
+  border: 1px solid var(--border-color, #333);
+  border-radius: 12px;
+  padding: 1.5rem;
+}
+
+.guide-screen__card-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.guide-screen__card-icon {
+  font-size: 1.3rem;
+  line-height: 1;
+}
+
+.guide-screen__card-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-color, #eee);
+}
+
+.guide-screen__card-desc {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.75;
+  color: var(--text-color, #ddd);
+}
+
+.guide-screen__card-note {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.6;
+  color: var(--text-muted, #888);
+}
+
+/* フッター: 状態行(トグル・完了表示)の下に、幅いっぱいの CTA を縦積みする */
+.guide-screen__card-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: auto;
+  padding-top: 0.85rem;
+}
+
+.guide-screen__card-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.9rem;
+}
+
+/* トグルスイッチ。設定画面と同じ見た目にする */
+.guide-screen__toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  cursor: pointer;
+}
+
+.guide-screen__toggle-label {
+  font-size: 0.82rem;
+  color: var(--text-color, #ddd);
+}
+
+.guide-screen__toggle-input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.guide-screen__toggle-switch {
+  position: relative;
+  width: 48px;
+  height: 26px;
+  background-color: var(--border-color, #333);
+  border-radius: 13px;
+  transition: background-color 0.2s;
+  flex-shrink: 0;
+}
+
+.guide-screen__toggle-switch::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  background-color: white;
+  border-radius: 50%;
+  transition: transform 0.2s;
+}
+
+.guide-screen__toggle-input:checked + .guide-screen__toggle-switch {
+  background-color: var(--accent-color, #e94560);
+}
+
+.guide-screen__toggle-input:checked + .guide-screen__toggle-switch::after {
+  transform: translateX(22px);
+}
+
+.guide-screen__toggle-input:focus-visible + .guide-screen__toggle-switch {
+  outline: 2px solid var(--accent-color, #e94560);
+  outline-offset: 2px;
+}
+
+/* 完了状態は警告と紛れないよう成功系の緑で示す */
+.guide-screen__added {
+  font-size: 0.78rem;
+  color: #6ee7a0;
+}
+
+.guide-screen__added::before {
+  content: "✓ ";
+}
+
+/* CTA: カード下部の幅いっぱいの大きめボタン。
+   「〜を開く」等の同種アクションは全カードで同じ枠線様式にそろえる */
+.guide-screen__cta {
+  width: 100%;
+  padding: 0.65rem 1rem;
+  border: 1px solid var(--border-color, #4a535c);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-color, #ddd);
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-align: center;
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    color 0.15s;
+}
+
+.guide-screen__cta:hover {
+  border-color: var(--accent-color, #e94560);
+  color: var(--accent-color, #e94560);
+}
+
+@media (max-width: 768px) {
+  .guide-screen {
+    padding: 1rem;
+  }
+
+  .guide-screen__cards {
+    grid-template-columns: 1fr;
+  }
+}

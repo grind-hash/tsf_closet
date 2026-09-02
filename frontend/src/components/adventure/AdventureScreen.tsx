@@ -15,6 +15,7 @@ import type {
   AdventureBgmKey,
   AdventureInputKind,
   AdventureNarrationVoice,
+  AdventurePartnerPortraitStatus,
   AdventurePreset,
   AdventureRun,
   AdventureSim,

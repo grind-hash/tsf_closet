@@ -584,6 +584,11 @@ export function GameProvider({ children }: { children: ReactNode }) {
           },
         );
         if (!response.ok) {
+          // localStorage から復元しただけの古いセッションIDでは 404 になる。
+          // 設定自体は保存済みで、実在するセッションの開始時に改めて同期
+          // されるため黙って無視する(遊び方ガイド等、プレイ画面外での
+          // トグルで警告が出るのを防ぐ)
+          if (response.status === 404) return null;
           throw new Error("play_memory_sync_failed");
         }
         const data = (await response.json()) as PlayMemoryApiResponse;

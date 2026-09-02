@@ -22,6 +22,7 @@ import {
   readLastAdventureRunId,
   subscribeLastAdventureRunId,
 } from "../../utils/adventureLastRun";
+import { readGuideSeen } from "../../utils/guideSeen";
 import "./SideMenu.css";
 
 const getServerLastAdventureRunId = (): string | null => null;
@@ -60,7 +61,7 @@ const getMenuItems = (
           {
             id: "adventure",
             label: t("menu.adventure"),
-            icon: "A",
+            icon: "📖",
             path: ROUTES.ADVENTURE,
             description: t("menu.adventureDesc"),
           },
@@ -108,6 +109,14 @@ const getMenuItems = (
       icon: "⚙️",
       path: ROUTES.SETTINGS,
       description: t("menu.settingsDesc"),
+    },
+    // 遊び方ガイドは常設項目の一番下に置く
+    {
+      id: "guide",
+      label: t("menu.guide"),
+      icon: "🧭",
+      path: ROUTES.GUIDE,
+      description: t("menu.guideDesc"),
     },
   ];
 };
@@ -162,6 +171,9 @@ export default function SideMenu() {
     }
   };
 
+  // 遊び方ガイドの未読ドット。一度開いたら消す(表示中も出さない)
+  const showGuideDot = !readGuideSeen() && location.pathname !== ROUTES.GUIDE;
+
   const isActive = (path: string): boolean => {
     // /play と /play/new の両方を "game" として扱う
     if (path === ROUTES.GAME_NEW) {
@@ -206,6 +218,9 @@ export default function SideMenu() {
                 {item.icon}
               </span>
               <span className="side-menu__label">{item.label}</span>
+              {item.id === "guide" && showGuideDot && (
+                <span className="side-menu__dot" aria-hidden="true" />
+              )}
             </button>
             {/* 新規プレイの下にプレイ中のゲームに移動を表示 */}
             {item.id === "new-game" && hasActiveGame && (
