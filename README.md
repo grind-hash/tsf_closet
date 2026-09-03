@@ -444,6 +444,8 @@ AivisSpeech エンジンによるセリフの読み上げに対応した実験�
 | `IMAGE_DESCRIPTION_PROVIDER` | 画像説明プロバイダー                                         | `selfhost` |
 | `FEELING_PROVIDER`           | 心境生成プロバイダー                                         | `selfhost` |
 | `ENABLE_PROMPT_PREVIEW`      | TSFシナリオのプロンプト確認機能                              | `false`    |
+| `TAVILY_API_KEY`             | Web 検索 (Tavily) の API キー。`ENABLE_PROMPT_PREVIEW=true` 時のみ使用 | (なし)     |
+| `WEATHER_LOCATION`           | 天気を取得する都市名 (例: `Tokyo`、Open-Meteo でキー不要)。`ENABLE_PROMPT_PREVIEW=true` 時のみ使用 | (なし)     |
 
 ### ComfyUI (selfhost)
 

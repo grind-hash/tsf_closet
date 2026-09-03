@@ -83,6 +83,8 @@ export default function SettingsScreen() {
     setExperimentalPromptExpanderEnabled,
     setAdventureEnableCompositeScene,
     setPlayMemoryEnabled,
+    setRealWorldWeatherEnabled,
+    setRealWorldSearchEnabled,
     setEnableSurroundingsImage,
     setSurroundingsIncludePeople,
     setClothingColorConsistency,
@@ -99,6 +101,28 @@ export default function SettingsScreen() {
     setHistoryLookbackTarget,
     resetSettings,
   } = useSettings();
+
+  // 現実世界コンテキストは常に操作できるが、効かない組み合わせは理由を添える
+  const describeRealWorldNote = (
+    configured: boolean,
+    missingKey: string,
+  ): string | null => {
+    if (!state.realWorldAvailability.promptPreviewEnabled) {
+      return t("settings.realWorldPromptPreviewDisabled");
+    }
+    if (!configured) {
+      return t(missingKey);
+    }
+    return null;
+  };
+  const realWorldWeatherNote = describeRealWorldNote(
+    state.realWorldAvailability.weatherConfigured,
+    "settings.realWorldWeatherNotConfigured",
+  );
+  const realWorldSearchNote = describeRealWorldNote(
+    state.realWorldAvailability.webSearchConfigured,
+    "settings.realWorldSearchNotConfigured",
+  );
 
   const difficultyOptions = [
     {
@@ -991,6 +1015,56 @@ export default function SettingsScreen() {
               {state.playMemoryEnabled && (
                 <p className="settings-screen__play-memory-warning">
                   {t("settings.experimentalPlayMemoryWarning")}
+                </p>
+              )}
+            </div>
+
+            <div className="settings-screen__item">
+              <label className="settings-screen__toggle">
+                <div className="settings-screen__toggle-info">
+                  <span className="settings-screen__item-label">
+                    {t("settings.experimentalRealWorldWeather")}
+                  </span>
+                  <span className="settings-screen__item-desc">
+                    {t("settings.experimentalRealWorldWeatherDesc")}
+                  </span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={state.realWorldWeatherEnabled}
+                  onChange={(e) => setRealWorldWeatherEnabled(e.target.checked)}
+                  className="settings-screen__toggle-input"
+                />
+                <span className="settings-screen__toggle-switch" />
+              </label>
+              {realWorldWeatherNote && (
+                <p className="settings-screen__item-note">
+                  {realWorldWeatherNote}
+                </p>
+              )}
+            </div>
+
+            <div className="settings-screen__item">
+              <label className="settings-screen__toggle">
+                <div className="settings-screen__toggle-info">
+                  <span className="settings-screen__item-label">
+                    {t("settings.experimentalRealWorldSearch")}
+                  </span>
+                  <span className="settings-screen__item-desc">
+                    {t("settings.experimentalRealWorldSearchDesc")}
+                  </span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={state.realWorldSearchEnabled}
+                  onChange={(e) => setRealWorldSearchEnabled(e.target.checked)}
+                  className="settings-screen__toggle-input"
+                />
+                <span className="settings-screen__toggle-switch" />
+              </label>
+              {realWorldSearchNote && (
+                <p className="settings-screen__item-note">
+                  {realWorldSearchNote}
                 </p>
               )}
             </div>

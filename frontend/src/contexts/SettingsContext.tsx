@@ -53,6 +53,13 @@ function normalizeFeelingMode(raw: unknown): FeelingMode {
 }
 
 // 設定状態の型定義
+/** 現実世界コンテキストがサーバ側で使える状態か(設定画面の説明の出し分け用) */
+export interface RealWorldAvailability {
+  promptPreviewEnabled: boolean;
+  weatherConfigured: boolean;
+  webSearchConfigured: boolean;
+}
+
 interface SettingsState {
   // 難易度設定
   difficulty: "easy" | "normal" | "hard";
@@ -160,6 +167,11 @@ interface SettingsState {
   ttsStyleId: string | null;
   ttsOutputFormat: "wav";
 
+  // 現実世界コンテキスト (backend-persisted)。日時・天気と Web 検索は別トグル
+  realWorldWeatherEnabled: boolean;
+  realWorldSearchEnabled: boolean;
+  realWorldAvailability: RealWorldAvailability;
+
   // spec 004 (US4): プロンプト生成時に参照する履歴遡及件数 (5..20, default 10)
   historyLookbackCount: number;
   historyLookbackTargets: HistoryLookbackTargets;
@@ -236,6 +248,8 @@ type SettingsAction =
   | { type: "SET_TTS_SPEAKER_ID"; payload: string | null }
   | { type: "SET_TTS_STYLE_ID"; payload: string | null }
   | { type: "SET_TTS_OUTPUT_FORMAT"; payload: "wav" }
+  | { type: "SET_REAL_WORLD_WEATHER_ENABLED"; payload: boolean }
+  | { type: "SET_REAL_WORLD_SEARCH_ENABLED"; payload: boolean }
   | { type: "SET_HISTORY_LOOKBACK_COUNT"; payload: number }
   | {
       type: "SET_HISTORY_LOOKBACK_TARGET";
@@ -295,6 +309,13 @@ const defaultState: SettingsState = {
   ttsSpeakerId: null,
   ttsStyleId: null,
   ttsOutputFormat: "wav",
+  realWorldWeatherEnabled: false,
+  realWorldSearchEnabled: false,
+  realWorldAvailability: {
+    promptPreviewEnabled: false,
+    weatherConfigured: false,
+    webSearchConfigured: false,
+  },
   historyLookbackCount: 10,
   historyLookbackTargets: { ...DEFAULT_HISTORY_LOOKBACK_TARGETS },
   memoryText: null,
@@ -460,6 +481,10 @@ function settingsReducer(
       return { ...state, ttsStyleId: action.payload };
     case "SET_TTS_OUTPUT_FORMAT":
       return { ...state, ttsOutputFormat: action.payload };
+    case "SET_REAL_WORLD_WEATHER_ENABLED":
+      return { ...state, realWorldWeatherEnabled: action.payload };
+    case "SET_REAL_WORLD_SEARCH_ENABLED":
+      return { ...state, realWorldSearchEnabled: action.payload };
     case "SET_HISTORY_LOOKBACK_COUNT":
       return {
         ...state,
@@ -555,6 +580,8 @@ interface SettingsContextType {
   setTtsSpeakerId: (speakerId: string | null) => void;
   setTtsStyleId: (styleId: string | null) => void;
   setTtsOutputFormat: (format: "wav") => void;
+  setRealWorldWeatherEnabled: (enabled: boolean) => void;
+  setRealWorldSearchEnabled: (enabled: boolean) => void;
   setHistoryLookbackCount: (count: number) => void;
   setHistoryLookbackTarget: (
     target: HistoryLookbackTarget,
@@ -720,6 +747,13 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
               ttsSpeakerId: data.tts_speaker_id ?? null,
               ttsStyleId: data.tts_style_id ?? null,
               ttsOutputFormat: data.tts_output_format ?? "wav",
+              realWorldWeatherEnabled: data.real_world_weather_enabled ?? false,
+              realWorldSearchEnabled: data.real_world_search_enabled ?? false,
+              realWorldAvailability: {
+                promptPreviewEnabled: data.prompt_preview_enabled ?? false,
+                weatherConfigured: data.weather_configured ?? false,
+                webSearchConfigured: data.web_search_configured ?? false,
+              },
             },
           });
         }
@@ -796,6 +830,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         novelaiImageModel: _ignored9,
         novelaiCuratedImageModel: _ignored10,
         memoryText: _ignored8,
+        // サーバ側の状態なので localStorage には残さない
+        realWorldAvailability: _ignored11,
         ...rest
       } = state;
       localStorage.setItem(STORAGE_KEY, JSON.stringify(rest));
@@ -1287,6 +1323,38 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const setRealWorldWeatherEnabled = useCallback(async (enabled: boolean) => {
+    dispatch({ type: "SET_REAL_WORLD_WEATHER_ENABLED", payload: enabled });
+    try {
+      await fetch("/api/settings/user", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ real_world_weather_enabled: enabled }),
+      });
+    } catch (error) {
+      console.error(
+        "Failed to save real_world_weather_enabled to backend:",
+        error,
+      );
+    }
+  }, []);
+
+  const setRealWorldSearchEnabled = useCallback(async (enabled: boolean) => {
+    dispatch({ type: "SET_REAL_WORLD_SEARCH_ENABLED", payload: enabled });
+    try {
+      await fetch("/api/settings/user", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ real_world_search_enabled: enabled }),
+      });
+    } catch (error) {
+      console.error(
+        "Failed to save real_world_search_enabled to backend:",
+        error,
+      );
+    }
+  }, []);
+
   const setHistoryLookbackCount = useCallback(async (count: number) => {
     const clamped = Math.max(5, Math.min(20, Math.trunc(count)));
     dispatch({ type: "SET_HISTORY_LOOKBACK_COUNT", payload: clamped });
@@ -1397,6 +1465,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setTtsSpeakerId,
     setTtsStyleId,
     setTtsOutputFormat,
+    setRealWorldWeatherEnabled,
+    setRealWorldSearchEnabled,
     setHistoryLookbackCount,
     setHistoryLookbackTarget,
     memoryText: state.memoryText,

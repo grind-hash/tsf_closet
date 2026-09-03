@@ -1,3 +1,4 @@
+import type { RealWorldLookup } from "../types";
 import { API_BASE } from "../utils/api";
 
 export type AdventurePreset =
@@ -143,6 +144,8 @@ export interface AdventureTalkEntry {
   /** 3D モデル向けの表情・身振り(攻略対象の行のみ。旧ログ・語彙外は null) */
   expression?: string | null;
   gesture?: string | null;
+  /** 参照した現実世界コンテキスト(天気・Web 検索)。攻略対象の行だけ持つ */
+  real_world?: RealWorldLookup | null;
 }
 
 export interface AdventureTurn {
@@ -167,6 +170,8 @@ export interface AdventureTurn {
   bgm?: AdventureBgmKey | null;
   /** このターン時点のBGM選曲理由(LLM出力)。旧ターンでは null */
   bgm_reason?: string | null;
+  /** この手番で参照した現実世界コンテキスト(天気・Web 検索)。未参照・旧ターンは null */
+  real_world?: RealWorldLookup | null;
   choices: AdventureChoice[];
   image_url: string | null;
   image_status: string;

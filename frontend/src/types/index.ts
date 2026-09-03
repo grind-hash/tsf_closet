@@ -109,7 +109,8 @@ export type SSEEventType =
   | "cost"
   | "error"
   | "surroundings_image"
-  | "anlas";
+  | "anlas"
+  | "real_world";
 
 // SSE stats data
 export interface SSEStatsData {
@@ -401,6 +402,36 @@ export interface PreciseReference {
 }
 
 /**
+ * 現実世界コンテキスト(現在の天気・Web 検索)を参照した記録
+ * プレイヤーに「何を参照したか」を示すための表示用データ(出典 URL を含む)
+ */
+export interface RealWorldLookup {
+  weather: {
+    location: string;
+    label: string;
+    temperature_c: number;
+    date: string;
+    time: string | null;
+  } | null;
+  search: {
+    query: string;
+    /** 検索は走ったが、関連する出典が得られなかったとき false */
+    found?: boolean;
+    /** 検索すると判定した理由 */
+    reason?: string;
+    /** 検索エンジンが返した要約 */
+    answer?: string;
+    /** 画像タグと本文の根拠になった素材。score は Tavily の関連度(0-1) */
+    sources: {
+      title: string;
+      url: string;
+      snippet?: string;
+      score?: number | null;
+    }[];
+  } | null;
+}
+
+/**
  * チャットメッセージ
  * フロントエンドでのチャット表示用データ
  */
@@ -421,6 +452,8 @@ export interface ChatMessage {
   isFeelingText?: boolean;
   surroundingsImageUrl?: string;
   seed?: number;
+  /** この応答で参照した現実世界コンテキスト(天気・Web 検索) */
+  realWorld?: RealWorldLookup;
 }
 
 export type PendingMessageStatus =

@@ -782,6 +782,12 @@ export default function GamePlayScreen({
                     } else if (data.type === "done") {
                       // ストリーミング完了 - 会話IDを保存
                       setMessageStreaming(charMsgId, false);
+                      if (data.real_world) {
+                        // 参照した天気・Web 検索の出典を返答の直下に示す
+                        updateMessage(charMsgId, fullResponse, {
+                          realWorld: data.real_world,
+                        });
+                      }
                       if (data.user_conversation_id) {
                         userConversationId = data.user_conversation_id;
                       }

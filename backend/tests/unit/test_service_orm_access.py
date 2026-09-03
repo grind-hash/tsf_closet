@@ -77,3 +77,46 @@ async def test_settings_service_uses_orm_for_user_settings(tmp_path: Path, monke
         assert method_updated["bloom_calc_method"] == "new"
     finally:
         await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_settings_service_round_trips_real_world_toggles(
+    tmp_path: Path, monkeypatch
+):
+    db_path = tmp_path / "settings_service_real_world_test.db"
+    engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}", future=True)
+
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
+        test_session_factory = async_sessionmaker(engine, expire_on_commit=False)
+        module = sys.modules["gateway.services.settings_service"]
+        monkeypatch.setattr(module, "async_session_factory", test_session_factory)
+
+        service = SettingsService()
+
+        settings = await service.get_user_settings("real-world-user")
+        assert settings["real_world_weather_enabled"] is False
+        assert settings["real_world_search_enabled"] is False
+
+        updated = await service.update_user_settings(
+            user_id="real-world-user",
+            real_world_weather_enabled=True,
+            real_world_search_enabled=True,
+        )
+        assert updated["real_world_weather_enabled"] is True
+        assert updated["real_world_search_enabled"] is True
+
+        only_search_off = await service.update_user_settings(
+            user_id="real-world-user",
+            real_world_search_enabled=False,
+        )
+        assert only_search_off["real_world_weather_enabled"] is True
+        assert only_search_off["real_world_search_enabled"] is False
+
+        stored = await service.get_user_settings("real-world-user")
+        assert stored["real_world_weather_enabled"] is True
+        assert stored["real_world_search_enabled"] is False
+    finally:
+        await engine.dispose()

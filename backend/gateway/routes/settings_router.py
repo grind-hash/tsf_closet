@@ -15,6 +15,7 @@ from ..consts.novelai_models import (
     DEFAULT_NSFW_IMAGE_MODEL,
     DEFAULT_SFW_IMAGE_MODEL,
 )
+from ..services.real_world_context_service import availability_flags
 from ..services.settings_service import settings_service
 
 router = APIRouter(prefix="/settings", tags=["settings"])
@@ -44,6 +45,12 @@ class UserSettingsResponse(BaseModel):
     tts_speaker_id: str | None = None
     tts_style_id: str | None = None
     tts_output_format: Literal["wav"] = "wav"
+    real_world_weather_enabled: bool = False
+    real_world_search_enabled: bool = False
+    # サーバ側の状態。設定画面が「なぜ効かないか」を出し分けるために返す
+    prompt_preview_enabled: bool = False
+    weather_configured: bool = False
+    web_search_configured: bool = False
 
 
 class UserSettingsUpdateRequest(BaseModel):
@@ -70,6 +77,8 @@ class UserSettingsUpdateRequest(BaseModel):
     tts_speaker_id: str | None = None
     tts_style_id: str | None = None
     tts_output_format: Literal["wav"] | None = None
+    real_world_weather_enabled: bool | None = None
+    real_world_search_enabled: bool | None = None
 
 
 class InpaintSettingsModel(BaseModel):
@@ -168,7 +177,7 @@ async def reset_settings(session_id: str = "default") -> dict[str, str]:
 @router.get("/user", response_model=UserSettingsResponse)
 async def get_user_settings() -> UserSettingsResponse:
     settings = await settings_service.get_user_settings()
-    return UserSettingsResponse(**settings)
+    return UserSettingsResponse(**settings, **availability_flags())
 
 
 @router.put("/user", response_model=UserSettingsResponse)
@@ -194,8 +203,10 @@ async def update_user_settings(
             tts_speaker_id=request.tts_speaker_id,
             tts_style_id=request.tts_style_id,
             tts_output_format=request.tts_output_format,
+            real_world_weather_enabled=request.real_world_weather_enabled,
+            real_world_search_enabled=request.real_world_search_enabled,
         )
-        return UserSettingsResponse(**updated)
+        return UserSettingsResponse(**updated, **availability_flags())
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

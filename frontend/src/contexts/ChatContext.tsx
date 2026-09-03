@@ -16,6 +16,7 @@ import type {
   ChatMessage,
   InstructionType,
   PendingMessageIdentity,
+  RealWorldLookup,
 } from "../types";
 
 // チャット状態
@@ -25,6 +26,10 @@ interface ChatState {
 
   // 送信直後メッセージの一時 ID 管理
   pendingIdentities: PendingMessageIdentity[];
+
+  // 現実世界コンテキスト(天気・Web 検索)の参照記録。
+  // 生成中は tempToken、確定後は historyId をキーにする
+  realWorldLookups: Record<string, RealWorldLookup>;
 
   // 入力状態
   inputText: string;
@@ -68,6 +73,10 @@ type ChatAction =
   | { type: "SET_HIGHLIGHTED_MESSAGE"; payload: string | null }
   | { type: "SET_SCROLL_TO_MESSAGE"; payload: string | null }
   | { type: "UPSERT_PENDING_IDENTITY"; payload: PendingMessageIdentity }
+  | {
+      type: "ATTACH_REAL_WORLD_LOOKUP";
+      payload: { token: string; lookup: RealWorldLookup };
+    }
   | {
       type: "ATTACH_FEELING_MESSAGE";
       payload: { tempToken: string; feelingMessageId: string };
@@ -159,6 +168,7 @@ function saveAudioPreferences(prefs: AudioPreferences): void {
 const defaultState: ChatState = {
   messages: [],
   pendingIdentities: [],
+  realWorldLookups: {},
   inputText: "",
   instructionType: "dress_up",
   imageOnlyTextToImage: false,
@@ -241,6 +251,14 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
       pendingIdentities[existingIndex] = action.payload;
       return { ...state, pendingIdentities };
     }
+    case "ATTACH_REAL_WORLD_LOOKUP":
+      return {
+        ...state,
+        realWorldLookups: {
+          ...state.realWorldLookups,
+          [action.payload.token]: action.payload.lookup,
+        },
+      };
     case "ATTACH_FEELING_MESSAGE":
       return {
         ...state,
@@ -287,8 +305,17 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
         };
       }
 
+      // 参照記録は tempToken から historyId へ付け替え、心境メッセージにも載せる
+      const lookup = state.realWorldLookups[action.payload.tempToken];
+      const realWorldLookups = { ...state.realWorldLookups };
+      if (lookup) {
+        delete realWorldLookups[action.payload.tempToken];
+        realWorldLookups[historyId] = lookup;
+      }
+
       return {
         ...state,
+        realWorldLookups,
         messages: state.messages.map((message) => {
           if (message.id === identity.userMessageId) {
             return {
@@ -310,6 +337,7 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
               relatedHistoryId: historyId,
               pendingToken: undefined,
               isStreaming: false,
+              realWorld: lookup ?? message.realWorld,
             };
           }
 
@@ -371,6 +399,7 @@ interface ChatContextType {
   setStreaming: (isStreaming: boolean) => void;
   upsertPendingIdentity: (identity: PendingMessageIdentity) => void;
   attachFeelingMessage: (tempToken: string, feelingMessageId: string) => void;
+  attachRealWorldLookup: (token: string, lookup: RealWorldLookup) => void;
   resolvePendingIdentity: (tempToken: string, historyId: string) => void;
   finalizePendingIdentity: (
     tempToken: string,
@@ -659,6 +688,16 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  const attachRealWorldLookup = useCallback(
+    (token: string, lookup: RealWorldLookup) => {
+      dispatch({
+        type: "ATTACH_REAL_WORLD_LOOKUP",
+        payload: { token, lookup },
+      });
+    },
+    [],
+  );
+
   const resolvePendingIdentity = useCallback(
     (tempToken: string, historyId: string) => {
       dispatch({
@@ -761,6 +800,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setStreaming,
     upsertPendingIdentity,
     attachFeelingMessage,
+    attachRealWorldLookup,
     resolvePendingIdentity,
     finalizePendingIdentity,
     failPendingIdentity,

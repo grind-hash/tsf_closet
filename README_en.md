@@ -444,6 +444,8 @@ An experimental feature that reads lines aloud with the AivisSpeech engine. Enab
 | `IMAGE_DESCRIPTION_PROVIDER` | Image description provider                                 | `selfhost` |
 | `FEELING_PROVIDER`           | Mood text provider                                         | `selfhost` |
 | `ENABLE_PROMPT_PREVIEW`      | Prompt preview feature for the TSF Scenario                | `false`    |
+| `TAVILY_API_KEY`             | Tavily API key for web search (used only with `ENABLE_PROMPT_PREVIEW=true`) | (none)     |
+| `WEATHER_LOCATION`           | City name for weather lookup, e.g. `Tokyo` (Open-Meteo, no key; used only with `ENABLE_PROMPT_PREVIEW=true`) | (none)     |
 
 ### ComfyUI (selfhost)
 

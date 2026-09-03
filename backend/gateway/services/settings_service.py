@@ -108,6 +108,8 @@ class SettingsService:
             "tts_speaker_id": None,
             "tts_style_id": None,
             "tts_output_format": "wav",
+            "real_world_weather_enabled": False,
+            "real_world_search_enabled": False,
         }
 
     @staticmethod
@@ -138,6 +140,12 @@ class SettingsService:
             "tts_speaker_id": user.tts_speaker_id,
             "tts_style_id": user.tts_style_id,
             "tts_output_format": user.tts_output_format or "wav",
+            "real_world_weather_enabled": bool(
+                getattr(user, "real_world_weather_enabled", 0)
+            ),
+            "real_world_search_enabled": bool(
+                getattr(user, "real_world_search_enabled", 0)
+            ),
         }
 
     async def _get_user_settings_with_session(
@@ -178,6 +186,8 @@ class SettingsService:
         tts_speaker_id: str | None = None,
         tts_style_id: str | None = None,
         tts_output_format: str | None = None,
+        real_world_weather_enabled: bool | None = None,
+        real_world_search_enabled: bool | None = None,
     ) -> dict:
         has_updates = any(
             value is not None
@@ -199,6 +209,8 @@ class SettingsService:
                 tts_speaker_id,
                 tts_style_id,
                 tts_output_format,
+                real_world_weather_enabled,
+                real_world_search_enabled,
             )
         )
 
@@ -269,6 +281,10 @@ class SettingsService:
                 user.tts_style_id = tts_style_id.strip() or None
             if tts_output_format is not None:
                 user.tts_output_format = tts_output_format
+            if real_world_weather_enabled is not None:
+                user.real_world_weather_enabled = 1 if real_world_weather_enabled else 0
+            if real_world_search_enabled is not None:
+                user.real_world_search_enabled = 1 if real_world_search_enabled else 0
 
             if has_updates:
                 await session.commit()

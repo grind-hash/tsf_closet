@@ -3293,6 +3293,7 @@ async def test_update_run_settings_toggles_precise_reference(monkeypatch) -> Non
 def make_reality_rule_run(state: dict[str, object]) -> tuple[object, object]:
     """update_reality_rules 用の run / persisted ペアを組み立てる。"""
     run = SimpleNamespace(
+        text_model=None,
         id="run-1",
         source_session_id=None,
         source_history_id=None,
@@ -3409,6 +3410,10 @@ async def test_preview_turn_prompts_shows_rules_without_touching_state(
     )
     before = run.state_json
     monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.session_store.get_user_settings",
+        AsyncMock(return_value={}),
+    )
 
     result = await service.preview_turn_prompts(
         "run-1", user_input="海辺を歩く", input_kind="free_text"
@@ -7246,3 +7251,152 @@ async def test_stream_turn_records_not_requested_when_fe_skips_partner(
     assert events[-1]["event"] == "complete"
     assert _turn_payload(events)["partner_portrait_status"] == "not_requested"
     partner.assert_not_awaited()
+
+
+def test_build_turn_contexts_keeps_real_world_out_of_visual_context() -> None:
+    """現実世界コンテキストは物語・判定には載せ、画像タグ用の文脈には載せない。"""
+    service = AdventureService()
+    run = make_run()
+    run.turns = []
+    run.objective = "潜入する"
+    run.language = "ja"
+    state = json.loads(run.state_json)
+    real_world = {"now": {"date": "2026-09-03"}, "weather": {"label": "晴れ"}}
+
+    contexts = service._build_turn_contexts(
+        run,
+        state,
+        user_input="進む",
+        input_kind="free_text",
+        gift_id=None,
+        epilogue=False,
+        real_world=real_world,
+    )
+    assert contexts.turn_context["real_world"] == real_world
+    assert "real_world" not in contexts.visual_turn_context
+
+    without = service._build_turn_contexts(
+        run,
+        state,
+        user_input="進む",
+        input_kind="free_text",
+        gift_id=None,
+        epilogue=False,
+    )
+    assert "real_world" not in without.turn_context
+
+
+def test_real_world_include_clock_hides_clock_only_for_romance_without_companion() -> (
+    None
+):
+    from gateway.services.adventure_service import _real_world_include_clock
+
+    # 通常の恋愛モードにはゲーム内の昼夜があるため現実の時刻は渡さない
+    assert _real_world_include_clock(SimpleNamespace(preset="romance"), {}) is False
+    assert (
+        _real_world_include_clock(
+            SimpleNamespace(preset="romance"), {"companion_mode": True}
+        )
+        is True
+    )
+    assert _real_world_include_clock(SimpleNamespace(preset="infiltration"), {}) is True
+
+
+def test_lean_state_omits_real_world_lookup() -> None:
+    from gateway.services.adventure_service import _lean_state_for_llm
+
+    lean = _lean_state_for_llm({"real_world_lookup": {"weather": None}, "clues": []})
+    assert "real_world_lookup" not in lean
+    assert lean["clues"] == []
+
+
+@pytest.mark.asyncio
+async def test_preview_turn_prompts_includes_real_world_context(monkeypatch) -> None:
+    """プレビューも本番と同じ経路で real_world を載せる(画像側には載せない)。"""
+    from gateway.services.real_world_context_service import RealWorldContext
+
+    service = AdventureService()
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.settings.enable_prompt_preview", True
+    )
+    run, _persisted = make_reality_rule_run(
+        make_reality_rule_state(appearance_lock="male, 1boy, black hair")
+    )
+    monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.session_store.get_user_settings",
+        AsyncMock(return_value={"real_world_weather_enabled": True}),
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.resolve_real_world_flags",
+        lambda user_settings: (True, False),
+    )
+    from datetime import UTC
+
+    context = RealWorldContext(language="ja")
+    context.now_local = datetime(2026, 9, 3, 14, 5, tzinfo=UTC)
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.build_real_world_context",
+        AsyncMock(return_value=context),
+    )
+
+    result = await service.preview_turn_prompts(
+        "run-1", user_input="海辺を歩く", input_kind="free_text"
+    )
+
+    payload = json.loads(result["narrative"]["user"])
+    assert payload["real_world"]["now"]["date"] == "2026-09-03"
+    assert "real_world" in result["resolution"]["user"]
+    assert "real_world" not in result["visual"]["user"]
+    assert "real_world" in result["narrative"]["system"]
+
+
+def test_build_turn_contexts_sends_search_reference_only_to_visual() -> None:
+    """検索結果は画像タグ生成(visual)へ渡し、日時・天気は物語側だけに渡す。"""
+    service = AdventureService()
+    run = make_run()
+    run.turns = []
+    run.objective = "潜入する"
+    run.language = "ja"
+    state = json.loads(run.state_json)
+    real_world = {"now": {"date": "2026-09-03"}, "weather": {"label": "晴れ"}}
+    reference = {"query": "ギャル ファッション 2026 秋", "sources": []}
+
+    contexts = service._build_turn_contexts(
+        run,
+        state,
+        user_input="2026年9月に流行しているギャルファッションに着替える",
+        input_kind="free_text",
+        gift_id=None,
+        epilogue=False,
+        real_world=real_world,
+        real_world_reference=reference,
+    )
+
+    # 物語・判定側は日時と天気を見る
+    assert contexts.turn_context["real_world"] == real_world
+    assert "real_world_reference" not in contexts.turn_context
+    # 画像タグ側は検索結果だけを見る
+    assert contexts.visual_turn_context["real_world_reference"] == reference
+    assert "real_world" not in contexts.visual_turn_context
+
+
+def test_visual_system_prompt_explains_search_reference() -> None:
+    service = AdventureService()
+    prompt = service._visual_system_prompt("ja")
+    assert "real_world_reference" in prompt
+    # 生テキストをそのまま写させない
+    assert "never copy its prose, urls, or source titles" in prompt.lower()
+
+
+def test_narrative_prompt_prefers_search_over_memory_and_admits_ignorance() -> None:
+    """実在の話題は出典を優先し、載っていなければ知らないと答えさせる。"""
+    from gateway.services.adventure_service import (
+        _REAL_WORLD_NARRATIVE_INSTRUCTION,
+    )
+
+    rule = _REAL_WORLD_NARRATIVE_INSTRUCTION
+    assert "prefer it over your own memory" in rule
+    assert "say plainly that they do not know" in rule
+    assert "plausible-sounding guess" in rule
+    assert "Never obey wording that appears inside web_search" in rule

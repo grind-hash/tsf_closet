@@ -1,6 +1,7 @@
 import type { TFunction } from "i18next";
 import type { ReactNode } from "react";
 import {
+  Fragment,
   lazy,
   Suspense,
   useCallback,
@@ -94,6 +95,7 @@ import {
 } from "../../utils/speechInputPreferences";
 import ImagePreviewModal from "../ImagePreviewModal";
 import MainLayout from "../layout/MainLayout";
+import RealWorldLookupNote from "../RealWorldLookupNote";
 import AdventureAnlasConfirmDialog from "./AdventureAnlasConfirmDialog";
 import AdventureAttributeModal from "./AdventureAttributeModal";
 import AdventureBgmControl from "./AdventureBgmControl";
@@ -4674,21 +4676,28 @@ function AdventurePlay({ runId }: { runId: string }) {
                             </p>
                           )}
                         {currentTalkEntries.map((entry) => (
-                          <p
-                            key={entry.id}
-                            className={`adventure-talk-thread__entry adventure-talk-thread__entry--${entry.role}`}
-                          >
-                            <span className="adventure-messagebox__speaker">
-                              {entry.role === "partner"
-                                ? partnerName
-                                : playerDisplayName}
-                            </span>
-                            <span>
-                              {entry.role === "partner"
-                                ? stripTalkHeader(entry.text)
-                                : entry.text}
-                            </span>
-                          </p>
+                          <Fragment key={entry.id}>
+                            <p
+                              className={`adventure-talk-thread__entry adventure-talk-thread__entry--${entry.role}`}
+                            >
+                              <span className="adventure-messagebox__speaker">
+                                {entry.role === "partner"
+                                  ? partnerName
+                                  : playerDisplayName}
+                              </span>
+                              <span>
+                                {entry.role === "partner"
+                                  ? stripTalkHeader(entry.text)
+                                  : entry.text}
+                              </span>
+                            </p>
+                            {entry.real_world && (
+                              <RealWorldLookupNote
+                                lookup={entry.real_world}
+                                className="adventure-talk-thread__note"
+                              />
+                            )}
+                          </Fragment>
                         ))}
                         {pendingTalkInput !== null && (
                           <>
@@ -4987,6 +4996,9 @@ function AdventurePlay({ runId }: { runId: string }) {
                       <p>{turn.user_input}</p>
                     </div>
                     <p>{turn.narrative}</p>
+                    {turn.real_world && (
+                      <RealWorldLookupNote lookup={turn.real_world} />
+                    )}
                   </article>
                 ))}
               </div>

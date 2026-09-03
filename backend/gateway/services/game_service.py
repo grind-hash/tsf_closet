@@ -53,6 +53,10 @@ from .action_prompts import (
 )
 from .self_mode_prompts import build_self_mode_feeling_prompt
 from .memory_prompts import build_memory_priority_instruction
+from .real_world_context_service import (
+    build_real_world_context,
+    resolve_real_world_flags,
+)
 from .clothing_layers import (
     append_clothing_layer_feeling_rule,
     append_clothing_layer_image_rule,
@@ -1652,6 +1656,26 @@ class GameService:
             image_instruction = original_instruction
             if use_memory:
                 image_instruction += play_memory_context
+            # 現実世界コンテキスト(日時・天気・Web 検索)
+            weather_on, search_on = resolve_real_world_flags(user_settings)
+            real_world = await build_real_world_context(
+                original_instruction,
+                weather_enabled=weather_on,
+                search_enabled=search_on,
+                language=effective_language,
+                novelai_model_override=user_settings.get("novelai_text_model"),
+            )
+            if not real_world.empty:
+                instruction += real_world.to_prompt_text()
+                # 画像側には検索結果だけを、タグへの変換依頼付きで渡す。
+                # 日時・天気は場面の背景を勝手に変えるため画像には混ぜない
+                image_instruction += real_world.to_image_reference_text()
+            if real_world.visible:
+                yield StreamEvent(
+                    type="real_world", data=real_world.to_client_payload()
+                )
+            if real_world.cost_usd > 0:
+                yield StreamEvent(type="cost", data={"cost_usd": real_world.cost_usd})
             logger.info(
                 f"Effective settings from user: nsfw_mode={effective_nsfw_mode}, "
                 f"difficulty={effective_difficulty}, language={effective_language}"

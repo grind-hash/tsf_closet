@@ -15,6 +15,7 @@ import { useChat } from "../../contexts/ChatContext";
 import { useGame } from "../../contexts/GameContext";
 import { useSettings } from "../../contexts/SettingsContext";
 import type { ChatMessage } from "../../types";
+import RealWorldLookupNote from "../RealWorldLookupNote";
 import "./ChatMessage.css";
 
 interface ChatMessageProps {
@@ -399,6 +400,9 @@ const ChatMessageItem = forwardRef<HTMLDivElement, ChatMessageProps>(
             <span className="chat-message__cursor">▌</span>
           )}
         </div>
+        {message.realWorld && (
+          <RealWorldLookupNote lookup={message.realWorld} />
+        )}
 
         {/* 添付画像 */}
         {message.attachedImageUrl && (

@@ -64,6 +64,13 @@ class User(Base):
         nullable=False,
         server_default="nai-diffusion-4-5-curated",
     )
+    # 現実世界コンテキスト (現在日時・天気 / Web 検索) をプロンプトへ注入するか
+    real_world_weather_enabled: Mapped[int] = mapped_column(
+        Integer, default=0, nullable=False, server_default="0"
+    )
+    real_world_search_enabled: Mapped[int] = mapped_column(
+        Integer, default=0, nullable=False, server_default="0"
+    )
     tts_enabled: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     tts_use_gpu: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     tts_engine_dir: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

@@ -93,6 +93,13 @@ export function useGameSSE() {
     onCost: (cost) => {
       settings.addTotalCost(cost);
     },
+    onRealWorld: (lookup) => {
+      // 心境メッセージが確定(history_id 付与)した時点で本文の直下に付け替える
+      const tempToken = resolvePendingToken();
+      if (tempToken) {
+        chat.attachRealWorldLookup(tempToken, lookup);
+      }
+    },
     onAnlas: (balance) => {
       settings.setAnlasBalance(balance);
     },

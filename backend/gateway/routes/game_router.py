@@ -48,6 +48,10 @@ from ..models import (
     SuggestInstructionRequest,
     SuggestInstructionResponse,
 )
+from ..services.real_world_context_service import (
+    build_real_world_context,
+    resolve_real_world_flags,
+)
 from ..services.session import session_store
 from ..services.settings_service import settings_service
 from ..services.endings import ENDINGS
@@ -1200,6 +1204,17 @@ async def chat_with_character(
         system_prompt += await play_memory_service.build_context(
             session_id, enabled=True, language=language
         )
+    # 現実世界コンテキスト(日時・天気・Web 検索)
+    weather_on, search_on = resolve_real_world_flags(user_settings)
+    real_world = await build_real_world_context(
+        message,
+        weather_enabled=weather_on,
+        search_enabled=search_on,
+        language=language,
+        novelai_model_override=effective_novelai_text_model,
+    )
+    if not real_world.empty:
+        system_prompt += real_world.to_prompt_text()
 
     # LLMで応答を生成
     response_text = ""
@@ -1255,6 +1270,7 @@ async def chat_with_character(
         "user_conversation_id": getattr(user_conv, "id", None),
         "character_conversation_id": getattr(char_conv, "id", None),
         "play_memory_update": play_memory_update,
+        "real_world": real_world.to_client_payload() if real_world.visible else None,
     }
 
 
@@ -1429,6 +1445,18 @@ async def chat_with_character_stream(
         system_prompt += await play_memory_service.build_context(
             session_id, enabled=True, language=language
         )
+    # 現実世界コンテキスト(日時・天気・Web 検索)
+    weather_on, search_on = resolve_real_world_flags(user_settings)
+    real_world = await build_real_world_context(
+        message,
+        weather_enabled=weather_on,
+        search_enabled=search_on,
+        language=language,
+        novelai_model_override=effective_novelai_text_model,
+    )
+    if not real_world.empty:
+        system_prompt += real_world.to_prompt_text()
+    real_world_payload = real_world.to_client_payload() if real_world.visible else None
 
     async def update_conversation_memory(response_text: str) -> str:
         """保存済み会話を自動メモへ反映する。"""
@@ -1494,7 +1522,7 @@ async def chat_with_character_stream(
             memory_status = await update_conversation_memory(full_response)
 
             # 完了イベント
-            yield f"data: {json.dumps({'type': 'done', 'full_response': full_response, 'language': language, 'user_conversation_id': user_conv.id, 'character_conversation_id': char_conv.id, 'play_memory_update': memory_status})}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'full_response': full_response, 'language': language, 'user_conversation_id': user_conv.id, 'character_conversation_id': char_conv.id, 'play_memory_update': memory_status, 'real_world': real_world_payload})}\n\n"
 
         except Exception as e:
             logger.error(f"Chat stream error: {e}")
@@ -1714,6 +1742,18 @@ async def preview_prompt(request: PlayRequest) -> dict:
             enabled=True,
             language=normalize_language(request.language),
         )
+    # 本番の play_with_stream と同じ現実世界コンテキストをプレビューにも載せる
+    user_settings = await session_store.get_user_settings()
+    weather_on, search_on = resolve_real_world_flags(user_settings)
+    real_world = await build_real_world_context(
+        request.instruction,
+        weather_enabled=weather_on,
+        search_enabled=search_on,
+        language=normalize_language(request.language or user_settings.get("language")),
+        novelai_model_override=user_settings.get("novelai_text_model"),
+    )
+    if not real_world.empty:
+        instruction += real_world.to_prompt_text()
 
     return await game_service.preview_prompts(
         session_id=request.session_id,

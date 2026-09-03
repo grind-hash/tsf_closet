@@ -69,6 +69,8 @@ export default function GuideScreen() {
     setExperimentalPromptExpanderEnabled,
     setExperimentalEndingEnabled,
     setPlayMemoryEnabled,
+    setRealWorldWeatherEnabled,
+    setRealWorldSearchEnabled,
   } = useSettings();
 
   // サイドメニューの未読ドットは、この画面を一度開いたら消す
@@ -217,6 +219,31 @@ export default function GuideScreen() {
               </span>
             )}
           </GuideCard>
+
+          {/* デバッグモード(ENABLE_PROMPT_PREVIEW=true)でしか動かない実験機能。
+              プロバイダー都合とは違い、フラグが無ければそもそも使えないので
+              カードごと出さない */}
+          {state.realWorldAvailability.promptPreviewEnabled && (
+            <GuideCard
+              icon="🌏"
+              title={t("guide.realWorld.title")}
+              desc={t("guide.realWorld.desc")}
+              note={t("guide.realWorld.note")}
+            >
+              <div className="guide-screen__card-status">
+                <GuideToggle
+                  label={t("guide.realWorld.enableWeather")}
+                  checked={state.realWorldWeatherEnabled}
+                  onChange={setRealWorldWeatherEnabled}
+                />
+                <GuideToggle
+                  label={t("guide.realWorld.enableSearch")}
+                  checked={state.realWorldSearchEnabled}
+                  onChange={setRealWorldSearchEnabled}
+                />
+              </div>
+            </GuideCard>
+          )}
 
           <GuideCard
             icon="🎬"

@@ -6,6 +6,7 @@
 import { useCallback, useRef } from "react";
 import type {
   AnlasBalance,
+  RealWorldLookup,
   SSEAchievementData,
   SSECriticalData,
   SSEEndingData,
@@ -27,6 +28,7 @@ export interface UseSSEOptions {
   onComplete?: (historyId: string | null, transformationCount: number) => void;
   onCost?: (cost: number) => void;
   onAnlas?: (balance: AnlasBalance) => void;
+  onRealWorld?: (lookup: RealWorldLookup) => void;
   onRealityAttributeAdded?: (data: {
     attribute_id: string;
     attribute_text: string;
@@ -124,6 +126,11 @@ export function useSSE(options: UseSSEOptions): UseSSEReturn {
           case "cost":
             if (options.onCost) {
               options.onCost(data.cost_usd);
+            }
+            break;
+          case "real_world":
+            if (options.onRealWorld) {
+              options.onRealWorld(data as RealWorldLookup);
             }
             break;
           case "anlas":
@@ -313,6 +320,10 @@ export function useSSE(options: UseSSEOptions): UseSSEReturn {
 
       eventSource.addEventListener("cost", (event) => {
         processEvent("cost", event.data);
+      });
+
+      eventSource.addEventListener("real_world", (event) => {
+        processEvent("real_world", event.data);
       });
 
       eventSource.addEventListener("error", (event) => {

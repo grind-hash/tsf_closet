@@ -99,6 +99,10 @@ class Settings:
     enable_prompt_preview: bool = (
         os.getenv("ENABLE_PROMPT_PREVIEW", "false").lower() == "true"
     )
+    # 現実世界コンテキスト (ENABLE_PROMPT_PREVIEW=true のときだけ有効)
+    # Web 検索 (Tavily) の API キー。天気は Open-Meteo でキー不要、都市名だけ指定する
+    tavily_api_key: str = os.getenv("TAVILY_API_KEY", "").strip()
+    weather_location: str = os.getenv("WEATHER_LOCATION", "").strip()
 
     # 画像生成プロバイダー設定
     # selfhost: ComfyUI (デフォルト), openrouter: OpenRouter API, novelai: NovelAI Image API

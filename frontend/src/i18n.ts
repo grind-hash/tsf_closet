@@ -70,6 +70,13 @@ const resources = {
           note: "有効にすると応答ごとに自動メモを生成するため、完了までの時間が長くなる場合があります。",
           enabledHint: "通常プレイの右パネルに「プレイメモ」が表示されます",
         },
+        realWorld: {
+          title: "現実の日時・天気とWeb検索",
+          desc: "今日の日付や天気をキャラクターが知っている状態で遊べます。入力が現実の出来事に触れていそうなときは、Web検索で調べた内容も会話に反映されます。TSFシナリオの対面会話モードと通常プレイの両方で使えます。",
+          note: "サーバーの .env の WEATHER_LOCATION（都市名）と TAVILY_API_KEY が必要です。デバッグモード（ENABLE_PROMPT_PREVIEW=true）のときだけ表示される実験機能で、参照した天気や検索の出典は本文の下に表示されます。",
+          enableWeather: "日時と天気を参照する",
+          enableSearch: "Web検索で調べる",
+        },
         endings: {
           title: "エンディング",
           desc: "条件を満たすとエンディングが発生し、一覧画面で振り返れます。",
@@ -749,6 +756,18 @@ const resources = {
           "セッションごとの経緯とユーザーメモを以後の生成へ反映します。",
         experimentalPlayMemoryWarning:
           "プレイメモを有効にすると、チャットごとに自動メモを生成するため、従来より完了まで5秒以上長くかかる場合があります。",
+        experimentalRealWorldWeather: "現実の日時と天気を参照する",
+        experimentalRealWorldWeatherDesc:
+          "今日の日付・曜日・時刻と、WEATHER_LOCATION に設定した都市の現在の天気（Open-Meteo）を背景情報としてキャラクターに伝えます。恋愛シミュレーションではゲーム内の昼夜と矛盾しないよう、時刻は対面会話モードでのみ伝えます。",
+        experimentalRealWorldSearch: "Web検索で調べる",
+        experimentalRealWorldSearchDesc:
+          "入力が現実の出来事・流行・時期・固有名詞に触れていそうなとき（例:「2026年9月に流行している服に着替える」）だけ、小さなLLM判定を挟んで Tavily で検索し、結果を背景情報として伝えます。検索クエリは現実の話題だけに限定され、場面の描写は送られません。判定に料金が発生する場合はAPIコストに合算されます。",
+        realWorldPromptPreviewDisabled:
+          "ENABLE_PROMPT_PREVIEW が無効のため動作しません。サーバーの .env で ENABLE_PROMPT_PREVIEW=true にすると使えます。",
+        realWorldWeatherNotConfigured:
+          "WEATHER_LOCATION が未設定のため動作しません。サーバーの .env に都市名（例: Tokyo）を設定してください。",
+        realWorldSearchNotConfigured:
+          "TAVILY_API_KEY が未設定のため動作しません。サーバーの .env に Tavily の API キーを設定してください。",
         experimentalSurroundings: "周囲状況画像の生成",
         experimentalSurroundingsDesc:
           "行動指示の後に周囲の状況を描写した画像を追加生成します。Opusプランでない場合は追加の Anlas を消費します。",
@@ -1409,6 +1428,15 @@ const resources = {
         save: "保存",
         deletePresetHeading: "プリセットの削除",
         deletePresetConfirm: "このプリセットを削除しますか？",
+      },
+      realWorld: {
+        weatherRef: "天気を参照: {{location}} {{label}} {{temp}}°C",
+        lookedUp: "「{{query}}」をWeb検索で調べました（{{count}}件）",
+        basisCaption: "以下を画像タグと本文の根拠にしています",
+        searchNotFound:
+          "「{{query}}」をWeb検索しましたが、答えは見つかりませんでした",
+        searchReason: "検索した理由",
+        searchSummary: "要約",
       },
       chat: {
         instructionType: {
@@ -2328,6 +2356,13 @@ const resources = {
           enabledHint:
             'A "Play Memory" panel appears on the right side of normal play',
         },
+        realWorld: {
+          title: "Real-world Date, Weather & Web Search",
+          desc: "Play with a character who knows today's date and weather. When your input seems to touch a real-world event, a web search result is folded into the conversation too. Works in the TSF Scenario's face-to-face mode and in normal play.",
+          note: "Requires WEATHER_LOCATION (a city name) and TAVILY_API_KEY in the server .env. This experimental card appears only in debug mode (ENABLE_PROMPT_PREVIEW=true); the weather and search sources used are shown under the text.",
+          enableWeather: "Use date and weather",
+          enableSearch: "Look things up on the web",
+        },
         endings: {
           title: "Endings",
           desc: "Endings trigger when their conditions are met, and you can review them in the list screen.",
@@ -3007,6 +3042,18 @@ const resources = {
           "Use session history and user notes as context for future generations.",
         experimentalPlayMemoryWarning:
           "When Play Memory is enabled, automatic memory is generated after each chat, so completion may take 5 seconds or more longer than before.",
+        experimentalRealWorldWeather: "Real-world date and weather",
+        experimentalRealWorldWeatherDesc:
+          "Tells the character today's date, weekday and time, plus the current weather (Open-Meteo) for the city set in WEATHER_LOCATION, as background facts. In the romance simulation the clock is shared only in face-to-face mode so it never conflicts with the in-game day/night.",
+        experimentalRealWorldSearch: "Look things up on the web",
+        experimentalRealWorldSearchDesc:
+          'Only when your input seems to touch a real-world event, trend, period or name (for example "change into the outfit trending in September 2026"), a small LLM check decides whether to search with Tavily, and the result is passed as background facts. Queries are limited to real-world topics; scene descriptions are never sent. Any charge for the check is added to the API cost display.',
+        realWorldPromptPreviewDisabled:
+          "Inactive: ENABLE_PROMPT_PREVIEW is off. Set ENABLE_PROMPT_PREVIEW=true in the server .env to use this.",
+        realWorldWeatherNotConfigured:
+          "Inactive: WEATHER_LOCATION is not set. Add a city name (e.g. Tokyo) to the server .env.",
+        realWorldSearchNotConfigured:
+          "Inactive: TAVILY_API_KEY is not set. Add your Tavily API key to the server .env.",
         experimentalSurroundings: "Generate Surroundings Image",
         experimentalSurroundingsDesc:
           "Generate an additional image showing the surrounding environment after action instructions. Uses extra Anlas on non-Opus plans.",
@@ -3664,6 +3711,15 @@ const resources = {
         save: "Save",
         deletePresetHeading: "Delete Preset",
         deletePresetConfirm: "Delete this preset?",
+      },
+      realWorld: {
+        weatherRef: "Weather referenced: {{location}}, {{label}}, {{temp}}°C",
+        lookedUp: 'Looked up "{{query}}" on the web ({{count}} sources)',
+        basisCaption:
+          "The image tags and the text are grounded in the material below",
+        searchNotFound: 'Searched the web for "{{query}}" but found no answer',
+        searchReason: "Why it was searched",
+        searchSummary: "Summary",
       },
       chat: {
         instructionType: {

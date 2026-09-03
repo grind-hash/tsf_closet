@@ -1,0 +1,64 @@
+/* 現実世界コンテキスト(天気・Web 検索)の参照記録。本文の直下に置く控えめな注記 */
+.real-world-note {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin-top: 0.4rem;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: var(--text-muted, #888);
+}
+
+.real-world-note__details {
+  margin: 0;
+}
+
+.real-world-note__summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.real-world-note__summary::-webkit-details-marker {
+  display: none;
+}
+
+.real-world-note__summary::before {
+  content: "▸ ";
+}
+
+.real-world-note__details[open] .real-world-note__summary::before {
+  content: "▾ ";
+}
+
+.real-world-note__sources {
+  margin: 0.25rem 0 0;
+  padding-left: 1.1rem;
+}
+
+.real-world-note__sources a {
+  color: inherit;
+  text-decoration: underline;
+  overflow-wrap: anywhere;
+}
+
+/* 展開時に見せる「タグと本文の根拠」 */
+.real-world-note__basis {
+  margin: 0.3rem 0 0;
+}
+
+.real-world-note__caption {
+  margin: 0 0 0.25rem;
+  opacity: 0.85;
+}
+
+.real-world-note__meta {
+  margin: 0 0 0.25rem;
+  overflow-wrap: anywhere;
+}
+
+.real-world-note__snippet {
+  display: block;
+  padding-left: 0.2rem;
+  opacity: 0.85;
+  overflow-wrap: anywhere;
+}
