@@ -7246,3 +7246,653 @@ async def test_stream_turn_records_not_requested_when_fe_skips_partner(
     assert events[-1]["event"] == "complete"
     assert _turn_payload(events)["partner_portrait_status"] == "not_requested"
     partner.assert_not_awaited()
+
+
+# ---- 持ち物システム(inventory_enabled) ----
+
+
+def _inventory_state(state: dict) -> dict:
+    """黒いブラを1つ所持し、美咲に1回の境界侵害記録がある state。"""
+    state["inventory_enabled"] = True
+    state["inventory"] = {
+        "items": [
+            {
+                "id": "i1",
+                "name": "黒いブラ",
+                "category": "underwear",
+                "tags": [],
+                "quantity": 1,
+                "obtained_from": "character:美咲",
+                "obtained_turn": 1,
+                "capabilities": ["give", "wear", "discard"],
+                "worn": False,
+                "metadata": {},
+            }
+        ],
+        "next_id": 2,
+        "log": [],
+    }
+    state["npc_states"] = {
+        "美咲": {
+            "boundary_violations": 1,
+            "last_violation_turn": 1,
+            "last_violation": "初対面で下着を要求",
+            "last_violation_severity": "minor",
+            "notes": [],
+        }
+    }
+    return state
+
+
+def test_inventory_prompts_only_when_enabled() -> None:
+    service = AdventureService()
+    plain = service._narrative_system_prompt("ja")
+    assert "INVENTORY:" not in plain
+    enabled = service._narrative_system_prompt("ja", inventory=True)
+    assert "INVENTORY:" in enabled
+    assert "player_input is what the player says" in enabled
+    assert "boundary_violations" in enabled
+    # 対面会話モードでも台本形式が最後のまま
+    companion = service._narrative_system_prompt(
+        "ja", romance=True, script_names=("美咲", "主人公"), inventory=True
+    )
+    assert "INVENTORY:" in companion
+    assert companion.endswith("separate lines with \\n.")
+
+    resolution = service._resolution_system_prompt("ja")
+    assert '"world_events"' not in resolution
+    resolution = service._resolution_system_prompt("ja", inventory=True)
+    assert '"world_events":[]' in resolution
+    assert '"reality_patch"' not in resolution
+    assert "affection_delta must be negative" not in resolution
+    romance_alter = service._resolution_system_prompt(
+        "ja", romance=True, inventory=True, reality_patch=True
+    )
+    assert '"reality_patch":null' in romance_alter
+    assert "npc_boundary_reset" in romance_alter
+    assert "affection_delta must be negative" in romance_alter
+
+    assert "worn_inventory_items" not in service._visual_system_prompt("ja")
+    assert "worn_inventory_items" in service._visual_system_prompt(
+        "ja", inventory_worn=True
+    )
+
+
+def test_companion_narrative_guidance_requests_three_beats_but_allows_short_replies() -> (
+    None
+):
+    service = AdventureService()
+    names = ("美咲", "主人公")
+    narrative = service._narrative_system_prompt("ja", romance=True, script_names=names)
+    for marker in ("BEAT 1", "BEAT 2", "BEAT 3", "two to five sentences", "never pad"):
+        assert marker in narrative
+    assert "exactly one spoken line" not in narrative
+    assert "speak at least twice" not in narrative
+    assert narrative.endswith("separate lines with \\n.")
+    director = service._director_system_prompt("ja", romance=True, script_names=names)
+    assert "BEAT 1" in director and director.endswith("separate lines with \\n.")
+    plain = service._narrative_system_prompt("ja", romance=True)
+    assert "BEAT 1" not in plain
+    resolution = service._resolution_system_prompt("ja", romance=True, companion=True)
+    assert "at least one choice must answer it directly" in resolution
+
+
+def test_build_turn_contexts_exposes_inventory_and_item_action() -> None:
+    service = AdventureService()
+    run = make_romance_run(turn_count=1)
+    run.turns = []
+    run.objective = "仲良くなる"
+    run.language = "ja"
+    state = _inventory_state(json.loads(run.state_json))
+
+    contexts = service._build_turn_contexts(
+        run,
+        json.loads(json.dumps(state)),
+        user_input="黒いブラを身につける",
+        input_kind="item_action",
+        gift_id=None,
+        epilogue=False,
+        item_action={"item_id": "i1", "action": "wear"},
+    )
+    assert contexts.inventory_enabled is True
+    assert contexts.input_kind == "item_action"
+    assert contexts.item_resolution is not None
+    assert contexts.item_resolution["resolved"] is True
+    assert contexts.turn_context["inventory"]["items"][0]["id"] == "i1"
+    assert contexts.turn_context["npc_states"]["美咲"]["boundary_violations"] == 1
+    assert contexts.turn_context["item_action"] == {"item_id": "i1", "action": "wear"}
+    assert contexts.turn_context["item_resolution"]["outcome"] == "worn"
+    # ビジュアルには行動後(着用済み)の服装を渡す
+    assert contexts.visual_turn_context["worn_inventory_items"] == [
+        {"name": "黒いブラ", "category": "underwear", "tags": []}
+    ]
+    # 生の state からは持ち物を除き、整形版だけを渡す
+    assert "inventory" not in contexts.turn_context["state"]
+    assert "npc_states" not in contexts.turn_context["state"]
+
+    # 成立しない行動は手番未消費で弾く
+    with pytest.raises(AdventureError) as missing:
+        service._build_turn_contexts(
+            run,
+            json.loads(json.dumps(state)),
+            user_input="x",
+            input_kind="item_action",
+            gift_id=None,
+            epilogue=False,
+            item_action={"item_id": "i9", "action": "wear"},
+        )
+    assert missing.value.code == "invalid_item"
+
+    # 無効な run では持ち物のキーを載せず、パネル行動は拒否する
+    disabled = json.loads(json.dumps(state))
+    disabled["inventory_enabled"] = False
+    plain = service._build_turn_contexts(
+        run,
+        json.loads(json.dumps(disabled)),
+        user_input="話す",
+        input_kind="free_text",
+        gift_id=None,
+        epilogue=False,
+    )
+    assert plain.inventory_enabled is False
+    assert "inventory" not in plain.turn_context
+    assert "npc_states" not in plain.turn_context
+    assert plain.visual_turn_context["worn_inventory_items"] is None
+    with pytest.raises(AdventureError) as off:
+        service._build_turn_contexts(
+            run,
+            json.loads(json.dumps(disabled)),
+            user_input="x",
+            input_kind="item_action",
+            gift_id=None,
+            epilogue=False,
+            item_action={"item_id": "i1", "action": "wear"},
+        )
+    assert off.value.code == "inventory_disabled"
+
+
+def test_rewind_keep_keys_and_lean_state_cover_inventory() -> None:
+    assert "inventory_enabled" in AdventureService._REWIND_KEEP_KEYS
+    assert "inventory" not in AdventureService._REWIND_KEEP_KEYS
+    assert "npc_states" not in AdventureService._REWIND_KEEP_KEYS
+    lean = _lean_state_for_llm(
+        {
+            "inventory_enabled": True,
+            "inventory": {"items": []},
+            "npc_states": {},
+            "world_events_applied": [],
+            "clues": [],
+        }
+    )
+    assert lean == {"clues": []}
+
+
+@pytest.mark.asyncio
+async def test_rewind_keeps_inventory_setting_but_restores_items(
+    tmp_path, monkeypatch
+) -> None:
+    engine, session_factory = _adventure_db_env(tmp_path)
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    await _seed_rewind_run(session_factory, tmp_path)
+    async with session_factory() as db:
+        run = await db.get(AdventureRun, "run-1")
+        current = json.loads(run.state_json)
+        current.update(
+            {
+                "inventory_enabled": True,
+                "inventory": {
+                    "items": [
+                        {"id": "i1", "name": "黒いブラ"},
+                        {"id": "i2", "name": "赤いリボン"},
+                    ],
+                    "next_id": 3,
+                    "log": [],
+                },
+            }
+        )
+        run.state_json = json.dumps(current, ensure_ascii=False)
+        turn = (
+            await db.execute(
+                select(AdventureTurn).where(AdventureTurn.turn_number == 1)
+            )
+        ).scalar_one()
+        delta = json.loads(turn.state_delta_json)
+        # 手番1の時点では OFF だった設定と、当時の所持品
+        delta.update(
+            {
+                "inventory_enabled": False,
+                "inventory": {
+                    "items": [{"id": "i1", "name": "黒いブラ"}],
+                    "next_id": 2,
+                    "log": [],
+                },
+            }
+        )
+        turn.state_delta_json = json.dumps(delta, ensure_ascii=False)
+        await db.commit()
+    service = _patched_service(monkeypatch, session_factory, tmp_path)
+
+    result = await service.rewind_to_turn("run-1", 1)
+
+    # 設定は現在値を保ち、所持品は巻き戻し先のスナップショットへ戻る
+    assert result["inventory_enabled"] is True
+    assert [item["id"] for item in result["inventory"]["items"]] == ["i1"]
+    await engine.dispose()
+
+
+def test_serialize_turn_exposes_inventory_and_world_events() -> None:
+    service = AdventureService()
+    turn = make_serializable_turn(
+        {
+            "inventory_enabled": True,
+            "inventory": {
+                "items": [
+                    {
+                        "id": "i1",
+                        "name": "黒いブラ",
+                        "category": "underwear",
+                        "quantity": 1,
+                        "capabilities": ["give", "wear", "discard"],
+                    }
+                ],
+                "next_id": 2,
+                "log": [],
+            },
+            "world_events_applied": [
+                {
+                    "turn": 1,
+                    "type": "item_transfer",
+                    "item": "黒いブラ",
+                    "from": "character:美咲",
+                    "to": "player",
+                    "origin": "event",
+                }
+            ],
+        }
+    )
+    payload = service._serialize_turn(turn)
+    assert payload["inventory"]["items"][0]["name"] == "黒いブラ"
+    assert payload["world_events_applied"][0]["type"] == "item_transfer"
+    plain = service._serialize_turn(make_serializable_turn({"clues": []}))
+    assert "inventory" not in plain and "world_events_applied" not in plain
+
+
+def test_serialize_run_exposes_inventory_flags() -> None:
+    service = AdventureService()
+
+    def run_with(state: dict) -> SimpleNamespace:
+        return SimpleNamespace(
+            id="run-inv",
+            source_session_id=None,
+            source_history_id=None,
+            preset="escape",
+            title="テスト",
+            objective="脱出する",
+            constraints_json="[]",
+            status="active",
+            turn_count=0,
+            max_turns=8,
+            ending_title=None,
+            ending_summary=None,
+            language="ja",
+            current_image_path="current.png",
+            initial_image_path="initial.png",
+            snapshot_json="{}",
+            created_at=None,
+            updated_at=None,
+            state_json=json.dumps(state, ensure_ascii=False),
+        )
+
+    enabled = service._serialize_run(
+        run_with(
+            {
+                "inventory_enabled": True,
+                "inventory": {"items": [], "next_id": 1, "log": []},
+                "npc_states": {
+                    "店員": {
+                        "boundary_violations": 2,
+                        "last_violation_turn": 3,
+                        "notes": ["秘密"],
+                    }
+                },
+            }
+        ),
+        [],
+        include_snapshot=False,
+    )
+    assert enabled["inventory_enabled"] is True
+    assert enabled["inventory"] == {"items": [], "log": []}
+    # ノートは隠し情報なので配信しない
+    assert enabled["npc_states"] == {
+        "店員": {"boundary_violations": 2, "last_violation_turn": 3}
+    }
+    disabled = service._serialize_run(
+        run_with({"inventory": {"items": [{"id": "i1", "name": "x"}]}}),
+        [],
+        include_snapshot=False,
+    )
+    assert disabled["inventory_enabled"] is False
+    assert disabled["inventory"] is None and disabled["npc_states"] is None
+
+
+def _settings_harness(monkeypatch, service, state: dict, *, preset: str = "romance"):
+    run = _romance_settings_run(state, preset=preset)
+    persisted = SimpleNamespace(id="run-1", state_json=run.state_json, updated_at=None)
+
+    class FakeDatabase:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, _exc_type, _exc, _traceback):
+            return None
+
+        async def get(self, model, record_id):
+            return persisted if model is AdventureRun and record_id == "run-1" else None
+
+        async def commit(self):
+            return None
+
+    monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.async_session_factory", FakeDatabase
+    )
+    return run, persisted
+
+
+@pytest.mark.asyncio
+async def test_update_run_settings_inventory_round_trip(monkeypatch) -> None:
+    service = AdventureService()
+    state = json.loads(make_romance_run().state_json)
+    state.update({"choices": [], "opening_narrative": "開始"})
+    run, persisted = _settings_harness(monkeypatch, service, state)
+
+    result = await service.update_run_settings(
+        "run-1",
+        use_precise_reference=False,
+        enable_composite_scene=False,
+        inventory_enabled=True,
+    )
+    assert result["inventory_enabled"] is True
+    assert result["inventory"] == {"items": [], "log": []}
+    saved = json.loads(persisted.state_json)
+    assert saved["inventory_enabled"] is True and saved["inventory"]["items"] == []
+
+    # None は据え置き
+    run.state_json = persisted.state_json
+    result = await service.update_run_settings(
+        "run-1", use_precise_reference=False, enable_composite_scene=False
+    )
+    assert result["inventory_enabled"] is True
+
+    # OFF にしても所持品データは残す(再度 ON で復帰する)
+    run.state_json = persisted.state_json
+    result = await service.update_run_settings(
+        "run-1",
+        use_precise_reference=False,
+        enable_composite_scene=False,
+        inventory_enabled=False,
+    )
+    assert result["inventory_enabled"] is False and result["inventory"] is None
+    assert "inventory" in json.loads(persisted.state_json)
+
+
+@pytest.mark.asyncio
+async def test_update_run_settings_ignores_inventory_for_templates(monkeypatch) -> None:
+    service = AdventureService()
+    state = {
+        "choices": [],
+        "clues": [],
+        "milestones": [],
+        "completed_milestones": [],
+        "opening_narrative": "開始",
+        "scenario_template_id": "princess_locked_room",
+        "visual_state": {"location": "room", "appearance": "1girl"},
+    }
+    _, persisted = _settings_harness(monkeypatch, service, state, preset="escape")
+
+    result = await service.update_run_settings(
+        "run-1",
+        use_precise_reference=False,
+        enable_composite_scene=False,
+        inventory_enabled=True,
+    )
+    assert result["inventory_enabled"] is False
+    assert "inventory_enabled" not in json.loads(persisted.state_json)
+
+
+async def _run_inventory_turn(
+    service: AdventureService,
+    monkeypatch,
+    run: SimpleNamespace,
+    persisted: SimpleNamespace,
+    *,
+    resolution,
+    item_resolution: dict | None = None,
+    input_kind: str = "free_text",
+    user_input: str = "話す",
+) -> list[dict]:
+    from gateway.services.adventure_service import _TurnContexts
+
+    def fake_contexts(_run, state, **_kwargs):
+        return _TurnContexts(
+            turn_context={"player_input": user_input},
+            visual_turn_context={
+                "player_input": user_input,
+                "worn_inventory_items": [],
+            },
+            input_kind=input_kind,
+            narration_voice="second_person",
+            narration_pronoun="あなた",
+            speech_rule="",
+            appearance_update_allowed=False,
+            template=None,
+            template_resolution={},
+            romance_sim=state["sim"],
+            romance_resolution={
+                "kind": "talk",
+                "day": 2,
+                "slot": "day",
+                "next_day": 2,
+                "next_slot": "night",
+                "total_days": 7,
+                "money_delta": 0,
+                "affection_delta": 0,
+            },
+            appearance_lock="",
+            previous_choice_key=(),
+            script_names=("美咲", "主人公"),
+            inventory_enabled=True,
+            item_resolution=item_resolution,
+        )
+
+    async def fake_stream(system_prompt, user_prompt, **kwargs):
+        yield "美咲「はい、どうぞ」"
+
+    monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
+    monkeypatch.setattr(
+        service, "_companion_outfit_options", AsyncMock(return_value=[])
+    )
+    monkeypatch.setattr(service, "_build_turn_contexts", fake_contexts)
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.llm_service.generate_feeling_stream",
+        fake_stream,
+    )
+    monkeypatch.setattr(
+        service, "_generate_resolution_output", AsyncMock(return_value=resolution)
+    )
+    monkeypatch.setattr(
+        service, "_generate_visual_output", AsyncMock(return_value=_companion_visual())
+    )
+    monkeypatch.setattr(
+        service, "_ensure_romance_background_unlocked", AsyncMock(return_value=None)
+    )
+    monkeypatch.setattr(
+        service, "_generate_partner_portrait_unlocked", AsyncMock(return_value=None)
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service._image_calls_parallelizable",
+        lambda: False,
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.async_session_factory",
+        _turn_database(persisted),
+    )
+    return [
+        event
+        async for event in service.stream_turn(
+            run_id="run-1",
+            client_turn_id="c-4",
+            user_input=user_input,
+            input_kind=input_kind,
+            generate_partner_portrait=False,
+        )
+    ]
+
+
+def _inventory_stream_run() -> tuple[SimpleNamespace, SimpleNamespace]:
+    run, persisted = _companion_stream_run()
+    state = _inventory_state(json.loads(run.state_json))
+    run.state_json = json.dumps(state, ensure_ascii=False)
+    persisted.state_json = run.state_json
+    return run, persisted
+
+
+def _romance_resolution(**fields) -> AdventureRomanceResolutionOutput:
+    from gateway.services.adventure_service import _default_director_choices
+
+    return AdventureRomanceResolutionOutput.model_validate(
+        {"choices": _default_director_choices("ja"), **fields},
+        context={
+            "fallback_choices": _default_director_choices("ja"),
+            "language": "ja",
+        },
+    )
+
+
+@pytest.mark.asyncio
+async def test_stream_turn_applies_world_events_and_boundary_floor(
+    monkeypatch, tmp_path
+) -> None:
+    service = AdventureService()
+    service._images_dir = tmp_path
+    run, persisted = _inventory_stream_run()
+    resolution = _romance_resolution(
+        affection_delta=3,
+        world_events=[
+            {
+                "type": "item_transfer",
+                "from": "player",
+                "to": "character:美咲",
+                "item_id": "i1",
+            },
+            {
+                "type": "boundary_violation",
+                "npc": "美咲",
+                "reason": "下着を渡した",
+                "severity": "major",
+            },
+            {"type": "item_use", "item": {"name": "存在しない"}},
+        ],
+    )
+
+    events = await _run_inventory_turn(
+        service, monkeypatch, run, persisted, resolution=resolution
+    )
+
+    turn = _turn_payload(events)
+    assert turn["inventory"]["items"] == []
+    assert [entry["type"] for entry in turn["world_events_applied"]] == [
+        "item_transfer",
+        "boundary_violation",
+    ]
+    saved = json.loads(persisted.state_json)
+    assert saved["npc_states"]["美咲"]["boundary_violations"] == 2
+    assert saved["inventory"]["log"][-1]["npc"] == "美咲"
+    # 境界侵害の手番は +3 の申告でも好感度が必ず下がる
+    assert saved["sim"]["affection"] == ROMANCE_AFFECTION_START - 1
+
+
+@pytest.mark.asyncio
+async def test_stream_turn_applies_item_resolution_without_clothing_override(
+    monkeypatch, tmp_path
+) -> None:
+    service = AdventureService()
+    service._images_dir = tmp_path
+    run, persisted = _inventory_stream_run()
+    item_resolution = {
+        "action": "wear",
+        "item": {"id": "i1", "name": "黒いブラ", "category": "underwear"},
+        "target": None,
+        "resolved": True,
+        "outcome": "worn",
+    }
+
+    events = await _run_inventory_turn(
+        service,
+        monkeypatch,
+        run,
+        persisted,
+        resolution=_romance_resolution(),
+        item_resolution=item_resolution,
+        input_kind="item_action",
+        user_input="黒いブラを身につける",
+    )
+
+    done = next(event for event in events if event["event"] == "narrative_done")
+    # 本文が触れていない確定行動は1文補う
+    assert done["data"]["narrative"].endswith("君は黒いブラを身につけた。")
+    saved = json.loads(persisted.state_json)
+    assert saved["inventory"]["items"][0]["worn"] is True
+    assert saved["world_events_applied"][0]["origin"] == "action"
+    # 定型文「〜を身につける」で visual_state.clothing が丸ごと置き換わらない
+    assert saved["visual_state"]["clothing"] == "制服"
+
+
+@pytest.mark.asyncio
+async def test_stream_turn_applies_reality_patch_only_on_reality_alter(
+    monkeypatch, tmp_path
+) -> None:
+    service = AdventureService()
+    service._images_dir = tmp_path
+    resolution = _romance_resolution(
+        reality_patch={
+            "inventory": [
+                {
+                    "op": "add",
+                    "item": {"name": "赤いリボン", "category": "accessory"},
+                    "from": "character:美咲",
+                    "obtained_when": "昨日",
+                }
+            ],
+            "npc_notes": [{"npc": "美咲", "note": "昨日リボンを贈った"}],
+            "npc_boundary_reset": ["美咲"],
+        }
+    )
+
+    run, persisted = _inventory_stream_run()
+    await _run_inventory_turn(
+        service,
+        monkeypatch,
+        run,
+        persisted,
+        resolution=resolution,
+        input_kind="reality_alter",
+        user_input="現実改変：美咲は昨日、私に赤いリボンをプレゼントした",
+    )
+    saved = json.loads(persisted.state_json)
+    names = [item["name"] for item in saved["inventory"]["items"]]
+    assert names == ["黒いブラ", "赤いリボン"]
+    assert saved["inventory"]["items"][1]["metadata"] == {"obtained_when": "昨日"}
+    assert saved["npc_states"]["美咲"]["notes"] == ["昨日リボンを贈った"]
+    assert saved["npc_states"]["美咲"]["boundary_violations"] == 0
+
+    # 通常の手番では reality_patch を無視する
+    run, persisted = _inventory_stream_run()
+    await _run_inventory_turn(
+        service, monkeypatch, run, persisted, resolution=resolution
+    )
+    saved = json.loads(persisted.state_json)
+    assert [item["name"] for item in saved["inventory"]["items"]] == ["黒いブラ"]
+    assert saved["npc_states"]["美咲"]["boundary_violations"] == 1
+    assert saved["world_events_applied"] == []

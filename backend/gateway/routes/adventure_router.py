@@ -168,6 +168,8 @@ class AdventureCreateRequest(BaseModel):
     companion_mode: bool = False
     # 対面会話モードで攻略対象の立ち絵の代わりに描く 3D アバター(VRM)の登録 ID
     companion_avatar_id: str | None = Field(default=None, max_length=80)
+    # 持ち物システム(既定 OFF、全プリセット)。作品シナリオでは無視される
+    inventory_enabled: bool = False
 
 
 class AdventureSettingsUpdateRequest(BaseModel):
@@ -189,6 +191,8 @@ class AdventureSettingsUpdateRequest(BaseModel):
     companion_mode: bool | None = None
     # 3D アバター。"none" で解除、登録 ID で設定。未指定(None)なら既存値を維持する
     companion_avatar_id: str | None = Field(default=None, max_length=80)
+    # 持ち物システム。未指定なら既存値を維持する(作品シナリオでは無視)
+    inventory_enabled: bool | None = None
 
 
 class AdventureTalkRequest(BaseModel):
@@ -202,13 +206,27 @@ class AdventureRealityRulesUpdateRequest(BaseModel):
     rules: list[str] = Field(default_factory=list, max_length=64)
 
 
+class AdventureItemActionRequest(BaseModel):
+    # 持ち物パネルの行動。item_id は所持品の ID、target は渡す相手(NPC 名)
+    item_id: str = Field(min_length=1, max_length=40)
+    action: Literal["give", "use", "wear", "unwear", "discard"]
+    target: str | None = Field(default=None, max_length=60)
+
+
 class AdventurePromptPreviewRequest(BaseModel):
     # 「この入力で送信したら何が送られるか」を組み立てるための仮の入力
     user_input: str = Field(default="", max_length=2000)
     input_kind: Literal[
-        "choice", "free_text", "reality_alter", "gift", "work", "confess"
+        "choice",
+        "free_text",
+        "reality_alter",
+        "gift",
+        "work",
+        "confess",
+        "item_action",
     ] = "free_text"
     gift_id: str | None = Field(default=None, max_length=40)
+    item_action: AdventureItemActionRequest | None = None
 
 
 class AdventureRewindRequest(BaseModel):
@@ -222,10 +240,18 @@ class AdventureTurnRequest(BaseModel):
     # reality_alter はサーバ側で「現実改変：〜」を検出したときにも設定される。
     # gift / work / confess は romance プリセット専用の行動
     input_kind: Literal[
-        "choice", "free_text", "reality_alter", "gift", "work", "confess"
+        "choice",
+        "free_text",
+        "reality_alter",
+        "gift",
+        "work",
+        "confess",
+        "item_action",
     ] = "free_text"
     # romance のプレゼント購入で贈る品を機械可読 ID で指定する
     gift_id: str | None = Field(default=None, max_length=40)
+    # 持ち物パネルの行動(input_kind=item_action のとき必須)
+    item_action: AdventureItemActionRequest | None = None
     # false のとき主人公の立ち絵の毎ターン生成を省略する。
     # 精密参照OFFかつ非合成モードの run でのみ有効
     generate_portrait: bool = True
@@ -311,6 +337,7 @@ async def create_run(request: AdventureCreateRequest) -> dict:
             image_model=request.image_model,
             companion_mode=request.companion_mode,
             companion_avatar_id=request.companion_avatar_id,
+            inventory_enabled=request.inventory_enabled,
         )
     except AdventureError as error:
         raise _http_error(error) from error
@@ -377,6 +404,7 @@ async def update_run_settings(
             image_model=request.image_model,
             companion_mode=request.companion_mode,
             companion_avatar_id=request.companion_avatar_id,
+            inventory_enabled=request.inventory_enabled,
         )
     except AdventureError as error:
         raise _http_error(error) from error
@@ -392,6 +420,9 @@ async def preview_turn_prompts(
             user_input=request.user_input,
             input_kind=request.input_kind,
             gift_id=request.gift_id,
+            item_action=request.item_action.model_dump()
+            if request.item_action
+            else None,
         )
     except AdventureError as error:
         raise _http_error(error) from error
@@ -420,6 +451,9 @@ async def play_turn(run_id: str, request: AdventureTurnRequest) -> EventSourceRe
                 generate_portrait=request.generate_portrait,
                 generate_partner_portrait=request.generate_partner_portrait,
                 generate_clues=request.generate_clues,
+                item_action=request.item_action.model_dump()
+                if request.item_action
+                else None,
             ):
                 yield {
                     "event": event["event"],

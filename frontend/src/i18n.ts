@@ -48,6 +48,13 @@ const resources = {
           open: "TSFシナリオを開く",
           enableParent: "まずTSFシナリオを有効にする",
         },
+        inventory: {
+          title: "持ち物システム",
+          desc: "TSFシナリオで、会話や出来事で手に入れた品を持ち物として記録し、相手に渡す・使う・着る・捨てるができます。あなたの発言だけでは持ち物は増えず、相手の意思や社会的な常識が結果を決めます。現実改変なら直接書き換えられます。",
+          note: "シナリオの開始画面か画像生成設定の「持ち物システムを有効化する」でONにします。シナリオの進行方法に大きな影響があります。",
+          open: "TSFシナリオを開く",
+          enableParent: "まずTSFシナリオを有効にする",
+        },
         vrm: {
           title: "3Dモデル (VRM)",
           desc: "対面会話モードで、立ち絵の代わりに3Dモデルを表示します。読み上げに合わせて口が動き、返答ごとに表情と身振りが変わります。",
@@ -340,7 +347,7 @@ const resources = {
           "対面会話モード中は合成シーンを描かないため、この設定は効きません。モードをOFFにすると再び有効になります。",
         companionMode: "対面会話モード",
         companionModeHint:
-          "OFFが既定です。ONにすると攻略対象が目の前に立ち、1ターン＝1往復の会話になります（あなたの一言に、短い反応と相手のセリフ1つで返ります）。昼・夜の区切りは無く、決めた回数の往復で進みます。画像は背景（場所が変わったときだけ）と攻略対象の立ち絵だけを生成し、返ってきたセリフはそのまま読み上げに使えます。セルフホスト(ComfyUI)では背景を生成できません。",
+          "OFFが既定です。ONにすると攻略対象が目の前に立ち、1ターン＝1往復の会話になります（あなたの一言に、相手の反応・セリフ・相手からの返し（質問や行動）を2〜5文で返します。拒絶や沈黙など短い返事が意味を持つ場面は短いままです）。昼・夜の区切りは無く、決めた回数の往復で進みます。画像は背景（場所が変わったときだけ）と攻略対象の立ち絵だけを生成し、返ってきたセリフはそのまま読み上げに使えます。セルフホスト(ComfyUI)では背景を生成できません。",
         companionModePlayHint:
           "次のターンから反映されます。ONの間は1ターン＝1往復の会話になり、攻略対象の立ち絵だけを描き、背景は場所が変わったときだけ描き直します（昼夜の区切りはありません）。",
         companionTurns: "ターン数",
@@ -423,6 +430,68 @@ const resources = {
         realityRules: "現実改変",
         realityRulesHint:
           "宣言済みの世界ルールです。以降のすべての判定に適用され、ルールが覆う行動だけでミッション失敗にはなりません。",
+        inventory: "持ち物",
+        inventoryEnable: "持ち物システムを有効化する",
+        inventoryHint:
+          "※シナリオの進行方法に大きな影響があります。OFFが既定です。ONにすると所持品が記録され、受け取り・贈与・使用・着脱・破棄が物語の結果として反映されます。あなたの発言は主張であって事実ではなく、相手の意思や社会的な常識が結果を決めます（現実改変なら直接書き換えられます）。開始時の所持品はありません。",
+        inventoryPlayHint:
+          "次の手番から反映されます。ONの間はHUDに「持ち物」が現れ、会話や出来事で得た品を相手に渡す・使う・着る・捨てるができます。あなたの発言だけでは持ち物は増えません。※シナリオの進行方法に大きな影響があります。",
+        inventoryPanelHint:
+          "会話や出来事で実際に手に入れた品だけが並びます。渡す・使うは相手の意思と状況で結果が決まります。",
+        inventoryEmpty: "まだ何も持っていません",
+        inventoryWorn: "着用中",
+        inventoryQuantity: "×{{n}}",
+        inventoryObtained: "{{from}}・手番{{turn}}",
+        inventoryLog: "最近のやり取り",
+        inventoryRecentChanges: "この手番の変化",
+        inventoryChanges: "持ち物の変化",
+        inventoryGiveTarget: "渡す相手",
+        inventoryNoTarget: "近くに渡せる相手がいません",
+        inventoryActor: {
+          self: "自分",
+          world: "その場で入手",
+          reality: "現実改変",
+        },
+        inventoryCategory: {
+          clothing: "衣類",
+          underwear: "下着",
+          accessory: "アクセサリー",
+          consumable: "消耗品",
+          tool: "道具",
+          document: "書類",
+          key: "鍵",
+          gift: "贈り物",
+          other: "その他",
+        },
+        inventoryAction: {
+          give: "渡す",
+          use: "使う",
+          wear: "着る",
+          unwear: "脱ぐ",
+          discard: "捨てる",
+        },
+        /** item_action の手番として送る本文。サーバは item_action の構造化データで判定する */
+        inventoryActionText: {
+          give: "{{name}}を{{target}}に渡す",
+          giveNoTarget: "{{name}}を渡す",
+          use: "{{name}}を使う",
+          wear: "{{name}}を身につける",
+          unwear: "{{name}}を脱ぐ",
+          discard: "{{name}}を捨てる",
+        },
+        inventoryLogEntry: {
+          item_transfer_in: "{{item}}を{{from}}から受け取った",
+          item_transfer_found: "{{item}}を手に入れた",
+          item_transfer_out: "{{item}}を{{to}}に渡した",
+          item_use: "{{item}}を使った",
+          item_discard: "{{item}}を手放した",
+          item_wear: "{{item}}を身につけた",
+          item_unwear: "{{item}}を脱いだ",
+          item_update: "{{item}}が書き換わった",
+          boundary_violation: "{{npc}}に不快な思いをさせた",
+          reality: "現実改変: {{text}}",
+          more: "他{{count}}件",
+        },
         /**
          * 現実改変ルールの管理モーダル。romance では「属性」と呼ぶため、
          * 呼称が変わる項目だけ adventure.romance.attribute.* で上書きする。
@@ -611,6 +680,7 @@ const resources = {
             gift: "プレゼント",
             work: "バイト",
             confess: "告白",
+            item_action: "持ち物",
           },
         },
         imagePrompt: {
@@ -2305,6 +2375,13 @@ const resources = {
           open: "Open TSF Scenario",
           enableParent: "Enable TSF Scenario first",
         },
+        inventory: {
+          title: "Inventory System",
+          desc: "In the TSF Scenario, things you obtain through conversation and events are tracked as items you can give, use, wear, or discard. Saying you have something does not make it yours; the other person's will and social norms decide the outcome, and a reality alteration can rewrite it directly.",
+          note: 'Turn it on with "Enable the inventory system" on the scenario start screen or in the image settings. It greatly changes how the scenario plays out.',
+          open: "Open TSF Scenario",
+          enableParent: "Enable TSF Scenario first",
+        },
         vrm: {
           title: "3D Model (VRM)",
           desc: "Shows a 3D model instead of the partner's portrait in face-to-face mode. The mouth moves with the voice, and the expression and gesture change with every reply.",
@@ -2599,7 +2676,7 @@ const resources = {
           "Face-to-face mode never draws the composite scene, so this setting has no effect until the mode is turned off.",
         companionMode: "Face-to-face mode",
         companionModeHint:
-          "Off by default. When on, the partner stands right in front of you and each turn is one exchange: your line gets a short reaction plus one spoken reply. There are no day/night slots; the scenario runs on a turn budget instead of days. Only the background (when the location changes) and the partner sprite are generated, and the reply can be read aloud as is. Self-hosted (ComfyUI) cannot generate backgrounds.",
+          "Off by default. When on, the partner stands right in front of you and each turn is one exchange: your line gets the partner's reaction, their reply, and a follow-up from their side (a question or an action) in two to five sentences, staying short when a refusal or silence is the answer. There are no day/night slots; the scenario runs on a turn budget instead of days. Only the background (when the location changes) and the partner sprite are generated, and the reply can be read aloud as is. Self-hosted (ComfyUI) cannot generate backgrounds.",
         companionModePlayHint:
           "Applies from the next turn. While on, each turn is one exchange, only the partner sprite is drawn, and the background is redrawn only when the location changes (no day/night slots).",
         companionTurns: "Turns",
@@ -2682,6 +2759,68 @@ const resources = {
         realityRules: "Reality",
         realityRulesHint:
           "Declared world rules. They apply to every later judgement, and behaviour they cover alone never fails the mission.",
+        inventory: "Items",
+        inventoryEnable: "Enable the inventory system",
+        inventoryHint:
+          "Note: this greatly changes how the scenario plays out. Off by default. When on, your possessions are tracked, and receiving, giving, using, wearing, and discarding items happen as outcomes of the story. What you say is a claim, not a fact: the other person's will and social norms decide what actually happens (a reality alteration can rewrite it directly). You start with nothing.",
+        inventoryPlayHint:
+          "Applies from the next turn. While on, an Items chip appears in the HUD and you can give, use, wear, or discard things gained through conversation and events. Saying you have something does not make it yours. Note: this greatly changes how the scenario plays out.",
+        inventoryPanelHint:
+          "Only things you actually obtained in the story are listed. Giving and using are resolved by the other person's will and the situation.",
+        inventoryEmpty: "You have nothing yet",
+        inventoryWorn: "Worn",
+        inventoryQuantity: "×{{n}}",
+        inventoryObtained: "{{from}} · turn {{turn}}",
+        inventoryLog: "Recent exchanges",
+        inventoryRecentChanges: "Changes this turn",
+        inventoryChanges: "Inventory changes",
+        inventoryGiveTarget: "Give to",
+        inventoryNoTarget: "Nobody nearby to give it to",
+        inventoryActor: {
+          self: "you",
+          world: "found",
+          reality: "reality alteration",
+        },
+        inventoryCategory: {
+          clothing: "Clothing",
+          underwear: "Underwear",
+          accessory: "Accessory",
+          consumable: "Consumable",
+          tool: "Tool",
+          document: "Document",
+          key: "Key",
+          gift: "Gift",
+          other: "Other",
+        },
+        inventoryAction: {
+          give: "Give",
+          use: "Use",
+          wear: "Wear",
+          unwear: "Take off",
+          discard: "Discard",
+        },
+        /** Text sent as the item_action turn; the server judges from the structured item_action */
+        inventoryActionText: {
+          give: "Give {{name}} to {{target}}",
+          giveNoTarget: "Give {{name}}",
+          use: "Use {{name}}",
+          wear: "Put on {{name}}",
+          unwear: "Take off {{name}}",
+          discard: "Discard {{name}}",
+        },
+        inventoryLogEntry: {
+          item_transfer_in: "Received {{item}} from {{from}}",
+          item_transfer_found: "Obtained {{item}}",
+          item_transfer_out: "Gave {{item}} to {{to}}",
+          item_use: "Used {{item}}",
+          item_discard: "Let go of {{item}}",
+          item_wear: "Put on {{item}}",
+          item_unwear: "Took off {{item}}",
+          item_update: "{{item}} was rewritten",
+          boundary_violation: "Upset {{npc}}",
+          reality: "Reality alteration: {{text}}",
+          more: "and {{count}} more",
+        },
         promptPreview: {
           open: "Inspect prompts",
           title: "Prompts that will be sent",
@@ -2866,6 +3005,7 @@ const resources = {
             gift: "Gift",
             work: "Part-time job",
             confess: "Confession",
+            item_action: "Item",
           },
         },
         imagePrompt: {

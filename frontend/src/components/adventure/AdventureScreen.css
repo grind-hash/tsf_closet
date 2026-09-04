@@ -3885,7 +3885,8 @@ button:disabled {
     padding: 4px 16px 0;
   }
 
-  .adventure-messagebox__portrait-note {
+  .adventure-messagebox__portrait-note,
+  .adventure-messagebox__inventory-note {
     padding: 2px 8px;
     font-size: 0.7rem;
   }
@@ -5024,7 +5025,8 @@ button:disabled {
 
 /* 攻略対象の立ち絵を据え置いた手番の案内(メタ行)。操作要素ではない。
    min-width:0 と overflow-wrap で折り返し、ログ/✕ボタンを押し出さない */
-.adventure-messagebox__portrait-note {
+.adventure-messagebox__portrait-note,
+.adventure-messagebox__inventory-note {
   display: inline-flex;
   flex: 0 1 auto;
   align-items: center;
@@ -5041,7 +5043,8 @@ button:disabled {
   overflow-wrap: anywhere;
 }
 
-.adventure-messagebox--romance .adventure-messagebox__portrait-note {
+.adventure-messagebox--romance .adventure-messagebox__portrait-note,
+.adventure-messagebox--romance .adventure-messagebox__inventory-note {
   border-color: rgb(240 143 183 / 45%);
   color: #ffc7de;
 }
@@ -5159,4 +5162,129 @@ button:disabled {
 
 .adventure-setup-avatar .adventure-setup-turns__hint a {
   color: #9ec5ff;
+}
+
+/* 持ち物システム: HUD チップとポップオーバー内の一覧・操作 */
+.adventure-hud__chip--inventory strong {
+  font-size: 0.85rem;
+}
+
+.adventure-hud__inventory li {
+  display: grid;
+  gap: 4px;
+  padding: 6px 0;
+  border-top: 1px solid rgb(255 255 255 / 8%);
+}
+
+.adventure-hud__inventory li:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.adventure-hud__inventory-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.adventure-hud__inventory-head strong {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: #f2f5f7;
+  font-size: 0.85rem;
+}
+
+.adventure-hud__inventory-count {
+  color: #cbd2d7;
+  font-size: 0.75rem;
+}
+
+/* 可変幅のバッジは行末に寄せ、名前の開始位置を揃える */
+.adventure-hud__inventory-badge {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border-radius: 999px;
+  color: #1b1f24;
+  background: #efb85a;
+  font-size: 0.62rem;
+  font-style: normal;
+  font-weight: 700;
+}
+
+.adventure-hud__inventory-meta {
+  color: #9aa4ad;
+  font-size: 0.68rem;
+}
+
+.adventure-hud__inventory-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.adventure-hud__inventory-actions button {
+  margin: 0;
+  padding: 3px 8px;
+  border: 1px solid #707982;
+  border-radius: 6px;
+  color: #e6ebef;
+  background: transparent;
+  font-size: 0.7rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.adventure-hud__inventory-actions button:hover:not(:disabled) {
+  border-color: #efb85a;
+  color: #efb85a;
+}
+
+.adventure-hud__inventory-actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.adventure-hud__inventory-target {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  color: #cbd2d7;
+  font-size: 0.72rem;
+}
+
+.adventure-hud__inventory-target select {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 2px 6px;
+  border: 1px solid #4a535c;
+  border-radius: 6px;
+  color: #e9edf0;
+  background: #242b31;
+  font-size: 0.75rem;
+}
+
+.adventure-hud__inventory-events {
+  margin: 0 0 8px;
+  padding: 0;
+  color: #e6ebef;
+  font-size: 0.72rem;
+  list-style: none;
+}
+
+.adventure-hud__inventory-events li::before {
+  content: "・";
+}
+
+.adventure-hud__inventory-log {
+  margin: 8px 0 4px;
+  color: #9aa4ad;
+  font-size: 0.68rem;
+}
+
+.adventure-preview__inventory-events {
+  margin: 0;
+  padding-left: 1.2em;
+  color: #e6ebef;
+  font-size: 0.85rem;
 }

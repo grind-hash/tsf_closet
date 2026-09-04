@@ -18,6 +18,7 @@ import {
   type AdventureTalkEntry,
   type AdventureTemplate,
   type AdventureTurn,
+  type AdventureTurnOptions,
   canActOnRun,
   createAdventureRun,
   deleteAdventureRun,
@@ -119,7 +120,7 @@ interface AdventureContextValue {
   submitTurn: (
     input: string,
     inputKind: AdventureInputKind,
-    options?: { giftId?: string },
+    options?: AdventureTurnOptions,
   ) => Promise<void>;
   /** トークモード(romance)。手番を消費せず攻略対象と会話する */
   talking: boolean;
@@ -133,7 +134,7 @@ interface AdventureContextValue {
   pendingAnlasTurn: {
     input: string;
     inputKind: AdventureInputKind;
-    options?: { giftId?: string };
+    options?: AdventureTurnOptions;
   } | null;
   confirmPendingAnlasTurn: (suppressUntilBrowserClose: boolean) => void;
   cancelPendingAnlasTurn: () => void;
@@ -141,7 +142,7 @@ interface AdventureContextValue {
   pendingUsageWarnTurn: {
     input: string;
     inputKind: AdventureInputKind;
-    options?: { giftId?: string };
+    options?: AdventureTurnOptions;
   } | null;
   confirmPendingUsageWarnTurn: (suppressUntilBrowserClose: boolean) => void;
   cancelPendingUsageWarnTurn: () => void;
@@ -312,12 +313,12 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
   const [pendingAnlasTurn, setPendingAnlasTurn] = useState<{
     input: string;
     inputKind: AdventureInputKind;
-    options?: { giftId?: string };
+    options?: AdventureTurnOptions;
   } | null>(null);
   const [pendingUsageWarnTurn, setPendingUsageWarnTurn] = useState<{
     input: string;
     inputKind: AdventureInputKind;
-    options?: { giftId?: string };
+    options?: AdventureTurnOptions;
   } | null>(null);
 
   const [avatarModels, setAvatarModels] = useState<AvatarModel[]>([]);
@@ -355,7 +356,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
     async (
       input: string,
       inputKind: AdventureInputKind,
-      options?: { giftId?: string },
+      options?: AdventureTurnOptions,
     ) => {
       if (!activeRun || streaming || talking) return;
       const runId = activeRun.id;
@@ -385,6 +386,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
             user_input: input,
             input_kind: inputKind,
             ...(options?.giftId ? { gift_id: options.giftId } : {}),
+            ...(options?.itemAction ? { item_action: options.itemAction } : {}),
             ...(generatePortrait ? {} : { generate_portrait: false }),
             ...(generatePartnerPortrait
               ? {}
@@ -432,6 +434,8 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
                       // romance の好感度ゲージはターン確定と同時に動かす。
                       // 最終整合はストリーム後の run 全再取得が担う
                       sim: turn.sim ?? current.sim,
+                      // 持ち物もターン確定と同時に更新する(OFF の run は undefined)
+                      inventory: turn.inventory ?? current.inventory,
                       // 着替え(衣装差分の切替)は turn 到着と同時にモデルを差し替える。
                       // 未設定(null)は据え置き(解除は設定変更だけが行う)
                       ...(turn.companion_avatar_id &&
@@ -590,7 +594,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
     async (
       input: string,
       inputKind: AdventureInputKind,
-      options?: { giftId?: string },
+      options?: AdventureTurnOptions,
     ) => {
       if (!activeRun || streaming) return;
       // run 単位のモデル上書きを含めた実効モデルで V5 かを判定する
@@ -827,6 +831,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
                   player_speech_style: updated.player_speech_style,
                   player_speech_custom: updated.player_speech_custom,
                   sim: updated.sim,
+                  inventory_enabled: updated.inventory_enabled,
                 }
               : run,
           ),

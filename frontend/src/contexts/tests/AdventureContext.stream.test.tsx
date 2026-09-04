@@ -7,6 +7,7 @@ type StreamEvent = { type: string; data: Record<string, unknown> };
 const streamControl = vi.hoisted(() => ({
   onEvent: null as ((event: StreamEvent) => void) | null,
   finish: null as (() => void) | null,
+  bodies: [] as unknown[],
 }));
 
 const talkControl = vi.hoisted(() => ({
@@ -26,12 +27,9 @@ vi.mock("../SettingsContext", () => ({
 
 vi.mock("../../apis/adventure", () => ({
   streamAdventureTurn: vi.fn(
-    (
-      _runId: string,
-      _request: unknown,
-      onEvent: (event: StreamEvent) => void,
-    ) =>
+    (_runId: string, request: unknown, onEvent: (event: StreamEvent) => void) =>
       new Promise<void>((resolve) => {
+        streamControl.bodies.push(request);
         streamControl.onEvent = onEvent;
         streamControl.finish = resolve;
       }),
@@ -104,6 +102,19 @@ function StreamProbe() {
       <div data-testid="narrative-settled">
         {narrativeSettled ? "yes" : "no"}
       </div>
+      <div data-testid="inventory">
+        {(activeRun?.inventory?.items ?? []).map((item) => item.name).join("|")}
+      </div>
+      <button
+        type="button"
+        onClick={() =>
+          void submitTurn("黒いブラを渡す", "item_action", {
+            itemAction: { item_id: "i1", action: "give", target: "美咲" },
+          })
+        }
+      >
+        item
+      </button>
       <button type="button" onClick={() => void loadRun("run-1")}>
         load
       </button>
@@ -148,6 +159,7 @@ describe("AdventureContext turn stream", () => {
   beforeEach(() => {
     streamControl.onEvent = null;
     streamControl.finish = null;
+    streamControl.bodies = [];
     talkControl.onEvent = null;
     talkControl.finish = null;
     talkControl.bodies = [];
@@ -263,6 +275,69 @@ describe("AdventureContext turn stream", () => {
       });
     });
     expect(screen.getByTestId("phase-step").textContent).toBe("composite:2/2");
+
+    await finishTurnStream();
+  });
+
+  it("merges the inventory from the turn event", async () => {
+    await startTurnStream();
+
+    act(() => {
+      streamControl.onEvent?.({
+        type: "turn",
+        data: {
+          id: "turn-3",
+          turn_number: 3,
+          user_input: "観察する",
+          input_kind: "free_text",
+          narrative: "美咲は黒いブラを差し出した。",
+          choices: [],
+          inventory: {
+            items: [
+              {
+                id: "i1",
+                name: "黒いブラ",
+                category: "underwear",
+                tags: [],
+                quantity: 1,
+                worn: false,
+                capabilities: ["give", "wear", "discard"],
+                obtained_from: "character:美咲",
+                obtained_turn: 3,
+              },
+            ],
+            log: [],
+          },
+          world_events_applied: [],
+        },
+      });
+    });
+    expect(screen.getByTestId("inventory").textContent).toBe("黒いブラ");
+
+    await finishTurnStream();
+  });
+
+  it("sends item_action with the turn request", async () => {
+    render(
+      <AdventureProvider>
+        <StreamProbe />
+      </AdventureProvider>,
+    );
+    act(() => {
+      screen.getByRole("button", { name: "load" }).click();
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("run").textContent).toBe("run-1"),
+    );
+    act(() => {
+      screen.getByRole("button", { name: "item" }).click();
+    });
+    await waitFor(() => expect(streamControl.onEvent).not.toBeNull());
+    expect(streamControl.bodies[0]).toMatchObject({
+      input_kind: "item_action",
+      user_input: "黒いブラを渡す",
+      item_action: { item_id: "i1", action: "give", target: "美咲" },
+    });
 
     await finishTurnStream();
   });

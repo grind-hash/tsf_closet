@@ -898,19 +898,33 @@ def romance_companion_narrative_guidance(partner_name: str, player_name: str) ->
     """対面会話モード(companion_mode)の物語ガイダンス。
 
     1手番 = 1往復の会話。半日枠の場面描写・時間経過・昼夜をやめ、
-    「短い反応の地の文 + 攻略対象のセリフ1つ」だけを書かせる。
+    「反応の地の文 → 攻略対象のセリフ → 相手側からの展開」の3ビート(2〜5文)を
+    通常形にする。拒絶・怒り・驚愕・沈黙など短さ自体が答えになる場面は
+    無理に伸ばさない。
     """
     return (
         f"{_ROMANCE_NARRATIVE_CORE} "
         "COMPANION MODE: one turn is exactly one face-to-face exchange, never a "
         "half day. Treat player_input as what the player just said or did to "
-        f"{partner_name} right now. Write at most one short narration sentence "
-        f"describing {partner_name}'s visible reaction (expression, gesture, "
-        "tone), favouring a concrete physical motion a 3D avatar could mirror "
-        "- a wave, a bow, a happy little hop, straightening up, shrinking "
-        "back, reaching out a hand, throwing both arms up - whenever the mood "
-        f"calls for one, then exactly one spoken line from {partner_name} that answers "
-        f"{player_name} directly, one to three short sentences, and stop there. "
+        f"{partner_name} right now. Reply in up to three beats, in this order. "
+        f"BEAT 1: one short narration line showing {partner_name}'s visible "
+        "reaction to that exact line or act - expression, gesture, tone - "
+        "favouring a concrete physical motion a 3D avatar could mirror (a wave, "
+        "a bow, a happy little hop, straightening up, shrinking back, reaching "
+        f"out a hand, throwing both arms up). BEAT 2: {partner_name}'s spoken "
+        f"reply that answers {player_name} directly, one or two 「」 lines of one "
+        "to three short sentences each. BEAT 3: when it fits the moment, one "
+        f"follow-up from {partner_name}'s own side that keeps the conversation "
+        f"alive - a question back to {player_name}, a small action, or a step "
+        "further into the topic - as another 「」 line or one short narration "
+        "line. Aim for two to five sentences in total so it reads like a real "
+        "back-and-forth with someone standing right there; do not answer with a "
+        "bare one-liner when the moment invites more. The exception is when "
+        "brevity itself is the reply: a refusal, anger, shock, hurt, "
+        f"embarrassment, a tense silence, or {partner_name} being cut off or "
+        "lost for words. Then keep it exactly as short as the moment demands - a "
+        "single line, or a wordless reaction in narration alone - and never pad "
+        "it with a follow-up question or small talk. "
         f"Never write {player_name}'s own spoken line (player_input already is "
         "it), never skip time, and never mention days, nights, or hours "
         "passing; state.sim.total_days is an internal budget you must not "
@@ -920,7 +934,7 @@ def romance_companion_narrative_guidance(partner_name: str, player_name: str) ->
         "conversation (a line of dialogue or a small gesture), never plans "
         "that fill a half day. When romance_resolution is absent you are "
         f"writing the opening: {partner_name} notices {player_name} and greets "
-        "them in one line."
+        "them briefly, in one or two lines."
     )
 
 
@@ -1074,9 +1088,10 @@ ROMANCE_COMPANION_RESOLUTION_GUIDANCE = (
     "COMPANION MODE: there are no day or night slots; one turn is one "
     "face-to-face exchange. choices must be the next short things the player "
     "could say or do in this conversation (a brief line of dialogue or a small "
-    "gesture, each within the label length rule), never half-day plans. Score "
-    "affection_delta with the conversation rubric above for this single "
-    "exchange."
+    "gesture, each within the label length rule), never half-day plans. When "
+    "the partner's last line was a question or an invitation, at least one "
+    "choice must answer it directly. Score affection_delta with the "
+    "conversation rubric above for this single exchange."
 )
 
 
@@ -1140,10 +1155,11 @@ def romance_script_format_guidance(partner_name: str, player_name: str) -> str:
         "is narration: plain prose lines with no name prefix and no corner "
         "brackets, following the narration voice rule. Keep stage directions "
         "inside narration, not inside the brackets. Alternate narration and "
-        "dialogue naturally; the partner should speak at least twice, each line "
-        "one to three short sentences. Use exactly these names as prefixes and "
-        "do not abbreviate or translate them. When the narrative is a JSON "
-        "string value, separate lines with \\n."
+        "dialogue naturally; how many 「」 lines the partner speaks follows the "
+        "COMPANION MODE beat rule above (normally one or two, never added just "
+        "to reach a count), each line one to three short sentences. Use exactly "
+        "these names as prefixes and do not abbreviate or translate them. When "
+        "the narrative is a JSON string value, separate lines with \\n."
     )
 
 

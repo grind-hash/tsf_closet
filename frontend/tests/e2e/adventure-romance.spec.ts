@@ -365,6 +365,15 @@ test("start a romance run with day select and show the romance HUD", async ({
   await playerSelect.selectOption("char2");
   await expect(playerName).toHaveValue("ユウヤ");
   await playerSelect.selectOption("char1");
+  // 持ち物システムは既定 OFF。スイッチのラベルをクリックして ON にする
+  const inventoryToggle = page.getByRole("checkbox", {
+    name: /^持ち物システムを有効化する/,
+  });
+  await expect(inventoryToggle).not.toBeChecked();
+  await page
+    .locator(".adventure-setup-generator .adventure-inventory-toggle")
+    .click();
+  await expect(inventoryToggle).toBeChecked();
   await page.getByRole("button", { name: "ミッション案を自動生成" }).click();
   await expect(page.getByLabel("ゴール")).toHaveValue(
     "7日以内に美咲と想いを通わせ、交際を始める",
@@ -378,6 +387,7 @@ test("start a romance run with day select and show the romance HUD", async ({
     scenario_max_turns: 14,
     romance_player_character_id: "char1",
     romance_player_name: "ユウヤ",
+    inventory_enabled: true,
   });
   // romance HUD: Day/時間帯・好感度・所持金(タイルはラベルと値が別要素)
   const dayTile = page.locator(".adventure-hud__day");
@@ -2198,4 +2208,113 @@ test("talk mode hides the mic button when speech recognition is unavailable", as
   await page.getByRole("button", { name: "トーク" }).click();
   await expect(page.getByLabel("美咲に話しかける")).toBeVisible();
   await expect(page.locator(".adventure-freeinput__mic")).toHaveCount(0);
+});
+
+/** 持ち物システム ON で黒いブラを1つ所持している romance run */
+function inventoryRunPayload(
+  turnCount = 0,
+  overrides: Record<string, unknown> = {},
+) {
+  return romanceRunPayload(turnCount, {
+    inventory_enabled: true,
+    inventory: {
+      items: [
+        {
+          id: "i1",
+          name: "黒いブラ",
+          category: "underwear",
+          tags: [],
+          quantity: 1,
+          worn: false,
+          capabilities: ["give", "wear", "discard"],
+          obtained_from: "character:美咲",
+          obtained_turn: 1,
+        },
+      ],
+      log: [
+        {
+          turn: 1,
+          type: "item_transfer",
+          item: "黒いブラ",
+          item_id: "i1",
+          quantity: 1,
+          from: "character:美咲",
+          to: "player",
+          origin: "event",
+        },
+      ],
+    },
+    npc_states: {},
+    ...overrides,
+  });
+}
+
+test("持ち物チップから所持品を攻略対象に渡す", async ({ page }) => {
+  await enableAdventure(page);
+  const state = await mockRomanceApis(page, inventoryRunPayload());
+  await page.goto("/adventure/run-1");
+
+  // HUD の持ち物チップは所持数を出し、共有ポップオーバーに一覧を開く
+  const chip = page.getByRole("button", { name: /^持ち物/ });
+  await expect(chip).toContainText("1");
+  await chip.click();
+  const panel = page.getByRole("dialog", { name: "持ち物" });
+  await expect(panel).toContainText("黒いブラ");
+  await expect(panel).toContainText("美咲・手番1");
+  await expect(panel).toContainText("黒いブラを美咲から受け取った");
+
+  // 「渡す」は item_action の手番として送り、相手は攻略対象に固定される
+  await panel.getByRole("button", { name: "渡す" }).click();
+  await expect(panel).toHaveCount(0);
+  await expect(page.getByText("ふたりの距離が少し縮まった。")).toBeVisible();
+  expect(state.streamBodies).toHaveLength(1);
+  expect(state.streamBodies[0]).toMatchObject({
+    input_kind: "item_action",
+    user_input: "黒いブラを美咲に渡す",
+    item_action: { item_id: "i1", action: "give", target: "美咲" },
+  });
+});
+
+test("持ち物システムをギアポップオーバーで切り替える", async ({ page }) => {
+  await enableAdventure(page);
+  const state = await mockRomanceApis(page);
+  await page.route("**/api/adventure/runs/run-1/settings", async (route) => {
+    const body = route.request().postDataJSON() as Record<string, unknown>;
+    state.settingsBodies.push(body);
+    await route.fulfill({
+      json: romanceRunPayload(0, {
+        inventory_enabled: body.inventory_enabled === true,
+        inventory: { items: [], log: [] },
+      }),
+    });
+  });
+  await page.goto("/adventure/run-1");
+
+  // OFF の run にはチップが無い
+  await expect(page.getByRole("button", { name: /^持ち物/ })).toHaveCount(0);
+  await page.getByRole("button", { name: "画像生成設定" }).click();
+  const toggle = page.getByRole("checkbox", {
+    name: /^持ち物システムを有効化する/,
+  });
+  await expect(toggle).not.toBeChecked();
+  // input は視覚的に隠れるため、スイッチのラベルをクリックする
+  await page
+    .locator(".adventure-image-settings-popover .adventure-inventory-toggle")
+    .click();
+  await expect(toggle).toBeChecked();
+  // PATCH だけが飛び、手番は消費しない
+  expect(state.settingsBodies).toHaveLength(1);
+  expect(state.settingsBodies[0]).toMatchObject({
+    inventory_enabled: true,
+    use_precise_reference: false,
+    enable_composite_scene: false,
+  });
+  expect(state.streamBodies).toHaveLength(0);
+  // ON になるとチップが現れ、空の一覧を開ける
+  const chip = page.getByRole("button", { name: /^持ち物/ });
+  await expect(chip).toContainText("0");
+  await chip.click();
+  await expect(page.getByRole("dialog", { name: "持ち物" })).toContainText(
+    "まだ何も持っていません",
+  );
 });

@@ -120,6 +120,7 @@ components/
     AdventureImagePromptModal.tsx
     AdventureGiftShopModal.tsx    romance のギフト購入（gift_id 送信）
     AdventureAttributeModal.tsx   romance の属性付与（現実改変プレフィックス組み立て）
+    AdventureInventoryPanel.tsx   持ち物システムの HUD ポップオーバー中身（所持品と capabilities ごとの 渡す/使う/着る・脱ぐ/捨てる → submitTurn("item_action")。ログ文言の整形 formatInventoryLogEntry / formatInventoryEvents / formatInventoryActor と React key 用 keyedInventoryEntries を export し、メッセージ窓のメタ行とライトボックスでも使う）
     AdventureBgmControl.tsx       サウンドボタン(♪)+ポップオーバー。BGM(mute/volume)とセリフ読み上げ(ON/OFF・音量・状態・停止。TTS無効時は disabled+案内)を並べる。再生は useAdventureBgm / useAdventureVoice
     avatar/CompanionAvatarStage.tsx  対面会話モードの 3D モデル(VRM)ステージ。攻略対象 <img> の代わりに `.adventure-stage__frame` 内へ置く(default export、`React.lazy` で three.js を別チャンクに)。canvas はエンジンごとに動的生成(開発モードの二重 effect で Context Lost を拾わないため)
     avatar/vrmAvatarEngine.ts        React 非依存の描画エンジン(three + @pixiv/three-vrm)。読込・待機姿勢(ボーンの実方向から回転軸を求めて腕下ろし・肘曲げ・指の握り。VRM 0.x/1.0 の向き差を吸収)・外接ボックス基準の上半身フレーミング・呼吸/揺れ・まばたき・視線・音量口パク・表情クロスフェード・手続き的ジェスチャー・dispose
@@ -185,5 +186,6 @@ components/
 - `hooks/usePersistedSectionState.ts` はモジュールレベルのストア＋`useSyncExternalStore`で、マウント中のセクションIDと既定値をレジストリに持つ。`setAllPromptExpanderSections(open)` と `usePromptExpanderSectionsAllOpen()` はそのレジストリを見るので、セクションを増やしても固定リストの更新は要らない。
 - Context単体テストは `frontend/src/contexts/tests/`、E2Eは `frontend/tests/e2e/`。
 - 主な対象E2E: `action-mode.spec.ts`、`image-only-preview.spec.ts`、`adventure-mode.spec.ts`、`adventure-portrait-alpha.spec.ts`、`prompt-expander.spec.ts`。
+- 持ち物の型は `apis/adventure.ts` の `AdventureInventory` / `AdventureInventoryItem` / `AdventureInventoryLogEntry` / `AdventureItemAction` / `AdventureTurnOptions`（`submitTurn` の options）。カテゴリ・操作の語彙は backend `consts/adventure_inventory.py` と一致させ、表示名は `adventure.inventoryCategory.*` / `adventure.inventoryAction.*`。
 - Adventure の台本形式ユーティリティは `utils/adventureDialogue.ts`（`parseDialogueSegments` / `partnerLines` / `joinForSpeech` / `stripStageDirections`）。対面会話モードの見積もりは `utils/adventureTurnTimeEstimate.ts` の `companionMode`。
 - 定数ミラー: `constants/promptExpander.ts`（画像モデル4種、キャラ上限 V5=22/V4.5=6、サイズ、漫画モードのコマ数/レイアウト/セリフ言語と `supportsMangaMode`、精密参照の種別/既定強度/`PROMPT_EXPANDER_ANLAS_PER_REFERENCE`/`PROMPT_EXPANDER_ANLAS_WARN_SUPPRESSED_KEY`/`supportsPreciseReference`、背景透過の `usesNativeTransparency`/`PROMPT_EXPANDER_ALPHA_OPTIONS`）。`V5_USAGE_WARN_SUPPRESSED_KEY` は `constants/novelaiImageModels.ts` に集約。`constants/companionAvatar.ts` は 3D モデルの表情 6 種・身振り 8 種で、backend `consts/companion_avatar.py` と完全一致させる（LLM に選ばせる語彙＝FE が実装している語彙）。衣装差分のキー("1","2",…)は手番ごとにバックエンドが組み直すため FE に定数は無い。
