@@ -4,7 +4,8 @@
  * three.js + @pixiv/three-vrm で VRM を読み込み、対面会話モードのステージ上で
  * 呼吸・まばたき・視線・口パク・表情・手続き的な身振りを毎フレーム合成する。
  * 全身モーション素材は使わず、読込時に腕・肘・指を力を抜いた待機姿勢へ置き、
- * 以降は頭・背骨・腰の回転と位置、腕の開きだけを動かす。
+ * 以降は頭・背骨・腰と、腕の持ち上げ・前振り・肘の曲げを毎フレーム組み直して
+ * 動かす。
  */
 
 import {
@@ -22,14 +23,20 @@ import {
   type AvatarExpressionKey,
   type AvatarGestureKey,
 } from "../../../constants/companionAvatar";
+import type { VisemeFrame } from "../../../utils/visemeTimeline";
 import { smoothLevel } from "../../../utils/voiceLevelMeter";
 import {
   ARM_REST,
+  type ArmChannels,
   type ArmSide,
   addPose,
+  approachMouthTargets,
+  armChannels,
+  axisBetween,
   BLINK_CLOSE_SEC,
   BLINK_OPEN_SEC,
   blinkWeight,
+  CLOSED_MOUTH_TARGETS,
   DOWN,
   detectFacing,
   type Facing,
@@ -40,11 +47,13 @@ import {
   GESTURE_CLIPS,
   gestureDuration,
   idlePose,
+  type MouthTargets,
   mouthWeightsFromLevel,
+  mouthWeightsFromViseme,
   nextBlinkDelay,
   poseToBoneRotation,
   sampleGesture,
-  tiltTowards,
+  UP,
   type Vec3,
   ZERO_POSE,
 } from "./avatarMotion";
@@ -67,6 +76,11 @@ export interface VrmAvatarEngine {
   setExpression: (key: AvatarExpressionKey | null) => void;
   playGesture: (key: AvatarGestureKey | null) => void;
   setLevelSource: (getLevel: () => number) => void;
+  /**
+   * viseme 口パクの供給元。null を返す間は音量ベースの口パクへ
+   * フォールバックする。解除は null を渡す
+   */
+  setVisemeSource: (source: (() => VisemeFrame | null) | null) => void;
   dispose: () => void;
 }
 
@@ -88,21 +102,36 @@ const EXPRESSION_MAX_WEIGHT = 0.9;
 const FRAME_VISIBLE_RATIO = 0.62;
 const FRAME_HEADROOM_RATIO = 0.06;
 
-/** 片腕の待機姿勢。上腕は毎フレーム armLift を加えて組み直す */
+/** 片腕のリグ。待機姿勢を基準に、毎フレーム持ち上げ・前振り・肘の曲げを組み直す */
 interface ArmRig {
+  side: ArmSide;
   upperArm: THREE.Object3D;
+  lowerArm: THREE.Object3D;
   /** 上腕を体側へ下ろす回転軸(rest 局所系) */
   lowerAxis: THREE.Vector3;
   /** T ポーズから下ろす角度 */
   lowerAngle: number;
-  /** 下ろした後に前方へ振る回転 */
-  forwardQuat: THREE.Quaternion;
+  /** 下ろした腕を前方へ振る回転軸 */
+  forwardAxis: THREE.Vector3;
+  /** 前方へ振る待機角。armForward を加算する */
+  forwardRest: number;
+  /** 肘を前方へ曲げる回転軸 */
+  bendAxis: THREE.Vector3;
+  /** 肘の待機曲げ角。elbow を加算する(0 未満には曲げない) */
+  bendRest: number;
+  /** 前腕を前額面で上へ振り上げる回転軸 */
+  upAxis: THREE.Vector3;
+  /** 前腕のひねり軸。rest の骨軸(±X)と平行で、手のひら(rest で下向き)を前方へ向ける */
+  twistAxis: THREE.Vector3;
+  /** 手ボーン。ひねりの半分を受け持つ(無いモデルは前腕が全部受ける) */
+  hand: THREE.Object3D | null;
 }
 
 interface RestPose {
   head: THREE.Euler;
   spine: THREE.Euler;
   hipsY: number;
+  hipsX: number;
   arms: ArmRig[];
   /** normalized bone の局所系での前方の Z 符号。頭・背骨の傾きの向きに使う */
   facing: Facing;
@@ -145,9 +174,9 @@ function applyFingerCurl(humanoid: VRMHumanoid, side: ArmSide): void {
     );
     const direction = boneDirection(nodes[1] ?? null);
     if (!direction || !nodes[0]) continue;
-    const tilt = tiltTowards(direction, DOWN, 1);
-    if (!tilt) continue;
-    const axis = axisOf(tilt.axis);
+    const curlAxis = axisBetween(direction, DOWN);
+    if (!curlAxis) continue;
+    const axis = axisOf(curlAxis);
     nodes.forEach((node, index) => {
       const angle = curls[index] ?? 0;
       if (node && angle !== 0) node.quaternion.setFromAxisAngle(axis, angle);
@@ -158,7 +187,8 @@ function applyFingerCurl(humanoid: VRMHumanoid, side: ArmSide): void {
 /**
  * 腕を体側へ下ろし、肘を前へ曲げ、指を軽く握った待機姿勢にする。
  * 回転軸は実際のボーンの向きから求めるので、腕が +X に伸びる VRM 1.0 でも
- * -X に伸びる 0.x でも同じ見た目になる
+ * -X に伸びる 0.x でも同じ見た目になる。軸はすべてリグへ保存し、
+ * 身振り再生中は applyArmPose が同じ軸で毎フレーム組み直す
  */
 function applyArmRestPose(humanoid: VRMHumanoid, facing: Facing): ArmRig[] {
   const forward: Vec3 = [0, 0, facing];
@@ -170,37 +200,70 @@ function applyArmRestPose(humanoid: VRMHumanoid, facing: Facing): ArmRig[] {
     const armDir = boneDirection(lowerArm);
     if (!upperArm || !lowerArm || !armDir) continue;
     const angles = ARM_REST[side];
-    const lowerTilt = tiltTowards(armDir, DOWN, angles.lower);
-    const forwardTilt = tiltTowards(DOWN, forward, angles.forward);
-    if (!lowerTilt || !forwardTilt) continue;
+    const lowerAxis = axisBetween(armDir, DOWN);
+    const forwardAxis = axisBetween(DOWN, forward);
+    const bendAxis = axisBetween(boneDirection(hand) ?? armDir, forward);
+    const upAxis = axisBetween(armDir, UP);
+    // DOWN→forward の軸は ±X で rest の骨軸と平行なので、前腕まわりの純粋な
+    // ひねりになる。手のひらの rest 法線は左右とも DOWN のため、同じ回転で
+    // 両手のひらが前方を向く
+    const twistAxis = axisBetween(DOWN, forward);
+    if (!lowerAxis || !forwardAxis || !bendAxis || !upAxis || !twistAxis)
+      continue;
     const rig: ArmRig = {
+      side,
       upperArm,
-      lowerAxis: axisOf(lowerTilt.axis),
-      lowerAngle: lowerTilt.angle,
-      forwardQuat: new THREE.Quaternion().setFromAxisAngle(
-        axisOf(forwardTilt.axis),
-        forwardTilt.angle,
-      ),
+      lowerArm,
+      lowerAxis: axisOf(lowerAxis),
+      lowerAngle: angles.lower,
+      forwardAxis: axisOf(forwardAxis),
+      forwardRest: angles.forward,
+      bendAxis: axisOf(bendAxis),
+      bendRest: angles.bend,
+      upAxis: axisOf(upAxis),
+      twistAxis: axisOf(twistAxis),
+      hand,
     };
-    applyArmLift(rig, 0);
-    const bend = tiltTowards(
-      boneDirection(hand) ?? armDir,
-      forward,
-      angles.bend,
-    );
-    if (bend)
-      lowerArm.quaternion.setFromAxisAngle(axisOf(bend.axis), bend.angle);
+    applyArmPose(rig, armChannels(ZERO_POSE, side));
     applyFingerCurl(humanoid, side);
     rigs.push(rig);
   }
   return rigs;
 }
 
-/** 上腕の回転を「下ろす(lift ぶん戻す)→ 前へ振る」の順で組み直す */
-function applyArmLift(rig: ArmRig, lift: number): void {
+const armPoseQuat = new THREE.Quaternion();
+
+/**
+ * 片腕の回転を組み直す。上腕は「下ろす(lift ぶん戻す)→ 前へ振る」、
+ * 前腕は「手のひらをひねる → 肘を前へ曲げる → 前額面で上へ振り上げる」の順。
+ * 肘は待機角より逆(伸展)側へは曲げない。ひねりは前腕と手に半分ずつ配り、
+ * 手首・肘まわりのメッシュのねじれを抑える
+ */
+function applyArmPose(rig: ArmRig, arm: ArmChannels): void {
   rig.upperArm.quaternion
-    .setFromAxisAngle(rig.lowerAxis, rig.lowerAngle - lift)
-    .premultiply(rig.forwardQuat);
+    .setFromAxisAngle(rig.lowerAxis, rig.lowerAngle - arm.lift)
+    .premultiply(
+      armPoseQuat.setFromAxisAngle(
+        rig.forwardAxis,
+        rig.forwardRest + arm.forward,
+      ),
+    );
+  const palm = Math.max(0, arm.palmTurn);
+  const forearmTwist = rig.hand ? palm / 2 : palm;
+  rig.lowerArm.quaternion
+    .setFromAxisAngle(rig.twistAxis, forearmTwist)
+    .premultiply(
+      armPoseQuat.setFromAxisAngle(
+        rig.bendAxis,
+        Math.max(0, rig.bendRest + arm.elbow),
+      ),
+    )
+    .premultiply(
+      armPoseQuat.setFromAxisAngle(rig.upAxis, Math.max(0, arm.elbowUp)),
+    );
+  if (rig.hand) {
+    rig.hand.quaternion.setFromAxisAngle(rig.twistAxis, palm - forearmTwist);
+  }
 }
 
 interface ActiveGesture {
@@ -252,7 +315,9 @@ export function createVrmAvatarEngine(
 
   let gesture: ActiveGesture | null = null;
   let getLevel: () => number = () => 0;
+  let getViseme: (() => VisemeFrame | null) | null = null;
   let smoothedLevel = 0;
+  let mouthTargets: MouthTargets = { ...CLOSED_MOUTH_TARGETS };
 
   let blinkTimer = nextBlinkDelay(Math.random);
   let blinkElapsed = -1;
@@ -305,6 +370,7 @@ export function createVrmAvatarEngine(
       head: head ? head.rotation.clone() : new THREE.Euler(),
       spine: spine ? spine.rotation.clone() : new THREE.Euler(),
       hipsY: hips ? hips.position.y : 0,
+      hipsX: hips ? hips.position.x : 0,
       arms,
       facing,
     };
@@ -354,7 +420,7 @@ export function createVrmAvatarEngine(
 
     const manager = loaded.expressionManager;
     availableExpressions = new Set(
-      [...EMOTION_PRESETS, "aa", "ih", "ou", "blink"].filter(
+      [...EMOTION_PRESETS, "aa", "ih", "ou", "ee", "oh", "blink"].filter(
         (name) => manager?.getExpression(name) != null,
       ),
     );
@@ -389,6 +455,10 @@ export function createVrmAvatarEngine(
 
   function setLevelSource(source: () => number): void {
     getLevel = source;
+  }
+
+  function setVisemeSource(source: (() => VisemeFrame | null) | null): void {
+    getViseme = source;
   }
 
   function updateBlink(delta: number, model: VRM): void {
@@ -430,17 +500,42 @@ export function createVrmAvatarEngine(
   function updateMouth(delta: number, model: VRM): void {
     const manager = model.expressionManager;
     if (!manager) return;
-    let raw = 0;
-    try {
-      raw = getLevel();
-    } catch {
-      raw = 0;
+    let frame: VisemeFrame | null = null;
+    if (getViseme) {
+      try {
+        frame = getViseme();
+      } catch {
+        frame = null;
+      }
     }
-    smoothedLevel = smoothLevel(smoothedLevel, raw, delta);
-    const weights = mouthWeightsFromLevel(smoothedLevel, elapsed);
-    if (availableExpressions.has("aa")) manager.setValue("aa", weights.aa);
-    if (availableExpressions.has("ih")) manager.setValue("ih", weights.ih);
-    if (availableExpressions.has("ou")) manager.setValue("ou", weights.ou);
+    let target: MouthTargets;
+    if (frame) {
+      // viseme 経路: タイムラインが示す口形へ追従する
+      target = mouthWeightsFromViseme(
+        frame.viseme,
+        frame.w,
+        availableExpressions.has("ee"),
+        availableExpressions.has("oh"),
+      );
+    } else {
+      // 音量経路(タイムライン無し・非再生時)。ee / oh は 0 へ戻す
+      let raw = 0;
+      try {
+        raw = getLevel();
+      } catch {
+        raw = 0;
+      }
+      smoothedLevel = smoothLevel(smoothedLevel, raw, delta);
+      const weights = mouthWeightsFromLevel(smoothedLevel, elapsed);
+      target = { aa: weights.aa, ih: weights.ih, ou: weights.ou, ee: 0, oh: 0 };
+    }
+    // 適用値は常に mouthTargets へ書き戻し、経路切替でも口形が飛ばないようにする
+    mouthTargets = approachMouthTargets(mouthTargets, target, delta);
+    if (availableExpressions.has("aa")) manager.setValue("aa", mouthTargets.aa);
+    if (availableExpressions.has("ih")) manager.setValue("ih", mouthTargets.ih);
+    if (availableExpressions.has("ou")) manager.setValue("ou", mouthTargets.ou);
+    if (availableExpressions.has("ee")) manager.setValue("ee", mouthTargets.ee);
+    if (availableExpressions.has("oh")) manager.setValue("oh", mouthTargets.oh);
   }
 
   function updatePose(model: VRM, restPose: RestPose): void {
@@ -469,9 +564,20 @@ export function createVrmAvatarEngine(
         restPose.head.z + rotation.head[2],
       );
     }
-    if (spine) spine.rotation.x = restPose.spine.x + rotation.spineX;
-    if (hips) hips.position.y = restPose.hipsY + pose.hipsY;
-    for (const arm of restPose.arms) applyArmLift(arm, pose.armLift);
+    if (spine) {
+      spine.rotation.set(
+        restPose.spine.x + rotation.spine[0],
+        restPose.spine.y + rotation.spine[1],
+        restPose.spine.z + rotation.spine[2],
+      );
+    }
+    if (hips) {
+      hips.position.y = restPose.hipsY + pose.hipsY;
+      hips.position.x = restPose.hipsX + restPose.facing * pose.hipsX;
+    }
+    for (const arm of restPose.arms) {
+      applyArmPose(arm, armChannels(pose, arm.side));
+    }
   }
 
   function frame(): void {
@@ -533,5 +639,12 @@ export function createVrmAvatarEngine(
     renderer.forceContextLoss();
   }
 
-  return { load, setExpression, playGesture, setLevelSource, dispose };
+  return {
+    load,
+    setExpression,
+    playGesture,
+    setLevelSource,
+    setVisemeSource,
+    dispose,
+  };
 }

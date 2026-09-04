@@ -11,6 +11,7 @@ import tempfile
 import unicodedata
 import wave
 import zipfile
+from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
 from typing import IO, Any
@@ -31,6 +32,33 @@ AIVIS_ENGINE_BRAND = "AivisSpeech"
 
 class AivisSpeechError(Exception):
     pass
+
+
+# audio_query のモーラ母音 → VRM の口形状プリセット。N / cl / pau は閉口として
+# タイムラインにイベントを出さない
+_VOWEL_TO_VISEME = {"a": "aa", "i": "ih", "u": "ou", "e": "ee", "o": "oh"}
+# 無声化母音(大文字 A/I/U/E/O)は口を小さめに開く
+_DEVOICED_VISEME_WEIGHT = 0.4
+
+
+@dataclass(frozen=True)
+class VisemeEvent:
+    """口パク用の口形状イベント。時刻は合成音声の先頭からの秒"""
+
+    t0: float
+    t1: float
+    viseme: str
+    w: float
+
+
+@dataclass(frozen=True)
+class TimedSynthesis:
+    """合成音声と viseme タイムラインの対"""
+
+    audio: bytes
+    content_type: str
+    duration_sec: float
+    timeline: list[VisemeEvent]
 
 
 class AivisSpeechService:
@@ -674,7 +702,10 @@ class AivisSpeechService:
             writer.writeframes(b"".join(frames))
         return output.getvalue()
 
-    async def synthesize(self, text: str, speaker: str) -> tuple[bytes, str]:
+    async def _synthesize_chunks(
+        self, text: str, speaker: str
+    ) -> list[tuple[bytes, dict[str, Any]]]:
+        """テキストをチャンク合成し、(WAV, audio_query) の組を順に返す"""
         chunks = self._split_synthesis_text(text)
         if not chunks:
             raise AivisSpeechError("Text is required")
@@ -689,7 +720,7 @@ class AivisSpeechService:
             settings.aivis_synthesis_timeout, connect=connect_timeout
         )
         base = await self.resolve_base_url()
-        wav_chunks: list[bytes] = []
+        results: list[tuple[bytes, dict[str, Any]]] = []
         total_chunks = len(chunks)
 
         async with httpx.AsyncClient(timeout=operation_timeout) as client:
@@ -720,7 +751,7 @@ class AivisSpeechService:
                         raise AivisSpeechError(
                             f"Unexpected audio format for chunk {index}: {content_type}"
                         )
-                    wav_chunks.append(synth_resp.content)
+                    results.append((synth_resp.content, audio_query))
                 except httpx.TimeoutException as exc:
                     raise AivisSpeechError(
                         f"Speech synthesis chunk {index}/{total_chunks} timed out. "
@@ -738,7 +769,88 @@ class AivisSpeechService:
                         f"{index}/{total_chunks}: {exc}"
                     ) from exc
 
-        return self._merge_wav_chunks(wav_chunks), "audio/wav"
+        return results
+
+    async def synthesize(self, text: str, speaker: str) -> tuple[bytes, str]:
+        results = await self._synthesize_chunks(text, speaker)
+        return self._merge_wav_chunks([wav for wav, _ in results]), "audio/wav"
+
+    @staticmethod
+    def _wav_duration_sec(wav_bytes: bytes) -> float:
+        try:
+            with wave.open(BytesIO(wav_bytes), "rb") as reader:
+                framerate = reader.getframerate()
+                if framerate <= 0:
+                    return 0.0
+                return reader.getnframes() / framerate
+        except (EOFError, wave.Error) as exc:
+            raise AivisSpeechError(f"Invalid WAV data: {exc}") from exc
+
+    @staticmethod
+    def _chunk_viseme_events(
+        audio_query: dict[str, Any],
+    ) -> tuple[list[VisemeEvent], float]:
+        """audio_query のモーラ長から viseme イベント列と予測総時間を求める。
+
+        時刻はチャンク先頭からの秒(speedScale 反映済み)。イベントの t0 は
+        モーラ開始(子音込み)、t1 は母音終了で、立ち上がりの補間は
+        クライアント側に任せる。N / cl / pau と pause_mora は時間だけ進める。
+        """
+        speed = float(audio_query.get("speedScale") or 1.0)
+        if speed <= 0:
+            speed = 1.0
+        cursor = float(audio_query.get("prePhonemeLength") or 0.0) / speed
+        events: list[VisemeEvent] = []
+        for phrase in audio_query.get("accent_phrases") or []:
+            moras = list(phrase.get("moras") or [])
+            pause_mora = phrase.get("pause_mora")
+            if pause_mora:
+                moras.append(pause_mora)
+            for mora in moras:
+                consonant = float(mora.get("consonant_length") or 0.0) / speed
+                vowel_length = float(mora.get("vowel_length") or 0.0) / speed
+                start = cursor
+                cursor += consonant + vowel_length
+                vowel = str(mora.get("vowel") or "")
+                viseme = _VOWEL_TO_VISEME.get(vowel.lower())
+                if viseme is None or cursor <= start:
+                    continue
+                weight = _DEVOICED_VISEME_WEIGHT if vowel.isupper() else 1.0
+                events.append(VisemeEvent(t0=start, t1=cursor, viseme=viseme, w=weight))
+        cursor += float(audio_query.get("postPhonemeLength") or 0.0) / speed
+        return events, cursor
+
+    async def synthesize_timed(self, text: str, speaker: str) -> TimedSynthesis:
+        """合成音声と口パク用 viseme タイムラインを返す。
+
+        チャンク境界のオフセットは実 WAV 長の累積で取り、チャンク内の時刻は
+        実 WAV 長と予測長の比で補正する(_merge_wav_chunks はフレームを
+        単純連結するだけなので、これで結合後の音声と時刻が一致する)。
+        """
+        results = await self._synthesize_chunks(text, speaker)
+        timeline: list[VisemeEvent] = []
+        offset = 0.0
+        for wav, audio_query in results:
+            actual = self._wav_duration_sec(wav)
+            events, predicted = self._chunk_viseme_events(audio_query)
+            ratio = actual / predicted if predicted > 0 else 1.0
+            timeline.extend(
+                VisemeEvent(
+                    t0=round(event.t0 * ratio + offset, 3),
+                    t1=round(event.t1 * ratio + offset, 3),
+                    viseme=event.viseme,
+                    w=event.w,
+                )
+                for event in events
+            )
+            offset += actual
+        audio = self._merge_wav_chunks([wav for wav, _ in results])
+        return TimedSynthesis(
+            audio=audio,
+            content_type="audio/wav",
+            duration_sec=round(offset, 3),
+            timeline=timeline,
+        )
 
     async def get_status(self) -> dict[str, Any]:
         tracked_running = self._is_running(self._engine_process)

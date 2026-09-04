@@ -27,6 +27,8 @@ describe("companionAvatar", () => {
   it("normalizes gesture keys", () => {
     expect(normalizeAvatarGesture("Shake-Head")).toBe("shake_head");
     expect(normalizeAvatarGesture("lean forward")).toBe("lean_forward");
+    expect(normalizeAvatarGesture("Wave-Hand")).toBe("wave_hand");
+    expect(normalizeAvatarGesture("double bounce")).toBe("double_bounce");
     expect(normalizeAvatarGesture("  Idle ")).toBe("idle");
     expect(normalizeAvatarGesture("wave")).toBeNull();
     expect(normalizeAvatarGesture(null)).toBeNull();

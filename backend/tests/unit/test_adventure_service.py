@@ -31,6 +31,8 @@ from gateway.services.adventure_romance import (
     clamp_romance_max_turns,
 )
 from gateway.services.adventure_service import (
+    PRESETS,
+    SCENARIO_TEMPLATES,
     AdventureChoice,
     AdventureDirectorOutput,
     AdventureError,
@@ -40,36 +42,34 @@ from gateway.services.adventure_service import (
     AdventureService,
     AdventureVisualOutput,
     AdventureVisualState,
-    PRESETS,
-    SCENARIO_TEMPLATES,
-    _default_ending_title,
+    _appearance_diverged,
+    _apply_time_limit_alteration,
     _apply_visual_style_to_state,
     _authored_scene_tags,
-    _equipment_score_choices,
-    _equipment_negative_tags,
-    _equipment_wear_choice_label,
-    _last_equipment_action,
-    _equipment_clothing_state_tags,
-    _strip_clothing_tags_for_equipment_scenario,
-    _appearance_diverged,
     _character_reference_strength,
     _choice_label_key,
     _compose_scene_base_tags,
+    _default_ending_title,
+    _equipment_clothing_state_tags,
+    _equipment_negative_tags,
+    _equipment_score_choices,
+    _equipment_wear_choice_label,
     _identity_tags_only,
+    _last_equipment_action,
     _lean_state_for_llm,
-    _resolve_outfit_choice,
-    _wardrobe_context,
+    _merge_scene_tags,
     _normalize_reality_rules,
-    _progressive_reality_rules,
-    _apply_time_limit_alteration,
     _partner_appearance_diverged,
     _previous_choice_labels,
-    _merge_scene_tags,
+    _progressive_reality_rules,
+    _resolve_outfit_choice,
     _romance_partner_scene_reference,
     _romance_replay_player_selection,
     _romance_template_player_appearance,
     _sanitize_choices,
+    _strip_clothing_tags_for_equipment_scenario,
     _template_visual_style,
+    _wardrobe_context,
     clamp_generated_max_turns,
 )
 from gateway.services.session import DEFAULT_USER_ID
@@ -808,6 +808,7 @@ def test_lean_state_for_llm_strips_image_fields() -> None:
             "authored_scene_tags": "luxurious palace dressing room",
             "last_image_prompt": {"scene_tags": "x"},
             "opening_image_path": "/tmp/a.png",
+            "partner_portrait_status": "scene_unchanged",
             "visual_state": {"location": "部屋"},
         }
     )
@@ -816,6 +817,7 @@ def test_lean_state_for_llm_strips_image_fields() -> None:
     assert "authored_scene_tags" not in lean
     assert "last_image_prompt" not in lean
     assert "opening_image_path" not in lean
+    assert "partner_portrait_status" not in lean
 
 
 def test_detect_reality_declaration_accepts_player_notation() -> None:
@@ -2083,6 +2085,7 @@ def test_serialize_turn_exposes_romance_sim_and_partner_note(tmp_path) -> None:
     turn = make_serializable_turn(
         {
             "partner_portrait_path": str(partner_file),
+            "partner_portrait_status": "scene_unchanged",
             "visual_state": {
                 "location": "ロビーカフェ",
                 "appearance": "主人公の姿",
@@ -2124,6 +2127,37 @@ def test_serialize_turn_exposes_romance_sim_and_partner_note(tmp_path) -> None:
     assert payload["partner_portrait_url"] == (
         f"/adventure/images/run-1/{partner_file.name}"
     )
+    # 立ち絵を据え置いた理由(FE がメタ行とターン詳細に出す)
+    assert payload["partner_portrait_status"] == "scene_unchanged"
+
+
+def test_serialize_turn_partner_portrait_status_falls_back_to_none() -> None:
+    service = AdventureService()
+    sim = {
+        "total_days": 7,
+        "affection": 12,
+        "money": 5000,
+        "partner_name": "アリシア",
+        "job": {"name": "カフェ", "wage": 3000},
+        "gift_catalog": [],
+        "hidden_preferences": {"liked_gift_ids": [], "disliked_gift_ids": []},
+        "given_gifts": [],
+        "confessed": False,
+    }
+    visual_state = {
+        "location": "ロビーカフェ",
+        "appearance": "主人公の姿",
+        "main_characters": [],
+    }
+
+    # 記録導入前の旧ターンは None
+    legacy = make_serializable_turn({"sim": sim, "visual_state": visual_state})
+    assert service._serialize_turn(legacy)["partner_portrait_status"] is None
+    # 語彙外の値も None に倒す
+    bogus = make_serializable_turn(
+        {"sim": sim, "visual_state": visual_state, "partner_portrait_status": "x"}
+    )
+    assert service._serialize_turn(bogus)["partner_portrait_status"] is None
 
 
 def test_serialize_turn_omits_sim_for_mission_turns() -> None:
@@ -2142,6 +2176,7 @@ def test_serialize_turn_omits_sim_for_mission_turns() -> None:
 
     assert "sim" not in payload
     assert "partner_note" not in payload
+    assert "partner_portrait_status" not in payload
 
 
 def test_serialize_turn_exposes_bgm_from_state_delta() -> None:
@@ -2200,6 +2235,7 @@ def test_serialize_run_includes_romance_opening_sim(tmp_path) -> None:
                 "opening_narrative": "書店で出会った。",
                 "opening_image_path": "initial.png",
                 "opening_partner_portrait_path": str(opening_partner_file),
+                "partner_portrait_status": "partner_absent",
                 "choices": [
                     {"id": "a", "label": "話しかける"},
                     {"id": "b", "label": "本棚を眺める"},
@@ -2241,6 +2277,8 @@ def test_serialize_run_includes_romance_opening_sim(tmp_path) -> None:
     assert payload["opening_partner_portrait_url"] == (
         f"/adventure/images/run-romance/{opening_partner_file.name}"
     )
+    # 最新手番で立ち絵を据え置いた理由
+    assert payload["partner_portrait_status"] == "partner_absent"
 
 
 def test_serialize_run_repairs_blank_choice_labels() -> None:
@@ -5324,32 +5362,68 @@ async def test_generate_background_image_openrouter_uses_txt2img(
 
 
 @pytest.mark.asyncio
-async def test_generate_background_image_selfhost_unsupported(
+async def test_generate_background_image_selfhost_uses_txt2img(
     monkeypatch, tmp_path
 ) -> None:
-    """ComfyUIはtxt2imgを持たないため背景生成はエラーになる(呼び出し側で握る)。"""
+    """selfhost(ComfyUI)でも編集元画像なしの txt2img で横長の背景を生成する。"""
     monkeypatch.setattr(app_settings, "image_provider", "selfhost")
     service = AdventureService()
     service._images_dir = tmp_path
-    run, _persisted_run, FakeDatabase = _make_background_run_fixtures(tmp_path)
+    run, persisted_run, FakeDatabase = _make_background_run_fixtures(tmp_path)
 
-    generate_image = AsyncMock()
+    generate_image = AsyncMock(return_value=SimpleNamespace(images=[b"bg"]))
+    generate_scenery = AsyncMock()
     monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
     monkeypatch.setattr(
         "gateway.services.adventure_service.image_service.generate_image",
         generate_image,
     )
     monkeypatch.setattr(
+        "gateway.services.adventure_service.image_service.generate_scenery",
+        generate_scenery,
+    )
+    monkeypatch.setattr(
         "gateway.services.adventure_service.async_session_factory", FakeDatabase
     )
 
-    with pytest.raises(AdventureError) as excinfo:
-        await service._generate_background_image_unlocked(
-            "run-1", scene_tags="scenery tags", nsfw_mode=False
-        )
+    background_path = await service._generate_background_image_unlocked(
+        "run-1", scene_tags="scenery tags", nsfw_mode=False
+    )
 
-    assert excinfo.value.code == "image_generation_failed"
-    generate_image.assert_not_awaited()
+    generate_scenery.assert_not_awaited()
+    image_kwargs = generate_image.await_args.kwargs
+    assert image_kwargs["provider_override"] == "selfhost"
+    assert image_kwargs["image_bytes"] is None
+    assert image_kwargs["size_override"] == "landscape"
+    assert "no people" in generate_image.await_args.args[0]
+    assert "no humans" in generate_image.await_args.args[0]
+    assert background_path.read_bytes() == b"bg"
+    assert persisted_run.background_image_path == str(background_path)
+
+
+@pytest.mark.asyncio
+async def test_ensure_romance_background_selfhost_generates(
+    monkeypatch, tmp_path
+) -> None:
+    """selfhost でも現在地キーで背景を生成し、キャッシュへ登録する。"""
+    monkeypatch.setattr(app_settings, "image_provider", "selfhost")
+    service = AdventureService()
+    service._images_dir = tmp_path
+    run = SimpleNamespace(id="run-1", state_json="{}", background_image_path=None)
+    monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
+    generated = tmp_path / "run-1" / "background-abcd1234.png"
+    generate = AsyncMock(return_value=generated)
+    monkeypatch.setattr(service, "_generate_background_image_unlocked", generate)
+
+    result = await service._ensure_romance_background_unlocked(
+        "run-1", scene_tags="cafe", location="喫茶店", slot=None, nsfw_mode=False
+    )
+
+    assert result is not None
+    path, cache = result
+    assert path == generated
+    assert cache == {"喫茶店": generated.name}
+    generate.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -6057,6 +6131,10 @@ async def test_generate_partner_portrait_uses_state_tags_and_patches_turn(
     assert result["image_url"].endswith("partner-2-abcd1234.png")
     assert json.loads(persisted_turn.state_delta_json)["partner_portrait_path"] == str(
         partner_path
+    )
+    # 据え置き手番の ↻ は記録を「描いた」に戻し、FE の案内を消す
+    assert json.loads(persisted_turn.state_delta_json)["partner_portrait_status"] == (
+        "generated"
     )
 
     # 相手が場面に居ないターンは sim の外見で補う
@@ -6795,3 +6873,376 @@ def test_romance_replay_player_name_restores_stored_name() -> None:
     assert _romance_replay_player_name({"sim": {"player_name": " ユウヤ "}}) == "ユウヤ"
     assert _romance_replay_player_name({"sim": {}}) == ""
     assert _romance_replay_player_name({}) == ""
+
+
+# ---------------------------------------------------------------------------
+# 対面会話モードの手番: 攻略対象の立ち絵を描いたか / 据え置いた理由の記録
+# ---------------------------------------------------------------------------
+
+
+def test_normalize_partner_portrait_status_rejects_unknown_values() -> None:
+    from gateway.consts.adventure_partner_portrait import (
+        PARTNER_PORTRAIT_STATUSES,
+        normalize_partner_portrait_status,
+    )
+
+    for status in PARTNER_PORTRAIT_STATUSES:
+        assert normalize_partner_portrait_status(status) == status
+    assert normalize_partner_portrait_status(" generated ") == "generated"
+    assert normalize_partner_portrait_status(None) is None
+    assert normalize_partner_portrait_status("") is None
+    assert normalize_partner_portrait_status("bogus") is None
+
+
+_COMPANION_LAST_PROMPT = {
+    "scene_tags": "campus, bench",
+    "player_tags": "1boy",
+    "npc_tags": ["1girl, smile"],
+}
+
+
+def _companion_stream_run(
+    *, stale_status: str | None = "generated"
+) -> tuple[SimpleNamespace, SimpleNamespace]:
+    """stream_turn を駆動できる最小の対面会話 run。
+
+    前手番の記録 stale_status を仕込み、当該手番で必ず上書きされることを
+    確かめられるようにする(state_delta は全 state なので、書かないと残る)。
+    """
+    run = make_romance_run(turn_count=3)
+    run.id = "run-1"
+    run.status = "active"
+    run.language = "ja"
+    run.text_model = "glm-4-6"
+    run.nsfw_mode = False
+    run.turns = []
+    run.opening_state_json = "{}"
+    run.current_image_path = None
+    run.portrait_image_path = None
+    run.initial_image_path = None
+    # 現在地が変わらない限り背景工程は no-op になる
+    run.background_image_path = "/tmp/background.png"
+    run.ending_title = None
+    run.ending_summary = None
+    state = json.loads(run.state_json)
+    state["companion_mode"] = True
+    state["visual_state"] = {
+        "location": "campus",
+        "appearance": "開始時の姿",
+        "clothing": "制服",
+        "surroundings": "",
+        "main_characters": [
+            {"name": "美咲", "description": "笑顔", "clothing": "制服", "action": ""}
+        ],
+    }
+    state["last_image_prompt"] = dict(_COMPANION_LAST_PROMPT)
+    if stale_status is not None:
+        state["partner_portrait_status"] = stale_status
+    run.state_json = json.dumps(state, ensure_ascii=False)
+    persisted = SimpleNamespace(
+        id="run-1",
+        state_json=run.state_json,
+        turn_count=3,
+        status="active",
+        max_turns=run.max_turns,
+        ending_title=None,
+        ending_summary=None,
+        updated_at=None,
+    )
+    return run, persisted
+
+
+def _companion_visual(
+    *, scene_tags: str = "campus, bench", with_partner: bool = True
+) -> AdventureVisualOutput:
+    from gateway.services.adventure_service import AdventureVisualCharacter
+
+    return AdventureVisualOutput(
+        scene_tags=scene_tags,
+        player_tags="1boy",
+        npc_tags=["1girl, smile"] if with_partner else [],
+        visual_state=AdventureVisualState(
+            location="campus" if with_partner else "park",
+            appearance="開始時の姿",
+            clothing="制服",
+            surroundings="",
+            main_characters=[
+                AdventureVisualCharacter(
+                    name="美咲", description="笑顔", clothing="制服"
+                )
+            ]
+            if with_partner
+            else [],
+        ),
+    )
+
+
+def _turn_database(persisted: SimpleNamespace):
+    class FakeDatabase:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, _exc_type, _exc, _traceback):
+            return None
+
+        async def get(self, model, record_id):
+            return persisted if model is AdventureRun and record_id == "run-1" else None
+
+        def add(self, _record):
+            return None
+
+        async def commit(self):
+            return None
+
+        async def refresh(self, _record):
+            return None
+
+    return FakeDatabase
+
+
+async def _run_companion_turn(
+    service: AdventureService,
+    monkeypatch,
+    run: SimpleNamespace,
+    persisted: SimpleNamespace,
+    *,
+    visual,
+    partner,
+    generate_partner_portrait: bool = True,
+    parallel: bool = False,
+) -> list[dict]:
+    from gateway.services.adventure_service import (
+        _default_director_choices,
+        _TurnContexts,
+    )
+
+    def fake_contexts(_run, state, **_kwargs):
+        # 文脈の組み立ては本題でないため、stream_turn が読む値だけを返す
+        return _TurnContexts(
+            turn_context={"player_input": "話す"},
+            visual_turn_context={"player_input": "話す"},
+            input_kind="choice",
+            narration_voice="second_person",
+            narration_pronoun="あなた",
+            speech_rule="",
+            appearance_update_allowed=False,
+            template=None,
+            template_resolution={},
+            romance_sim=state["sim"],
+            romance_resolution=None,
+            appearance_lock="",
+            previous_choice_key=(),
+            script_names=("美咲", "主人公"),
+        )
+
+    async def fake_stream(system_prompt, user_prompt, **kwargs):
+        yield "美咲「やっほー」"
+
+    resolution = AdventureRomanceResolutionOutput.model_validate(
+        {"choices": _default_director_choices("ja")},
+        context={
+            "fallback_choices": _default_director_choices("ja"),
+            "language": "ja",
+        },
+    )
+    monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
+    monkeypatch.setattr(
+        service, "_companion_outfit_options", AsyncMock(return_value=[])
+    )
+    monkeypatch.setattr(service, "_build_turn_contexts", fake_contexts)
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.llm_service.generate_feeling_stream",
+        fake_stream,
+    )
+    monkeypatch.setattr(
+        service, "_generate_resolution_output", AsyncMock(return_value=resolution)
+    )
+    monkeypatch.setattr(service, "_generate_visual_output", visual)
+    monkeypatch.setattr(
+        service, "_ensure_romance_background_unlocked", AsyncMock(return_value=None)
+    )
+    monkeypatch.setattr(service, "_generate_partner_portrait_unlocked", partner)
+    monkeypatch.setattr(
+        "gateway.services.adventure_service._image_calls_parallelizable",
+        lambda: parallel,
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.async_session_factory",
+        _turn_database(persisted),
+    )
+    return [
+        event
+        async for event in service.stream_turn(
+            run_id="run-1",
+            client_turn_id="c-4",
+            user_input="話す",
+            input_kind="choice",
+            generate_partner_portrait=generate_partner_portrait,
+        )
+    ]
+
+
+def _turn_payload(events: list[dict]) -> dict:
+    return next(event for event in events if event["event"] == "turn")["data"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("parallel", [False, True])
+async def test_stream_turn_records_generated_partner_portrait_and_updates_tags(
+    monkeypatch, tmp_path, parallel
+) -> None:
+    service = AdventureService()
+    service._images_dir = tmp_path
+    run, persisted = _companion_stream_run(stale_status="scene_unchanged")
+    partner_path = tmp_path / "run-1" / "partner-4-abcd1234.png"
+    partner_path.parent.mkdir(parents=True)
+    partner_path.write_bytes(b"png")
+    partner = AsyncMock(return_value=partner_path)
+
+    events = await _run_companion_turn(
+        service,
+        monkeypatch,
+        run,
+        persisted,
+        visual=AsyncMock(return_value=_companion_visual(scene_tags="campus, sunset")),
+        partner=partner,
+        parallel=parallel,
+    )
+
+    assert events[-1]["event"] == "complete"
+    assert any(event["event"] == "partner_image" for event in events)
+    turn = _turn_payload(events)
+    assert turn["partner_portrait_status"] == "generated"
+    assert turn["partner_portrait_url"].endswith("partner-4-abcd1234.png")
+    saved = json.loads(persisted.state_json)
+    assert saved["partner_portrait_status"] == "generated"
+    assert saved["partner_portrait_path"] == str(partner_path)
+    # 対面会話モードは主人公立ち絵を省くため、攻略対象の立ち絵を描いた手番で
+    # タグを更新しないと開幕値のまま凍る
+    assert saved["last_image_prompt"]["scene_tags"] == "campus, sunset"
+    assert partner.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_stream_turn_records_scene_unchanged_when_visual_and_tags_repeat(
+    monkeypatch,
+) -> None:
+    service = AdventureService()
+    run, persisted = _companion_stream_run(stale_status="generated")
+    partner = AsyncMock()
+
+    events = await _run_companion_turn(
+        service,
+        monkeypatch,
+        run,
+        persisted,
+        # 前手番の visual_state と画像タグをそのまま返す
+        visual=AsyncMock(return_value=_companion_visual()),
+        partner=partner,
+    )
+
+    assert events[-1]["event"] == "complete"
+    assert not any(event["event"] == "partner_image" for event in events)
+    assert _turn_payload(events)["partner_portrait_status"] == "scene_unchanged"
+    saved = json.loads(persisted.state_json)
+    # 前手番の "generated" が残らない
+    assert saved["partner_portrait_status"] == "scene_unchanged"
+    assert saved["last_image_prompt"] == _COMPANION_LAST_PROMPT
+    partner.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_stream_turn_records_partner_absent_when_not_in_main_characters(
+    monkeypatch,
+) -> None:
+    service = AdventureService()
+    run, persisted = _companion_stream_run()
+    partner = AsyncMock()
+
+    events = await _run_companion_turn(
+        service,
+        monkeypatch,
+        run,
+        persisted,
+        visual=AsyncMock(
+            return_value=_companion_visual(scene_tags="park", with_partner=False)
+        ),
+        partner=partner,
+    )
+
+    assert events[-1]["event"] == "complete"
+    assert _turn_payload(events)["partner_portrait_status"] == "partner_absent"
+    assert json.loads(persisted.state_json)["partner_portrait_status"] == (
+        "partner_absent"
+    )
+    partner.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("parallel", [False, True])
+async def test_stream_turn_records_failed_partner_portrait_without_stopping(
+    monkeypatch, parallel
+) -> None:
+    service = AdventureService()
+    run, persisted = _companion_stream_run()
+
+    events = await _run_companion_turn(
+        service,
+        monkeypatch,
+        run,
+        persisted,
+        visual=AsyncMock(return_value=_companion_visual(scene_tags="campus, sunset")),
+        partner=AsyncMock(side_effect=RuntimeError("image api down")),
+        parallel=parallel,
+    )
+
+    assert events[-1]["event"] == "complete"
+    assert _turn_payload(events)["partner_portrait_status"] == "failed"
+    assert json.loads(persisted.state_json)["partner_portrait_status"] == "failed"
+
+
+@pytest.mark.asyncio
+async def test_stream_turn_records_visual_failed(monkeypatch) -> None:
+    service = AdventureService()
+    run, persisted = _companion_stream_run()
+    partner = AsyncMock()
+
+    events = await _run_companion_turn(
+        service,
+        monkeypatch,
+        run,
+        persisted,
+        visual=AsyncMock(side_effect=RuntimeError("visual llm down")),
+        partner=partner,
+    )
+
+    assert events[-1]["event"] == "complete"
+    assert any(
+        event["event"] == "error" and event["data"]["phase"] == "image_generation"
+        for event in events
+    )
+    assert _turn_payload(events)["partner_portrait_status"] == "visual_failed"
+    partner.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_stream_turn_records_not_requested_when_fe_skips_partner(
+    monkeypatch,
+) -> None:
+    service = AdventureService()
+    run, persisted = _companion_stream_run()
+    partner = AsyncMock()
+
+    events = await _run_companion_turn(
+        service,
+        monkeypatch,
+        run,
+        persisted,
+        visual=AsyncMock(return_value=_companion_visual(scene_tags="campus, sunset")),
+        partner=partner,
+        generate_partner_portrait=False,
+    )
+
+    assert events[-1]["event"] == "complete"
+    assert _turn_payload(events)["partner_portrait_status"] == "not_requested"
+    partner.assert_not_awaited()

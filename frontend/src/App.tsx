@@ -12,6 +12,7 @@ import EndingsScreen from "./components/endings/EndingsScreen";
 import GamePlayScreen from "./components/GamePlayScreen";
 // 007-chat-interactive-ux: ルートベースの画面コンポーネント
 import GalleryScreen from "./components/gallery/GalleryScreen";
+import GuideScreen from "./components/guide/GuideScreen";
 import NovelAIWarningModal from "./components/NovelAIWarningModal";
 import NotificationContainer from "./components/notifications/NotificationContainer";
 import PromptExpanderScreen from "./components/promptExpander/PromptExpanderScreen";
@@ -64,6 +65,10 @@ function AppRoutes() {
   }
   if (location.pathname === "/achievements") {
     return <AchievementsScreen />;
+  }
+  // 遊び方ガイド。既定OFFの機能を紹介してその場でONにできる(ゲートなし)
+  if (location.pathname === "/guide") {
+    return <GuideScreen />;
   }
   if (location.pathname === "/settings") {
     return <SettingsScreen />;

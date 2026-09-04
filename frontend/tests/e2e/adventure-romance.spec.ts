@@ -1340,6 +1340,160 @@ test("companion mode shows only the partner sprite and toggles from the gear pop
   expect(state.streamBodies).toHaveLength(0);
 });
 
+test("companion mode shows a plain backdrop instead of the protagonist image when no background exists", async ({
+  page,
+}) => {
+  await enableAdventure(page);
+  await mockRomanceApis(page);
+  await page.route("**/api/mock-protagonist.png", async (route) => {
+    await route.fulfill({ path: IMAGE_PATH, contentType: "image/png" });
+  });
+  // 背景が未生成(生成失敗・未対応)の run。current_image_url は主人公の開始画像
+  const companionRun = romanceRunPayload(0, {
+    companion_mode: true,
+    background_image_url: null,
+    current_image_url: "/mock-protagonist.png",
+  });
+  await page.route("**/api/adventure/runs/run-1", async (route) => {
+    await route.fulfill({ json: companionRun });
+  });
+  await page.goto("/adventure/run-1");
+
+  // 攻略対象の立ち絵は出しつつ、背景には主人公画像を敷かず無地のステージにする
+  await expect(page.getByAltText("攻略対象の立ち絵")).toBeVisible();
+  const frame = page.locator(".adventure-stage__frame");
+  await expect(frame.locator(".adventure-stage__backdrop")).toBeVisible();
+  await expect(frame.locator(".adventure-stage__image-button img")).toHaveCount(
+    0,
+  );
+  await expect(
+    page.locator(".adventure-stage__frame img[src*='mock-protagonist']"),
+  ).toHaveCount(0);
+});
+
+test("companion mode keeps the generated background on the stage", async ({
+  page,
+}) => {
+  await enableAdventure(page);
+  await mockRomanceApis(page);
+  for (const name of ["mock-background", "mock-protagonist"]) {
+    await page.route(`**/api/${name}.png`, async (route) => {
+      await route.fulfill({ path: IMAGE_PATH, contentType: "image/png" });
+    });
+  }
+  const companionRun = romanceRunPayload(0, {
+    companion_mode: true,
+    background_image_url: "/mock-background.png",
+    current_image_url: "/mock-protagonist.png",
+  });
+  await page.route("**/api/adventure/runs/run-1", async (route) => {
+    await route.fulfill({ json: companionRun });
+  });
+  await page.goto("/adventure/run-1");
+
+  const stageImage = page.locator(
+    ".adventure-stage__frame .adventure-stage__image-button img",
+  );
+  await expect(stageImage).toHaveAttribute("src", /mock-background/);
+  await expect(
+    page.locator(".adventure-stage__frame .adventure-stage__backdrop"),
+  ).toHaveCount(0);
+});
+
+test("companion mode explains why the partner sprite was carried over", async ({
+  page,
+}) => {
+  await enableAdventure(page);
+  const baseTurn = {
+    client_turn_id: "c",
+    input_kind: "choice",
+    location: "商店街の書店",
+    choices: [
+      { id: "a", label: "感想を聞く" },
+      { id: "b", label: "隣に座る" },
+      { id: "c", label: "店を出る" },
+    ],
+    image_url: null,
+    image_status: "not_requested",
+    portrait_image_url: null,
+    portrait_status: "not_requested",
+    created_at: "2026-08-01T00:10:00",
+    partner_note: "笑顔で手を振っている",
+    partner_portrait_url: "/mock-partner-turn.png",
+  };
+  const carriedOverRun = romanceRunPayload(2, {
+    companion_mode: true,
+    partner_portrait_url: "/mock-partner-turn.png",
+    partner_portrait_status: "scene_unchanged",
+    turns: [
+      {
+        ...baseTurn,
+        id: "turn-1",
+        turn_number: 1,
+        user_input: "挨拶する",
+        narrative: "美咲「こんにちは」",
+        sim: simPayload({ affection: 12 }),
+        partner_portrait_status: "generated",
+      },
+      {
+        ...baseTurn,
+        id: "turn-2",
+        turn_number: 2,
+        user_input: "天気の話をする",
+        narrative: "美咲「いい天気だね」",
+        sim: simPayload({ affection: 13 }),
+        // 場面が前手番と同じだったため描き直されず、URL も前手番と同じ
+        partner_portrait_status: "scene_unchanged",
+      },
+    ],
+  });
+  await mockRomanceApis(page, carriedOverRun);
+  await page.goto("/adventure/run-1");
+
+  // メッセージ窓のメタ行に理由付きの案内が全文で出る
+  const note = page.locator(".adventure-messagebox__portrait-note");
+  await expect(note).toContainText(
+    "立ち絵は前の手番のまま（場面に変化がなかったため）",
+  );
+
+  // ターン詳細の攻略対象カードにも同じ案内が出て、描いた手番(1)には出ない
+  await page.locator(".adventure-stage__image-button").click();
+  const modal = page.locator(".image-preview-modal__overlay");
+  await expect(
+    modal.getByText("立ち絵は前の手番のまま（場面に変化がなかったため）"),
+  ).toBeVisible();
+  await page.locator(".image-preview-modal__nav--prev").click();
+  await expect(modal.getByText("12/100")).toBeVisible();
+  await expect(modal.getByText(/立ち絵は前の手番のまま/)).toHaveCount(0);
+  await page.keyboard.press("Escape");
+
+  // 過去フレーム(手番1)を表示中は案内も追随して消える
+  await page.getByRole("button", { name: "ログ" }).click();
+  await page.getByAltText("手番 1 の場面").click();
+  await expect(page.getByText("過去の場面を表示中")).toBeVisible();
+  await expect(note).toHaveCount(0);
+
+  // 最新手番で描き直していれば案内は出ない
+  const redrawnRun = {
+    ...carriedOverRun,
+    partner_portrait_status: "generated",
+    turns: [
+      carriedOverRun.turns[0],
+      {
+        ...carriedOverRun.turns[1],
+        partner_portrait_url: "/mock-partner.png",
+        partner_portrait_status: "generated",
+      },
+    ],
+  };
+  await page.route("**/api/adventure/runs/run-1", async (route) => {
+    await route.fulfill({ json: redrawnRun });
+  });
+  await page.goto("/adventure/run-1");
+  await expect(page.getByAltText("攻略対象の立ち絵")).toBeVisible();
+  await expect(note).toHaveCount(0);
+});
+
 test("talk mode chats with the partner without consuming a turn", async ({
   page,
 }) => {
@@ -1584,11 +1738,19 @@ test("companion avatar keeps the stage uncovered and reads the line at narrative
       json: { process: "running", engine_http: "ok", platform: "linux" },
     });
   });
-  await page.route("**/api/aivisspeech/synthesize", async (route) => {
+  // 3D モデル表示中の読み上げは viseme タイムライン付きの合成を使う
+  await page.route("**/api/aivisspeech/synthesize-timed", async (route) => {
     synthesizeBodies.push(
       route.request().postDataJSON() as Record<string, unknown>,
     );
-    await route.fulfill({ contentType: "audio/wav", body: silentWav() });
+    await route.fulfill({
+      json: {
+        audio_base64: silentWav().toString("base64"),
+        content_type: "audio/wav",
+        duration_sec: 0.2,
+        timeline: [{ t0: 0, t1: 0.2, viseme: "oh", w: 1 }],
+      },
+    });
   });
   await mockRomanceApis(page);
   await page.route("**/api/avatars", async (route) => {
@@ -1925,4 +2087,115 @@ test("a turn in which the partner changes clothes switches the 3D model to the s
   } finally {
     releaseFiles?.();
   }
+});
+
+test("talk mode voice input fills the field via speech recognition", async ({
+  page,
+}) => {
+  await enableAdventure(page);
+  await mockRomanceApis(page);
+  const talkBodies: Record<string, unknown>[] = [];
+  await page.route("**/api/adventure/runs/run-1/talk/stream", async (route) => {
+    talkBodies.push(route.request().postDataJSON() as Record<string, unknown>);
+    await route.fulfill({
+      contentType: "text/event-stream",
+      body: 'event: complete\ndata: {"status":"active"}\n\n',
+    });
+  });
+  // Playwright の Chromium では実サービスへ届かないため、偽の認識器を注入する
+  await page.addInitScript(() => {
+    class FakeSpeechRecognition {
+      lang = "";
+      interimResults = false;
+      continuous = false;
+      maxAlternatives = 1;
+      onresult: ((event: unknown) => void) | null = null;
+      onerror: ((event: { error?: string }) => void) | null = null;
+      onend: (() => void) | null = null;
+      start(): void {
+        (
+          window as unknown as { __fakeRecognition?: FakeSpeechRecognition }
+        ).__fakeRecognition = this;
+      }
+      abort(): void {
+        this.onend?.();
+      }
+    }
+    Object.defineProperty(window, "webkitSpeechRecognition", {
+      value: FakeSpeechRecognition,
+      configurable: true,
+    });
+    Object.defineProperty(window, "SpeechRecognition", {
+      value: undefined,
+      configurable: true,
+    });
+  });
+  await page.goto("/adventure/run-1");
+  await page.getByRole("button", { name: "トーク" }).click();
+
+  // 聞き取り中はラベルが「聞き取り中...」へ変わるため、クラスで参照する
+  const mic = page.locator(".adventure-freeinput__mic");
+  await expect(mic).toHaveAccessibleName("マイクで話す");
+  await expect(
+    page.getByRole("button", { name: "認識したらすぐ送る" }),
+  ).toBeVisible();
+  await mic.click();
+  await expect(mic).toHaveAttribute("aria-pressed", "true");
+
+  // 暫定テキストは入力欄へそのまま流れる
+  await page.evaluate(() => {
+    const holder = window as unknown as {
+      __fakeRecognition?: {
+        onresult?: (event: unknown) => void;
+      };
+    };
+    holder.__fakeRecognition?.onresult?.({
+      resultIndex: 0,
+      results: { 0: { isFinal: false, 0: { transcript: "やあ" } }, length: 1 },
+    });
+  });
+  await expect(page.getByLabel("美咲に話しかける")).toHaveValue("やあ");
+
+  // 確定テキストで置き換わり、聞き取りが終わる
+  await page.evaluate(() => {
+    const holder = window as unknown as {
+      __fakeRecognition?: {
+        onresult?: (event: unknown) => void;
+        onend?: () => void;
+      };
+    };
+    holder.__fakeRecognition?.onresult?.({
+      resultIndex: 0,
+      results: {
+        0: { isFinal: true, 0: { transcript: "やあ、元気？" } },
+        length: 1,
+      },
+    });
+    holder.__fakeRecognition?.onend?.();
+  });
+  await expect(page.getByLabel("美咲に話しかける")).toHaveValue("やあ、元気？");
+  await expect(mic).toHaveAttribute("aria-pressed", "false");
+  // 自動送信は既定 OFF なので、確認するまで送信されない
+  expect(talkBodies).toEqual([]);
+});
+
+test("talk mode hides the mic button when speech recognition is unavailable", async ({
+  page,
+}) => {
+  await enableAdventure(page);
+  await mockRomanceApis(page);
+  await page.addInitScript(() => {
+    Object.defineProperty(window, "webkitSpeechRecognition", {
+      value: undefined,
+      configurable: true,
+    });
+    Object.defineProperty(window, "SpeechRecognition", {
+      value: undefined,
+      configurable: true,
+    });
+  });
+  await page.goto("/adventure/run-1");
+  await page.getByRole("button", { name: "トーク" }).click();
+  await expect(page.getByLabel("美咲に話しかける")).toBeVisible();
+  await expect(page.locator(".adventure-freeinput__mic")).toHaveCount(0);
 });

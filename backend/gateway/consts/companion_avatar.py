@@ -31,6 +31,16 @@ AVATAR_GESTURES: dict[str, str] = {
     "lean_back": "pulling back, startled, shy, or hesitant",
     "look_away": "turning the face away, embarrassed or sulking",
     "bounce": "a light happy bounce of excitement",
+    "bow": "a polite bow for greetings, thanks, or apology",
+    "look_down": "lowering the gaze, shy, sad, or lost in thought",
+    "perk_up": "straightening up suddenly, alert or realizing something",
+    "shrink": "curling up small, anxious, guilty, or apologetic",
+    "sway": "swaying side to side, happy, playful, or humming",
+    "double_bounce": "bouncing twice, thrilled and unable to stay still",
+    "wave_hand": "waving one hand, a friendly hello or goodbye",
+    "raise_hand": "raising one hand high, volunteering or eager agreement",
+    "reach_out": "reaching one hand toward you, offering, inviting, or worried",
+    "cheer": "throwing both arms up in celebration or triumph",
 }
 
 AVATAR_EXPRESSION_DEFAULT = "neutral"
@@ -75,8 +85,11 @@ AVATAR_RESOLUTION_INSTRUCTION: str = (
     "partner_expression is the partner's facial expression during this turn's "
     "narrative, exactly one of: {expressions}. partner_gesture is one visible "
     "motion matching the partner's reaction in that narrative, exactly one of: "
-    "{gestures}. Choose both from the narrative text only; when nothing clearly "
-    "fits use neutral and idle."
+    "{gestures}. Choose both from the narrative text only. Pick the most "
+    "specific gesture whose description matches what the partner visibly does "
+    "or how the reaction feels; prefer a hand or body movement over a generic "
+    "nod when the descriptions offer one, and use idle only when the partner "
+    "stays still. When nothing clearly fits use neutral and idle."
 )
 
 # トーク返答の先頭ヘッダ行の指示。対面会話モードのときだけ使う
@@ -84,6 +97,10 @@ AVATAR_TALK_HEADER_INSTRUCTION: str = (
     "Begin your reply with exactly one header line of the form "
     "[expression=<key> gesture=<key>] followed by a newline, then the spoken "
     "words. expression is one of: {expressions}. gesture is one of: {gestures}. "
+    "Write the header exactly in that form, with the literal field names "
+    "expression= and gesture=; never abbreviate it or merge the two fields. "
+    "Pick the pair whose descriptions best match the feeling of your reply, "
+    "using the full vocabulary rather than defaulting to neutral and idle. "
     "The header is machine-read and never shown, so it must not contain anything "
     "else; the spoken words must not repeat it."
 )
@@ -110,25 +127,46 @@ AVATAR_WARDROBE_RESOLUTION_INSTRUCTION: str = (
     "different clothes or a different hairstyle that matches another option."
 )
 
-# 先頭ヘッダ行。改行が無い・カンマ区切り・大文字でも受ける
-TALK_HEADER_RE = re.compile(
-    r"^\s*\[\s*expression\s*=\s*([A-Za-z_\-]+)\s*[,\s]\s*gesture\s*=\s*([A-Za-z_\-]+)"
-    r"\s*\]\s*\n?",
-    re.IGNORECASE,
+# 先頭ヘッダ行の角括弧ブロック。正規形は [expression=<key> gesture=<key>] だが、
+# LLM が [happy=nod] や [expression: happy, gesture: nod] のように略記・変形
+# させることがあるため、ブロックは広く受けて中身を parse_talk_header で判定する
+TALK_HEADER_RE = re.compile(r"^\s*\[([^\[\]\n]{1,120})\]\s*\n?")
+# ラベル付きの値(expression=happy / gesture: nod)
+_TALK_HEADER_LABEL_RE = re.compile(
+    r"(expression|gesture)\s*[=:]\s*([A-Za-z_\-]+)", re.IGNORECASE
 )
+# ラベルが無いときに語彙のキーとして解釈するトークン
+_TALK_HEADER_TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z_\-]*")
 
 
 def parse_talk_header(text: str) -> tuple[str | None, str | None, str]:
-    """先頭ヘッダを解析して (expression, gesture, 残り) を返す。無ければ (None, None, text)。"""
+    """先頭ヘッダを解析して (expression, gesture, 残り) を返す。無ければ (None, None, text)。
+
+    expression / gesture のラベルを含むか、語彙のキーとして解釈できるトークンを
+    含む先頭の角括弧ブロックだけをヘッダとして剥がす。それ以外の角括弧は
+    セリフの一部として残す。
+    """
     source = str(text or "")
     match = TALK_HEADER_RE.match(source)
     if match is None:
         return None, None, source
-    return (
-        normalize_avatar_expression(match.group(1)),
-        normalize_avatar_gesture(match.group(2)),
-        source[match.end() :],
-    )
+    body = match.group(1)
+    expression: str | None = None
+    gesture: str | None = None
+    labeled = False
+    for label, value in _TALK_HEADER_LABEL_RE.findall(body):
+        labeled = True
+        if label.lower() == "expression":
+            expression = expression or normalize_avatar_expression(value)
+        else:
+            gesture = gesture or normalize_avatar_gesture(value)
+    if not labeled:
+        for token in _TALK_HEADER_TOKEN_RE.findall(body):
+            expression = expression or normalize_avatar_expression(token)
+            gesture = gesture or normalize_avatar_gesture(token)
+        if expression is None and gesture is None:
+            return None, None, source
+    return expression, gesture, source[match.end() :]
 
 
 def avatar_resolution_instruction() -> str:
@@ -139,9 +177,11 @@ def avatar_resolution_instruction() -> str:
 
 
 def avatar_talk_header_instruction() -> str:
+    # トークは物語本文を経由しないため、キー名だけでは身振りの意味が伝わらない。
+    # 判定プロンプトと同じく説明つきの語彙を渡す
     return AVATAR_TALK_HEADER_INSTRUCTION.format(
-        expressions=", ".join(AVATAR_EXPRESSIONS),
-        gestures=", ".join(AVATAR_GESTURES),
+        expressions=get_avatar_expression_guide(),
+        gestures=get_avatar_gesture_guide(),
     )
 
 

@@ -187,9 +187,26 @@ export interface AdventureTurn {
   partner_note?: string | null;
   /** romance のみ。ターン確定時点の攻略対象の立ち絵 */
   partner_portrait_url?: string | null;
+  /**
+   * romance のみ。この手番で攻略対象の立ち絵を描いたか、据え置いた理由。
+   * 旧ターンは null(FE は前手番と URL が一致するかで据え置きを判定する)
+   */
+  partner_portrait_status?: AdventurePartnerPortraitStatus | null;
   /** romance のみ。ターン確定時点の背景(現在地・時間帯ごとに変わる) */
   background_image_url?: string | null;
 }
+
+/**
+ * 攻略対象の立ち絵をその手番で描いたか、据え置いた理由。
+ * backend の consts/adventure_partner_portrait.py と同じ集合
+ */
+export type AdventurePartnerPortraitStatus =
+  | "generated"
+  | "not_requested"
+  | "scene_unchanged"
+  | "partner_absent"
+  | "failed"
+  | "visual_failed";
 
 export interface AdventureRun {
   id: string;
@@ -261,6 +278,8 @@ export interface AdventureRun {
   partner_portrait_url?: string | null;
   /** romance のみ。開幕(手番0)時点の攻略対象の立ち絵 */
   opening_partner_portrait_url?: string | null;
+  /** romance のみ。最新手番で攻略対象の立ち絵を描いたか、据え置いた理由 */
+  partner_portrait_status?: AdventurePartnerPortraitStatus | null;
   /** romance のみ。他プリセットでは未定義 */
   sim?: AdventureSim | null;
   /** romance のみ。開幕(手番0)時点の公開シミュ状態 */

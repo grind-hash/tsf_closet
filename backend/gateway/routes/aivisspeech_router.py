@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
@@ -34,6 +35,22 @@ class InstallModelRequest(BaseModel):
 class SynthesizeRequest(BaseModel):
     text: str = Field(..., min_length=1)
     speaker_id: str = Field(..., min_length=1)
+
+
+class VisemeEventModel(BaseModel):
+    """口パク用の口形状イベント。時刻は合成音声の先頭からの秒"""
+
+    t0: float
+    t1: float
+    viseme: str
+    w: float
+
+
+class SynthesizeTimedResponse(BaseModel):
+    audio_base64: str
+    content_type: str
+    duration_sec: float
+    timeline: list[VisemeEventModel]
 
 
 @router.get("/status")
@@ -133,6 +150,27 @@ async def synthesize(request: SynthesizeRequest) -> Response:
         return Response(content=audio, media_type=content_type)
     except AivisSpeechError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/synthesize-timed")
+async def synthesize_timed(request: SynthesizeRequest) -> SynthesizeTimedResponse:
+    """音声と viseme タイムラインを1レスポンスで返す(3D モデルの口パク用)"""
+    try:
+        result = await aivisspeech_service.synthesize_timed(
+            text=request.text,
+            speaker=request.speaker_id,
+        )
+    except AivisSpeechError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return SynthesizeTimedResponse(
+        audio_base64=base64.b64encode(result.audio).decode("ascii"),
+        content_type=result.content_type,
+        duration_sec=result.duration_sec,
+        timeline=[
+            VisemeEventModel(t0=event.t0, t1=event.t1, viseme=event.viseme, w=event.w)
+            for event in result.timeline
+        ],
+    )
 
 
 @router.get("/defaults")

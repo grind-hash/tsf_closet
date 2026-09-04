@@ -34,6 +34,20 @@ logger = logging.getLogger(__name__)
 # プロバイダータイプ
 ProviderType = Literal["selfhost", "openrouter", "novelai"]
 
+# ComfyUI txt2img の出力サイズ。NovelAI のプリセット名と揃え、Qwen-Image が
+# 扱いやすい 16 の倍数・約 1MP にする
+_COMFY_SIZE_PRESETS: Dict[str, tuple[int, int]] = {
+    "portrait": (832, 1216),
+    "landscape": (1216, 832),
+    "square": (1024, 1024),
+}
+
+
+def _comfy_size(size: Optional[str]) -> tuple[int, int]:
+    """サイズプリセット名を ComfyUI 用の (width, height) に変換する。既定は landscape。"""
+    key = (size or "landscape").strip().lower()
+    return _COMFY_SIZE_PRESETS.get(key, _COMFY_SIZE_PRESETS["landscape"])
+
 
 @dataclass
 class UsageInfo:
@@ -920,11 +934,26 @@ class ImageGenerationService:
             client = self._get_comfy_client()
 
             if image_bytes is None:
-                # 新規生成の場合はダミー画像が必要（ComfyUIの仕様）
-                # 実際の使用ケースに応じて調整が必要
-                raise ValueError(
-                    "ComfyUI requires an input image. "
-                    "Use edit_image() instead or provide image_bytes."
+                # 編集元画像が無い生成(背景など)は txt2img ワークフローで賄う。
+                # 編集用の workflow_path が渡されていれば、その命名規則から
+                # 対応する txt2img テンプレートを引く
+                edit_workflow_path = comfy_kwargs.pop("workflow_path", None)
+                txt2img_workflow_path = settings.get_txt2img_workflow_path(
+                    edit_workflow_path
+                )
+                width, height = _comfy_size(size_override)
+                async with model_execution_gate.hold("image", provider, "comfyui"):
+                    txt2img_result: ComfyUIResult = await client.text_to_image(
+                        prompt=prompt,
+                        negative_prompt=negative_prompt or "",
+                        width=width,
+                        height=height,
+                        seed=seed,
+                        workflow_path=txt2img_workflow_path,
+                        **comfy_kwargs,
+                    )
+                return ImageGenerationResult(
+                    images=txt2img_result.images, provider="selfhost"
                 )
 
             async with model_execution_gate.hold("image", provider, "comfyui"):

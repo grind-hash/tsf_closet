@@ -151,7 +151,9 @@ sequenceDiagram
   次のように劣化する: 非NovelAIではキャラクター枠・negative prompt・seed が
   使えず1本のプロンプトへ畳む（`_flatten_scene_prompt`）。参照画像は追加費用
   なしで常に使う（精密参照トグルはNovelAI専用）。selfhost（ComfyUI）は
-  txt2img を持たないため背景は生成せず、立ち絵・合成は既存画像の編集で賄う。
+  背景を txt2img 用ワークフロー（`COMFYUI_TXT2IMG_WORKFLOW_PATH`、既定は編集用
+  テンプレート名の `image_edit` を `image_txt2img` に置き換えたもの）で生成し、
+  立ち絵・合成は既存画像の編集で賄う。
 - **並列なのは②と③だけ**で、①の本文が確定してから走る。③は本文を入力に取るため。
 - **画像は③の中で直列**に生成する（背景 → 主人公の立ち絵 → 攻略対象の立ち絵 →
   合成シーン）。立ち絵と合成で同じシードを使い、衣装の描画差を抑える。
@@ -162,7 +164,10 @@ sequenceDiagram
   書かせ、FE が話者ラベル表示と読み上げ対象の抽出に使う。画像は主人公の
   立ち絵と合成シーンを設定に関わらず省き、背景（現在地が変わったときだけ。
   キーは時間帯を含まない現在地のみで、昼夜タグも落として生成する）と
-  攻略対象の立ち絵だけを描く。
+  攻略対象の立ち絵だけを描く。攻略対象の立ち絵を描かなかった手番（場面が
+  前手番と同じ・相手が場面に居ない・毎ターン描く OFF・生成失敗・場面判定失敗）は
+  理由を `state_json["partner_portrait_status"]` に記録して `turn` / run に載せ、
+  FE がメッセージ窓のメタ行とターン詳細に「立ち絵は前の手番のまま（理由）」を出す。
   **OpenRouter のときだけ**、従量課金APIで同時リクエストが可能なため
   背景・主人公・攻略対象を `asyncio.gather` で並列生成する（合成のみ後段）。
   `model_execution_gate` も OpenRouter は直列化しない。並列時の state 保存は
@@ -227,7 +232,7 @@ sequenceDiagram
     SV->>DB: AdventureRun を作成
     SV->>SV: _generate_opening_visuals
     SV->>I: 背景 / 主人公の立ち絵 / 攻略対象の立ち絵 / 合成シーン
-    Note over SV: 失敗しても run 作成は成功扱いにする<br/>OpenRouterでは背景・立ち絵を並列生成する<br/>selfhostは背景をスキップする
+    Note over SV: 失敗しても run 作成は成功扱いにする<br/>OpenRouterでは背景・立ち絵を並列生成する<br/>selfhostはtxt2imgワークフローで背景を描く
     SV-->>C: run（OpenRouterでは cost_usd を含む）
     C-->>U: プレイ画面へ
 ```

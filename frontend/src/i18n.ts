@@ -18,6 +18,8 @@ const resources = {
         promptExpanderDesc: "指示からNovelAIプロンプトを拡張して画像を生成",
         endings: "エンディング",
         endingsDesc: "達成したエンディングを確認",
+        guide: "遊び方ガイド",
+        guideDesc: "既定ではOFFの遊び方を見つけてONにできます",
         achievements: "実績",
         achievementsDesc: "達成した実績を確認",
         settings: "設定",
@@ -25,6 +27,55 @@ const resources = {
         goActiveGame: "プレイ中のゲームに移動",
         backToActiveGame: "プレイ中のゲームに戻る",
         goLastAdventure: "直前のシナリオへ",
+      },
+      guide: {
+        title: "遊び方ガイド",
+        intro:
+          "既定ではOFFになっている遊び方の一覧です。ここでONにすると、メインメニューに項目が追加されます。設定はいつでも設定画面から変更できます。",
+        enable: "有効にする",
+        addedToMenu: "メニューに追加されました",
+        openSettings: "設定画面を開く",
+        adventure: {
+          title: "TSFシナリオ",
+          desc: "変身後の状態から始まる、独立したノベルゲームです。恋愛シミュレーションなど5種類のミッションで、現実改変やBGMの自動選曲も楽しめます。",
+          note: "手番ごとにテキスト生成と画像生成を行うため、通常プレイより待ち時間が長くなります。",
+          open: "TSFシナリオを開く",
+        },
+        talk: {
+          title: "トークと対面会話モード",
+          desc: "恋愛シミュレーション中、手番を消費しない雑談（トーク）と、攻略対象と1往復ずつ会話する対面会話モードが使えます。セリフの読み上げやマイクでの音声入力とも組み合わせられます。",
+          note: "対面会話モードは、恋愛シミュレーションの開始画面と画像生成設定でONにできます。",
+          open: "TSFシナリオを開く",
+          enableParent: "まずTSFシナリオを有効にする",
+        },
+        vrm: {
+          title: "3Dモデル (VRM)",
+          desc: "対面会話モードで、立ち絵の代わりに3Dモデルを表示します。読み上げに合わせて口が動き、返答ごとに表情と身振りが変わります。",
+          note: "設定画面の「3Dモデル (VRM)」から、VRM (0.x / 1.0) のモデルファイルを登録してください。",
+        },
+        promptExpander: {
+          title: "Prompt Expander",
+          desc: "自然な文章から画像生成用のプロンプトを作り、ゲームとは別に画像を生成・保存できる画面です。漫画（コマ割り）モードにも対応しています。",
+          note: "NovelAIプロバイダー専用です。",
+          open: "Prompt Expanderを開く",
+        },
+        voice: {
+          title: "セリフの読み上げ（音声合成）",
+          desc: "キャラクターのセリフを音声で読み上げます。通常プレイのチャットと、TSFシナリオの対面会話で使えます。",
+          note: "AivisSpeechエンジンの準備が必要です。設定画面の「音声合成 (AivisSpeech)」から導入できます。",
+        },
+        playMemory: {
+          title: "プレイメモ",
+          desc: "プレイごとの経緯を自動で要約し、以降の生成に反映します。維持したい設定や希望はユーザーメモとして書いておけます。",
+          note: "有効にすると応答ごとに自動メモを生成するため、完了までの時間が長くなる場合があります。",
+          enabledHint: "通常プレイの右パネルに「プレイメモ」が表示されます",
+        },
+        endings: {
+          title: "エンディング",
+          desc: "条件を満たすとエンディングが発生し、一覧画面で振り返れます。",
+          note: "有効にすると、エンディングの通知と一覧メニューが表示されます。",
+          open: "エンディング一覧を開く",
+        },
       },
       layout: {
         openPanel: "パネルを開く",
@@ -320,6 +371,17 @@ const resources = {
           turnCounterHint: "{{turn}} / {{max}} ターン（1ターン＝1往復の会話）",
           turnsLeft: "残り{{count}}",
         },
+        partnerPortrait: {
+          note: "立ち絵は前の手番のまま（{{reason}}）",
+          reason: {
+            scene_unchanged: "場面に変化がなかったため",
+            partner_absent: "この場面に相手が登場していないため",
+            not_requested: "この手番は立ち絵を描かない設定だったため",
+            failed: "立ち絵の生成に失敗したため",
+            visual_failed: "場面の読み取りに失敗したため",
+            unknown: "理由は記録されていません",
+          },
+        },
         regeneratePartnerPortrait: "攻略対象の立ち絵を再生成",
         drawPortraitEveryTurn: "主人公の立ち絵を毎ターン描く",
         drawPortraitEveryTurnHint:
@@ -502,6 +564,22 @@ const resources = {
           emptyHint: "{{name}}に話しかけてみましょう。手番は消費しません。",
           you: "あなた",
           pending: "{{name}}が考えています...",
+        },
+        mic: {
+          start: "マイクで話す",
+          startHint:
+            "ブラウザの音声認識で話した内容を入力欄に入れます。Chrome では音声が Google のサーバーへ送られます。",
+          listening: "聞き取り中... もう一度押すと止まります",
+          autoSend: "認識したらすぐ送る",
+          autoSendHint:
+            "話し終わると認識結果をそのまま送信します。OFF のときは内容を確認してから送れます。",
+          error: {
+            "not-allowed":
+              "マイクの使用が許可されていません。ブラウザの設定を確認してください。",
+            "no-speech": "聞き取れませんでした。もう一度お試しください。",
+            network: "音声認識サービスに接続できませんでした。",
+            unknown: "音声認識を開始できませんでした。",
+          },
         },
         freeInput: "行動や会話を自由に入力",
         freeInputHint:
@@ -924,6 +1002,16 @@ const resources = {
             lean_back: "のけぞる",
             look_away: "目をそらす",
             bounce: "はずむ",
+            bow: "おじぎ",
+            look_down: "うつむく",
+            perk_up: "はっとする",
+            shrink: "ちぢこまる",
+            sway: "ゆらゆらする",
+            double_bounce: "おおはしゃぎ",
+            wave_hand: "手を振る",
+            raise_hand: "手をあげる",
+            reach_out: "手をのばす",
+            cheer: "ばんざい",
           },
         },
         speech: {
@@ -2187,6 +2275,8 @@ const resources = {
           "Expand instructions into NovelAI prompts and generate images",
         endings: "Endings",
         endingsDesc: "View unlocked endings",
+        guide: "Play Style Guide",
+        guideDesc: "Discover and enable play styles that are off by default",
         achievements: "Achievements",
         achievementsDesc: "View unlocked achievements",
         settings: "Settings",
@@ -2194,6 +2284,56 @@ const resources = {
         goActiveGame: "Go to active game",
         backToActiveGame: "Back to active game",
         goLastAdventure: "Go to last scenario",
+      },
+      guide: {
+        title: "Play Style Guide",
+        intro:
+          "A list of play styles that are off by default. Turning one on here adds it to the main menu. You can change these settings anytime from the settings screen.",
+        enable: "Enable",
+        addedToMenu: "Added to the menu",
+        openSettings: "Open settings",
+        adventure: {
+          title: "TSF Scenario",
+          desc: "A standalone novel game that starts from a transformed state. Five mission types including a romance simulation, with reality alteration and automatic BGM selection.",
+          note: "Each turn runs text and image generation, so wait times are longer than in normal play.",
+          open: "Open TSF Scenario",
+        },
+        talk: {
+          title: "Talk & Face-to-Face Mode",
+          desc: "During the romance simulation, you can chat without spending a turn (Talk) and converse one exchange at a time in face-to-face mode. Combine them with line read-aloud and microphone input.",
+          note: "Face-to-face mode can be turned on in the romance simulation's start screen and image settings.",
+          open: "Open TSF Scenario",
+          enableParent: "Enable TSF Scenario first",
+        },
+        vrm: {
+          title: "3D Model (VRM)",
+          desc: "Shows a 3D model instead of the partner's portrait in face-to-face mode. The mouth moves with the voice, and the expression and gesture change with every reply.",
+          note: 'Register VRM (0.x / 1.0) model files under "3D Model (VRM)" in the settings screen.',
+        },
+        promptExpander: {
+          title: "Prompt Expander",
+          desc: "Builds image-generation prompts from natural sentences and generates and saves images independently of the game. Manga (panel) mode is also supported.",
+          note: "NovelAI provider only.",
+          open: "Open Prompt Expander",
+        },
+        voice: {
+          title: "Line Read-Aloud (Speech Synthesis)",
+          desc: "Reads character lines aloud. Available in normal-play chat and in the TSF Scenario's face-to-face mode.",
+          note: 'Requires the AivisSpeech engine. Set it up under "Speech Synthesis (AivisSpeech)" in the settings screen.',
+        },
+        playMemory: {
+          title: "Play Memory",
+          desc: "Automatically summarizes the course of each play and feeds it into later generation. Settings you want to keep can be written as a user memo.",
+          note: "When enabled, an auto memo is generated per response, so completion may take longer.",
+          enabledHint:
+            'A "Play Memory" panel appears on the right side of normal play',
+        },
+        endings: {
+          title: "Endings",
+          desc: "Endings trigger when their conditions are met, and you can review them in the list screen.",
+          note: "When enabled, ending notifications and the endings menu are shown.",
+          open: "Open the endings list",
+        },
       },
       layout: {
         openPanel: "Open panel",
@@ -2490,6 +2630,17 @@ const resources = {
           turnCounterHint: "{{turn}} / {{max}} turns (one exchange per turn)",
           turnsLeft: "{{count}} left",
         },
+        partnerPortrait: {
+          note: "Partner sprite kept from the previous turn ({{reason}})",
+          reason: {
+            scene_unchanged: "the scene did not change",
+            partner_absent: "the partner is not in this scene",
+            not_requested: "sprite drawing was off for this turn",
+            failed: "the sprite could not be generated",
+            visual_failed: "the scene could not be analyzed",
+            unknown: "no reason was recorded",
+          },
+        },
         regeneratePartnerPortrait: "Regenerate the partner sprite",
         drawPortraitEveryTurn: "Draw protagonist sprite every turn",
         drawPortraitEveryTurnHint:
@@ -2668,6 +2819,22 @@ const resources = {
           emptyHint: "Say something to {{name}}. This does not spend a turn.",
           you: "You",
           pending: "{{name}} is thinking...",
+        },
+        mic: {
+          start: "Speak with the microphone",
+          startHint:
+            "Uses the browser's speech recognition to fill the input field. In Chrome your voice is sent to Google's servers.",
+          listening: "Listening... press again to stop",
+          autoSend: "Send right after recognition",
+          autoSendHint:
+            "Sends the recognized text as soon as you finish speaking. When off, you can review it before sending.",
+          error: {
+            "not-allowed":
+              "Microphone access is not allowed. Please check your browser settings.",
+            "no-speech": "Could not hear anything. Please try again.",
+            network: "Could not reach the speech recognition service.",
+            unknown: "Could not start speech recognition.",
+          },
         },
         freeInput: "Enter an action or dialogue",
         freeInputHint:
@@ -3093,6 +3260,16 @@ const resources = {
             lean_back: "Lean back",
             look_away: "Look away",
             bounce: "Bounce",
+            bow: "Bow",
+            look_down: "Look down",
+            perk_up: "Perk up",
+            shrink: "Shrink",
+            sway: "Sway",
+            double_bounce: "Double bounce",
+            wave_hand: "Wave hand",
+            raise_hand: "Raise hand",
+            reach_out: "Reach out",
+            cheer: "Cheer",
           },
         },
         speech: {

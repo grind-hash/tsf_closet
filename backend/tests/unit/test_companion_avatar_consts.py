@@ -59,6 +59,24 @@ def test_parse_talk_header_variants() -> None:
         None,
         "hi",
     )
+    # 略記・変形ヘッダも受ける([<表情>=<身振り>] や値だけの列挙)
+    assert parse_talk_header("[surprised=tilt_head] えっと…") == (
+        "surprised",
+        "tilt_head",
+        "えっと…",
+    )
+    assert parse_talk_header("[happy, wave_hand]\nやっほー") == (
+        "happy",
+        "wave_hand",
+        "やっほー",
+    )
+    assert parse_talk_header("[gesture: nod]\nうん") == (None, "nod", "うん")
+    # 語彙もラベルも含まない角括弧はセリフとして残す
+    assert parse_talk_header("[こんにちは] やっほー") == (
+        None,
+        None,
+        "[こんにちは] やっほー",
+    )
     # ヘッダが無ければそのまま
     assert parse_talk_header("やっほー") == (None, None, "やっほー")
     assert parse_talk_header("") == (None, None, "")
@@ -75,7 +93,13 @@ def test_prompt_instructions_mention_schema_and_keys() -> None:
     assert "partner_expression" in resolution and "partner_gesture" in resolution
     for key in (*AVATAR_EXPRESSIONS, *AVATAR_GESTURES):
         assert key in resolution
+    # idle へ逃げず、説明に合う最も具体的な身振りを選ばせる
+    assert "idle only when the partner stays still" in resolution
     talk = avatar_talk_header_instruction()
     assert "[expression=<key> gesture=<key>]" in talk
     for key in (*AVATAR_EXPRESSIONS, *AVATAR_GESTURES):
         assert key in talk
+    # トークにも説明つきの語彙が載る(キー名だけでは意味が伝わらない)
+    for description in AVATAR_GESTURES.values():
+        assert description in talk
+    assert "rather than defaulting to neutral and idle" in talk
