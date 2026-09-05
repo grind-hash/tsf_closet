@@ -35,14 +35,14 @@ import {
 import {
   DRAW_PARTNER_STORAGE_KEY,
   DRAW_PORTRAIT_STORAGE_KEY,
-  readDrawPartnerEveryTurn,
-  readDrawPortraitEveryTurn,
   useAdventure,
+  useAdventureStreamingNarrative,
 } from "../../contexts/AdventureContext";
 import { useNotification } from "../../contexts/NotificationContext";
 import { useSettings } from "../../contexts/SettingsContext";
 import { useAdventureBgm } from "../../hooks/useAdventureBgm";
 import { useAdventureVoice } from "../../hooks/useAdventureVoice";
+import { usePersistedState } from "../../hooks/usePersistedState";
 import {
   type SpeechInputErrorCode,
   useSpeechInput,
@@ -71,7 +71,6 @@ import {
   frameDaySlot,
   partnerPortraitReasonKey,
 } from "../../utils/adventureFrames";
-import { readProtagonistDockOpen } from "../../utils/adventureSetupPrefs";
 import {
   ADVENTURE_PROGRESS_BUDGET_MS,
   estimateAdventureTurnSeconds,
@@ -207,7 +206,6 @@ export default function AdventurePlay({ runId }: { runId: string }) {
     streaming,
     phase,
     phaseStep,
-    streamingNarrative,
     pendingUserInput,
     narrativeSettled,
     talking,
@@ -233,6 +231,7 @@ export default function AdventurePlay({ runId }: { runId: string }) {
     companionAvatarFailed,
     setCompanionAvatarFailed,
   } = useAdventure();
+  const streamingNarrative = useAdventureStreamingNarrative();
   const { showNotification } = useNotification();
   const {
     state: settingsState,
@@ -275,15 +274,12 @@ export default function AdventurePlay({ runId }: { runId: string }) {
     | "inventory"
     | null
   >(null);
-  const [protagonistDockOpen, setProtagonistDockOpen] = useState(
-    readProtagonistDockOpen,
-  );
-  const [drawPortraitEveryTurn, setDrawPortraitEveryTurn] = useState(
-    readDrawPortraitEveryTurn,
-  );
-  const [drawPartnerEveryTurn, setDrawPartnerEveryTurn] = useState(
-    readDrawPartnerEveryTurn,
-  );
+  const [protagonistDockOpen, setProtagonistDockOpen] =
+    usePersistedState<boolean>(PROTAGONIST_DOCK_STORAGE_KEY, false);
+  const [drawPortraitEveryTurn, setDrawPortraitEveryTurn] =
+    usePersistedState<boolean>(DRAW_PORTRAIT_STORAGE_KEY, true);
+  const [drawPartnerEveryTurn, setDrawPartnerEveryTurn] =
+    usePersistedState<boolean>(DRAW_PARTNER_STORAGE_KEY, true);
   // romance の行動パネル: 行動(手番を消費) / トーク(手番を消費しない会話)
   const [actionMode, setActionMode] = useState<"act" | "talk">("act");
   const talkThreadRef = useRef<HTMLDivElement>(null);
@@ -743,16 +739,8 @@ export default function AdventurePlay({ runId }: { runId: string }) {
     PORTRAIT_ALPHA_OPTIONS,
   );
   const toggleProtagonistDock = useCallback(() => {
-    setProtagonistDockOpen((current) => {
-      const next = !current;
-      try {
-        localStorage.setItem(PROTAGONIST_DOCK_STORAGE_KEY, String(next));
-      } catch {
-        // プライベートモード等で保存できなくても表示自体は切り替える
-      }
-      return next;
-    });
-  }, []);
+    setProtagonistDockOpen((current) => !current);
+  }, [setProtagonistDockOpen]);
 
   // 主人公ドックは常に最新状態を見せる。過去フレーム閲覧中でも
   // 追従しないよう、ステージ用の portraitSource とは別に最新分を解決する。
@@ -2264,14 +2252,6 @@ export default function AdventurePlay({ runId }: { runId: string }) {
                       onChange={(event) => {
                         const next = event.target.checked;
                         setDrawPortraitEveryTurn(next);
-                        try {
-                          localStorage.setItem(
-                            DRAW_PORTRAIT_STORAGE_KEY,
-                            String(next),
-                          );
-                        } catch {
-                          // プライベートモード等で保存できなくても切り替え自体は有効
-                        }
                       }}
                     />
                     <span className="adventure-precise-toggle__switch" />
@@ -2290,14 +2270,6 @@ export default function AdventurePlay({ runId }: { runId: string }) {
                         onChange={(event) => {
                           const next = event.target.checked;
                           setDrawPartnerEveryTurn(next);
-                          try {
-                            localStorage.setItem(
-                              DRAW_PARTNER_STORAGE_KEY,
-                              String(next),
-                            );
-                          } catch {
-                            // プライベートモード等で保存できなくても切り替え自体は有効
-                          }
                         }}
                       />
                       <span className="adventure-precise-toggle__switch" />

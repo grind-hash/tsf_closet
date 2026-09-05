@@ -8,6 +8,7 @@ import {
   type ReactNode,
   useCallback,
   useContext,
+  useMemo,
   useReducer,
   useRef,
   useState,
@@ -17,6 +18,7 @@ import type {
   InstructionType,
   PendingMessageIdentity,
 } from "../types";
+import { readStorage, writeStorage } from "../utils/storage";
 
 // チャット状態
 interface ChatState {
@@ -123,7 +125,7 @@ const defaultAudioPreferences: AudioPreferences = {
 
 function loadAudioPreferences(): AudioPreferences {
   try {
-    const raw = localStorage.getItem(AUDIO_PREFS_STORAGE_KEY);
+    const raw = readStorage("local", AUDIO_PREFS_STORAGE_KEY);
     if (!raw) {
       return { ...defaultAudioPreferences };
     }
@@ -149,7 +151,7 @@ function loadAudioPreferences(): AudioPreferences {
 
 function saveAudioPreferences(prefs: AudioPreferences): void {
   try {
-    localStorage.setItem(AUDIO_PREFS_STORAGE_KEY, JSON.stringify(prefs));
+    writeStorage("local", AUDIO_PREFS_STORAGE_KEY, JSON.stringify(prefs));
   } catch {
     // localStorage が利用できない環境では無視する
   }
@@ -747,41 +749,77 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "CLEAR_MESSAGES" });
   }, []);
 
-  const value: ChatContextType = {
-    state,
-    setMessages,
-    addMessage,
-    updateMessage,
-    appendToMessage,
-    setMessageStreaming,
-    setInputText,
-    setInstructionType,
-    setImageOnlyTextToImage,
-    attachImage,
-    setStreaming,
-    upsertPendingIdentity,
-    attachFeelingMessage,
-    resolvePendingIdentity,
-    finalizePendingIdentity,
-    failPendingIdentity,
-    replaceMessageId,
-    getMessageHistoryId,
-    getLatestPendingIdentity,
-    highlightMessage,
-    scrollToMessage,
-    clearInput,
-    clearMessages,
-    messageListRef,
-    audioPlayback,
-    playMessageAudio,
-    toggleAudioPause,
-    stopAudio,
-    seekAudio,
-    audioPrefs,
-    setAudioVolume,
-    setAudioMuted,
-    setAudioPlaybackRate,
-  };
+  const value = useMemo<ChatContextType>(
+    () => ({
+      state,
+      setMessages,
+      addMessage,
+      updateMessage,
+      appendToMessage,
+      setMessageStreaming,
+      setInputText,
+      setInstructionType,
+      setImageOnlyTextToImage,
+      attachImage,
+      setStreaming,
+      upsertPendingIdentity,
+      attachFeelingMessage,
+      resolvePendingIdentity,
+      finalizePendingIdentity,
+      failPendingIdentity,
+      replaceMessageId,
+      getMessageHistoryId,
+      getLatestPendingIdentity,
+      highlightMessage,
+      scrollToMessage,
+      clearInput,
+      clearMessages,
+      messageListRef,
+      audioPlayback,
+      playMessageAudio,
+      toggleAudioPause,
+      stopAudio,
+      seekAudio,
+      audioPrefs,
+      setAudioVolume,
+      setAudioMuted,
+      setAudioPlaybackRate,
+    }),
+    [
+      state,
+      setMessages,
+      addMessage,
+      updateMessage,
+      appendToMessage,
+      setMessageStreaming,
+      setInputText,
+      setInstructionType,
+      setImageOnlyTextToImage,
+      attachImage,
+      setStreaming,
+      upsertPendingIdentity,
+      attachFeelingMessage,
+      resolvePendingIdentity,
+      finalizePendingIdentity,
+      failPendingIdentity,
+      replaceMessageId,
+      getMessageHistoryId,
+      getLatestPendingIdentity,
+      highlightMessage,
+      scrollToMessage,
+      clearInput,
+      clearMessages,
+      audioPlayback,
+      playMessageAudio,
+      toggleAudioPause,
+      stopAudio,
+      seekAudio,
+      audioPrefs,
+      setAudioVolume,
+      setAudioMuted,
+      setAudioPlaybackRate,
+    ],
+  );
 
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;
 }

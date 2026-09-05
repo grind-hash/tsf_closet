@@ -1,6 +1,10 @@
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AdventureProvider, useAdventure } from "../AdventureContext";
+import {
+  AdventureProvider,
+  useAdventure,
+  useAdventureStreamingNarrative,
+} from "../AdventureContext";
 
 type StreamEvent = { type: string; data: Record<string, unknown> };
 
@@ -75,9 +79,9 @@ function StreamProbe() {
     talkDraft,
     phase,
     phaseStep,
-    streamingNarrative,
     narrativeSettled,
   } = useAdventure();
+  const streamingNarrative = useAdventureStreamingNarrative();
   return (
     <>
       <div data-testid="run">{activeRun?.id ?? "none"}</div>

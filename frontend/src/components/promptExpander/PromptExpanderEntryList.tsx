@@ -17,6 +17,7 @@ import {
 } from "../../apis/promptExpander";
 import { PROMPT_EXPANDER_ALPHA_OPTIONS } from "../../constants/promptExpander";
 import { usePromptExpander } from "../../contexts/PromptExpanderContext";
+import { usePersistedState } from "../../hooks/usePersistedState";
 import { useTransparentImage } from "../../hooks/useTransparentImage";
 import ImagePreviewModal from "../ImagePreviewModal";
 import PromptExpanderEntryCard from "./PromptExpanderEntryCard";
@@ -38,23 +39,6 @@ function isEntryFilter(value: unknown): value is PromptExpanderEntryFilter {
   );
 }
 
-function readPersistedFilter(): PromptExpanderEntryFilter {
-  try {
-    const raw = localStorage.getItem(PROMPT_EXPANDER_ENTRY_FILTER_KEY);
-    return isEntryFilter(raw) ? raw : "all";
-  } catch {
-    return "all";
-  }
-}
-
-function writePersistedFilter(filter: PromptExpanderEntryFilter) {
-  try {
-    localStorage.setItem(PROMPT_EXPANDER_ENTRY_FILTER_KEY, filter);
-  } catch {
-    // localStorage が使えない環境では保持しない
-  }
-}
-
 /** エントリの分類。アップロードは kind、それ以外は漫画モードの印で分ける */
 export function classifyEntry(
   entry: PromptExpanderEntry,
@@ -73,8 +57,14 @@ export default function PromptExpanderEntryList() {
   const { t } = useTranslation();
   const { entries, activeSession, loadingSession, generating } =
     usePromptExpander();
-  const [filter, setFilterState] =
-    useState<PromptExpanderEntryFilter>(readPersistedFilter);
+  const [filter, setFilterState] = usePersistedState<PromptExpanderEntryFilter>(
+    PROMPT_EXPANDER_ENTRY_FILTER_KEY,
+    "all",
+    {
+      serialize: (value) => value,
+      deserialize: (raw) => (isEntryFilter(raw) ? raw : "all"),
+    },
+  );
   // プレビュー対象は id で持つ（閉じた後も強調を残し、絞り込みや削除で並びが変わっても追従できる）
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -100,13 +90,15 @@ export default function PromptExpanderEntryList() {
     [entries, filter],
   );
 
-  const setFilter = useCallback((next: PromptExpanderEntryFilter) => {
-    setFilterState(next);
-    writePersistedFilter(next);
-    // 並びが変わるのでプレビュー位置は捨てる
-    setPreviewOpen(false);
-    setPreviewId(null);
-  }, []);
+  const setFilter = useCallback(
+    (next: PromptExpanderEntryFilter) => {
+      setFilterState(next);
+      // 並びが変わるのでプレビュー位置は捨てる
+      setPreviewOpen(false);
+      setPreviewId(null);
+    },
+    [setFilterState],
+  );
 
   const previewIndex =
     previewId === null

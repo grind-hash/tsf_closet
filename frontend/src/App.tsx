@@ -28,10 +28,22 @@ import type { NovelAISubscriptionResponse } from "./types";
 import { DEFAULT_INPAINT_SETTINGS } from "./types";
 import { API_BASE } from "./utils/api";
 import { isHistoryLookbackEnabled } from "./utils/historyLookback";
+import {
+  readStorage,
+  readStorageFlag,
+  writeStorage,
+  writeStorageFlag,
+} from "./utils/storage";
 import "./App.css";
 
 // 007-chat-interactive-ux: Context hooks
-import { useGame } from "./contexts/GameContext";
+import { SESSION_STORAGE_KEY, useGame } from "./contexts/GameContext";
+
+// /health の結果は同一タブ内で再取得しない（sessionStorage キャッシュ）
+const IMAGE_PROVIDER_CACHE_KEY = "image_provider";
+const SHOW_COST_CACHE_KEY = "show_cost";
+// NovelAI Opus 未契約警告を「続行」で閉じた記録（localStorage）
+const NOVELAI_OPUS_CONFIRMED_KEY = "novelai_opus_confirmed";
 
 function App() {
   return (
@@ -201,7 +213,7 @@ function AppMain() {
             if (restored) {
               setScreen("game");
               replacePathWithSessionId(
-                localStorage.getItem("current_session_id"),
+                readStorage("local", SESSION_STORAGE_KEY),
               );
             }
           }
@@ -211,14 +223,14 @@ function AppMain() {
         const restored = await restoreActiveSession();
         if (restored) {
           setScreen("game");
-          replacePathWithSessionId(localStorage.getItem("current_session_id"));
+          replacePathWithSessionId(readStorage("local", SESSION_STORAGE_KEY));
         }
       }
       // 画像プロバイダー取得（NovelAI専用UI制御）
       // sessionStorageにキャッシュして同一タブ内での再取得を回避
       let detectedProvider: "selfhost" | "openrouter" | "novelai" = "selfhost";
-      const cachedProvider = sessionStorage.getItem("image_provider");
-      const cachedShowCost = sessionStorage.getItem("show_cost");
+      const cachedProvider = readStorage("session", IMAGE_PROVIDER_CACHE_KEY);
+      const cachedShowCost = readStorage("session", SHOW_COST_CACHE_KEY);
       if (
         cachedProvider &&
         cachedShowCost !== null &&
@@ -246,8 +258,12 @@ function AppMain() {
               data.image_description_provider === "openrouter" ||
               data.feeling_provider === "openrouter";
             // キャッシュに保存
-            sessionStorage.setItem("image_provider", detectedProvider);
-            sessionStorage.setItem("show_cost", String(hasCostProvider));
+            writeStorage("session", IMAGE_PROVIDER_CACHE_KEY, detectedProvider);
+            writeStorage(
+              "session",
+              SHOW_COST_CACHE_KEY,
+              String(hasCostProvider),
+            );
           }
           setProviderLoading(false);
         } catch (e) {
@@ -273,8 +289,7 @@ function AppMain() {
 
         // 同意済みの場合はサブスクリプションをチェック
         // localStorageで既に確認済みかチェック
-        const opusConfirmed = localStorage.getItem("novelai_opus_confirmed");
-        if (opusConfirmed === "true") {
+        if (readStorageFlag("local", NOVELAI_OPUS_CONFIRMED_KEY)) {
           return;
         }
 
@@ -315,8 +330,7 @@ function AppMain() {
     });
 
     // 同意後、サブスクリプションをチェック
-    const opusConfirmed = localStorage.getItem("novelai_opus_confirmed");
-    if (opusConfirmed === "true") {
+    if (readStorageFlag("local", NOVELAI_OPUS_CONFIRMED_KEY)) {
       return;
     }
 
@@ -511,7 +525,7 @@ function AppMain() {
     console.log("[App] Session started, restoring session data...");
     await restoreActiveSession();
     setScreen("game");
-    replacePathWithSessionId(localStorage.getItem("current_session_id"));
+    replacePathWithSessionId(readStorage("local", SESSION_STORAGE_KEY));
   }, [replacePathWithSessionId, restoreActiveSession]);
 
   return (
@@ -607,7 +621,7 @@ function AppMain() {
           tier={settingsState.novelaiTier}
           onContinue={() => {
             // 続行を選択: localStorageに保存して警告を閉じる
-            localStorage.setItem("novelai_opus_confirmed", "true");
+            writeStorageFlag("local", NOVELAI_OPUS_CONFIRMED_KEY, true);
             setShowNovelaiWarning(false);
           }}
           onCancel={() => {

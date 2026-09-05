@@ -23,6 +23,8 @@
 
 ### 全体Provider
 
+`SettingsContext` / `GameContext` / `ChatContext` の Provider value は `useMemo` で包み、Provider の再描画で消費者全員が再描画されないようにしている（新しい関数や値を value に足すときは依存配列にも加える。Biome の `useExhaustiveDependencies` が検査する）。
+
 `main.tsx` は外側から `SettingsProvider` → `NotificationProvider` → `GameProvider` → `ChatProvider` の順に提供する。
 
 | Context               | Hook                | 主な状態/責務                                                                                             |
@@ -42,7 +44,7 @@
 
 `App.tsx` は `/adventure` 配下だけを `AdventureProvider` で包む。
 
-`AdventureContext` は Run/Template、activeRun、セットアップ生成、ターン/画像ストリーム、フェーズ、逐次ナラティブ、エラーを管理する。`narrativeSettled` は手番ストリームの本文（`narrative_done`）が確定したかで、3D モデル表示中の先読み読み上げと行動パネル進捗（`quietStage`）の切替に使う（`turn` 到着後も保持し、ストリーム終了で false）。romance のトークモード（手番を消費しない会話）は `submitTalk` / `talking` / `talkDraft` / `pendingTalkInput` で、`talk_done` を `activeRun.talk_log` に追記する（手番送信とは `streaming || talking` で相互排他）。 直前に開いた run ID は `lastRunId`（`utils/adventureLastRun.ts`、localStorage `adventure_last_run_id`）として公開し、Hub の再開バナーと SideMenu の「直前のシナリオへ」が参照する。通常ゲームの `GameContext` や `useGameSSE` に統合しない。3D モデル(VRM)は `avatarModels` / `refreshAvatarModels`（Provider マウント時に `GET /api/avatars`）と `companionAvatarFailed` / `setCompanionAvatarFailed`（読込失敗で立ち絵へ戻す。run や割当が変わるとリセット）を持ち、`performSubmitTurn` はアバター表示中に `generate_partner_portrait:false` を送る。
+`AdventureContext` は Run/Template、activeRun、セットアップ生成、ターン/画像ストリーム、フェーズ、エラーを管理する。トークンごとに更新される逐次ナラティブだけは別 Context に分け、`useAdventureStreamingNarrative()` で読む（`useAdventure()` の value はトークンで変わらない）。`narrativeSettled` は手番ストリームの本文（`narrative_done`）が確定したかで、3D モデル表示中の先読み読み上げと行動パネル進捗（`quietStage`）の切替に使う（`turn` 到着後も保持し、ストリーム終了で false）。romance のトークモード（手番を消費しない会話）は `submitTalk` / `talking` / `talkDraft` / `pendingTalkInput` で、`talk_done` を `activeRun.talk_log` に追記する（手番送信とは `streaming || talking` で相互排他）。 直前に開いた run ID は `lastRunId`（`utils/adventureLastRun.ts`、localStorage `adventure_last_run_id`）として公開し、Hub の再開バナーと SideMenu の「直前のシナリオへ」が参照する。通常ゲームの `GameContext` や `useGameSSE` に統合しない。3D モデル(VRM)は `avatarModels` / `refreshAvatarModels`（Provider マウント時に `GET /api/avatars`）と `companionAvatarFailed` / `setCompanionAvatarFailed`（読込失敗で立ち絵へ戻す。run や割当が変わるとリセット）を持ち、`performSubmitTurn` はアバター表示中に `generate_partner_portrait:false` を送る。
 
 ## 主な設定境界
 
@@ -61,10 +63,15 @@
 - `tts*`: AivisSpeech設定
 - `memoryText`: ユーザー単位の長期メモリ本文
 
+## Storage
+
+`utils/storage.ts` の `readStorage` / `writeStorage` / `removeStorage` / `readStorageFlag` / `writeStorageFlag`（`kind` は "local" | "session"）が localStorage / sessionStorage への唯一の窓口。使えない環境（プライベートモード等）でも例外を出さず null / false を返す。React の状態と同期する値は `hooks/usePersistedState`、命令的な旗（Anlas 警告の抑止、セッション ID、/health のキャッシュ等）はヘルパーを直接使う。`utils/*Preferences.ts` 系の小さな設定モジュールは従来どおり自前で読み書きしている。
+
 ## Hook
 
 | Hook                  | 目的                                                                                                                                                                                                                                                            |
 | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `usePersistedState`   | `useState` 互換で値を localStorage / sessionStorage に保持（初期化時に読み、更新時に書く。`serialize` / `deserialize` で形式を指定。不正値は初期値へ）。開閉状態や ON/OFF の好みはこれを使い、コンポーネント内で `localStorage` を直接触らない |
 | `useAttributePresets` | 属性プリセット（localStorage `attribute_presets`）の一覧・保存・削除。`useSyncExternalStore` で右パネルと人物パネルの表示を同時に更新し、他タブの `storage` イベントも反映。`loadPresetAttributes(preset, addAttribute)` で順に追加 |
 | `useAttributeInput`   | 属性の追加・編集（元の属性を削除して置換）・削除の入力状態。右パネルと人物パネルで共通 |
 | `useSSE`              | GET/POST SSEの解析、停止、エラー処理                                                                                                                                                                                                                            |

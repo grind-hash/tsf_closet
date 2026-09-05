@@ -22,6 +22,7 @@ import { useChat } from "../../contexts/ChatContext";
 import { useGame } from "../../contexts/GameContext";
 import { useNotification } from "../../contexts/NotificationContext";
 import { useSettings } from "../../contexts/SettingsContext";
+import { usePersistedState } from "../../hooks/usePersistedState";
 import type { InstructionType } from "../../types";
 import "./ChatInput.css";
 
@@ -36,7 +37,7 @@ interface ChatInputProps {
 }
 
 // 「過去から生成」機能でメモリテキストを反映するかどうかのチェック状態を保存するlocalStorageキー
-const SUGGEST_USE_MEMORY_STORAGE_KEY = "chat_suggest_use_memory";
+export const SUGGEST_USE_MEMORY_STORAGE_KEY = "chat_suggest_use_memory";
 // 送信時の画像生成でメモリテキストを反映するかどうかのチェック状態を保存するlocalStorageキー
 const SEND_USE_MEMORY_FOR_IMAGE_STORAGE_KEY = "chat_send_use_memory_for_image";
 
@@ -60,26 +61,17 @@ export default function ChatInput({
 
   // 過去メッセージからの指示テキスト生成
   const [isSuggesting, setIsSuggesting] = useState(false);
-  const [useMemoryForSuggestion, setUseMemoryForSuggestion] = useState<boolean>(
-    () => localStorage.getItem(SUGGEST_USE_MEMORY_STORAGE_KEY) === "true",
-  );
+  const [useMemoryForSuggestion, setUseMemoryForSuggestion] =
+    usePersistedState<boolean>(SUGGEST_USE_MEMORY_STORAGE_KEY, false);
   const [useMemoryForImageOnSend, setUseMemoryForImageOnSend] =
-    useState<boolean>(
-      () =>
-        localStorage.getItem(SEND_USE_MEMORY_FOR_IMAGE_STORAGE_KEY) === "true",
-    );
+    usePersistedState<boolean>(SEND_USE_MEMORY_FOR_IMAGE_STORAGE_KEY, false);
 
   const handleUseMemoryChange = (checked: boolean) => {
     setUseMemoryForSuggestion(checked);
-    localStorage.setItem(SUGGEST_USE_MEMORY_STORAGE_KEY, String(checked));
   };
 
   const handleUseMemoryForImageOnSendChange = (checked: boolean) => {
     setUseMemoryForImageOnSend(checked);
-    localStorage.setItem(
-      SEND_USE_MEMORY_FOR_IMAGE_STORAGE_KEY,
-      String(checked),
-    );
   };
 
   const handleSuggestInstruction = async () => {

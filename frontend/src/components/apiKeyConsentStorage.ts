@@ -1,26 +1,21 @@
+import {
+  readStorageFlag,
+  removeStorage,
+  writeStorageFlag,
+} from "../utils/storage";
+
 const CONSENT_STORAGE_KEY = "novelai_api_key_consent";
 
 export function hasApiKeyConsent(): boolean {
-  try {
-    const consent = localStorage.getItem(CONSENT_STORAGE_KEY);
-    return consent === "true";
-  } catch {
-    return false;
-  }
+  return readStorageFlag("local", CONSENT_STORAGE_KEY);
 }
 
 export function saveApiKeyConsent(): void {
-  try {
-    localStorage.setItem(CONSENT_STORAGE_KEY, "true");
-  } catch {
+  if (!writeStorageFlag("local", CONSENT_STORAGE_KEY, true)) {
     console.error("Failed to save API key consent");
   }
 }
 
 export function clearApiKeyConsent(): void {
-  try {
-    localStorage.removeItem(CONSENT_STORAGE_KEY);
-  } catch {
-    console.error("Failed to clear API key consent");
-  }
+  removeStorage("local", CONSENT_STORAGE_KEY);
 }

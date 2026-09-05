@@ -15,6 +15,7 @@ import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router-dom";
 import { isV5ImageModel } from "../../constants/novelaiImageModels";
 import { usePromptExpander } from "../../contexts/PromptExpanderContext";
+import { usePersistedState } from "../../hooks/usePersistedState";
 import type { TranslationKey } from "../../i18n";
 import { ROUTES } from "../../routes";
 import ApiKeyConsentModal from "../ApiKeyConsentModal";
@@ -34,30 +35,6 @@ import "./PromptExpanderScreen.css";
 
 export const PROMPT_EXPANDER_SETTINGS_PANEL_OPEN_KEY =
   "prompt_expander_settings_panel_open";
-
-function readSettingsPanelOpen(): boolean {
-  if (typeof window === "undefined") return false;
-  try {
-    return (
-      window.localStorage.getItem(PROMPT_EXPANDER_SETTINGS_PANEL_OPEN_KEY) ===
-      "true"
-    );
-  } catch {
-    return false;
-  }
-}
-
-function writeSettingsPanelOpen(open: boolean) {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(
-      PROMPT_EXPANDER_SETTINGS_PANEL_OPEN_KEY,
-      open ? "true" : "false",
-    );
-  } catch {
-    // 保存できなくても開閉は続行する
-  }
-}
 
 // Context 側の検証コードを表示文言に変換する。API 由来のメッセージはそのまま返す
 const ERROR_CODE_KEYS: Record<string, TranslationKey> = {
@@ -94,13 +71,10 @@ export default function PromptExpanderScreen() {
     return id ? decodeURIComponent(id) : null;
   }, [location.pathname]);
 
-  const [showSettings, setShowSettingsState] = useState<boolean>(
-    readSettingsPanelOpen,
+  const [showSettings, setShowSettings] = usePersistedState<boolean>(
+    PROMPT_EXPANDER_SETTINGS_PANEL_OPEN_KEY,
+    false,
   );
-  const setShowSettings = useCallback((open: boolean) => {
-    setShowSettingsState(open);
-    writeSettingsPanelOpen(open);
-  }, []);
   const toggleSettings = useCallback(
     () => setShowSettings(!showSettings),
     [setShowSettings, showSettings],

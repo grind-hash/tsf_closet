@@ -9,6 +9,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useReducer,
   useRef,
 } from "react";
@@ -24,6 +25,7 @@ import type {
   SurroundingsImageState,
 } from "../types";
 import { API_BASE } from "../utils/api";
+import { readStorage, removeStorage, writeStorage } from "../utils/storage";
 import { useNotification } from "./NotificationContext";
 import { useSettings } from "./SettingsContext";
 
@@ -427,7 +429,7 @@ interface GameContextType {
 }
 
 const GameContext = createContext<GameContextType | null>(null);
-const SESSION_STORAGE_KEY = "current_session_id";
+export const SESSION_STORAGE_KEY = "current_session_id";
 
 function mapHistoryItem(item: {
   id: string;
@@ -602,7 +604,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
   );
 
   useEffect(() => {
-    const savedSessionId = localStorage.getItem(SESSION_STORAGE_KEY);
+    const savedSessionId = readStorage("local", SESSION_STORAGE_KEY);
     if (savedSessionId && !state.sessionId) {
       dispatch({
         type: "START_SESSION",
@@ -617,7 +619,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (state.sessionId) {
-      localStorage.setItem(SESSION_STORAGE_KEY, state.sessionId);
+      writeStorage("local", SESSION_STORAGE_KEY, state.sessionId);
     }
   }, [state.sessionId]);
 
@@ -780,7 +782,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
     try {
       await apiDeleteActiveSession();
     } finally {
-      localStorage.removeItem(SESSION_STORAGE_KEY);
+      removeStorage("local", SESSION_STORAGE_KEY);
       dispatch({ type: "CLEAR_SESSION" });
     }
   }, []);
@@ -882,7 +884,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const clearSession = useCallback(() => {
-    localStorage.removeItem(SESSION_STORAGE_KEY);
+    removeStorage("local", SESSION_STORAGE_KEY);
     dispatch({ type: "CLEAR_SESSION" });
   }, []);
 
@@ -1111,51 +1113,98 @@ export function GameProvider({ children }: { children: ReactNode }) {
     [state.sessionId],
   );
 
-  const value: GameContextType = {
-    state,
-    startSession,
-    restoreSession,
-    loadCharacters,
-    restoreActiveSession,
-    restoreSessionById,
-    startSessionFromHistory,
-    resetSession,
-    updateStats,
-    updateFromSSE,
-    updateAttributesFromSSE,
-    addHistoryItem,
-    setHistory,
-    setCurrentImage,
-    setEnding,
-    navigateHistory,
-    navigatePrevHistory,
-    navigateNextHistory,
-    navigateToHistoryById,
-    setTransforming,
-    setLoading,
-    setError,
-    clearSession,
-    addAttribute,
-    removeAttribute,
-    setAttributes,
-    setSelfMode,
-    setConversationHistory,
-    appendFeelingText,
-    setFeelingText,
-    clearFeelingText,
-    setTransformationCount,
-    setLastGeneratedSeed,
-    setLastSurroundingsImage,
-    removeHistoryEntry,
-    loadSessionCharacters,
-    ensureProtagonistCharacter,
-    addSessionCharacter,
-    updateSessionCharacterAction,
-    removeSessionCharacter,
-    applyPresetToCurrentSession,
-    updatePlayMemory,
-    regeneratePlayMemory,
-  };
+  const value = useMemo<GameContextType>(
+    () => ({
+      state,
+      startSession,
+      restoreSession,
+      loadCharacters,
+      restoreActiveSession,
+      restoreSessionById,
+      startSessionFromHistory,
+      resetSession,
+      updateStats,
+      updateFromSSE,
+      updateAttributesFromSSE,
+      addHistoryItem,
+      setHistory,
+      setCurrentImage,
+      setEnding,
+      navigateHistory,
+      navigatePrevHistory,
+      navigateNextHistory,
+      navigateToHistoryById,
+      setTransforming,
+      setLoading,
+      setError,
+      clearSession,
+      addAttribute,
+      removeAttribute,
+      setAttributes,
+      setSelfMode,
+      setConversationHistory,
+      appendFeelingText,
+      setFeelingText,
+      clearFeelingText,
+      setTransformationCount,
+      setLastGeneratedSeed,
+      setLastSurroundingsImage,
+      removeHistoryEntry,
+      loadSessionCharacters,
+      ensureProtagonistCharacter,
+      addSessionCharacter,
+      updateSessionCharacterAction,
+      removeSessionCharacter,
+      applyPresetToCurrentSession,
+      updatePlayMemory,
+      regeneratePlayMemory,
+    }),
+    [
+      state,
+      startSession,
+      restoreSession,
+      loadCharacters,
+      restoreActiveSession,
+      restoreSessionById,
+      startSessionFromHistory,
+      resetSession,
+      updateStats,
+      updateFromSSE,
+      updateAttributesFromSSE,
+      addHistoryItem,
+      setHistory,
+      setCurrentImage,
+      setEnding,
+      navigateHistory,
+      navigatePrevHistory,
+      navigateNextHistory,
+      navigateToHistoryById,
+      setTransforming,
+      setLoading,
+      setError,
+      clearSession,
+      addAttribute,
+      removeAttribute,
+      setAttributes,
+      setSelfMode,
+      setConversationHistory,
+      appendFeelingText,
+      setFeelingText,
+      clearFeelingText,
+      setTransformationCount,
+      setLastGeneratedSeed,
+      setLastSurroundingsImage,
+      removeHistoryEntry,
+      loadSessionCharacters,
+      ensureProtagonistCharacter,
+      addSessionCharacter,
+      updateSessionCharacterAction,
+      removeSessionCharacter,
+      applyPresetToCurrentSession,
+      updatePlayMemory,
+      regeneratePlayMemory,
+    ],
+  );
 
   return <GameContext.Provider value={value}>{children}</GameContext.Provider>;
 }

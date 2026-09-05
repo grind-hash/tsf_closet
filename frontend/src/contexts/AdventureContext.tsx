@@ -50,6 +50,11 @@ import {
   readLastAdventureRunId,
   saveLastAdventureRunId,
 } from "../utils/adventureLastRun";
+import {
+  readStorage,
+  readStorageFlag,
+  writeStorageFlag,
+} from "../utils/storage";
 import { useSettings } from "./SettingsContext";
 
 export type AdventurePhase = "narrative" | "clue_check" | "image_generation";
@@ -70,11 +75,7 @@ export const ANLAS_WARN_SUPPRESSED_KEY = "adventure_anlas_warn_suppressed";
 export { V5_USAGE_WARN_SUPPRESSED_KEY };
 
 function readDrawEveryTurn(storageKey: string): boolean {
-  try {
-    return localStorage.getItem(storageKey) !== "false";
-  } catch {
-    return true;
-  }
+  return readStorage("local", storageKey) !== "false";
 }
 
 export function readDrawPortraitEveryTurn(): boolean {
@@ -104,7 +105,6 @@ interface AdventureContextValue {
   streaming: boolean;
   phase: AdventurePhase | null;
   phaseStep: AdventurePhaseStep | null;
-  streamingNarrative: string;
   pendingUserInput: string | null;
   /** 手番ストリームの本文(narrative_done)が確定したか。ストリーム終了で false に戻る */
   narrativeSettled: boolean;
@@ -168,6 +168,7 @@ interface AdventureContextValue {
 }
 
 const AdventureContext = createContext<AdventureContextValue | null>(null);
+const AdventureStreamingNarrativeContext = createContext<string>("");
 
 function parsePhaseStep(
   data: Record<string, unknown>,
@@ -610,7 +611,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       if (
         isV5ForActiveRun &&
         usageExhausted &&
-        sessionStorage.getItem(V5_USAGE_WARN_SUPPRESSED_KEY) !== "true"
+        !readStorageFlag("session", V5_USAGE_WARN_SUPPRESSED_KEY)
       ) {
         setPendingUsageWarnTurn({ input, inputKind, options });
         return;
@@ -623,7 +624,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
         !isV5ForActiveRun &&
         activeRun.preset === "romance" &&
         activeRun.use_precise_reference &&
-        sessionStorage.getItem(ANLAS_WARN_SUPPRESSED_KEY) !== "true"
+        !readStorageFlag("session", ANLAS_WARN_SUPPRESSED_KEY)
       ) {
         setPendingAnlasTurn({ input, inputKind, options });
         return;
@@ -644,7 +645,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
     (suppressUntilBrowserClose: boolean) => {
       if (!pendingAnlasTurn) return;
       if (suppressUntilBrowserClose) {
-        sessionStorage.setItem(ANLAS_WARN_SUPPRESSED_KEY, "true");
+        writeStorageFlag("session", ANLAS_WARN_SUPPRESSED_KEY, true);
       }
       const { input, inputKind, options } = pendingAnlasTurn;
       setPendingAnlasTurn(null);
@@ -661,7 +662,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
     (suppressUntilBrowserClose: boolean) => {
       if (!pendingUsageWarnTurn) return;
       if (suppressUntilBrowserClose) {
-        sessionStorage.setItem(V5_USAGE_WARN_SUPPRESSED_KEY, "true");
+        writeStorageFlag("session", V5_USAGE_WARN_SUPPRESSED_KEY, true);
       }
       const { input, inputKind, options } = pendingUsageWarnTurn;
       setPendingUsageWarnTurn(null);
@@ -924,7 +925,6 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       streaming,
       phase,
       phaseStep,
-      streamingNarrative,
       pendingUserInput,
       narrativeSettled,
       talking,
@@ -967,7 +967,6 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       streaming,
       phase,
       phaseStep,
-      streamingNarrative,
       pendingUserInput,
       narrativeSettled,
       talking,
@@ -1002,9 +1001,19 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
 
   return (
     <AdventureContext.Provider value={value}>
-      {children}
+      <AdventureStreamingNarrativeContext.Provider value={streamingNarrative}>
+        {children}
+      </AdventureStreamingNarrativeContext.Provider>
     </AdventureContext.Provider>
   );
+}
+
+/**
+ * ストリーミング中の本文。トークンごとに更新されるため本体の Context から分け、
+ * 本文を表示しない消費者（モーダル・持ち物パネル等）が毎トークン再描画されないようにする
+ */
+export function useAdventureStreamingNarrative(): string {
+  return useContext(AdventureStreamingNarrativeContext);
 }
 
 export function useAdventure(): AdventureContextValue {
