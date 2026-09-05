@@ -1123,8 +1123,10 @@ def test_choice_prompts_ask_for_short_labels() -> None:
 
 def test_overlong_choice_label_is_clamped_instead_of_failing() -> None:
     """長すぎるラベルは修復リトライに落とさず切り詰める。"""
-    from gateway.services.adventure_service import (
+    from gateway.services.adventure_models import (
         _CHOICE_LABEL_MAX_LENGTH,
+    )
+    from gateway.services.adventure_service import (
         AdventureChoice,
     )
 
@@ -1136,8 +1138,10 @@ def test_overlong_choice_label_is_clamped_instead_of_failing() -> None:
 
 def test_sanitize_choices_keeps_long_labels_instead_of_dropping_them() -> None:
     """長さを理由に3択が既定文へ差し替わらないこと。"""
-    from gateway.services.adventure_service import (
+    from gateway.services.adventure_models import (
         _CHOICE_LABEL_MAX_LENGTH,
+    )
+    from gateway.services.adventure_service import (
         _sanitize_choices,
     )
 
@@ -6659,7 +6663,9 @@ def _companion_stream_run(
 def _companion_visual(
     *, scene_tags: str = "campus, bench", with_partner: bool = True
 ) -> AdventureVisualOutput:
-    from gateway.services.adventure_service import AdventureVisualCharacter
+    from gateway.services.adventure_models import (
+        AdventureVisualCharacter,
+    )
 
     return AdventureVisualOutput(
         scene_tags=scene_tags,
