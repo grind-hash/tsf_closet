@@ -15,11 +15,13 @@ import logging
 import random
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 from ..consts.language import normalize_language
-from ..consts.novelai_models import is_v5_image_model, resolve_user_image_model
+from ..consts.novelai_models import (
+    resolve_user_image_model,
+    supports_character_references,
+)
 from ..databases.base import async_session_factory
 from ..models import (
     CRITICAL_POINTS,
@@ -81,6 +83,7 @@ from .image_only_prompts import (
     get_image_only_edit_system_prompt,
     get_image_only_generate_system_prompt,
 )
+from .image_paths import resolve_stored_image_path
 from .litellm_client import LiteLLMClientError
 from .llm_json import strip_code_fence
 from .llm_service import LLMServiceError, llm_service
@@ -89,6 +92,7 @@ from .prompts import (
     FEELING_SYSTEM_PROMPT,
     build_enhanced_feeling_prompt,
     build_feeling_prompt,
+    enhance_prompt_for_novelai,
     get_critical_speech,
 )
 from .providers import resolve_image_provider
@@ -439,48 +443,6 @@ class GameService:
             f"masterpiece, best quality, very aesthetic, anime, moe, "
             f"{gender_tag}{solo_tag}, {char_tags}"
         ).rstrip(", ")
-
-    @staticmethod
-    def _enhance_novelai_prompt(prompt: str, nsfw_mode: bool) -> str:
-        """NovelAI向けに品質タグとNSFWキーワードを付与する
-
-        Args:
-            prompt: 元のプロンプト
-            nsfw_mode: NSFWモードの有無
-
-        Returns:
-            品質タグ付きのプロンプト
-        """
-        from .prompts import enhance_prompt_for_novelai
-
-        result = enhance_prompt_for_novelai(prompt)
-        if nsfw_mode and "nsfw" not in result.lower():
-            result = result + ", nsfw"
-        return result
-
-    @staticmethod
-    def _resolve_image_path(image_path_str: str) -> Path | None:
-        """Resolve an image path by trying data-relative then BASE_DIR-relative.
-
-        Args:
-            image_path_str: relative image path stored in session
-
-        Returns:
-            Resolved absolute Path if found, None otherwise
-        """
-        from ..settings.config import BASE_DIR
-
-        # data-relative (history_images etc.)
-        candidate = settings.history_images_dir.parent / image_path_str
-        if candidate.exists():
-            return candidate
-
-        # BASE_DIR-relative (character images etc.)
-        candidate = BASE_DIR / image_path_str
-        if candidate.exists():
-            return candidate
-
-        return None
 
     @staticmethod
     async def _get_anlas_event() -> StreamEvent | None:
@@ -1488,8 +1450,7 @@ class GameService:
             effective_novelai_image_model = resolve_user_image_model(
                 user_settings, effective_nsfw_mode
             )
-            # V5系モデルは精密参照（character reference）非対応のため送らない
-            if character_references and is_v5_image_model(
+            if character_references and not supports_character_references(
                 effective_novelai_image_model
             ):
                 logger.info(
@@ -1673,9 +1634,8 @@ class GameService:
                     else:
                         final_prompt = prompt_override.strip()
                 if resolve_image_provider() == "novelai":
-                    final_prompt = self._enhance_novelai_prompt(
-                        final_prompt,
-                        effective_nsfw_mode,
+                    final_prompt = enhance_prompt_for_novelai(
+                        final_prompt, nsfw_mode=effective_nsfw_mode
                     )
 
                 image_api_prompt = final_prompt
@@ -2113,8 +2073,8 @@ class GameService:
 
                 # NovelAI品質タグの付与
                 if resolve_image_provider() == "novelai" and action_image_prompt:
-                    action_image_prompt = self._enhance_novelai_prompt(
-                        action_image_prompt, effective_nsfw_mode
+                    action_image_prompt = enhance_prompt_for_novelai(
+                        action_image_prompt, nsfw_mode=effective_nsfw_mode
                     )
 
                 action_image_api_prompt = action_image_prompt
@@ -2724,8 +2684,8 @@ class GameService:
                     final_prompt = prompt_override.strip()
             if resolve_image_provider() == "novelai":
                 # T014: 品質タグを追加
-                final_prompt = self._enhance_novelai_prompt(
-                    final_prompt, effective_nsfw_mode
+                final_prompt = enhance_prompt_for_novelai(
+                    final_prompt, nsfw_mode=effective_nsfw_mode
                 )
 
             # 衣装レイヤー: visual と着用インベントリを分離（履歴は inventory 付きを保持）
@@ -3359,7 +3319,7 @@ class GameService:
                 f"[DEBUG] Session current_image_path: {session.current_image_path}"
             )
             if session.current_image_path:
-                resolved = self._resolve_image_path(session.current_image_path)
+                resolved = resolve_stored_image_path(session.current_image_path)
                 if resolved:
                     image_bytes = resolved.read_bytes()
                     logger.info(
@@ -3415,7 +3375,7 @@ class GameService:
                 if session.character_id:
                     character = character_manager.get_by_id(session.character_id)
                 if session.current_image_path:
-                    resolved = self._resolve_image_path(session.current_image_path)
+                    resolved = resolve_stored_image_path(session.current_image_path)
                     if resolved:
                         return session, character, resolved.read_bytes()
                 if character:
@@ -3470,7 +3430,7 @@ class GameService:
             # 2. 現在の画像を取得
             current_image_bytes: bytes | None = None
             if session.current_image_path:
-                resolved = self._resolve_image_path(session.current_image_path)
+                resolved = resolve_stored_image_path(session.current_image_path)
                 if resolved:
                     current_image_bytes = resolved.read_bytes()
 
@@ -3598,7 +3558,7 @@ class GameService:
 
         current_image_bytes: bytes | None = None
         if session.current_image_path:
-            resolved = self._resolve_image_path(session.current_image_path)
+            resolved = resolve_stored_image_path(session.current_image_path)
             if resolved:
                 current_image_bytes = resolved.read_bytes()
 
@@ -3635,9 +3595,9 @@ class GameService:
             )
             if not current_description:
                 raise GameServiceError("NovelAIモードでは、変身履歴が1件以上必要です")
-            instruction = self._enhance_novelai_prompt(
+            instruction = enhance_prompt_for_novelai(
                 f"{current_description}, {STANDING_PORTRAIT_COMPOSITION_TAGS}",
-                effective_nsfw_mode,
+                nsfw_mode=effective_nsfw_mode,
             )
         else:
             current_description, describe_cost = await self._describe_image(

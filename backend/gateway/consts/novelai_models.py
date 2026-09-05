@@ -81,6 +81,14 @@ def is_v5_image_model(name: str | None) -> bool:
     return info.is_v5 if info else False
 
 
+def supports_character_references(name: str | None) -> bool:
+    """精密参照（character reference）を送れるモデルかどうかを返す。
+
+    V5 系モデルは精密参照に対応しないため False。未知名・None は v4.5 相当として True。
+    """
+    return not is_v5_image_model(name)
+
+
 def get_image_model_info(name: str, *, nsfw_mode: bool) -> NovelAIImageModelInfo:
     """モデル名からメタ情報を解決する。
 

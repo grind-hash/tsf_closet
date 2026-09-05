@@ -89,6 +89,7 @@ from ..consts.novelai_models import (
     NOVELAI_IMAGE_MODELS,
     is_v5_image_model,
     resolve_user_image_model,
+    supports_character_references,
 )
 from ..databases.base import async_session_factory
 from ..databases.models import AdventureRun, AdventureTurn
@@ -167,6 +168,7 @@ from .clothing_layers import (
 )
 from .cost_tracker import begin_cost_tracking, record_cost
 from .image_generation import image_service
+from .image_paths import resolve_stored_image_path
 from .llm_json import (
     StructuredOutputError,
     extract_json_object,
@@ -180,6 +182,7 @@ from .prompt_expander_service import (
     entry_to_dict,
     resolve_entry_image_file,
 )
+from .prompts import enhance_prompt_for_novelai
 from .providers import Provider, resolve_image_provider, resolve_text_provider
 from .session import DEFAULT_USER_ID, session_store
 
@@ -1540,15 +1543,6 @@ def _scene_edit_instruction(has_background: bool, has_reference: bool) -> str:
     return ""
 
 
-def _enhance_adventure_prompt(prompt: str, *, nsfw_mode: bool) -> str:
-    from .prompts import enhance_prompt_for_novelai
-
-    result = enhance_prompt_for_novelai(prompt)
-    if nsfw_mode and "nsfw" not in result.lower():
-        result = f"{result}, nsfw"
-    return result
-
-
 def _visual_state_changed(previous: dict[str, Any], current: dict[str, Any]) -> bool:
     return any(
         previous.get(key) != current.get(key)
@@ -2682,18 +2676,6 @@ class AdventureService:
         self._images_dir = settings.history_images_dir.parent / "adventure_images"
         self._images_dir.mkdir(parents=True, exist_ok=True)
 
-    def _resolve_image(self, raw_path: str) -> Path | None:
-        raw = Path(raw_path)
-        candidates = [
-            raw,
-            settings.history_images_dir.parent / raw,
-            settings.history_images_dir / raw.name,
-        ]
-        for candidate in candidates:
-            if candidate.is_file():
-                return candidate
-        return None
-
     async def _build_prompt_expander_snapshot(
         self, entry_id: str
     ) -> tuple[dict[str, Any], Path, str, bool]:
@@ -2763,7 +2745,7 @@ class AdventureService:
             until_created_at = source_history.created_at
             appearance, starting_clothing = _history_visual_description(source_history)
         else:
-            image_path = self._resolve_image(source_session.current_image_path)
+            image_path = resolve_stored_image_path(source_session.current_image_path)
             current_image_name = Path(source_session.current_image_path or "").name
             histories = await session_store.get_history(source_session_id)
             current_history = next(
@@ -6602,7 +6584,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 worn_items_override=worn_items_override,
                 turn_number=effective_turn_number,
             )
-            player_prompt = _enhance_adventure_prompt(
+            player_prompt = enhance_prompt_for_novelai(
                 image_prompt.player_tags + _PLAYER_PROMPT_SUFFIX,
                 nsfw_mode=nsfw_mode,
             )
@@ -6615,7 +6597,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             npc_positions = ((0.18, 0.5), (0.82, 0.5), (0.12, 0.5))
             characters.extend(
                 {
-                    "prompt": _enhance_adventure_prompt(
+                    "prompt": enhance_prompt_for_novelai(
                         npc_prompt + _NPC_PROMPT_SUFFIX,
                         nsfw_mode=nsfw_mode,
                     ),
@@ -6635,8 +6617,9 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                     nsfw_mode, state
                 )
             character_references = None
-            # V5系モデルは精密参照（character reference）非対応
-            if use_precise_reference and not is_v5_image_model(effective_image_model):
+            if use_precise_reference and supports_character_references(
+                effective_image_model
+            ):
                 char_strength, char_fidelity = _character_reference_strength(
                     outfit_changed=outfit_changed,
                     has_fresh_portrait=(
@@ -6666,7 +6649,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 )
                 if partner_reference is not None:
                     character_references.append(partner_reference)
-            scene_prompt = _enhance_adventure_prompt(
+            scene_prompt = enhance_prompt_for_novelai(
                 _compose_scene_base_tags(image_prompt) + _SCENE_PROMPT_SUFFIX,
                 nsfw_mode=nsfw_mode,
             )
@@ -6920,7 +6903,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         provider = resolve_image_provider()
         # scene_tags は「観察可能な相互作用」を含みうるため、no humans 等の
         # 除外タグを前置して人物非表示を強く指示する
-        scenery_prompt = _enhance_adventure_prompt(
+        scenery_prompt = enhance_prompt_for_novelai(
             "no humans, empty, uninhabited, scenery, background, " + scene_tags,
             nsfw_mode=nsfw_mode,
         )
@@ -7068,7 +7051,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 )
             # 立ち絵はフロント側で背景を透過するため、必ず白背景で生成させる。
             # （V5モデルのみ透過背景をネイティブ生成させる）
-            player_prompt = _enhance_adventure_prompt(
+            player_prompt = enhance_prompt_for_novelai(
                 image_prompt.player_tags
                 + _portrait_prompt_suffix(effective_image_model),
                 nsfw_mode=nsfw_mode,
@@ -7086,11 +7069,10 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 )
             if provider == "novelai":
                 character_references = None
-                # V5系モデルは精密参照（character reference）非対応
                 if (
                     use_precise_reference
                     and reference_path is not None
-                    and not is_v5_image_model(effective_image_model)
+                    and supports_character_references(effective_image_model)
                 ):
                     # 参照は前ターン以前の1枚なので fresh portrait 扱いにしない
                     char_strength, char_fidelity = _character_reference_strength(
@@ -7213,7 +7195,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         effective_image_model: str | None = None
         if provider == "novelai":
             effective_image_model = await self._resolve_image_model(nsfw_mode, state)
-        prompt = _enhance_adventure_prompt(
+        prompt = enhance_prompt_for_novelai(
             partner_tags + _portrait_prompt_suffix(effective_image_model),
             nsfw_mode=nsfw_mode,
         )
@@ -7228,11 +7210,10 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         )
         reference_path = Path(str(state.get(reference_key) or ""))
         if provider == "novelai":
-            # V5系モデルは精密参照（character reference）非対応
             if (
                 bool(state.get("use_precise_reference"))
                 and reference_path.is_file()
-                and not is_v5_image_model(effective_image_model)
+                and supports_character_references(effective_image_model)
             ):
                 # 服装は変化し得るため弱めに参照する
                 char_strength, char_fidelity = _character_reference_strength(
@@ -7887,16 +7868,16 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             prompt_override=override,
             turn_number=run.turn_count,
         )
-        scene_prompt = _enhance_adventure_prompt(
+        scene_prompt = enhance_prompt_for_novelai(
             _compose_scene_base_tags(image_prompt) + _SCENE_PROMPT_SUFFIX,
             nsfw_mode=nsfw_mode,
         )
-        player_prompt = _enhance_adventure_prompt(
+        player_prompt = enhance_prompt_for_novelai(
             image_prompt.player_tags + _PLAYER_PROMPT_SUFFIX,
             nsfw_mode=nsfw_mode,
         )
         npc_prompts = [
-            _enhance_adventure_prompt(
+            enhance_prompt_for_novelai(
                 npc_prompt + _NPC_PROMPT_SUFFIX, nsfw_mode=nsfw_mode
             )
             for npc_prompt in image_prompt.npc_tags[:3]
@@ -7914,11 +7895,11 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             "scene_prompt": scene_prompt,
             "player_prompt": player_prompt,
             "npc_prompts": npc_prompts,
-            "portrait_prompt": _enhance_adventure_prompt(
+            "portrait_prompt": enhance_prompt_for_novelai(
                 image_prompt.player_tags + _portrait_prompt_suffix(preview_image_model),
                 nsfw_mode=nsfw_mode,
             ),
-            "partner_prompt": _enhance_adventure_prompt(
+            "partner_prompt": enhance_prompt_for_novelai(
                 partner_tags + _portrait_prompt_suffix(preview_image_model),
                 nsfw_mode=nsfw_mode,
             )

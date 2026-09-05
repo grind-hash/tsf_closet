@@ -10,6 +10,7 @@ from gateway.consts.novelai_models import (
     get_image_model_info,
     is_v5_image_model,
     resolve_user_image_model,
+    supports_character_references,
 )
 from gateway.services.anlas_service import parse_novelai_usage
 
@@ -63,6 +64,15 @@ class TestRegistry:
         assert not is_v5_image_model("unknown")
         assert not is_v5_image_model(None)
         assert not is_v5_image_model("")
+
+    def test_supports_character_references_is_false_only_for_v5(self) -> None:
+        assert not supports_character_references("nai-diffusion-5-full")
+        assert not supports_character_references("nai-diffusion-5-curated")
+        assert supports_character_references("nai-diffusion-4-5-full")
+        assert supports_character_references("nai-diffusion-4-5-curated")
+        # 未登録名・未指定は v4.5 相当として扱う
+        assert supports_character_references("unknown")
+        assert supports_character_references(None)
 
 
 class TestResolveUserImageModel:
