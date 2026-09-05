@@ -49,16 +49,18 @@ from ..models import (
     CRITICAL_POINTS,
     AchievedEnding,
     ConversationMessage,
-    ConversationMessageResponse,
-    HistoryItem,
     PersistedHistory,
     PersistedSession,
+    SessionStats,
+    TransformationTag,
+)
+from ..schemas.conversation import ConversationMessageResponse
+from ..schemas.parameters import SessionStatsResponse
+from ..schemas.session import (
+    HistoryItem,
     PlayMemoryResponse,
     SessionAttributeResponse,
     SessionResponse,
-    SessionStats,
-    SessionStatsResponse,
-    TransformationTag,
 )
 from ..settings.config import settings
 from .image_paths import resolve_stored_image_path

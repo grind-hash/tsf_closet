@@ -21,33 +21,30 @@ from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
 from ..consts.language import normalize_language
-from ..models import (
-    DIFFICULTY_PRESETS,
-    BranchSessionRequest,
-    BranchSessionResponse,
-    CharacterListResponse,
+from ..models import DIFFICULTY_PRESETS
+from ..schemas.characters import CharacterListResponse
+from ..schemas.common import ErrorResponse
+from ..schemas.conversation import SuggestInstructionRequest, SuggestInstructionResponse
+from ..schemas.gallery import GalleryEndingItem, GalleryResponse
+from ..schemas.novelai import MaskListResponse, MaskSaveRequest
+from ..schemas.parameters import (
     DifficultyListResponse,
     DifficultyResponse,
-    ErrorResponse,
-    GalleryEndingItem,
-    # ギャラリー (T052)
-    GalleryResponse,
+    SessionStatsResponse,
+)
+from ..schemas.play import PlayRequest
+from ..schemas.session import (
+    BranchSessionRequest,
+    BranchSessionResponse,
     GameStartRequest,
     GameStartResponse,
     HistorySelectResponse,
-    MaskListResponse,
-    MaskSaveRequest,
     PlayMemoryResponse,
     PlayMemoryUpdateRequest,
-    PlayRequest,
     SessionListResponse,
     SessionResetResponse,
     SessionResponse,
-    SessionStatsResponse,
-    # セッション一覧 (001-immersion-enhancement)
     SessionSummary,
-    SuggestInstructionRequest,
-    SuggestInstructionResponse,
 )
 from ..services.characters import character_manager
 from ..services.endings import ENDINGS

@@ -23,7 +23,7 @@ from sqlalchemy import select
 
 from ..databases.base import async_session_factory
 from ..databases.models import Session as SessionORM
-from ..models import (
+from ..schemas.characters import (
     CharacterPresetListResponse,
     CharacterPresetRead,
     CharacterPresetUpdate,

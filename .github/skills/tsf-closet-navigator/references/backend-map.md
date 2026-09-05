@@ -5,12 +5,28 @@
 ## FastAPI 構成
 
 - エントリーポイント: `backend/gateway/app.py`
-- APIモデル: `backend/gateway/models.py`
+- APIモデル（Pydantic）: `backend/gateway/schemas/`（ドメイン別。下表）
+- 内部状態モデル（dataclass）: `backend/gateway/models.py`（難易度プリセット、臨界点、`SessionStats`、`Character`、`PersistedHistory` / `PersistedSession` など）
 - ルーター公開: `backend/gateway/routes/__init__.py`
 - DBモデル: `backend/gateway/databases/models.py`
 - DB初期化・セッション: `backend/gateway/databases/base.py`、`database.py`、`orm.py`
 - Alembic: `backend/migrations/versions/`
 - `routes/*_router.py` は `app.py` でマウントする。原則 `/api` を付け、互換 API（`system_router` / `novelai_router` / `openai_images_router`）だけ prefix 無し。`app.py` 自体はライフサイクル・CORS・ルーター登録・静的配信のみ。
+
+## API モデル（`gateway/schemas/`）
+
+ルーターとサービスが共有する Pydantic モデル。使うモジュールから直接 import する（`gateway/models.py` からは import しない）。参照ゼロのモデル（SSE イベント型、`ChatRequest` / `ChatResponse`、`HealthResponse`、`SelfProfile` 等）は分割時に削除済みで、新しいモデルは該当ドメインへ追加する。
+
+| ファイル          | 内容                                                                                                         |
+| ----------------- | ------------------------------------------------------------------------------------------------------------ |
+| `session.py`      | `SessionResponse` / `HistoryItem` / `SessionSummary` / `SessionListResponse`、プレイメモ、分岐開始、ゲーム開始、履歴選択・リセット |
+| `play.py`         | `PlayRequest`（通常プレイの本文。`preview_prompt` と SSE 送信の両方が使う）                                  |
+| `conversation.py` | `ConversationMessageResponse`、指示候補生成の `SuggestInstruction*`                                          |
+| `parameters.py`   | `SessionStatsResponse`（camelCase alias + `populate_by_name`）、難易度一覧                                    |
+| `characters.py`   | `CharacterInfo` / `CharacterListResponse`、セッション人物・人物プリセットの CRUD、人物タグ生成、`CharacterPositionLiteral` |
+| `gallery.py`      | エンディングギャラリー                                                                                       |
+| `novelai.py`      | インペイント用マスク管理（`MaskSaveRequest` / `MaskInfo` / `MaskListResponse`）                              |
+| `common.py`       | `ErrorResponse`                                                                                              |
 
 ## ルーター
 

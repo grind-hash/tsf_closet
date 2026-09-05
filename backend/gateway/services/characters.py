@@ -10,7 +10,8 @@ import base64
 import json
 from pathlib import Path
 
-from ..models import Character, CharacterInfo
+from ..models import Character
+from ..schemas.characters import CharacterInfo
 from ..settings.config import settings
 
 

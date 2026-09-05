@@ -126,7 +126,7 @@ async def suggest_tags(
 
     Returns:
         Dict[str, Any]: タグ候補レスポンス
-            - tags: list[TagSuggestion] タグ候補リスト
+            - tags: list[{tag, count}] タグ候補リスト
             - query: str 元のクエリ
 
     Raises:

@@ -18,8 +18,8 @@ from gateway.databases.models import (
 from gateway.databases.models import (
     User,
 )
-from gateway.models import PlayRequest
 from gateway.routes.game_router import PlayStreamRequest, preview_prompt
+from gateway.schemas.play import PlayRequest
 from gateway.services.game_service import game_service
 from gateway.services.history_context import (
     build_history_context,
