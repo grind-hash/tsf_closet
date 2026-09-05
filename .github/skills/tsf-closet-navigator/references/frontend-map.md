@@ -116,7 +116,11 @@ components/
     AudioControlBar.tsx       TTS再生
 
   adventure/
-    AdventureScreen.tsx       セットアップ、Run、ターン履歴、画像
+    AdventureScreen.tsx       /adventure（Hub）と /adventure/:runId（Play）の切り替えと CSS の読み込みだけ
+    AdventureHub.tsx          セットアップ画面（開始素材・シナリオ・オプション・保存済み Run 一覧）
+    AdventurePlay.tsx         プレイ画面（HUD・ステージ・メッセージ窓・ログ・各種モーダル）
+    AdventureScenarioPickerModal.tsx  作品／プレイ済みシナリオの選択モーダル（Hub から開く）
+    AdventureAvatarOptions.tsx        3D モデルの選択肢と衣装差分ヒント（Hub / Play 共有）
     AdventureImagePromptModal.tsx
     AdventureGiftShopModal.tsx    romance のギフト購入（gift_id 送信）
     AdventureAttributeModal.tsx   romance の属性付与（現実改変プレフィックス組み立て）
@@ -187,5 +191,6 @@ components/
 - Context単体テストは `frontend/src/contexts/tests/`、E2Eは `frontend/tests/e2e/`。
 - 主な対象E2E: `action-mode.spec.ts`、`image-only-preview.spec.ts`、`adventure-mode.spec.ts`、`adventure-portrait-alpha.spec.ts`、`prompt-expander.spec.ts`。
 - 持ち物の型は `apis/adventure.ts` の `AdventureInventory` / `AdventureInventoryItem` / `AdventureInventoryLogEntry` / `AdventureItemAction` / `AdventureTurnOptions`（`submitTurn` の options）。カテゴリ・操作の語彙は backend `consts/adventure_inventory.py` と一致させ、表示名は `adventure.inventoryCategory.*` / `adventure.inventoryAction.*`。
+- Adventure 画面の純関数は `utils/adventureFrames.ts`（`buildStageFrames`: run → ステージ用フレーム列、`partnerPortraitInherited` / `partnerPortraitReasonKey` / `frameDaySlot`）、`utils/adventureSetupPrefs.ts`（セットアップ設定の localStorage 読み出しと正規化）、`utils/adventureVoiceSegments.ts`（読み上げセグメント化）、`utils/adventureFormat.ts`（`formatAnlasEstimate` / `mediaUrl` / `speechStyleLabel`）に分け、定数（プリセット・ターン数境界・語り手の声・口調・localStorage キー）は `constants/adventure.ts` に置く。いずれも vitest 対象。
 - Adventure の台本形式ユーティリティは `utils/adventureDialogue.ts`（`parseDialogueSegments` / `partnerLines` / `joinForSpeech` / `stripStageDirections`）。対面会話モードの見積もりは `utils/adventureTurnTimeEstimate.ts` の `companionMode`。
 - 定数ミラー: `constants/promptExpander.ts`（画像モデル4種、キャラ上限 V5=22/V4.5=6、サイズ、漫画モードのコマ数/レイアウト/セリフ言語と `supportsMangaMode`、精密参照の種別/既定強度/`PROMPT_EXPANDER_ANLAS_PER_REFERENCE`/`PROMPT_EXPANDER_ANLAS_WARN_SUPPRESSED_KEY`/`supportsPreciseReference`、背景透過の `usesNativeTransparency`/`PROMPT_EXPANDER_ALPHA_OPTIONS`）。`V5_USAGE_WARN_SUPPRESSED_KEY` は `constants/novelaiImageModels.ts` に集約。`constants/companionAvatar.ts` は 3D モデルの表情 6 種・身振り 8 種で、backend `consts/companion_avatar.py` と完全一致させる（LLM に選ばせる語彙＝FE が実装している語彙）。衣装差分のキー("1","2",…)は手番ごとにバックエンドが組み直すため FE に定数は無い。

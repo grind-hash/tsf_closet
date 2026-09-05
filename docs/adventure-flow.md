@@ -6,7 +6,7 @@ VS Code の Markdown プレビュー、または GitHub 上でそのまま Merma
 対象コード:
 
 - バックエンド: `backend/gateway/routes/adventure_router.py`、`backend/gateway/services/adventure_service.py`、`backend/gateway/services/adventure_romance.py`
-- フロントエンド: `frontend/src/components/adventure/AdventureScreen.tsx`、`frontend/src/contexts/AdventureContext.tsx`、`frontend/src/apis/adventure.ts`
+- フロントエンド: `frontend/src/components/adventure/AdventureScreen.tsx`（入口。セットアップは `AdventureHub.tsx`、プレイは `AdventurePlay.tsx`）、`frontend/src/contexts/AdventureContext.tsx`、`frontend/src/apis/adventure.ts`
 
 ---
 

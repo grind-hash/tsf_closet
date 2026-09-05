@@ -129,7 +129,7 @@ character_service → game_service / llm_service
 ## Adventure
 
 ```text
-AdventureScreen
+AdventureScreen (AdventureHub / AdventurePlay)
   ↓ AdventureContext
 apis/adventure.ts
   ├─ setup/generate、runs CRUD
