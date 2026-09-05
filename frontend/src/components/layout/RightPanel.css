@@ -549,46 +549,6 @@
 }
 
 /* モーダル */
-.right-panel__modal-overlay {
-  position: fixed;
-  inset: 0;
-  background-color: rgba(0, 0, 0, 0.6);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-
-.right-panel__modal {
-  background-color: var(--card-bg, #16213e);
-  border-radius: 8px;
-  padding: 1.5rem;
-  min-width: 280px;
-  max-width: 90vw;
-}
-
-.right-panel__modal h4 {
-  margin: 0 0 1rem 0;
-  font-size: 1rem;
-  color: var(--text-color, #eee);
-}
-
-.right-panel__modal-info {
-  font-size: 0.85rem;
-  color: var(--text-muted, #888);
-  margin: 0 0 0.75rem 0;
-  padding: 0.5rem;
-  background-color: var(--bg-color, #1a1a2e);
-  border-radius: 4px;
-}
-
-.right-panel__modal-actions {
-  display: flex;
-  gap: 0.5rem;
-  margin-top: 1rem;
-  justify-content: flex-end;
-}
-
 /* サマリー */
 .right-panel__summary {
   margin: 0;

@@ -21,7 +21,7 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { useTranslation } from "react-i18next";
+import { Trans, useTranslation } from "react-i18next";
 import { useLocation } from "react-router-dom";
 import { fetchFavorites, toggleFavorite } from "../apis/favorites";
 import { exportSessionMarkdown, exportSessionNovelHtml } from "../apis/gallery";
@@ -72,6 +72,8 @@ import RightPanel from "./layout/RightPanel";
 import { NovelaiUsageBar } from "./NovelaiUsageBar";
 import CharacterPanel from "./panel/CharacterPanel";
 import CharacterStatePanel from "./panel/CharacterStatePanel";
+import AnlasConfirmDialog from "./ui/AnlasConfirmDialog";
+import ConfirmDialog from "./ui/ConfirmDialog";
 import FileDropOverlay from "./ui/FileDropOverlay";
 import ImageOverlay from "./ui/ImageOverlay";
 import "./GamePlayScreen.css";
@@ -175,10 +177,6 @@ export default function GamePlayScreen({
       chatFetchFailed: t("gameplay.chatFetchFailed"),
       chatNetworkError: t("gameplay.chatNetworkError"),
       imageAlt: t("gameplay.imageAlt"),
-      anlasTitle: t("gameplay.anlasTitle"),
-      anlasCancel: t("gameplay.anlasCancel"),
-      anlasProceed: t("gameplay.anlasProceed"),
-      anlasDoNotShowAgain: t("gameplay.anlasDoNotShowAgain"),
     }),
     [t],
   );
@@ -236,7 +234,6 @@ export default function GamePlayScreen({
     instructionType?: string;
     useMemory: boolean;
   } | null>(null);
-  const [anlasDoNotShowAgain, setAnlasDoNotShowAgain] = useState(false);
 
   // V5 利用上限の使い切り警告ダイアログ（Anlas 消費で生成が続く状態）
   const [usageWarnPending, setUsageWarnPending] = useState<{
@@ -246,7 +243,6 @@ export default function GamePlayScreen({
     instructionType?: string;
     useMemory: boolean;
   } | null>(null);
-  const [usageWarnDoNotShowAgain, setUsageWarnDoNotShowAgain] = useState(false);
 
   // Close export menu on outside click
   useEffect(() => {
@@ -932,7 +928,6 @@ export default function GamePlayScreen({
           usageExhausted &&
           sessionStorage.getItem(V5_USAGE_WARN_SUPPRESSED_KEY) !== "true"
         ) {
-          setUsageWarnDoNotShowAgain(false);
           setUsageWarnPending({
             message,
             transformationType,
@@ -966,7 +961,6 @@ export default function GamePlayScreen({
             );
             return;
           }
-          setAnlasDoNotShowAgain(false);
           setAnlasConfirmPending({
             message,
             transformationType,
@@ -1196,65 +1190,67 @@ export default function GamePlayScreen({
   );
 
   // Anlas confirmation dialog handlers
-  const handleAnlasConfirm = useCallback(() => {
-    if (!anlasConfirmPending) return;
-    const {
-      message,
-      transformationType,
-      transformOptions,
-      instructionType: pendingInstructionType,
-      useMemory,
-    } = anlasConfirmPending;
-    if (anlasDoNotShowAgain) {
-      sessionStorage.setItem(ANLAS_WARN_SUPPRESSED_KEY, "true");
-    }
-    setAnlasConfirmPending(null);
-    setAnlasDoNotShowAgain(false);
-    onTransform(
-      message,
-      undefined,
-      transformationType,
-      transformOptions,
-      pendingInstructionType,
-      undefined,
-      useMemory,
-    );
-  }, [anlasConfirmPending, anlasDoNotShowAgain, onTransform]);
+  const handleAnlasConfirm = useCallback(
+    (doNotShowAgain: boolean) => {
+      if (!anlasConfirmPending) return;
+      const {
+        message,
+        transformationType,
+        transformOptions,
+        instructionType: pendingInstructionType,
+        useMemory,
+      } = anlasConfirmPending;
+      if (doNotShowAgain) {
+        sessionStorage.setItem(ANLAS_WARN_SUPPRESSED_KEY, "true");
+      }
+      setAnlasConfirmPending(null);
+      onTransform(
+        message,
+        undefined,
+        transformationType,
+        transformOptions,
+        pendingInstructionType,
+        undefined,
+        useMemory,
+      );
+    },
+    [anlasConfirmPending, onTransform],
+  );
 
   const handleAnlasCancel = useCallback(() => {
     setAnlasConfirmPending(null);
-    setAnlasDoNotShowAgain(false);
   }, []);
 
   // V5 利用上限使い切り警告ダイアログのハンドラー
-  const handleUsageWarnConfirm = useCallback(() => {
-    if (!usageWarnPending) return;
-    const {
-      message,
-      transformationType,
-      transformOptions,
-      instructionType: pendingInstructionType,
-      useMemory,
-    } = usageWarnPending;
-    if (usageWarnDoNotShowAgain) {
-      sessionStorage.setItem(V5_USAGE_WARN_SUPPRESSED_KEY, "true");
-    }
-    setUsageWarnPending(null);
-    setUsageWarnDoNotShowAgain(false);
-    onTransform(
-      message,
-      undefined,
-      transformationType,
-      transformOptions,
-      pendingInstructionType,
-      undefined,
-      useMemory,
-    );
-  }, [usageWarnPending, usageWarnDoNotShowAgain, onTransform]);
+  const handleUsageWarnConfirm = useCallback(
+    (doNotShowAgain: boolean) => {
+      if (!usageWarnPending) return;
+      const {
+        message,
+        transformationType,
+        transformOptions,
+        instructionType: pendingInstructionType,
+        useMemory,
+      } = usageWarnPending;
+      if (doNotShowAgain) {
+        sessionStorage.setItem(V5_USAGE_WARN_SUPPRESSED_KEY, "true");
+      }
+      setUsageWarnPending(null);
+      onTransform(
+        message,
+        undefined,
+        transformationType,
+        transformOptions,
+        pendingInstructionType,
+        undefined,
+        useMemory,
+      );
+    },
+    [usageWarnPending, onTransform],
+  );
 
   const handleUsageWarnCancel = useCallback(() => {
     setUsageWarnPending(null);
-    setUsageWarnDoNotShowAgain(false);
   }, []);
 
   // メッセージ削除の確認ダイアログを表示
@@ -1833,261 +1829,48 @@ export default function GamePlayScreen({
           ) : undefined
         }
       />
-      {/* Anlas cost confirmation dialog for precise references */}
-      {anlasConfirmPending && (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(0,0,0,0.6)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 9999,
-          }}
-        >
-          <div
-            style={{
-              background: "var(--bg-secondary, #2a2a2a)",
-              borderRadius: 8,
-              padding: "1.5rem",
-              maxWidth: 400,
-              width: "90%",
-              boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
-            }}
-          >
-            <h3 style={{ margin: "0 0 0.75rem", fontSize: "1rem" }}>
-              {uiText.anlasTitle}
-            </h3>
-            <p
-              style={{
-                margin: "0 0 1rem",
-                fontSize: "0.9rem",
-                lineHeight: 1.5,
-              }}
-            >
-              精密参照画像の使用により追加で{" "}
-              <strong>{anlasConfirmPending.anlasCost} Anlas</strong>{" "}
-              を消費します。続行しますか？
-            </p>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "0.5rem",
-                margin: "0 0 1rem",
-                fontSize: "0.85rem",
-                color: "var(--text-secondary, #aaa)",
-                cursor: "pointer",
-              }}
-              onClick={() => setAnlasDoNotShowAgain((v) => !v)}
-            >
-              <input
-                type="checkbox"
-                id="anlas-do-not-show-again"
-                checked={anlasDoNotShowAgain}
-                onChange={(e) => setAnlasDoNotShowAgain(e.target.checked)}
-                style={{ cursor: "pointer" }}
-              />
-              <label
-                htmlFor="anlas-do-not-show-again"
-                style={{ cursor: "pointer", userSelect: "none" }}
-              >
-                {uiText.anlasDoNotShowAgain}
-              </label>
-            </div>
-            <div
-              style={{
-                display: "flex",
-                gap: "0.5rem",
-                justifyContent: "flex-end",
-              }}
-            >
-              <button
-                type="button"
-                onClick={handleAnlasCancel}
-                style={{
-                  padding: "0.5rem 1rem",
-                  borderRadius: 4,
-                  border: "1px solid var(--border-color, #555)",
-                  background: "transparent",
-                  color: "var(--text-primary, #eee)",
-                  cursor: "pointer",
-                }}
-              >
-                {uiText.anlasCancel}
-              </button>
-              <button
-                type="button"
-                onClick={handleAnlasConfirm}
-                style={{
-                  padding: "0.5rem 1rem",
-                  borderRadius: 4,
-                  border: "none",
-                  background: "var(--accent-color, #6366f1)",
-                  color: "#fff",
-                  cursor: "pointer",
-                }}
-              >
-                {uiText.anlasProceed}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* 精密参照の Anlas 追加消費の確認 */}
+      <AnlasConfirmDialog
+        open={anlasConfirmPending !== null}
+        body={
+          <Trans
+            i18nKey="gameplay.anlasPreciseReferenceBody"
+            values={{ cost: anlasConfirmPending?.anlasCost ?? 0 }}
+            components={{ strong: <strong /> }}
+          />
+        }
+        onConfirm={handleAnlasConfirm}
+        onCancel={handleAnlasCancel}
+      />
 
       {/* V5 利用上限使い切り警告ダイアログ */}
-      {usageWarnPending && (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(0,0,0,0.6)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 9999,
-          }}
-        >
-          <div
-            style={{
-              background: "var(--bg-secondary, #2a2a2a)",
-              borderRadius: 8,
-              padding: "1.5rem",
-              maxWidth: 400,
-              width: "90%",
-              boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
-            }}
-          >
-            <h3 style={{ margin: "0 0 0.75rem", fontSize: "1rem" }}>
-              {uiText.anlasTitle}
-            </h3>
-            <p
-              style={{
-                margin: "0 0 1rem",
-                fontSize: "0.9rem",
-                lineHeight: 1.5,
-              }}
-            >
-              {t("gameplay.v5UsageExhaustedBody")}
-            </p>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "0.5rem",
-                margin: "0 0 1rem",
-                fontSize: "0.85rem",
-                color: "var(--text-secondary, #aaa)",
-                cursor: "pointer",
-              }}
-              onClick={() => setUsageWarnDoNotShowAgain((v) => !v)}
-            >
-              <input
-                type="checkbox"
-                id="usage-warn-do-not-show-again"
-                checked={usageWarnDoNotShowAgain}
-                onChange={(e) => setUsageWarnDoNotShowAgain(e.target.checked)}
-                style={{ cursor: "pointer" }}
-              />
-              <label
-                htmlFor="usage-warn-do-not-show-again"
-                style={{ cursor: "pointer", userSelect: "none" }}
-              >
-                {uiText.anlasDoNotShowAgain}
-              </label>
-            </div>
-            <div
-              style={{
-                display: "flex",
-                gap: "0.5rem",
-                justifyContent: "flex-end",
-              }}
-            >
-              <button
-                type="button"
-                onClick={handleUsageWarnCancel}
-                style={{
-                  padding: "0.5rem 1rem",
-                  borderRadius: 4,
-                  border: "1px solid var(--border-color, #555)",
-                  background: "transparent",
-                  color: "var(--text-primary, #eee)",
-                  cursor: "pointer",
-                }}
-              >
-                {uiText.anlasCancel}
-              </button>
-              <button
-                type="button"
-                onClick={handleUsageWarnConfirm}
-                style={{
-                  padding: "0.5rem 1rem",
-                  borderRadius: 4,
-                  border: "none",
-                  background: "var(--accent-color, #6366f1)",
-                  color: "#fff",
-                  cursor: "pointer",
-                }}
-              >
-                {uiText.anlasProceed}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <AnlasConfirmDialog
+        open={usageWarnPending !== null}
+        body={t("gameplay.v5UsageExhaustedBody")}
+        onConfirm={handleUsageWarnConfirm}
+        onCancel={handleUsageWarnCancel}
+      />
 
       {/* メッセージ削除確認ダイアログ */}
-      {deleteMessageConfirm && (
-        <div
-          className="game-play-screen__delete-modal-overlay"
-          onClick={() => !isDeletingMessage && setDeleteMessageConfirm(null)}
-          onKeyDown={(e) => {
-            if (e.key === "Escape" && !isDeletingMessage)
-              setDeleteMessageConfirm(null);
-          }}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="delete-msg-modal-title"
-        >
-          <div
-            className="game-play-screen__delete-modal"
-            onClick={(e) => e.stopPropagation()}
-            onKeyDown={() => {}}
-            role="document"
-          >
-            <h3 id="delete-msg-modal-title">
-              {t("gameplay.deleteMessageTitle")}
-            </h3>
-            <p>{t("gameplay.deleteMessageConfirm")}</p>
-            {deleteMessageConfirm.responsePreview && (
-              <p className="game-play-screen__delete-modal-preview">
-                {t("gameplay.deleteMessageResponsePreview", {
-                  preview: deleteMessageConfirm.responsePreview,
-                })}
-              </p>
-            )}
-            <div className="game-play-screen__delete-modal-actions">
-              <button
-                type="button"
-                onClick={handleConfirmDeleteMessage}
-                disabled={isDeletingMessage}
-                className="game-play-screen__delete-modal-confirm"
-              >
-                {t("gameplay.deleteMessageAction")}
-              </button>
-              <button
-                type="button"
-                onClick={() => setDeleteMessageConfirm(null)}
-                disabled={isDeletingMessage}
-                className="game-play-screen__delete-modal-cancel"
-              >
-                {t("gameplay.deleteMessageCancel")}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmDialog
+        open={deleteMessageConfirm !== null}
+        title={t("gameplay.deleteMessageTitle")}
+        confirmLabel={t("gameplay.deleteMessageAction")}
+        cancelLabel={t("gameplay.deleteMessageCancel")}
+        busy={isDeletingMessage}
+        dismissible
+        onConfirm={handleConfirmDeleteMessage}
+        onCancel={() => setDeleteMessageConfirm(null)}
+      >
+        <p>{t("gameplay.deleteMessageConfirm")}</p>
+        {deleteMessageConfirm?.responsePreview && (
+          <p className="game-play-screen__delete-modal-preview">
+            {t("gameplay.deleteMessageResponsePreview", {
+              preview: deleteMessageConfirm.responsePreview,
+            })}
+          </p>
+        )}
+      </ConfirmDialog>
 
       {/* US2: 周囲状況画像拡大表示 */}
       {surroundingsOverlayUrl && (
@@ -2099,54 +1882,24 @@ export default function GamePlayScreen({
       )}
 
       {/* 最新メッセージ編集確認ダイアログ */}
-      {editMessageConfirm && (
-        <div
-          className="game-play-screen__delete-modal-overlay"
-          onClick={() => !isEditingMessage && setEditMessageConfirm(null)}
-          onKeyDown={(e) => {
-            if (e.key === "Escape" && !isEditingMessage)
-              setEditMessageConfirm(null);
-          }}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="edit-msg-modal-title"
-        >
-          <div
-            className="game-play-screen__delete-modal"
-            onClick={(e) => e.stopPropagation()}
-            onKeyDown={() => {}}
-            role="document"
-          >
-            <h3 id="edit-msg-modal-title">{t("gameplay.editMessageTitle")}</h3>
-            <p>{t("gameplay.editMessageConfirm")}</p>
-            <p
-              className="game-play-screen__delete-modal-preview"
-              style={{ fontStyle: "italic" }}
-            >
-              {editMessageConfirm.content.slice(0, 60)}
-              {editMessageConfirm.content.length > 60 ? "..." : ""}
-            </p>
-            <div className="game-play-screen__delete-modal-actions">
-              <button
-                type="button"
-                onClick={handleConfirmEditMessage}
-                disabled={isEditingMessage}
-                className="game-play-screen__delete-modal-confirm"
-              >
-                {t("gameplay.editMessageAction")}
-              </button>
-              <button
-                type="button"
-                onClick={() => setEditMessageConfirm(null)}
-                disabled={isEditingMessage}
-                className="game-play-screen__delete-modal-cancel"
-              >
-                {t("gameplay.editMessageCancel")}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmDialog
+        open={editMessageConfirm !== null}
+        title={t("gameplay.editMessageTitle")}
+        confirmLabel={t("gameplay.editMessageAction")}
+        cancelLabel={t("gameplay.editMessageCancel")}
+        busy={isEditingMessage}
+        dismissible
+        onConfirm={handleConfirmEditMessage}
+        onCancel={() => setEditMessageConfirm(null)}
+      >
+        <p>{t("gameplay.editMessageConfirm")}</p>
+        {editMessageConfirm && (
+          <p className="game-play-screen__delete-modal-preview">
+            {editMessageConfirm.content.slice(0, 60)}
+            {editMessageConfirm.content.length > 60 ? "..." : ""}
+          </p>
+        )}
+      </ConfirmDialog>
 
       {/* 画面全体への画像ドロップ用オーバーレイ（表示のみ。drop 自体は window で受ける） */}
       {isFileDragging && (

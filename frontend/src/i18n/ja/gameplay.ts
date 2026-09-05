@@ -8,6 +8,8 @@ export const gameplay = {
   anlasTitle: "Anlas 追加消費の確認",
   anlasCancel: "キャンセル",
   anlasDoNotShowAgain: "ブラウザを閉じるまで表示しない",
+  anlasPreciseReferenceBody:
+    "精密参照画像の使用により追加で <strong>{{cost}} Anlas</strong> を消費します。続行しますか？",
   preciseRefDropTitle: "ドロップして精密参照画像に追加",
   preciseRefDropHint: "PNG / JPEG / WebP・10MBまで・最大6枚",
   preciseRefDropResultTitle: "精密参照画像の追加",

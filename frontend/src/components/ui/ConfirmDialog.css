@@ -1,0 +1,111 @@
+/* 共通の確認ダイアログ（Anlas 確認・メッセージ削除/編集・プリセット保存で共用） */
+.confirm-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.confirm-dialog {
+  background: var(--bg-secondary, #2a2a2a);
+  border-radius: 8px;
+  padding: 1.5rem;
+  max-width: 400px;
+  width: 90%;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+}
+
+.confirm-dialog__title {
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
+  color: var(--text-color, #eee);
+}
+
+.confirm-dialog__body {
+  margin: 0 0 1rem;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: var(--text-color, #ccc);
+}
+
+.confirm-dialog__body p {
+  margin: 0 0 0.75rem;
+}
+
+.confirm-dialog__body p:last-child {
+  margin-bottom: 0;
+}
+
+.confirm-dialog__input {
+  width: 100%;
+  padding: 0.75rem;
+  font-size: 0.875rem;
+  background-color: var(--bg-color, #1a1a2e);
+  border: 1px solid var(--border-color, #444);
+  border-radius: 8px;
+  color: var(--text-color, #eee);
+  box-sizing: border-box;
+}
+
+.confirm-dialog__input:focus {
+  outline: none;
+  border-color: var(--accent-color, #e94560);
+}
+
+.confirm-dialog__check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 1rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary, #aaa);
+  cursor: pointer;
+  user-select: none;
+}
+
+.confirm-dialog__check input {
+  cursor: pointer;
+}
+
+.confirm-dialog__actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+.confirm-dialog__confirm,
+.confirm-dialog__cancel {
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.confirm-dialog__confirm {
+  border: none;
+  background: var(--accent-color, #6366f1);
+  color: #fff;
+}
+
+.confirm-dialog__confirm:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.confirm-dialog__cancel {
+  border: 1px solid var(--border-color, #555);
+  background: transparent;
+  color: var(--text-primary, #eee);
+}
+
+.confirm-dialog__cancel:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.confirm-dialog__confirm:disabled,
+.confirm-dialog__cancel:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
