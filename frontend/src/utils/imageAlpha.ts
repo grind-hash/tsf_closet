@@ -459,14 +459,3 @@ export function retainTransparentImage(
 ): TransparentImageHandle {
   return defaultCache.retain(src, options);
 }
-
-/**
- * Returns an object URL of `src` with its outer background made transparent.
- * The result is not held; prefer `retainTransparentImage` when it is displayed.
- */
-export function removeImageBackground(
-  src: string,
-  options: RemoveBackgroundOptions = {},
-): Promise<string> {
-  return defaultCache.resolve(src, options);
-}

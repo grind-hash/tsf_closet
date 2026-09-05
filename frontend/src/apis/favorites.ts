@@ -111,20 +111,6 @@ export async function updateFavoriteLabel(
   return convertFavoriteItem(await response.json());
 }
 
-export async function deleteFavorite(favoriteId: string): Promise<void> {
-  const response = await fetch(
-    `${API_BASE}/favorites/${encodeURIComponent(favoriteId)}`,
-    { method: "DELETE" },
-  );
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    const message =
-      (typeof error.detail === "object" && error.detail?.message) ||
-      "お気に入りの削除に失敗しました";
-    throw new Error(message);
-  }
-}
-
 export async function deleteFavoriteByHistory(
   historyId: string,
 ): Promise<boolean> {

@@ -31,8 +31,6 @@ export const CHARACTERS_FROM_PRESET = (
 ): string =>
   `${API_BASE}/game/session/${encodeURIComponent(sessionId)}/characters/from-preset/${encodeURIComponent(presetId)}`;
 
-export const CHARACTERS_GENERATE_TAGS = `${API_BASE}/game/characters/generate-tags`;
-
 export const CHARACTER_PRESETS = `${API_BASE}/game/character-presets`;
 
 export const CHARACTER_PRESET = (presetId: string): string =>

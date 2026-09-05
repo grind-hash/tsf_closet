@@ -40,7 +40,6 @@ from ..models import (
     PlayMemoryResponse,
     PlayMemoryUpdateRequest,
     PlayRequest,
-    PlayResponse,
     SessionListResponse,
     SessionResetResponse,
     SessionResponse,
@@ -125,37 +124,6 @@ async def get_session(session_id: str) -> SessionResponse:
             },
         )
     return session
-
-
-@router.post(
-    "/play",
-    response_model=PlayResponse,
-    responses={400: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
-    summary="着せ替えを実行",
-    description="キャラクターに対して着せ替えを実行し、結果画像と心境テキストを返却",
-)
-async def play_game(request: PlayRequest) -> PlayResponse:
-    """着せ替えを実行
-
-    新規開始時: character_id または character_image を指定
-    継続プレイ時: session_id を指定
-    """
-    # インポートを遅延して循環参照を回避
-    from ..services.game_service import game_service
-
-    try:
-        result = await game_service.play(request)
-        return result
-    except ValueError as e:
-        raise HTTPException(
-            status_code=400,
-            detail={"error": "invalid_request", "message": str(e)},
-        ) from e
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail={"error": "internal_error", "message": f"ゲーム実行エラー: {e}"},
-        ) from e
 
 
 class CharacterReferenceParam(BaseModel):
