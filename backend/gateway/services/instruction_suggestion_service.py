@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import logging
 
+from .llm_json import strip_code_fence
+
 logger = logging.getLogger(__name__)
 
 _FILTERABLE_TYPES = {"dress_up", "reality_alter", "action"}
@@ -27,11 +29,7 @@ def _resolve_type_filter(instruction_type: str | None) -> str | None:
 
 def _strip_llm_wrapper(raw: str) -> str:
     """LLM出力からコードフェンス・前後の引用符/空白を除去する。"""
-    text = raw.strip()
-    if text.startswith("```"):
-        lines = text.split("\n")
-        lines = [line for line in lines if not line.strip().startswith("```")]
-        text = "\n".join(lines).strip()
+    text = strip_code_fence(raw)
     if len(text) >= 2 and text[0] in "\"'「『" and text[-1] in "\"'」』":
         text = text[1:-1].strip()
     return text

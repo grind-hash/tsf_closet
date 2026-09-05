@@ -14,6 +14,7 @@ from sqlalchemy import delete, select
 
 from ..databases.base import async_session_factory
 from ..databases.models import PlaySummary as PlaySummaryORM
+from .llm_json import strip_code_fence
 from .session import session_store
 from .summary_prompts import (
     build_branch_situation_user_prompt,
@@ -125,17 +126,7 @@ class SummaryService:
 
         Handles cases where LLM wraps JSON in markdown code blocks.
         """
-        content = raw.strip()
-
-        # Strip markdown code fences if present
-        if content.startswith("```"):
-            lines = content.split("\n")
-            # Remove first line (```json or ```) and last line (```)
-            if lines[-1].strip() == "```":
-                lines = lines[1:-1]
-            else:
-                lines = lines[1:]
-            content = "\n".join(lines).strip()
+        content = strip_code_fence(raw)
 
         try:
             data = json.loads(content)
@@ -183,15 +174,7 @@ class SummaryService:
 
         try:
             result = await llm_service.generate_text(system_prompt, user_prompt)
-            text = (result.content or "").strip()
-            # Strip accidental code fences / quotes
-            if text.startswith("```"):
-                lines = text.split("\n")
-                if lines[-1].strip() == "```":
-                    lines = lines[1:-1]
-                else:
-                    lines = lines[1:]
-                text = "\n".join(lines).strip()
+            text = strip_code_fence(result.content or "")
             if len(text) > 400:
                 text = text[:400].rstrip() + "…"
             if text:
