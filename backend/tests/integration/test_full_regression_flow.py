@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from gateway.routes.achievements_router import router as achievements_router
-from gateway.settings import router as settings_router
+from gateway.routes.settings_router import router as settings_router
 from tests.support.stubs import StubSettingsService
 
 _settings_router_mod = importlib.import_module("gateway.routes.settings_router")

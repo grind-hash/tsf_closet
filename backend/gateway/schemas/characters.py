@@ -145,3 +145,12 @@ class CharacterPresetListResponse(BaseModel):
     """Wrapper for GET /game/character-presets."""
 
     presets: list[CharacterPresetRead]
+
+
+class GenerateBaseTagsRequest(BaseModel):
+    """外見タグ自動生成リクエスト"""
+
+    name: str = Field("", description="キャラクター名")
+    description: str = Field("", description="外見の説明")
+    gender: str = Field("other", description="性別 (man/woman/other)")
+    personality: str = Field("", description="パーソナリティ")

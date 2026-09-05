@@ -42,3 +42,20 @@ class MaskListResponse(BaseModel):
     presets: list[MaskInfo] = Field(
         default_factory=list, description="ユーザープリセットマスク"
     )
+
+
+class AnlasUsageModel(BaseModel):
+    """NovelAI V5 usage limit model."""
+
+    percent: int
+    is_negative: bool = False
+    time_until_next_percent: int = 0
+
+
+class AnlasBalanceResponse(BaseModel):
+    """Anlas balance response model."""
+
+    fixed_anlas: int | None = None
+    purchased_anlas: int | None = None
+    total_anlas: int | None = None
+    usage: AnlasUsageModel | None = None

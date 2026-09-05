@@ -15,18 +15,23 @@
 
 ## API モデル（`gateway/schemas/`）
 
-ルーターとサービスが共有する Pydantic モデル。使うモジュールから直接 import する（`gateway/models.py` からは import しない）。参照ゼロのモデル（SSE イベント型、`ChatRequest` / `ChatResponse`、`HealthResponse`、`SelfProfile` 等）は分割時に削除済みで、新しいモデルは該当ドメインへ追加する。
+ルーターとサービスが共有する Pydantic モデル。使うモジュールから直接 import する（`gateway/models.py` からは import しない。テストもルーター経由ではなく `gateway.schemas.*` から import する）。ルーター内に `BaseModel` を定義しない。参照ゼロのモデル（SSE イベント型、`ChatRequest` / `ChatResponse`、`HealthResponse`、`SelfProfile` 等）は分割時に削除済みで、新しいモデルは該当ドメインへ追加する。
 
 | ファイル          | 内容                                                                                                         |
 | ----------------- | ------------------------------------------------------------------------------------------------------------ |
 | `session.py`      | `SessionResponse` / `HistoryItem` / `SessionSummary` / `SessionListResponse`、プレイメモ、分岐開始、ゲーム開始、履歴選択・リセット |
-| `play.py`         | `PlayRequest`（通常プレイの本文。`preview_prompt` と SSE 送信の両方が使う）                                  |
+| `play.py`         | `PlayRequest`（`preview_prompt` 用）と `PlayStreamRequest` / `CharacterReferenceParam`（SSE 送信用）           |
 | `conversation.py` | `ConversationMessageResponse`、指示候補生成の `SuggestInstruction*`                                          |
 | `parameters.py`   | `SessionStatsResponse`（camelCase alias + `populate_by_name`）、難易度一覧                                    |
 | `characters.py`   | `CharacterInfo` / `CharacterListResponse`、セッション人物・人物プリセットの CRUD、人物タグ生成、`CharacterPositionLiteral` |
 | `gallery.py`      | エンディングギャラリー                                                                                       |
-| `novelai.py`      | インペイント用マスク管理（`MaskSaveRequest` / `MaskInfo` / `MaskListResponse`）                              |
+| `novelai.py`      | インペイント用マスク管理（`MaskSaveRequest` / `MaskInfo` / `MaskListResponse`）と Anlas 残高（`AnlasBalanceResponse` / `AnlasUsageModel`。通常ゲームと Prompt Expander で共用） |
 | `common.py`       | `ErrorResponse`                                                                                              |
+| `adventure.py`    | Adventure の Run 作成・設定更新・ターン・画像・トーク・プロンプト確認の各リクエスト、`AdventureImageModel` Literal、`SCENARIO_MAX_TURNS_REQUEST_MAX` |
+| `prompt_expander.py` | Prompt Expander の全リクエスト / レスポンスと入力値の Literal（`ImageModelLiteral` 等。定数との整合を import 時に assert）、`MangaOptionsModel.to_options()` |
+| `settings.py`     | アプリ設定（`SettingsModel` / `SettingsUpdateRequest`）、互換ユーザー設定（`UserSettings*`）、自分自身モードのプロフィール生成・保存 |
+| `gallery.py`      | ギャラリー一覧・詳細・削除（`GalleryItem` / `GallerySession` / `DeleteResponse`）とエンディングギャラリー                      |
+| `favorites.py` / `memory.py` / `aivisspeech.py` / `avatar.py` / `achievements.py` | 各ルーターのリクエスト / レスポンス |
 
 ## ルーター
 

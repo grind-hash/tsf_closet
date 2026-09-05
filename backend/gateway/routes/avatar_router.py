@@ -6,9 +6,9 @@ import logging
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field, model_validator
 
 from ..databases.base import async_session_factory
+from ..schemas.avatar import AvatarUpdateRequest
 from ..services import avatar_service
 from ..services.adventure_service import adventure_service
 from ..services.avatar_service import AVATAR_NAME_MAX_LEN, AvatarError
@@ -17,24 +17,6 @@ from ..settings.config import settings
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/avatars", tags=["avatars"])
-
-
-class AvatarUpdateRequest(BaseModel):
-    """None の項目は据え置き。character_name / variant_label は空文字で解除。"""
-
-    name: str | None = Field(default=None, min_length=1, max_length=AVATAR_NAME_MAX_LEN)
-    character_name: str | None = Field(default=None, max_length=AVATAR_NAME_MAX_LEN)
-    variant_label: str | None = Field(default=None, max_length=AVATAR_NAME_MAX_LEN)
-
-    @model_validator(mode="after")
-    def require_any_field(self) -> AvatarUpdateRequest:
-        if (
-            self.name is None
-            and self.character_name is None
-            and self.variant_label is None
-        ):
-            raise ValueError("no fields to update")
-        return self
 
 
 def _http_error(error: AvatarError) -> HTTPException:

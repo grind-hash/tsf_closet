@@ -160,3 +160,21 @@ class GameStartResponse(BaseModel):
     """ゲーム開始レスポンス"""
 
     session_id: str = Field(..., description="新規セッションID")
+
+
+class CustomStartRequest(BaseModel):
+    """カスタム画像でのセッション開始リクエスト"""
+
+    image: str | None = Field(None, description="Base64エンコードされた画像")
+    custom_character_id: str | None = Field(
+        None, description="再利用するカスタムキャラID"
+    )
+    difficulty: str = Field("normal", description="難易度")
+    nsfw_mode: bool = Field(False, description="NSFWモード")
+    name: str = Field("カスタムキャラクター", description="キャラクター名")
+    description: str = Field("", description="説明")
+    pronoun: str = Field("僕", description="一人称")
+    personality: str = Field("", description="パーソナリティ")
+    gender: str = Field("other", description="性別 (man/woman/other)")
+    base_tags: str = Field("", description="Danbooru形式の外見タグ (英語)")
+    self_mode: bool = Field(False, description="自分自身モード")

@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from gateway.routes.settings_router import SettingsModel, SettingsUpdateRequest
+from gateway.schemas.settings import SettingsModel, SettingsUpdateRequest
 
 
 def test_settings_model_default_history_lookback_count_is_10():

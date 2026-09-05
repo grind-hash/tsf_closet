@@ -1267,7 +1267,7 @@ def test_scenario_constraints_accept_up_to_the_shared_limit() -> None:
     from pydantic import ValidationError as PydanticValidationError
 
     from gateway.consts.adventure_setup import SCENARIO_CONSTRAINTS_MAX_ITEMS
-    from gateway.routes.adventure_router import (
+    from gateway.schemas.adventure import (
         AdventureCreateRequest,
         AdventureSetupGenerateRequest,
     )

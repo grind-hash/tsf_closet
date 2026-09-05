@@ -15,7 +15,7 @@ from gateway.services.image_only_prompts import (
 
 
 def test_play_stream_request_accepts_image_only() -> None:
-    from gateway.routes.game_router import PlayStreamRequest
+    from gateway.schemas.play import PlayStreamRequest
 
     request = PlayStreamRequest(
         instruction="自由に画像を編集する",
