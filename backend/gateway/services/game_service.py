@@ -93,6 +93,7 @@ from .prompts import (
     build_feeling_prompt,
     get_critical_speech,
 )
+from .providers import resolve_image_provider
 from .reality_prompts import (
     build_reality_edit_prompt,
     build_reality_feeling_prompt,
@@ -671,7 +672,7 @@ class GameService:
     @staticmethod
     async def _get_anlas_event() -> StreamEvent | None:
         """Get Anlas balance as an SSE event (NovelAI provider only)."""
-        if settings.image_provider != "novelai":
+        if resolve_image_provider() != "novelai":
             return None
         try:
             balance = await get_anlas_balance()
@@ -874,7 +875,7 @@ class GameService:
         Returns:
             (image bytes, API cost USD, seed) or (None, None, None) on failure
         """
-        if settings.image_provider != "novelai":
+        if resolve_image_provider() != "novelai":
             logger.info("Surroundings image generation is only supported with NovelAI")
             return None, None, None
 
@@ -992,7 +993,7 @@ class GameService:
             result = await llm_service.generate_image_edit_prompt(
                 instruction=instruction + history_context,
                 current_description=current_description,
-                provider_override=settings.image_provider,
+                provider_override=resolve_image_provider(),
                 nsfw_mode=nsfw_mode,
                 extra_system_suffix=memory_priority_suffix,
                 suppress_gender_discomfort_cues=suppress_gender_discomfort_cues,
@@ -1027,12 +1028,12 @@ class GameService:
         """
         if text_to_image:
             system_prompt = get_image_only_generate_system_prompt(
-                settings.image_provider,
+                resolve_image_provider(),
                 nsfw_mode,
             )
         else:
             system_prompt = get_image_only_edit_system_prompt(
-                settings.image_provider,
+                resolve_image_provider(),
                 nsfw_mode,
             )
         memory_priority_suffix = (
@@ -1587,7 +1588,7 @@ class GameService:
 
             # マスク画像をデコード (NovelAI専用)
             mask_bytes: bytes | None = None
-            if settings.image_provider == "novelai":
+            if resolve_image_provider() == "novelai":
                 logger.info(
                     f"[Inpaint Debug] mask_image provided: {mask_image is not None and len(mask_image) > 0 if mask_image else False}, mask_id: {mask_id}"
                 )
@@ -1699,7 +1700,7 @@ class GameService:
                     "(text_to_image=%s)",
                     image_only_text_to_image,
                 )
-                if image_only_text_to_image and settings.image_provider == "selfhost":
+                if image_only_text_to_image and resolve_image_provider() == "selfhost":
                     # ComfyUI の編集ワークフローは text-to-image を持たないため、
                     # LLM 呼び出しの前に拒否する（History は残らない）
                     raise GameServiceError(
@@ -1845,14 +1846,14 @@ class GameService:
 
                 final_prompt = image_edit_prompt
                 if prompt_override and prompt_override.strip():
-                    if settings.image_provider == "novelai":
+                    if resolve_image_provider() == "novelai":
                         final_prompt = self._merge_prompts(
                             image_edit_prompt,
                             prompt_override.strip(),
                         )
                     else:
                         final_prompt = prompt_override.strip()
-                if settings.image_provider == "novelai":
+                if resolve_image_provider() == "novelai":
                     final_prompt = self._enhance_novelai_prompt(
                         final_prompt,
                         effective_nsfw_mode,
@@ -2268,7 +2269,7 @@ class GameService:
                         before_image, effective_nsfw_mode
                     )
                     action_edit_system = get_action_image_edit_system_prompt(
-                        image_provider=settings.image_provider,
+                        image_provider=resolve_image_provider(),
                         nsfw_mode=effective_nsfw_mode,
                     )
                     if use_memory:
@@ -2296,7 +2297,7 @@ class GameService:
                     )
 
                 # NovelAI品質タグの付与
-                if settings.image_provider == "novelai" and action_image_prompt:
+                if resolve_image_provider() == "novelai" and action_image_prompt:
                     action_image_prompt = self._enhance_novelai_prompt(
                         action_image_prompt, effective_nsfw_mode
                     )
@@ -2506,7 +2507,7 @@ class GameService:
 
                 # ── US2 T031-T033: Surroundings image generation (NovelAI only) ──
                 surroundings_image_path: str | None = None
-                if enable_surroundings_image and settings.image_provider == "novelai":
+                if enable_surroundings_image and resolve_image_provider() == "novelai":
                     logger.info("Generating surroundings image for action...")
                     # 現実改変属性を検出（既に取得済みの action_attributes を再利用）
                     reality_alter_texts = [
@@ -2868,7 +2869,7 @@ class GameService:
                     instruction=image_instruction + attribute_context,
                     current_description=before_desc,
                     nsfw_mode=effective_nsfw_mode,
-                    image_provider=settings.image_provider,
+                    image_provider=resolve_image_provider(),
                     novelai_model_override=effective_novelai_text_model,
                     use_memory=use_memory,
                     respect_clothing_layers=respect_clothing_layers_for_image,
@@ -2893,7 +2894,7 @@ class GameService:
             # T009: NovelAI専用 - 直接プロンプト指定とのマージ
             final_prompt = image_edit_prompt
             if prompt_override and prompt_override.strip():
-                if is_novelai_opus_mode or settings.image_provider == "novelai":
+                if is_novelai_opus_mode or resolve_image_provider() == "novelai":
                     # プロンプトオーバーライドを結合（ユーザー指定タグを追加）
                     final_prompt = self._merge_prompts(
                         image_edit_prompt, prompt_override.strip()
@@ -2903,7 +2904,7 @@ class GameService:
                     )
                 else:
                     final_prompt = prompt_override.strip()
-            if settings.image_provider == "novelai":
+            if resolve_image_provider() == "novelai":
                 # T014: 品質タグを追加
                 final_prompt = self._enhance_novelai_prompt(
                     final_prompt, effective_nsfw_mode
@@ -4013,7 +4014,7 @@ class GameService:
                 image_edit_prompt = "(NovelAI Opus: タグはLLMが動的生成)"
             else:
                 action_edit_system = get_action_image_edit_system_prompt(
-                    image_provider=settings.image_provider,
+                    image_provider=resolve_image_provider(),
                     nsfw_mode=nsfw_mode,
                 )
                 action_edit_system += await self._get_memory_priority_suffix()
@@ -4065,7 +4066,7 @@ class GameService:
                 instruction=instruction,
                 current_description=current_description,
                 nsfw_mode=nsfw_mode,
-                image_provider=settings.image_provider,
+                image_provider=resolve_image_provider(),
                 novelai_model_override=effective_novelai_text_model,
                 respect_clothing_layers=respect_clothing_layers,
                 history_context=history_context,

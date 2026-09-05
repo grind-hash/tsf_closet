@@ -7,6 +7,12 @@ from typing import Any
 import httpx
 from fastapi import APIRouter
 
+from ..services.providers import (
+    Provider,
+    resolve_image_description_provider,
+    resolve_image_provider,
+    resolve_text_provider,
+)
 from ..settings.app_settings import settings
 
 router = APIRouter(tags=["system"])
@@ -33,7 +39,7 @@ async def health() -> dict[str, Any]:
     }
 
     # ComfyUI 接続確認 (IMAGE_PROVIDER=selfhost時のみ)
-    if settings.image_provider == "selfhost":
+    if resolve_image_provider() == Provider.SELFHOST:
         try:
             async with httpx.AsyncClient(timeout=2.0) as client:
                 resp = await client.get(f"{settings.comfyui_base_url}/system_stats")
@@ -54,8 +60,8 @@ async def health() -> dict[str, Any]:
 
     # LiteLLM Proxy 接続確認 (selfhost使用時のみ)
     needs_litellm = (
-        settings.image_description_provider == "selfhost"
-        or settings.feeling_provider == "selfhost"
+        resolve_image_description_provider() == Provider.SELFHOST
+        or resolve_text_provider() == Provider.SELFHOST
     )
     if needs_litellm:
         try:
@@ -70,7 +76,7 @@ async def health() -> dict[str, Any]:
         }
 
     # NovelAI チェック（IMAGE_PROVIDER=novelai時）
-    if settings.image_provider == "novelai":
+    if resolve_image_provider() == Provider.NOVELAI:
         if settings.novelai_api_key:
             result["services"]["novelai"] = {"status": "ok"}
         else:

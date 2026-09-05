@@ -13,8 +13,8 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime
 
-from ..settings.config import settings
 from .llm_service import LLMServiceError, llm_service
+from .providers import Provider, resolve_image_provider, resolve_text_provider
 
 logger = logging.getLogger(__name__)
 
@@ -118,10 +118,10 @@ async def classify_for_achievement(
         # NovelAIモード時はNovelAIのテキストモデルを使用
         effective_provider = provider
         if effective_provider is None:
-            if settings.image_provider == "novelai":
-                effective_provider = "novelai"
+            if resolve_image_provider() == Provider.NOVELAI:
+                effective_provider = Provider.NOVELAI
             else:
-                effective_provider = settings.feeling_provider
+                effective_provider = resolve_text_provider()
 
         # LLMによる分類を実行
         result = await llm_service.generate_feeling(

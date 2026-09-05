@@ -21,6 +21,7 @@ from ..consts.character_limits import APPEARANCE_NATURAL_SOFT_LIMIT
 from ..consts.language import LanguageCode, normalize_language
 from ..settings.config import settings
 from .model_execution_gate import model_execution_gate
+from .providers import resolve_image_description_provider, resolve_text_provider
 
 logger = logging.getLogger(__name__)
 
@@ -468,7 +469,7 @@ class LLMService:
         Returns:
             LLMResult
         """
-        provider = provider_override or settings.image_description_provider
+        provider = resolve_image_description_provider(provider_override)
 
         if provider == "openrouter":
             return await self._get_openrouter_client().describe_image(
@@ -502,7 +503,7 @@ class LLMService:
         Returns:
             LLMResult
         """
-        provider = provider_override or settings.feeling_provider
+        provider = resolve_text_provider(provider_override)
 
         if provider == "openrouter":
             return await self._get_openrouter_client().generate_text(
@@ -550,7 +551,7 @@ class LLMService:
         Yields:
             テキストチャンク
         """
-        provider = provider_override or settings.feeling_provider
+        provider = resolve_text_provider(provider_override)
 
         if provider == "openrouter":
             async for chunk in self._get_openrouter_client().generate_text_stream(
@@ -596,7 +597,7 @@ class LLMService:
         Returns:
             LLMResult
         """
-        provider = provider_override or settings.feeling_provider
+        provider = resolve_text_provider(provider_override)
 
         if provider == "openrouter":
             return await self._get_openrouter_client().generate_text(
@@ -643,7 +644,7 @@ class LLMService:
             get_image_edit_system_prompt,
         )
 
-        provider = provider_override or settings.feeling_provider
+        provider = resolve_text_provider(provider_override)
         system_prompt = get_image_edit_system_prompt(
             image_provider=provider,
             nsfw_mode=nsfw_mode,
