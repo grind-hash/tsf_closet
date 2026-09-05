@@ -61,6 +61,7 @@ from ..models import (
     TransformationTag,
 )
 from ..settings.config import settings
+from .image_paths import resolve_stored_image_path
 from .settings_service import settings_service
 
 logger = logging.getLogger(__name__)
@@ -1365,21 +1366,20 @@ class DatabaseSessionStore:
         return [(m[0], m[1]) for m in merged[:limit]]
 
     def resolve_history_image_file(self, history: PersistedHistory) -> Path | None:
-        """履歴に紐づく画像ファイルパスを解決する。"""
-        candidates: list[Path] = []
-        if history.image_path:
-            raw = Path(history.image_path)
-            candidates.append(raw)
-            candidates.append(settings.history_images_dir.parent / history.image_path)
-            candidates.append(self._history_images_dir / raw.name)
-        candidates.append(self.get_history_image_path(history.id))
-        for path in candidates:
-            try:
-                if path.is_file():
-                    return path
-            except OSError:
-                continue
-        return None
+        """履歴に紐づく画像ファイルパスを解決する。
+
+        保存されたパス文字列で見つからなければ履歴 ID 由来のファイル名を試す。
+        """
+        resolved = resolve_stored_image_path(
+            history.image_path, history_images_dir=self._history_images_dir
+        )
+        if resolved is not None:
+            return resolved
+        fallback = self.get_history_image_path(history.id)
+        try:
+            return fallback if fallback.is_file() else None
+        except OSError:
+            return None
 
     async def reconstruct_stats_at_history(
         self,

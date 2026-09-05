@@ -1202,27 +1202,33 @@ def get_image_edit_system_prompt(
 NOVELAI_QUALITY_TAGS = ["very aesthetic", "best quality"]
 
 
-def enhance_prompt_for_novelai(prompt: str) -> str:
+def enhance_prompt_for_novelai(prompt: str, *, nsfw_mode: bool = False) -> str:
     """NovelAI向けにプロンプトを最適化する
 
     品質タグが含まれていない場合、末尾に追加する。
+    nsfw_mode が真で "nsfw" を含まない場合は末尾に "nsfw" を追加する。
 
     Args:
         prompt: 元のプロンプト
+        nsfw_mode: NSFWモードの有無
 
     Returns:
-        品質タグ付きのプロンプト
+        品質タグ（と必要なら nsfw）付きのプロンプト
     """
     # 既に品質タグが含まれている場合はそのまま返す
     prompt_lower = prompt.lower()
     has_quality_tags = any(tag.lower() in prompt_lower for tag in NOVELAI_QUALITY_TAGS)
 
     if has_quality_tags:
-        return prompt
+        result = prompt
+    else:
+        # 品質タグを末尾に追加
+        quality_suffix = ", ".join(NOVELAI_QUALITY_TAGS)
+        result = f"{prompt.rstrip(', ')}, {quality_suffix}"
 
-    # 品質タグを末尾に追加
-    quality_suffix = ", ".join(NOVELAI_QUALITY_TAGS)
-    return f"{prompt.rstrip(', ')}, {quality_suffix}"
+    if nsfw_mode and "nsfw" not in result.lower():
+        result = f"{result}, nsfw"
+    return result
 
 
 # 画像編集プロンプト生成用ユーザープロンプトテンプレート

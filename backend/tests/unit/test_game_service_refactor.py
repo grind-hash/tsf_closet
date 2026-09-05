@@ -1,10 +1,12 @@
 """game_service.py refactoring characterization tests.
 
 Refactoring target functions:
-- _enhance_novelai_prompt (Step 3: NovelAI quality tag + NSFW)
+- prompts.enhance_prompt_for_novelai (Step 3: NovelAI quality tag + NSFW)
 - settings.is_novelai_opus_mode (Step 4: Opus mode property)
-- _resolve_image_path (Step 2: image path resolution)
 - _stream_feeling (Step 1: feeling stream common helper)
+
+Image path resolution (former Step 2) now lives in services/image_paths.py
+and is covered by tests/unit/test_image_paths.py.
 """
 
 from __future__ import annotations
@@ -17,8 +19,9 @@ import pytest
 # ---------------------------------------------------------------------------
 # Step 3: NovelAI quality tag + NSFW keyword
 # ---------------------------------------------------------------------------
-# Before refactoring: this logic is inlined in 2 places.
-# After refactoring:  GameService._enhance_novelai_prompt static method.
+# Before refactoring: this logic was inlined in game_service and duplicated
+# as a private wrapper in adventure_service.
+# After refactoring:  prompts.enhance_prompt_for_novelai(prompt, nsfw_mode=...).
 # These tests validate the combined behaviour (enhance + nsfw append).
 
 
@@ -26,13 +29,9 @@ class TestEnhanceNovelaiPrompt:
     """Test the NovelAI prompt enhancement + NSFW keyword logic."""
 
     def _enhance(self, prompt: str, nsfw_mode: bool) -> str:
-        """Simulate the inline logic before refactoring."""
         from gateway.services.prompts import enhance_prompt_for_novelai
 
-        result = enhance_prompt_for_novelai(prompt)
-        if nsfw_mode and "nsfw" not in result.lower():
-            result = result + ", nsfw"
-        return result
+        return enhance_prompt_for_novelai(prompt, nsfw_mode=nsfw_mode)
 
     def test_adds_quality_tags_when_missing(self):
         result = self._enhance("1girl, solo, red dress", False)
@@ -62,25 +61,35 @@ class TestEnhanceNovelaiPrompt:
 
 
 class TestEnhanceNovelaiPromptRefactored:
-    """Test the refactored static method directly."""
+    """Test the shared prompts helper directly."""
 
-    def test_static_method_exists(self):
+    def test_private_wrappers_are_gone(self):
+        from gateway.services import adventure_service
         from gateway.services.game_service import GameService
 
-        assert hasattr(GameService, "_enhance_novelai_prompt")
+        assert not hasattr(GameService, "_enhance_novelai_prompt")
+        assert not hasattr(adventure_service, "_enhance_adventure_prompt")
+
+    def test_default_is_sfw(self):
+        from gateway.services.prompts import enhance_prompt_for_novelai
+
+        result = enhance_prompt_for_novelai("1girl, solo")
+        assert "very aesthetic" in result
+        assert "best quality" in result
+        assert "nsfw" not in result.lower()
 
     def test_adds_quality_and_nsfw(self):
-        from gateway.services.game_service import GameService
+        from gateway.services.prompts import enhance_prompt_for_novelai
 
-        result = GameService._enhance_novelai_prompt("1girl, solo", True)
+        result = enhance_prompt_for_novelai("1girl, solo", nsfw_mode=True)
         assert "very aesthetic" in result
         assert "best quality" in result
         assert result.endswith(", nsfw")
 
     def test_no_nsfw_when_disabled(self):
-        from gateway.services.game_service import GameService
+        from gateway.services.prompts import enhance_prompt_for_novelai
 
-        result = GameService._enhance_novelai_prompt("1girl, solo", False)
+        result = enhance_prompt_for_novelai("1girl, solo", nsfw_mode=False)
         assert "nsfw" not in result.lower()
 
 
@@ -382,70 +391,6 @@ class TestStreamFeelingRefactored:
             collected.append(chunk)
 
         assert collected == ["(Failed to generate inner monologue)"]
-
-
-# ── Step 2 post-refactoring: GameService._resolve_image_path ──
-
-
-class TestResolveImagePathRefactored:
-    """Verify the extracted _resolve_image_path static method."""
-
-    def test_data_relative_found(self, tmp_path, monkeypatch):
-        data_dir = tmp_path / "data"
-        data_dir.mkdir()
-        img = data_dir / "history_images" / "test.png"
-        img.parent.mkdir(parents=True)
-        img.write_bytes(b"PNG_DATA")
-
-        from gateway.settings.config import settings
-
-        monkeypatch.setattr(settings, "history_images_dir", data_dir / "history_images")
-
-        from gateway.services.game_service import GameService
-
-        result = GameService._resolve_image_path("history_images/test.png")
-        assert result is not None
-        assert result.read_bytes() == b"PNG_DATA"
-
-    def test_base_dir_fallback(self, tmp_path, monkeypatch):
-        data_dir = tmp_path / "data"
-        data_dir.mkdir()
-        base_dir = tmp_path / "base"
-        base_dir.mkdir()
-        img = base_dir / "images" / "characters" / "char1.png"
-        img.parent.mkdir(parents=True)
-        img.write_bytes(b"CHAR_IMG")
-
-        from gateway.settings.config import settings
-
-        monkeypatch.setattr(settings, "history_images_dir", data_dir / "history_images")
-        import gateway.settings.config as cfg_mod
-
-        monkeypatch.setattr(cfg_mod, "BASE_DIR", base_dir)
-
-        from gateway.services.game_service import GameService
-
-        result = GameService._resolve_image_path("images/characters/char1.png")
-        assert result is not None
-        assert result.read_bytes() == b"CHAR_IMG"
-
-    def test_not_found_returns_none(self, tmp_path, monkeypatch):
-        data_dir = tmp_path / "data"
-        data_dir.mkdir()
-        base_dir = tmp_path / "base"
-        base_dir.mkdir()
-
-        from gateway.settings.config import settings
-
-        monkeypatch.setattr(settings, "history_images_dir", data_dir / "history_images")
-        import gateway.settings.config as cfg_mod
-
-        monkeypatch.setattr(cfg_mod, "BASE_DIR", base_dir)
-
-        from gateway.services.game_service import GameService
-
-        result = GameService._resolve_image_path("nonexistent/file.png")
-        assert result is None
 
 
 # ── Step 4 post-refactoring: Settings.is_novelai_opus_mode property ──
