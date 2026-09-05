@@ -87,6 +87,12 @@
 | `useAdventureSpeechInput` | トークモードの音声入力。`useSpeechInput` を包み、暫定テキストを入力欄へ流し込み、確定で置き換え、自動送信（`utils/speechInputPreferences.ts`、既定 OFF）なら `onSubmit`。読み上げ中とトークモード離脱で聞き取りを止め、開始前に読み上げを止める |
 | `useAdventureFrameNavigation` | `buildStageFrames` の結果と、ステージの閲覧位置（`selectedFrameIndex`、null は最新）・ライトボックスの位置とタブ（`lightboxIndex` / `lightboxView`）。手番到着で最新へ戻す effect、`goToFrame`（ターンストリップ用）、`openLightboxFrame`（タブ選択を引き継ぎ、無いタブはシーンへ）を持つ |
 | `useAdventureStagePortraits` | ステージと主人公ドックに出す白抜き済み立ち絵 4 種（`useTransparentImage` × 4、`PORTRAIT_ALPHA_OPTIONS`）。ステージ用は表示中フレームに追従し、ドック用は常に最新 |
+| `useConversationStream` | 会話のみ(chat/stream)の送信。SSE をストリーミング表示し、会話 ID を確定して conversationHistory へ積む。play_memory_update の通知も扱う |
+| `useTransformRequest` | 変身(dress_up / reality_alter / action / image_only)の送信前処理。NovelAI のマスク・i2i・精密参照オプションを組み立て、V5 利用上限使い切りと精密参照の Anlas 追加消費は AnlasConfirmDialog で確認してから `onTransform`。`resolveTransformKinds` で transformation_type / instruction_type を決める |
+| `useRestoredChatMessages` | セッション復元時に history + conversationHistory を時系列で統合して setMessages(初回のみ)。?historyId= の遷移でスクロールと画像移動。`resetRestoration` で再構築を許可 |
+| `useFeelingMessages` | 心境テキストのストリーミング表示と確定、周囲状況画像の紐づけ |
+| `useMessageEditDelete` | メッセージ削除(履歴付き / 会話のみ)と「修正して再生成」(最新履歴削除 → 指示と種別を入力欄へ戻し再同期)。確認ダイアログの状態も持つ |
+| `useSessionExport` | チャットのエクスポートメニュー(clipboard / md / csv / json / novel / 画像同梱 zip の進捗) |
 | `useAdventureDrawPreferences` | 立ち絵を毎ターン描くかの好み（主人公 / 攻略対象、localStorage `adventure_draw_*_every_turn`）。Hub と Play で共有し、`AdventureContext.submitTurn` が同じキーを読む |
 
 ## APIモジュール
@@ -119,7 +125,7 @@
 
 ```text
 components/
-  GamePlayScreen.tsx          通常ゲームの画像、履歴、チャット統合。NovelAI 選択時は画面全体への画像ドロップを window で受けて精密参照画像へ追加し（ドラッグ中は薄グレーのオーバーレイ）、`setPanelOpen(true)` で右パネルを開いてから精密参照セクションへ scrollIntoView。V5 実効時はオーバーレイに利用不可の説明を出し追加しない
+  GamePlayScreen.tsx          通常ゲームのプレイ画面の編成(送信の振り分け: 会話 → useConversationStream / 変身 → useTransformRequest、お気に入り、画像ナビゲーション、インペイント/プレビュー/周囲画像のモーダル)。チャット欄の復元は useRestoredChatMessages、心境メッセージは useFeelingMessages、削除/修正は useMessageEditDelete(+ chat/MessageEditDeleteDialogs)、エクスポートは useSessionExport(+ chat/ChatExportHeader)、Anlas 残高バーは AnlasBar に分けている。NovelAI 選択時は画面全体への画像ドロップを window で受けて精密参照画像へ追加し（ドラッグ中は薄グレーのオーバーレイ）、`setPanelOpen(true)` で右パネルを開いてから精密参照セクションへ scrollIntoView。V5 実効時はオーバーレイに利用不可の説明を出し追加しない
   ImagePreviewModal.tsx       履歴画像と対応テキストのプレビュー
   HistoryPanel.tsx            履歴ナビゲーション
   InpaintModal.tsx            マスク編集
@@ -133,6 +139,10 @@ components/
     ChatMessageList.tsx       メッセージ一覧
     ChatMessage.tsx           表示、削除、音声操作
     AudioControlBar.tsx       TTS再生
+
+  layout/
+    MainLayout.tsx            サイドバー・右パネルの枠(開閉トグル `.main-layout__toggle-right`)
+    RightPanel.tsx            通常プレイの右パネル。表示条件と並び順だけを持ち、中身は rightPanel/ 配下(AivisEngineSection / AttributesSection / ClothingLayersSection / NovelaiSettingsSection(+ PromptBuilderPanel / PreciseReferencesPanel) / PromptPreviewSection / LanguageSection / SettingsSummarySection)。状態は hooks の useAivisEngine / usePromptBuilder(localStorage `prompt_builder`、`composePromptBuilderText`) / usePromptPreview / usePreciseReferenceDropZone
 
   adventure/
     AdventureScreen.tsx       /adventure（Hub）と /adventure/:runId（Play）の切り替えと CSS の読み込みだけ
@@ -220,7 +230,7 @@ components/
 - 各大規模画面は隣接CSSを持つ。既存レイアウトを保ち、変更画面だけ確認する。
 - `hooks/usePersistedSectionState.ts` はモジュールレベルのストア＋`useSyncExternalStore`で、マウント中のセクションIDと既定値をレジストリに持つ。`setAllPromptExpanderSections(open)` と `usePromptExpanderSectionsAllOpen()` はそのレジストリを見るので、セクションを増やしても固定リストの更新は要らない。
 - Context単体テストは `frontend/src/contexts/tests/`、E2Eは `frontend/tests/e2e/`。
-- 主な対象E2E: `action-mode.spec.ts`、`image-only-preview.spec.ts`、`adventure-mode.spec.ts`、`adventure-portrait-alpha.spec.ts`、`prompt-expander.spec.ts`。
+- 主な対象E2E: `action-mode.spec.ts`、`image-only-preview.spec.ts`、`gameplay-mocked.spec.ts`(通常プレイのエクスポート・会話ストリーム・削除/修正と右パネル各セクションをバックエンド無しで固定)、`adventure-mode.spec.ts`、`adventure-portrait-alpha.spec.ts`、`prompt-expander.spec.ts`。
 - 持ち物の型は `apis/adventure.ts` の `AdventureInventory` / `AdventureInventoryItem` / `AdventureInventoryLogEntry` / `AdventureItemAction` / `AdventureTurnOptions`（`submitTurn` の options）。カテゴリ・操作の語彙は backend `consts/adventure_inventory.py` と一致させ、表示名は `adventure.inventoryCategory.*` / `adventure.inventoryAction.*`。
 - Adventure 画面の純関数は `utils/adventureFrames.ts`（`buildStageFrames`: run → ステージ用フレーム列、`partnerPortraitInherited` / `partnerPortraitReasonKey` / `frameDaySlot`）、`utils/adventureSetupPrefs.ts`（セットアップ設定の localStorage 読み出しと正規化）、`utils/adventureVoiceSegments.ts`（読み上げセグメント化）、`utils/adventureFormat.ts`（`formatAnlasEstimate` / `mediaUrl` / `speechStyleLabel`）、`utils/adventureSceneView.ts`（`buildAdventureSceneView`: 表示中の本文・行動・現在地・選択肢・持ち物・romance の攻略対象名/服装・トークモードの会話をまとめた `AdventureSceneView`）に分け、定数（プリセット・ターン数境界・語り手の声・口調・localStorage キー）は `constants/adventure.ts` に置く。いずれも vitest 対象。
 - Adventure の台本形式ユーティリティは `utils/adventureDialogue.ts`（`parseDialogueSegments` / `partnerLines` / `joinForSpeech` / `stripStageDirections`）。対面会話モードの見積もりは `utils/adventureTurnTimeEstimate.ts` の `companionMode`。

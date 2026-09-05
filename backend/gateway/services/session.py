@@ -41,12 +41,9 @@ from ..databases.models import (
 )
 from ..databases.parameter_change_log_repo import (
     StatChange,
-    fetch_change_logs_by_history,
-    fetch_change_logs_by_session,
     insert_change_logs,
 )
 from ..models import (
-    CRITICAL_POINTS,
     AchievedEnding,
     ConversationMessage,
     PersistedHistory,
@@ -54,15 +51,12 @@ from ..models import (
     SessionStats,
     TransformationTag,
 )
-from ..schemas.conversation import ConversationMessageResponse
-from ..schemas.parameters import SessionStatsResponse
 from ..schemas.session import (
-    HistoryItem,
     PlayMemoryResponse,
-    SessionAttributeResponse,
     SessionResponse,
 )
 from ..settings.config import settings
+from . import history_revert_service, session_response
 from .image_paths import resolve_stored_image_path
 from .settings_service import settings_service
 
@@ -599,135 +593,9 @@ class DatabaseSessionStore:
     ) -> dict | None:
         """最新の履歴エントリを削除し、セッションを1つ前の状態に戻す
 
-        spec 004 (US2): 「再生成」セマンティクスは本関数 + 同指示での再アクションで実現する
-        (削除 → 再送信)。専用 API は追加しない。change_log がある場合は SessionStats も
-        逆適用 (prev_value 直接代入) するため、N 回繰り返しても累積 delta は最終 1 回分のみ。
-
-        Returns:
-            削除された履歴情報の辞書、または履歴がない場合None
+        実体は history_revert_service。互換のためストアのメソッドとして残す。
         """
-        async with async_session_factory() as db_session:
-            # 最新の履歴を取得
-            latest_stmt = (
-                select(HistoryORM)
-                .where(HistoryORM.session_id == session_id)
-                .order_by(HistoryORM.created_at.desc(), HistoryORM.id.desc())
-                .limit(1)
-            )
-            latest = (await db_session.execute(latest_stmt)).scalars().first()
-            if latest is None:
-                return None
-
-            deleted_id = latest.id
-            deleted_instruction = latest.instruction
-            deleted_instruction_type = latest.instruction_type or "dress_up"
-
-            # 画像ファイル削除
-            if latest.image_path:
-                image_path = Path(latest.image_path)
-                if image_path.exists():
-                    try:
-                        os.remove(image_path)
-                    except OSError as exc:
-                        logger.warning("Failed to delete image %s: %s", image_path, exc)
-
-            # 周囲画像ファイル削除
-            if latest.surroundings_image_path:
-                surr_path = (
-                    settings.history_images_dir.parent / latest.surroundings_image_path
-                )
-                if surr_path.exists():
-                    try:
-                        os.remove(surr_path)
-                    except OSError as exc:
-                        logger.warning(
-                            "Failed to delete surroundings image %s: %s",
-                            surr_path,
-                            exc,
-                        )
-
-            # 関連する conversation レコードを削除
-            await db_session.execute(
-                delete(ConversationORM).where(
-                    ConversationORM.related_history_id == deleted_id
-                )
-            )
-
-            # spec 004 (T014): change_log があれば SessionStats を逆適用してから
-            # history を削除する (CASCADE で change_log 行も削除される)
-            parameter_reverts = await self._apply_history_revert(
-                db_session,
-                session_id=session_id,
-                history_id=deleted_id,
-                is_latest=True,
-            )
-
-            # 履歴レコードを削除 (CASCADE で transformation_tags も削除される)
-            await db_session.execute(
-                delete(HistoryORM).where(HistoryORM.id == deleted_id)
-            )
-
-            # 1つ前の履歴を取得して current_image_path を復元
-            prev_stmt = (
-                select(HistoryORM)
-                .where(HistoryORM.session_id == session_id)
-                .order_by(HistoryORM.created_at.desc(), HistoryORM.id.desc())
-                .limit(1)
-            )
-            prev = (await db_session.execute(prev_stmt)).scalars().first()
-            restored_image_path = prev.image_path if prev else ""
-            restored_history_id = prev.id if prev else ""
-
-            # セッションの current_image_path を更新
-            if restored_image_path:
-                await db_session.execute(
-                    update(SessionORM)
-                    .where(SessionORM.id == session_id)
-                    .values(
-                        current_image_path=restored_image_path,
-                        updated_at=datetime.now(),
-                    )
-                )
-
-            # transformation_count のデクリメント (dress_up/reality のみ)
-            if deleted_instruction_type in ("dress_up", "reality_alter"):
-                session_row = (
-                    (
-                        await db_session.execute(
-                            select(SessionORM).where(SessionORM.id == session_id)
-                        )
-                    )
-                    .scalars()
-                    .first()
-                )
-                if session_row and session_row.transformation_count > 0:
-                    await db_session.execute(
-                        update(SessionORM)
-                        .where(SessionORM.id == session_id)
-                        .values(
-                            transformation_count=session_row.transformation_count - 1,
-                        )
-                    )
-
-            await db_session.commit()
-
-            logger.info(
-                "Deleted latest history %s for session %s, restored to %s",
-                deleted_id,
-                session_id,
-                restored_image_path or "(none)",
-            )
-
-            response: dict = {
-                "deleted_history_id": deleted_id,
-                "restored_instruction": deleted_instruction,
-                "restored_instruction_type": deleted_instruction_type,
-                "current_image_path": restored_image_path,
-                "restored_history_id": restored_history_id,
-            }
-            if parameter_reverts:
-                response["parameter_reverts"] = parameter_reverts
-            return response
+        return await history_revert_service.delete_latest_history(session_id)
 
     async def get_session_with_history(
         self,
@@ -744,110 +612,8 @@ class DatabaseSessionStore:
         self,
         session_id: str,
     ) -> SessionResponse | None:
-        """API用のセッションレスポンスを取得"""
-        session = await self.get_session_with_history(session_id)
-        if session is None:
-            return None
-
-        current_image_url = ""
-        if session.history:
-            selected_history = None
-            for history_item in session.history:
-                if history_item.image_path == session.current_image_path:
-                    selected_history = history_item
-                    break
-
-            if selected_history:
-                current_image_url = f"/history/images/{selected_history.id}"
-            else:
-                current_image_url = f"/history/images/{session.history[-1].id}"
-        elif session.current_image_path:
-            current_image_url = f"/game/session/image/{session.id}"
-
-        history_items = []
-        for history_item in session.history:
-            tag = await self.get_transformation_tag(history_item.id)
-            # Build surroundings image URL if path exists
-            surroundings_url = None
-            if history_item.surroundings_image_path:
-                surroundings_url = f"/history/surroundings/{history_item.id}"
-            history_items.append(
-                HistoryItem(
-                    id=history_item.id,
-                    instruction=history_item.instruction,
-                    image_url=f"/history/images/{history_item.id}",
-                    feeling_text=history_item.feeling_text or "",
-                    before_description=history_item.before_description or "",
-                    after_description=history_item.after_description or "",
-                    timestamp=history_item.created_at.isoformat(),
-                    instruction_type=history_item.instruction_type,
-                    costume_category=tag.costume_category if tag else None,
-                    exposure_level=tag.exposure_level if tag else None,
-                    age_impression=tag.age_impression if tag else None,
-                    seed=history_item.seed,
-                    surroundings_image_url=surroundings_url,
-                )
-            )
-
-        stats = await self.get_session_stats(session_id)
-        stats_response = None
-        if stats:
-            stats.enable_prompt_preview = settings.enable_prompt_preview
-            stats_response = SessionStatsResponse(
-                bloom=stats.bloom,
-                shame=stats.shame,
-                adaptation=stats.adaptation,
-                passed_critical_points=stats.passed_critical_points,
-                difficulty=stats.difficulty,
-                nsfw_mode=stats.nsfw_mode,
-                enable_prompt_preview=stats.enable_prompt_preview,
-            )
-
-        attributes_raw = await self.get_session_attributes(session_id)
-        attributes = [
-            SessionAttributeResponse(
-                id=attr["id"],
-                text=attr["attribute_text"],
-            )
-            for attr in attributes_raw
-        ]
-
-        conversations = await self.get_conversation_history(session_id)
-        conversation_history = [
-            ConversationMessageResponse(
-                id=conv.id,
-                role=conv.role,
-                content=conv.content,
-                created_at=conv.created_at,
-                instruction_type=conv.instruction_type,
-            )
-            for conv in conversations
-        ]
-
-        return SessionResponse(
-            session_id=session.id,
-            character_id=session.character_id,
-            current_image_url=current_image_url,
-            transformation_count=session.transformation_count,
-            history=history_items,
-            created_at=session.created_at.isoformat(),
-            updated_at=session.updated_at.isoformat(),
-            stats=stats_response,
-            attributes=attributes,
-            conversation_history=conversation_history,
-            self_mode=session.self_mode,
-            play_memory=PlayMemoryResponse(
-                system_enabled=session.play_memory_system_enabled,
-                user_enabled=session.play_memory_user_enabled,
-                system_text=session.play_memory_system_text,
-                user_text=session.play_memory_user_text,
-                system_updated_at=(
-                    session.play_memory_system_updated_at.isoformat()
-                    if session.play_memory_system_updated_at
-                    else None
-                ),
-            ),
-        )
+        """API用のセッションレスポンスを取得(組立は session_response)"""
+        return await session_response.build_session_response(self, session_id)
 
     async def _cleanup_old_history(
         self,
@@ -997,83 +763,6 @@ class DatabaseSessionStore:
             )
             await db_session.commit()
             return inserted
-
-    @staticmethod
-    def _stat_clamp(stat_name: str, value: int) -> int:
-        if stat_name in ("bloom", "shame"):
-            return max(0, min(100, value))
-        if stat_name == "adaptation":
-            return max(-50, min(50, value))
-        return value
-
-    async def _apply_history_revert(
-        self,
-        db_session,
-        *,
-        session_id: str,
-        history_id: str,
-        is_latest: bool,
-    ) -> list[dict]:
-        """`history_id` に紐づく change_log を SessionStats に逆適用する.
-
-        Args:
-            db_session: 現在のトランザクションで利用する AsyncSession.
-            session_id: 対象セッション ID.
-            history_id: revert 対象 history.
-            is_latest: 削除対象が最新エントリの場合 True (prev_value 直接代入).
-                それ以外は ``clamp(current - delta, min, max)`` で近似復元.
-
-        Returns:
-            適用済み revert のリスト (``stat_name``/``delta``/``prev_value``/``new_value``).
-            change_log が無い場合は空リスト.
-        """
-        logs = await fetch_change_logs_by_history(db_session, history_id)
-        if not logs:
-            return []
-
-        stats_row = (
-            (
-                await db_session.execute(
-                    select(SessionStatsORM).where(
-                        SessionStatsORM.session_id == session_id
-                    )
-                )
-            )
-            .scalars()
-            .first()
-        )
-        if stats_row is None:
-            return []
-
-        # 同一 stat に複数行が混在する想定は無い (T010 が 1 アクション = 最大 3 行) が、
-        # 防御的に最後の値を採用する。
-        targets: dict[str, dict] = {}
-        for log in logs:
-            current = getattr(stats_row, log.stat_name, None)
-            if current is None:
-                continue
-            if is_latest:
-                new_value = log.prev_value
-            else:
-                new_value = self._stat_clamp(log.stat_name, current - log.delta)
-            targets[log.stat_name] = {
-                "stat_name": log.stat_name,
-                "delta": new_value - current,
-                "prev_value": current,
-                "new_value": new_value,
-            }
-            setattr(stats_row, log.stat_name, new_value)
-
-        # bloom が変化した場合、通過済み臨界点リストを再整合する。
-        # revert 後の bloom を下回る臨界点はリストから除去する。
-        if "bloom" in targets:
-            reverted_bloom = targets["bloom"]["new_value"]
-            current_points: list[int] = json.loads(stats_row.passed_critical_points)
-            updated_points = [p for p in current_points if p <= reverted_bloom]
-            stats_row.passed_critical_points = json.dumps(updated_points)
-
-        # SessionStatsORM の変更は同一トランザクションで commit 時に永続化される。
-        return list(targets.values())
 
     async def get_or_create_session_stats(
         self,
@@ -1393,60 +1082,12 @@ class DatabaseSessionStore:
     ) -> SessionStats:
         """parameter_change_log から分岐点時点の stats を再構築する。
 
-        ログが無い場合は難易度初期値にフォールバックする。
+        実体は history_revert_service。互換のためストアのメソッドとして残す。
         """
-        baseline = SessionStats.create_with_difficulty(
-            session_id, difficulty, nsfw_mode
-        )
-        source = await self.get_history_by_id(history_id)
-        if source is None or source.session_id != session_id:
-            return baseline
-
-        history_rows = await self.get_history(session_id)
-        allowed_ids: set[str] = set()
-        for row in history_rows:
-            allowed_ids.add(row.id)
-            if row.id == history_id:
-                break
-        else:
-            # 到達できなくても source 自体は含める
-            allowed_ids.add(history_id)
-
-        async with async_session_factory() as db_session:
-            logs = await fetch_change_logs_by_session(db_session, session_id)
-
-        values = {
-            "bloom": baseline.bloom,
-            "shame": baseline.shame,
-            "adaptation": baseline.adaptation,
-        }
-        applied = 0
-        for log in logs:
-            if log.history_id not in allowed_ids:
-                continue
-            if log.stat_name in values:
-                values[log.stat_name] = int(log.new_value)
-                applied += 1
-
-        if applied == 0:
-            logger.info(
-                "No parameter_change_log for session %s up to history %s; "
-                "using difficulty defaults",
-                session_id,
-                history_id,
-            )
-
-        bloom = max(0, min(100, values["bloom"]))
-        shame = max(0, min(100, values["shame"]))
-        adaptation = max(-50, min(50, values["adaptation"]))
-        passed = [cp.threshold for cp in CRITICAL_POINTS if bloom >= cp.threshold]
-
-        return SessionStats(
-            session_id=session_id,
-            bloom=bloom,
-            shame=shame,
-            adaptation=adaptation,
-            passed_critical_points=passed,
+        return await history_revert_service.reconstruct_stats_at_history(
+            self,
+            session_id,
+            history_id,
             difficulty=difficulty,
             nsfw_mode=nsfw_mode,
         )
@@ -1613,148 +1254,9 @@ class DatabaseSessionStore:
     ) -> dict | None:
         """指定した history_id の履歴エントリを完全削除する
 
-        History レコード、関連 Conversation レコード、画像ファイルを全て削除する。
-        削除後、セッションの current_image_path を直前の履歴に復元する。
-
-        Returns:
-            削除情報の辞書、またはエントリが見つからない場合 None
+        実体は history_revert_service。互換のためストアのメソッドとして残す。
         """
-        async with async_session_factory() as db_session:
-            # 対象 History がセッションに属するか確認
-            history_row = (
-                (
-                    await db_session.execute(
-                        select(HistoryORM).where(
-                            HistoryORM.id == history_id,
-                            HistoryORM.session_id == session_id,
-                        )
-                    )
-                )
-                .scalars()
-                .first()
-            )
-            if history_row is None:
-                return None
-
-            deleted_instruction_type = history_row.instruction_type or "dress_up"
-
-            # 画像ファイル削除
-            if history_row.image_path:
-                image_path = Path(history_row.image_path)
-                if image_path.exists():
-                    try:
-                        os.remove(image_path)
-                    except OSError as exc:
-                        logger.warning("Failed to delete image %s: %s", image_path, exc)
-
-            # 周囲画像ファイル削除
-            if history_row.surroundings_image_path:
-                surr_path = (
-                    settings.history_images_dir.parent
-                    / history_row.surroundings_image_path
-                )
-                if surr_path.exists():
-                    try:
-                        os.remove(surr_path)
-                    except OSError as exc:
-                        logger.warning(
-                            "Failed to delete surroundings image %s: %s",
-                            surr_path,
-                            exc,
-                        )
-
-            # 関連する Conversation レコードを削除
-            await db_session.execute(
-                delete(ConversationORM).where(
-                    ConversationORM.related_history_id == history_id
-                )
-            )
-
-            # spec 004 (T014): 削除対象が最新エントリか判定し、change_log を逆適用してから
-            # history を削除する (CASCADE で change_log 行も削除される)
-            latest_check = (
-                (
-                    await db_session.execute(
-                        select(HistoryORM.id)
-                        .where(HistoryORM.session_id == session_id)
-                        .order_by(HistoryORM.created_at.desc(), HistoryORM.id.desc())
-                        .limit(1)
-                    )
-                )
-                .scalars()
-                .first()
-            )
-            is_latest = latest_check == history_id
-            parameter_reverts = await self._apply_history_revert(
-                db_session,
-                session_id=session_id,
-                history_id=history_id,
-                is_latest=is_latest,
-            )
-
-            # 履歴レコードを削除 (CASCADE で transformation_tags も削除される)
-            await db_session.execute(
-                delete(HistoryORM).where(HistoryORM.id == history_id)
-            )
-
-            # 直前の履歴を取得して current_image_path を復元
-            prev_stmt = (
-                select(HistoryORM)
-                .where(HistoryORM.session_id == session_id)
-                .order_by(HistoryORM.created_at.desc(), HistoryORM.id.desc())
-                .limit(1)
-            )
-            prev = (await db_session.execute(prev_stmt)).scalars().first()
-            restored_image_path = prev.image_path if prev else ""
-            restored_history_id = prev.id if prev else ""
-
-            # セッションの current_image_path を更新
-            if restored_image_path:
-                await db_session.execute(
-                    update(SessionORM)
-                    .where(SessionORM.id == session_id)
-                    .values(
-                        current_image_path=restored_image_path,
-                        updated_at=datetime.now(),
-                    )
-                )
-
-            # transformation_count のデクリメント (dress_up/reality のみ)
-            if deleted_instruction_type in ("dress_up", "reality_alter"):
-                session_row = (
-                    (
-                        await db_session.execute(
-                            select(SessionORM).where(SessionORM.id == session_id)
-                        )
-                    )
-                    .scalars()
-                    .first()
-                )
-                if session_row and session_row.transformation_count > 0:
-                    await db_session.execute(
-                        update(SessionORM)
-                        .where(SessionORM.id == session_id)
-                        .values(
-                            transformation_count=session_row.transformation_count - 1,
-                        )
-                    )
-
-            await db_session.commit()
-
-            logger.info(
-                "Deleted history entry %s for session %s, restored to %s",
-                history_id,
-                session_id,
-                restored_image_path or "(none)",
-            )
-
-            response: dict = {
-                "deleted_history_id": history_id,
-                "restored_history_id": restored_history_id,
-            }
-            if parameter_reverts:
-                response["parameter_reverts"] = parameter_reverts
-            return response
+        return await history_revert_service.delete_history_entry(session_id, history_id)
 
     async def add_session_attribute(
         self,
