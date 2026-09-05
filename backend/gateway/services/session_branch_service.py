@@ -16,7 +16,7 @@ from ..databases.character_repo import (
     fetch_session_characters,
     insert_session_character,
 )
-from ..models import BranchSessionResponse
+from ..schemas.session import BranchSessionResponse
 from ..settings.config import settings
 from .session import session_store
 from .summary_service import summary_service

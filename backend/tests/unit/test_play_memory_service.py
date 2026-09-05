@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 from pydantic import ValidationError
 
-from gateway.models import PlayMemoryUpdateRequest
+from gateway.schemas.session import PlayMemoryUpdateRequest
 from gateway.services import llm_service as llm_module
 from gateway.services import play_memory_service as module
 
