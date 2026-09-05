@@ -8,7 +8,6 @@ Pydantic (APIリクエスト/レスポンス) と dataclass (内部状態) の�
 from __future__ import annotations
 
 import json
-import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Literal
@@ -387,16 +386,6 @@ class PlayRequest(BaseModel):
     language: str | None = Field(
         None, description="応答言語（ja/en、未指定時はユーザー設定を使用）"
     )
-
-
-class PlayResponse(BaseModel):
-    """着せ替えプレイレスポンス"""
-
-    session_id: str = Field(..., description="セッションID")
-    after_image: str = Field(..., description="Base64エンコードされた結果画像")
-    feeling_text: str = Field(..., description="キャラクターの心境テキスト")
-    before_description: str = Field(..., description="着せ替え前の状態説明")
-    after_description: str = Field(..., description="着せ替え後の状態説明")
 
 
 class CharacterInfo(BaseModel):
@@ -1069,84 +1058,4 @@ class PersistedSession:
             is_active=bool(row["is_active"]),
             created_at=datetime.fromisoformat(row["created_at"]),
             updated_at=datetime.fromisoformat(row["updated_at"]),
-        )
-
-
-@dataclass
-class PlayHistory:
-    """プレイ履歴
-
-    1回の着せ替え操作の入力と結果を記録。
-    """
-
-    instruction: str
-    before_image: bytes
-    after_image: bytes
-    before_description: str
-    after_description: str
-    feeling_text: str
-    timestamp: datetime = field(default_factory=datetime.now)
-
-    def to_api_model(self) -> HistoryItem:
-        """API用モデルに変換"""
-        import base64
-
-        return HistoryItem(
-            instruction=self.instruction,
-            after_image=base64.b64encode(self.after_image).decode("utf-8"),
-            feeling_text=self.feeling_text,
-            before_description=self.before_description,
-            after_description=self.after_description,
-            timestamp=self.timestamp.isoformat(),
-        )
-
-
-@dataclass
-class GameSession:
-    """ゲームセッション
-
-    着せ替えゲームの1回のプレイセッションを表す。
-    キャラクター選択から複数回の着せ替えまでを管理。
-    """
-
-    session_id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    character_id: str | None = None
-    character: Character | None = None
-    current_image: bytes = b""
-    created_at: datetime = field(default_factory=datetime.now)
-    updated_at: datetime = field(default_factory=datetime.now)
-
-    history: list[PlayHistory] = field(default_factory=list)
-    stats: SessionStats | None = None
-
-    def update_image(self, new_image: bytes) -> None:
-        """現在の画像を更新"""
-        self.current_image = new_image
-        self.updated_at = datetime.now()
-
-    def add_history(self, history: PlayHistory) -> None:
-        """履歴を追加"""
-        self.history.append(history)
-        self.updated_at = datetime.now()
-
-    def to_api_model(self) -> SessionResponse:
-        """API用モデルに変換"""
-        import base64
-
-        return SessionResponse(
-            session_id=self.session_id,
-            character_id=self.character_id,
-            current_image=base64.b64encode(self.current_image).decode("utf-8"),
-            history=[h.to_api_model() for h in self.history],
-            stats=SessionStatsResponse(
-                bloom=self.stats.bloom,
-                shame=self.stats.shame,
-                adaptation=self.stats.adaptation,
-                passed_critical_points=self.stats.passed_critical_points,
-                difficulty=self.stats.difficulty,
-                nsfw_mode=self.stats.nsfw_mode,
-                enable_prompt_preview=self.stats.enable_prompt_preview,
-            )
-            if self.stats
-            else None,
         )

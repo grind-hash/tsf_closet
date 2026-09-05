@@ -257,13 +257,6 @@ export function avatarVariantLabel(model: AvatarModel): string {
   return model.variant_label || model.name;
 }
 
-/** 選択肢・通知向けの表示名。分類済みなら「キャラクター / 差分」 */
-export function avatarDisplayName(model: AvatarModel): string {
-  return model.character_name
-    ? `${model.character_name} / ${avatarVariantLabel(model)}`
-    : model.name;
-}
-
 export interface AvatarModelGroup {
   /** null は未分類のグループ */
   character: string | null;

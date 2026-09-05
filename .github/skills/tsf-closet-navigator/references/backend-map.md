@@ -33,7 +33,7 @@
 | 操作                                            | パス                                                                                                                  |
 | ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
 | キャラクター一覧、セッション取得/開始/復元/削除 | `/characters`、`/session/{id}`、`/start`、`/start-custom`、`/sessions/{id}/restore`、`DELETE /session`                |
-| 通常プレイ                                      | `POST /play`、`POST /play/stream`                                                                                     |
+| 通常プレイ                                      | `POST /play/stream`                                                                                     |
 | 履歴選択・分岐・削除                            | `/history/{id}/select`、`/history/{id}/branch-session`、`DELETE /history/{id}`、`DELETE /session/{id}/latest-history` |
 | 会話                                            | `/chat`、`/chat/stream`、`/conversation/{id}`、会話単体/履歴単位削除                                                  |
 | プレイメモ                                      | `PATCH /sessions/{id}/play-memory`、`POST /sessions/{id}/play-memory/regenerate`                                      |

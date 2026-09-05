@@ -89,7 +89,7 @@
 | `apis/speechSynthesis.ts` | AivisSpeech導入、起動、話者、合成                                |
 | `apis/anlas.ts`           | NovelAI Anlas残高                                                |
 | `apis/promptExpander.ts`  | PE 設定/セッション/エントリ/アップロード/拡張/生成/キャラ提案、`promptExpanderImageUrl` |
-| `apis/avatars.ts`         | 3D モデル(VRM)の一覧/アップロード(唯一の `FormData` 送信。`uploadAvatarModel(file, {name?, characterName?, variantLabel?})`)/更新 `updateAvatarModel(id, {name?, character_name?, variant_label?})`（`renameAvatarModel` はその包み）/削除、`avatarModelFileUrl`、`AvatarApiError.code`（`invalid_vrm` / `file_too_large`）、一括分類 `autoClassifyAvatarModels`（`POST /auto-classify`）。衣装差分の表示補助 `groupAvatarModels`（キャラクター別、未分類は末尾、グループ内は差分ラベル順）/ `avatarVariantLabel` / `avatarDisplayName` / `classifyAvatarFilename`（backend の規則のミラー。編集フォームの事前入力用） |
+| `apis/avatars.ts`         | 3D モデル(VRM)の一覧/アップロード(唯一の `FormData` 送信。`uploadAvatarModel(file, {name?, characterName?, variantLabel?})`)/更新 `updateAvatarModel(id, {name?, character_name?, variant_label?})`（`renameAvatarModel` はその包み）/削除、`avatarModelFileUrl`、`AvatarApiError.code`（`invalid_vrm` / `file_too_large`）、一括分類 `autoClassifyAvatarModels`（`POST /auto-classify`）。衣装差分の表示補助 `groupAvatarModels`（キャラクター別、未分類は末尾、グループ内は差分ラベル順）/ `avatarVariantLabel` / `classifyAvatarFilename`（backend の規則のミラー。編集フォームの事前入力用） |
 
 ## UI構成
 

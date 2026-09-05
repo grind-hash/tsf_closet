@@ -10,7 +10,6 @@ import {
   CHARACTER_PRESET,
   CHARACTER_PRESETS,
   CHARACTERS_FROM_PRESET,
-  CHARACTERS_GENERATE_TAGS,
   SESSION_CHARACTER,
   SESSION_CHARACTERS,
   SESSION_CHARACTERS_ENSURE_PROTAGONIST,
@@ -18,8 +17,6 @@ import {
 import type {
   CharacterPosition,
   CharacterPreset,
-  GenerateTagsItem,
-  GenerateTagsResultItem,
   SessionCharacter,
 } from "../types";
 
@@ -150,24 +147,6 @@ export async function applyPresetToSession(
     CHARACTERS_FROM_PRESET(sessionId, presetId),
     { method: "POST" },
   );
-}
-
-// ---------------------------------------------------------------------------
-// Tag generation
-// ---------------------------------------------------------------------------
-
-export interface GenerateTagsResponse {
-  results: GenerateTagsResultItem[];
-}
-
-export async function generateCharacterTagsBatch(
-  items: GenerateTagsItem[],
-): Promise<GenerateTagsResultItem[]> {
-  const data = await request<GenerateTagsResponse>(CHARACTERS_GENERATE_TAGS, {
-    method: "POST",
-    body: JSON.stringify({ items }),
-  });
-  return data.results;
 }
 
 // ---------------------------------------------------------------------------

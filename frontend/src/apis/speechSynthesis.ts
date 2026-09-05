@@ -181,18 +181,6 @@ export async function ensureAivisEngineRunning(
   return getAivisStatus();
 }
 
-export async function downloadAivisModel(payload: DownloadPayload): Promise<{
-  path: string;
-  size: string;
-}> {
-  const res = await fetch(`${API_BASE}/aivisspeech/download-model`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  return parseJsonOrThrow<{ path: string; size: string }>(res);
-}
-
 export async function installAivisModel(payload: InstallModelPayload): Promise<{
   status: string;
 }> {

@@ -496,14 +496,3 @@ export interface CharacterPreset {
   created_at: string;
   updated_at: string;
 }
-
-export interface GenerateTagsItem {
-  id: string;
-  name: string;
-  natural: string;
-}
-
-export interface GenerateTagsResultItem {
-  id: string;
-  tags: string;
-}
