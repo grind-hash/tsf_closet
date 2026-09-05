@@ -65,13 +65,10 @@
 
 | Hook                  | 目的                                                                                                                                                                                                                                                            |
 | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `useSession`          | セッション開始/復元、キャラクター読込、GameContext更新                                                                                                                                                                                                          |
 | `useSSE`              | GET/POST SSEの解析、停止、エラー処理                                                                                                                                                                                                                            |
 | `useGameSSE`          | 通常ゲームSSEを4つの全体Contextへ接続                                                                                                                                                                                                                           |
-| `useAchievements`     | 実績一覧/詳細取得                                                                                                                                                                                                                                               |
 | `useGallery`          | ギャラリーの検索、ページング、削除                                                                                                                                                                                                                              |
 | `useInfiniteScroll`   | IntersectionObserverによる追加読込                                                                                                                                                                                                                              |
-| `useTagSuggest`       | タグ候補取得                                                                                                                                                                                                                                                    |
 | `useTransparentImage` | 透過画像の読込とフォールバック（表示中は blob URL を retain/release で保持）                                                                                                                                                                                                                                 |
 | `usePreciseReferenceFiles` | 精密参照画像ファイルの検証（PNG/JPEG/WebP・10MB・最大6枚）と DataURL 変換、`SettingsContext.addPreciseReference` への追加。RightPanel のドロップゾーンと GamePlayScreen の画面全体ドロップが共用。`PRECISE_REFERENCE_SECTION_ID` はスクロール先の DOM id |
 | `useWindowFileDrop` | 画面全体（window）へのファイルドロップ検知。ファイルを含むドラッグ中だけ true を返し、drop を `onFiles` に渡す（個別ドロップゾーンが preventDefault 済みなら二重処理しない）。表示は `components/ui/FileDropOverlay`（薄グレー＋アップロードアイコン、pointer-events なし）と組で使う |
@@ -90,7 +87,6 @@
 | `apis/memory.ts`          | ユーザーメモ本文、生成ジョブ、状態、取消、分析DL                 |
 | `apis/settings.ts`        | セルフプロフィール生成/保存/取得                                 |
 | `apis/speechSynthesis.ts` | AivisSpeech導入、起動、話者、合成                                |
-| `apis/achievements.ts`    | 実績一覧/詳細                                                    |
 | `apis/anlas.ts`           | NovelAI Anlas残高                                                |
 | `apis/promptExpander.ts`  | PE 設定/セッション/エントリ/アップロード/拡張/生成/キャラ提案、`promptExpanderImageUrl` |
 | `apis/avatars.ts`         | 3D モデル(VRM)の一覧/アップロード(唯一の `FormData` 送信。`uploadAvatarModel(file, {name?, characterName?, variantLabel?})`)/更新 `updateAvatarModel(id, {name?, character_name?, variant_label?})`（`renameAvatarModel` はその包み）/削除、`avatarModelFileUrl`、`AvatarApiError.code`（`invalid_vrm` / `file_too_large`）、一括分類 `autoClassifyAvatarModels`（`POST /auto-classify`）。衣装差分の表示補助 `groupAvatarModels`（キャラクター別、未分類は末尾、グループ内は差分ラベル順）/ `avatarVariantLabel` / `avatarDisplayName` / `classifyAvatarFilename`（backend の規則のミラー。編集フォームの事前入力用） |
@@ -102,7 +98,6 @@ components/
   GamePlayScreen.tsx          通常ゲームの画像、履歴、チャット統合。NovelAI 選択時は画面全体への画像ドロップを window で受けて精密参照画像へ追加し（ドラッグ中は薄グレーのオーバーレイ）、`setPanelOpen(true)` で右パネルを開いてから精密参照セクションへ scrollIntoView。V5 実効時はオーバーレイに利用不可の説明を出し追加しない
   ImagePreviewModal.tsx       履歴画像と対応テキストのプレビュー
   HistoryPanel.tsx            履歴ナビゲーション
-  AttributeSection.tsx        現実改変属性
   InpaintModal.tsx            マスク編集
   SessionListModal.tsx        セッション一覧/復元
   NovelaiUsageBar.tsx         NovelAI V5利用上限バー(HUD/設定パネル/設定画面共用、表示可否は親が判断)

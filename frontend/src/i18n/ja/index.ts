@@ -6,7 +6,6 @@ import { achievementToast } from "./achievementToast";
 import { adventure } from "./adventure";
 import { apiKeyConsent } from "./apiKeyConsent";
 import { appLoading } from "./appLoading";
-import { attributeSection } from "./attributeSection";
 import { bgmTest } from "./bgmTest";
 import { branchSession } from "./branchSession";
 import { character } from "./character";
@@ -40,7 +39,6 @@ export const ja = {
   rightPanel,
   characterPanel,
   branchSession,
-  attributeSection,
   sessionList,
   imagePreview,
   achievementToast,
