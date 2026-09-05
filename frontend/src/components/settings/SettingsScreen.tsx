@@ -6,6 +6,7 @@ import { useCallback, useState } from "react";
 
 import { useTranslation } from "react-i18next";
 import { useSettings } from "../../contexts/SettingsContext";
+import type { TranslationKey } from "../../i18n";
 import type { HistoryLookbackTarget } from "../../utils/historyLookback";
 import MainLayout from "../layout/MainLayout";
 import { NovelaiUsageBar } from "../NovelaiUsageBar";
@@ -19,7 +20,7 @@ import "./SettingsScreen.css";
 
 const HISTORY_LOOKBACK_TARGETS: Array<{
   value: HistoryLookbackTarget;
-  labelKey: string;
+  labelKey: TranslationKey;
 }> = [
   { value: "action", labelKey: "settings.historyLookbackTargetAction" },
   {

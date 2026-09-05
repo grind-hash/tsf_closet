@@ -337,7 +337,7 @@ function normalizeSpeechCustom(value: unknown): string | null {
 function speechStyleLabel(
   style: AdventureSpeechStyle,
   custom: string,
-  t: (key: string) => string,
+  t: TFunction,
 ): string {
   if (style === "custom") {
     return custom.trim() || t("adventure.speechStyles.polite");
@@ -2053,7 +2053,7 @@ function partnerPortraitInherited(
 /** 据え置き理由の i18n キー末尾。未記録(旧ターン)は unknown */
 function partnerPortraitReasonKey(
   status: AdventurePartnerPortraitStatus | null,
-): string {
+): Exclude<AdventurePartnerPortraitStatus, "generated"> | "unknown" {
   return status && status !== "generated" ? status : "unknown";
 }
 

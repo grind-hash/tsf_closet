@@ -14,7 +14,18 @@ import {
   stopAivisEngine,
 } from "../../apis/speechSynthesis";
 import { useSettings } from "../../contexts/SettingsContext";
+import type { TranslationKey } from "../../i18n";
 import "./SpeechSynthesisSettings.css";
+
+/** 導入手順の進捗。settings.speech.stage.* のキーと一致させる */
+type SpeechSetupStage =
+  | "initial"
+  | "engine_downloaded"
+  | "engine_extracted"
+  | "engine_started"
+  | "model_downloaded"
+  | "model_installed"
+  | "speakers_ready";
 
 export default function SpeechSynthesisSettings() {
   const { t } = useTranslation();
@@ -34,7 +45,7 @@ export default function SpeechSynthesisSettings() {
   const [statusText, setStatusText] = useState("");
   const [currentAction, setCurrentAction] = useState("");
   const [statusInfo, setStatusInfo] = useState<AivisStatus | null>(null);
-  const [setupStage, setSetupStage] = useState("initial");
+  const [setupStage, setSetupStage] = useState<SpeechSetupStage>("initial");
   const [isModelGuideOpen, setIsModelGuideOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [showGpuChangeHint, setShowGpuChangeHint] = useState(false);
@@ -86,7 +97,7 @@ export default function SpeechSynthesisSettings() {
   }, []);
 
   const markAction = useCallback(
-    (key: string) => {
+    (key: TranslationKey) => {
       setCurrentAction(t(key));
     },
     [t],

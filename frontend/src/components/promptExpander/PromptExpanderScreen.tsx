@@ -15,6 +15,7 @@ import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router-dom";
 import { isV5ImageModel } from "../../constants/novelaiImageModels";
 import { usePromptExpander } from "../../contexts/PromptExpanderContext";
+import type { TranslationKey } from "../../i18n";
 import { ROUTES } from "../../routes";
 import ApiKeyConsentModal from "../ApiKeyConsentModal";
 import AdventureAnlasConfirmDialog from "../adventure/AdventureAnlasConfirmDialog";
@@ -59,7 +60,7 @@ function writeSettingsPanelOpen(open: boolean) {
 }
 
 // Context 側の検証コードを表示文言に変換する。API 由来のメッセージはそのまま返す
-const ERROR_CODE_KEYS: Record<string, string> = {
+const ERROR_CODE_KEYS: Record<string, TranslationKey> = {
   empty_prompt: "promptExpander.errors.emptyPrompt",
   too_many_characters: "promptExpander.errors.tooManyCharacters",
   session_not_selected: "promptExpander.errors.noSession",

@@ -180,7 +180,7 @@ components/
 
 ## i18n、CSS、テスト
 
-- i18nは `frontend/src/i18n.ts` に日本語/英語リソースを持つ。新規UI文字列は両言語を更新する。
+- i18n は `frontend/src/i18n/` に名前空間ごとのファイルで持つ（`ja/<namespace>.ts` と `en/<namespace>.ts`、各言語の `index.ts` が結合、`i18n/index.ts` が初期化と `TranslationKey` 型を公開）。`t()` のキーは ja のリソースから型付けされ、存在しないキーや ja/en の乖離は `tsc` と `src/i18n/index.test.ts` で検出される。`t(\`ns.${x}\`)` のような動的キーは `x` を文字列リテラルの union 型にする（`string` のままでは型エラー）。新規UI文字列は両言語を更新する。
 - `SideMenu` の `isActive` は完全一致に加えて `pathname.startsWith("{path}/")` も見る。詳細ページ（`/prompt-expander/:id`、`/adventure/:runId`、`/gallery/:sessionId`）で親項目が非活性になると、その項目から一覧へ戻れることに気付けないため。`/play/new` だけは従来どおり特例で先に判定する。
 - 各大規模画面は隣接CSSを持つ。既存レイアウトを保ち、変更画面だけ確認する。
 - `hooks/usePersistedSectionState.ts` はモジュールレベルのストア＋`useSyncExternalStore`で、マウント中のセクションIDと既定値をレジストリに持つ。`setAllPromptExpanderSections(open)` と `usePromptExpanderSectionsAllOpen()` はそのレジストリを見るので、セクションを増やしても固定リストの更新は要らない。

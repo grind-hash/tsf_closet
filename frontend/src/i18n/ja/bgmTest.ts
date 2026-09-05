@@ -1,0 +1,16 @@
+export const bgmTest = {
+  title: "BGMテスト",
+  subtitle: "TSFシナリオで使うBGMを一覧から試聴できます。",
+  playerLabel: "BGMプレイヤー",
+  trackListTitle: "楽曲一覧",
+  play: "再生",
+  pause: "一時停止",
+  stop: "停止",
+  seek: "再生位置",
+  volume: "音量",
+  noTrack: "曲が選択されていません",
+  loading: "楽曲を読み込み中...",
+  loadError: "楽曲一覧の取得に失敗しました。",
+  playbackError: "この曲を再生できませんでした。",
+  empty: "登録されている楽曲がありません。",
+};

@@ -1,0 +1,26 @@
+export const favorites = {
+  title: "Favorite Outfits",
+  countSuffix: "items",
+  empty: "No favorites yet",
+  emptyHint:
+    "Star images in the gallery or in the play preview to collect them here",
+  addAria: "Add to favorites",
+  removeAria: "Remove from favorites",
+  addTitle: "Add to favorites",
+  removeTitle: "Remove from favorites",
+  toggleError: "Failed to update favorite",
+  addLabel: "Add label",
+  editLabel: "Edit label",
+  labelModalTitle: "Favorite label",
+  labelHint: "Add a short memo so you can find it later (max 80 chars)",
+  labelPlaceholder: "e.g. white dress, bloom ~60",
+  labelSave: "Save",
+  labelSaving: "Saving...",
+  labelSaveError: "Failed to save label",
+  removeConfirmTitle: "Remove from favorites?",
+  removeConfirmMessage:
+    "This removes it from the list only. The image itself stays, and you can star it again from the gallery later.",
+  removeConfirmAction: "Remove",
+  removeConfirmCancel: "Cancel",
+  removeConfirmDontShow: "Don’t show this again",
+};

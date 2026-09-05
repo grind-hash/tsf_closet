@@ -155,10 +155,18 @@ export function usesNativeTransparency(
 }
 
 /** 参照種別の i18n キー（"character&style" は "&" をキーに使えないため characterStyle に写す） */
+export type PromptExpanderReferenceTypeI18nKey =
+  | "character"
+  | "style"
+  | "characterStyle";
+
 export function referenceTypeI18nKey(
   type: PromptExpanderReferenceType | string,
-): string {
-  return type === "character&style" ? "characterStyle" : type;
+): PromptExpanderReferenceTypeI18nKey {
+  if (type === "character&style") {
+    return "characterStyle";
+  }
+  return type === "style" ? "style" : "character";
 }
 
 /**
