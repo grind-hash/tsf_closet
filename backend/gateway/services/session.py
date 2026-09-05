@@ -48,7 +48,6 @@ from ..databases.parameter_change_log_repo import (
 from ..models import (
     CRITICAL_POINTS,
     AchievedEnding,
-    Character,
     ConversationMessage,
     ConversationMessageResponse,
     HistoryItem,
@@ -1864,45 +1863,3 @@ class DatabaseSessionStore:
 
 
 session_store = DatabaseSessionStore()
-
-
-class SessionStore:
-    """後方互換性のためのラッパー (非推奨)
-
-    新しいコードは DatabaseSessionStore を直接使用してください。
-    """
-
-    def __init__(self) -> None:
-        from ..models import GameSession as GameSessionModel
-
-        self._sessions: dict[str, GameSessionModel] = {}  # type: ignore[type-arg]
-
-    def get(self, session_id: str) -> object | None:
-        return self._sessions.get(session_id)
-
-    def create(
-        self,
-        image: bytes,
-        character_id: str | None = None,
-        character: Character | None = None,
-    ) -> object:
-        from ..models import GameSession as GameSessionModel
-
-        session = GameSessionModel(
-            character_id=character_id,
-            character=character,
-            current_image=image,
-        )
-        self._sessions[session.session_id] = session
-        return session
-
-    def update(self, session: object) -> None:
-        session_id = getattr(session, "session_id", None)
-        if session_id and session_id in self._sessions:
-            self._sessions[session_id] = session  # type: ignore[assignment]
-
-    def delete(self, session_id: str) -> bool:
-        if session_id in self._sessions:
-            del self._sessions[session_id]
-            return True
-        return False

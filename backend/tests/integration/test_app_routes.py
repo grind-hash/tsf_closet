@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from gateway.app import app
+from gateway.routes.openai_images_router import get_comfy_client
 from gateway.settings.config import settings
 
 # with を使わず生成し、lifespan（実 DB の初期化）を走らせない
@@ -70,7 +71,13 @@ def test_novelai_endpoints_require_api_key(monkeypatch) -> None:
 
 
 def test_image_edits_requires_image_upload() -> None:
-    response = client.post("/v1/images/edits", data={"prompt": "red dress"})
+    # ComfyUI クライアントの生成はワークフローテンプレート（git 管理外）を読むため、
+    # 依存を差し替えて画像なしのバリデーションだけを確認する
+    app.dependency_overrides[get_comfy_client] = lambda: object()
+    try:
+        response = client.post("/v1/images/edits", data={"prompt": "red dress"})
+    finally:
+        app.dependency_overrides.pop(get_comfy_client, None)
 
     assert response.status_code == 400
     assert "Image upload 'image' is required" in response.json()["detail"]

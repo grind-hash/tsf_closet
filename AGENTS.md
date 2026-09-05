@@ -154,7 +154,7 @@ tavily-remote MCP を利用してライブラリ選定を行う際は、以下�
 #### 禁止パターン
 
 - ❌ **props → useEffect → Context 同期**: 親から props で受け取った値を `useEffect` で Context に書き戻すパターン。状態の二重管理になるため、最初から Context に状態を持たせること
-- ❌ **useSession の値を props で中継**: `useSession` hook の返却値を `App.tsx` で受け取り、子コンポーネントの props として丸ごと渡すパターン。セッション状態は `GameContext` 経由で取得させること
+- ❌ **セッション状態を props で中継**: セッション開始/復元の結果を `App.tsx` で受け取り、子コンポーネントの props として丸ごと渡すパターン（旧 `useSession` hook の使い方）。セッション状態は `GameContext` 経由で取得させること
 - ❌ **未使用 props の放置**: コンポーネントの props インターフェースに定義されているが `_` プレフィックスで受け取って使用していない props は、速やかに削除すること
 
 #### 推奨パターン
