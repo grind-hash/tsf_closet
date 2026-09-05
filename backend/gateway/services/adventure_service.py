@@ -90,6 +90,7 @@ from ..consts.novelai_models import (
     is_v5_image_model,
     resolve_user_image_model,
 )
+from ..consts.adventure_inventory import BOUNDARY_AFFECTION_FLOOR
 from ..databases.base import async_session_factory
 from ..databases.models import AdventureRun, AdventureTurn
 from ..settings.config import BASE_DIR, settings
@@ -103,6 +104,28 @@ from .clothing_layers import (
     split_tag_tokens,
 )
 from .image_generation import image_service
+from .adventure_inventory import (
+    INVENTORY_NARRATIVE_INSTRUCTION,
+    INVENTORY_VISUAL_INSTRUCTION,
+    REALITY_PATCH_INSTRUCTION,
+    ROMANCE_BOUNDARY_SCORING_INSTRUCTION,
+    WORLD_EVENTS_INSTRUCTION,
+    InventoryActionError,
+    apply_item_resolution,
+    apply_reality_patch,
+    apply_world_events,
+    coerce_reality_patch,
+    coerce_world_events,
+    init_inventory_state,
+    inventory_enabled,
+    item_resolution_narrative_suffix,
+    lean_inventory_for_llm,
+    npc_states_for_llm,
+    public_inventory_view,
+    public_npc_states,
+    resolve_item_action,
+    worn_inventory_items,
+)
 from .adventure_romance import (
     ROMANCE_COMPANION_RESOLUTION_GUIDANCE,
     ROMANCE_NARRATIVE_GUIDANCE,
@@ -624,6 +647,26 @@ class AdventureResolutionOutput(BaseModel):
     # 宣言がタイムリミット(総手数)を変更した場合のみ入る。
     # reality_alter ターン限定で Python 側が範囲を丸めて run.max_turns へ反映する
     updated_max_turns: int | None = None
+    # 持ち物システム(inventory_enabled)の World Event。物語が実際に示した受け渡し・
+    # 使用・着脱・境界侵害だけを、Python 側が所持品と照合して適用する。
+    # reality_patch は reality_alter ターン限定で所持品と NPC の記憶を直接書き換える。
+    # 既存の alter 限定フィールド(affection_set / money_set / updated_total_days /
+    # updated_gift_catalog / updated_partner_appearance / start_dating /
+    # updated_max_turns)と合わせたものが「現実改変パッチ」で、既存分は従来どおり
+    # apply_romance_outcome / _apply_time_limit_alteration が適用する
+    world_events: list[dict[str, Any]] = Field(default_factory=list)
+    reality_patch: dict[str, Any] | None = None
+
+    @field_validator("world_events", mode="before")
+    @classmethod
+    def coerce_world_events_field(cls, value: Any) -> Any:
+        # 壊れた要素は捨て、検証エラー→修復リトライへ落とさない
+        return coerce_world_events(value)
+
+    @field_validator("reality_patch", mode="before")
+    @classmethod
+    def coerce_reality_patch_field(cls, value: Any) -> Any:
+        return coerce_reality_patch(value)
 
     @field_validator("partner_expression", mode="before")
     @classmethod
@@ -928,6 +971,12 @@ def _lean_state_for_llm(state: dict[str, Any]) -> dict[str, Any]:
         "partner_gesture",
         # トークログは必要な分だけ recent_talk として別途渡す
         "talk_log",
+        # 持ち物は turn_context["inventory"] / ["npc_states"] に上限付きで整形して
+        # 渡す。world_events_applied は表示用の記録
+        "inventory_enabled",
+        "inventory",
+        "npc_states",
+        "world_events_applied",
     }
     return {key: value for key, value in state.items() if key not in omit}
 
@@ -2560,6 +2609,8 @@ def _visual_user_payload(
                 "progressive_reality_rules", []
             ),
             "romance_partner": romance_partner,
+            # 持ち物システムで着用中の品。無効な run は None
+            "worn_inventory_items": turn_context.get("worn_inventory_items"),
         },
         ensure_ascii=False,
     )
@@ -2599,6 +2650,10 @@ class _TurnContexts:
     # 対面会話モードで表示中の 3D モデルと同じキャラクターの衣装差分(2 件以上の
     # ときだけ)。各要素は {key, id, label, current}。_companion_outfit_options 参照
     outfit_options: list[dict[str, Any]] = field(default_factory=list)
+    # 持ち物システムが有効な run か。プロンプトの持ち物ブロックと適用処理のゲート
+    inventory_enabled: bool = False
+    # 持ち物パネル由来の行動の検証結果(resolve_item_action)。無ければ None
+    item_resolution: dict[str, Any] | None = None
 
 
 def _take_established_reality_rules(
@@ -2962,9 +3017,12 @@ Return JSON only and keep the entire response under 1200 characters. Do not repe
         romance: bool = False,
         script_names: tuple[str, str] | None = None,
         wardrobe: bool = False,
+        inventory: bool = False,
     ) -> str:
         response_language = "Japanese" if language == "ja" else "English"
         voice_rule = _narration_voice_instruction(narration_voice, narration_pronoun)
+        # 持ち物システム: プレイヤー入力を事実にしない・NPC の意思と社会通念で判定する
+        inventory_rule = f"\n{INVENTORY_NARRATIVE_INSTRUCTION}" if inventory else ""
         if romance:
             # 対面会話モード(script_names あり)は半日枠でなく1往復の会話にする
             romance_rule = (
@@ -2986,7 +3044,7 @@ Return JSON only and keep the entire response under 1200 characters. Do not repe
         return f"""You are the director of a short objective-based adventure game.
 Write only the narrative for the next scene, as plain prose in {response_language}. Do not output JSON, markdown, headings, choices, labels, or commentary.
 Keep the narrative under 800 characters. Never decide the player's feelings, consent, past wishes, bodily sensations, or voluntary actions unless the player's input explicitly states them. If the player's action objectively makes the mission impossible to continue, narrate a concise failure ending instead of refusing or truncating. Describe observable events and NPC actions. Do not introduce an unrequested body transformation. Never grant the player another person's memories, personal knowledge, relationships, habits, skills, credentials, passwords, or authentication information unless the supplied source facts explicitly state them. A copied appearance or name does not imply copied memory or competence. Treat state.appearance_lock and required_visual_appearance as an immutable identity signature, and never change the player's sex, hair color, hair length, hairstyle, eye color, or body features unless scenario_guidance or authored_template_resolution explicitly allows and triggers that change, or reality_rule_declared_this_turn declares a change to the player's own body or identity; in that case narrate the player already in the new body and keep every unaffected trait. Clothing may be offered, found, or discussed, but the player only puts on, removes, or changes clothing when their input explicitly chooses that action, or when a declared reality rule changes the player's body or identity; in that case clothing follows the body, so each person wears whatever their new body was already wearing, and a declared swap or exchange of bodies also exchanges their outfits. Separately, a reality_rules entry may itself state what the player wears or how the player looks; such a rule is already true, so narrate the player that way on every turn it remains in reality_rules rather than treating it as something they still have to do. Unless the input explicitly requests layering, a new garment replaces the previous outfit instead of being worn over it. If the source snapshot explicitly establishes a transformed sex or body, it may create practical disguise or role opportunities without inventing further changes. When authored_template_resolution is provided, treat it as authoritative and never narrate a score, transformation, unlocked exit, or ending beyond its event.
-{_REALITY_RULES_INSTRUCTION}
+{_REALITY_RULES_INSTRUCTION}{inventory_rule}
 {voice_rule}"""
 
     def _resolution_system_prompt(
@@ -2999,6 +3057,8 @@ Keep the narrative under 800 characters. Never decide the player's feelings, con
         include_clues: bool = True,
         companion: bool = False,
         outfit_keys: tuple[str, ...] = (),
+        inventory: bool = False,
+        reality_patch: bool = False,
     ) -> str:
         response_language = "Japanese" if language == "ja" else "English"
         # 選択肢ラベルは行動フレーズなので、人称を載せない旨を併記する
@@ -3028,6 +3088,20 @@ Keep the narrative under 800 characters. Never decide the player's feelings, con
         else:
             # タイムリミット変更の申告。romance は日数ベースの専用フィールドを使う
             voice_rule = f"{_TIME_LIMIT_ALTER_INSTRUCTION}\n{voice_rule}"
+        inventory_schema = ""
+        if inventory:
+            # 持ち物システム: 物語が示した受け渡し等を機械可読で返させる。
+            # 現実改変ターンだけ所持品・NPC 記憶の直接書き換えも受け付ける
+            inventory_rule = WORLD_EVENTS_INSTRUCTION
+            inventory_schema = ',"world_events":[]'
+            if romance:
+                inventory_rule = (
+                    f"{inventory_rule} {ROMANCE_BOUNDARY_SCORING_INSTRUCTION}"
+                )
+            if reality_patch:
+                inventory_rule = f"{inventory_rule}\n{REALITY_PATCH_INSTRUCTION}"
+                inventory_schema += ',"reality_patch":null'
+            voice_rule = f"{inventory_rule}\n{voice_rule}"
         # 手掛かり抽出OFF時もスキーマは変えず、常に空リストを要求するだけに留める
         if not include_clues:
             voice_rule = (
@@ -3044,7 +3118,7 @@ Keep the narrative under 800 characters. Never decide the player's feelings, con
             avatar_schema += f',"partner_outfit":"{"|".join(outfit_keys)}"'
         return f"""You resolve the mechanical outcome of one adventure turn that has already been narrated.
 Return one JSON object only, in {response_language}, matching this schema:
-{{"choices":[{{"id":"...","label":"..."}},{{"id":"...","label":"..."}},{{"id":"...","label":"..."}}],"discovered_clues":[],"completed_milestones":[],"ending_status":"continue|success|partial|failure","ending_title":null,"ending_summary":null,"bgm":"{"|".join(get_bgm_keys())}","bgm_reason":"..."{avatar_schema}}}
+{{"choices":[{{"id":"...","label":"..."}},{{"id":"...","label":"..."}},{{"id":"...","label":"..."}}],"discovered_clues":[],"completed_milestones":[],"ending_status":"continue|success|partial|failure","ending_title":null,"ending_summary":null,"bgm":"{"|".join(get_bgm_keys())}","bgm_reason":"..."{avatar_schema}{inventory_schema}}}
 Base every value strictly on the supplied narrative and game state, and never invent events the narrative does not contain. bgm selects the background music category for the scene and must be exactly one of: {get_bgm_prompt_guide()}. current_bgm is the music already playing: keep bgm identical to current_bgm unless the location, scene, mood, or story phase has clearly changed, and never change it for a single line of dialogue, a momentary emotion, or a brief reaction. {BGM_SELECTION_RULES} bgm_reason briefly states, in {response_language}, why that bgm category fits this scene, in 200 characters or fewer. Never output a filename, a path, or any value outside this list. choices must offer exactly three distinct actions the player could take next. discovered_clues must contain only new information the narrative actually revealed, and must not repeat state.clues. completed_milestones must contain milestone ID strings only, never objects, and only when the narrated action actually earns them. Keep ending_status as continue unless the narrative itself concludes the mission, and fill ending_title and ending_summary only in that case. Never decide the player's feelings, consent, or voluntary actions. When authored_template_resolution is provided, treat it as authoritative and never report a score, transformation, or ending beyond its event. Keep the entire response compact.
 {_CHOICES_PERSPECTIVE_INSTRUCTION}
 {_CHOICES_LENGTH_INSTRUCTION}
@@ -3058,17 +3132,20 @@ Base every value strictly on the supplied narrative and game state, and never in
         *,
         respect_clothing_layers: bool = False,
         romance: bool = False,
+        inventory_worn: bool = False,
     ) -> str:
         response_language = "Japanese" if language == "ja" else "English"
         layer_rule = _CLOTHING_LAYER_TAG_RULE if respect_clothing_layers else ""
         romance_rule = f"\n{ROMANCE_VISUAL_GUIDANCE}" if romance else ""
+        # 持ち物の着用品(worn_inventory_items)を服装とタグへ必ず反映させる
+        inventory_rule = f"\n{INVENTORY_VISUAL_INSTRUCTION}" if inventory_worn else ""
         return f"""You update the visual state of an adventure scene and convert it into NovelAI image tags.
 Return one JSON object only, matching this schema:
 {{"visual_state":{{"location":"...","appearance":"...","clothing":"...","surroundings":"...","main_characters":[{{"name":"...","description":"...","clothing":"...","action":"..."}}]}},"scene_tags":"...","player_tags":"...","npc_tags":["..."]}}
 Write visual_state values in {response_language}. Write scene_tags, player_tags, and npc_tags as concise English comma-separated tags.
 Derive visual_state from previous_visual_state, changing only what the narrative states. Treat required_visual_appearance as an immutable identity signature: copy its sex, hair color, hair length, hairstyle, eye color, and body features exactly into visual_state.appearance, and never replace or supplement those traits unless authored_template_resolution explicitly triggers that change, or reality_rule_declared_this_turn declares a change to the player's own body or identity; in that case rewrite visual_state.appearance to match the declared rule while keeping every unaffected trait, and when the declaration does not concern the player's own body, copy required_visual_appearance unchanged. reality_rules are established facts of this world; keep visual_state, player_tags, and npc_tags consistent with them. The player only puts on, removes, or changes clothing when player_input explicitly chose that action, or when reality_rule_declared_this_turn changes the player's own body or identity; in that case clothing follows the body, so rewrite visual_state.clothing to the outfit that body is actually wearing after the change, and when the declaration swaps or exchanges the player with another character the player now wears the clothing that character was wearing while that character now wears the player's previous clothing, which their entry in main_characters must reflect. Separately, a reality_rules entry may itself state what the player wears or how the player looks; such a rule outranks previous_visual_state, so visual_state.clothing and visual_state.appearance must satisfy it on every turn it remains in reality_rules, not only on the turn it was established. progressive_reality_rules lists the reality rules that describe a gradual, repeated, or per-turn ongoing change (for example, the player's body becoming more feminine every turn); on every turn each such rule advances by one clearly noticeable step, so rewrite the affected traits in visual_state.appearance and player_tags one visible step further advanced than previous_visual_state and required_visual_appearance, never reverting to an earlier stage while the rule remains, and the immutable-identity-signature rule does not protect the traits such a rule changes. Otherwise keep previous_visual_state.clothing unchanged. Unless layering was explicitly requested, a new garment replaces the previous outfit. Keep visual_state concrete enough to illustrate the main characters, their clothing, and the surrounding location. main_characters contains NPCs, never the player.
 When previous_image_tags is provided, treat it as the wording a human editor deliberately chose: reuse its scene_tags, player_tags, and npc_tags as the starting point and edit them only where visual_state or the narrative now requires a change, preserving the rest of the original wording and phrasing style. When previous_image_tags is absent, write the tags from scratch.
-scene_tags contains only environment, camera, composition, lighting, and the observable interaction; it must not contain any character's gender, body, face, hair, or clothing. player_tags describes only the player from visual_state.appearance and visual_state.clothing. The player is always the primary subject in the center foreground. visual_state.clothing is authoritative and must never be replaced with an NPC outfit. npc_tags must contain one entry per NPC in main_characters, in the same order, describing only that NPC; every NPC is a secondary subject placed to the side or behind the player. Never merge player and NPC attributes. Do not add text, UI, split panels, or unstated changes. When authored_scene_tags is provided, reuse those environment tags as the base of scene_tags and only append concrete changes required by the narrative. When authored_visual_style is provided, keep visual_state.location and visual_state.surroundings aligned with it unless the narrative explicitly moves the scene to a new place after a successful exit.{layer_rule}{romance_rule}"""
+scene_tags contains only environment, camera, composition, lighting, and the observable interaction; it must not contain any character's gender, body, face, hair, or clothing. player_tags describes only the player from visual_state.appearance and visual_state.clothing. The player is always the primary subject in the center foreground. visual_state.clothing is authoritative and must never be replaced with an NPC outfit. npc_tags must contain one entry per NPC in main_characters, in the same order, describing only that NPC; every NPC is a secondary subject placed to the side or behind the player. Never merge player and NPC attributes. Do not add text, UI, split panels, or unstated changes. When authored_scene_tags is provided, reuse those environment tags as the base of scene_tags and only append concrete changes required by the narrative. When authored_visual_style is provided, keep visual_state.location and visual_state.surroundings aligned with it unless the narrative explicitly moves the scene to a new place after a successful exit.{layer_rule}{romance_rule}{inventory_rule}"""
 
     async def _generate_structured_output(
         self,
@@ -3118,6 +3195,8 @@ scene_tags contains only environment, camera, composition, lighting, and the obs
         include_clues: bool = True,
         companion: bool = False,
         outfit_keys: tuple[str, ...] = (),
+        inventory: bool = False,
+        reality_patch: bool = False,
     ) -> AdventureResolutionOutput:
         return await self._generate_structured_output(
             AdventureRomanceResolutionOutput if romance else AdventureResolutionOutput,
@@ -3129,6 +3208,8 @@ scene_tags contains only environment, camera, composition, lighting, and the obs
                 include_clues=include_clues,
                 companion=companion,
                 outfit_keys=outfit_keys,
+                inventory=inventory,
+                reality_patch=reality_patch,
             ),
             user_prompt=json.dumps(
                 {**turn_context, "narrative": narrative}, ensure_ascii=False
@@ -3216,6 +3297,7 @@ scene_tags contains only environment, camera, composition, lighting, and the obs
         respect_clothing_layers: bool = False,
         romance: bool = False,
         romance_partner: dict[str, Any] | None = None,
+        inventory_worn: bool = False,
     ) -> AdventureVisualOutput:
         authored_scene_tags = str(turn_context.get("authored_scene_tags") or "").strip()
         visual_output = await self._generate_structured_output(
@@ -3224,6 +3306,7 @@ scene_tags contains only environment, camera, composition, lighting, and the obs
                 language,
                 respect_clothing_layers=respect_clothing_layers,
                 romance=romance,
+                inventory_worn=inventory_worn,
             ),
             user_prompt=_visual_user_payload(
                 narrative=narrative,
@@ -3447,6 +3530,7 @@ The objective must name a concrete target and an observable end condition that c
         image_model: str | None = None,
         companion_mode: bool = False,
         companion_avatar_id: str | None = None,
+        inventory_enabled: bool = False,
     ) -> dict[str, Any]:
         # Run作成全体(セットアップLLM・開幕画像)のAPI料金を集計して応答へ載せる
         tracker = _CostTracker()
@@ -3829,6 +3913,11 @@ The objective must name a concrete target and an observable end condition that c
             # 対面会話モードで攻略対象の立ち絵の代わりに描く VRM の登録 ID
             "companion_avatar_id": companion_avatar,
         }
+        # 持ち物システム(既定 OFF)。作品シナリオは独自の装備判定を持つため強制 OFF
+        state["inventory_enabled"] = bool(inventory_enabled) and not template
+        if state["inventory_enabled"]:
+            state["inventory"] = init_inventory_state()
+            state["npc_states"] = {}
         if romance_setup is not None:
             state["sim"] = init_romance_state(
                 romance_setup,
@@ -4123,6 +4212,9 @@ The objective must name a concrete target and an observable end condition that c
                     "required_visual_appearance": appearance_lock,
                     "reality_rules": list(state.get("reality_rules", [])),
                 }
+                if inventory_enabled(state):
+                    # 選択肢が所持品に触れられるよう持ち物だけ渡す(イベントは適用しない)
+                    turn_context["inventory"] = lean_inventory_for_llm(state)
                 companion = romance_sim is not None and bool(
                     state.get("companion_mode")
                 )
@@ -4230,6 +4322,9 @@ The objective must name a concrete target and an observable end condition that c
                 "reality_rules": list(state.get("reality_rules", [])),
                 "recent_scenes": _talk_recent_scenes(turns),
             }
+            if inventory_enabled(state):
+                # トークは状態を変えないが、所持品の話題と矛盾しないよう読み取り専用で渡す
+                context["inventory"] = lean_inventory_for_llm(state)
             history = talk_history_messages(state, run.turn_count)
             companion = bool(state.get("companion_mode"))
             yield {"event": "status", "data": {"phase": "talk"}}
@@ -4324,6 +4419,9 @@ The objective must name a concrete target and an observable end condition that c
         # 対面会話モードも表示設定。トークログは巻き戻し先のスナップショットに従う
         "companion_mode",
         "companion_avatar_id",
+        # 持ち物システムの ON/OFF は設定。所持品そのものは巻き戻し先の
+        # スナップショットに従う(再生成前に得た品だけが残ることはない)
+        "inventory_enabled",
     )
 
     async def rewind_to_turn(self, run_id: str, turn_number: int) -> dict[str, Any]:
@@ -5179,6 +5277,7 @@ The objective must name a concrete target and an observable end condition that c
         generate_portrait: bool = True,
         generate_partner_portrait: bool = True,
         generate_clues: bool = True,
+        item_action: dict[str, Any] | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
         """ナラティブを逐次配信し、手がかり抽出と画像生成を並列実行する。"""
         # このターンで発生したAPI料金(OpenRouter)を集計し、終端でcostイベントを送る
@@ -5244,6 +5343,7 @@ The objective must name a concrete target and an observable end condition that c
                 gift_id=gift_id,
                 epilogue=epilogue,
                 outfit_options=outfit_options,
+                item_action=item_action,
             )
             input_kind = contexts.input_kind
             narration_voice = contexts.narration_voice
@@ -5269,6 +5369,7 @@ The objective must name a concrete target and an observable end condition that c
                     romance=romance_sim is not None,
                     script_names=contexts.script_names,
                     wardrobe=bool(contexts.outfit_options),
+                    inventory=contexts.inventory_enabled,
                 ),
                 json.dumps(turn_context, ensure_ascii=False),
                 provider_override=_text_provider(),
@@ -5286,9 +5387,11 @@ The objective must name a concrete target and an observable end condition that c
                     "物語生成結果を解析できませんでした。もう一度お試しください",
                 )
 
+            # 持ち物パネルの行動は定型文(「〜を身につける」)なので明示着替え検出に
+            # 掛けない。掛けると visual_state.clothing が品名で丸ごと置き換わる
             explicit_clothing = (
                 None
-                if template
+                if template or input_kind == "item_action"
                 else self._explicit_clothing_from_input(user_input, run.language)
             )
             suffix = (
@@ -5307,6 +5410,20 @@ The objective must name a concrete target and an observable end condition that c
             if suffix:
                 narrative = f"{narrative.rstrip()}\n\n{suffix}"
                 yield {"event": "narrative_chunk", "data": {"chunk": f"\n\n{suffix}"}}
+            # 確定した持ち物行動(着脱・破棄)を本文が書き落としたときだけ1文補う
+            item_suffix = item_resolution_narrative_suffix(
+                contexts.item_resolution,
+                narrative,
+                run.language,
+                narration_voice=narration_voice,
+                narration_pronoun=narration_pronoun,
+            )
+            if item_suffix:
+                narrative = f"{narrative.rstrip()}\n\n{item_suffix}"
+                yield {
+                    "event": "narrative_chunk",
+                    "data": {"chunk": f"\n\n{item_suffix}"},
+                }
             yield {"event": "narrative_done", "data": {"narrative": narrative}}
 
             previous_visual = state.get("visual_state", {})
@@ -5327,6 +5444,8 @@ The objective must name a concrete target and an observable end condition that c
                         outfit_keys=tuple(
                             str(option["key"]) for option in contexts.outfit_options
                         ),
+                        inventory=contexts.inventory_enabled,
+                        reality_patch=input_kind == "reality_alter",
                     )
                     await queue.put(("resolution", resolution))
                 except Exception as error:
@@ -5371,6 +5490,9 @@ The objective must name a concrete target and an observable end condition that c
                         }
                         if romance_sim is not None
                         else None,
+                        inventory_worn=bool(
+                            visual_turn_context.get("worn_inventory_items")
+                        ),
                     )
                 except Exception as error:
                     logger.warning("Adventure visual generation failed: %s", error)
@@ -5868,6 +5990,19 @@ The objective must name a concrete target and an observable end condition that c
                 partner_expression=resolution.partner_expression,
                 partner_gesture=resolution.partner_gesture,
             )
+            if (
+                contexts.inventory_enabled
+                and romance_resolution is not None
+                and any(
+                    event.get("type") == "boundary_violation"
+                    for event in resolution.world_events
+                )
+            ):
+                # 境界侵害を申告した手番は好感度を必ず下げる(会話採点の幅は従来どおり)
+                resolution.affection_delta = min(
+                    int(getattr(resolution, "affection_delta", 0) or 0),
+                    -BOUNDARY_AFFECTION_FLOOR,
+                )
             if romance_resolution is not None:
                 # sim を更新し、milestone と ending_status を Python 算出値で上書き
                 apply_romance_outcome(state, output, romance_resolution, resolution)
@@ -5918,6 +6053,34 @@ The objective must name a concrete target and an observable end condition that c
                     ),
                 )
             turn_number = run.turn_count + 1
+            # 持ち物: 判定が返した World Event を検証して適用し、現実改変ターンは
+            # reality_patch も反映、パネル由来の確定行動(着脱・破棄)は最後に適用する。
+            # state_override 経由で state_delta にも載る。空でも毎手番書き、
+            # 前手番の記録が残らないようにする
+            if contexts.inventory_enabled:
+                world_events_applied: list[dict[str, Any]] = []
+                world_events_applied.extend(
+                    apply_world_events(
+                        state,
+                        resolution.world_events,
+                        turn_number=turn_number,
+                        input_kind=input_kind,
+                    )
+                )
+                if input_kind == "reality_alter":
+                    world_events_applied.extend(
+                        apply_reality_patch(
+                            state, resolution.reality_patch, turn_number=turn_number
+                        )
+                    )
+                world_events_applied.extend(
+                    apply_item_resolution(
+                        state, contexts.item_resolution, turn_number=turn_number
+                    )
+                )
+                state["world_events_applied"] = world_events_applied
+            else:
+                state.pop("world_events_applied", None)
             # 現実改変宣言によるタイムリミット変更。_merge_output の手数切れ
             # 判定より前に run.max_turns(romance は sim["total_days"] も)へ反映する
             _apply_time_limit_alteration(
@@ -6104,6 +6267,7 @@ The objective must name a concrete target and an observable end condition that c
         gift_id: str | None,
         epilogue: bool,
         outfit_options: list[dict[str, Any]] | None = None,
+        item_action: dict[str, Any] | None = None,
     ) -> _TurnContexts:
         """1手番のLLMへ渡す文脈を組み立てる。
 
@@ -6209,10 +6373,32 @@ The objective must name a concrete target and an observable end condition that c
                     }
         if epilogue:
             turn_context["epilogue"] = True
+        # 持ち物システム。所持品・NPC 状態は上限付きの整形版を別キーで渡す。
+        # パネル由来の行動は成立しなければここで弾き、手番を消費させない
+        enabled = inventory_enabled(state)
+        item_resolution: dict[str, Any] | None = None
+        if input_kind == "item_action":
+            if not enabled:
+                raise AdventureError("inventory_disabled", "持ち物システムが無効です")
+            try:
+                item_resolution = resolve_item_action(state, item_action, run.language)
+            except InventoryActionError as error:
+                raise AdventureError(error.code, str(error)) from error
+        if enabled:
+            turn_context["inventory"] = lean_inventory_for_llm(state)
+            turn_context["npc_states"] = npc_states_for_llm(state)
+            if item_action:
+                turn_context["item_action"] = item_action
+            if item_resolution is not None:
+                turn_context["item_resolution"] = item_resolution
         visual_turn_context = {
             **turn_context,
             "authored_visual_style": _template_visual_style(template),
             "authored_scene_tags": _authored_scene_tags(template=template, state=state),
+            # 着用中の持ち物(この手番の確定行動を仮適用した後の状態)
+            "worn_inventory_items": worn_inventory_items(state, pending=item_resolution)
+            if enabled
+            else None,
         }
         return _TurnContexts(
             turn_context=turn_context,
@@ -6230,6 +6416,8 @@ The objective must name a concrete target and an observable end condition that c
             previous_choice_key=_choice_label_key(state.get("choices")),
             script_names=script_names,
             outfit_options=list(outfit_options or []) if script_names else [],
+            inventory_enabled=enabled,
+            item_resolution=item_resolution,
         )
 
     def _apply_partner_appearance_lock(
@@ -7475,6 +7663,17 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             "portrait_status": turn.portrait_status,
             "created_at": turn.created_at.isoformat() if turn.created_at else None,
         }
+        # 持ち物システム: この手番確定時点の所持品と、この手番で適用した変化。
+        # 過去フレーム表示にそのまま使う
+        if state_delta.get("inventory_enabled") and isinstance(
+            state_delta.get("inventory"), dict
+        ):
+            result["inventory"] = public_inventory_view(state_delta)
+            result["world_events_applied"] = [
+                entry
+                for entry in state_delta.get("world_events_applied") or []
+                if isinstance(entry, dict)
+            ]
         # romance ではターン確定時点の公開シミュ状態と攻略対象の様子を返す。
         # state_delta は当該ターン適用後の全 state のため、隠し好みは
         # public_sim_view で除外する
@@ -7540,6 +7739,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         image_model: str | None = None,
         companion_mode: bool | None = None,
         companion_avatar_id: str | None = None,
+        inventory_enabled: bool | None = None,
     ) -> dict[str, Any]:
         """実行中シナリオの画像設定と口調を更新する（次の手番から反映）。
 
@@ -7582,6 +7782,14 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                     state["companion_avatar_id"] = await _validate_companion_avatar(
                         companion_avatar_id
                     )
+            # 持ち物システム。作品シナリオ(装備判定あり)では無視する。
+            # OFF にしても所持品データは残し、再度 ON にすると復帰する
+            if inventory_enabled is not None and not state.get("scenario_template_id"):
+                state["inventory_enabled"] = bool(inventory_enabled)
+                if state["inventory_enabled"] and not isinstance(
+                    state.get("inventory"), dict
+                ):
+                    state["inventory"] = init_inventory_state()
             async with async_session_factory() as db:
                 persisted = await db.get(AdventureRun, run.id)
                 if persisted is None:
@@ -7654,6 +7862,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         user_input: str,
         input_kind: str,
         gift_id: str | None = None,
+        item_action: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """次の手番で送られるプロンプトを、LLMを呼ばずに組み立てて返す。
 
@@ -7681,6 +7890,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             gift_id=gift_id,
             epilogue=epilogue,
             outfit_options=outfit_options,
+            item_action=item_action,
         )
         romance = contexts.romance_sim is not None
         turn_user_prompt = json.dumps(contexts.turn_context, ensure_ascii=False)
@@ -7708,6 +7918,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                     romance=romance,
                     script_names=contexts.script_names,
                     wardrobe=bool(contexts.outfit_options),
+                    inventory=contexts.inventory_enabled,
                 ),
                 "user": turn_user_prompt,
             },
@@ -7721,6 +7932,8 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                     outfit_keys=tuple(
                         str(option["key"]) for option in contexts.outfit_options
                     ),
+                    inventory=contexts.inventory_enabled,
+                    reality_patch=contexts.input_kind == "reality_alter",
                 ),
                 "user": turn_user_prompt,
             },
@@ -7729,6 +7942,9 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                     run.language,
                     respect_clothing_layers=bool(state.get("respect_clothing_layers")),
                     romance=romance,
+                    inventory_worn=bool(
+                        contexts.visual_turn_context.get("worn_inventory_items")
+                    ),
                 ),
                 "user": _visual_user_payload(
                     narrative=narrative_placeholder,
@@ -7942,6 +8158,14 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 if opening_portrait_path
                 else None
             ),
+            # 持ち物システム。無効な run は null(データが残っていても配信しない)
+            "inventory_enabled": bool(state.get("inventory_enabled")),
+            "inventory": public_inventory_view(state)
+            if state.get("inventory_enabled")
+            else None,
+            "npc_states": public_npc_states(state)
+            if state.get("inventory_enabled")
+            else None,
             "turns": serialized_turns,
             "created_at": run.created_at.isoformat() if run.created_at else None,
             "updated_at": run.updated_at.isoformat() if run.updated_at else None,

@@ -104,3 +104,18 @@ test("guide screen enables TSF Scenario and adds it to the menu", async ({
   ).toBeVisible();
   await expect(page.locator(".side-menu__dot")).toHaveCount(0);
 });
+
+test("guide screen lists the inventory system card", async ({ page }) => {
+  await bootstrap(page);
+  await page.goto("/guide");
+
+  const card = page.locator(".guide-screen__card").filter({
+    has: page.getByRole("heading", { name: "持ち物システム" }),
+  });
+  await expect(card).toBeVisible();
+  await expect(card).toContainText("シナリオの進行方法に大きな影響があります");
+  // 親機能(TSFシナリオ)が OFF の間は有効化を促す
+  await expect(
+    card.getByRole("button", { name: "まずTSFシナリオを有効にする" }),
+  ).toBeVisible();
+});

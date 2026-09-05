@@ -14,6 +14,8 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import type {
   AdventureBgmKey,
   AdventureInputKind,
+  AdventureInventory,
+  AdventureInventoryLogEntry,
   AdventureNarrationVoice,
   AdventurePartnerPortraitStatus,
   AdventurePreset,
@@ -99,6 +101,11 @@ import AdventureAttributeModal from "./AdventureAttributeModal";
 import AdventureBgmControl from "./AdventureBgmControl";
 import AdventureGiftShopModal from "./AdventureGiftShopModal";
 import AdventureImagePromptModal from "./AdventureImagePromptModal";
+import AdventureInventoryPanel, {
+  formatInventoryEvents,
+  formatInventoryLogEntry,
+  keyedInventoryEntries,
+} from "./AdventureInventoryPanel";
 import AdventurePromptPreviewModal from "./AdventurePromptPreviewModal";
 import AdventureSessionPickerModal, {
   type AdventureSourceSelection,
@@ -284,6 +291,8 @@ type AdventureSetupPrefs = {
   romancePlayerName: string;
   /** run 単位のNovelAI画像モデル。"default" はグローバル設定に従う */
   imageModel: string;
+  /** 持ち物システム(全プリセット)。既定 OFF */
+  inventoryEnabled: boolean;
 };
 
 function readSetupPrefs(): Partial<AdventureSetupPrefs> {
@@ -573,6 +582,10 @@ function AdventureHub() {
       ? savedSetupPrefs.companionAvatarId
       : "",
   );
+  // 持ち物システム(全プリセット)。シナリオの進行方法が大きく変わるため既定 OFF
+  const [inventoryEnabled, setInventoryEnabled] = useState(
+    () => savedSetupPrefs.inventoryEnabled === true,
+  );
   const [enableCompositeScene, setEnableCompositeScene] = useState(() =>
     typeof savedSetupPrefs.enableCompositeScene === "boolean"
       ? savedSetupPrefs.enableCompositeScene
@@ -646,6 +659,7 @@ function AdventureHub() {
       romancePlayerSessionId,
       romancePlayerName,
       imageModel: imageModelChoice,
+      inventoryEnabled,
     };
     try {
       localStorage.setItem(SETUP_PREFS_STORAGE_KEY, JSON.stringify(prefs));
@@ -664,6 +678,7 @@ function AdventureHub() {
     romancePlayerSessionId,
     romancePlayerName,
     imageModelChoice,
+    inventoryEnabled,
   ]);
 
   // セッションの姿モードで未選択の間は、保存済みセッションIDを解決する。
@@ -917,6 +932,8 @@ function AdventureHub() {
         use_precise_reference: usePreciseReference && !setupIsV5,
         enable_composite_scene: enableCompositeScene,
         companion_mode: setupCompanion,
+        // 持ち物システム。作品シナリオはサーバ側で無視される
+        inventory_enabled: startMode === "generated" && inventoryEnabled,
         // 登録済みモデルに限って送る(削除済みの保存値は「なし」に倒す)
         companion_avatar_id:
           setupCompanion && setupAvatarKnown ? companionAvatarId : undefined,
@@ -1095,6 +1112,23 @@ function AdventureHub() {
               </ol>
 
               <div className="adventure-setup-generator">
+                {/* 持ち物システム(全プリセット)。既定 OFF。シナリオの進行方法に大きく影響する */}
+                <label className="adventure-precise-toggle adventure-inventory-toggle">
+                  <span className="adventure-precise-toggle__info">
+                    <strong>{t("adventure.inventoryEnable")}</strong>
+                    <small>{t("adventure.inventoryHint")}</small>
+                  </span>
+                  <input
+                    type="checkbox"
+                    className="adventure-precise-toggle__input"
+                    checked={inventoryEnabled}
+                    disabled={setupGenerating || loading || creating}
+                    onChange={(event) =>
+                      setInventoryEnabled(event.target.checked)
+                    }
+                  />
+                  <span className="adventure-precise-toggle__switch" />
+                </label>
                 {/* ヒントは label の外に出す。label 内に入れると入力の
                     アクセシブル名にヒント全文が混ざる */}
                 {preset === "romance" ? (
@@ -1984,6 +2018,10 @@ interface AdventureStageFrame {
   /** 対面会話モードの 3D モデル向け。攻略対象の表情・身振り(無ければ null) */
   partnerExpression?: AvatarExpressionKey | null;
   partnerGesture?: AvatarGestureKey | null;
+  /** 持ち物 ON のみ。この手番確定時点の所持品(開幕・旧ターンは undefined) */
+  inventory?: AdventureInventory | null;
+  /** 持ち物 ON のみ。この手番で適用した持ち物の変化 */
+  worldEvents?: AdventureInventoryLogEntry[];
 }
 
 /**
@@ -2214,7 +2252,13 @@ function AdventurePlay({ runId }: { runId: string }) {
   const [logOpen, setLogOpen] = useState(false);
   const [messageWindowHidden, setMessageWindowHidden] = useState(false);
   const [hudPanel, setHudPanel] = useState<
-    "milestones" | "clues" | "realityRules" | "speechStyle" | "bgm" | null
+    | "milestones"
+    | "clues"
+    | "realityRules"
+    | "speechStyle"
+    | "bgm"
+    | "inventory"
+    | null
   >(null);
   const [protagonistDockOpen, setProtagonistDockOpen] = useState(
     readProtagonistDockOpen,
@@ -2409,6 +2453,8 @@ function AdventurePlay({ runId }: { runId: string }) {
           userInput: turn.user_input,
           inputKind: turn.input_kind,
           narrative: turn.narrative,
+          inventory: turn.inventory ?? null,
+          worldEvents: turn.world_events_applied ?? [],
           location: turn.location,
           sim: turn.sim ?? null,
           partnerNote: turn.partner_note ?? null,
@@ -2471,6 +2517,8 @@ function AdventurePlay({ runId }: { runId: string }) {
           userInput: turn.user_input,
           inputKind: turn.input_kind,
           narrative: turn.narrative,
+          inventory: turn.inventory ?? null,
+          worldEvents: turn.world_events_applied ?? [],
           location: turn.location,
           sim: turn.sim ?? null,
           partnerNote: turn.partner_note ?? null,
@@ -2534,6 +2582,8 @@ function AdventurePlay({ runId }: { runId: string }) {
           userInput: turn.user_input,
           inputKind: turn.input_kind,
           narrative: turn.narrative,
+          inventory: turn.inventory ?? null,
+          worldEvents: turn.world_events_applied ?? [],
           location: turn.location,
           sim: turn.sim ?? null,
           partnerNote: turn.partner_note ?? null,
@@ -3187,6 +3237,13 @@ function AdventurePlay({ runId }: { runId: string }) {
   // 「現実改変：〜」で宣言され、以降の判定に効いている世界ルール。
   // romance では「付与した属性」として表示する
   const realityRules = activeRun.reality_rules ?? [];
+  // 持ち物システム(全プリセット)。OFF の run は null
+  const inventory = activeRun.inventory_enabled
+    ? (activeRun.inventory ?? { items: [], log: [] })
+    : null;
+  const inventoryCount = inventory
+    ? inventory.items.reduce((sum, item) => sum + item.quantity, 0)
+    : 0;
   // romance の公開シミュ状態。他プリセットでは null
   const sim = activeRun.preset === "romance" ? (activeRun.sim ?? null) : null;
   const cast = activeRun.visual_state?.main_characters ?? [];
@@ -3220,6 +3277,15 @@ function AdventurePlay({ runId }: { runId: string }) {
     !isCompanion &&
     (isViewingPast ? selectedFrame : frames[frames.length - 1])
       ?.portraitStatus === "failed";
+  // 表示中フレームの持ち物の変化。メッセージ窓のメタ行に1行で出す
+  const frameWorldEvents = inventory
+    ? ((isViewingPast ? selectedFrame : frames[frames.length - 1])
+        ?.worldEvents ?? [])
+    : [];
+  const inventoryNote =
+    frameWorldEvents.length > 0
+      ? formatInventoryEvents(frameWorldEvents, t)
+      : null;
   // トークモード(romance): 行動パネルを会話スレッドに切り替える
   const talkMode = Boolean(sim) && actionMode === "talk";
   const playerDisplayName = sim?.player_name?.trim() || t("adventure.talk.you");
@@ -3662,6 +3728,23 @@ function AdventurePlay({ runId }: { runId: string }) {
                   <strong>{realityRules.length}</strong>
                 </button>
               )}
+              {inventory && (
+                <button
+                  type="button"
+                  className={`adventure-hud__chip adventure-hud__chip--inventory${
+                    hudPanel === "inventory" ? " is-open" : ""
+                  }`}
+                  aria-expanded={hudPanel === "inventory"}
+                  onClick={() =>
+                    setHudPanel((current) =>
+                      current === "inventory" ? null : "inventory",
+                    )
+                  }
+                >
+                  <span>{t("adventure.inventory")}</span>
+                  <strong>{inventoryCount}</strong>
+                </button>
+              )}
               <button
                 type="button"
                 className={`adventure-hud__chip adventure-hud__chip--speech${
@@ -3713,7 +3796,12 @@ function AdventurePlay({ runId }: { runId: string }) {
                     : `adventure.${hudPanel}`,
                 )}
               >
-                {hudPanel === "speechStyle" ? (
+                {hudPanel === "inventory" ? (
+                  <AdventureInventoryPanel
+                    onClose={() => setHudPanel(null)}
+                    viewingPast={isViewingPast}
+                  />
+                ) : hudPanel === "speechStyle" ? (
                   <>
                     <p className="adventure-hud__note">
                       {t("adventure.speechStyleHint")}
@@ -4164,6 +4252,35 @@ function AdventurePlay({ runId }: { runId: string }) {
                       ))}
                     </select>
                   </label>
+                  {/* 持ち物システム(全プリセット)。作品シナリオは対象外。次の手番から反映 */}
+                  {!activeRun.scenario_template_id && (
+                    <label className="adventure-precise-toggle adventure-inventory-toggle">
+                      <span className="adventure-precise-toggle__info">
+                        <strong>{t("adventure.inventoryEnable")}</strong>
+                        <small>{t("adventure.inventoryPlayHint")}</small>
+                      </span>
+                      <input
+                        type="checkbox"
+                        className="adventure-precise-toggle__input"
+                        checked={activeRun.inventory_enabled}
+                        disabled={streaming || settingsSaving}
+                        onChange={(event) => {
+                          const next = event.target.checked;
+                          setSettingsSaving(true);
+                          void updateSettings({
+                            use_precise_reference:
+                              activeRun.use_precise_reference,
+                            enable_composite_scene:
+                              activeRun.enable_composite_scene,
+                            inventory_enabled: next,
+                          })
+                            .catch(() => undefined)
+                            .finally(() => setSettingsSaving(false));
+                        }}
+                      />
+                      <span className="adventure-precise-toggle__switch" />
+                    </label>
+                  )}
                   {/* 対面会話モード(romance 専用)。次の手番から反映 */}
                   {activeRun.preset === "romance" && (
                     <label className="adventure-precise-toggle adventure-companion-toggle">
@@ -4449,6 +4566,12 @@ function AdventurePlay({ runId }: { runId: string }) {
                       )}`,
                     ),
                   })}
+                </span>
+              )}
+              {inventoryNote && (
+                <span className="adventure-messagebox__inventory-note">
+                  <span aria-hidden>🎒</span>
+                  {inventoryNote}
                 </span>
               )}
               <button
@@ -5320,6 +5443,21 @@ function AdventurePlay({ runId }: { runId: string }) {
                       {lightboxFrame.narrative}
                     </p>
                   </section>
+
+                  {(lightboxFrame.worldEvents?.length ?? 0) > 0 && (
+                    <section className="image-preview-modal__detail-section">
+                      <h2 className="image-preview-modal__detail-label">
+                        {t("adventure.inventoryChanges")}
+                      </h2>
+                      <ul className="adventure-preview__inventory-events">
+                        {keyedInventoryEntries(
+                          lightboxFrame.worldEvents ?? [],
+                        ).map(({ key, entry }) => (
+                          <li key={key}>{formatInventoryLogEntry(entry, t)}</li>
+                        ))}
+                      </ul>
+                    </section>
+                  )}
 
                   {lightboxFrame.location && (
                     <section className="image-preview-modal__detail-section">

@@ -899,3 +899,56 @@ test("too many constraints block start and generation with a reason", async ({
     page.getByRole("button", { name: "シナリオを開始" }),
   ).toBeEnabled();
 });
+
+test("inventory chip appears on a mission run only when the system is enabled", async ({
+  page,
+}) => {
+  await enableAdventure(page);
+  await mockAdventureApis(page);
+  await page.goto("/adventure/run-1");
+  await expect(page.locator(".adventure-play")).toBeVisible();
+  // 既定 OFF: チップは無く、⚙にはトグルがある
+  await expect(page.locator(".adventure-hud__chip--inventory")).toHaveCount(0);
+  await page.getByRole("button", { name: "画像生成設定" }).click();
+  await expect(
+    page.getByRole("checkbox", { name: /^持ち物システムを有効化する/ }),
+  ).not.toBeChecked();
+
+  await page.route("**/api/adventure/runs/run-1", async (route) => {
+    await route.fulfill({
+      json: {
+        ...runPayload(1),
+        inventory_enabled: true,
+        inventory: {
+          items: [
+            {
+              id: "i1",
+              name: "銀の招待状",
+              category: "document",
+              tags: [],
+              quantity: 2,
+              worn: false,
+              capabilities: ["give", "use", "discard"],
+              obtained_from: "world",
+              obtained_turn: 1,
+            },
+          ],
+          log: [],
+        },
+        npc_states: {},
+      },
+    });
+  });
+  await page.goto("/adventure/run-1");
+  const chip = page.locator(".adventure-hud__chip--inventory");
+  await expect(chip).toContainText("2");
+  await chip.click();
+  const panel = page.getByRole("dialog", { name: "持ち物" });
+  await expect(panel).toContainText("銀の招待状");
+  await expect(panel).toContainText("×2");
+  await expect(panel).toContainText("その場で入手・手番1");
+  // 場面に相手が居ないので「渡す」は無効、使う・捨てるは押せる
+  await expect(panel.getByRole("button", { name: "渡す" })).toBeDisabled();
+  await expect(panel.getByRole("button", { name: "使う" })).toBeEnabled();
+  await expect(panel.getByRole("button", { name: "捨てる" })).toBeEnabled();
+});

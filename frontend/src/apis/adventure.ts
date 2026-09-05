@@ -7,14 +7,18 @@ export type AdventurePreset =
   | "disguise"
   | "romance";
 export type AdventureStatus = "active" | "success" | "partial" | "failure";
-/** gift / work / confess は romance プリセット専用の行動 */
+/**
+ * gift / work / confess は romance プリセット専用の行動。
+ * item_action は持ち物パネルのボタン(渡す・使う・着る・脱ぐ・捨てる)
+ */
 export type AdventureInputKind =
   | "choice"
   | "free_text"
   | "reality_alter"
   | "gift"
   | "work"
-  | "confess";
+  | "confess"
+  | "item_action";
 /** 物語の語りの人称。second_person が従来どおりの既定 */
 export type AdventureNarrationVoice =
   | "second_person"
@@ -87,6 +91,76 @@ export interface AdventureGift {
   name: string;
   price: number;
   tier: AdventureGiftTier;
+}
+
+/** 持ち物システム。語彙は backend の consts/adventure_inventory.py と一致させる */
+export type AdventureInventoryCategory =
+  | "clothing"
+  | "underwear"
+  | "accessory"
+  | "consumable"
+  | "tool"
+  | "document"
+  | "key"
+  | "gift"
+  | "other";
+export type AdventureItemActionKind =
+  | "give"
+  | "use"
+  | "wear"
+  | "unwear"
+  | "discard";
+
+export interface AdventureInventoryItem {
+  id: string;
+  name: string;
+  category: AdventureInventoryCategory | string;
+  tags: string[];
+  quantity: number;
+  /** 着用中(衣類系のみ)。ビジュアルの服装に反映される */
+  worn: boolean;
+  capabilities: AdventureItemActionKind[];
+  /** 入手元: player / world / reality / character:<名前> */
+  obtained_from: string;
+  obtained_turn: number;
+}
+
+/** 持ち物の変化の記録。origin は event(判定)/reality(現実改変)/action(パネル操作) */
+export interface AdventureInventoryLogEntry {
+  turn: number;
+  type: string;
+  item?: string | null;
+  item_id?: string | null;
+  quantity?: number | null;
+  from?: string | null;
+  to?: string | null;
+  npc?: string | null;
+  reason?: string | null;
+  origin: "event" | "reality" | "action";
+}
+
+export interface AdventureInventory {
+  items: AdventureInventoryItem[];
+  log: AdventureInventoryLogEntry[];
+}
+
+/** NPC ごとの境界侵害の記録(ノートは隠し情報なので配信されない) */
+export interface AdventureNpcState {
+  boundary_violations: number;
+  last_violation_turn: number | null;
+}
+
+/** 持ち物パネルの行動。target は渡す相手(NPC 名) */
+export interface AdventureItemAction {
+  item_id: string;
+  action: AdventureItemActionKind;
+  target?: string;
+}
+
+/** submitTurn の追加オプション */
+export interface AdventureTurnOptions {
+  giftId?: string;
+  itemAction?: AdventureItemAction;
 }
 
 /** romance の公開状態。隠し好みはサーバ側で除外済み */
@@ -194,6 +268,10 @@ export interface AdventureTurn {
   partner_portrait_status?: AdventurePartnerPortraitStatus | null;
   /** romance のみ。ターン確定時点の背景(現在地・時間帯ごとに変わる) */
   background_image_url?: string | null;
+  /** 持ち物 ON のみ。この手番確定時点の所持品と履歴 */
+  inventory?: AdventureInventory | null;
+  /** 持ち物 ON のみ。この手番で適用した持ち物の変化 */
+  world_events_applied?: AdventureInventoryLogEntry[];
 }
 
 /**
@@ -294,6 +372,12 @@ export interface AdventureRun {
   companion_avatar_url?: string | null;
   /** romance のみ。トークモードの会話ログ(古い順) */
   talk_log?: AdventureTalkEntry[];
+  /** 持ち物システム(全プリセット)。既定 OFF。作品シナリオでは常に false */
+  inventory_enabled: boolean;
+  /** 持ち物 ON のときだけ配信される所持品と履歴。OFF は null */
+  inventory?: AdventureInventory | null;
+  /** 持ち物 ON のときだけ。NPC ごとの境界侵害の記録 */
+  npc_states?: Record<string, AdventureNpcState> | null;
   turns: AdventureTurn[];
   created_at: string | null;
   updated_at: string | null;
@@ -377,6 +461,8 @@ export interface AdventureCreateRequest extends AdventureSetupRequest {
   companion_mode?: boolean;
   /** 対面会話モードで攻略対象の立ち絵の代わりに描く 3D モデル(VRM)の登録 ID */
   companion_avatar_id?: string;
+  /** 持ち物システム(全プリセット)。既定 false。作品シナリオでは無視される */
+  inventory_enabled?: boolean;
 }
 
 export interface AdventureSettingsUpdateRequest {
@@ -395,6 +481,8 @@ export interface AdventureSettingsUpdateRequest {
   companion_mode?: boolean;
   /** 3D モデル。"none" で解除、登録 ID で設定。未指定なら既存値を維持 */
   companion_avatar_id?: string;
+  /** 持ち物システム。未指定なら維持(作品シナリオでは無視される) */
+  inventory_enabled?: boolean;
 }
 
 export interface AdventureStreamEvent {
@@ -430,6 +518,9 @@ function normalizeRun(run: AdventureRun): AdventureRun {
     companion_avatar_id: run.companion_avatar_id ?? null,
     companion_avatar_url: withApiBase(run.companion_avatar_url ?? null),
     talk_log: run.talk_log ?? [],
+    inventory_enabled: Boolean(run.inventory_enabled),
+    inventory: run.inventory ?? null,
+    npc_states: run.npc_states ?? null,
     image_model_override: run.image_model_override ?? null,
     // 旧runやモック応答にキーが無くても表示側が undefined を掴まないようにする
     narration_voice: run.narration_voice ?? "second_person",
@@ -617,6 +708,8 @@ export async function streamAdventureTurn(
     input_kind: AdventureInputKind;
     /** romance のプレゼント贈呈時のみ指定する */
     gift_id?: string;
+    /** 持ち物パネルの行動(input_kind=item_action のとき) */
+    item_action?: AdventureItemAction;
     /** false のとき主人公の立ち絵の毎ターン生成を省略する(精密参照OFFかつ非合成モードのみ有効) */
     generate_portrait?: boolean;
     /** false のとき攻略対象(romance)の立ち絵の毎ターン生成を省略する。条件は同上 */

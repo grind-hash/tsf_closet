@@ -140,6 +140,31 @@ export default function GuideScreen() {
           </GuideCard>
 
           <GuideCard
+            icon="🎒"
+            title={t("guide.inventory.title")}
+            desc={t("guide.inventory.desc")}
+            note={t("guide.inventory.note")}
+          >
+            {state.experimentalAdventureEnabled ? (
+              <button
+                type="button"
+                className="guide-screen__cta"
+                onClick={() => navigate(ROUTES.ADVENTURE)}
+              >
+                {t("guide.inventory.open")}
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="guide-screen__cta"
+                onClick={() => setExperimentalAdventureEnabled(true)}
+              >
+                {t("guide.inventory.enableParent")}
+              </button>
+            )}
+          </GuideCard>
+
+          <GuideCard
             icon="🧍"
             title={t("guide.vrm.title")}
             desc={t("guide.vrm.desc")}
