@@ -81,7 +81,7 @@
 1. `frontend/src/components/{feature}/FeatureScreen.tsx` と必要なCSSを追加する。
 2. `frontend/src/routes/index.tsx` に定数を追加する。
 3. 現行方式では `frontend/src/App.tsx` の `useLocation()` 分岐を追加する。
-4. `SideMenu.tsx` と `i18n.ts` を更新する。
+4. `SideMenu.tsx` と `i18n/ja/menu.ts`・`i18n/en/menu.ts` を更新する。
 5. 対象Playwrightを追加する。
 
 RouterProviderへ部分移行しない。既存の画面切替方式を保つ。
@@ -102,7 +102,7 @@ RouterProviderへ部分移行しない。既存の画面切替方式を保つ。
 
 1. `SettingsContext.tsx` のstate/action/default/load/saveを更新する。
 2. `SettingsScreen.tsx` または対象設定コンポーネントを更新する。
-3. `i18n.ts` の日本語/英語を更新する。
+3. `i18n/ja/` と `i18n/en/` の該当する名前空間ファイルを更新する。
 4. APIに必要なら `backend/gateway/models.py` と `settings_service.py` を更新する。
 5. 挙動を使う全送信経路へ伝播する。
 

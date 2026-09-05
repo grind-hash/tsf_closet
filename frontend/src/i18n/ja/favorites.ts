@@ -1,0 +1,26 @@
+export const favorites = {
+  title: "お気に入り衣装",
+  countSuffix: "件",
+  empty: "まだお気に入りがありません",
+  emptyHint:
+    "ギャラリーの画像やプレイ中のプレビューで ☆ を付けると、ここに集まります",
+  addAria: "お気に入りに追加",
+  removeAria: "お気に入りから外す",
+  addTitle: "お気に入りに追加",
+  removeTitle: "お気に入りから外す",
+  toggleError: "お気に入りの更新に失敗しました",
+  addLabel: "ラベルを付ける",
+  editLabel: "ラベルを編集",
+  labelModalTitle: "お気に入りラベル",
+  labelHint: "後から見つけやすい短いメモを付けられます（80文字以内）",
+  labelPlaceholder: "例: 白ドレス・開花60",
+  labelSave: "保存",
+  labelSaving: "保存中...",
+  labelSaveError: "ラベルの保存に失敗しました",
+  removeConfirmTitle: "お気に入りから外しますか？",
+  removeConfirmMessage:
+    "一覧から外します。画像本体は消えません。あとからギャラリーで再度 ☆ を付けられます。",
+  removeConfirmAction: "外す",
+  removeConfirmCancel: "キャンセル",
+  removeConfirmDontShow: "次回からは表示しない",
+};

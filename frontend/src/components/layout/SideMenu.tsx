@@ -11,6 +11,7 @@
  * - 設定
  */
 
+import type { TFunction } from "i18next";
 import { useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -36,7 +37,7 @@ interface MenuItem {
 }
 
 const getMenuItems = (
-  t: (key: string) => string,
+  t: TFunction,
   showEndingMenu: boolean,
   showAdventureMenu: boolean,
   showPromptExpanderMenu: boolean,
