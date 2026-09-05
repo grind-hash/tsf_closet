@@ -4,8 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-from sqlalchemy import delete, event, select
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy import delete, select
 
 from gateway.consts.adventure_romance import (
     ROMANCE_AFFECTION_START,
@@ -21,7 +20,6 @@ from gateway.consts.adventure_turns import (
 from gateway.databases.models import (
     AdventureRun,
     AdventureTurn,
-    Base,
     History,
     Session,
     User,
@@ -86,6 +84,62 @@ def _novelai_providers(monkeypatch):
     """
     monkeypatch.setattr(app_settings, "image_provider", "novelai")
     monkeypatch.setattr(app_settings, "feeling_provider", "novelai")
+
+
+class FakeDatabase:
+    """async_session_factory の代替。登録した ORM オブジェクトを get() で返すだけの疑似セッション。
+
+    ``records`` のキーは ``(model, record_id)``。``record_id`` が ``None`` の登録は
+    その model の任意の id に一致する (完全一致の登録を優先する)。
+    """
+
+    def __init__(
+        self,
+        records: dict[tuple[type, str | None], object] | None = None,
+        *,
+        commits: list[str] | None = None,
+        execute_result: object = None,
+    ) -> None:
+        self._records = dict(records or {})
+        self._commits = commits
+        self._execute_result = execute_result
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, _exc_type, _exc, _traceback):
+        return None
+
+    async def get(self, model, record_id):
+        if (model, record_id) in self._records:
+            return self._records[(model, record_id)]
+        return self._records.get((model, None))
+
+    async def scalar(self, _statement):
+        return None
+
+    async def execute(self, _statement):
+        return self._execute_result
+
+    def add(self, _record):
+        return None
+
+    async def commit(self):
+        if self._commits is not None:
+            self._commits.append("commit")
+
+    async def refresh(self, _record):
+        return None
+
+
+def fake_database_factory(
+    records: dict[tuple[type, str | None], object] | None = None,
+    *,
+    commits: list[str] | None = None,
+    execute_result: object = None,
+):
+    """``async_session_factory`` の差し替えに渡す引数なしファクトリを返す。"""
+    return lambda: FakeDatabase(records, commits=commits, execute_result=execute_result)
 
 
 def make_image_prompt_content(*, with_guard: bool = False) -> str:
@@ -2416,23 +2470,6 @@ async def test_regenerate_choices_updates_only_choices(monkeypatch) -> None:
         choices_json=turn.choices_json,
     )
 
-    class FakeDatabase:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, _exc_type, _exc, _traceback):
-            return None
-
-        async def get(self, model, record_id):
-            if model is AdventureRun and record_id == "run-1":
-                return persisted_run
-            if model is AdventureTurn and record_id == "turn-1":
-                return persisted_turn
-            return None
-
-        async def commit(self):
-            return None
-
     monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
     monkeypatch.setattr(
         service,
@@ -2448,7 +2485,13 @@ async def test_regenerate_choices_updates_only_choices(monkeypatch) -> None:
         ),
     )
     monkeypatch.setattr(
-        "gateway.services.adventure_service.async_session_factory", FakeDatabase
+        "gateway.services.adventure_service.async_session_factory",
+        fake_database_factory(
+            {
+                (AdventureRun, "run-1"): persisted_run,
+                (AdventureTurn, "turn-1"): persisted_turn,
+            }
+        ),
     )
 
     result = await service.regenerate_choices("run-1")
@@ -2531,23 +2574,6 @@ async def test_regenerate_choices_passes_romance_next_slot(monkeypatch) -> None:
         choices_json=turn.choices_json,
     )
 
-    class FakeDatabase:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, _exc_type, _exc, _traceback):
-            return None
-
-        async def get(self, model, record_id):
-            if model is AdventureRun and record_id == "run-1":
-                return persisted_run
-            if model is AdventureTurn and record_id == "turn-1":
-                return persisted_turn
-            return None
-
-        async def commit(self):
-            return None
-
     monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
     fresh_choices = AsyncMock(
         return_value=[
@@ -2558,7 +2584,13 @@ async def test_regenerate_choices_passes_romance_next_slot(monkeypatch) -> None:
     )
     monkeypatch.setattr(service, "_generate_fresh_choices", fresh_choices)
     monkeypatch.setattr(
-        "gateway.services.adventure_service.async_session_factory", FakeDatabase
+        "gateway.services.adventure_service.async_session_factory",
+        fake_database_factory(
+            {
+                (AdventureRun, "run-1"): persisted_run,
+                (AdventureTurn, "turn-1"): persisted_turn,
+            }
+        ),
     )
 
     result = await service.regenerate_choices("run-1")
@@ -2657,22 +2689,6 @@ async def test_clothing_redraw_does_not_reuse_previous_outfit_image(
         state_json="{}",
     )
 
-    class FakeDatabase:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, _exc_type, _exc, _traceback):
-            return None
-
-        async def get(self, model, _record_id):
-            return persisted_run if model is AdventureRun else None
-
-        async def scalar(self, _statement):
-            return None
-
-        async def commit(self):
-            return None
-
     generate_image = AsyncMock(return_value=SimpleNamespace(images=[b"generated"]))
     monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
     monkeypatch.setattr(
@@ -2692,7 +2708,8 @@ async def test_clothing_redraw_does_not_reuse_previous_outfit_image(
         generate_image,
     )
     monkeypatch.setattr(
-        "gateway.services.adventure_service.async_session_factory", FakeDatabase
+        "gateway.services.adventure_service.async_session_factory",
+        fake_database_factory({(AdventureRun, None): persisted_run}),
     )
     monkeypatch.setattr(
         "gateway.services.adventure_service.settings.novelai_model",
@@ -2751,22 +2768,6 @@ async def test_adventure_image_generation_uses_precise_reference_when_enabled(
         state_json="{}",
     )
 
-    class FakeDatabase:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, _exc_type, _exc, _traceback):
-            return None
-
-        async def get(self, model, _record_id):
-            return persisted_run if model is AdventureRun else None
-
-        async def scalar(self, _statement):
-            return None
-
-        async def commit(self):
-            return None
-
     generate_image = AsyncMock(return_value=SimpleNamespace(images=[b"generated"]))
     monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
     monkeypatch.setattr(
@@ -2786,7 +2787,8 @@ async def test_adventure_image_generation_uses_precise_reference_when_enabled(
         generate_image,
     )
     monkeypatch.setattr(
-        "gateway.services.adventure_service.async_session_factory", FakeDatabase
+        "gateway.services.adventure_service.async_session_factory",
+        fake_database_factory({(AdventureRun, None): persisted_run}),
     )
     monkeypatch.setattr(
         "gateway.services.adventure_service.settings.novelai_model",
@@ -2841,22 +2843,6 @@ async def test_adventure_romance_scene_partner_reference(
         state_json="{}",
     )
 
-    class FakeDatabase:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, _exc_type, _exc, _traceback):
-            return None
-
-        async def get(self, model, _record_id):
-            return persisted_run if model is AdventureRun else None
-
-        async def scalar(self, _statement):
-            return None
-
-        async def commit(self):
-            return None
-
     generate_image = AsyncMock(return_value=SimpleNamespace(images=[b"generated"]))
     monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
     monkeypatch.setattr(
@@ -2876,7 +2862,8 @@ async def test_adventure_romance_scene_partner_reference(
         generate_image,
     )
     monkeypatch.setattr(
-        "gateway.services.adventure_service.async_session_factory", FakeDatabase
+        "gateway.services.adventure_service.async_session_factory",
+        fake_database_factory({(AdventureRun, None): persisted_run}),
     )
     monkeypatch.setattr(
         "gateway.services.adventure_service.settings.novelai_model",
@@ -2940,22 +2927,6 @@ async def test_composite_scene_reference_overrides(
         state_json="{}",
     )
 
-    class FakeDatabase:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, _exc_type, _exc, _traceback):
-            return None
-
-        async def get(self, model, _record_id):
-            return persisted_run if model is AdventureRun else None
-
-        async def scalar(self, _statement):
-            return None
-
-        async def commit(self):
-            return None
-
     generate_image = AsyncMock(return_value=SimpleNamespace(images=[b"generated"]))
     monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
     monkeypatch.setattr(
@@ -2975,7 +2946,8 @@ async def test_composite_scene_reference_overrides(
         generate_image,
     )
     monkeypatch.setattr(
-        "gateway.services.adventure_service.async_session_factory", FakeDatabase
+        "gateway.services.adventure_service.async_session_factory",
+        fake_database_factory({(AdventureRun, None): persisted_run}),
     )
     monkeypatch.setattr(
         "gateway.services.adventure_service.settings.novelai_model",
@@ -3259,24 +3231,10 @@ async def test_update_run_settings_toggles_precise_reference(monkeypatch) -> Non
         updated_at=None,
     )
 
-    class FakeDatabase:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, _exc_type, _exc, _traceback):
-            return None
-
-        async def get(self, model, record_id):
-            if model is AdventureRun and record_id == "run-1":
-                return persisted
-            return None
-
-        async def commit(self):
-            return None
-
     monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
     monkeypatch.setattr(
-        "gateway.services.adventure_service.async_session_factory", FakeDatabase
+        "gateway.services.adventure_service.async_session_factory",
+        fake_database_factory({(AdventureRun, "run-1"): persisted}),
     )
 
     result = await service.update_run_settings(
@@ -3319,24 +3277,10 @@ def make_reality_rule_run(state: dict[str, object]) -> tuple[object, object]:
 
 
 def patch_reality_rule_db(monkeypatch, service, run, persisted) -> None:
-    class FakeDatabase:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, _exc_type, _exc, _traceback):
-            return None
-
-        async def get(self, model, record_id):
-            if model is AdventureRun and record_id == "run-1":
-                return persisted
-            return None
-
-        async def commit(self):
-            return None
-
     monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
     monkeypatch.setattr(
-        "gateway.services.adventure_service.async_session_factory", FakeDatabase
+        "gateway.services.adventure_service.async_session_factory",
+        fake_database_factory({(AdventureRun, "run-1"): persisted}),
     )
 
 
@@ -3598,22 +3542,6 @@ async def test_generate_portrait_uses_portrait_size_and_no_characters(
         state_json="{}",
     )
 
-    class FakeDatabase:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, _exc_type, _exc, _traceback):
-            return None
-
-        async def get(self, model, _record_id):
-            return persisted_run if model is AdventureRun else None
-
-        async def scalar(self, _statement):
-            return None
-
-        async def commit(self):
-            return None
-
     generate_image = AsyncMock(return_value=SimpleNamespace(images=[b"portrait"]))
     monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
     monkeypatch.setattr(
@@ -3633,7 +3561,8 @@ async def test_generate_portrait_uses_portrait_size_and_no_characters(
         generate_image,
     )
     monkeypatch.setattr(
-        "gateway.services.adventure_service.async_session_factory", FakeDatabase
+        "gateway.services.adventure_service.async_session_factory",
+        fake_database_factory({(AdventureRun, None): persisted_run}),
     )
     monkeypatch.setattr(
         "gateway.services.adventure_service.settings.novelai_model",
@@ -3688,22 +3617,6 @@ async def test_generate_portrait_uses_precise_reference_when_enabled(
         state_json="{}",
     )
 
-    class FakeDatabase:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, _exc_type, _exc, _traceback):
-            return None
-
-        async def get(self, model, _record_id):
-            return persisted_run if model is AdventureRun else None
-
-        async def scalar(self, _statement):
-            return None
-
-        async def commit(self):
-            return None
-
     generate_image = AsyncMock(return_value=SimpleNamespace(images=[b"portrait"]))
     monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
     monkeypatch.setattr(
@@ -3723,7 +3636,8 @@ async def test_generate_portrait_uses_precise_reference_when_enabled(
         generate_image,
     )
     monkeypatch.setattr(
-        "gateway.services.adventure_service.async_session_factory", FakeDatabase
+        "gateway.services.adventure_service.async_session_factory",
+        fake_database_factory({(AdventureRun, None): persisted_run}),
     )
     monkeypatch.setattr(
         "gateway.services.adventure_service.settings.novelai_model",
@@ -3750,22 +3664,6 @@ def patch_portrait_generation(monkeypatch, service, run) -> AsyncMock:
         id=run.id, portrait_image_path=None, updated_at=None, state_json="{}"
     )
 
-    class FakeDatabase:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, _exc_type, _exc, _traceback):
-            return None
-
-        async def get(self, model, _record_id):
-            return persisted_run if model is AdventureRun else None
-
-        async def scalar(self, _statement):
-            return None
-
-        async def commit(self):
-            return None
-
     generate_image = AsyncMock(return_value=SimpleNamespace(images=[b"portrait"]))
     monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
     monkeypatch.setattr(
@@ -3785,7 +3683,8 @@ def patch_portrait_generation(monkeypatch, service, run) -> AsyncMock:
         generate_image,
     )
     monkeypatch.setattr(
-        "gateway.services.adventure_service.async_session_factory", FakeDatabase
+        "gateway.services.adventure_service.async_session_factory",
+        fake_database_factory({(AdventureRun, None): persisted_run}),
     )
     monkeypatch.setattr(
         "gateway.services.adventure_service.settings.novelai_model",
@@ -3940,19 +3839,6 @@ async def test_generate_background_image_persists_path_once(
         id="run-1", background_image_path=None, updated_at=None
     )
 
-    class FakeDatabase:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, _exc_type, _exc, _traceback):
-            return None
-
-        async def get(self, model, _record_id):
-            return persisted_run if model is AdventureRun else None
-
-        async def commit(self):
-            return None
-
     generate_scenery = AsyncMock(return_value=SimpleNamespace(images=[b"bg"]))
     monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
     monkeypatch.setattr(
@@ -3964,7 +3850,8 @@ async def test_generate_background_image_persists_path_once(
         AsyncMock(return_value={}),
     )
     monkeypatch.setattr(
-        "gateway.services.adventure_service.async_session_factory", FakeDatabase
+        "gateway.services.adventure_service.async_session_factory",
+        fake_database_factory({(AdventureRun, None): persisted_run}),
     )
 
     background_path = await service._generate_background_image_unlocked(
@@ -4089,22 +3976,6 @@ async def test_princess_room_image_generation_merges_authored_scene_tags(
         state_json=run.state_json,
     )
 
-    class FakeDatabase:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, _exc_type, _exc, _traceback):
-            return None
-
-        async def get(self, model, _record_id):
-            return persisted_run if model is AdventureRun else None
-
-        async def scalar(self, _statement):
-            return None
-
-        async def commit(self):
-            return None
-
     generate_image = AsyncMock(return_value=SimpleNamespace(images=[b"generated"]))
     monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
     monkeypatch.setattr(
@@ -4130,7 +4001,8 @@ async def test_princess_room_image_generation_merges_authored_scene_tags(
         generate_image,
     )
     monkeypatch.setattr(
-        "gateway.services.adventure_service.async_session_factory", FakeDatabase
+        "gateway.services.adventure_service.async_session_factory",
+        fake_database_factory({(AdventureRun, None): persisted_run}),
     )
 
     await service.generate_image("run-1", redraw_from_reference=True)
@@ -4327,22 +4199,9 @@ async def test_history_snapshot_excludes_future_attributes(
 
 @pytest.mark.asyncio
 async def test_source_deletion_keeps_adventure_run_and_run_deletion_removes_turn(
-    tmp_path,
+    isolated_db,
 ) -> None:
-    database_path = tmp_path / "adventure.db"
-    engine = create_async_engine(f"sqlite+aiosqlite:///{database_path}")
-
-    @event.listens_for(engine.sync_engine, "connect")
-    def enable_foreign_keys(dbapi_connection, _connection_record) -> None:
-        cursor = dbapi_connection.cursor()
-        cursor.execute("PRAGMA foreign_keys=ON")
-        cursor.close()
-
-    async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all)
-
-    session_factory = async_sessionmaker(engine, expire_on_commit=False)
-    async with session_factory() as database:
+    async with isolated_db.async_factory() as database:
         database.add_all(
             [
                 User(id="user-1"),
@@ -4420,8 +4279,6 @@ async def test_source_deletion_keeps_adventure_run_and_run_deletion_removes_turn
             )
             is None
         )
-
-    await engine.dispose()
 
 
 def test_equipment_score_choices_initial_prefers_wear_and_explore() -> None:
@@ -4678,12 +4535,6 @@ def test_merge_output_epilogue_reverses_only_on_new_completion() -> None:
     assert status == "success"
 
 
-def _adventure_db_env(tmp_path):
-    """一時SQLiteに紐づく engine と sessionmaker を返す。"""
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'adventure.db'}")
-    return engine, async_sessionmaker(engine, expire_on_commit=False)
-
-
 def _turn_state(marker: str, **extra) -> dict:
     state = {
         "milestones": PRESETS["infiltration"]["milestones"],
@@ -4781,13 +4632,8 @@ async def _seed_rewind_run(session_factory, tmp_path, *, opening_state=None) -> 
         (run_dir / name).write_bytes(b"png")
 
 
-def _patched_service(monkeypatch, session_factory, tmp_path) -> AdventureService:
-    async def _make_tables():
-        return None
-
-    monkeypatch.setattr(
-        "gateway.services.adventure_service.async_session_factory", session_factory
-    )
+def _patched_service(tmp_path) -> AdventureService:
+    """isolated_db が session factory を差し替え済みの前提で、素の service を組み立てる。"""
     service = AdventureService.__new__(AdventureService)
     service._run_locks = __import__("collections").defaultdict(
         __import__("asyncio").Lock
@@ -4798,13 +4644,11 @@ def _patched_service(monkeypatch, session_factory, tmp_path) -> AdventureService
 
 @pytest.mark.asyncio
 async def test_rewind_restores_state_and_deletes_later_turns(
-    tmp_path, monkeypatch
+    isolated_db, tmp_path
 ) -> None:
-    engine, session_factory = _adventure_db_env(tmp_path)
-    async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all)
+    session_factory = isolated_db.async_factory
     await _seed_rewind_run(session_factory, tmp_path)
-    service = _patched_service(monkeypatch, session_factory, tmp_path)
+    service = _patched_service(tmp_path)
 
     result = await service.rewind_to_turn("run-1", 1)
 
@@ -4827,33 +4671,27 @@ async def test_rewind_restores_state_and_deletes_later_turns(
     assert (tmp_path / "run-1" / "turn-0-open.png").exists()
     assert (tmp_path / "run-1" / "initial.png").exists()
     assert (tmp_path / "run-1" / "background-abc.png").exists()
-    await engine.dispose()
 
 
 @pytest.mark.asyncio
 async def test_rewind_recovers_missing_portrait_from_earlier_turn(
-    tmp_path, monkeypatch
+    isolated_db, tmp_path
 ) -> None:
-    engine, session_factory = _adventure_db_env(tmp_path)
-    async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all)
+    session_factory = isolated_db.async_factory
     await _seed_rewind_run(session_factory, tmp_path)
-    service = _patched_service(monkeypatch, session_factory, tmp_path)
+    service = _patched_service(tmp_path)
 
     # turn 2 は portrait 欠落 → turn 1 の立ち絵で補う
     result = await service.rewind_to_turn("run-1", 2)
 
     assert result["turn_count"] == 2
     assert result["portrait_image_url"].endswith("portrait-1-c1.png")
-    await engine.dispose()
 
 
 @pytest.mark.asyncio
-async def test_rewind_restores_ended_run_to_active(tmp_path, monkeypatch) -> None:
+async def test_rewind_restores_ended_run_to_active(isolated_db, tmp_path) -> None:
     json = __import__("json")
-    engine, session_factory = _adventure_db_env(tmp_path)
-    async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all)
+    session_factory = isolated_db.async_factory
     await _seed_rewind_run(session_factory, tmp_path)
     async with session_factory() as db:
         run = await db.get(AdventureRun, "run-1")
@@ -4866,7 +4704,7 @@ async def test_rewind_restores_ended_run_to_active(tmp_path, monkeypatch) -> Non
         state["epilogue"] = True
         run.state_json = json.dumps(state, ensure_ascii=False)
         await db.commit()
-    service = _patched_service(monkeypatch, session_factory, tmp_path)
+    service = _patched_service(tmp_path)
 
     result = await service.rewind_to_turn("run-1", 2)
 
@@ -4874,17 +4712,14 @@ async def test_rewind_restores_ended_run_to_active(tmp_path, monkeypatch) -> Non
     assert result["ending_title"] is None
     assert result["ending_summary"] is None
     assert result["epilogue"] is False
-    await engine.dispose()
 
 
 @pytest.mark.asyncio
 async def test_rewind_keeps_final_status_recorded_in_target_turn(
-    tmp_path, monkeypatch
+    isolated_db, tmp_path
 ) -> None:
     json = __import__("json")
-    engine, session_factory = _adventure_db_env(tmp_path)
-    async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all)
+    session_factory = isolated_db.async_factory
     await _seed_rewind_run(session_factory, tmp_path)
     async with session_factory() as db:
         # turn 2 をエンディング(failure)確定後のエピローグターンに見立てる
@@ -4898,7 +4733,7 @@ async def test_rewind_keeps_final_status_recorded_in_target_turn(
         run = await db.get(AdventureRun, "run-1")
         run.status = "failure"
         await db.commit()
-    service = _patched_service(monkeypatch, session_factory, tmp_path)
+    service = _patched_service(tmp_path)
 
     result = await service.rewind_to_turn("run-1", 2)
 
@@ -4906,16 +4741,13 @@ async def test_rewind_keeps_final_status_recorded_in_target_turn(
     assert result["ending_title"] == "ミッション失敗"
     assert result["ending_summary"] == "捕まった"
     assert result["epilogue"] is True
-    await engine.dispose()
 
 
 @pytest.mark.asyncio
-async def test_rewind_noop_and_invalid_turn_numbers(tmp_path, monkeypatch) -> None:
-    engine, session_factory = _adventure_db_env(tmp_path)
-    async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all)
+async def test_rewind_noop_and_invalid_turn_numbers(isolated_db, tmp_path) -> None:
+    session_factory = isolated_db.async_factory
     await _seed_rewind_run(session_factory, tmp_path)
-    service = _patched_service(monkeypatch, session_factory, tmp_path)
+    service = _patched_service(tmp_path)
 
     noop = await service.rewind_to_turn("run-1", 3)
     assert noop["turn_count"] == 3
@@ -4927,30 +4759,24 @@ async def test_rewind_noop_and_invalid_turn_numbers(tmp_path, monkeypatch) -> No
     with pytest.raises(AdventureError) as beyond:
         await service.rewind_to_turn("run-1", 4)
     assert beyond.value.code == "invalid_turn_number"
-    await engine.dispose()
 
 
 @pytest.mark.asyncio
-async def test_rewind_to_opening_requires_snapshot(tmp_path, monkeypatch) -> None:
-    engine, session_factory = _adventure_db_env(tmp_path)
-    async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all)
+async def test_rewind_to_opening_requires_snapshot(isolated_db, tmp_path) -> None:
+    session_factory = isolated_db.async_factory
     await _seed_rewind_run(session_factory, tmp_path)
-    service = _patched_service(monkeypatch, session_factory, tmp_path)
+    service = _patched_service(tmp_path)
 
     listed = await service.rewind_to_turn("run-1", 3)
     assert listed["can_rewind_to_opening"] is False
     with pytest.raises(AdventureError) as error:
         await service.rewind_to_turn("run-1", 0)
     assert error.value.code == "opening_state_unavailable"
-    await engine.dispose()
 
 
 @pytest.mark.asyncio
-async def test_rewind_to_opening_restores_snapshot(tmp_path, monkeypatch) -> None:
-    engine, session_factory = _adventure_db_env(tmp_path)
-    async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all)
+async def test_rewind_to_opening_restores_snapshot(isolated_db, tmp_path) -> None:
+    session_factory = isolated_db.async_factory
     opening = {
         "state": _turn_state("opening"),
         "current_image_path": str(tmp_path / "run-1" / "turn-0-open.png"),
@@ -4958,7 +4784,7 @@ async def test_rewind_to_opening_restores_snapshot(tmp_path, monkeypatch) -> Non
         "background_image_path": None,
     }
     await _seed_rewind_run(session_factory, tmp_path, opening_state=opening)
-    service = _patched_service(monkeypatch, session_factory, tmp_path)
+    service = _patched_service(tmp_path)
 
     result = await service.rewind_to_turn("run-1", 0)
 
@@ -4967,16 +4793,13 @@ async def test_rewind_to_opening_restores_snapshot(tmp_path, monkeypatch) -> Non
     assert result["turns"] == []
     assert result["visual_state"]["location"] == "opening"
     assert result["current_image_url"].endswith("turn-0-open.png")
-    await engine.dispose()
 
 
 @pytest.mark.asyncio
-async def test_start_epilogue_validation_and_idempotency(tmp_path, monkeypatch) -> None:
-    engine, session_factory = _adventure_db_env(tmp_path)
-    async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all)
+async def test_start_epilogue_validation_and_idempotency(isolated_db, tmp_path) -> None:
+    session_factory = isolated_db.async_factory
     await _seed_rewind_run(session_factory, tmp_path)
-    service = _patched_service(monkeypatch, session_factory, tmp_path)
+    service = _patched_service(tmp_path)
 
     # 進行中の run には付与できない
     with pytest.raises(AdventureError) as active:
@@ -4996,7 +4819,6 @@ async def test_start_epilogue_validation_and_idempotency(tmp_path, monkeypatch) 
     # 二重付与は no-op 成功
     second = await service.start_epilogue("run-1")
     assert second["epilogue"] is True
-    await engine.dispose()
 
 
 def test_romance_replay_player_selection_restores_stored_choice() -> None:
@@ -5305,20 +5127,11 @@ def _make_background_run_fixtures(tmp_path):
         id="run-1", background_image_path=None, updated_at=None
     )
 
-    class FakeDatabase:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, _exc_type, _exc, _traceback):
-            return None
-
-        async def get(self, model, _record_id):
-            return persisted_run if model is AdventureRun else None
-
-        async def commit(self):
-            return None
-
-    return run, persisted_run, FakeDatabase
+    return (
+        run,
+        persisted_run,
+        fake_database_factory({(AdventureRun, None): persisted_run}),
+    )
 
 
 @pytest.mark.asyncio
@@ -5330,7 +5143,7 @@ async def test_generate_background_image_openrouter_uses_txt2img(
     service = AdventureService()
     service._images_dir = tmp_path
     (tmp_path / "run-1").mkdir()
-    run, persisted_run, FakeDatabase = _make_background_run_fixtures(tmp_path)
+    run, persisted_run, database_factory = _make_background_run_fixtures(tmp_path)
 
     generate_image = AsyncMock(
         return_value=SimpleNamespace(images=[b"bg"], cost_usd=0.01)
@@ -5346,7 +5159,8 @@ async def test_generate_background_image_openrouter_uses_txt2img(
         generate_scenery,
     )
     monkeypatch.setattr(
-        "gateway.services.adventure_service.async_session_factory", FakeDatabase
+        "gateway.services.adventure_service.async_session_factory",
+        database_factory,
     )
 
     background_path = await service._generate_background_image_unlocked(
@@ -5369,7 +5183,7 @@ async def test_generate_background_image_selfhost_uses_txt2img(
     monkeypatch.setattr(app_settings, "image_provider", "selfhost")
     service = AdventureService()
     service._images_dir = tmp_path
-    run, persisted_run, FakeDatabase = _make_background_run_fixtures(tmp_path)
+    run, persisted_run, database_factory = _make_background_run_fixtures(tmp_path)
 
     generate_image = AsyncMock(return_value=SimpleNamespace(images=[b"bg"]))
     generate_scenery = AsyncMock()
@@ -5383,7 +5197,8 @@ async def test_generate_background_image_selfhost_uses_txt2img(
         generate_scenery,
     )
     monkeypatch.setattr(
-        "gateway.services.adventure_service.async_session_factory", FakeDatabase
+        "gateway.services.adventure_service.async_session_factory",
+        database_factory,
     )
 
     background_path = await service._generate_background_image_unlocked(
@@ -5459,22 +5274,6 @@ async def test_generate_portrait_openrouter_uses_reference_as_edit_source(
         state_json="{}",
     )
 
-    class FakeDatabase:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, _exc_type, _exc, _traceback):
-            return None
-
-        async def get(self, model, _record_id):
-            return persisted_run if model is AdventureRun else None
-
-        async def scalar(self, _statement):
-            return None
-
-        async def commit(self):
-            return None
-
     generate_image = AsyncMock(
         return_value=SimpleNamespace(images=[b"portrait"], cost_usd=0.02)
     )
@@ -5496,7 +5295,8 @@ async def test_generate_portrait_openrouter_uses_reference_as_edit_source(
         generate_image,
     )
     monkeypatch.setattr(
-        "gateway.services.adventure_service.async_session_factory", FakeDatabase
+        "gateway.services.adventure_service.async_session_factory",
+        fake_database_factory({(AdventureRun, None): persisted_run}),
     )
 
     await service._generate_portrait_unlocked("run-1", None, turn_number=1)
@@ -5647,22 +5447,10 @@ async def test_update_run_settings_companion_mode_round_trip(monkeypatch) -> Non
     run = _romance_settings_run(state)
     persisted = SimpleNamespace(id="run-1", state_json=run.state_json, updated_at=None)
 
-    class FakeDatabase:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, _exc_type, _exc, _traceback):
-            return None
-
-        async def get(self, model, record_id):
-            return persisted if model is AdventureRun and record_id == "run-1" else None
-
-        async def commit(self):
-            return None
-
     monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
     monkeypatch.setattr(
-        "gateway.services.adventure_service.async_session_factory", FakeDatabase
+        "gateway.services.adventure_service.async_session_factory",
+        fake_database_factory({(AdventureRun, "run-1"): persisted}),
     )
 
     result = await service.update_run_settings(
@@ -5700,22 +5488,10 @@ async def test_update_run_settings_ignores_companion_for_non_romance(
     run = _romance_settings_run(state, preset="escape")
     persisted = SimpleNamespace(id="run-1", state_json=run.state_json, updated_at=None)
 
-    class FakeDatabase:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, _exc_type, _exc, _traceback):
-            return None
-
-        async def get(self, model, record_id):
-            return persisted if model is AdventureRun and record_id == "run-1" else None
-
-        async def commit(self):
-            return None
-
     monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
     monkeypatch.setattr(
-        "gateway.services.adventure_service.async_session_factory", FakeDatabase
+        "gateway.services.adventure_service.async_session_factory",
+        fake_database_factory({(AdventureRun, "run-1"): persisted}),
     )
 
     result = await service.update_run_settings(
@@ -5875,19 +5651,6 @@ async def test_stream_talk_appends_log_without_consuming_turn(monkeypatch) -> No
         id="run-1", state_json=run.state_json, turn_count=3, status="active"
     )
 
-    class FakeDatabase:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, _exc_type, _exc, _traceback):
-            return None
-
-        async def get(self, model, record_id):
-            return persisted if model is AdventureRun and record_id == "run-1" else None
-
-        async def commit(self):
-            return None
-
     captured: dict = {}
 
     async def fake_stream(system_prompt, user_prompt, **kwargs):
@@ -5903,7 +5666,8 @@ async def test_stream_talk_appends_log_without_consuming_turn(monkeypatch) -> No
         fake_stream,
     )
     monkeypatch.setattr(
-        "gateway.services.adventure_service.async_session_factory", FakeDatabase
+        "gateway.services.adventure_service.async_session_factory",
+        fake_database_factory({(AdventureRun, "run-1"): persisted}),
     )
 
     events = [
@@ -6097,28 +5861,12 @@ async def test_generate_partner_portrait_uses_state_tags_and_patches_turn(
     )
     partner_path = tmp_path / "run-1" / "partner-2-abcd1234.png"
 
-    class FakeDatabase:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, _exc_type, _exc, _traceback):
-            return None
-
-        async def get(self, model, record_id):
-            return (
-                persisted_turn
-                if model is AdventureTurn and record_id == "turn-2"
-                else None
-            )
-
-        async def commit(self):
-            return None
-
     generate = AsyncMock(return_value=partner_path)
     monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
     monkeypatch.setattr(service, "_generate_partner_portrait_unlocked", generate)
     monkeypatch.setattr(
-        "gateway.services.adventure_service.async_session_factory", FakeDatabase
+        "gateway.services.adventure_service.async_session_factory",
+        fake_database_factory({(AdventureTurn, "turn-2"): persisted_turn}),
     )
 
     result = await service.generate_partner_portrait("run-1")
@@ -6408,20 +6156,14 @@ async def test_companion_outfit_options_lists_variants_only_with_two_or_more(
     state.update({"companion_mode": True, "companion_avatar_id": "av-swim"})
     run = _romance_settings_run(state)
 
-    class FakeDatabase:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, _exc_type, _exc, _traceback):
-            return None
-
     variants = [
         SimpleNamespace(id="av-dress", name="サクラ", variant_label="ドレス"),
         SimpleNamespace(id="av-swim", name="サクラ", variant_label=None),
     ]
     listing = AsyncMock(return_value=variants)
     monkeypatch.setattr(
-        "gateway.services.adventure_service.async_session_factory", FakeDatabase
+        "gateway.services.adventure_service.async_session_factory",
+        fake_database_factory(),
     )
     monkeypatch.setattr(
         "gateway.services.adventure_service.list_avatar_variants", listing
@@ -6551,23 +6293,11 @@ async def test_update_run_settings_companion_avatar_round_trip(monkeypatch) -> N
     run = _romance_settings_run(state)
     persisted = SimpleNamespace(id="run-1", state_json=run.state_json, updated_at=None)
 
-    class FakeDatabase:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, _exc_type, _exc, _traceback):
-            return None
-
-        async def get(self, model, record_id):
-            return persisted if model is AdventureRun and record_id == "run-1" else None
-
-        async def commit(self):
-            return None
-
     exists = AsyncMock(return_value=True)
     monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
     monkeypatch.setattr(
-        "gateway.services.adventure_service.async_session_factory", FakeDatabase
+        "gateway.services.adventure_service.async_session_factory",
+        fake_database_factory({(AdventureRun, "run-1"): persisted}),
     )
     monkeypatch.setattr("gateway.services.adventure_service.avatar_exists", exists)
 
@@ -6676,24 +6406,13 @@ async def test_detach_companion_avatar_clears_only_matching_runs(monkeypatch) ->
             # state_json の部分一致候補。実際の一致は state を読んで判定する
             return ["run-a", "run-b", "run-missing"]
 
-    class FakeDatabase:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, _exc_type, _exc, _traceback):
-            return None
-
-        async def execute(self, _statement):
-            return FakeResult()
-
-        async def get(self, model, record_id):
-            return rows.get(record_id) if model is AdventureRun else None
-
-        async def commit(self):
-            commits.append("commit")
-
     monkeypatch.setattr(
-        "gateway.services.adventure_service.async_session_factory", FakeDatabase
+        "gateway.services.adventure_service.async_session_factory",
+        fake_database_factory(
+            {(AdventureRun, run_id): row for run_id, row in rows.items()},
+            commits=commits,
+            execute_result=FakeResult(),
+        ),
     )
     assert await service.detach_companion_avatar("av1") == 1
     assert "companion_avatar_id" not in json.loads(run_a.state_json)
@@ -6721,20 +6440,7 @@ def _companion_talk_run() -> tuple[SimpleNamespace, SimpleNamespace]:
 
 
 def _fake_database(persisted: SimpleNamespace):
-    class FakeDatabase:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, _exc_type, _exc, _traceback):
-            return None
-
-        async def get(self, model, record_id):
-            return persisted if model is AdventureRun and record_id == "run-1" else None
-
-        async def commit(self):
-            return None
-
-    return FakeDatabase
+    return fake_database_factory({(AdventureRun, "run-1"): persisted})
 
 
 @pytest.mark.asyncio
@@ -6977,29 +6683,6 @@ def _companion_visual(
     )
 
 
-def _turn_database(persisted: SimpleNamespace):
-    class FakeDatabase:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, _exc_type, _exc, _traceback):
-            return None
-
-        async def get(self, model, record_id):
-            return persisted if model is AdventureRun and record_id == "run-1" else None
-
-        def add(self, _record):
-            return None
-
-        async def commit(self):
-            return None
-
-        async def refresh(self, _record):
-            return None
-
-    return FakeDatabase
-
-
 async def _run_companion_turn(
     service: AdventureService,
     monkeypatch,
@@ -7068,7 +6751,7 @@ async def _run_companion_turn(
     )
     monkeypatch.setattr(
         "gateway.services.adventure_service.async_session_factory",
-        _turn_database(persisted),
+        _fake_database(persisted),
     )
     return [
         event
@@ -7429,11 +7112,9 @@ def test_rewind_keep_keys_and_lean_state_cover_inventory() -> None:
 
 @pytest.mark.asyncio
 async def test_rewind_keeps_inventory_setting_but_restores_items(
-    tmp_path, monkeypatch
+    isolated_db, tmp_path
 ) -> None:
-    engine, session_factory = _adventure_db_env(tmp_path)
-    async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all)
+    session_factory = isolated_db.async_factory
     await _seed_rewind_run(session_factory, tmp_path)
     async with session_factory() as db:
         run = await db.get(AdventureRun, "run-1")
@@ -7471,14 +7152,13 @@ async def test_rewind_keeps_inventory_setting_but_restores_items(
         )
         turn.state_delta_json = json.dumps(delta, ensure_ascii=False)
         await db.commit()
-    service = _patched_service(monkeypatch, session_factory, tmp_path)
+    service = _patched_service(tmp_path)
 
     result = await service.rewind_to_turn("run-1", 1)
 
     # 設定は現在値を保ち、所持品は巻き戻し先のスナップショットへ戻る
     assert result["inventory_enabled"] is True
     assert [item["id"] for item in result["inventory"]["items"]] == ["i1"]
-    await engine.dispose()
 
 
 def test_serialize_turn_exposes_inventory_and_world_events() -> None:
@@ -7580,22 +7260,10 @@ def _settings_harness(monkeypatch, service, state: dict, *, preset: str = "roman
     run = _romance_settings_run(state, preset=preset)
     persisted = SimpleNamespace(id="run-1", state_json=run.state_json, updated_at=None)
 
-    class FakeDatabase:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, _exc_type, _exc, _traceback):
-            return None
-
-        async def get(self, model, record_id):
-            return persisted if model is AdventureRun and record_id == "run-1" else None
-
-        async def commit(self):
-            return None
-
     monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
     monkeypatch.setattr(
-        "gateway.services.adventure_service.async_session_factory", FakeDatabase
+        "gateway.services.adventure_service.async_session_factory",
+        fake_database_factory({(AdventureRun, "run-1"): persisted}),
     )
     return run, persisted
 
@@ -7736,7 +7404,7 @@ async def _run_inventory_turn(
     )
     monkeypatch.setattr(
         "gateway.services.adventure_service.async_session_factory",
-        _turn_database(persisted),
+        _fake_database(persisted),
     )
     return [
         event

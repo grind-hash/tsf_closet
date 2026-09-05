@@ -8,9 +8,7 @@ from pathlib import Path
 
 import pytest
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from gateway.databases.base import Base
 from gateway.databases.models import (
     History as HistoryORM,
 )
@@ -28,14 +26,8 @@ from gateway.services.session import DatabaseSessionStore
 
 
 async def _setup_store(tmp_path: Path, monkeypatch) -> DatabaseSessionStore:
-    db_path = tmp_path / "history_revert.db"
-    engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}", future=True)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-
+    # DB は isolated_db fixture が差し替え済み。ここでは画像ディレクトリだけ用意する
     module = sys.modules["gateway.services.session"]
-    monkeypatch.setattr(module, "async_session_factory", factory)
 
     history_images_dir = tmp_path / "history_images"
     history_images_dir.mkdir(parents=True, exist_ok=True)
@@ -92,12 +84,12 @@ async def _seed_session_with_history(
 
 @pytest.mark.asyncio
 async def test_intermediate_history_delete_reverts_via_clamped_diff(
-    tmp_path: Path, monkeypatch
+    isolated_db, tmp_path: Path, monkeypatch
 ):
     """SC-001: 中央 history 削除で stats が 2 件分の累積に一致する."""
     store = await _setup_store(tmp_path, monkeypatch)
     module = sys.modules["gateway.services.session"]
-    factory = module.async_session_factory
+    factory = isolated_db.async_factory
 
     sid = "sess-A"
     # h1: +5 bloom, -3 shame, +1 adapt -> (15, 47, 1)
@@ -170,12 +162,12 @@ async def test_intermediate_history_delete_reverts_via_clamped_diff(
 
 @pytest.mark.asyncio
 async def test_latest_history_delete_restores_prev_value_directly(
-    tmp_path: Path, monkeypatch
+    isolated_db, tmp_path: Path, monkeypatch
 ):
     """最新 history 削除で stats が delta 分巻き戻る (prev_value 直接代入)."""
     store = await _setup_store(tmp_path, monkeypatch)
     module = sys.modules["gateway.services.session"]
-    factory = module.async_session_factory
+    factory = isolated_db.async_factory
 
     sid = "sess-B"
     await _seed_session_with_history(
@@ -221,12 +213,12 @@ async def test_latest_history_delete_restores_prev_value_directly(
 
 @pytest.mark.asyncio
 async def test_history_delete_without_change_log_does_not_break(
-    tmp_path: Path, monkeypatch
+    isolated_db, tmp_path: Path, monkeypatch
 ):
     """change_log が無い既存 history を削除しても 500 にならず stats 据置 (FR-004)."""
     store = await _setup_store(tmp_path, monkeypatch)
     module = sys.modules["gateway.services.session"]
-    factory = module.async_session_factory
+    factory = isolated_db.async_factory
 
     sid = "sess-C"
     await _seed_session_with_history(

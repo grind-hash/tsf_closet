@@ -2,12 +2,8 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from gateway.databases.base import Base
 from gateway.databases.models import History, User
 from gateway.databases.models import Session as SessionORM
 from gateway.services.favorite_service import (
@@ -16,12 +12,7 @@ from gateway.services.favorite_service import (
 )
 
 
-async def _setup(tmp_path: Path):
-    db_path = tmp_path / "fav.db"
-    engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}", future=True)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    factory = async_sessionmaker(engine, expire_on_commit=False)
+async def _setup(factory):
     async with factory() as db:
         db.add(User(id="default-user"))
         db.add(
@@ -54,8 +45,8 @@ async def _setup(tmp_path: Path):
 
 
 @pytest.mark.asyncio
-async def test_add_and_list_favorites(tmp_path: Path):
-    factory = await _setup(tmp_path)
+async def test_add_and_list_favorites(isolated_db):
+    factory = await _setup(isolated_db.async_factory)
     async with factory() as db:
         view = await FavoriteOutfitService.add(
             db, history_id="hist-1", label="白ドレス"
@@ -75,8 +66,8 @@ async def test_add_and_list_favorites(tmp_path: Path):
 
 
 @pytest.mark.asyncio
-async def test_duplicate_favorite_raises(tmp_path: Path):
-    factory = await _setup(tmp_path)
+async def test_duplicate_favorite_raises(isolated_db):
+    factory = await _setup(isolated_db.async_factory)
     async with factory() as db:
         await FavoriteOutfitService.add(db, history_id="hist-1")
         await db.commit()
@@ -88,8 +79,8 @@ async def test_duplicate_favorite_raises(tmp_path: Path):
 
 
 @pytest.mark.asyncio
-async def test_missing_history_raises(tmp_path: Path):
-    factory = await _setup(tmp_path)
+async def test_missing_history_raises(isolated_db):
+    factory = await _setup(isolated_db.async_factory)
     async with factory() as db:
         with pytest.raises(FavoriteServiceError) as exc:
             await FavoriteOutfitService.add(db, history_id="missing")
@@ -97,8 +88,8 @@ async def test_missing_history_raises(tmp_path: Path):
 
 
 @pytest.mark.asyncio
-async def test_label_too_long_raises(tmp_path: Path):
-    factory = await _setup(tmp_path)
+async def test_label_too_long_raises(isolated_db):
+    factory = await _setup(isolated_db.async_factory)
     async with factory() as db:
         with pytest.raises(FavoriteServiceError) as exc:
             await FavoriteOutfitService.add(db, history_id="hist-1", label="あ" * 81)
@@ -106,8 +97,8 @@ async def test_label_too_long_raises(tmp_path: Path):
 
 
 @pytest.mark.asyncio
-async def test_update_label_and_delete_by_history(tmp_path: Path):
-    factory = await _setup(tmp_path)
+async def test_update_label_and_delete_by_history(isolated_db):
+    factory = await _setup(isolated_db.async_factory)
     async with factory() as db:
         view = await FavoriteOutfitService.add(db, history_id="hist-2")
         await db.commit()
@@ -130,8 +121,8 @@ async def test_update_label_and_delete_by_history(tmp_path: Path):
 
 
 @pytest.mark.asyncio
-async def test_favorited_history_ids(tmp_path: Path):
-    factory = await _setup(tmp_path)
+async def test_favorited_history_ids(isolated_db):
+    factory = await _setup(isolated_db.async_factory)
     async with factory() as db:
         await FavoriteOutfitService.add(db, history_id="hist-1")
         await db.commit()

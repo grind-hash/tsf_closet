@@ -5,52 +5,19 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from gateway.routes.game_router import router
+from tests.support.stubs import StubSessionStore
 
 game_router_module = importlib.import_module("gateway.routes.game_router")
 llm_service_module = importlib.import_module("gateway.services.llm_service")
-
-
-class StubSessionStore:
-    async def get_session_by_id(self, session_id: str):
-        return SimpleNamespace(character_id=None, transformation_count=1)
-
-    async def get_session_stats(self, session_id: str):
-        return SimpleNamespace(bloom=40, nsfw_mode=False)
-
-    async def create_session_stats(self, session_id: str):
-        return SimpleNamespace(bloom=40, nsfw_mode=False)
-
-    async def get_conversation_history(self, session_id: str, limit: int = 20):
-        return []
-
-    async def get_recent_instructions(self, session_id: str, limit: int = 20):
-        return []
-
-    async def get_history(self, session_id: str):
-        return []
-
-    async def add_conversation(
-        self, session_id: str, role: str, content: str, **kwargs
-    ):
-        return None
-
-    async def get_session_attribute_texts(self, session_id: str):
-        return []
-
-    async def get_user_settings(self):
-        return {"language": "en", "difficulty": "normal", "nsfw_mode": False}
-
-
-class StubSessionStoreJa(StubSessionStore):
-    async def get_user_settings(self):
-        return {"language": "ja", "difficulty": "normal", "nsfw_mode": False}
 
 
 def test_chat_response_contains_language(monkeypatch):
     app = FastAPI()
     app.include_router(router, prefix="/api")
 
-    monkeypatch.setattr(game_router_module, "session_store", StubSessionStore())
+    monkeypatch.setattr(
+        game_router_module, "session_store", StubSessionStore(language="en")
+    )
 
     async def fake_generate_feeling(**_):
         return SimpleNamespace(content="Hello there")
@@ -76,7 +43,9 @@ def test_chat_response_language_query_overrides_settings(monkeypatch):
     app = FastAPI()
     app.include_router(router, prefix="/api")
 
-    monkeypatch.setattr(game_router_module, "session_store", StubSessionStoreJa())
+    monkeypatch.setattr(
+        game_router_module, "session_store", StubSessionStore(language="ja")
+    )
 
     async def fake_generate_feeling(**_):
         return SimpleNamespace(content="Hello there")

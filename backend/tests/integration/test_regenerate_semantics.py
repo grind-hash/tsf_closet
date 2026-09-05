@@ -12,9 +12,7 @@ from pathlib import Path
 
 import pytest
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from gateway.databases.base import Base
 from gateway.databases.models import (
     History as HistoryORM,
 )
@@ -32,14 +30,8 @@ from gateway.services.session import DatabaseSessionStore
 
 
 async def _setup_store(tmp_path: Path, monkeypatch) -> DatabaseSessionStore:
-    db_path = tmp_path / "regen.db"
-    engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}", future=True)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-
+    # DB は isolated_db fixture が差し替え済み。ここでは画像ディレクトリだけ用意する
     module = sys.modules["gateway.services.session"]
-    monkeypatch.setattr(module, "async_session_factory", factory)
 
     history_images_dir = tmp_path / "history_images"
     history_images_dir.mkdir(parents=True, exist_ok=True)
@@ -139,11 +131,12 @@ async def _apply_action(
 
 
 @pytest.mark.asyncio
-async def test_delete_and_reaction_yields_single_delta(tmp_path: Path, monkeypatch):
+async def test_delete_and_reaction_yields_single_delta(
+    isolated_db, tmp_path: Path, monkeypatch
+):
     """1 アクション → 削除 → 同指示で再アクション → 結果は「最後の 1 件分のみ」."""
     store = await _setup_store(tmp_path, monkeypatch)
-    module = sys.modules["gateway.services.session"]
-    factory = module.async_session_factory
+    factory = isolated_db.async_factory
 
     sid = "regen-A"
     await _seed(factory, session_id=sid, stats=(10, 50, 0))
@@ -161,11 +154,12 @@ async def test_delete_and_reaction_yields_single_delta(tmp_path: Path, monkeypat
 
 
 @pytest.mark.asyncio
-async def test_five_regen_cycles_remain_single_delta(tmp_path: Path, monkeypatch):
+async def test_five_regen_cycles_remain_single_delta(
+    isolated_db, tmp_path: Path, monkeypatch
+):
     """SC-002: 5 サイクル繰り返しても最終 stats は 1 回分のみ."""
     store = await _setup_store(tmp_path, monkeypatch)
-    module = sys.modules["gateway.services.session"]
-    factory = module.async_session_factory
+    factory = isolated_db.async_factory
 
     sid = "regen-B"
     await _seed(factory, session_id=sid, stats=(10, 50, 0))
@@ -186,12 +180,11 @@ async def test_five_regen_cycles_remain_single_delta(tmp_path: Path, monkeypatch
 
 @pytest.mark.asyncio
 async def test_action_delete_reaction_delete_returns_to_initial(
-    tmp_path: Path, monkeypatch
+    isolated_db, tmp_path: Path, monkeypatch
 ):
     """アクション → 削除 → 再アクション → 削除 → 初期値に戻る (二重 revert なし)."""
     store = await _setup_store(tmp_path, monkeypatch)
-    module = sys.modules["gateway.services.session"]
-    factory = module.async_session_factory
+    factory = isolated_db.async_factory
 
     sid = "regen-C"
     await _seed(factory, session_id=sid, stats=(20, 40, 5))

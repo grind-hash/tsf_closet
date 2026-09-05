@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import sys
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -14,9 +13,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from PIL import Image
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from gateway.databases.base import Base
 from gateway.databases.models import User
 from gateway.routes.prompt_expander_router import router
 from gateway.services import prompt_expander_service as pe
@@ -34,11 +31,6 @@ def _png_b64(color: str = "red") -> str:
     return base64.b64encode(_png(color)).decode()
 
 
-async def _setup_database(engine):
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-
 async def _seed(factory):
     async with factory() as db:
         db.add(User(id="default-user"))
@@ -46,16 +38,9 @@ async def _seed(factory):
 
 
 @pytest.fixture
-def client(tmp_path: Path, monkeypatch):
-    db_path = tmp_path / "pe_api.db"
-    engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}", future=True)
-    asyncio.run(_setup_database(engine))
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-    asyncio.run(_seed(factory))
+def client(isolated_db, tmp_path: Path, monkeypatch):
+    asyncio.run(_seed(isolated_db.async_factory))
 
-    router_module = sys.modules["gateway.routes.prompt_expander_router"]
-    monkeypatch.setattr(router_module, "async_session_factory", factory)
-    monkeypatch.setattr(pe, "async_session_factory", factory)
     monkeypatch.setattr(pe.settings, "prompt_expander_images_dir", tmp_path / "imgs")
     monkeypatch.setattr(pe.settings, "novelai_api_key", "test-key")
 
@@ -99,7 +84,6 @@ def client(tmp_path: Path, monkeypatch):
     app.include_router(router, prefix="/api")
     with TestClient(app) as test_client:
         yield test_client
-    asyncio.run(engine.dispose())
 
 
 def test_settings_get_and_put(client: TestClient):

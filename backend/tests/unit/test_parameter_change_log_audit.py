@@ -5,12 +5,8 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from gateway.databases.base import Base
 from gateway.databases.models import (
     History as HistoryORM,
 )
@@ -26,13 +22,7 @@ from gateway.databases.parameter_change_log_repo import (
 )
 
 
-async def _setup(tmp_path: Path):
-    engine = create_async_engine(
-        f"sqlite+aiosqlite:///{tmp_path / 'audit.db'}", future=True
-    )
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    factory = async_sessionmaker(engine, expire_on_commit=False)
+async def _setup(factory):
     async with factory() as db:
         db.add(User(id="u-audit"))
         db.add(
@@ -56,8 +46,8 @@ async def _setup(tmp_path: Path):
 
 
 @pytest.mark.asyncio
-async def test_audit_log_contains_all_fields_per_action(tmp_path: Path):
-    factory = await _setup(tmp_path)
+async def test_audit_log_contains_all_fields_per_action(isolated_db):
+    factory = await _setup(isolated_db.async_factory)
 
     async with factory() as db:
         await insert_change_logs(

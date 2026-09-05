@@ -10,9 +10,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from PIL import Image
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from gateway.databases.base import Base
 from gateway.databases.models import History, User
 from gateway.databases.models import Session as SessionORM
 from gateway.services import prompt_expander_service as pe
@@ -32,12 +30,8 @@ def _png_base64(color: str = "red") -> str:
 
 
 @pytest.fixture
-async def factory(tmp_path: Path, monkeypatch):
-    db_path = tmp_path / "pe.db"
-    engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}", future=True)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+async def factory(isolated_db, tmp_path: Path, monkeypatch):
+    session_factory = isolated_db.async_factory
     async with session_factory() as db:
         db.add(User(id="default-user"))
         db.add(
@@ -58,7 +52,6 @@ async def factory(tmp_path: Path, monkeypatch):
             )
         )
         await db.commit()
-    monkeypatch.setattr(pe, "async_session_factory", session_factory)
     monkeypatch.setattr(
         pe.settings, "prompt_expander_images_dir", tmp_path / "pe_images"
     )
@@ -69,8 +62,7 @@ async def factory(tmp_path: Path, monkeypatch):
 
     # グローバルメモリ参照は実 DB へ行くためテストでは常に空にする
     monkeypatch.setattr(pe.settings_service, "get_memory_text", _no_global_memory)
-    yield session_factory
-    await engine.dispose()
+    return session_factory
 
 
 @pytest.mark.asyncio

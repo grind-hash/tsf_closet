@@ -6,13 +6,9 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from gateway.databases.base import Base
 from gateway.databases.models import (
     History as HistoryORM,
 )
@@ -29,13 +25,7 @@ from gateway.databases.parameter_change_log_repo import (
 )
 
 
-async def _setup(tmp_path: Path):
-    engine = create_async_engine(
-        f"sqlite+aiosqlite:///{tmp_path / 'idx.db'}", future=True
-    )
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    factory = async_sessionmaker(engine, expire_on_commit=False)
+async def _setup(factory):
     async with factory() as db:
         db.add(User(id="u-idx"))
         db.add(
@@ -69,8 +59,8 @@ async def _setup(tmp_path: Path):
 
 
 @pytest.mark.asyncio
-async def test_pragma_index_list_contains_pcl_indexes(tmp_path: Path):
-    factory = await _setup(tmp_path)
+async def test_pragma_index_list_contains_pcl_indexes(isolated_db):
+    factory = await _setup(isolated_db.async_factory)
     async with factory() as db:
         result = await db.execute(text("PRAGMA index_list('parameter_change_log')"))
         indexes = {row[1] for row in result.all()}
@@ -79,8 +69,8 @@ async def test_pragma_index_list_contains_pcl_indexes(tmp_path: Path):
 
 
 @pytest.mark.asyncio
-async def test_query_plan_uses_history_index(tmp_path: Path):
-    factory = await _setup(tmp_path)
+async def test_query_plan_uses_history_index(isolated_db):
+    factory = await _setup(isolated_db.async_factory)
     async with factory() as db:
         plan = await db.execute(
             text(
@@ -93,8 +83,8 @@ async def test_query_plan_uses_history_index(tmp_path: Path):
 
 
 @pytest.mark.asyncio
-async def test_fetch_by_session_and_by_history_return_same_row(tmp_path: Path):
-    factory = await _setup(tmp_path)
+async def test_fetch_by_session_and_by_history_return_same_row(isolated_db):
+    factory = await _setup(isolated_db.async_factory)
     async with factory() as db:
         by_history = await fetch_change_logs_by_history(db, "h-idx")
         by_session = await fetch_change_logs_by_session(db, "s-idx")
