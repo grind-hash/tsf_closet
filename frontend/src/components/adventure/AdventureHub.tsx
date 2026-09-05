@@ -71,7 +71,7 @@ import {
 } from "../../utils/adventureTurnTimeEstimate";
 import { API_BASE } from "../../utils/api";
 import MainLayout from "../layout/MainLayout";
-import AdventureAnlasConfirmDialog from "./AdventureAnlasConfirmDialog";
+import AnlasConfirmDialog from "../ui/AnlasConfirmDialog";
 import {
   AvatarModelOptions,
   AvatarWardrobeHint,
@@ -1577,7 +1577,7 @@ export default function AdventureHub() {
           </p>
         </div>
       )}
-      <AdventureAnlasConfirmDialog
+      <AnlasConfirmDialog
         open={startAnlasConfirmOpen}
         body={t("adventure.anlasWarnStartBody", {
           estimate: formatAnlasEstimate(

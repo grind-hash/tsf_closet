@@ -88,7 +88,7 @@ import {
 } from "../../utils/speechInputPreferences";
 import ImagePreviewModal from "../ImagePreviewModal";
 import MainLayout from "../layout/MainLayout";
-import AdventureAnlasConfirmDialog from "./AdventureAnlasConfirmDialog";
+import AnlasConfirmDialog from "../ui/AnlasConfirmDialog";
 import AdventureAttributeModal from "./AdventureAttributeModal";
 import {
   AvatarModelOptions,
@@ -3320,7 +3320,7 @@ export default function AdventurePlay({ runId }: { runId: string }) {
       />
 
       {/* Anlas cost confirmation dialog (romance with precise references) */}
-      <AdventureAnlasConfirmDialog
+      <AnlasConfirmDialog
         open={pendingAnlasTurn !== null}
         body={t("adventure.anlasWarnBody", {
           estimate: formatAnlasEstimate(
@@ -3337,7 +3337,7 @@ export default function AdventurePlay({ runId }: { runId: string }) {
       />
 
       {/* V5 利用上限使い切り警告ダイアログ */}
-      <AdventureAnlasConfirmDialog
+      <AnlasConfirmDialog
         open={pendingUsageWarnTurn !== null}
         body={t("adventure.v5UsageExhaustedBody")}
         onConfirm={confirmPendingUsageWarnTurn}

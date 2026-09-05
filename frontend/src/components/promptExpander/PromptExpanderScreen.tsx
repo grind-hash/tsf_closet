@@ -18,10 +18,10 @@ import { usePromptExpander } from "../../contexts/PromptExpanderContext";
 import type { TranslationKey } from "../../i18n";
 import { ROUTES } from "../../routes";
 import ApiKeyConsentModal from "../ApiKeyConsentModal";
-import AdventureAnlasConfirmDialog from "../adventure/AdventureAnlasConfirmDialog";
 import { hasApiKeyConsent } from "../apiKeyConsentStorage";
 import MainLayout from "../layout/MainLayout";
 import { NovelaiUsageBar } from "../NovelaiUsageBar";
+import AnlasConfirmDialog from "../ui/AnlasConfirmDialog";
 import PromptExpanderComposer from "./PromptExpanderComposer";
 import PromptExpanderControlBar from "./PromptExpanderControlBar";
 import PromptExpanderEntryList from "./PromptExpanderEntryList";
@@ -269,14 +269,14 @@ export default function PromptExpanderScreen() {
         {sessionId && activeSession && <PromptExpanderControlBar />}
       </div>
 
-      <AdventureAnlasConfirmDialog
+      <AnlasConfirmDialog
         open={pendingUsageWarn !== null}
         body={t("gameplay.v5UsageExhaustedBody")}
         onConfirm={handleUsageConfirm}
         onCancel={cancelUsageWarn}
       />
       {/* 精密参照の Anlas 確認。V5 上限警告とはモデル系統で排他だが、同時表示は避ける */}
-      <AdventureAnlasConfirmDialog
+      <AnlasConfirmDialog
         open={pendingUsageWarn === null && pendingReferenceWarn !== null}
         body={t("promptExpander.reference.anlasBody", {
           cost: options.anlasPerReference,

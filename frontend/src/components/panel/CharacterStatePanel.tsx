@@ -17,14 +17,17 @@ import { useNavigate } from "react-router-dom";
 import { useChat } from "../../contexts/ChatContext";
 import { useGame } from "../../contexts/GameContext";
 import { useSettings } from "../../contexts/SettingsContext";
+import { useAttributeInput } from "../../hooks/useAttributeInput";
+import {
+  loadPresetAttributes,
+  useAttributePresets,
+} from "../../hooks/useAttributePresets";
 import { getGameSessionPath } from "../../routes";
 import type { AttributePreset } from "../../types";
+import AttributePresetSaveDialog from "../attributes/AttributePresetSaveDialog";
 import ComparisonSliderModal from "../gallery/ComparisonSliderModal";
 import BranchSessionDialog from "../session/BranchSessionDialog";
 import "./CharacterStatePanel.css";
-
-// 属性プリセット用のlocalStorageキー（RightPanelと共通）
-const ATTRIBUTE_PRESET_STORAGE_KEY = "attribute_presets";
 
 interface CharacterStatePanelProps {
   onImageClick?: () => void;
@@ -77,49 +80,30 @@ export default function CharacterStatePanel({
   const [branchError, setBranchError] = useState<string | null>(null);
   const [comparisonOpen, setComparisonOpen] = useState(false);
 
-  // 属性入力状態
-  const [showAttributeInput, setShowAttributeInput] = useState(false);
-  const [attributeText, setAttributeText] = useState("");
-  const [isAddingAttribute, setIsAddingAttribute] = useState(false);
-  const [editingAttributeId, setEditingAttributeId] = useState<string | null>(
-    null,
-  );
-  const attributeInputRef = useRef<HTMLInputElement>(null);
+  // 属性入力状態（追加・編集・削除の挙動は右パネル / 人物パネルで共通）
+  const {
+    showInput: showAttributeInput,
+    setShowInput: setShowAttributeInput,
+    text: attributeText,
+    setText: setAttributeText,
+    isAdding: isAddingAttribute,
+    editingId: editingAttributeId,
+    setEditingId: setEditingAttributeId,
+    inputRef: attributeInputRef,
+    submit: handleAddAttribute,
+    remove: handleRemoveAttribute,
+    beginEdit: handleEditAttribute,
+    onKeyDown: handleAttributeKeyDown,
+  } = useAttributeInput({ addAttribute, removeAttribute });
 
-  // 属性プリセット状態
-  const [attributePresets, setAttributePresets] = useState<AttributePreset[]>(
-    [],
-  );
+  // 属性プリセット（localStorage 共有。右パネルと同じ一覧を見る）
+  const {
+    presets: attributePresets,
+    savePreset,
+    deletePreset: handleDeleteAttributePreset,
+  } = useAttributePresets();
   const [showPresetSaveModal, setShowPresetSaveModal] = useState(false);
-  const [presetName, setPresetName] = useState("");
   const [showPresetList, setShowPresetList] = useState(false);
-
-  // 属性プリセットをlocalStorageから読み込み
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem(ATTRIBUTE_PRESET_STORAGE_KEY);
-      if (saved) {
-        setAttributePresets(JSON.parse(saved));
-      }
-    } catch {
-      console.error("Failed to load attribute presets");
-    }
-  }, []);
-
-  // localStorageの変更を監視（他コンポーネントからの変更を反映）
-  useEffect(() => {
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === ATTRIBUTE_PRESET_STORAGE_KEY && e.newValue) {
-        try {
-          setAttributePresets(JSON.parse(e.newValue));
-        } catch {
-          console.error("Failed to parse attribute presets");
-        }
-      }
-    };
-    window.addEventListener("storage", handleStorageChange);
-    return () => window.removeEventListener("storage", handleStorageChange);
-  }, []);
 
   // インペイントトグルハンドラ
   const handleInpaintToggle = (event: ChangeEvent<HTMLInputElement>) => {
@@ -195,93 +179,19 @@ export default function CharacterStatePanel({
     });
   }, [currentHistoryIndex, history.length]);
 
-  // 属性追加ハンドラー
-  const handleAddAttribute = async () => {
-    if (!attributeText.trim() || isAddingAttribute) return;
-
-    setIsAddingAttribute(true);
-    try {
-      if (editingAttributeId) {
-        await removeAttribute(editingAttributeId);
-      }
-      await addAttribute(attributeText.trim());
-      setAttributeText("");
-      setEditingAttributeId(null);
-      setShowAttributeInput(false);
-    } catch (error) {
-      console.error("Failed to add attribute:", error);
-    } finally {
-      setIsAddingAttribute(false);
-    }
-  };
-
-  // 属性削除ハンドラー
-  const handleRemoveAttribute = async (id: string) => {
-    try {
-      await removeAttribute(id);
-      if (editingAttributeId === id) {
-        setEditingAttributeId(null);
-        setAttributeText("");
-      }
-    } catch (error) {
-      console.error("Failed to remove attribute:", error);
-    }
-  };
-
-  const handleEditAttribute = (id: string, text: string) => {
-    setEditingAttributeId(id);
-    setAttributeText(text);
-    setShowAttributeInput(true);
-    setTimeout(() => attributeInputRef.current?.focus(), 0);
-  };
-
-  // Enterキーで属性追加
-  const handleAttributeKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      handleAddAttribute();
-    } else if (e.key === "Escape") {
-      setShowAttributeInput(false);
-      setAttributeText("");
-      setEditingAttributeId(null);
-    }
-  };
-
-  // 属性プリセット保存
-  const handleSaveAttributePreset = () => {
-    if (!presetName.trim() || attributes.length === 0) return;
-
-    const newPreset: AttributePreset = {
-      id: Date.now().toString(),
-      name: presetName.trim(),
-      attributes: attributes.map((a) => a.text),
-      createdAt: new Date().toISOString(),
-    };
-
-    const updated = [...attributePresets, newPreset];
-    setAttributePresets(updated);
-    localStorage.setItem(ATTRIBUTE_PRESET_STORAGE_KEY, JSON.stringify(updated));
-    setShowPresetSaveModal(false);
-    setPresetName("");
+  // 属性プリセット保存（名前か属性が空なら閉じない）
+  const handleSaveAttributePreset = (name: string) => {
+    const saved = savePreset(
+      name,
+      attributes.map((a) => a.text),
+    );
+    if (saved) setShowPresetSaveModal(false);
   };
 
   // 属性プリセット読み込み
   const handleLoadAttributePreset = async (preset: AttributePreset) => {
-    for (const text of preset.attributes) {
-      try {
-        await addAttribute(text);
-      } catch (error) {
-        console.error("Failed to add preset attribute:", error);
-      }
-    }
+    await loadPresetAttributes(preset, addAttribute);
     setShowPresetList(false);
-  };
-
-  // 属性プリセット削除
-  const handleDeleteAttributePreset = (id: string) => {
-    const updated = attributePresets.filter((p) => p.id !== id);
-    setAttributePresets(updated);
-    localStorage.setItem(ATTRIBUTE_PRESET_STORAGE_KEY, JSON.stringify(updated));
   };
 
   // 履歴選択時にチャットメッセージへスクロール
@@ -765,38 +675,14 @@ export default function CharacterStatePanel({
         )}
 
         {/* プリセット保存モーダル */}
-        {showPresetSaveModal && (
-          <div className="character-state-panel__preset-modal">
-            <div className="character-state-panel__preset-modal-content">
-              <h5>{t("characterPanel.savePresetHeading")}</h5>
-              <input
-                type="text"
-                value={presetName}
-                onChange={(e) => setPresetName(e.target.value)}
-                placeholder={t("characterPanel.presetNamePlaceholder")}
-                maxLength={30}
-              />
-              <div className="character-state-panel__preset-modal-actions">
-                <button
-                  type="button"
-                  onClick={handleSaveAttributePreset}
-                  disabled={!presetName.trim()}
-                >
-                  {t("common.save")}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowPresetSaveModal(false);
-                    setPresetName("");
-                  }}
-                >
-                  {t("common.cancel")}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+        <AttributePresetSaveDialog
+          open={showPresetSaveModal}
+          title={t("characterPanel.savePresetHeading")}
+          placeholder={t("characterPanel.presetNamePlaceholder")}
+          maxLength={30}
+          onSave={handleSaveAttributePreset}
+          onCancel={() => setShowPresetSaveModal(false)}
+        />
       </div>
 
       {/* パラメータ表示 */}

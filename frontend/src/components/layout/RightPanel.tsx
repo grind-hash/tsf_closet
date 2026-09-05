@@ -22,12 +22,18 @@ import {
 import { useChat } from "../../contexts/ChatContext";
 import { useGame } from "../../contexts/GameContext";
 import { useSettings } from "../../contexts/SettingsContext";
+import { useAttributeInput } from "../../hooks/useAttributeInput";
+import {
+  loadPresetAttributes,
+  useAttributePresets,
+} from "../../hooks/useAttributePresets";
 import {
   PRECISE_REFERENCE_SECTION_ID,
   usePreciseReferenceFiles,
 } from "../../hooks/usePreciseReferenceFiles";
-import type { PreciseReferenceType } from "../../types";
+import type { AttributePreset, PreciseReferenceType } from "../../types";
 import { isHistoryLookbackEnabled } from "../../utils/historyLookback";
+import AttributePresetSaveDialog from "../attributes/AttributePresetSaveDialog";
 import { NovelaiUsageBar } from "../NovelaiUsageBar";
 import MemorySettings from "../settings/MemorySettings";
 import PlayMemorySettings from "../settings/PlayMemorySettings";
@@ -38,16 +44,6 @@ interface RightPanelProps {
   onOpenInpaintModal?: () => void;
   onSendWithPromptOverride?: (override: string) => void;
 }
-
-// 属性プリセットの型
-interface AttributePreset {
-  id: string;
-  name: string;
-  attributes: string[];
-  createdAt?: string;
-}
-
-const ATTRIBUTE_PRESET_STORAGE_KEY = "attribute_presets";
 
 export default function RightPanel({
   onClose,
@@ -221,30 +217,31 @@ export default function RightPanel({
     setEditedPrompt("");
   }, [editedPrompt, onSendWithPromptOverride]);
 
-  // 属性入力状態
-  const [showAttributeInput, setShowAttributeInput] = useState(false);
-  const [attributeText, setAttributeText] = useState("");
-  const [isAddingAttribute, setIsAddingAttribute] = useState(false);
-  const [editingAttributeId, setEditingAttributeId] = useState<string | null>(
-    null,
-  );
-  const attributeInputRef = useRef<HTMLInputElement>(null);
+  // 属性入力状態（追加・編集・削除の挙動は右パネル / 人物パネルで共通）
+  const {
+    showInput: showAttributeInput,
+    setShowInput: setShowAttributeInput,
+    text: attributeText,
+    setText: setAttributeText,
+    isAdding: isAddingAttribute,
+    editingId: editingAttributeId,
+    setEditingId: setEditingAttributeId,
+    inputRef: attributeInputRef,
+    submit: handleAddAttribute,
+    remove: handleRemoveAttribute,
+    beginEdit: handleEditAttribute,
+    onKeyDown: handleAttributeKeyDown,
+  } = useAttributeInput({ addAttribute, removeAttribute });
   const preciseRefInputRef = useRef<HTMLInputElement>(null);
   const preciseRefDragDepthRef = useRef(0);
 
-  // 属性プリセット
-  const [attributePresets, setAttributePresets] = useState<AttributePreset[]>(
-    () => {
-      try {
-        const saved = localStorage.getItem(ATTRIBUTE_PRESET_STORAGE_KEY);
-        return saved ? JSON.parse(saved) : [];
-      } catch {
-        return [];
-      }
-    },
-  );
+  // 属性プリセット（localStorage 共有。人物パネルと同じ一覧を見る）
+  const {
+    presets: attributePresets,
+    savePreset,
+    deletePreset: handleDeleteAttributePreset,
+  } = useAttributePresets();
   const [showPresetSaveModal, setShowPresetSaveModal] = useState(false);
-  const [presetName, setPresetName] = useState("");
 
   const difficultyOptions: Array<{
     id: "easy" | "normal" | "hard";
@@ -260,93 +257,18 @@ export default function RightPanel({
     { id: "en", label: t("settings.en") },
   ];
 
-  // 属性追加ハンドラー
-  const handleAddAttribute = async () => {
-    if (!attributeText.trim() || isAddingAttribute) return;
-
-    setIsAddingAttribute(true);
-    try {
-      if (editingAttributeId) {
-        await removeAttribute(editingAttributeId);
-      }
-      await addAttribute(attributeText.trim());
-      setAttributeText("");
-      setEditingAttributeId(null);
-      setShowAttributeInput(false);
-    } catch (error) {
-      console.error("Failed to add attribute:", error);
-    } finally {
-      setIsAddingAttribute(false);
-    }
-  };
-
-  // 属性削除ハンドラー
-  const handleRemoveAttribute = async (id: string) => {
-    try {
-      await removeAttribute(id);
-      if (editingAttributeId === id) {
-        setEditingAttributeId(null);
-        setAttributeText("");
-      }
-    } catch (error) {
-      console.error("Failed to remove attribute:", error);
-    }
-  };
-
-  const handleEditAttribute = (id: string, text: string) => {
-    setEditingAttributeId(id);
-    setAttributeText(text);
-    setShowAttributeInput(true);
-    setTimeout(() => attributeInputRef.current?.focus(), 0);
-  };
-
-  // Enterキーで属性追加
-  const handleAttributeKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      handleAddAttribute();
-    } else if (e.key === "Escape") {
-      setShowAttributeInput(false);
-      setAttributeText("");
-      setEditingAttributeId(null);
-    }
-  };
-
-  // 属性プリセット保存
-  const handleSaveAttributePreset = () => {
-    if (!presetName.trim() || gameState.attributes.length === 0) return;
-
-    const newPreset: AttributePreset = {
-      id: Date.now().toString(),
-      name: presetName.trim(),
-      attributes: gameState.attributes.map((a) => a.text),
-      createdAt: new Date().toISOString(),
-    };
-
-    const updated = [...attributePresets, newPreset];
-    setAttributePresets(updated);
-    localStorage.setItem(ATTRIBUTE_PRESET_STORAGE_KEY, JSON.stringify(updated));
-    setShowPresetSaveModal(false);
-    setPresetName("");
+  // 属性プリセット保存（名前か属性が空なら閉じない）
+  const handleSaveAttributePreset = (name: string) => {
+    const saved = savePreset(
+      name,
+      gameState.attributes.map((a) => a.text),
+    );
+    if (saved) setShowPresetSaveModal(false);
   };
 
   // 属性プリセット読み込み
-  const handleLoadAttributePreset = async (preset: AttributePreset) => {
-    for (const text of preset.attributes) {
-      try {
-        await addAttribute(text);
-      } catch (error) {
-        console.error("Failed to add preset attribute:", error);
-      }
-    }
-  };
-
-  // 属性プリセット削除
-  const handleDeleteAttributePreset = (id: string) => {
-    const updated = attributePresets.filter((p) => p.id !== id);
-    setAttributePresets(updated);
-    localStorage.setItem(ATTRIBUTE_PRESET_STORAGE_KEY, JSON.stringify(updated));
-  };
+  const handleLoadAttributePreset = (preset: AttributePreset) =>
+    loadPresetAttributes(preset, addAttribute);
 
   const isNovelAI = settingsState.imageProvider === "novelai";
 
@@ -1763,41 +1685,13 @@ export default function RightPanel({
       </div>
 
       {/* 属性プリセット保存モーダル */}
-      {showPresetSaveModal && (
-        <div className="right-panel__modal-overlay">
-          <div className="right-panel__modal">
-            <h4>{t("rightPanel.attributePresetModalTitle")}</h4>
-            <input
-              type="text"
-              className="right-panel__input"
-              value={presetName}
-              onChange={(e) => setPresetName(e.target.value)}
-              placeholder={t("rightPanel.presetNamePlaceholder")}
-              autoFocus
-            />
-            <div className="right-panel__modal-actions">
-              <button
-                type="button"
-                className="right-panel__btn-primary"
-                onClick={handleSaveAttributePreset}
-                disabled={!presetName.trim()}
-              >
-                {t("common.save")}
-              </button>
-              <button
-                type="button"
-                className="right-panel__btn-secondary"
-                onClick={() => {
-                  setShowPresetSaveModal(false);
-                  setPresetName("");
-                }}
-              >
-                {t("common.cancel")}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <AttributePresetSaveDialog
+        open={showPresetSaveModal}
+        title={t("rightPanel.attributePresetModalTitle")}
+        placeholder={t("rightPanel.presetNamePlaceholder")}
+        onSave={handleSaveAttributePreset}
+        onCancel={() => setShowPresetSaveModal(false)}
+      />
     </div>
   );
 }

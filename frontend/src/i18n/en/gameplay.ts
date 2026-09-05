@@ -8,6 +8,8 @@ export const gameplay = {
   anlasTitle: "Confirm additional Anlas usage",
   anlasCancel: "Cancel",
   anlasDoNotShowAgain: "Don't show again until browser closes",
+  anlasPreciseReferenceBody:
+    "Using precise reference images will consume an extra <strong>{{cost}} Anlas</strong>. Continue?",
   preciseRefDropTitle: "Drop to add as a precise reference image",
   preciseRefDropHint: "PNG / JPEG / WebP, up to 10MB, max 6 images",
   preciseRefDropResultTitle: "Precise reference images",
