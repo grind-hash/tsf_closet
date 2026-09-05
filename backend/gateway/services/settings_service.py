@@ -13,6 +13,8 @@ from ..consts.history_lookback import (
     HISTORY_LOOKBACK_MIN,
 )
 from ..consts.language import DEFAULT_LANGUAGE, normalize_language
+from ..consts.novelai_models import DEFAULT_NSFW_IMAGE_MODEL, DEFAULT_SFW_IMAGE_MODEL
+from ..consts.novelai_text_models import DEFAULT_NOVELAI_TEXT_MODEL
 from ..databases.base import async_session_factory
 from ..databases.models import User
 
@@ -97,9 +99,9 @@ class SettingsService:
             "feeling_mode": "legacy",  # legacy | gender_aware
             "gender_congruence_llm_enabled": False,
             "language": DEFAULT_LANGUAGE,
-            "novelai_text_model": "glm-4-6",
-            "novelai_image_model": "nai-diffusion-4-5-full",
-            "novelai_curated_image_model": "nai-diffusion-4-5-curated",
+            "novelai_text_model": DEFAULT_NOVELAI_TEXT_MODEL,
+            "novelai_image_model": DEFAULT_NSFW_IMAGE_MODEL,
+            "novelai_curated_image_model": DEFAULT_SFW_IMAGE_MODEL,
             "tts_enabled": False,
             "tts_use_gpu": False,
             "tts_engine_dir": None,
@@ -123,13 +125,13 @@ class SettingsService:
                 getattr(user, "gender_congruence_llm_enabled", 0)
             ),
             "language": normalize_language(user.language),
-            "novelai_text_model": user.novelai_text_model or "glm-4-6",
+            "novelai_text_model": user.novelai_text_model or DEFAULT_NOVELAI_TEXT_MODEL,
             "novelai_image_model": getattr(user, "novelai_image_model", None)
-            or "nai-diffusion-4-5-full",
+            or DEFAULT_NSFW_IMAGE_MODEL,
             "novelai_curated_image_model": getattr(
                 user, "novelai_curated_image_model", None
             )
-            or "nai-diffusion-4-5-curated",
+            or DEFAULT_SFW_IMAGE_MODEL,
             "tts_enabled": bool(user.tts_enabled),
             "tts_use_gpu": bool(user.tts_use_gpu),
             "tts_engine_dir": user.tts_engine_dir,

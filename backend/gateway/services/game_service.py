@@ -33,6 +33,15 @@ from ..models import (
 )
 from ..settings.config import BASE_DIR, settings
 from .achievement_classifier import classify_for_achievement
+from .achievements import (
+    ACHIEVEMENTS,
+    check_achievement,
+    check_achievements,
+    get_global_stats,
+    get_user_achievements,
+    save_user_achievement,
+    update_achievement_counts,
+)
 from .action_prompts import (
     build_action_image_edit_prompt,
     build_action_prompt,
@@ -2977,19 +2986,6 @@ class GameService:
                             "attribute_text": reality_attr_text,
                         },
                     )
-
-            # 実績ヘルパーはルーター側にあり、モジュールレベルで import すると
-            # routes パッケージ経由で game_router と循環するため遅延 import する。
-            # self_mode 分岐の外側で束縛しないと self_mode 側で未定義になる
-            from ..routes.achievements_router import (
-                ACHIEVEMENTS,
-                check_achievement,
-                check_achievements,
-                get_global_stats,
-                get_user_achievements,
-                save_user_achievement,
-                update_achievement_counts,
-            )
 
             # ── self_mode: skip parameter/critical/ending/achievement (US5 T026) ──
             if not session.self_mode:

@@ -30,6 +30,7 @@ from ..consts.adventure_turns import (
     ADVENTURE_TURNS_MAX,
     ADVENTURE_TURNS_MIN,
 )
+from ..consts.novelai_models import NovelAIImageModel
 
 # scenario_max_turns の受理上限。romance は日数×2 を手数として送るため、
 # 通常プリセットの上限(ADVENTURE_TURNS_MAX)より広く取る。
@@ -37,14 +38,6 @@ from ..consts.adventure_turns import (
 SCENARIO_MAX_TURNS_REQUEST_MAX = max(
     ADVENTURE_TURNS_MAX, ROMANCE_DAYS_MAX * ROMANCE_SLOTS_PER_DAY
 )
-
-# run 単位で上書きできる NovelAI 画像モデル（consts/novelai_models.py と同期）
-AdventureImageModel = Literal[
-    "nai-diffusion-4-5-full",
-    "nai-diffusion-4-5-curated",
-    "nai-diffusion-5-full",
-    "nai-diffusion-5-curated",
-]
 
 
 class AdventureSetupGenerateRequest(BaseModel):
@@ -149,7 +142,7 @@ class AdventureCreateRequest(BaseModel):
         default="", max_length=PARTNER_SPEECH_STYLE_MAX_LENGTH
     )
     # この run 専用の NovelAI 画像モデル。未指定ならグローバル設定に従う
-    image_model: AdventureImageModel | None = None
+    image_model: NovelAIImageModel | None = None
     # 対面会話モード(romance 専用。他プリセットでは無視される)。
     # ONなら手番の画像は背景(現在地変化時のみ)と攻略対象の立ち絵だけになる
     companion_mode: bool = False
@@ -173,7 +166,7 @@ class AdventureSettingsUpdateRequest(BaseModel):
         default=None, max_length=PARTNER_SPEECH_STYLE_MAX_LENGTH
     )
     # "default" で run 単位の上書きを解除。未指定(None)なら既存値を維持する
-    image_model: Literal["default"] | AdventureImageModel | None = None
+    image_model: Literal["default"] | NovelAIImageModel | None = None
     # 対面会話モード。未指定なら既存値を維持する(romance 以外では無視)
     companion_mode: bool | None = None
     # 3D アバター。"none" で解除、登録 ID で設定。未指定(None)なら既存値を維持する

@@ -5,10 +5,14 @@
 
 from __future__ import annotations
 
-from typing import Final
+from typing import Final, Literal
 
 NOVELAI_TEXT_MODEL_OPTIONS: Final[tuple[str, ...]] = ("glm-4-6", "xialong-v1")
 DEFAULT_NOVELAI_TEXT_MODEL: Final[str] = "glm-4-6"
+
+# Pydantic の入力検証に使う Literal（schemas で列挙を書き直さない）
+NovelAITextModel = Literal["glm-4-6", "xialong-v1"]
+assert NovelAITextModel.__args__ == NOVELAI_TEXT_MODEL_OPTIONS  # type: ignore[attr-defined]
 
 # 表示用ラベル（UI 側で上書きしてもよい）
 NOVELAI_TEXT_MODEL_LABELS: Final[dict[str, str]] = {

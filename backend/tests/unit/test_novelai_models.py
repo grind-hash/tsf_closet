@@ -5,8 +5,12 @@ import pytest
 from gateway.consts.novelai_models import (
     DEFAULT_NSFW_IMAGE_MODEL,
     DEFAULT_SFW_IMAGE_MODEL,
+    NOVELAI_IMAGE_MODELS,
     NSFW_IMAGE_MODEL_OPTIONS,
     SFW_IMAGE_MODEL_OPTIONS,
+    NovelAIImageModel,
+    NsfwImageModel,
+    SfwImageModel,
     get_image_model_info,
     is_v5_image_model,
     resolve_user_image_model,
@@ -64,6 +68,11 @@ class TestRegistry:
         assert not is_v5_image_model("unknown")
         assert not is_v5_image_model(None)
         assert not is_v5_image_model("")
+
+    def test_literals_match_registry_and_options(self) -> None:
+        assert set(NovelAIImageModel.__args__) == set(NOVELAI_IMAGE_MODELS)
+        assert NsfwImageModel.__args__ == NSFW_IMAGE_MODEL_OPTIONS
+        assert SfwImageModel.__args__ == SFW_IMAGE_MODEL_OPTIONS
 
     def test_supports_character_references_is_false_only_for_v5(self) -> None:
         assert not supports_character_references("nai-diffusion-5-full")
