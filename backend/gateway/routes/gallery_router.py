@@ -14,7 +14,6 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response
-from pydantic import BaseModel
 from sqlalchemy import and_, delete, desc, func, or_, select
 
 from ..databases.base import async_session_factory
@@ -22,6 +21,14 @@ from ..databases.models import Conversation as ConversationORM
 from ..databases.models import History as HistoryORM
 from ..databases.models import PlaySummary as PlaySummaryORM
 from ..databases.models import Session as SessionORM
+from ..schemas.gallery import (
+    DeleteResponse,
+    GalleryDetailResponse,
+    GalleryItem,
+    GalleryListResponse,
+    GallerySession,
+    GallerySessionsResponse,
+)
 from ..services.characters import CharacterManager
 from ..settings.config import settings
 
@@ -190,65 +197,6 @@ def _to_iso(value: datetime | str | None) -> str:
     if isinstance(value, str):
         return value
     return datetime.now().isoformat()
-
-
-class GalleryItem(BaseModel):
-    """ギャラリーアイテム"""
-
-    id: str
-    session_id: str
-    image_url: str
-    instruction: str
-    feeling_text: str | None
-    before_description: str | None
-    after_description: str | None
-    timestamp: str
-    costume_category: str | None
-    exposure_level: str | None
-    is_favorited: bool = False
-
-
-class GallerySession(BaseModel):
-    """セッション単位のギャラリー情報"""
-
-    session_id: str
-    character_name: str | None
-    thumbnail_url: str
-    item_count: int
-    first_timestamp: str
-    last_timestamp: str
-    self_mode: bool = False
-    has_summary: bool = False
-    match_snippet: str | None = None
-    last_instruction: str | None = None
-
-
-class GallerySessionsResponse(BaseModel):
-    """セッション一覧レスポンス"""
-
-    sessions: list[GallerySession]
-    total: int
-    page: int
-    page_size: int
-    has_more: bool
-
-
-class GalleryListResponse(BaseModel):
-    """ギャラリー一覧レスポンス"""
-
-    items: list[GalleryItem]
-    total: int
-    page: int
-    page_size: int
-    has_more: bool
-
-
-class GalleryDetailResponse(BaseModel):
-    """ギャラリー詳細レスポンス"""
-
-    item: GalleryItem
-    prev_id: str | None
-    next_id: str | None
 
 
 @router.get("/sessions", response_model=GallerySessionsResponse)
@@ -546,14 +494,6 @@ async def get_gallery_item(item_id: str):
         prev_id=str(prev_id) if prev_id else None,
         next_id=str(next_id) if next_id else None,
     )
-
-
-class DeleteResponse(BaseModel):
-    """削除結果レスポンス"""
-
-    success: bool
-    deleted_count: int
-    message: str
 
 
 @router.delete("/sessions/{session_id}", response_model=DeleteResponse)

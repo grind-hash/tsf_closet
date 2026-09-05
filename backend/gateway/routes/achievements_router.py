@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from ..schemas.achievements import AchievementResponse, AchievementsListResponse
 from ..services.achievement_service import achievement_service
 
 
@@ -397,35 +398,6 @@ def get_user_achievements(session_id: str | None = None) -> list[UserAchievement
 # =============================================================================
 
 router = APIRouter(prefix="/achievements", tags=["achievements"])
-
-
-class AchievementResponse(BaseModel):
-    """実績レスポンス"""
-
-    id: str
-    name: str
-    description: str
-    category: str
-    icon: str
-    condition_type: str
-    condition_target: str
-    condition_value: int
-    is_hidden: bool
-    unlocked: bool
-    unlocked_at: str | None
-    hint: str | None = None  # 未開放時のヒントテキスト
-
-
-class AchievementsListResponse(BaseModel):
-    """実績一覧レスポンス"""
-
-    achievements: list[AchievementResponse]
-    total: int
-    unlocked_count: int
-    transform_count: int = 0
-    crossdress_count: int = 0
-    reality_alter_count: int = 0
-    gallery_count: int = 0
 
 
 @router.get("", response_model=AchievementsListResponse)

@@ -3,7 +3,7 @@ import importlib
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from gateway.settings import router
+from gateway.routes.settings_router import router
 from tests.support.stubs import StubSettingsService
 
 settings_router_module = importlib.import_module("gateway.routes.settings_router")

@@ -13,7 +13,7 @@ import pytest
 from PIL import Image
 from pydantic import ValidationError
 
-from gateway.routes.adventure_router import (
+from gateway.schemas.adventure import (
     AdventureCreateRequest,
     AdventureSetupGenerateRequest,
 )

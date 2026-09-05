@@ -12,7 +12,7 @@ from gateway.consts.adventure_inventory import (
     INVENTORY_NPC_STATES_MAX,
     WORLD_EVENTS_MAX,
 )
-from gateway.routes.adventure_router import AdventureTurnRequest
+from gateway.schemas.adventure import AdventureTurnRequest
 from gateway.services.adventure_inventory import (
     InventoryActionError,
     RealityPatch,

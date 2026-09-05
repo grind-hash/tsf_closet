@@ -8,54 +8,19 @@ and the memory text CRUD (get/save) used by the settings panel.
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Response
-from pydantic import BaseModel, Field
 
-from ..consts.language import DEFAULT_LANGUAGE, LanguageCode
+from ..schemas.memory import (
+    MemoryCancelResponse,
+    MemoryGenerateRequest,
+    MemoryGenerateResponse,
+    MemoryJobStatusResponse,
+    MemoryTextResponse,
+    MemoryTextSaveRequest,
+)
 from ..services.memory_job_service import memory_job_service
 from ..services.settings_service import settings_service
 
 router = APIRouter(prefix="/memory", tags=["memory"])
-
-
-class MemoryGenerateRequest(BaseModel):
-    session_limit: int | None = Field(
-        default=None, description="対象とする直近セッション数（Noneは全件）"
-    )
-    regenerate_existing: bool = Field(
-        default=False, description="生成済みの要約・称号も再生成するか"
-    )
-    language: LanguageCode = DEFAULT_LANGUAGE
-
-
-class MemoryGenerateResponse(BaseModel):
-    job_id: str
-
-
-class MemoryJobStatusResponse(BaseModel):
-    job_id: str
-    status: str
-    phase: str
-    total: int
-    processed: int
-    current_session_id: str | None
-    memory_chunk_total: int
-    memory_chunk_processed: int
-    errors: list[str]
-    regenerate_existing: bool
-    started_at: str
-    finished_at: str | None
-
-
-class MemoryCancelResponse(BaseModel):
-    success: bool
-
-
-class MemoryTextResponse(BaseModel):
-    memory_text: str | None
-
-
-class MemoryTextSaveRequest(BaseModel):
-    memory_text: str
 
 
 @router.post("/generate", response_model=MemoryGenerateResponse)

@@ -1,18 +1,10 @@
-from gateway.routes.settings_router import (
+from gateway.schemas.settings import (
     ChangeSettingsModel,
     InpaintSettingsModel,
     SettingsModel,
     SettingsUpdateRequest,
 )
-from gateway.routes.settings_router import (
-    router as new_settings_router,
-)
 from gateway.services.settings_service import settings_service
-from gateway.settings import router as legacy_settings_router
-
-
-def test_settings_router_backward_compatibility_export() -> None:
-    assert legacy_settings_router is new_settings_router
 
 
 def test_settings_service_updates_nested_settings() -> None:

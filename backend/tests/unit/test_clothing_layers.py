@@ -4,8 +4,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from gateway.routes.game_router import PlayStreamRequest, preview_prompt
-from gateway.schemas.play import PlayRequest
+from gateway.routes.game_router import preview_prompt
+from gateway.schemas.play import PlayRequest, PlayStreamRequest
 from gateway.services.clothing_layers import (
     CLOTHING_LAYER_COVERED_NEGATIVE,
     CLOTHING_LAYER_FEELING_RULE,

@@ -17,7 +17,7 @@ from gateway.consts.adventure_romance import (
     ROMANCE_WORK_ENCOUNTER_BONUS,
     ROMANCE_WORK_WAGE,
 )
-from gateway.routes.adventure_router import (
+from gateway.schemas.adventure import (
     AdventureCreateRequest,
     AdventureSetupGenerateRequest,
 )
