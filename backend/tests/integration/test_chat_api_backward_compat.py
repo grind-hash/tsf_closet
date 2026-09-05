@@ -7,21 +7,20 @@ from fastapi.testclient import TestClient
 from gateway.routes.game_router import router
 from tests.support.stubs import StubSessionStore
 
-game_router_module = importlib.import_module("gateway.routes.game_router")
-llm_service_module = importlib.import_module("gateway.services.llm_service")
+conversation_module = importlib.import_module("gateway.services.conversation_service")
 
 
 def test_chat_api_keeps_existing_response_fields(monkeypatch):
     app = FastAPI()
     app.include_router(router, prefix="/api")
 
-    monkeypatch.setattr(game_router_module, "session_store", StubSessionStore())
+    monkeypatch.setattr(conversation_module, "session_store", StubSessionStore())
 
     async def fake_generate_feeling(**_):
         return SimpleNamespace(content="こんにちは")
 
     monkeypatch.setattr(
-        llm_service_module,
+        conversation_module,
         "llm_service",
         SimpleNamespace(generate_feeling=fake_generate_feeling),
     )
@@ -44,13 +43,13 @@ def test_chat_loads_history_before_saving_current_message(monkeypatch):
     app = FastAPI()
     app.include_router(router, prefix="/api")
     store = StubSessionStore()
-    monkeypatch.setattr(game_router_module, "session_store", store)
+    monkeypatch.setattr(conversation_module, "session_store", store)
 
     async def fake_generate_feeling(**_):
         return SimpleNamespace(content="こんにちは")
 
     monkeypatch.setattr(
-        llm_service_module,
+        conversation_module,
         "llm_service",
         SimpleNamespace(generate_feeling=fake_generate_feeling),
     )

@@ -73,6 +73,13 @@ from .clothing_layers import (
 )
 from .comfy import ComfyUIClient
 from .cost_tracker import CostTracker, begin_cost_tracking, record_cost
+from .custom_sessions import (
+    custom_character_image_path,
+    load_custom_session_metadata,
+    normalize_gender,
+    save_custom_character,
+    save_custom_session_metadata,
+)
 from .endings import judge_ending
 from .gender_congruence import (
     GenderCongruenceResult,
@@ -180,7 +187,11 @@ def _pending_cost_event(
 
 
 class GameServiceError(RuntimeError):
-    """ゲームサービスエラー"""
+    """ゲームサービスエラー。`code` はルーターが HTTP の detail.error に写す。"""
+
+    def __init__(self, message: str, *, code: str | None = None) -> None:
+        super().__init__(message)
+        self.code = code
 
 
 @dataclass
@@ -560,15 +571,142 @@ class GameService:
         return self._comfy_client
 
     def _load_custom_session_metadata(self, session_id: str) -> dict:
-        metadata_path = (
-            settings.history_images_dir / "custom" / f"session_{session_id}.json"
+        return load_custom_session_metadata(session_id)
+
+    async def start_session(
+        self,
+        *,
+        character_id: str | None,
+        difficulty: str,
+        nsfw_mode: bool,
+        self_mode: bool,
+    ) -> tuple[PersistedSession, SessionStats, str]:
+        """テンプレートキャラクターでセッションを開始する。
+
+        既存セッションをリセットし、初期状態の履歴 1 件を作る。
+        Returns: (セッション, 初期統計, 採用した難易度)
+        Raises: GameServiceError(code=invalid_character / no_characters)
+        """
+        await session_store.reset_session()
+        if character_id:
+            character = character_manager.get_by_id(character_id)
+            if character is None:
+                raise GameServiceError(
+                    f"キャラクター '{character_id}' が見つかりません",
+                    code="invalid_character",
+                )
+        else:
+            all_characters = character_manager.get_all()
+            character = all_characters[0] if all_characters else None
+            if character is None:
+                raise GameServiceError(
+                    "利用可能なキャラクターがありません", code="no_characters"
+                )
+            character_id = character.id
+
+        effective_difficulty = (
+            difficulty if difficulty in DIFFICULTY_PRESETS else "normal"
         )
-        if not metadata_path.exists():
-            return {}
-        try:
-            return json.loads(metadata_path.read_text(encoding="utf-8"))
-        except Exception:
-            return {}
+        session = await session_store.create_session(
+            image_path=character.image_path,
+            character_id=character_id,
+            self_mode=self_mode,
+        )
+        stats = await session_store.create_session_stats(
+            session.id, effective_difficulty, nsfw_mode
+        )
+        initial_desc = self._build_initial_prompt(
+            gender=character.gender, character=character
+        )
+        await session_store.add_history(
+            session_id=session.id,
+            instruction="初期状態",
+            image_data=character_manager.get_image_bytes(character),
+            feeling_text="(初期状態)",
+            before_description=initial_desc,
+            after_description=initial_desc,
+        )
+        return session, stats, effective_difficulty
+
+    async def start_custom_session(
+        self,
+        *,
+        custom_character_id: str | None,
+        image: str | None,
+        name: str,
+        description: str,
+        pronoun: str,
+        personality: str,
+        gender: str | None,
+        base_tags: str,
+        difficulty: str,
+        nsfw_mode: bool,
+        self_mode: bool,
+    ) -> tuple[PersistedSession, SessionStats, str]:
+        """アップロード画像（または保存済みカスタムキャラクター）でセッションを開始する。
+
+        Raises: GameServiceError(code=invalid_image)
+        """
+        await session_store.reset_session()
+
+        custom_image_id = custom_character_id or str(uuid.uuid4())
+        custom_image_path = custom_character_image_path(custom_image_id)
+        normalized_gender = normalize_gender(gender)
+        profile = {
+            "name": name,
+            "description": description,
+            "pronoun": pronoun,
+            "personality": personality,
+            "gender": normalized_gender,
+            "base_tags": base_tags,
+        }
+        if custom_character_id and custom_image_path.exists():
+            image_bytes = custom_image_path.read_bytes()
+        else:
+            try:
+                if not image:
+                    raise ValueError("画像が指定されていません")
+                image_data = image
+                if "," in image_data:
+                    image_data = image_data.split(",", 1)[1]
+                image_bytes = base64.b64decode(image_data)
+            except Exception as e:
+                raise GameServiceError(
+                    f"画像のデコードに失敗しました: {e}", code="invalid_image"
+                ) from e
+            save_custom_character(
+                custom_image_id, image_bytes, {"id": custom_image_id, **profile}
+            )
+        # 相対パス（BASE_DIR からの相対）
+        relative_path = f"data/history_images/custom/{custom_image_id}.png"
+
+        session = await session_store.create_session(
+            image_path=relative_path,
+            character_id=None,  # カスタム画像なのでキャラクターIDなし
+            self_mode=self_mode,
+        )
+        save_custom_session_metadata(
+            session.id, {"custom_character_id": custom_image_id, **profile}
+        )
+
+        effective_difficulty = (
+            difficulty if difficulty in DIFFICULTY_PRESETS else "normal"
+        )
+        stats = await session_store.create_session_stats(
+            session.id, effective_difficulty, nsfw_mode
+        )
+        initial_desc = self._build_initial_prompt(
+            gender=normalized_gender, base_tags=base_tags
+        )
+        await session_store.add_history(
+            session_id=session.id,
+            instruction="初期状態",
+            image_data=image_bytes,
+            feeling_text="(初期状態)",
+            before_description=initial_desc,
+            after_description=initial_desc,
+        )
+        return session, stats, effective_difficulty
 
     @staticmethod
     def _build_initial_prompt(
@@ -1516,10 +1654,36 @@ class GameService:
             else:
                 stream = self._stream_transformation_turn(ctx, cost)
             async for event in stream:
+                if event.type == "complete" and request.use_play_memory:
+                    await self._update_play_memory_after_turn(request, event)
                 yield event
         except Exception as e:
             logger.exception("Stream play error: %s", e)
             yield StreamEvent(type="error", data={"message": str(e)})
+
+    @staticmethod
+    async def _update_play_memory_after_turn(
+        request: PlayTurnRequest, event: StreamEvent
+    ) -> None:
+        """完了イベントの内容でセッションのプレイメモを更新し、結果を同イベントに載せる。"""
+        from .play_memory_service import play_memory_service
+
+        result_text = "\n".join(
+            part
+            for part in (
+                str(event.data.get("after_desc", "")),
+                str(event.data.get("feeling_text", "")),
+            )
+            if part
+        )
+        updated = await play_memory_service.update_rolling(
+            event.data.get("session_id") or request.session_id or "",
+            interaction_type=request.instruction_type or "dress_up",
+            user_input=request.instruction,
+            result_text=result_text,
+            language=normalize_language(request.language_override),
+        )
+        event.data["play_memory_update"] = "updated" if updated else "failed"
 
     # ------------------------------------------------------------------
     # 手番の前処理（全戦略共通）

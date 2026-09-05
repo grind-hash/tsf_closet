@@ -37,7 +37,7 @@
 
 | 実パス              | ファイル                        | 主な責務                                                                        |
 | ------------------- | ------------------------------- | ------------------------------------------------------------------------------- |
-| `/api/game`         | `routes/game_router.py`         | セッション、プレイSSE、会話、履歴、画像、属性、プレイメモ、プロンプト、指示候補 |
+| `/api/game`         | `routes/game_router.py`         | セッション、プレイSSE、会話、履歴、画像、属性、プレイメモ、プロンプト、指示候補。ハンドラーは入力の受け取りと HTTP / SSE への変換だけで、セッション開始は `game_service.start_session` / `start_custom_session`（`GameServiceError.code` を 400 の `detail.error` に写す）、会話は `conversation_service`、マスクは `mask_service`、プレイSSE 完了時のプレイメモ更新は `play_with_stream` 側 |
 | `/api/game`         | `routes/character_router.py`    | セッション人物、主人公確保、人物プリセット、人物タグ生成                        |
 | `/api/adventure`    | `routes/adventure_router.py`    | シナリオテンプレート、Run、ターンSSE、画像再生成                                |
 | `/api/gallery`      | `routes/gallery_router.py`      | セッション/履歴一覧、検索、詳細、削除、要約、Markdown/HTMLエクスポート          |
@@ -145,7 +145,9 @@
 | `memory_job_service.py`     | ユーザー単位メモリ生成ジョブと監査スナップショット |
 | `character_service.py`      | SessionCharacter、CharacterPreset、人物外見同期    |
 | `characters.py`             | テンプレートキャラクターメタデータ                 |
-| `conversation_service.py`   | 会話管理                                           |
+| `conversation_service.py`   | 通常ゲームのチャット。`build_chat_context`（セッション・統計・履歴・人物の解決とプロンプト組み立て。ユーザー発言はここで保存）→ `chat`（一括生成 + 言語リトライ + 保存 + プレイメモ更新）/ `chat_stream`（逐次生成。`{type: text|done|error}` の dict を返し、SSE 化はルーター）。セッション無しは `SessionNotFoundError` |
+| `custom_sessions.py`        | カスタム画像セッションの補助（`normalize_gender`、`history_images/custom/` の画像・メタデータ・`session_{id}.json` の読み書き、`list_custom_characters`）。ルーターと `game_service` / `instruction_suggestion_service` が共用する |
+| `mask_service.py`           | インペイント用マスクの一覧・保存（履歴は最新 20 件を保持）・削除と、システム/履歴/プリセットの実ファイル解決。失敗は `MaskError(code)` |
 | `settings_service.py`       | User設定                                           |
 
 ### 独立機能

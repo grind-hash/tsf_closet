@@ -222,6 +222,10 @@ async def test_image_only_applies_play_memory_only_when_image_memory_is_enabled(
     play_context = "\n\n[ユーザーメモ]\n青い服を好む\n\n[自動メモ]\n夜の街にいる"
     build_context_mock = AsyncMock(return_value=play_context)
     monkeypatch.setattr(play_memory_service, "build_context", build_context_mock)
+    # 完了時のプレイメモ更新はサービス側で行うため DB へ出ないように差し替える
+    monkeypatch.setattr(
+        play_memory_service, "update_rolling", AsyncMock(return_value=True)
+    )
     monkeypatch.setattr(
         service,
         "_generate_image",
