@@ -13,7 +13,7 @@ import json
 import logging
 from collections.abc import AsyncGenerator, Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal, Protocol
 
 import httpx
 
@@ -21,7 +21,11 @@ from ..consts.character_limits import APPEARANCE_NATURAL_SOFT_LIMIT
 from ..consts.language import LanguageCode, normalize_language
 from ..settings.config import settings
 from .model_execution_gate import model_execution_gate
-from .providers import resolve_image_description_provider, resolve_text_provider
+from .providers import (
+    Provider,
+    resolve_image_description_provider,
+    resolve_text_provider,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -424,6 +428,230 @@ class NovelAILLMClient:
 # =============================================================================
 
 
+# =============================================================================
+# プロバイダー別クライアントを同じ形に揃える薄い包み
+# =============================================================================
+#
+# OpenRouter / NovelAI のクライアントは LLMResult を返し、LiteLLM(selfhost) は
+# 文字列を返す。この差を LLMService の各メソッドで吸収すると同じ if 分岐が
+# 何度も現れるため、ここで揃えて LLMService は _client_for() を 1 回呼ぶだけにする。
+
+
+class _TextClient(Protocol):
+    async def describe_image(self, image_bytes: bytes, prompt: str) -> LLMResult: ...
+
+    async def generate(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        *,
+        purpose: Literal["feeling", "text"],
+        model_override: str | None = None,
+        max_tokens: int | None = None,
+    ) -> LLMResult: ...
+
+    def stream(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        *,
+        model_override: str | None = None,
+        max_tokens: int | None = None,
+        usage_callback: Callable[[float | None], None] | None = None,
+        history: list[dict[str, str]] | None = None,
+    ) -> AsyncGenerator[str, None]: ...
+
+    async def image_edit_prompt(
+        self,
+        *,
+        instruction: str,
+        current_description: str,
+        provider: str,
+        nsfw_mode: bool,
+        extra_system_suffix: str,
+        suppress_gender_discomfort_cues: bool,
+    ) -> LLMResult: ...
+
+
+class _OpenRouterTextClient:
+    def __init__(self, client: OpenRouterLLMClient) -> None:
+        self._client = client
+
+    async def describe_image(self, image_bytes: bytes, prompt: str) -> LLMResult:
+        return await self._client.describe_image(image_bytes, prompt)
+
+    async def generate(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        *,
+        purpose: Literal["feeling", "text"],
+        model_override: str | None = None,
+        max_tokens: int | None = None,
+    ) -> LLMResult:
+        # OpenRouter は用途によらず同じ LLM モデルを使う
+        return await self._client.generate_text(system_prompt, user_prompt)
+
+    def stream(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        *,
+        model_override: str | None = None,
+        max_tokens: int | None = None,
+        usage_callback: Callable[[float | None], None] | None = None,
+        history: list[dict[str, str]] | None = None,
+    ) -> AsyncGenerator[str, None]:
+        return self._client.generate_text_stream(
+            system_prompt,
+            user_prompt,
+            usage_callback=usage_callback,
+            history=history,
+        )
+
+    async def image_edit_prompt(
+        self,
+        *,
+        instruction: str,
+        current_description: str,
+        provider: str,
+        nsfw_mode: bool,
+        extra_system_suffix: str,
+        suppress_gender_discomfort_cues: bool,
+    ) -> LLMResult:
+        from .prompts import build_image_edit_prompt, get_image_edit_system_prompt
+
+        system_prompt = get_image_edit_system_prompt(
+            image_provider=provider,
+            nsfw_mode=nsfw_mode,
+            suppress_gender_discomfort_cues=suppress_gender_discomfort_cues,
+        )
+        if extra_system_suffix:
+            system_prompt = system_prompt + extra_system_suffix
+        user_prompt = build_image_edit_prompt(
+            instruction=instruction,
+            current_description=current_description,
+        )
+        return await self._client.generate_text(system_prompt, user_prompt)
+
+
+class _NovelAITextClient:
+    def __init__(self, client: NovelAILLMClient) -> None:
+        self._client = client
+
+    async def describe_image(self, image_bytes: bytes, prompt: str) -> LLMResult:
+        # LLMService._vision_or_edit_client_for が NovelAI を selfhost へ落とすため到達しない
+        raise LLMServiceError("NovelAI text API does not support image description")
+
+    async def generate(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        *,
+        purpose: Literal["feeling", "text"],
+        model_override: str | None = None,
+        max_tokens: int | None = None,
+    ) -> LLMResult:
+        kwargs: dict[str, Any] = {"model_override": model_override}
+        if max_tokens is not None:
+            kwargs["max_tokens"] = max_tokens
+        return await self._client.generate_text(system_prompt, user_prompt, **kwargs)
+
+    def stream(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        *,
+        model_override: str | None = None,
+        max_tokens: int | None = None,
+        usage_callback: Callable[[float | None], None] | None = None,
+        history: list[dict[str, str]] | None = None,
+    ) -> AsyncGenerator[str, None]:
+        kwargs: dict[str, Any] = {"model_override": model_override, "history": history}
+        if max_tokens is not None:
+            kwargs["max_tokens"] = max_tokens
+        return self._client.generate_text_stream(system_prompt, user_prompt, **kwargs)
+
+    async def image_edit_prompt(
+        self,
+        *,
+        instruction: str,
+        current_description: str,
+        provider: str,
+        nsfw_mode: bool,
+        extra_system_suffix: str,
+        suppress_gender_discomfort_cues: bool,
+    ) -> LLMResult:
+        # 同上: NovelAI には画像編集プロンプト生成の経路が無い
+        raise LLMServiceError("NovelAI text API does not support image edit prompts")
+
+
+class _SelfhostTextClient:
+    """LiteLLM Proxy。文字列を返すクライアントを LLMResult に包む。"""
+
+    def __init__(self, client: Any) -> None:
+        self._client = client
+
+    async def describe_image(self, image_bytes: bytes, prompt: str) -> LLMResult:
+        content = await self._client.describe_image(image_bytes, prompt)
+        return LLMResult(
+            content=content, provider="selfhost", model=settings.litellm_llava_model
+        )
+
+    async def generate(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        *,
+        purpose: Literal["feeling", "text"],
+        model_override: str | None = None,
+        max_tokens: int | None = None,
+    ) -> LLMResult:
+        if purpose == "feeling":
+            content = await self._client.generate_feeling(system_prompt, user_prompt)
+            model = settings.litellm_feeling_model
+        else:
+            content = await self._client.generate_text(system_prompt, user_prompt)
+            model = settings.litellm_llm_model
+        return LLMResult(content=content, provider="selfhost", model=model)
+
+    def stream(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        *,
+        model_override: str | None = None,
+        max_tokens: int | None = None,
+        usage_callback: Callable[[float | None], None] | None = None,
+        history: list[dict[str, str]] | None = None,
+    ) -> AsyncGenerator[str, None]:
+        return self._client.generate_feeling_stream(
+            system_prompt, user_prompt, history=history
+        )
+
+    async def image_edit_prompt(
+        self,
+        *,
+        instruction: str,
+        current_description: str,
+        provider: str,
+        nsfw_mode: bool,
+        extra_system_suffix: str,
+        suppress_gender_discomfort_cues: bool,
+    ) -> LLMResult:
+        content = await self._client.generate_image_edit_prompt(
+            instruction=instruction,
+            current_description=current_description,
+            provider=provider,
+            extra_system_suffix=extra_system_suffix,
+            nsfw_mode=nsfw_mode,
+            suppress_gender_discomfort_cues=suppress_gender_discomfort_cues,
+        )
+        return LLMResult(
+            content=content, provider="selfhost", model=settings.litellm_llm_model
+        )
+
+
 class LLMService:
     """LLMサービス
 
@@ -453,6 +681,24 @@ class LLMService:
             self._litellm_client = litellm_client
         return self._litellm_client
 
+    def _client_for(self, provider: Provider) -> _TextClient:
+        """テキスト生成のクライアント。selfhost / openrouter / novelai をそのまま対応させる。"""
+        if provider == Provider.OPENROUTER:
+            return _OpenRouterTextClient(self._get_openrouter_client())
+        if provider == Provider.NOVELAI:
+            return _NovelAITextClient(self._get_novelai_client())
+        return _SelfhostTextClient(self._get_litellm_client())
+
+    def _vision_or_edit_client_for(self, provider: Provider) -> _TextClient:
+        """画像説明と画像編集プロンプトのクライアント。
+
+        NovelAI のテキスト API にはこの 2 つの経路が無いため、従来どおり
+        openrouter 以外はすべて LiteLLM(selfhost) を使う。
+        """
+        if provider == Provider.OPENROUTER:
+            return _OpenRouterTextClient(self._get_openrouter_client())
+        return _SelfhostTextClient(self._get_litellm_client())
+
     async def describe_image(
         self,
         image_bytes: bytes,
@@ -470,20 +716,9 @@ class LLMService:
             LLMResult
         """
         provider = resolve_image_description_provider(provider_override)
-
-        if provider == "openrouter":
-            return await self._get_openrouter_client().describe_image(
-                image_bytes, prompt
-            )
-        else:
-            # セルフホスト (LiteLLM Proxy)
-            litellm = self._get_litellm_client()
-            content = await litellm.describe_image(image_bytes, prompt)
-            return LLMResult(
-                content=content,
-                provider="selfhost",
-                model=settings.litellm_llava_model,
-            )
+        return await self._vision_or_edit_client_for(provider).describe_image(
+            image_bytes, prompt
+        )
 
     async def generate_feeling(
         self,
@@ -504,29 +739,13 @@ class LLMService:
             LLMResult
         """
         provider = resolve_text_provider(provider_override)
-
-        if provider == "openrouter":
-            return await self._get_openrouter_client().generate_text(
-                system_prompt, user_prompt
-            )
-        elif provider == "novelai":
-            kwargs: dict[str, Any] = {
-                "model_override": novelai_model_override,
-            }
-            if max_tokens is not None:
-                kwargs["max_tokens"] = max_tokens
-            return await self._get_novelai_client().generate_text(
-                system_prompt, user_prompt, **kwargs
-            )
-        else:
-            # セルフホスト (LiteLLM Proxy)
-            litellm = self._get_litellm_client()
-            content = await litellm.generate_feeling(system_prompt, user_prompt)
-            return LLMResult(
-                content=content,
-                provider="selfhost",
-                model=settings.litellm_feeling_model,
-            )
+        return await self._client_for(provider).generate(
+            system_prompt,
+            user_prompt,
+            purpose="feeling",
+            model_override=novelai_model_override,
+            max_tokens=max_tokens,
+        )
 
     async def generate_feeling_stream(
         self,
@@ -552,33 +771,15 @@ class LLMService:
             テキストチャンク
         """
         provider = resolve_text_provider(provider_override)
-
-        if provider == "openrouter":
-            async for chunk in self._get_openrouter_client().generate_text_stream(
-                system_prompt,
-                user_prompt,
-                usage_callback=usage_callback,
-                history=history,
-            ):
-                yield chunk
-        elif provider == "novelai":
-            nai_kwargs: dict[str, Any] = {
-                "model_override": novelai_model_override,
-                "history": history,
-            }
-            if max_tokens is not None:
-                nai_kwargs["max_tokens"] = max_tokens
-            async for chunk in self._get_novelai_client().generate_text_stream(
-                system_prompt, user_prompt, **nai_kwargs
-            ):
-                yield chunk
-        else:
-            # セルフホスト (LiteLLM Proxy)
-            litellm = self._get_litellm_client()
-            async for chunk in litellm.generate_feeling_stream(
-                system_prompt, user_prompt, history=history
-            ):
-                yield chunk
+        async for chunk in self._client_for(provider).stream(
+            system_prompt,
+            user_prompt,
+            model_override=novelai_model_override,
+            max_tokens=max_tokens,
+            usage_callback=usage_callback,
+            history=history,
+        ):
+            yield chunk
 
     async def generate_text(
         self,
@@ -598,24 +799,12 @@ class LLMService:
             LLMResult
         """
         provider = resolve_text_provider(provider_override)
-
-        if provider == "openrouter":
-            return await self._get_openrouter_client().generate_text(
-                system_prompt, user_prompt
-            )
-        elif provider == "novelai":
-            return await self._get_novelai_client().generate_text(
-                system_prompt, user_prompt, model_override=novelai_model_override
-            )
-        else:
-            # セルフホスト (LiteLLM Proxy)
-            client = self._get_litellm_client()
-            content = await client.generate_text(system_prompt, user_prompt)
-            return LLMResult(
-                content=content,
-                provider="selfhost",
-                model=settings.litellm_llm_model,
-            )
+        return await self._client_for(provider).generate(
+            system_prompt,
+            user_prompt,
+            purpose="text",
+            model_override=novelai_model_override,
+        )
 
     async def generate_image_edit_prompt(
         self,
@@ -639,44 +828,15 @@ class LLMService:
         Returns:
             LLMResult
         """
-        from .prompts import (
-            build_image_edit_prompt,
-            get_image_edit_system_prompt,
-        )
-
         provider = resolve_text_provider(provider_override)
-        system_prompt = get_image_edit_system_prompt(
-            image_provider=provider,
-            nsfw_mode=nsfw_mode,
-            suppress_gender_discomfort_cues=suppress_gender_discomfort_cues,
-        )
-        if extra_system_suffix:
-            system_prompt = system_prompt + extra_system_suffix
-        user_prompt = build_image_edit_prompt(
+        return await self._vision_or_edit_client_for(provider).image_edit_prompt(
             instruction=instruction,
             current_description=current_description,
+            provider=provider,
+            nsfw_mode=nsfw_mode,
+            extra_system_suffix=extra_system_suffix,
+            suppress_gender_discomfort_cues=suppress_gender_discomfort_cues,
         )
-
-        if provider == "openrouter":
-            return await self._get_openrouter_client().generate_text(
-                system_prompt, user_prompt
-            )
-        else:
-            # セルフホスト (LiteLLM Proxy)
-            litellm = self._get_litellm_client()
-            content = await litellm.generate_image_edit_prompt(
-                instruction=instruction,
-                current_description=current_description,
-                provider=provider,
-                extra_system_suffix=extra_system_suffix,
-                nsfw_mode=nsfw_mode,
-                suppress_gender_discomfort_cues=suppress_gender_discomfort_cues,
-            )
-            return LLMResult(
-                content=content,
-                provider="selfhost",
-                model=settings.litellm_llm_model,
-            )
 
     async def generate_novelai_image_prompt(
         self,
