@@ -10,7 +10,7 @@
 - DBモデル: `backend/gateway/databases/models.py`
 - DB初期化・セッション: `backend/gateway/databases/base.py`、`database.py`、`orm.py`
 - Alembic: `backend/migrations/versions/`
-- すべての `routes/*_router.py` は `app.py` で `/api` を付けてマウントされる。
+- `routes/*_router.py` は `app.py` でマウントする。原則 `/api` を付け、互換 API（`system_router` / `novelai_router` / `openai_images_router`）だけ prefix 無し。`app.py` 自体はライフサイクル・CORS・ルーター登録・静的配信のみ。
 
 ## ルーター
 
@@ -68,15 +68,17 @@
 - `POST /runs` / `PATCH /runs/{run_id}/settings` の `inventory_enabled`（持ち物システム。全プリセット、作品シナリオでは無視）。`POST /runs/{run_id}/turns/stream` / `preview-prompt` の `input_kind: item_action` ＋ `item_action{item_id, action, target}`（`AdventureItemActionRequest`）
 - `GET /images/{run_id}/{filename}`
 
-### FastAPI アプリ直下の互換/補助API
+### 互換/補助API（/api 配下ではないルーター）
 
-| パス                                             | 目的                         |
-| ------------------------------------------------ | ---------------------------- |
-| `/health`                                        | プロバイダーを含むヘルス情報 |
-| `/api/history/images/{history_id}`               | 履歴画像取得                 |
-| `/api/history/surroundings/{history_id}`         | 情景画像取得                 |
-| `/novelai/subscription`、`/novelai/suggest-tags` | NovelAI補助                  |
-| `/v1/images/edits`、`/v1/images/variations`      | OpenAI互換画像API            |
+`app.py` にはエンドポイントを置かず、次のルーターを prefix 無しでマウントする。
+
+| パス                                             | ファイル                          | 目的                         |
+| ------------------------------------------------ | --------------------------------- | ---------------------------- |
+| `/health`                                        | `routes/system_router.py`         | プロバイダーを含むヘルス情報 |
+| `/api/history/images/{history_id}`               | `routes/history_router.py`        | 履歴画像取得（`/api` 配下）  |
+| `/api/history/surroundings/{history_id}`         | `routes/history_router.py`        | 情景画像取得（`/api` 配下）  |
+| `/novelai/subscription`、`/novelai/suggest-tags` | `routes/novelai_router.py`        | NovelAI補助                  |
+| `/v1/images/edits`、`/v1/images/variations`      | `routes/openai_images_router.py`  | OpenAI互換画像API。multipart の解析と ComfyUI 実行は `services/openai_image_form.py` |
 
 ## サービス
 
