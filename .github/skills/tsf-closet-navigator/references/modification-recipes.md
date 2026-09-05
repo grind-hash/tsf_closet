@@ -21,7 +21,7 @@
 | 3. ルート | `backend/gateway/routes/{feature}_router.py` |
 | 4. 新規router公開 | `backend/gateway/routes/__init__.py`、`backend/gateway/app.py` |
 | 5. DBが必要 | `backend/gateway/databases/models.py`、必要なrepo、Alembic |
-| 6. テスト | `backend/tests/unit/` または `backend/tests/integration/` |
+| 6. テスト | `backend/tests/unit/` または `backend/tests/integration/`（DB を使う場合は `tests/conftest.py` の `isolated_db` フィクスチャ） |
 
 ルーターは原則 `/api` 配下にマウントする。`app.py` 直下の互換APIへ安易に追加しない。
 
@@ -62,7 +62,7 @@
 2. 必要ならrepo/serviceを追加する。
 3. `backend` で `uv run alembic revision --autogenerate -m "description"` を実行する。
 4. migrationのupgrade/downgradeから無関係な差分を除く。
-5. FKを有効にしたSQLiteテストで保存と削除を検証する。
+5. `isolated_db` フィクスチャ（FK 有効の一時 SQLite）で保存と削除を検証する。
 
 ### AivisSpeechを変更する
 

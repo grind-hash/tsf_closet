@@ -2,13 +2,9 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from gateway.databases.base import Base
 from gateway.databases.models import (
     History,
     ParameterChangeLog,
@@ -22,14 +18,6 @@ from gateway.databases.parameter_change_log_repo import (
     fetch_change_logs_by_session,
     insert_change_logs,
 )
-
-
-async def _setup_engine(tmp_path: Path):
-    db_path = tmp_path / "param_log.db"
-    engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}", future=True)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    return engine
 
 
 async def _seed_session_history(factory, *, session_id: str, history_id: str) -> None:
@@ -55,9 +43,8 @@ async def _seed_session_history(factory, *, session_id: str, history_id: str) ->
 
 
 @pytest.mark.asyncio
-async def test_insert_change_logs_skips_zero_delta(tmp_path: Path):
-    engine = await _setup_engine(tmp_path)
-    factory = async_sessionmaker(engine, expire_on_commit=False)
+async def test_insert_change_logs_skips_zero_delta(isolated_db):
+    factory = isolated_db.async_factory
     await _seed_session_history(factory, session_id="s1", history_id="h1")
 
     async with factory() as db:
@@ -86,9 +73,8 @@ async def test_insert_change_logs_skips_zero_delta(tmp_path: Path):
 
 
 @pytest.mark.asyncio
-async def test_insert_change_logs_three_rows_when_all_nonzero(tmp_path: Path):
-    engine = await _setup_engine(tmp_path)
-    factory = async_sessionmaker(engine, expire_on_commit=False)
+async def test_insert_change_logs_three_rows_when_all_nonzero(isolated_db):
+    factory = isolated_db.async_factory
     await _seed_session_history(factory, session_id="s2", history_id="h2")
 
     async with factory() as db:
@@ -113,9 +99,8 @@ async def test_insert_change_logs_three_rows_when_all_nonzero(tmp_path: Path):
 
 
 @pytest.mark.asyncio
-async def test_fetch_change_logs_ordered_by_created_at_then_id(tmp_path: Path):
-    engine = await _setup_engine(tmp_path)
-    factory = async_sessionmaker(engine, expire_on_commit=False)
+async def test_fetch_change_logs_ordered_by_created_at_then_id(isolated_db):
+    factory = isolated_db.async_factory
     await _seed_session_history(factory, session_id="s3", history_id="h3")
 
     async with factory() as db:

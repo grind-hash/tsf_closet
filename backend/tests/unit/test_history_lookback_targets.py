@@ -1,14 +1,11 @@
 """履歴遡及対象とプロンプト反映の単体テスト。"""
 
-import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from gateway.databases.base import Base
 from gateway.databases.models import (
     Conversation as ConversationORM,
 )
@@ -66,89 +63,78 @@ def test_history_context_keeps_chronological_order_and_labels() -> None:
 
 @pytest.mark.asyncio
 async def test_recent_history_helpers_select_latest_entries_in_chronological_order(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    isolated_db, tmp_path: Path
 ) -> None:
-    engine = create_async_engine(
-        f"sqlite+aiosqlite:///{tmp_path / 'history-lookback.db'}", future=True
-    )
-    try:
-        async with engine.begin() as connection:
-            await connection.run_sync(Base.metadata.create_all)
+    factory = isolated_db.async_factory
+    start = datetime(2026, 1, 1, 12, 0, 0)
 
-        factory = async_sessionmaker(engine, expire_on_commit=False)
-        session_module = sys.modules["gateway.services.session"]
-        monkeypatch.setattr(session_module, "async_session_factory", factory)
-        start = datetime(2026, 1, 1, 12, 0, 0)
-
-        async with factory() as db_session:
-            db_session.add(User(id="history-user"))
-            db_session.add(
-                SessionORM(
-                    id="history-session",
-                    user_id="history-user",
-                    current_image_path="images/current.png",
-                )
+    async with factory() as db_session:
+        db_session.add(User(id="history-user"))
+        db_session.add(
+            SessionORM(
+                id="history-session",
+                user_id="history-user",
+                current_image_path="images/current.png",
             )
-            db_session.add_all(
-                [
-                    HistoryORM(
-                        id="history-old",
-                        session_id="history-session",
-                        instruction="古すぎる指示",
-                        instruction_type="dress_up",
-                        image_path="images/old.png",
-                        created_at=start,
-                    ),
-                    ConversationORM(
-                        id="conversation-user-old",
-                        session_id="history-session",
-                        role="user",
-                        content="少し古い会話",
-                        instruction_type="conversation",
-                        created_at=start + timedelta(minutes=1),
-                    ),
-                    HistoryORM(
-                        id="history-recent",
-                        session_id="history-session",
-                        instruction="直近の行動",
-                        instruction_type="action",
-                        image_path="images/recent.png",
-                        created_at=start + timedelta(minutes=2),
-                    ),
-                    ConversationORM(
-                        id="conversation-assistant",
-                        session_id="history-session",
-                        role="assistant",
-                        content="AI応答",
-                        instruction_type="conversation",
-                        created_at=start + timedelta(minutes=3),
-                    ),
-                    ConversationORM(
-                        id="conversation-user-recent",
-                        session_id="history-session",
-                        role="user",
-                        content="直近の会話",
-                        instruction_type="conversation",
-                        created_at=start + timedelta(minutes=4),
-                    ),
-                ]
-            )
-            await db_session.commit()
+        )
+        db_session.add_all(
+            [
+                HistoryORM(
+                    id="history-old",
+                    session_id="history-session",
+                    instruction="古すぎる指示",
+                    instruction_type="dress_up",
+                    image_path="images/old.png",
+                    created_at=start,
+                ),
+                ConversationORM(
+                    id="conversation-user-old",
+                    session_id="history-session",
+                    role="user",
+                    content="少し古い会話",
+                    instruction_type="conversation",
+                    created_at=start + timedelta(minutes=1),
+                ),
+                HistoryORM(
+                    id="history-recent",
+                    session_id="history-session",
+                    instruction="直近の行動",
+                    instruction_type="action",
+                    image_path="images/recent.png",
+                    created_at=start + timedelta(minutes=2),
+                ),
+                ConversationORM(
+                    id="conversation-assistant",
+                    session_id="history-session",
+                    role="assistant",
+                    content="AI応答",
+                    instruction_type="conversation",
+                    created_at=start + timedelta(minutes=3),
+                ),
+                ConversationORM(
+                    id="conversation-user-recent",
+                    session_id="history-session",
+                    role="user",
+                    content="直近の会話",
+                    instruction_type="conversation",
+                    created_at=start + timedelta(minutes=4),
+                ),
+            ]
+        )
+        await db_session.commit()
 
-        store = DatabaseSessionStore(history_images_dir=tmp_path / "history-images")
-        timeline = await store.get_recent_instructions("history-session", limit=2)
-        conversation = await store.get_conversation_history("history-session", limit=2)
+    store = DatabaseSessionStore(history_images_dir=tmp_path / "history-images")
+    timeline = await store.get_recent_instructions("history-session", limit=2)
+    conversation = await store.get_conversation_history("history-session", limit=2)
 
-        assert timeline == [
-            ("action", "直近の行動"),
-            ("conversation", "直近の会話"),
-        ]
-        assert [message.content for message in conversation] == [
-            "AI応答",
-            "直近の会話",
-        ]
-    finally:
-        await engine.dispose()
+    assert timeline == [
+        ("action", "直近の行動"),
+        ("conversation", "直近の会話"),
+    ]
+    assert [message.content for message in conversation] == [
+        "AI応答",
+        "直近の会話",
+    ]
 
 
 def test_request_models_accept_optional_history_flag() -> None:

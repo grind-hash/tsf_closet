@@ -101,6 +101,9 @@ tavily-remote MCP を利用してライブラリ選定を行う際は、以下�
 * Backend unit test:
   `cd backend; uv run pytest tests/unit/test_target.py`
 
+* Backend の DB を使うテスト:
+  `tests/conftest.py` の `isolated_db` フィクスチャを使う（一時 SQLite・FK 有効。実 DB `backend/data/database.sqlite` には接続しない）
+
 * CI: `.github/workflows/ci.yml` が develop への push / PR で ruff・pytest・Biome・tsc・vitest を実行する（E2E は含まない）
 
 ### Alembic 注意

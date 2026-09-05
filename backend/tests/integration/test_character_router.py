@@ -3,14 +3,11 @@
 from __future__ import annotations
 
 import importlib
-from pathlib import Path
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from gateway.databases.base import Base
 from gateway.databases.models import Session as SessionORM
 from gateway.databases.models import User
 
@@ -19,12 +16,8 @@ character_router = character_router_module.router
 
 
 @pytest.fixture
-async def app_and_client(tmp_path: Path, monkeypatch):
-    db_path = tmp_path / "router.db"
-    engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}", future=True)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    factory = async_sessionmaker(engine, expire_on_commit=False)
+async def app_and_client(isolated_db):
+    factory = isolated_db.async_factory
     async with factory() as db:
         db.add(User(id="user-1"))
         db.add(
@@ -36,8 +29,6 @@ async def app_and_client(tmp_path: Path, monkeypatch):
             )
         )
         await db.commit()
-
-    monkeypatch.setattr(character_router_module, "async_session_factory", factory)
 
     app = FastAPI()
     app.include_router(character_router, prefix="/api")

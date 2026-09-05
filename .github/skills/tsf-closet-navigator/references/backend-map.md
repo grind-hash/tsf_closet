@@ -159,4 +159,4 @@
 | `UserAchievement`、`AchievementCount`、`AchievedEnding` | 実績/エンディング進捗                                                  |
 | `ParameterChangeLog`                                    | パラメータ変更監査                                                     |
 
-DB変更では `backend` で Alembic を実行する。既存SQLiteを使うテストでは外部キー設定を確認し、永続化の真偽はレスポンスだけでなくDB行でも検証する。
+DB変更では `backend` で Alembic を実行する。DB を使うテストは `tests/conftest.py` の `isolated_db` フィクスチャ（一時 SQLite、外部キー有効、import 済みの全モジュールの `async_session_factory` / `sync_session_factory` を差し替え）を使い、実 DB `backend/data/database.sqlite` には接続しない。ルーター用の固定値スタブ（`StubSessionStore` / `StubSettingsService`）は `tests/support/stubs.py` にある。永続化の真偽はレスポンスだけでなくDB行でも検証する。

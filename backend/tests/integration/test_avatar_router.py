@@ -9,9 +9,7 @@ from pathlib import Path
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from gateway.databases.base import Base
 from gateway.databases.models import AdventureRun, User
 from gateway.services.session import DEFAULT_USER_ID
 from gateway.settings.config import settings
@@ -22,23 +20,15 @@ adventure_service_module = importlib.import_module("gateway.services.adventure_s
 
 
 @pytest.fixture
-async def app(tmp_path: Path, monkeypatch):
-    engine = create_async_engine(
-        f"sqlite+aiosqlite:///{tmp_path / 'router.db'}", future=True
-    )
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-    monkeypatch.setattr(avatar_router_module, "async_session_factory", factory)
-    # 削除時に Adventure run の割り当て解除が同じ DB を見るようにする
-    monkeypatch.setattr(adventure_service_module, "async_session_factory", factory)
+def app(isolated_db, tmp_path: Path, monkeypatch):
+    # isolated_db が avatar_router / adventure_service の session factory を差し替える
+    factory = isolated_db.async_factory
     monkeypatch.setattr(settings, "avatar_models_dir", tmp_path / "models")
     monkeypatch.setattr(settings, "avatar_upload_max_bytes", 1024 * 1024)
     application = FastAPI()
     application.include_router(avatar_router_module.router, prefix="/api")
     application.state.session_factory = factory
-    yield application
-    await engine.dispose()
+    return application
 
 
 def test_upload_list_file_rename_delete(app: FastAPI, tmp_path: Path) -> None:

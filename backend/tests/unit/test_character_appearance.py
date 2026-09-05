@@ -2,17 +2,14 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from gateway.consts.character_limits import (
     APPEARANCE_NATURAL_MAX_LEN,
     APPEARANCE_TAGS_MAX_LEN,
 )
-from gateway.databases.base import Base
 from gateway.databases.models import Session as SessionORM
 from gateway.databases.models import User
 from gateway.services.character_service import (
@@ -25,13 +22,7 @@ from gateway.services.character_service import (
 from gateway.services.llm_service import LLMService
 
 
-async def _setup(tmp_path: Path):
-    engine = create_async_engine(
-        f"sqlite+aiosqlite:///{tmp_path / 'app.db'}", future=True
-    )
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    factory = async_sessionmaker(engine, expire_on_commit=False)
+async def _setup(factory):
     async with factory() as db:
         db.add(User(id="user-1"))
         db.add(
@@ -47,8 +38,8 @@ async def _setup(tmp_path: Path):
 
 
 @pytest.mark.asyncio
-async def test_apply_appearance_updates_only_changed_entries(tmp_path: Path):
-    factory = await _setup(tmp_path)
+async def test_apply_appearance_updates_only_changed_entries(isolated_db):
+    factory = await _setup(isolated_db.async_factory)
     async with factory() as db:
         a = await SessionCharacterService.create_in_session(
             db, "sess-1", name="Alice", appearance_tags="old_tag_a"
@@ -83,8 +74,8 @@ async def test_apply_appearance_updates_only_changed_entries(tmp_path: Path):
 
 
 @pytest.mark.asyncio
-async def test_apply_appearance_updates_skips_empty_strings(tmp_path: Path):
-    factory = await _setup(tmp_path)
+async def test_apply_appearance_updates_skips_empty_strings(isolated_db):
+    factory = await _setup(isolated_db.async_factory)
     async with factory() as db:
         a = await SessionCharacterService.create_in_session(
             db, "sess-1", name="Alice", appearance_tags="keep_me"
@@ -146,10 +137,8 @@ def test_build_prompt_section_includes_position_and_appearance():
 
 
 @pytest.mark.asyncio
-async def test_apply_character_prompt_tags_updates_protagonist_and_support(
-    tmp_path: Path,
-):
-    factory = await _setup(tmp_path)
+async def test_apply_character_prompt_tags_updates_protagonist_and_support(isolated_db):
+    factory = await _setup(isolated_db.async_factory)
     async with factory() as db:
         await upsert_protagonist_session_character(
             db,
@@ -190,8 +179,8 @@ async def test_apply_character_prompt_tags_updates_protagonist_and_support(
 
 
 @pytest.mark.asyncio
-async def test_apply_character_prompt_tags_respects_appearance_lock(tmp_path: Path):
-    factory = await _setup(tmp_path)
+async def test_apply_character_prompt_tags_respects_appearance_lock(isolated_db):
+    factory = await _setup(isolated_db.async_factory)
     async with factory() as db:
         await upsert_protagonist_session_character(
             db,
@@ -219,8 +208,8 @@ async def test_apply_character_prompt_tags_respects_appearance_lock(tmp_path: Pa
 
 
 @pytest.mark.asyncio
-async def test_apply_appearance_updates_respects_appearance_lock(tmp_path: Path):
-    factory = await _setup(tmp_path)
+async def test_apply_appearance_updates_respects_appearance_lock(isolated_db):
+    factory = await _setup(isolated_db.async_factory)
     async with factory() as db:
         a = await SessionCharacterService.create_in_session(
             db,
@@ -253,8 +242,8 @@ async def test_apply_appearance_updates_respects_appearance_lock(tmp_path: Path)
 
 
 @pytest.mark.asyncio
-async def test_apply_appearance_updates_respects_exclude_from_effects(tmp_path: Path):
-    factory = await _setup(tmp_path)
+async def test_apply_appearance_updates_respects_exclude_from_effects(isolated_db):
+    factory = await _setup(isolated_db.async_factory)
     async with factory() as db:
         a = await SessionCharacterService.create_in_session(
             db,
@@ -286,8 +275,8 @@ async def test_apply_appearance_updates_respects_exclude_from_effects(tmp_path: 
 
 
 @pytest.mark.asyncio
-async def test_apply_appearance_updates_truncates_long_natural(tmp_path: Path):
-    factory = await _setup(tmp_path)
+async def test_apply_appearance_updates_truncates_long_natural(isolated_db):
+    factory = await _setup(isolated_db.async_factory)
     async with factory() as db:
         a = await SessionCharacterService.create_in_session(db, "sess-1", name="Alice")
         await db.commit()
@@ -314,8 +303,8 @@ async def test_apply_appearance_updates_truncates_long_natural(tmp_path: Path):
 
 
 @pytest.mark.asyncio
-async def test_apply_appearance_updates_truncates_long_tags(tmp_path: Path):
-    factory = await _setup(tmp_path)
+async def test_apply_appearance_updates_truncates_long_tags(isolated_db):
+    factory = await _setup(isolated_db.async_factory)
     async with factory() as db:
         a = await SessionCharacterService.create_in_session(db, "sess-1", name="Alice")
         await db.commit()

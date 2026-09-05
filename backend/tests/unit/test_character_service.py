@@ -2,12 +2,8 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from gateway.databases.base import Base
 from gateway.databases.models import Session as SessionORM
 from gateway.databases.models import User
 from gateway.services.character_service import (
@@ -17,12 +13,7 @@ from gateway.services.character_service import (
 )
 
 
-async def _setup(tmp_path: Path):
-    db_path = tmp_path / "char.db"
-    engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}", future=True)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    factory = async_sessionmaker(engine, expire_on_commit=False)
+async def _setup(factory):
     async with factory() as db:
         db.add(User(id="user-1"))
         db.add(
@@ -38,8 +29,8 @@ async def _setup(tmp_path: Path):
 
 
 @pytest.mark.asyncio
-async def test_create_in_session_assigns_sequential_slots(tmp_path: Path):
-    factory = await _setup(tmp_path)
+async def test_create_in_session_assigns_sequential_slots(isolated_db):
+    factory = await _setup(isolated_db.async_factory)
     async with factory() as db:
         a = await SessionCharacterService.create_in_session(db, "sess-1", name="Alice")
         b = await SessionCharacterService.create_in_session(db, "sess-1", name="Bob")
@@ -50,8 +41,8 @@ async def test_create_in_session_assigns_sequential_slots(tmp_path: Path):
 
 
 @pytest.mark.asyncio
-async def test_character_limit_exceeded_at_fifth(tmp_path: Path):
-    factory = await _setup(tmp_path)
+async def test_character_limit_exceeded_at_fifth(isolated_db):
+    factory = await _setup(isolated_db.async_factory)
     async with factory() as db:
         for i in range(CHARACTER_LIMIT):
             await SessionCharacterService.create_in_session(
@@ -67,8 +58,8 @@ async def test_character_limit_exceeded_at_fifth(tmp_path: Path):
 
 
 @pytest.mark.asyncio
-async def test_delete_repacks_slot_indices(tmp_path: Path):
-    factory = await _setup(tmp_path)
+async def test_delete_repacks_slot_indices(isolated_db):
+    factory = await _setup(isolated_db.async_factory)
     async with factory() as db:
         a = await SessionCharacterService.create_in_session(db, "sess-1", name="A")
         b = await SessionCharacterService.create_in_session(db, "sess-1", name="B")
@@ -92,8 +83,8 @@ async def test_delete_repacks_slot_indices(tmp_path: Path):
 
 
 @pytest.mark.asyncio
-async def test_invalid_position_raises(tmp_path: Path):
-    factory = await _setup(tmp_path)
+async def test_invalid_position_raises(isolated_db):
+    factory = await _setup(isolated_db.async_factory)
     async with factory() as db:
         with pytest.raises(ValueError):
             await SessionCharacterService.create_in_session(
@@ -102,8 +93,8 @@ async def test_invalid_position_raises(tmp_path: Path):
 
 
 @pytest.mark.asyncio
-async def test_update_position_change(tmp_path: Path):
-    factory = await _setup(tmp_path)
+async def test_update_position_change(isolated_db):
+    factory = await _setup(isolated_db.async_factory)
     async with factory() as db:
         rec = await SessionCharacterService.create_in_session(
             db, "sess-1", name="A", position="left"

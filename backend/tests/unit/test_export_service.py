@@ -4,15 +4,12 @@ from __future__ import annotations
 
 import io
 import json
-import sys
 import zipfile
 from pathlib import Path
 
 import pytest
 from PIL import Image
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from gateway.databases.base import Base
 from gateway.databases.models import (
     Conversation,
     History,
@@ -42,24 +39,14 @@ def test_resolve_self_display_name(profile_json: str | None, expected: str) -> N
 
 
 @pytest.mark.asyncio
-async def test_export_service_emits_markdown_and_zip(tmp_path: Path, monkeypatch):
-    # Arrange: in-memory SQLite + temp data dir.
-    db_path = tmp_path / "export.db"
-    engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}", future=True)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    test_session_factory = async_sessionmaker(engine, expire_on_commit=False)
+async def test_export_service_emits_markdown_and_zip(
+    isolated_db, tmp_path: Path, monkeypatch
+):
+    # Arrange: isolated SQLite (session.py and export_service.py are patched by
+    # the isolated_db fixture) + temp data dir.
+    test_session_factory = isolated_db.async_factory
 
-    # Patch async_session_factory in BOTH session.py and export_service.py.
     from gateway.services import export_service as export_mod
-
-    monkeypatch.setattr(export_mod, "async_session_factory", test_session_factory)
-    if "gateway.services.session" in sys.modules:
-        monkeypatch.setattr(
-            sys.modules["gateway.services.session"],
-            "async_session_factory",
-            test_session_factory,
-        )
 
     # Setup data dir: data/history_images/ stores PNGs, image_path stored as
     # "history_images/<id>.png" (relative to data/).
@@ -200,16 +187,12 @@ async def test_export_service_emits_markdown_and_zip(tmp_path: Path, monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_self_mode_export_uses_profile_display_name(tmp_path: Path, monkeypatch):
-    db_path = tmp_path / "self_mode.db"
-    engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}", future=True)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    test_session_factory = async_sessionmaker(engine, expire_on_commit=False)
+async def test_self_mode_export_uses_profile_display_name(
+    isolated_db, tmp_path: Path, monkeypatch
+):
+    test_session_factory = isolated_db.async_factory
 
     from gateway.services import export_service as export_mod
-
-    monkeypatch.setattr(export_mod, "async_session_factory", test_session_factory)
 
     data_dir = tmp_path / "data"
     history_dir = data_dir / "history_images"
@@ -264,18 +247,12 @@ async def test_self_mode_export_uses_profile_display_name(tmp_path: Path, monkey
 
 @pytest.mark.asyncio
 async def test_export_history_only_session_includes_all_messages(
-    tmp_path: Path, monkeypatch
+    isolated_db, tmp_path: Path, monkeypatch
 ):
     """Sessions with History but no Conversation must still emit messages."""
-    db_path = tmp_path / "history_only.db"
-    engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}", future=True)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    test_session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    test_session_factory = isolated_db.async_factory
 
     from gateway.services import export_service as export_mod
-
-    monkeypatch.setattr(export_mod, "async_session_factory", test_session_factory)
 
     data_dir = tmp_path / "data"
     history_dir = data_dir / "history_images"
@@ -321,18 +298,8 @@ async def test_export_history_only_session_includes_all_messages(
 
 
 @pytest.mark.asyncio
-async def test_export_service_raises_lookup_error_when_missing(
-    tmp_path: Path, monkeypatch
-):
-    db_path = tmp_path / "empty.db"
-    engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}", future=True)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    test_session_factory = async_sessionmaker(engine, expire_on_commit=False)
-
+async def test_export_service_raises_lookup_error_when_missing(isolated_db):
     from gateway.services import export_service as export_mod
-
-    monkeypatch.setattr(export_mod, "async_session_factory", test_session_factory)
 
     with pytest.raises(LookupError):
         await export_mod.build_markdown_export("no-such-session")

@@ -9,9 +9,7 @@ from pathlib import Path
 
 import pytest
 from fastapi import UploadFile
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from gateway.databases.base import Base
 from gateway.services import avatar_service
 from gateway.services.avatar_service import (
     AvatarError,
@@ -156,17 +154,10 @@ def test_classify_avatar_filename(stem: str, expected: tuple) -> None:
 
 
 @pytest.fixture
-async def session_factory(tmp_path: Path, monkeypatch):
-    engine = create_async_engine(
-        f"sqlite+aiosqlite:///{tmp_path / 'avatars.db'}", future=True
-    )
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    factory = async_sessionmaker(engine, expire_on_commit=False)
+def session_factory(isolated_db, tmp_path: Path, monkeypatch):
     monkeypatch.setattr(settings, "avatar_models_dir", tmp_path / "models")
     monkeypatch.setattr(settings, "avatar_upload_max_bytes", 1024 * 1024)
-    yield factory
-    await engine.dispose()
+    return isolated_db.async_factory
 
 
 def _upload(data: bytes, filename: str = "alicia.vrm") -> UploadFile:
