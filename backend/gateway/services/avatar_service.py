@@ -250,7 +250,10 @@ async def save_upload(
     limit = int(settings.avatar_upload_max_bytes)
     avatar_id = uuid.uuid4().hex
     final_path = directory / f"{avatar_id}.vrm"
-    temp = tempfile.NamedTemporaryFile(dir=directory, suffix=".part", delete=False)
+    # 失敗時の後始末で temp_path を使うため、with は書き込み時に別途開く
+    temp = tempfile.NamedTemporaryFile(  # noqa: SIM115
+        dir=directory, suffix=".part", delete=False
+    )
     temp_path = Path(temp.name)
     total = 0
     try:

@@ -11,7 +11,6 @@ import math
 
 from ..consts.history_lookback import HISTORY_LOOKBACK_DEFAULT
 
-
 SELF_MODE_SYSTEM_PROMPT = """あなたは物語の主人公の心の声を書く作家です。
 これは「自分自身」モードです。主人公は実在の人物の性格を反映しています。
 

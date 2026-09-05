@@ -13,7 +13,8 @@ from gateway.consts.character_limits import (
     APPEARANCE_TAGS_MAX_LEN,
 )
 from gateway.databases.base import Base
-from gateway.databases.models import Session as SessionORM, User
+from gateway.databases.models import Session as SessionORM
+from gateway.databases.models import User
 from gateway.services.character_service import (
     SessionCharacterService,
     apply_appearance_updates,

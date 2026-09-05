@@ -11,8 +11,9 @@ from __future__ import annotations
 import base64
 import json
 import logging
+from collections.abc import AsyncGenerator, Callable
 from dataclasses import dataclass
-from typing import AsyncGenerator, Callable, Dict, List, Any, Optional
+from typing import Any
 
 import httpx
 
@@ -43,9 +44,9 @@ class LLMResult:
 
     content: str
     provider: str  # "selfhost" or "openrouter"
-    usage: Optional[UsageInfo] = None
-    cost_usd: Optional[float] = None
-    model: Optional[str] = None
+    usage: UsageInfo | None = None
+    cost_usd: float | None = None
+    model: str | None = None
 
 
 def build_chat_messages(
@@ -84,11 +85,11 @@ class OpenRouterLLMClient:
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
-        base_url: Optional[str] = None,
-        vision_model: Optional[str] = None,
-        llm_model: Optional[str] = None,
-        timeout: Optional[float] = None,
+        api_key: str | None = None,
+        base_url: str | None = None,
+        vision_model: str | None = None,
+        llm_model: str | None = None,
+        timeout: float | None = None,
     ) -> None:
         self.api_key = api_key or settings.openrouter_api_key
         self.base_url = (base_url or settings.openrouter_base_url).rstrip("/")
@@ -96,7 +97,7 @@ class OpenRouterLLMClient:
         self.llm_model = llm_model or settings.openrouter_llm_model
         self.timeout = timeout or settings.openrouter_llm_timeout
 
-    def _get_headers(self) -> Dict[str, str]:
+    def _get_headers(self) -> dict[str, str]:
         return {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
@@ -192,7 +193,7 @@ class OpenRouterLLMClient:
         self,
         system_prompt: str,
         user_prompt: str,
-        usage_callback: Optional[Callable[[Optional[float]], None]] = None,
+        usage_callback: Callable[[float | None], None] | None = None,
         history: list[dict[str, str]] | None = None,
     ) -> AsyncGenerator[str, None]:
         """テキストをストリーミング生成する
@@ -211,40 +212,42 @@ class OpenRouterLLMClient:
             "usage": {"include": True},
         }
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            async with client.stream(
+        async with (
+            httpx.AsyncClient(timeout=self.timeout) as client,
+            client.stream(
                 "POST",
                 f"{self.base_url}/chat/completions",
                 headers=self._get_headers(),
                 json=payload,
-            ) as response:
-                response.raise_for_status()
-                async for line in response.aiter_lines():
-                    if not line:
-                        continue
-                    if line.startswith("data: "):
-                        data_str = line[6:]
-                        if data_str.strip() == "[DONE]":
-                            break
-                        try:
-                            data = json.loads(data_str)
-                            if data.get("usage") and usage_callback is not None:
-                                _, cost = self._extract_usage(data)
-                                usage_callback(cost)
-                            # usage付きの最終チャンクは choices が空になり得る
-                            choices = data.get("choices") or []
-                            if not choices:
-                                continue
-                            delta = choices[0].get("delta", {})
-                            content = delta.get("content")
-                            if content:
-                                yield content
-                        except json.JSONDecodeError:
+            ) as response,
+        ):
+            response.raise_for_status()
+            async for line in response.aiter_lines():
+                if not line:
+                    continue
+                if line.startswith("data: "):
+                    data_str = line[6:]
+                    if data_str.strip() == "[DONE]":
+                        break
+                    try:
+                        data = json.loads(data_str)
+                        if data.get("usage") and usage_callback is not None:
+                            _, cost = self._extract_usage(data)
+                            usage_callback(cost)
+                        # usage付きの最終チャンクは choices が空になり得る
+                        choices = data.get("choices") or []
+                        if not choices:
                             continue
+                        delta = choices[0].get("delta", {})
+                        content = delta.get("content")
+                        if content:
+                            yield content
+                    except json.JSONDecodeError:
+                        continue
 
     def _extract_usage(
-        self, response: Dict[str, Any]
-    ) -> tuple[Optional[UsageInfo], Optional[float]]:
+        self, response: dict[str, Any]
+    ) -> tuple[UsageInfo | None, float | None]:
         """使用量・料金情報を抽出"""
         usage_data = response.get("usage", {})
         if not usage_data:
@@ -266,7 +269,7 @@ class OpenRouterLLMClient:
 
 
 # モデルごとのデフォルトサンプリングパラメータ
-_NOVELAI_MODEL_PARAMS: Dict[str, Dict[str, Any]] = {
+_NOVELAI_MODEL_PARAMS: dict[str, dict[str, Any]] = {
     "xialong-v1": {
         "top_k": 250,
         "top_p": 0.95,
@@ -280,7 +283,7 @@ _NOVELAI_MODEL_PARAMS: Dict[str, Dict[str, Any]] = {
 
 # NovelAI画像プロンプト用タグ置換マップ
 # LLMが出力しがちな表現をNovelAI画像生成で有効なタグに変換する
-_NOVELAI_PROMPT_TAG_REPLACEMENTS: Dict[str, str] = {
+_NOVELAI_PROMPT_TAG_REPLACEMENTS: dict[str, str] = {
     "shorts": "panties",
 }
 
@@ -294,17 +297,17 @@ class NovelAILLMClient:
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
-        base_url: Optional[str] = None,
-        model: Optional[str] = None,
-        timeout: Optional[float] = None,
+        api_key: str | None = None,
+        base_url: str | None = None,
+        model: str | None = None,
+        timeout: float | None = None,
     ) -> None:
         self.api_key = api_key or settings.novelai_api_key
         self.base_url = (base_url or settings.novelai_text_base_url).rstrip("/")
         self.model = model or settings.novelai_text_model
         self.timeout = timeout or settings.novelai_text_timeout
 
-    def _get_headers(self) -> Dict[str, str]:
+    def _get_headers(self) -> dict[str, str]:
         return {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
@@ -314,7 +317,7 @@ class NovelAILLMClient:
         self,
         system_prompt: str,
         user_prompt: str,
-        model_override: Optional[str] = None,
+        model_override: str | None = None,
         max_tokens: int = 4096,
     ) -> LLMResult:
         """テキストを生成する（内部でストリーミングを使用）
@@ -323,7 +326,7 @@ class NovelAILLMClient:
         内部でストリーミングを使用し、全チャンクを結合して返す。
         """
         effective_model = model_override or self.model
-        content_parts: List[str] = []
+        content_parts: list[str] = []
         async for chunk in self.generate_text_stream(
             system_prompt,
             user_prompt,
@@ -345,7 +348,7 @@ class NovelAILLMClient:
         self,
         system_prompt: str,
         user_prompt: str,
-        model_override: Optional[str] = None,
+        model_override: str | None = None,
         max_tokens: int = 4096,
         history: list[dict[str, str]] | None = None,
     ) -> AsyncGenerator[str, None]:
@@ -365,48 +368,48 @@ class NovelAILLMClient:
         }
 
         try:
-            async with model_execution_gate.hold("text", "novelai", effective_model):
-                async with httpx.AsyncClient(timeout=self.timeout) as client:
-                    async with client.stream(
-                        "POST",
-                        f"{self.base_url}/chat/completions",
-                        headers=self._get_headers(),
-                        json=payload,
-                    ) as response:
-                        response.raise_for_status()
-                        async for line in response.aiter_lines():
-                            if not line:
-                                continue
-                            if line.startswith("data: "):
-                                data_str = line[6:]
-                                if data_str.strip() == "[DONE]":
-                                    break
-                                try:
-                                    data = json.loads(data_str)
-                                    choices = data.get("choices", [])
-                                    if choices:
-                                        delta = choices[0].get("delta", {})
-                                        content = delta.get("content")
-                                        if content:
-                                            yield content
-                                        finish_reason = choices[0].get("finish_reason")
-                                        if finish_reason:
-                                            log = (
-                                                logger.info
-                                                if finish_reason == "stop"
-                                                else logger.warning
-                                            )
-                                            log(
-                                                "NovelAI LLM stream finished: model=%s reason=%s",
-                                                effective_model,
-                                                finish_reason,
-                                            )
-                                            break
-                                except json.JSONDecodeError:
-                                    logger.warning(
-                                        f"NovelAI SSE parse error: {data_str}"
+            async with (
+                model_execution_gate.hold("text", "novelai", effective_model),
+                httpx.AsyncClient(timeout=self.timeout) as client,
+                client.stream(
+                    "POST",
+                    f"{self.base_url}/chat/completions",
+                    headers=self._get_headers(),
+                    json=payload,
+                ) as response,
+            ):
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    if not line:
+                        continue
+                    if line.startswith("data: "):
+                        data_str = line[6:]
+                        if data_str.strip() == "[DONE]":
+                            break
+                        try:
+                            data = json.loads(data_str)
+                            choices = data.get("choices", [])
+                            if choices:
+                                delta = choices[0].get("delta", {})
+                                content = delta.get("content")
+                                if content:
+                                    yield content
+                                finish_reason = choices[0].get("finish_reason")
+                                if finish_reason:
+                                    log = (
+                                        logger.info
+                                        if finish_reason == "stop"
+                                        else logger.warning
                                     )
-                                    continue
+                                    log(
+                                        "NovelAI LLM stream finished: model=%s reason=%s",
+                                        effective_model,
+                                        finish_reason,
+                                    )
+                                    break
+                        except json.JSONDecodeError:
+                            logger.warning(f"NovelAI SSE parse error: {data_str}")
+                            continue
         except httpx.TimeoutException as e:
             logger.error(f"NovelAI LLM timeout: {e}")
             raise LLMServiceError(f"NovelAI API timeout: {e}") from e
@@ -427,8 +430,8 @@ class LLMService:
     """
 
     def __init__(self) -> None:
-        self._openrouter_client: Optional[OpenRouterLLMClient] = None
-        self._novelai_client: Optional[NovelAILLMClient] = None
+        self._openrouter_client: OpenRouterLLMClient | None = None
+        self._novelai_client: NovelAILLMClient | None = None
         # LiteLLMクライアントは遅延インポート
         self._litellm_client = None
 
@@ -453,7 +456,7 @@ class LLMService:
         self,
         image_bytes: bytes,
         prompt: str,
-        provider_override: Optional[str] = None,
+        provider_override: str | None = None,
     ) -> LLMResult:
         """画像を説明する
 
@@ -485,9 +488,9 @@ class LLMService:
         self,
         system_prompt: str,
         user_prompt: str,
-        provider_override: Optional[str] = None,
-        novelai_model_override: Optional[str] = None,
-        max_tokens: Optional[int] = None,
+        provider_override: str | None = None,
+        novelai_model_override: str | None = None,
+        max_tokens: int | None = None,
     ) -> LLMResult:
         """心境テキストを生成する
 
@@ -528,10 +531,10 @@ class LLMService:
         self,
         system_prompt: str,
         user_prompt: str,
-        provider_override: Optional[str] = None,
-        novelai_model_override: Optional[str] = None,
-        max_tokens: Optional[int] = None,
-        usage_callback: Optional[Callable[[Optional[float]], None]] = None,
+        provider_override: str | None = None,
+        novelai_model_override: str | None = None,
+        max_tokens: int | None = None,
+        usage_callback: Callable[[float | None], None] | None = None,
         history: list[dict[str, str]] | None = None,
     ) -> AsyncGenerator[str, None]:
         """心境テキストをストリーミング生成する
@@ -580,8 +583,8 @@ class LLMService:
         self,
         system_prompt: str,
         user_prompt: str,
-        provider_override: Optional[str] = None,
-        novelai_model_override: Optional[str] = None,
+        provider_override: str | None = None,
+        novelai_model_override: str | None = None,
     ) -> LLMResult:
         """テキストを生成する (汎用)
 
@@ -617,7 +620,7 @@ class LLMService:
         self,
         instruction: str,
         current_description: str,
-        provider_override: Optional[str] = None,
+        provider_override: str | None = None,
         nsfw_mode: bool = False,
         extra_system_suffix: str = "",
         suppress_gender_discomfort_cues: bool = False,
@@ -759,10 +762,10 @@ class LLMService:
 
     async def generate_character_tags_batch(
         self,
-        items: List[Dict[str, str]],
+        items: list[dict[str, str]],
         *,
-        provider_override: Optional[str] = None,
-    ) -> List[Dict[str, str]]:
+        provider_override: str | None = None,
+    ) -> list[dict[str, str]]:
         """Batch generate NovelAI-compatible tag strings for N characters in one call.
 
         Args:
@@ -803,7 +806,7 @@ class LLMService:
             )
             return result.content
 
-        last_error: Optional[Exception] = None
+        last_error: Exception | None = None
         for attempt in range(2):
             try:
                 raw = await _call_once()
@@ -830,12 +833,12 @@ class LLMService:
 
     async def infer_appearance_updates(
         self,
-        characters: List[Dict[str, Any]],
+        characters: list[dict[str, Any]],
         action_text: str,
         *,
-        provider_override: Optional[str] = None,
+        provider_override: str | None = None,
         language: str = "ja",
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Infer appearance diffs for N session characters after an action.
 
         Args:
@@ -916,8 +919,8 @@ class LLMService:
 
 
 def _parse_tag_batch_response(
-    raw: str, expected_items: List[Dict[str, str]]
-) -> List[Dict[str, str]]:
+    raw: str, expected_items: list[dict[str, str]]
+) -> list[dict[str, str]]:
     """Parse LLM JSON output for batch tag generation.
 
     Raises ``ValueError`` on schema mismatch; ``json.JSONDecodeError`` on
@@ -931,7 +934,7 @@ def _parse_tag_batch_response(
     if not isinstance(results, list) or len(results) != len(expected_items):
         raise ValueError("results length mismatch")
     expected_ids = {item["id"] for item in expected_items}
-    out: List[Dict[str, str]] = []
+    out: list[dict[str, str]] = []
     for entry in results:
         if not isinstance(entry, dict):
             raise ValueError("non-dict result entry")
@@ -946,8 +949,8 @@ def _parse_tag_batch_response(
 
 
 def _parse_appearance_update_response(
-    raw: str, expected_characters: List[Dict[str, str]]
-) -> List[Dict[str, Any]]:
+    raw: str, expected_characters: list[dict[str, str]]
+) -> list[dict[str, Any]]:
     """Parse LLM JSON output for appearance updates (R-002)."""
     cleaned = _strip_code_fence(raw)
     data = json.loads(cleaned)
@@ -957,14 +960,14 @@ def _parse_appearance_update_response(
     if not isinstance(updates, list):
         raise ValueError("updates not list")
     valid_ids = {c["id"] for c in expected_characters}
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for entry in updates:
         if not isinstance(entry, dict):
             continue
         cid = entry.get("character_id")
         if cid not in valid_ids:
             continue
-        result: Dict[str, Any] = {
+        result: dict[str, Any] = {
             "character_id": cid,
             "changed": bool(entry.get("changed", False)),
         }

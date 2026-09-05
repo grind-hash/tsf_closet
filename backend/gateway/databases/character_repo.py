@@ -8,14 +8,14 @@ prompt-construction deterministic. See data-model.md and FR-011.
 from __future__ import annotations
 
 import uuid
-from typing import Any, Optional, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 from sqlalchemy import delete as sa_delete
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .models import CharacterPreset, SessionCharacter
-
 
 # ---------------------------------------------------------------------------
 # SessionCharacter helpers
@@ -37,7 +37,7 @@ async def fetch_session_characters(
 
 async def fetch_session_character(
     db: AsyncSession, character_id: str
-) -> Optional[SessionCharacter]:
+) -> SessionCharacter | None:
     """Return one SessionCharacter or None."""
     stmt = select(SessionCharacter).where(SessionCharacter.id == character_id)
     result = await db.execute(stmt)
@@ -46,7 +46,7 @@ async def fetch_session_character(
 
 async def fetch_protagonist_session_character(
     db: AsyncSession, session_id: str
-) -> Optional[SessionCharacter]:
+) -> SessionCharacter | None:
     """Return the is_protagonist record for a session, or None."""
     stmt = (
         select(SessionCharacter)
@@ -69,7 +69,7 @@ async def insert_session_character(
     appearance_natural: str = "",
     appearance_tags: str = "",
     position: str = "center",
-    source_preset_id: Optional[str] = None,
+    source_preset_id: str | None = None,
     is_protagonist: bool = False,
     appearance_lock: bool = False,
     exclude_from_effects: bool = False,
@@ -97,7 +97,7 @@ async def update_session_character(
     db: AsyncSession,
     character_id: str,
     **patch: Any,
-) -> Optional[SessionCharacter]:
+) -> SessionCharacter | None:
     """Apply partial update to one SessionCharacter; returns updated row or None."""
     record = await fetch_session_character(db, character_id)
     if record is None:
@@ -143,7 +143,7 @@ async def fetch_character_presets(
 
 async def fetch_character_preset(
     db: AsyncSession, preset_id: str
-) -> Optional[CharacterPreset]:
+) -> CharacterPreset | None:
     """Return one CharacterPreset or None."""
     stmt = select(CharacterPreset).where(CharacterPreset.id == preset_id)
     result = await db.execute(stmt)
@@ -157,7 +157,7 @@ async def insert_character_preset(
     appearance_natural: str = "",
     appearance_tags: str = "",
     default_position: str = "center",
-    tags_meta: Optional[str] = None,
+    tags_meta: str | None = None,
 ) -> CharacterPreset:
     """Insert a new preset; returns the persisted instance."""
     record = CharacterPreset(
@@ -177,7 +177,7 @@ async def update_character_preset(
     db: AsyncSession,
     preset_id: str,
     **patch: Any,
-) -> Optional[CharacterPreset]:
+) -> CharacterPreset | None:
     """Partial update of a preset. Returns the updated row or None."""
     record = await fetch_character_preset(db, preset_id)
     if record is None:

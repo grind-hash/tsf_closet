@@ -762,9 +762,9 @@ class TestTransparentBackgroundRule:
 
     def test_rule_absent_by_default_and_in_manga_mode(self):
         from gateway.services.prompt_expander_prompts import (
-            MangaOptions,
             TRANSPARENT_BACKGROUND_RULE_JA,
             TRANSPARENT_BACKGROUND_RULE_TAGS,
+            MangaOptions,
         )
 
         plain = build_positive_system_prompt(

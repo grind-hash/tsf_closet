@@ -17,7 +17,6 @@ Endpoints (all under /api/game prefix when registered in app.py):
 from __future__ import annotations
 
 import logging
-from typing import Union
 
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
@@ -307,11 +306,11 @@ async def add_character_from_preset(
             record = await SessionCharacterService.apply_preset_to_session(
                 db, session_id, preset_id
             )
-        except LookupError:
+        except LookupError as exc:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail={"detail": "preset_not_found", "code": "preset_not_found"},
-            )
+            ) from exc
         except CharacterLimitExceededError as exc:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -379,7 +378,7 @@ async def list_character_presets() -> CharacterPresetListResponse:
     summary="Create a preset",
 )
 async def create_character_preset(
-    payload: Union[PresetCreateFromCharacter, PresetCreateRaw],
+    payload: PresetCreateFromCharacter | PresetCreateRaw,
 ) -> CharacterPresetRead:
     async with async_session_factory() as db:
         try:
@@ -397,14 +396,14 @@ async def create_character_preset(
                     appearance_tags=payload.appearance_tags,
                     default_position=payload.default_position,
                 )
-        except LookupError:
+        except LookupError as exc:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail={
                     "detail": "session_character_not_found",
                     "code": "session_character_not_found",
                 },
-            )
+            ) from exc
         except ValueError as exc:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

@@ -22,6 +22,8 @@ from datetime import datetime
 
 from sqlalchemy import desc, select
 
+from ..databases.base import async_session_factory
+from ..databases.models import Session as SessionORM
 from .litellm_client import LiteLLMClientError
 from .llm_service import LLMServiceError, llm_service
 from .memory_prompts import (
@@ -33,8 +35,6 @@ from .memory_prompts import (
 )
 from .settings_service import settings_service
 from .summary_service import summary_service
-from ..databases.base import async_session_factory
-from ..databases.models import Session as SessionORM
 
 logger = logging.getLogger(__name__)
 

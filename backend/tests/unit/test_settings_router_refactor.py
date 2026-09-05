@@ -3,6 +3,8 @@ from gateway.routes.settings_router import (
     InpaintSettingsModel,
     SettingsModel,
     SettingsUpdateRequest,
+)
+from gateway.routes.settings_router import (
     router as new_settings_router,
 )
 from gateway.services.settings_service import settings_service

@@ -7,52 +7,54 @@
 from __future__ import annotations
 
 import base64
+import contextlib
 import json
 import math
 import uuid
+from collections.abc import AsyncGenerator
 from datetime import datetime
-from typing import AsyncGenerator, Literal, Optional
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel, Field
 from fastapi.responses import FileResponse, StreamingResponse
+from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
-from ..services.characters import character_manager
+from ..consts.language import normalize_language
 from ..models import (
+    DIFFICULTY_PRESETS,
     BranchSessionRequest,
     BranchSessionResponse,
     CharacterListResponse,
+    DifficultyListResponse,
+    DifficultyResponse,
     ErrorResponse,
+    GalleryEndingItem,
+    # ギャラリー (T052)
+    GalleryResponse,
+    GameStartRequest,
+    GameStartResponse,
     HistorySelectResponse,
-    PlayRequest,
-    PlayResponse,
+    MaskListResponse,
+    MaskSaveRequest,
     PlayMemoryResponse,
     PlayMemoryUpdateRequest,
+    PlayRequest,
+    PlayResponse,
+    SessionListResponse,
     SessionResetResponse,
     SessionResponse,
     SessionStatsResponse,
-    DifficultyResponse,
-    DifficultyListResponse,
-    GameStartRequest,
-    GameStartResponse,
-    DIFFICULTY_PRESETS,
-    # ギャラリー (T052)
-    GalleryResponse,
-    GalleryEndingItem,
     # セッション一覧 (001-immersion-enhancement)
     SessionSummary,
-    SessionListResponse,
-    MaskListResponse,
-    MaskSaveRequest,
     SuggestInstructionRequest,
     SuggestInstructionResponse,
 )
-from ..services.session import session_store
-from ..services.settings_service import settings_service
+from ..services.characters import character_manager
 from ..services.endings import ENDINGS
 from ..services.game_service import GameService
-from ..consts.language import normalize_language
+from ..services.session import session_store
+from ..services.settings_service import settings_service
 
 router = APIRouter(prefix="/game", tags=["Game"])
 
@@ -173,17 +175,17 @@ class PlayStreamRequest(BaseModel):
     instruction: str = Field(
         ..., min_length=1, max_length=500, description="着せ替え指示"
     )
-    session_id: Optional[str] = Field(None, description="既存セッションID")
-    character_id: Optional[str] = Field(None, description="キャラクターID")
-    character_image: Optional[str] = Field(None, description="Base64エンコード画像")
-    base_history_id: Optional[str] = Field(None, description="履歴からのベース画像ID")
-    costume_image: Optional[str] = Field(None, description="衣装参照画像（Base64）")
+    session_id: str | None = Field(None, description="既存セッションID")
+    character_id: str | None = Field(None, description="キャラクターID")
+    character_image: str | None = Field(None, description="Base64エンコード画像")
+    base_history_id: str | None = Field(None, description="履歴からのベース画像ID")
+    costume_image: str | None = Field(None, description="衣装参照画像（Base64）")
     # 変身タイプ
     transformation_type: str = Field(
         "costume", description="変身タイプ (costume=衣装変更, reality=現実改変)"
     )
     # 007-chat-interactive-ux: 指示タイプ（チャット表示用）
-    instruction_type: Optional[str] = Field(
+    instruction_type: str | None = Field(
         None,
         description=(
             "指示タイプ (dress_up=着せ替え, reality_alter=現実改変, "
@@ -191,39 +193,37 @@ class PlayStreamRequest(BaseModel):
         ),
     )
     # NovelAI専用フィールド
-    mask_image: Optional[str] = Field(
+    mask_image: str | None = Field(
         None, description="Base64エンコードされたインペイントマスク"
     )
-    mask_id: Optional[str] = Field(
+    mask_id: str | None = Field(
         None, description="保存済みマスクID（/game/masks で取得）"
     )
-    inpaint_strength: Optional[float] = Field(
+    inpaint_strength: float | None = Field(
         None, description="inpaintImg2ImgStrength (0.05-0.99)"
     )
-    inpaint_noise: Optional[float] = Field(None, description="img2img noise (0-0.5)")
-    negative_prompt: Optional[str] = Field(
-        None, description="NovelAIネガティブプロンプト"
-    )
-    prompt_override: Optional[str] = Field(
+    inpaint_noise: float | None = Field(None, description="img2img noise (0-0.5)")
+    negative_prompt: str | None = Field(None, description="NovelAIネガティブプロンプト")
+    prompt_override: str | None = Field(
         None, description="LLM生成をスキップしこのプロンプトを使う"
     )
     # ユーザー設定（リクエストごとにオーバーライド可能）
-    nsfw_mode: Optional[bool] = Field(
+    nsfw_mode: bool | None = Field(
         None, description="NSFWモード（未指定時はセッション設定を使用）"
     )
-    difficulty: Optional[str] = Field(
+    difficulty: str | None = Field(
         None, description="難易度（未指定時はセッション設定を使用）"
     )
-    language: Optional[str] = Field(
+    language: str | None = Field(
         None, description="応答言語（ja/en、未指定時はユーザー設定を使用）"
     )
     # NovelAI精密参照画像
-    character_references: Optional[list[CharacterReferenceParam]] = Field(
+    character_references: list[CharacterReferenceParam] | None = Field(
         None,
         description="精密参照画像パラメータの配列（NovelAIプロバイダー使用時のみ有効）",
     )
     # Seed for image generation
-    seed: Optional[int] = Field(
+    seed: int | None = Field(
         None,
         description="画像生成seed値（0〜999999999、未指定時はランダム）",
         ge=0,
@@ -267,7 +267,7 @@ class PlayStreamRequest(BaseModel):
     use_play_memory: bool = Field(
         False, description="セッション単位のプレイメモを生成に反映するか"
     )
-    use_history_lookback: Optional[bool] = Field(
+    use_history_lookback: bool | None = Field(
         None,
         description="履歴遡及を利用するか（未指定時は操作種別の既定値を使用）",
     )
@@ -390,7 +390,7 @@ async def get_current_session() -> SessionResponse:
 )
 async def get_session_image(session_id: str) -> FileResponse:
     """セッションの初期画像を取得"""
-    from ..settings.config import settings, BASE_DIR
+    from ..settings.config import BASE_DIR, settings
 
     session = await session_store.get_session_by_id(session_id)
     if session is None:
@@ -568,6 +568,7 @@ class CustomStartRequest(BaseModel):
 async def start_game_custom(request: CustomStartRequest) -> GameStartResponse:
     """カスタム画像でセッションを開始"""
     import base64
+
     from ..settings.config import settings
 
     # 既存セッションをリセット
@@ -781,6 +782,8 @@ async def branch_session_from_history(
     """既存履歴の状態から新規セッションを分岐開始する"""
     from ..services.session_branch_service import (
         SessionBranchError,
+    )
+    from ..services.session_branch_service import (
         branch_session_from_history as do_branch,
     )
 
@@ -1076,16 +1079,16 @@ async def chat_with_character(
     use_history_lookback: bool | None = Query(None, description="履歴遡及を利用するか"),
 ) -> dict:
     """キャラクターとの会話"""
+    from ..services.characters import character_manager
     from ..services.conversation import (
         build_conversation_prompt,
-        get_stage_name,
-        get_stage_display_name,
         get_fallback_response,
+        get_stage_display_name,
+        get_stage_name,
     )
-    from ..services.llm_service import llm_service
     from ..services.conversation_service import conversation_service
-    from ..services.characters import character_manager
     from ..services.history_context import resolve_history_lookback_enabled
+    from ..services.llm_service import llm_service
 
     # セッションを取得
     session = await session_store.get_session_by_id(session_id)
@@ -1304,15 +1307,16 @@ async def chat_with_character_stream(
 ) -> StreamingResponse:
     """キャラクターとの会話（ストリーミング）"""
     import logging
+
+    from ..services.characters import character_manager
     from ..services.conversation import (
         build_conversation_prompt,
         get_fallback_response,
         is_response_language_valid,
     )
-    from ..services.llm_service import llm_service
     from ..services.conversation_service import conversation_service
-    from ..services.characters import character_manager
     from ..services.history_context import resolve_history_lookback_enabled
+    from ..services.llm_service import llm_service
 
     logger = logging.getLogger(__name__)
 
@@ -1733,7 +1737,7 @@ async def preview_prompt(request: PlayRequest) -> dict:
 @router.get("/masks", response_model=MaskListResponse, summary="マスク一覧取得")
 async def list_masks() -> MaskListResponse:
     """システムマスク、履歴マスク、ユーザープリセットを返す"""
-    from ..settings.config import settings, BASE_DIR
+    from ..settings.config import BASE_DIR, settings
 
     system_dir = BASE_DIR / "images" / "masks"
     history_dir = settings.history_masks_dir
@@ -1806,6 +1810,7 @@ async def list_masks() -> MaskListResponse:
 async def save_mask(request: MaskSaveRequest) -> MaskListResponse:
     """マスクを保存する。nameが指定されている場合はプリセットとして、それ以外は履歴として保存"""
     import json as json_module
+
     from ..settings.config import settings
 
     history_dir = settings.history_masks_dir
@@ -1819,8 +1824,8 @@ async def save_mask(request: MaskSaveRequest) -> MaskListResponse:
         _, data = data.split(",", 1)
     try:
         mask_bytes = base64.b64decode(data)
-    except Exception:
-        raise HTTPException(status_code=400, detail="mask_base64 が不正です")
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="mask_base64 が不正です") from exc
 
     mask_id = uuid.uuid4().hex
 
@@ -1844,10 +1849,8 @@ async def save_mask(request: MaskSaveRequest) -> MaskListResponse:
             history_dir.glob("*.png"), key=lambda p: p.stat().st_mtime, reverse=True
         )
         for old in files[20:]:
-            try:
+            with contextlib.suppress(OSError):
                 old.unlink()
-            except OSError:
-                pass
 
     # 最新一覧を返す
     return await list_masks()
@@ -1907,15 +1910,15 @@ async def delete_preset_mask(mask_id: str) -> MaskListResponse:
     # 画像ファイル削除
     try:
         png_path.unlink()
-    except OSError:
-        raise HTTPException(status_code=500, detail="Failed to delete preset mask")
+    except OSError as exc:
+        raise HTTPException(
+            status_code=500, detail="Failed to delete preset mask"
+        ) from exc
 
     # メタデータファイル削除（存在する場合）
     if meta_path.exists():
-        try:
+        with contextlib.suppress(OSError):  # メタデータ削除失敗は無視
             meta_path.unlink()
-        except OSError:
-            pass  # メタデータ削除失敗は無視
 
     return await list_masks()
 
@@ -1977,7 +1980,7 @@ async def get_anlas_balance() -> AnlasBalanceResponse:
         raise HTTPException(
             status_code=500,
             detail=f"Failed to fetch Anlas balance: {e}",
-        )
+        ) from e
 
 
 # ── Base tags generation endpoint ──
@@ -1999,8 +2002,8 @@ class GenerateBaseTagsRequest(BaseModel):
 )
 async def generate_base_tags(request: GenerateBaseTagsRequest) -> dict:
     """Generate Danbooru-style base tags from character description via LLM."""
-    from ..services.prompts import build_base_tags_generation_prompt
     from ..services.llm_service import llm_service
+    from ..services.prompts import build_base_tags_generation_prompt
 
     system_prompt, user_prompt = build_base_tags_generation_prompt(
         name=request.name,
@@ -2034,7 +2037,7 @@ async def generate_base_tags(request: GenerateBaseTagsRequest) -> dict:
         raise HTTPException(
             status_code=500,
             detail=f"Failed to generate base tags: {e}",
-        )
+        ) from e
 
 
 # ------------------------------------------------------------------

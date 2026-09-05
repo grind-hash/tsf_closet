@@ -37,6 +37,7 @@ from ..consts.adventure_bgm import (
     get_bgm_keys,
     get_bgm_prompt_guide,
 )
+from ..consts.adventure_inventory import BOUNDARY_AFFECTION_FLOOR
 from ..consts.adventure_narration import (
     NARRATION_PRONOUN_DEFAULT,
     NARRATION_PRONOUN_MAX_LENGTH,
@@ -62,17 +63,6 @@ from ..consts.adventure_romance import (
     ROMANCE_TALK_SCENE_CONTEXT_MAX,
 )
 from ..consts.adventure_setup import SCENARIO_CONSTRAINTS_MAX_ITEMS
-from ..consts.companion_avatar import (
-    avatar_expression_keys,
-    avatar_gesture_keys,
-    avatar_resolution_instruction,
-    avatar_wardrobe_narrative_instruction,
-    avatar_wardrobe_resolution_instruction,
-    normalize_avatar_expression,
-    normalize_avatar_gesture,
-    normalize_avatar_outfit_key,
-    parse_talk_header,
-)
 from ..consts.adventure_speech import (
     PARTNER_SPEECH_STYLE_MAX_LENGTH,
     SPEECH_CUSTOM_MAX_LENGTH,
@@ -85,25 +75,25 @@ from ..consts.adventure_turns import (
     ADVENTURE_TURNS_MAX,
     ADVENTURE_TURNS_MIN,
 )
+from ..consts.companion_avatar import (
+    avatar_expression_keys,
+    avatar_gesture_keys,
+    avatar_resolution_instruction,
+    avatar_wardrobe_narrative_instruction,
+    avatar_wardrobe_resolution_instruction,
+    normalize_avatar_expression,
+    normalize_avatar_gesture,
+    normalize_avatar_outfit_key,
+    parse_talk_header,
+)
 from ..consts.novelai_models import (
     NOVELAI_IMAGE_MODELS,
     is_v5_image_model,
     resolve_user_image_model,
 )
-from ..consts.adventure_inventory import BOUNDARY_AFFECTION_FLOOR
 from ..databases.base import async_session_factory
 from ..databases.models import AdventureRun, AdventureTurn
 from ..settings.config import BASE_DIR, settings
-from .character_service import extract_protagonist_tags_from_history
-from .characters import character_manager
-from .clothing_layers import (
-    CLOTHING_LAYER_COVERED_NEGATIVE,
-    merge_negative_prompt,
-    normalize_tag_for_match,
-    peel_undergarment_tags,
-    split_tag_tokens,
-)
-from .image_generation import image_service
 from .adventure_inventory import (
     INVENTORY_NARRATIVE_INSTRUCTION,
     INVENTORY_VISUAL_INSTRUCTION,
@@ -167,6 +157,16 @@ from .avatar_service import (
     avatar_variant_label,
     list_avatar_variants,
 )
+from .character_service import extract_protagonist_tags_from_history
+from .characters import character_manager
+from .clothing_layers import (
+    CLOTHING_LAYER_COVERED_NEGATIVE,
+    merge_negative_prompt,
+    normalize_tag_for_match,
+    peel_undergarment_tags,
+    split_tag_tokens,
+)
+from .image_generation import image_service
 from .llm_service import llm_service
 from .prompt_expander_service import (
     PromptExpanderError,
@@ -273,7 +273,7 @@ def _choice_as_dict(item: Any) -> dict[str, Any] | None:
     if isinstance(item, BaseModel):
         return item.model_dump()
     if hasattr(item, "id") and hasattr(item, "label"):
-        return {"id": getattr(item, "id"), "label": getattr(item, "label")}
+        return {"id": item.id, "label": item.label}
     return None
 
 
@@ -2162,8 +2162,8 @@ def _validate_model_json(
     except ValidationError as strict_error:
         try:
             data = json.loads(text, strict=False)
-        except ValueError:
-            raise strict_error
+        except ValueError as lenient_error:
+            raise strict_error from lenient_error
         return model.model_validate(data, context=context)
 
 

@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ..models import SessionStats
@@ -32,7 +32,7 @@ class Ending:
 
 
 # 初期エンディング定義（4種類）
-ENDINGS: Dict[str, Ending] = {
+ENDINGS: dict[str, Ending] = {
     "pleasure_fall": Ending(
         id="pleasure_fall",
         title="快楽開花エンド",
@@ -90,8 +90,8 @@ class EndingResult:
     """エンディング判定結果"""
 
     triggered: bool
-    ending_id: Optional[str] = None
-    ending: Optional[Ending] = None
+    ending_id: str | None = None
+    ending: Ending | None = None
     is_new: bool = False  # 初達成かどうか
 
 
@@ -106,7 +106,7 @@ EXPOSURE_CATEGORIES = {"swimsuit", "underwear"}
 CUTE_CATEGORIES = {"maid", "gothic_lolita", "dress", "cosplay"}
 
 
-def get_dominant_category(tag_counts: Dict[str, int]) -> Optional[str]:
+def get_dominant_category(tag_counts: dict[str, int]) -> str | None:
     """タグ累積から最多カテゴリを算出する。
 
     Args:
@@ -131,7 +131,7 @@ def get_dominant_category(tag_counts: Dict[str, int]) -> Optional[str]:
     return max_categories[0]
 
 
-def _is_exposure_dominant(tag_counts: Dict[str, int]) -> bool:
+def _is_exposure_dominant(tag_counts: dict[str, int]) -> bool:
     """露出系が最多かチェック"""
     exposure_count = sum(tag_counts.get(cat, 0) for cat in EXPOSURE_CATEGORIES)
     cute_count = sum(tag_counts.get(cat, 0) for cat in CUTE_CATEGORIES)
@@ -143,7 +143,7 @@ def _is_exposure_dominant(tag_counts: Dict[str, int]) -> bool:
     return exposure_count > max(cute_count, other_count)
 
 
-def _is_cute_dominant(tag_counts: Dict[str, int]) -> bool:
+def _is_cute_dominant(tag_counts: dict[str, int]) -> bool:
     """可愛い系が最多かチェック"""
     exposure_count = sum(tag_counts.get(cat, 0) for cat in EXPOSURE_CATEGORIES)
     cute_count = sum(tag_counts.get(cat, 0) for cat in CUTE_CATEGORIES)
@@ -155,17 +155,17 @@ def _is_cute_dominant(tag_counts: Dict[str, int]) -> bool:
     return cute_count > max(exposure_count, other_count)
 
 
-def _is_tag_distributed(tag_counts: Dict[str, int]) -> bool:
+def _is_tag_distributed(tag_counts: dict[str, int]) -> bool:
     """タグが分散しているかチェック（3カテゴリ以上使用）"""
     used_categories = sum(1 for v in tag_counts.values() if v > 0)
     return used_categories >= 3
 
 
 def judge_ending(
-    stats: "SessionStats",
+    stats: SessionStats,
     transformation_count: int,
-    tag_counts: Dict[str, int],
-    achieved_ending_ids: List[str],
+    tag_counts: dict[str, int],
+    achieved_ending_ids: list[str],
 ) -> EndingResult:
     """エンディング判定を行う。
 
@@ -185,7 +185,7 @@ def judge_ending(
     Returns:
         EndingResult: 判定結果
     """
-    ending_id: Optional[str] = None
+    ending_id: str | None = None
 
     # 開花度100到達時の判定
     if stats.bloom >= 100:

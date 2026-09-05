@@ -6,7 +6,7 @@ is responsible for committing the surrounding transaction.
 
 from __future__ import annotations
 
-from typing import Iterable, Sequence
+from collections.abc import Iterable, Sequence
 
 from sqlalchemy import delete as sa_delete
 from sqlalchemy import select

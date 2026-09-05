@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-
 _TYPE_LABELS = {
     "dress_up": "着替",
     "reality_alter": "改変",

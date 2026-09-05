@@ -8,10 +8,15 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Optional, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..consts.character_limits import (
+    APPEARANCE_NATURAL_MAX_LEN,
+    APPEARANCE_TAGS_MAX_LEN,
+)
 from ..databases.character_repo import (
     delete_character_preset,
     delete_session_character,
@@ -26,10 +31,6 @@ from ..databases.character_repo import (
     update_session_character,
 )
 from ..databases.models import CharacterPreset, SessionCharacter
-from ..consts.character_limits import (
-    APPEARANCE_NATURAL_MAX_LEN,
-    APPEARANCE_TAGS_MAX_LEN,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -74,8 +75,8 @@ class SessionCharacterService:
         appearance_natural: str = "",
         appearance_tags: str = "",
         position: str = "center",
-        slot_index: Optional[int] = None,
-        source_preset_id: Optional[str] = None,
+        slot_index: int | None = None,
+        source_preset_id: str | None = None,
         appearance_lock: bool = False,
         exclude_from_effects: bool = False,
     ) -> SessionCharacter:
@@ -107,10 +108,13 @@ class SessionCharacterService:
         db: AsyncSession,
         character_id: str,
         **patch: Any,
-    ) -> Optional[SessionCharacter]:
-        if "position" in patch and patch["position"] is not None:
-            if patch["position"] not in ALLOWED_POSITIONS:
-                raise ValueError(f"invalid_position:{patch['position']}")
+    ) -> SessionCharacter | None:
+        if (
+            "position" in patch
+            and patch["position"] is not None
+            and patch["position"] not in ALLOWED_POSITIONS
+        ):
+            raise ValueError(f"invalid_position:{patch['position']}")
         record = await update_session_character(db, character_id, **patch)
         if record is not None and "slot_index" in patch:
             await SessionCharacterService.reassign_positions(db, record.session_id)
@@ -220,7 +224,7 @@ class CharacterPresetService:
         db: AsyncSession,
         preset_id: str,
         **patch: Any,
-    ) -> Optional[CharacterPreset]:
+    ) -> CharacterPreset | None:
         if (
             "default_position" in patch
             and patch["default_position"] is not None
@@ -661,7 +665,7 @@ def _looks_like_novelai_tag_list(text: str) -> bool:
     if has_subject and comma_count >= 1:
         return True
     # Quality-tag heavy prompts without explicit 1girl/1boy still count.
-    if comma_count >= 2 and any(
+    return comma_count >= 2 and any(
         token in lower
         for token in (
             "masterpiece",
@@ -669,9 +673,7 @@ def _looks_like_novelai_tag_list(text: str) -> bool:
             "amazing quality",
             "very aesthetic",
         )
-    ):
-        return True
-    return False
+    )
 
 
 def extract_protagonist_tags_from_history(

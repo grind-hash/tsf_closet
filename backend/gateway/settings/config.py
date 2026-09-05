@@ -8,7 +8,6 @@ from typing import Final
 
 from dotenv import load_dotenv
 
-
 # BASE_DIR = backend/
 BASE_DIR: Final[Path] = Path(__file__).resolve().parent.parent.parent
 

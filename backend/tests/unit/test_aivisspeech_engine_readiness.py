@@ -1,6 +1,6 @@
+import wave
 from io import BytesIO
 from unittest.mock import AsyncMock
-import wave
 
 import httpx
 import pytest

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 import httpx
 
@@ -38,10 +38,10 @@ class AnlasBalance:
     fixed_anlas: int
     purchased_anlas: int
     total_anlas: int
-    usage: Optional[NovelAIUsage] = None
+    usage: NovelAIUsage | None = None
 
 
-def parse_novelai_usage(data: Any) -> Optional[NovelAIUsage]:
+def parse_novelai_usage(data: Any) -> NovelAIUsage | None:
     """subscription レスポンスの usage キーを防御的にパースする。
 
     usage キーが無い・形式が不正な場合は None を返す（旧アカウント等の互換）。
@@ -61,7 +61,7 @@ def parse_novelai_usage(data: Any) -> Optional[NovelAIUsage]:
     )
 
 
-async def get_anlas_balance() -> Optional[AnlasBalance]:
+async def get_anlas_balance() -> AnlasBalance | None:
     """Fetch the current Anlas balance and usage limit from NovelAI.
 
     Returns:

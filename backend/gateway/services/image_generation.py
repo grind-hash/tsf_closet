@@ -12,22 +12,22 @@ import logging
 import random
 from dataclasses import dataclass
 from io import BytesIO
-from typing import Any, Dict, List, Literal, Optional, Tuple
+from typing import Any, Literal
 
 import httpx
+from novelai import AsyncNovelAI
+from novelai._utils.converter import async_convert_user_params_to_api_request
+from novelai.exceptions import NovelAIError
+from novelai.types import Character, CharacterReference, GenerateImageParams, I2iParams
 from PIL import Image, ImageFilter
 
-from .comfy import ComfyUIClient, ComfyUIResult
-from .model_execution_gate import model_execution_gate
 from ..consts.novelai_models import get_image_model_info
 from ..consts.prompt_expander import (
     PROMPT_EXPANDER_MASK_GRID_DIVISOR as MASK_GRID_DIVISOR,
 )
 from ..settings.config import settings
-from novelai import AsyncNovelAI
-from novelai.types import Character, CharacterReference, GenerateImageParams, I2iParams
-from novelai.exceptions import NovelAIError
-from novelai._utils.converter import async_convert_user_params_to_api_request
+from .comfy import ComfyUIClient, ComfyUIResult
+from .model_execution_gate import model_execution_gate
 
 logger = logging.getLogger(__name__)
 
@@ -36,14 +36,14 @@ ProviderType = Literal["selfhost", "openrouter", "novelai"]
 
 # ComfyUI txt2img の出力サイズ。NovelAI のプリセット名と揃え、Qwen-Image が
 # 扱いやすい 16 の倍数・約 1MP にする
-_COMFY_SIZE_PRESETS: Dict[str, tuple[int, int]] = {
+_COMFY_SIZE_PRESETS: dict[str, tuple[int, int]] = {
     "portrait": (832, 1216),
     "landscape": (1216, 832),
     "square": (1024, 1024),
 }
 
 
-def _comfy_size(size: Optional[str]) -> tuple[int, int]:
+def _comfy_size(size: str | None) -> tuple[int, int]:
     """サイズプリセット名を ComfyUI 用の (width, height) に変換する。既定は landscape。"""
     key = (size or "landscape").strip().lower()
     return _COMFY_SIZE_PRESETS.get(key, _COMFY_SIZE_PRESETS["landscape"])
@@ -62,13 +62,13 @@ class UsageInfo:
 class ImageGenerationResult:
     """画像生成結果"""
 
-    images: List[bytes]
+    images: list[bytes]
     provider: ProviderType
     # OpenRouter使用時のAPI料金情報
-    usage: Optional[UsageInfo] = None
-    cost_usd: Optional[float] = None  # USD単位の料金
-    model: Optional[str] = None
-    seed: Optional[int] = None
+    usage: UsageInfo | None = None
+    cost_usd: float | None = None  # USD単位の料金
+    model: str | None = None
+    seed: int | None = None
 
 
 class OpenRouterImageError(Exception):
@@ -84,10 +84,10 @@ class OpenRouterImageClient:
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
-        base_url: Optional[str] = None,
-        model: Optional[str] = None,
-        timeout: Optional[float] = None,
+        api_key: str | None = None,
+        base_url: str | None = None,
+        model: str | None = None,
+        timeout: float | None = None,
     ):
         self.api_key = api_key or settings.openrouter_api_key
         self.base_url = base_url or settings.openrouter_base_url
@@ -97,7 +97,7 @@ class OpenRouterImageClient:
         if not self.api_key:
             raise ValueError("OpenRouter API key is required")
 
-    def _get_headers(self) -> Dict[str, str]:
+    def _get_headers(self) -> dict[str, str]:
         return {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
@@ -108,8 +108,8 @@ class OpenRouterImageClient:
     async def generate(
         self,
         prompt: str,
-        image_bytes: Optional[bytes] = None,
-        reference_image_bytes: Optional[bytes] = None,
+        image_bytes: bytes | None = None,
+        reference_image_bytes: bytes | None = None,
     ) -> ImageGenerationResult:
         """画像を生成する
 
@@ -124,12 +124,12 @@ class OpenRouterImageClient:
         Raises:
             OpenRouterImageError: API呼び出しに失敗した場合
         """
-        messages: List[Dict[str, Any]] = []
+        messages: list[dict[str, Any]] = []
 
         # 編集元画像がある場合はマルチモーダル形式
         if image_bytes:
             image_b64 = base64.b64encode(image_bytes).decode("utf-8")
-            content: List[Dict[str, Any]] = [
+            content: list[dict[str, Any]] = [
                 {"type": "text", "text": prompt},
                 {
                     "type": "image_url",
@@ -231,14 +231,14 @@ class OpenRouterImageClient:
             logger.error(f"OpenRouter request error: {e}")
             raise OpenRouterImageError(f"Request error: {e}") from e
 
-    def _extract_images(self, response: Dict[str, Any]) -> List[bytes]:
+    def _extract_images(self, response: dict[str, Any]) -> list[bytes]:
         """レスポンスから画像データを抽出
 
         OpenRouterのGemini画像生成レスポンスは以下の形式:
         - message.images: 画像データのリスト（Gemini形式）
         - message.content: テキストまたはdata:imageのURL（他モデル）
         """
-        images: List[bytes] = []
+        images: list[bytes] = []
 
         choices = response.get("choices", [])
         for choice in choices:
@@ -323,8 +323,8 @@ class OpenRouterImageClient:
         return images
 
     def _extract_usage(
-        self, response: Dict[str, Any]
-    ) -> tuple[Optional[UsageInfo], Optional[float]]:
+        self, response: dict[str, Any]
+    ) -> tuple[UsageInfo | None, float | None]:
         """レスポンスから使用量・料金情報を抽出
 
         OpenRouterのレスポンスには以下が含まれる:
@@ -332,8 +332,8 @@ class OpenRouterImageClient:
         - usage.cost または別途 x-openrouter-cost ヘッダー
         """
         usage_data = response.get("usage", {})
-        usage_info: Optional[UsageInfo] = None
-        cost_usd: Optional[float] = None
+        usage_info: UsageInfo | None = None
+        cost_usd: float | None = None
 
         if usage_data:
             usage_info = UsageInfo(
@@ -356,18 +356,18 @@ class NovelAIImageClient:
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
-        model: Optional[str] = None,
-        inpaint_model: Optional[str] = None,
-        inpaint_action: Optional[str] = None,
-        inpaint_fallback_model: Optional[str] = None,
-        size: Optional[str] = None,
-        steps: Optional[int] = None,
-        scale: Optional[float] = None,
-        uc_preset: Optional[str] = None,
-        negative_prompt: Optional[str] = None,
-        i2i_strength: Optional[float] = None,
-        i2i_noise: Optional[float] = None,
+        api_key: str | None = None,
+        model: str | None = None,
+        inpaint_model: str | None = None,
+        inpaint_action: str | None = None,
+        inpaint_fallback_model: str | None = None,
+        size: str | None = None,
+        steps: int | None = None,
+        scale: float | None = None,
+        uc_preset: str | None = None,
+        negative_prompt: str | None = None,
+        i2i_strength: float | None = None,
+        i2i_noise: float | None = None,
         nsfw_mode: bool = True,
     ):
         self.api_key = api_key or settings.novelai_api_key
@@ -399,7 +399,7 @@ class NovelAIImageClient:
         self.negative_prompt = negative_prompt or settings.novelai_negative_prompt
         self.i2i_strength = i2i_strength or settings.novelai_i2i_strength
         self.i2i_noise = i2i_noise or settings.novelai_i2i_noise
-        self._client: Optional[AsyncNovelAI] = None
+        self._client: AsyncNovelAI | None = None
 
         if not self.api_key:
             raise ValueError("NOVELAI_API_KEY is required for NovelAI provider")
@@ -437,17 +437,17 @@ class NovelAIImageClient:
     async def generate(
         self,
         prompt: str,
-        image_bytes: Optional[bytes] = None,
-        reference_image_bytes: Optional[bytes] = None,  # 未使用（今後の拡張用）
-        mask_bytes: Optional[bytes] = None,
-        negative_prompt_override: Optional[str] = None,
-        inpaint_strength_override: Optional[float] = None,
-        noise_override: Optional[float] = None,
-        character_references: Optional[List[Dict[str, Any]]] = None,
-        seed: Optional[int] = None,
-        characters: Optional[List[Dict[str, Any]]] = None,
-        size_override: Optional[str] = None,
-        model_override: Optional[str] = None,
+        image_bytes: bytes | None = None,
+        reference_image_bytes: bytes | None = None,  # 未使用（今後の拡張用）
+        mask_bytes: bytes | None = None,
+        negative_prompt_override: str | None = None,
+        inpaint_strength_override: float | None = None,
+        noise_override: float | None = None,
+        character_references: list[dict[str, Any]] | None = None,
+        seed: int | None = None,
+        characters: list[dict[str, Any]] | None = None,
+        size_override: str | None = None,
+        model_override: str | None = None,
         raw_prompt: bool = False,
     ) -> ImageGenerationResult:
         """画像生成 / 画像変換 (i2i)"""
@@ -540,7 +540,7 @@ class NovelAIImageClient:
             except Exception as e:
                 logger.warning(f"Failed to normalize mask: {e}")
 
-        i2i_params: Optional[I2iParams] = None
+        i2i_params: I2iParams | None = None
         if image_bytes is not None:
             i2i_params = I2iParams(
                 image=image_bytes,
@@ -584,7 +584,7 @@ class NovelAIImageClient:
             character_references = None
 
         # Build SDK CharacterReference objects from request dicts
-        sdk_char_refs: Optional[List[CharacterReference]] = None
+        sdk_char_refs: list[CharacterReference] | None = None
         if character_references:
             sdk_char_refs = []
             for ref in character_references:
@@ -606,7 +606,7 @@ class NovelAIImageClient:
         actual_seed = seed if seed is not None else random.randint(0, 999999999)
 
         # Build SDK Character objects for V4 prompt splitting
-        sdk_characters: Optional[List[Character]] = None
+        sdk_characters: list[Character] | None = None
         if characters:
             logger.info("characters: %s", characters)
             sdk_characters = [
@@ -687,7 +687,7 @@ class NovelAIImageClient:
             raise NovelAIImageError("No images returned from NovelAI")
 
         # PIL Image -> bytes
-        image_bytes_list: List[bytes] = []
+        image_bytes_list: list[bytes] = []
         for img in images:
             buf = BytesIO()
             img.save(buf, format="PNG")
@@ -704,10 +704,10 @@ class NovelAIImageClient:
         self,
         prompt: str,
         size: str = "landscape",
-        negative_prompt_override: Optional[str] = None,
-        seed: Optional[int] = None,
+        negative_prompt_override: str | None = None,
+        seed: int | None = None,
         include_people: bool = False,
-        model_override: Optional[str] = None,
+        model_override: str | None = None,
     ) -> ImageGenerationResult:
         """Background / scenery txt2img generation (US2)
 
@@ -772,7 +772,7 @@ class NovelAIImageClient:
         if not images:
             raise NovelAIImageError("No scenery images returned from NovelAI")
 
-        image_bytes_list: List[bytes] = []
+        image_bytes_list: list[bytes] = []
         for img in images:
             buf = BytesIO()
             img.save(buf, format="PNG")
@@ -789,16 +789,16 @@ class NovelAIImageClient:
 class ImageGenerationService:
     """プロバイダー切り替え付き画像生成サービス"""
 
-    def __init__(self, provider: Optional[ProviderType] = None):
+    def __init__(self, provider: ProviderType | None = None):
         """
         Args:
             provider: 使用するプロバイダー（未指定時は環境変数から取得）
         """
         self._default_provider: ProviderType = provider or self._resolve_provider()
-        self._comfy_client: Optional[ComfyUIClient] = None
-        self._openrouter_client: Optional[OpenRouterImageClient] = None
+        self._comfy_client: ComfyUIClient | None = None
+        self._openrouter_client: OpenRouterImageClient | None = None
         # (nsfw_mode, モデル名)ごとにNovelAIクライアントをキャッシュ
-        self._novelai_clients: Dict[Tuple[bool, str], NovelAIImageClient] = {}
+        self._novelai_clients: dict[tuple[bool, str], NovelAIImageClient] = {}
 
     def _resolve_provider(self) -> ProviderType:
         """環境変数からプロバイダーを解決"""
@@ -823,7 +823,7 @@ class ImageGenerationService:
         return self._openrouter_client
 
     def _get_novelai_client(
-        self, nsfw_mode: bool = True, model: Optional[str] = None
+        self, nsfw_mode: bool = True, model: str | None = None
     ) -> NovelAIImageClient:
         """NovelAIクライアントを取得（遅延初期化、(nsfw_mode, モデル名)ごとにキャッシュ）
 
@@ -846,20 +846,20 @@ class ImageGenerationService:
     async def generate_image(
         self,
         prompt: str,
-        image_bytes: Optional[bytes] = None,
+        image_bytes: bytes | None = None,
         *,
-        reference_image_bytes: Optional[bytes] = None,
-        mask_bytes: Optional[bytes] = None,
-        provider_override: Optional[ProviderType] = None,
-        negative_prompt: Optional[str] = None,
-        i2i_strength_override: Optional[float] = None,
-        i2i_noise_override: Optional[float] = None,
+        reference_image_bytes: bytes | None = None,
+        mask_bytes: bytes | None = None,
+        provider_override: ProviderType | None = None,
+        negative_prompt: str | None = None,
+        i2i_strength_override: float | None = None,
+        i2i_noise_override: float | None = None,
         nsfw_mode: bool = True,
-        character_references: Optional[List[Dict[str, Any]]] = None,
-        seed: Optional[int] = None,
-        characters: Optional[List[Dict[str, Any]]] = None,
-        size_override: Optional[str] = None,
-        novelai_model_override: Optional[str] = None,
+        character_references: list[dict[str, Any]] | None = None,
+        seed: int | None = None,
+        characters: list[dict[str, Any]] | None = None,
+        size_override: str | None = None,
+        novelai_model_override: str | None = None,
         raw_prompt: bool = False,
         **comfy_kwargs: Any,
     ) -> ImageGenerationResult:
@@ -969,18 +969,18 @@ class ImageGenerationService:
         image_bytes: bytes,
         prompt: str,
         *,
-        reference_image_bytes: Optional[bytes] = None,
-        mask_bytes: Optional[bytes] = None,
-        provider_override: Optional[ProviderType] = None,
-        negative_prompt: Optional[str] = None,
-        inpaint_strength: Optional[float] = None,
-        inpaint_noise: Optional[float] = None,
+        reference_image_bytes: bytes | None = None,
+        mask_bytes: bytes | None = None,
+        provider_override: ProviderType | None = None,
+        negative_prompt: str | None = None,
+        inpaint_strength: float | None = None,
+        inpaint_noise: float | None = None,
         nsfw_mode: bool = True,
-        character_references: Optional[List[Dict[str, Any]]] = None,
-        seed: Optional[int] = None,
-        characters: Optional[List[Dict[str, Any]]] = None,
-        size_override: Optional[str] = None,
-        novelai_model_override: Optional[str] = None,
+        character_references: list[dict[str, Any]] | None = None,
+        seed: int | None = None,
+        characters: list[dict[str, Any]] | None = None,
+        size_override: str | None = None,
+        novelai_model_override: str | None = None,
         **comfy_kwargs: Any,
     ) -> ImageGenerationResult:
         """画像を編集する
@@ -1019,12 +1019,12 @@ class ImageGenerationService:
         self,
         prompt: str,
         size: str = "landscape",
-        negative_prompt: Optional[str] = None,
-        seed: Optional[int] = None,
+        negative_prompt: str | None = None,
+        seed: int | None = None,
         nsfw_mode: bool = True,
         include_people: bool = False,
-        provider_override: Optional[ProviderType] = None,
-        novelai_model_override: Optional[str] = None,
+        provider_override: ProviderType | None = None,
+        novelai_model_override: str | None = None,
     ) -> ImageGenerationResult:
         """Generate background / scenery image (NovelAI txt2img, US2)
 
@@ -1063,13 +1063,13 @@ class ImageGenerationService:
                 model_override=novelai_model_override,
             )
 
-    async def health_check(self) -> Dict[str, bool]:
+    async def health_check(self) -> dict[str, bool]:
         """各プロバイダーの接続状態を確認
 
         Returns:
             各プロバイダーの接続可否
         """
-        results: Dict[str, bool] = {}
+        results: dict[str, bool] = {}
 
         # ComfyUI チェック
         try:

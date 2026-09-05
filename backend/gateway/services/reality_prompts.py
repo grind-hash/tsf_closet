@@ -439,7 +439,7 @@ def get_reality_psychological_stage(bloom: int, nsfw_mode: bool = False) -> dict
     stages = (
         REALITY_PSYCHOLOGICAL_STAGES_NSFW if nsfw_mode else REALITY_PSYCHOLOGICAL_STAGES
     )
-    for stage_name, stage_data in stages.items():
+    for stage_data in stages.values():
         min_val, max_val = stage_data["range"]
         if min_val <= bloom <= max_val:
             return stage_data

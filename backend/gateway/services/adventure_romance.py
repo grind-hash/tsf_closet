@@ -15,12 +15,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from ..consts.companion_avatar import (
-    avatar_talk_header_instruction,
-    normalize_avatar_expression,
-    normalize_avatar_gesture,
-    parse_talk_header,
-)
 from ..consts.adventure_romance import (
     ROMANCE_AFFECTION_MAX,
     ROMANCE_AFFECTION_MIN,
@@ -58,6 +52,12 @@ from ..consts.adventure_romance import (
     ROMANCE_WORK_WAGE,
 )
 from ..consts.adventure_speech import PARTNER_SPEECH_STYLE_MAX_LENGTH
+from ..consts.companion_avatar import (
+    avatar_talk_header_instruction,
+    normalize_avatar_expression,
+    normalize_avatar_gesture,
+    parse_talk_header,
+)
 
 _RESERVED_CHOICE_RE = re.compile(
     "|".join(f"(?:{pattern})" for pattern in ROMANCE_RESERVED_CHOICE_PATTERNS),

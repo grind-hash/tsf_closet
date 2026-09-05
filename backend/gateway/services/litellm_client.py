@@ -10,7 +10,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
-from typing import AsyncGenerator, Optional
+from collections.abc import AsyncGenerator
 
 import httpx
 
@@ -31,12 +31,12 @@ class LiteLLMClient:
 
     def __init__(
         self,
-        base_url: Optional[str] = None,
-        llava_model: Optional[str] = None,
-        llm_model: Optional[str] = None,
-        feeling_model: Optional[str] = None,
-        timeout: Optional[float] = None,
-        api_key: Optional[str] = None,
+        base_url: str | None = None,
+        llava_model: str | None = None,
+        llm_model: str | None = None,
+        feeling_model: str | None = None,
+        timeout: float | None = None,
+        api_key: str | None = None,
     ) -> None:
         """初期化
 

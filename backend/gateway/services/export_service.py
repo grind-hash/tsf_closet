@@ -17,7 +17,6 @@ import zipfile
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 from PIL import Image
 from sqlalchemy import select
@@ -57,7 +56,7 @@ class _MessageEntry:
     role: str  # "user" | "character" | "system"
     content: str
     created_at: datetime
-    instruction_type: Optional[str]
+    instruction_type: str | None
     images: list[_ImageRef]
 
 
@@ -69,7 +68,7 @@ class _TransformationEntry:
     created_at: datetime
     instruction: str
     feeling_text: str
-    main_image: Optional[_ImageRef]
+    main_image: _ImageRef | None
 
 
 @dataclass
@@ -79,7 +78,7 @@ class _SessionBundle:
     session_id: str
     session_created_at: datetime
     character_name: str
-    initial_image: Optional[_ImageRef]
+    initial_image: _ImageRef | None
     messages: list[_MessageEntry]
     transformations: list[_TransformationEntry]
 
@@ -93,7 +92,7 @@ _HISTORY_IMAGE_URL_RE = re.compile(r"^/(?:api/)?history/images/([^/?#]+)")
 _HISTORY_SURROUNDINGS_URL_RE = re.compile(r"^/(?:api/)?history/surroundings/([^/?#]+)")
 
 
-def _resolve_history_image_path(history: HistoryORM) -> Optional[Path]:
+def _resolve_history_image_path(history: HistoryORM) -> Path | None:
     """Resolve absolute path to a history image file."""
     if not history.image_path:
         return None
@@ -103,7 +102,7 @@ def _resolve_history_image_path(history: HistoryORM) -> Optional[Path]:
     return None
 
 
-def _resolve_history_surroundings_path(history: HistoryORM) -> Optional[Path]:
+def _resolve_history_surroundings_path(history: HistoryORM) -> Path | None:
     """Resolve absolute path to a history surroundings image file."""
     if not history.surroundings_image_path:
         return None
@@ -113,7 +112,7 @@ def _resolve_history_surroundings_path(history: HistoryORM) -> Optional[Path]:
     return None
 
 
-def _extract_history_id_from_url(url: str) -> Optional[tuple[str, str]]:
+def _extract_history_id_from_url(url: str) -> tuple[str, str] | None:
     """Return (kind, history_id) where kind is 'image' or 'surroundings'."""
     if not url:
         return None
@@ -150,7 +149,7 @@ def _to_data_uri(jpeg_bytes: bytes) -> str:
     return "data:image/jpeg;base64," + base64.b64encode(jpeg_bytes).decode("ascii")
 
 
-def _resolve_self_display_name(self_profile_json: Optional[str]) -> str:
+def _resolve_self_display_name(self_profile_json: str | None) -> str:
     """自分自身プロフィールから表示名を取得する。"""
     if not self_profile_json:
         return "主人公"
@@ -171,7 +170,7 @@ def _resolve_self_display_name(self_profile_json: Optional[str]) -> str:
 # ---------------------------------------------------------------------------
 
 
-async def _load_session_bundle(session_id: str) -> Optional[_SessionBundle]:
+async def _load_session_bundle(session_id: str) -> _SessionBundle | None:
     """Load session, history, and conversation data needed for export."""
     async with async_session_factory() as db:
         session_row = (
@@ -213,7 +212,7 @@ async def _load_session_bundle(session_id: str) -> Optional[_SessionBundle]:
         session_created_at = session_row.created_at
         current_image_path = session_row.current_image_path
         is_self_mode = bool(session_row.self_mode)
-        self_profile_json: Optional[str] = None
+        self_profile_json: str | None = None
         if is_self_mode:
             self_profile_json = (
                 await db.execute(
@@ -226,7 +225,7 @@ async def _load_session_bundle(session_id: str) -> Optional[_SessionBundle]:
     # Resolve initial character image (preset only; custom uploads skipped here
     # but a fallback to the session's stored image is attempted below).
     character_name = "Character"
-    initial_image: Optional[_ImageRef] = None
+    initial_image: _ImageRef | None = None
     if character_id:
         try:
             manager = CharacterManager()
@@ -280,7 +279,7 @@ async def _load_session_bundle(session_id: str) -> Optional[_SessionBundle]:
 
         hist_images: list[_ImageRef] = []
         main = _resolve_history_image_path(hist)
-        main_ref: Optional[_ImageRef] = None
+        main_ref: _ImageRef | None = None
         if main is not None and hist.id not in used_history_ids:
             main_ref = _ImageRef(asset_id=f"hist_{hist.id}", abs_path=main)
             hist_images.append(main_ref)

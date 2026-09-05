@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from ..settings.config import settings
-from .llm_service import llm_service, LLMServiceError
+from .llm_service import LLMServiceError, llm_service
 
 logger = logging.getLogger(__name__)
 

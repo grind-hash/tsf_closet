@@ -306,8 +306,8 @@ class SettingsService:
         Raises:
             ValueError: If LLM output is not valid JSON
         """
-        from .self_mode_prompts import build_self_profile_generation_prompt
         from .llm_service import llm_service
+        from .self_mode_prompts import build_self_profile_generation_prompt
 
         system_prompt, user_prompt = build_self_profile_generation_prompt(input_text)
         result = await llm_service.generate_text(

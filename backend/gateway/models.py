@@ -11,10 +11,9 @@ import json
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, List, Optional, Literal
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-
 
 # =============================================================================
 # 難易度プリセット定義 (T008)
@@ -32,7 +31,7 @@ class DifficultyPreset:
     adaptation_multiplier: float
 
 
-DIFFICULTY_PRESETS: Dict[str, DifficultyPreset] = {
+DIFFICULTY_PRESETS: dict[str, DifficultyPreset] = {
     "easy": DifficultyPreset("easy", "抵抗しやすい", 70, 0.5, 1.0),
     "normal": DifficultyPreset("normal", "普通", 50, 1.0, 1.0),
     "hard": DifficultyPreset("hard", "堕ちやすい", 30, 1.5, 1.2),
@@ -54,7 +53,7 @@ class CriticalPointEvent:
     speech: str
 
 
-CRITICAL_POINTS: List[CriticalPointEvent] = [
+CRITICAL_POINTS: list[CriticalPointEvent] = [
     CriticalPointEvent(25, "第一臨界点", "flash", "なんか…頭がぼーっとしてきた…"),
     CriticalPointEvent(50, "第二臨界点", "pulse", "もう…元に戻れないのかな…"),
     CriticalPointEvent(75, "第三臨界点", "shake", "どうしよう…止まらない…"),
@@ -81,7 +80,7 @@ class SessionStats:
     bloom: int = 0  # 開花度 0-100 (旧: 開花度)
     shame: int = 50  # 羞恥心 0-100
     adaptation: int = 0  # 順応度 -50〜+50
-    passed_critical_points: List[int] = field(default_factory=list)
+    passed_critical_points: list[int] = field(default_factory=list)
     # DEPRECATED: users テーブルの difficulty を使用してください
     difficulty: str = "normal"
     # DEPRECATED: users テーブルの nsfw_mode を使用してください
@@ -89,7 +88,7 @@ class SessionStats:
     enable_prompt_preview: bool = False  # プロンプト確認有効化 (DB保存対象外)
 
     @classmethod
-    def from_row(cls, row: dict) -> "SessionStats":
+    def from_row(cls, row: dict) -> SessionStats:
         """SQLite行からインスタンスを作成"""
         passed_points = (
             json.loads(row["passed_critical_points"])
@@ -109,7 +108,7 @@ class SessionStats:
     @classmethod
     def create_with_difficulty(
         cls, session_id: str, difficulty: str = "normal", nsfw_mode: bool = False
-    ) -> "SessionStats":
+    ) -> SessionStats:
         """難易度に応じた初期値でインスタンスを作成"""
         preset = DIFFICULTY_PRESETS.get(difficulty, DIFFICULTY_PRESETS["normal"])
         return cls(
@@ -138,7 +137,7 @@ class TransformationTag:
     age_impression: str = "unknown"  # child, student, adult, unknown
 
     @classmethod
-    def from_row(cls, row: dict) -> "TransformationTag":
+    def from_row(cls, row: dict) -> TransformationTag:
         """SQLite行からインスタンスを作成"""
         return cls(
             history_id=row["history_id"],
@@ -162,7 +161,7 @@ class AchievedEnding:
     achieved_at: str  # ISO形式
 
     @classmethod
-    def from_row(cls, row: dict) -> "AchievedEnding":
+    def from_row(cls, row: dict) -> AchievedEnding:
         """SQLite行からインスタンスを作成"""
         return cls(
             ending_id=row["ending_id"],
@@ -182,12 +181,12 @@ class UserAchievement:
 
     id: str  # UUID
     achievement_id: str  # 実績ID (Achievementへの参照)
-    session_id: Optional[str]  # 達成時のセッションID（オプション）
-    achieved_at: Optional[str]  # 達成日時 (ISO 8601)、未達成時はNone
+    session_id: str | None  # 達成時のセッションID（オプション）
+    achieved_at: str | None  # 達成日時 (ISO 8601)、未達成時はNone
     progress: int = 0  # 進捗 (条件値に対する現在値)
 
     @classmethod
-    def from_row(cls, row: dict) -> "UserAchievement":
+    def from_row(cls, row: dict) -> UserAchievement:
         """SQLite行からインスタンスを作成"""
         return cls(
             id=row["id"],
@@ -213,14 +212,12 @@ class ConversationMessage:
     content: str
     created_at: str  # ISO形式
     # 007-chat-interactive-ux: 新規フィールド
-    instruction_type: Optional[str] = (
-        None  # "dress_up" | "reality_alter" | "conversation"
-    )
-    attached_image_url: Optional[str] = None  # 添付画像URL
-    related_history_id: Optional[str] = None  # 関連する変身履歴ID
+    instruction_type: str | None = None  # "dress_up" | "reality_alter" | "conversation"
+    attached_image_url: str | None = None  # 添付画像URL
+    related_history_id: str | None = None  # 関連する変身履歴ID
 
     @classmethod
-    def from_row(cls, row: dict) -> "ConversationMessage":
+    def from_row(cls, row: dict) -> ConversationMessage:
         """SQLite行からインスタンスを作成"""
         return cls(
             id=row["id"],
@@ -290,8 +287,8 @@ class NovelAISubscriptionResponse(BaseModel):
 
     tier: int = Field(..., description="サブスクリプションティア (0-3)")
     active: bool = Field(..., description="サブスクリプションがアクティブか")
-    expires_at: Optional[str] = Field(None, description="有効期限 (ISO 8601)")
-    usage: Optional[dict] = Field(
+    expires_at: str | None = Field(None, description="有効期限 (ISO 8601)")
+    usage: dict | None = Field(
         None,
         description=(
             "V5 利用上限 {percent, is_negative, time_until_next_percent}。"
@@ -312,7 +309,7 @@ class TagSuggestion(BaseModel):
     """
 
     tag: str = Field(..., min_length=1, description="タグ文字列 (例: tifa_lockhart)")
-    count: Optional[int] = Field(None, ge=0, description="関連度/出現数スコア")
+    count: int | None = Field(None, ge=0, description="関連度/出現数スコア")
 
 
 class TagSuggestResponse(BaseModel):
@@ -321,47 +318,43 @@ class TagSuggestResponse(BaseModel):
     バックエンドからフロントエンドへのタグ検索レスポンス。
     """
 
-    tags: List[TagSuggestion] = Field(..., description="タグ候補リスト")
-    query: Optional[str] = Field(None, description="元のクエリ (デバッグ用)")
+    tags: list[TagSuggestion] = Field(..., description="タグ候補リスト")
+    query: str | None = Field(None, description="元のクエリ (デバッグ用)")
 
 
 class PlayRequest(BaseModel):
     """着せ替えプレイリクエスト"""
 
-    session_id: Optional[str] = Field(
-        None, description="既存セッションID（継続プレイ時）"
-    )
-    character_id: Optional[str] = Field(
-        None, description="キャラクターID（新規開始時）"
-    )
-    character_image: Optional[str] = Field(
+    session_id: str | None = Field(None, description="既存セッションID（継続プレイ時）")
+    character_id: str | None = Field(None, description="キャラクターID（新規開始時）")
+    character_image: str | None = Field(
         None, description="Base64エンコード画像（カスタム時）"
     )
     instruction: str = Field(
         ..., description="着せ替え指示テキスト", min_length=1, max_length=500
     )
     # 衣装参照画像
-    costume_image: Optional[str] = Field(
+    costume_image: str | None = Field(
         None, description="Base64エンコードされた参照衣装画像"
     )
     # NovelAI専用: マスク & プロンプト制御
-    mask_image: Optional[str] = Field(
+    mask_image: str | None = Field(
         None,
         description="Base64エンコードされたインペイント用マスク画像（透明=保持, 白=変更）",
     )
-    mask_id: Optional[str] = Field(
+    mask_id: str | None = Field(
         None, description="保存済みマスクID（/game/masks で取得）"
     )
-    inpaint_strength: Optional[float] = Field(
+    inpaint_strength: float | None = Field(
         None, description="NovelAI inpaintImg2ImgStrength (0.05-0.99 推奨)"
     )
-    inpaint_noise: Optional[float] = Field(
+    inpaint_noise: float | None = Field(
         None, description="NovelAI img2img noise (0-0.5 推奨)"
     )
-    negative_prompt: Optional[str] = Field(
+    negative_prompt: str | None = Field(
         None, description="NovelAI専用ネガティブプロンプト"
     )
-    prompt_override: Optional[str] = Field(
+    prompt_override: str | None = Field(
         None,
         description="NovelAI専用: LLM生成をスキップしてこのプロンプトをそのまま使う",
     )
@@ -370,7 +363,7 @@ class PlayRequest(BaseModel):
         "costume", description="変身タイプ (costume=衣装変更, reality=現実改変)"
     )
     # 指示タイプ: dress_up, reality_alter, action, conversation, image_only
-    instruction_type: Optional[str] = Field(
+    instruction_type: str | None = Field(
         None,
         description=(
             "指示タイプ (dress_up, reality_alter, action, conversation, image_only)"
@@ -383,7 +376,7 @@ class PlayRequest(BaseModel):
     use_play_memory: bool = Field(
         False, description="セッション単位のプレイメモを生成に反映するか"
     )
-    use_history_lookback: Optional[bool] = Field(
+    use_history_lookback: bool | None = Field(
         None,
         description="履歴遡及を利用するか（未指定時は操作種別の既定値を使用）",
     )
@@ -391,7 +384,7 @@ class PlayRequest(BaseModel):
         False,
         description="外衣による下着・身体属性の被覆を画像と心境で考慮するか",
     )
-    language: Optional[str] = Field(
+    language: str | None = Field(
         None, description="応答言語（ja/en、未指定時はユーザー設定を使用）"
     )
 
@@ -418,7 +411,7 @@ class CharacterInfo(BaseModel):
 class CharacterListResponse(BaseModel):
     """キャラクター一覧レスポンス"""
 
-    characters: List[CharacterInfo] = Field(..., description="キャラクター一覧")
+    characters: list[CharacterInfo] = Field(..., description="キャラクター一覧")
 
 
 class HistoryItem(BaseModel):
@@ -431,23 +424,23 @@ class HistoryItem(BaseModel):
     before_description: str = Field(..., description="着せ替え前の説明")
     after_description: str = Field(..., description="着せ替え後の説明")
     timestamp: str = Field(..., description="実行日時 (ISO形式)")
-    instruction_type: Optional[str] = Field(
+    instruction_type: str | None = Field(
         None, description="指示タイプ (dress_up/reality_alter/action/image_only)"
     )
     # T025: タグ情報を追加
-    costume_category: Optional[str] = Field(
+    costume_category: str | None = Field(
         None, description="衣装カテゴリ (cute/sexy/elegant/cool/casual)"
     )
-    exposure_level: Optional[str] = Field(
+    exposure_level: str | None = Field(
         None, description="露出度 (modest/moderate/bold/extreme)"
     )
-    age_impression: Optional[str] = Field(
+    age_impression: str | None = Field(
         None, description="年齢印象 (mature/neutral/youthful)"
     )
     # US4: seed value
-    seed: Optional[int] = Field(None, description="画像生成seed値")
+    seed: int | None = Field(None, description="画像生成seed値")
     # US2: surroundings image
-    surroundings_image_url: Optional[str] = Field(
+    surroundings_image_url: str | None = Field(
         None, description="周囲状況画像URL (action時のみ)"
     )
 
@@ -464,38 +457,38 @@ class PlayMemoryResponse(BaseModel):
 
     system_enabled: bool = True
     user_enabled: bool = True
-    system_text: Optional[str] = None
-    user_text: Optional[str] = None
-    system_updated_at: Optional[str] = None
+    system_text: str | None = None
+    user_text: str | None = None
+    system_updated_at: str | None = None
 
 
 class PlayMemoryUpdateRequest(BaseModel):
     """プレイメモのユーザー変更可能項目。"""
 
-    system_enabled: Optional[bool] = None
-    user_enabled: Optional[bool] = None
-    user_text: Optional[str] = Field(None, max_length=4000)
+    system_enabled: bool | None = None
+    user_enabled: bool | None = None
+    user_text: str | None = Field(None, max_length=4000)
 
 
 class SessionResponse(BaseModel):
     """セッション情報レスポンス"""
 
     session_id: str = Field(..., description="セッションID")
-    character_id: Optional[str] = Field(None, description="キャラクターID")
+    character_id: str | None = Field(None, description="キャラクターID")
     current_image_url: str = Field(..., description="現在の画像URL")
     transformation_count: int = Field(0, description="変身回数")
-    history: List[HistoryItem] = Field(..., description="プレイ履歴")
+    history: list[HistoryItem] = Field(..., description="プレイ履歴")
     created_at: str = Field(..., description="作成日時 (ISO形式)")
     updated_at: str = Field(..., description="更新日時 (ISO形式)")
     # パラメータ情報
-    stats: Optional[SessionStatsResponse] = Field(
+    stats: SessionStatsResponse | None = Field(
         None, description="パラメータ (bloom, shame, adaptation)"
     )
     # 復帰用データ
-    attributes: List[SessionAttributeResponse] = Field(
+    attributes: list[SessionAttributeResponse] = Field(
         default_factory=list, description="セッション属性"
     )
-    conversation_history: List[ConversationMessageResponse] = Field(
+    conversation_history: list[ConversationMessageResponse] = Field(
         default_factory=list, description="Conversation history"
     )
     self_mode: bool = Field(False, description="Self mode enabled")
@@ -509,7 +502,7 @@ class BranchSessionRequest(BaseModel):
         True,
         description="開花度・羞恥・適応などのパラメータを分岐点から引き継ぐか",
     )
-    self_mode: Optional[bool] = Field(
+    self_mode: bool | None = Field(
         None,
         description=(
             "新規セッションの自分自身モード。未指定時は分岐元セッションの値を引き継ぐ"
@@ -521,8 +514,8 @@ class BranchSessionResponse(SessionResponse):
     """分岐開始レスポンス（SessionResponse + メタ情報）"""
 
     branch_summary: str = Field("", description="初期historyに入れた状況サマリー")
-    source_session_id: Optional[str] = Field(None, description="分岐元セッションID")
-    source_history_id: Optional[str] = Field(None, description="分岐元履歴ID")
+    source_session_id: str | None = Field(None, description="分岐元セッションID")
+    source_history_id: str | None = Field(None, description="分岐元履歴ID")
     inherit_stats: bool = Field(True, description="パラメータ引き継ぎの適用値")
 
 
@@ -530,20 +523,20 @@ class SessionSummary(BaseModel):
     """セッション概要（一覧表示用）"""
 
     session_id: str = Field(..., description="セッションID")
-    character_id: Optional[str] = Field(None, description="キャラクターID")
-    character_name: Optional[str] = Field(None, description="キャラクター名")
-    thumbnail_url: Optional[str] = Field(None, description="サムネイルURL")
+    character_id: str | None = Field(None, description="キャラクターID")
+    character_name: str | None = Field(None, description="キャラクター名")
+    thumbnail_url: str | None = Field(None, description="サムネイルURL")
     transformation_count: int = Field(0, description="変身回数")
     is_active: bool = Field(..., description="アクティブセッションか")
     created_at: str = Field(..., description="作成日時 (ISO形式)")
     updated_at: str = Field(..., description="更新日時 (ISO形式)")
-    last_instruction: Optional[str] = Field(None, description="最後の変身指示")
+    last_instruction: str | None = Field(None, description="最後の変身指示")
 
 
 class SessionListResponse(BaseModel):
     """セッション一覧レスポンス"""
 
-    sessions: List[SessionSummary] = Field(..., description="セッション一覧")
+    sessions: list[SessionSummary] = Field(..., description="セッション一覧")
     total_count: int = Field(..., description="総セッション数")
 
 
@@ -600,11 +593,11 @@ class SuggestInstructionRequest(BaseModel):
     """過去メッセージからの指示テキスト生成リクエスト"""
 
     session_id: str = Field(..., description="セッションID")
-    instruction_type: Optional[str] = Field(
+    instruction_type: str | None = Field(
         None,
         description="絞り込む指示タイプ (dress_up/reality_alter/action)。None/'all'は全種類を統合",
     )
-    keyword: Optional[str] = Field(
+    keyword: str | None = Field(
         None,
         description="生成に反映したいキーワード/自由入力テキスト（入力欄の内容等）",
         max_length=500,
@@ -632,7 +625,7 @@ class ConversationMessageResponse(BaseModel):
     role: str = Field(..., description="発言者 (user/character)")
     content: str = Field(..., description="メッセージ内容")
     created_at: str = Field(..., description="送信日時 (ISO形式)")
-    instruction_type: Optional[str] = Field(
+    instruction_type: str | None = Field(
         None,
         description="指示タイプ (dress_up/reality_alter/conversation/action/image_only)",
     )
@@ -642,7 +635,7 @@ class ConversationHistoryResponse(BaseModel):
     """会話履歴レスポンス"""
 
     session_id: str = Field(..., description="セッションID")
-    messages: List[ConversationMessageResponse] = Field(..., description="会話履歴")
+    messages: list[ConversationMessageResponse] = Field(..., description="会話履歴")
 
 
 # =============================================================================
@@ -685,7 +678,7 @@ class MaskSaveRequest(BaseModel):
     """マスク保存リクエスト"""
 
     mask_base64: str = Field(..., description="Base64エンコードされたマスクPNG")
-    name: Optional[str] = Field(
+    name: str | None = Field(
         None,
         min_length=1,
         max_length=50,
@@ -703,7 +696,7 @@ class MaskInfo(BaseModel):
     name: str = Field(..., description="表示名")
     type: Literal["system", "history", "preset"] = Field(..., description="マスク種別")
     url: str = Field(..., description="取得用URL")
-    created_at: Optional[str] = Field(
+    created_at: str | None = Field(
         None, description="作成日時 (ISO) - history/presetのみ"
     )
 
@@ -711,9 +704,9 @@ class MaskInfo(BaseModel):
 class MaskListResponse(BaseModel):
     """マスク一覧レスポンス"""
 
-    system: List[MaskInfo] = Field(..., description="システムデフォルトマスク")
-    history: List[MaskInfo] = Field(..., description="保存済み履歴マスク（最大20件）")
-    presets: List[MaskInfo] = Field(
+    system: list[MaskInfo] = Field(..., description="システムデフォルトマスク")
+    history: list[MaskInfo] = Field(..., description="保存済み履歴マスク（最大20件）")
+    presets: list[MaskInfo] = Field(
         default_factory=list, description="ユーザープリセットマスク"
     )
 
@@ -729,7 +722,7 @@ class SessionStatsResponse(BaseModel):
     bloom: int = Field(..., ge=0, le=100, description="開花度")
     shame: int = Field(..., ge=0, le=100, description="羞恥心")
     adaptation: int = Field(..., ge=-50, le=50, description="順応度")
-    passed_critical_points: List[int] = Field(
+    passed_critical_points: list[int] = Field(
         ..., description="通過済み臨界点", alias="passedCriticalPoints"
     )
     difficulty: str = Field(..., description="難易度")
@@ -753,22 +746,22 @@ class CriticalPointEventResponse(BaseModel):
     """臨界点イベントレスポンス"""
 
     triggered: bool = Field(..., description="臨界点発火したか")
-    threshold: Optional[int] = Field(None, description="発火した閾値")
-    name: Optional[str] = Field(None, description="臨界点名")
-    effect_type: Optional[str] = Field(None, description="エフェクトタイプ")
-    speech: Optional[str] = Field(None, description="特別セリフ")
+    threshold: int | None = Field(None, description="発火した閾値")
+    name: str | None = Field(None, description="臨界点名")
+    effect_type: str | None = Field(None, description="エフェクトタイプ")
+    speech: str | None = Field(None, description="特別セリフ")
 
 
 class EndingResponse(BaseModel):
     """エンディングレスポンス"""
 
     triggered: bool = Field(..., description="エンディング到達したか")
-    ending_id: Optional[str] = Field(None, description="エンディングID")
-    title: Optional[str] = Field(None, description="エンディングタイトル")
-    description: Optional[str] = Field(None, description="エンディング説明")
-    final_speech: Optional[str] = Field(None, description="最終セリフ")
-    summary: Optional[str] = Field(None, description="総括テキスト")
-    is_new: Optional[bool] = Field(None, description="初達成かどうか")
+    ending_id: str | None = Field(None, description="エンディングID")
+    title: str | None = Field(None, description="エンディングタイトル")
+    description: str | None = Field(None, description="エンディング説明")
+    final_speech: str | None = Field(None, description="最終セリフ")
+    summary: str | None = Field(None, description="総括テキスト")
+    is_new: bool | None = Field(None, description="初達成かどうか")
 
 
 class DifficultyResponse(BaseModel):
@@ -782,13 +775,13 @@ class DifficultyResponse(BaseModel):
 class DifficultyListResponse(BaseModel):
     """難易度一覧レスポンス"""
 
-    difficulties: List[DifficultyResponse] = Field(..., description="難易度一覧")
+    difficulties: list[DifficultyResponse] = Field(..., description="難易度一覧")
 
 
 class GameStartRequest(BaseModel):
     """Game start request."""
 
-    character_id: Optional[str] = Field(None, description="Character ID")
+    character_id: str | None = Field(None, description="Character ID")
     difficulty: str = Field("normal", description="Difficulty (easy/normal/hard)")
     nsfw_mode: bool = Field(False, description="NSFW mode")
     self_mode: bool = Field(False, description="Self mode (bypass parameters)")
@@ -823,7 +816,7 @@ class SessionCharacterRead(BaseModel):
     is_protagonist: bool = False
     appearance_lock: bool = False
     exclude_from_effects: bool = False
-    source_preset_id: Optional[str] = None
+    source_preset_id: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -835,8 +828,8 @@ class SessionCharacterCreate(BaseModel):
     appearance_natural: str = Field("", max_length=1000)
     appearance_tags: str = Field("", max_length=2000)
     position: CharacterPositionLiteral = "center"
-    slot_index: Optional[int] = Field(None, ge=0, le=3)
-    source_preset_id: Optional[str] = None
+    slot_index: int | None = Field(None, ge=0, le=3)
+    source_preset_id: str | None = None
     appearance_lock: bool = False
     exclude_from_effects: bool = False
 
@@ -844,13 +837,13 @@ class SessionCharacterCreate(BaseModel):
 class SessionCharacterUpdate(BaseModel):
     """Partial update payload for an existing SessionCharacter."""
 
-    name: Optional[str] = Field(None, min_length=1, max_length=120)
-    appearance_natural: Optional[str] = Field(None, max_length=1000)
-    appearance_tags: Optional[str] = Field(None, max_length=2000)
-    position: Optional[CharacterPositionLiteral] = None
-    slot_index: Optional[int] = Field(None, ge=0, le=3)
-    appearance_lock: Optional[bool] = None
-    exclude_from_effects: Optional[bool] = None
+    name: str | None = Field(None, min_length=1, max_length=120)
+    appearance_natural: str | None = Field(None, max_length=1000)
+    appearance_tags: str | None = Field(None, max_length=2000)
+    position: CharacterPositionLiteral | None = None
+    slot_index: int | None = Field(None, ge=0, le=3)
+    appearance_lock: bool | None = None
+    exclude_from_effects: bool | None = None
 
 
 class CharacterPresetRead(BaseModel):
@@ -884,10 +877,10 @@ class PresetCreateRaw(BaseModel):
 class CharacterPresetUpdate(BaseModel):
     """Partial update payload for a preset."""
 
-    name: Optional[str] = Field(None, min_length=1, max_length=120)
-    appearance_natural: Optional[str] = Field(None, max_length=1000)
-    appearance_tags: Optional[str] = Field(None, max_length=2000)
-    default_position: Optional[CharacterPositionLiteral] = None
+    name: str | None = Field(None, min_length=1, max_length=120)
+    appearance_natural: str | None = Field(None, max_length=1000)
+    appearance_tags: str | None = Field(None, max_length=2000)
+    default_position: CharacterPositionLiteral | None = None
 
 
 class GenerateTagsItem(BaseModel):
@@ -901,7 +894,7 @@ class GenerateTagsItem(BaseModel):
 class GenerateTagsRequest(BaseModel):
     """Batch tag-generation request body."""
 
-    items: List[GenerateTagsItem] = Field(..., min_length=1, max_length=4)
+    items: list[GenerateTagsItem] = Field(..., min_length=1, max_length=4)
 
 
 class GenerateTagsResultItem(BaseModel):
@@ -914,19 +907,19 @@ class GenerateTagsResultItem(BaseModel):
 class GenerateTagsResponse(BaseModel):
     """Batch tag-generation response body."""
 
-    results: List[GenerateTagsResultItem]
+    results: list[GenerateTagsResultItem]
 
 
 class SessionCharacterListResponse(BaseModel):
     """Wrapper for GET /game/session/{id}/characters."""
 
-    characters: List[SessionCharacterRead]
+    characters: list[SessionCharacterRead]
 
 
 class CharacterPresetListResponse(BaseModel):
     """Wrapper for GET /game/character-presets."""
 
-    presets: List[CharacterPresetRead]
+    presets: list[CharacterPresetRead]
 
 
 class GalleryEndingItem(BaseModel):
@@ -935,13 +928,13 @@ class GalleryEndingItem(BaseModel):
     ending_id: str = Field(..., description="エンディングID")
     title: str = Field(..., description="タイトル（未達成時は「???」）")
     achieved: bool = Field(..., description="達成済みか")
-    achieved_at: Optional[str] = Field(None, description="達成日時")
+    achieved_at: str | None = Field(None, description="達成日時")
 
 
 class GalleryResponse(BaseModel):
     """ギャラリーレスポンス"""
 
-    endings: List[GalleryEndingItem] = Field(..., description="エンディング一覧")
+    endings: list[GalleryEndingItem] = Field(..., description="エンディング一覧")
     total_count: int = Field(..., description="全エンディング数")
     achieved_count: int = Field(..., description="達成済みエンディング数")
 
@@ -1017,16 +1010,16 @@ class PersistedHistory:
     session_id: str
     instruction: str
     image_path: str
-    feeling_text: Optional[str]
-    before_description: Optional[str]
-    after_description: Optional[str]
+    feeling_text: str | None
+    before_description: str | None
+    after_description: str | None
     created_at: datetime
-    instruction_type: Optional[str] = None
-    seed: Optional[int] = None
-    surroundings_image_path: Optional[str] = None
+    instruction_type: str | None = None
+    seed: int | None = None
+    surroundings_image_path: str | None = None
 
     @classmethod
-    def from_row(cls, row: dict) -> "PersistedHistory":
+    def from_row(cls, row: dict) -> PersistedHistory:
         """SQLite行からインスタンスを作成"""
         return cls(
             id=row["id"],
@@ -1050,22 +1043,22 @@ class PersistedSession:
 
     id: str
     user_id: str
-    character_id: Optional[str]
+    character_id: str | None
     current_image_path: str
     transformation_count: int
     is_active: bool
     created_at: datetime
     updated_at: datetime
     self_mode: bool = False
-    play_memory_system_text: Optional[str] = None
-    play_memory_user_text: Optional[str] = None
+    play_memory_system_text: str | None = None
+    play_memory_user_text: str | None = None
     play_memory_system_enabled: bool = True
     play_memory_user_enabled: bool = True
-    play_memory_system_updated_at: Optional[datetime] = None
-    history: List[PersistedHistory] = field(default_factory=list)
+    play_memory_system_updated_at: datetime | None = None
+    history: list[PersistedHistory] = field(default_factory=list)
 
     @classmethod
-    def from_row(cls, row: dict) -> "PersistedSession":
+    def from_row(cls, row: dict) -> PersistedSession:
         """SQLite行からインスタンスを作成"""
         return cls(
             id=row["id"],
@@ -1117,14 +1110,14 @@ class GameSession:
     """
 
     session_id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    character_id: Optional[str] = None
-    character: Optional[Character] = None
+    character_id: str | None = None
+    character: Character | None = None
     current_image: bytes = b""
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
 
-    history: List[PlayHistory] = field(default_factory=list)
-    stats: Optional[SessionStats] = None
+    history: list[PlayHistory] = field(default_factory=list)
+    stats: SessionStats | None = None
 
     def update_image(self, new_image: bytes) -> None:
         """現在の画像を更新"""

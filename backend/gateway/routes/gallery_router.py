@@ -5,24 +5,25 @@ Gallery API endpoints
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import and_, delete, desc, func, or_, select
-from urllib.parse import quote
 
-from ..services.characters import CharacterManager
-from ..settings.config import settings
 from ..databases.base import async_session_factory
 from ..databases.models import Conversation as ConversationORM
 from ..databases.models import History as HistoryORM
-from ..databases.models import Session as SessionORM
 from ..databases.models import PlaySummary as PlaySummaryORM
+from ..databases.models import Session as SessionORM
+from ..services.characters import CharacterManager
+from ..settings.config import settings
 
 router = APIRouter(prefix="/gallery", tags=["gallery"])
 
@@ -581,10 +582,8 @@ async def delete_gallery_session(session_id: str):
                 if image_path_value:
                     image_path = Path(image_path_value)
                     if image_path.exists():
-                        try:
+                        with contextlib.suppress(OSError):
                             os.remove(image_path)
-                        except OSError:
-                            pass
 
             await db_session.execute(
                 delete(HistoryORM).where(HistoryORM.session_id == session_id)
@@ -603,7 +602,7 @@ async def delete_gallery_session(session_id: str):
             raise
         except Exception as exc:
             await db_session.rollback()
-            raise HTTPException(status_code=500, detail=str(exc))
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.delete("/{item_id}", response_model=DeleteResponse)
@@ -630,10 +629,8 @@ async def delete_gallery_item(item_id: str):
             if row.image_path:
                 image_path = Path(row.image_path)
                 if image_path.exists():
-                    try:
+                    with contextlib.suppress(OSError):
                         os.remove(image_path)
-                    except OSError:
-                        pass
 
             # 周囲状況画像を削除
             if row.surroundings_image_path:
@@ -641,10 +638,8 @@ async def delete_gallery_item(item_id: str):
                     settings.history_images_dir.parent / row.surroundings_image_path
                 )
                 if surroundings_path.exists():
-                    try:
+                    with contextlib.suppress(OSError):
                         os.remove(surroundings_path)
-                    except OSError:
-                        pass
 
             await db_session.execute(delete(HistoryORM).where(HistoryORM.id == item_id))
             await db_session.commit()
@@ -658,7 +653,7 @@ async def delete_gallery_item(item_id: str):
             raise
         except Exception as exc:
             await db_session.rollback()
-            raise HTTPException(status_code=500, detail=str(exc))
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 # ------------------------------------------------------------------
@@ -712,12 +707,12 @@ async def generate_session_summary(
     try:
         return await summary_service.generate_summary(session_id, language)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         raise HTTPException(
             status_code=500,
             detail=f"Summary generation failed: {e}",
-        )
+        ) from e
 
 
 # ------------------------------------------------------------------
@@ -742,13 +737,15 @@ async def export_session_markdown(session_id: str) -> Response:
 
     try:
         content, filename = await build_markdown_export(session_id)
-    except LookupError:
+    except LookupError as exc:
         raise HTTPException(
             status_code=404,
             detail={"error": "SESSION_NOT_FOUND", "message": "Session not found"},
-        )
+        ) from exc
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=500, detail=f"Markdown export failed: {exc}")
+        raise HTTPException(
+            status_code=500, detail=f"Markdown export failed: {exc}"
+        ) from exc
 
     return Response(
         content=content,
@@ -768,13 +765,15 @@ async def export_session_novel_html(session_id: str) -> Response:
 
     try:
         content, filename = await build_novel_html_zip(session_id)
-    except LookupError:
+    except LookupError as exc:
         raise HTTPException(
             status_code=404,
             detail={"error": "SESSION_NOT_FOUND", "message": "Session not found"},
-        )
+        ) from exc
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=500, detail=f"Novel HTML export failed: {exc}")
+        raise HTTPException(
+            status_code=500, detail=f"Novel HTML export failed: {exc}"
+        ) from exc
 
     return Response(
         content=content,

@@ -226,8 +226,8 @@ def get_psychological_description(
 
 def build_conversation_prompt(
     message: str,
-    conversation_history: list["ConversationMessage"],
-    stats: "SessionStats",
+    conversation_history: list[ConversationMessage],
+    stats: SessionStats,
     current_outfit_desc: str,
     character_name: str = "キャラクター",
     pronoun: str = "僕",

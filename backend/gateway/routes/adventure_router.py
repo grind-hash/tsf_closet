@@ -69,7 +69,7 @@ class AdventureSetupGenerateRequest(BaseModel):
     preset: Literal["infiltration", "escape", "negotiation", "disguise", "romance"]
 
     @model_validator(mode="after")
-    def _require_source(self) -> "AdventureSetupGenerateRequest":
+    def _require_source(self) -> AdventureSetupGenerateRequest:
         if not self.source_session_id and not self.source_prompt_expander_entry_id:
             raise ValueError(
                 "source_session_id か source_prompt_expander_entry_id のいずれかが必要です"
@@ -102,7 +102,7 @@ class AdventureCreateRequest(BaseModel):
     custom_setup: str = Field(default="", max_length=1000)
 
     @model_validator(mode="after")
-    def _require_source(self) -> "AdventureCreateRequest":
+    def _require_source(self) -> AdventureCreateRequest:
         # リプレイ（replay_run_id）は元 run から素材を引き継ぐため素材未指定を許す
         if (
             not self.source_session_id

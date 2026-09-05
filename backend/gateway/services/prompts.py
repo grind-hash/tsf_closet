@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .gender_congruence import GenderCongruenceResult
@@ -148,7 +148,7 @@ def build_feeling_prompt(
     after_desc: str,
     instruction: str,
     pronoun: str = "僕",
-    opening: Optional[str] = None,
+    opening: str | None = None,
 ) -> str:
     """心境生成用のユーザープロンプトを構築
 
@@ -934,7 +934,7 @@ def get_psychological_stage(bloom: int, nsfw_mode: bool = False) -> dict:
         心理段階の定義辞書
     """
     stages = PSYCHOLOGICAL_STAGES_NSFW if nsfw_mode else PSYCHOLOGICAL_STAGES
-    for stage_name, stage_data in stages.items():
+    for stage_data in stages.values():
         min_val, max_val = stage_data["range"]
         if min_val <= bloom <= max_val:
             return stage_data
@@ -955,7 +955,7 @@ def build_enhanced_feeling_prompt(
     description: str = "",
     used_openings: list[str] | None = None,
     enable_multiple_people: bool = False,
-    gender_congruence: "GenderCongruenceResult | None" = None,
+    gender_congruence: GenderCongruenceResult | None = None,
 ) -> tuple[str, str]:
     """Build an enhanced feeling prompt with psychological stage and personality.
 

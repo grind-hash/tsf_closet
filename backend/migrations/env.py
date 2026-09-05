@@ -18,9 +18,9 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from gateway.settings.config import settings
-from gateway.databases.base import Base
 from gateway.databases import models  # noqa: F401 - Import for model registration
+from gateway.databases.base import Base
+from gateway.settings.config import settings
 
 # this is the Alembic Config object
 config = context.config

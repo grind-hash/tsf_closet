@@ -23,9 +23,10 @@ import json
 import logging
 import re
 import time
+from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, AsyncGenerator, Dict, Optional, Sequence
+from typing import Any
 
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request, UploadFile
@@ -34,12 +35,10 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.datastructures import FormData
 
-from .services.anlas_service import parse_novelai_usage
-from .services.comfy import ComfyUIClient, ComfyUIError
 from .databases import close_database, init_database
 from .routes import (
-    adventure_router,
     achievements_router,
+    adventure_router,
     aivisspeech_router,
     avatar_router,
     character_router,
@@ -50,6 +49,8 @@ from .routes import (
     prompt_expander_router,
     settings_router,
 )
+from .services.anlas_service import parse_novelai_usage
+from .services.comfy import ComfyUIClient, ComfyUIError
 from .settings.app_settings import Settings, configure_logging, settings
 
 # ログ設定を適用
@@ -144,7 +145,7 @@ def _find_upload(
     return None
 
 
-def _collect_nested_form_data(form: FormData) -> Dict[str, Any]:
+def _collect_nested_form_data(form: FormData) -> dict[str, Any]:
     """ネストされたフォームデータを辞書形式に変換
 
     "replacements[key1]" や "image_placeholders[img1][data]" のような
@@ -159,7 +160,7 @@ def _collect_nested_form_data(form: FormData) -> Dict[str, Any]:
     Returns:
         Dict[str, Any]: ネストされた辞書構造
     """
-    nested: Dict[str, Any] = {}
+    nested: dict[str, Any] = {}
     for key, value in form.multi_items():
         # ブラケット記法でないフィールドはスキップ
         if "[" not in key:
@@ -171,7 +172,7 @@ def _collect_nested_form_data(form: FormData) -> Dict[str, Any]:
             continue
 
         # ネストした辞書を構築
-        current: Dict[str, Any] = nested
+        current: dict[str, Any] = nested
         for part in parts[:-1]:
             current = current.setdefault(part, {})  # type: ignore[assignment]
         current[parts[-1]] = value
@@ -367,7 +368,7 @@ def get_comfy_client(cfg: Settings = Depends(get_settings)) -> ComfyUIClient:
 
 
 @app.get("/health")
-async def health() -> Dict[str, Any]:
+async def health() -> dict[str, Any]:
     """拡張ヘルスチェックエンドポイント
 
     サーバーが稼働中かを確認し、外部サービスの接続状況も返却。
@@ -377,7 +378,7 @@ async def health() -> Dict[str, Any]:
     """
     from .services.litellm_client import litellm_client
 
-    result: Dict[str, Any] = {
+    result: dict[str, Any] = {
         "status": "ok",
         "services": {},
         # プロバイダー情報
@@ -442,7 +443,7 @@ async def health() -> Dict[str, Any]:
 
 
 @app.get("/novelai/subscription")
-async def get_novelai_subscription() -> Dict[str, Any]:
+async def get_novelai_subscription() -> dict[str, Any]:
     """NovelAIサブスクリプション情報を取得
 
     NovelAI API /user/subscription を呼び出し、
@@ -535,7 +536,7 @@ async def suggest_tags(
     prompt: str,
     model: str = "nai-diffusion-4-5-full",
     lang: str = "jp",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """NovelAIタグ候補検索 (T004-T005)
 
     NovelAI suggest-tags APIをプロキシして、プロンプト入力補助用のタグ候補を返す。
@@ -635,30 +636,27 @@ async def suggest_tags(
                             )
                     elif isinstance(item, str):
                         tags.append({"tag": item, "count": None})
-            elif isinstance(data, dict):
-                if "tags" in data:
-                    for item in data["tags"]:
-                        if isinstance(item, dict):
-                            tag_name = (
-                                item.get("en_tag")
-                                or item.get("jp_tag")
-                                or item.get("tag")
-                                or item.get("name", "")
+            elif isinstance(data, dict) and "tags" in data:
+                for item in data["tags"]:
+                    if isinstance(item, dict):
+                        tag_name = (
+                            item.get("en_tag")
+                            or item.get("jp_tag")
+                            or item.get("tag")
+                            or item.get("name", "")
+                        )
+                        count = (
+                            item.get("power") or item.get("count") or item.get("score")
+                        )
+                        if tag_name:
+                            tags.append(
+                                {
+                                    "tag": tag_name,
+                                    "count": count,
+                                }
                             )
-                            count = (
-                                item.get("power")
-                                or item.get("count")
-                                or item.get("score")
-                            )
-                            if tag_name:
-                                tags.append(
-                                    {
-                                        "tag": tag_name,
-                                        "count": count,
-                                    }
-                                )
-                        elif isinstance(item, str):
-                            tags.append({"tag": item, "count": None})
+                    elif isinstance(item, str):
+                        tags.append({"tag": item, "count": None})
 
             return {
                 "tags": tags,
@@ -727,7 +725,7 @@ async def _process_image_form(
     prompt_value = form.get("prompt")
     if prompt_value is not None and not isinstance(prompt_value, str):
         raise HTTPException(status_code=400, detail="prompt must be a text field")
-    prompt: Optional[str] = prompt_value
+    prompt: str | None = prompt_value
 
     # ネストされたフォームデータを収集 (replacements[xxx], image_placeholders[xxx] など)
     nested_fields = _collect_nested_form_data(form)
@@ -748,7 +746,7 @@ async def _process_image_form(
     # マスク画像 (オプション)
     # variations エンドポイントの場合は force_mask_none=True でマスクを強制無視
     raw_mask_upload = _find_upload(form, ("mask", "mask[]"), fallback_prefix="mask")
-    mask_upload: Optional[UploadFile] = None
+    mask_upload: UploadFile | None = None
     if raw_mask_upload is not None:
         if force_mask_none:
             await raw_mask_upload.close()
@@ -807,7 +805,7 @@ async def _process_image_form(
     # - image_placeholders: 追加画像のBase64データ
 
     extra_body_value = form.get("extra_body")
-    extra_body: Optional[str]
+    extra_body: str | None
     if isinstance(extra_body_value, UploadFile):
         try:
             extra_body_bytes = await extra_body_value.read()
@@ -824,11 +822,11 @@ async def _process_image_form(
         extra_body = None
 
     # パラメータを統合するためのリスト
-    extra_payloads: list[Dict[str, Any]] = []
+    extra_payloads: list[dict[str, Any]] = []
 
     # ネストフィールド (replacements[xxx], image_placeholders[xxx]) を処理
     if nested_fields:
-        nested_payload: Dict[str, Any] = {}
+        nested_payload: dict[str, Any] = {}
 
         # replacements の処理
         nested_replacements = nested_fields.get("replacements")
@@ -842,7 +840,7 @@ async def _process_image_form(
         # image_placeholders の処理
         nested_image_placeholders = nested_fields.get("image_placeholders")
         if isinstance(nested_image_placeholders, dict) and nested_image_placeholders:
-            placeholder_entries: Dict[str, Any] = {}
+            placeholder_entries: dict[str, Any] = {}
             for placeholder, raw_value in nested_image_placeholders.items():
                 if isinstance(raw_value, dict):
                     data_value = raw_value.get("data")
@@ -891,7 +889,7 @@ async def _process_image_form(
         await image_upload.close()
 
     # マスク画像の読み込み
-    mask_bytes: Optional[bytes] = None
+    mask_bytes: bytes | None = None
     if mask_upload is not None:
         try:
             mask_bytes = await mask_upload.read()
@@ -906,8 +904,8 @@ async def _process_image_form(
     # 4. プレースホルダー置換と追加画像の準備
     # ========================================
 
-    replacements: Dict[str, Any] = {}  # ワークフロー内の __PROMPT__ などを置換
-    extra_images: Dict[str, Dict[str, Any]] = {}  # 追加画像 (Base64デコード済み)
+    replacements: dict[str, Any] = {}  # ワークフロー内の __PROMPT__ などを置換
+    extra_images: dict[str, dict[str, Any]] = {}  # 追加画像 (Base64デコード済み)
 
     # extra_payloads から replacements と image_placeholders を抽出
     for payload in extra_payloads:
@@ -977,7 +975,7 @@ async def _process_image_form(
     # 5. ワークフローの選択
     # ========================================
 
-    workflow_name: Optional[str] = None
+    workflow_name: str | None = None
     for payload in extra_payloads:
         wf = payload.get("workflow")
         if wf is not None:
