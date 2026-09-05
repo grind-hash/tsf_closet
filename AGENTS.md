@@ -86,6 +86,9 @@ tavily-remote MCP を利用してライブラリ選定を行う際は、以下�
 * Frontend Markdown format check:
   `cd frontend; npx prettier --check <changed-md-files>`
 
+* Frontend unit test (vitest, jsdom):
+  `cd frontend; npm run test`（単一ファイルは `npx vitest run src/path/File.test.ts`）
+
 * Backend lint:
   `cd backend; uv run ruff check <changed-files>`
 
@@ -94,6 +97,11 @@ tavily-remote MCP を利用してライブラリ選定を行う際は、以下�
 
 * Backend import sanity:
   `cd backend; uv run python -c "from gateway.routes import game_router; print('ok')"`
+
+* Backend unit test:
+  `cd backend; uv run pytest tests/unit/test_target.py`
+
+* CI: `.github/workflows/ci.yml` が develop への push / PR で ruff・pytest・Biome・tsc・vitest を実行する（E2E は含まない）
 
 ### Alembic 注意
 

@@ -8,7 +8,9 @@ import importlib
 _settings_router_mod = importlib.import_module("gateway.routes.settings_router")
 
 
-def test_regression_smoke_for_settings_and_achievements(monkeypatch):
+def test_regression_smoke_for_settings_and_achievements(
+    monkeypatch, isolated_achievement_db
+):
     app = FastAPI()
     app.include_router(settings_router, prefix="/api")
     app.include_router(achievements_router, prefix="/api")
@@ -20,7 +22,7 @@ def test_regression_smoke_for_settings_and_achievements(monkeypatch):
             return state
 
         async def update_user_settings(
-            self, nsfw_mode=None, difficulty=None, language=None
+            self, nsfw_mode=None, difficulty=None, language=None, **_other_fields
         ):
             if nsfw_mode is not None:
                 state["nsfw_mode"] = nsfw_mode
@@ -37,7 +39,12 @@ def test_regression_smoke_for_settings_and_achievements(monkeypatch):
             return dict(state)
 
         async def update_user_settings(
-            self, user_id="default-user", nsfw_mode=None, difficulty=None, language=None
+            self,
+            user_id="default-user",
+            nsfw_mode=None,
+            difficulty=None,
+            language=None,
+            **_other_fields,
         ):
             if nsfw_mode is not None:
                 state["nsfw_mode"] = nsfw_mode

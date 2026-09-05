@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [develop]
+  pull_request:
+    branches: [develop]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (ruff / pytest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10
+        with:
+          working-directory: backend
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      # pyproject.toml に [tool.ruff] を入れる PR（Phase 0-2）までは、
+      # 既存コードの違反が多いため非ブロッキングで実行する。
+      - name: Ruff lint (non-blocking until ruff config lands)
+        run: uv run ruff check gateway tests
+        continue-on-error: true
+
+      - name: Ruff format check
+        run: uv run ruff format --check gateway tests
+
+      - name: Import sanity
+        run: uv run python -c "from gateway.routes import game_router; print('ok')"
+
+      - name: Pytest
+        run: uv run pytest -q
+
+  frontend:
+    name: Frontend (biome / tsc / vitest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Biome
+        run: npm run lint
+
+      - name: Type check
+        run: npx tsc -b
+
+      - name: Vitest
+        run: npm run test

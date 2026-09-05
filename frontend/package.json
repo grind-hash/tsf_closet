@@ -12,6 +12,7 @@
     "format:md": "prettier --write \"**/*.{md,mdx}\"",
     "format:md:check": "prettier --check \"**/*.{md,mdx}\"",
     "preview": "vite preview",
+    "test": "vitest run",
     "e2e:test": "playwright test"
   },
   "dependencies": {
