@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import json
+import logging
 import random
 import time
 import uuid
@@ -13,6 +14,9 @@ from typing import Any
 import httpx
 
 from ..settings.config import settings
+from .http_client import async_client
+
+logger = logging.getLogger(__name__)
 
 
 class ComfyUIError(RuntimeError):
@@ -68,7 +72,7 @@ class ComfyUIClient:
         replacements.setdefault("__NEGATIVE_PROMPT__", "")
         replacements.setdefault("__SEED__", random.randint(0, 2**63 - 1))
 
-        async with httpx.AsyncClient(
+        async with async_client(
             base_url=self.base_url, timeout=self.request_timeout
         ) as client:
             init_image_name = await self._upload_image(
@@ -92,10 +96,10 @@ class ComfyUIClient:
                 )
                 replacements.setdefault(placeholder, uploaded_name)
 
-            print("REPLACEMENTS", replacements)
+            logger.debug("ComfyUI replacements: %s", replacements)
             prompt_payload = self._apply_replacements(template, replacements)
-            print(
-                "PROMPT PAYLOAD node 111 (positive)",
+            logger.debug(
+                "ComfyUI prompt payload node 111 (positive): %s",
                 prompt_payload.get("111", {}).get("inputs", {}).get("prompt", "")[:100]
                 if prompt_payload.get("111")
                 else "N/A",
@@ -141,7 +145,7 @@ class ComfyUIClient:
         replacements.setdefault("__WIDTH__", int(width))
         replacements.setdefault("__HEIGHT__", int(height))
 
-        async with httpx.AsyncClient(
+        async with async_client(
             base_url=self.base_url, timeout=self.request_timeout
         ) as client:
             prompt_payload = self._apply_replacements(template, replacements)
@@ -165,12 +169,14 @@ class ComfyUIClient:
         response = await client.post("/prompt", json=payload)
         if response.status_code >= 400:
             error_text = response.text
-            print(f"ComfyUI error response ({response.status_code}): {error_text}")
+            logger.warning(
+                "ComfyUI error response (%s): %s", response.status_code, error_text
+            )
             raise ComfyUIError(
                 f"ComfyUI prompt failed ({response.status_code}): {error_text}"
             )
         prompt_id = response.json().get("prompt_id")
-        print(prompt_id)
+        logger.debug("ComfyUI prompt queued: %s", prompt_id)
         if not prompt_id:
             raise ComfyUIError("ComfyUI did not return a prompt_id")
 
@@ -281,7 +287,9 @@ class ComfyUIClient:
                 await asyncio.sleep(self.poll_interval)
                 continue
             if 500 <= status_code < 600:
-                print(f"COMFYUI history fetch returned {status_code}, retrying")
+                logger.warning(
+                    "ComfyUI history fetch returned %s, retrying", status_code
+                )
                 await asyncio.sleep(self.poll_interval)
                 continue
             if status_code >= 400:
@@ -292,7 +300,7 @@ class ComfyUIClient:
             try:
                 payload = response.json() or {}
             except ValueError:
-                print("COMFYUI history returned invalid JSON; retrying")
+                logger.warning("ComfyUI history returned invalid JSON; retrying")
                 await asyncio.sleep(self.poll_interval)
                 continue
             if not isinstance(payload, dict):
@@ -307,7 +315,7 @@ class ComfyUIClient:
                 history = {prompt_id: payload[prompt_id]}
 
             entry = history.get(prompt_id)
-            print(entry)
+            logger.debug("ComfyUI history entry: %s", entry)
             if not entry:
                 await asyncio.sleep(self.poll_interval)
                 continue
@@ -321,17 +329,19 @@ class ComfyUIClient:
 
             if status_str == "success" and completed_flag is True:
                 outputs = entry.get("outputs", {})
-                print(
-                    f"COMFYUI history success prompt={prompt_id} output_nodes={list(outputs.keys())}"
+                logger.debug(
+                    "ComfyUI history success prompt=%s output_nodes=%s",
+                    prompt_id,
+                    list(outputs.keys()),
                 )
                 images = await self._collect_images(client, outputs, limit=limit)
                 if images:
                     return images
                 extra_data = entry.get("extra_data") or {}
                 if extra_data:
-                    print(f"COMFYUI extra_data keys={list(extra_data.keys())}")
-                print(
-                    "COMFYUI reported success but no images yet; waiting for next poll"
+                    logger.debug("ComfyUI extra_data keys=%s", list(extra_data.keys()))
+                logger.debug(
+                    "ComfyUI reported success but no images yet; waiting for next poll"
                 )
             await asyncio.sleep(self.poll_interval)
         raise TimeoutError("Timed out waiting for ComfyUI to finish rendering")
@@ -348,8 +358,10 @@ class ComfyUIClient:
             image_list = node.get("images", [])
             if not image_list:
                 continue
-            print(
-                f"COMFYUI downloading images from node {node_id} count={len(image_list)}"
+            logger.debug(
+                "ComfyUI downloading images from node %s count=%s",
+                node_id,
+                len(image_list),
             )
             for image_info in image_list:
                 image_bytes = await self._download_image(client, image_info)
@@ -357,8 +369,9 @@ class ComfyUIClient:
                 if limit and len(images) >= limit:
                     return images
         if not images:
-            print(
-                f"COMFYUI no downloadable images found in outputs: {list(outputs.keys())}"
+            logger.warning(
+                "ComfyUI no downloadable images found in outputs: %s",
+                list(outputs.keys()),
             )
         return images
 

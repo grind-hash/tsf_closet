@@ -11,9 +11,8 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-import httpx
-
 from ..settings.config import settings
+from .http_client import async_client
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +74,7 @@ async def get_anlas_balance() -> AnlasBalance | None:
     if not api_key:
         return None
 
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    async with async_client(timeout=10.0) as client:
         response = await client.get(
             NOVELAI_SUBSCRIPTION_URL,
             headers={"Authorization": f"Bearer {api_key}"},

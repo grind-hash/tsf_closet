@@ -21,6 +21,7 @@ from urllib.parse import urlparse
 import httpx
 
 from ..settings.app_settings import BASE_DIR, settings
+from .http_client import async_client
 
 logger = logging.getLogger(__name__)
 
@@ -192,7 +193,7 @@ class AivisSpeechService:
         total = 0
 
         async with (
-            httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client,
+            async_client(timeout=timeout, follow_redirects=True) as client,
             client.stream("GET", url) as response,
         ):
             response.raise_for_status()
@@ -404,7 +405,7 @@ class AivisSpeechService:
         endpoint = f"{base_url}/version"
         last_error = "health check not completed"
 
-        async with httpx.AsyncClient(timeout=httpx.Timeout(2.5)) as client:
+        async with async_client(timeout=httpx.Timeout(2.5)) as client:
             while True:
                 process = self._engine_process
                 if process is not None and process.poll() is not None:
@@ -549,7 +550,7 @@ class AivisSpeechService:
         endpoint = f"{await self.resolve_base_url()}/aivm_models/install"
 
         try:
-            async with httpx.AsyncClient(timeout=timeout) as client:
+            async with async_client(timeout=timeout) as client:
                 with file_path.open("rb") as f:
                     response = await client.post(
                         endpoint, files={"file": (file_path.name, f)}
@@ -581,7 +582,7 @@ class AivisSpeechService:
     async def get_speakers(self) -> list[dict[str, Any]]:
         timeout = httpx.Timeout(20.0)
         endpoint = f"{await self.resolve_base_url()}/speakers"
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        async with async_client(timeout=timeout) as client:
             response = await client.get(endpoint)
             response.raise_for_status()
             data = response.json()
@@ -724,7 +725,7 @@ class AivisSpeechService:
         results: list[tuple[bytes, dict[str, Any]]] = []
         total_chunks = len(chunks)
 
-        async with httpx.AsyncClient(timeout=operation_timeout) as client:
+        async with async_client(timeout=operation_timeout) as client:
             for index, chunk in enumerate(chunks, start=1):
                 try:
                     query_resp = await client.post(
@@ -877,7 +878,7 @@ class AivisSpeechService:
         engine_version: str | None = None
         engine_brand: str | None = None
         try:
-            async with httpx.AsyncClient(timeout=httpx.Timeout(2.5)) as client:
+            async with async_client(timeout=httpx.Timeout(2.5)) as client:
                 response = await client.get(endpoint)
                 if response.status_code < 400:
                     engine_http = "ok"

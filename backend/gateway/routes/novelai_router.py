@@ -11,6 +11,7 @@ import httpx
 from fastapi import APIRouter, HTTPException
 
 from ..services.anlas_service import parse_novelai_usage
+from ..services.http_client import async_client
 from ..settings.app_settings import settings
 
 logger = logging.getLogger(__name__)
@@ -51,7 +52,7 @@ async def get_novelai_subscription() -> dict[str, Any]:
         )
 
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with async_client(timeout=10.0) as client:
             response = await client.get(
                 "https://image.novelai.net/user/subscription",
                 headers={
@@ -153,7 +154,7 @@ async def suggest_tags(
         )
 
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with async_client(timeout=10.0) as client:
             response = await client.get(
                 "https://image.novelai.net/ai/generate-image/suggest-tags",
                 params={

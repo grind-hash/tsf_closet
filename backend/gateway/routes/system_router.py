@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-import httpx
 from fastapi import APIRouter
 
+from ..services.http_client import async_client
 from ..services.providers import (
     Provider,
     resolve_image_description_provider,
@@ -41,7 +41,7 @@ async def health() -> dict[str, Any]:
     # ComfyUI 接続確認 (IMAGE_PROVIDER=selfhost時のみ)
     if resolve_image_provider() == Provider.SELFHOST:
         try:
-            async with httpx.AsyncClient(timeout=2.0) as client:
+            async with async_client(timeout=2.0) as client:
                 resp = await client.get(f"{settings.comfyui_base_url}/system_stats")
                 if resp.status_code == 200:
                     result["services"]["comfyui"] = {"status": "ok"}

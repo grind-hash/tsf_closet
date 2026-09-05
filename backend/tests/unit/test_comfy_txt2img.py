@@ -9,7 +9,6 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 
-from gateway.services import comfy as comfy_module
 from gateway.services.comfy import ComfyUIClient, ComfyUIError
 from gateway.services.image_generation import ImageGenerationService, _comfy_size
 from gateway.settings.config import BASE_DIR, settings
@@ -63,7 +62,7 @@ def _install_fake_comfy(monkeypatch, captured: dict) -> None:
         kwargs.pop("timeout", None)
         return real_async_client(transport=transport, **kwargs)
 
-    monkeypatch.setattr(comfy_module.httpx, "AsyncClient", fake_async_client)
+    monkeypatch.setattr(httpx, "AsyncClient", fake_async_client)
 
 
 @pytest.mark.parametrize(

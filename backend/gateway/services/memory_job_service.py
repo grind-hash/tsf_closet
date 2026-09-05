@@ -24,6 +24,7 @@ from sqlalchemy import desc, select
 
 from ..databases.base import async_session_factory
 from ..databases.models import Session as SessionORM
+from .http_client import retry_once_on_rate_limit
 from .litellm_client import LiteLLMClientError
 from .llm_service import LLMServiceError, llm_service
 from .memory_prompts import (
@@ -333,18 +334,12 @@ class MemoryJobService:
     async def _generate_summary_with_retry(
         self, session_id: str, language: str
     ) -> None:
-        try:
-            await summary_service.generate_summary(session_id, language)
-        except (LLMServiceError, LiteLLMClientError) as exc:
-            if "429" not in str(exc):
-                raise
-            logger.warning(
-                "429 detected for session %s, retrying once after %ss",
-                session_id,
-                RETRY_WAIT_SECONDS,
-            )
-            await asyncio.sleep(RETRY_WAIT_SECONDS)
-            await summary_service.generate_summary(session_id, language)
+        await retry_once_on_rate_limit(
+            lambda: summary_service.generate_summary(session_id, language),
+            wait_seconds=RETRY_WAIT_SECONDS,
+            what=f"summary generation for session {session_id}",
+            exceptions=(LLMServiceError, LiteLLMClientError),
+        )
 
     async def _collect_summaries(self, session_ids: list[str]) -> list[dict]:
         summaries: list[dict] = []
@@ -438,19 +433,13 @@ class MemoryJobService:
         self, system_prompt: str, user_prompt: str
     ) -> str:
         """429検出時に1回だけリトライするLLMテキスト生成の共通ヘルパー。"""
-        try:
-            result = await llm_service.generate_text(system_prompt, user_prompt)
-            return result.content.strip()
-        except (LLMServiceError, LiteLLMClientError) as exc:
-            if "429" not in str(exc):
-                raise
-            logger.warning(
-                "429 detected during memory text generation, retrying once after %ss",
-                RETRY_WAIT_SECONDS,
-            )
-            await asyncio.sleep(RETRY_WAIT_SECONDS)
-            result = await llm_service.generate_text(system_prompt, user_prompt)
-            return result.content.strip()
+        result = await retry_once_on_rate_limit(
+            lambda: llm_service.generate_text(system_prompt, user_prompt),
+            wait_seconds=RETRY_WAIT_SECONDS,
+            what="memory text generation",
+            exceptions=(LLMServiceError, LiteLLMClientError),
+        )
+        return result.content.strip()
 
 
 memory_job_service = MemoryJobService()

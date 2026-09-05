@@ -15,6 +15,7 @@ from collections.abc import AsyncGenerator
 import httpx
 
 from ..settings.config import settings
+from .http_client import async_client
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +99,7 @@ class LiteLLMClient:
             "max_tokens": 4096,
         }
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with async_client(timeout=self.timeout) as client:
             try:
                 response = await client.post(
                     f"{self.base_url}/v1/chat/completions",
@@ -143,7 +144,7 @@ class LiteLLMClient:
             "max_tokens": 4096,
         }
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with async_client(timeout=self.timeout) as client:
             try:
                 response = await client.post(
                     f"{self.base_url}/v1/chat/completions",
@@ -188,7 +189,7 @@ class LiteLLMClient:
             "max_tokens": 4096,
         }
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with async_client(timeout=self.timeout) as client:
             try:
                 response = await client.post(
                     f"{self.base_url}/v1/chat/completions",
@@ -251,7 +252,7 @@ class LiteLLMClient:
         # <think>タグ内の思考過程をスキップするための状態管理
         in_think_block = False
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with async_client(timeout=self.timeout) as client:
             try:
                 async with client.stream(
                     "POST",
@@ -385,7 +386,7 @@ class LiteLLMClient:
             "temperature": 0.7,
         }
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with async_client(timeout=self.timeout) as client:
             try:
                 response = await client.post(
                     f"{self.base_url}/v1/chat/completions",
@@ -419,7 +420,7 @@ class LiteLLMClient:
             "llm": False,
         }
 
-        async with httpx.AsyncClient(timeout=2.0) as client:
+        async with async_client(timeout=2.0) as client:
             # LiteLLM Proxyのヘルスチェック (短いタイムアウトで迅速に応答)
             try:
                 response = await client.get(
