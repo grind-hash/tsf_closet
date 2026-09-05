@@ -20,6 +20,7 @@ import httpx
 from ..consts.character_limits import APPEARANCE_NATURAL_SOFT_LIMIT
 from ..consts.language import LanguageCode, normalize_language
 from ..settings.config import settings
+from .http_client import async_client
 from .model_execution_gate import model_execution_gate
 from .providers import (
     Provider,
@@ -132,7 +133,7 @@ class OpenRouterLLMClient:
             "usage": {"include": True},
         }
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with async_client(timeout=self.timeout) as client:
             response = await client.post(
                 f"{self.base_url}/chat/completions",
                 headers=self._get_headers(),
@@ -172,7 +173,7 @@ class OpenRouterLLMClient:
             "usage": {"include": True},
         }
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with async_client(timeout=self.timeout) as client:
             response = await client.post(
                 f"{self.base_url}/chat/completions",
                 headers=self._get_headers(),
@@ -218,7 +219,7 @@ class OpenRouterLLMClient:
         }
 
         async with (
-            httpx.AsyncClient(timeout=self.timeout) as client,
+            async_client(timeout=self.timeout) as client,
             client.stream(
                 "POST",
                 f"{self.base_url}/chat/completions",
@@ -375,7 +376,7 @@ class NovelAILLMClient:
         try:
             async with (
                 model_execution_gate.hold("text", "novelai", effective_model),
-                httpx.AsyncClient(timeout=self.timeout) as client,
+                async_client(timeout=self.timeout) as client,
                 client.stream(
                     "POST",
                     f"{self.base_url}/chat/completions",

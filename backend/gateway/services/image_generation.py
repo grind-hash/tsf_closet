@@ -27,6 +27,7 @@ from ..consts.prompt_expander import (
 )
 from ..settings.config import settings
 from .comfy import ComfyUIClient, ComfyUIResult
+from .http_client import async_client
 from .model_execution_gate import model_execution_gate
 from .providers import normalize_provider
 
@@ -166,7 +167,7 @@ class OpenRouterImageClient:
         )
 
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
+            async with async_client(timeout=self.timeout) as client:
                 response = await client.post(
                     f"{self.base_url}/chat/completions",
                     headers=self._get_headers(),
@@ -1068,7 +1069,7 @@ class ImageGenerationService:
 
         # ComfyUI チェック
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
+            async with async_client(timeout=5.0) as client:
                 resp = await client.get(f"{settings.comfyui_base_url}/system_stats")
                 results["selfhost"] = resp.status_code == 200
         except Exception:
@@ -1077,7 +1078,7 @@ class ImageGenerationService:
         # OpenRouter チェック
         if settings.openrouter_api_key:
             try:
-                async with httpx.AsyncClient(timeout=5.0) as client:
+                async with async_client(timeout=5.0) as client:
                     resp = await client.get(
                         f"{settings.openrouter_base_url}/models",
                         headers={
