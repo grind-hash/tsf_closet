@@ -21,6 +21,7 @@ from ..consts.character_limits import APPEARANCE_NATURAL_SOFT_LIMIT
 from ..consts.language import LanguageCode, normalize_language
 from ..settings.config import settings
 from .http_client import async_client
+from .llm_json import strip_code_fence
 from .model_execution_gate import model_execution_gate
 from .providers import (
     Provider,
@@ -1088,7 +1089,7 @@ def _parse_tag_batch_response(
     Raises ``ValueError`` on schema mismatch; ``json.JSONDecodeError`` on
     non-JSON content. The caller catches both and may retry once.
     """
-    cleaned = _strip_code_fence(raw)
+    cleaned = strip_code_fence(raw)
     data = json.loads(cleaned)
     if not isinstance(data, dict) or "results" not in data:
         raise ValueError("missing results key")
@@ -1114,7 +1115,7 @@ def _parse_appearance_update_response(
     raw: str, expected_characters: list[dict[str, str]]
 ) -> list[dict[str, Any]]:
     """Parse LLM JSON output for appearance updates (R-002)."""
-    cleaned = _strip_code_fence(raw)
+    cleaned = strip_code_fence(raw)
     data = json.loads(cleaned)
     if not isinstance(data, dict) or "updates" not in data:
         raise ValueError("missing updates key")
@@ -1139,19 +1140,6 @@ def _parse_appearance_update_response(
             result["appearance_tags"] = entry["appearance_tags"]
         out.append(result)
     return out
-
-
-def _strip_code_fence(raw: str) -> str:
-    """Strip ```json ... ``` fences if present."""
-    text = raw.strip()
-    if text.startswith("```"):
-        # Remove opening fence (with optional language tag).
-        nl = text.find("\n")
-        if nl != -1:
-            text = text[nl + 1 :]
-        if text.endswith("```"):
-            text = text[:-3]
-    return text.strip()
 
 
 # グローバルインスタンス

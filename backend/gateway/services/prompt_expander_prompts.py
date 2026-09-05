@@ -17,7 +17,7 @@ from ..consts.prompt_expander import (
     PROMPT_EXPANDER_MANGA_PANEL_COUNT_AUTO,
     PROMPT_EXPANDER_MANGA_PANEL_COUNT_MAX,
 )
-from .llm_service import _strip_code_fence
+from .llm_json import strip_code_fence
 from .memory_prompts import build_memory_priority_instruction
 
 ExpandMode = Literal["japanese", "tags"]
@@ -705,7 +705,7 @@ def sanitize_manga_script(raw: str) -> str:
 
     コードフェンス・空行を除き、行頭のコマ番号（①〜⑳ または "1:"）が 1 行も無ければ不正とする。
     """
-    text = _strip_code_fence(raw or "")
+    text = strip_code_fence(raw or "")
     lines = [line.strip() for line in text.splitlines()]
     lines = [line for line in lines if line]
     if not lines:
@@ -1023,7 +1023,7 @@ def replace_false_friend_tokens(prompt: str, instruction: str | None) -> str:
 
 def sanitize_tag_prompt(raw: str, *, ensure_quality: bool = True) -> str:
     """タグ形式の LLM 出力を 1 行のカンマ区切りに整える（移植元の手順）。"""
-    text = _unwrap_quoted(_strip_code_fence(raw or ""))
+    text = _unwrap_quoted(strip_code_fence(raw or ""))
     text = re.sub(r"\s*\r?\n+\s*", ", ", text)
     text = re.sub(r",(\s*,)+", ",", text)
     text = re.sub(r"\s*,\s*", ", ", text)
@@ -1037,7 +1037,7 @@ def sanitize_tag_prompt(raw: str, *, ensure_quality: bool = True) -> str:
 
 def sanitize_prose_prompt(raw: str) -> str:
     """日本語自然文の LLM 出力を 1 段落に整える。句読点は保持する。"""
-    text = _unwrap_quoted(_strip_code_fence(raw or ""))
+    text = _unwrap_quoted(strip_code_fence(raw or ""))
     text = _strip_labels(text)
     text = _CHARACTER_LABEL_PATTERN.sub("", text, count=1)
     return " ".join(text.split()).strip()
@@ -1050,7 +1050,7 @@ def sanitize_by_mode(raw: str, mode: ExpandMode, *, ensure_quality: bool) -> str
 
 
 def _load_json_object(raw: str) -> object:
-    text = _strip_code_fence(raw or "")
+    text = strip_code_fence(raw or "")
     try:
         return json.loads(text)
     except json.JSONDecodeError:
@@ -1150,7 +1150,7 @@ def parse_suggestions_json(
     mode: ExpandMode,
 ) -> list[dict[str, str]]:
     """{"suggestions":[{"title","prompt"}]} 形式の出力を解析して返す。"""
-    text = _strip_code_fence(raw or "")
+    text = strip_code_fence(raw or "")
     data: object
     try:
         data = json.loads(text)

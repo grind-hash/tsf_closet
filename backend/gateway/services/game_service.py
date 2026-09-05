@@ -81,6 +81,7 @@ from .image_only_prompts import (
     get_image_only_generate_system_prompt,
 )
 from .litellm_client import LiteLLMClientError
+from .llm_json import strip_code_fence
 from .llm_service import LLMServiceError, llm_service
 from .memory_prompts import build_memory_priority_instruction
 from .prompts import (
@@ -121,14 +122,7 @@ def _parse_novelai_prompt_json(
 
     Returns None if parsing fails.
     """
-    raw = raw_response.strip()
-    if raw.startswith("```"):
-        raw = raw.split("\n", 1)[-1]
-        if raw.endswith("```"):
-            raw = raw[: -len("```")]
-        raw = raw.strip()
-
-    parsed = json.loads(raw)
+    parsed = json.loads(strip_code_fence(raw_response))
     scene_prompt = parsed.get("scene", "").strip()
     if not scene_prompt:
         return None

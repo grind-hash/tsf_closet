@@ -20,6 +20,7 @@ import re
 from dataclasses import dataclass
 from typing import Literal
 
+from .llm_json import strip_code_fence
 from .providers import Provider, resolve_image_provider, resolve_text_provider
 
 logger = logging.getLogger(__name__)
@@ -448,10 +449,7 @@ def parse_congruence_llm_response(raw: str) -> GenderCongruenceResult | None:
     if not raw or not raw.strip():
         return None
 
-    text = raw.strip()
-    if text.startswith("```"):
-        lines = [ln for ln in text.split("\n") if not ln.strip().startswith("```")]
-        text = "\n".join(lines).strip()
+    text = strip_code_fence(raw)
 
     # JSON オブジェクトを抽出
     match = re.search(r"\{[^{}]*\}", text, re.DOTALL)

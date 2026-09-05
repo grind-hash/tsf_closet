@@ -167,6 +167,11 @@ from .clothing_layers import (
     split_tag_tokens,
 )
 from .image_generation import image_service
+from .llm_json import (
+    StructuredOutputError,
+    extract_json_object,
+    generate_validated,
+)
 from .llm_service import llm_service
 from .prompt_expander_service import (
     PromptExpanderError,
@@ -2117,43 +2122,6 @@ def _json_load(value: str, fallback: Any) -> Any:
         return fallback
 
 
-def _strip_json_fence(value: str) -> str:
-    text = value.strip()
-    if text.startswith("```"):
-        lines = text.splitlines()
-        if lines and lines[0].startswith("```"):
-            lines = lines[1:]
-        if lines and lines[-1].strip() == "```":
-            lines = lines[:-1]
-        text = "\n".join(lines).strip()
-    start = text.find("{")
-    end = text.rfind("}")
-    return text[start : end + 1] if start >= 0 and end > start else text
-
-
-def _validate_model_json(
-    model: type[_StructuredOutputT],
-    raw: str,
-    *,
-    context: dict[str, Any] | None = None,
-) -> _StructuredOutputT:
-    """LLM 出力の JSON を検証する。制御文字だけが不正な場合は救済する。
-
-    ローカルモデルは JSON 文字列内へ生の改行を混ぜやすく、厳密パースだけでは
-    復旧可能な出力まで失うため、json.loads(strict=False) で再試行する。
-    それでも読めなければ元の検証エラーを送出し、呼び出し側のリペアへ委ねる。
-    """
-    text = _strip_json_fence(raw)
-    try:
-        return model.model_validate_json(text, context=context)
-    except ValidationError as strict_error:
-        try:
-            data = json.loads(text, strict=False)
-        except ValueError as lenient_error:
-            raise strict_error from lenient_error
-        return model.model_validate(data, context=context)
-
-
 # プレイヤーが手番中に宣言する現実改変。通常ゲームのセッション属性とは独立に、
 # Run の state へ蓄積して以降の全ターン判定へ渡す。
 # 括弧形式（通常ゲームの属性表記）はコロン省略可。素の語形はコロン必須にして、
@@ -2946,53 +2914,43 @@ Keep narrative under 800 characters and the entire JSON response compact. bgm se
             romance=romance,
             script_names=script_names,
         )
-        raw = await _generate_text(system_prompt, prompt, text_model=text_model)
+        response_language = "Japanese" if language == "ja" else "English"
+        repair_system_prompt = f"""Repair invalid adventure output as one new compact JSON object in {response_language}.
+Return JSON only and keep the entire response under 1200 characters. Do not repeat or continue the source verbatim. Preserve only facts already present. Keep narrative under 500 characters. If the source describes an action that objectively ends the mission, preserve ending_status as failure and provide a short ending_summary. Required minimum shape: {{"narrative":"...","visual_state":{{"location":"...","appearance":"...","clothing":"..."}},"ending_status":"continue|success|partial|failure","ending_title":null,"ending_summary":null}}.
+{_narration_voice_instruction(narration_voice, narration_pronoun)}
+{speech_rule}"""
         try:
-            return _validate_model_json(
+            return await generate_validated(
                 AdventureDirectorOutput,
-                raw,
+                generate=lambda system, user: _generate_text(
+                    system, user, text_model=text_model
+                ),
+                system_prompt=system_prompt,
+                user_prompt=prompt,
                 context={
                     "fallback_appearance": fallback_appearance,
                     "fallback_choices": _default_director_choices(language),
                     "language": language,
                 },
+                repair_prompt=lambda first_error, source: (
+                    f"Fix these validation errors:\n{first_error}\n\n"
+                    "Invalid source output:\n\n" + source
+                ),
+                repair_system_prompt=repair_system_prompt,
             )
-        except ValidationError as first_error:
-            response_language = "Japanese" if language == "ja" else "English"
-            repair_system_prompt = f"""Repair invalid adventure output as one new compact JSON object in {response_language}.
-Return JSON only and keep the entire response under 1200 characters. Do not repeat or continue the source verbatim. Preserve only facts already present. Keep narrative under 500 characters. If the source describes an action that objectively ends the mission, preserve ending_status as failure and provide a short ending_summary. Required minimum shape: {{"narrative":"...","visual_state":{{"location":"...","appearance":"...","clothing":"..."}},"ending_status":"continue|success|partial|failure","ending_title":null,"ending_summary":null}}.
-{_narration_voice_instruction(narration_voice, narration_pronoun)}
-{speech_rule}"""
-            repair_prompt = (
-                f"Fix these validation errors:\n{first_error}\n\n"
-                "Invalid source output:\n\n" + raw
+        except StructuredOutputError as exc:
+            logger.warning(
+                "Adventure JSON validation failed: raw_length=%d "
+                "repaired_length=%d: %s / %s",
+                len(exc.raw),
+                len(exc.repaired),
+                exc.first_error,
+                exc.second_error,
             )
-            repaired = await _generate_text(
-                repair_system_prompt, repair_prompt, text_model=text_model
-            )
-            try:
-                return _validate_model_json(
-                    AdventureDirectorOutput,
-                    repaired,
-                    context={
-                        "fallback_appearance": fallback_appearance,
-                        "fallback_choices": _default_director_choices(language),
-                        "language": language,
-                    },
-                )
-            except ValidationError as second_error:
-                logger.warning(
-                    "Adventure JSON validation failed: raw_length=%d "
-                    "repaired_length=%d: %s / %s",
-                    len(raw),
-                    len(repaired),
-                    first_error,
-                    second_error,
-                )
-                raise AdventureError(
-                    "invalid_model_output",
-                    "物語生成結果を解析できませんでした。もう一度お試しください",
-                ) from second_error
+            raise AdventureError(
+                "invalid_model_output",
+                "物語生成結果を解析できませんでした。もう一度お試しください",
+            ) from exc
 
     def _narrative_system_prompt(
         self,
@@ -3145,29 +3103,24 @@ scene_tags contains only environment, camera, composition, lighting, and the obs
         error_message: str,
         context: dict[str, Any] | None = None,
     ) -> _StructuredOutputT:
-        raw = await _generate_text(system_prompt, user_prompt, text_model=text_model)
         try:
-            return _validate_model_json(model, raw, context=context)
-        except ValidationError as first_error:
-            repaired = await _generate_text(
-                system_prompt,
-                "Repair the following output into one valid compact JSON object for "
-                "the required schema. Return JSON only and do not add new facts. "
-                "Respect every string length limit in the schema; when a value is "
-                "too long, shorten it by dropping trailing details. "
-                f"Fix these validation errors:\n{first_error}\n\n" + raw,
-                text_model=text_model,
+            return await generate_validated(
+                model,
+                generate=lambda system, user: _generate_text(
+                    system, user, text_model=text_model
+                ),
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                context=context,
             )
-            try:
-                return _validate_model_json(model, repaired, context=context)
-            except ValidationError as second_error:
-                logger.warning(
-                    "Adventure %s validation failed: %s / %s",
-                    model.__name__,
-                    first_error,
-                    second_error,
-                )
-                raise AdventureError(error_code, error_message) from second_error
+        except StructuredOutputError as exc:
+            logger.warning(
+                "Adventure %s validation failed: %s / %s",
+                model.__name__,
+                exc.first_error,
+                exc.second_error,
+            )
+            raise AdventureError(error_code, error_message) from exc
 
     async def _generate_resolution_output(
         self,
@@ -3369,31 +3322,31 @@ The objective must name a concrete target and an observable end condition that c
         system_prompt = self._setup_system_prompt(
             language, max_turns, preset, draft, companion=companion
         )
-        raw = await _generate_text(system_prompt, prompt, text_model=text_model)
         try:
-            return _validate_model_json(AdventureSetupOutput, raw)
-        except ValidationError as first_error:
-            repair_prompt = (
-                "Repair the following output into valid JSON for the required schema. "
-                "Keep the same scenario and do not add new scenario facts. "
-                "Fix these validation errors:\n"
-                f"{first_error}\n\nOutput to repair:\n{raw}"
+            return await generate_validated(
+                AdventureSetupOutput,
+                generate=lambda system, user: _generate_text(
+                    system, user, text_model=text_model
+                ),
+                system_prompt=system_prompt,
+                user_prompt=prompt,
+                repair_prompt=lambda first_error, source: (
+                    "Repair the following output into valid JSON for the required "
+                    "schema. Keep the same scenario and do not add new scenario facts. "
+                    "Fix these validation errors:\n"
+                    f"{first_error}\n\nOutput to repair:\n{source}"
+                ),
             )
-            repaired = await _generate_text(
-                system_prompt, repair_prompt, text_model=text_model
+        except StructuredOutputError as exc:
+            logger.warning(
+                "Adventure setup JSON validation failed: %s / %s",
+                exc.first_error,
+                exc.second_error,
             )
-            try:
-                return _validate_model_json(AdventureSetupOutput, repaired)
-            except ValidationError as second_error:
-                logger.warning(
-                    "Adventure setup JSON validation failed: %s / %s",
-                    first_error,
-                    second_error,
-                )
-                raise AdventureError(
-                    "invalid_model_output",
-                    "ミッション案を解析できませんでした。もう一度お試しください",
-                ) from second_error
+            raise AdventureError(
+                "invalid_model_output",
+                "ミッション案を解析できませんでした。もう一度お試しください",
+            ) from exc
 
     async def generate_setup(
         self,
@@ -4342,9 +4295,9 @@ The objective must name a concrete target and an observable end condition that c
             for visible in header.flush():
                 yield {"event": "talk_chunk", "data": {"chunk": visible}}
             talk_expression, talk_gesture, _ = parse_talk_header(
-                _strip_json_fence(reply)
+                extract_json_object(reply)
             )
-            reply = normalize_talk_reply(_strip_json_fence(reply), partner_name)
+            reply = normalize_talk_reply(extract_json_object(reply), partner_name)
             if not reply:
                 raise AdventureError(
                     "invalid_model_output",
@@ -5367,7 +5320,7 @@ The objective must name a concrete target and an observable end condition that c
                     continue
                 narrative += chunk
                 yield {"event": "narrative_chunk", "data": {"chunk": chunk}}
-            narrative = _strip_json_fence(narrative.strip())[:3000].strip()
+            narrative = extract_json_object(narrative.strip())[:3000].strip()
             if not narrative:
                 raise AdventureError(
                     "invalid_model_output",
@@ -6459,32 +6412,24 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             "visual_state": visual_state,
             "authored_scene_tags": authored_scene_tags or None,
         }
-        raw = await _generate_text(
-            system_prompt,
-            json.dumps(payload, ensure_ascii=False),
-            text_model=text_model,
-        )
         try:
-            image_prompt = _validate_model_json(AdventureImagePromptOutput, raw)
-        except ValidationError as first_error:
-            logger.warning(
-                "Adventure image prompt JSON validation failed: %s", first_error
+            image_prompt = await generate_validated(
+                AdventureImagePromptOutput,
+                generate=lambda system, user: _generate_text(
+                    system, user, text_model=text_model
+                ),
+                system_prompt=system_prompt,
+                user_prompt=json.dumps(payload, ensure_ascii=False),
+                repair_prompt=lambda first_error, source: (
+                    "Repair this into valid JSON without adding facts. "
+                    f"Fix these validation errors:\n{first_error}\n\n" + source
+                ),
             )
-            repaired = await _generate_text(
-                system_prompt,
-                "Repair this into valid JSON without adding facts. "
-                f"Fix these validation errors:\n{first_error}\n\n" + raw,
-                text_model=text_model,
-            )
-            try:
-                image_prompt = _validate_model_json(
-                    AdventureImagePromptOutput, repaired
-                )
-            except ValidationError as second_error:
-                raise AdventureError(
-                    "invalid_image_prompt",
-                    "画像プロンプトの生成結果を解釈できませんでした",
-                ) from second_error
+        except StructuredOutputError as exc:
+            raise AdventureError(
+                "invalid_image_prompt",
+                "画像プロンプトの生成結果を解釈できませんでした",
+            ) from exc
         if authored_scene_tags:
             image_prompt.scene_tags = _merge_scene_tags(
                 authored_scene_tags, image_prompt.scene_tags

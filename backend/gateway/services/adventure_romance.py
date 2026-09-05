@@ -58,6 +58,7 @@ from ..consts.companion_avatar import (
     normalize_avatar_gesture,
     parse_talk_header,
 )
+from .llm_json import strip_code_fence
 
 _RESERVED_CHOICE_RE = re.compile(
     "|".join(f"(?:{pattern})" for pattern in ROMANCE_RESERVED_CHOICE_PATTERNS),
@@ -1351,9 +1352,6 @@ def public_talk_log(state: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
-_TALK_FENCE_RE = re.compile(r"^```[a-zA-Z]*\s*|\s*```$")
-
-
 def normalize_talk_input(text: str) -> str:
     """トークの入力を空白畳み込みと上限で正規化する。"""
     return " ".join(str(text or "").split()).strip()[:ROMANCE_TALK_INPUT_MAX]
@@ -1365,7 +1363,7 @@ def normalize_talk_reply(text: str, partner_name: str) -> str:
     system prompt で禁じていても `名前「…」` 形式で返すモデルがあるため、
     表示と読み上げに使う前にここで揃える。
     """
-    reply = _TALK_FENCE_RE.sub("", str(text or "").strip()).strip()
+    reply = strip_code_fence(str(text or ""))
     # 対面会話モードの先頭ヘッダ行は、モードに関わらず防御的に剥がす
     _, _, reply = parse_talk_header(reply)
     reply = reply.strip()
