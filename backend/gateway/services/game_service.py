@@ -60,6 +60,7 @@ from .clothing_layers import (
     strip_worn_under_layers_for_image,
 )
 from .comfy import ComfyUIClient
+from .cost_tracker import CostTracker, begin_cost_tracking, record_cost
 from .endings import judge_ending
 from .gender_congruence import (
     GenderCongruenceResult,
@@ -152,6 +153,16 @@ def _parse_novelai_prompt_json(
         return scene_prompt, [{"prompt": char_prompt, "position": (0.5, 0.5)}]
 
     return None
+
+
+def _pending_cost_event(
+    tracker: CostTracker, emitted_usd: float
+) -> tuple[StreamEvent | None, float]:
+    """前回通知した以降に記録された API 料金があれば cost イベントにして返す。"""
+    delta = tracker.total_usd - emitted_usd
+    if delta > 0:
+        return StreamEvent(type="cost", data={"cost_usd": delta}), tracker.total_usd
+    return None, emitted_usd
 
 
 class GameServiceError(RuntimeError):
@@ -708,6 +719,7 @@ class GameService:
                 user_prompt=user_prompt,
                 novelai_model_override=novelai_model_override,
             )
+            record_cost(getattr(scenery_prompt_result, "cost_usd", None))
             scenery_prompt = scenery_prompt_result.content.strip()
             logger.info(
                 "Surroundings prompt generated: %d chars",
@@ -1087,6 +1099,7 @@ class GameService:
                 user_prompt=user_prompt,
                 novelai_model_override=novelai_model_override,
                 max_tokens=1024,
+                usage_callback=record_cost,
             ):
                 yield chunk
         except (LLMServiceError, LiteLLMClientError) as e:
@@ -1321,6 +1334,8 @@ class GameService:
         Yields:
             StreamEvent: text/image/complete/error イベント
         """
+        tracker = begin_cost_tracking()
+        cost_emitted = 0.0
         logger.info(
             "Stream play: session=%s, char=%s, instruction=%s, base_history=%s, nsfw_override=%s",
             session_id,
@@ -1538,6 +1553,7 @@ class GameService:
                         before_image,
                         effective_nsfw_mode,
                     )
+                    record_cost(describe_cost)
 
                 attributes = await session_store.get_session_attribute_texts(session.id)
                 attribute_context = self._build_attribute_context(attributes)
@@ -1645,6 +1661,7 @@ class GameService:
                         language=effective_language,
                         text_to_image=image_only_text_to_image,
                     )
+                    record_cost(prompt_gen_cost)
 
                 final_prompt = image_edit_prompt
                 if prompt_override and prompt_override.strip():
@@ -1699,6 +1716,7 @@ class GameService:
                     characters=image_api_characters,
                     novelai_image_model_override=effective_novelai_image_model,
                 )
+                record_cost(image_cost)
 
                 history = await session_store.add_history(
                     session_id=session.id,
@@ -1725,16 +1743,9 @@ class GameService:
                     },
                 )
 
-                total_api_cost = sum(
-                    cost
-                    for cost in (image_cost, describe_cost, prompt_gen_cost)
-                    if cost is not None
-                )
-                if total_api_cost > 0:
-                    yield StreamEvent(
-                        type="cost",
-                        data={"cost_usd": total_api_cost},
-                    )
+                cost_event, cost_emitted = _pending_cost_event(tracker, cost_emitted)
+                if cost_event is not None:
+                    yield cost_event
 
                 anlas_event = await self._get_anlas_event()
                 if anlas_event:
@@ -1814,6 +1825,7 @@ class GameService:
                             user_prompt=summary_user,
                             novelai_model_override=effective_novelai_text_model,
                         )
+                        record_cost(getattr(summary_result, "cost_usd", None))
                         previous_situation_summary = summary_result.content.strip()
                         logger.info(
                             "Previous situation summary: %s",
@@ -2091,6 +2103,7 @@ class GameService:
                         user_prompt=action_edit_user,
                         novelai_model_override=effective_novelai_text_model,
                     )
+                    record_cost(getattr(action_image_prompt_result, "cost_usd", None))
                     action_image_prompt = action_image_prompt_result.content.strip()
                     action_prompt_desc = action_image_prompt
                     logger.info(
@@ -2218,6 +2231,7 @@ class GameService:
                     elif event.type == "_image_ready":
                         action_image_data = event.data["image"]
                         action_image_cost = event.data.get("cost")
+                        record_cost(action_image_cost)
                         action_image_seed = event.data.get("seed")
                     elif event.type == "_image_error":
                         action_image_error = event.data["error"]
@@ -2295,12 +2309,10 @@ class GameService:
                         },
                     )
 
-                # コストイベントを送信（該当する場合）
-                if action_image_cost is not None:
-                    yield StreamEvent(
-                        type="cost",
-                        data={"cost_usd": action_image_cost},
-                    )
+                # コストイベントを送信（ここまでの API 料金の未通知分）
+                cost_event, cost_emitted = _pending_cost_event(tracker, cost_emitted)
+                if cost_event is not None:
+                    yield cost_event
 
                 # US5: Anlas balance event (NovelAI only)
                 anlas_event = await self._get_anlas_event()
@@ -2333,6 +2345,7 @@ class GameService:
                         novelai_model_override=effective_novelai_text_model,
                         novelai_image_model_override=effective_novelai_image_model,
                     )
+                    record_cost(surroundings_cost)
 
                     if surroundings_data is not None:
                         # Save to file
@@ -2370,11 +2383,11 @@ class GameService:
                         )
 
                         # Emit cost if any
-                        if surroundings_cost is not None:
-                            yield StreamEvent(
-                                type="cost",
-                                data={"cost_usd": surroundings_cost},
-                            )
+                        cost_event, cost_emitted = _pending_cost_event(
+                            tracker, cost_emitted
+                        )
+                        if cost_event is not None:
+                            yield cost_event
 
                         # Refresh Anlas balance after surroundings generation
                         anlas_event2 = await self._get_anlas_event()
@@ -2444,6 +2457,7 @@ class GameService:
                 before_desc, describe_cost = await self._describe_image(
                     before_image, effective_nsfw_mode
                 )
+                record_cost(describe_cost)
             logger.debug("Before: %s...", before_desc[:100] if before_desc else "empty")
 
             # 2.1 セッション属性を取得（プロンプトに反映）
@@ -2677,6 +2691,7 @@ class GameService:
                     respect_clothing_layers=respect_clothing_layers_for_image,
                     history_context=image_history_context,
                 )
+                record_cost(prompt_gen_cost)
             else:
                 # 衣装変更用プロンプト生成（既存）
                 (
@@ -2692,6 +2707,7 @@ class GameService:
                     respect_clothing_layers=respect_clothing_layers_for_image,
                     history_context=image_history_context,
                 )
+                record_cost(prompt_gen_cost)
 
             # T009: NovelAI専用 - 直接プロンプト指定とのマージ
             final_prompt = image_edit_prompt
@@ -2915,6 +2931,7 @@ class GameService:
                 elif event.type == "_image_ready":
                     image_data = event.data["image"]
                     image_cost = event.data.get("cost")
+                    record_cost(image_cost)
                     image_seed = event.data.get("seed")
                 elif event.type == "_image_error":
                     image_error = event.data["error"]
@@ -3278,16 +3295,10 @@ class GameService:
                 },
             )
 
-            # 8.5 コストイベントを送信（API料金がある場合）
-            # 画像生成コスト + Vision LLMコスト + プロンプト生成LLMコストを合算
-            total_api_cost = sum(
-                c for c in [image_cost, describe_cost, prompt_gen_cost] if c is not None
-            )
-            if total_api_cost > 0:
-                yield StreamEvent(
-                    type="cost",
-                    data={"cost_usd": total_api_cost},
-                )
+            # 8.5 コストイベントを送信（この手番で記録された API 料金の未通知分）
+            cost_event, cost_emitted = _pending_cost_event(tracker, cost_emitted)
+            if cost_event is not None:
+                yield cost_event
 
             # US5: Anlas balance event (NovelAI only)
             anlas_event = await self._get_anlas_event()
@@ -3445,6 +3456,8 @@ class GameService:
         Yields:
             StreamEvent: ストリーミングイベント
         """
+        tracker = begin_cost_tracking()
+        cost_emitted = 0.0
         try:
             # 0. 処理開始を通知
             yield StreamEvent(type="status", data={"message": "画質改善を開始..."})
@@ -3475,6 +3488,7 @@ class GameService:
             current_description, describe_cost = await self._describe_image(
                 current_image_bytes
             )
+            record_cost(describe_cost)
             logger.info(f"Current description: {current_description[:100]}...")
 
             # 5. 初期画像を取得
@@ -3508,6 +3522,7 @@ class GameService:
                     user_settings, False
                 ),
             )
+            record_cost(image_cost)
             logger.info(f"Quality improvement done: {len(new_image)} bytes")
 
             # 8. 履歴に追加
@@ -3540,14 +3555,9 @@ class GameService:
             )
 
             # コストイベント
-            total_api_cost = sum(
-                c for c in [image_cost, describe_cost] if c is not None
-            )
-            if total_api_cost > 0:
-                yield StreamEvent(
-                    type="cost",
-                    data={"cost_usd": total_api_cost},
-                )
+            cost_event, cost_emitted = _pending_cost_event(tracker, cost_emitted)
+            if cost_event is not None:
+                yield cost_event
 
             # US5: Anlas balance event (NovelAI only)
             anlas_event = await self._get_anlas_event()
@@ -3616,6 +3626,7 @@ class GameService:
 
         # NovelAI Opusモードでは Vision LLM が使えないため、
         # 直近履歴に保存された生成プロンプト(after_description)を現在の姿の記述として使う
+        tracker = begin_cost_tracking()
         describe_cost: float | None = None
         if settings.is_novelai_opus_mode:
             latest_history = await session_store.get_latest_history(session_id)
@@ -3632,6 +3643,7 @@ class GameService:
             current_description, describe_cost = await self._describe_image(
                 current_image_bytes, nsfw_mode=effective_nsfw_mode
             )
+            record_cost(describe_cost)
             instruction = (
                 "Redraw this character as a full body standing reference sheet, "
                 "keeping the exact same camera framing, character scale, and centered "
@@ -3652,9 +3664,9 @@ class GameService:
                 user_settings, effective_nsfw_mode
             ),
         )
+        record_cost(image_cost)
 
-        total_cost = sum(c for c in [image_cost, describe_cost] if c is not None)
-        return new_image, total_cost or None
+        return new_image, tracker.total_usd or None
 
     async def preview_prompts(
         self,
@@ -3769,6 +3781,7 @@ class GameService:
                                     user_prompt=summary_user,
                                     novelai_model_override=effective_novelai_text_model,
                                 )
+                                record_cost(getattr(summary_result, "cost_usd", None))
                                 previous_situation_summary = (
                                     summary_result.content.strip()
                                 )

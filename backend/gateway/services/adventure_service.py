@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import contextvars
 import copy
 import json
 import logging
@@ -166,6 +165,7 @@ from .clothing_layers import (
     peel_undergarment_tags,
     split_tag_tokens,
 )
+from .cost_tracker import begin_cost_tracking, record_cost
 from .image_generation import image_service
 from .llm_json import (
     StructuredOutputError,
@@ -200,32 +200,6 @@ def _image_calls_parallelizable() -> bool:
     return resolve_image_provider() == Provider.OPENROUTER
 
 
-class _CostTracker:
-    """1オペレーション(ターン・Run作成など)のAPI料金(USD)を集計する。"""
-
-    __slots__ = ("total_usd",)
-
-    def __init__(self) -> None:
-        self.total_usd = 0.0
-
-    def add(self, cost_usd: float | None) -> None:
-        if cost_usd:
-            self.total_usd += float(cost_usd)
-
-
-# asyncio.create_task はコンテキストを複製するが、同一トラッカーオブジェクトを
-# 共有するため、producer タスク内の加算も呼び出し元の合計へ反映される
-_cost_tracker: contextvars.ContextVar[_CostTracker | None] = contextvars.ContextVar(
-    "adventure_cost_tracker", default=None
-)
-
-
-def _record_cost(cost_usd: float | None) -> None:
-    tracker = _cost_tracker.get()
-    if tracker is not None:
-        tracker.add(cost_usd)
-
-
 async def _generate_text(
     system_prompt: str, user_prompt: str, *, text_model: str
 ) -> str:
@@ -240,7 +214,7 @@ async def _generate_text(
         provider_override=resolve_text_provider(),
         novelai_model_override=text_model,
     )
-    _record_cost(getattr(result, "cost_usd", None))
+    record_cost(getattr(result, "cost_usd", None))
     return result.content
 
 
@@ -3407,8 +3381,7 @@ The objective must name a concrete target and an observable end condition that c
         if companion:
             prompt_payload["companion_mode"] = True
         prompt = json.dumps(prompt_payload, ensure_ascii=False)
-        tracker = _CostTracker()
-        _cost_tracker.set(tracker)
+        tracker = begin_cost_tracking()
         generated = await self._generate_setup_output(
             prompt=prompt,
             language=language,
@@ -3473,8 +3446,7 @@ The objective must name a concrete target and an observable end condition that c
         inventory_enabled: bool = False,
     ) -> dict[str, Any]:
         # Run作成全体(セットアップLLM・開幕画像)のAPI料金を集計して応答へ載せる
-        tracker = _CostTracker()
-        _cost_tracker.set(tracker)
+        tracker = begin_cost_tracking()
         # 対面会話モードの 3D アバター。LLM や画像生成に入る前に存在確認する
         companion_avatar = await _validate_companion_avatar(companion_avatar_id)
         # この run 専用の NovelAI 画像モデル上書き。未指定・未知名は
@@ -4075,8 +4047,7 @@ The objective must name a concrete target and an observable end condition that c
 
     async def regenerate_choices(self, run_id: str) -> dict[str, Any]:
         """現在場面の選択肢だけを再生成する。手番・物語・手掛かりは変更しない。"""
-        tracker = _CostTracker()
-        _cost_tracker.set(tracker)
+        tracker = begin_cost_tracking()
         async with self._run_locks[run_id]:
             run = await self.get_run_orm(run_id, with_turns=True)
             state = _json_load(run.state_json, {})
@@ -4218,8 +4189,7 @@ The objective must name a concrete target and an observable end condition that c
         turn_count・status・sim・AdventureTurn には一切触れず、state_json の
         talk_log だけを更新する。会話は次の手番へ recent_talk として渡される。
         """
-        tracker = _CostTracker()
-        _cost_tracker.set(tracker)
+        tracker = begin_cost_tracking()
         async with self._run_locks[run_id]:
             run = await self.get_run_orm(run_id, with_turns=True)
             state = _json_load(run.state_json, {})
@@ -4284,7 +4254,7 @@ The objective must name a concrete target and an observable end condition that c
                 message,
                 provider_override=resolve_text_provider(),
                 novelai_model_override=run.text_model,
-                usage_callback=_record_cost,
+                usage_callback=record_cost,
                 history=history,
             ):
                 if not chunk:
@@ -5221,8 +5191,7 @@ The objective must name a concrete target and an observable end condition that c
     ) -> AsyncGenerator[dict[str, Any], None]:
         """ナラティブを逐次配信し、手がかり抽出と画像生成を並列実行する。"""
         # このターンで発生したAPI料金(OpenRouter)を集計し、終端でcostイベントを送る
-        cost_tracker = _CostTracker()
-        _cost_tracker.set(cost_tracker)
+        cost_tracker = begin_cost_tracking()
         async with self._run_locks[run_id]:
             run = await self.get_run_orm(run_id, with_turns=True)
             for existing in run.turns:
@@ -5314,7 +5283,7 @@ The objective must name a concrete target and an observable end condition that c
                 json.dumps(turn_context, ensure_ascii=False),
                 provider_override=resolve_text_provider(),
                 novelai_model_override=run.text_model,
-                usage_callback=_record_cost,
+                usage_callback=record_cost,
             ):
                 if not chunk:
                     continue
@@ -6444,8 +6413,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         redraw_from_reference: bool = False,
         prompt_override: AdventureImagePromptOutput | None = None,
     ) -> dict[str, Any]:
-        tracker = _CostTracker()
-        _cost_tracker.set(tracker)
+        tracker = begin_cost_tracking()
         async with self._run_locks[run_id]:
             image_path, effective_turn_id = await self._generate_image_unlocked(
                 run_id,
@@ -6470,8 +6438,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         prompt_override: AdventureImagePromptOutput | None = None,
     ) -> dict[str, Any]:
         """立ち絵だけを作り直す。生成失敗ターンからの復旧導線で使う。"""
-        tracker = _CostTracker()
-        _cost_tracker.set(tracker)
+        tracker = begin_cost_tracking()
         async with self._run_locks[run_id]:
             portrait_path, effective_turn_id = await self._generate_portrait_unlocked(
                 run_id,
@@ -6525,8 +6492,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
 
     async def generate_partner_portrait(self, run_id: str) -> dict[str, Any]:
         """romance の攻略対象の立ち絵だけを作り直す(対面会話モードの↻)。"""
-        tracker = _CostTracker()
-        _cost_tracker.set(tracker)
+        tracker = begin_cost_tracking()
         async with self._run_locks[run_id]:
             run = await self.get_run_orm(run_id, with_turns=True)
             state = _json_load(run.state_json, {})
@@ -6754,7 +6720,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                     provider_override=provider,
                     nsfw_mode=nsfw_mode,
                 )
-            _record_cost(getattr(result, "cost_usd", None))
+            record_cost(getattr(result, "cost_usd", None))
             if not result.images:
                 raise AdventureError(
                     "image_generation_failed", "画像が生成されませんでした"
@@ -6980,7 +6946,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 nsfw_mode=nsfw_mode,
                 size_override="landscape",
             )
-        _record_cost(getattr(result, "cost_usd", None))
+        record_cost(getattr(result, "cost_usd", None))
         if not result.images:
             raise AdventureError(
                 "image_generation_failed", "背景画像が生成されませんでした"
@@ -7181,7 +7147,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                     provider_override=provider,
                     nsfw_mode=nsfw_mode,
                 )
-            _record_cost(getattr(result, "cost_usd", None))
+            record_cost(getattr(result, "cost_usd", None))
             if not result.images:
                 raise AdventureError(
                     "image_generation_failed", "ポートレート画像が生成されませんでした"
@@ -7314,7 +7280,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 nsfw_mode=nsfw_mode,
                 size_override="portrait",
             )
-        _record_cost(getattr(result, "cost_usd", None))
+        record_cost(getattr(result, "cost_usd", None))
         if not result.images:
             raise AdventureError(
                 "image_generation_failed", "相手の立ち絵が生成されませんでした"
