@@ -1,4 +1,6 @@
 import { API_BASE } from "../utils/api";
+import { apiErrorFromResponse, requestJson } from "../utils/http";
+import { readSseEvents } from "../utils/sse";
 
 export type AdventurePreset =
   | "infiltration"
@@ -557,17 +559,6 @@ function normalizeRun(run: AdventureRun): AdventureRun {
   };
 }
 
-async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, init);
-  if (!response.ok) {
-    const payload = await response.json().catch(() => null);
-    throw new Error(
-      payload?.detail?.message ?? payload?.detail ?? response.statusText,
-    );
-  }
-  return response.json() as Promise<T>;
-}
-
 export async function fetchAdventureBgmCatalog(): Promise<AdventureBgmCatalog> {
   const payload = await requestJson<AdventureBgmCatalog>(
     `${API_BASE}/adventure/bgm`,
@@ -627,7 +618,7 @@ export async function deleteAdventureRun(runId: string): Promise<void> {
   const response = await fetch(`${API_BASE}/adventure/runs/${runId}`, {
     method: "DELETE",
   });
-  if (!response.ok) throw new Error(response.statusText);
+  if (!response.ok) throw await apiErrorFromResponse(response);
 }
 
 /** 操作(ターン送信・ギフト・属性付与など)を受け付ける状態か。
@@ -673,30 +664,10 @@ async function readSse(
   if (!response.ok || !response.body) {
     throw new Error(response.statusText || "Streaming request failed");
   }
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  while (true) {
-    const { value, done } = await reader.read();
-    buffer += decoder.decode(value, { stream: !done });
-    const blocks = buffer.split(/\r?\n\r?\n/);
-    buffer = blocks.pop() ?? "";
-    for (const block of blocks) {
-      let eventType = "message";
-      const dataLines: string[] = [];
-      for (const line of block.split(/\r?\n/)) {
-        if (line.startsWith("event:")) eventType = line.slice(6).trim();
-        if (line.startsWith("data:")) dataLines.push(line.slice(5).trimStart());
-      }
-      if (eventType !== "message" && dataLines.length > 0) {
-        const data = JSON.parse(dataLines.join("\n")) as Record<
-          string,
-          unknown
-        >;
-        onEvent({ type: eventType as AdventureStreamEvent["type"], data });
-      }
-    }
-    if (done) break;
+  for await (const { event, data } of readSseEvents(response.body)) {
+    if (event === "message") continue;
+    const parsed = JSON.parse(data) as Record<string, unknown>;
+    onEvent({ type: event as AdventureStreamEvent["type"], data: parsed });
   }
 }
 

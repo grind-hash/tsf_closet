@@ -1,4 +1,5 @@
 import { API_BASE } from "../utils/api";
+import { apiErrorFromResponse, jsonInit, requestJson } from "../utils/http";
 
 export interface AivisStatus {
   process: string;
@@ -57,64 +58,38 @@ interface SynthesizePayload {
   speaker_id: string;
 }
 
-interface ApiErrorResponse {
-  detail?: unknown;
-}
-
-async function parseJsonOrThrow<T>(res: Response): Promise<T> {
-  if (!res.ok) {
-    let message = `${res.status} ${res.statusText}`;
-    try {
-      const data = (await res.json()) as ApiErrorResponse;
-      if (data?.detail) {
-        message = String(data.detail);
-      }
-    } catch {
-      // ignore
-    }
-    throw new Error(message);
-  }
-  return (await res.json()) as T;
-}
-
 export async function getAivisStatus(): Promise<AivisStatus> {
-  const res = await fetch(`${API_BASE}/aivisspeech/status`);
-  return parseJsonOrThrow<AivisStatus>(res);
+  return requestJson<AivisStatus>(`${API_BASE}/aivisspeech/status`);
 }
 
 export async function getAivisDefaults(): Promise<{
   engine_download_url: string;
   model_download_url: string;
 }> {
-  const res = await fetch(`${API_BASE}/aivisspeech/defaults`);
-  return parseJsonOrThrow<{
+  return requestJson<{
     engine_download_url: string;
     model_download_url: string;
-  }>(res);
+  }>(`${API_BASE}/aivisspeech/defaults`);
 }
 
 export async function downloadAivisEngine(payload: DownloadPayload): Promise<{
   path: string;
   size: string;
 }> {
-  const res = await fetch(`${API_BASE}/aivisspeech/download-engine`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  return parseJsonOrThrow<{ path: string; size: string }>(res);
+  return requestJson<{ path: string; size: string }>(
+    `${API_BASE}/aivisspeech/download-engine`,
+    jsonInit("POST", payload),
+  );
 }
 
 export async function extractAivisEngine(payload: ExtractPayload): Promise<{
   destination: string;
   run_exe: string;
 }> {
-  const res = await fetch(`${API_BASE}/aivisspeech/extract-engine`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  return parseJsonOrThrow<{ destination: string; run_exe: string }>(res);
+  return requestJson<{ destination: string; run_exe: string }>(
+    `${API_BASE}/aivisspeech/extract-engine`,
+    jsonInit("POST", payload),
+  );
 }
 
 export async function startAivisEngine(payload: StartPayload): Promise<{
@@ -122,13 +97,9 @@ export async function startAivisEngine(payload: StartPayload): Promise<{
   pid?: number;
   run_exe?: string;
 }> {
-  const res = await fetch(`${API_BASE}/aivisspeech/start-engine`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  return parseJsonOrThrow<{ status: string; pid?: number; run_exe?: string }>(
-    res,
+  return requestJson<{ status: string; pid?: number; run_exe?: string }>(
+    `${API_BASE}/aivisspeech/start-engine`,
+    jsonInit("POST", payload),
   );
 }
 
@@ -137,13 +108,9 @@ export async function restartAivisEngine(payload: StartPayload): Promise<{
   pid?: number;
   run_exe?: string;
 }> {
-  const res = await fetch(`${API_BASE}/aivisspeech/restart-engine`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  return parseJsonOrThrow<{ status: string; pid?: number; run_exe?: string }>(
-    res,
+  return requestJson<{ status: string; pid?: number; run_exe?: string }>(
+    `${API_BASE}/aivisspeech/restart-engine`,
+    jsonInit("POST", payload),
   );
 }
 
@@ -151,10 +118,10 @@ export async function stopAivisEngine(): Promise<{
   status: string;
   pid?: number;
 }> {
-  const res = await fetch(`${API_BASE}/aivisspeech/stop-engine`, {
-    method: "POST",
-  });
-  return parseJsonOrThrow<{ status: string; pid?: number }>(res);
+  return requestJson<{ status: string; pid?: number }>(
+    `${API_BASE}/aivisspeech/stop-engine`,
+    { method: "POST" },
+  );
 }
 
 /**
@@ -184,17 +151,14 @@ export async function ensureAivisEngineRunning(
 export async function installAivisModel(payload: InstallModelPayload): Promise<{
   status: string;
 }> {
-  const res = await fetch(`${API_BASE}/aivisspeech/install-model`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  return parseJsonOrThrow<{ status: string }>(res);
+  return requestJson<{ status: string }>(
+    `${API_BASE}/aivisspeech/install-model`,
+    jsonInit("POST", payload),
+  );
 }
 
 export async function getAivisSpeakers(): Promise<AivisSpeaker[]> {
-  const res = await fetch(`${API_BASE}/aivisspeech/speakers`);
-  return parseJsonOrThrow<AivisSpeaker[]>(res);
+  return requestJson<AivisSpeaker[]>(`${API_BASE}/aivisspeech/speakers`);
 }
 
 /** 口パク用の口形状イベント。時刻は合成音声の先頭からの秒(メディア時刻) */
@@ -223,12 +187,10 @@ interface SynthesizeTimedResponse {
 export async function synthesizeSpeechTimed(
   payload: SynthesizePayload,
 ): Promise<TimedSpeech> {
-  const res = await fetch(`${API_BASE}/aivisspeech/synthesize-timed`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  const data = await parseJsonOrThrow<SynthesizeTimedResponse>(res);
+  const data = await requestJson<SynthesizeTimedResponse>(
+    `${API_BASE}/aivisspeech/synthesize-timed`,
+    jsonInit("POST", payload),
+  );
   const binary = atob(data.audio_base64);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i += 1) {
@@ -251,16 +213,7 @@ export async function synthesizeSpeech(
   });
 
   if (!res.ok) {
-    let message = `${res.status} ${res.statusText}`;
-    try {
-      const data = await res.json();
-      if (data?.detail) {
-        message = String(data.detail);
-      }
-    } catch {
-      // ignore
-    }
-    throw new Error(message);
+    throw await apiErrorFromResponse(res);
   }
 
   return res.blob();

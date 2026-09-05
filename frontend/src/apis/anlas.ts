@@ -1,5 +1,6 @@
 import type { AnlasBalance, NovelAIUsage } from "../types";
 import { API_BASE } from "../utils/api";
+import { requestJson } from "../utils/http";
 
 interface AnlasUsageResponse {
   percent: number;
@@ -37,11 +38,9 @@ export function parseAnlasUsage(
  */
 export async function fetchAnlasBalance(): Promise<AnlasBalance | null> {
   try {
-    const response = await fetch(`${API_BASE}/game/anlas`);
-    if (!response.ok) {
-      return null;
-    }
-    const data = (await response.json()) as AnlasBalanceResponse;
+    const data = await requestJson<AnlasBalanceResponse>(
+      `${API_BASE}/game/anlas`,
+    );
     if (
       data.fixed_anlas === null ||
       data.purchased_anlas === null ||

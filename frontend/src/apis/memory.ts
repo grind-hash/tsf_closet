@@ -6,6 +6,7 @@
  */
 
 import { API_BASE } from "../utils/api";
+import { apiErrorFromResponse, jsonInit, requestJson } from "../utils/http";
 
 export interface MemoryJobStatus {
   job_id: string;
@@ -34,19 +35,14 @@ export async function startMemoryGeneration(
   sessionLimit: number | null,
   regenerateExisting: boolean,
 ): Promise<{ job_id: string }> {
-  const response = await fetch(`${API_BASE}/memory/generate`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
+  return requestJson<{ job_id: string }>(
+    `${API_BASE}/memory/generate`,
+    jsonInit("POST", {
       session_limit: sessionLimit,
       regenerate_existing: regenerateExisting,
     }),
-  });
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(`Failed to start memory generation: ${detail}`);
-  }
-  return response.json();
+    { fallbackMessage: "Failed to start memory generation" },
+  );
 }
 
 /**
@@ -55,12 +51,11 @@ export async function startMemoryGeneration(
 export async function getMemoryGenerationStatus(
   jobId: string,
 ): Promise<MemoryJobStatus> {
-  const response = await fetch(`${API_BASE}/memory/generate/status/${jobId}`);
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(`Failed to fetch job status: ${detail}`);
-  }
-  return response.json();
+  return requestJson<MemoryJobStatus>(
+    `${API_BASE}/memory/generate/status/${jobId}`,
+    undefined,
+    { fallbackMessage: "Failed to fetch job status" },
+  );
 }
 
 /**
@@ -69,8 +64,10 @@ export async function getMemoryGenerationStatus(
 export async function downloadMemoryAnalysis(jobId: string): Promise<void> {
   const response = await fetch(`${API_BASE}/memory/generate/export/${jobId}`);
   if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(`Failed to download analysis data: ${detail}`);
+    throw await apiErrorFromResponse(
+      response,
+      "Failed to download analysis data",
+    );
   }
 
   const disposition = response.headers.get("Content-Disposition");
@@ -95,25 +92,22 @@ export async function downloadMemoryAnalysis(jobId: string): Promise<void> {
  * メモリ生成バッチジョブのキャンセルを要求する
  */
 export async function cancelMemoryGeneration(jobId: string): Promise<void> {
-  const response = await fetch(`${API_BASE}/memory/generate/cancel/${jobId}`, {
-    method: "POST",
-  });
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(`Failed to cancel memory generation: ${detail}`);
-  }
+  await requestJson<unknown>(
+    `${API_BASE}/memory/generate/cancel/${jobId}`,
+    { method: "POST" },
+    { fallbackMessage: "Failed to cancel memory generation" },
+  );
 }
 
 /**
  * 保存済みのメモリテキストを取得する
  */
 export async function getMemoryText(): Promise<string | null> {
-  const response = await fetch(`${API_BASE}/memory/text`);
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(`Failed to fetch memory text: ${detail}`);
-  }
-  const data = await response.json();
+  const data = await requestJson<{ memory_text?: string | null }>(
+    `${API_BASE}/memory/text`,
+    undefined,
+    { fallbackMessage: "Failed to fetch memory text" },
+  );
   return data.memory_text ?? null;
 }
 
@@ -121,16 +115,11 @@ export async function getMemoryText(): Promise<string | null> {
  * メモリテキストを保存する（手動編集を含む）
  */
 export async function saveMemoryText(memoryText: string): Promise<string> {
-  const response = await fetch(`${API_BASE}/memory/text`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ memory_text: memoryText }),
-  });
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(`Failed to save memory text: ${detail}`);
-  }
-  const data = await response.json();
+  const data = await requestJson<{ memory_text?: string | null }>(
+    `${API_BASE}/memory/text`,
+    jsonInit("PUT", { memory_text: memoryText }),
+    { fallbackMessage: "Failed to save memory text" },
+  );
   return data.memory_text ?? "";
 }
 
@@ -138,13 +127,10 @@ export async function saveMemoryText(memoryText: string): Promise<string> {
  * メモリ生成対象となりうるセッション総数を取得する（推定時間表示用）
  */
 export async function getSessionTotalCount(): Promise<number> {
-  const response = await fetch(
+  const data = await requestJson<{ total?: number }>(
     `${API_BASE}/gallery/sessions?page=1&page_size=1`,
+    undefined,
+    { fallbackMessage: "Failed to fetch session count" },
   );
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(`Failed to fetch session count: ${detail}`);
-  }
-  const data = await response.json();
   return data.total ?? 0;
 }

@@ -9,12 +9,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import {
-  PromptExpanderApiError,
-  type PromptExpanderSuggestion,
-} from "../../apis/promptExpander";
+import type { PromptExpanderSuggestion } from "../../apis/promptExpander";
 import type { PromptExpandMode } from "../../constants/promptExpander";
 import { usePromptExpander } from "../../contexts/PromptExpanderContext";
+import { ApiError } from "../../utils/http";
 import PromptExpanderModal from "./PromptExpanderModal";
 import "./PromptExpanderShared.css";
 import "./PromptExpanderSuggestModal.css";
@@ -79,7 +77,7 @@ export default function PromptExpanderSuggestModal({
       const result = await suggestCharacters(count, mode);
       setSuggestions(result);
     } catch (err) {
-      if (err instanceof PromptExpanderApiError) {
+      if (err instanceof ApiError) {
         setErrorCode(err.code);
         setErrorMessage(err.message);
       } else {

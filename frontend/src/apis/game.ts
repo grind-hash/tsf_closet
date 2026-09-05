@@ -3,8 +3,9 @@
  * プロンプトプレビュー・最新履歴削除など
  */
 
-import type { InstructionType } from "../types";
+import type { Character, InstructionType } from "../types";
 import { API_BASE } from "../utils/api";
+import { jsonInit, requestJson } from "../utils/http";
 
 // プロンプトプレビュー リクエスト
 export interface PreviewPromptRequest {
@@ -52,20 +53,11 @@ export interface DeleteLatestHistoryResponse {
 export async function previewPrompt(
   request: PreviewPromptRequest,
 ): Promise<PreviewPromptResponse> {
-  const response = await fetch(`${API_BASE}/game/preview/prompt`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(request),
-  });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(
-      error.detail?.message || `Preview failed: ${response.status}`,
-    );
-  }
-
-  return response.json();
+  return requestJson<PreviewPromptResponse>(
+    `${API_BASE}/game/preview/prompt`,
+    jsonInit("POST", request),
+    { fallbackMessage: "Preview failed" },
+  );
 }
 
 // 指示テキスト生成 レスポンス
@@ -85,10 +77,9 @@ export async function suggestInstruction(
   useMemory?: boolean,
   usePlayMemory?: boolean,
 ): Promise<string> {
-  const response = await fetch(`${API_BASE}/game/suggest-instruction`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
+  const data = await requestJson<SuggestInstructionResponse>(
+    `${API_BASE}/game/suggest-instruction`,
+    jsonInit("POST", {
       session_id: sessionId,
       instruction_type: instructionType === "all" ? null : instructionType,
       keyword: keyword?.trim() ? keyword.trim() : null,
@@ -96,14 +87,8 @@ export async function suggestInstruction(
       use_memory: useMemory ?? false,
       use_play_memory: usePlayMemory ?? false,
     }),
-  });
-
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(detail || `Suggest failed: ${response.status}`);
-  }
-
-  const data: SuggestInstructionResponse = await response.json();
+    { fallbackMessage: "Suggest failed" },
+  );
   return data.suggestion;
 }
 
@@ -113,21 +98,11 @@ export async function suggestInstruction(
 export async function deleteLatestHistory(
   sessionId: string,
 ): Promise<DeleteLatestHistoryResponse> {
-  const response = await fetch(
+  return requestJson<DeleteLatestHistoryResponse>(
     `${API_BASE}/game/session/${sessionId}/latest-history`,
-    {
-      method: "DELETE",
-    },
+    { method: "DELETE" },
+    { fallbackMessage: "Delete failed" },
   );
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(
-      error.detail?.message || `Delete failed: ${response.status}`,
-    );
-  }
-
-  return response.json();
 }
 
 export interface StandingPortraitResponse {
@@ -146,18 +121,11 @@ export async function generateStandingPortrait(
   if (nsfwMode !== undefined) {
     params.set("nsfw_mode", String(nsfwMode));
   }
-  const response = await fetch(`${API_BASE}/game/standing-portrait?${params}`, {
-    method: "POST",
-  });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(
-      error.detail?.message || `Standing portrait failed: ${response.status}`,
-    );
-  }
-
-  return response.json();
+  return requestJson<StandingPortraitResponse>(
+    `${API_BASE}/game/standing-portrait?${params}`,
+    { method: "POST" },
+    { fallbackMessage: "Standing portrait failed" },
+  );
 }
 
 // 個別会話メッセージ削除 レスポンス
@@ -174,22 +142,11 @@ export async function deleteConversationMessage(
   sessionId: string,
 ): Promise<DeleteConversationMessageResponse> {
   const params = new URLSearchParams({ session_id: sessionId });
-  const response = await fetch(
+  return requestJson<DeleteConversationMessageResponse>(
     `${API_BASE}/game/conversation/message/${encodeURIComponent(conversationId)}?${params}`,
-    {
-      method: "DELETE",
-    },
+    { method: "DELETE" },
+    { fallbackMessage: "Delete conversation message failed" },
   );
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(
-      error.detail?.message ||
-        `Delete conversation message failed: ${response.status}`,
-    );
-  }
-
-  return response.json();
 }
 
 export interface DeleteHistoryEntryResponse {
@@ -207,22 +164,11 @@ export async function deleteHistoryEntry(
   sessionId: string,
 ): Promise<DeleteHistoryEntryResponse> {
   const params = new URLSearchParams({ session_id: sessionId });
-  const response = await fetch(
+  return requestJson<DeleteHistoryEntryResponse>(
     `${API_BASE}/game/history/${encodeURIComponent(historyId)}?${params}`,
-    {
-      method: "DELETE",
-    },
+    { method: "DELETE" },
+    { fallbackMessage: "Delete history entry failed" },
   );
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(
-      error.detail?.message ||
-        `Delete history entry failed: ${response.status}`,
-    );
-  }
-
-  return response.json();
 }
 
 /** 履歴画像から新規セッション分岐のレスポンス（SessionResponse 互換 + メタ） */
@@ -253,30 +199,119 @@ export async function branchSessionFromHistory(
   historyId: string,
   options?: { inheritStats?: boolean; selfMode?: boolean },
 ): Promise<BranchSessionResponse> {
-  const response = await fetch(
+  return requestJson<BranchSessionResponse>(
     `${API_BASE}/game/history/${encodeURIComponent(historyId)}/branch-session`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        inherit_stats: options?.inheritStats ?? true,
-        // 明示指定時のみ送る（未指定ならバックエンドが分岐元を引き継ぐ）
-        ...(options?.selfMode !== undefined
-          ? { self_mode: options.selfMode }
-          : {}),
-      }),
-    },
+    jsonInit("POST", {
+      inherit_stats: options?.inheritStats ?? true,
+      ...(options?.selfMode !== undefined
+        ? { self_mode: options.selfMode }
+        : {}),
+    }),
+    { fallbackMessage: "Branch session failed" },
   );
+}
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    const detail = error.detail;
-    const message =
-      (typeof detail === "object" && detail?.message) ||
-      (typeof detail === "string" ? detail : null) ||
-      `Branch session failed: ${response.status}`;
-    throw new Error(message);
-  }
+// ----------------------------------------------------------------
+// セッション / キャラクター / 属性 / プレイメモ（GameContext から使う）
+// ----------------------------------------------------------------
 
-  return response.json();
+/**
+ * GET /game/session と POST /game/sessions/{id}/restore の応答。
+ * 項目の解釈は GameContext.mapSessionResponse が担う
+ */
+export type GameSessionResponse = Record<string, unknown> & {
+  session_id: string;
+};
+
+export interface PlayMemoryApiResponse {
+  system_enabled: boolean;
+  user_enabled: boolean;
+  system_text: string | null;
+  user_text: string | null;
+  system_updated_at: string | null;
+}
+
+export interface PlayMemoryUpdate {
+  system_enabled?: boolean;
+  user_enabled?: boolean;
+  user_text?: string | null;
+}
+
+export async function fetchCharacters(): Promise<Character[]> {
+  const data = await requestJson<{ characters?: Character[] }>(
+    `${API_BASE}/game/characters`,
+    undefined,
+    { fallbackMessage: "キャラクター一覧の取得に失敗しました" },
+  );
+  return data.characters ?? [];
+}
+
+/** アクティブセッションを取得する（無ければ 404 の ApiError） */
+export async function fetchActiveSession(): Promise<GameSessionResponse> {
+  return requestJson<GameSessionResponse>(`${API_BASE}/game/session`);
+}
+
+export async function restoreSession(
+  sessionId: string,
+): Promise<GameSessionResponse> {
+  return requestJson<GameSessionResponse>(
+    `${API_BASE}/game/sessions/${sessionId}/restore`,
+    { method: "POST" },
+  );
+}
+
+/**
+ * アクティブセッションを終了する。ローカル状態は応答に関わらず破棄するため、
+ * バックエンド側の失敗（非 2xx）は無視し、通信エラーだけを投げる
+ */
+export async function deleteActiveSession(): Promise<void> {
+  await fetch(`${API_BASE}/game/session`, { method: "DELETE" });
+}
+
+export async function addSessionAttribute(
+  sessionId: string,
+  text: string,
+): Promise<{
+  attribute: { id: string; attribute_text: string; text?: string };
+}> {
+  const params = new URLSearchParams({
+    session_id: sessionId,
+    attribute_text: text,
+  });
+  return requestJson(
+    `${API_BASE}/game/attributes?${params.toString()}`,
+    { method: "POST" },
+    { fallbackMessage: "Failed to add attribute" },
+  );
+}
+
+export async function removeSessionAttribute(id: string): Promise<void> {
+  await requestJson<unknown>(
+    `${API_BASE}/game/attributes/${id}`,
+    { method: "DELETE" },
+    { fallbackMessage: "Failed to remove attribute" },
+  );
+}
+
+export async function updatePlayMemory(
+  sessionId: string,
+  updates: PlayMemoryUpdate,
+): Promise<PlayMemoryApiResponse> {
+  return requestJson<PlayMemoryApiResponse>(
+    `${API_BASE}/game/sessions/${sessionId}/play-memory`,
+    jsonInit("PATCH", updates),
+    { fallbackMessage: "プレイメモの保存に失敗しました" },
+  );
+}
+
+export async function regeneratePlayMemory(
+  sessionId: string,
+  language: string,
+): Promise<PlayMemoryApiResponse> {
+  const params = new URLSearchParams({ language });
+  return requestJson<PlayMemoryApiResponse>(
+    `${API_BASE}/game/sessions/${sessionId}/play-memory/regenerate?${params}`,
+    { method: "POST" },
+    { fallbackMessage: "自動メモの再生成に失敗しました" },
+  );
 }

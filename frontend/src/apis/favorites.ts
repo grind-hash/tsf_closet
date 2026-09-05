@@ -3,6 +3,7 @@
  */
 
 import { API_BASE } from "../utils/api";
+import { jsonInit, requestJson } from "../utils/http";
 
 export interface FavoriteItem {
   id: string;
@@ -48,15 +49,14 @@ export async function fetchFavorites(
     page: String(page),
     page_size: String(pageSize),
   });
-  const response = await fetch(`${API_BASE}/favorites?${params}`);
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(error || "お気に入り一覧の取得に失敗しました");
-  }
-  const data = await response.json();
+  const data = await requestJson<Record<string, unknown>>(
+    `${API_BASE}/favorites?${params}`,
+    undefined,
+    { fallbackMessage: "お気に入り一覧の取得に失敗しました" },
+  );
   return {
-    items: (data.items || []).map((item: Record<string, unknown>) =>
-      convertFavoriteItem(item),
+    items: ((data.items as Record<string, unknown>[] | undefined) || []).map(
+      (item) => convertFavoriteItem(item),
     ),
     total: Number(data.total || 0),
     page: Number(data.page || page),
@@ -69,59 +69,37 @@ export async function addFavorite(
   historyId: string,
   label?: string,
 ): Promise<FavoriteItem> {
-  const response = await fetch(`${API_BASE}/favorites`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
+  const data = await requestJson<Record<string, unknown>>(
+    `${API_BASE}/favorites`,
+    jsonInit("POST", {
       history_id: historyId,
       ...(label !== undefined ? { label } : {}),
     }),
-  });
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    const message =
-      (typeof error.detail === "object" && error.detail?.message) ||
-      (typeof error.detail === "string" ? error.detail : null) ||
-      "お気に入りの追加に失敗しました";
-    throw new Error(message);
-  }
-  return convertFavoriteItem(await response.json());
+    { fallbackMessage: "お気に入りの追加に失敗しました" },
+  );
+  return convertFavoriteItem(data);
 }
 
 export async function updateFavoriteLabel(
   favoriteId: string,
   label: string | null,
 ): Promise<FavoriteItem> {
-  const response = await fetch(
+  const data = await requestJson<Record<string, unknown>>(
     `${API_BASE}/favorites/${encodeURIComponent(favoriteId)}`,
-    {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ label }),
-    },
+    jsonInit("PATCH", { label }),
+    { fallbackMessage: "ラベルの更新に失敗しました" },
   );
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    const message =
-      (typeof error.detail === "object" && error.detail?.message) ||
-      (typeof error.detail === "string" ? error.detail : null) ||
-      "ラベルの更新に失敗しました";
-    throw new Error(message);
-  }
-  return convertFavoriteItem(await response.json());
+  return convertFavoriteItem(data);
 }
 
 export async function deleteFavoriteByHistory(
   historyId: string,
 ): Promise<boolean> {
-  const response = await fetch(
+  const data = await requestJson<{ deleted?: boolean }>(
     `${API_BASE}/favorites/by-history/${encodeURIComponent(historyId)}`,
     { method: "DELETE" },
+    { fallbackMessage: "お気に入りの削除に失敗しました" },
   );
-  if (!response.ok) {
-    throw new Error("お気に入りの削除に失敗しました");
-  }
-  const data = await response.json();
   return Boolean(data.deleted);
 }
 

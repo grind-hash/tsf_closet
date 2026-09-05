@@ -15,7 +15,14 @@ import {
 import { fetchAnlasBalance } from "../apis/anlas";
 import { getMemoryText as fetchMemoryTextApi } from "../apis/memory";
 import type { SelfProfile } from "../apis/settings";
-import { getSelfProfile as fetchSelfProfileApi } from "../apis/settings";
+import {
+  fetchAppSettings,
+  getSelfProfile as fetchSelfProfileApi,
+  fetchUserSettings,
+  updateAppSettings,
+  updateUserSettings,
+} from "../apis/settings";
+import { fetchHealth } from "../apis/system";
 import { DEFAULT_LANGUAGE, type UiLanguage } from "../constants/language";
 import {
   DEFAULT_NSFW_IMAGE_MODEL,
@@ -634,30 +641,27 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const fetchImageProvider = async () => {
       try {
-        const res = await fetch("/health");
-        if (res.ok) {
-          const data = await res.json();
-          const provider = data.image_provider as
-            | "selfhost"
-            | "openrouter"
-            | "novelai";
-          if (
-            provider === "openrouter" ||
-            provider === "novelai" ||
-            provider === "selfhost"
-          ) {
-            dispatch({ type: "SET_IMAGE_PROVIDER", payload: provider });
-          }
+        const data = await fetchHealth();
+        const provider = data.image_provider as
+          | "selfhost"
+          | "openrouter"
+          | "novelai";
+        if (
+          provider === "openrouter" ||
+          provider === "novelai" ||
+          provider === "selfhost"
+        ) {
+          dispatch({ type: "SET_IMAGE_PROVIDER", payload: provider });
+        }
 
-          const hasCostProvider =
-            data.image_provider === "openrouter" ||
-            data.image_description_provider === "openrouter" ||
-            data.feeling_provider === "openrouter";
-          dispatch({ type: "SET_SHOW_COST", payload: hasCostProvider });
+        const hasCostProvider =
+          data.image_provider === "openrouter" ||
+          data.image_description_provider === "openrouter" ||
+          data.feeling_provider === "openrouter";
+        dispatch({ type: "SET_SHOW_COST", payload: hasCostProvider });
 
-          if (provider !== "novelai") {
-            dispatch({ type: "SET_ANLAS_BALANCE", payload: null });
-          }
+        if (provider !== "novelai") {
+          dispatch({ type: "SET_ANLAS_BALANCE", payload: null });
         }
       } catch (error) {
         console.warn("Failed to fetch image provider from /health:", error);
@@ -691,59 +695,52 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
 
   // 初回ロード時にバックエンドからユーザー設定を取得
   useEffect(() => {
-    const fetchUserSettings = async () => {
+    const loadUserSettings = async () => {
       try {
-        const res = await fetch("/api/settings/user");
-        if (res.ok) {
-          const data = await res.json();
-          dispatch({
-            type: "LOAD_SETTINGS",
-            payload: {
-              nsfwMode: data.nsfw_mode,
-              difficulty: data.difficulty,
-              bloomCalcMethod: data.bloom_calc_method ?? "legacy",
-              feelingMode: normalizeFeelingMode(data.feeling_mode),
-              genderCongruenceLlmEnabled:
-                data.gender_congruence_llm_enabled ?? false,
-              language: data.language ?? DEFAULT_LANGUAGE,
-              novelaiTextModel: data.novelai_text_model ?? "glm-4-6",
-              novelaiImageModel:
-                data.novelai_image_model ?? DEFAULT_NSFW_IMAGE_MODEL,
-              novelaiCuratedImageModel:
-                data.novelai_curated_image_model ?? DEFAULT_SFW_IMAGE_MODEL,
-              ttsEnabled: data.tts_enabled ?? false,
-              ttsUseGpu: data.tts_use_gpu ?? false,
-              ttsEngineDir: data.tts_engine_dir ?? "contrib/AivisSpeech",
-              ttsEnginePort: data.tts_engine_port ?? null,
-              ttsModelDir:
-                data.tts_model_dir ?? "%APPDATA%\\AivisSpeech-Engine\\Models",
-              ttsSpeakerId: data.tts_speaker_id ?? null,
-              ttsStyleId: data.tts_style_id ?? null,
-              ttsOutputFormat: data.tts_output_format ?? "wav",
-            },
-          });
-        }
+        const data = await fetchUserSettings();
+        dispatch({
+          type: "LOAD_SETTINGS",
+          payload: {
+            nsfwMode: data.nsfw_mode,
+            difficulty: data.difficulty,
+            bloomCalcMethod: data.bloom_calc_method ?? "legacy",
+            feelingMode: normalizeFeelingMode(data.feeling_mode),
+            genderCongruenceLlmEnabled:
+              data.gender_congruence_llm_enabled ?? false,
+            language: data.language ?? DEFAULT_LANGUAGE,
+            novelaiTextModel: data.novelai_text_model ?? "glm-4-6",
+            novelaiImageModel:
+              data.novelai_image_model ?? DEFAULT_NSFW_IMAGE_MODEL,
+            novelaiCuratedImageModel:
+              data.novelai_curated_image_model ?? DEFAULT_SFW_IMAGE_MODEL,
+            ttsEnabled: data.tts_enabled ?? false,
+            ttsUseGpu: data.tts_use_gpu ?? false,
+            ttsEngineDir: data.tts_engine_dir ?? "contrib/AivisSpeech",
+            ttsEnginePort: data.tts_engine_port ?? null,
+            ttsModelDir:
+              data.tts_model_dir ?? "%APPDATA%\\AivisSpeech-Engine\\Models",
+            ttsSpeakerId: data.tts_speaker_id ?? null,
+            ttsStyleId: data.tts_style_id ?? null,
+            ttsOutputFormat: data.tts_output_format ?? "wav",
+          },
+        });
       } catch (error) {
         console.warn("Failed to fetch user settings from backend:", error);
       }
     };
-    fetchUserSettings();
+    loadUserSettings();
   }, []);
 
   // spec 004 (US4): Load per-session settings (history_lookback_count etc.)
   useEffect(() => {
     const fetchSessionSettings = async () => {
       try {
-        const res = await fetch("/api/settings");
-        if (res.ok) {
-          const data = await res.json();
-          const settings = data?.settings ?? data;
-          if (settings && typeof settings.history_lookback_count === "number") {
-            dispatch({
-              type: "SET_HISTORY_LOOKBACK_COUNT",
-              payload: settings.history_lookback_count,
-            });
-          }
+        const settings = await fetchAppSettings();
+        if (settings && typeof settings.history_lookback_count === "number") {
+          dispatch({
+            type: "SET_HISTORY_LOOKBACK_COUNT",
+            payload: settings.history_lookback_count,
+          });
         }
       } catch (error) {
         console.warn("Failed to fetch session settings from backend:", error);
@@ -834,11 +831,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       dispatch({ type: "SET_DIFFICULTY", payload: difficulty });
       // バックエンドに保存
       try {
-        await fetch("/api/settings/user", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ difficulty }),
-        });
+        await updateUserSettings({ difficulty });
       } catch (error) {
         console.error("Failed to save difficulty to backend:", error);
       }
@@ -850,11 +843,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "SET_BLOOM_CALC_METHOD", payload: method });
     // バックエンドに保存
     try {
-      await fetch("/api/settings/user", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ bloom_calc_method: method }),
-      });
+      await updateUserSettings({ bloom_calc_method: method });
     } catch (error) {
       console.error("Failed to save bloom_calc_method to backend:", error);
     }
@@ -864,11 +853,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     async (mode: "legacy" | "gender_aware") => {
       dispatch({ type: "SET_FEELING_MODE", payload: mode });
       try {
-        await fetch("/api/settings/user", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ feeling_mode: mode }),
-        });
+        await updateUserSettings({ feeling_mode: mode });
       } catch (error) {
         console.error("Failed to save feeling_mode to backend:", error);
       }
@@ -880,11 +865,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     async (enabled: boolean) => {
       dispatch({ type: "SET_GENDER_CONGRUENCE_LLM_ENABLED", payload: enabled });
       try {
-        await fetch("/api/settings/user", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ gender_congruence_llm_enabled: enabled }),
-        });
+        await updateUserSettings({ gender_congruence_llm_enabled: enabled });
       } catch (error) {
         console.error(
           "Failed to save gender_congruence_llm_enabled to backend:",
@@ -899,11 +880,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "SET_NSFW_MODE", payload: enabled });
     // バックエンドに保存
     try {
-      await fetch("/api/settings/user", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ nsfw_mode: enabled }),
-      });
+      await updateUserSettings({ nsfw_mode: enabled });
     } catch (error) {
       console.error("Failed to save nsfw_mode to backend:", error);
     }
@@ -913,11 +890,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "SET_LANGUAGE", payload: language });
     void i18n.changeLanguage(language);
     try {
-      await fetch("/api/settings/user", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ language }),
-      });
+      await updateUserSettings({ language });
     } catch (error) {
       console.error("Failed to save language to backend:", error);
     }
@@ -929,11 +902,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "SET_NSFW_MODE", payload: newValue });
     // バックエンドに保存
     try {
-      await fetch("/api/settings/user", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ nsfw_mode: newValue }),
-      });
+      await updateUserSettings({ nsfw_mode: newValue });
     } catch (error) {
       console.error("Failed to save nsfw_mode to backend:", error);
     }
@@ -1140,11 +1109,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const setNovelaiTextModel = useCallback(async (model: string) => {
     dispatch({ type: "SET_NOVELAI_TEXT_MODEL", payload: model });
     try {
-      await fetch("/api/settings/user", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ novelai_text_model: model }),
-      });
+      await updateUserSettings({ novelai_text_model: model });
     } catch (error) {
       console.error("Failed to save novelai_text_model to backend:", error);
     }
@@ -1157,11 +1122,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const setNovelaiImageModel = useCallback(async (model: string) => {
     dispatch({ type: "SET_NOVELAI_IMAGE_MODEL", payload: model });
     try {
-      await fetch("/api/settings/user", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ novelai_image_model: model }),
-      });
+      await updateUserSettings({ novelai_image_model: model });
     } catch (error) {
       console.error("Failed to save novelai_image_model to backend:", error);
     }
@@ -1170,11 +1131,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const setNovelaiCuratedImageModel = useCallback(async (model: string) => {
     dispatch({ type: "SET_NOVELAI_CURATED_IMAGE_MODEL", payload: model });
     try {
-      await fetch("/api/settings/user", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ novelai_curated_image_model: model }),
-      });
+      await updateUserSettings({ novelai_curated_image_model: model });
     } catch (error) {
       console.error(
         "Failed to save novelai_curated_image_model to backend:",
@@ -1186,11 +1143,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const setTtsEnabled = useCallback(async (enabled: boolean) => {
     dispatch({ type: "SET_TTS_ENABLED", payload: enabled });
     try {
-      await fetch("/api/settings/user", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tts_enabled: enabled }),
-      });
+      await updateUserSettings({ tts_enabled: enabled });
     } catch (error) {
       console.error("Failed to save tts_enabled to backend:", error);
     }
@@ -1199,11 +1152,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const setTtsUseGpu = useCallback(async (enabled: boolean) => {
     dispatch({ type: "SET_TTS_USE_GPU", payload: enabled });
     try {
-      await fetch("/api/settings/user", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tts_use_gpu: enabled }),
-      });
+      await updateUserSettings({ tts_use_gpu: enabled });
     } catch (error) {
       console.error("Failed to save tts_use_gpu to backend:", error);
     }
@@ -1212,11 +1161,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const setTtsEngineDir = useCallback(async (engineDir: string) => {
     dispatch({ type: "SET_TTS_ENGINE_DIR", payload: engineDir });
     try {
-      await fetch("/api/settings/user", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tts_engine_dir: engineDir }),
-      });
+      await updateUserSettings({ tts_engine_dir: engineDir });
     } catch (error) {
       console.error("Failed to save tts_engine_dir to backend:", error);
     }
@@ -1225,11 +1170,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const setTtsEnginePort = useCallback(async (port: number) => {
     dispatch({ type: "SET_TTS_ENGINE_PORT", payload: port });
     try {
-      await fetch("/api/settings/user", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tts_engine_port: port }),
-      });
+      await updateUserSettings({ tts_engine_port: port });
     } catch (error) {
       console.error("Failed to save tts_engine_port to backend:", error);
     }
@@ -1238,11 +1179,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const setTtsModelDir = useCallback(async (modelDir: string) => {
     dispatch({ type: "SET_TTS_MODEL_DIR", payload: modelDir });
     try {
-      await fetch("/api/settings/user", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tts_model_dir: modelDir }),
-      });
+      await updateUserSettings({ tts_model_dir: modelDir });
     } catch (error) {
       console.error("Failed to save tts_model_dir to backend:", error);
     }
@@ -1251,11 +1188,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const setTtsSpeakerId = useCallback(async (speakerId: string | null) => {
     dispatch({ type: "SET_TTS_SPEAKER_ID", payload: speakerId });
     try {
-      await fetch("/api/settings/user", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tts_speaker_id: speakerId ?? "" }),
-      });
+      await updateUserSettings({ tts_speaker_id: speakerId ?? "" });
     } catch (error) {
       console.error("Failed to save tts_speaker_id to backend:", error);
     }
@@ -1264,11 +1197,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const setTtsStyleId = useCallback(async (styleId: string | null) => {
     dispatch({ type: "SET_TTS_STYLE_ID", payload: styleId });
     try {
-      await fetch("/api/settings/user", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tts_style_id: styleId ?? "" }),
-      });
+      await updateUserSettings({ tts_style_id: styleId ?? "" });
     } catch (error) {
       console.error("Failed to save tts_style_id to backend:", error);
     }
@@ -1277,11 +1206,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const setTtsOutputFormat = useCallback(async (format: "wav") => {
     dispatch({ type: "SET_TTS_OUTPUT_FORMAT", payload: format });
     try {
-      await fetch("/api/settings/user", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tts_output_format: format }),
-      });
+      await updateUserSettings({ tts_output_format: format });
     } catch (error) {
       console.error("Failed to save tts_output_format to backend:", error);
     }
@@ -1291,11 +1216,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     const clamped = Math.max(5, Math.min(20, Math.trunc(count)));
     dispatch({ type: "SET_HISTORY_LOOKBACK_COUNT", payload: clamped });
     try {
-      await fetch("/api/settings", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ history_lookback_count: clamped }),
-      });
+      await updateAppSettings({ history_lookback_count: clamped });
     } catch (error) {
       console.error("Failed to save history_lookback_count to backend:", error);
     }
