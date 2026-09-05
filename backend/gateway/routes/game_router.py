@@ -7,15 +7,12 @@
 from __future__ import annotations
 
 import base64
-import contextlib
 import json
-import math
-import uuid
 from collections.abc import AsyncGenerator
-from datetime import datetime
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse
 from sse_starlette.sse import EventSourceResponse
 
 from ..consts.language import normalize_language
@@ -50,48 +47,52 @@ from ..schemas.session import (
     SessionResponse,
     SessionSummary,
 )
+from ..services import mask_service
 from ..services.characters import character_manager
+from ..services.conversation_service import (
+    ChatContext,
+    SessionNotFoundError,
+    conversation_service,
+)
+from ..services.custom_sessions import (
+    list_custom_characters as list_custom_character_items,
+)
 from ..services.endings import ENDINGS
-from ..services.game_service import GameService
+from ..services.mask_service import MaskError
 from ..services.session import session_store
-from ..services.settings_service import settings_service
 
 router = APIRouter(prefix="/game", tags=["Game"])
 
-SYSTEM_MASK_LABELS = {
-    "system_mask_upper_body.png": "上半身マスク（頭部以外）",
-    "system_mask_upper_body_and_head.png": "上半身マスク（頭部含む）",
-    "system_mask_bottom_body.png": "下半身マスク",
-    "system_entire_body_excluding_face.png": "全身マスク（頭部以外）",
-    "system_entire_body.png": "全身マスク",
-}
 
-
-def normalize_gender(value: str | None) -> str:
-    """性別値を man/woman/other に正規化"""
-    if not value:
-        return "other"
-    normalized = value.strip().lower()
-    if normalized in {"man", "male", "男性", "男"}:
-        return "man"
-    if normalized in {"woman", "female", "女性", "女"}:
-        return "woman"
-    return "other"
-
-
-def load_custom_session_metadata(session_id: str) -> dict:
-    """カスタムセッションメタデータを読み込む"""
-    from ..settings.config import settings
-
-    metadata_path = (
-        settings.history_images_dir / "custom" / f"session_{session_id}.json"
-    )
-    if not metadata_path.exists():
-        return {}
+async def _build_chat_context(**params: Any) -> ChatContext:
+    """会話の前処理。セッションが無ければ 404。"""
     try:
-        return json.loads(metadata_path.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
+        return await conversation_service.build_chat_context(**params)
+    except SessionNotFoundError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": "session_not_found",
+                "message": "セッションが見つかりません",
+            },
+        ) from exc
+
+
+def _game_start_response(
+    session_id: str, difficulty: str, stats: Any
+) -> GameStartResponse:
+    return GameStartResponse(
+        session_id=session_id,
+        difficulty=difficulty,
+        initial_stats=SessionStatsResponse(
+            bloom=stats.bloom,
+            shame=stats.shame,
+            adaptation=stats.adaptation,
+            passed_critical_points=stats.passed_critical_points,
+            difficulty=stats.difficulty,
+            nsfw_mode=stats.nsfw_mode,
+        ),
+    )
 
 
 @router.get(
@@ -179,25 +180,6 @@ async def play_game_stream(request: PlayStreamRequest) -> EventSourceResponse:
             use_history_lookback=request.use_history_lookback,
             image_only_text_to_image=request.image_only_text_to_image,
         ):
-            if event.type == "complete" and request.use_play_memory:
-                from ..services.play_memory_service import play_memory_service
-
-                result_text = "\n".join(
-                    part
-                    for part in (
-                        str(event.data.get("after_desc", "")),
-                        str(event.data.get("feeling_text", "")),
-                    )
-                    if part
-                )
-                updated = await play_memory_service.update_rolling(
-                    event.data.get("session_id") or request.session_id or "",
-                    interaction_type=request.instruction_type or "dress_up",
-                    user_input=request.instruction,
-                    result_text=result_text,
-                    language=normalize_language(request.language),
-                )
-                event.data["play_memory_update"] = "updated" if updated else "failed"
             yield {
                 "event": event.type,
                 "data": json.dumps(event.data, ensure_ascii=False),
@@ -309,82 +291,21 @@ async def get_difficulties() -> DifficultyListResponse:
 )
 async def start_game(request: GameStartRequest) -> GameStartResponse:
     """ゲームセッションを開始（難易度選択付き）"""
-    # 既存セッションをリセット
-    await session_store.reset_session()
+    from ..services.game_service import GameServiceError, game_service
 
-    # キャラクター情報を取得
-    character_id = request.character_id
-    character = None
-    if character_id:
-        character = character_manager.get_by_id(character_id)
-        if character is None:
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "error": "invalid_character",
-                    "message": f"キャラクター '{character_id}' が見つかりません",
-                },
-            )
-        image_path = character.image_path
-    else:
-        # デフォルトキャラクター
-        all_characters = character_manager.get_all()
-        default_char = all_characters[0] if all_characters else None
-        if default_char is None:
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "error": "no_characters",
-                    "message": "利用可能なキャラクターがありません",
-                },
-            )
-        character_id = default_char.id
-        character = default_char
-        image_path = default_char.image_path
-
-    # 難易度を検証
-    difficulty = request.difficulty
-    if difficulty not in DIFFICULTY_PRESETS:
-        difficulty = "normal"
-
-    # セッションを作成
-    session = await session_store.create_session(
-        image_path=image_path,
-        character_id=character_id,
-        self_mode=request.self_mode,
-    )
-
-    # セッション統計を作成
-    stats = await session_store.create_session_stats(
-        session.id, difficulty, request.nsfw_mode
-    )
-
-    if character is not None:
-        initial_desc = GameService._build_initial_prompt(
-            gender=character.gender,
-            character=character,
+    try:
+        session, stats, difficulty = await game_service.start_session(
+            character_id=request.character_id,
+            difficulty=request.difficulty,
+            nsfw_mode=request.nsfw_mode,
+            self_mode=request.self_mode,
         )
-        await session_store.add_history(
-            session_id=session.id,
-            instruction="初期状態",
-            image_data=character_manager.get_image_bytes(character),
-            feeling_text="(初期状態)",
-            before_description=initial_desc,
-            after_description=initial_desc,
-        )
-
-    return GameStartResponse(
-        session_id=session.id,
-        difficulty=difficulty,
-        initial_stats=SessionStatsResponse(
-            bloom=stats.bloom,
-            shame=stats.shame,
-            adaptation=stats.adaptation,
-            passed_critical_points=stats.passed_critical_points,
-            difficulty=stats.difficulty,
-            nsfw_mode=stats.nsfw_mode,
-        ),
-    )
+    except GameServiceError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": exc.code or "invalid_request", "message": str(exc)},
+        ) from exc
+    return _game_start_response(session.id, difficulty, stats)
 
 
 @router.post(
@@ -396,119 +317,28 @@ async def start_game(request: GameStartRequest) -> GameStartResponse:
 )
 async def start_game_custom(request: CustomStartRequest) -> GameStartResponse:
     """カスタム画像でセッションを開始"""
-    import base64
+    from ..services.game_service import GameServiceError, game_service
 
-    from ..settings.config import settings
-
-    # 既存セッションをリセット
-    await session_store.reset_session()
-
-    custom_images_dir = settings.history_images_dir / "custom"
-    custom_images_dir.mkdir(parents=True, exist_ok=True)
-    custom_image_id = request.custom_character_id or str(uuid.uuid4())
-    custom_image_path = custom_images_dir / f"{custom_image_id}.png"
-
-    if request.custom_character_id and custom_image_path.exists():
-        image_bytes = custom_image_path.read_bytes()
-    else:
-        try:
-            if not request.image:
-                raise ValueError("画像が指定されていません")
-            image_data = request.image
-            if "," in image_data:
-                image_data = image_data.split(",", 1)[1]
-            image_bytes = base64.b64decode(image_data)
-        except Exception as e:
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "error": "invalid_image",
-                    "message": f"画像のデコードに失敗しました: {e}",
-                },
-            ) from e
-        custom_image_path.write_bytes(image_bytes)
-
-    # 相対パスを計算（BASE_DIRからの相対パス）
-    relative_path = f"data/history_images/custom/{custom_image_id}.png"
-
-    normalized_gender = normalize_gender(request.gender)
-
-    metadata_path = custom_images_dir / f"{custom_image_id}.json"
-    metadata_path.write_text(
-        json.dumps(
-            {
-                "id": custom_image_id,
-                "name": request.name,
-                "description": request.description,
-                "pronoun": request.pronoun,
-                "personality": request.personality,
-                "gender": normalized_gender,
-                "base_tags": request.base_tags,
-            },
-            ensure_ascii=False,
-        ),
-        encoding="utf-8",
-    )
-
-    # セッションを作成
-    session = await session_store.create_session(
-        image_path=relative_path,
-        character_id=None,  # カスタム画像なのでキャラクターIDなし
-        self_mode=request.self_mode,
-    )
-
-    session_metadata_path = custom_images_dir / f"session_{session.id}.json"
-    session_metadata_path.write_text(
-        json.dumps(
-            {
-                "custom_character_id": custom_image_id,
-                "name": request.name,
-                "description": request.description,
-                "pronoun": request.pronoun,
-                "personality": request.personality,
-                "gender": normalized_gender,
-                "base_tags": request.base_tags,
-            },
-            ensure_ascii=False,
-        ),
-        encoding="utf-8",
-    )
-
-    # 難易度を検証
-    difficulty = request.difficulty
-    if difficulty not in DIFFICULTY_PRESETS:
-        difficulty = "normal"
-
-    # セッション統計を作成
-    stats = await session_store.create_session_stats(
-        session.id, difficulty, request.nsfw_mode
-    )
-
-    initial_desc = GameService._build_initial_prompt(
-        gender=normalized_gender,
-        base_tags=request.base_tags,
-    )
-    await session_store.add_history(
-        session_id=session.id,
-        instruction="初期状態",
-        image_data=image_bytes,
-        feeling_text="(初期状態)",
-        before_description=initial_desc,
-        after_description=initial_desc,
-    )
-
-    return GameStartResponse(
-        session_id=session.id,
-        difficulty=difficulty,
-        initial_stats=SessionStatsResponse(
-            bloom=stats.bloom,
-            shame=stats.shame,
-            adaptation=stats.adaptation,
-            passed_critical_points=stats.passed_critical_points,
-            difficulty=stats.difficulty,
-            nsfw_mode=stats.nsfw_mode,
-        ),
-    )
+    try:
+        session, stats, difficulty = await game_service.start_custom_session(
+            custom_character_id=request.custom_character_id,
+            image=request.image,
+            name=request.name,
+            description=request.description,
+            pronoun=request.pronoun,
+            personality=request.personality,
+            gender=request.gender,
+            base_tags=request.base_tags,
+            difficulty=request.difficulty,
+            nsfw_mode=request.nsfw_mode,
+            self_mode=request.self_mode,
+        )
+    except GameServiceError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": exc.code or "invalid_request", "message": str(exc)},
+        ) from exc
+    return _game_start_response(session.id, difficulty, stats)
 
 
 @router.get(
@@ -517,34 +347,7 @@ async def start_game_custom(request: CustomStartRequest) -> GameStartResponse:
     description="保存済みのカスタム画像とメタデータを返却",
 )
 async def list_custom_characters() -> dict:
-    from ..settings.config import settings
-
-    custom_images_dir = settings.history_images_dir / "custom"
-    custom_images_dir.mkdir(parents=True, exist_ok=True)
-    items = []
-    for image_file in sorted(
-        custom_images_dir.glob("*.png"), key=lambda p: p.stat().st_mtime, reverse=True
-    ):
-        metadata_file = image_file.with_suffix(".json")
-        metadata = {}
-        if metadata_file.exists():
-            try:
-                metadata = json.loads(metadata_file.read_text(encoding="utf-8"))
-            except Exception:
-                metadata = {}
-        items.append(
-            {
-                "id": image_file.stem,
-                "thumbnail": base64.b64encode(image_file.read_bytes()).decode("utf-8"),
-                "name": metadata.get("name", "カスタムキャラクター"),
-                "description": metadata.get("description", ""),
-                "pronoun": metadata.get("pronoun", "僕"),
-                "personality": metadata.get("personality", ""),
-                "gender": normalize_gender(metadata.get("gender", "other")),
-                "base_tags": metadata.get("base_tags", ""),
-            }
-        )
-    return {"characters": items}
+    return {"characters": list_custom_character_items()}
 
 
 @router.delete(
@@ -908,186 +711,15 @@ async def chat_with_character(
     use_history_lookback: bool | None = Query(None, description="履歴遡及を利用するか"),
 ) -> dict:
     """キャラクターとの会話"""
-    from ..services.characters import character_manager
-    from ..services.conversation import (
-        build_conversation_prompt,
-        get_fallback_response,
-        get_stage_display_name,
-        get_stage_name,
+    ctx = await _build_chat_context(
+        session_id=session_id,
+        message=message,
+        language=language,
+        enable_multiple_people=enable_multiple_people,
+        use_play_memory=use_play_memory,
+        use_history_lookback=use_history_lookback,
     )
-    from ..services.conversation_service import conversation_service
-    from ..services.history_context import resolve_history_lookback_enabled
-    from ..services.llm_service import llm_service
-
-    # セッションを取得
-    session = await session_store.get_session_by_id(session_id)
-    if session is None:
-        raise HTTPException(
-            status_code=404,
-            detail={
-                "error": "session_not_found",
-                "message": "セッションが見つかりません",
-            },
-        )
-
-    # セッション統計を取得
-    stats = await session_store.get_session_stats(session_id)
-    if stats is None:
-        stats = await session_store.create_session_stats(session_id)
-
-    lookback_enabled = resolve_history_lookback_enabled(
-        use_history_lookback, instruction_type="conversation"
-    )
-    lookback_count = settings_service.get_history_lookback_count(session_id)
-    conversation_limit = (
-        math.ceil(lookback_count * 1.2)
-        if getattr(session, "self_mode", False)
-        else lookback_count
-    )
-    conversation_history = (
-        await session_store.get_conversation_history(session_id, conversation_limit)
-        if lookback_enabled
-        else []
-    )
-
-    # キャラクター情報を取得
-    character_name = "キャラクター"
-    pronoun = "僕"
-    self_profile = None
-
-    # self_mode: self_profile からプロフィールを上書き
-    if getattr(session, "self_mode", False):
-        self_profile = await session_store.get_self_profile()
-        if self_profile:
-            character_name = self_profile.get("display_name") or character_name
-            pronoun = self_profile.get("pronoun") or pronoun
-    elif session.character_id:
-        character = character_manager.get_by_id(session.character_id)
-        if character:
-            character_name = character.name
-            pronoun = character.pronoun
-    else:
-        custom_metadata = load_custom_session_metadata(session_id)
-        if custom_metadata:
-            character_name = custom_metadata.get("name", character_name)
-            pronoun = custom_metadata.get("pronoun", pronoun)
-
-    # 現在の衣装説明を取得（直近の履歴から）
-    current_outfit_desc = ""
-    history = await session_store.get_history(session_id)
-    if history:
-        latest = history[-1]
-        current_outfit_desc = latest.after_description or ""
-
-    # 属性を取得
-    attributes = await session_store.get_session_attribute_texts(session_id)
-    user_settings = await session_store.get_user_settings()
-    language = normalize_language(language or user_settings.get("language"))
-    effective_novelai_text_model = user_settings.get("novelai_text_model")
-
-    timeline_limit = math.ceil(lookback_count * 1.6)
-    session_timeline = (
-        await session_store.get_recent_instructions(session_id, limit=timeline_limit)
-        if lookback_enabled
-        else []
-    )
-
-    # 現在の発言を過去履歴へ含めないよう、タイムライン取得後に保存する
-    user_conv = await session_store.add_conversation(
-        session_id, "user", message, instruction_type="conversation"
-    )
-    # プロンプトを構築（self_mode はプロフィールベース、通常はステージベース）
-    if getattr(session, "self_mode", False) and self_profile:
-        from ..services.self_mode_prompts import build_self_mode_conversation_prompt
-
-        system_prompt, user_prompt = build_self_mode_conversation_prompt(
-            message=message,
-            conversation_history=conversation_history,
-            current_outfit_desc=current_outfit_desc,
-            self_profile=self_profile,
-            nsfw_mode=stats.nsfw_mode,
-            language=language,
-            session_timeline=session_timeline,
-            enable_multiple_people=enable_multiple_people,
-            lookback_count=lookback_count,
-        )
-    else:
-        system_prompt, user_prompt = build_conversation_prompt(
-            message=message,
-            conversation_history=conversation_history,
-            stats=stats,
-            current_outfit_desc=current_outfit_desc,
-            character_name=character_name,
-            pronoun=pronoun,
-            attributes=attributes,
-            nsfw_mode=stats.nsfw_mode,
-            transformation_count=session.transformation_count,
-            language=language,
-            session_timeline=session_timeline,
-            lookback_count=lookback_count,
-        )
-    if use_play_memory:
-        from ..services.play_memory_service import play_memory_service
-
-        system_prompt += await play_memory_service.build_context(
-            session_id, enabled=True, language=language
-        )
-
-    # LLMで応答を生成
-    response_text = ""
-    try:
-        response_text = (
-            await conversation_service.generate_with_language_retry(
-                llm_service=llm_service,
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                language=language,
-                novelai_model_override=effective_novelai_text_model,
-            )
-            or ""
-        )
-    except Exception:
-        response_text = ""
-
-    if not response_text:
-        response_text = get_fallback_response(stats.bloom, pronoun, stats.nsfw_mode)
-
-    # キャラクター応答を保存
-    char_conv = await session_store.add_conversation(
-        session_id, "character", response_text
-    )
-    play_memory_update = "skipped"
-    if use_play_memory:
-        from ..services.play_memory_service import play_memory_service
-
-        play_memory_update = (
-            "updated"
-            if await play_memory_service.update_rolling(
-                session_id,
-                interaction_type="conversation",
-                user_input=message,
-                result_text=response_text,
-                language=language,
-            )
-            else "failed"
-        )
-
-    # 心理段階名を取得
-    if session.transformation_count == 0:
-        stage_display = "未変身"
-    else:
-        stage_name = get_stage_name(stats.bloom)
-        stage_display = get_stage_display_name(stage_name)
-
-    return {
-        "session_id": session_id,
-        "character_response": response_text,
-        "psychological_state": stage_display,
-        "language": language,
-        "user_conversation_id": getattr(user_conv, "id", None),
-        "character_conversation_id": getattr(char_conv, "id", None),
-        "play_memory_update": play_memory_update,
-    }
+    return await conversation_service.chat(ctx)
 
 
 @router.post(
@@ -1133,220 +765,25 @@ async def chat_with_character_stream(
     enable_multiple_people: bool = Query(False, description="複数人表示を有効にする"),
     use_play_memory: bool = Query(False, description="プレイメモを有効にする"),
     use_history_lookback: bool | None = Query(None, description="履歴遡及を利用するか"),
-) -> StreamingResponse:
-    """キャラクターとの会話（ストリーミング）"""
-    import logging
+) -> EventSourceResponse:
+    """キャラクターとの会話（ストリーミング）
 
-    from ..services.characters import character_manager
-    from ..services.conversation import (
-        build_conversation_prompt,
-        get_fallback_response,
-        is_response_language_valid,
-    )
-    from ..services.conversation_service import conversation_service
-    from ..services.history_context import resolve_history_lookback_enabled
-    from ..services.llm_service import llm_service
-
-    logger = logging.getLogger(__name__)
-
-    # セッションを取得
-    session = await session_store.get_session_by_id(session_id)
-    if session is None:
-        raise HTTPException(
-            status_code=404,
-            detail={
-                "error": "session_not_found",
-                "message": "セッションが見つかりません",
-            },
-        )
-
-    # セッション統計を取得
-    stats = await session_store.get_session_stats(session_id)
-    if stats is None:
-        stats = await session_store.create_session_stats(session_id)
-
-    lookback_enabled = resolve_history_lookback_enabled(
-        use_history_lookback, instruction_type="conversation"
-    )
-    lookback_count = settings_service.get_history_lookback_count(session_id)
-    conversation_limit = (
-        math.ceil(lookback_count * 1.2)
-        if getattr(session, "self_mode", False)
-        else lookback_count
-    )
-    conversation_history = (
-        await session_store.get_conversation_history(session_id, conversation_limit)
-        if lookback_enabled
-        else []
+    `data:` 行だけの SSE。ペイロードは {"type": "text" | "done" | "error", ...}
+    """
+    ctx = await _build_chat_context(
+        session_id=session_id,
+        message=message,
+        language=language,
+        enable_multiple_people=enable_multiple_people,
+        use_play_memory=use_play_memory,
+        use_history_lookback=use_history_lookback,
     )
 
-    # キャラクター情報を取得
-    character_name = "キャラクター"
-    pronoun = "僕"
-    self_profile = None
+    async def event_generator() -> AsyncGenerator[dict, None]:
+        async for payload in conversation_service.chat_stream(ctx):
+            yield {"data": json.dumps(payload)}
 
-    # self_mode: self_profile からプロフィールを上書き
-    if getattr(session, "self_mode", False):
-        self_profile = await session_store.get_self_profile()
-        if self_profile:
-            character_name = self_profile.get("display_name") or character_name
-            pronoun = self_profile.get("pronoun") or pronoun
-    elif session.character_id:
-        character = character_manager.get_by_id(session.character_id)
-        if character:
-            character_name = character.name
-            pronoun = character.pronoun
-    else:
-        custom_metadata = load_custom_session_metadata(session_id)
-        if custom_metadata:
-            character_name = custom_metadata.get("name", character_name)
-            pronoun = custom_metadata.get("pronoun", pronoun)
-
-    # 現在の衣装説明を取得（直近の履歴から）
-    current_outfit_desc = ""
-    history = await session_store.get_history(session_id)
-    if history:
-        latest = history[-1]
-        current_outfit_desc = latest.after_description or ""
-
-    # 属性を取得
-    attributes = await session_store.get_session_attribute_texts(session_id)
-    user_settings = await session_store.get_user_settings()
-    language = normalize_language(language or user_settings.get("language"))
-    effective_novelai_text_model = user_settings.get("novelai_text_model")
-
-    timeline_limit = math.ceil(lookback_count * 1.6)
-    session_timeline = (
-        await session_store.get_recent_instructions(session_id, limit=timeline_limit)
-        if lookback_enabled
-        else []
-    )
-
-    # 現在の発言を過去履歴へ含めないよう、タイムライン取得後に保存する
-    user_conv = await session_store.add_conversation(
-        session_id, "user", message, instruction_type="conversation"
-    )
-    # プロンプトを構築（self_mode はプロフィールベース、通常はステージベース）
-    if getattr(session, "self_mode", False) and self_profile:
-        from ..services.self_mode_prompts import build_self_mode_conversation_prompt
-
-        system_prompt, user_prompt = build_self_mode_conversation_prompt(
-            message=message,
-            conversation_history=conversation_history,
-            current_outfit_desc=current_outfit_desc,
-            self_profile=self_profile,
-            nsfw_mode=stats.nsfw_mode,
-            language=language,
-            session_timeline=session_timeline,
-            enable_multiple_people=enable_multiple_people,
-            lookback_count=lookback_count,
-        )
-    else:
-        system_prompt, user_prompt = build_conversation_prompt(
-            message=message,
-            conversation_history=conversation_history,
-            stats=stats,
-            current_outfit_desc=current_outfit_desc,
-            character_name=character_name,
-            pronoun=pronoun,
-            attributes=attributes,
-            nsfw_mode=stats.nsfw_mode,
-            transformation_count=session.transformation_count,
-            language=language,
-            session_timeline=session_timeline,
-            lookback_count=lookback_count,
-        )
-    if use_play_memory:
-        from ..services.play_memory_service import play_memory_service
-
-        system_prompt += await play_memory_service.build_context(
-            session_id, enabled=True, language=language
-        )
-
-    async def update_conversation_memory(response_text: str) -> str:
-        """保存済み会話を自動メモへ反映する。"""
-        if not use_play_memory:
-            return "skipped"
-        from ..services.play_memory_service import play_memory_service
-
-        updated = await play_memory_service.update_rolling(
-            session_id,
-            interaction_type="conversation",
-            user_input=message,
-            result_text=response_text,
-            language=language,
-        )
-        return "updated" if updated else "failed"
-
-    async def generate_stream():
-        """ストリーミング応答を生成"""
-        full_response = ""
-        try:
-            async for chunk in llm_service.generate_feeling_stream(
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                novelai_model_override=effective_novelai_text_model,
-            ):
-                full_response += chunk
-                yield f"data: {json.dumps({'type': 'text', 'chunk': chunk})}\n\n"
-
-            if not is_response_language_valid(full_response, language):
-                retry_prompt = f"{user_prompt}\n\nIMPORTANT: Respond in {'English only' if language == 'en' else 'Japanese only'}."
-                try:
-                    retry_text = (
-                        await conversation_service.generate_with_language_retry(
-                            llm_service=llm_service,
-                            system_prompt=system_prompt,
-                            user_prompt=retry_prompt,
-                            language=language,
-                            novelai_model_override=effective_novelai_text_model,
-                        )
-                    )
-                    if retry_text and is_response_language_valid(retry_text, language):
-                        char_conv = await session_store.add_conversation(
-                            session_id, "character", retry_text
-                        )
-                        memory_status = await update_conversation_memory(retry_text)
-                        yield f"data: {json.dumps({'type': 'error', 'fallback': retry_text, 'language': language, 'user_conversation_id': user_conv.id, 'character_conversation_id': char_conv.id, 'play_memory_update': memory_status})}\n\n"
-                        return
-                except Exception:
-                    pass
-
-                fallback = get_fallback_response(stats.bloom, pronoun, stats.nsfw_mode)
-                char_conv = await session_store.add_conversation(
-                    session_id, "character", fallback
-                )
-                memory_status = await update_conversation_memory(fallback)
-                yield f"data: {json.dumps({'type': 'error', 'fallback': fallback, 'language': language, 'user_conversation_id': user_conv.id, 'character_conversation_id': char_conv.id, 'play_memory_update': memory_status})}\n\n"
-                return
-
-            # キャラクター応答を保存
-            char_conv = await session_store.add_conversation(
-                session_id, "character", full_response
-            )
-            memory_status = await update_conversation_memory(full_response)
-
-            # 完了イベント
-            yield f"data: {json.dumps({'type': 'done', 'full_response': full_response, 'language': language, 'user_conversation_id': user_conv.id, 'character_conversation_id': char_conv.id, 'play_memory_update': memory_status})}\n\n"
-
-        except Exception as e:
-            logger.error(f"Chat stream error: {e}")
-            # フォールバック応答を使用
-            fallback = get_fallback_response(stats.bloom, pronoun, stats.nsfw_mode)
-            char_conv = await session_store.add_conversation(
-                session_id, "character", fallback
-            )
-            yield f"data: {json.dumps({'type': 'error', 'fallback': fallback, 'language': language, 'user_conversation_id': user_conv.id, 'character_conversation_id': char_conv.id})}\n\n"
-
-    return StreamingResponse(
-        generate_stream(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
-    )
+    return EventSourceResponse(event_generator(), sep="\n")
 
 
 @router.get(
@@ -1434,7 +871,6 @@ async def generate_standing_portrait(
     ),
 ) -> dict:
     """立ち絵を再生成して base64 で返す"""
-    import base64
 
     from ..services.game_service import GameServiceError, game_service
 
@@ -1566,144 +1002,30 @@ async def preview_prompt(request: PlayRequest) -> dict:
 @router.get("/masks", response_model=MaskListResponse, summary="マスク一覧取得")
 async def list_masks() -> MaskListResponse:
     """システムマスク、履歴マスク、ユーザープリセットを返す"""
-    from ..settings.config import BASE_DIR, settings
-
-    system_dir = BASE_DIR / "images" / "masks"
-    history_dir = settings.history_masks_dir
-    preset_dir = settings.preset_masks_dir
-    history_dir.mkdir(parents=True, exist_ok=True)
-    preset_dir.mkdir(parents=True, exist_ok=True)
-
-    system_masks = []
-    for filename, label in SYSTEM_MASK_LABELS.items():
-        path = system_dir / filename
-        if path.exists():
-            system_masks.append(
-                {
-                    "id": f"system:{path.name}",
-                    "name": label,
-                    "type": "system",
-                    "url": f"/api/game/masks/system/{path.name}",
-                }
-            )
-
-    history_masks = []
-    files = sorted(
-        history_dir.glob("*.png"), key=lambda p: p.stat().st_mtime, reverse=True
-    )
-    for f in files[:20]:
-        history_masks.append(
-            {
-                "id": f"history:{f.stem}",
-                "name": f.stem,
-                "type": "history",
-                "url": f"/api/game/masks/history/{f.stem}",
-                "created_at": datetime.fromtimestamp(f.stat().st_mtime).isoformat(),
-            }
-        )
-
-    # プリセットマスク一覧取得
-    preset_masks = []
-    preset_files = sorted(
-        preset_dir.glob("*.png"), key=lambda p: p.stat().st_mtime, reverse=True
-    )
-    for f in preset_files:
-        # メタデータファイルから名前を読み込み
-        meta_path = preset_dir / f"{f.stem}.json"
-        if meta_path.exists():
-            import json
-
-            try:
-                meta = json.loads(meta_path.read_text(encoding="utf-8"))
-                name = meta.get("name", f.stem)
-            except Exception:
-                name = f.stem
-        else:
-            name = f.stem
-        preset_masks.append(
-            {
-                "id": f"preset:{f.stem}",
-                "name": name,
-                "type": "preset",
-                "url": f"/api/game/masks/preset/{f.stem}",
-                "created_at": datetime.fromtimestamp(f.stat().st_mtime).isoformat(),
-            }
-        )
-
-    return MaskListResponse(
-        system=system_masks, history=history_masks, presets=preset_masks
-    )
+    return mask_service.list_masks()
 
 
 @router.post("/masks", response_model=MaskListResponse, summary="マスクを保存")
 async def save_mask(request: MaskSaveRequest) -> MaskListResponse:
     """マスクを保存する。nameが指定されている場合はプリセットとして、それ以外は履歴として保存"""
-    import json as json_module
-
-    from ..settings.config import settings
-
-    history_dir = settings.history_masks_dir
-    preset_dir = settings.preset_masks_dir
-    history_dir.mkdir(parents=True, exist_ok=True)
-    preset_dir.mkdir(parents=True, exist_ok=True)
-
-    # Base64デコード
-    data = request.mask_base64
-    if data.startswith("data:"):
-        _, data = data.split(",", 1)
     try:
-        mask_bytes = base64.b64decode(data)
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail="mask_base64 が不正です") from exc
-
-    mask_id = uuid.uuid4().hex
-
-    # プリセット名が指定されている場合はプリセットとして保存
-    if request.name:
-        fname = preset_dir / f"{mask_id}.png"
-        fname.write_bytes(mask_bytes)
-        # メタデータ保存
-        meta_path = preset_dir / f"{mask_id}.json"
-        meta_path.write_text(
-            json_module.dumps({"name": request.name}, ensure_ascii=False),
-            encoding="utf-8",
-        )
-    else:
-        # 履歴として保存
-        fname = history_dir / f"{mask_id}.png"
-        fname.write_bytes(mask_bytes)
-
-        # 上限20件を維持
-        files = sorted(
-            history_dir.glob("*.png"), key=lambda p: p.stat().st_mtime, reverse=True
-        )
-        for old in files[20:]:
-            with contextlib.suppress(OSError):
-                old.unlink()
-
-    # 最新一覧を返す
-    return await list_masks()
+        return mask_service.save_mask(request.mask_base64, request.name)
+    except MaskError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/masks/system/{filename}", summary="システムマスク取得")
 async def get_system_mask(filename: str):
-    from ..settings.config import BASE_DIR
-
-    if filename not in SYSTEM_MASK_LABELS:
-        raise HTTPException(status_code=404, detail="mask not found")
-    path = BASE_DIR / "images" / "masks" / filename
-    if not path.exists():
+    path = mask_service.system_mask_path(filename)
+    if path is None:
         raise HTTPException(status_code=404, detail="mask not found")
     return FileResponse(path, media_type="image/png")
 
 
 @router.get("/masks/history/{mask_id}", summary="履歴マスク取得")
 async def get_history_mask(mask_id: str):
-    from ..settings.config import settings
-
-    safe_id = mask_id.replace("/", "").replace("\\", "")
-    path = settings.history_masks_dir / f"{safe_id}.png"
-    if not path.exists():
+    path = mask_service.history_mask_path(mask_id)
+    if path is None:
         raise HTTPException(status_code=404, detail="mask not found")
     return FileResponse(path, media_type="image/png")
 
@@ -1711,11 +1033,8 @@ async def get_history_mask(mask_id: str):
 @router.get("/masks/preset/{mask_id}", summary="プリセットマスク取得")
 async def get_preset_mask(mask_id: str):
     """プリセットマスク画像を取得"""
-    from ..settings.config import settings
-
-    safe_id = mask_id.replace("/", "").replace("\\", "")
-    path = settings.preset_masks_dir / f"{safe_id}.png"
-    if not path.exists():
+    path = mask_service.preset_mask_path(mask_id)
+    if path is None:
         raise HTTPException(status_code=404, detail="preset mask not found")
     return FileResponse(path, media_type="image/png")
 
@@ -1727,29 +1046,11 @@ async def get_preset_mask(mask_id: str):
 )
 async def delete_preset_mask(mask_id: str) -> MaskListResponse:
     """プリセットマスクを削除し、最新のマスク一覧を返す"""
-    from ..settings.config import settings
-
-    safe_id = mask_id.replace("/", "").replace("\\", "")
-    png_path = settings.preset_masks_dir / f"{safe_id}.png"
-    meta_path = settings.preset_masks_dir / f"{safe_id}.json"
-
-    if not png_path.exists():
-        raise HTTPException(status_code=404, detail="preset mask not found")
-
-    # 画像ファイル削除
     try:
-        png_path.unlink()
-    except OSError as exc:
-        raise HTTPException(
-            status_code=500, detail="Failed to delete preset mask"
-        ) from exc
-
-    # メタデータファイル削除（存在する場合）
-    if meta_path.exists():
-        with contextlib.suppress(OSError):  # メタデータ削除失敗は無視
-            meta_path.unlink()
-
-    return await list_masks()
+        return mask_service.delete_preset_mask(mask_id)
+    except MaskError as exc:
+        status_code = 404 if exc.code == "not_found" else 500
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 
 
 # ---------- Anlas balance ----------

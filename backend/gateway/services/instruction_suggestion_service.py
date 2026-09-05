@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 
+from .custom_sessions import load_custom_session_metadata
 from .llm_json import strip_code_fence
 
 logger = logging.getLogger(__name__)
@@ -61,8 +62,6 @@ async def _build_character_context(session, language: str) -> str:
 
     # カスタム画像セッション: メタデータがあれば名前程度を利用
     try:
-        from ..routes.game_router import load_custom_session_metadata
-
         custom_metadata = load_custom_session_metadata(session.id)
     except Exception:  # pragma: no cover - defensive, avoid hard failure
         custom_metadata = {}
