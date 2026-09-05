@@ -23,6 +23,8 @@
 | 5. DBが必要 | `backend/gateway/databases/models.py`、必要なrepo、Alembic |
 | 6. テスト | `backend/tests/unit/` または `backend/tests/integration/`（DB を使う場合は `tests/conftest.py` の `isolated_db` フィクスチャ） |
 
+プロバイダー（selfhost / openrouter / novelai）の判定は `services/providers.py` の `resolve_*_provider` を通し、`settings.*_provider` を直接比較しない。
+
 ルーターは原則 `/api` 配下にマウントする。`app.py` にはエンドポイントを書かない（互換 API も `routes/system_router.py` / `novelai_router.py` / `openai_images_router.py` にある）。
 
 ### 通常ゲームの指示タイプを追加/変更する

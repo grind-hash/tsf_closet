@@ -20,6 +20,8 @@ import re
 from dataclasses import dataclass
 from typing import Literal
 
+from .providers import Provider, resolve_image_provider, resolve_text_provider
+
 logger = logging.getLogger(__name__)
 
 FeelingMode = Literal["legacy", "gender_aware"]
@@ -591,7 +593,6 @@ async def evaluate_gender_congruence(
         return rule_result
 
     try:
-        from ..settings.config import settings
         from .llm_service import llm_service
 
         user_prompt = build_congruence_user_prompt(
@@ -604,10 +605,10 @@ async def evaluate_gender_congruence(
         )
 
         effective_provider = None
-        if settings.image_provider == "novelai":
-            effective_provider = "novelai"
+        if resolve_image_provider() == Provider.NOVELAI:
+            effective_provider = Provider.NOVELAI
         else:
-            effective_provider = settings.feeling_provider
+            effective_provider = resolve_text_provider()
 
         result = await llm_service.generate_feeling(
             system_prompt=CONGRUENCE_SYSTEM_PROMPT,

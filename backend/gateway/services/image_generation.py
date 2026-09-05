@@ -28,6 +28,7 @@ from ..consts.prompt_expander import (
 from ..settings.config import settings
 from .comfy import ComfyUIClient, ComfyUIResult
 from .model_execution_gate import model_execution_gate
+from .providers import normalize_provider
 
 logger = logging.getLogger(__name__)
 
@@ -802,13 +803,7 @@ class ImageGenerationService:
 
     def _resolve_provider(self) -> ProviderType:
         """環境変数からプロバイダーを解決"""
-        provider = settings.image_provider.lower()
-        if provider in ("selfhost", "openrouter", "novelai"):
-            return provider  # type: ignore
-        logger.warning(
-            f"Unknown IMAGE_PROVIDER '{provider}', falling back to 'selfhost'"
-        )
-        return "selfhost"
+        return normalize_provider(settings.image_provider, warn=True)  # type: ignore[return-value]
 
     def _get_comfy_client(self) -> ComfyUIClient:
         """ComfyUIクライアントを取得（遅延初期化）"""

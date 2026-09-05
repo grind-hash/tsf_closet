@@ -175,6 +175,7 @@ from .prompt_expander_service import (
     entry_to_dict,
     resolve_entry_image_file,
 )
+from .providers import Provider, resolve_image_provider, resolve_text_provider
 from .session import DEFAULT_USER_ID, session_store
 
 logger = logging.getLogger(__name__)
@@ -184,20 +185,6 @@ logger = logging.getLogger(__name__)
 # 20字程度を要求したうえで、この値は超過分を静かに切り詰める最後の砦として使う
 _CHOICE_LABEL_MAX_LENGTH = 60
 
-_KNOWN_PROVIDERS = ("selfhost", "openrouter", "novelai")
-
-
-def _text_provider() -> str:
-    """Adventureのテキスト生成プロバイダー。通常ゲームと同じ設定に従う。"""
-    provider = str(settings.feeling_provider or "").lower()
-    return provider if provider in _KNOWN_PROVIDERS else "selfhost"
-
-
-def _image_provider() -> str:
-    """Adventureの画像生成プロバイダー。通常ゲームと同じ設定に従う。"""
-    provider = str(settings.image_provider or "").lower()
-    return provider if provider in _KNOWN_PROVIDERS else "selfhost"
-
 
 def _image_calls_parallelizable() -> bool:
     """画像生成APIを並列に呼んでよいか。
@@ -205,7 +192,7 @@ def _image_calls_parallelizable() -> bool:
     OpenRouterは従量課金のクラウドAPIで同時リクエストを受けられる。
     selfhost(単一GPU)とNovelAI(直列ゲート対象)は従来どおり直列にする。
     """
-    return _image_provider() == "openrouter"
+    return resolve_image_provider() == Provider.OPENROUTER
 
 
 class _CostTracker:
@@ -245,7 +232,7 @@ async def _generate_text(
     result = await llm_service.generate_text(
         system_prompt,
         user_prompt,
-        provider_override=_text_provider(),
+        provider_override=resolve_text_provider(),
         novelai_model_override=text_model,
     )
     _record_cost(getattr(result, "cost_usd", None))
@@ -3970,7 +3957,7 @@ The objective must name a concrete target and an observable end condition that c
             language=language,
             nsfw_mode=nsfw_mode,
             text_model=text_model,
-            image_provider=_image_provider(),
+            image_provider=resolve_image_provider(),
             image_model=image_model,
         )
         async with async_session_factory() as db:
@@ -4342,7 +4329,7 @@ The objective must name a concrete target and an observable end condition that c
                     context=context,
                 ),
                 message,
-                provider_override=_text_provider(),
+                provider_override=resolve_text_provider(),
                 novelai_model_override=run.text_model,
                 usage_callback=_record_cost,
                 history=history,
@@ -5372,7 +5359,7 @@ The objective must name a concrete target and an observable end condition that c
                     inventory=contexts.inventory_enabled,
                 ),
                 json.dumps(turn_context, ensure_ascii=False),
-                provider_override=_text_provider(),
+                provider_override=resolve_text_provider(),
                 novelai_model_override=run.text_model,
                 usage_callback=_record_cost,
             ):
@@ -6730,7 +6717,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 if source_image_override is not None
                 else (None if outfit_changed else current_path.read_bytes())
             )
-            provider = _image_provider()
+            provider = resolve_image_provider()
             effective_image_model: str | None = None
             if provider == "novelai":
                 effective_image_model = await self._resolve_image_model(
@@ -7019,7 +7006,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         _ensure_romance_background_unlocked がキャッシュとして使い回す。
         """
         run = await self.get_run_orm(run_id)
-        provider = _image_provider()
+        provider = resolve_image_provider()
         # scene_tags は「観察可能な相互作用」を含みうるため、no humans 等の
         # 除外タグを前置して人物非表示を強く指示する
         scenery_prompt = _enhance_adventure_prompt(
@@ -7162,7 +7149,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 worn_items_override=worn_items_override,
                 turn_number=effective_turn_number,
             )
-            provider = _image_provider()
+            provider = resolve_image_provider()
             effective_image_model: str | None = None
             if provider == "novelai":
                 effective_image_model = await self._resolve_image_model(
@@ -7311,7 +7298,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         run = await self.get_run_orm(run_id)
         state = _json_load(run.state_json, {})
         nsfw_mode = bool(run.nsfw_mode)
-        provider = _image_provider()
+        provider = resolve_image_provider()
         effective_image_model: str | None = None
         if provider == "novelai":
             effective_image_model = await self._resolve_image_model(nsfw_mode, state)
@@ -8003,7 +7990,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             )
             for npc_prompt in image_prompt.npc_tags[:3]
         ]
-        provider = _image_provider()
+        provider = resolve_image_provider()
         # 送信経路と同じサフィックス選択（V5のみ透過背景）になるようモデルを解決する
         preview_image_model: str | None = None
         if provider == "novelai":
