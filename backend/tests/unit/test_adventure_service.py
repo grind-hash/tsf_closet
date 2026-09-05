@@ -5096,12 +5096,10 @@ async def test_generate_text_uses_configured_provider_and_records_cost(
         generate_text,
     )
 
-    tracker = module._CostTracker()
-    token = module._cost_tracker.set(tracker)
-    try:
-        content = await module._generate_text("sys", "user", text_model="glm-4-6")
-    finally:
-        module._cost_tracker.reset(token)
+    from gateway.services.cost_tracker import begin_cost_tracking
+
+    tracker = begin_cost_tracking()
+    content = await module._generate_text("sys", "user", text_model="glm-4-6")
 
     assert content == "ok"
     assert generate_text.await_args.kwargs["provider_override"] == "openrouter"
