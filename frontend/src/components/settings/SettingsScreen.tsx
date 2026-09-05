@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { usePersistedState } from "../../hooks/usePersistedState";
 /**
  * SettingsScreen - 設定画面
  * 007-chat-interactive-ux
@@ -37,38 +38,22 @@ const HISTORY_LOOKBACK_TARGETS: Array<{
 /** 3Dモデルセクションの開閉。モデルが増えると長くなるため既定は閉じる */
 const SETTINGS_AVATAR_SECTION_OPEN_KEY = "settings_avatar_section_open";
 
-function readAvatarSectionOpen(): boolean {
-  try {
-    return (
-      window.localStorage.getItem(SETTINGS_AVATAR_SECTION_OPEN_KEY) === "1"
-    );
-  } catch {
-    return false;
-  }
-}
-
 export default function SettingsScreen() {
   const { t } = useTranslation();
-  const [avatarSectionOpen, setAvatarSectionOpen] = useState(
-    readAvatarSectionOpen,
+  const [avatarSectionOpen, setAvatarSectionOpen] = usePersistedState<boolean>(
+    SETTINGS_AVATAR_SECTION_OPEN_KEY,
+    false,
+    {
+      serialize: (open) => (open ? "1" : "0"),
+      deserialize: (raw) => raw === "1",
+    },
   );
   const [avatarSummary, setAvatarSummary] = useState<AvatarModelSummary | null>(
     null,
   );
   const toggleAvatarSection = useCallback(() => {
-    setAvatarSectionOpen((current) => {
-      const next = !current;
-      try {
-        window.localStorage.setItem(
-          SETTINGS_AVATAR_SECTION_OPEN_KEY,
-          next ? "1" : "0",
-        );
-      } catch {
-        // 保存できなくても開閉は続行する
-      }
-      return next;
-    });
-  }, []);
+    setAvatarSectionOpen((current) => !current);
+  }, [setAvatarSectionOpen]);
   const {
     state,
     setDifficulty,

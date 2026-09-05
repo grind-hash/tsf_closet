@@ -5,21 +5,12 @@ import type {
 import {
   NARRATION_PRONOUN_MAX_LENGTH,
   NARRATION_VOICES,
-  PROTAGONIST_DOCK_STORAGE_KEY,
   SETUP_PREFS_STORAGE_KEY,
   SPEECH_CUSTOM_MAX_LENGTH,
   SPEECH_STYLES,
 } from "../constants/adventure";
 
 // Adventure セットアップ画面の設定値（localStorage）の読み出しと正規化。
-
-export function readProtagonistDockOpen(): boolean {
-  try {
-    return localStorage.getItem(PROTAGONIST_DOCK_STORAGE_KEY) === "true";
-  } catch {
-    return false;
-  }
-}
 
 export type AdventureSetupPrefs = {
   narrationVoice: AdventureNarrationVoice;

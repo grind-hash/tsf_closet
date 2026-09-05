@@ -61,8 +61,9 @@ import {
 import { generateUUID } from "../utils/generateUUID";
 import { isHistoryLookbackEnabled } from "../utils/historyLookback";
 import { readSseEvents } from "../utils/sse";
+import { readStorageFlag, writeStorageFlag } from "../utils/storage";
 import AudioControlBar from "./chat/AudioControlBar";
-import ChatInput from "./chat/ChatInput";
+import ChatInput, { SUGGEST_USE_MEMORY_STORAGE_KEY } from "./chat/ChatInput";
 import ChatMessageList from "./chat/ChatMessageList";
 import WelcomeScreen from "./chat/WelcomeScreen";
 import ImagePreviewModal from "./ImagePreviewModal";
@@ -926,7 +927,7 @@ export default function GamePlayScreen({
         if (
           isNovelaiV5Active &&
           usageExhausted &&
-          sessionStorage.getItem(V5_USAGE_WARN_SUPPRESSED_KEY) !== "true"
+          !readStorageFlag("session", V5_USAGE_WARN_SUPPRESSED_KEY)
         ) {
           setUsageWarnPending({
             message,
@@ -949,7 +950,7 @@ export default function GamePlayScreen({
             ).length
           : 0;
         if (enabledRefCount > 0) {
-          if (sessionStorage.getItem(ANLAS_WARN_SUPPRESSED_KEY) === "true") {
+          if (readStorageFlag("session", ANLAS_WARN_SUPPRESSED_KEY)) {
             onTransform(
               message,
               undefined,
@@ -1165,7 +1166,7 @@ export default function GamePlayScreen({
         transformOptions,
         backendInstructionType,
         tempToken,
-        localStorage.getItem("chat_suggest_use_memory") === "true",
+        readStorageFlag("local", SUGGEST_USE_MEMORY_STORAGE_KEY),
       );
 
       // 入力をクリア
@@ -1201,7 +1202,7 @@ export default function GamePlayScreen({
         useMemory,
       } = anlasConfirmPending;
       if (doNotShowAgain) {
-        sessionStorage.setItem(ANLAS_WARN_SUPPRESSED_KEY, "true");
+        writeStorageFlag("session", ANLAS_WARN_SUPPRESSED_KEY, true);
       }
       setAnlasConfirmPending(null);
       onTransform(
@@ -1233,7 +1234,7 @@ export default function GamePlayScreen({
         useMemory,
       } = usageWarnPending;
       if (doNotShowAgain) {
-        sessionStorage.setItem(V5_USAGE_WARN_SUPPRESSED_KEY, "true");
+        writeStorageFlag("session", V5_USAGE_WARN_SUPPRESSED_KEY, true);
       }
       setUsageWarnPending(null);
       onTransform(

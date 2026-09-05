@@ -32,6 +32,7 @@ import {
   updateAvatarModel,
   uploadAvatarModel,
 } from "../../apis/avatars";
+import { usePersistedState } from "../../hooks/usePersistedState";
 import { ApiError } from "../../utils/http";
 import PromptExpanderDeleteButton from "../promptExpander/PromptExpanderDeleteButton";
 import AvatarPreviewModal from "./AvatarPreviewModal";
@@ -45,25 +46,11 @@ export const AVATAR_GROUP_OPEN_KEY = "avatar_settings_group_open";
 
 type GroupOpenMap = Record<string, boolean>;
 
-function readGroupOpenMap(): GroupOpenMap {
-  try {
-    const raw = window.localStorage.getItem(AVATAR_GROUP_OPEN_KEY);
-    if (!raw) return {};
-    const parsed: unknown = JSON.parse(raw);
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? (parsed as GroupOpenMap)
-      : {};
-  } catch {
-    return {};
-  }
-}
-
-function writeGroupOpenMap(map: GroupOpenMap) {
-  try {
-    window.localStorage.setItem(AVATAR_GROUP_OPEN_KEY, JSON.stringify(map));
-  } catch {
-    // 保存できなくても開閉は続行する
-  }
+function parseGroupOpenMap(raw: string): GroupOpenMap {
+  const parsed: unknown = JSON.parse(raw);
+  return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+    ? (parsed as GroupOpenMap)
+    : {};
 }
 
 /** 設定画面のセクション見出しに出す要約。読込中は null */
@@ -114,7 +101,11 @@ export default function AvatarModelSettings({
   });
   const [savingId, setSavingId] = useState<string | null>(null);
   const [classifying, setClassifying] = useState(false);
-  const [groupOpen, setGroupOpen] = useState<GroupOpenMap>(readGroupOpenMap);
+  const [groupOpen, setGroupOpen] = usePersistedState<GroupOpenMap>(
+    AVATAR_GROUP_OPEN_KEY,
+    {},
+    { deserialize: parseGroupOpenMap },
+  );
   const inputRef = useRef<HTMLInputElement>(null);
   const dragDepthRef = useRef(0);
   const groupBodyIdPrefix = useId();
@@ -139,15 +130,17 @@ export default function AvatarModelSettings({
     );
   }, [loading, models.length, characterNames.length]);
 
-  const setGroupsOpen = useCallback((names: string[], open: boolean) => {
-    if (names.length === 0) return;
-    setGroupOpen((current) => {
-      const next = { ...current };
-      for (const name of names) next[name] = open;
-      writeGroupOpenMap(next);
-      return next;
-    });
-  }, []);
+  const setGroupsOpen = useCallback(
+    (names: string[], open: boolean) => {
+      if (names.length === 0) return;
+      setGroupOpen((current) => {
+        const next = { ...current };
+        for (const name of names) next[name] = open;
+        return next;
+      });
+    },
+    [setGroupOpen],
+  );
 
   const refresh = useCallback(async () => {
     try {

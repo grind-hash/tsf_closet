@@ -66,8 +66,10 @@ import {
   supportsMangaMode,
   supportsPreciseReference,
 } from "../constants/promptExpander";
+import { usePersistedState } from "../hooks/usePersistedState";
 import type { AnlasBalance } from "../types";
 import { ApiError } from "../utils/http";
+import { readStorageFlag, writeStorageFlag } from "../utils/storage";
 import { useNotification } from "./NotificationContext";
 import { useSettings } from "./SettingsContext";
 
@@ -284,22 +286,6 @@ interface PromptExpanderContextValue {
 export const PROMPT_EXPANDER_CHARACTER_MODE_KEY =
   "prompt_expander_character_mode";
 
-function readPersistedCharacterMode(): boolean {
-  try {
-    return localStorage.getItem(PROMPT_EXPANDER_CHARACTER_MODE_KEY) === "true";
-  } catch {
-    return false;
-  }
-}
-
-function writePersistedCharacterMode(on: boolean) {
-  try {
-    localStorage.setItem(PROMPT_EXPANDER_CHARACTER_MODE_KEY, String(on));
-  } catch {
-    // localStorage が使えない環境では保持しない
-  }
-}
-
 const DEFAULT_SETTINGS: PromptExpanderSettings = {
   text_model: NOVELAI_TEXT_MODEL_OPTIONS[0],
   image_model: DEFAULT_PROMPT_EXPANDER_IMAGE_MODEL,
@@ -368,22 +354,11 @@ function isUsageExhausted(anlas: AnlasBalance | null): boolean {
 }
 
 function readUsageWarnSuppressed(): boolean {
-  try {
-    return sessionStorage.getItem(V5_USAGE_WARN_SUPPRESSED_KEY) === "true";
-  } catch {
-    return false;
-  }
+  return readStorageFlag("session", V5_USAGE_WARN_SUPPRESSED_KEY);
 }
 
 function readReferenceWarnSuppressed(): boolean {
-  try {
-    return (
-      sessionStorage.getItem(PROMPT_EXPANDER_ANLAS_WARN_SUPPRESSED_KEY) ===
-      "true"
-    );
-  } catch {
-    return false;
-  }
+  return readStorageFlag("session", PROMPT_EXPANDER_ANLAS_WARN_SUPPRESSED_KEY);
 }
 
 function applySettingsResponse(
@@ -477,14 +452,11 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
   const [positiveMode, setPositiveMode] = useState<PromptExpandMode>("tags");
   const [positiveOrigin, setPositiveOrigin] =
     useState<PromptExpanderPositiveOrigin | null>(null);
-  const [characterMode, setCharacterModeState] = useState(
-    readPersistedCharacterMode,
-  );
   // 復元・欄へ反映など内部からの変更も含めて localStorage に保つ
-  const setCharacterMode = useCallback((on: boolean) => {
-    setCharacterModeState(on);
-    writePersistedCharacterMode(on);
-  }, []);
+  const [characterMode, setCharacterMode] = usePersistedState<boolean>(
+    PROMPT_EXPANDER_CHARACTER_MODE_KEY,
+    false,
+  );
   const [characterSlots, setCharacterSlots] = useState<string[]>([]);
   const [negativeText, setNegativeText] = useState("");
   const [negativeMode, setNegativeMode] = useState<PromptExpandMode>("tags");
@@ -1332,11 +1304,7 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
   const confirmUsageWarn = useCallback(
     async (suppress: boolean) => {
       if (suppress) {
-        try {
-          sessionStorage.setItem(V5_USAGE_WARN_SUPPRESSED_KEY, "true");
-        } catch {
-          // sessionStorage が使えない環境では抑止しない
-        }
+        writeStorageFlag("session", V5_USAGE_WARN_SUPPRESSED_KEY, true);
       }
       const payload = pendingUsageWarn;
       setPendingUsageWarn(null);
@@ -1352,14 +1320,11 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
   const confirmReferenceWarn = useCallback(
     async (suppress: boolean) => {
       if (suppress) {
-        try {
-          sessionStorage.setItem(
-            PROMPT_EXPANDER_ANLAS_WARN_SUPPRESSED_KEY,
-            "true",
-          );
-        } catch {
-          // sessionStorage が使えない環境では抑止しない
-        }
+        writeStorageFlag(
+          "session",
+          PROMPT_EXPANDER_ANLAS_WARN_SUPPRESSED_KEY,
+          true,
+        );
       }
       const payload = pendingReferenceWarn;
       setPendingReferenceWarn(null);

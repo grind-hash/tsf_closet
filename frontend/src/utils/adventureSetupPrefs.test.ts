@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   NARRATION_PRONOUN_MAX_LENGTH,
   NARRATION_VOICES,
-  PROTAGONIST_DOCK_STORAGE_KEY,
   SETUP_PREFS_STORAGE_KEY,
   SPEECH_CUSTOM_MAX_LENGTH,
   SPEECH_STYLES,
@@ -12,7 +11,6 @@ import {
   normalizeNarrationVoice,
   normalizeSpeechCustom,
   normalizeSpeechStyle,
-  readProtagonistDockOpen,
   readSetupPrefs,
 } from "./adventureSetupPrefs";
 
@@ -66,13 +64,5 @@ describe("normalize helpers", () => {
     expect(
       normalizeSpeechCustom("x".repeat(SPEECH_CUSTOM_MAX_LENGTH + 1)),
     ).toHaveLength(SPEECH_CUSTOM_MAX_LENGTH);
-  });
-});
-
-describe("readProtagonistDockOpen", () => {
-  it('"true" のときだけ開いた状態として読む', () => {
-    expect(readProtagonistDockOpen()).toBe(false);
-    localStorage.setItem(PROTAGONIST_DOCK_STORAGE_KEY, "true");
-    expect(readProtagonistDockOpen()).toBe(true);
   });
 });

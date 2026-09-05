@@ -33,6 +33,7 @@ import {
 } from "../../hooks/usePreciseReferenceFiles";
 import type { AttributePreset, PreciseReferenceType } from "../../types";
 import { isHistoryLookbackEnabled } from "../../utils/historyLookback";
+import { readStorage, writeStorage } from "../../utils/storage";
 import AttributePresetSaveDialog from "../attributes/AttributePresetSaveDialog";
 import { NovelaiUsageBar } from "../NovelaiUsageBar";
 import MemorySettings from "../settings/MemorySettings";
@@ -134,7 +135,7 @@ export default function RightPanel({
   const PB_STORAGE_KEY = "prompt_builder";
   const pbSaved = useMemo(() => {
     try {
-      const raw = localStorage.getItem(PB_STORAGE_KEY);
+      const raw = readStorage("local", PB_STORAGE_KEY);
       return raw ? JSON.parse(raw) : {};
     } catch {
       return {};
@@ -153,7 +154,8 @@ export default function RightPanel({
   // Save prompt builder state to localStorage
   useEffect(() => {
     try {
-      localStorage.setItem(
+      writeStorage(
+        "local",
         PB_STORAGE_KEY,
         JSON.stringify({
           mode: pbMode,

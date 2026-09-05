@@ -48,11 +48,10 @@ import {
   ANLAS_WARN_SUPPRESSED_KEY,
   DRAW_PARTNER_STORAGE_KEY,
   DRAW_PORTRAIT_STORAGE_KEY,
-  readDrawPartnerEveryTurn,
-  readDrawPortraitEveryTurn,
   useAdventure,
 } from "../../contexts/AdventureContext";
 import { useSettings } from "../../contexts/SettingsContext";
+import { usePersistedState } from "../../hooks/usePersistedState";
 import { ROUTES } from "../../routes";
 import type { Character, GallerySession } from "../../types";
 import { estimateAdventureAnlas } from "../../utils/adventureAnlasEstimate";
@@ -70,6 +69,11 @@ import {
   isAdventureTurnTextOnly,
 } from "../../utils/adventureTurnTimeEstimate";
 import { API_BASE } from "../../utils/api";
+import {
+  readStorageFlag,
+  writeStorage,
+  writeStorageFlag,
+} from "../../utils/storage";
 import MainLayout from "../layout/MainLayout";
 import AnlasConfirmDialog from "../ui/AnlasConfirmDialog";
 import {
@@ -316,12 +320,10 @@ export default function AdventureHub() {
       : settingsState.adventureEnableCompositeScene,
   );
   // プレイ画面と同じブラウザ単位の好み。専用キーで共有する
-  const [drawPortraitEveryTurn, setDrawPortraitEveryTurn] = useState(
-    readDrawPortraitEveryTurn,
-  );
-  const [drawPartnerEveryTurn, setDrawPartnerEveryTurn] = useState(
-    readDrawPartnerEveryTurn,
-  );
+  const [drawPortraitEveryTurn, setDrawPortraitEveryTurn] =
+    usePersistedState<boolean>(DRAW_PORTRAIT_STORAGE_KEY, true);
+  const [drawPartnerEveryTurn, setDrawPartnerEveryTurn] =
+    usePersistedState<boolean>(DRAW_PARTNER_STORAGE_KEY, true);
   // romance の主人公(自分)。既定は男性キャラ、選択したら次回にも保存する
   const [romancePlayerId, setRomancePlayerId] = useState(() => {
     const saved = savedSetupPrefs.romancePlayerCharacterId;
@@ -386,7 +388,7 @@ export default function AdventureHub() {
       inventoryEnabled,
     };
     try {
-      localStorage.setItem(SETUP_PREFS_STORAGE_KEY, JSON.stringify(prefs));
+      writeStorage("local", SETUP_PREFS_STORAGE_KEY, JSON.stringify(prefs));
     } catch {
       // プライベートモード等で保存できなくてもフォーム操作は継続する
     }
@@ -705,7 +707,7 @@ export default function AdventureHub() {
       settingsState.imageProvider === "novelai" &&
       usePreciseReference &&
       !setupIsV5 &&
-      sessionStorage.getItem(ANLAS_WARN_SUPPRESSED_KEY) !== "true"
+      !readStorageFlag("session", ANLAS_WARN_SUPPRESSED_KEY)
     ) {
       setStartAnlasConfirmOpen(true);
       return;
@@ -715,7 +717,7 @@ export default function AdventureHub() {
 
   const handleStartAnlasConfirm = (suppressUntilBrowserClose: boolean) => {
     if (suppressUntilBrowserClose) {
-      sessionStorage.setItem(ANLAS_WARN_SUPPRESSED_KEY, "true");
+      writeStorageFlag("session", ANLAS_WARN_SUPPRESSED_KEY, true);
     }
     setStartAnlasConfirmOpen(false);
     void performCreate();
@@ -1403,14 +1405,6 @@ export default function AdventureHub() {
                   onChange={(event) => {
                     const next = event.target.checked;
                     setDrawPortraitEveryTurn(next);
-                    try {
-                      localStorage.setItem(
-                        DRAW_PORTRAIT_STORAGE_KEY,
-                        String(next),
-                      );
-                    } catch {
-                      // プライベートモード等で保存できなくても切り替え自体は有効
-                    }
                   }}
                 />
                 <span className="adventure-precise-toggle__switch" />
@@ -1429,14 +1423,6 @@ export default function AdventureHub() {
                     onChange={(event) => {
                       const next = event.target.checked;
                       setDrawPartnerEveryTurn(next);
-                      try {
-                        localStorage.setItem(
-                          DRAW_PARTNER_STORAGE_KEY,
-                          String(next),
-                        );
-                      } catch {
-                        // プライベートモード等で保存できなくても切り替え自体は有効
-                      }
                     }}
                   />
                   <span className="adventure-precise-toggle__switch" />
