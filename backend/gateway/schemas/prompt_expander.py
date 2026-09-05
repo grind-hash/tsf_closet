@@ -6,7 +6,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
-from ..consts.novelai_text_models import NOVELAI_TEXT_MODEL_OPTIONS
+from ..consts.novelai_models import NovelAIImageModel
+from ..consts.novelai_text_models import NovelAITextModel
 from ..consts.prompt_expander import (
     DEFAULT_PROMPT_EXPANDER_REFERENCE_FIDELITY,
     DEFAULT_PROMPT_EXPANDER_REFERENCE_STRENGTH,
@@ -36,15 +37,6 @@ from ..consts.prompt_expander import (
 from ..services.prompt_expander_prompts import MangaOptions
 from .novelai import AnlasBalanceResponse
 
-ImageModelLiteral = Literal[
-    "nai-diffusion-5-full",
-    "nai-diffusion-5-curated",
-    "nai-diffusion-4-5-full",
-    "nai-diffusion-4-5-curated",
-]
-
-TextModelLiteral = Literal["glm-4-6", "xialong-v1"]
-
 ImageSizeLiteral = Literal["portrait", "landscape", "square"]
 
 ExpandModeLiteral = Literal["japanese", "tags"]
@@ -64,9 +56,8 @@ ReferenceTypeLiteral = Literal["character", "style", "character&style"]
 TransparentEmphasisLiteral = Literal[0, 1, 2, 3]
 
 # Literal と定数の整合性を起動時に検証する（どちらかを直し忘れたときに気付くため）
-assert set(ImageModelLiteral.__args__) == set(PROMPT_EXPANDER_IMAGE_MODEL_OPTIONS)  # type: ignore[attr-defined]
+assert set(NovelAIImageModel.__args__) == set(PROMPT_EXPANDER_IMAGE_MODEL_OPTIONS)  # type: ignore[attr-defined]
 
-assert set(TextModelLiteral.__args__) == set(NOVELAI_TEXT_MODEL_OPTIONS)  # type: ignore[attr-defined]
 
 assert set(ImageSizeLiteral.__args__) == set(PROMPT_EXPANDER_IMAGE_SIZES)  # type: ignore[attr-defined]
 
@@ -173,8 +164,8 @@ class PromptExpanderSettingsResponse(BaseModel):
 
 
 class PromptExpanderSettingsUpdateRequest(BaseModel):
-    text_model: TextModelLiteral | None = None
-    image_model: ImageModelLiteral | None = None
+    text_model: NovelAITextModel | None = None
+    image_model: NovelAIImageModel | None = None
     image_size: ImageSizeLiteral | None = None
     i2i_strength: float | None = Field(None, ge=0.01, le=0.99)
     i2i_noise: float | None = Field(None, ge=0.0, le=0.99)
@@ -293,8 +284,8 @@ class PromptExpandRequest(BaseModel):
     expand_negative: bool = False
     negative_mode: ExpandModeLiteral = "tags"
     negative_instruction: str = Field("", max_length=PROMPT_EXPANDER_NEGATIVE_MAX_LEN)
-    image_model: ImageModelLiteral
-    text_model: TextModelLiteral
+    image_model: NovelAIImageModel
+    text_model: NovelAITextModel
     language: Literal["ja", "en"] = "ja"
     source_kind: SourceKindLiteral = "none"
     source_history_id: str | None = Field(None, max_length=80)
@@ -340,8 +331,8 @@ class MangaScriptRequest(BaseModel):
     instruction: str = Field(
         ..., min_length=1, max_length=PROMPT_EXPANDER_INSTRUCTION_MAX_LEN
     )
-    image_model: ImageModelLiteral
-    text_model: TextModelLiteral
+    image_model: NovelAIImageModel
+    text_model: NovelAITextModel
     language: Literal["ja", "en"] = "ja"
     manga: MangaOptionsModel | None = None
 
@@ -362,8 +353,8 @@ class PromptExpanderGenerateRequest(BaseModel):
     )
     positive_expand_mode: StoredExpandModeLiteral = "off"
     negative_expand_mode: StoredExpandModeLiteral = "off"
-    image_model: ImageModelLiteral
-    text_model: TextModelLiteral | None = None
+    image_model: NovelAIImageModel
+    text_model: NovelAITextModel | None = None
     image_size: ImageSizeLiteral = "portrait"
     seed: int | None = Field(None, ge=0, le=999999999)
     i2i_strength: float | None = Field(None, ge=0.01, le=0.99)
@@ -437,8 +428,8 @@ class PromptExpanderGenerateResponse(BaseModel):
 
 
 class SuggestCharactersRequest(BaseModel):
-    text_model: TextModelLiteral
-    image_model: ImageModelLiteral
+    text_model: NovelAITextModel
+    image_model: NovelAIImageModel
     mode: ExpandModeLiteral = "tags"
     count: int = Field(
         PROMPT_EXPANDER_SUGGESTION_COUNT_DEFAULT,

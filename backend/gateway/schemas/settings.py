@@ -12,7 +12,13 @@ from ..consts.history_lookback import (
     HISTORY_LOOKBACK_MIN,
 )
 from ..consts.language import DEFAULT_LANGUAGE, LanguageCode
-from ..consts.novelai_models import DEFAULT_NSFW_IMAGE_MODEL, DEFAULT_SFW_IMAGE_MODEL
+from ..consts.novelai_models import (
+    DEFAULT_NSFW_IMAGE_MODEL,
+    DEFAULT_SFW_IMAGE_MODEL,
+    NsfwImageModel,
+    SfwImageModel,
+)
+from ..consts.novelai_text_models import DEFAULT_NOVELAI_TEXT_MODEL, NovelAITextModel
 
 
 class UserSettingsModel(BaseModel):
@@ -28,7 +34,7 @@ class UserSettingsResponse(BaseModel):
     feeling_mode: str = "legacy"
     gender_congruence_llm_enabled: bool = False
     language: LanguageCode
-    novelai_text_model: str = "glm-4-6"
+    novelai_text_model: str = DEFAULT_NOVELAI_TEXT_MODEL
     novelai_image_model: str = DEFAULT_NSFW_IMAGE_MODEL
     novelai_curated_image_model: str = DEFAULT_SFW_IMAGE_MODEL
     tts_enabled: bool = False
@@ -49,13 +55,9 @@ class UserSettingsUpdateRequest(BaseModel):
     feeling_mode: Literal["legacy", "gender_aware", "new", "experimental"] | None = None
     gender_congruence_llm_enabled: bool | None = None
     language: LanguageCode | None = None
-    novelai_text_model: Literal["glm-4-6", "xialong-v1"] | None = None
-    novelai_image_model: (
-        Literal["nai-diffusion-4-5-full", "nai-diffusion-5-full"] | None
-    ) = None
-    novelai_curated_image_model: (
-        Literal["nai-diffusion-4-5-curated", "nai-diffusion-5-curated"] | None
-    ) = None
+    novelai_text_model: NovelAITextModel | None = None
+    novelai_image_model: NsfwImageModel | None = None
+    novelai_curated_image_model: SfwImageModel | None = None
     tts_enabled: bool | None = None
     tts_use_gpu: bool | None = None
     tts_engine_dir: str | None = None

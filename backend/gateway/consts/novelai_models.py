@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 from ..settings.config import settings
 
@@ -71,6 +72,21 @@ SFW_IMAGE_MODEL_OPTIONS = ("nai-diffusion-4-5-curated", "nai-diffusion-5-curated
 
 DEFAULT_NSFW_IMAGE_MODEL = "nai-diffusion-4-5-full"
 DEFAULT_SFW_IMAGE_MODEL = "nai-diffusion-4-5-curated"
+
+# Pydantic の入力検証に使うモデル名の Literal。各 schemas で列挙を書き直さず
+# ここから import する。レジストリ / 選択肢との整合は import 時に検証する
+NovelAIImageModel = Literal[
+    "nai-diffusion-4-5-full",
+    "nai-diffusion-4-5-curated",
+    "nai-diffusion-5-full",
+    "nai-diffusion-5-curated",
+]
+NsfwImageModel = Literal["nai-diffusion-4-5-full", "nai-diffusion-5-full"]
+SfwImageModel = Literal["nai-diffusion-4-5-curated", "nai-diffusion-5-curated"]
+
+assert set(NovelAIImageModel.__args__) == set(NOVELAI_IMAGE_MODELS)  # type: ignore[attr-defined]
+assert NsfwImageModel.__args__ == NSFW_IMAGE_MODEL_OPTIONS  # type: ignore[attr-defined]
+assert SfwImageModel.__args__ == SFW_IMAGE_MODEL_OPTIONS  # type: ignore[attr-defined]
 
 
 def is_v5_image_model(name: str | None) -> bool:
