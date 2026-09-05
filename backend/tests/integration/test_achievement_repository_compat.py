@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 from gateway.routes.achievements_router import router
 
 
-def test_achievements_api_works_with_repository_structure():
+def test_achievements_api_works_with_repository_structure(isolated_achievement_db):
     app = FastAPI()
     app.include_router(router, prefix="/api")
 

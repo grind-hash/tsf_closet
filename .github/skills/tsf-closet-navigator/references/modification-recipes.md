@@ -162,6 +162,7 @@ Adventureイベントは `apis/adventure.ts` の専用パーサを変更し、�
 # Frontend: 変更ファイルだけ
 cd frontend
 npx @biomejs/biome check src/path/File.tsx
+npx vitest run src/path/File.test.ts
 npm run build
 npx playwright test tests/e2e/target.spec.ts
 

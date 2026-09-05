@@ -556,6 +556,7 @@ cd frontend; npm run lint
 cd backend; uv run ruff check .
 
 # テスト
+cd frontend; npm run test
 cd frontend; npm run e2e:test
 cd backend; uv run pytest
 ```

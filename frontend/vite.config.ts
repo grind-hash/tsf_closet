@@ -1,5 +1,5 @@
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+import { defineConfig } from "vitest/config";
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -29,5 +29,11 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
+  },
+  test: {
+    // Context のテストは @testing-library/react で DOM を使うため jsdom を既定にする
+    environment: "jsdom",
+    // Playwright の tests/e2e/*.spec.ts を vitest が拾わないよう src 配下に限定する
+    include: ["src/**/*.test.{ts,tsx}"],
   },
 });

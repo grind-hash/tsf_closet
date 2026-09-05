@@ -56,6 +56,7 @@ def _set_sqlite_pragma_sync(dbapi_connection, connection_record):
     cursor.execute("PRAGMA foreign_keys=ON")
     cursor.close()
 
+
 sync_session_factory = sessionmaker(
     bind=sync_engine,
     class_=Session,

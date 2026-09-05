@@ -19,7 +19,7 @@ def test_settings_api_backward_compatible_with_new_language_field(monkeypatch):
             return state
 
         async def update_user_settings(
-            self, nsfw_mode=None, difficulty=None, language=None
+            self, nsfw_mode=None, difficulty=None, language=None, **_other_fields
         ):
             if nsfw_mode is not None:
                 state["nsfw_mode"] = nsfw_mode

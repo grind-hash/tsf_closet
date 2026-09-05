@@ -309,7 +309,7 @@ class TestMangaPrompt:
         assert '"japanese text", "text", "speech bubble", "border"' in system
         assert "grid of two columns" in system
         # セリフ・効果音の例文は英語の文で、引用符の中だけが日本語
-        assert 'says "これ、私にぴったり…！"' in system
+        assert 'says "これ、僕にぴったり…！"' in system
         assert 'there\'s also a "ドン！" visible' in system
         assert "it must be in Japanese" in system
 
