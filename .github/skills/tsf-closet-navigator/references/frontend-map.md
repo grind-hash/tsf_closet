@@ -83,6 +83,11 @@
 | `useWindowFileDrop` | 画面全体（window）へのファイルドロップ検知。ファイルを含むドラッグ中だけ true を返し、drop を `onFiles` に渡す（個別ドロップゾーンが preventDefault 済みなら二重処理しない）。表示は `components/ui/FileDropOverlay`（薄グレー＋アップロードアイコン、pointer-events なし）と組で使う |
 | `useAdventureBgm`     | Adventure BGMのループ再生、fade、autoplay/404対応。キー→URL対応はマウント時に `GET /api/adventure/bgm` で取得（未知キーは既定曲へ）。mute/volumeの永続化は `utils/bgmPreferences.ts`(localStorage `adventure_bgm_prefs`)へ集約し、BGMテスト画面と音量を共有する。`setDucked` でセリフ読み上げ中に音量を下げる |
 | `useAdventureVoice`   | Adventure(romance)のセリフ読み上げ。AivisSpeech で合成した音声を専用 Audio で再生し、古い合成結果はリクエスト id で捨てる。ON/OFF・音量は `utils/voicePreferences.ts`(localStorage `adventure_voice_prefs`、既定OFF・音量50%)。グローバル `ttsEnabled` と話者が無ければ no-op。`getLevel()` は `utils/voiceLevelMeter.ts`（モジュール共有の AudioContext + AnalyserNode。running でないうちは接続せず pointerdown/keydown の resume 後に接続）の音量 0..1 で、3D モデルの口パクに使う |
+| `useAdventureNarration` | `useAdventureVoice` を包み、いつ何を読むかを決める。読み上げ(0) 3D モデル表示中は本文ストリームの確定行を逐次 `appendSegments`（先読みした手番番号を控える）、(1) 新しい手番の到着で攻略対象のセリフ（先読み済みは読まない）、(2) トークの返答確定でその返答。戻り値は `UseAdventureVoiceResult` そのまま |
+| `useAdventureSpeechInput` | トークモードの音声入力。`useSpeechInput` を包み、暫定テキストを入力欄へ流し込み、確定で置き換え、自動送信（`utils/speechInputPreferences.ts`、既定 OFF）なら `onSubmit`。読み上げ中とトークモード離脱で聞き取りを止め、開始前に読み上げを止める |
+| `useAdventureFrameNavigation` | `buildStageFrames` の結果と、ステージの閲覧位置（`selectedFrameIndex`、null は最新）・ライトボックスの位置とタブ（`lightboxIndex` / `lightboxView`）。手番到着で最新へ戻す effect、`goToFrame`（ターンストリップ用）、`openLightboxFrame`（タブ選択を引き継ぎ、無いタブはシーンへ）を持つ |
+| `useAdventureStagePortraits` | ステージと主人公ドックに出す白抜き済み立ち絵 4 種（`useTransparentImage` × 4、`PORTRAIT_ALPHA_OPTIONS`）。ステージ用は表示中フレームに追従し、ドック用は常に最新 |
+| `useAdventureDrawPreferences` | 立ち絵を毎ターン描くかの好み（主人公 / 攻略対象、localStorage `adventure_draw_*_every_turn`）。Hub と Play で共有し、`AdventureContext.submitTurn` が同じキーを読む |
 
 ## APIモジュール
 
@@ -132,7 +137,19 @@ components/
   adventure/
     AdventureScreen.tsx       /adventure（Hub）と /adventure/:runId（Play）の切り替えと CSS の読み込みだけ
     AdventureHub.tsx          セットアップ画面（開始素材・シナリオ・オプション・保存済み Run 一覧）
-    AdventurePlay.tsx         プレイ画面（HUD・ステージ・メッセージ窓・ログ・各種モーダル）
+    AdventurePlay.tsx         プレイ画面の編成（run の読込・送信 submit/submitTalkMessage・キーボード操作・モーダル開閉・進捗セグメント・3D モデルの表情/身振りキー）。描画は以下へ委譲し、子は共有状態を `useAdventure()` / `useSettings()` から直接読む。派生値は `utils/adventureSceneView.ts` の `buildAdventureSceneView` で 1 回だけ求め `scene` として渡す
+    AdventureHud.tsx              HUD（HudTile・Day/好感度/所持金/利用上限/Anlas/API料金・チップ列・ポップオーバー: 持ち物 / 口調 / BGM / 進行目標 / 世界ルール / 手掛かり）。`AdventureHudPanel` 型を export
+    AdventureProtagonistDock.tsx  左レールの主人公ドック（最新の外見・服装、romance は攻略対象も）
+    AdventureStage.tsx            画像ステージ（背景/合成・立ち絵・3D モデル `avatar` props・進捗オーバーレイ・過去閲覧バナー・立ち絵失敗の再試行・↻・⚙・AdventureBgmControl）。画像設定ポップオーバーは children
+    AdventureImageSettingsPopover.tsx  ⚙ の中身。run 設定（`updateSettings`: モデル上書き・持ち物・対面会話・3D モデル・精密参照・合成）とブラウザ単位の好み（立ち絵を毎ターン描く）
+    AdventureImageOptionRows.tsx  Hub と Play で共有する行部品 `AdventureToggleRow`（`adventure-precise-toggle` の見出し+説明+スイッチ）/ `AdventureImageModelPicker` / `AdventureTurnEstimate`（所要時間と「テキストのみ」告知）
+    AdventureMessageBox.tsx       メッセージ窓（メタ行の 🔊/据え置き案内/持ち物の変化/ログ/非表示、行動、本文 `AdventureScriptText`、行動パネル: 行動/トーク切替・選択肢再生成・進捗・選択肢・romance 行動ボタン・`AdventureTalkThread`・`AdventureFreeInput`、またはエンディング）
+    AdventureTalkThread.tsx       トークモードの会話スレッド（今の手番の会話 + 送信中の下書き。末尾へ自動スクロール）
+    AdventureFreeInput.tsx        常設の自由入力欄（トークモードは 500 字・🎤・自動送信トグル・認識エラー）
+    AdventureScriptText.tsx       台本形式(名前「セリフ」)の本文を話者ラベル付きで描く
+    AdventureResultOverlay.tsx    終了時のリザルトカード（`useTransparentImage` で白抜きした立ち絵、進行目標、ログ/リプレイ/戻る/エピローグ）
+    AdventureLogDrawer.tsx        ログドロワー（全文の読み返しとターンストリップ。開いた時と手番追加で末尾へスクロール）
+    AdventureFramePreviewModal.tsx フレームのライトボックス（`ImagePreviewModal` に概要/シーン/背景/立ち絵/攻略対象のタブと手番の詳細を載せる。合成プレビュー用の白抜きはここで行う）
     AdventureScenarioPickerModal.tsx  作品／プレイ済みシナリオの選択モーダル（Hub から開く）
     AdventureAvatarOptions.tsx        3D モデルの選択肢と衣装差分ヒント（Hub / Play 共有）
     AdventureImagePromptModal.tsx
@@ -205,6 +222,6 @@ components/
 - Context単体テストは `frontend/src/contexts/tests/`、E2Eは `frontend/tests/e2e/`。
 - 主な対象E2E: `action-mode.spec.ts`、`image-only-preview.spec.ts`、`adventure-mode.spec.ts`、`adventure-portrait-alpha.spec.ts`、`prompt-expander.spec.ts`。
 - 持ち物の型は `apis/adventure.ts` の `AdventureInventory` / `AdventureInventoryItem` / `AdventureInventoryLogEntry` / `AdventureItemAction` / `AdventureTurnOptions`（`submitTurn` の options）。カテゴリ・操作の語彙は backend `consts/adventure_inventory.py` と一致させ、表示名は `adventure.inventoryCategory.*` / `adventure.inventoryAction.*`。
-- Adventure 画面の純関数は `utils/adventureFrames.ts`（`buildStageFrames`: run → ステージ用フレーム列、`partnerPortraitInherited` / `partnerPortraitReasonKey` / `frameDaySlot`）、`utils/adventureSetupPrefs.ts`（セットアップ設定の localStorage 読み出しと正規化）、`utils/adventureVoiceSegments.ts`（読み上げセグメント化）、`utils/adventureFormat.ts`（`formatAnlasEstimate` / `mediaUrl` / `speechStyleLabel`）に分け、定数（プリセット・ターン数境界・語り手の声・口調・localStorage キー）は `constants/adventure.ts` に置く。いずれも vitest 対象。
+- Adventure 画面の純関数は `utils/adventureFrames.ts`（`buildStageFrames`: run → ステージ用フレーム列、`partnerPortraitInherited` / `partnerPortraitReasonKey` / `frameDaySlot`）、`utils/adventureSetupPrefs.ts`（セットアップ設定の localStorage 読み出しと正規化）、`utils/adventureVoiceSegments.ts`（読み上げセグメント化）、`utils/adventureFormat.ts`（`formatAnlasEstimate` / `mediaUrl` / `speechStyleLabel`）、`utils/adventureSceneView.ts`（`buildAdventureSceneView`: 表示中の本文・行動・現在地・選択肢・持ち物・romance の攻略対象名/服装・トークモードの会話をまとめた `AdventureSceneView`）に分け、定数（プリセット・ターン数境界・語り手の声・口調・localStorage キー）は `constants/adventure.ts` に置く。いずれも vitest 対象。
 - Adventure の台本形式ユーティリティは `utils/adventureDialogue.ts`（`parseDialogueSegments` / `partnerLines` / `joinForSpeech` / `stripStageDirections`）。対面会話モードの見積もりは `utils/adventureTurnTimeEstimate.ts` の `companionMode`。
 - 定数ミラー: `constants/promptExpander.ts`（画像モデル4種、キャラ上限 V5=22/V4.5=6、サイズ、漫画モードのコマ数/レイアウト/セリフ言語と `supportsMangaMode`、精密参照の種別/既定強度/`PROMPT_EXPANDER_ANLAS_PER_REFERENCE`/`PROMPT_EXPANDER_ANLAS_WARN_SUPPRESSED_KEY`/`supportsPreciseReference`、背景透過の `usesNativeTransparency`/`PROMPT_EXPANDER_ALPHA_OPTIONS`）。`V5_USAGE_WARN_SUPPRESSED_KEY` は `constants/novelaiImageModels.ts` に集約。`constants/companionAvatar.ts` は 3D モデルの表情 6 種・身振り 8 種で、backend `consts/companion_avatar.py` と完全一致させる（LLM に選ばせる語彙＝FE が実装している語彙）。衣装差分のキー("1","2",…)は手番ごとにバックエンドが組み直すため FE に定数は無い。

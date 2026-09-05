@@ -40,18 +40,15 @@ import {
   SPEECH_STYLES,
 } from "../../constants/adventure";
 import {
-  ADVENTURE_IMAGE_MODEL_CHOICES,
   isAdventureImageModelValue,
   isV5ImageModel,
 } from "../../constants/novelaiImageModels";
 import {
   ANLAS_WARN_SUPPRESSED_KEY,
-  DRAW_PARTNER_STORAGE_KEY,
-  DRAW_PORTRAIT_STORAGE_KEY,
   useAdventure,
 } from "../../contexts/AdventureContext";
 import { useSettings } from "../../contexts/SettingsContext";
-import { usePersistedState } from "../../hooks/usePersistedState";
+import { useAdventureDrawPreferences } from "../../hooks/useAdventureDrawPreferences";
 import { ROUTES } from "../../routes";
 import type { Character, GallerySession } from "../../types";
 import { estimateAdventureAnlas } from "../../utils/adventureAnlasEstimate";
@@ -64,10 +61,6 @@ import {
   normalizeSpeechStyle,
   readSetupPrefs,
 } from "../../utils/adventureSetupPrefs";
-import {
-  estimateAdventureTurnSeconds,
-  isAdventureTurnTextOnly,
-} from "../../utils/adventureTurnTimeEstimate";
 import { API_BASE } from "../../utils/api";
 import {
   readStorageFlag,
@@ -80,6 +73,11 @@ import {
   AvatarModelOptions,
   AvatarWardrobeHint,
 } from "./AdventureAvatarOptions";
+import {
+  AdventureImageModelPicker,
+  AdventureToggleRow,
+  AdventureTurnEstimate,
+} from "./AdventureImageOptionRows";
 import AdventureScenarioPickerModal from "./AdventureScenarioPickerModal";
 import AdventureSessionPickerModal, {
   type AdventureSourceSelection,
@@ -320,10 +318,12 @@ export default function AdventureHub() {
       : settingsState.adventureEnableCompositeScene,
   );
   // プレイ画面と同じブラウザ単位の好み。専用キーで共有する
-  const [drawPortraitEveryTurn, setDrawPortraitEveryTurn] =
-    usePersistedState<boolean>(DRAW_PORTRAIT_STORAGE_KEY, true);
-  const [drawPartnerEveryTurn, setDrawPartnerEveryTurn] =
-    usePersistedState<boolean>(DRAW_PARTNER_STORAGE_KEY, true);
+  const {
+    drawPortraitEveryTurn,
+    setDrawPortraitEveryTurn,
+    drawPartnerEveryTurn,
+    setDrawPartnerEveryTurn,
+  } = useAdventureDrawPreferences();
   // romance の主人公(自分)。既定は男性キャラ、選択したら次回にも保存する
   const [romancePlayerId, setRomancePlayerId] = useState(() => {
     const saved = savedSetupPrefs.romancePlayerCharacterId;
@@ -839,43 +839,27 @@ export default function AdventureHub() {
 
               <div className="adventure-setup-generator">
                 {/* 持ち物システム(全プリセット)。既定 OFF。シナリオの進行方法に大きく影響する */}
-                <label className="adventure-precise-toggle adventure-inventory-toggle">
-                  <span className="adventure-precise-toggle__info">
-                    <strong>{t("adventure.inventoryEnable")}</strong>
-                    <small>{t("adventure.inventoryHint")}</small>
-                  </span>
-                  <input
-                    type="checkbox"
-                    className="adventure-precise-toggle__input"
-                    checked={inventoryEnabled}
-                    disabled={setupGenerating || loading || creating}
-                    onChange={(event) =>
-                      setInventoryEnabled(event.target.checked)
-                    }
-                  />
-                  <span className="adventure-precise-toggle__switch" />
-                </label>
+                <AdventureToggleRow
+                  className="adventure-inventory-toggle"
+                  label={t("adventure.inventoryEnable")}
+                  hint={t("adventure.inventoryHint")}
+                  checked={inventoryEnabled}
+                  disabled={setupGenerating || loading || creating}
+                  onChange={setInventoryEnabled}
+                />
                 {/* ヒントは label の外に出す。label 内に入れると入力の
                     アクセシブル名にヒント全文が混ざる */}
                 {preset === "romance" ? (
                   <>
                     {/* 対面会話モード(1手番=1往復・昼夜なし)。ON なら日数でなくターン数を選ぶ */}
-                    <label className="adventure-precise-toggle adventure-companion-toggle">
-                      <span className="adventure-precise-toggle__info">
-                        <strong>{t("adventure.companionMode")}</strong>
-                        <small>{t("adventure.companionModeHint")}</small>
-                      </span>
-                      <input
-                        type="checkbox"
-                        className="adventure-precise-toggle__input"
-                        checked={companionMode}
-                        disabled={setupGenerating || loading || creating}
-                        onChange={(event) =>
-                          setCompanionMode(event.target.checked)
-                        }
-                      />
-                      <span className="adventure-precise-toggle__switch" />
-                    </label>
+                    <AdventureToggleRow
+                      className="adventure-companion-toggle"
+                      label={t("adventure.companionMode")}
+                      hint={t("adventure.companionModeHint")}
+                      checked={companionMode}
+                      disabled={setupGenerating || loading || creating}
+                      onChange={setCompanionMode}
+                    />
                     {/* 3D モデル(VRM)。対面会話モード OFF でも隠さず、文言で説明する */}
                     <label className="adventure-setup-turns adventure-setup-avatar">
                       <span className="adventure-setup-turns__label">
@@ -1296,137 +1280,63 @@ export default function AdventureHub() {
           <details className="adventure-setup-details-wrapper">
             <summary>{t("adventure.imageGenOptions")}</summary>
             <div className="adventure-setup-details adventure-image-gen-options">
-              {/* 各トグルの結果である所要時間は、スクロールしても見える先頭へ置く */}
-              <p className="adventure-turn-estimate">
-                {t("adventure.turnTimeEstimate", {
-                  seconds: estimateAdventureTurnSeconds(setupImageSettings),
-                })}
-              </p>
-              {isAdventureTurnTextOnly(setupImageSettings) && (
-                <p className="adventure-turn-note">
-                  {t(
-                    setupImageSettings.preset === "romance"
-                      ? "adventure.turnImagesDisabledNoticeRomance"
-                      : "adventure.turnImagesDisabledNotice",
-                  )}
-                </p>
-              )}
+              <AdventureTurnEstimate settings={setupImageSettings} />
               {/* この run 専用のNovelAI画像モデル。既定はグローバル設定に従う */}
-              <label className="adventure-image-model-picker">
-                <span className="adventure-precise-toggle__info">
-                  <strong>{t("adventure.imageModel")}</strong>
-                  <small>
-                    {t(
-                      settingsState.imageProvider === "novelai"
-                        ? "adventure.imageModelHint"
-                        : "adventure.imageModelOtherProviderHint",
-                    )}
-                  </small>
-                </span>
-                <select
-                  value={imageModelChoice}
-                  disabled={setupGenerating || loading || creating}
-                  onChange={(event) => setImageModelChoice(event.target.value)}
-                >
-                  <option value="default">
-                    {t("adventure.imageModelDefault")}
-                  </option>
-                  {ADVENTURE_IMAGE_MODEL_CHOICES.map((choice) => (
-                    <option key={choice.value} value={choice.value}>
-                      {choice.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="adventure-precise-toggle">
-                <span className="adventure-precise-toggle__info">
-                  <strong>{t("adventure.preciseReference")}</strong>
-                  {/* NovelAI以外では効果もAnlas消費もない旨、V5では非対応の旨を明示する */}
-                  <small>
-                    {t(
-                      setupIsV5
-                        ? "adventure.preciseReferenceV5Hint"
-                        : settingsState.imageProvider === "novelai"
-                          ? "adventure.preciseReferenceHint"
-                          : "adventure.preciseReferenceOtherProviderHint",
-                    )}
-                  </small>
-                </span>
-                <input
-                  type="checkbox"
-                  className="adventure-precise-toggle__input"
-                  checked={usePreciseReference && !setupIsV5}
-                  disabled={setupGenerating || loading || creating || setupIsV5}
-                  onChange={(event) =>
-                    setUsePreciseReference(event.target.checked)
-                  }
-                />
-                <span className="adventure-precise-toggle__switch" />
-              </label>
-              <label className="adventure-precise-toggle">
-                <span className="adventure-precise-toggle__info">
-                  <strong>{t("adventure.enableCompositeScene")}</strong>
-                  <small>
-                    {t(
-                      setupCompanion
-                        ? "adventure.enableCompositeSceneCompanionHint"
-                        : "adventure.enableCompositeSceneHint",
-                    )}
-                  </small>
-                </span>
-                <input
-                  type="checkbox"
-                  className="adventure-precise-toggle__input"
-                  checked={enableCompositeScene}
-                  disabled={setupGenerating || loading || creating}
-                  onChange={(event) =>
-                    setEnableCompositeScene(event.target.checked)
-                  }
-                />
-                <span className="adventure-precise-toggle__switch" />
-              </label>
+              <AdventureImageModelPicker
+                value={imageModelChoice}
+                hint={t(
+                  settingsState.imageProvider === "novelai"
+                    ? "adventure.imageModelHint"
+                    : "adventure.imageModelOtherProviderHint",
+                )}
+                disabled={setupGenerating || loading || creating}
+                onChange={setImageModelChoice}
+              />
+              {/* NovelAI以外では効果もAnlas消費もない旨、V5では非対応の旨を明示する */}
+              <AdventureToggleRow
+                label={t("adventure.preciseReference")}
+                hint={t(
+                  setupIsV5
+                    ? "adventure.preciseReferenceV5Hint"
+                    : settingsState.imageProvider === "novelai"
+                      ? "adventure.preciseReferenceHint"
+                      : "adventure.preciseReferenceOtherProviderHint",
+                )}
+                checked={usePreciseReference && !setupIsV5}
+                disabled={setupGenerating || loading || creating || setupIsV5}
+                onChange={setUsePreciseReference}
+              />
+              <AdventureToggleRow
+                label={t("adventure.enableCompositeScene")}
+                hint={t(
+                  setupCompanion
+                    ? "adventure.enableCompositeSceneCompanionHint"
+                    : "adventure.enableCompositeSceneHint",
+                )}
+                checked={enableCompositeScene}
+                disabled={setupGenerating || loading || creating}
+                onChange={setEnableCompositeScene}
+              />
               {/* 立ち絵の毎ターン描画は合成・精密参照の設定に関わらず効くため常に表示する */}
-              <label className="adventure-precise-toggle">
-                <span className="adventure-precise-toggle__info">
-                  <strong>{t("adventure.drawPortraitEveryTurn")}</strong>
-                  <small>
-                    {t(
-                      setupCompanion
-                        ? "adventure.drawPortraitEveryTurnCompanionHint"
-                        : "adventure.drawPortraitEveryTurnHint",
-                    )}
-                  </small>
-                </span>
-                <input
-                  type="checkbox"
-                  className="adventure-precise-toggle__input"
-                  checked={drawPortraitEveryTurn}
-                  disabled={setupGenerating || loading || creating}
-                  onChange={(event) => {
-                    const next = event.target.checked;
-                    setDrawPortraitEveryTurn(next);
-                  }}
-                />
-                <span className="adventure-precise-toggle__switch" />
-              </label>
+              <AdventureToggleRow
+                label={t("adventure.drawPortraitEveryTurn")}
+                hint={t(
+                  setupCompanion
+                    ? "adventure.drawPortraitEveryTurnCompanionHint"
+                    : "adventure.drawPortraitEveryTurnHint",
+                )}
+                checked={drawPortraitEveryTurn}
+                disabled={setupGenerating || loading || creating}
+                onChange={setDrawPortraitEveryTurn}
+              />
               {preset === "romance" && (
-                <label className="adventure-precise-toggle">
-                  <span className="adventure-precise-toggle__info">
-                    <strong>{t("adventure.drawPartnerEveryTurn")}</strong>
-                    <small>{t("adventure.drawPartnerEveryTurnHint")}</small>
-                  </span>
-                  <input
-                    type="checkbox"
-                    className="adventure-precise-toggle__input"
-                    checked={drawPartnerEveryTurn}
-                    disabled={setupGenerating || loading || creating}
-                    onChange={(event) => {
-                      const next = event.target.checked;
-                      setDrawPartnerEveryTurn(next);
-                    }}
-                  />
-                  <span className="adventure-precise-toggle__switch" />
-                </label>
+                <AdventureToggleRow
+                  label={t("adventure.drawPartnerEveryTurn")}
+                  hint={t("adventure.drawPartnerEveryTurnHint")}
+                  checked={drawPartnerEveryTurn}
+                  disabled={setupGenerating || loading || creating}
+                  onChange={setDrawPartnerEveryTurn}
+                />
               )}
             </div>
           </details>
