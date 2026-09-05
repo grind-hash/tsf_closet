@@ -5,6 +5,7 @@
 
 import type { GalleryItem, GallerySession } from "../types";
 import { API_BASE } from "../utils/api";
+import { ApiError, apiErrorFromResponse, requestJson } from "../utils/http";
 
 // レスポンス型
 interface GalleryListResponse {
@@ -47,20 +48,15 @@ export async function fetchGallerySessions(
     page: String(page),
     page_size: String(pageSize),
   });
-
   const query = q?.trim();
   if (query) {
     params.append("q", query);
   }
-
-  const response = await fetch(`${API_BASE}/gallery/sessions?${params}`);
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(error || "セッション一覧の取得に失敗しました");
-  }
-
-  return response.json();
+  return requestJson<GallerySessionsResponse>(
+    `${API_BASE}/gallery/sessions?${params}`,
+    undefined,
+    { fallbackMessage: "セッション一覧の取得に失敗しました" },
+  );
 }
 
 /**
@@ -75,21 +71,18 @@ export async function fetchGalleryList(
     page: String(page),
     page_size: String(pageSize),
   });
-
   if (sessionId) {
     params.append("session_id", sessionId);
   }
-
-  const response = await fetch(`${API_BASE}/gallery?${params}`);
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(error || "ギャラリーの取得に失敗しました");
-  }
-
-  const data = await response.json();
-
-  // スネークケース→キャメルケース変換
+  const data = await requestJson<{
+    items: Record<string, unknown>[];
+    total: number;
+    page: number;
+    page_size: number;
+    has_more: boolean;
+  }>(`${API_BASE}/gallery?${params}`, undefined, {
+    fallbackMessage: "ギャラリーの取得に失敗しました",
+  });
   return {
     items: data.items.map(convertGalleryItem),
     total: data.total,
@@ -127,18 +120,15 @@ export async function fetchSessionFrames(
 export async function fetchGalleryItem(
   itemId: string,
 ): Promise<GalleryDetailResponse> {
-  const response = await fetch(`${API_BASE}/gallery/${itemId}`);
-
-  if (!response.ok) {
-    if (response.status === 404) {
-      throw new Error("アイテムが見つかりません");
-    }
-    const error = await response.text();
-    throw new Error(error || "アイテムの取得に失敗しました");
-  }
-
-  const data = await response.json();
-
+  const data = await requestJson<{
+    item: Record<string, unknown>;
+    prev_id: string | null;
+    next_id: string | null;
+  }>(`${API_BASE}/gallery/${itemId}`, undefined, {
+    fallbackMessage: "アイテムの取得に失敗しました",
+  }).catch((error: unknown) => {
+    throw notFoundAsItemMissing(error);
+  });
   return {
     item: convertGalleryItem(data.item),
     prev_id: data.prev_id,
@@ -149,6 +139,14 @@ export async function fetchGalleryItem(
 /**
  * APIレスポンスをフロントエンド型に変換
  */
+/** 404 は「アイテムが見つかりません」に読み替える（それ以外はそのまま） */
+function notFoundAsItemMissing(error: unknown): unknown {
+  if (error instanceof ApiError && error.status === 404) {
+    return new Error("アイテムが見つかりません");
+  }
+  return error;
+}
+
 function convertGalleryItem(item: Record<string, unknown>): GalleryItem {
   return {
     id: String(item.id),
@@ -177,19 +175,13 @@ function convertGalleryItem(item: Record<string, unknown>): GalleryItem {
 export async function deleteGalleryItem(
   itemId: string,
 ): Promise<DeleteItemResponse> {
-  const response = await fetch(`${API_BASE}/gallery/${itemId}`, {
-    method: "DELETE",
+  return requestJson<DeleteItemResponse>(
+    `${API_BASE}/gallery/${itemId}`,
+    { method: "DELETE" },
+    { fallbackMessage: "アイテムの削除に失敗しました" },
+  ).catch((error: unknown) => {
+    throw notFoundAsItemMissing(error);
   });
-
-  if (!response.ok) {
-    if (response.status === 404) {
-      throw new Error("アイテムが見つかりません");
-    }
-    const error = await response.text();
-    throw new Error(error || "アイテムの削除に失敗しました");
-  }
-
-  return response.json();
 }
 
 // Play Summary types
@@ -208,22 +200,16 @@ export interface PlaySummaryResponse {
 export async function getSessionSummary(
   sessionId: string,
 ): Promise<PlaySummaryResponse | null> {
-  const response = await fetch(
-    `${API_BASE}/gallery/sessions/${sessionId}/summary`,
-  );
-
-  if (response.status === 404) {
-    return null;
-  }
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(
-      error.detail?.message || `Failed to fetch summary: ${response.status}`,
+  try {
+    return await requestJson<PlaySummaryResponse>(
+      `${API_BASE}/gallery/sessions/${sessionId}/summary`,
+      undefined,
+      { fallbackMessage: "Failed to fetch summary" },
     );
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return null;
+    throw error;
   }
-
-  return response.json();
 }
 
 /**
@@ -233,21 +219,11 @@ export async function generateSessionSummary(
   sessionId: string,
   language: string = "ja",
 ): Promise<PlaySummaryResponse> {
-  const response = await fetch(
+  return requestJson<PlaySummaryResponse>(
     `${API_BASE}/gallery/sessions/${sessionId}/summary?language=${language}`,
     { method: "POST" },
+    { fallbackMessage: "Summary generation failed" },
   );
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(
-      error.detail?.message ||
-        error.detail ||
-        `Summary generation failed: ${response.status}`,
-    );
-  }
-
-  return response.json();
 }
 
 // ----------------------------------------------------------------
@@ -290,12 +266,7 @@ async function downloadExport(
 ): Promise<ExportDownload> {
   const response = await fetch(url);
   if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(
-      error.detail?.message ||
-        error.detail ||
-        `Export failed: ${response.status}`,
-    );
+    throw await apiErrorFromResponse(response, "Export failed");
   }
   const filename = parseFilenameFromHeaders(response.headers, fallbackFilename);
 

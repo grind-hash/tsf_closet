@@ -30,7 +30,6 @@ import {
   fetchPromptExpanderSessions,
   fetchPromptExpanderSettings,
   generatePromptExpanderImage,
-  PromptExpanderApiError,
   type PromptExpanderEntry,
   type PromptExpanderGenerateRequest,
   type PromptExpanderMangaOptions,
@@ -68,6 +67,7 @@ import {
   supportsPreciseReference,
 } from "../constants/promptExpander";
 import type { AnlasBalance } from "../types";
+import { ApiError } from "../utils/http";
 import { useNotification } from "./NotificationContext";
 import { useSettings } from "./SettingsContext";
 
@@ -1067,7 +1067,7 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
 
   const failExpansion = useCallback(
     (target: PromptExpanderExpansionTarget, err: unknown) => {
-      if (err instanceof PromptExpanderApiError) {
+      if (err instanceof ApiError) {
         setExpansionError({ target, code: err.code, message: err.message });
       } else {
         setExpansionError({ target, code: null, message: toErrorMessage(err) });

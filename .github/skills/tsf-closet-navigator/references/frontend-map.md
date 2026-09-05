@@ -77,15 +77,19 @@
 
 ## APIモジュール
 
+すべての `apis/*` は `utils/http.ts` を経由する。`requestJson(url, init?, { fallbackMessage? })` が fetch と JSON 取得、非 2xx → `ApiError`（`status` / `code` = FastAPI の `detail.code`）、204 → undefined を担い、`jsonInit(method, body)` が JSON ボディ付き RequestInit を作る。blob やストリームを返す関数は `apiErrorFromResponse(response)` で同じ `ApiError` を投げる。UI は `instanceof ApiError` と `code` で分岐する（Prompt Expander の `memory_empty`、アバターの `invalid_vrm` 等）。SSE の読み取りは `utils/sse.ts` の `readSseEvents(response.body)`（`event:` / `data:` を chunk 境界に関係なく組み立てる非同期イテレータ）を使い、`apis/adventure.ts` のターン/画像/トークと `GamePlayScreen` の会話ストリームが共用する。`hooks/useSSE` は通常ゲームの SSE 専用（中断・エラー処理込み）で据え置き。
+
+
 | ファイル                  | 主な公開操作                                                     |
 | ------------------------- | ---------------------------------------------------------------- |
-| `apis/game.ts`            | プロンプトプレビュー、指示候補、立ち絵、削除、履歴分岐           |
+| `apis/game.ts`            | プロンプトプレビュー、指示候補、立ち絵、削除、履歴分岐、セッション取得/復元/終了、キャラクター一覧、属性、プレイメモ（GameContext は raw `fetch` を持たない） |
 | `apis/adventure.ts`       | Template/Run CRUD、セットアップ、ターン/画像SSE、設定、URL正規化 |
 | `apis/characters.ts`      | SessionCharacter、主人公確保、Preset、人物タグ                   |
 | `apis/favorites.ts`       | お気に入り一覧、追加、ラベル変更、削除、toggle                   |
 | `apis/gallery.ts`         | セッション/履歴、フレーム、詳細、削除、要約、エクスポート        |
 | `apis/memory.ts`          | ユーザーメモ本文、生成ジョブ、状態、取消、分析DL                 |
-| `apis/settings.ts`        | セルフプロフィール生成/保存/取得                                 |
+| `apis/settings.ts`        | セルフプロフィール生成/保存/取得、ユーザー設定 `fetchUserSettings` / `updateUserSettings(差分)`、アプリ設定 `fetchAppSettings` / `updateAppSettings`（SettingsContext は raw `fetch` を持たない） |
+| `apis/system.ts`          | `/health`（API_BASE 外の互換エンドポイント）からプロバイダー構成を取得 |
 | `apis/speechSynthesis.ts` | AivisSpeech導入、起動、話者、合成                                |
 | `apis/anlas.ts`           | NovelAI Anlas残高                                                |
 | `apis/promptExpander.ts`  | PE 設定/セッション/エントリ/アップロード/拡張/生成/キャラ提案、`promptExpanderImageUrl` |

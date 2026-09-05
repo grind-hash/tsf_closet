@@ -19,45 +19,14 @@ import type {
   CharacterPreset,
   SessionCharacter,
 } from "../types";
+import { requestJson } from "../utils/http";
 
-interface ApiError extends Error {
-  status: number;
-  code?: string;
-}
-
-async function request<T>(
-  url: string,
-  init?: RequestInit & { expectNoContent?: boolean },
-): Promise<T> {
-  const response = await fetch(url, {
+/** JSON ヘッダーを既定で付ける薄いラッパー（エラー解釈は utils/http に委ねる） */
+async function request<T>(url: string, init?: RequestInit): Promise<T> {
+  return requestJson<T>(url, {
     headers: { "Content-Type": "application/json" },
     ...init,
   });
-  if (!response.ok) {
-    let code: string | undefined;
-    let message = `Request failed: ${response.status}`;
-    try {
-      const data = (await response.json()) as {
-        detail?: string | { detail?: string; code?: string };
-      };
-      if (typeof data.detail === "string") {
-        message = data.detail;
-      } else if (data.detail && typeof data.detail === "object") {
-        message = data.detail.detail ?? message;
-        code = data.detail.code;
-      }
-    } catch {
-      // ignore JSON parse failures
-    }
-    const err = new Error(message) as ApiError;
-    err.status = response.status;
-    err.code = code;
-    throw err;
-  }
-  if (init?.expectNoContent || response.status === 204) {
-    return undefined as T;
-  }
-  return (await response.json()) as T;
 }
 
 // ---------------------------------------------------------------------------
@@ -135,7 +104,6 @@ export async function deleteSessionCharacter(
 ): Promise<void> {
   await request<void>(SESSION_CHARACTER(sessionId, characterId), {
     method: "DELETE",
-    expectNoContent: true,
   });
 }
 
@@ -203,6 +171,5 @@ export async function updateCharacterPreset(
 export async function deleteCharacterPreset(presetId: string): Promise<void> {
   await request<void>(CHARACTER_PRESET(presetId), {
     method: "DELETE",
-    expectNoContent: true,
   });
 }

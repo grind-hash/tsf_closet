@@ -35,14 +35,6 @@ export interface PlayMemoryState {
   systemUpdatedAt: string | null;
 }
 
-interface PlayMemoryApiResponse {
-  system_enabled: boolean;
-  user_enabled: boolean;
-  system_text: string | null;
-  user_text: string | null;
-  system_updated_at: string | null;
-}
-
 function mapPlayMemoryResponse(data: PlayMemoryApiResponse): PlayMemoryState {
   return {
     systemEnabled: data.system_enabled,
@@ -64,9 +56,19 @@ import {
   type UpdateSessionCharacterPayload,
 } from "../apis/characters";
 import {
+  addSessionAttribute as apiAddSessionAttribute,
   branchSessionFromHistory as apiBranchSessionFromHistory,
+  deleteActiveSession as apiDeleteActiveSession,
+  fetchActiveSession as apiFetchActiveSession,
+  fetchCharacters as apiFetchCharacters,
+  regeneratePlayMemory as apiRegeneratePlayMemory,
+  removeSessionAttribute as apiRemoveSessionAttribute,
+  restoreSession as apiRestoreSession,
+  updatePlayMemory as apiUpdatePlayMemory,
   type BranchSessionResponse,
+  type PlayMemoryApiResponse,
 } from "../apis/game";
+import { ApiError } from "../utils/http";
 
 interface GameState {
   sessionId: string | null;
@@ -572,28 +574,17 @@ export function GameProvider({ children }: { children: ReactNode }) {
   const syncPlayMemoryPreferences = useCallback(
     async (sessionId: string): Promise<PlayMemoryState | null> => {
       try {
-        const response = await fetch(
-          `${API_BASE}/game/sessions/${sessionId}/play-memory`,
-          {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              system_enabled: settingsState.playMemorySystemEnabled,
-              user_enabled: settingsState.playMemoryUserEnabled,
-            }),
-          },
-        );
-        if (!response.ok) {
-          // localStorage から復元しただけの古いセッションIDでは 404 になる。
-          // 設定自体は保存済みで、実在するセッションの開始時に改めて同期
-          // されるため黙って無視する(遊び方ガイド等、プレイ画面外での
-          // トグルで警告が出るのを防ぐ)
-          if (response.status === 404) return null;
-          throw new Error("play_memory_sync_failed");
-        }
-        const data = (await response.json()) as PlayMemoryApiResponse;
+        const data = await apiUpdatePlayMemory(sessionId, {
+          system_enabled: settingsState.playMemorySystemEnabled,
+          user_enabled: settingsState.playMemoryUserEnabled,
+        });
         return mapPlayMemoryResponse(data);
-      } catch {
+      } catch (error) {
+        // localStorage から復元しただけの古いセッションIDでは 404 になる。
+        // 設定自体は保存済みで、実在するセッションの開始時に改めて同期
+        // されるため黙って無視する(遊び方ガイド等、プレイ画面外での
+        // トグルで警告が出るのを防ぐ)
+        if (error instanceof ApiError && error.status === 404) return null;
         showNotification(
           "warning",
           t("settings.playMemory.sectionTitle"),
@@ -708,12 +699,8 @@ export function GameProvider({ children }: { children: ReactNode }) {
 
   const loadCharacters = useCallback(async () => {
     try {
-      const response = await fetch(`${API_BASE}/game/characters`);
-      if (!response.ok) {
-        throw new Error("キャラクター一覧の取得に失敗しました");
-      }
-      const data = await response.json();
-      dispatch({ type: "SET_CHARACTERS", payload: data.characters ?? [] });
+      const characters = await apiFetchCharacters();
+      dispatch({ type: "SET_CHARACTERS", payload: characters });
     } catch (error) {
       dispatch({
         type: "SET_ERROR",
@@ -727,13 +714,10 @@ export function GameProvider({ children }: { children: ReactNode }) {
 
   const restoreActiveSession = useCallback(async (): Promise<boolean> => {
     try {
-      const response = await fetch(`${API_BASE}/game/session`);
-      if (!response.ok) {
-        return false;
-      }
-
-      const data = await response.json();
-      const action = mapSessionResponse(data);
+      const data = await apiFetchActiveSession();
+      const action = mapSessionResponse(
+        data as Parameters<typeof mapSessionResponse>[0],
+      );
       const playMemory = await syncPlayMemoryPreferences(data.session_id);
       if (playMemory) {
         action.payload.playMemory = playMemory;
@@ -748,16 +732,10 @@ export function GameProvider({ children }: { children: ReactNode }) {
   const restoreSessionById = useCallback(
     async (sessionId: string) => {
       try {
-        const response = await fetch(
-          `${API_BASE}/game/sessions/${sessionId}/restore`,
-          { method: "POST" },
+        const data = await apiRestoreSession(sessionId);
+        const action = mapSessionResponse(
+          data as Parameters<typeof mapSessionResponse>[0],
         );
-        if (!response.ok) {
-          return false;
-        }
-
-        const data = await response.json();
-        const action = mapSessionResponse(data);
         const playMemory = await syncPlayMemoryPreferences(data.session_id);
         if (playMemory) {
           action.payload.playMemory = playMemory;
@@ -800,7 +778,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
 
   const resetSession = useCallback(async () => {
     try {
-      await fetch(`${API_BASE}/game/session`, { method: "DELETE" });
+      await apiDeleteActiveSession();
     } finally {
       localStorage.removeItem(SESSION_STORAGE_KEY);
       dispatch({ type: "CLEAR_SESSION" });
@@ -1074,25 +1052,12 @@ export function GameProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      const params = new URLSearchParams({
-        session_id: state.sessionId,
-        attribute_text: text,
-      });
-      const response = await fetch(
-        `/api/game/attributes?${params.toString()}`,
-        {
-          method: "POST",
-        },
-      );
-      if (!response.ok) {
-        throw new Error(`Failed to add attribute: ${response.status}`);
-      }
-      const result = await response.json();
+      const result = await apiAddSessionAttribute(state.sessionId, text);
       dispatch({
         type: "ADD_ATTRIBUTE",
         payload: {
           id: result.attribute.id,
-          text: result.attribute.attribute_text || result.attribute.text,
+          text: result.attribute.attribute_text || result.attribute.text || "",
         },
       });
     },
@@ -1106,12 +1071,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      const response = await fetch(`/api/game/attributes/${id}`, {
-        method: "DELETE",
-      });
-      if (!response.ok) {
-        throw new Error(`Failed to remove attribute: ${response.status}`);
-      }
+      await apiRemoveSessionAttribute(id);
       dispatch({ type: "REMOVE_ATTRIBUTE", payload: id });
     },
     [state.sessionId],
@@ -1124,16 +1084,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
       user_text?: string | null;
     }) => {
       if (!state.sessionId) return;
-      const response = await fetch(
-        `${API_BASE}/game/sessions/${state.sessionId}/play-memory`,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(updates),
-        },
-      );
-      if (!response.ok) throw new Error("プレイメモの保存に失敗しました");
-      const data = (await response.json()) as PlayMemoryApiResponse;
+      const data = await apiUpdatePlayMemory(state.sessionId, updates);
       dispatch({
         type: "SET_PLAY_MEMORY",
         payload: mapPlayMemoryResponse(data),
@@ -1151,13 +1102,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
   const regeneratePlayMemory = useCallback(
     async (language: string) => {
       if (!state.sessionId) return;
-      const params = new URLSearchParams({ language });
-      const response = await fetch(
-        `${API_BASE}/game/sessions/${state.sessionId}/play-memory/regenerate?${params}`,
-        { method: "POST" },
-      );
-      if (!response.ok) throw new Error("自動メモの再生成に失敗しました");
-      const data = (await response.json()) as PlayMemoryApiResponse;
+      const data = await apiRegeneratePlayMemory(state.sessionId, language);
       dispatch({
         type: "SET_PLAY_MEMORY",
         payload: mapPlayMemoryResponse(data),

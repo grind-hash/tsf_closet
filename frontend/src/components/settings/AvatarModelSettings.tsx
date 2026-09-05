@@ -21,7 +21,6 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  AvatarApiError,
   type AvatarModel,
   autoClassifyAvatarModels,
   avatarVariantLabel,
@@ -33,6 +32,7 @@ import {
   updateAvatarModel,
   uploadAvatarModel,
 } from "../../apis/avatars";
+import { ApiError } from "../../utils/http";
 import PromptExpanderDeleteButton from "../promptExpander/PromptExpanderDeleteButton";
 import AvatarPreviewModal from "./AvatarPreviewModal";
 import "./AvatarModelSettings.css";
@@ -165,7 +165,7 @@ export default function AvatarModelSettings({
 
   const describeError = useCallback(
     (caught: unknown): string => {
-      if (caught instanceof AvatarApiError) {
+      if (caught instanceof ApiError) {
         if (caught.code === "invalid_vrm") {
           return t("settings.avatar.errors.notVrm");
         }

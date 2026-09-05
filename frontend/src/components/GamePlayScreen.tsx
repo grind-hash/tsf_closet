@@ -60,6 +60,7 @@ import {
 } from "../utils/exportChat";
 import { generateUUID } from "../utils/generateUUID";
 import { isHistoryLookbackEnabled } from "../utils/historyLookback";
+import { readSseEvents } from "../utils/sse";
 import AudioControlBar from "./chat/AudioControlBar";
 import ChatInput from "./chat/ChatInput";
 import ChatMessageList from "./chat/ChatMessageList";
@@ -759,69 +760,57 @@ export default function GamePlayScreen({
           );
 
           if (response.ok && response.body) {
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
             let fullResponse = "";
             let userConversationId: string | undefined;
             let charConversationId: string | undefined;
 
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
-
-              const text = decoder.decode(value, { stream: true });
-              const lines = text.split("\n");
-
-              for (const line of lines) {
-                if (line.startsWith("data: ")) {
-                  try {
-                    const data = JSON.parse(line.slice(6));
-                    if (data.type === "text" && data.chunk) {
-                      fullResponse += data.chunk;
-                      updateMessage(charMsgId, fullResponse);
-                    } else if (data.type === "done") {
-                      // ストリーミング完了 - 会話IDを保存
-                      setMessageStreaming(charMsgId, false);
-                      if (data.user_conversation_id) {
-                        userConversationId = data.user_conversation_id;
-                      }
-                      if (data.character_conversation_id) {
-                        charConversationId = data.character_conversation_id;
-                      }
-                      if (data.play_memory_update === "failed") {
-                        showNotification(
-                          "warning",
-                          t("settings.playMemory.sectionTitle"),
-                          t("settings.playMemory.updateWarning"),
-                        );
-                      } else if (data.play_memory_update === "updated") {
-                        void restoreActiveSession();
-                      }
-                    } else if (data.type === "error" && data.fallback) {
-                      // エラー時はフォールバック応答を表示
-                      fullResponse = data.fallback;
-                      updateMessage(charMsgId, fullResponse);
-                      setMessageStreaming(charMsgId, false);
-                      if (data.user_conversation_id) {
-                        userConversationId = data.user_conversation_id;
-                      }
-                      if (data.character_conversation_id) {
-                        charConversationId = data.character_conversation_id;
-                      }
-                      if (data.play_memory_update === "updated") {
-                        void restoreActiveSession();
-                      } else if (data.play_memory_update === "failed") {
-                        showNotification(
-                          "warning",
-                          t("settings.playMemory.sectionTitle"),
-                          t("settings.playMemory.updateWarning"),
-                        );
-                      }
-                    }
-                  } catch {
-                    // JSON解析エラーは無視
+            for await (const { data: raw } of readSseEvents(response.body)) {
+              try {
+                const data = JSON.parse(raw);
+                if (data.type === "text" && data.chunk) {
+                  fullResponse += data.chunk;
+                  updateMessage(charMsgId, fullResponse);
+                } else if (data.type === "done") {
+                  // ストリーミング完了 - 会話IDを保存
+                  setMessageStreaming(charMsgId, false);
+                  if (data.user_conversation_id) {
+                    userConversationId = data.user_conversation_id;
+                  }
+                  if (data.character_conversation_id) {
+                    charConversationId = data.character_conversation_id;
+                  }
+                  if (data.play_memory_update === "failed") {
+                    showNotification(
+                      "warning",
+                      t("settings.playMemory.sectionTitle"),
+                      t("settings.playMemory.updateWarning"),
+                    );
+                  } else if (data.play_memory_update === "updated") {
+                    void restoreActiveSession();
+                  }
+                } else if (data.type === "error" && data.fallback) {
+                  // エラー時はフォールバック応答を表示
+                  fullResponse = data.fallback;
+                  updateMessage(charMsgId, fullResponse);
+                  setMessageStreaming(charMsgId, false);
+                  if (data.user_conversation_id) {
+                    userConversationId = data.user_conversation_id;
+                  }
+                  if (data.character_conversation_id) {
+                    charConversationId = data.character_conversation_id;
+                  }
+                  if (data.play_memory_update === "updated") {
+                    void restoreActiveSession();
+                  } else if (data.play_memory_update === "failed") {
+                    showNotification(
+                      "warning",
+                      t("settings.playMemory.sectionTitle"),
+                      t("settings.playMemory.updateWarning"),
+                    );
                   }
                 }
+              } catch {
+                // JSON解析エラーは無視
               }
             }
 
