@@ -139,7 +139,9 @@
 
 | ファイル                    | 主な責務                                           |
 | --------------------------- | -------------------------------------------------- |
-| `session.py`                | Session/History/Conversation のストアと復元        |
+| `session.py`                | Session/History/Conversation のストアと復元。履歴削除・巻き戻しと `SessionResponse` 組立は下記へ委譲する薄いメソッドだけ残す |
+| `history_revert_service.py` | 履歴の巻き戻し: `delete_latest_history` / `delete_history_entry`(共通の `_remove_history_row`: 画像削除 → 会話削除 → change_log 逆適用 `apply_history_revert` → history 削除 → 直前の履歴へ復元 → 変身回数デクリメント)、分岐時点の stats 再構築 `reconstruct_stats_at_history`。ストアのメソッドは互換のため残り、テストは `session_store.<method>` を patch できる |
+| `session_response.py`       | `build_session_response(store, session_id)`: 永続化された Session/History/stats/属性/会話 → `SessionResponse`。`current_image_url` / `build_history_item` / `build_stats_response` / `build_play_memory_response` に分割 |
 | `session_branch_service.py` | 履歴地点からのセッション分岐                       |
 | `play_memory_service.py`    | セッション単位の自動/ユーザープレイメモ            |
 | `memory_job_service.py`     | ユーザー単位メモリ生成ジョブと監査スナップショット |
