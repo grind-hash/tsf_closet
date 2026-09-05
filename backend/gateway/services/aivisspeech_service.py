@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 import re
@@ -190,19 +191,21 @@ class AivisSpeechService:
         max_size = settings.aivis_max_download_bytes
         total = 0
 
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-            async with client.stream("GET", url) as response:
-                response.raise_for_status()
-                with destination.open("wb") as f:
-                    async for chunk in response.aiter_bytes(chunk_size=1024 * 1024):
-                        if not chunk:
-                            continue
-                        total += len(chunk)
-                        if total > max_size:
-                            raise AivisSpeechError(
-                                "Downloaded file exceeded maximum allowed size"
-                            )
-                        f.write(chunk)
+        async with (
+            httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client,
+            client.stream("GET", url) as response,
+        ):
+            response.raise_for_status()
+            with destination.open("wb") as f:
+                async for chunk in response.aiter_bytes(chunk_size=1024 * 1024):
+                    if not chunk:
+                        continue
+                    total += len(chunk)
+                    if total > max_size:
+                        raise AivisSpeechError(
+                            "Downloaded file exceeded maximum allowed size"
+                        )
+                    f.write(chunk)
 
         return {
             "path": str(destination),
@@ -372,10 +375,8 @@ class AivisSpeechService:
 
     def _close_engine_log(self) -> None:
         if self._engine_log_file is not None:
-            try:
+            with contextlib.suppress(OSError):
                 self._engine_log_file.close()
-            except OSError:
-                pass
             self._engine_log_file = None
 
     @staticmethod

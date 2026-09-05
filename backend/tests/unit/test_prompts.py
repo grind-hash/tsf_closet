@@ -7,14 +7,13 @@ and opening deduplication logic.
 import pytest
 
 from gateway.services.prompts import (
+    build_enhanced_feeling_prompt,
     build_feeling_prompt,
     classify_personality_type,
-    select_opening,
-    build_enhanced_feeling_prompt,
     get_image_edit_system_prompt,
     get_novelai_prompt_generation_system,
+    select_opening,
 )
-
 
 # ── classify_personality_type ──
 

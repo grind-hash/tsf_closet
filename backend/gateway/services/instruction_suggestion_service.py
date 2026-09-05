@@ -39,8 +39,8 @@ def _strip_llm_wrapper(raw: str) -> str:
 
 async def _build_character_context(session, language: str) -> str:
     """キャラクター/セルフプロフィールの文脈テキストを構築する。"""
-    from .session import session_store
     from .characters import character_manager
+    from .session import session_store
 
     if getattr(session, "self_mode", False):
         self_profile = await session_store.get_self_profile()
@@ -97,10 +97,10 @@ async def generate_instruction_suggestion(
     Raises:
         ValueError: セッションが存在しない、または対象の履歴が0件かつkeyword未指定の場合
     """
-    from .session import session_store
-    from .llm_service import llm_service
-    from .settings_service import settings_service
     from .instruction_suggestion_prompts import build_instruction_suggestion_prompt
+    from .llm_service import llm_service
+    from .session import session_store
+    from .settings_service import settings_service
 
     session = await session_store.get_session_by_id(session_id)
     if session is None:

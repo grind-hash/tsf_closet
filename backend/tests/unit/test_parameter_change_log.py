@@ -12,8 +12,10 @@ from gateway.databases.base import Base
 from gateway.databases.models import (
     History,
     ParameterChangeLog,
-    Session as SessionORM,
     User,
+)
+from gateway.databases.models import (
+    Session as SessionORM,
 )
 from gateway.databases.parameter_change_log_repo import (
     fetch_change_logs_by_history,

@@ -10,7 +10,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List
 
 # =============================================================================
 # タグ定義
@@ -40,7 +39,7 @@ AGE_IMPRESSIONS = ["child", "student", "adult", "unknown"]
 # キーワードマッチングルール
 # =============================================================================
 
-TAG_RULES: Dict[str, Dict[str, List[str]]] = {
+TAG_RULES: dict[str, dict[str, list[str]]] = {
     "costume_category": {
         "swimsuit": [
             "水着",
@@ -319,7 +318,7 @@ class TransformationTags:
 # =============================================================================
 
 
-def _match_keywords(text: str, keywords: List[str]) -> bool:
+def _match_keywords(text: str, keywords: list[str]) -> bool:
     """テキストにキーワードが含まれるかチェック"""
     text_lower = text.lower()
     return any(kw.lower() in text_lower for kw in keywords)

@@ -11,7 +11,8 @@ from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from gateway.databases.base import Base
-from gateway.databases.models import Session as SessionORM, User
+from gateway.databases.models import Session as SessionORM
+from gateway.databases.models import User
 
 character_router_module = importlib.import_module("gateway.routes.character_router")
 character_router = character_router_module.router

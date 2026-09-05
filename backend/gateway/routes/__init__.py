@@ -1,6 +1,6 @@
 from .achievements_router import router as achievements_router
-from .aivisspeech_router import router as aivisspeech_router
 from .adventure_router import router as adventure_router
+from .aivisspeech_router import router as aivisspeech_router
 from .avatar_router import router as avatar_router
 from .character_router import router as character_router
 from .favorites_router import router as favorites_router

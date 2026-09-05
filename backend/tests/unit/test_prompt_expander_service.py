@@ -13,7 +13,8 @@ from PIL import Image
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from gateway.databases.base import Base
-from gateway.databases.models import History, Session as SessionORM, User
+from gateway.databases.models import History, User
+from gateway.databases.models import Session as SessionORM
 from gateway.services import prompt_expander_service as pe
 from gateway.services.image_generation import ImageGenerationResult
 

@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query, status
 from fastapi.responses import FileResponse
@@ -133,7 +133,7 @@ class PromptExpanderSettingsModel(BaseModel):
     image_size: str
     i2i_strength: float
     i2i_noise: float
-    seed: Optional[int] = None
+    seed: int | None = None
     restore_seed: bool = False
     memory_text: str = ""
     use_memory: bool = False
@@ -326,7 +326,7 @@ class PromptExpandRequest(BaseModel):
     transparent_background: bool = False
 
     @model_validator(mode="after")
-    def _check(self) -> "PromptExpandRequest":
+    def _check(self) -> PromptExpandRequest:
         if not self.expand_positive and not self.expand_negative:
             raise ValueError("expand_positive か expand_negative のいずれかが必要です")
         if self.expand_positive and not self.instruction.strip():
@@ -419,7 +419,7 @@ class PromptExpanderGenerateRequest(BaseModel):
     inpaint_mask_entry_id: str | None = Field(None, max_length=80)
 
     @model_validator(mode="after")
-    def _check(self) -> "PromptExpanderGenerateRequest":
+    def _check(self) -> PromptExpanderGenerateRequest:
         for item in self.character_prompts:
             if len(item) > PROMPT_EXPANDER_CHARACTER_PROMPT_MAX_LEN:
                 raise ValueError("キャラクタープロンプトが長すぎます")

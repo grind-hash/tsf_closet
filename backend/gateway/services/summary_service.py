@@ -10,7 +10,7 @@ import json
 import logging
 from datetime import datetime
 
-from sqlalchemy import select, delete
+from sqlalchemy import delete, select
 
 from ..databases.base import async_session_factory
 from ..databases.models import PlaySummary as PlaySummaryORM

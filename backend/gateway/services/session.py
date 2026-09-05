@@ -11,21 +11,32 @@ import json
 import logging
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from sqlalchemy import and_, delete, desc, exists, func, select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
-from ..settings.config import settings
 from ..databases.base import async_session_factory
 from ..databases.models import (
     AchievedEnding as AchievedEndingORM,
+)
+from ..databases.models import (
     Conversation as ConversationORM,
+)
+from ..databases.models import (
     History as HistoryORM,
+)
+from ..databases.models import (
     Session as SessionORM,
+)
+from ..databases.models import (
     SessionAttribute as SessionAttributeORM,
+)
+from ..databases.models import (
     SessionStats as SessionStatsORM,
+)
+from ..databases.models import (
     TransformationTag as TransformationTagORM,
 )
 from ..databases.parameter_change_log_repo import (
@@ -50,6 +61,7 @@ from ..models import (
     SessionStatsResponse,
     TransformationTag,
 )
+from ..settings.config import settings
 from .settings_service import settings_service
 
 logger = logging.getLogger(__name__)
@@ -1156,7 +1168,7 @@ class DatabaseSessionStore:
         user_id: str = DEFAULT_USER_ID,
     ) -> AchievedEnding:
         """達成エンディングを保存する"""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         achieved_ending_id = str(uuid.uuid4())
 
         async with async_session_factory() as db_session:
@@ -1450,13 +1462,14 @@ class DatabaseSessionStore:
             itype = (row.instruction_type or "").strip()
             if itype in transform_types:
                 count += 1
-            elif itype == "" and row.instruction not in (
-                "初期状態",
-                "(初期状態)",
+            elif (
+                itype == ""
+                and row.instruction
+                and row.instruction not in ("初期状態", "(初期状態)")
+                and not row.instruction.startswith("(")
             ):
                 # 古いデータで type が空の変身履歴は件数に含める
-                if row.instruction and not row.instruction.startswith("("):
-                    count += 1
+                count += 1
             if row.id == history_id:
                 break
         return count
@@ -1862,16 +1875,16 @@ class SessionStore:
     def __init__(self) -> None:
         from ..models import GameSession as GameSessionModel
 
-        self._sessions: dict[str, "GameSessionModel"] = {}  # type: ignore[type-arg]
+        self._sessions: dict[str, GameSessionModel] = {}  # type: ignore[type-arg]
 
-    def get(self, session_id: str) -> "object | None":
+    def get(self, session_id: str) -> object | None:
         return self._sessions.get(session_id)
 
     def create(
         self,
         image: bytes,
         character_id: str | None = None,
-        character: "Character | None" = None,
+        character: Character | None = None,
     ) -> object:
         from ..models import GameSession as GameSessionModel
 

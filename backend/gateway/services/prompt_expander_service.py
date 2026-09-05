@@ -12,11 +12,12 @@ import json
 import logging
 import shutil
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Literal, Optional, Sequence
+from typing import Any, Literal
 
 import httpx
 from PIL import Image, UnidentifiedImageError
@@ -71,11 +72,11 @@ from .prompt_expander_prompts import (
     ExpandMode,
     MangaOptions,
     PromptExpanderOutputError,
+    build_manga_script_prompts,
     build_negative_system_prompt,
     build_negative_user_prompt,
     build_positive_system_prompt,
     build_positive_user_prompt,
-    build_manga_script_prompts,
     build_suggest_characters_prompts,
     ensure_manga_notation_texts,
     extract_manga_notation,
@@ -119,7 +120,7 @@ class PromptExpanderSettings(BaseModel):
     image_size: str = DEFAULT_PROMPT_EXPANDER_IMAGE_SIZE
     i2i_strength: float = Field(DEFAULT_PROMPT_EXPANDER_I2I_STRENGTH, ge=0.01, le=0.99)
     i2i_noise: float = Field(DEFAULT_PROMPT_EXPANDER_I2I_NOISE, ge=0.0, le=0.99)
-    seed: Optional[int] = Field(None, ge=0, le=999999999)
+    seed: int | None = Field(None, ge=0, le=999999999)
     # 「欄へ復元」でエントリの seed も生成パラメータへ戻すか
     restore_seed: bool = False
     memory_text: str = Field("", max_length=PROMPT_EXPANDER_MEMORY_MAX_LEN)
@@ -482,7 +483,7 @@ class SessionView:
     id: str
     title: str
     entry_count: int
-    thumbnail_entry_id: Optional[str]
+    thumbnail_entry_id: str | None
     created_at: datetime
     updated_at: datetime
 
@@ -809,11 +810,11 @@ async def _ensure_user(db: AsyncSession, user_id: str) -> User:
 
 @dataclass
 class SourceResolution:
-    image_bytes: Optional[bytes] = None
-    current_prompt: Optional[str] = None
+    image_bytes: bytes | None = None
+    current_prompt: str | None = None
     current_character_prompts: list[str] = field(default_factory=list)
-    current_negative: Optional[str] = None
-    context_description: Optional[str] = None
+    current_negative: str | None = None
+    context_description: str | None = None
 
 
 async def resolve_source(
@@ -897,23 +898,23 @@ class ExpandParams:
     text_model: str = DEFAULT_NOVELAI_TEXT_MODEL
     language: str = "ja"
     source_kind: str = "none"
-    source_history_id: Optional[str] = None
-    source_entry_id: Optional[str] = None
+    source_history_id: str | None = None
+    source_entry_id: str | None = None
     inherit_source_prompts: bool = True
-    current_prompt: Optional[str] = None
+    current_prompt: str | None = None
     current_character_prompts: Sequence[str] = ()
-    current_negative: Optional[str] = None
+    current_negative: str | None = None
     # 漫画モード（None なら通常拡張）
-    manga: Optional[MangaOptions] = None
+    manga: MangaOptions | None = None
     # 背景透過 ON のとき、背景・情景を書かせない規則を system prompt に足す（漫画モードでは無視）
     transparent_background: bool = False
 
 
 @dataclass
 class ExpandResult:
-    positive_prompt: Optional[str] = None
-    character_prompts: Optional[list[str]] = None
-    negative_prompt: Optional[str] = None
+    positive_prompt: str | None = None
+    character_prompts: list[str] | None = None
+    negative_prompt: str | None = None
     text_model: str = DEFAULT_NOVELAI_TEXT_MODEL
 
 
@@ -1226,23 +1227,23 @@ class GenerateParams:
     positive_expand_mode: str = "off"
     negative_expand_mode: str = "off"
     image_model: str = DEFAULT_PROMPT_EXPANDER_IMAGE_MODEL
-    text_model: Optional[str] = None
+    text_model: str | None = None
     image_size: str = DEFAULT_PROMPT_EXPANDER_IMAGE_SIZE
-    seed: Optional[int] = None
-    i2i_strength: Optional[float] = None
-    i2i_noise: Optional[float] = None
+    seed: int | None = None
+    i2i_strength: float | None = None
+    i2i_noise: float | None = None
     source_kind: str = "none"
-    source_history_id: Optional[str] = None
-    source_entry_id: Optional[str] = None
-    source_image: Optional[str] = None
+    source_history_id: str | None = None
+    source_entry_id: str | None = None
+    source_image: str | None = None
     # 漫画モードで拡張したプロンプトかどうか（エントリのバッジ・復元用。生成には影響しない）
     manga_mode: bool = False
-    manga_panel_count: Optional[int] = None
+    manga_panel_count: int | None = None
     # 精密参照（character reference）。V4.5 系のみ。reference_kind != "none" が唯一の有効判定
     reference_kind: str = "none"
-    reference_history_id: Optional[str] = None
-    reference_entry_id: Optional[str] = None
-    reference_image: Optional[str] = None
+    reference_history_id: str | None = None
+    reference_entry_id: str | None = None
+    reference_image: str | None = None
     reference_type: str = DEFAULT_PROMPT_EXPANDER_REFERENCE_TYPE
     reference_strength: float = DEFAULT_PROMPT_EXPANDER_REFERENCE_STRENGTH
     reference_fidelity: float = DEFAULT_PROMPT_EXPANDER_REFERENCE_FIDELITY
@@ -1252,8 +1253,8 @@ class GenerateParams:
     transparent_emphasis: int = 0
     # インペイント（部分修正）。i2i 元をベース画像として、マスクの白い領域だけ描き直す。
     # inpaint_mask は新規に描いたマスク、inpaint_mask_entry_id は過去エントリのマスク再利用
-    inpaint_mask: Optional[str] = None
-    inpaint_mask_entry_id: Optional[str] = None
+    inpaint_mask: str | None = None
+    inpaint_mask_entry_id: str | None = None
 
 
 @dataclass

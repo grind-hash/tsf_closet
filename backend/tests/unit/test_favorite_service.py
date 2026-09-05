@@ -8,7 +8,8 @@ import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from gateway.databases.base import Base
-from gateway.databases.models import History, Session as SessionORM, User
+from gateway.databases.models import History, User
+from gateway.databases.models import Session as SessionORM
 from gateway.services.favorite_service import (
     FavoriteOutfitService,
     FavoriteServiceError,

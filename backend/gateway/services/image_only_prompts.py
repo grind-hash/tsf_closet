@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-
 IMAGE_ONLY_EDIT_SYSTEM_PROMPT = """You convert a natural-language image editing request into a concise English prompt for an image editing model.
 
 The user may request any combination of changes to clothing, appearance, pose, expression, camera composition, lighting, background, environment, or scene.

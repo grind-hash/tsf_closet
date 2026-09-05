@@ -20,7 +20,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: astral-sh/setup-uv@v10
+      # setup-uv は v10 のようなメジャータグを提供していないため完全なバージョンで指定する
+      - uses: astral-sh/setup-uv@v10.0.1
         with:
           working-directory: backend
           enable-cache: true
@@ -28,14 +29,11 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen
 
-      # pyproject.toml に [tool.ruff] を入れる PR（Phase 0-2）までは、
-      # 既存コードの違反が多いため非ブロッキングで実行する。
-      - name: Ruff lint (non-blocking until ruff config lands)
-        run: uv run ruff check gateway tests
-        continue-on-error: true
+      - name: Ruff lint
+        run: uv run ruff check .
 
       - name: Ruff format check
-        run: uv run ruff format --check gateway tests
+        run: uv run ruff format --check .
 
       - name: Import sanity
         run: uv run python -c "from gateway.routes import game_router; print('ok')"

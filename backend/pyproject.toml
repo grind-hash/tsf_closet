@@ -35,3 +35,35 @@ exclude-newer = "2 week"
 pythonpath = ["."]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+# Alembic が自動生成する migration は対象外にする（テンプレートが Union[...] 形式を出すため）
+extend-exclude = ["migrations/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = [
+    # 行長は formatter に任せる（プロンプト文字列など 88 桁を超える文字列が多い）
+    "E501",
+    # if/else を三項演算子や dict 参照へ書き換える指摘は可読性を下げることがあるため強制しない
+    "SIM108",
+    "SIM116",
+    # PEP 695 のジェネリック構文への移行は強制しない
+    "UP046",
+    "UP047",
+]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI の Depends() / File() などを引数の既定値で呼ぶのは慣用なので許可する
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.Query",
+    "fastapi.Body",
+    "fastapi.File",
+    "fastapi.Form",
+    "fastapi.Header",
+    "fastapi.Path",
+    "fastapi.Cookie",
+]

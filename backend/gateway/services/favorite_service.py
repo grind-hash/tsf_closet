@@ -5,7 +5,6 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
 
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,15 +27,15 @@ class FavoriteOutfitView:
     id: str
     history_id: str
     session_id: str
-    label: Optional[str]
+    label: str | None
     image_url: str
     instruction: str
-    costume_category: Optional[str]
-    history_created_at: Optional[datetime]
+    costume_category: str | None
+    history_created_at: datetime | None
     created_at: datetime
 
 
-def _normalize_label(label: Optional[str]) -> Optional[str]:
+def _normalize_label(label: str | None) -> str | None:
     if label is None:
         return None
     text = label.strip()
@@ -53,7 +52,7 @@ def _normalize_label(label: Optional[str]) -> Optional[str]:
 def _to_view(
     fav: FavoriteOutfit,
     history: History,
-    costume_category: Optional[str] = None,
+    costume_category: str | None = None,
 ) -> FavoriteOutfitView:
     return FavoriteOutfitView(
         id=fav.id,
@@ -107,7 +106,7 @@ class FavoriteOutfitService:
         db: AsyncSession,
         *,
         history_id: str,
-        label: Optional[str] = None,
+        label: str | None = None,
         user_id: str = DEFAULT_USER_ID,
     ) -> FavoriteOutfitView:
         history = await db.get(History, history_id)
@@ -144,7 +143,7 @@ class FavoriteOutfitService:
         db: AsyncSession,
         *,
         favorite_id: str,
-        label: Optional[str],
+        label: str | None,
         user_id: str = DEFAULT_USER_ID,
     ) -> FavoriteOutfitView:
         stmt = select(FavoriteOutfit).where(

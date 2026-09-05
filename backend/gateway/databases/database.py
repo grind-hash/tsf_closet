@@ -8,9 +8,10 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, AsyncGenerator
+from typing import TYPE_CHECKING
 
 import aiosqlite
 

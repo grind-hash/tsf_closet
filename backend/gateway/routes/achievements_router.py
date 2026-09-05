@@ -4,7 +4,6 @@
 """
 
 from dataclasses import dataclass
-from typing import Dict
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -29,7 +28,7 @@ class Achievement:
 
 
 # 初期実績一覧
-ACHIEVEMENTS: Dict[str, Achievement] = {
+ACHIEVEMENTS: dict[str, Achievement] = {
     "first_transform": Achievement(
         id="first_transform",
         name="初めての変身",

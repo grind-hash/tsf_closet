@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Literal, Sequence
+from typing import Literal
 
 from ..consts.prompt_expander import (
     PROMPT_EXPANDER_MANGA_PANEL_COUNT_AUTO,

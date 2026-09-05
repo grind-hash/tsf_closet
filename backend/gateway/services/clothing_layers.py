@@ -181,10 +181,7 @@ def is_undergarment_tag(tag: str) -> bool:
     for ex in _UNDERGARMENT_EXCLUDE:
         if ex in t:
             return False
-    for hint in _UNDERGARMENT_HINTS:
-        if re.search(rf"\b{re.escape(hint)}\b", t):
-            return True
-    return False
+    return any(re.search(rf"\b{re.escape(hint)}\b", t) for hint in _UNDERGARMENT_HINTS)
 
 
 def extract_undergarment_tags(text: str) -> str:

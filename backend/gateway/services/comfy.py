@@ -8,7 +8,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import httpx
 
@@ -21,7 +21,7 @@ class ComfyUIError(RuntimeError):
 
 @dataclass(slots=True)
 class ComfyUIResult:
-    images: List[bytes]
+    images: list[bytes]
 
 
 class ComfyUIClient:
@@ -29,11 +29,11 @@ class ComfyUIClient:
 
     def __init__(
         self,
-        base_url: Optional[str] = None,
-        workflow_path: Optional[Path] = None,
-        client_id: Optional[str] = None,
-        request_timeout: Optional[float] = None,
-        poll_interval: Optional[float] = None,
+        base_url: str | None = None,
+        workflow_path: Path | None = None,
+        client_id: str | None = None,
+        request_timeout: float | None = None,
+        poll_interval: float | None = None,
     ) -> None:
         settings.ensure_workflow_exists(workflow_path)
         self.base_url = (base_url or settings.comfyui_base_url).rstrip("/")
@@ -41,18 +41,18 @@ class ComfyUIClient:
         self.client_id = client_id or settings.comfyui_client_id
         self.request_timeout = request_timeout or settings.comfyui_request_timeout
         self.poll_interval = poll_interval or settings.comfyui_poll_interval
-        self._template_cache: Dict[str, Any] = {}
+        self._template_cache: dict[str, Any] = {}
 
     async def image_edit(
         self,
         *,
         image_bytes: bytes,
-        prompt: Optional[str] = None,
-        mask_bytes: Optional[bytes] = None,
-        replacements: Optional[Dict[str, Any]] = None,
-        limit: Optional[int] = None,
-        extra_images: Optional[Dict[str, Dict[str, Any]]] = None,
-        workflow_path: Optional[Path] = None,
+        prompt: str | None = None,
+        mask_bytes: bytes | None = None,
+        replacements: dict[str, Any] | None = None,
+        limit: int | None = None,
+        extra_images: dict[str, dict[str, Any]] | None = None,
+        workflow_path: Path | None = None,
     ) -> ComfyUIResult:
         # 使用するワークフローパスを決定
         target_workflow_path = workflow_path or self.workflow_path
@@ -114,10 +114,10 @@ class ComfyUIClient:
         negative_prompt: str = "",
         width: int = 1216,
         height: int = 832,
-        seed: Optional[int] = None,
-        replacements: Optional[Dict[str, Any]] = None,
-        limit: Optional[int] = None,
-        workflow_path: Optional[Path] = None,
+        seed: int | None = None,
+        replacements: dict[str, Any] | None = None,
+        limit: int | None = None,
+        workflow_path: Path | None = None,
     ) -> ComfyUIResult:
         """編集元画像なしで生成する(背景など)。
 
@@ -155,10 +155,10 @@ class ComfyUIClient:
     async def _submit_and_collect(
         self,
         client: httpx.AsyncClient,
-        prompt_payload: Dict[str, Any],
+        prompt_payload: dict[str, Any],
         *,
-        limit: Optional[int] = None,
-    ) -> List[bytes]:
+        limit: int | None = None,
+    ) -> list[bytes]:
         """置換済みグラフをキューへ投入し、完了した出力画像を返す。"""
         payload = self._build_prompt_payload(prompt_payload)
 
@@ -176,7 +176,7 @@ class ComfyUIClient:
 
         return await self._wait_for_images(client, prompt_id, limit=limit)
 
-    def _load_template(self, workflow_path: Optional[Path] = None) -> Dict[str, Any]:
+    def _load_template(self, workflow_path: Path | None = None) -> dict[str, Any]:
         target_path = workflow_path or self.workflow_path
         cache_key = str(target_path)
         if cache_key not in self._template_cache:
@@ -229,7 +229,7 @@ class ComfyUIClient:
         # API may return either "name" or "filename" depending on version.
         return data.get("name") or data.get("filename") or filename
 
-    def _apply_replacements(self, value: Any, replacements: Dict[str, Any]) -> Any:
+    def _apply_replacements(self, value: Any, replacements: dict[str, Any]) -> Any:
         if isinstance(value, dict):
             return {
                 key: self._apply_replacements(item, replacements)
@@ -250,7 +250,7 @@ class ComfyUIClient:
             return updated
         return value
 
-    def _build_prompt_payload(self, prompt_payload: Dict[str, Any]) -> Dict[str, Any]:
+    def _build_prompt_payload(self, prompt_payload: dict[str, Any]) -> dict[str, Any]:
         if "prompt" in prompt_payload:
             graph = prompt_payload["prompt"]
             extra_data = prompt_payload.get("extra_data")
@@ -258,7 +258,7 @@ class ComfyUIClient:
             graph = prompt_payload
             extra_data = None
 
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "prompt": graph,
             "client_id": self.client_id,
         }
@@ -271,8 +271,8 @@ class ComfyUIClient:
         client: httpx.AsyncClient,
         prompt_id: str,
         *,
-        limit: Optional[int] = None,
-    ) -> List[bytes]:
+        limit: int | None = None,
+    ) -> list[bytes]:
         deadline = time.monotonic() + self.request_timeout
         while time.monotonic() < deadline:
             response = await client.get(f"/history/{prompt_id}")
@@ -299,7 +299,7 @@ class ComfyUIClient:
                 await asyncio.sleep(self.poll_interval)
                 continue
 
-            history: Dict[str, Any] = {}
+            history: dict[str, Any] = {}
             history_data = payload.get("history")
             if isinstance(history_data, dict):
                 history = history_data
@@ -339,11 +339,11 @@ class ComfyUIClient:
     async def _collect_images(
         self,
         client: httpx.AsyncClient,
-        outputs: Dict[str, Any],
+        outputs: dict[str, Any],
         *,
-        limit: Optional[int] = None,
-    ) -> List[bytes]:
-        images: List[bytes] = []
+        limit: int | None = None,
+    ) -> list[bytes]:
+        images: list[bytes] = []
         for node_id, node in outputs.items():
             image_list = node.get("images", [])
             if not image_list:
@@ -364,7 +364,7 @@ class ComfyUIClient:
 
     @staticmethod
     async def _download_image(
-        client: httpx.AsyncClient, image_info: Dict[str, Any]
+        client: httpx.AsyncClient, image_info: dict[str, Any]
     ) -> bytes:
         params = {
             "filename": image_info.get("filename"),

@@ -9,10 +9,9 @@ from __future__ import annotations
 import base64
 import json
 from pathlib import Path
-from typing import List, Optional
 
-from ..settings.config import settings
 from ..models import Character, CharacterInfo
+from ..settings.config import settings
 
 
 class CharacterManager:
@@ -21,14 +20,14 @@ class CharacterManager:
     キャラクター定義ファイルの読み込みと画像データの取得を行う。
     """
 
-    def __init__(self, characters_dir: Optional[Path] = None) -> None:
+    def __init__(self, characters_dir: Path | None = None) -> None:
         """初期化
 
         Args:
             characters_dir: キャラクター画像ディレクトリ
         """
         self.characters_dir = characters_dir or settings.characters_dir
-        self._characters: List[Character] = []
+        self._characters: list[Character] = []
         self._loaded = False
 
     def _load_characters(self) -> None:
@@ -60,7 +59,7 @@ class CharacterManager:
         ]
         self._loaded = True
 
-    def get_all(self) -> List[Character]:
+    def get_all(self) -> list[Character]:
         """全キャラクターを取得
 
         Returns:
@@ -69,7 +68,7 @@ class CharacterManager:
         self._load_characters()
         return self._characters
 
-    def get_by_id(self, character_id: str) -> Optional[Character]:
+    def get_by_id(self, character_id: str) -> Character | None:
         """IDでキャラクターを取得
 
         Args:
@@ -137,7 +136,7 @@ class CharacterManager:
             description=character.description,
         )
 
-    def get_all_api_models(self) -> List[CharacterInfo]:
+    def get_all_api_models(self) -> list[CharacterInfo]:
         """全キャラクターをAPI用モデルで取得
 
         Returns:

@@ -1,9 +1,10 @@
+import importlib
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from gateway.settings import router as settings_router
 from gateway.routes.achievements_router import router as achievements_router
-import importlib
+from gateway.settings import router as settings_router
 
 _settings_router_mod = importlib.import_module("gateway.routes.settings_router")
 

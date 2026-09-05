@@ -591,8 +591,8 @@ async def evaluate_gender_congruence(
         return rule_result
 
     try:
-        from .llm_service import llm_service
         from ..settings.config import settings
+        from .llm_service import llm_service
 
         user_prompt = build_congruence_user_prompt(
             instruction=instruction,

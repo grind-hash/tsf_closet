@@ -5,11 +5,10 @@ and build_self_profile_generation_prompt.
 """
 
 from gateway.services.self_mode_prompts import (
+    _build_self_profile_section,
     build_self_mode_feeling_prompt,
     build_self_profile_generation_prompt,
-    _build_self_profile_section,
 )
-
 
 # ── _build_self_profile_section ──
 

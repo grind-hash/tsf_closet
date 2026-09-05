@@ -22,7 +22,7 @@ class ScenarioVisualStyle(BaseModel):
     scene_tags: str = Field(min_length=1, max_length=1800)
 
     @model_validator(mode="after")
-    def validate_localizations(self) -> "ScenarioVisualStyle":
+    def validate_localizations(self) -> ScenarioVisualStyle:
         for field_name in ("location", "surroundings"):
             value = getattr(self, field_name)
             if "ja" not in value or "en" not in value:
@@ -58,7 +58,7 @@ class ScenarioTemplateDefinition(BaseModel):
     rule: dict[str, Any]
 
     @model_validator(mode="after")
-    def validate_localizations(self) -> "ScenarioTemplateDefinition":
+    def validate_localizations(self) -> ScenarioTemplateDefinition:
         localized_fields = (
             self.title,
             self.synopsis,

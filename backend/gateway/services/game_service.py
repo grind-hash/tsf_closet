@@ -9,50 +9,50 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import contextlib
 import json
 import logging
 import random
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, AsyncGenerator, Optional, Tuple
+from typing import Any
 
-from .characters import character_manager
-from .comfy import ComfyUIClient
-from ..settings.config import settings, BASE_DIR
-from .image_generation import image_service, ImageGenerationService
-from .llm_service import llm_service, LLMServiceError
-from .litellm_client import LiteLLMClientError
+from ..consts.language import normalize_language
+from ..consts.novelai_models import is_v5_image_model, resolve_user_image_model
+from ..databases.base import async_session_factory
 from ..models import (
+    CRITICAL_POINTS,
+    DIFFICULTY_PRESETS,
     Character,
+    CriticalPointEvent,
     GameSession,
+    PersistedSession,
     PlayHistory,
     PlayRequest,
     PlayResponse,
-    PersistedSession,
     SessionStats,
-    DIFFICULTY_PRESETS,
-    CRITICAL_POINTS,
-    CriticalPointEvent,
 )
-from .prompts import (
-    FEELING_SYSTEM_PROMPT,
-    build_feeling_prompt,
-    build_enhanced_feeling_prompt,
-    get_critical_speech,
-)
-from .reality_prompts import (
-    build_reality_feeling_prompt,
-    build_reality_edit_prompt,
-    get_reality_edit_system_prompt,
-)
+from ..settings.config import BASE_DIR, settings
+from .achievement_classifier import classify_for_achievement
 from .action_prompts import (
-    build_action_prompt,
     build_action_image_edit_prompt,
+    build_action_prompt,
     get_action_image_edit_system_prompt,
     get_action_novelai_prompt_generation_system,
 )
-from .self_mode_prompts import build_self_mode_feeling_prompt
-from .memory_prompts import build_memory_priority_instruction
+from .anlas_service import get_anlas_balance
+from .character_service import (
+    apply_character_prompt_tags,
+    build_novelai_characters_section,
+    build_session_characters_prompt_section,
+    load_session_characters_for_prompt,
+    upsert_protagonist_session_character,
+)
+from .character_service import (
+    resolve_protagonist_image_identity as _resolve_protagonist_image_identity,
+)
+from .characters import character_manager
 from .clothing_layers import (
     append_clothing_layer_feeling_rule,
     append_clothing_layer_image_rule,
@@ -63,22 +63,8 @@ from .clothing_layers import (
     strip_characters_worn_under_layers,
     strip_worn_under_layers_for_image,
 )
-from .history_context import (
-    build_history_context,
-    resolve_history_lookback_enabled,
-)
-from .image_only_prompts import (
-    IMAGE_ONLY_TEXT_TO_IMAGE_RULE,
-    build_image_only_edit_prompt,
-    build_image_only_generate_prompt,
-    get_image_only_edit_system_prompt,
-    get_image_only_generate_system_prompt,
-)
-from .session import session_store
-from .settings_service import settings_service
-from .tag_classifier import classify_tags, TransformationTags
+from .comfy import ComfyUIClient
 from .endings import judge_ending
-from .achievement_classifier import classify_for_achievement
 from .gender_congruence import (
     GenderCongruenceResult,
     evaluate_gender_congruence,
@@ -86,18 +72,36 @@ from .gender_congruence import (
     normalize_feeling_mode,
     should_use_congruence_llm,
 )
-from .anlas_service import get_anlas_balance
-from ..consts.language import normalize_language
-from ..consts.novelai_models import is_v5_image_model, resolve_user_image_model
-from ..databases.base import async_session_factory
-from .character_service import (
-    apply_character_prompt_tags,
-    build_novelai_characters_section,
-    build_session_characters_prompt_section,
-    load_session_characters_for_prompt,
-    resolve_protagonist_image_identity as _resolve_protagonist_image_identity,
-    upsert_protagonist_session_character,
+from .history_context import (
+    build_history_context,
+    resolve_history_lookback_enabled,
 )
+from .image_generation import ImageGenerationService, image_service
+from .image_only_prompts import (
+    IMAGE_ONLY_TEXT_TO_IMAGE_RULE,
+    build_image_only_edit_prompt,
+    build_image_only_generate_prompt,
+    get_image_only_edit_system_prompt,
+    get_image_only_generate_system_prompt,
+)
+from .litellm_client import LiteLLMClientError
+from .llm_service import LLMServiceError, llm_service
+from .memory_prompts import build_memory_priority_instruction
+from .prompts import (
+    FEELING_SYSTEM_PROMPT,
+    build_enhanced_feeling_prompt,
+    build_feeling_prompt,
+    get_critical_speech,
+)
+from .reality_prompts import (
+    build_reality_edit_prompt,
+    build_reality_feeling_prompt,
+    get_reality_edit_system_prompt,
+)
+from .self_mode_prompts import build_self_mode_feeling_prompt
+from .session import session_store
+from .settings_service import settings_service
+from .tag_classifier import TransformationTags, classify_tags
 
 logger = logging.getLogger(__name__)
 
@@ -136,7 +140,7 @@ def _parse_novelai_prompt_json(
     characters_list = parsed.get("characters")
     if isinstance(characters_list, list) and len(characters_list) > 0:
         result_chars = []
-        for i, char_entry in enumerate(characters_list):
+        for char_entry in characters_list:
             tags = char_entry.get("tags", "").strip()
             if not tags:
                 continue
@@ -244,7 +248,7 @@ def calculate_parameter_change(
     stats: SessionStats,
     bloom_calc_method: str = "legacy",
     gender_discomfort: bool = True,
-) -> Tuple[int, int, int]:
+) -> tuple[int, int, int]:
     """パラメータ変化量を計算する
 
     Args:
@@ -367,7 +371,7 @@ class GameService:
 
     def __init__(self) -> None:
         """初期化"""
-        self._comfy_client: Optional[ComfyUIClient] = None
+        self._comfy_client: ComfyUIClient | None = None
         self._image_service: ImageGenerationService = image_service
 
     def _get_comfy_client(self) -> ComfyUIClient:
@@ -398,7 +402,7 @@ class GameService:
     @staticmethod
     def _build_initial_prompt(
         gender: str,
-        character: Optional["Character"] = None,
+        character: Character | None = None,
         self_profile: dict | None = None,
         base_tags: str = "",
         enable_multiple_people: bool = False,
@@ -625,7 +629,7 @@ class GameService:
             return session
 
         # 新規セッションの場合
-        character: Optional[Character] = None
+        character: Character | None = None
         image_bytes: bytes
 
         if request.character_id:
@@ -877,8 +881,8 @@ class GameService:
         try:
             # LLM でプロンプト生成
             from .action_prompts import (
-                get_surroundings_image_prompt_system,
                 build_surroundings_image_user_prompt,
+                get_surroundings_image_prompt_system,
             )
 
             system_prompt = get_surroundings_image_prompt_system(
@@ -3201,9 +3205,9 @@ class GameService:
                 ACHIEVEMENTS,
                 check_achievement,
                 check_achievements,
-                save_user_achievement,
-                get_user_achievements,
                 get_global_stats,
+                get_user_achievements,
+                save_user_achievement,
                 update_achievement_counts,
             )
 
@@ -3658,7 +3662,7 @@ class GameService:
                 raise GameServiceError("現在の画像が見つかりません")
 
             # 3. キャラクター情報取得
-            character: Optional[Character] = None
+            character: Character | None = None
             if session.character_id:
                 character = character_manager.get_by_id(session.character_id)
 
@@ -3673,10 +3677,8 @@ class GameService:
             # 5. 初期画像を取得
             initial_image_bytes: bytes | None = None
             if character:
-                try:
+                with contextlib.suppress(FileNotFoundError):
                     initial_image_bytes = character_manager.get_image_bytes(character)
-                except FileNotFoundError:
-                    pass
 
             if initial_image_bytes is None:
                 raise GameServiceError("初期画像が見つかりません")
@@ -4023,8 +4025,8 @@ class GameService:
             # 周辺画像プロンプトプレビュー（現実改変属性含む）
             has_reality_attrs = len(reality_alter_texts) > 0
             from .action_prompts import (
-                get_surroundings_image_prompt_system,
                 build_surroundings_image_user_prompt,
+                get_surroundings_image_prompt_system,
             )
 
             surroundings_system = get_surroundings_image_prompt_system(

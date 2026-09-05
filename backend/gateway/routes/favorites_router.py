@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
@@ -11,8 +10,8 @@ from pydantic import BaseModel, Field
 from ..databases.base import async_session_factory
 from ..services.favorite_service import (
     FavoriteOutfitService,
-    FavoriteServiceError,
     FavoriteOutfitView,
+    FavoriteServiceError,
 )
 from ..services.session import DEFAULT_USER_ID
 
@@ -29,11 +28,11 @@ def _to_iso(value: datetime | str | None) -> str:
 
 class FavoriteCreateRequest(BaseModel):
     history_id: str = Field(..., min_length=1, description="履歴ID")
-    label: Optional[str] = Field(None, max_length=80, description="任意ラベル")
+    label: str | None = Field(None, max_length=80, description="任意ラベル")
 
 
 class FavoriteUpdateRequest(BaseModel):
-    label: Optional[str] = Field(
+    label: str | None = Field(
         None, max_length=80, description="任意ラベル（空でクリア）"
     )
 
@@ -42,11 +41,11 @@ class FavoriteItemResponse(BaseModel):
     id: str
     history_id: str
     session_id: str
-    label: Optional[str] = None
+    label: str | None = None
     image_url: str
     instruction: str
-    costume_category: Optional[str] = None
-    history_created_at: Optional[str] = None
+    costume_category: str | None = None
+    history_created_at: str | None = None
     created_at: str
 
 

@@ -8,16 +8,16 @@ Also covers scene-change image prompt helpers (T017-T020).
 import pytest
 
 from gateway.services.action_prompts import (
-    build_action_prompt,
-    build_action_image_edit_prompt,
-    get_action_image_edit_system_prompt,
-    get_action_novelai_prompt_generation_system,
     ACTION_IMAGE_EDIT_SYSTEM_PROMPT,
-    ACTION_IMAGE_EDIT_SYSTEM_PROMPT_NSFW,
     ACTION_IMAGE_EDIT_SYSTEM_PROMPT_NOVELAI,
     ACTION_IMAGE_EDIT_SYSTEM_PROMPT_NOVELAI_NSFW,
+    ACTION_IMAGE_EDIT_SYSTEM_PROMPT_NSFW,
     ACTION_NOVELAI_PROMPT_GENERATION_SYSTEM,
     ACTION_NOVELAI_PROMPT_GENERATION_SYSTEM_NSFW,
+    build_action_image_edit_prompt,
+    build_action_prompt,
+    get_action_image_edit_system_prompt,
+    get_action_novelai_prompt_generation_system,
 )
 
 

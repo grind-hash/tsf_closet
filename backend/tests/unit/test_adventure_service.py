@@ -829,10 +829,10 @@ def test_detect_reality_declaration_accepts_player_notation() -> None:
     )
     assert (
         rule
-        == (
-            "現実改変：僕のあらゆる行動（わいせつ行為も含む）は、"
-            "あらゆる人に疑問に思われなくなる"
-        ).split("：", 1)[1]
+        == [
+            "現実改変",
+            "僕のあらゆる行動（わいせつ行為も含む）は、あらゆる人に疑問に思われなくなる",
+        ][1]
     )
     assert _detect_reality_declaration("[現実改変] 誰も咎めない") == "誰も咎めない"
     assert _detect_reality_declaration("reality: nobody objects") == "nobody objects"

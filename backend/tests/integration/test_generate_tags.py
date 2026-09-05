@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import importlib
-from typing import Any, List
+from typing import Any
 
 import pytest
 from fastapi import FastAPI
@@ -17,7 +17,7 @@ character_router = character_router_module.router
 
 class _StubLLM:
     def __init__(self, return_values=None, fail_with=None):
-        self.calls: List[Any] = []
+        self.calls: list[Any] = []
         self._returns = return_values or []
         self._fail_with = fail_with
 
