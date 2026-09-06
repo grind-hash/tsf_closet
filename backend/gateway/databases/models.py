@@ -835,7 +835,8 @@ class CharacterChatThread(Base):
 class CharacterChatMessage(Base):
     """キャラチャットの発言 1 件。role は "user" | "character"。
 
-    meta_json には応答時に実行した調べ物の種類や着替え要求、差し替えた立ち絵の
+    meta_json には応答時に実行した調べ物の明細(種類・検索語・キャラが読んだ本文・
+    関係するセッション ID。UI の引用表示用)や着替え要求、差し替えた立ち絵の
     ファイル名などを持つ(表示用。無くても会話は再現できる)。
     """
 

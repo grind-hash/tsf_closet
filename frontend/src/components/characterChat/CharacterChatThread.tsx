@@ -6,6 +6,8 @@ import type {
   CharacterChatThread as CharacterChatThreadModel,
 } from "../../apis/characterChat";
 import type { TranslationKey } from "../../i18n";
+import CharacterChatCitations from "./CharacterChatCitations";
+import { toLookupCitations } from "./lookupCitations";
 
 export interface CharacterChatThreadVoice {
   canSpeak: boolean;
@@ -19,19 +21,6 @@ interface CharacterChatThreadProps {
   pendingInput: string | null;
   phase: CharacterChatPhase | "idle";
   voice: CharacterChatThreadVoice;
-}
-
-const LOOKUP_KINDS = [
-  "recent_sessions",
-  "session_detail",
-  "search_sessions",
-  "tendencies",
-  "recent_adventures",
-] as const;
-type LookupKind = (typeof LOOKUP_KINDS)[number];
-
-function isLookupKind(value: string): value is LookupKind {
-  return (LOOKUP_KINDS as readonly string[]).includes(value);
 }
 
 /** 会話スレッド。常に末尾(最新の返答)を見せる */
@@ -64,7 +53,8 @@ export default function CharacterChatThread({
         </p>
       )}
       {messages.map((message) => {
-        const lookups = (message.meta?.lookups ?? []).filter(isLookupKind);
+        const citations =
+          message.role === "character" ? toLookupCitations(message.meta) : [];
         const replaying = voice.activeMessageId === message.id;
         return (
           <div
@@ -78,25 +68,13 @@ export default function CharacterChatThread({
             </span>
             <div className="character-chat__bubble">
               <p>{message.content}</p>
+              <CharacterChatCitations citations={citations} />
               {message.role === "character" &&
-                (lookups.length > 0 || message.meta?.portrait_filename) && (
+                message.meta?.portrait_filename && (
                   <div className="character-chat__message-meta">
-                    {lookups.length > 0 && (
-                      <span>
-                        {t("characterChat.thread.lookups", {
-                          kinds: lookups
-                            .map((kind) =>
-                              t(`characterChat.thread.lookupKind.${kind}`),
-                            )
-                            .join(" / "),
-                        })}
-                      </span>
-                    )}
-                    {message.meta?.portrait_filename && (
-                      <span className="character-chat__badge">
-                        {t("characterChat.thread.appearanceChanged")}
-                      </span>
-                    )}
+                    <span className="character-chat__badge">
+                      {t("characterChat.thread.appearanceChanged")}
+                    </span>
                   </div>
                 )}
             </div>

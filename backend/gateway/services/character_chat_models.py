@@ -22,6 +22,7 @@ from ..consts.character_chat import (
     LOOKUP_MAX_PER_TURN,
     LOOKUP_QUERY_MAX,
 )
+from .session_search import search_terms
 
 LookupKind = Literal[
     "recent_sessions",
@@ -69,7 +70,12 @@ class CharacterChatLookup(BaseModel):
     @field_validator("query", mode="before")
     @classmethod
     def _clean_query(cls, value: Any) -> str | None:
-        return _clean_text(value, LOOKUP_QUERY_MAX)
+        # 判定 LLM は検索語を引用符で包んで返すことがある。LIKE 検索と meta_json に
+        # 残す検索語の両方から外す(空白区切りの各語について両端だけ)
+        text = _clean_text(value, LOOKUP_QUERY_MAX)
+        if text is None:
+            return None
+        return " ".join(search_terms(text)) or None
 
     @field_validator("session_id", mode="before")
     @classmethod

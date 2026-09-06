@@ -104,6 +104,10 @@ export const characterChat = {
       memory: "Organizing the conversation...",
     },
     lookups: "Looked up: {{kinds}}",
+    lookupWithQuery: '{{kind}} "{{query}}"',
+    citationQuery: "Search terms: {{query}}",
+    citationOpenSession: "Open this session in the gallery",
+    citationNoText: "The content was not recorded for this reply.",
     lookupKind: {
       recent_sessions: "recent sessions",
       session_detail: "session detail",

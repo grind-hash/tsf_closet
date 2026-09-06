@@ -17,11 +17,25 @@ from gateway.services.session_search import (
     fetch_match_snippets,
     make_snippet,
     matching_session_ids_select,
+    matching_session_ids_select_terms,
+    search_terms,
+    strip_quotes,
 )
 
 
 def test_escape_like_escapes_wildcards() -> None:
     assert escape_like("50%_a\\b") == "50\\%\\_a\\\\b"
+
+
+def test_search_terms_strips_quotes_and_splits() -> None:
+    assert strip_quotes(' "メイド服" ') == "メイド服"
+    assert strip_quotes("「元々男だったのに」") == "元々男だったのに"
+    assert search_terms('"元々男だったのに"') == ["元々男だったのに"]
+    assert search_terms("メイド\u3000猫耳 メイド") == ["メイド", "猫耳"]
+    assert search_terms("“a”, 'b'、 c") == ["a", "b", "c"]
+    assert search_terms('""  「」') == []
+    assert search_terms(None) == []
+    assert search_terms("1 2 3 4 5 6 7", max_terms=3) == ["1", "2", "3"]
 
 
 def test_make_snippet_centers_on_query() -> None:
@@ -82,3 +96,27 @@ async def test_matching_union_and_snippets(isolated_db) -> None:
         assert "メイド服" in snippets["s-sum"]
         rows = (await db.execute(select(SessionORM.id))).all()
         assert len(rows) == 4
+
+
+@pytest.mark.asyncio
+async def test_matching_terms_all_or_any(isolated_db) -> None:
+    await _seed(isolated_db.async_factory)
+    async with isolated_db.async_factory() as db:
+
+        async def ids(terms, *, match_all):
+            stmt = matching_session_ids_select_terms(terms, match_all=match_all)
+            return {str(row[0]) for row in (await db.execute(stmt)).all()}
+
+        assert await ids(["メイド服"], match_all=True) == {"s-hist", "s-conv", "s-sum"}
+        # 同じセッション内の別の行・列で一致してもよい
+        assert await ids(["メイド服", "似合う"], match_all=True) == {"s-conv"}
+        assert await ids(["メイド服", "給仕"], match_all=True) == {"s-sum"}
+        assert await ids(["似合う", "給仕"], match_all=True) == set()
+        assert await ids(["似合う", "給仕"], match_all=False) == {"s-conv", "s-sum"}
+
+        snippets = await fetch_match_snippets(
+            db, ["s-hist", "s-conv", "s-sum"], ["給仕", "似合う"]
+        )
+        assert snippets == {"s-conv": "メイド服は似合う？", "s-sum": "給仕をした"}
+    with pytest.raises(ValueError):
+        matching_session_ids_select_terms([])

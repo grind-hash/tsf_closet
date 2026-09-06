@@ -89,35 +89,81 @@ async def test_session_candidates_and_recent_sessions(isolated_db) -> None:
     candidates = await lookups.session_candidates("ja")
     assert [item["id"] for item in candidates] == ["s2", "s1"]
     assert "星野エミ" in candidates[0]["label"]
-    text = await lookups.render_recent_sessions(5, "ja")
+    recent = await lookups.render_recent_sessions(5, "ja")
+    text = recent.text
     assert "セッション総数: 2" in text
     assert "[s1] 2026-09-01 水瀬ユウヤ、変身2回、称号「メイドの一日」" in text
     assert "最後の指示: 猫耳を生やす" in text
+    assert recent.session_ids == ("s2", "s1")
 
 
 @pytest.mark.asyncio
 async def test_session_detail_and_search(isolated_db) -> None:
     await _seed(isolated_db.async_factory)
     detail = await lookups.render_session_detail("s1", 5, "ja")
-    assert "水瀬ユウヤ" in detail
-    assert "揺らぎ・葛藤" in detail
-    assert "要約: 給仕をした" in detail
-    assert "[着替え] メイド服に着替える" in detail
-    assert await lookups.render_session_detail("nope", 5, "ja") == "(記録はありません)"
+    assert "水瀬ユウヤ" in detail.text
+    assert "揺らぎ・葛藤" in detail.text
+    assert "要約: 給仕をした" in detail.text
+    assert "[着替え] メイド服に着替える" in detail.text
+    assert detail.session_ids == ("s1",)
+    missing = await lookups.render_session_detail("nope", 5, "ja")
+    assert missing.text == "(記録はありません)"
+    assert missing.session_ids == ()
 
     found = await lookups.render_search_sessions("猫耳", 5, "ja")
-    assert "[s2]" in found
-    assert "猫耳は似合う？" in found
-    assert "一致する記録はありません" in await lookups.render_search_sessions(
-        "存在しない", 5, "ja"
+    assert found.text.startswith("「猫耳」に一致するセッション(新しい順):")
+    assert "[s2]" in found.text
+    assert "猫耳は似合う？" in found.text
+    assert found.session_ids == ("s2",)
+    none = await lookups.render_search_sessions("存在しない", 5, "ja")
+    assert none.text == "「存在しない」に一致する記録はありません。"
+    assert none.session_ids == ()
+    empty = await lookups.render_search_sessions("", 5, "ja")
+    assert empty.text == "(取得できませんでした)"
+
+
+@pytest.mark.asyncio
+async def test_search_sessions_strips_quotes_and_combines_terms(isolated_db) -> None:
+    """判定 LLM が引用符ごと返した検索語や複数語でも空振りしない。"""
+    await _seed(isolated_db.async_factory)
+    quoted = await lookups.render_search_sessions('"猫耳"', 5, "ja")
+    assert quoted.text.startswith("「猫耳」に一致するセッション(新しい順):")
+    assert quoted.session_ids == ("s2",)
+    bracketed = await lookups.render_search_sessions("「猫耳」", 5, "ja")
+    assert bracketed.session_ids == ("s2",)
+
+    # 全語一致(AND): s2 は指示「猫耳を生やす」と会話「猫耳は似合う？」の両方を持つ
+    both = await lookups.render_search_sessions("猫耳 似合う", 5, "ja")
+    assert both.text.startswith(
+        "「猫耳」「似合う」のすべてに一致するセッション(新しい順):"
     )
-    assert await lookups.render_search_sessions("", 5, "ja") == "(取得できませんでした)"
+    assert both.session_ids == ("s2",)
+
+    # 全語一致が無ければ、いずれかの語に一致するものへ広げる(OR)
+    either = await lookups.render_search_sessions("メイド 猫耳", 5, "ja")
+    assert either.text.startswith(
+        "「メイド」「猫耳」のすべてに一致する記録はありません。"
+        "いずれかに一致するセッション(新しい順):"
+    )
+    assert either.session_ids == ("s2", "s1")
+    assert "[s1] 2026-09-01 水瀬ユウヤ: メイド服に着替える" in either.text
+
+    partial = await lookups.render_search_sessions("メイド 存在しない", 5, "ja")
+    assert partial.session_ids == ("s1",)
+    nothing = await lookups.render_search_sessions("無い 存在しない", 5, "ja")
+    assert nothing.text == "「無い」「存在しない」に一致する記録はありません。"
+
+    english = await lookups.render_search_sessions("メイド 猫耳", 5, "en")
+    assert english.text.startswith(
+        'No session matches all of "メイド", "猫耳"; sessions matching any of them '
+        "(newest first):"
+    )
 
 
 @pytest.mark.asyncio
 async def test_tendencies_counts(isolated_db) -> None:
     await _seed(isolated_db.async_factory)
-    text = await lookups.render_tendencies("ja")
+    text = (await lookups.render_tendencies("ja")).text
     assert "セッション総数: 2" in text
     assert "着替え 1" in text
     assert "現実改変 1" in text
@@ -135,7 +181,40 @@ async def test_run_lookups_survives_failures(isolated_db, monkeypatch) -> None:
     plan = CharacterChatPlan.model_validate(
         {"lookups": [{"kind": "recent_adventures"}, {"kind": "tendencies"}]}
     )
-    text, kinds = await lookups.run_lookups(plan, language="ja")
-    assert kinds == ["recent_adventures", "tendencies"]
+    text, details = await lookups.run_lookups(plan, language="ja")
+    assert [item["kind"] for item in details] == ["recent_adventures", "tendencies"]
     assert "## 最近のTSFシナリオ\n(取得できませんでした)" in text
     assert "## 傾向・統計" in text
+    # 明細はプロンプトに載せた本文と同じものを引用表示用に持つ
+    assert details[0] == {
+        "kind": "recent_adventures",
+        "query": None,
+        "session_id": None,
+        "text": "(取得できませんでした)",
+        "session_ids": [],
+    }
+    assert details[1]["text"].startswith("セッション総数: 2")
+    assert details[1]["session_ids"] == []
+
+
+@pytest.mark.asyncio
+async def test_run_lookups_details_carry_query_and_session_ids(isolated_db) -> None:
+    await _seed(isolated_db.async_factory)
+    plan = CharacterChatPlan.model_validate(
+        {
+            "lookups": [
+                {"kind": "search_sessions", "query": '"猫耳"'},
+                {"kind": "session_detail", "session_id": "s1"},
+                {"kind": "recent_sessions", "limit": 1},
+            ]
+        }
+    )
+    text, details = await lookups.run_lookups(plan, language="ja")
+    assert "## 検索結果\n「猫耳」に一致するセッション(新しい順):" in text
+    assert details[0]["query"] == "猫耳"
+    assert details[0]["session_ids"] == ["s2"]
+    assert details[1]["session_id"] == "s1"
+    assert details[1]["session_ids"] == ["s1"]
+    assert details[2]["session_ids"] == ["s2"]
+    for item in details:
+        assert f"## {lookups._TITLES[item['kind']]['ja']}\n{item['text']}" in text

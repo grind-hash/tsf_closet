@@ -3,11 +3,14 @@
 判定 LLM が返した計画(CharacterChatPlan)を実行し、返答プロンプトへ載せる
 テキストへ整形する。各項目は失敗しても会話を止めず「(取得できませんでした)」に
 落とし、1 件 LOOKUP_RENDER_CAP・合計 LOOKUP_TOTAL_CAP 文字で切る。
+実行した明細(種類・検索語・本文・関係するセッション)は返答メッセージの
+meta_json に保存し、UI の「参照した記録」(引用表示)に使う。
 """
 
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
@@ -28,9 +31,9 @@ from .character_chat_models import CharacterChatLookup, CharacterChatPlan
 from .conversation import get_stage_display_name, get_stage_name
 from .session import DEFAULT_USER_ID, session_store
 from .session_search import (
-    escape_like,
     fetch_match_snippets,
-    matching_session_ids_select,
+    matching_session_ids_select_terms,
+    search_terms,
 )
 from .source_snapshot import resolve_session_identity
 from .summary_service import summary_service
@@ -60,6 +63,18 @@ _INSTRUCTION_LABELS = {
         "image_only": "image only",
     },
 }
+
+
+@dataclass(frozen=True)
+class LookupResult:
+    """調べ物 1 件の結果。
+
+    text はプロンプトに載せる整形済み本文、session_ids は本文に含めたセッションの
+    ID(引用表示で「[先頭8桁]」からギャラリーへ飛ぶための対応表)。
+    """
+
+    text: str
+    session_ids: tuple[str, ...] = ()
 
 
 def _lang(language: str) -> str:
@@ -125,14 +140,16 @@ async def session_candidates(
     return candidates
 
 
-async def render_recent_sessions(limit: int, language: str) -> str:
+async def render_recent_sessions(limit: int, language: str) -> LookupResult:
     rows, total = await session_store.get_all_sessions(limit=limit)
     if not rows:
-        return _empty(language)
+        return LookupResult(_empty(language))
     lang = _lang(language)
     lines = [f"Total sessions: {total}" if lang == "en" else f"セッション総数: {total}"]
+    session_ids: list[str] = []
     for row in rows:
         session_id = str(row.get("session_id") or "")
+        session_ids.append(session_id)
         name = await _session_name(session_id, language)
         summary = await summary_service.get_summary(session_id)
         title = _short(summary.get("title"), 40) if summary else ""
@@ -151,18 +168,18 @@ async def render_recent_sessions(limit: int, language: str) -> str:
             if last:
                 line += f"、最後の指示: {last}"
         lines.append(line)
-    return "\n".join(lines)
+    return LookupResult("\n".join(lines), tuple(session_ids))
 
 
 async def render_session_detail(
     session_id: str | None, limit: int, language: str
-) -> str:
+) -> LookupResult:
     lang = _lang(language)
     if not session_id:
-        return _unavailable(language)
+        return LookupResult(_unavailable(language))
     session = await session_store.get_session_by_id(session_id)
     if session is None or session.user_id != DEFAULT_USER_ID:
-        return _empty(language)
+        return LookupResult(_empty(language))
     name = await _session_name(session_id, language)
     lines = [
         f"Session {session_id[:8]} ({_date(session.updated_at)}) with {name}"
@@ -202,40 +219,77 @@ async def render_session_detail(
         labels = _INSTRUCTION_LABELS[lang]
         for event_type, text in timeline[-(max(limit, 10) * 2) :]:
             lines.append(f"- [{labels.get(event_type, event_type)}] {_short(text, 80)}")
-    return "\n".join(lines)
+    return LookupResult("\n".join(lines), (session_id,))
 
 
-async def render_search_sessions(query: str | None, limit: int, language: str) -> str:
+def _quoted_terms(terms: list[str], lang: str) -> str:
+    if lang == "en":
+        return ", ".join(f'"{term}"' for term in terms)
+    return "".join(f"「{term}」" for term in terms)
+
+
+async def _search_session_rows(db, terms: list[str], *, match_all: bool, limit: int):
+    matching = matching_session_ids_select_terms(terms, match_all=match_all).subquery()
+    stmt = (
+        select(SessionORM.id, SessionORM.updated_at)
+        .where(
+            SessionORM.user_id == DEFAULT_USER_ID,
+            SessionORM.id.in_(select(matching.c.session_id)),
+        )
+        .order_by(desc(SessionORM.updated_at))
+        .limit(limit)
+    )
+    return (await db.execute(stmt)).all()
+
+
+async def render_search_sessions(
+    query: str | None, limit: int, language: str
+) -> LookupResult:
+    """空白区切りの検索語で過去のやり取りを探す。
+
+    まず全語に一致するセッションを探し、無ければいずれかの語に一致するものへ広げる
+    (判定 LLM が語を並べ過ぎても空振りで終わらせない)。
+    """
     lang = _lang(language)
-    query = " ".join(str(query or "").split())
-    if not query:
-        return _unavailable(language)
-    pattern = f"%{escape_like(query)}%"
+    terms = search_terms(query)
+    if not terms:
+        return LookupResult(_unavailable(language))
     async with async_session_factory() as db:
-        matching = matching_session_ids_select(pattern).subquery()
-        stmt = (
-            select(SessionORM.id, SessionORM.updated_at)
-            .where(
-                SessionORM.user_id == DEFAULT_USER_ID,
-                SessionORM.id.in_(select(matching.c.session_id)),
-            )
-            .order_by(desc(SessionORM.updated_at))
-            .limit(limit)
-        )
-        rows = (await db.execute(stmt)).all()
+        matched_all = True
+        rows = await _search_session_rows(db, terms, match_all=True, limit=limit)
+        if not rows and len(terms) > 1:
+            matched_all = False
+            rows = await _search_session_rows(db, terms, match_all=False, limit=limit)
         session_ids = [str(row.id) for row in rows]
-        snippets = await fetch_match_snippets(db, session_ids, query)
+        snippets = await fetch_match_snippets(db, session_ids, terms)
+    quoted = _quoted_terms(terms, lang)
     if not rows:
-        return (
-            f'No records match "{query}".'
+        return LookupResult(
+            f"No records match {quoted}."
             if lang == "en"
-            else f"「{query}」に一致する記録はありません。"
+            else f"{quoted}に一致する記録はありません。"
         )
-    lines = [
-        f'Sessions matching "{query}" (newest first):'
-        if lang == "en"
-        else f"「{query}」に一致するセッション(新しい順):"
-    ]
+    if len(terms) == 1:
+        header = (
+            f"Sessions matching {quoted} (newest first):"
+            if lang == "en"
+            else f"{quoted}に一致するセッション(新しい順):"
+        )
+    elif matched_all:
+        header = (
+            f"Sessions matching all of {quoted} (newest first):"
+            if lang == "en"
+            else f"{quoted}のすべてに一致するセッション(新しい順):"
+        )
+    else:
+        header = (
+            f"No session matches all of {quoted}; sessions matching any of them "
+            "(newest first):"
+            if lang == "en"
+            else f"{quoted}のすべてに一致する記録はありません。"
+            "いずれかに一致するセッション(新しい順):"
+        )
+    lines = [header]
     for row in rows:
         session_id = str(row.id)
         name = await _session_name(session_id, language)
@@ -244,10 +298,10 @@ async def render_search_sessions(query: str | None, limit: int, language: str) -
         if snippet:
             line += f": {snippet}"
         lines.append(line)
-    return "\n".join(lines)
+    return LookupResult("\n".join(lines), tuple(session_ids))
 
 
-async def render_tendencies(language: str) -> str:
+async def render_tendencies(language: str) -> LookupResult:
     lang = _lang(language)
     labels = _INSTRUCTION_LABELS[lang]
     async with async_session_factory() as db:
@@ -328,16 +382,16 @@ async def render_tendencies(language: str) -> str:
         logger.warning(
             "character chat endings lookup failed: %s: %s", type(exc).__name__, exc
         )
-    return "\n".join(lines)
+    return LookupResult("\n".join(lines))
 
 
-async def render_recent_adventures(limit: int, language: str) -> str:
+async def render_recent_adventures(limit: int, language: str) -> LookupResult:
     from .adventure_service import adventure_service
 
     lang = _lang(language)
     runs = await adventure_service.list_runs()
     if not runs:
-        return _empty(language)
+        return LookupResult(_empty(language))
     lines = []
     for run in runs[:limit]:
         title = _short(run.get("title"), 40)
@@ -359,10 +413,10 @@ async def render_recent_adventures(limit: int, language: str) -> str:
             if ending:
                 line += f"、エンディング: {ending}"
         lines.append(line)
-    return "\n".join(lines)
+    return LookupResult("\n".join(lines))
 
 
-async def _dispatch(lookup: CharacterChatLookup, language: str) -> str:
+async def _dispatch(lookup: CharacterChatLookup, language: str) -> LookupResult:
     limit = int(lookup.limit or LOOKUP_LIMIT_DEFAULT)
     if lookup.kind == "recent_sessions":
         return await render_recent_sessions(limit, language)
@@ -374,19 +428,24 @@ async def _dispatch(lookup: CharacterChatLookup, language: str) -> str:
         return await render_tendencies(language)
     if lookup.kind == "recent_adventures":
         return await render_recent_adventures(limit, language)
-    return _unavailable(language)
+    return LookupResult(_unavailable(language))
 
 
 async def run_lookups(
     plan: CharacterChatPlan, *, language: str
-) -> tuple[str, list[str]]:
-    """計画の調べ物を順に実行し、(整形済みテキスト, 実行した種類) を返す。"""
+) -> tuple[str, list[dict[str, Any]]]:
+    """計画の調べ物を順に実行し、(プロンプト用テキスト, 引用用の明細) を返す。
+
+    明細は 1 件ごとに kind / query / session_id / text / session_ids を持つ。
+    text はプロンプトに載せたものと同じ整形済み本文で、返答メッセージの meta_json に
+    保存して UI の「参照した記録」に使う。
+    """
     lang = _lang(language)
     blocks: list[str] = []
-    kinds: list[str] = []
+    details: list[dict[str, Any]] = []
     for lookup in plan.lookups:
         try:
-            text = await _dispatch(lookup, language)
+            result = await _dispatch(lookup, language)
         except Exception as exc:
             logger.warning(
                 "character chat lookup %s failed: %s: %s",
@@ -394,8 +453,17 @@ async def run_lookups(
                 type(exc).__name__,
                 exc,
             )
-            text = _unavailable(language)
+            result = LookupResult(_unavailable(language))
+        text = _clip(result.text, LOOKUP_RENDER_CAP)
         title = _TITLES.get(lookup.kind, {}).get(lang, lookup.kind)
-        blocks.append(f"## {title}\n{_clip(text, LOOKUP_RENDER_CAP)}")
-        kinds.append(lookup.kind)
-    return _clip("\n\n".join(blocks), LOOKUP_TOTAL_CAP), kinds
+        blocks.append(f"## {title}\n{text}")
+        details.append(
+            {
+                "kind": lookup.kind,
+                "query": lookup.query,
+                "session_id": lookup.session_id,
+                "text": text,
+                "session_ids": list(result.session_ids),
+            }
+        )
+    return _clip("\n\n".join(blocks), LOOKUP_TOTAL_CAP), details

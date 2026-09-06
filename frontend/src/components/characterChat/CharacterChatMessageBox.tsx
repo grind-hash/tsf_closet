@@ -6,6 +6,8 @@ import type {
   CharacterChatThread,
 } from "../../apis/characterChat";
 import type { TranslationKey } from "../../i18n";
+import CharacterChatCitations from "./CharacterChatCitations";
+import { toLookupCitations } from "./lookupCitations";
 
 export interface CharacterChatMessageBoxVoice {
   canSpeak: boolean;
@@ -23,22 +25,10 @@ interface CharacterChatMessageBoxProps {
   children: ReactNode;
 }
 
-const LOOKUP_KINDS = [
-  "recent_sessions",
-  "session_detail",
-  "search_sessions",
-  "tendencies",
-  "recent_adventures",
-] as const;
-type LookupKind = (typeof LOOKUP_KINDS)[number];
-
-function isLookupKind(value: string): value is LookupKind {
-  return (LOOKUP_KINDS as readonly string[]).includes(value);
-}
-
 /**
  * ADV 風のメッセージ窓。最新の 1 往復(自分の発言 + キャラの返答)だけを出し、
  * 送信中はストリーミング中の返答とスピナー付きの進捗を出す。過去分はログドロワー。
+ * 返答の根拠にした調べ物は本文の下に折りたたみの引用として出す。
  */
 export default function CharacterChatMessageBox({
   thread,
@@ -59,7 +49,7 @@ export default function CharacterChatMessageBox({
   const streaming = pendingInput !== null;
   const userLine = streaming ? pendingInput : (latestUser?.content ?? null);
   const bodyText = streaming ? draft : (latestReply?.content ?? "");
-  const lookups = (latestReply?.meta?.lookups ?? []).filter(isLookupKind);
+  const citations = toLookupCitations(latestReply?.meta);
   const phaseKey: TranslationKey | null =
     phase === "idle" ? null : `characterChat.thread.phase.${phase}`;
   const showProgress =
@@ -71,15 +61,6 @@ export default function CharacterChatMessageBox({
     <div className="character-chat-room__messagebox">
       <div className="character-chat-room__meta">
         <span className="character-chat-room__speaker">{thread.name}</span>
-        {!streaming && latestReply && lookups.length > 0 && (
-          <span className="character-chat-room__meta-note">
-            {t("characterChat.thread.lookups", {
-              kinds: lookups
-                .map((kind) => t(`characterChat.thread.lookupKind.${kind}`))
-                .join(" / "),
-            })}
-          </span>
-        )}
         {!streaming && latestReply?.meta?.portrait_filename && (
           <span className="character-chat__badge">
             {t("characterChat.thread.appearanceChanged")}
@@ -115,6 +96,9 @@ export default function CharacterChatMessageBox({
               {t("characterChat.thread.emptyHint", { name: thread.name })}
             </p>
           )
+        )}
+        {!streaming && latestReply && (
+          <CharacterChatCitations citations={citations} />
         )}
         {showProgress && phaseKey && (
           <div className="character-chat__progress" role="status">

@@ -575,10 +575,6 @@
   font-size: 0.95rem;
 }
 
-.character-chat-room__meta-note {
-  color: #9aa4ae;
-}
-
 .character-chat-room__user-line {
   margin-left: auto;
   max-width: 45%;
@@ -734,6 +730,66 @@
   gap: 0.5rem;
   font-size: 0.75rem;
   color: var(--text-muted, #999);
+}
+
+/* 返答の根拠にした調べ物(引用)。折りたたみで本文を開く */
+.character-chat__citations {
+  margin-top: 0.5rem;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: #9aa4ae;
+}
+
+.character-chat__citations > summary {
+  cursor: pointer;
+  user-select: none;
+}
+
+.character-chat__citations > summary:hover {
+  color: #c8ced4;
+}
+
+.character-chat__citation {
+  margin-top: 0.4rem;
+  padding: 0.4rem 0.6rem;
+  border-left: 2px solid rgba(239, 184, 90, 0.55);
+  border-radius: 0 8px 8px 0;
+  background-color: rgba(255, 255, 255, 0.04);
+}
+
+.character-chat__citation-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  font-weight: 600;
+  color: #c8ced4;
+}
+
+.character-chat__citation-query {
+  font-weight: 400;
+}
+
+.character-chat__citation .character-chat__citation-text {
+  margin: 0.25rem 0 0;
+  max-height: 12rem;
+  overflow-y: auto;
+  color: #b8c0c8;
+}
+
+.character-chat__citation-line {
+  display: block;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.character-chat__citation-link {
+  color: #efb85a;
+  text-decoration: none;
+  border-bottom: 1px dotted currentColor;
+}
+
+.character-chat__citation-link:hover {
+  color: #ffd27a;
 }
 
 .character-chat__badge {

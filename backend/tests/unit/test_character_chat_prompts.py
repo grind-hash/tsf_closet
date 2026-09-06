@@ -111,6 +111,23 @@ def test_plan_model_is_lenient() -> None:
     assert plain.appearance_request == "ドレスに着替えて"
 
 
+def test_plan_query_strips_quotes() -> None:
+    """判定 LLM が検索語を引用符で包んでも、LIKE に渡す語と保存する語から外す。"""
+
+    def query(value: str) -> str | None:
+        plan = CharacterChatPlan.model_validate(
+            {"lookups": [{"kind": "search_sessions", "query": value}]}
+        )
+        return plan.lookups[0].query
+
+    assert query('"元々男だったのに"') == "元々男だったのに"
+    assert query("「元々男だったのに」") == "元々男だったのに"
+    assert query("“メイド服” '猫耳'") == "メイド服 猫耳"
+    assert query("メイド, 猫耳、") == "メイド 猫耳"
+    assert query('""') is None
+    assert query("null") is None
+
+
 def test_appearance_output_cleans_tags() -> None:
     output = CharacterChatAppearanceOutput.model_validate(
         {

@@ -103,6 +103,10 @@ export const characterChat = {
       memory: "会話を整理しています...",
     },
     lookups: "調べたこと: {{kinds}}",
+    lookupWithQuery: "{{kind}}「{{query}}」",
+    citationQuery: "検索語: {{query}}",
+    citationOpenSession: "このセッションをギャラリーで開く",
+    citationNoText: "この返答の時点では内容を記録していません。",
     lookupKind: {
       recent_sessions: "最近のセッション",
       session_detail: "セッションの詳細",

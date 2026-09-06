@@ -1966,7 +1966,7 @@ class CharacterChatService:
                 text_model=text_model,
                 language=language,
             )
-            lookup_text, lookup_kinds = (
+            lookup_text, lookup_details = (
                 await run_lookups(plan, language=language) if plan.lookups else ("", [])
             )
             appearance_task: asyncio.Task[dict[str, Any]] | None = None
@@ -2041,7 +2041,8 @@ class CharacterChatService:
                 user_text=message,
                 reply_text=reply,
                 meta={
-                    "lookups": lookup_kinds,
+                    # 引用表示用の明細(種類・検索語・本文・関係するセッション)
+                    "lookups": lookup_details,
                     "appearance_request": plan.appearance_request,
                     **(
                         {

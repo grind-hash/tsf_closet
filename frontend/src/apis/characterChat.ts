@@ -59,8 +59,19 @@ export interface CharacterChatAppearance {
   source: CharacterChatAppearanceSource;
 }
 
+/** 返答時に実行した調べ物 1 件(引用表示用)。旧データは種類の文字列だけ */
+export interface CharacterChatLookupCitation {
+  kind: string;
+  query?: string | null;
+  session_id?: string | null;
+  /** キャラが実際に読んだ整形済み本文 */
+  text?: string | null;
+  /** 本文に含まれるセッションの ID(「[先頭8桁]」からギャラリーへ飛ぶ対応表) */
+  session_ids?: string[] | null;
+}
+
 export interface CharacterChatMessageMeta {
-  lookups?: string[];
+  lookups?: Array<string | CharacterChatLookupCitation>;
   appearance_request?: string | null;
   portrait_filename?: string | null;
   /** adventure 種: この発言が交わされた時点の手番(次の手番の文脈になる) */

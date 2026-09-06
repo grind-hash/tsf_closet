@@ -445,7 +445,12 @@ async def test_stream_message_runs_lookups_and_changes_appearance(
 
     detail = await service.get_thread(thread["id"])
     assert detail["portrait_url"] == portrait["image_url"]
-    assert detail["messages"][1]["meta"]["lookups"] == ["tendencies", "recent_sessions"]
+    lookups = detail["messages"][1]["meta"]["lookups"]
+    assert [item["kind"] for item in lookups] == ["tendencies", "recent_sessions"]
+    assert lookups[0]["query"] is None
+    assert "セッション総数" in lookups[0]["text"]
+    assert "水瀬ユウヤ" in lookups[1]["text"]
+    assert lookups[1]["session_ids"] == ["sess-1"]
     assert detail["messages"][1]["meta"]["portrait_filename"] == filename
 
 
