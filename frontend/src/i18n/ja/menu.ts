@@ -10,6 +10,8 @@ export const menu = {
   bgmTestDesc: "TSFシナリオのBGMを試聴",
   promptExpander: "Prompt Expander",
   promptExpanderDesc: "指示からNovelAIプロンプトを拡張して画像を生成",
+  characterChat: "キャラチャット",
+  characterChatDesc: "シナリオを経由せずキャラクターと1対1で会話",
   endings: "エンディング",
   endingsDesc: "達成したエンディングを確認",
   guide: "遊び方ガイド",

@@ -18,6 +18,7 @@ from gateway.schemas.adventure import (
     AdventureSetupGenerateRequest,
 )
 from gateway.services import adventure_service as adv
+from gateway.services import source_snapshot as snap
 from gateway.services.adventure_service import AdventureError, AdventureService
 from gateway.services.prompt_expander_service import PromptExpanderError
 
@@ -69,12 +70,12 @@ def pe_source(tmp_path: Path, monkeypatch):
     async def _fake_factory():
         yield object()
 
-    monkeypatch.setattr(adv, "async_session_factory", _fake_factory)
+    monkeypatch.setattr(snap, "async_session_factory", _fake_factory)
     entry = _entry(tmp_path)
     monkeypatch.setattr(
-        adv.PromptExpanderService, "get_entry", AsyncMock(return_value=entry)
+        snap.PromptExpanderService, "get_entry", AsyncMock(return_value=entry)
     )
-    monkeypatch.setattr(adv, "resolve_entry_image_file", lambda e: png_path)
+    monkeypatch.setattr(snap, "resolve_entry_image_file", lambda e: png_path)
     return entry, png_path
 
 
@@ -103,7 +104,7 @@ async def test_build_snapshot_curated_entry_is_sfw(
     pe_source, tmp_path: Path, monkeypatch
 ):
     monkeypatch.setattr(
-        adv.PromptExpanderService,
+        snap.PromptExpanderService,
         "get_entry",
         AsyncMock(
             return_value=_entry(tmp_path, image_model="nai-diffusion-4-5-curated")
@@ -122,13 +123,13 @@ async def test_build_snapshot_errors(pe_source, monkeypatch):
         await service._build_snapshot(None, None)
     assert exc.value.code == "source_not_found"
 
-    monkeypatch.setattr(adv, "resolve_entry_image_file", lambda e: None)
+    monkeypatch.setattr(snap, "resolve_entry_image_file", lambda e: None)
     with pytest.raises(AdventureError) as exc:
         await service._build_snapshot(None, None, source_prompt_expander_entry_id="x")
     assert exc.value.code == "image_not_found"
 
     monkeypatch.setattr(
-        adv.PromptExpanderService,
+        snap.PromptExpanderService,
         "get_entry",
         AsyncMock(side_effect=PromptExpanderError("entry_not_found", "missing")),
     )

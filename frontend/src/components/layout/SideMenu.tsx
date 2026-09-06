@@ -41,6 +41,7 @@ const getMenuItems = (
   showEndingMenu: boolean,
   showAdventureMenu: boolean,
   showPromptExpanderMenu: boolean,
+  showCharacterChatMenu: boolean,
 ): MenuItem[] => {
   return [
     {
@@ -83,6 +84,17 @@ const getMenuItems = (
             icon: "✨",
             path: ROUTES.PROMPT_EXPANDER,
             description: t("menu.promptExpanderDesc"),
+          },
+        ]
+      : []),
+    ...(showCharacterChatMenu
+      ? [
+          {
+            id: "character-chat",
+            label: t("menu.characterChat"),
+            icon: "💬",
+            path: ROUTES.CHARACTER_CHAT,
+            description: t("menu.characterChatDesc"),
           },
         ]
       : []),
@@ -136,6 +148,7 @@ export default function SideMenu() {
     settingsState.experimentalEndingEnabled,
     settingsState.experimentalAdventureEnabled,
     settingsState.experimentalPromptExpanderEnabled,
+    settingsState.experimentalCharacterChatEnabled,
   );
 
   // プレイ中のゲームがあるかどうか

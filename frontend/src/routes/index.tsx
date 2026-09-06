@@ -46,6 +46,10 @@ export const ROUTES = {
   BGM_TEST: "/bgm-test",
   PROMPT_EXPANDER: "/prompt-expander",
   PROMPT_EXPANDER_SESSION: "/prompt-expander/:sessionId",
+  // キャラチャット(TSFシナリオを経由しないキャラクターとの会話)。
+  // /adventure 配下に置かないこと(AdventureScreen が runId として解釈する)
+  CHARACTER_CHAT: "/talk",
+  CHARACTER_CHAT_THREAD: "/talk/:threadId",
 } as const;
 
 // セッションID付きのゲームURLを生成するヘルパー

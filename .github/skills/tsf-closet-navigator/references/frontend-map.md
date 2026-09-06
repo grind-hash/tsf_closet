@@ -18,6 +18,7 @@
 | `/adventure`、`/adventure/:runId`             | `AdventureScreen`    | 実験設定で有効化、専用Provider                 |
 | `/bgm-test`                                   | `BgmTestScreen`      | BGMカタログの試聴。実験設定(Adventure)で有効化 |
 | `/prompt-expander`、`/prompt-expander/:sessionId` | `PromptExpanderScreen` | Prompt Expander（実験設定で有効化、専用Provider） |
+| `/talk`、`/talk/:threadId`                        | `CharacterChatScreen`  | キャラチャット（実験設定 `experimentalCharacterChatEnabled` で有効化、専用Provider。`/adventure` 配下に置かない） |
 
 ## Context
 
@@ -40,6 +41,10 @@
 
 `PromptExpanderContext`（`usePromptExpander()`）は PE セッション一覧/詳細、エントリ、専用設定（`GET/PUT /api/prompt-expander/settings`、生成パラメータはこの設定そのもの）、作業欄状態（参照元、正/ネガの本文と拡張モード、キャラクタースロット。キャラクタープロンプトの ON/OFF だけは localStorage `prompt_expander_character_mode` に保持して再読み込み後も復元）、`pendingExpansion`（欄直下のインライン結果カード。`target: positive|negative`）、`positiveOrigin`/`negativeOrigin`（「欄へ反映」した拡張のモードと指示。履歴メタデータ用。欄が空になると消える）、`pendingUsageWarn`（V5 利用上限の確認）、PE ローカルの `anlas` を持つ。拡張は欄右上の「拡張」ボタン（`expandPositive`/`expandNegative`）→ インライン結果カード（「欄へ反映」`applyExpansion` ／「この内容で生成」`generateFromExpansion`（カードは生成後も残す。原文はクリック時点の欄の内容）／「破棄」）で、下部の「生成」（`runGenerate`）は常に欄の内容をそのまま送る。`restoreEntry` は拡張ありのエントリなら原文を欄へ戻し変換結果を `pendingExpansion` として再現、それ以外は最終プロンプトを欄へ戻す（seed は設定 `restore_seed`=ON のときだけ戻す）。`regenerateEntry` はエントリのプロンプト/設定のまま seed を付けずに生成する。`suggestCharacters` は欄の下書きを `input_text` として送る。設定の `confirm_before_generate` / `inherit_source_prompts` は API には残るが UI の確認トグルは無い（継承トグルは i2i セクション）。精密参照は `reference`（i2i 元と同じ `PromptExpanderSource`、セッション内のみ）と設定 `use_precise_reference` / `reference_type` / `reference_strength` / `reference_fidelity` から `referenceActive`（ON かつ `supportsPreciseReference`(V4.5 系) かつ画像あり）を導き、有効時だけ `reference_*` を生成本文に載せる。参照付き生成は `generate()` が `pendingReferenceWarn` で止め、`AnlasConfirmDialog` の確定（抑止は sessionStorage `prompt_expander_anlas_warn_suppressed`）後に `postGenerate` する（V5 上限ゲートとはモデル系統で排他）。背景透過は設定 `transparent_background` から `transparentActive`（漫画モード中は false）を導き `/expand` と `/generate` の両方に載せる（V4.5 の白背景指定が効かないことがあるため、設定 `transparent_emphasis`(0〜3、既定2) を透過有効時だけ `/generate` に載せる）。インペイント（部分修正）は設定 `use_inpaint` と Context の `inpaintMask`（`{dataUrl?|fromEntryId?, thumbnailUrl, label}`。セッション内のみ）から `inpaintActive`（ON かつ i2i 元あり かつマスクあり）を導き、`inpaint_mask` か `inpaint_mask_entry_id` を載せる。ベース画像は i2i 元と共用する。`regenerateEntry` は history/entry 参照を再送し upload 参照は落とす。i2i 元が再現できるインペイントエントリは `inpaint_mask_entry_id` で同じマスクを再送する。`restoreEntry` は透過の印を戻し、参照付きエントリなら参照トグルと強度も戻す（参照画像そのものは i2i 元と同じく復元しない）。インペイントエントリは `use_inpaint` を ON にし `inpaintMask={fromEntryId}` を戻す（マスクはサーバー保存なので復元できる）。`uploadImage` とピッカーは `target: source|reference` で入れ先を切り替える。通常ゲームの Context や `useGameSSE` には統合しない。
 
+### キャラチャット専用Provider
+
+`App.tsx` は `/talk` 配下だけを `CharacterChatProvider` で包む。`CharacterChatContext`（`useCharacterChat()`）は `threads` / `activeThread`（`messages` 込み）/ 送信中の `sending` / `phase`（plan → reply → portrait → memory）/ ストリーミング中の `draft` / `pendingInput` / `portraitBusy` / `error` と、`refreshThreads` / `openBase`（拠点キャラ「セレナ」。冪等）/ `createFromSource(selection)`（`AdventureSourceSelection` をそのまま受ける）/ `loadThread` / `deleteThread` / `submitMessage`（SSE を state へ反映し、確定したキャラの発言を返す。`cost` は `SettingsContext.addTotalCost`）/ `setAppearanceFromSource` / `regeneratePortrait` を持つ。通常ゲームの Context には統合しない。
+
 ### Adventure専用Provider
 
 `App.tsx` は `/adventure` 配下だけを `AdventureProvider` で包む。
@@ -52,6 +57,7 @@
 
 - `experimentalAdventureEnabled`: Adventure画面のゲート
 - `experimentalPromptExpanderEnabled`: Prompt Expander画面とメニュー、WelcomeScreen/Adventureピッカーの「Prompt Expander」入口のゲート
+- `experimentalCharacterChatEnabled`: キャラチャット画面（`/talk`）とメニュー項目のゲート。既定 OFF。遊び方ガイドにもカードがある
 - `playMemoryEnabled`、`playMemorySystemEnabled`、`playMemoryUserEnabled`: セッションプレイメモ
 - `historyLookbackCount`、`historyLookbackTargets`: 指示タイプ別の履歴遡及
 - `respectClothingLayers`: 衣装レイヤー可視性。既定OFF
@@ -113,6 +119,7 @@
 | `apis/speechSynthesis.ts` | AivisSpeech導入、起動、話者、合成                                |
 | `apis/anlas.ts`           | NovelAI Anlas残高                                                |
 | `apis/promptExpander.ts`  | PE 設定/セッション/エントリ/アップロード/拡張/生成/キャラ提案、`promptExpanderImageUrl` |
+| `apis/characterChat.ts`   | キャラチャットのスレッド一覧/拠点スレッド/作成/取得/削除、姿の差し替え、発言と立ち絵描き直しの SSE（`readSseEvents`。`CharacterChatStreamEvent`）、`characterChatImageUrl` |
 | `apis/avatars.ts`         | 3D モデル(VRM)の一覧/アップロード(唯一の `FormData` 送信。`uploadAvatarModel(file, {name?, characterName?, variantLabel?})`)/更新 `updateAvatarModel(id, {name?, character_name?, variant_label?})`（`renameAvatarModel` はその包み）/削除、`avatarModelFileUrl`、`AvatarApiError.code`（`invalid_vrm` / `file_too_large`）、一括分類 `autoClassifyAvatarModels`（`POST /auto-classify`）。衣装差分の表示補助 `groupAvatarModels`（キャラクター別、未分類は末尾、グループ内は差分ラベル順）/ `avatarVariantLabel` / `classifyAvatarFilename`（backend の規則のミラー。編集フォームの事前入力用） |
 
 ## 共通 UI（`components/ui/`）
@@ -161,6 +168,7 @@ components/
     AdventureLogDrawer.tsx        ログドロワー（全文の読み返しとターンストリップ。開いた時と手番追加で末尾へスクロール）
     AdventureFramePreviewModal.tsx フレームのライトボックス（`ImagePreviewModal` に概要/シーン/背景/立ち絵/攻略対象のタブと手番の詳細を載せる。合成プレビュー用の白抜きはここで行う）
     AdventureScenarioPickerModal.tsx  作品／プレイ済みシナリオの選択モーダル（Hub から開く）
+    AdventureSessionPickerModal.tsx   開始素材（セッション / 履歴 / お気に入り / Prompt Expander）の選択モーダル。CSS は同名の .css をモーダル自身が import する（キャラチャットの Hub / Room でも使うため AdventureScreen.css から切り出した）
     AdventureAvatarOptions.tsx        3D モデルの選択肢と衣装差分ヒント（Hub / Play 共有）
     AdventureImagePromptModal.tsx
     AdventureGiftShopModal.tsx    romance のギフト購入（gift_id 送信）
@@ -170,6 +178,20 @@ components/
     avatar/CompanionAvatarStage.tsx  対面会話モードの 3D モデル(VRM)ステージ。攻略対象 <img> の代わりに `.adventure-stage__frame` 内へ置く(default export、`React.lazy` で three.js を別チャンクに)。canvas はエンジンごとに動的生成(開発モードの二重 effect で Context Lost を拾わないため)
     avatar/vrmAvatarEngine.ts        React 非依存の描画エンジン(three + @pixiv/three-vrm)。読込・待機姿勢(ボーンの実方向から回転軸を求めて腕下ろし・肘曲げ・指の握り。VRM 0.x/1.0 の向き差を吸収)・外接ボックス基準の上半身フレーミング・呼吸/揺れ・まばたき・視線・音量口パク・表情クロスフェード・手続き的ジェスチャー・dispose
     avatar/avatarMotion.ts           three 非依存の純関数(ジェスチャーのキーフレーム表、idlePose、待機姿勢の関節角 ARM_REST/FINGER_CURL と tiltTowards、mouthWeightsFromLevel、blink)。vitest 対象
+
+  characterChat/
+    CharacterChatScreen.tsx     /talk（Hub）と /talk/:threadId（Room）の切り替えと CSS の読み込みだけ
+    CharacterChatHub.tsx        セレナカード（「セレナと話す」→ openBase）、「セッションから作る」（AdventureSessionPickerModal → createFromSource）、スレッド一覧（サムネ・名前・最終メッセージ・更新日・kind チップは行末・削除はギャラリー式アイコン + ConfirmDialog）
+    CharacterChatRoom.tsx       会話画面の編成。Adventure の対面会話モードと同じ ADV 風: 全画面ステージ（CharacterChatStage）の中央にキャラクターを大きく置き、下端に CharacterChatMessageBox（最新の 1 往復 + 入力欄 CharacterChatInput）、上端の薄いバーに 戻る / 名前 / 「姿」メニュー（CharacterChatAppearanceMenu。姿を変更 → picker → setAppearanceFromSource（「立ち絵を生成する」ON なら続けて regeneratePortrait）/ 立ち絵を描き直す / 最初の姿に戻す → resetAppearance）/ 🔊 サウンド / 「ログ」/ 削除。Hub で「立ち絵を生成する」ON で作ったスレッドは、開いた時点で `takePendingPortrait` が真なら 1 回だけ regeneratePortrait。右パネルは CharacterChatInfoPanel。過去ログと情報は右の CharacterChatLogDrawer。読み上げは useAdventureVoice（既定 OFF。返答確定時に `chat:{messageId}` キーで読む）、音声入力は useAdventureSpeechInput をそのまま再利用
+    CharacterChatStage.tsx      全画面ステージ。`appearance.portrait_kind === "standing"`（生成した立ち絵）だけ useTransparentImage で白抜きして中央に立たせ、素材からコピーした場面画像は枠付きで素通し。画像が無ければ配置パスの案内と「立ち絵を生成」。将来の 3D モデル(VRM)はこの枠へ差し替える
+    CharacterChatMessageBox.tsx ADV 風メッセージ窓。最新の自分の発言（メタ行に小さく）とキャラの返答だけを出し、送信中はストリーミング中の返答とキャレット、phase 別のスピナー付き進捗。調べたことのメタ・「姿が変わりました」バッジ・🔊 再読み上げ。入力欄は children でドッキング
+    CharacterChatLogDrawer.tsx  ログドロワー（右に重ねる）。CharacterChatThread で全文（🔊 再読み上げ付き）
+    CharacterChatAppearanceMenu.tsx 「姿」ポップオーバー: 姿を変更 / 立ち絵を描き直す / 最初の姿に戻す（`can_reset_appearance` が偽なら disabled + 理由）と「立ち絵を生成する」トグル（`hooks/useCharacterChatPortraitPreference`、localStorage `character_chat_generate_portrait`、既定 OFF。Hub の「セッションから作る」と共有）
+    CharacterChatInfoPanel.tsx  MainLayout の右パネル（開閉は localStorage `character_chat_info_panel_open`、既定 開）。ユーザーメモリ（`SettingsContext.memoryText`。未取得なら `loadMemoryText`）・会話の要約・セッション由来キャラのセッション概要（`thread.persona`: 最終プレイ日・変身回数・心理段階と数値・PlaySummary の称号/要約・服装・属性・経緯・プレイメモ）・姿（出どころ・説明・外見タグ）
+    CharacterChatThread.tsx     メッセージ一覧（ログドロワー内。仮吹き出し・下書きのキャレット・phase 別のスピナー付き進捗・調べたことのメタ行・「姿が変わりました」バッジ・🔊 再読み上げ）
+    CharacterChatInput.tsx      入力欄（送信中も無効化しない。🎤 と自動送信は adventure.mic.* の文言を共用）
+    CharacterChatSoundControl.tsx 🔊 ポップオーバー（読み上げ ON/OFF・音量・速度・状態。TTS 無効時は disabled + 案内）
+    CharacterChatScreen.css     BEM `character-chat__*`
 
   bgm/
     BgmTestScreen.tsx         BGMカタログ全曲の一覧と試聴(単発再生、fade/loopなし)

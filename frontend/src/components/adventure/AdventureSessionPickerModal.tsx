@@ -8,6 +8,7 @@ import { useInfiniteScroll } from "../../hooks/useInfiniteScroll";
 import type { GallerySession } from "../../types";
 import { API_BASE } from "../../utils/api";
 import PromptExpanderEntryGrid from "../promptExpander/PromptExpanderEntryGrid";
+import "./AdventureSessionPickerModal.css";
 
 export type AdventureSourceOrigin = "session" | "favorite" | "prompt_expander";
 

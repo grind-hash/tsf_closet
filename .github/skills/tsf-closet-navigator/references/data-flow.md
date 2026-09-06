@@ -197,6 +197,40 @@ Adventureの画像設定は run の `state_json` に持つ。`use_precise_refere
 
 持ち物システム（全プリセット、`state_json["inventory_enabled"]`、既定 OFF。作品シナリオは独自の装備判定 `template_state.worn_items` があるため `create_run` / `update_run_settings` で強制 OFF、⚙のトグルも非表示）: 会話や出来事で得た品を `state_json["inventory"] = {items, next_id, log}` に持ち、NPC ごとの境界侵害の記録を `state_json["npc_states"]` に持つ。語彙・上限は `consts/adventure_inventory.py`、純関数・Pydantic・プロンプト文は `services/adventure_inventory.py` が唯一の情報源。**プレイヤー入力は主張・発言・試みであって世界の事実ではない**: 「凛からブラをもらった」と入力しても所持品は増えず、判定 LLM が物語を踏まえて返す構造化 **World Event**（`AdventureResolutionOutput.world_events`、最大6件。`item_transfer{from,to,item|item_id}` / `item_use` / `item_discard` / `item_wear` / `item_unwear` / `boundary_violation{npc,severity,reason}`。寛容 validator `coerce_world_events` が壊れた要素と必須項目欠落を捨て、修復リトライに落とさない）を `apply_world_events` が**所持・数量・能力を検証してから**適用する（未所持の譲渡・使用、`wear` 能力の無い着用、NPC 同士の受け渡しは黙って捨てる。`boundary_violation` は現実改変ターンでは無視）。NPC 側の持ち物はモデル化せず、プレイヤーから離れた品は削除して `inventory.log`（上限30、直近8件を `inventory.recent_log` として LLM へ）と `reality_rules` が NPC・世界の記憶になる。NPC の意思・社会通念は `INVENTORY_NARRATIVE_INSTRUCTION`（`_REALITY_RULES_INSTRUCTION` の直後、台本形式より前）が定め、`npc_states[name].boundary_violations` の回数で 1=驚き・困惑 / 2=拒絶・距離（romance は好感度低下） / 3以上=会話打ち切り・場所によっては店員・警備員・警察 と段階化し、関係・場所・品物で緩和する。`reality_rules` が覆う行動は侵害に数えない。romance では `boundary_violation` を出した手番の `affection_delta` を `stream_turn` が `-BOUNDARY_AFFECTION_FLOOR` 以下へ丸める。**現実改変ターンだけ** `reality_patch{inventory:[{op: add|remove|replace|set_quantity|update|transfer, ...}], npc_notes, npc_boundary_reset}` を `apply_reality_patch` が検証なしで適用し（`origin: "reality"`。`add` の `from` / `obtained_when` で由来を、`npc_notes` で NPC の記憶を書く）、既存の alter 限定フィールド（`affection_set` / `money_set` / `updated_total_days` / `updated_gift_catalog` / `updated_partner_appearance` / `start_dating` / `updated_max_turns`）と合わせて「現実改変パッチ」を成す。持ち物パネルの操作は `input_kind: "item_action"` ＋ `item_action{item_id, action: give|use|wear|unwear|discard, target}` で、`_build_turn_contexts` が `resolve_item_action`（純関数。未所持・能力不一致は `invalid_item` / `item_action_unavailable` で手番未消費）を通し、`wear`/`unwear`/`discard` はプレイヤー自身の行為なので `resolved: true` として `apply_item_resolution` が確定適用（LLM が同じ出来事を world_events で先に適用していれば冪等）、`give`/`use` は NPC の意思・状況が要るため `resolved: false` で LLM が world_events で成否を返す。`item_action` 手番はテンプレ文「〜を身につける」が `_explicit_clothing_from_input` に拾われて `visual_state.clothing` を丸ごと置き換えないよう明示着替え検出を通さず、着用品は `visual_turn_context["worn_inventory_items"]`（`worn_inventory_items(state, pending=item_resolution)` で行動後の状態）と `INVENTORY_VISUAL_INSTRUCTION` で服装・`player_tags` に反映させる。本文が確定行動に触れなければ `item_resolution_narrative_suffix` が1文補う。`turn_context` には生の state から `inventory` / `npc_states` / `inventory_enabled` / `world_events_applied` を除き（`_lean_state_for_llm`）、整形版 `inventory`（`lean_inventory_for_llm`）/ `npc_states`（違反かノートのある NPC だけ）/ `item_action` / `item_resolution` を別キーで載せる。`regenerate_choices` と `stream_talk` も有効時は読み取り専用で `inventory` を渡す。適用順は `apply_romance_outcome` → `apply_world_events` → `apply_reality_patch`（reality_alter のみ）→ `apply_item_resolution` → `_apply_time_limit_alteration` → `_merge_output` で、`state["world_events_applied"]` は有効な run で毎手番必ず書く（空でも）。**整合性は state スナップショットに乗る**: `state_delta_json` が全 state なので巻き戻し・再生成で所持品も当時の値へ戻り、`inventory_enabled` だけを `_REWIND_KEEP_KEYS` に入れる（`inventory` / `npc_states` は入れない）。配信は `_serialize_run` の `inventory_enabled` / `inventory`（`public_inventory_view`、無効時 null）/ `npc_states`（`public_npc_states`。ノートは隠し情報なので出さない）と `_serialize_turn` の `inventory` / `world_events_applied`（state_delta 由来。過去フレーム表示用）。設定は `POST /runs` / `PATCH /runs/{id}/settings` の `inventory_enabled`（OFF にしてもデータは残し再度 ON で復帰）。`preview_turn_prompts` は `item_action` を受け、3ビルダーへ `inventory` / `reality_patch` / `inventory_worn` を `_TurnContexts` 経由で渡す（`stream_turn` と同じ値）。FE は `AdventureRun.inventory_enabled / inventory / npc_states`、`AdventureTurn.inventory / world_events_applied`、`AdventureTurnOptions.itemAction` → `submitTurn(text, "item_action", {itemAction})`。入口は HUD チップ `adventure-hud__chip--inventory`（所持数）→ 共有ポップオーバー `hudPanel="inventory"` の `AdventureInventoryPanel`（capabilities ごとの 渡す/使う/着る・脱ぐ/捨てる。渡す相手は romance なら攻略対象固定、他は `visual_state.main_characters` から選ぶ。文言は `adventure.inventoryActionText.*`）で、ステージ上に新しい浮遊ポップオーバーは足さない。表示中フレームの `worldEvents` はメッセージ窓メタ行 `adventure-messagebox__inventory-note` とライトボックス詳細「持ち物の変化」に出す。トグルはセットアップ（全プリセット共通、`adventure_setup_prefs.inventoryEnabled`）と⚙ポップオーバーの2箇所。ギフトショップ（購入→即プレゼント）は持ち物と独立のまま。
 
+## キャラチャット（実験的機能）
+
+TSF シナリオを経由しないキャラクターとの 1 対 1 の会話。`/talk`（Hub）と `/talk/:threadId`（Room）、Provider は `/talk` 配下だけ、ゲートは `experimentalCharacterChatEnabled`（既定 OFF）。
+
+```text
+CharacterChatHub / CharacterChatRoom
+  ↓ CharacterChatContext
+apis/characterChat.ts
+  ├─ GET /character-chat/threads、POST /threads/base（拠点キャラ。冪等）、POST /threads（開始素材から作成）
+  ├─ GET/DELETE /threads/{id}、PUT /threads/{id}/appearance
+  ├─ POST /threads/{id}/messages/stream（SSE）
+  └─ POST /threads/{id}/portrait/stream（SSE）
+      ↓
+character_chat_router → CharacterChatService
+  ├─ CharacterChatThread / CharacterChatMessage
+  ├─ consts/character_chat.py（セレナの定義・上限）
+  ├─ source_snapshot / portrait_generation / session_search（Adventure・ギャラリーと共用）
+  └─ data/character_chat_images/{thread_id}
+```
+
+2 種類のキャラクター。**拠点キャラ「セレナ」**（`kind="base"`。ユーザーごとに 1 スレッド。人物設定は `consts/character_chat.BASE_CHARACTER_PERSONA` + `APP_OVERVIEW` でメタ会話可。同梱立ち絵は `backend/images/character_chat/serena.png` で、無ければ `portrait_missing` を返し FE が配置パスの案内と「立ち絵を生成」（`portrait/stream`、txt2img）を出す）と、**セッション由来キャラ**（`kind="session"`。`build_source_snapshot` の画像・外見タグ・経緯・属性・統計と `resolve_session_identity` の名前・一人称、`play_memory_service.build_context` を **作成時点でスナップショット**して `persona_json` に持つ。元セッションが進んでも追従しない）。`User.memory_text` だけは毎回ライブで読み、`memory_block` の弱い枠（人格・口調はキャラ設定優先）で system prompt に載せる。
+
+1 発言（`stream_message`。`_thread_locks[thread_id]` で直列化、`begin_cost_tracking`）:
+
+1. `status{phase: plan}` → 判定 LLM `_plan`（`generate_validated(CharacterChatPlan)`。`resolve_text_provider()` と `novelai_text_model` に従う。`session_candidates` で直近セッションの id を渡す）。「何を調べるか」（`recent_sessions` / `session_detail` / `search_sessions` / `tendencies` / `recent_adventures`、最大 3 件）と「着替え要求か」（`appearance_request`）を JSON で決める。失敗は warning で空計画に倒し返答は止めない。
+2. `character_chat_lookups.run_lookups` が DB だけで整形（LLM なし）。
+3. `status{phase: reply}` → `generate_feeling_stream(system, message, history=直近 HISTORY_MESSAGES 件)` → `chat_chunk`。着替え要求があれば外見タグ決定 LLM（`CharacterChatAppearanceOutput`。identity は明示時のみ変更）を `asyncio.create_task` で**並列**に走らせ、返答の system prompt には「着替え中」を載せる。
+4. 返答を `normalize_chat_reply` で整え（名前プレフィックス・括弧・ヘッダ行を剥がし `REPLY_MAX`）、user / character の 2 件を保存 → `chat_done{user_message, character_message, thread}`。
+5. 着替え要求時は `status{phase: portrait}` → `generate_portrait_bytes`（精密参照なし。参照画像は現在の立ち絵を編集元に）→ `portrait-{hex}.png` 保存（前の生成立ち絵は削除、コピー元 `source-*` は残す）→ `appearance_json` を `portrait_kind: standing` で更新 → `portrait_image{image_url, appearance}`。失敗は `portrait_error`（非致命）。
+6. 未要約メッセージが `SUMMARY_EVERY`（12）件以上なら `status{phase: memory}` → 3 見出しの要約を `summary_text` に更新（インライン。`create_task` にすると `cost` に載らない）。
+7. `cost{cost_usd}`（あれば）→ `complete`。
+
+FE は `AdventureContext.submitTalk` と同じ流れで `draft` / `pendingInput` / `phase` を持ち、phase ごとにスピナー付きの進捗行を出す。画面は Adventure の対面会話モードと同じ ADV 風（全画面ステージ中央にキャラクター、下端にメッセージ窓 + 入力欄、過去ログは右のドロワー）で、立ち絵を将来 3D モデル(VRM)へ差し替えられる枠にしてある。立ち絵は `portrait_kind` が `standing` のときだけ `useTransparentImage` で白抜きする（コピーした場面画像は素通し）。読み上げは `useAdventureVoice`（`adventure_voice_prefs` を共有。既定 OFF）、音声入力は `useAdventureSpeechInput`。姿の変更は「姿」メニュー →「姿を変更」→ `AdventureSessionPickerModal` → `PUT /appearance`（名前・persona は変えない。`portrait_kind: scene`）で、「立ち絵を生成する」トグル（既定 OFF）が ON なら続けて `portrait/stream` で外見タグから立ち絵を描く（Hub の「セッションから作る」も同じトグルを見る）。「最初の姿に戻す」は `POST /appearance/reset` で `appearance_json["initial"]`（作成時に控える）へ戻す。右パネル（`CharacterChatInfoPanel`）にユーザーメモリ・会話の要約・セッション由来キャラのセッション概要（`persona`）・姿の情報を出す。
+
 ## Prompt Expander（実験的機能）
 
 ```text

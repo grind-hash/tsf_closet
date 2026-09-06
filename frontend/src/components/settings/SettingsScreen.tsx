@@ -67,6 +67,7 @@ export default function SettingsScreen() {
     setExperimentalEndingEnabled,
     setExperimentalAdventureEnabled,
     setExperimentalPromptExpanderEnabled,
+    setExperimentalCharacterChatEnabled,
     setAdventureEnableCompositeScene,
     setPlayMemoryEnabled,
     setEnableSurroundingsImage,
@@ -728,6 +729,35 @@ export default function SettingsScreen() {
                   checked={state.experimentalPromptExpanderEnabled}
                   onChange={(e) =>
                     setExperimentalPromptExpanderEnabled(e.target.checked)
+                  }
+                  className="settings-screen__toggle-input"
+                />
+                <span className="settings-screen__toggle-switch" />
+              </label>
+            </div>
+
+            <div className="settings-screen__item">
+              <label className="settings-screen__toggle">
+                <div className="settings-screen__toggle-info">
+                  <span className="settings-screen__item-label">
+                    {t("settings.experimentalCharacterChat")}
+                    <span
+                      className="feature-chip-experimental"
+                      data-feature-version="v0.9.0"
+                      style={{ marginLeft: "0.5rem" }}
+                    >
+                      Experimental
+                    </span>
+                  </span>
+                  <span className="settings-screen__item-desc">
+                    {t("settings.experimentalCharacterChatDesc")}
+                  </span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={state.experimentalCharacterChatEnabled}
+                  onChange={(e) =>
+                    setExperimentalCharacterChatEnabled(e.target.checked)
                   }
                   className="settings-screen__toggle-input"
                 />

@@ -59,6 +59,9 @@ export const settings = {
   experimentalPromptExpander: "Prompt Expander",
   experimentalPromptExpanderDesc:
     "自然文の指示をLLMでNovelAIプロンプトに拡張し、ゲームとは独立に画像を生成・保存できる画面をメニューに表示します",
+  experimentalCharacterChat: "キャラチャット",
+  experimentalCharacterChatDesc:
+    "TSFシナリオを経由せず、キャラクターと1対1で会話する画面をメニューに表示します。拠点キャラのセレナと、過去セッションの人物を呼び出して話せます",
   adventureEnableCompositeScene: "背景と人物を同時に描く（既定）",
   adventureEnableCompositeSceneDesc:
     "新規シナリオ作成時の初期値です。ONの場合、中央の立ち絵の更新後に背景を含む合成シーンも直列で再生成するため、1ターンあたりの画像生成が2回になり待ち時間が長くなります。作成画面でシナリオごとに上書きできます。",

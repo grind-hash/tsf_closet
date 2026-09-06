@@ -80,7 +80,6 @@ from ..consts.companion_avatar import (
 )
 from ..consts.novelai_models import (
     NOVELAI_IMAGE_MODELS,
-    is_v5_image_model,
     resolve_user_image_model,
     supports_character_references,
 )
@@ -162,7 +161,6 @@ from .avatar_service import (
     avatar_variant_label,
     list_avatar_variants,
 )
-from .character_service import extract_protagonist_tags_from_history
 from .characters import character_manager
 from .clothing_layers import (
     CLOTHING_LAYER_COVERED_NEGATIVE,
@@ -173,23 +171,33 @@ from .clothing_layers import (
 )
 from .cost_tracker import begin_cost_tracking, record_cost
 from .image_generation import image_service
-from .image_paths import resolve_stored_image_path
 from .llm_json import (
     StructuredOutputError,
     extract_json_object,
     generate_validated,
 )
 from .llm_service import llm_service
-from .prompt_expander_service import (
-    PromptExpanderError,
-    PromptExpanderService,
-    entry_nsfw,
-    entry_to_dict,
-    resolve_entry_image_file,
+from .portrait_generation import (
+    PORTRAIT_EXTRA_NEGATIVE,
+    PORTRAIT_PROMPT_SUFFIX,
+    PORTRAIT_PROMPT_SUFFIX_V5,
+    REDRAW_REFERENCE_INSTRUCTION,
+    character_reference_entry,
+    character_reference_strength,
+    portrait_prompt_suffix,
 )
 from .prompts import enhance_prompt_for_novelai
 from .providers import Provider, resolve_image_provider, resolve_text_provider
 from .session import DEFAULT_USER_ID, session_store
+from .source_snapshot import (
+    CLOTHING_TAG_PATTERN,
+    SCENE_OR_ACTION_TAG_PATTERN,
+    SourceSnapshotError,
+    build_prompt_expander_snapshot,
+    build_source_snapshot,
+    history_visual_description,
+    identity_tags_only,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -876,39 +884,10 @@ def _equipment_score_choices(
     return choices
 
 
-def _character_reference_strength(
-    *, outfit_changed: bool, has_fresh_portrait: bool
-) -> tuple[float, float]:
-    """character reference の (strength, fidelity) を返す。
-
-    参照画像が旧衣装の初期画像である場合のみ、衣装変更時に弱参照へ落とす。
-    このターンの新衣装で描いた直後の立ち絵を参照する場合は弱めない。
-    """
-    if has_fresh_portrait or not outfit_changed:
-        return 0.85, 1.0
-    return 0.35, 0.55
-
-
-# 参照画像を編集元として渡すプロバイダー(OpenRouter / ComfyUI)向けの同一性維持指示
-_REDRAW_REFERENCE_INSTRUCTION = (
-    "Redraw the exact character from the attached image with the "
-    "same face, hair, and identity, as described below.\n"
-)
-
-
-def _character_reference_entry(
-    image_bytes: bytes, *, outfit_changed: bool, has_fresh_portrait: bool
-) -> dict[str, Any]:
-    """NovelAI の character reference 1 件分（強度・忠実度込み）。"""
-    strength, fidelity = _character_reference_strength(
-        outfit_changed=outfit_changed, has_fresh_portrait=has_fresh_portrait
-    )
-    return {
-        "image": image_bytes,
-        "type": "character",
-        "strength": strength,
-        "fidelity": fidelity,
-    }
+# 立ち絵の参照強度・同一性維持指示は portrait_generation と共用する
+_character_reference_strength = character_reference_strength
+_REDRAW_REFERENCE_INSTRUCTION = REDRAW_REFERENCE_INSTRUCTION
+_character_reference_entry = character_reference_entry
 
 
 def _compose_scene_base_tags(image_prompt: AdventureImagePromptOutput) -> str:
@@ -1897,14 +1876,8 @@ _SCENE_PROMPT_SUFFIX = (
 )
 _PLAYER_PROMPT_SUFFIX = ", main protagonist, primary focus, center foreground"
 _NPC_PROMPT_SUFFIX = ", supporting character, secondary focus, behind protagonist"
-# 立ち絵専用の追加ネガティブ。full body + 透過/白背景の組み合わせは
-# キャラクターシート風の複数ビュー・複数人を誘発しやすく、特に V5 で
-# 同一人物が2人並ぶ事故が起きるため、単独1ビューを強制する
-_PORTRAIT_EXTRA_NEGATIVE = (
-    "2girls, 2boys, 3girls, multiple girls, multiple boys, multiple views, "
-    "reference sheet, character sheet, turnaround, variations, "
-    "two people, multiple people, duplicate character, clone"
-)
+# 立ち絵専用の追加ネガティブは portrait_generation と共用する
+_PORTRAIT_EXTRA_NEGATIVE = PORTRAIT_EXTRA_NEGATIVE
 
 # 攻略対象の立ち絵は V5 で同一人物が2人並ぶ絵になりやすいため、さらに抑止語を足す
 _PARTNER_SOLO_NEGATIVE = (
@@ -1912,21 +1885,9 @@ _PARTNER_SOLO_NEGATIVE = (
     "before and after, comparison"
 )
 
-_PORTRAIT_PROMPT_SUFFIX = ", solo, full body standing portrait, simple background, white background, no shadow"
-# V5系モデルは透過背景をネイティブ生成できるため、白背景ではなく透過を指示する
-# （フロント側の透過処理は既に透過を持つ画像を素通しする）
-_PORTRAIT_PROMPT_SUFFIX_V5 = (
-    ", solo, full body standing portrait, transparent background, no shadow"
-)
-
-
-def _portrait_prompt_suffix(image_model: str | None) -> str:
-    """立ち絵用サフィックスをモデルに応じて返す（V5のみ透過背景指示）。"""
-    return (
-        _PORTRAIT_PROMPT_SUFFIX_V5
-        if is_v5_image_model(image_model)
-        else _PORTRAIT_PROMPT_SUFFIX
-    )
+_PORTRAIT_PROMPT_SUFFIX = PORTRAIT_PROMPT_SUFFIX
+_PORTRAIT_PROMPT_SUFFIX_V5 = PORTRAIT_PROMPT_SUFFIX_V5
+_portrait_prompt_suffix = portrait_prompt_suffix
 
 
 def _visual_user_payload(
@@ -2049,51 +2010,11 @@ def _append_reality_rule(state: dict[str, Any], rule: str) -> list[str]:
     return rules
 
 
-_CLOTHING_TAG_PATTERN = re.compile(
-    r"\b(?:dress|skirt|shirt|top|pants|shorts|uniform|jacket|coat|suit|"
-    r"leotard|lingerie|underwear|bra|panties|swimsuit|kimono|clothes|"
-    r"outfit|shoes|boots|socks|stockings|gloves|hat)\b",
-    re.IGNORECASE,
-)
-_SCENE_OR_ACTION_TAG_PATTERN = re.compile(
-    r"\b(?:looking|applying|standing|sitting|walking|mirror|closet|room|"
-    r"background|shelf)\b",
-    re.IGNORECASE,
-)
-
-
-def _history_visual_description(history: Any) -> tuple[str, str]:
-    description = history.after_description or history.before_description or ""
-    extracted = extract_protagonist_tags_from_history(description)
-    if not extracted:
-        return description.strip(), ""
-
-    tags = [tag.strip() for tag in extracted.split(",") if tag.strip()]
-    clothing = [tag for tag in tags if _CLOTHING_TAG_PATTERN.search(tag)]
-    appearance = [
-        tag
-        for tag in tags
-        if not _CLOTHING_TAG_PATTERN.search(tag)
-        and not _SCENE_OR_ACTION_TAG_PATTERN.search(tag)
-    ]
-    return ", ".join(appearance) or extracted, ", ".join(clothing)
-
-
-def _identity_tags_only(tags: str) -> str:
-    """カンマ区切りタグから服装・情景タグを除き、同一性タグだけを返す。
-
-    partner_appearance の初期値を作る _history_visual_description と同じ
-    フィルタを使い、書き戻し後も初期値と同じ形式を保つ。npc_tags は服装を
-    含むため、素のまま保存すると攻略対象の服装が以後固定されてしまう。
-    """
-    parts = [tag.strip() for tag in tags.split(",") if tag.strip()]
-    identity = [
-        tag
-        for tag in parts
-        if not _CLOTHING_TAG_PATTERN.search(tag)
-        and not _SCENE_OR_ACTION_TAG_PATTERN.search(tag)
-    ]
-    return ", ".join(identity)
+# 服装/情景タグの判定と外見タグの分割は source_snapshot と共用する
+_CLOTHING_TAG_PATTERN = CLOTHING_TAG_PATTERN
+_SCENE_OR_ACTION_TAG_PATTERN = SCENE_OR_ACTION_TAG_PATTERN
+_history_visual_description = history_visual_description
+_identity_tags_only = identity_tags_only
 
 
 @dataclass
@@ -2275,42 +2196,11 @@ class AdventureService:
     async def _build_prompt_expander_snapshot(
         self, entry_id: str
     ) -> tuple[dict[str, Any], Path, str, bool]:
-        """Prompt Expander のエントリを開始素材にしたスナップショットを組み立てる。
-
-        ゲームセッション由来の時系列・属性・統計は無く、外見は保存済みの最終プロンプト
-        （＋キャラクタープロンプト）を使う。NSFW は画像モデルの family から導出する。
-        """
+        """Prompt Expander のエントリを開始素材にしたスナップショット(source_snapshot へ委譲)。"""
         try:
-            async with async_session_factory() as db:
-                entry = await PromptExpanderService.get_entry(
-                    db, entry_id=entry_id, user_id=DEFAULT_USER_ID
-                )
-                view = entry_to_dict(entry)
-                image_path = resolve_entry_image_file(entry)
-                nsfw_mode = bool(entry_nsfw(entry))
-        except PromptExpanderError as exc:
-            raise AdventureError(
-                "source_not_found", "開始元の Prompt Expander エントリが見つかりません"
-            ) from exc
-        if image_path is None:
-            raise AdventureError("image_not_found", "開始画像が見つかりません")
-        appearance_parts = [str(view.get("final_prompt") or "").strip()]
-        appearance_parts.extend(
-            str(item).strip() for item in view.get("character_prompts") or []
-        )
-        appearance = ", ".join(part for part in appearance_parts if part)
-        snapshot = {
-            "source_session_id": None,
-            "source_history_id": None,
-            "source_prompt_expander_entry_id": entry_id,
-            "character_name": None,
-            "appearance": appearance,
-            "clothing": "",
-            "attributes": [],
-            "timeline": [],
-            "stats": None,
-        }
-        return snapshot, image_path, appearance, nsfw_mode
+            return await build_prompt_expander_snapshot(entry_id)
+        except SourceSnapshotError as exc:
+            raise AdventureError(exc.code, str(exc)) from exc
 
     async def _build_snapshot(
         self,
@@ -2319,94 +2209,15 @@ class AdventureService:
         *,
         source_prompt_expander_entry_id: str | None = None,
     ) -> tuple[dict[str, Any], Path, str, bool]:
+        """開始素材のスナップショット(source_snapshot へ委譲。エラーは AdventureError に写す)。"""
         if source_prompt_expander_entry_id:
             return await self._build_prompt_expander_snapshot(
                 source_prompt_expander_entry_id
             )
-        if not source_session_id:
-            raise AdventureError("source_not_found", "開始元セッションが見つかりません")
-        source_session = await session_store.get_session_by_id(source_session_id)
-        if source_session is None or source_session.user_id != DEFAULT_USER_ID:
-            raise AdventureError("source_not_found", "開始元セッションが見つかりません")
-
-        source_history = None
-        until_created_at = None
-        appearance = ""
-        starting_clothing = ""
-        if source_history_id:
-            source_history = await session_store.get_history_by_id(source_history_id)
-            if source_history is None or source_history.session_id != source_session_id:
-                raise AdventureError("source_not_found", "開始元の履歴が見つかりません")
-            image_path = session_store.resolve_history_image_file(source_history)
-            until_created_at = source_history.created_at
-            appearance, starting_clothing = _history_visual_description(source_history)
-        else:
-            image_path = resolve_stored_image_path(source_session.current_image_path)
-            current_image_name = Path(source_session.current_image_path or "").name
-            histories = await session_store.get_history(source_session_id)
-            current_history = next(
-                (
-                    item
-                    for item in reversed(histories)
-                    if Path(item.image_path).name == current_image_name
-                ),
-                None,
-            )
-            if current_history is not None:
-                appearance, starting_clothing = _history_visual_description(
-                    current_history
-                )
-
-        if image_path is None:
-            raise AdventureError("image_not_found", "開始画像が見つかりません")
-
-        timeline = await session_store.get_session_timeline_until(
-            source_session_id, until_created_at=until_created_at, limit=30
-        )
-        attributes_raw = await session_store.get_session_attributes(source_session_id)
-        attributes: list[str] = []
-        for attribute in attributes_raw:
-            created_raw = attribute.get("created_at")
-            if until_created_at is not None and created_raw:
-                try:
-                    if datetime.fromisoformat(str(created_raw)) > until_created_at:
-                        continue
-                except (TypeError, ValueError):
-                    pass
-            attributes.append(str(attribute.get("attribute_text", "")))
-
-        stats = await session_store.get_session_stats(source_session_id)
-        if source_history_id and stats is not None:
-            stats = await session_store.reconstruct_stats_at_history(
-                source_session_id,
-                source_history_id,
-                difficulty=stats.difficulty,
-                nsfw_mode=stats.nsfw_mode,
-            )
-        nsfw_mode = bool(stats.nsfw_mode) if stats else False
-        # 旧テスト用モック等で character_id が無くても snapshot 構築は続行する
-        source_character = character_manager.get_by_id(
-            str(getattr(source_session, "character_id", "") or "")
-        )
-        snapshot = {
-            "source_session_id": source_session_id,
-            "source_history_id": source_history_id,
-            "character_name": source_character.name if source_character else None,
-            "appearance": appearance,
-            "clothing": starting_clothing,
-            "attributes": attributes,
-            "timeline": [
-                {"type": event_type, "text": text} for event_type, text in timeline
-            ],
-            "stats": {
-                "bloom": stats.bloom,
-                "shame": stats.shame,
-                "adaptation": stats.adaptation,
-            }
-            if stats
-            else None,
-        }
-        return snapshot, image_path, appearance, nsfw_mode
+        try:
+            return await build_source_snapshot(source_session_id, source_history_id)
+        except SourceSnapshotError as exc:
+            raise AdventureError(exc.code, str(exc)) from exc
 
     def _director_system_prompt(
         self,

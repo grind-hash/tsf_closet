@@ -95,6 +95,9 @@ class User(Base):
     prompt_expander_sessions: Mapped[list[PromptExpanderSession]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
+    character_chat_threads: Mapped[list[CharacterChatThread]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 class Session(Base):
@@ -752,4 +755,103 @@ class AvatarModel(Base):
     __table_args__ = (
         Index("idx_avatar_models_created", "created_at"),
         Index("idx_avatar_models_character", "character_name"),
+    )
+
+
+class CharacterChatThread(Base):
+    """キャラチャット(TSF シナリオを経由しない 1 対 1 の会話)のスレッド。
+
+    kind は "base"(拠点キャラ。ユーザーごとに 1 件)か "session"(過去セッション
+    時点の人物をスナップショットしたキャラ)。persona_json / appearance_json は
+    services/character_chat_service が読み書きする JSON で、立ち絵は
+    data/character_chat_images/{thread_id}/ に置き portrait_path に data 相対パスを
+    持つ(base で NULL のときは同梱 PNG を読み時に解決する)。
+    """
+
+    __tablename__ = "character_chat_threads"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    kind: Mapped[str] = mapped_column(String, nullable=False)
+    name: Mapped[str] = mapped_column(String(80), nullable=False)
+    pronoun: Mapped[str] = mapped_column(String(16), nullable=False, default="私")
+    persona_json: Mapped[str] = mapped_column(
+        Text, nullable=False, default="{}", server_default="{}"
+    )
+    appearance_json: Mapped[str] = mapped_column(
+        Text, nullable=False, default="{}", server_default="{}"
+    )
+    portrait_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_session_id: Mapped[str | None] = mapped_column(
+        String, ForeignKey("sessions.id", ondelete="SET NULL"), nullable=True
+    )
+    source_history_id: Mapped[str | None] = mapped_column(
+        String, ForeignKey("history.id", ondelete="SET NULL"), nullable=True
+    )
+    # Prompt Expander のエントリを姿の元にした場合の ID。
+    # 画像はコピーして保持するため FK は張らない（SQLite の table rebuild 回避）
+    source_prompt_expander_entry_id: Mapped[str | None] = mapped_column(
+        String, nullable=True
+    )
+    # 長いスレッド向けのローリング要約と、要約に反映済みのメッセージ数
+    summary_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    summary_message_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    language: Mapped[str] = mapped_column(
+        String, nullable=False, default="ja", server_default="ja"
+    )
+    nsfw_mode: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="0"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        default=func.current_timestamp(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        default=func.current_timestamp(),
+        onupdate=func.current_timestamp(),
+        nullable=False,
+    )
+
+    user: Mapped[User] = relationship(back_populates="character_chat_threads")
+    messages: Mapped[list[CharacterChatMessage]] = relationship(
+        back_populates="thread",
+        cascade="all, delete-orphan",
+        order_by="CharacterChatMessage.created_at",
+    )
+
+    __table_args__ = (
+        Index("idx_character_chat_threads_user_updated", "user_id", "updated_at"),
+        Index("idx_character_chat_threads_user_kind", "user_id", "kind"),
+    )
+
+
+class CharacterChatMessage(Base):
+    """キャラチャットの発言 1 件。role は "user" | "character"。
+
+    meta_json には応答時に実行した調べ物の種類や着替え要求、差し替えた立ち絵の
+    ファイル名などを持つ(表示用。無くても会話は再現できる)。
+    """
+
+    __tablename__ = "character_chat_messages"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    thread_id: Mapped[str] = mapped_column(
+        String,
+        ForeignKey("character_chat_threads.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    role: Mapped[str] = mapped_column(String, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    meta_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        default=func.current_timestamp(), nullable=False
+    )
+
+    thread: Mapped[CharacterChatThread] = relationship(back_populates="messages")
+
+    __table_args__ = (
+        Index("idx_character_chat_messages_thread_created", "thread_id", "created_at"),
     )
