@@ -337,6 +337,60 @@ async def test_stream_message_event_order_and_persistence(
 
 
 @pytest.mark.asyncio
+async def test_origin_lore_is_attached_only_when_planned_for_base_thread(
+    service: CharacterChatService, isolated_db, tmp_path: Path, monkeypatch
+) -> None:
+    """「別の層の記憶」は判定 LLM が呼んだ手番だけ、案内役キャラにだけ載る。"""
+    captured: dict = {}
+    monkeypatch.setattr(
+        module.llm_service,
+        "generate_feeling_stream",
+        _fake_stream(["……その名前を、どこで？"], captured),
+    )
+    monkeypatch.setattr(
+        module, "load_origin_lore", lambda language: f"テスト用の記憶({language})"
+    )
+    base = await service.get_or_create_base_thread()
+
+    # 判定 LLM が false のときは、名前が出ていても載せない
+    plain, _ = _llm_router()
+    monkeypatch.setattr(module.llm_service, "generate_text", plain)
+    await _collect(
+        service.stream_message(thread_id=base["id"], content="イツキって知ってる？")
+    )
+    assert "別の層の記憶" not in captured["system"]
+    assert "テスト用の記憶" not in captured["system"]
+
+    # true のときだけ、言語に合った本文が枠付きで載る
+    invoked, _ = _llm_router(
+        plan=json.dumps(
+            {"lookups": [], "appearance_request": None, "origin_lore": "true"}
+        )
+    )
+    monkeypatch.setattr(module.llm_service, "generate_text", invoked)
+    await _collect(
+        service.stream_message(
+            thread_id=base["id"], content="エデン・レイヤーって知ってる？"
+        )
+    )
+    assert "[別の層の記憶]" in captured["system"]
+    assert "テスト用の記憶(ja)" in captured["system"]
+
+    # 過去セッション由来のキャラには、判定 LLM が true でも載せない
+    await _seed_session(isolated_db.async_factory, tmp_path / "start.png")
+    session_thread = await service.create_session_thread(
+        source_session_id="sess-1", source_history_id=None
+    )
+    await _collect(
+        service.stream_message(
+            thread_id=session_thread["id"], content="エデン・レイヤーって知ってる？"
+        )
+    )
+    assert "別の層の記憶" not in captured["system"]
+    assert "テスト用の記憶" not in captured["system"]
+
+
+@pytest.mark.asyncio
 async def test_stream_message_replies_when_planner_fails(
     service: CharacterChatService, monkeypatch
 ) -> None:

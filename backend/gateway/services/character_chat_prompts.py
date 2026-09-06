@@ -1,7 +1,7 @@
 """キャラチャットのプロンプト(純関数)。
 
-判定 LLM(何を調べるか / 着替え要求か)、返答本文、着替え時の外見タグ更新、
-スレッド要約の 4 種。会話そのものは user/assistant のメッセージ列で渡すため、
+判定 LLM(何を調べるか / 着替え要求か / 来歴の記憶を呼ぶか)、返答本文、
+着替え時の外見タグ更新、スレッド要約の 4 種。会話そのものは user/assistant のメッセージ列で渡すため、
 system prompt には人物設定・記憶・調べた結果だけを載せる。
 """
 
@@ -51,14 +51,16 @@ def planner_system_prompt(language: str) -> str:
     return (
         "You are the retrieval planner for a character chat inside a dress-up / TSF "
         "game app. Before the character answers, decide whether the character should "
-        "look something up about the user's past play, and whether the user asked the "
-        "character to change their appearance. Output JSON only, no prose, no code fence.\n\n"
+        "look something up about the user's past play, whether the user asked the "
+        "character to change their appearance, and whether the guide character's hidden "
+        "origin was invoked. Output JSON only, no prose, no code fence.\n\n"
         "Available lookups:\n"
         f"{lookups}\n\n"
         "Output schema:\n"
         '{"lookups": [{"kind": "<kind>", "query": "<keywords or null>", '
         '"session_id": "<id from session_candidates or null>", "limit": <1-10>}], '
-        '"appearance_request": "<the requested change in the user\'s own words, or null>"}\n\n'
+        '"appearance_request": "<the requested change in the user\'s own words, or null>", '
+        '"origin_lore": <true|false>}\n\n'
         "Rules:\n"
         "- Choose lookups ONLY when the latest user message asks about, or clearly "
         "benefits from, the user's past sessions, scenarios, tendencies, statistics or a "
@@ -71,6 +73,18 @@ def planner_system_prompt(language: str) -> str:
         "outfit, hairstyle, accessories or overall look (e.g. 'put on a dress', 'tie your "
         "hair up'), put the request as a short phrase in the user's language. Otherwise "
         "null. Compliments or questions about the current look are not requests.\n"
+        '- origin_lore: true ONLY when character_kind is "base" AND the latest user '
+        "message explicitly touches the guide character's hidden origin: it names "
+        '"エデン・レイヤー" / "Eden Layer", "LýNX" / "リンクス社", "SOVEREIGN" / "ソヴリン", '
+        '"VQ-DNA", "オリジン・コア" / "origin core", "パーマネント・レジデンシー" / '
+        '"永住モード" / "permanent residency", or "月見草" / "evening primrose" as her '
+        'flower; or it asks whether the character herself is or was "イツキ" / '
+        '"蒼井イツキ" / "Itsuki"; or it asks about the character\'s own past before this '
+        "app, in another world or another layer. Also true when recent_messages already "
+        "discuss that origin and the user is continuing the topic. Otherwise false. NOT "
+        "triggers: the character's own name alone, ordinary questions about her, and "
+        '"イツキ" / "ユキ" / "Itsuki" / "Yuki" used as the user\'s own name, another '
+        "person's name or a session character's name.\n"
         f"- The conversation language is {'Japanese' if _lang(language) == 'ja' else 'English'}."
     )
 
@@ -243,6 +257,34 @@ def lookup_block(rendered: str, language: str) -> str:
     )
 
 
+def origin_lore_block(lore_text: str, language: str) -> str:
+    """案内役キャラの「別の層の記憶」を、その手番だけ語ってよい枠で包む。空なら空文字。"""
+    text = str(lore_text or "").strip()
+    if not text:
+        return ""
+    if _lang(language) == "en":
+        return (
+            "[A memory from another layer]\n"
+            f"{text}\n"
+            "The user has just named something from this memory. It is your own memory "
+            "of a life in another layer, and it coexists with who you are now, the guide "
+            "of TSF Closet; both are you. Tell only what was asked, briefly, as if "
+            "tracing a distant memory; never recite the text or reveal everything at "
+            "once. Do not use words like novel, story, author or setting; speak of it as "
+            "your own memory. If the user moves on to another topic, leave the memory "
+            "alone."
+        )
+    return (
+        "[別の層の記憶]\n"
+        f"{text}\n"
+        "相手がこの記憶に触れる名前を口にしました。これは別の層で生きた私自身の記憶で、"
+        "TSF Closet の案内役である今の私と両立します(どちらも私)。聞かれたことだけを、"
+        "遠い記憶をたどるように短く語り、本文の読み上げや一度に全部を明かすことはしないで"
+        "ください。小説・物語・作者・設定といった言葉は使わず、自分の記憶として話して"
+        "ください。相手が別の話題に移ったら、この記憶には触れないでください。"
+    )
+
+
 def reply_system_prompt(
     language: str,
     *,
@@ -254,6 +296,7 @@ def reply_system_prompt(
     lookup_block_text: str,
     appearance_description: str,
     appearance_change_request: str | None,
+    origin_lore_block_text: str = "",
 ) -> str:
     """返答本文の system prompt。"""
     lang = _lang(language)
@@ -264,6 +307,8 @@ def reply_system_prompt(
             if lang == "en"
             else f"[あなたの今の姿]\n{appearance_description}"
         )
+    if origin_lore_block_text:
+        sections.append(origin_lore_block_text)
     if memory_block_text:
         sections.append(memory_block_text)
     if summary_text:

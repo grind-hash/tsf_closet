@@ -7,9 +7,12 @@ UI の表示名は i18n 側(characterChat.*)にあり、ここには LLM と永�
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from ..settings.config import settings
+
+logger = logging.getLogger(__name__)
 
 CHARACTER_CHAT_KIND_BASE = "base"
 CHARACTER_CHAT_KIND_SESSION = "session"
@@ -148,3 +151,46 @@ THREAD_MESSAGE_LIMIT = 500
 def base_portrait_dir() -> Path:
     """同梱立ち絵の置き場所(backend/images/character_chat)。"""
     return settings.characters_dir.parent / "character_chat"
+
+
+# 案内役キャラの「別の層の記憶」(イースターエッグ)。判定 LLM が origin_lore=true を
+# 返した手番だけ、返答の system prompt に本文をそのまま載せる。
+# backend/gateway/data/character_chat/ の Markdown を言語ごとに読み、en が無ければ ja に
+# 倒す。どちらも無ければ空文字を返して機能は静かに無効になる。
+# adventure_bgm のカタログと同じく、ファイルの mtime が変わったときだけ読み直す。
+# モジュール属性にしておくとテストから monkeypatch で差し替えられる
+_ORIGIN_LORE_DIR = Path(__file__).resolve().parents[1] / "data" / "character_chat"
+ORIGIN_LORE_FILENAMES = {"ja": "serena_origin.ja.md", "en": "serena_origin.en.md"}
+ORIGIN_LORE_MAX_CHARS = 4000
+# 言語 -> (mtime, 本文)
+_origin_lore_cache: dict[str, tuple[float, str]] = {}
+
+
+def _read_origin_lore(lang: str) -> str:
+    path = _ORIGIN_LORE_DIR / ORIGIN_LORE_FILENAMES[lang]
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        _origin_lore_cache.pop(lang, None)
+        return ""
+    cached = _origin_lore_cache.get(lang)
+    if cached is not None and cached[0] == mtime:
+        return cached[1]
+    try:
+        text = path.read_text(encoding="utf-8").strip()[:ORIGIN_LORE_MAX_CHARS]
+    except (OSError, UnicodeDecodeError) as error:
+        logger.warning(
+            "origin lore %s is unreadable, keeping previous: %s", path, error
+        )
+        return cached[1] if cached is not None else ""
+    _origin_lore_cache[lang] = (mtime, text)
+    return text
+
+
+def load_origin_lore(language: str) -> str:
+    """案内役キャラの「別の層の記憶」本文。無ければ空文字。"""
+    lang = "en" if language == "en" else "ja"
+    text = _read_origin_lore(lang)
+    if not text and lang != "ja":
+        text = _read_origin_lore("ja")
+    return text

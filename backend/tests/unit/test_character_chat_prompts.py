@@ -14,6 +14,7 @@ from gateway.services.character_chat_prompts import (
     base_persona_block,
     lookup_block,
     memory_block,
+    origin_lore_block,
     planner_system_prompt,
     reply_system_prompt,
     session_persona_block,
@@ -40,6 +41,7 @@ def test_reply_system_prompt_includes_sections() -> None:
         lookup_block_text=lookup_block("## 最近のセッション\n- 1件", "ja"),
         appearance_description="紫のドレス",
         appearance_change_request="ドレスに着替えて",
+        origin_lore_block_text=origin_lore_block("別の層で心臓だった", "ja"),
     )
     assert "セレナ" in prompt
     assert "メイド服を好む" in prompt
@@ -47,7 +49,36 @@ def test_reply_system_prompt_includes_sections() -> None:
     assert "最近のセッション" in prompt
     assert "紫のドレス" in prompt
     assert "着替え中" in prompt
+    assert "別の層の記憶" in prompt
+    assert "別の層で心臓だった" in prompt
     assert "Respond in Japanese" in prompt or "日本語" in prompt
+
+
+def test_origin_lore_block_empty_and_wrapped() -> None:
+    """来歴の記憶は判定 LLM が呼んだ手番だけ載る。空なら枠ごと消える。"""
+    assert origin_lore_block("", "ja") == ""
+    assert origin_lore_block(None, "en") == ""
+    block = origin_lore_block("別の層で心臓だった", "ja")
+    assert block.startswith("[別の層の記憶]")
+    assert "別の層で心臓だった" in block
+    assert "小説" in block  # 小説・作者といった語を使わせない指示
+    english = origin_lore_block("I was the heart of another layer", "en")
+    assert english.startswith("[A memory from another layer]")
+    assert "novel" in english
+
+    # 記憶を渡さない通常の手番では、枠も見出しもプロンプトに現れない
+    prompt = reply_system_prompt(
+        "ja",
+        name="セレナ",
+        pronoun="私",
+        persona_block=base_persona_block("ja"),
+        memory_block_text="",
+        summary_text=None,
+        lookup_block_text="",
+        appearance_description="",
+        appearance_change_request=None,
+    )
+    assert "別の層の記憶" not in prompt
 
 
 def test_session_persona_block_reflects_stage() -> None:
@@ -83,6 +114,17 @@ def test_planner_prompt_lists_every_lookup_kind() -> None:
         assert f'"{kind}"' in prompt
 
 
+def test_planner_prompt_gates_origin_lore_on_explicit_names() -> None:
+    """来歴の記憶は、案内役キャラに対して固有の名前が明示されたときだけ true にさせる。"""
+    prompt = planner_system_prompt("ja")
+    assert '"origin_lore": <true|false>' in prompt
+    assert 'character_kind is "base"' in prompt
+    for word in ("エデン・レイヤー", "Eden Layer", "SOVEREIGN", "オリジン・コア"):
+        assert word in prompt
+    # イツキ・ユキは一般的な名前でもあるので、本人かどうかを問う文脈だけに限る
+    assert "used as the user's own name" in prompt
+
+
 def test_plan_model_is_lenient() -> None:
     plan = CharacterChatPlan.model_validate(
         {
@@ -103,12 +145,21 @@ def test_plan_model_is_lenient() -> None:
     assert plan.lookups[1].kind == "recent_sessions"
     assert plan.lookups[2].query == "メイド 服"
     assert plan.appearance_request is None
+    assert plan.origin_lore is False
 
     plain = CharacterChatPlan.model_validate(
         {"lookups": "x", "appearance_request": " ドレスに着替えて "}
     )
     assert plain.lookups == []
     assert plain.appearance_request == "ドレスに着替えて"
+
+
+def test_plan_origin_lore_coerces_strings() -> None:
+    """判定 LLM が真偽値を文字列で返しても受ける。曖昧な値は false に倒す。"""
+    for value in (True, "true", " Yes ", 1):
+        assert CharacterChatPlan.model_validate({"origin_lore": value}).origin_lore
+    for value in (False, "false", "null", None, "", 0, "maybe"):
+        assert not CharacterChatPlan.model_validate({"origin_lore": value}).origin_lore
 
 
 def test_plan_query_strips_quotes() -> None:

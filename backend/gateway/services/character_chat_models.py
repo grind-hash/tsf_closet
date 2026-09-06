@@ -1,8 +1,8 @@
 """キャラチャットの LLM 構造化出力(Pydantic)。
 
-判定 LLM の計画(何を調べるか / 着替え要求か)と、着替え時の外見タグ更新の
-出力形。崩れた値は検証エラーにせず、adventure_models と同じく切り詰め・既定値で
-受ける(修復リトライに落とさない)。
+判定 LLM の計画(何を調べるか / 着替え要求か / 来歴の記憶を呼ぶか)と、
+着替え時の外見タグ更新の出力形。崩れた値は検証エラーにせず、adventure_models と
+同じく切り詰め・既定値で受ける(修復リトライに落とさない)。
 """
 
 from __future__ import annotations
@@ -95,6 +95,8 @@ class CharacterChatLookup(BaseModel):
 class CharacterChatPlan(BaseModel):
     lookups: list[CharacterChatLookup] = Field(default_factory=list)
     appearance_request: str | None = None
+    # 案内役キャラの「別の層の記憶」を今回の返答に載せるか(base 種だけ意味を持つ)
+    origin_lore: bool = False
 
     @field_validator("lookups", mode="before")
     @classmethod
@@ -126,6 +128,16 @@ class CharacterChatPlan(BaseModel):
         if isinstance(value, bool):
             return None
         return _clean_text(value, APPEARANCE_REQUEST_MAX)
+
+    @field_validator("origin_lore", mode="before")
+    @classmethod
+    def _coerce_origin_lore(cls, value: Any) -> bool:
+        # 判定 LLM は "true" / "yes" のような文字列で返すことがある。それ以外は false
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, int | float):
+            return bool(value)
+        return str(value or "").strip().lower() in {"true", "yes", "1"}
 
 
 def empty_plan() -> CharacterChatPlan:

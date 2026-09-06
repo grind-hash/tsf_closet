@@ -44,6 +44,7 @@ from ..consts.character_chat import (
     SUMMARY_MAX_CHARS,
     THREAD_MESSAGE_LIMIT,
     base_portrait_dir,
+    load_origin_lore,
 )
 from ..consts.companion_avatar import (
     avatar_talk_header_instruction,
@@ -77,6 +78,7 @@ from .character_chat_prompts import (
     base_persona_block,
     lookup_block,
     memory_block,
+    origin_lore_block,
     planner_system_prompt,
     planner_user_prompt,
     reply_system_prompt,
@@ -1775,6 +1777,7 @@ class CharacterChatService:
         appearance_change_request: str | None,
         adventure_context: dict[str, Any] | None = None,
         header_instruction: str = "",
+        origin_lore_text: str = "",
     ) -> str:
         persona = _json_load(thread.persona_json, {})
         appearance = _json_load(thread.appearance_json, {})
@@ -1834,6 +1837,7 @@ class CharacterChatService:
             lookup_block_text=lookup_block(lookup_text, language),
             appearance_description=description,
             appearance_change_request=appearance_change_request,
+            origin_lore_block_text=origin_lore_block(origin_lore_text, language),
         )
 
     async def _persist_messages(
@@ -1969,6 +1973,17 @@ class CharacterChatService:
             lookup_text, lookup_details = (
                 await run_lookups(plan, language=language) if plan.lookups else ("", [])
             )
+            # 「別の層の記憶」は案内役キャラだけ。判定 LLM が呼んだ手番にだけ載せる
+            origin_lore_text = ""
+            if plan.origin_lore and thread.kind == CHARACTER_CHAT_KIND_BASE:
+                origin_lore_text = load_origin_lore(language)
+                if origin_lore_text:
+                    logger.info("character chat: origin lore attached to this reply")
+                else:
+                    logger.warning(
+                        "character chat planner requested origin lore but no lore "
+                        "file was found"
+                    )
             appearance_task: asyncio.Task[dict[str, Any]] | None = None
             if plan.appearance_request:
                 # 外見タグの決定は返答ストリームと並列に走らせる(直列にしない)
@@ -1990,6 +2005,7 @@ class CharacterChatService:
                 appearance_change_request=plan.appearance_request,
                 adventure_context=adventure_context,
                 header_instruction=header_instruction,
+                origin_lore_text=origin_lore_text,
             )
             history = [
                 {
