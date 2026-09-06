@@ -29,7 +29,7 @@ async function enableAdventure(page: Page) {
     window.localStorage.setItem("novelai_api_key_consent", "true");
     window.localStorage.setItem(
       "app_settings",
-      JSON.stringify({ experimentalAdventureEnabled: true }),
+      JSON.stringify({ adventureEnabled: true }),
     );
   });
 }
@@ -130,6 +130,13 @@ test("selecting a track moves the active state and updates the player", async ({
 test("bgm test screen is gated behind the TSF scenario setting", async ({
   page,
 }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem("novelai_api_key_consent", "true");
+    window.localStorage.setItem(
+      "app_settings",
+      JSON.stringify({ adventureEnabled: false }),
+    );
+  });
   await mockBgmCatalog(page);
   await page.goto("/bgm-test");
 

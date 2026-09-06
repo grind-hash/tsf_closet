@@ -33,16 +33,16 @@ function InpaintProbe() {
   );
 }
 
-function ExperimentalEndingProbe() {
-  const { state, setExperimentalEndingEnabled } = useSettings();
+function AdventureEnabledProbe() {
+  const { state, setAdventureEnabled } = useSettings();
 
   return (
     <>
-      <div data-testid="experimental-ending-enabled">
-        {state.experimentalEndingEnabled ? "on" : "off"}
+      <div data-testid="adventure-enabled">
+        {state.adventureEnabled ? "on" : "off"}
       </div>
-      <button type="button" onClick={() => setExperimentalEndingEnabled(true)}>
-        enable-ending
+      <button type="button" onClick={() => setAdventureEnabled(false)}>
+        disable-adventure
       </button>
     </>
   );
@@ -86,20 +86,21 @@ describe("SettingsContext inpaint state", () => {
     expect(screen.getByTestId("mask-id").textContent).toBe("none");
   });
 
-  it("keeps experimental ending disabled by default and enables by toggle", () => {
+  it("keeps TSF scenario enabled by default and ignores the legacy experimental flag", () => {
+    // v0.8.0 以前の Experimental フラグが残っていても既定 ON になる
+    localStorage.setItem(
+      "app_settings",
+      JSON.stringify({ experimentalAdventureEnabled: false }),
+    );
     render(
       <SettingsProvider>
-        <ExperimentalEndingProbe />
+        <AdventureEnabledProbe />
       </SettingsProvider>,
     );
 
-    expect(screen.getByTestId("experimental-ending-enabled").textContent).toBe(
-      "off",
-    );
-    fireEvent.click(screen.getByRole("button", { name: "enable-ending" }));
-    expect(screen.getByTestId("experimental-ending-enabled").textContent).toBe(
-      "on",
-    );
+    expect(screen.getByTestId("adventure-enabled").textContent).toBe("on");
+    fireEvent.click(screen.getByRole("button", { name: "disable-adventure" }));
+    expect(screen.getByTestId("adventure-enabled").textContent).toBe("off");
   });
 });
 

@@ -64,8 +64,7 @@ export default function SettingsScreen() {
     setNsfwMode,
     setShowAchievementNotifications,
     setShowRealityAttributeNotification,
-    setExperimentalEndingEnabled,
-    setExperimentalAdventureEnabled,
+    setAdventureEnabled,
     setExperimentalPromptExpanderEnabled,
     setExperimentalCharacterChatEnabled,
     setAdventureEnableCompositeScene,
@@ -383,6 +382,55 @@ export default function SettingsScreen() {
             </div>
           </section>
 
+          {/* TSFシナリオ(v0.9.0 で Experimental から昇格。既定 ON) */}
+          <section className="settings-screen__section">
+            <h2 className="settings-screen__section-title">
+              {t("settings.adventureSection")}
+            </h2>
+
+            <div className="settings-screen__item">
+              <label className="settings-screen__toggle">
+                <div className="settings-screen__toggle-info">
+                  <span className="settings-screen__item-label">
+                    {t("settings.adventureEnabled")}
+                  </span>
+                  <span className="settings-screen__item-desc">
+                    {t("settings.adventureEnabledDesc")}
+                  </span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={state.adventureEnabled}
+                  onChange={(e) => setAdventureEnabled(e.target.checked)}
+                  className="settings-screen__toggle-input"
+                />
+                <span className="settings-screen__toggle-switch" />
+              </label>
+            </div>
+
+            <div className="settings-screen__item">
+              <label className="settings-screen__toggle">
+                <div className="settings-screen__toggle-info">
+                  <span className="settings-screen__item-label">
+                    {t("settings.adventureEnableCompositeScene")}
+                  </span>
+                  <span className="settings-screen__item-desc">
+                    {t("settings.adventureEnableCompositeSceneDesc")}
+                  </span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={state.adventureEnableCompositeScene}
+                  onChange={(e) =>
+                    setAdventureEnableCompositeScene(e.target.checked)
+                  }
+                  className="settings-screen__toggle-input"
+                />
+                <span className="settings-screen__toggle-switch" />
+              </label>
+            </div>
+          </section>
+
           {/* 表示設定 */}
           <section className="settings-screen__section">
             <h2 className="settings-screen__section-title">
@@ -638,74 +686,6 @@ export default function SettingsScreen() {
             <h2 className="settings-screen__section-title">
               {t("settings.experimentalSection")}
             </h2>
-
-            <div className="settings-screen__item">
-              <label className="settings-screen__toggle">
-                <div className="settings-screen__toggle-info">
-                  <span className="settings-screen__item-label">
-                    {t("settings.experimentalEnding")}
-                  </span>
-                  <span className="settings-screen__item-desc">
-                    {t("settings.experimentalEndingDesc")}
-                  </span>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={state.experimentalEndingEnabled}
-                  onChange={(e) =>
-                    setExperimentalEndingEnabled(e.target.checked)
-                  }
-                  className="settings-screen__toggle-input"
-                />
-                <span className="settings-screen__toggle-switch" />
-              </label>
-            </div>
-
-            <div className="settings-screen__item">
-              <label className="settings-screen__toggle">
-                <div className="settings-screen__toggle-info">
-                  <span className="settings-screen__item-label">
-                    {t("settings.experimentalAdventure")}
-                  </span>
-                  <span className="settings-screen__item-desc">
-                    {t("settings.experimentalAdventureDesc")}
-                  </span>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={state.experimentalAdventureEnabled}
-                  onChange={(e) =>
-                    setExperimentalAdventureEnabled(e.target.checked)
-                  }
-                  className="settings-screen__toggle-input"
-                />
-                <span className="settings-screen__toggle-switch" />
-              </label>
-            </div>
-
-            {state.experimentalAdventureEnabled && (
-              <div className="settings-screen__item">
-                <label className="settings-screen__toggle">
-                  <div className="settings-screen__toggle-info">
-                    <span className="settings-screen__item-label">
-                      {t("settings.adventureEnableCompositeScene")}
-                    </span>
-                    <span className="settings-screen__item-desc">
-                      {t("settings.adventureEnableCompositeSceneDesc")}
-                    </span>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={state.adventureEnableCompositeScene}
-                    onChange={(e) =>
-                      setAdventureEnableCompositeScene(e.target.checked)
-                    }
-                    className="settings-screen__toggle-input"
-                  />
-                  <span className="settings-screen__toggle-switch" />
-                </label>
-              </div>
-            )}
 
             <div className="settings-screen__item">
               <label className="settings-screen__toggle">

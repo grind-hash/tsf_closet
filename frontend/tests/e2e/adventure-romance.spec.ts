@@ -104,7 +104,7 @@ async function enableAdventure(page: Page) {
     window.localStorage.setItem("novelai_api_key_consent", "true");
     window.localStorage.setItem(
       "app_settings",
-      JSON.stringify({ experimentalAdventureEnabled: true }),
+      JSON.stringify({ adventureEnabled: true }),
     );
   });
 }

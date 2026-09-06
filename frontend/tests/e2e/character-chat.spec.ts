@@ -143,6 +143,11 @@ test("opens the base character, streams a reply, and deletes the thread", async 
 test("redirects to /play/new when the feature is off", async ({ page }) => {
   await page.addInitScript(() => {
     window.localStorage.setItem("novelai_api_key_consent", "true");
+    // TSFシナリオ(既定 ON)の「トーク」導線でも /talk は通るので、両方 OFF にする
+    window.localStorage.setItem(
+      "app_settings",
+      JSON.stringify({ adventureEnabled: false }),
+    );
   });
   await page.goto("/talk");
   await expect(page).toHaveURL(/\/play\/new$/);

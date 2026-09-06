@@ -1,7 +1,7 @@
 export const guide = {
   title: "Play Style Guide",
   intro:
-    "A list of play styles that are off by default. Turning one on here adds it to the main menu. You can change these settings anytime from the settings screen.",
+    "A list of play styles. Those that are off by default can be turned on here, which adds them to the main menu. You can change these settings anytime from the settings screen.",
   enable: "Enable",
   addedToMenu: "Added to the menu",
   openSettings: "Open settings",
@@ -53,11 +53,5 @@ export const guide = {
     note: "When enabled, an auto memo is generated per response, so completion may take longer.",
     enabledHint:
       'A "Play Memory" panel appears on the right side of normal play',
-  },
-  endings: {
-    title: "Endings",
-    desc: "Endings trigger when their conditions are met, and you can review them in the list screen.",
-    note: "When enabled, ending notifications and the endings menu are shown.",
-    open: "Open the endings list",
   },
 };

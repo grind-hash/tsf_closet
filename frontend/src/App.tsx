@@ -71,10 +71,7 @@ function AppRoutes() {
   ) {
     return <GalleryScreen />;
   }
-  if (
-    location.pathname === "/endings" &&
-    settingsState.experimentalEndingEnabled
-  ) {
+  if (location.pathname === "/endings") {
     return <EndingsScreen />;
   }
   if (location.pathname === "/achievements") {
@@ -89,13 +86,13 @@ function AppRoutes() {
   }
   // TSFシナリオのBGMカタログを試聴する画面。ゲートはTSFシナリオと同一にする
   if (location.pathname === "/bgm-test") {
-    if (!settingsState.experimentalAdventureEnabled) {
+    if (!settingsState.adventureEnabled) {
       return <Navigate to="/play/new" replace />;
     }
     return <BgmTestScreen />;
   }
   if (location.pathname.startsWith("/adventure")) {
-    if (!settingsState.experimentalAdventureEnabled) {
+    if (!settingsState.adventureEnabled) {
       return <Navigate to="/play/new" replace />;
     }
     return (
@@ -109,7 +106,7 @@ function AppRoutes() {
     // TSFシナリオの「トーク」から遷移するため、Adventure が有効なら通す
     if (
       !settingsState.experimentalCharacterChatEnabled &&
-      !settingsState.experimentalAdventureEnabled
+      !settingsState.adventureEnabled
     ) {
       return <Navigate to="/play/new" replace />;
     }

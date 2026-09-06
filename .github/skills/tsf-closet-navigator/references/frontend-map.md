@@ -12,13 +12,13 @@
 | --------------------------------------------- | -------------------- | ---------------------------------------------- |
 | `/`、`/play`、`/play/new`、`/play/:sessionId` | `GamePlayScreen`     | 通常ゲーム、新規開始、復元                     |
 | `/gallery`、`/gallery/:sessionId`             | `GalleryScreen`      | セッション/履歴/お気に入り                     |
-| `/endings`                                    | `EndingsScreen`      | 実験設定で有効化                               |
+| `/endings`                                    | `EndingsScreen`      | 常時表示（v0.9.0 で Experimental を廃止）                               |
 | `/achievements`                               | `AchievementsScreen` | 実績一覧                                       |
 | `/settings`                                   | `SettingsScreen`     | 設定、メモリ、TTS                              |
 | `/adventure`、`/adventure/:runId`             | `AdventureScreen`    | 実験設定で有効化、専用Provider                 |
-| `/bgm-test`                                   | `BgmTestScreen`      | BGMカタログの試聴。実験設定(Adventure)で有効化 |
+| `/bgm-test`                                   | `BgmTestScreen`      | BGMカタログの試聴。`adventureEnabled`（既定 ON）で有効化 |
 | `/prompt-expander`、`/prompt-expander/:sessionId` | `PromptExpanderScreen` | Prompt Expander（実験設定で有効化、専用Provider） |
-| `/talk`、`/talk/:threadId`                        | `CharacterChatScreen`  | キャラチャット（実験設定 `experimentalCharacterChatEnabled` か `experimentalAdventureEnabled` で通る。専用Provider。`/adventure` 配下に置かない） |
+| `/talk`、`/talk/:threadId`                        | `CharacterChatScreen`  | キャラチャット（実験設定 `experimentalCharacterChatEnabled` か `adventureEnabled` で通る。専用Provider。`/adventure` 配下に置かない） |
 
 ## Context
 
@@ -55,7 +55,7 @@
 
 `SettingsContext` の追加機能は既定値と保存先を確認して変更する。
 
-- `experimentalAdventureEnabled`: Adventure画面のゲート
+- `adventureEnabled`: Adventure 画面・BGM テスト・メニュー項目・Prompt Expander の「TSFシナリオへ」のゲート。既定 ON。v0.9.0 で Experimental から設定画面の「TSFシナリオ」セクションへ昇格（旧 `experimentalAdventureEnabled` と、常時表示になったエンディングの旧 `experimentalEndingEnabled` は `loadInitialState` で読み捨てる）。遊び方ガイドのカードは残す
 - `experimentalPromptExpanderEnabled`: Prompt Expander画面とメニュー、WelcomeScreen/Adventureピッカーの「Prompt Expander」入口のゲート
 - `experimentalCharacterChatEnabled`: キャラチャット画面（`/talk`）とメニュー項目のゲート。既定 OFF。遊び方ガイドにもカードがある
 - `playMemoryEnabled`、`playMemorySystemEnabled`、`playMemoryUserEnabled`: セッションプレイメモ

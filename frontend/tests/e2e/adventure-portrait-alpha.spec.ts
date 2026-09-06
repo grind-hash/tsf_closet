@@ -48,7 +48,7 @@ test("stage portrait is replaced by a transparent version", async ({
     window.localStorage.setItem("novelai_api_key_consent", "true");
     window.localStorage.setItem(
       "app_settings",
-      JSON.stringify({ experimentalAdventureEnabled: true }),
+      JSON.stringify({ adventureEnabled: true }),
     );
   });
   await page.route("**/api/probe-portrait.png", async (route) => {

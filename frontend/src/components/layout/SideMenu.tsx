@@ -38,7 +38,6 @@ interface MenuItem {
 
 const getMenuItems = (
   t: TFunction,
-  showEndingMenu: boolean,
   showAdventureMenu: boolean,
   showPromptExpanderMenu: boolean,
   showCharacterChatMenu: boolean,
@@ -98,17 +97,13 @@ const getMenuItems = (
           },
         ]
       : []),
-    ...(showEndingMenu
-      ? [
-          {
-            id: "endings",
-            label: t("menu.endings"),
-            icon: "🎬",
-            path: ROUTES.ENDINGS,
-            description: t("menu.endingsDesc"),
-          },
-        ]
-      : []),
+    {
+      id: "endings",
+      label: t("menu.endings"),
+      icon: "🎬",
+      path: ROUTES.ENDINGS,
+      description: t("menu.endingsDesc"),
+    },
     {
       id: "achievements",
       label: t("menu.achievements"),
@@ -145,8 +140,7 @@ export default function SideMenu() {
   // メニュー項目を取得
   const menuItems = getMenuItems(
     t,
-    settingsState.experimentalEndingEnabled,
-    settingsState.experimentalAdventureEnabled,
+    settingsState.adventureEnabled,
     settingsState.experimentalPromptExpanderEnabled,
     settingsState.experimentalCharacterChatEnabled,
   );

@@ -1,8 +1,9 @@
 import { expect, type Page, test } from "@playwright/test";
 
 /**
- * 遊び方ガイド: サイドメニューの常設項目から既定OFFの機能を紹介し、
- * その場でONにするとメニューへ項目が現れる。
+ * 遊び方ガイド: サイドメニューの常設項目から遊び方を紹介し、既定OFFの機能は
+ * その場でONにするとメニューへ項目が現れる。TSFシナリオは v0.9.0 から既定ONなので、
+ * トグルの検証では明示的にOFFにしてから始める。
  */
 
 async function bootstrap(page: Page) {
@@ -46,10 +47,41 @@ test("enabling play memory with a stale session does not warn", async ({
   await expect(page.locator(".notification-toast")).toHaveCount(0);
 });
 
+// 初回読込だけ OFF にする(再読込のたびに上書きすると、ガイドで ON にした保存値が消える)
+async function disableAdventure(page: Page) {
+  await page.addInitScript(() => {
+    if (!window.localStorage.getItem("app_settings")) {
+      window.localStorage.setItem(
+        "app_settings",
+        JSON.stringify({ adventureEnabled: false }),
+      );
+    }
+  });
+}
+
+test("TSF Scenario and Endings are in the menu by default", async ({
+  page,
+}) => {
+  await bootstrap(page);
+  await page.goto("/achievements");
+  await expect(
+    page.getByRole("button", { name: "TSFシナリオ", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "エンディング", exact: true }),
+  ).toBeVisible();
+  // ガイドにはエンディングのカード(トグル)は無い
+  await page.goto("/guide");
+  await expect(
+    page.getByRole("heading", { name: "エンディング", exact: true }),
+  ).toHaveCount(0);
+});
+
 test("guide screen enables TSF Scenario and adds it to the menu", async ({
   page,
 }) => {
   await bootstrap(page);
+  await disableAdventure(page);
   await page.goto("/achievements");
 
   // 未読ドット付きの「遊び方ガイド」が常設され、TSFシナリオはまだ無い
@@ -112,6 +144,7 @@ test("guide screen enables TSF Scenario and adds it to the menu", async ({
 
 test("guide screen lists the inventory system card", async ({ page }) => {
   await bootstrap(page);
+  await disableAdventure(page);
   await page.goto("/guide");
 
   const card = page.locator(".guide-screen__card").filter({

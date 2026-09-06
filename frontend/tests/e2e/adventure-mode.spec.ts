@@ -100,7 +100,7 @@ async function enableAdventure(page: Page) {
     window.localStorage.setItem("novelai_api_key_consent", "true");
     window.localStorage.setItem(
       "app_settings",
-      JSON.stringify({ experimentalAdventureEnabled: true }),
+      JSON.stringify({ adventureEnabled: true }),
     );
   });
 }
@@ -240,11 +240,16 @@ async function mockAdventureApis(
   return state;
 }
 
-test("experimental setting hides adventure route by default", async ({
+test("adventure route redirects when the TSF scenario setting is off", async ({
   page,
 }) => {
   await page.addInitScript(() => {
     window.localStorage.setItem("novelai_api_key_consent", "true");
+    // v0.9.0 から既定 ON。OFF にしたときだけ /play/new へ戻す
+    window.localStorage.setItem(
+      "app_settings",
+      JSON.stringify({ adventureEnabled: false }),
+    );
   });
   await page.goto("/adventure");
   await expect(page).toHaveURL(/\/play\/new$/);

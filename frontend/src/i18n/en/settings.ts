@@ -51,18 +51,16 @@ export const settings = {
     '"{{attr}}" has been added to attributes. You can adjust it from the attributes section in the side panel.',
   realityAttributeAddedLink: "Disable this notification → Settings",
   experimentalSection: "Experimental Features",
-  experimentalEnding: "Endings",
-  experimentalEndingDesc:
-    "Show ending menu and ending notification only when enabled",
-  experimentalAdventure: "TSF Scenario",
-  experimentalAdventureDesc:
-    "Show the separate visual-novel mode that starts from a transformed state",
   experimentalPromptExpander: "Prompt Expander",
   experimentalPromptExpanderDesc:
     "Show a standalone screen that expands natural-language instructions into NovelAI prompts and generates images outside of gameplay",
   experimentalCharacterChat: "Character Chat",
   experimentalCharacterChatDesc:
     "Show a screen for one-on-one conversations with a character outside the TSF scenario: the guide character Serena, or a character brought back from a past session",
+  adventureSection: "TSF Scenario",
+  adventureEnabled: "Show TSF Scenario in the menu",
+  adventureEnabledDesc:
+    "Shows the standalone visual-novel mode that starts from a transformed state in the main menu. When off, its screens (including the BGM test) cannot be opened.",
   adventureEnableCompositeScene:
     "Draw background and character together (default)",
   adventureEnableCompositeSceneDesc:
