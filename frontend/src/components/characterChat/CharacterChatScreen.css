@@ -381,10 +381,22 @@
   left: 50%;
   top: calc(var(--cc-topbar-height) + 16px);
   transform: translateX(-50%);
-  padding: 6px 14px;
-  border-radius: 999px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  max-width: min(520px, 90%);
+  padding: 8px 16px;
+  border-radius: 14px;
   background: rgb(13 17 20 / 82%);
   border: 1px solid #4a535c;
+  text-align: center;
+}
+
+.character-chat-room__stage-status small {
+  color: var(--text-muted, #bbb);
+  font-size: 0.75rem;
+  line-height: 1.4;
 }
 
 /* 上端のバー */

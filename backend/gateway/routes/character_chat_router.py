@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import AsyncGenerator
 
 from fastapi import APIRouter, HTTPException, Query
@@ -24,6 +25,8 @@ from ..services.character_chat_service import (
     character_chat_service,
 )
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/character-chat", tags=["CharacterChat"])
 
 _NOT_FOUND_CODES = {"thread_not_found", "source_not_found", "image_not_found"}
@@ -36,15 +39,17 @@ def _http_error(error: CharacterChatError) -> HTTPException:
     )
 
 
-def _sse_error(error: CharacterChatError, phase: str) -> dict:
+def _sse_error(error: Exception, phase: str) -> dict:
+    code = getattr(error, "code", "internal_error")
+    message = str(error) or type(error).__name__
     return {
         "event": "error",
         "data": json.dumps(
             {
-                "code": error.code,
-                "message": str(error),
+                "code": code,
+                "message": message,
                 "phase": phase,
-                "retryable": error.code == "invalid_model_output",
+                "retryable": code == "invalid_model_output",
             },
             ensure_ascii=False,
         ),
@@ -116,6 +121,9 @@ async def message_stream(
                 }
         except CharacterChatError as error:
             yield _sse_error(error, "chat")
+        except Exception as error:  # noqa: BLE001 - SSE には他に伝える経路が無い
+            logger.exception("character chat stream failed")
+            yield _sse_error(error, "chat")
 
     return EventSourceResponse(event_generator())
 
@@ -159,6 +167,9 @@ async def portrait_stream(thread_id: str) -> EventSourceResponse:
                     "data": json.dumps(event["data"], ensure_ascii=False),
                 }
         except CharacterChatError as error:
+            yield _sse_error(error, "portrait")
+        except Exception as error:  # noqa: BLE001 - SSE には他に伝える経路が無い
+            logger.exception("character chat portrait stream failed")
             yield _sse_error(error, "portrait")
 
     return EventSourceResponse(event_generator())

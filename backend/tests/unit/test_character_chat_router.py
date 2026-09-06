@@ -84,3 +84,24 @@ def test_message_rejects_empty_content(client: TestClient) -> None:
         "/api/character-chat/threads/t1/messages/stream", json={"content": ""}
     )
     assert response.status_code == 422
+
+
+def test_portrait_stream_reports_unexpected_exceptions(
+    client: TestClient, monkeypatch
+) -> None:
+    async def broken(thread_id):
+        raise RuntimeError("provider down")
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(
+        router_module.character_chat_service, "stream_portrait_regeneration", broken
+    )
+    with client.stream(
+        "POST", "/api/character-chat/threads/t1/portrait/stream"
+    ) as response:
+        body = "".join(response.iter_text())
+    line = next(line for line in body.splitlines() if line.startswith("data:"))
+    payload = json.loads(line[len("data:") :])
+    assert payload["code"] == "internal_error"
+    assert payload["message"] == "provider down"
+    assert payload["phase"] == "portrait"

@@ -825,6 +825,19 @@ class CharacterChatService:
             )
         except PortraitGenerationError as exc:
             raise CharacterChatError(exc.code, str(exc)) from exc
+        except Exception as exc:
+            # プロバイダー由来の例外(API エラー・タイムアウト等)は利用者向けエラーに写し、
+            # SSE を無言で閉じない。タイムアウト系は str() が空になるため型名を添える
+            logger.warning(
+                "character chat portrait generation failed: %s: %s",
+                type(exc).__name__,
+                exc,
+                exc_info=True,
+            )
+            detail = str(exc) or type(exc).__name__
+            raise CharacterChatError(
+                "image_generation_failed", f"立ち絵の生成に失敗しました({detail})"
+            ) from exc
         directory = self._thread_dir(thread.id)
         directory.mkdir(parents=True, exist_ok=True)
         filename = f"{_GENERATED_PORTRAIT_PREFIX}{uuid.uuid4().hex[:8]}.png"

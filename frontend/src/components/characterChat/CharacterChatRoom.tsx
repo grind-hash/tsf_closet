@@ -50,6 +50,7 @@ export default function CharacterChatRoom({
     draft,
     pendingInput,
     portraitBusy,
+    portraitBusyKind,
     error,
     clearError,
     loadThread,
@@ -82,7 +83,9 @@ export default function CharacterChatRoom({
     void loadThread(threadId).then((thread) => {
       setLoaded(true);
       // Hub で「立ち絵を生成する」を ON にして作った直後は、開いた時点で描く
-      if (thread && takePendingPortrait(threadId)) void regeneratePortrait();
+      if (thread && takePendingPortrait(threadId)) {
+        void regeneratePortrait(threadId);
+      }
     });
   }, [threadId, loadThread, takePendingPortrait, regeneratePortrait]);
 
@@ -199,7 +202,10 @@ export default function CharacterChatRoom({
           <CharacterChatStage
             thread={thread}
             busy={portraitBusy}
-            drawing={sending && phase === "portrait"}
+            drawing={
+              (sending && phase === "portrait") ||
+              portraitBusyKind === "portrait"
+            }
             onGenerate={() => void regeneratePortrait()}
           />
         )}

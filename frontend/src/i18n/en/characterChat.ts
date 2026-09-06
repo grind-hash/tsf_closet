@@ -46,6 +46,8 @@ export const characterChat = {
     portraitMissing:
       'No portrait image. Place an image at backend/images/character_chat/{{file}}, or use "Generate portrait" to draw one from the appearance tags.',
     portraitBusy: "Drawing the portrait...",
+    portraitBusyHint:
+      "Image generation can take about a minute. It keeps running if you leave this screen and is applied when you come back.",
     appearanceUpdating: "Changing the appearance...",
     sourceBase: "Bundled portrait",
     sourceSession: "Session image",

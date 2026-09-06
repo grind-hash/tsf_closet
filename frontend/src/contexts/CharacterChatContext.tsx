@@ -47,8 +47,10 @@ interface CharacterChatContextValue {
   draft: string;
   /** 送信済みでまだ messages に載っていない自分の発言 */
   pendingInput: string | null;
-  /** 姿の差し替え・立ち絵の描き直し中 */
+  /** 表示中スレッドの姿の差し替え・立ち絵の描き直し中 */
   portraitBusy: boolean;
+  /** portraitBusy の内訳(portrait = 画像生成中、appearance = 差し替え/リセット中) */
+  portraitBusyKind: CharacterChatPortraitBusyKind | null;
   error: string | null;
   refreshThreads: () => Promise<void>;
   openBase: () => Promise<string | null>;
@@ -64,10 +66,13 @@ interface CharacterChatContextValue {
   setAppearanceFromSource: (
     selection: AdventureSourceSelection,
   ) => Promise<boolean>;
-  regeneratePortrait: () => Promise<boolean>;
+  /** 立ち絵を描き直す。threadId 省略時は表示中スレッド。スレッドごとに並行できる */
+  regeneratePortrait: (threadId?: string) => Promise<boolean>;
   resetAppearance: () => Promise<boolean>;
   clearError: () => void;
 }
+
+export type CharacterChatPortraitBusyKind = "portrait" | "appearance";
 
 const CharacterChatContext = createContext<CharacterChatContextValue | null>(
   null,
@@ -104,7 +109,13 @@ export function CharacterChatProvider({ children }: { children: ReactNode }) {
   const [phase, setPhase] = useState<CharacterChatPhase | "idle">("idle");
   const [draft, setDraft] = useState("");
   const [pendingInput, setPendingInput] = useState<string | null>(null);
-  const [portraitBusy, setPortraitBusy] = useState(false);
+  // 姿の処理はスレッド単位で追う。画像生成は 1 分近くかかるため、別スレッドへ
+  // 移動しても続行し、戻ったときに反映する(表示中スレッドの分だけ busy を出す)
+  const [busyPortraits, setBusyPortraits] = useState<
+    Record<string, CharacterChatPortraitBusyKind>
+  >({});
+  const busyPortraitsRef = useRef(busyPortraits);
+  busyPortraitsRef.current = busyPortraits;
   const [error, setError] = useState<string | null>(null);
   // 送信中に別スレッドへ移動しても古いストリームの結果を混ぜない
   const activeThreadIdRef = useRef<string | null>(null);
@@ -113,6 +124,31 @@ export function CharacterChatProvider({ children }: { children: ReactNode }) {
   const pendingPortraitRef = useRef<string | null>(null);
 
   const clearError = useCallback(() => setError(null), []);
+  const markPortraitBusy = useCallback(
+    (threadId: string, kind: CharacterChatPortraitBusyKind | null) => {
+      setBusyPortraits((prev) => {
+        const next = { ...prev };
+        if (kind) next[threadId] = kind;
+        else delete next[threadId];
+        busyPortraitsRef.current = next;
+        return next;
+      });
+    },
+    [],
+  );
+  const applyThreadUpdate = useCallback(
+    (threadId: string, patch: Partial<CharacterChatThread>) => {
+      setActiveThread((prev) =>
+        prev && prev.id === threadId ? { ...prev, ...patch } : prev,
+      );
+      setThreads((prev) =>
+        prev.map((thread) =>
+          thread.id === threadId ? { ...thread, ...patch } : thread,
+        ),
+      );
+    },
+    [],
+  );
 
   const refreshThreads = useCallback(async () => {
     setThreadsLoading(true);
@@ -292,84 +328,95 @@ export function CharacterChatProvider({ children }: { children: ReactNode }) {
   const setAppearanceFromSource = useCallback(
     async (selection: AdventureSourceSelection) => {
       const threadId = activeThreadIdRef.current;
-      if (!threadId) return false;
-      setPortraitBusy(true);
+      if (!threadId || busyPortraitsRef.current[threadId]) return false;
+      markPortraitBusy(threadId, "appearance");
       try {
-        const thread = await setCharacterChatAppearance(
-          threadId,
-          selectionToRequest(selection),
-        );
-        setActiveThread((prev) =>
-          prev && prev.id === threadId
-            ? { ...prev, ...thread, messages: prev.messages }
-            : prev,
-        );
+        const { messages: _ignored, ...thread } =
+          await setCharacterChatAppearance(
+            threadId,
+            selectionToRequest(selection),
+          );
+        applyThreadUpdate(threadId, thread);
         return true;
       } catch (err) {
         setError(errorMessage(err, t("characterChat.errors.appearanceFailed")));
         return false;
       } finally {
-        setPortraitBusy(false);
+        markPortraitBusy(threadId, null);
       }
     },
-    [t],
+    [t, markPortraitBusy, applyThreadUpdate],
   );
 
-  const regeneratePortrait = useCallback(async () => {
-    const threadId = activeThreadIdRef.current;
-    if (!threadId || portraitBusy) return false;
-    setPortraitBusy(true);
-    let ok = false;
-    try {
-      await streamCharacterChatPortrait(threadId, (event) => {
-        if (activeThreadIdRef.current !== threadId) return;
-        if (event.type === "portrait_image") {
-          ok = true;
-          const { image_url, appearance } = event.data;
-          setActiveThread((prev) =>
-            prev && prev.id === threadId
-              ? {
-                  ...prev,
-                  portrait_url: image_url,
-                  portrait_missing: false,
-                  appearance,
-                }
-              : prev,
-          );
-        } else if (event.type === "cost") {
-          const cost = Number(event.data.cost_usd);
-          if (Number.isFinite(cost) && cost > 0) addTotalCost(cost);
-        } else if (event.type === "error") {
-          setError(event.data.message);
-        }
-      });
-    } catch (err) {
-      setError(errorMessage(err, t("characterChat.errors.portraitFailed")));
-    } finally {
-      setPortraitBusy(false);
-    }
-    return ok;
-  }, [portraitBusy, addTotalCost, t]);
+  const regeneratePortrait = useCallback(
+    async (targetThreadId?: string) => {
+      const threadId = targetThreadId ?? activeThreadIdRef.current;
+      if (!threadId || busyPortraitsRef.current[threadId]) return false;
+      markPortraitBusy(threadId, "portrait");
+      let ok = false;
+      let failed: string | null = null;
+      try {
+        await streamCharacterChatPortrait(threadId, (event) => {
+          if (event.type === "portrait_image") {
+            ok = true;
+            const { image_url, appearance } = event.data;
+            // 別スレッドを見ていても、そのスレッドの表示と一覧のサムネイルを更新する
+            applyThreadUpdate(threadId, {
+              portrait_url: image_url,
+              portrait_missing: false,
+              appearance,
+              can_reset_appearance: true,
+            });
+          } else if (event.type === "cost") {
+            const cost = Number(event.data.cost_usd);
+            if (Number.isFinite(cost) && cost > 0) addTotalCost(cost);
+          } else if (
+            event.type === "portrait_error" ||
+            event.type === "error"
+          ) {
+            failed = event.data.message;
+          }
+        });
+      } catch (err) {
+        failed = errorMessage(err, t("characterChat.errors.portraitFailed"));
+      } finally {
+        markPortraitBusy(threadId, null);
+      }
+      if (!ok) {
+        const message = failed ?? t("characterChat.errors.portraitFailed");
+        setError(message);
+        showNotification(
+          "warning",
+          t("characterChat.errors.portraitFailed"),
+          message,
+        );
+      }
+      return ok;
+    },
+    [addTotalCost, t, markPortraitBusy, applyThreadUpdate, showNotification],
+  );
 
   const resetAppearance = useCallback(async () => {
     const threadId = activeThreadIdRef.current;
-    if (!threadId || portraitBusy) return false;
-    setPortraitBusy(true);
+    if (!threadId || busyPortraitsRef.current[threadId]) return false;
+    markPortraitBusy(threadId, "appearance");
     try {
-      const thread = await resetCharacterChatAppearance(threadId);
-      setActiveThread((prev) =>
-        prev && prev.id === threadId
-          ? { ...prev, ...thread, messages: prev.messages }
-          : prev,
-      );
+      const { messages: _ignored, ...thread } =
+        await resetCharacterChatAppearance(threadId);
+      applyThreadUpdate(threadId, thread);
       return true;
     } catch (err) {
       setError(errorMessage(err, t("characterChat.errors.appearanceFailed")));
       return false;
     } finally {
-      setPortraitBusy(false);
+      markPortraitBusy(threadId, null);
     }
-  }, [portraitBusy, t]);
+  }, [t, markPortraitBusy, applyThreadUpdate]);
+
+  const activeBusyKind = activeThread
+    ? (busyPortraits[activeThread.id] ?? null)
+    : null;
+  const portraitBusy = activeBusyKind !== null;
 
   const value = useMemo<CharacterChatContextValue>(
     () => ({
@@ -382,6 +429,7 @@ export function CharacterChatProvider({ children }: { children: ReactNode }) {
       draft,
       pendingInput,
       portraitBusy,
+      portraitBusyKind: activeBusyKind,
       error,
       refreshThreads,
       openBase,
@@ -405,6 +453,7 @@ export function CharacterChatProvider({ children }: { children: ReactNode }) {
       draft,
       pendingInput,
       portraitBusy,
+      activeBusyKind,
       error,
       refreshThreads,
       openBase,

@@ -588,3 +588,19 @@ async def test_reset_base_thread_returns_to_bundled_portrait(
     assert "purple long dress" in reset["appearance"]["clothing_tags"]
     assert reset["appearance"]["portrait_kind"] == "standing"
     assert reset["can_reset_appearance"] is False
+
+
+@pytest.mark.asyncio
+async def test_portrait_regeneration_surfaces_provider_errors(
+    service: CharacterChatService, monkeypatch
+) -> None:
+    thread = await service.get_or_create_base_thread()
+    monkeypatch.setattr(
+        module,
+        "generate_portrait_bytes",
+        AsyncMock(side_effect=TimeoutError()),
+    )
+    with pytest.raises(CharacterChatError) as excinfo:
+        await _collect(service.stream_portrait_regeneration(thread["id"]))
+    assert excinfo.value.code == "image_generation_failed"
+    assert "TimeoutError" in str(excinfo.value)

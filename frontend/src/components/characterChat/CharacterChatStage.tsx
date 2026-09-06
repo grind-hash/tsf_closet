@@ -81,6 +81,9 @@ export default function CharacterChatStage({
                 : t("characterChat.room.appearanceUpdating")
               : ""}
           </span>
+          {working && drawing && (
+            <small>{t("characterChat.room.portraitBusyHint")}</small>
+          )}
         </div>
       )}
     </div>

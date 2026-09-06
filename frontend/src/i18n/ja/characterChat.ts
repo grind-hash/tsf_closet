@@ -45,6 +45,8 @@ export const characterChat = {
     portraitMissing:
       "立ち絵の画像がありません。backend/images/character_chat/{{file}} に画像を置くか、「立ち絵を生成」で外見タグから描けます。",
     portraitBusy: "立ち絵を描いています...",
+    portraitBusyHint:
+      "画像生成には1分ほどかかることがあります。他の画面へ移動しても生成は続き、戻ると反映されます。",
     appearanceUpdating: "姿を差し替えています...",
     sourceBase: "同梱の立ち絵",
     sourceSession: "セッションの画像",
