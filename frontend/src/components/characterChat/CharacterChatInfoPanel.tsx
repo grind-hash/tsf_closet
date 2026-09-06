@@ -33,6 +33,8 @@ export default function CharacterChatInfoPanel({
   const navigate = useNavigate();
   const persona = thread.persona ?? {};
   const isSession = thread.kind === "session";
+  const isAdventure = thread.kind === "adventure";
+  const adventure = isAdventure ? (thread.adventure ?? null) : null;
   const standing = thread.appearance.portrait_kind === "standing";
   const source = thread.appearance.source;
   const sourceLabel = standing
@@ -104,6 +106,106 @@ export default function CharacterChatInfoPanel({
           </p>
         )}
       </section>
+
+      {isAdventure && (
+        <section className="character-chat-panel__section">
+          <h3>{t("characterChat.panel.adventure")}</h3>
+          <p className="character-chat-panel__hint">
+            {t("characterChat.panel.adventureHint")}
+          </p>
+          {adventure && !adventure.available && (
+            <p className="character-chat-panel__empty">
+              {t("characterChat.panel.runMissing")}
+            </p>
+          )}
+          {(adventure?.title || persona.summary_title) && (
+            <p className="character-chat-panel__label">
+              {adventure?.title || persona.summary_title}
+            </p>
+          )}
+          <dl className="character-chat-panel__facts">
+            {(adventure?.affection ?? persona.affection) != null && (
+              <div>
+                <dd>
+                  {t("characterChat.panel.affection", {
+                    value: adventure?.affection ?? persona.affection,
+                    stage: adventure?.stage ?? persona.stage_label ?? "",
+                  })}
+                </dd>
+              </div>
+            )}
+            {(adventure?.day ?? persona.day) != null && (
+              <div>
+                <dd>
+                  {t("characterChat.panel.day", {
+                    day: adventure?.day ?? persona.day,
+                    slot: adventure?.slot ?? persona.slot ?? "",
+                  })}
+                </dd>
+              </div>
+            )}
+            {(adventure?.dating ?? persona.dating) && (
+              <div>
+                <dd>{t("characterChat.panel.dating")}</dd>
+              </div>
+            )}
+          </dl>
+          {persona.summary_text && (
+            <p className="character-chat-panel__text">{persona.summary_text}</p>
+          )}
+          {persona.speech_style && (
+            <>
+              <h4>{t("characterChat.panel.speechStyle")}</h4>
+              <p className="character-chat-panel__text">
+                {persona.speech_style}
+              </p>
+            </>
+          )}
+          {persona.given_gifts && persona.given_gifts.length > 0 && (
+            <>
+              <h4>{t("characterChat.panel.gifts")}</h4>
+              <ul className="character-chat-panel__list">
+                {persona.given_gifts.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </>
+          )}
+          {persona.completed_milestones &&
+            persona.completed_milestones.length > 0 && (
+              <>
+                <h4>{t("characterChat.panel.milestones")}</h4>
+                <ul className="character-chat-panel__list">
+                  {persona.completed_milestones.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              </>
+            )}
+          {persona.attributes && persona.attributes.length > 0 && (
+            <>
+              <h4>{t("characterChat.panel.attributes")}</h4>
+              <ul className="character-chat-panel__list">
+                {persona.attributes.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </>
+          )}
+          {timelineEntries.length > 0 && (
+            <>
+              <h4>{t("characterChat.panel.recentScenes")}</h4>
+              <ol className="character-chat-panel__timeline">
+                {timelineEntries.map((item) => (
+                  <li key={item.key}>
+                    <span>{item.text}</span>
+                  </li>
+                ))}
+              </ol>
+            </>
+          )}
+        </section>
+      )}
 
       {isSession && (
         <section className="character-chat-panel__section">

@@ -1,6 +1,6 @@
 """キャラチャット(TSF シナリオを経由しないキャラクターとの会話)の定数。
 
-拠点キャラ「セレナ」の定義と、プロンプト予算・上限値の唯一の情報源。
+案内役キャラ「セレナ」の定義と、プロンプト予算・上限値の唯一の情報源。
 UI の表示名は i18n 側(characterChat.*)にあり、ここには LLM と永続化に
 関わる値だけを置く。
 """
@@ -13,9 +13,23 @@ from ..settings.config import settings
 
 CHARACTER_CHAT_KIND_BASE = "base"
 CHARACTER_CHAT_KIND_SESSION = "session"
-CHARACTER_CHAT_KINDS = (CHARACTER_CHAT_KIND_BASE, CHARACTER_CHAT_KIND_SESSION)
+# TSF シナリオ(Adventure、恋愛シミュレーション)の攻略対象。run に紐づけて毎回ライブで読む
+CHARACTER_CHAT_KIND_ADVENTURE = "adventure"
+CHARACTER_CHAT_KINDS = (
+    CHARACTER_CHAT_KIND_BASE,
+    CHARACTER_CHAT_KIND_SESSION,
+    CHARACTER_CHAT_KIND_ADVENTURE,
+)
 
-# 拠点キャラ(ユーザーごとに 1 スレッド)
+# adventure 種: 次の手番へ文脈として渡す「前の手番以降のチャット発言」の直近件数と、
+# 返答の system prompt に渡す直近の場面(手番)数
+ADVENTURE_RECENT_CHAT_MAX = 12
+ADVENTURE_SCENE_CONTEXT_MAX = 5
+# 姿の既定の選び方(表示モードで決める)と、姿メニューの切り替え候補
+ADVENTURE_APPEARANCE_MODES = ("default", "partner_portrait", "scene")
+PORTRAIT_REFERENCE_KINDS = ("current", "scene", "partner")
+
+# 案内役キャラ(ユーザーごとに 1 スレッド)
 BASE_CHARACTER_KEY = "serena"
 BASE_CHARACTER_NAME = {"ja": "セレナ", "en": "Serena"}
 BASE_CHARACTER_PRONOUN = {"ja": "私", "en": "I"}
@@ -47,7 +61,7 @@ BASE_APPEARANCE_DESCRIPTION = {
 
 BASE_CHARACTER_PERSONA = {
     "ja": (
-        "あなたは「セレナ」。TSF Closet というアプリの中に住む、拠点の案内役です。"
+        "あなたは「セレナ」。TSF Closet というアプリの中に住む案内役です。"
         "穏やかで丁寧、少し親しげな話し方をし、相手を「あなた」と呼びます。"
         "自分がこのアプリのキャラクターであることを理解しており、アプリの機能や遊び方、"
         "相手の過去のプレイや好みといったメタな話題にも自然に答えます。"
@@ -57,7 +71,7 @@ BASE_CHARACTER_PERSONA = {
         "必要なら「調べてみましょうか？」と提案してもかまいません。"
     ),
     "en": (
-        "You are Serena, the resident guide of the home base inside the app TSF Closet. "
+        "You are Serena, the resident guide inside the app TSF Closet. "
         "You speak calmly and politely with a touch of warmth, and address the user as "
         '"you". You know you are a character of this app, and you answer naturally even '
         "to meta questions about the app's features, how to play, and what you know about "

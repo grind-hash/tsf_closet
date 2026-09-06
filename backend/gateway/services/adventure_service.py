@@ -53,7 +53,6 @@ from ..consts.adventure_romance import (
     ROMANCE_PLAYER_DEFAULT_CHARACTER_ID,
     ROMANCE_SLOTS_PER_DAY,
     ROMANCE_TALK_FALLBACK_DELTA,
-    ROMANCE_TALK_SCENE_CONTEXT_MAX,
 )
 from ..consts.adventure_speech import (
     PARTNER_SPEECH_STYLE_MAX_LENGTH,
@@ -76,7 +75,6 @@ from ..consts.companion_avatar import (
     normalize_avatar_expression,
     normalize_avatar_gesture,
     normalize_avatar_outfit_key,
-    parse_talk_header,
 )
 from ..consts.novelai_models import (
     NOVELAI_IMAGE_MODELS,
@@ -129,18 +127,13 @@ from .adventure_romance import (
     ROMANCE_VISUAL_GUIDANCE,
     RomanceActionError,
     RomanceSetupOutput,
-    append_talk_entry,
     apply_romance_outcome,
     apply_romance_time_of_day,
     clamp_romance_max_turns,
     init_romance_state,
     normalize_player_name,
-    normalize_talk_input,
-    normalize_talk_reply,
     opening_sim_view,
     public_sim_view,
-    public_talk_log,
-    recent_talk_entries,
     resolve_romance_action,
     romance_companion_narrative_guidance,
     romance_day_slot,
@@ -148,11 +141,8 @@ from .adventure_romance import (
     romance_script_format_guidance,
     romance_script_names,
     romance_setup_system_prompt,
-    romance_talk_system_prompt,
     strip_duplicate_action_choices,
     strip_romance_time_of_day,
-    talk_history_messages,
-    talk_relationship_context,
 )
 from .adventure_template_loader import SCENARIO_TEMPLATES, template_localized
 from .avatar_service import (
@@ -355,8 +345,6 @@ def _lean_state_for_llm(state: dict[str, Any]) -> dict[str, Any]:
         # 表情・身振りは手番ごとの表示用出力。次の手番の入力にはしない
         "partner_expression",
         "partner_gesture",
-        # トークログは必要な分だけ recent_talk として別途渡す
-        "talk_log",
         # 持ち物は turn_context["inventory"] / ["npc_states"] に上限付きで整形して
         # 渡す。world_events_applied は表示用の記録
         "inventory_enabled",
@@ -365,90 +353,6 @@ def _lean_state_for_llm(state: dict[str, Any]) -> dict[str, Any]:
         "world_events_applied",
     }
     return {key: value for key, value in state.items() if key not in omit}
-
-
-class _TalkHeaderBuffer:
-    """トーク返答の先頭ヘッダ行を配信前に取り除く小さなバッファ。
-
-    対面会話モードの返答は ``[expression=.. gesture=..]`` で始まる。改行か
-    一定長までは溜め、先頭が ``[`` でないと分かった時点で即時に流す。
-    """
-
-    _LIMIT = 64
-
-    def __init__(self, *, enabled: bool) -> None:
-        self._pending = ""
-        self._decided = not enabled
-
-    def feed(self, chunk: str) -> list[str]:
-        if self._decided:
-            return [chunk]
-        self._pending += chunk
-        stripped = self._pending.lstrip()
-        if stripped and not stripped.startswith("["):
-            return self._release()
-        if "\n" in self._pending or len(self._pending) >= self._LIMIT:
-            return self._release()
-        return []
-
-    def flush(self) -> list[str]:
-        if self._decided:
-            return []
-        return self._release()
-
-    def _release(self) -> list[str]:
-        self._decided = True
-        _, _, rest = parse_talk_header(self._pending)
-        self._pending = ""
-        return [rest] if rest else []
-
-
-def _turn_affection(turn: Any) -> int | None:
-    """手番適用後の好感度。state_delta_json が無い旧データや欠落は None。"""
-    raw = getattr(turn, "state_delta_json", None)
-    delta = _json_load(raw, {}) if raw else {}
-    sim = delta.get("sim") if isinstance(delta, dict) else None
-    if not isinstance(sim, dict) or sim.get("affection") is None:
-        return None
-    try:
-        return int(sim.get("affection"))
-    except (TypeError, ValueError):
-        return None
-
-
-def _talk_recent_scenes(turns: list[Any]) -> list[dict[str, Any]]:
-    """トークの文脈へ渡す直近の場面。各手番後の好感度とその増減を添える。
-
-    state_delta_json は手番適用後の全 state のスナップショットなので、そこから
-    sim.affection を読み、直前の手番との差分を affection_change にする。渡す
-    範囲の一つ前の手番を増減の起点にし、比較対象が無い場合は None。
-    """
-    recent = turns[-ROMANCE_TALK_SCENE_CONTEXT_MAX:]
-    previous: int | None = None
-    if len(turns) > len(recent):
-        previous = _turn_affection(turns[-len(recent) - 1])
-    scenes: list[dict[str, Any]] = []
-    for turn in recent:
-        after = _turn_affection(turn)
-        change = (
-            after - previous if after is not None and previous is not None else None
-        )
-        day, slot = romance_day_slot(int(turn.turn_number))
-        scenes.append(
-            {
-                "turn": int(turn.turn_number),
-                "day": day,
-                "slot": slot,
-                "player_action": turn.user_input,
-                "input_kind": getattr(turn, "input_kind", None),
-                "narrative": turn.narrative,
-                "affection_after": after,
-                "affection_change": change,
-            }
-        )
-        if after is not None:
-            previous = after
-    return scenes
 
 
 def _companion_avatar_id(run: AdventureRun, state: dict[str, Any]) -> str | None:
@@ -3791,132 +3695,48 @@ The objective must name a concrete target and an observable end condition that c
                 payload["cost_usd"] = tracker.total_usd
             return payload
 
-    async def stream_talk(
-        self, *, run_id: str, user_input: str
-    ) -> AsyncGenerator[dict[str, Any], None]:
-        """トークモード: 手番を消費せずに攻略対象と会話する(romance 専用)。
+    async def _recent_chat_for_run(self, run: AdventureRun) -> list[dict[str, Any]]:
+        """キャラチャット(adventure 種)で前の手番以降に交わした発言。romance 以外は空。
 
-        turn_count・status・sim・AdventureTurn には一切触れず、state_json の
-        talk_log だけを更新する。会話は次の手番へ recent_talk として渡される。
+        character_chat_service は adventure_service を遅延 import するため、こちらも
+        遅延 import で循環を避ける。取得失敗は手番を止めず空にする。
         """
-        tracker = begin_cost_tracking()
-        async with self._run_locks[run_id]:
-            run = await self.get_run_orm(run_id, with_turns=True)
-            state = _json_load(run.state_json, {})
-            sim = state.get("sim") if run.preset == "romance" else None
-            if not isinstance(sim, dict):
-                raise AdventureError(
-                    "talk_unavailable", "トークは恋愛シミュレーションでのみ使えます"
-                )
-            if run.status != "active" and not state.get("epilogue"):
-                raise AdventureError("run_completed", "このシナリオは終了しています")
-            message = normalize_talk_input(user_input)
-            if not message:
-                raise AdventureError("invalid_input", "メッセージが空です")
+        if run.preset != "romance":
+            return []
+        from .character_chat_service import character_chat_service
 
-            partner_name, player_name = romance_script_names(sim, run.language)
-            turns = sorted(run.turns, key=lambda item: item.turn_number)
-            epilogue = bool(state.get("epilogue"))
-            visual_state = state.get("visual_state", {})
-            # 人物設定・関係性・場面は system prompt の context として渡し、
-            # 会話そのものは過去ログを user/assistant メッセージ列、今回の
-            # 発言を最後の user メッセージにして「会話の続き」として答えさせる。
-            # (JSON の一項目に履歴を埋めるだけでは直前のやり取りを踏まえない)
-            context = {
-                "task": (
-                    "Reply as the partner in a free chat between scenes. "
-                    "Nothing in the story advances."
-                ),
-                "partner": {
-                    "name": partner_name,
-                    "profile": str(sim.get("partner_profile") or ""),
-                    "speech_style": str(sim.get("partner_speech_style") or ""),
-                    "appearance": str(sim.get("partner_appearance") or ""),
-                },
-                "player_name": player_name,
-                "relationship": talk_relationship_context(
-                    sim, state, run.turn_count, epilogue=epilogue
-                ),
-                "hidden_preferences": sim.get("hidden_preferences"),
-                "current_scene": _sanitize_visual_state(visual_state),
-                "reality_rules": list(state.get("reality_rules", [])),
-                "recent_scenes": _talk_recent_scenes(turns),
-            }
-            if inventory_enabled(state):
-                # トークは状態を変えないが、所持品の話題と矛盾しないよう読み取り専用で渡す
-                context["inventory"] = lean_inventory_for_llm(state)
-            history = talk_history_messages(state, run.turn_count)
-            companion = bool(state.get("companion_mode"))
-            yield {"event": "status", "data": {"phase": "talk"}}
-            reply = ""
-            # 対面会話モードでは先頭ヘッダ行 [expression=.. gesture=..] を
-            # 表示前に剥がすため、1 行分だけ溜めてから流す
-            header = _TalkHeaderBuffer(enabled=companion)
-            async for chunk in llm_service.generate_feeling_stream(
-                romance_talk_system_prompt(
-                    run.language,
-                    partner_name=partner_name,
-                    player_name=player_name,
-                    speech_rule=_speech_rule_from_state(state),
-                    companion=companion,
-                    context=context,
-                ),
-                message,
-                provider_override=resolve_text_provider(),
-                novelai_model_override=run.text_model,
-                usage_callback=record_cost,
-                history=history,
-            ):
-                if not chunk:
-                    continue
-                reply += chunk
-                for visible in header.feed(chunk):
-                    yield {"event": "talk_chunk", "data": {"chunk": visible}}
-            for visible in header.flush():
-                yield {"event": "talk_chunk", "data": {"chunk": visible}}
-            talk_expression, talk_gesture, _ = parse_talk_header(
-                extract_json_object(reply)
+        try:
+            return await character_chat_service.recent_adventure_messages(
+                run.id, after_turn=run.turn_count
             )
-            reply = normalize_talk_reply(extract_json_object(reply), partner_name)
-            if not reply:
-                raise AdventureError(
-                    "invalid_model_output",
-                    "返答を解析できませんでした。もう一度お試しください",
-                )
-            user_entry = append_talk_entry(
-                state, role="user", text=message, after_turn=run.turn_count
+        except Exception as exc:
+            logger.warning(
+                "recent character chat lookup failed: run_id=%s %s: %s",
+                run.id,
+                type(exc).__name__,
+                exc,
             )
-            partner_entry = append_talk_entry(
-                state,
-                role="partner",
-                text=reply,
-                after_turn=run.turn_count,
-                expression=talk_expression,
-                gesture=talk_gesture,
-            )
-            async with self._persist_locks[run_id], async_session_factory() as db:
-                persisted = await db.get(AdventureRun, run.id)
-                if persisted is None:
-                    raise AdventureError(
-                        "run_not_found", "アドベンチャーが見つかりません"
-                    )
-                # 手番中の生成と競合しないよう、talk_log だけを最新 state へ書き戻す
-                persisted_state = _json_load(persisted.state_json, {})
-                persisted_state["talk_log"] = state.get("talk_log", [])
-                persisted.state_json = json.dumps(persisted_state, ensure_ascii=False)
-                persisted.updated_at = datetime.now()
-                await db.commit()
-            yield {
-                "event": "talk_done",
-                "data": {
-                    "user_entry": user_entry,
-                    "partner_entry": partner_entry,
-                    "turn_count": run.turn_count,
-                },
-            }
-            if tracker.total_usd > 0:
-                yield {"event": "cost", "data": {"cost_usd": tracker.total_usd}}
-            yield {"event": "complete", "data": {"status": run.status}}
+            return []
+
+    async def consume_talk_log(self, run_id: str) -> list[dict[str, Any]]:
+        """旧トークモードのログ(state_json["talk_log"])を取り出して state から消す。
+
+        キャラチャット(adventure 種)を初めて開いたときの取り込みに使う。以後は
+        キャラチャットのメッセージが唯一の会話記録になる。
+        """
+        async with self._persist_locks[run_id], async_session_factory() as db:
+            run = await db.get(AdventureRun, run_id)
+            if run is None:
+                return []
+            state = _json_load(run.state_json, {})
+            log = state.pop("talk_log", None)
+            if log is None:
+                return []
+            run.state_json = json.dumps(state, ensure_ascii=False)
+            await db.commit()
+        if not isinstance(log, list):
+            return []
+        return [item for item in log if isinstance(item, dict)]
 
     async def delete_run(self, run_id: str) -> None:
         await self.get_run_orm(run_id)
@@ -3936,7 +3756,7 @@ The objective must name a concrete target and an observable end condition that c
         # 口調は物語の出来事ではなく設定なので、巻き戻しても最新の選択を残す
         "player_speech_style",
         "player_speech_custom",
-        # 対面会話モードも表示設定。トークログは巻き戻し先のスナップショットに従う
+        # 対面会話モードも表示設定
         "companion_mode",
         "companion_avatar_id",
         # 持ち物システムの ON/OFF は設定。所持品そのものは巻き戻し先の
@@ -4836,6 +4656,7 @@ The objective must name a concrete target and an observable end condition that c
                 epilogue=epilogue,
                 outfit_options=outfit_options,
                 item_action=item_action,
+                recent_talk=await self._recent_chat_for_run(run),
             )
             input_kind = contexts.input_kind
 
@@ -5844,6 +5665,7 @@ The objective must name a concrete target and an observable end condition that c
         epilogue: bool,
         outfit_options: list[dict[str, Any]] | None = None,
         item_action: dict[str, Any] | None = None,
+        recent_talk: list[dict[str, Any]] | None = None,
     ) -> _TurnContexts:
         """1手番のLLMへ渡す文脈を組み立てる。
 
@@ -5929,8 +5751,8 @@ The objective must name a concrete target and an observable end condition that c
         if romance_resolution is not None:
             turn_context["romance_resolution"] = romance_resolution
         if romance_sim is not None:
-            # トークモードで交わした会話を、直前の手番以降の分だけ文脈として渡す
-            recent_talk = recent_talk_entries(state, run.turn_count)
+            # キャラチャット(adventure 種)で交わした会話のうち、直前の手番以降の分を
+            # 文脈として渡す(呼び出し側が character_chat_service から読んで渡す)
             if recent_talk:
                 turn_context["recent_talk"] = recent_talk
             if state.get("companion_mode"):
@@ -7449,6 +7271,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             epilogue=epilogue,
             outfit_options=outfit_options,
             item_action=item_action,
+            recent_talk=await self._recent_chat_for_run(run),
         )
         romance = contexts.romance_sim is not None
         turn_user_prompt = json.dumps(contexts.turn_context, ensure_ascii=False)
@@ -7754,11 +7577,14 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             response["partner_portrait_status"] = normalize_partner_portrait_status(
                 state.get("partner_portrait_status")
             )
-            # トークモード(手番を消費しない会話)のログ
-            response["talk_log"] = public_talk_log(state)
         if include_snapshot:
             response["snapshot"] = _json_load(run.snapshot_json, {})
         return response
 
 
 adventure_service = AdventureService()
+
+# キャラチャット(adventure 種)が run の状態を LLM 向けに整形するときに共用する
+sanitize_visual_state = _sanitize_visual_state
+speech_rule_from_state = _speech_rule_from_state
+romance_partner_visual_entry = _romance_partner_visual_entry

@@ -3,7 +3,6 @@ import type {
   AdventureInventory,
   AdventureRun,
   AdventureSim,
-  AdventureTalkEntry,
   AdventureTurn,
   AdventureVisualCharacter,
 } from "../apis/adventure";
@@ -31,10 +30,6 @@ export interface AdventureSceneView {
   partnerName: string;
   partnerClothing: string;
   playerDisplayName: string;
-  /** トークモード(romance): 行動パネルを会話スレッドに切り替える */
-  talkMode: boolean;
-  currentTalkEntries: AdventureTalkEntry[];
-  lastPartnerTalk: AdventureTalkEntry | null;
   /** 表示中フレームの持ち物の変化(1行)。無ければ null */
   inventoryNote: string | null;
 }
@@ -46,7 +41,6 @@ interface BuildSceneViewOptions {
   isViewingPast: boolean;
   streamingNarrative: string;
   pendingUserInput: string | null;
-  actionMode: "act" | "talk";
   t: TFunction;
 }
 
@@ -61,7 +55,6 @@ export function buildAdventureSceneView({
   isViewingPast,
   streamingNarrative,
   pendingUserInput,
-  actionMode,
   t,
 }: BuildSceneViewOptions): AdventureSceneView {
   const latestTurn = activeRun.turns.at(-1) ?? null;
@@ -114,15 +107,7 @@ export function buildAdventureSceneView({
     frameWorldEvents.length > 0
       ? formatInventoryEvents(frameWorldEvents, t)
       : null;
-  const talkMode = Boolean(sim) && actionMode === "talk";
   const playerDisplayName = sim?.player_name?.trim() || t("adventure.talk.you");
-  const currentTalkEntries = (activeRun.talk_log ?? []).filter(
-    (entry) => entry.after_turn === activeRun.turn_count,
-  );
-  const lastPartnerTalk =
-    [...(activeRun.talk_log ?? [])]
-      .reverse()
-      .find((entry) => entry.role === "partner") ?? null;
   return {
     latestTurn,
     isStreamingNarrative,
@@ -139,9 +124,6 @@ export function buildAdventureSceneView({
     partnerName,
     partnerClothing,
     playerDisplayName,
-    talkMode,
-    currentTalkEntries,
-    lastPartnerTalk,
     inventoryNote,
   };
 }

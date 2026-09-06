@@ -1,8 +1,9 @@
 import { expect, type Page, test } from "@playwright/test";
 
 /**
- * キャラチャット(/talk): 拠点キャラのスレッドを開き、発言をストリーミングで受け、
+ * キャラチャット(/talk): 案内役キャラのスレッドを開き、発言をストリーミングで受け、
  * 確定した返答が残り、削除で一覧から消える。バックエンドは SSE 本文ごとモックする。
+ * 「会話の続き」一覧は種類チップで絞り込め、選択は localStorage に残る。
  */
 
 const BASE_THREAD = {
@@ -145,4 +146,86 @@ test("redirects to /play/new when the feature is off", async ({ page }) => {
   });
   await page.goto("/talk");
   await expect(page).toHaveURL(/\/play\/new$/);
+});
+
+test("filters the conversation list by kind and remembers the choice", async ({
+  page,
+}) => {
+  await enableCharacterChat(page);
+  const threads = [
+    { ...BASE_THREAD },
+    {
+      ...BASE_THREAD,
+      id: "session-1",
+      kind: "session",
+      name: "サクラ",
+      message_count: 4,
+      updated_at: "2026-09-05T10:00:00",
+    },
+    {
+      ...BASE_THREAD,
+      id: "adventure-1",
+      kind: "adventure",
+      name: "ユイ",
+      message_count: 2,
+      updated_at: "2026-09-04T10:00:00",
+    },
+  ];
+  await page.route("**/api/character-chat/threads", async (route) => {
+    await route.fulfill({ json: { threads } });
+  });
+
+  await page.goto("/talk");
+  const filters = page.getByRole("group", { name: "会話の種類で絞り込む" });
+  await expect(filters).toBeVisible();
+  // 既定は「すべて」で、件数付きのチップが 4 つ並ぶ
+  const all = filters.getByRole("button", { name: /^すべて/ });
+  await expect(all).toHaveAttribute("aria-pressed", "true");
+  await expect(all).toContainText("3");
+  await expect(filters.getByRole("button", { name: /^案内役/ })).toContainText(
+    "1",
+  );
+  const rows = page.locator(".character-chat__thread-row");
+  await expect(rows).toHaveCount(3);
+  // 案内役が先頭に来る
+  await expect(rows.first()).toContainText("セレナ");
+
+  await filters.getByRole("button", { name: /^シナリオ/ }).click();
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText("ユイ");
+
+  // 再読込しても選択が復元され、選択中チップにフォーカスが当たる
+  await page.reload();
+  const scenario = page
+    .getByRole("group", { name: "会話の種類で絞り込む" })
+    .getByRole("button", { name: /^シナリオ/ });
+  await expect(scenario).toHaveAttribute("aria-pressed", "true");
+  await expect(scenario).toBeFocused();
+  await expect(page.locator(".character-chat__thread-row")).toHaveCount(1);
+});
+
+test("scrolls the hub when the conversation list is taller than the viewport", async ({
+  page,
+}) => {
+  await enableCharacterChat(page);
+  const threads = Array.from({ length: 24 }, (_, index) => ({
+    ...BASE_THREAD,
+    id: `session-${index}`,
+    kind: "session",
+    name: `サクラ ${index + 1}`,
+  }));
+  await page.route("**/api/character-chat/threads", async (route) => {
+    await route.fulfill({ json: { threads } });
+  });
+  await page.setViewportSize({ width: 1000, height: 560 });
+
+  await page.goto("/talk");
+  const rows = page.locator(".character-chat__thread-row");
+  await expect(rows).toHaveCount(24);
+  await expect(rows.last()).not.toBeInViewport();
+
+  // MainLayout の content は overflow: hidden なので、Hub 自身がホイールでスクロールできること
+  await page.mouse.move(600, 300);
+  await page.mouse.wheel(0, 4000);
+  await expect(rows.last()).toBeInViewport();
 });

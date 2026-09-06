@@ -761,7 +761,7 @@ class AvatarModel(Base):
 class CharacterChatThread(Base):
     """キャラチャット(TSF シナリオを経由しない 1 対 1 の会話)のスレッド。
 
-    kind は "base"(拠点キャラ。ユーザーごとに 1 件)か "session"(過去セッション
+    kind は "base"(案内役キャラ。ユーザーごとに 1 件)か "session"(過去セッション
     時点の人物をスナップショットしたキャラ)。persona_json / appearance_json は
     services/character_chat_service が読み書きする JSON で、立ち絵は
     data/character_chat_images/{thread_id}/ に置き portrait_path に data 相対パスを
@@ -795,6 +795,9 @@ class CharacterChatThread(Base):
     source_prompt_expander_entry_id: Mapped[str | None] = mapped_column(
         String, nullable=True
     )
+    # kind="adventure" のとき紐づく TSF シナリオ(AdventureRun)の ID。人物設定は
+    # 毎回 run からライブで読む。run 削除後も会話を残すため FK は張らない
+    source_run_id: Mapped[str | None] = mapped_column(String, nullable=True)
     # 長いスレッド向けのローリング要約と、要約に反映済みのメッセージ数
     summary_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     summary_message_count: Mapped[int] = mapped_column(
@@ -825,6 +828,7 @@ class CharacterChatThread(Base):
     __table_args__ = (
         Index("idx_character_chat_threads_user_updated", "user_id", "updated_at"),
         Index("idx_character_chat_threads_user_kind", "user_id", "kind"),
+        Index("idx_character_chat_threads_source_run", "source_run_id"),
     )
 
 

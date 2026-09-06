@@ -8,15 +8,14 @@ import type {
 } from "../../apis/adventure";
 import { canActOnRun } from "../../apis/adventure";
 import { fetchAnlasBalance } from "../../apis/anlas";
+import { openAdventureCharacterChatThread } from "../../apis/characterChat";
 import {
   PROTAGONIST_DOCK_STORAGE_KEY,
   REALITY_DECLARATION_PATTERN,
 } from "../../constants/adventure";
-import {
-  type AvatarExpressionKey,
-  type AvatarGestureKey,
-  normalizeAvatarExpression,
-  normalizeAvatarGesture,
+import type {
+  AvatarExpressionKey,
+  AvatarGestureKey,
 } from "../../constants/companionAvatar";
 import { isV5ImageModel } from "../../constants/novelaiImageModels";
 import {
@@ -29,21 +28,16 @@ import { useAdventureBgm } from "../../hooks/useAdventureBgm";
 import { useAdventureDrawPreferences } from "../../hooks/useAdventureDrawPreferences";
 import { useAdventureFrameNavigation } from "../../hooks/useAdventureFrameNavigation";
 import { useAdventureNarration } from "../../hooks/useAdventureNarration";
-import { useAdventureSpeechInput } from "../../hooks/useAdventureSpeechInput";
 import { useAdventureStagePortraits } from "../../hooks/useAdventureStagePortraits";
 import { usePersistedState } from "../../hooks/usePersistedState";
 import {
   type TimedProgressSegment,
   useTimedProgress,
 } from "../../hooks/useTimedProgress";
+import { ROUTES } from "../../routes";
 import type { AnlasBalance } from "../../types";
 import { estimateAdventureAnlas } from "../../utils/adventureAnlasEstimate";
-import {
-  joinForSpeech,
-  partnerLines,
-  stripStageDirections,
-  stripTalkHeader,
-} from "../../utils/adventureDialogue";
+import { joinForSpeech, partnerLines } from "../../utils/adventureDialogue";
 import { formatAnlasEstimate } from "../../utils/adventureFormat";
 import { frameDaySlot } from "../../utils/adventureFrames";
 import { buildAdventureSceneView } from "../../utils/adventureSceneView";
@@ -64,9 +58,7 @@ import AdventureHud, { type AdventureHudPanel } from "./AdventureHud";
 import AdventureImagePromptModal from "./AdventureImagePromptModal";
 import AdventureImageSettingsPopover from "./AdventureImageSettingsPopover";
 import AdventureLogDrawer from "./AdventureLogDrawer";
-import AdventureMessageBox, {
-  type AdventureActionMode,
-} from "./AdventureMessageBox";
+import AdventureMessageBox from "./AdventureMessageBox";
 import AdventurePromptPreviewModal from "./AdventurePromptPreviewModal";
 import AdventureProtagonistDock from "./AdventureProtagonistDock";
 import AdventureResultOverlay from "./AdventureResultOverlay";
@@ -77,7 +69,7 @@ import AdventureStage from "./AdventureStage";
 // 描画は HUD / ステージ / メッセージ窓 / ログ / プレビューの各コンポーネントに任せる。
 
 export default function AdventurePlay({ runId }: { runId: string }) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const {
     activeRun,
@@ -87,8 +79,6 @@ export default function AdventurePlay({ runId }: { runId: string }) {
     phaseStep,
     pendingUserInput,
     narrativeSettled,
-    talking,
-    submitTalk,
     error,
     loadRun,
     submitTurn,
@@ -133,8 +123,6 @@ export default function AdventurePlay({ runId }: { runId: string }) {
     drawPartnerEveryTurn,
     setDrawPartnerEveryTurn,
   } = useAdventureDrawPreferences();
-  // romance の行動パネル: 行動(手番を消費) / トーク(手番を消費しない会話)
-  const [actionMode, setActionMode] = useState<AdventureActionMode>("act");
   const [resultDismissed, setResultDismissed] = useState(false);
   const [anlasBalance, setAnlasBalance] = useState<AnlasBalance | null>(null);
 
@@ -293,12 +281,6 @@ export default function AdventurePlay({ runId }: { runId: string }) {
     setDucked: setBgmDucked,
   } = useAdventureBgm(currentBgm?.key ?? null);
 
-  // run が変わったら行動モードへ戻す
-  // biome-ignore lint/correctness/useExhaustiveDependencies: activeRun.id の変化を検知して行動モードへ戻すための依存
-  useEffect(() => {
-    setActionMode("act");
-  }, [activeRun?.id]);
-
   const isRomancePreset = activeRun?.preset === "romance";
   // 対面会話モード: 主人公立ち絵と合成シーンの工程は走らない
   const companionActive = isRomancePreset && Boolean(activeRun?.companion_mode);
@@ -344,7 +326,7 @@ export default function AdventurePlay({ runId }: { runId: string }) {
       options?: { giftId?: string },
     ) => {
       const trimmed = value.trim();
-      if (!trimmed || streaming || talking || !canActOnRun(activeRun)) return;
+      if (!trimmed || streaming || !canActOnRun(activeRun)) return;
       setInput("");
       // 「現実改変：〜」はサーバ側でも検出されるが、送信種別も合わせておく
       const effectiveKind =
@@ -353,31 +335,23 @@ export default function AdventurePlay({ runId }: { runId: string }) {
           : kind;
       void submitTurn(trimmed, effectiveKind, options);
     },
-    [activeRun, streaming, talking, submitTurn],
+    [activeRun, streaming, submitTurn],
   );
 
-  // トークモードの送信。手番は消費しない
-  const submitTalkMessage = useCallback(
-    (value: string) => {
-      const trimmed = value.trim();
-      if (!trimmed || streaming || talking || !canActOnRun(activeRun)) return;
-      setInput("");
-      void submitTalk(trimmed);
-    },
-    [activeRun, streaming, talking, submitTalk],
-  );
-
-  // 音声入力(トークモード)
-  const talkModeActive = Boolean(activeRun?.sim) && actionMode === "talk";
-  const speechInput = useAdventureSpeechInput({
-    language: i18n.language ?? "",
-    input,
-    setInput,
-    onSubmit: submitTalkMessage,
-    active: talkModeActive,
-    voiceStatus: voice.status,
-    stopVoice: voice.stop,
-  });
+  // 攻略対象との雑談(手番を消費しない)はキャラチャットへ移動して行う
+  const openCharacterChat = useCallback(async () => {
+    if (!activeRun) return;
+    try {
+      const thread = await openAdventureCharacterChatThread(activeRun.id);
+      navigate(`${ROUTES.CHARACTER_CHAT}/${thread.id}`);
+    } catch (caught) {
+      showNotification(
+        "error",
+        t("adventure.actionPanel.openChatFailed"),
+        caught instanceof Error ? caught.message : String(caught),
+      );
+    }
+  }, [activeRun, navigate, showNotification, t]);
 
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
@@ -415,13 +389,7 @@ export default function AdventurePlay({ runId }: { runId: string }) {
       }
       // Anlas確認ダイアログ表示中は数字キー送信で保留中の送信を上書きしない。
       // 過去フレーム閲覧中は行動UIを非表示にしているため送信もしない。
-      // トークモード中は選択肢を出していないため数字キーも効かせない
-      if (
-        logOpen ||
-        pendingAnlasTurn ||
-        selectedFrameIndex !== null ||
-        actionMode === "talk"
-      ) {
+      if (logOpen || pendingAnlasTurn || selectedFrameIndex !== null) {
         return;
       }
       const choice = (activeRun?.choices ?? []).filter((item) =>
@@ -440,7 +408,6 @@ export default function AdventurePlay({ runId }: { runId: string }) {
     selectedFrameIndex,
     bgmMuted,
     setBgmMuted,
-    actionMode,
   ]);
 
   const {
@@ -558,17 +525,9 @@ export default function AdventurePlay({ runId }: { runId: string }) {
     isViewingPast,
     streamingNarrative,
     pendingUserInput,
-    actionMode,
     t,
   });
-  const {
-    sim,
-    partnerName,
-    talkMode,
-    lastPartnerTalk,
-    activeNarrative,
-    isStreamingNarrative,
-  } = scene;
+  const { sim, partnerName, activeNarrative, isStreamingNarrative } = scene;
   // 攻略対象の立ち絵を据え置いた手番の案内。立ち絵をステージに出している
   // (合成でなく 3D モデルも非表示)ときだけ表示中フレームに追随し、
   // 新しい手番のストリーム中は前手番の案内を出さない
@@ -611,20 +570,16 @@ export default function AdventurePlay({ runId }: { runId: string }) {
   };
   const stagePortraitFailed =
     !isCompanion && stageFrame?.portraitStatus === "failed";
-  // 🔊 の再読み上げ対象。トーク中は最新の返答、それ以外は表示中フレームのセリフ
-  const voiceReplayText =
-    talkMode && lastPartnerTalk
-      ? stripStageDirections(stripTalkHeader(lastPartnerTalk.text))
-      : joinForSpeech(partnerLines(activeNarrative, partnerName));
+  // 🔊 の再読み上げ対象。表示中フレームのセリフ
+  const voiceReplayText = joinForSpeech(
+    partnerLines(activeNarrative, partnerName),
+  );
   const frameReplayKey = `frame:${selectedFrame?.key ?? "latest"}`;
   // 本文ストリーム中の手番は先読み(読み上げ(0))と同じキーにし、🔊 が先読みの
   // 再生中表示と停止を兼ねるようにする
-  const voiceReplayKey =
-    talkMode && lastPartnerTalk
-      ? `talk:${lastPartnerTalk.id}`
-      : isStreamingNarrative
-        ? turnVoiceKey(activeRun.id, activeRun.turn_count + 1)
-        : frameReplayKey;
+  const voiceReplayKey = isStreamingNarrative
+    ? turnVoiceKey(activeRun.id, activeRun.turn_count + 1)
+    : frameReplayKey;
   const voiceReplayActive =
     voice.currentKey === voiceReplayKey && voice.status !== "idle";
   const toggleVoiceReplay = () => {
@@ -637,15 +592,11 @@ export default function AdventurePlay({ runId }: { runId: string }) {
       voiceReplayKey,
     );
   };
-  // 3D モデルの表情・身振り。トーク中は最新の返答、それ以外は表示中フレームの値
+  // 3D モデルの表情・身振り。表示中フレームの値
   const avatarExpression: AvatarExpressionKey | null =
-    talkMode && lastPartnerTalk
-      ? normalizeAvatarExpression(lastPartnerTalk.expression)
-      : (selectedFrame?.partnerExpression ?? null);
+    selectedFrame?.partnerExpression ?? null;
   const avatarGesture: AvatarGestureKey | null =
-    talkMode && lastPartnerTalk
-      ? normalizeAvatarGesture(lastPartnerTalk.gesture)
-      : (selectedFrame?.partnerGesture ?? null);
+    selectedFrame?.partnerGesture ?? null;
   // 身振りの再生トリガ。読み上げ可能なら声の開始(到着・先読み・🔊再生)に合わせ、
   // 読み上げ不可ならセリフ/フレームの切り替わりで再生する。
   // 先読み中は表示中フレームがまだ前の手番なので、手番のキーはフレームの手番と
@@ -662,9 +613,7 @@ export default function AdventurePlay({ runId }: { runId: string }) {
         ? null
         : voice.currentKey
       : null
-    : talkMode && lastPartnerTalk
-      ? `talk:${lastPartnerTalk.id}`
-      : frameReplayKey;
+    : frameReplayKey;
   // ストリーム中の一時枯渇(key→null→key)で同じ身振りが再再生されないよう、
   // ストリーム中だけ最後の非 null キーを効かせる。ストリーム外では素通しにし、
   // 🔊 での再読み上げ(null→同じキー)による再再生は従来どおり残す
@@ -906,26 +855,10 @@ export default function AdventurePlay({ runId }: { runId: string }) {
             phaseLabel={phaseLabel}
             viewingPast={isViewingPast}
             canAct={canAct}
-            actionMode={actionMode}
-            onActionModeChange={setActionMode}
             input={input}
             onInputChange={setInput}
             onSubmit={submit}
-            onSubmitTalk={submitTalkMessage}
-            speech={{
-              supported: speechInput.supported,
-              listening: speechInput.listening,
-              autoSend: speechInput.prefs.autoSend,
-              error: speechInput.error,
-              onToggleListening: () => {
-                if (speechInput.listening) {
-                  speechInput.stopListening();
-                  return;
-                }
-                speechInput.startListening();
-              },
-              onToggleAutoSend: speechInput.toggleAutoSend,
-            }}
+            onOpenChat={() => void openCharacterChat()}
             onOpenGiftShop={() => setGiftShopOpen(true)}
             onOpenAttributes={() => setAttributeModalOpen(true)}
           />

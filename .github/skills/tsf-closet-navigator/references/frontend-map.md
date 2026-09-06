@@ -18,7 +18,7 @@
 | `/adventure`、`/adventure/:runId`             | `AdventureScreen`    | 実験設定で有効化、専用Provider                 |
 | `/bgm-test`                                   | `BgmTestScreen`      | BGMカタログの試聴。実験設定(Adventure)で有効化 |
 | `/prompt-expander`、`/prompt-expander/:sessionId` | `PromptExpanderScreen` | Prompt Expander（実験設定で有効化、専用Provider） |
-| `/talk`、`/talk/:threadId`                        | `CharacterChatScreen`  | キャラチャット（実験設定 `experimentalCharacterChatEnabled` で有効化、専用Provider。`/adventure` 配下に置かない） |
+| `/talk`、`/talk/:threadId`                        | `CharacterChatScreen`  | キャラチャット（実験設定 `experimentalCharacterChatEnabled` か `experimentalAdventureEnabled` で通る。専用Provider。`/adventure` 配下に置かない） |
 
 ## Context
 
@@ -43,13 +43,13 @@
 
 ### キャラチャット専用Provider
 
-`App.tsx` は `/talk` 配下だけを `CharacterChatProvider` で包む。`CharacterChatContext`（`useCharacterChat()`）は `threads` / `activeThread`（`messages` 込み）/ 送信中の `sending` / `phase`（plan → reply → portrait → memory）/ ストリーミング中の `draft` / `pendingInput` / `portraitBusy` / `error` と、`refreshThreads` / `openBase`（拠点キャラ「セレナ」。冪等）/ `createFromSource(selection)`（`AdventureSourceSelection` をそのまま受ける）/ `loadThread` / `deleteThread` / `submitMessage`（SSE を state へ反映し、確定したキャラの発言を返す。`cost` は `SettingsContext.addTotalCost`）/ `setAppearanceFromSource` / `regeneratePortrait` を持つ。通常ゲームの Context には統合しない。
+`App.tsx` は `/talk` 配下だけを `CharacterChatProvider` で包む。`CharacterChatContext`（`useCharacterChat()`）は `threads` / `activeThread`（`messages` 込み）/ 送信中の `sending` / `phase`（plan → reply → portrait → memory）/ ストリーミング中の `draft` / `pendingInput` / `portraitBusy` / `error` と、`refreshThreads` / `openBase`（案内役キャラ「セレナ」。冪等）/ `openAdventure(runId)`（TSF シナリオの攻略対象。run ごとに 1 件）/ `setAdventureAppearance(mode)` / `avatarFailed`（3D モデルの読込失敗）/ `createFromSource(selection)`（`AdventureSourceSelection` をそのまま受ける）/ `loadThread` / `deleteThread` / `submitMessage`（SSE を state へ反映し、確定したキャラの発言を返す。`cost` は `SettingsContext.addTotalCost`）/ `setAppearanceFromSource` / `regeneratePortrait` を持つ。通常ゲームの Context には統合しない。
 
 ### Adventure専用Provider
 
 `App.tsx` は `/adventure` 配下だけを `AdventureProvider` で包む。
 
-`AdventureContext` は Run/Template、activeRun、セットアップ生成、ターン/画像ストリーム、フェーズ、エラーを管理する。トークンごとに更新される逐次ナラティブだけは別 Context に分け、`useAdventureStreamingNarrative()` で読む（`useAdventure()` の value はトークンで変わらない）。`narrativeSettled` は手番ストリームの本文（`narrative_done`）が確定したかで、3D モデル表示中の先読み読み上げと行動パネル進捗（`quietStage`）の切替に使う（`turn` 到着後も保持し、ストリーム終了で false）。romance のトークモード（手番を消費しない会話）は `submitTalk` / `talking` / `talkDraft` / `pendingTalkInput` で、`talk_done` を `activeRun.talk_log` に追記する（手番送信とは `streaming || talking` で相互排他）。 直前に開いた run ID は `lastRunId`（`utils/adventureLastRun.ts`、localStorage `adventure_last_run_id`）として公開し、Hub の再開バナーと SideMenu の「直前のシナリオへ」が参照する。通常ゲームの `GameContext` や `useGameSSE` に統合しない。3D モデル(VRM)は `avatarModels` / `refreshAvatarModels`（Provider マウント時に `GET /api/avatars`）と `companionAvatarFailed` / `setCompanionAvatarFailed`（読込失敗で立ち絵へ戻す。run や割当が変わるとリセット）を持ち、`performSubmitTurn` はアバター表示中に `generate_partner_portrait:false` を送る。
+`AdventureContext` は Run/Template、activeRun、セットアップ生成、ターン/画像ストリーム、フェーズ、エラーを管理する。トークンごとに更新される逐次ナラティブだけは別 Context に分け、`useAdventureStreamingNarrative()` で読む（`useAdventure()` の value はトークンで変わらない）。`narrativeSettled` は手番ストリームの本文（`narrative_done`）が確定したかで、3D モデル表示中の先読み読み上げと行動パネル進捗（`quietStage`）の切替に使う（`turn` 到着後も保持し、ストリーム終了で false）。直前に開いた run ID は `lastRunId`（`utils/adventureLastRun.ts`、localStorage `adventure_last_run_id`）として公開し、Hub の再開バナーと SideMenu の「直前のシナリオへ」が参照する。通常ゲームの `GameContext` や `useGameSSE` に統合しない。3D モデル(VRM)は `avatarModels` / `refreshAvatarModels`（Provider マウント時に `GET /api/avatars`）と `companionAvatarFailed` / `setCompanionAvatarFailed`（読込失敗で立ち絵へ戻す。run や割当が変わるとリセット）を持ち、`performSubmitTurn` はアバター表示中に `generate_partner_portrait:false` を送る。
 
 ## 主な設定境界
 
@@ -90,7 +90,7 @@
 | `useAdventureBgm`     | Adventure BGMのループ再生、fade、autoplay/404対応。キー→URL対応はマウント時に `GET /api/adventure/bgm` で取得（未知キーは既定曲へ）。mute/volumeの永続化は `utils/bgmPreferences.ts`(localStorage `adventure_bgm_prefs`)へ集約し、BGMテスト画面と音量を共有する。`setDucked` でセリフ読み上げ中に音量を下げる |
 | `useAdventureVoice`   | Adventure(romance)のセリフ読み上げ。AivisSpeech で合成した音声を専用 Audio で再生し、古い合成結果はリクエスト id で捨てる。ON/OFF・音量は `utils/voicePreferences.ts`(localStorage `adventure_voice_prefs`、既定OFF・音量50%)。グローバル `ttsEnabled` と話者が無ければ no-op。`getLevel()` は `utils/voiceLevelMeter.ts`（モジュール共有の AudioContext + AnalyserNode。running でないうちは接続せず pointerdown/keydown の resume 後に接続）の音量 0..1 で、3D モデルの口パクに使う |
 | `useAdventureNarration` | `useAdventureVoice` を包み、いつ何を読むかを決める。読み上げ(0) 3D モデル表示中は本文ストリームの確定行を逐次 `appendSegments`（先読みした手番番号を控える）、(1) 新しい手番の到着で攻略対象のセリフ（先読み済みは読まない）、(2) トークの返答確定でその返答。戻り値は `UseAdventureVoiceResult` そのまま |
-| `useAdventureSpeechInput` | トークモードの音声入力。`useSpeechInput` を包み、暫定テキストを入力欄へ流し込み、確定で置き換え、自動送信（`utils/speechInputPreferences.ts`、既定 OFF）なら `onSubmit`。読み上げ中とトークモード離脱で聞き取りを止め、開始前に読み上げを止める |
+| `useAdventureSpeechInput` | キャラチャットの音声入力（かつては Adventure のトークモード）。`useSpeechInput` を包み、暫定テキストを入力欄へ流し込み、確定で置き換え、自動送信（`utils/speechInputPreferences.ts`、既定 OFF）なら `onSubmit`。読み上げ中とトークモード離脱で聞き取りを止め、開始前に読み上げを止める |
 | `useAdventureFrameNavigation` | `buildStageFrames` の結果と、ステージの閲覧位置（`selectedFrameIndex`、null は最新）・ライトボックスの位置とタブ（`lightboxIndex` / `lightboxView`）。手番到着で最新へ戻す effect、`goToFrame`（ターンストリップ用）、`openLightboxFrame`（タブ選択を引き継ぎ、無いタブはシーンへ）を持つ |
 | `useAdventureStagePortraits` | ステージと主人公ドックに出す白抜き済み立ち絵 4 種（`useTransparentImage` × 4、`PORTRAIT_ALPHA_OPTIONS`）。ステージ用は表示中フレームに追従し、ドック用は常に最新 |
 | `useConversationStream` | 会話のみ(chat/stream)の送信。SSE をストリーミング表示し、会話 ID を確定して conversationHistory へ積む。play_memory_update の通知も扱う |
@@ -119,7 +119,7 @@
 | `apis/speechSynthesis.ts` | AivisSpeech導入、起動、話者、合成                                |
 | `apis/anlas.ts`           | NovelAI Anlas残高                                                |
 | `apis/promptExpander.ts`  | PE 設定/セッション/エントリ/アップロード/拡張/生成/キャラ提案、`promptExpanderImageUrl` |
-| `apis/characterChat.ts`   | キャラチャットのスレッド一覧/拠点スレッド/作成/取得/削除、姿の差し替え、発言と立ち絵描き直しの SSE（`readSseEvents`。`CharacterChatStreamEvent`）、`characterChatImageUrl` |
+| `apis/characterChat.ts`   | キャラチャットのスレッド一覧/案内役スレッド/作成/取得/削除、姿の差し替え、発言と立ち絵描き直しの SSE（`readSseEvents`。`CharacterChatStreamEvent`）、`characterChatImageUrl` |
 | `apis/avatars.ts`         | 3D モデル(VRM)の一覧/アップロード(唯一の `FormData` 送信。`uploadAvatarModel(file, {name?, characterName?, variantLabel?})`)/更新 `updateAvatarModel(id, {name?, character_name?, variant_label?})`（`renameAvatarModel` はその包み）/削除、`avatarModelFileUrl`、`AvatarApiError.code`（`invalid_vrm` / `file_too_large`）、一括分類 `autoClassifyAvatarModels`（`POST /auto-classify`）。衣装差分の表示補助 `groupAvatarModels`（キャラクター別、未分類は末尾、グループ内は差分ラベル順）/ `avatarVariantLabel` / `classifyAvatarFilename`（backend の規則のミラー。編集フォームの事前入力用） |
 
 ## 共通 UI（`components/ui/`）
@@ -154,15 +154,14 @@ components/
   adventure/
     AdventureScreen.tsx       /adventure（Hub）と /adventure/:runId（Play）の切り替えと CSS の読み込みだけ
     AdventureHub.tsx          セットアップ画面（開始素材・シナリオ・オプション・保存済み Run 一覧）
-    AdventurePlay.tsx         プレイ画面の編成（run の読込・送信 submit/submitTalkMessage・キーボード操作・モーダル開閉・進捗セグメント・3D モデルの表情/身振りキー）。描画は以下へ委譲し、子は共有状態を `useAdventure()` / `useSettings()` から直接読む。派生値は `utils/adventureSceneView.ts` の `buildAdventureSceneView` で 1 回だけ求め `scene` として渡す
+    AdventurePlay.tsx         プレイ画面の編成（run の読込・送信 submit・キーボード操作・モーダル開閉・進捗セグメント・3D モデルの表情/身振りキー・「トーク」→ `openAdventureCharacterChatThread` → `/talk/:threadId`）。描画は以下へ委譲し、子は共有状態を `useAdventure()` / `useSettings()` から直接読む。派生値は `utils/adventureSceneView.ts` の `buildAdventureSceneView` で 1 回だけ求め `scene` として渡す
     AdventureHud.tsx              HUD（HudTile・Day/好感度/所持金/利用上限/Anlas/API料金・チップ列・ポップオーバー: 持ち物 / 口調 / BGM / 進行目標 / 世界ルール / 手掛かり）。`AdventureHudPanel` 型を export
     AdventureProtagonistDock.tsx  左レールの主人公ドック（最新の外見・服装、romance は攻略対象も）
     AdventureStage.tsx            画像ステージ（背景/合成・立ち絵・3D モデル `avatar` props・進捗オーバーレイ・過去閲覧バナー・立ち絵失敗の再試行・↻・⚙・AdventureBgmControl）。画像設定ポップオーバーは children
     AdventureImageSettingsPopover.tsx  ⚙ の中身。run 設定（`updateSettings`: モデル上書き・持ち物・対面会話・3D モデル・精密参照・合成）とブラウザ単位の好み（立ち絵を毎ターン描く）
     AdventureImageOptionRows.tsx  Hub と Play で共有する行部品 `AdventureToggleRow`（`adventure-precise-toggle` の見出し+説明+スイッチ）/ `AdventureImageModelPicker` / `AdventureTurnEstimate`（所要時間と「テキストのみ」告知）
-    AdventureMessageBox.tsx       メッセージ窓（メタ行の 🔊/据え置き案内/持ち物の変化/ログ/非表示、行動、本文 `AdventureScriptText`、行動パネル: 行動/トーク切替・選択肢再生成・進捗・選択肢・romance 行動ボタン・`AdventureTalkThread`・`AdventureFreeInput`、またはエンディング）
-    AdventureTalkThread.tsx       トークモードの会話スレッド（今の手番の会話 + 送信中の下書き。末尾へ自動スクロール）
-    AdventureFreeInput.tsx        常設の自由入力欄（トークモードは 500 字・🎤・自動送信トグル・認識エラー）
+    AdventureMessageBox.tsx       メッセージ窓（メタ行の 🔊/据え置き案内/持ち物の変化/ログ/非表示、行動、本文 `AdventureScriptText`、行動パネル: 選択肢再生成・進捗・選択肢・romance 行動ボタン（先頭の「トーク」はキャラチャットへ移動）・`AdventureFreeInput`、またはエンディング）
+    AdventureFreeInput.tsx        常設の自由入力欄（🎤 と自動送信はキャラチャット側にある）
     AdventureScriptText.tsx       台本形式(名前「セリフ」)の本文を話者ラベル付きで描く
     AdventureResultOverlay.tsx    終了時のリザルトカード（`useTransparentImage` で白抜きした立ち絵、進行目標、ログ/リプレイ/戻る/エピローグ）
     AdventureLogDrawer.tsx        ログドロワー（全文の読み返しとターンストリップ。開いた時と手番追加で末尾へスクロール）
@@ -181,12 +180,12 @@ components/
 
   characterChat/
     CharacterChatScreen.tsx     /talk（Hub）と /talk/:threadId（Room）の切り替えと CSS の読み込みだけ
-    CharacterChatHub.tsx        セレナカード（「セレナと話す」→ openBase）、「セッションから作る」（AdventureSessionPickerModal → createFromSource）、スレッド一覧（サムネ・名前・最終メッセージ・更新日・kind チップは行末・削除はギャラリー式アイコン + ConfirmDialog）
-    CharacterChatRoom.tsx       会話画面の編成。Adventure の対面会話モードと同じ ADV 風: 全画面ステージ（CharacterChatStage）の中央にキャラクターを大きく置き、下端に CharacterChatMessageBox（最新の 1 往復 + 入力欄 CharacterChatInput）、上端の薄いバーに 戻る / 名前 / 「姿」メニュー（CharacterChatAppearanceMenu。姿を変更 → picker → setAppearanceFromSource（「立ち絵を生成する」ON なら続けて regeneratePortrait）/ 立ち絵を描き直す / 最初の姿に戻す → resetAppearance）/ 🔊 サウンド / 「ログ」/ 削除。Hub で「立ち絵を生成する」ON で作ったスレッドは、開いた時点で `takePendingPortrait` が真なら 1 回だけ regeneratePortrait。右パネルは CharacterChatInfoPanel。過去ログと情報は右の CharacterChatLogDrawer。読み上げは useAdventureVoice（既定 OFF。返答確定時に `chat:{messageId}` キーで読む）、音声入力は useAdventureSpeechInput をそのまま再利用
-    CharacterChatStage.tsx      全画面ステージ。`appearance.portrait_kind === "standing"`（生成した立ち絵）だけ useTransparentImage で白抜きして中央に立たせ、素材からコピーした場面画像は枠付きで素通し。画像が無ければ配置パスの案内と「立ち絵を生成」。将来の 3D モデル(VRM)はこの枠へ差し替える
+    CharacterChatHub.tsx        `.character-chat` 自身が overflow-y: auto のスクロール領域（MainLayout の content は overflow: hidden。横幅上限は左右 padding で中央寄せ）。セレナカード（「セレナと話す」→ openBase）、「セッションから作る」（AdventureSessionPickerModal → createFromSource）、スレッド一覧（絞り込みチップ すべて/案内役/セッション/シナリオ = 件数付き・localStorage `character_chat_thread_filter`・一覧表示時に選択中チップへフォーカス。案内役を先頭に、サムネ・名前・最終メッセージ・更新日・kind チップは行末・削除はギャラリー式アイコン + ConfirmDialog）
+    CharacterChatRoom.tsx       会話画面の編成。Adventure の対面会話モードと同じ ADV 風: 全画面ステージ（CharacterChatStage）の中央にキャラクターを大きく置き、下端に CharacterChatMessageBox（最新の 1 往復 + 入力欄 CharacterChatInput）、上端の薄いバーに 一覧へ戻る（adventure 種で run が生きていれば「シナリオへ戻る」も並べる。Adventure の「トーク」からも一覧からも来るため）/ 名前 / 「姿」メニュー（CharacterChatAppearanceMenu。姿を変更 → picker → setAppearanceFromSource（「立ち絵を生成する」ON なら続けて regeneratePortrait）/ 立ち絵を描き直す / 最初の姿に戻す → resetAppearance）/ 🔊 サウンド / 「ログ」/ 削除。Hub で「立ち絵を生成する」ON で作ったスレッドは、開いた時点で `takePendingPortrait` が真なら 1 回だけ regeneratePortrait。右パネルは CharacterChatInfoPanel。過去ログと情報は右の CharacterChatLogDrawer。読み上げは useAdventureVoice（既定 OFF。返答確定時に `chat:{messageId}` キーで読む）、音声入力は useAdventureSpeechInput をそのまま再利用
+    CharacterChatStage.tsx      全画面ステージ。adventure 種で run に 3D モデル(VRM)があれば `CompanionAvatarStage`（lazy）を同じ枠に置き、表情・身振りは最新のキャラ発言 meta、口パクは useAdventureVoice の音量・viseme。`appearance.portrait_kind === "standing"`（生成した立ち絵）だけ useTransparentImage で白抜きして中央に立たせ、素材からコピーした場面画像は枠付きで素通し。画像が無ければ配置パスの案内と「立ち絵を生成」。将来の 3D モデル(VRM)はこの枠へ差し替える
     CharacterChatMessageBox.tsx ADV 風メッセージ窓。最新の自分の発言（メタ行に小さく）とキャラの返答だけを出し、送信中はストリーミング中の返答とキャレット、phase 別のスピナー付き進捗。調べたことのメタ・「姿が変わりました」バッジ・🔊 再読み上げ。入力欄は children でドッキング
     CharacterChatLogDrawer.tsx  ログドロワー（右に重ねる）。CharacterChatThread で全文（🔊 再読み上げ付き）
-    CharacterChatAppearanceMenu.tsx 「姿」ポップオーバー: 姿を変更 / 立ち絵を描き直す / 最初の姿に戻す（`can_reset_appearance` が偽なら disabled + 理由）と「立ち絵を生成する」トグル（`hooks/useCharacterChatPortraitPreference`、localStorage `character_chat_generate_portrait`、既定 OFF。Hub の「セッションから作る」と共有）
+    CharacterChatAppearanceMenu.tsx 「姿」ポップオーバー: adventure 種では先頭に シナリオの姿に合わせる / 攻略対象の立ち絵を使う / 場面の画像を使う（サムネイル付き）/ 場面の画像から立ち絵を描く（NovelAI なら精密参照トグル → AnlasConfirmDialog、抑止は sessionStorage `character_chat_anlas_warn_suppressed`）。続けて 姿を変更 / 立ち絵を描き直す / 最初の姿に戻す（`can_reset_appearance` が偽なら disabled + 理由）と「立ち絵を生成する」トグル（`hooks/useCharacterChatPortraitPreference`、localStorage `character_chat_generate_portrait`、既定 OFF。Hub の「セッションから作る」と共有）
     CharacterChatInfoPanel.tsx  MainLayout の右パネル（開閉は localStorage `character_chat_info_panel_open`、既定 開）。ユーザーメモリ（`SettingsContext.memoryText`。未取得なら `loadMemoryText`）・会話の要約・セッション由来キャラのセッション概要（`thread.persona`: 最終プレイ日・変身回数・心理段階と数値・PlaySummary の称号/要約・服装・属性・経緯・プレイメモ）・姿（出どころ・説明・外見タグ）
     CharacterChatThread.tsx     メッセージ一覧（ログドロワー内。仮吹き出し・下書きのキャレット・phase 別のスピナー付き進捗・調べたことのメタ行・「姿が変わりました」バッジ・🔊 再読み上げ）
     CharacterChatInput.tsx      入力欄（送信中も無効化しない。🎤 と自動送信は adventure.mic.* の文言を共用）

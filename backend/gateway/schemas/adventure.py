@@ -16,7 +16,6 @@ from ..consts.adventure_romance import (
     ROMANCE_DAYS_MAX,
     ROMANCE_PLAYER_NAME_MAX_LENGTH,
     ROMANCE_SLOTS_PER_DAY,
-    ROMANCE_TALK_INPUT_MAX,
 )
 from ..consts.adventure_setup import SCENARIO_CONSTRAINTS_MAX_ITEMS
 from ..consts.adventure_speech import (
@@ -173,11 +172,6 @@ class AdventureSettingsUpdateRequest(BaseModel):
     companion_avatar_id: str | None = Field(default=None, max_length=80)
     # 持ち物システム。未指定なら既存値を維持する(作品シナリオでは無視)
     inventory_enabled: bool | None = None
-
-
-class AdventureTalkRequest(BaseModel):
-    # トークモード(手番を消費しない会話)の1メッセージ。romance 専用
-    user_input: str = Field(min_length=1, max_length=ROMANCE_TALK_INPUT_MAX)
 
 
 class AdventureRealityRulesUpdateRequest(BaseModel):

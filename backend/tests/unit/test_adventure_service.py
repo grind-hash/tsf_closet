@@ -5463,7 +5463,6 @@ async def test_update_run_settings_companion_mode_round_trip(monkeypatch) -> Non
     )
 
     assert result["companion_mode"] is True
-    assert result["talk_log"] == []
     assert json.loads(persisted.state_json)["companion_mode"] is True
 
     # None は据え置き
@@ -5504,14 +5503,11 @@ async def test_update_run_settings_ignores_companion_for_non_romance(
     )
     assert result["companion_mode"] is False
     assert "companion_mode" not in json.loads(persisted.state_json)
-    assert "talk_log" not in result
 
 
-def test_rewind_keep_keys_and_lean_state_cover_companion_and_talk_log() -> None:
+def test_rewind_keep_keys_and_lean_state_cover_companion_mode() -> None:
     assert "companion_mode" in AdventureService._REWIND_KEEP_KEYS
-    lean = _lean_state_for_llm(
-        {"companion_mode": True, "talk_log": [{"text": "x"}], "clues": []}
-    )
+    lean = _lean_state_for_llm({"companion_mode": True, "clues": []})
     assert lean == {"clues": []}
 
 
@@ -5580,10 +5576,11 @@ def test_build_turn_contexts_adds_recent_talk_and_script_names() -> None:
     state = json.loads(run.state_json)
     state["companion_mode"] = True
     state["sim"]["player_name"] = "ケン"
-    state["talk_log"] = [
-        {"id": "a", "role": "user", "text": "古い話", "after_turn": 1},
-        {"id": "b", "role": "user", "text": "やあ", "after_turn": 2},
-        {"id": "c", "role": "partner", "text": "やっほー", "after_turn": 2},
+    # キャラチャット(adventure 種)で交わした発言は呼び出し側が読んで渡す
+    recent_talk = [
+        {"role": "user", "text": "古い話", "after_turn": 1},
+        {"role": "user", "text": "やあ", "after_turn": 2},
+        {"role": "partner", "text": "やっほー", "after_turn": 2},
     ]
 
     contexts = service._build_turn_contexts(
@@ -5593,20 +5590,14 @@ def test_build_turn_contexts_adds_recent_talk_and_script_names() -> None:
         input_kind="free_text",
         gift_id=None,
         epilogue=False,
+        recent_talk=recent_talk,
     )
 
     assert contexts.script_names == ("美咲", "ケン")
-    # 以前の手番のトークも after_turn 付きで渡し、攻略対象が忘れないようにする
-    assert contexts.turn_context["recent_talk"] == [
-        {"role": "user", "text": "古い話", "after_turn": 1},
-        {"role": "user", "text": "やあ", "after_turn": 2},
-        {"role": "partner", "text": "やっほー", "after_turn": 2},
-    ]
-    assert "talk_log" not in contexts.turn_context["state"]
+    assert contexts.turn_context["recent_talk"] == recent_talk
     assert "companion_mode" not in contexts.turn_context["state"]
 
     state["companion_mode"] = False
-    state["talk_log"] = []
     contexts = service._build_turn_contexts(
         run,
         state,
@@ -5636,207 +5627,6 @@ def test_narrative_prompts_include_script_format_only_with_names() -> None:
     assert "SCRIPT FORMAT" in director
     resolution = service._resolution_system_prompt("ja", romance=True)
     assert "never change affection_delta" in resolution
-
-
-@pytest.mark.asyncio
-async def test_stream_talk_appends_log_without_consuming_turn(monkeypatch) -> None:
-    service = AdventureService()
-    run = make_romance_run(turn_count=3)
-    run.id = "run-1"
-    run.status = "active"
-    run.language = "ja"
-    run.text_model = "glm-4-6"
-    run.turns = [
-        SimpleNamespace(turn_number=3, user_input="挨拶", narrative="美咲が笑った。")
-    ]
-    persisted = SimpleNamespace(
-        id="run-1", state_json=run.state_json, turn_count=3, status="active"
-    )
-
-    captured: dict = {}
-
-    async def fake_stream(system_prompt, user_prompt, **kwargs):
-        captured["system"] = system_prompt
-        captured["user"] = user_prompt
-        captured["history"] = kwargs.get("history")
-        yield "美咲「"
-        yield "やっほー、元気？」"
-
-    monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
-    monkeypatch.setattr(
-        "gateway.services.adventure_service.llm_service.generate_feeling_stream",
-        fake_stream,
-    )
-    monkeypatch.setattr(
-        "gateway.services.adventure_service.async_session_factory",
-        fake_database_factory({(AdventureRun, "run-1"): persisted}),
-    )
-
-    events = [
-        event
-        async for event in service.stream_talk(run_id="run-1", user_input="  やあ  ")
-    ]
-
-    assert [event["event"] for event in events] == [
-        "status",
-        "talk_chunk",
-        "talk_chunk",
-        "talk_done",
-        "complete",
-    ]
-    assert events[0]["data"] == {"phase": "talk"}
-    done = events[3]["data"]
-    assert done["turn_count"] == 3
-    assert done["user_entry"]["text"] == "やあ"
-    assert done["partner_entry"]["text"] == "やっほー、元気？"
-    assert done["partner_entry"]["after_turn"] == 3
-    saved = json.loads(persisted.state_json)
-    assert [item["role"] for item in saved["talk_log"]] == ["user", "partner"]
-    assert persisted.turn_count == 3 and persisted.status == "active"
-    assert "You are 美咲" in captured["system"]
-    # 今回の発言は最後の user メッセージ、履歴はチャット形式で別渡し
-    assert captured["user"] == "やあ"
-    assert captured["history"] == []
-    context = json.loads(captured["system"].split("context:\n", 1)[1])
-    assert context["recent_scenes"][0]["narrative"] == "美咲が笑った。"
-    assert context["relationship"]["affection"] == 10
-    assert context["relationship"]["dating"] is False
-    assert "sim" not in context and "talk_history" not in context
-
-
-@pytest.mark.asyncio
-async def test_stream_talk_passes_chat_history_and_affection_results(
-    monkeypatch,
-) -> None:
-    service = AdventureService()
-    run = make_romance_run(turn_count=3)
-    run.id = "run-1"
-    run.status = "active"
-    run.language = "ja"
-    run.text_model = "glm-4-6"
-
-    def turn(number: int, affection: int | None, text: str) -> SimpleNamespace:
-        delta = {"sim": {"affection": affection}} if affection is not None else {}
-        return SimpleNamespace(
-            turn_number=number,
-            user_input=f"行動{number}",
-            input_kind="talk",
-            narrative=text,
-            state_delta_json=json.dumps(delta),
-        )
-
-    run.turns = [turn(3, 14, "三"), turn(1, 12, "一"), turn(2, 15, "二")]
-    state = json.loads(run.state_json)
-    state["talk_log"] = [
-        {"id": "a", "role": "user", "text": "おはよう", "after_turn": 1},
-        {"id": "b", "role": "partner", "text": "おはよ", "after_turn": 1},
-        {"id": "c", "role": "user", "text": "お酒は飲める？", "after_turn": 3},
-        {"id": "d", "role": "partner", "text": "飲んだことない", "after_turn": 3},
-    ]
-    run.state_json = json.dumps(state, ensure_ascii=False)
-    persisted = SimpleNamespace(
-        id="run-1", state_json=run.state_json, turn_count=3, status="active"
-    )
-    captured: dict = {}
-
-    async def fake_stream(system_prompt, user_prompt, **kwargs):
-        captured["system"] = system_prompt
-        captured["user"] = user_prompt
-        captured["history"] = kwargs.get("history")
-        yield "すっぱいんだ。"
-
-    monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
-    monkeypatch.setattr(
-        "gateway.services.adventure_service.llm_service.generate_feeling_stream",
-        fake_stream,
-    )
-    monkeypatch.setattr(
-        "gateway.services.adventure_service.async_session_factory",
-        _fake_database(persisted),
-    )
-
-    events = [
-        event
-        async for event in service.stream_talk(run_id="run-1", user_input="すっぱい")
-    ]
-    assert events[-1]["event"] == "complete"
-    # 以前の手番のトークも含め、主人公=user / 攻略対象=assistant の会話として渡す
-    assert captured["history"] == [
-        {"role": "user", "content": "おはよう"},
-        {"role": "assistant", "content": "おはよ"},
-        {"role": "user", "content": "お酒は飲める？"},
-        {"role": "assistant", "content": "飲んだことない"},
-    ]
-    assert captured["user"] == "すっぱい"
-    context = json.loads(captured["system"].split("context:\n", 1)[1])
-    # 直近の場面は手番順に並び、各手番後の好感度と増減を添える
-    scenes = context["recent_scenes"]
-    assert [item["turn"] for item in scenes] == [1, 2, 3]
-    assert [item["affection_after"] for item in scenes] == [12, 15, 14]
-    assert [item["affection_change"] for item in scenes] == [None, 3, -1]
-    assert scenes[0]["input_kind"] == "talk" and scenes[0]["narrative"] == "一"
-    assert (scenes[2]["day"], scenes[2]["slot"]) == (2, "day")
-    # 今回の会話は手番をまたいだログの末尾に追記される
-    saved = json.loads(persisted.state_json)
-    assert [item["text"] for item in saved["talk_log"]][-2:] == [
-        "すっぱい",
-        "すっぱいんだ。",
-    ]
-
-
-def test_talk_recent_scenes_bounds_and_uses_previous_turn_as_baseline() -> None:
-    from gateway.consts.adventure_romance import ROMANCE_TALK_SCENE_CONTEXT_MAX
-    from gateway.services.adventure_service import _talk_recent_scenes
-
-    def turn(number: int, affection: int | None) -> SimpleNamespace:
-        return SimpleNamespace(
-            turn_number=number,
-            user_input=f"行動{number}",
-            narrative=f"場面{number}",
-            state_delta_json=(
-                json.dumps({"sim": {"affection": affection}})
-                if affection is not None
-                else None
-            ),
-        )
-
-    total = ROMANCE_TALK_SCENE_CONTEXT_MAX + 2
-    turns = [turn(number, 10 + number) for number in range(1, total + 1)]
-    scenes = _talk_recent_scenes(turns)
-    assert len(scenes) == ROMANCE_TALK_SCENE_CONTEXT_MAX
-    assert scenes[0]["turn"] == 3
-    # 渡す範囲の一つ前(手番2)を起点にするため、先頭の増減も求まる
-    assert scenes[0]["affection_change"] == 1
-    assert all(item["affection_change"] == 1 for item in scenes)
-    # 旧データ(state_delta_json 無し)は None で埋め、input_kind 欠落にも耐える
-    legacy = _talk_recent_scenes([turn(1, None), turn(2, 20)])
-    assert legacy[0]["affection_after"] is None
-    assert legacy[0]["input_kind"] is None
-    assert legacy[1]["affection_change"] is None
-    assert _talk_recent_scenes([]) == []
-
-
-@pytest.mark.asyncio
-async def test_stream_talk_rejects_non_romance_and_finished_runs(monkeypatch) -> None:
-    service = AdventureService()
-    run = SimpleNamespace(
-        id="run-1", preset="escape", status="active", state_json="{}", turns=[]
-    )
-    monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
-    with pytest.raises(AdventureError) as error:
-        async for _ in service.stream_talk(run_id="run-1", user_input="やあ"):
-            pass
-    assert error.value.code == "talk_unavailable"
-
-    finished = make_romance_run(turn_count=14)
-    finished.id = "run-1"
-    finished.status = "success"
-    finished.turns = []
-    monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=finished))
-    with pytest.raises(AdventureError) as error:
-        async for _ in service.stream_talk(run_id="run-1", user_input="やあ"):
-            pass
-    assert error.value.code == "run_completed"
 
 
 @pytest.mark.asyncio
@@ -6423,133 +6213,8 @@ async def test_detach_companion_avatar_clears_only_matching_runs(monkeypatch) ->
     assert await service.detach_companion_avatar("  ") == 0
 
 
-def _companion_talk_run() -> tuple[SimpleNamespace, SimpleNamespace]:
-    run = make_romance_run(turn_count=3)
-    run.id = "run-1"
-    run.status = "active"
-    run.language = "ja"
-    run.text_model = "glm-4-6"
-    run.turns = [
-        SimpleNamespace(turn_number=3, user_input="挨拶", narrative="美咲が笑った。")
-    ]
-    state = json.loads(run.state_json)
-    state["companion_mode"] = True
-    run.state_json = json.dumps(state, ensure_ascii=False)
-    persisted = SimpleNamespace(
-        id="run-1", state_json=run.state_json, turn_count=3, status="active"
-    )
-    return run, persisted
-
-
 def _fake_database(persisted: SimpleNamespace):
     return fake_database_factory({(AdventureRun, "run-1"): persisted})
-
-
-@pytest.mark.asyncio
-async def test_stream_talk_companion_strips_header_and_records_expression(
-    monkeypatch,
-) -> None:
-    service = AdventureService()
-    run, persisted = _companion_talk_run()
-    captured: dict = {}
-
-    async def fake_stream(system_prompt, user_prompt, **kwargs):
-        captured["system"] = system_prompt
-        # ヘッダがチャンク境界で分断されても剥がせる
-        yield "[expression=hap"
-        yield "py gesture=nod]\n"
-        yield "やっほー、"
-        yield "元気？"
-
-    monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
-    monkeypatch.setattr(
-        "gateway.services.adventure_service.llm_service.generate_feeling_stream",
-        fake_stream,
-    )
-    monkeypatch.setattr(
-        "gateway.services.adventure_service.async_session_factory",
-        _fake_database(persisted),
-    )
-
-    events = [
-        event async for event in service.stream_talk(run_id="run-1", user_input="やあ")
-    ]
-    chunks = [e["data"]["chunk"] for e in events if e["event"] == "talk_chunk"]
-    assert chunks == ["やっほー、", "元気？"]
-    done = next(e for e in events if e["event"] == "talk_done")["data"]
-    assert done["partner_entry"]["text"] == "やっほー、元気？"
-    assert done["partner_entry"]["expression"] == "happy"
-    assert done["partner_entry"]["gesture"] == "nod"
-    assert "expression" not in done["user_entry"]
-    assert "[expression=<key> gesture=<key>]" in captured["system"]
-    saved = json.loads(persisted.state_json)
-    assert saved["talk_log"][-1]["expression"] == "happy"
-    assert saved["talk_log"][-1]["gesture"] == "nod"
-
-
-@pytest.mark.asyncio
-async def test_stream_talk_companion_without_header_streams_immediately(
-    monkeypatch,
-) -> None:
-    service = AdventureService()
-    run, persisted = _companion_talk_run()
-
-    async def fake_stream(system_prompt, user_prompt, **kwargs):
-        yield "やっほー"
-        yield "！"
-
-    monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
-    monkeypatch.setattr(
-        "gateway.services.adventure_service.llm_service.generate_feeling_stream",
-        fake_stream,
-    )
-    monkeypatch.setattr(
-        "gateway.services.adventure_service.async_session_factory",
-        _fake_database(persisted),
-    )
-
-    events = [
-        event async for event in service.stream_talk(run_id="run-1", user_input="やあ")
-    ]
-    chunks = [e["data"]["chunk"] for e in events if e["event"] == "talk_chunk"]
-    assert chunks == ["やっほー", "！"]
-    done = next(e for e in events if e["event"] == "talk_done")["data"]
-    assert done["partner_entry"]["expression"] is None
-    assert done["partner_entry"]["gesture"] is None
-
-
-@pytest.mark.asyncio
-async def test_stream_talk_non_companion_does_not_request_header(monkeypatch) -> None:
-    service = AdventureService()
-    run, persisted = _companion_talk_run()
-    state = json.loads(run.state_json)
-    state["companion_mode"] = False
-    run.state_json = json.dumps(state, ensure_ascii=False)
-    persisted.state_json = run.state_json
-    captured: dict = {}
-
-    async def fake_stream(system_prompt, user_prompt, **kwargs):
-        captured["system"] = system_prompt
-        yield "[expression=happy gesture=nod]\n"
-        yield "やっほー"
-
-    monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
-    monkeypatch.setattr(
-        "gateway.services.adventure_service.llm_service.generate_feeling_stream",
-        fake_stream,
-    )
-    monkeypatch.setattr(
-        "gateway.services.adventure_service.async_session_factory",
-        _fake_database(persisted),
-    )
-
-    events = [
-        event async for event in service.stream_talk(run_id="run-1", user_input="やあ")
-    ]
-    assert "[expression=<key> gesture=<key>]" not in captured["system"]
-    # ヘッダ指示が無くても、万一付いてきたら保存本文からは剥がす
-    done = next(e for e in events if e["event"] == "talk_done")["data"]
-    assert done["partner_entry"]["text"] == "やっほー"
 
 
 def test_speech_rule_names_the_player_inside_dialogue() -> None:

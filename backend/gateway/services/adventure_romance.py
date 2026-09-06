@@ -10,7 +10,6 @@ from __future__ import annotations
 import json
 import random
 import re
-import uuid
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -41,24 +40,12 @@ from ..consts.adventure_romance import (
     ROMANCE_SLOTS_PER_DAY,
     ROMANCE_STAGE_MILESTONE_IDS,
     ROMANCE_STAGE_THRESHOLDS,
-    ROMANCE_TALK_CONTEXT_MAX,
     ROMANCE_TALK_DELTA_LIMIT,
-    ROMANCE_TALK_HISTORY_MAX,
-    ROMANCE_TALK_INPUT_MAX,
-    ROMANCE_TALK_LOG_MAX,
-    ROMANCE_TALK_REPLY_MAX,
     ROMANCE_WORK_ENCOUNTER_BONUS,
     ROMANCE_WORK_ENCOUNTER_RATE,
     ROMANCE_WORK_WAGE,
 )
 from ..consts.adventure_speech import PARTNER_SPEECH_STYLE_MAX_LENGTH
-from ..consts.companion_avatar import (
-    avatar_talk_header_instruction,
-    normalize_avatar_expression,
-    normalize_avatar_gesture,
-    parse_talk_header,
-)
-from .llm_json import strip_code_fence
 
 _RESERVED_CHOICE_RE = re.compile(
     "|".join(f"(?:{pattern})" for pattern in ROMANCE_RESERVED_CHOICE_PATTERNS),
@@ -978,8 +965,8 @@ ROMANCE_VISUAL_GUIDANCE = (
 
 # トークモード(手番を消費しない会話)の内容を次の手番へ渡すときの扱い。
 # 物語の連続性には使うが、採点(好感度・金銭)には一切影響させない。
-# 手番をまたいだ直近分を渡すため、各行の after_turn でどの場面の後の
-# 会話かを示す
+# キャラチャット(adventure 種)で交わした発言のうち前の手番以降の分を渡すため、
+# 各行の after_turn でどの場面の後の会話かを示す
 ROMANCE_RECENT_TALK_GUIDANCE = (
     "recent_talk, when present, lists the most recent free chats the player "
     "and the partner had between scenes, in chronological order (role user = "
@@ -1164,140 +1151,6 @@ def romance_script_format_guidance(partner_name: str, player_name: str) -> str:
     )
 
 
-def romance_talk_system_prompt(
-    language: str,
-    *,
-    partner_name: str,
-    player_name: str,
-    speech_rule: str,
-    companion: bool = False,
-    context: dict[str, Any] | None = None,
-) -> str:
-    """トークモード(手番を消費しない会話)で攻略対象として返答させる system prompt。
-
-    会話そのものはチャット履歴(user/assistant メッセージ)と最後の user
-    メッセージで渡すため、system prompt には人物設定・関係性・場面などの
-    文脈(context)を JSON で添える。
-    """
-    response_language = "Japanese" if language == "ja" else "English"
-    rule = (
-        f"You are {partner_name}, the partner character of a romance simulation, "
-        f"chatting directly with {player_name} between scenes. The messages in "
-        f"this conversation are the actual chat between {player_name} (user) "
-        f"and you (assistant) so far, oldest first; the last user message is "
-        f"what {player_name} just said. Remember everything said earlier in "
-        "this chat and in context.recent_scenes: answer the latest message as a "
-        "continuation of that conversation, pick up its topic, and never restart "
-        "as if you were meeting for the first time or repeat an earlier reply. "
-        f"Reply in {response_language} with {partner_name}'s spoken words only, "
-        "in the first person, as one to three short sentences. You may add at "
-        "most one brief action or expression in parentheses before or after the "
-        "words. Do not write narration, the player's lines, your name as a "
-        "prefix, corner brackets, JSON, markdown, or any commentary. Stay in the "
-        "current scene (context.current_scene) and wear what it says you wear; "
-        "nothing in the story advances during this chat, so do not start a date, "
-        "move to another place, give or receive gifts, or decide anything on the "
-        "player's behalf. context.relationship is the current state of your "
-        "relationship: let your warmth, distance, and honesty follow "
-        "relationship.stage and relationship.affection, and when "
-        "relationship.dating is true speak as an established couple. "
-        "context.recent_scenes are the latest story scenes with how each one "
-        "changed your affection (affection_change): what happened there, and "
-        "how it made you feel, is fresh in your memory. context.reality_rules "
-        "are true facts of this world; never find them strange. "
-        "context.hidden_preferences is secret game data: you may hint at your "
-        "tastes naturally but must never list, name, or confirm them outright."
-    )
-    if speech_rule:
-        rule = f"{rule}\n{speech_rule}"
-    if companion:
-        # 対面会話モードの 3D アバター向け。先頭ヘッダ行は配信前に剥がされる
-        rule = f"{rule}\n{avatar_talk_header_instruction()}"
-    if context:
-        rule = f"{rule}\n\ncontext:\n{json.dumps(context, ensure_ascii=False)}"
-    return rule
-
-
-def _talk_log(state: dict[str, Any]) -> list[dict[str, Any]]:
-    log = state.get("talk_log")
-    return (
-        [item for item in log if isinstance(item, dict)]
-        if isinstance(log, list)
-        else []
-    )
-
-
-def append_talk_entry(
-    state: dict[str, Any],
-    *,
-    role: str,
-    text: str,
-    after_turn: int,
-    expression: str | None = None,
-    gesture: str | None = None,
-) -> dict[str, Any]:
-    """トークログへ1件追記し、上限を超えた古い分を捨てる。追記した項目を返す。
-
-    expression / gesture は対面会話モードの 3D アバター向けで、攻略対象の
-    行にだけ持たせる(語彙外は None)。
-    """
-    entry: dict[str, Any] = {
-        "id": uuid.uuid4().hex[:8],
-        "role": "partner" if role == "partner" else "user",
-        "text": " ".join(str(text or "").split()).strip(),
-        "after_turn": max(0, int(after_turn)),
-    }
-    if entry["role"] == "partner":
-        entry["expression"] = normalize_avatar_expression(expression)
-        entry["gesture"] = normalize_avatar_gesture(gesture)
-    log = _talk_log(state)
-    log.append(entry)
-    state["talk_log"] = log[-ROMANCE_TALK_LOG_MAX:]
-    return entry
-
-
-def recent_talk_entries(state: dict[str, Any], turn_count: int) -> list[dict[str, Any]]:
-    """次の手番の文脈として渡す直近のトークを {role, text, after_turn} で返す。
-
-    手番をまたいで最新から ROMANCE_TALK_CONTEXT_MAX 件まで含める。以前は
-    最後の手番以降の分だけに絞っていたが、それ以前の会話を攻略対象が忘れて
-    しまうため、どの場面の後の会話かを after_turn で示しつつ渡す。
-    turn_count より後の after_turn を持つ行(巻き戻し後の不整合)は除く。
-    """
-    current = max(0, int(turn_count))
-    entries = [
-        {
-            "role": str(item.get("role") or "user"),
-            "text": str(item.get("text") or ""),
-            "after_turn": max(0, int(item.get("after_turn") or 0)),
-        }
-        for item in _talk_log(state)
-        if int(item.get("after_turn") or 0) <= current and str(item.get("text") or "")
-    ]
-    return entries[-ROMANCE_TALK_CONTEXT_MAX:]
-
-
-def talk_history_messages(
-    state: dict[str, Any], turn_count: int
-) -> list[dict[str, str]]:
-    """トークの LLM 呼び出しへ渡すチャット履歴(OpenAI 形式のメッセージ)。
-
-    手番をまたいで最新から ROMANCE_TALK_HISTORY_MAX 件を、主人公の発言を
-    user、攻略対象の返答を assistant として返す。会話を JSON の一項目でなく
-    メッセージ列として渡すことで、モデルが直前のやり取りを踏まえて返答する。
-    """
-    current = max(0, int(turn_count))
-    messages = [
-        {
-            "role": "assistant" if item.get("role") == "partner" else "user",
-            "content": str(item.get("text") or ""),
-        }
-        for item in _talk_log(state)
-        if int(item.get("after_turn") or 0) <= current and str(item.get("text") or "")
-    ]
-    return messages[-ROMANCE_TALK_HISTORY_MAX:]
-
-
 def talk_relationship_context(
     sim: dict[str, Any],
     state: dict[str, Any],
@@ -1305,7 +1158,7 @@ def talk_relationship_context(
     *,
     epilogue: bool = False,
 ) -> dict[str, Any]:
-    """トークの system prompt へ渡す関係性の要約。
+    """キャラチャット(adventure 種)の system prompt へ渡す関係性の要約。
 
     好感度・段階・交際中か・贈った品・達成済みの節目を、攻略対象の態度を
     決める材料として渡す。金銭やカタログなど会話に関係ない値は含めない。
@@ -1336,48 +1189,55 @@ def talk_relationship_context(
     }
 
 
-def public_talk_log(state: dict[str, Any]) -> list[dict[str, Any]]:
-    """API 応答用に整形したトークログ。"""
-    return [
-        {
-            "id": str(item.get("id") or ""),
-            "role": "partner" if item.get("role") == "partner" else "user",
-            "text": str(item.get("text") or ""),
-            "after_turn": max(0, int(item.get("after_turn") or 0)),
-            # 3D アバター向け。user 行と旧ログは None
-            "expression": normalize_avatar_expression(item.get("expression")),
-            "gesture": normalize_avatar_gesture(item.get("gesture")),
-        }
-        for item in _talk_log(state)
-    ]
+def _turn_affection(turn: Any) -> int | None:
+    """手番適用後の好感度。state_delta_json が無い旧データや欠落は None。"""
+    raw = getattr(turn, "state_delta_json", None)
+    if not raw:
+        return None
+    try:
+        delta = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    sim = delta.get("sim") if isinstance(delta, dict) else None
+    if not isinstance(sim, dict) or sim.get("affection") is None:
+        return None
+    try:
+        return int(sim.get("affection"))
+    except (TypeError, ValueError):
+        return None
 
 
-def normalize_talk_input(text: str) -> str:
-    """トークの入力を空白畳み込みと上限で正規化する。"""
-    return " ".join(str(text or "").split()).strip()[:ROMANCE_TALK_INPUT_MAX]
+def recent_scene_context(turns: list[Any], limit: int) -> list[dict[str, Any]]:
+    """キャラチャット(adventure 種)へ渡す直近の場面。各手番後の好感度とその増減を添える。
 
-
-def normalize_talk_reply(text: str, partner_name: str) -> str:
-    """LLM の返答から名前プレフィックスと括弧を剥がし、上限で切り詰める。
-
-    system prompt で禁じていても `名前「…」` 形式で返すモデルがあるため、
-    表示と読み上げに使う前にここで揃える。
+    state_delta_json は手番適用後の全 state のスナップショットなので、そこから
+    sim.affection を読み、直前の手番との差分を affection_change にする。渡す
+    範囲の一つ前の手番を増減の起点にし、比較対象が無い場合は None。
     """
-    reply = strip_code_fence(str(text or ""))
-    # 対面会話モードの先頭ヘッダ行は、モードに関わらず防御的に剥がす
-    _, _, reply = parse_talk_header(reply)
-    reply = reply.strip()
-    name = str(partner_name or "").strip()
-    if name:
-        prefix = re.compile(rf"^\s*{re.escape(name)}\s*[「『:：]\s*")
-        reply = prefix.sub("", reply, count=1)
-    reply = reply.strip()
-    if reply[:1] in "「『" and reply[-1:] in "」』":
-        reply = reply[1:-1].strip()
-    elif reply[-1:] in "」』" and reply.count("「") + reply.count("『") < reply.count(
-        "」"
-    ) + reply.count("』"):
-        # 名前プレフィックスを剥がした後に閉じ括弧だけが残ったケース
-        reply = reply[:-1].strip()
-    reply = " ".join(reply.split())
-    return reply[:ROMANCE_TALK_REPLY_MAX].strip()
+    ordered = sorted(turns, key=lambda item: int(getattr(item, "turn_number", 0)))
+    recent = ordered[-limit:] if limit > 0 else []
+    previous: int | None = None
+    if len(ordered) > len(recent) and recent:
+        previous = _turn_affection(ordered[-len(recent) - 1])
+    scenes: list[dict[str, Any]] = []
+    for turn in recent:
+        after = _turn_affection(turn)
+        change = (
+            after - previous if after is not None and previous is not None else None
+        )
+        day, slot = romance_day_slot(int(turn.turn_number))
+        scenes.append(
+            {
+                "turn": int(turn.turn_number),
+                "day": day,
+                "slot": slot,
+                "player_action": turn.user_input,
+                "input_kind": getattr(turn, "input_kind", None),
+                "narrative": turn.narrative,
+                "affection_after": after,
+                "affection_change": change,
+            }
+        )
+        if after is not None:
+            previous = after
+    return scenes

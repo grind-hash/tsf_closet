@@ -3,7 +3,7 @@ export const characterChat = {
   hub: {
     intro:
       "TSFシナリオを経由せず、キャラクターと1対1で話せます。あなたの好みや過去のプレイを踏まえて会話し、姿は過去の画像から選べます。",
-    baseSection: "拠点のキャラクター",
+    baseSection: "案内役のキャラクター",
     baseIntro:
       "TSF Closet の案内役。あなたの好みや過去のプレイを覚えていて、最近のやり取りや傾向を聞くと調べて答えます。アプリの機能についても話せます。",
     openBase: "セレナと話す",
@@ -17,7 +17,16 @@ export const characterChat = {
     pickerTitle: "話す相手の姿と時点を選ぶ",
     threadsSection: "会話の続き",
     threadsEmpty: "まだ会話はありません。",
-    kindBase: "拠点",
+    filterLabel: "会話の種類で絞り込む",
+    filter: {
+      all: "すべて",
+      base: "案内役",
+      session: "セッション",
+      adventure: "シナリオ",
+    },
+    filterEmpty: "この種類の会話はまだありません。",
+    kindBase: "案内役",
+    kindAdventure: "シナリオ",
     kindSession: "セッション由来",
     messageCount: "{{count}}件",
     lastMessageEmpty: "（まだ会話がありません）",
@@ -31,6 +40,23 @@ export const characterChat = {
   },
   room: {
     back: "一覧へ戻る",
+    backToScenario: "シナリオへ戻る",
+    adventureFollow: "シナリオの姿に合わせる",
+    adventureFollowHint:
+      "表示モードに合わせた既定（合成モードなら相手が写る最新の場面画像、それ以外は最新の立ち絵）に戻し、以後もシナリオの変化に追従します。",
+    adventureUsePartnerPortrait: "攻略対象の立ち絵を使う",
+    adventureUseScene: "場面の画像を使う",
+    adventureRedrawFromScene: "場面の画像から立ち絵を描く",
+    adventureRedrawFromSceneHint:
+      "相手が写る最新の場面画像を参照に、外見タグから全身の立ち絵を描きます（画像生成の待ち時間がかかります）。",
+    adventurePreciseToggle: "精密参照を使う",
+    adventurePreciseHint:
+      "ONにすると場面画像を精密参照（character reference）として送り、参照1枚あたり Anlas を追加消費します。",
+    adventureAnlasBody:
+      "精密参照を使って立ち絵を描きます。参照1枚あたり Anlas を追加消費します。続けますか？",
+    adventureUnavailable:
+      "このシナリオは終了または削除されています。姿はこの会話の中だけで変えられます。",
+    adventureNoImage: "画像がありません",
     changeAppearance: "姿を変更",
     appearancePickerTitle: "姿にする画像を選ぶ",
     regeneratePortrait: "立ち絵を描き直す",
@@ -115,6 +141,18 @@ export const characterChat = {
     outfit: "服装",
     playMemory: "プレイメモ",
     appearance: "姿",
+    adventure: "シナリオの状況",
+    adventureHint:
+      "紐づく TSF シナリオの現在値です。会話のたびに最新を読みます。",
+    affection: "好感度 {{value}}（{{stage}}）",
+    day: "Day {{day}} {{slot}}",
+    dating: "交際中",
+    gifts: "贈ったもの",
+    milestones: "達成した節目",
+    recentScenes: "直近の場面",
+    speechStyle: "口調",
+    runMissing:
+      "このシナリオは終了または削除されています（最後に読んだ状態です）。",
     timelineType: {
       dress_up: "着替",
       reality_alter: "改変",

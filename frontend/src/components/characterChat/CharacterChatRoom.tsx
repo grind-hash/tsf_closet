@@ -2,7 +2,12 @@ import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import type { CharacterChatMessage } from "../../apis/characterChat";
+import {
+  normalizeAvatarExpression,
+  normalizeAvatarGesture,
+} from "../../constants/companionAvatar";
 import { useCharacterChat } from "../../contexts/CharacterChatContext";
+import { useNotification } from "../../contexts/NotificationContext";
 import { useSettings } from "../../contexts/SettingsContext";
 import { useAdventureSpeechInput } from "../../hooks/useAdventureSpeechInput";
 import { useAdventureVoice } from "../../hooks/useAdventureVoice";
@@ -11,10 +16,12 @@ import { usePersistedState } from "../../hooks/usePersistedState";
 import { ROUTES } from "../../routes";
 import { stripStageDirections } from "../../utils/adventureDialogue";
 import { textToVoiceSegments } from "../../utils/adventureVoiceSegments";
+import { readStorageFlag, writeStorageFlag } from "../../utils/storage";
 import AdventureSessionPickerModal, {
   type AdventureSourceSelection,
 } from "../adventure/AdventureSessionPickerModal";
 import MainLayout from "../layout/MainLayout";
+import AnlasConfirmDialog from "../ui/AnlasConfirmDialog";
 import ConfirmDialog from "../ui/ConfirmDialog";
 import CharacterChatAppearanceMenu from "./CharacterChatAppearanceMenu";
 import CharacterChatInfoPanel from "./CharacterChatInfoPanel";
@@ -30,11 +37,20 @@ interface CharacterChatRoomProps {
 
 const voiceKey = (messageId: string) => `chat:${messageId}`;
 const INFO_PANEL_OPEN_KEY = "character_chat_info_panel_open";
+/** 精密参照の Anlas 確認を「ブラウザを閉じるまで出さない」印(sessionStorage) */
+const ANLAS_WARN_SUPPRESSED_KEY = "character_chat_anlas_warn_suppressed";
+
+const KIND_LABEL_KEY = {
+  base: "characterChat.hub.kindBase",
+  session: "characterChat.hub.kindSession",
+  adventure: "characterChat.hub.kindAdventure",
+} as const;
 
 /**
  * 会話画面。Adventure の対面会話モードと同じ ADV 風の構成:
  * 全画面のステージ中央にキャラクターを大きく置き、下端にメッセージ窓と入力欄、
- * 上端に薄いバー(戻る / 名前 / 操作)。過去ログと情報は右のドロワー。
+ * 上端に薄いバー(戻る / 名前 / 操作)。過去ログは右のドロワー、記憶と情報は右パネル。
+ * adventure 種は run に 3D モデル(VRM)があれば立ち絵の代わりに表示する。
  */
 export default function CharacterChatRoom({
   threadId,
@@ -42,6 +58,7 @@ export default function CharacterChatRoom({
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const { state: settingsState, loadMemoryText } = useSettings();
+  const { showNotification } = useNotification();
   const {
     activeThread,
     threadLoading,
@@ -59,27 +76,34 @@ export default function CharacterChatRoom({
     setAppearanceFromSource,
     regeneratePortrait,
     resetAppearance,
+    setAdventureAppearance,
     takePendingPortrait,
+    avatarFailed,
+    setAvatarFailed,
   } = useCharacterChat();
   const [input, setInput] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [soundOpen, setSoundOpen] = useState(false);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
+  const [logOpen, setLogOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   const [panelOpen, setPanelOpen] = usePersistedState<boolean>(
     INFO_PANEL_OPEN_KEY,
     true,
   );
   const [generatePortrait, setGeneratePortrait] =
     useCharacterChatPortraitPreference();
-  const [logOpen, setLogOpen] = useState(false);
-  const [deleteOpen, setDeleteOpen] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const [loaded, setLoaded] = useState(false);
+  // adventure 種: 場面画像から描くときに精密参照(Anlas)を使うか。初期値は run の設定
+  const [usePrecise, setUsePrecise] = useState<boolean | null>(null);
+  const [pendingRedraw, setPendingRedraw] = useState(false);
 
   useEffect(() => {
     setLoaded(false);
     setLogOpen(false);
     setAppearanceOpen(false);
+    setUsePrecise(null);
     void loadThread(threadId).then((thread) => {
       setLoaded(true);
       // Hub で「立ち絵を生成する」を ON にして作った直後は、開いた時点で描く
@@ -161,6 +185,58 @@ export default function CharacterChatRoom({
     onReplay: handleReplay,
   };
 
+  const thread = activeThread?.id === threadId ? activeThread : null;
+  const adventure =
+    thread?.kind === "adventure" ? (thread.adventure ?? null) : null;
+  const preciseAvailable = settingsState.imageProvider === "novelai";
+  const preciseEffective =
+    preciseAvailable &&
+    (usePrecise ?? adventure?.use_precise_reference ?? false);
+
+  // 3D モデル(VRM)。run に割り当てがあり読込に失敗していなければ立ち絵の代わりに置く
+  const avatarUrl = adventure?.companion_avatar_url ?? null;
+  const latestCharacterMessage =
+    [...(thread?.messages ?? [])]
+      .reverse()
+      .find((message) => message.role === "character") ?? null;
+  const voiceBusy = voice.status === "loading" || voice.status === "playing";
+  const avatarGestureKey =
+    voice.enabled && voice.canSpeak
+      ? voiceBusy
+        ? voice.currentKey
+        : null
+      : latestCharacterMessage
+        ? voiceKey(latestCharacterMessage.id)
+        : null;
+  const handleAvatarError = useCallback(
+    (caught: unknown) => {
+      console.warn("character chat avatar load failed", caught);
+      setAvatarFailed(true);
+      showNotification(
+        "warning",
+        t("adventure.avatar.loadFailedTitle"),
+        t("adventure.avatar.loadFailed"),
+      );
+    },
+    [setAvatarFailed, showNotification, t],
+  );
+  const stageAvatar =
+    avatarUrl && !avatarFailed
+      ? {
+          url: avatarUrl,
+          expression: normalizeAvatarExpression(
+            latestCharacterMessage?.meta?.expression ?? null,
+          ),
+          gesture: normalizeAvatarGesture(
+            latestCharacterMessage?.meta?.gesture ?? null,
+          ),
+          gestureKey: avatarGestureKey,
+          getVoiceLevel: voice.getLevel,
+          getVisemeFrame: voice.getMouthFrame,
+          onError: handleAvatarError,
+        }
+      : null;
+
   const handleSelectAppearance = async (
     selection: AdventureSourceSelection,
   ) => {
@@ -170,6 +246,27 @@ export default function CharacterChatRoom({
     if (ok && generatePortrait) await regeneratePortrait();
   };
 
+  const runRedrawFromScene = useCallback(
+    (precise: boolean) =>
+      void regeneratePortrait(threadId, {
+        reference: "scene",
+        use_precise_reference: precise,
+      }),
+    [regeneratePortrait, threadId],
+  );
+  const handleRedrawFromScene = () => {
+    setAppearanceOpen(false);
+    if (
+      preciseEffective &&
+      !readStorageFlag("session", ANLAS_WARN_SUPPRESSED_KEY)
+    ) {
+      // 精密参照は Anlas を消費するため、抑止チェック付きの確認を挟む
+      setPendingRedraw(true);
+      return;
+    }
+    runRedrawFromScene(preciseEffective);
+  };
+
   const handleConfirmDelete = async () => {
     setDeleting(true);
     const ok = await deleteThread(threadId);
@@ -177,7 +274,17 @@ export default function CharacterChatRoom({
     if (ok) navigate(ROUTES.CHARACTER_CHAT);
   };
 
-  const thread = activeThread?.id === threadId ? activeThread : null;
+  // 一覧へは常に戻れる。シナリオ由来で run が生きていれば、シナリオへ戻る導線も並べる
+  // (Adventure の「トーク」からも、一覧からも来るため、どちらにも戻れるようにする)
+  const scenarioRunId =
+    thread?.kind === "adventure" && adventure?.available
+      ? (thread.source_run_id ?? null)
+      : null;
+  const handleBack = () => navigate(ROUTES.CHARACTER_CHAT);
+  const handleBackToScenario = () => {
+    if (scenarioRunId) navigate(`${ROUTES.ADVENTURE}/${scenarioRunId}`);
+  };
+
   const deleteIcon = (
     <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
       <path
@@ -207,6 +314,7 @@ export default function CharacterChatRoom({
               portraitBusyKind === "portrait"
             }
             onGenerate={() => void regeneratePortrait()}
+            avatar={stageAvatar}
           />
         )}
 
@@ -214,21 +322,26 @@ export default function CharacterChatRoom({
           <button
             type="button"
             className="character-chat-room__back"
-            onClick={() => navigate(ROUTES.CHARACTER_CHAT)}
+            onClick={handleBack}
           >
             ← {t("characterChat.room.back")}
           </button>
+          {scenarioRunId && (
+            <button
+              type="button"
+              className="character-chat-room__back"
+              onClick={handleBackToScenario}
+            >
+              {t("characterChat.room.backToScenario")}
+            </button>
+          )}
           <h1 className="character-chat-room__title">
             {thread?.name ?? t("characterChat.title")}
             {thread && (
               <span
                 className={`character-chat__chip character-chat__chip--${thread.kind}`}
               >
-                {t(
-                  thread.kind === "base"
-                    ? "characterChat.hub.kindBase"
-                    : "characterChat.hub.kindSession",
-                )}
+                {t(KIND_LABEL_KEY[thread.kind])}
               </span>
             )}
           </h1>
@@ -253,6 +366,15 @@ export default function CharacterChatRoom({
                   setAppearanceOpen(false);
                   void resetAppearance();
                 }}
+                adventure={adventure}
+                onAdventureMode={(mode) => {
+                  setAppearanceOpen(false);
+                  void setAdventureAppearance(mode);
+                }}
+                onRedrawFromScene={handleRedrawFromScene}
+                preciseAvailable={preciseAvailable && Boolean(adventure)}
+                usePrecise={preciseEffective}
+                onUsePreciseChange={setUsePrecise}
               />
               <CharacterChatSoundControl
                 open={soundOpen}
@@ -365,6 +487,19 @@ export default function CharacterChatRoom({
           allowPromptExpander={settingsState.experimentalPromptExpanderEnabled}
         />
       )}
+
+      <AnlasConfirmDialog
+        open={pendingRedraw}
+        body={t("characterChat.room.adventureAnlasBody")}
+        checkboxId="character-chat-anlas-suppress"
+        onConfirm={(suppress) => {
+          if (suppress)
+            writeStorageFlag("session", ANLAS_WARN_SUPPRESSED_KEY, true);
+          setPendingRedraw(false);
+          runRedrawFromScene(true);
+        }}
+        onCancel={() => setPendingRedraw(false)}
+      />
 
       <ConfirmDialog
         open={deleteOpen}

@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
@@ -31,6 +32,23 @@ LookupKind = Literal[
 ]
 
 _NULL_WORDS = {"", "null", "none", "no", "false", "n/a"}
+
+
+# 外見タグに混ざってはいけない文字(ひらがな・カタカナ・漢字・全角記号)
+_CJK_RE = re.compile(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uff00-\uffef]")
+
+
+def non_english_tag_parts(tags: str) -> list[str]:
+    """カンマ区切りタグのうち、日本語(CJK)を含む要素を返す。
+
+    着替え LLM が依頼文をそのまま写した「シフォンブラウス」のようなタグは
+    画像生成器に通じないため、呼び出し側は再生成または拒否に使う。
+    """
+    return [
+        part.strip()
+        for part in str(tags or "").split(",")
+        if part.strip() and _CJK_RE.search(part)
+    ]
 
 
 def _clean_text(value: Any, limit: int) -> str | None:

@@ -123,7 +123,7 @@ def memory_block(memory_text: str | None, language: str) -> str:
 
 
 def base_persona_block(language: str) -> str:
-    """拠点キャラ(セレナ)の人物設定 + アプリ概要。"""
+    """案内役キャラ(セレナ)の人物設定 + アプリ概要。"""
     lang = _lang(language)
     return f"{BASE_CHARACTER_PERSONA[lang]}\n\n{APP_OVERVIEW[lang]}"
 
@@ -327,12 +327,16 @@ def reply_system_prompt(
 
 def appearance_change_system_prompt(language: str) -> str:
     return (
-        "You update a character's appearance tags for an anime-style image generator "
-        "(Danbooru-style English tags, comma separated). Given the current identity tags "
-        "(body, hair, eyes, face, gender) and clothing tags, and the user's request, "
-        "output JSON only:\n"
+        "You update a character's appearance tags for an anime-style image generator. "
+        "Given the current identity tags (body, hair, eyes, face, gender) and clothing "
+        "tags, and the user's request, output JSON only:\n"
         '{"identity_tags": "...", "clothing_tags": "...", "description": "..."}\n'
         "Rules:\n"
+        "- identity_tags and clothing_tags are comma-separated Danbooru-style tags "
+        "written in English only, even when the request is in Japanese. Translate "
+        "garment names into English tags (e.g. シフォンブラウス -> chiffon blouse, "
+        "総レースタイトスカート -> lace pencil skirt, 黒のニーハイ -> black thighhighs). "
+        "Never copy the request text into the tags; Japanese is not allowed there.\n"
         "- clothing_tags: replace or adjust the outfit, hairstyle accessories and "
         "footwear to satisfy the request; keep unrelated items. Describe garments "
         "concretely (color, type, length).\n"
@@ -341,21 +345,33 @@ def appearance_change_system_prompt(language: str) -> str:
         "gender token (1girl/1boy/female/male) and solo.\n"
         "- No scene, pose or background tags. No text other than the JSON.\n"
         "- description: one short sentence describing the new look, written in "
-        f"{'Japanese' if _lang(language) == 'ja' else 'English'}."
+        f"{'Japanese' if _lang(language) == 'ja' else 'English'}. This is the only "
+        "field that may contain non-English text."
     )
 
 
 def appearance_change_user_prompt(
-    *, identity_tags: str, clothing_tags: str, request: str
+    *,
+    identity_tags: str,
+    clothing_tags: str,
+    request: str,
+    rejected_tags: str | None = None,
 ) -> str:
-    return json.dumps(
-        {
-            "identity_tags": identity_tags,
-            "clothing_tags": clothing_tags,
-            "request": request,
-        },
-        ensure_ascii=False,
-    )
+    """着替え LLM への入力。rejected_tags は前回出力に日本語が混じったときの再試行用。"""
+    payload: dict[str, Any] = {
+        "identity_tags": identity_tags,
+        "clothing_tags": clothing_tags,
+        "request": request,
+    }
+    if rejected_tags:
+        payload["rejected_previous_output"] = {
+            "tags": rejected_tags,
+            "reason": (
+                "These tags contain Japanese. Rewrite every tag as an English "
+                "Danbooru-style tag; translate garment names instead of copying them."
+            ),
+        }
+    return json.dumps(payload, ensure_ascii=False)
 
 
 # ---------------------------------------------------------------------------
@@ -388,3 +404,111 @@ def summary_user_prompt(
         speaker = "user" if item.get("role") == "user" else character_name
         lines.append(f"- {speaker}: {item.get('content', '')}")
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# adventure 種(TSF シナリオの攻略対象。run の状態を毎回ライブで渡す)
+# ---------------------------------------------------------------------------
+
+
+def adventure_persona_prompt(
+    language: str,
+    *,
+    partner_name: str,
+    player_name: str,
+    speech_rule: str,
+    header_instruction: str,
+    context: dict[str, Any],
+    memory_block_text: str,
+    summary_text: str | None,
+    lookup_block_text: str,
+    chat_appearance_description: str,
+    appearance_change_request: str | None,
+) -> str:
+    """恋愛シミュレーションの攻略対象として、物語の外で会話させる system prompt。
+
+    人物設定・関係性・場面は context の JSON で渡し、会話そのものはメッセージ列で
+    渡す(かつて Adventure のトークモードが使っていた規則を移したもの)。
+    """
+    lang = _lang(language)
+    response_language = "Japanese" if lang == "ja" else "English"
+    rule = (
+        f"You are {partner_name}, the partner character of a romance simulation, "
+        f"chatting directly with {player_name} outside the story scenes. The "
+        "messages in this conversation are the actual chat between "
+        f"{player_name} (user) and you (assistant) so far, oldest first; the last "
+        f"user message is what {player_name} just said. Remember everything said "
+        "earlier in this chat and in context.recent_scenes: answer the latest "
+        "message as a continuation of that conversation, pick up its topic, and "
+        "never restart as if you were meeting for the first time or repeat an "
+        f"earlier reply. Reply in {response_language} with {partner_name}'s spoken "
+        "words only, in the first person, as one to three short sentences. You may "
+        "add at most one brief action or expression in parentheses before or after "
+        "the words. Do not write narration, the player's lines, your name as a "
+        "prefix, corner brackets, JSON, markdown, or any commentary. Stay in the "
+        "current scene (context.current_scene); nothing in the story advances "
+        "during this chat, so do not start a date, move to another place, give or "
+        "receive gifts, or decide anything on the player's behalf. "
+        "context.relationship is the current state of your relationship: let your "
+        "warmth, distance, and honesty follow relationship.stage and "
+        "relationship.affection, and when relationship.dating is true speak as an "
+        "established couple. context.recent_scenes are the latest story scenes "
+        "with how each one changed your affection (affection_change): what "
+        "happened there, and how it made you feel, is fresh in your memory. "
+        "context.reality_rules are true facts of this world; never find them "
+        "strange. context.hidden_preferences is secret game data: you may hint at "
+        "your tastes naturally but must never list, name, or confirm them outright."
+    )
+    if context.get("run_missing"):
+        rule += (
+            " The scenario this chat came from has ended or been deleted; treat "
+            "context as your last memory of it and keep chatting as the same person."
+        )
+    sections = [rule]
+    if speech_rule:
+        sections.append(speech_rule)
+    if header_instruction:
+        sections.append(header_instruction)
+    if chat_appearance_description:
+        sections.append(
+            (
+                "[Your look in this chat]\n"
+                f"{chat_appearance_description}\n"
+                "In this chat you look like this instead of context.current_scene's "
+                "clothing."
+            )
+            if lang == "en"
+            else (
+                "[この会話でのあなたの姿]\n"
+                f"{chat_appearance_description}\n"
+                "この会話では context.current_scene の服装ではなくこの姿でいます。"
+            )
+        )
+    if memory_block_text:
+        sections.append(memory_block_text)
+    if summary_text:
+        sections.append(
+            f"[Summary of this chat so far]\n{summary_text}"
+            if lang == "en"
+            else f"[これまでの会話の要約]\n{summary_text}"
+        )
+    if lookup_block_text:
+        sections.append(lookup_block_text)
+    if appearance_change_request:
+        sections.append(
+            (
+                "[Appearance change in progress]\n"
+                f"The player asked: {appearance_change_request}\n"
+                "You are changing into it right now in this chat; react naturally "
+                "and describe briefly how you look after the change."
+            )
+            if lang == "en"
+            else (
+                "[着替え中]\n"
+                f"相手の依頼: {appearance_change_request}\n"
+                "この会話の中でいまその姿に変わるところです。依頼に自然に反応し、"
+                "変わった後の姿を短く描写してください。"
+            )
+        )
+    sections.append(f"context:\n{json.dumps(context, ensure_ascii=False)}")
+    return "\n\n".join(sections)

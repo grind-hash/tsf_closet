@@ -73,7 +73,7 @@ test("guide screen enables TSF Scenario and adds it to the menu", async ({
     has: page.getByRole("heading", { name: "トークと対面会話モード" }),
   });
   await expect(
-    talkCard.getByRole("button", { name: "まずTSFシナリオを有効にする" }),
+    talkCard.getByRole("button", { name: "まずキャラチャットを有効にする" }),
   ).toBeVisible();
 
   // TSFシナリオカードのトグルでONにすると、メニューに項目が現れる
@@ -87,8 +87,13 @@ test("guide screen enables TSF Scenario and adds it to the menu", async ({
   await expect(
     adventureCard.getByText("メニューに追加されました"),
   ).toBeVisible();
+  // トークはキャラチャットへ移ったので、キャラチャットを ON にすると開けるようになる
+  const chatCard = page.locator(".guide-screen__card").filter({
+    has: page.getByRole("heading", { name: "キャラチャット", exact: true }),
+  });
+  await chatCard.locator(".guide-screen__toggle").click();
   await expect(
-    talkCard.getByRole("button", { name: "TSFシナリオを開く" }),
+    talkCard.getByRole("button", { name: "キャラチャットを開く" }),
   ).toBeVisible();
 
   // カードの「開く」でそのままTSFシナリオへ移動できる

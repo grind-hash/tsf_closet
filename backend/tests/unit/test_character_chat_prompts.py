@@ -6,8 +6,11 @@ from gateway.consts.character_chat import LOOKUP_MAX_PER_TURN
 from gateway.services.character_chat_models import (
     CharacterChatAppearanceOutput,
     CharacterChatPlan,
+    non_english_tag_parts,
 )
 from gateway.services.character_chat_prompts import (
+    appearance_change_system_prompt,
+    appearance_change_user_prompt,
     base_persona_block,
     lookup_block,
     memory_block,
@@ -119,3 +122,32 @@ def test_appearance_output_cleans_tags() -> None:
     assert output.identity_tags == "1girl, silver hair"
     assert output.clothing_tags == "red dress, high heels"
     assert output.description == "赤いドレス姿"
+
+
+def test_non_english_tag_parts_detects_japanese() -> None:
+    assert non_english_tag_parts(
+        "white chiffon blouse, 総レースタイトスカート, ,黒のニーハイ"
+    ) == ["総レースタイトスカート", "黒のニーハイ"]
+    assert non_english_tag_parts("1girl, solo, silver hair, green eyes") == []
+    assert non_english_tag_parts("") == []
+
+
+def test_appearance_change_prompts_require_english_tags() -> None:
+    system = appearance_change_system_prompt("ja")
+    assert "English only" in system
+    assert "chiffon blouse" in system
+    assert "Japanese" in system
+
+    plain = appearance_change_user_prompt(
+        identity_tags="1girl, solo", clothing_tags="red dress", request="着替えて"
+    )
+    assert "rejected_previous_output" not in plain
+    retry = appearance_change_user_prompt(
+        identity_tags="1girl, solo",
+        clothing_tags="red dress",
+        request="着替えて",
+        rejected_tags="シフォンブラウス, 総レースタイトスカート",
+    )
+    assert "rejected_previous_output" in retry
+    assert "総レースタイトスカート" in retry
+    assert "translate garment names" in retry

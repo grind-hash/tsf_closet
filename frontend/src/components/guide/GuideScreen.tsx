@@ -121,11 +121,11 @@ export default function GuideScreen() {
             desc={t("guide.talk.desc")}
             note={t("guide.talk.note")}
           >
-            {state.experimentalAdventureEnabled ? (
+            {state.experimentalCharacterChatEnabled ? (
               <button
                 type="button"
                 className="guide-screen__cta"
-                onClick={() => navigate(ROUTES.ADVENTURE)}
+                onClick={() => navigate(ROUTES.CHARACTER_CHAT)}
               >
                 {t("guide.talk.open")}
               </button>
@@ -133,7 +133,7 @@ export default function GuideScreen() {
               <button
                 type="button"
                 className="guide-screen__cta"
-                onClick={() => setExperimentalAdventureEnabled(true)}
+                onClick={() => setExperimentalCharacterChatEnabled(true)}
               >
                 {t("guide.talk.enableParent")}
               </button>

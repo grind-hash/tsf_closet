@@ -3,7 +3,7 @@ export const characterChat = {
   hub: {
     intro:
       "Talk one-on-one with a character outside the TSF scenario. The character keeps your tastes and past play in mind, and the appearance can be chosen from past images.",
-    baseSection: "Home base character",
+    baseSection: "Guide character",
     baseIntro:
       "The resident guide of TSF Closet. She remembers your tastes and past play, looks things up when you ask about recent sessions or tendencies, and can talk about the app itself.",
     openBase: "Talk with Serena",
@@ -17,7 +17,16 @@ export const characterChat = {
     pickerTitle: "Choose the appearance and moment to talk with",
     threadsSection: "Continue a conversation",
     threadsEmpty: "No conversations yet.",
-    kindBase: "Home base",
+    filterLabel: "Filter conversations by kind",
+    filter: {
+      all: "All",
+      base: "Guide",
+      session: "Session",
+      adventure: "Scenario",
+    },
+    filterEmpty: "No conversations of this kind yet.",
+    kindBase: "Guide",
+    kindAdventure: "Scenario",
     kindSession: "From a session",
     messageCount: "{{count}} messages",
     lastMessageEmpty: "(no messages yet)",
@@ -32,6 +41,23 @@ export const characterChat = {
   },
   room: {
     back: "Back to list",
+    backToScenario: "Back to the scenario",
+    adventureFollow: "Follow the scenario's look",
+    adventureFollowHint:
+      "Returns to the default for the display mode (the latest scene image with the partner in composite mode, otherwise the latest portrait) and keeps following the scenario afterwards.",
+    adventureUsePartnerPortrait: "Use the partner's portrait",
+    adventureUseScene: "Use the scene image",
+    adventureRedrawFromScene: "Draw a portrait from the scene image",
+    adventureRedrawFromSceneHint:
+      "Draws a full-body portrait from the appearance tags, using the latest scene image with the partner as the reference (image generation takes a while).",
+    adventurePreciseToggle: "Use precise reference",
+    adventurePreciseHint:
+      "When on, the scene image is sent as a character reference, which costs extra Anlas per reference.",
+    adventureAnlasBody:
+      "Draws the portrait with a precise reference. Each reference costs extra Anlas. Continue?",
+    adventureUnavailable:
+      "This scenario has ended or been deleted. The appearance can only be changed within this chat.",
+    adventureNoImage: "No image available",
     changeAppearance: "Change appearance",
     appearancePickerTitle: "Choose an image for the appearance",
     regeneratePortrait: "Redraw portrait",
@@ -117,6 +143,18 @@ export const characterChat = {
     outfit: "Outfit",
     playMemory: "Play memo",
     appearance: "Appearance",
+    adventure: "Scenario status",
+    adventureHint:
+      "Live values of the linked TSF scenario, read fresh on every reply.",
+    affection: "Affection {{value}} ({{stage}})",
+    day: "Day {{day}} {{slot}}",
+    dating: "Dating",
+    gifts: "Gifts given",
+    milestones: "Milestones reached",
+    recentScenes: "Recent scenes",
+    speechStyle: "Speech style",
+    runMissing:
+      "This scenario has ended or been deleted (showing the last known state).",
     timelineType: {
       dress_up: "dress-up",
       reality_alter: "alter",

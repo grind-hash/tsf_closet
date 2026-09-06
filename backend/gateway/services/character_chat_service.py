@@ -1,6 +1,6 @@
 """キャラチャット(TSF シナリオを経由しないキャラクターとの会話)。
 
-スレッド(拠点キャラ「セレナ」/ 過去セッション由来のキャラ)の永続化、
+スレッド(案内役キャラ「セレナ」/ 過去セッション由来のキャラ)の永続化、
 1 発言ごとの 判定 LLM → 調べ物 → 返答ストリーム → 保存 → (着替え) → (要約) の
 編成、姿の差し替えと立ち絵の描き直しを担う。ルーターは SSE 化だけを行う。
 """
@@ -15,6 +15,7 @@ import shutil
 import uuid
 from collections import defaultdict
 from collections.abc import AsyncGenerator
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,8 @@ from typing import Any
 from sqlalchemy import delete, desc, func, select
 
 from ..consts.character_chat import (
+    ADVENTURE_RECENT_CHAT_MAX,
+    ADVENTURE_SCENE_CONTEXT_MAX,
     BASE_APPEARANCE_DESCRIPTION,
     BASE_CHARACTER_KEY,
     BASE_CHARACTER_NAME,
@@ -29,6 +32,7 @@ from ..consts.character_chat import (
     BASE_CLOTHING_TAGS,
     BASE_IDENTITY_TAGS,
     BASE_PORTRAIT_FILENAME,
+    CHARACTER_CHAT_KIND_ADVENTURE,
     CHARACTER_CHAT_KIND_BASE,
     CHARACTER_CHAT_KIND_SESSION,
     HISTORY_MESSAGES,
@@ -41,19 +45,33 @@ from ..consts.character_chat import (
     THREAD_MESSAGE_LIMIT,
     base_portrait_dir,
 )
-from ..consts.companion_avatar import parse_talk_header
+from ..consts.companion_avatar import (
+    avatar_talk_header_instruction,
+    normalize_avatar_expression,
+    normalize_avatar_gesture,
+    parse_talk_header,
+)
 from ..consts.language import normalize_language
 from ..consts.novelai_models import resolve_user_image_model
 from ..databases.base import async_session_factory
 from ..databases.models import CharacterChatMessage, CharacterChatThread, User
 from ..settings.config import settings
+from .adventure_inventory import inventory_enabled, lean_inventory_for_llm
+from .adventure_romance import (
+    recent_scene_context,
+    romance_script_names,
+    talk_relationship_context,
+)
+from .avatar_service import avatar_file_url
 from .character_chat_lookups import run_lookups, session_candidates
 from .character_chat_models import (
     CharacterChatAppearanceOutput,
     CharacterChatPlan,
     empty_plan,
+    non_english_tag_parts,
 )
 from .character_chat_prompts import (
+    adventure_persona_prompt,
     appearance_change_system_prompt,
     appearance_change_user_prompt,
     base_persona_block,
@@ -76,6 +94,7 @@ from .providers import Provider, resolve_image_provider, resolve_text_provider
 from .session import DEFAULT_USER_ID, session_store
 from .settings_service import settings_service
 from .source_snapshot import (
+    CLOTHING_TAG_PATTERN,
     SourceSnapshotError,
     build_source_snapshot,
     identity_tags_only,
@@ -162,6 +181,28 @@ async def _generate_text(
     return str(getattr(result, "content", "") or "")
 
 
+# 場面合成用の構図タグ(adventure_service の _NPC_PROMPT_SUFFIX など)。立ち絵には不要
+_COMPOSITION_TAG_PATTERN = re.compile(
+    r"\b(?:protagonist|focus|foreground|supporting character)\b", re.IGNORECASE
+)
+
+
+def _split_portrait_tags(tags: str) -> tuple[str, str]:
+    """攻略対象の立ち絵タグを (同一性タグ, 服装タグ) に分ける。
+
+    服装は CLOTHING_TAG_PATTERN に一致するもの。残りから場面・動作タグと
+    構図タグを落としたものが同一性タグ。
+    """
+    parts = [part.strip() for part in tags.split(",") if part.strip()]
+    clothing = [part for part in parts if CLOTHING_TAG_PATTERN.search(part)]
+    identity = [
+        part
+        for part in identity_tags_only(tags).split(", ")
+        if part and not _COMPOSITION_TAG_PATTERN.search(part)
+    ]
+    return ", ".join(identity), ", ".join(clothing)
+
+
 _APPEARANCE_KEYS = (
     "identity_tags",
     "clothing_tags",
@@ -180,8 +221,114 @@ def _with_initial(
     return {**appearance, "initial": initial}
 
 
+class _HeaderBuffer:
+    """返答の先頭ヘッダ行 ``[expression=.. gesture=..]`` を配信前に取り除くバッファ。
+
+    3D モデル表示中の adventure 種でだけ有効。改行か一定長までは溜め、先頭が
+    ``[`` でないと分かった時点で即時に流す(Adventure のトークから移した)。
+    """
+
+    _LIMIT = 64
+
+    def __init__(self, *, enabled: bool) -> None:
+        self._pending = ""
+        self._decided = not enabled
+
+    def feed(self, chunk: str) -> list[str]:
+        if self._decided:
+            return [chunk]
+        self._pending += chunk
+        stripped = self._pending.lstrip()
+        if stripped and not stripped.startswith("["):
+            return self._release()
+        if "\n" in self._pending or len(self._pending) >= self._LIMIT:
+            return self._release()
+        return []
+
+    def flush(self) -> list[str]:
+        if self._decided:
+            return []
+        return self._release()
+
+    def _release(self) -> list[str]:
+        self._decided = True
+        _, _, rest = parse_talk_header(self._pending)
+        self._pending = ""
+        return [rest] if rest else []
+
+
+@dataclass
+class _AdventureView:
+    """adventure 種が 1 回の処理で参照する run の読み取りビュー。"""
+
+    run: Any
+    state: dict[str, Any]
+    sim: dict[str, Any]
+    partner_name: str
+    player_name: str
+    epilogue: bool
+    turns: list[Any]
+    companion: bool
+    avatar_id: str | None
+    composite: bool
+
+    @property
+    def avatar_url(self) -> str | None:
+        return avatar_file_url(self.avatar_id) if self.avatar_id else None
+
+
+async def _load_adventure_view(run_id: str) -> _AdventureView | None:
+    """run を読んでビューにする。無ければ None、romance 以外は talk_unavailable。
+
+    adventure_service は character_chat_service を遅延 import するため、こちらも
+    遅延 import で循環を避ける。
+    """
+    from .adventure_service import AdventureError, adventure_service
+
+    try:
+        run = await adventure_service.get_run_orm(run_id, with_turns=True)
+    except AdventureError:
+        return None
+    state = _json_load(run.state_json, {})
+    sim = state.get("sim") if run.preset == "romance" else None
+    if not isinstance(sim, dict):
+        raise CharacterChatError(
+            "talk_unavailable", "キャラチャットは恋愛シミュレーションでのみ使えます"
+        )
+    partner_name, player_name = romance_script_names(sim, run.language)
+    companion = bool(state.get("companion_mode"))
+    avatar_id = str(state.get("companion_avatar_id") or "").strip() or None
+    return _AdventureView(
+        run=run,
+        state=state,
+        sim=sim,
+        partner_name=partner_name,
+        player_name=player_name,
+        epilogue=bool(state.get("epilogue")),
+        turns=sorted(
+            list(run.turns or []), key=lambda item: int(item.turn_number or 0)
+        ),
+        companion=companion,
+        avatar_id=avatar_id if companion else None,
+        composite=bool(state.get("enable_composite_scene")) and not companion,
+    )
+
+
+def _adventure_file(raw: Any) -> Path | None:
+    """Adventure が保存した画像パス(絶対パス文字列)を実ファイルに解決する。"""
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    path = Path(text)
+    if path.is_file():
+        return path
+    resolved = resolve_stored_image_path(text)
+    return resolved if resolved is not None and resolved.is_file() else None
+
+
 class CharacterChatService:
     def __init__(self) -> None:
+
         self._thread_locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
         self._images_dir = settings.history_images_dir.parent / "character_chat_images"
 
@@ -318,6 +465,8 @@ class CharacterChatService:
     @staticmethod
     def _public_persona(thread: CharacterChatThread) -> dict[str, Any]:
         """右パネルに出す人物設定(セッション由来のみ。LLM 向けの生データは出さない)。"""
+        if thread.kind == CHARACTER_CHAT_KIND_ADVENTURE:
+            return CharacterChatService._adventure_public_persona(thread)
         if thread.kind != CHARACTER_CHAT_KIND_SESSION:
             return {}
         persona = _json_load(thread.persona_json, {})
@@ -390,9 +539,23 @@ class CharacterChatService:
             "portrait_path": self._stored_path(thread.id, sources[0].name),
         }
 
+    @staticmethod
+    def _adventure_mode(appearance: dict[str, Any]) -> str:
+        """adventure 種の姿の追従モード。run 以外の素材やチャット側の変更は custom。"""
+        source = appearance.get("source") or {}
+        source_type = str(source.get("type") or "")
+        if not source_type:
+            # 作成直後(姿が未設定)は既定に従う
+            return "default"
+        if source_type != "adventure":
+            return "custom"
+        return str(source.get("adventure_mode") or "default")
+
     def _can_reset_appearance(
         self, thread: CharacterChatThread, appearance: dict[str, Any]
     ) -> bool:
+        if thread.kind == CHARACTER_CHAT_KIND_ADVENTURE:
+            return self._adventure_mode(appearance) != "default"
         initial = self._initial_appearance(thread, appearance)
         if initial is None:
             return False
@@ -403,7 +566,14 @@ class CharacterChatService:
         return current != wanted or current_portrait != wanted_portrait
 
     async def reset_appearance(self, thread_id: str) -> dict[str, Any]:
-        """姿を作成時点(同梱 PNG / コピーした元画像とそのタグ)へ戻す。画像生成はしない。"""
+        """姿を作成時点(同梱 PNG / コピーした元画像とそのタグ)へ戻す。画像生成はしない。
+
+        adventure 種は「シナリオの姿に合わせる」(表示モードで決める既定)に戻す。
+        """
+        async with async_session_factory() as db:
+            kind = (await self._get_thread_orm(db, thread_id)).kind
+        if kind == CHARACTER_CHAT_KIND_ADVENTURE:
+            return await self.set_adventure_appearance(thread_id, mode="default")
         async with self._thread_locks[thread_id], async_session_factory() as db:
             thread = await self._get_thread_orm(db, thread_id)
             appearance = _json_load(thread.appearance_json, {})
@@ -430,12 +600,15 @@ class CharacterChatService:
         message_count: int,
         last_message: CharacterChatMessage | None,
         messages: list[CharacterChatMessage] | None = None,
+        adventure: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         appearance = _json_load(thread.appearance_json, {})
         portrait = self._portrait_file(thread)
         payload: dict[str, Any] = {
             "id": thread.id,
             "kind": thread.kind,
+            "source_run_id": thread.source_run_id,
+            "adventure": adventure,
             "name": thread.name,
             "pronoun": thread.pronoun,
             "portrait_url": self.image_url(thread.id, portrait.name)
@@ -481,11 +654,15 @@ class CharacterChatService:
             else []
         )
         last_message = messages[-1] if messages else None
+        adventure = None
+        if thread.kind == CHARACTER_CHAT_KIND_ADVENTURE:
+            adventure = await self._adventure_summary(thread)
         return self._thread_to_dict(
             thread,
             message_count=count,
             last_message=last_message,
             messages=messages if with_messages else None,
+            adventure=adventure,
         )
 
     # ------------------------------------------------------------------
@@ -509,11 +686,15 @@ class CharacterChatService:
             for thread in threads:
                 count = await self._message_count(db, thread.id)
                 last = await self._load_messages(db, thread.id, limit=1)
+                adventure = None
+                if thread.kind == CHARACTER_CHAT_KIND_ADVENTURE:
+                    adventure = await self._adventure_summary(thread)
                 payloads.append(
                     self._thread_to_dict(
                         thread,
                         message_count=count,
                         last_message=last[-1] if last else None,
+                        adventure=adventure,
                     )
                 )
             return payloads
@@ -532,7 +713,7 @@ class CharacterChatService:
             )
 
     async def get_or_create_base_thread(self) -> dict[str, Any]:
-        """拠点キャラ(セレナ)のスレッドを返す。無ければ作る(ユーザーごとに 1 件)。"""
+        """案内役キャラ(セレナ)のスレッドを返す。無ければ作る(ユーザーごとに 1 件)。"""
         user_settings = await session_store.get_user_settings()
         lang = _lang(user_settings.get("language"))
         async with async_session_factory() as db:
@@ -795,15 +976,21 @@ class CharacterChatService:
         *,
         nsfw_mode: bool,
         user_settings: dict[str, Any],
+        reference_override: Path | None = None,
+        use_character_reference: bool = False,
     ) -> str:
-        """外見タグから立ち絵を 1 枚描き、スレッドディレクトリへ保存してファイル名を返す。"""
+        """外見タグから立ち絵を 1 枚描き、スレッドディレクトリへ保存してファイル名を返す。
+
+        reference_override があればそれを参照画像にする(無ければいまの姿)。
+        use_character_reference は NovelAI の精密参照(Anlas 消費。FE が確認済み)。
+        """
         provider = resolve_image_provider()
         image_model = (
             resolve_user_image_model(user_settings, nsfw_mode)
             if provider == Provider.NOVELAI
             else None
         )
-        reference = self._portrait_file(thread)
+        reference = reference_override or self._portrait_file(thread)
         reference_bytes = reference.read_bytes() if reference is not None else None
         tags = ", ".join(
             part
@@ -822,6 +1009,7 @@ class CharacterChatService:
                 provider=provider,
                 image_model=image_model,
                 reference_bytes=reference_bytes,
+                use_character_reference=use_character_reference,
             )
         except PortraitGenerationError as exc:
             raise CharacterChatError(exc.code, str(exc)) from exc
@@ -852,15 +1040,29 @@ class CharacterChatService:
         nsfw_mode: bool,
         user_settings: dict[str, Any],
         message_id: str | None = None,
+        reference_override: Path | None = None,
+        use_character_reference: bool = False,
     ) -> dict[str, Any]:
         """立ち絵を描いて thread に反映し、portrait_image イベントの data を返す。"""
         async with async_session_factory() as db:
             thread = await self._get_thread_orm(db, thread_id)
             filename = await self._generate_portrait(
-                thread, appearance, nsfw_mode=nsfw_mode, user_settings=user_settings
+                thread,
+                appearance,
+                nsfw_mode=nsfw_mode,
+                user_settings=user_settings,
+                reference_override=reference_override,
+                use_character_reference=use_character_reference,
             )
             self._remove_generated_portrait(thread)
             appearance = {**appearance, "portrait_kind": "standing"}
+            if thread.kind == CHARACTER_CHAT_KIND_ADVENTURE:
+                # チャット側で描いた姿は run に追従させない(シナリオの姿に合わせるで戻す)
+                source = dict(appearance.get("source") or {})
+                source["type"] = "adventure"
+                source["run_id"] = thread.source_run_id
+                source["adventure_mode"] = "custom"
+                appearance["source"] = source
             thread.appearance_json = json.dumps(appearance, ensure_ascii=False)
             thread.portrait_path = self._stored_path(thread.id, filename)
             thread.updated_at = datetime.now()
@@ -879,9 +1081,17 @@ class CharacterChatService:
         }
 
     async def stream_portrait_regeneration(
-        self, thread_id: str
+        self,
+        thread_id: str,
+        *,
+        reference: str = "current",
+        use_precise_reference: bool = False,
     ) -> AsyncGenerator[dict[str, Any], None]:
-        """現在の外見タグから立ち絵を描き直す(同梱 PNG が無いセレナの初回生成も兼ねる)。"""
+        """現在の外見タグから立ち絵を描き直す(同梱 PNG が無いセレナの初回生成も兼ねる)。
+
+        reference が scene / partner のときは adventure 種の run が持つ画像を参照にする。
+        use_precise_reference は NovelAI の精密参照(Anlas 消費)で、FE が確認済みの前提。
+        """
         tracker = begin_cost_tracking()
         async with self._thread_locks[thread_id]:
             async with async_session_factory() as db:
@@ -889,15 +1099,44 @@ class CharacterChatService:
                 appearance = _json_load(thread.appearance_json, {})
                 kind = thread.kind
                 thread_nsfw = bool(thread.nsfw_mode)
+                source_run_id = thread.source_run_id
             user_settings = await session_store.get_user_settings()
             nsfw_mode = (
-                thread_nsfw
-                if kind == CHARACTER_CHAT_KIND_SESSION
-                else bool(user_settings.get("nsfw_mode"))
+                bool(user_settings.get("nsfw_mode"))
+                if kind == CHARACTER_CHAT_KIND_BASE
+                else thread_nsfw
             )
+            reference_override: Path | None = None
+            if kind == CHARACTER_CHAT_KIND_ADVENTURE and source_run_id:
+                view = await _load_adventure_view(source_run_id)
+                if view is not None:
+                    nsfw_mode = bool(view.run.nsfw_mode)
+                    # 参照画像に合わせて外見タグも run の最新値にしておく
+                    identity, clothing = self._adventure_identity(view)
+                    if identity:
+                        appearance = {
+                            **appearance,
+                            "identity_tags": identity,
+                            "clothing_tags": clothing
+                            or str(appearance.get("clothing_tags") or ""),
+                        }
+                    if reference in ("scene", "partner"):
+                        candidates = self._adventure_images(view)
+                        reference_override = candidates.get(
+                            "partner_portrait" if reference == "partner" else "scene"
+                        )
+                        if reference_override is None:
+                            raise CharacterChatError(
+                                "reference_not_found", "参照にする画像がありません"
+                            )
             yield {"event": "status", "data": {"phase": "portrait"}}
             data = await self._apply_portrait(
-                thread_id, appearance, nsfw_mode=nsfw_mode, user_settings=user_settings
+                thread_id,
+                appearance,
+                nsfw_mode=nsfw_mode,
+                user_settings=user_settings,
+                reference_override=reference_override,
+                use_character_reference=bool(use_precise_reference),
             )
             yield {"event": "portrait_image", "data": data}
             if tracker.total_usd > 0:
@@ -907,6 +1146,515 @@ class CharacterChatService:
     # ------------------------------------------------------------------
     # 会話
     # ------------------------------------------------------------------
+
+    # ------------------------------------------------------------------
+    # adventure 種(TSF シナリオの攻略対象)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _partner_present(main_characters: Any, partner_name: str) -> bool:
+        from .adventure_service import romance_partner_visual_entry
+
+        if not isinstance(main_characters, list):
+            return False
+        entry, _ = romance_partner_visual_entry(main_characters, [], partner_name)
+        return entry is not None
+
+    def _adventure_identity(self, view: _AdventureView) -> tuple[str, str]:
+        """run の現在値から (同一性タグ, 服装タグ) を読む。
+
+        Adventure の攻略対象立ち絵と同じく、その手番の visual LLM が出した
+        npc_tags(state["last_image_prompt"])を優先し、服装と同一性に分ける。
+        sim["partner_appearance"] は開始素材の記述から作った初期値で、素材が濃い
+        場面だと行為・体位タグが残るため、npc_tags を取れない run の保険にだけ
+        使い、その場合も同一性タグへ絞る。
+        """
+        from .adventure_service import romance_partner_visual_entry
+
+        visual_state = view.state.get("visual_state") or {}
+        main_characters = (
+            visual_state.get("main_characters")
+            if isinstance(visual_state, dict)
+            else None
+        )
+        last_prompt = view.state.get("last_image_prompt")
+        npc_tags = (
+            [str(tag) for tag in (last_prompt.get("npc_tags") or [])]
+            if isinstance(last_prompt, dict)
+            else []
+        )
+        entry, partner_tags = (
+            romance_partner_visual_entry(main_characters, npc_tags, view.partner_name)
+            if isinstance(main_characters, list)
+            else (None, "")
+        )
+        entry_clothing = str(entry.get("clothing") or "").strip() if entry else ""
+        if partner_tags.strip():
+            identity, clothing = _split_portrait_tags(partner_tags)
+            if identity:
+                return identity, clothing or entry_clothing
+        initial = str(view.sim.get("partner_appearance") or "").strip()
+        return identity_tags_only(initial) or initial, entry_clothing
+
+    def _adventure_images(self, view: _AdventureView) -> dict[str, Path | None]:
+        """run が持つ攻略対象の画像。partner_portrait = 最新の立ち絵、scene = 相手が写る最新の場面。"""
+        state = view.state
+        partner_portrait = _adventure_file(
+            state.get("partner_portrait_path")
+        ) or _adventure_file(state.get("opening_partner_portrait_path"))
+        partner_source = _adventure_file(state.get("partner_image_path"))
+        scene: Path | None = None
+        for turn in reversed(view.turns):
+            delta = _json_load(getattr(turn, "state_delta_json", None), {})
+            visual_state = (
+                delta.get("visual_state") if isinstance(delta, dict) else None
+            )
+            present = isinstance(visual_state, dict) and self._partner_present(
+                visual_state.get("main_characters"), view.partner_name
+            )
+            image = _adventure_file(getattr(turn, "image_path", None))
+            if present and image is not None:
+                scene = image
+                break
+        if scene is None:
+            visual_state = state.get("visual_state") or {}
+            if isinstance(visual_state, dict) and self._partner_present(
+                visual_state.get("main_characters"), view.partner_name
+            ):
+                scene = _adventure_file(view.run.current_image_path)
+        return {
+            "partner_portrait": partner_portrait,
+            "partner_source": partner_source,
+            "scene": scene,
+        }
+
+    def _adventure_appearance_choice(
+        self, view: _AdventureView, mode: str
+    ) -> tuple[Path, str, str]:
+        """モードに応じた (画像, portrait_kind, 実際に採用したモード)。
+
+        default はプレイヤーが見てきた画像: 合成モードなら相手が写る最新の場面画像、
+        非合成/対面会話モードなら最新の攻略対象立ち絵。無ければ順に倒す。
+        """
+        images = self._adventure_images(view)
+        order: list[str]
+        if mode == "partner_portrait":
+            order = ["partner_portrait", "scene", "partner_source"]
+        elif mode == "scene" or view.composite:
+            order = ["scene", "partner_portrait", "partner_source"]
+        else:
+            order = ["partner_portrait", "scene", "partner_source"]
+        for key in order:
+            path = images.get(key)
+            if path is not None:
+                kind = "standing" if key == "partner_portrait" else "scene"
+                return path, kind, mode
+        raise CharacterChatError("image_not_found", "攻略対象の画像がありません")
+
+    def _apply_adventure_appearance(
+        self, thread: CharacterChatThread, view: _AdventureView, mode: str
+    ) -> bool:
+        """run の画像とタグを姿に写す(必要なときだけコピー)。変更があれば True。"""
+        path, kind, effective = self._adventure_appearance_choice(view, mode)
+        identity, clothing = self._adventure_identity(view)
+        appearance = _json_load(thread.appearance_json, {})
+        source = dict(appearance.get("source") or {})
+        unchanged = (
+            str(source.get("type") or "") == "adventure"
+            and str(source.get("adventure_image") or "") == str(path)
+            and str(source.get("adventure_mode") or "") == effective
+            and str(appearance.get("identity_tags") or "") == identity
+            and str(appearance.get("clothing_tags") or "") == clothing
+            and bool(thread.portrait_path)
+        )
+        if unchanged:
+            return False
+        if (
+            str(source.get("adventure_image") or "") != str(path)
+            or not thread.portrait_path
+        ):
+            self._remove_generated_portrait(thread)
+            filename = self._copy_source_image(thread.id, path)
+            thread.portrait_path = self._stored_path(thread.id, filename)
+        appearance.update(
+            {
+                "identity_tags": identity or str(appearance.get("identity_tags") or ""),
+                "clothing_tags": clothing,
+                "description": "",
+                "portrait_kind": kind,
+                "source": {
+                    "type": "adventure",
+                    "run_id": thread.source_run_id,
+                    "adventure_mode": effective,
+                    "adventure_image": str(path),
+                },
+            }
+        )
+        thread.appearance_json = json.dumps(appearance, ensure_ascii=False)
+        return True
+
+    def _adventure_persona_cache(self, view: _AdventureView) -> dict[str, Any]:
+        """run 削除後も会話を続けられるよう、最後に読んだ文脈を persona_json に控える。"""
+        from .adventure_service import sanitize_visual_state, speech_rule_from_state
+
+        run = view.run
+        context: dict[str, Any] = {
+            "run_id": run.id,
+            "title": str(run.title or ""),
+            "status": str(run.status or ""),
+            "turn_count": int(run.turn_count or 0),
+            "max_turns": int(run.max_turns or 0),
+            "partner_name": view.partner_name,
+            "player_name": view.player_name,
+            "speech_rule": speech_rule_from_state(view.state),
+            "partner": {
+                "name": view.partner_name,
+                "profile": str(view.sim.get("partner_profile") or ""),
+                "speech_style": str(view.sim.get("partner_speech_style") or ""),
+                "appearance": str(view.sim.get("partner_appearance") or ""),
+            },
+            "relationship": talk_relationship_context(
+                view.sim, view.state, int(run.turn_count or 0), epilogue=view.epilogue
+            ),
+            "hidden_preferences": view.sim.get("hidden_preferences"),
+            "current_scene": sanitize_visual_state(view.state.get("visual_state", {})),
+            "reality_rules": list(view.state.get("reality_rules", [])),
+            "recent_scenes": recent_scene_context(
+                view.turns, ADVENTURE_SCENE_CONTEXT_MAX
+            ),
+            "companion": view.companion,
+            "avatar_id": view.avatar_id,
+            "composite": view.composite,
+            "use_precise_reference": bool(view.state.get("use_precise_reference")),
+        }
+        if inventory_enabled(view.state):
+            context["inventory"] = lean_inventory_for_llm(view.state)
+        return context
+
+    def _adventure_context(
+        self, thread: CharacterChatThread, view: _AdventureView | None
+    ) -> dict[str, Any]:
+        """返答の system prompt に渡す文脈。run が無ければ控えを使う。"""
+        cache = _json_load(thread.persona_json, {})
+        base = self._adventure_persona_cache(view) if view is not None else cache
+        context = {
+            "task": (
+                "Reply as the partner in a free chat outside the story scenes. "
+                "Nothing in the story advances."
+            ),
+            "partner_name": base.get("partner_name") or thread.name,
+            "player_name": base.get("player_name") or "",
+            "speech_rule": base.get("speech_rule") or "",
+            "partner": base.get("partner") or {},
+            "relationship": base.get("relationship") or {},
+            "hidden_preferences": base.get("hidden_preferences"),
+            "current_scene": base.get("current_scene"),
+            "reality_rules": base.get("reality_rules") or [],
+            "recent_scenes": base.get("recent_scenes") or [],
+        }
+        if base.get("inventory"):
+            context["inventory"] = base["inventory"]
+        if view is None:
+            context["run_missing"] = True
+        return context
+
+    async def _sync_adventure_thread(
+        self, thread: CharacterChatThread, view: _AdventureView
+    ) -> None:
+        """run の現在値を名前・姿(追従モードのとき)・控えに写す。呼び出し側がコミットする。"""
+        if view.partner_name and thread.name != view.partner_name:
+            thread.name = view.partner_name
+        appearance = _json_load(thread.appearance_json, {})
+        mode = self._adventure_mode(appearance)
+        if mode != "custom":
+            try:
+                self._apply_adventure_appearance(thread, view, mode)
+            except CharacterChatError as exc:
+                logger.warning("adventure appearance sync skipped: %s", exc)
+        thread.persona_json = json.dumps(
+            self._adventure_persona_cache(view), ensure_ascii=False
+        )
+        thread.nsfw_mode = bool(view.run.nsfw_mode)
+
+    async def _adventure_summary(self, thread: CharacterChatThread) -> dict[str, Any]:
+        """配信用の run 情報(ライブ。run が無ければ控えから最小限)。"""
+        from .adventure_service import adventure_service
+
+        cache = _json_load(thread.persona_json, {})
+        view = None
+        if thread.source_run_id:
+            try:
+                view = await _load_adventure_view(thread.source_run_id)
+            except CharacterChatError:
+                view = None
+        appearance_mode = self._adventure_mode(_json_load(thread.appearance_json, {}))
+        if view is None:
+            relationship = cache.get("relationship") or {}
+            return {
+                "run_id": thread.source_run_id,
+                "available": False,
+                "title": str(cache.get("title") or ""),
+                "status": str(cache.get("status") or ""),
+                "turn_count": int(cache.get("turn_count") or 0),
+                "max_turns": int(cache.get("max_turns") or 0),
+                "partner_name": str(cache.get("partner_name") or thread.name),
+                "player_name": str(cache.get("player_name") or ""),
+                "companion_mode": bool(cache.get("companion")),
+                "companion_avatar_id": None,
+                "companion_avatar_url": None,
+                "composite": bool(cache.get("composite")),
+                "affection": relationship.get("affection"),
+                "stage": relationship.get("stage"),
+                "day": relationship.get("day"),
+                "slot": relationship.get("slot"),
+                "dating": bool(relationship.get("dating")),
+                "partner_portrait_url": None,
+                "scene_image_url": None,
+                "use_precise_reference": False,
+                "appearance_mode": appearance_mode,
+            }
+        images = self._adventure_images(view)
+        relationship = talk_relationship_context(
+            view.sim, view.state, int(view.run.turn_count or 0), epilogue=view.epilogue
+        )
+        partner_portrait = images.get("partner_portrait")
+        scene = images.get("scene")
+        return {
+            "run_id": view.run.id,
+            "available": True,
+            "title": str(view.run.title or ""),
+            "status": str(view.run.status or ""),
+            "turn_count": int(view.run.turn_count or 0),
+            "max_turns": int(view.run.max_turns or 0),
+            "partner_name": view.partner_name,
+            "player_name": view.player_name,
+            "companion_mode": view.companion,
+            "companion_avatar_id": view.avatar_id,
+            "companion_avatar_url": view.avatar_url,
+            "composite": view.composite,
+            "affection": relationship.get("affection"),
+            "stage": relationship.get("stage"),
+            "day": relationship.get("day"),
+            "slot": relationship.get("slot"),
+            "dating": bool(relationship.get("dating")),
+            "partner_portrait_url": (
+                adventure_service.image_url(view.run.id, partner_portrait)
+                if partner_portrait is not None
+                else None
+            ),
+            "scene_image_url": (
+                adventure_service.image_url(view.run.id, scene)
+                if scene is not None
+                else None
+            ),
+            "use_precise_reference": bool(view.state.get("use_precise_reference")),
+            "appearance_mode": appearance_mode,
+        }
+
+    @staticmethod
+    def _adventure_public_persona(thread: CharacterChatThread) -> dict[str, Any]:
+        """右パネル用(控えから。ライブ値は adventure ブロックが持つ)。"""
+        cache = _json_load(thread.persona_json, {})
+        relationship = cache.get("relationship") or {}
+        partner = cache.get("partner") or {}
+        scenes = cache.get("recent_scenes") or []
+        return {
+            "character_name": str(cache.get("partner_name") or thread.name),
+            "summary_title": str(cache.get("title") or ""),
+            "summary_text": str(partner.get("profile") or ""),
+            "stage": str(relationship.get("stage") or ""),
+            "stage_label": str(relationship.get("stage") or ""),
+            "affection": relationship.get("affection"),
+            "day": relationship.get("day"),
+            "slot": relationship.get("slot"),
+            "total_days": relationship.get("total_days"),
+            "dating": bool(relationship.get("dating")),
+            "given_gifts": list(relationship.get("given_gifts") or []),
+            "completed_milestones": list(
+                relationship.get("completed_milestones") or []
+            ),
+            "attributes": [str(item) for item in cache.get("reality_rules") or []],
+            "timeline": [
+                {
+                    "type": "scene",
+                    "text": (
+                        f"Day {item.get('day')} {item.get('slot')}: "
+                        f"{str(item.get('narrative') or '')[:160]}"
+                    ),
+                }
+                for item in scenes
+                if isinstance(item, dict)
+            ],
+            "outfit_description": str(partner.get("appearance") or ""),
+            "play_memory_context": "",
+            "speech_style": str(partner.get("speech_style") or ""),
+        }
+
+    async def get_or_create_adventure_thread(self, run_id: str) -> dict[str, Any]:
+        """run の攻略対象と話すスレッドを返す。無ければ作る(run ごとに 1 件)。
+
+        作成時に旧トークモードのログ(talk_log)があればメッセージとして取り込み、
+        run の state からは消す。
+        """
+        view = await _load_adventure_view(run_id)
+        if view is None:
+            raise CharacterChatError("run_not_found", "アドベンチャーが見つかりません")
+        user_settings = await session_store.get_user_settings()
+        lang = _lang(view.run.language or user_settings.get("language"))
+        async with self._thread_locks[f"run:{run_id}"]:
+            async with async_session_factory() as db:
+                existing = (
+                    (
+                        await db.execute(
+                            select(CharacterChatThread)
+                            .where(
+                                CharacterChatThread.user_id == DEFAULT_USER_ID,
+                                CharacterChatThread.kind
+                                == CHARACTER_CHAT_KIND_ADVENTURE,
+                                CharacterChatThread.source_run_id == run_id,
+                            )
+                            .order_by(CharacterChatThread.created_at)
+                        )
+                    )
+                    .scalars()
+                    .first()
+                )
+                if existing is not None:
+                    await self._sync_adventure_thread(existing, view)
+                    await db.commit()
+                    await db.refresh(existing)
+                    return await self._thread_payload(
+                        db, existing, with_messages=False, limit=1
+                    )
+                await self._ensure_user(db)
+                now = datetime.now()
+                thread = CharacterChatThread(
+                    id=uuid.uuid4().hex,
+                    user_id=DEFAULT_USER_ID,
+                    kind=CHARACTER_CHAT_KIND_ADVENTURE,
+                    name=view.partner_name,
+                    pronoun=_FALLBACK_PRONOUN[lang],
+                    persona_json="{}",
+                    appearance_json="{}",
+                    portrait_path=None,
+                    source_run_id=run_id,
+                    language=lang,
+                    nsfw_mode=bool(view.run.nsfw_mode),
+                    created_at=now,
+                    updated_at=now,
+                )
+                db.add(thread)
+                await db.flush()
+                await self._sync_adventure_thread(thread, view)
+                await db.commit()
+                await db.refresh(thread)
+                thread_id = thread.id
+            await self._import_talk_log(thread_id, run_id)
+            async with async_session_factory() as db:
+                thread = await self._get_thread_orm(db, thread_id)
+                return await self._thread_payload(
+                    db, thread, with_messages=False, limit=1
+                )
+
+    async def _import_talk_log(self, thread_id: str, run_id: str) -> int:
+        """旧トークモードのログをメッセージとして取り込む。取り込んだ件数を返す。"""
+        from .adventure_service import adventure_service
+
+        entries = await adventure_service.consume_talk_log(run_id)
+        if not entries:
+            return 0
+        base = datetime.now() - timedelta(seconds=len(entries))
+        async with async_session_factory() as db:
+            thread = await self._get_thread_orm(db, thread_id)
+            for index, entry in enumerate(entries):
+                text = str(entry.get("text") or "").strip()
+                if not text:
+                    continue
+                role = "user" if entry.get("role") == "user" else "character"
+                meta: dict[str, Any] = {
+                    "imported": True,
+                    "after_turn": entry.get("after_turn"),
+                }
+                if role == "character":
+                    meta["expression"] = normalize_avatar_expression(
+                        entry.get("expression")
+                    )
+                    meta["gesture"] = normalize_avatar_gesture(entry.get("gesture"))
+                db.add(
+                    CharacterChatMessage(
+                        id=uuid.uuid4().hex,
+                        thread_id=thread_id,
+                        role=role,
+                        content=text,
+                        meta_json=json.dumps(meta, ensure_ascii=False),
+                        created_at=base + timedelta(milliseconds=index),
+                    )
+                )
+            thread.updated_at = datetime.now()
+            await db.commit()
+        return len(entries)
+
+    async def set_adventure_appearance(
+        self, thread_id: str, *, mode: str = "default"
+    ) -> dict[str, Any]:
+        """adventure 種の姿を run の画像に切り替える(default / partner_portrait / scene)。"""
+        async with self._thread_locks[thread_id], async_session_factory() as db:
+            thread = await self._get_thread_orm(db, thread_id)
+            if thread.kind != CHARACTER_CHAT_KIND_ADVENTURE or not thread.source_run_id:
+                raise CharacterChatError(
+                    "talk_unavailable", "シナリオに紐づいたキャラクターではありません"
+                )
+            view = await _load_adventure_view(thread.source_run_id)
+            if view is None:
+                raise CharacterChatError(
+                    "run_not_found", "アドベンチャーが見つかりません"
+                )
+            self._apply_adventure_appearance(thread, view, mode)
+            thread.updated_at = datetime.now()
+            await db.commit()
+            await db.refresh(thread)
+            return await self._thread_payload(db, thread, with_messages=False, limit=1)
+
+    async def recent_adventure_messages(
+        self, run_id: str, *, after_turn: int
+    ) -> list[dict[str, Any]]:
+        """run に紐づくチャットのうち、after_turn 以降(=前の手番以降)の発言を古い順に返す。"""
+        async with async_session_factory() as db:
+            thread = (
+                (
+                    await db.execute(
+                        select(CharacterChatThread).where(
+                            CharacterChatThread.user_id == DEFAULT_USER_ID,
+                            CharacterChatThread.kind == CHARACTER_CHAT_KIND_ADVENTURE,
+                            CharacterChatThread.source_run_id == run_id,
+                        )
+                    )
+                )
+                .scalars()
+                .first()
+            )
+            if thread is None:
+                return []
+            rows = await self._load_messages(
+                db, thread.id, limit=ADVENTURE_RECENT_CHAT_MAX * 4
+            )
+        entries: list[dict[str, Any]] = []
+        for row in rows:
+            meta = _json_load(row.meta_json, {})
+            try:
+                turn = int(meta.get("after_turn"))
+            except (TypeError, ValueError):
+                continue
+            if turn < after_turn:
+                continue
+            entries.append(
+                {
+                    "role": "user" if row.role == "user" else "partner",
+                    "text": row.content,
+                    "after_turn": turn,
+                }
+            )
+        return entries[-ADVENTURE_RECENT_CHAT_MAX:]
 
     async def _plan(
         self,
@@ -966,19 +1714,49 @@ class CharacterChatService:
         text_model: str | None,
         language: str,
     ) -> dict[str, Any]:
-        """着替え要求を外見タグへ写す。identity は明示されない限り据え置く。"""
+        """着替え要求を外見タグへ写す。identity は明示されない限り据え置く。
+
+        タグに日本語が混じったら(依頼文の丸写し)、混じった要素を示して 1 回だけ
+        再生成する。それでも直らなければ、通じないタグで立ち絵を描かないよう拒否する。
+        """
         identity = str(appearance.get("identity_tags") or "")
         clothing = str(appearance.get("clothing_tags") or "")
-        output = await generate_validated(
-            CharacterChatAppearanceOutput,
-            generate=lambda system, user: _generate_text(
-                system, user, text_model=text_model
-            ),
-            system_prompt=appearance_change_system_prompt(language),
-            user_prompt=appearance_change_user_prompt(
-                identity_tags=identity, clothing_tags=clothing, request=request
-            ),
+
+        async def _generate(rejected_tags: str | None) -> CharacterChatAppearanceOutput:
+            return await generate_validated(
+                CharacterChatAppearanceOutput,
+                generate=lambda system, user: _generate_text(
+                    system, user, text_model=text_model
+                ),
+                system_prompt=appearance_change_system_prompt(language),
+                user_prompt=appearance_change_user_prompt(
+                    identity_tags=identity,
+                    clothing_tags=clothing,
+                    request=request,
+                    rejected_tags=rejected_tags,
+                ),
+            )
+
+        output = await _generate(None)
+        rejected = non_english_tag_parts(output.identity_tags) + non_english_tag_parts(
+            output.clothing_tags
         )
+        if rejected:
+            logger.info(
+                "character chat appearance tags contained non-English parts; "
+                "retrying once: %s",
+                rejected,
+            )
+            output = await _generate(", ".join(rejected))
+            rejected = non_english_tag_parts(
+                output.identity_tags
+            ) + non_english_tag_parts(output.clothing_tags)
+            if rejected:
+                raise CharacterChatError(
+                    "appearance_tags_not_english",
+                    "着替えを英語の外見タグに変換できませんでした"
+                    f"（{', '.join(rejected)}）。別の言い方でもう一度お試しください",
+                )
         return {
             **appearance,
             "identity_tags": output.identity_tags or identity,
@@ -995,9 +1773,42 @@ class CharacterChatService:
         memory_text: str | None,
         lookup_text: str,
         appearance_change_request: str | None,
+        adventure_context: dict[str, Any] | None = None,
+        header_instruction: str = "",
     ) -> str:
         persona = _json_load(thread.persona_json, {})
         appearance = _json_load(thread.appearance_json, {})
+        if thread.kind == CHARACTER_CHAT_KIND_ADVENTURE:
+            context = adventure_context or {}
+            chat_look = ""
+            if self._adventure_mode(appearance) == "custom":
+                chat_look = str(
+                    appearance.get("description") or ""
+                ).strip() or ", ".join(
+                    part
+                    for part in (
+                        str(appearance.get("identity_tags") or "").strip(),
+                        str(appearance.get("clothing_tags") or "").strip(),
+                    )
+                    if part
+                )
+            return adventure_persona_prompt(
+                language,
+                partner_name=str(context.get("partner_name") or thread.name),
+                player_name=str(context.get("player_name") or ""),
+                speech_rule=str(context.get("speech_rule") or ""),
+                header_instruction=header_instruction,
+                context={
+                    key: value
+                    for key, value in context.items()
+                    if key not in ("partner_name", "player_name", "speech_rule")
+                },
+                memory_block_text=memory_block(memory_text, language),
+                summary_text=thread.summary_text,
+                lookup_block_text=lookup_block(lookup_text, language),
+                chat_appearance_description=chat_look,
+                appearance_change_request=appearance_change_request,
+            )
         if thread.kind == CHARACTER_CHAT_KIND_BASE:
             persona_text = base_persona_block(language)
         else:
@@ -1032,6 +1843,7 @@ class CharacterChatService:
         user_text: str,
         reply_text: str,
         meta: dict[str, Any],
+        user_meta: dict[str, Any] | None = None,
     ) -> tuple[CharacterChatMessage, CharacterChatMessage]:
         now = datetime.now()
         user_message = CharacterChatMessage(
@@ -1039,7 +1851,7 @@ class CharacterChatService:
             thread_id=thread_id,
             role="user",
             content=user_text,
-            meta_json=None,
+            meta_json=json.dumps(user_meta, ensure_ascii=False) if user_meta else None,
             created_at=now,
         )
         character_message = CharacterChatMessage(
@@ -1115,12 +1927,35 @@ class CharacterChatService:
             text_model = user_settings.get("novelai_text_model")
             language = _lang(user_settings.get("language"))
             memory_text = await settings_service.get_memory_text()
-            appearance = _json_load(thread.appearance_json, {})
             nsfw_mode = (
-                bool(thread.nsfw_mode)
-                if thread.kind == CHARACTER_CHAT_KIND_SESSION
-                else bool(user_settings.get("nsfw_mode"))
+                bool(user_settings.get("nsfw_mode"))
+                if thread.kind == CHARACTER_CHAT_KIND_BASE
+                else bool(thread.nsfw_mode)
             )
+            adventure_context: dict[str, Any] | None = None
+            header_instruction = ""
+            after_turn: int | None = None
+            if thread.kind == CHARACTER_CHAT_KIND_ADVENTURE:
+                view = (
+                    await _load_adventure_view(thread.source_run_id)
+                    if thread.source_run_id
+                    else None
+                )
+                async with async_session_factory() as db:
+                    persisted = await self._get_thread_orm(db, thread_id)
+                    if view is not None:
+                        await self._sync_adventure_thread(persisted, view)
+                        await db.commit()
+                        await db.refresh(persisted)
+                    db.expunge(persisted)
+                thread = persisted
+                adventure_context = self._adventure_context(thread, view)
+                if view is not None:
+                    nsfw_mode = bool(view.run.nsfw_mode)
+                    after_turn = int(view.run.turn_count or 0)
+                    if view.companion and view.avatar_id:
+                        header_instruction = avatar_talk_header_instruction()
+            appearance = _json_load(thread.appearance_json, {})
 
             yield {"event": "status", "data": {"phase": "plan"}}
             plan = await self._plan(
@@ -1153,6 +1988,8 @@ class CharacterChatService:
                 memory_text=memory_text,
                 lookup_text=lookup_text,
                 appearance_change_request=plan.appearance_request,
+                adventure_context=adventure_context,
+                header_instruction=header_instruction,
             )
             history = [
                 {
@@ -1162,6 +1999,8 @@ class CharacterChatService:
                 for item in recent
             ]
             reply = ""
+            # 3D モデル表示中の adventure 種は先頭ヘッダ行を配信前に剥がす
+            header = _HeaderBuffer(enabled=bool(header_instruction))
             try:
                 async for chunk in llm_service.generate_feeling_stream(
                     system_prompt,
@@ -1174,11 +2013,21 @@ class CharacterChatService:
                     if not chunk:
                         continue
                     reply += chunk
-                    yield {"event": "chat_chunk", "data": {"chunk": chunk}}
+                    for visible in header.feed(chunk):
+                        yield {"event": "chat_chunk", "data": {"chunk": visible}}
+                for visible in header.flush():
+                    yield {"event": "chat_chunk", "data": {"chunk": visible}}
             except Exception:
                 if appearance_task is not None:
                     appearance_task.cancel()
                 raise
+            expression = gesture = None
+            if header_instruction:
+                raw_expression, raw_gesture, _ = parse_talk_header(
+                    strip_code_fence(reply)
+                )
+                expression = normalize_avatar_expression(raw_expression)
+                gesture = normalize_avatar_gesture(raw_gesture)
             reply = normalize_chat_reply(reply, thread.name)
             if not reply:
                 if appearance_task is not None:
@@ -1194,7 +2043,21 @@ class CharacterChatService:
                 meta={
                     "lookups": lookup_kinds,
                     "appearance_request": plan.appearance_request,
+                    **(
+                        {
+                            "after_turn": after_turn,
+                            "expression": expression,
+                            "gesture": gesture,
+                        }
+                        if thread.kind == CHARACTER_CHAT_KIND_ADVENTURE
+                        else {}
+                    ),
                 },
+                user_meta=(
+                    {"after_turn": after_turn}
+                    if thread.kind == CHARACTER_CHAT_KIND_ADVENTURE
+                    else None
+                ),
             )
             total_messages = message_count + 2
             yield {

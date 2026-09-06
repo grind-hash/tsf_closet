@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..consts.novelai_models import is_v5_image_model
+from ..consts.novelai_models import is_v5_image_model, supports_character_references
 from ..settings.config import settings
 from .clothing_layers import merge_negative_prompt
 from .cost_tracker import record_cost
@@ -96,10 +96,13 @@ async def generate_portrait_bytes(
     reference_bytes: bytes | None,
     extra_negative: str = "",
     seed: int | None = None,
+    use_character_reference: bool = False,
 ) -> bytes:
     """タグから単独の全身立ち絵を 1 枚生成して PNG bytes を返す。
 
-    NovelAI は txt2img(精密参照は使わない。Anlas を消費しない)。
+    NovelAI は txt2img。use_character_reference が真で参照画像があり、モデルが
+    精密参照(character reference)に対応していれば 1 枚だけ弱参照で渡す(Anlas を
+    消費するため、呼び出し側が利用者の確認を取ること)。それ以外は精密参照なし。
     OpenRouter / ComfyUI は参照画像があれば編集元にして同一性を保ち、無ければ
     txt2img で新規に描く(ComfyUI の txt2img はワークフローテンプレートが必要)。
     料金は cost_tracker に記録する。
@@ -115,13 +118,25 @@ async def generate_portrait_bytes(
             if extra_negative
             else PORTRAIT_EXTRA_NEGATIVE,
         )
+        character_references = None
+        if (
+            use_character_reference
+            and reference_bytes
+            and supports_character_references(image_model)
+        ):
+            # 服装は変わり得るため弱めに参照する(Adventure の攻略対象立ち絵と同じ)
+            character_references = [
+                character_reference_entry(
+                    reference_bytes, outfit_changed=True, has_fresh_portrait=False
+                )
+            ]
         result = await image_service.generate_image(
             prompt,
             image_bytes=None,
             provider_override="novelai",
             negative_prompt=negative,
             nsfw_mode=nsfw_mode,
-            character_references=None,
+            character_references=character_references,
             characters=None,
             seed=seed,
             size_override="portrait",

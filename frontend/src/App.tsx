@@ -106,7 +106,11 @@ function AppRoutes() {
   }
   // キャラチャット（実験機能）。/talk と /talk/:threadId。ゲートは設定画面のトグル
   if (location.pathname === "/talk" || location.pathname.startsWith("/talk/")) {
-    if (!settingsState.experimentalCharacterChatEnabled) {
+    // TSFシナリオの「トーク」から遷移するため、Adventure が有効なら通す
+    if (
+      !settingsState.experimentalCharacterChatEnabled &&
+      !settingsState.experimentalAdventureEnabled
+    ) {
       return <Navigate to="/play/new" replace />;
     }
     return (

@@ -1504,59 +1504,6 @@ test("companion mode explains why the partner sprite was carried over", async ({
   await expect(note).toHaveCount(0);
 });
 
-test("talk mode chats with the partner without consuming a turn", async ({
-  page,
-}) => {
-  await enableAdventure(page);
-  const state = await mockRomanceApis(page);
-  const talkBodies: Record<string, unknown>[] = [];
-  await page.route("**/api/adventure/runs/run-1/talk/stream", async (route) => {
-    talkBodies.push(route.request().postDataJSON() as Record<string, unknown>);
-    const done = {
-      user_entry: { id: "u1", role: "user", text: "やあ", after_turn: 0 },
-      partner_entry: {
-        id: "p1",
-        role: "partner",
-        text: "やっほー、来てくれたんだ",
-        after_turn: 0,
-      },
-      turn_count: 0,
-    };
-    await route.fulfill({
-      contentType: "text/event-stream",
-      body: `event: status\ndata: {"phase":"talk"}\n\nevent: talk_chunk\ndata: {"chunk":"やっほー、"}\n\nevent: talk_chunk\ndata: {"chunk":"来てくれたんだ"}\n\nevent: talk_done\ndata: ${JSON.stringify(done)}\n\nevent: complete\ndata: {"status":"active"}\n\n`,
-    });
-  });
-  await page.goto("/adventure/run-1");
-
-  // 既定は行動モード。選択肢とバイトが出ている
-  await expect(page.getByRole("button", { name: "バイト" })).toBeVisible();
-  await page.getByRole("button", { name: "トーク" }).click();
-  await expect(page.getByRole("button", { name: "バイト" })).toHaveCount(0);
-  await expect(page.locator(".adventure-choices")).toHaveCount(0);
-  await expect(page.getByText(/美咲に話しかけてみましょう/)).toBeVisible();
-
-  const field = page.getByLabel("美咲に話しかける");
-  await field.fill("やあ");
-  await page.getByRole("button", { name: "送信" }).click();
-
-  const thread = page.locator(".adventure-talk-thread");
-  await expect(
-    thread.locator(".adventure-talk-thread__entry--partner"),
-  ).toContainText("やっほー、来てくれたんだ");
-  await expect(
-    thread.locator(".adventure-talk-thread__entry--user"),
-  ).toContainText("やあ");
-  expect(talkBodies).toEqual([{ user_input: "やあ" }]);
-  // 手番は消費されず、Day 表示も変わらない
-  expect(state.streamBodies).toHaveLength(0);
-  await expect(page.locator(".adventure-hud__day")).toContainText("1");
-
-  // 行動へ戻すと選択肢が復帰する
-  await page.getByRole("button", { name: "行動", exact: true }).click();
-  await expect(page.getByRole("button", { name: "バイト" })).toBeVisible();
-});
-
 test("sound popover shows the voice toggle disabled while TTS is off", async ({
   page,
 }) => {
@@ -2099,117 +2046,6 @@ test("a turn in which the partner changes clothes switches the 3D model to the s
   }
 });
 
-test("talk mode voice input fills the field via speech recognition", async ({
-  page,
-}) => {
-  await enableAdventure(page);
-  await mockRomanceApis(page);
-  const talkBodies: Record<string, unknown>[] = [];
-  await page.route("**/api/adventure/runs/run-1/talk/stream", async (route) => {
-    talkBodies.push(route.request().postDataJSON() as Record<string, unknown>);
-    await route.fulfill({
-      contentType: "text/event-stream",
-      body: 'event: complete\ndata: {"status":"active"}\n\n',
-    });
-  });
-  // Playwright の Chromium では実サービスへ届かないため、偽の認識器を注入する
-  await page.addInitScript(() => {
-    class FakeSpeechRecognition {
-      lang = "";
-      interimResults = false;
-      continuous = false;
-      maxAlternatives = 1;
-      onresult: ((event: unknown) => void) | null = null;
-      onerror: ((event: { error?: string }) => void) | null = null;
-      onend: (() => void) | null = null;
-      start(): void {
-        (
-          window as unknown as { __fakeRecognition?: FakeSpeechRecognition }
-        ).__fakeRecognition = this;
-      }
-      abort(): void {
-        this.onend?.();
-      }
-    }
-    Object.defineProperty(window, "webkitSpeechRecognition", {
-      value: FakeSpeechRecognition,
-      configurable: true,
-    });
-    Object.defineProperty(window, "SpeechRecognition", {
-      value: undefined,
-      configurable: true,
-    });
-  });
-  await page.goto("/adventure/run-1");
-  await page.getByRole("button", { name: "トーク" }).click();
-
-  // 聞き取り中はラベルが「聞き取り中...」へ変わるため、クラスで参照する
-  const mic = page.locator(".adventure-freeinput__mic");
-  await expect(mic).toHaveAccessibleName("マイクで話す");
-  await expect(
-    page.getByRole("button", { name: "認識したらすぐ送る" }),
-  ).toBeVisible();
-  await mic.click();
-  await expect(mic).toHaveAttribute("aria-pressed", "true");
-
-  // 暫定テキストは入力欄へそのまま流れる
-  await page.evaluate(() => {
-    const holder = window as unknown as {
-      __fakeRecognition?: {
-        onresult?: (event: unknown) => void;
-      };
-    };
-    holder.__fakeRecognition?.onresult?.({
-      resultIndex: 0,
-      results: { 0: { isFinal: false, 0: { transcript: "やあ" } }, length: 1 },
-    });
-  });
-  await expect(page.getByLabel("美咲に話しかける")).toHaveValue("やあ");
-
-  // 確定テキストで置き換わり、聞き取りが終わる
-  await page.evaluate(() => {
-    const holder = window as unknown as {
-      __fakeRecognition?: {
-        onresult?: (event: unknown) => void;
-        onend?: () => void;
-      };
-    };
-    holder.__fakeRecognition?.onresult?.({
-      resultIndex: 0,
-      results: {
-        0: { isFinal: true, 0: { transcript: "やあ、元気？" } },
-        length: 1,
-      },
-    });
-    holder.__fakeRecognition?.onend?.();
-  });
-  await expect(page.getByLabel("美咲に話しかける")).toHaveValue("やあ、元気？");
-  await expect(mic).toHaveAttribute("aria-pressed", "false");
-  // 自動送信は既定 OFF なので、確認するまで送信されない
-  expect(talkBodies).toEqual([]);
-});
-
-test("talk mode hides the mic button when speech recognition is unavailable", async ({
-  page,
-}) => {
-  await enableAdventure(page);
-  await mockRomanceApis(page);
-  await page.addInitScript(() => {
-    Object.defineProperty(window, "webkitSpeechRecognition", {
-      value: undefined,
-      configurable: true,
-    });
-    Object.defineProperty(window, "SpeechRecognition", {
-      value: undefined,
-      configurable: true,
-    });
-  });
-  await page.goto("/adventure/run-1");
-  await page.getByRole("button", { name: "トーク" }).click();
-  await expect(page.getByLabel("美咲に話しかける")).toBeVisible();
-  await expect(page.locator(".adventure-freeinput__mic")).toHaveCount(0);
-});
-
 /** 持ち物システム ON で黒いブラを1つ所持している romance run */
 function inventoryRunPayload(
   turnCount = 0,
@@ -2317,4 +2153,83 @@ test("持ち物システムをギアポップオーバーで切り替える", as
   await expect(page.getByRole("dialog", { name: "持ち物" })).toContainText(
     "まだ何も持っていません",
   );
+});
+
+test("talk button opens the partner's character chat thread", async ({
+  page,
+}) => {
+  await enableAdventure(page);
+  await mockRomanceApis(page);
+  const opened: string[] = [];
+  const thread = {
+    id: "cc-run-1",
+    kind: "adventure",
+    source_run_id: "run-1",
+    name: "美咲",
+    pronoun: "私",
+    portrait_url: null,
+    portrait_missing: true,
+    appearance: {
+      identity_tags: "",
+      clothing_tags: "",
+      description: "",
+      portrait_kind: "scene",
+      source: { type: "adventure", run_id: "run-1", adventure_mode: "default" },
+    },
+    adventure: {
+      run_id: "run-1",
+      available: true,
+      title: "放課後",
+      status: "active",
+      partner_name: "美咲",
+      player_name: "主人公",
+      companion_mode: false,
+      companion_avatar_id: null,
+      companion_avatar_url: null,
+      composite: true,
+      affection: 10,
+      stage: "acquaintance",
+      day: 1,
+      slot: "day",
+      dating: false,
+      partner_portrait_url: null,
+      scene_image_url: null,
+      use_precise_reference: false,
+      appearance_mode: "default",
+    },
+    persona: {},
+    can_reset_appearance: false,
+    summary_text: null,
+    message_count: 0,
+    last_message: null,
+    language: "ja",
+    nsfw_mode: false,
+    created_at: null,
+    updated_at: null,
+  };
+  await page.route(
+    "**/api/character-chat/threads/adventure/run-1",
+    async (route) => {
+      opened.push(route.request().method());
+      await route.fulfill({ json: thread });
+    },
+  );
+  await page.route("**/api/character-chat/threads/cc-run-1", async (route) => {
+    await route.fulfill({ json: { ...thread, messages: [] } });
+  });
+  await page.goto("/adventure/run-1");
+  await expect(page.getByRole("button", { name: "バイト" })).toBeVisible();
+  // 行動パネルの「トーク」は手番を消費せず、攻略対象のキャラチャットへ移動する
+  await page.getByRole("button", { name: "トーク" }).click();
+  await expect(page).toHaveURL(/\/talk\/cc-run-1$/);
+  expect(opened).toEqual(["POST"]);
+  await expect(page.getByRole("heading", { name: /美咲/ })).toBeVisible();
+  // 一覧からも来られるので、「一覧へ戻る」と「シナリオへ戻る」を両方並べる
+  await expect(
+    page.getByRole("button", { name: "← 一覧へ戻る" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "シナリオへ戻る" }),
+  ).toBeVisible();
+  await expect(page.locator(".adventure-choices")).toHaveCount(0);
 });

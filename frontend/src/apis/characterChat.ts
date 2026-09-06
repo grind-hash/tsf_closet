@@ -9,7 +9,39 @@ import { API_BASE } from "../utils/api";
 import { apiErrorFromResponse, jsonInit, requestJson } from "../utils/http";
 import { readSseEvents } from "../utils/sse";
 
-export type CharacterChatKind = "base" | "session";
+export type CharacterChatKind = "base" | "session" | "adventure";
+
+export type CharacterChatAdventureAppearanceMode =
+  | "default"
+  | "partner_portrait"
+  | "scene"
+  | "custom";
+
+/** adventure 種が紐づく TSF シナリオ(run)の状況。run が無ければ available=false で控えの値 */
+export interface CharacterChatAdventureInfo {
+  run_id: string | null;
+  available: boolean;
+  title: string;
+  status: string;
+  turn_count?: number;
+  max_turns?: number;
+  partner_name: string;
+  player_name: string;
+  companion_mode: boolean;
+  companion_avatar_id: string | null;
+  /** API 相対 URL(/avatars/{id}/file)。表示時に API_BASE を付ける */
+  companion_avatar_url: string | null;
+  composite: boolean;
+  affection: number | null;
+  stage: string | null;
+  day: number | null;
+  slot: string | null;
+  dating: boolean;
+  partner_portrait_url: string | null;
+  scene_image_url: string | null;
+  use_precise_reference: boolean;
+  appearance_mode: CharacterChatAdventureAppearanceMode;
+}
 
 export interface CharacterChatAppearanceSource {
   type?: "base" | "session" | "prompt_expander";
@@ -31,6 +63,12 @@ export interface CharacterChatMessageMeta {
   lookups?: string[];
   appearance_request?: string | null;
   portrait_filename?: string | null;
+  /** adventure 種: この発言が交わされた時点の手番(次の手番の文脈になる) */
+  after_turn?: number | null;
+  /** adventure 種で 3D モデル表示中: 返答の表情・身振り */
+  expression?: string | null;
+  gesture?: string | null;
+  imported?: boolean;
 }
 
 export interface CharacterChatMessage {
@@ -61,6 +99,15 @@ export interface CharacterChatPersona {
   outfit_description?: string;
   play_memory_context?: string;
   self_mode?: boolean;
+  /** adventure 種: 関係性(控え)。ライブ値は thread.adventure が持つ */
+  affection?: number | null;
+  day?: number | null;
+  slot?: string | null;
+  total_days?: number | null;
+  dating?: boolean;
+  given_gifts?: string[];
+  completed_milestones?: string[];
+  speech_style?: string;
 }
 
 export interface CharacterChatThread {
@@ -72,10 +119,13 @@ export interface CharacterChatThread {
   portrait_url: string | null;
   portrait_missing: boolean;
   appearance: CharacterChatAppearance;
-  /** 拠点キャラは空オブジェクト */
+  /** 案内役キャラは空オブジェクト */
   persona?: CharacterChatPersona;
   /** 作成時点の姿と違うとき true(「最初の姿に戻す」の有効条件) */
   can_reset_appearance?: boolean;
+  /** adventure 種: 紐づく run の ID と状況 */
+  source_run_id?: string | null;
+  adventure?: CharacterChatAdventureInfo | null;
   summary_text: string | null;
   message_count: number;
   last_message: {
@@ -142,9 +192,24 @@ export function characterChatImageUrl(
 }
 
 function normalizeThread(thread: CharacterChatThread): CharacterChatThread {
+  const adventure = thread.adventure
+    ? {
+        ...thread.adventure,
+        companion_avatar_url: characterChatImageUrl(
+          thread.adventure.companion_avatar_url,
+        ),
+        partner_portrait_url: characterChatImageUrl(
+          thread.adventure.partner_portrait_url,
+        ),
+        scene_image_url: characterChatImageUrl(
+          thread.adventure.scene_image_url,
+        ),
+      }
+    : (thread.adventure ?? null);
   return {
     ...thread,
     portrait_url: characterChatImageUrl(thread.portrait_url),
+    adventure,
   };
 }
 
@@ -157,7 +222,7 @@ export async function fetchCharacterChatThreads(): Promise<
   return (data.threads ?? []).map(normalizeThread);
 }
 
-/** 拠点キャラ(セレナ)のスレッドを開く。無ければ作られる(冪等) */
+/** 案内役キャラ(セレナ)のスレッドを開く。無ければ作られる(冪等) */
 export async function openBaseCharacterChatThread(): Promise<CharacterChatThread> {
   const thread = await requestJson<CharacterChatThread>(
     `${BASE}/threads/base`,
@@ -205,6 +270,29 @@ export async function setCharacterChatAppearance(
   const thread = await requestJson<CharacterChatThread>(
     `${BASE}/threads/${encodeURIComponent(threadId)}/appearance`,
     jsonInit("PUT", body),
+  );
+  return normalizeThread(thread);
+}
+
+/** TSF シナリオ(恋愛シミュレーション)の攻略対象と話すスレッドを開く。無ければ作られる(冪等) */
+export async function openAdventureCharacterChatThread(
+  runId: string,
+): Promise<CharacterChatThread> {
+  const thread = await requestJson<CharacterChatThread>(
+    `${BASE}/threads/adventure/${encodeURIComponent(runId)}`,
+    { method: "POST" },
+  );
+  return normalizeThread(thread);
+}
+
+/** adventure 種の姿を run の画像に切り替える(既定 / 攻略対象の立ち絵 / 場面の画像) */
+export async function setCharacterChatAdventureAppearance(
+  threadId: string,
+  mode: "default" | "partner_portrait" | "scene",
+): Promise<CharacterChatThread> {
+  const thread = await requestJson<CharacterChatThread>(
+    `${BASE}/threads/${encodeURIComponent(threadId)}/appearance/adventure`,
+    jsonInit("POST", { mode }),
   );
   return normalizeThread(thread);
 }
@@ -263,13 +351,21 @@ export async function streamCharacterChatMessage(
 }
 
 /** いまの外見タグから立ち絵を描き直す(セレナの同梱画像が無いときの初回生成も兼ねる) */
+export interface CharacterChatPortraitOptions {
+  /** 参照画像。scene / partner は adventure 種の run が持つ画像 */
+  reference?: "current" | "scene" | "partner";
+  /** NovelAI の精密参照(Anlas 消費)。呼び出し側が確認済みのときだけ true */
+  use_precise_reference?: boolean;
+}
+
 export async function streamCharacterChatPortrait(
   threadId: string,
   onEvent: (event: CharacterChatStreamEvent) => void,
+  options?: CharacterChatPortraitOptions,
 ): Promise<void> {
   const response = await fetch(
     `${BASE}/threads/${encodeURIComponent(threadId)}/portrait/stream`,
-    { method: "POST" },
+    options ? jsonInit("POST", options) : { method: "POST" },
   );
   await readSse(response, onEvent);
 }

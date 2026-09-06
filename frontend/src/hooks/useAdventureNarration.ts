@@ -1,13 +1,8 @@
 import { useEffect, useRef } from "react";
 import type { AdventureRun } from "../apis/adventure";
-import {
-  partnerLines,
-  stripStageDirections,
-  stripTalkHeader,
-} from "../utils/adventureDialogue";
+import { partnerLines } from "../utils/adventureDialogue";
 import {
   linesToVoiceSegments,
-  textToVoiceSegments,
   turnVoiceKey,
 } from "../utils/adventureVoiceSegments";
 import {
@@ -80,32 +75,6 @@ export function useAdventureNarration({
       partnerLines(latest.narrative, name),
       groupKey,
     );
-    if (segments.length > 0) voiceSpeakSegments(segments, groupKey);
-  }, [activeRun, voiceCanSpeak, voiceSpeakSegments]);
-
-  // 読み上げ(2): トークの返答が確定したら、その返答を読む
-  const spokenTalkRef = useRef<{
-    runId: string;
-    entryId: string | null;
-  } | null>(null);
-  useEffect(() => {
-    if (!activeRun) return;
-    const lastPartner =
-      [...(activeRun.talk_log ?? [])]
-        .reverse()
-        .find((entry) => entry.role === "partner") ?? null;
-    const previous = spokenTalkRef.current;
-    spokenTalkRef.current = {
-      runId: activeRun.id,
-      entryId: lastPartner?.id ?? null,
-    };
-    if (!previous || previous.runId !== activeRun.id) return;
-    if (!lastPartner || previous.entryId === lastPartner.id) return;
-    if (!voiceCanSpeak) return;
-    const text = stripStageDirections(stripTalkHeader(lastPartner.text));
-    if (!text) return;
-    const groupKey = `talk:${lastPartner.id}`;
-    const segments = textToVoiceSegments(text, groupKey);
     if (segments.length > 0) voiceSpeakSegments(segments, groupKey);
   }, [activeRun, voiceCanSpeak, voiceSpeakSegments]);
 

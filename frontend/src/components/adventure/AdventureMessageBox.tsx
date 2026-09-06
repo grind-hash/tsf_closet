@@ -10,13 +10,8 @@ import {
   partnerPortraitReasonKey,
 } from "../../utils/adventureFrames";
 import type { AdventureSceneView } from "../../utils/adventureSceneView";
-import AdventureFreeInput, {
-  type AdventureFreeInputSpeech,
-} from "./AdventureFreeInput";
+import AdventureFreeInput from "./AdventureFreeInput";
 import AdventureScriptText from "./AdventureScriptText";
-import AdventureTalkThread from "./AdventureTalkThread";
-
-export type AdventureActionMode = "act" | "talk";
 
 export interface AdventureVoiceReplay {
   canSpeak: boolean;
@@ -45,15 +40,12 @@ interface AdventureMessageBoxProps {
   viewingPast: boolean;
   /** 進行中に加え、終了後でもエピローグ移行済みなら操作パネルを出す */
   canAct: boolean;
-  actionMode: AdventureActionMode;
-  onActionModeChange: (mode: AdventureActionMode) => void;
   input: string;
   onInputChange: (value: string) => void;
   /** 手番を消費する送信(選択肢・自由入力・romance の行動) */
   onSubmit: (value: string, kind: AdventureInputKind) => void;
-  /** トークモードの送信(手番を消費しない) */
-  onSubmitTalk: (value: string) => void;
-  speech: AdventureFreeInputSpeech;
+  /** 攻略対象とのトーク(手番を消費しない会話)。キャラチャットへ移動する */
+  onOpenChat: () => void;
   onOpenGiftShop: () => void;
   onOpenAttributes: () => void;
 }
@@ -72,13 +64,10 @@ export default function AdventureMessageBox({
   phaseLabel,
   viewingPast,
   canAct,
-  actionMode,
-  onActionModeChange,
   input,
   onInputChange,
   onSubmit,
-  onSubmitTalk,
-  speech,
+  onOpenChat,
   onOpenGiftShop,
   onOpenAttributes,
 }: AdventureMessageBoxProps) {
@@ -86,7 +75,6 @@ export default function AdventureMessageBox({
   const {
     activeRun,
     streaming,
-    talking,
     phase,
     narrativeSettled,
     regenerateChoices,
@@ -108,8 +96,6 @@ export default function AdventureMessageBox({
     availableChoices,
     partnerName,
     playerDisplayName,
-    talkMode,
-    currentTalkEntries,
     inventoryNote,
   } = scene;
 
@@ -224,55 +210,26 @@ export default function AdventureMessageBox({
           ) : (
             <>
               <div className="adventure-controls__header">
-                {sim ? (
-                  // romance: 行動(手番を消費) / トーク(消費しない会話)の切替
-                  <div
-                    className="adventure-segments adventure-segments--pair"
-                    role="group"
-                    aria-label={t("adventure.actionPanel.title")}
-                  >
-                    <button
-                      type="button"
-                      className={actionMode === "act" ? "is-active" : ""}
-                      aria-pressed={actionMode === "act"}
-                      onClick={() => onActionModeChange("act")}
-                    >
-                      {t("adventure.actionPanel.act")}
-                    </button>
-                    <button
-                      type="button"
-                      className={actionMode === "talk" ? "is-active" : ""}
-                      aria-pressed={actionMode === "talk"}
-                      title={t("adventure.actionPanel.talkHint")}
-                      onClick={() => onActionModeChange("talk")}
-                    >
-                      {t("adventure.actionPanel.talk")}
-                    </button>
-                  </div>
-                ) : (
-                  <span className="adventure-controls__title">
-                    {t("adventure.actionPanel.title")}
-                  </span>
-                )}
-                {!talkMode && (
-                  <button
-                    type="button"
-                    className="adventure-choices__regenerate"
-                    onClick={() => void regenerateChoices()}
-                    disabled={streaming || talking}
-                    title={t("adventure.regenerateChoices")}
-                  >
-                    {streaming &&
-                    phase === "clue_check" &&
-                    !controlsProgressVisible
-                      ? t("adventure.regeneratingChoices")
-                      : t("adventure.regenerateChoices")}
-                  </button>
-                )}
+                <span className="adventure-controls__title">
+                  {t("adventure.actionPanel.title")}
+                </span>
+                <button
+                  type="button"
+                  className="adventure-choices__regenerate"
+                  onClick={() => void regenerateChoices()}
+                  disabled={streaming}
+                  title={t("adventure.regenerateChoices")}
+                >
+                  {streaming &&
+                  phase === "clue_check" &&
+                  !controlsProgressVisible
+                    ? t("adventure.regeneratingChoices")
+                    : t("adventure.regenerateChoices")}
+                </button>
               </div>
 
               {/* 3D モデル表示中はステージを覆わず、判定の進捗をここに出す */}
-              {controlsProgressVisible && !talkMode && (
+              {controlsProgressVisible && (
                 <div
                   className="adventure-progress adventure-controls__progress"
                   role="status"
@@ -283,7 +240,7 @@ export default function AdventureMessageBox({
               )}
 
               {/* 生成中は前ターンの選択肢が残留するため、無効化ではなく非表示にする */}
-              {!streaming && !talkMode && (
+              {!streaming && (
                 <div className="adventure-choices">
                   {availableChoices.map((choice, index) => (
                     <button
@@ -300,7 +257,7 @@ export default function AdventureMessageBox({
                   ))}
                 </div>
               )}
-              {!streaming && !talkMode && availableChoices.length === 0 && (
+              {!streaming && availableChoices.length === 0 && (
                 <p className="adventure-choices__empty">
                   {t("adventure.emptyChoices")}
                 </p>
@@ -308,8 +265,17 @@ export default function AdventureMessageBox({
 
               {/* romance 専用の行動ボタン行。どの行動も1スロット消費する。
               選択肢と同様、生成中は非表示にする */}
-              {!streaming && sim && !talkMode && (
+              {!streaming && sim && (
                 <div className="adventure-romance-actions">
+                  <button
+                    type="button"
+                    title={t("adventure.actionPanel.openChatHint", {
+                      name: sim.partner_name,
+                    })}
+                    onClick={onOpenChat}
+                  >
+                    {t("adventure.actionPanel.openChat")}
+                  </button>
                   <button
                     type="button"
                     title={t("adventure.romance.workHint", {
@@ -361,27 +327,11 @@ export default function AdventureMessageBox({
                 </div>
               )}
 
-              {talkMode && (
-                <AdventureTalkThread
-                  entries={currentTalkEntries}
-                  partnerName={partnerName}
-                  playerDisplayName={playerDisplayName}
-                />
-              )}
               <AdventureFreeInput
                 value={input}
                 onChange={onInputChange}
-                onSubmit={() => {
-                  if (talkMode) {
-                    onSubmitTalk(input);
-                    return;
-                  }
-                  onSubmit(input, "free_text");
-                }}
-                talkMode={talkMode}
-                partnerName={partnerName}
-                busy={streaming || talking}
-                speech={speech}
+                onSubmit={() => onSubmit(input, "free_text")}
+                busy={streaming}
               />
             </>
           )}

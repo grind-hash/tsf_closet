@@ -62,7 +62,7 @@ export const settings = {
     "Show a standalone screen that expands natural-language instructions into NovelAI prompts and generates images outside of gameplay",
   experimentalCharacterChat: "Character Chat",
   experimentalCharacterChatDesc:
-    "Show a screen for one-on-one conversations with a character outside the TSF scenario: the home base character Serena, or a character brought back from a past session",
+    "Show a screen for one-on-one conversations with a character outside the TSF scenario: the guide character Serena, or a character brought back from a past session",
   adventureEnableCompositeScene:
     "Draw background and character together (default)",
   adventureEnableCompositeSceneDesc:

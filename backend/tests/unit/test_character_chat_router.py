@@ -89,7 +89,7 @@ def test_message_rejects_empty_content(client: TestClient) -> None:
 def test_portrait_stream_reports_unexpected_exceptions(
     client: TestClient, monkeypatch
 ) -> None:
-    async def broken(thread_id):
+    async def broken(thread_id, **kwargs):
         raise RuntimeError("provider down")
         yield  # pragma: no cover
 
@@ -105,3 +105,62 @@ def test_portrait_stream_reports_unexpected_exceptions(
     assert payload["code"] == "internal_error"
     assert payload["message"] == "provider down"
     assert payload["phase"] == "portrait"
+
+
+def test_adventure_thread_endpoint_maps_run_not_found(
+    client: TestClient, monkeypatch
+) -> None:
+    async def missing(run_id):
+        raise CharacterChatError("run_not_found", "無い")
+
+    monkeypatch.setattr(
+        router_module.character_chat_service, "get_or_create_adventure_thread", missing
+    )
+    response = client.post("/api/character-chat/threads/adventure/nope")
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "run_not_found"
+
+
+def test_adventure_appearance_endpoint_validates_mode(
+    client: TestClient, monkeypatch
+) -> None:
+    calls: list[str] = []
+
+    async def fake(thread_id, *, mode):
+        calls.append(mode)
+        return {"id": thread_id}
+
+    monkeypatch.setattr(
+        router_module.character_chat_service, "set_adventure_appearance", fake
+    )
+    ok = client.post(
+        "/api/character-chat/threads/t1/appearance/adventure", json={"mode": "scene"}
+    )
+    assert ok.status_code == 200 and calls == ["scene"]
+    bad = client.post(
+        "/api/character-chat/threads/t1/appearance/adventure", json={"mode": "x"}
+    )
+    assert bad.status_code == 422
+
+
+def test_portrait_stream_accepts_optional_options(
+    client: TestClient, monkeypatch
+) -> None:
+    seen: list[tuple[str, bool]] = []
+
+    async def fake(thread_id, *, reference, use_precise_reference):
+        seen.append((reference, use_precise_reference))
+        yield {"event": "complete", "data": {}}
+
+    monkeypatch.setattr(
+        router_module.character_chat_service, "stream_portrait_regeneration", fake
+    )
+    with client.stream("POST", "/api/character-chat/threads/t1/portrait/stream"):
+        pass
+    with client.stream(
+        "POST",
+        "/api/character-chat/threads/t1/portrait/stream",
+        json={"reference": "scene", "use_precise_reference": True},
+    ):
+        pass
+    assert seen == [("current", False), ("scene", True)]

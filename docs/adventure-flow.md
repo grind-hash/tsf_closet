@@ -190,7 +190,7 @@ sequenceDiagram
 - SSE イベントは `status` / `narrative_chunk` / `narrative_done` / `portrait_image` /
   `partner_image` / `background_image` / `image` / `cost` / `turn` / `complete` /
   `error`。通常ゲームの `useSSE` には流さず、`apis/adventure.ts` の専用パーサで
-  処理する。トーク（5. 参照）は同じパーサで `talk_chunk` / `talk_done` を扱う。
+  処理する。トーク（手番を消費しない会話）はキャラチャット（`/talk/:threadId`）へ移動して行う。
 - **3D モデル表示中の FE** は `narrative_done` の時点で攻略対象のセリフの読み上げを
   始め（②の判定と保存を待たない）、ステージの進捗オーバーレイを出さずに判定中の
   進捗を行動パネルに出す。表情・身振りは `turn` で届くので、その時点で切り替える。
@@ -282,15 +282,12 @@ sequenceDiagram
     end
 
     rect rgb(250, 240, 245)
-        Note over U,DB: トーク（romance。手番を消費しない会話）
-        U->>C: 「トーク」で自由入力を送信
-        C->>R: POST /runs/{id}/talk/stream
-        R->>SV: stream_talk
-        SV->>SV: 攻略対象として返答（LLM 1回、画像なし）
-        SV-->>C: talk_chunk（逐次）
-        SV->>DB: state_json.talk_log だけを更新（上限40件）
-        SV-->>C: talk_done / cost / complete
-        Note over SV: turn_count・status・sim・AdventureTurn には触れない。<br/>最後の手番以降の分は次の手番へ recent_talk として渡る。<br/>採点（好感度・金銭）には影響させない
+        Note over U,DB: トーク（romance。手番を消費しない会話）はキャラチャットへ
+        U->>C: 行動パネルの「トーク」
+        C->>R: POST /api/character-chat/threads/adventure/{id}
+        R-->>C: スレッド（run ごとに 1 件。旧 talk_log は初回に取り込み）
+        C->>C: /talk/:threadId へ移動（会話は character_chat_service）
+        Note over SV: 次の手番は recent_adventure_messages で<br/>前の手番以降の発言を recent_talk として受け取る。<br/>採点（好感度・金銭）には影響させない
     end
 
     rect rgb(245, 240, 240)

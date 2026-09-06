@@ -93,20 +93,42 @@ async def _seed_session(factory, image: Path, *, session_id: str = "sess-1") -> 
 
 
 def _llm_router(
-    *, plan: str = PLAN_EMPTY, appearance: str | None = None, summary: str = "要約"
+    *,
+    plan: str = PLAN_EMPTY,
+    appearance: str | list[str] | None = None,
+    summary: str = "要約",
+    prompts: list[tuple[str, str]] | None = None,
 ):
-    """generate_text の差し替え。system prompt の種類で返す JSON を切り替える。"""
+    """generate_text の差し替え。system prompt の種類で返す JSON を切り替える。
+
+    appearance にリストを渡すと呼び出しごとに順に返す(再試行の検証用。末尾を繰り返す)。
+    prompts を渡すと (種類, user prompt) を記録する。
+    """
     calls: list[str] = []
+    appearance_queue = (
+        list(appearance) if isinstance(appearance, list) else [appearance or "{}"]
+    )
 
     async def fake_generate_text(system_prompt, user_prompt, **kwargs):
         if "retrieval planner" in system_prompt:
             calls.append("plan")
-            return SimpleNamespace(content=plan, cost_usd=0.001)
-        if "appearance tags" in system_prompt:
+            kind = "plan"
+            content = plan
+        elif "appearance tags" in system_prompt:
             calls.append("appearance")
-            return SimpleNamespace(content=appearance or "{}", cost_usd=0.001)
-        calls.append("summary")
-        return SimpleNamespace(content=summary, cost_usd=0.001)
+            kind = "appearance"
+            content = (
+                appearance_queue.pop(0)
+                if len(appearance_queue) > 1
+                else appearance_queue[0]
+            )
+        else:
+            calls.append("summary")
+            kind = "summary"
+            content = summary
+        if prompts is not None:
+            prompts.append((kind, user_prompt))
+        return SimpleNamespace(content=content, cost_usd=0.001)
 
     return fake_generate_text, calls
 
@@ -604,3 +626,572 @@ async def test_portrait_regeneration_surfaces_provider_errors(
         await _collect(service.stream_portrait_regeneration(thread["id"]))
     assert excinfo.value.code == "image_generation_failed"
     assert "TimeoutError" in str(excinfo.value)
+
+
+# ---------------------------------------------------------------------------
+# adventure 種(TSF シナリオの攻略対象)
+# ---------------------------------------------------------------------------
+
+from gateway.databases.models import AdventureRun as AdventureRunORM  # noqa: E402
+from gateway.databases.models import AdventureTurn as AdventureTurnORM  # noqa: E402
+from gateway.services.character_chat_service import _HeaderBuffer  # noqa: E402
+
+
+async def _seed_run(
+    factory,
+    tmp_path: Path,
+    *,
+    composite: bool,
+    companion: bool = False,
+    avatar_id: str | None = None,
+    talk_log: list[dict] | None = None,
+    run_id: str = "run-1",
+    partner_appearance: str = "1girl, brown hair, blue eyes",
+    npc_tags: list[str] | None = None,
+) -> dict[str, Path]:
+    run_dir = tmp_path / "adventure_images" / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    scene1 = run_dir / "scene-1.png"
+    scene2 = run_dir / "scene-2.png"
+    partner_portrait = run_dir / "partner-0-abc12345.png"
+    partner_source = run_dir / "partner_initial.png"
+    scene1.write_bytes(_png("red"))
+    scene2.write_bytes(_png("blue"))
+    partner_portrait.write_bytes(_png("green"))
+    partner_source.write_bytes(_png("white"))
+    partner_entry = {
+        "name": "美咲",
+        "description": "笑顔",
+        "clothing": "school uniform",
+        "action": "",
+    }
+    state = {
+        "milestones": [],
+        "completed_milestones": [],
+        "clues": [],
+        "reality_rules": ["猫耳が生えている"],
+        "visual_state": {
+            "location": "campus",
+            "appearance": "",
+            "clothing": "",
+            "surroundings": "",
+            "main_characters": [partner_entry],
+        },
+        "sim": {
+            "total_days": 5,
+            "affection": 40,
+            "money": 5000,
+            "partner_name": "美咲",
+            "player_name": "ケン",
+            "partner_appearance": partner_appearance,
+            "partner_profile": "明るい先輩",
+            "partner_speech_style": "casual",
+            "job": {"name": "カフェ", "wage": 3000},
+            "gift_catalog": [],
+            "hidden_preferences": {"likes_hint": "甘いもの"},
+            "given_gifts": [],
+            "confessed": False,
+        },
+        "enable_composite_scene": composite,
+        "companion_mode": companion,
+        "companion_avatar_id": avatar_id,
+        "partner_portrait_path": str(partner_portrait),
+        "opening_partner_portrait_path": str(partner_portrait),
+        "partner_image_path": str(partner_source),
+        "talk_log": talk_log or [],
+        "use_precise_reference": False,
+    }
+    if npc_tags is not None:
+        state["last_image_prompt"] = {
+            "scene_tags": "campus, afternoon",
+            "player_tags": "1boy, short hair",
+            "npc_tags": npc_tags,
+        }
+    async with factory() as db:
+        if await db.get(User, DEFAULT_USER_ID) is None:
+            db.add(User(id=DEFAULT_USER_ID))
+        db.add(
+            AdventureRunORM(
+                id=run_id,
+                user_id=DEFAULT_USER_ID,
+                preset="romance",
+                title="放課後の約束",
+                objective="仲良くなる",
+                snapshot_json="{}",
+                state_json=json.dumps(state, ensure_ascii=False),
+                current_image_path=str(scene2),
+                initial_image_path=str(scene1),
+                turn_count=2,
+                max_turns=10,
+                language="ja",
+                nsfw_mode=False,
+                text_model="glm-4-6",
+                image_provider="novelai",
+                image_model="nai-diffusion-4-5-full",
+            )
+        )
+        db.add(
+            AdventureTurnORM(
+                id=f"{run_id}-t1",
+                run_id=run_id,
+                client_turn_id="c1",
+                turn_number=1,
+                user_input="挨拶する",
+                input_kind="free_text",
+                narrative="美咲が笑った。",
+                state_delta_json=json.dumps(
+                    {
+                        "sim": {"affection": 30},
+                        "visual_state": {"main_characters": [partner_entry]},
+                    }
+                ),
+                image_path=str(scene1),
+                created_at=datetime(2026, 9, 1, 10, 0, 0),
+            )
+        )
+        db.add(
+            AdventureTurnORM(
+                id=f"{run_id}-t2",
+                run_id=run_id,
+                client_turn_id="c2",
+                turn_number=2,
+                user_input="一人で散歩",
+                input_kind="free_text",
+                narrative="誰もいない道を歩いた。",
+                state_delta_json=json.dumps(
+                    {"sim": {"affection": 40}, "visual_state": {"main_characters": []}}
+                ),
+                image_path=str(scene2),
+                created_at=datetime(2026, 9, 1, 11, 0, 0),
+            )
+        )
+        await db.commit()
+    return {
+        "scene1": scene1,
+        "scene2": scene2,
+        "partner_portrait": partner_portrait,
+        "partner_source": partner_source,
+    }
+
+
+def test_header_buffer_strips_split_header_and_passes_plain_text() -> None:
+    enabled = _HeaderBuffer(enabled=True)
+    assert enabled.feed("[expression=hap") == []
+    assert enabled.feed("py gesture=nod]\n") == []
+    assert enabled.feed("やっほー") == ["やっほー"]
+    assert enabled.flush() == []
+    plain = _HeaderBuffer(enabled=True)
+    assert plain.feed("こんにちは") == ["こんにちは"]
+    disabled = _HeaderBuffer(enabled=False)
+    assert disabled.feed("[expression=happy gesture=nod]\nx") == [
+        "[expression=happy gesture=nod]\nx"
+    ]
+    trailing = _HeaderBuffer(enabled=True)
+    assert trailing.feed("[expression=sad gesture=bow]") == []
+    assert trailing.flush() == []
+
+
+@pytest.mark.asyncio
+async def test_adventure_thread_defaults_to_scene_in_composite_mode(
+    service: CharacterChatService, isolated_db, tmp_path: Path
+) -> None:
+    files = await _seed_run(
+        isolated_db.async_factory,
+        tmp_path,
+        composite=True,
+        talk_log=[
+            {"id": "a", "role": "user", "text": "やあ", "after_turn": 1},
+            {
+                "id": "b",
+                "role": "partner",
+                "text": "やっほー",
+                "after_turn": 1,
+                "expression": "happy",
+                "gesture": "nod",
+            },
+        ],
+    )
+    thread = await service.get_or_create_adventure_thread("run-1")
+    assert thread["kind"] == "adventure"
+    assert thread["source_run_id"] == "run-1"
+    assert thread["name"] == "美咲"
+    # 合成モードの既定は、相手が写っている最新の場面画像(手番 1)をそのまま
+    assert thread["appearance"]["portrait_kind"] == "scene"
+    assert thread["appearance"]["identity_tags"] == "1girl, brown hair, blue eyes"
+    assert thread["appearance"]["clothing_tags"] == "school uniform"
+    assert thread["appearance"]["source"]["adventure_mode"] == "default"
+    copied = list((service._images_dir / thread["id"]).glob("source-*.png"))
+    assert len(copied) == 1
+    assert copied[0].read_bytes() == files["scene1"].read_bytes()
+    assert thread["can_reset_appearance"] is False
+    adventure = thread["adventure"]
+    assert adventure["available"] is True
+    assert adventure["partner_name"] == "美咲"
+    assert adventure["player_name"] == "ケン"
+    assert adventure["affection"] == 40
+    assert adventure["scene_image_url"] == "/adventure/images/run-1/scene-1.png"
+    assert adventure["partner_portrait_url"].endswith("/partner-0-abc12345.png")
+    assert adventure["companion_avatar_url"] is None
+    # 旧トークログはメッセージとして取り込まれ、run の state からは消える
+    detail = await service.get_thread(thread["id"])
+    assert [(m["role"], m["content"]) for m in detail["messages"]] == [
+        ("user", "やあ"),
+        ("character", "やっほー"),
+    ]
+    assert detail["messages"][1]["meta"]["expression"] == "happy"
+    assert detail["messages"][1]["meta"]["after_turn"] == 1
+    async with isolated_db.async_factory() as db:
+        run = await db.get(AdventureRunORM, "run-1")
+        assert "talk_log" not in json.loads(run.state_json)
+    # 冪等: 同じ run は同じスレッド
+    again = await service.get_or_create_adventure_thread("run-1")
+    assert again["id"] == thread["id"]
+    assert again["message_count"] == 2
+    persona = thread["persona"]
+    assert persona["summary_title"] == "放課後の約束"
+    assert persona["summary_text"] == "明るい先輩"
+    assert persona["attributes"] == ["猫耳が生えている"]
+
+
+@pytest.mark.asyncio
+async def test_adventure_thread_defaults_to_partner_portrait_when_not_composite(
+    service: CharacterChatService, isolated_db, tmp_path: Path
+) -> None:
+    files = await _seed_run(isolated_db.async_factory, tmp_path, composite=False)
+    thread = await service.get_or_create_adventure_thread("run-1")
+    assert thread["appearance"]["portrait_kind"] == "standing"
+    copied = list((service._images_dir / thread["id"]).glob("source-*.png"))
+    assert copied[0].read_bytes() == files["partner_portrait"].read_bytes()
+
+
+@pytest.mark.asyncio
+async def test_adventure_appearance_modes_and_reset(
+    service: CharacterChatService, isolated_db, tmp_path: Path, monkeypatch
+) -> None:
+    files = await _seed_run(isolated_db.async_factory, tmp_path, composite=True)
+    thread = await service.get_or_create_adventure_thread("run-1")
+    switched = await service.set_adventure_appearance(
+        thread["id"], mode="partner_portrait"
+    )
+    assert switched["appearance"]["portrait_kind"] == "standing"
+    assert switched["adventure"]["appearance_mode"] == "partner_portrait"
+    assert switched["can_reset_appearance"] is True
+    latest = max(
+        (service._images_dir / thread["id"]).glob("source-*.png"),
+        key=lambda item: item.stat().st_mtime_ns,
+    )
+    assert latest.read_bytes() == files["partner_portrait"].read_bytes()
+
+    portrait_mock = AsyncMock(return_value=_png("black"))
+    monkeypatch.setattr(module, "generate_portrait_bytes", portrait_mock)
+    events = await _collect(
+        service.stream_portrait_regeneration(
+            thread["id"], reference="scene", use_precise_reference=True
+        )
+    )
+    assert [event["event"] for event in events] == [
+        "status",
+        "portrait_image",
+        "complete",
+    ]
+    kwargs = portrait_mock.await_args.kwargs
+    assert kwargs["reference_bytes"] == files["scene1"].read_bytes()
+    assert kwargs["use_character_reference"] is True
+    assert kwargs["tags"].startswith("1girl, brown hair, blue eyes")
+    custom = await service.get_thread(thread["id"])
+    assert custom["adventure"]["appearance_mode"] == "custom"
+    assert custom["appearance"]["portrait_kind"] == "standing"
+
+    reset = await service.reset_appearance(thread["id"])
+    assert reset["adventure"]["appearance_mode"] == "default"
+    assert reset["appearance"]["portrait_kind"] == "scene"
+    assert reset["can_reset_appearance"] is False
+
+
+@pytest.mark.asyncio
+async def test_adventure_message_reads_live_state_and_feeds_next_turn(
+    service: CharacterChatService, isolated_db, tmp_path: Path, monkeypatch
+) -> None:
+    await _seed_run(
+        isolated_db.async_factory,
+        tmp_path,
+        composite=True,
+        talk_log=[{"id": "a", "role": "user", "text": "古い話", "after_turn": 1}],
+    )
+    thread = await service.get_or_create_adventure_thread("run-1")
+    fake_generate_text, _ = _llm_router()
+    captured: dict = {}
+    monkeypatch.setattr(module.llm_service, "generate_text", fake_generate_text)
+    monkeypatch.setattr(
+        module.llm_service,
+        "generate_feeling_stream",
+        _fake_stream(["やっほー"], captured),
+    )
+    events = await _collect(
+        service.stream_message(thread_id=thread["id"], content="やあ")
+    )
+    assert [event["event"] for event in events][-2:] == ["cost", "complete"]
+    system = captured["system"]
+    assert "You are 美咲" in system
+    assert "SPEECH REGISTER" in system
+    assert '"affection": 40' in system
+    assert "猫耳が生えている" in system
+    assert "明るい先輩" in system
+    assert "メイド服を好む" in system
+    assert "[expression=<key> gesture=<key>]" not in system
+    done = next(event for event in events if event["event"] == "chat_done")["data"]
+    assert done["user_message"]["meta"]["after_turn"] == 2
+    assert done["character_message"]["meta"]["after_turn"] == 2
+    assert done["character_message"]["meta"]["expression"] is None
+
+    # 次の手番へは前の手番(2)以降の発言だけを渡す(取り込んだ古いトークは除く)
+    recent = await service.recent_adventure_messages("run-1", after_turn=2)
+    assert recent == [
+        {"role": "user", "text": "やあ", "after_turn": 2},
+        {"role": "partner", "text": "やっほー", "after_turn": 2},
+    ]
+    from gateway.services.adventure_service import adventure_service
+
+    run = await adventure_service.get_run_orm("run-1")
+    assert await adventure_service._recent_chat_for_run(run) == recent
+
+    # run の好感度が上がれば、次の発言の文脈はライブで追従する
+    async with isolated_db.async_factory() as db:
+        run_row = await db.get(AdventureRunORM, "run-1")
+        state = json.loads(run_row.state_json)
+        state["sim"]["affection"] = 80
+        state["sim"]["partner_appearance"] = "1girl, silver hair, blue eyes"
+        run_row.state_json = json.dumps(state, ensure_ascii=False)
+        await db.commit()
+    await _collect(service.stream_message(thread_id=thread["id"], content="元気？"))
+    assert '"affection": 80' in captured["system"]
+    synced = await service.get_thread(thread["id"])
+    assert synced["appearance"]["identity_tags"] == "1girl, silver hair, blue eyes"
+    assert synced["adventure"]["affection"] == 80
+
+
+@pytest.mark.asyncio
+async def test_adventure_companion_reply_header_is_stripped_and_recorded(
+    service: CharacterChatService, isolated_db, tmp_path: Path, monkeypatch
+) -> None:
+    await _seed_run(
+        isolated_db.async_factory,
+        tmp_path,
+        composite=False,
+        companion=True,
+        avatar_id="avatar-1",
+    )
+    thread = await service.get_or_create_adventure_thread("run-1")
+    assert thread["adventure"]["companion_avatar_url"] == "/avatars/avatar-1/file"
+    fake_generate_text, _ = _llm_router()
+    captured: dict = {}
+    monkeypatch.setattr(module.llm_service, "generate_text", fake_generate_text)
+    monkeypatch.setattr(
+        module.llm_service,
+        "generate_feeling_stream",
+        _fake_stream(
+            ["[expression=hap", "py gesture=nod]\n", "やっほー、", "元気？"], captured
+        ),
+    )
+    events = await _collect(
+        service.stream_message(thread_id=thread["id"], content="やあ")
+    )
+    chunks = [e["data"]["chunk"] for e in events if e["event"] == "chat_chunk"]
+    assert chunks == ["やっほー、", "元気？"]
+    assert "[expression=<key> gesture=<key>]" in captured["system"]
+    done = next(event for event in events if event["event"] == "chat_done")["data"]
+    assert done["character_message"]["content"] == "やっほー、元気？"
+    assert done["character_message"]["meta"]["expression"] == "happy"
+    assert done["character_message"]["meta"]["gesture"] == "nod"
+
+
+@pytest.mark.asyncio
+async def test_adventure_thread_survives_run_deletion(
+    service: CharacterChatService, isolated_db, tmp_path: Path, monkeypatch
+) -> None:
+    await _seed_run(isolated_db.async_factory, tmp_path, composite=True)
+    thread = await service.get_or_create_adventure_thread("run-1")
+    from gateway.services.adventure_service import adventure_service
+
+    await adventure_service.delete_run("run-1")
+    detail = await service.get_thread(thread["id"])
+    assert detail["adventure"]["available"] is False
+    assert detail["adventure"]["partner_name"] == "美咲"
+    assert detail["portrait_missing"] is False
+    fake_generate_text, _ = _llm_router()
+    captured: dict = {}
+    monkeypatch.setattr(module.llm_service, "generate_text", fake_generate_text)
+    monkeypatch.setattr(
+        module.llm_service, "generate_feeling_stream", _fake_stream(["…"], captured)
+    )
+    events = await _collect(
+        service.stream_message(thread_id=thread["id"], content="いる？")
+    )
+    assert events[-1]["event"] == "complete"
+    assert "has ended or been deleted" in captured["system"]
+    assert "明るい先輩" in captured["system"]
+    with pytest.raises(CharacterChatError) as excinfo:
+        await service.set_adventure_appearance(thread["id"], mode="scene")
+    assert excinfo.value.code == "run_not_found"
+
+
+@pytest.mark.asyncio
+async def test_adventure_thread_rejects_missing_or_non_romance_runs(
+    service: CharacterChatService, isolated_db, tmp_path: Path
+) -> None:
+    with pytest.raises(CharacterChatError) as missing:
+        await service.get_or_create_adventure_thread("nope")
+    assert missing.value.code == "run_not_found"
+    await _seed_run(isolated_db.async_factory, tmp_path, composite=True, run_id="run-2")
+    async with isolated_db.async_factory() as db:
+        run = await db.get(AdventureRunORM, "run-2")
+        run.preset = "infiltration"
+        await db.commit()
+    with pytest.raises(CharacterChatError) as plain:
+        await service.get_or_create_adventure_thread("run-2")
+    assert plain.value.code == "talk_unavailable"
+
+
+_JAPANESE_TAGS = json.dumps(
+    {
+        "identity_tags": "1girl, solo, silver hair, green eyes",
+        "clothing_tags": "シフォンブラウス, 総レースタイトスカート",
+        "description": "着替えた",
+    }
+)
+_ENGLISH_TAGS = json.dumps(
+    {
+        "identity_tags": "1girl, solo, silver hair, green eyes",
+        "clothing_tags": "white chiffon blouse, black lace pencil skirt",
+        "description": "シフォンブラウスとレースのタイトスカート姿",
+    }
+)
+_DRESS_UP_PLAN = json.dumps(
+    {
+        "lookups": [],
+        "appearance_request": "シフォンブラウスと、総レースタイトスカートに着替えよう",
+    }
+)
+
+
+@pytest.mark.asyncio
+async def test_stream_message_retries_when_appearance_tags_are_japanese(
+    service: CharacterChatService, monkeypatch
+) -> None:
+    """依頼文を丸写しした日本語タグは 1 回だけ再生成し、英語タグで立ち絵を描く。"""
+    thread = await service.get_or_create_base_thread()
+    prompts: list[tuple[str, str]] = []
+    fake_generate_text, calls = _llm_router(
+        plan=_DRESS_UP_PLAN,
+        appearance=[_JAPANESE_TAGS, _ENGLISH_TAGS],
+        prompts=prompts,
+    )
+    monkeypatch.setattr(module.llm_service, "generate_text", fake_generate_text)
+    monkeypatch.setattr(
+        module.llm_service, "generate_feeling_stream", _fake_stream(["着替えたよ"], {})
+    )
+    portrait_mock = AsyncMock(return_value=_png("blue"))
+    monkeypatch.setattr(module, "generate_portrait_bytes", portrait_mock)
+
+    events = await _collect(
+        service.stream_message(
+            thread_id=thread["id"],
+            content="シフォンブラウスと、総レースタイトスカートに着替えよう",
+        )
+    )
+    kinds = [event["event"] for event in events]
+    assert "portrait_image" in kinds
+    assert "portrait_error" not in kinds
+    assert calls == ["plan", "appearance", "appearance"]
+    retry_prompt = [user for kind, user in prompts if kind == "appearance"][1]
+    assert "rejected_previous_output" in retry_prompt
+    assert "総レースタイトスカート" in retry_prompt
+    portrait = next(event for event in events if event["event"] == "portrait_image")
+    assert (
+        portrait["data"]["appearance"]["clothing_tags"]
+        == "white chiffon blouse, black lace pencil skirt"
+    )
+    assert portrait_mock.await_args.kwargs["tags"] == (
+        "1girl, solo, silver hair, green eyes, "
+        "white chiffon blouse, black lace pencil skirt"
+    )
+
+
+@pytest.mark.asyncio
+async def test_stream_message_refuses_persisting_japanese_tags(
+    service: CharacterChatService, monkeypatch
+) -> None:
+    """再試行でも日本語が残るなら、通じないタグで描かず portrait_error にして姿を据え置く。"""
+    thread = await service.get_or_create_base_thread()
+    before = (await service.get_thread(thread["id"]))["appearance"]
+    fake_generate_text, calls = _llm_router(
+        plan=_DRESS_UP_PLAN, appearance=[_JAPANESE_TAGS, _JAPANESE_TAGS]
+    )
+    monkeypatch.setattr(module.llm_service, "generate_text", fake_generate_text)
+    monkeypatch.setattr(
+        module.llm_service, "generate_feeling_stream", _fake_stream(["着替えたよ"], {})
+    )
+    portrait_mock = AsyncMock(return_value=_png("blue"))
+    monkeypatch.setattr(module, "generate_portrait_bytes", portrait_mock)
+
+    events = await _collect(
+        service.stream_message(
+            thread_id=thread["id"],
+            content="シフォンブラウスと、総レースタイトスカートに着替えよう",
+        )
+    )
+    kinds = [event["event"] for event in events]
+    assert kinds[-1] == "complete"
+    assert "portrait_image" not in kinds
+    error = next(event for event in events if event["event"] == "portrait_error")
+    assert error["data"]["code"] == "appearance_tags_not_english"
+    assert "総レースタイトスカート" in error["data"]["message"]
+    assert calls == ["plan", "appearance", "appearance"]
+    portrait_mock.assert_not_awaited()
+    after = (await service.get_thread(thread["id"]))["appearance"]
+    assert after["clothing_tags"] == before["clothing_tags"]
+    assert after["identity_tags"] == before["identity_tags"]
+
+
+@pytest.mark.asyncio
+async def test_adventure_thread_uses_turn_portrait_tags_not_initial_appearance(
+    service: CharacterChatService, isolated_db, tmp_path: Path
+) -> None:
+    """姿のタグは開始素材の記述(partner_appearance)ではなく、その手番の npc_tags から組む。"""
+    await _seed_run(
+        isolated_db.async_factory,
+        tmp_path,
+        composite=False,
+        partner_appearance="1girl, brown hair, blue eyes, sex, lying on back, legs spread",
+        npc_tags=[
+            "1girl, brown hair, blue eyes, 21yo, slight blush, looking down shyly, "
+            "silver sequin dress, black stockings, supporting character, "
+            "secondary focus, behind protagonist"
+        ],
+    )
+    thread = await service.get_or_create_adventure_thread("run-1")
+    assert (
+        thread["appearance"]["identity_tags"]
+        == "1girl, brown hair, blue eyes, 21yo, slight blush"
+    )
+    assert (
+        thread["appearance"]["clothing_tags"] == "silver sequin dress, black stockings"
+    )
+    assert "sex" not in thread["appearance"]["identity_tags"]
+
+
+@pytest.mark.asyncio
+async def test_adventure_thread_falls_back_to_filtered_initial_appearance(
+    service: CharacterChatService, isolated_db, tmp_path: Path
+) -> None:
+    """npc_tags が無い run は partner_appearance に倒すが、服装・場面タグは落とす。"""
+    await _seed_run(
+        isolated_db.async_factory,
+        tmp_path,
+        composite=False,
+        partner_appearance="1girl, brown hair, blue eyes, sitting, red dress",
+    )
+    thread = await service.get_or_create_adventure_thread("run-1")
+    assert thread["appearance"]["identity_tags"] == "1girl, brown hair, blue eyes"
+    # 服装は場面の攻略対象エントリから
+    assert thread["appearance"]["clothing_tags"] == "school uniform"

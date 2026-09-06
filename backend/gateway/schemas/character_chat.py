@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field, model_validator
 
 from ..consts.character_chat import MESSAGE_MAX
@@ -33,3 +35,24 @@ class CharacterChatAppearanceRequest(CharacterChatSourceRequest):
 
 class CharacterChatMessageRequest(BaseModel):
     content: str = Field(..., min_length=1, max_length=MESSAGE_MAX)
+
+
+class CharacterChatAdventureAppearanceRequest(BaseModel):
+    """adventure 種の姿の切り替え。
+
+    default = 表示モードで決める既定(シナリオの姿に合わせる)、partner_portrait =
+    最新の攻略対象立ち絵、scene = 攻略対象が写る最新の場面画像。
+    """
+
+    mode: Literal["default", "partner_portrait", "scene"] = "default"
+
+
+class CharacterChatPortraitRequest(BaseModel):
+    """立ち絵の描き直し。
+
+    reference は参照にする画像(current = いまの姿、scene / partner = adventure 種の
+    run が持つ画像)。use_precise_reference は NovelAI の精密参照(Anlas 消費)を使うか。
+    """
+
+    reference: Literal["current", "scene", "partner"] = "current"
+    use_precise_reference: bool = False

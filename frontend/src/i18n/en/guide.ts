@@ -13,10 +13,10 @@ export const guide = {
   },
   talk: {
     title: "Talk & Face-to-Face Mode",
-    desc: "During the romance simulation, you can chat without spending a turn (Talk) and converse one exchange at a time in face-to-face mode. Combine them with line read-aloud and microphone input.",
-    note: "Face-to-face mode can be turned on in the romance simulation's start screen and image settings.",
-    open: "Open TSF Scenario",
-    enableParent: "Enable TSF Scenario first",
+    desc: "During the romance simulation, you can converse one exchange at a time in face-to-face mode. Free chat that does not spend a turn (Talk) opens Character Chat from the action panel, and what you talk about carries into the next scene.",
+    note: "Face-to-face mode is turned on in the romance simulation's start screen and image settings; Talk needs Character Chat enabled.",
+    open: "Open Character Chat",
+    enableParent: "Enable Character Chat first",
   },
   inventory: {
     title: "Inventory System",
@@ -38,7 +38,7 @@ export const guide = {
   },
   characterChat: {
     title: "Character Chat",
-    desc: "Talk one-on-one with a character outside the TSF scenario. The home base character Serena remembers your tastes and past play and looks things up when you ask about recent sessions or tendencies. You can also bring back a character from a past session with the feelings they had at that point, choose the appearance from past images, and ask for a change of clothes to redraw the portrait.",
+    desc: "Talk one-on-one with a character outside the TSF scenario. The guide character Serena remembers your tastes and past play and looks things up when you ask about recent sessions or tendencies. You can also bring back a character from a past session with the feelings they had at that point, choose the appearance from past images, and ask for a change of clothes to redraw the portrait.",
     note: "Each reply first decides what to look up, so replies take a little longer than a plain chat. Asking for a change of clothes also runs image generation.",
     open: "Open Character Chat",
   },
