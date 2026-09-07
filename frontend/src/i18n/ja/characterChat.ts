@@ -57,6 +57,25 @@ export const characterChat = {
     adventureUnavailable:
       "このシナリオは終了または削除されています。姿はこの会話の中だけで変えられます。",
     adventureNoImage: "画像がありません",
+    avatarSection: "3Dモデル (VRM)",
+    avatarCurrent: "表示中: {{name}}（{{source}}）",
+    avatarCurrentNone: "3Dモデルなし（2D 立ち絵を表示）",
+    avatarAuto: "自動（既定）",
+    avatarAutoHint:
+      "案内役は同梱の専用モデル、シナリオ由来は対面会話モードのモデル、いずれも無ければキャラクター名が一致する登録済みモデルを使います。",
+    avatarNone: "2D 立ち絵を使う",
+    avatarRegistered: "登録済みモデルから選ぶ",
+    avatarRegisteredLoading: "モデル一覧を読み込んでいます...",
+    avatarRegisteredEmpty:
+      "登録済みの 3D モデルはありません。設定画面の「3Dモデル (VRM)」から登録できます。",
+    avatarRegisteredFailed: "モデル一覧を読み込めませんでした",
+    avatarSourceBundled: "同梱モデル",
+    avatarSourceRegistered: "登録済みモデル",
+    avatarSourceRun: "シナリオの設定",
+    avatarMissing:
+      "選んでいた 3D モデルが削除されていたため、自動に戻しました。",
+    appearanceTagsOnly:
+      "3D モデルを表示中なので外見タグだけ更新しました。立ち絵は「姿」の「立ち絵を描き直す」で描けます。",
     changeAppearance: "姿を変更",
     appearancePickerTitle: "姿にする画像を選ぶ",
     regeneratePortrait: "立ち絵を描き直す",
@@ -145,6 +164,7 @@ export const characterChat = {
     outfit: "服装",
     playMemory: "プレイメモ",
     appearance: "姿",
+    avatar: "3Dモデル",
     adventure: "シナリオの状況",
     adventureHint:
       "紐づく TSF シナリオの現在値です。会話のたびに最新を読みます。",
@@ -171,6 +191,7 @@ export const characterChat = {
     portraitFailed: "立ち絵を描けませんでした",
     createFailed: "キャラクターを作れませんでした",
     appearanceFailed: "姿を変更できませんでした",
+    avatarFailed: "3D モデルを切り替えられませんでした",
     deleteFailed: "会話を削除できませんでした",
   },
 };

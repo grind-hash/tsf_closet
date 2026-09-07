@@ -234,3 +234,107 @@ test("scrolls the hub when the conversation list is taller than the viewport", a
   await page.mouse.wheel(0, 4000);
   await expect(rows.last()).toBeInViewport();
 });
+
+const NO_AVATAR = {
+  mode: "auto",
+  id: null,
+  url: null,
+  source: null,
+  name: null,
+  character_name: null,
+  variant_label: null,
+  variants: [],
+  missing: false,
+};
+
+const AVATAR_META = {
+  title: null,
+  author: null,
+  license: null,
+  license_url: null,
+  allowed_user: null,
+  commercial: null,
+};
+
+test("appearance menu lists 3D models and switches the selection", async ({
+  page,
+}) => {
+  await enableCharacterChat(page);
+  const thread = { ...BASE_THREAD, avatar: NO_AVATAR };
+  await page.route("**/api/character-chat/threads", async (route) => {
+    await route.fulfill({ json: { threads: [thread] } });
+  });
+  await page.route("**/api/character-chat/threads/base-1", async (route) => {
+    await route.fulfill({ json: { ...thread, messages: [] } });
+  });
+  await page.route("**/api/avatars", async (route) => {
+    await route.fulfill({
+      json: {
+        items: [
+          {
+            id: "av-1",
+            name: "serena_dress",
+            character_name: "セレナ",
+            variant_label: "ドレス",
+            file_size: 1,
+            vrm_spec_version: "0",
+            meta: AVATAR_META,
+            file_url: "/api/avatars/av-1/file",
+            created_at: null,
+          },
+          {
+            id: "av-2",
+            name: "other_model",
+            character_name: null,
+            variant_label: null,
+            file_size: 1,
+            vrm_spec_version: "1",
+            meta: AVATAR_META,
+            file_url: "/api/avatars/av-2/file",
+            created_at: null,
+          },
+        ],
+      },
+    });
+  });
+  const puts: Record<string, unknown>[] = [];
+  await page.route(
+    "**/api/character-chat/threads/base-1/avatar",
+    async (route) => {
+      puts.push(route.request().postDataJSON() as Record<string, unknown>);
+      await route.fulfill({
+        json: { ...thread, avatar: { ...NO_AVATAR, mode: "none" } },
+      });
+    },
+  );
+
+  await page.goto("/talk/base-1");
+  await page.getByRole("button", { name: "姿", exact: true }).click();
+  // 右パネルにも同じ文言が出るので、メニュー内に絞る
+  await expect(
+    page
+      .locator(".character-chat-room__menu")
+      .getByText("3Dモデルなし（2D 立ち絵を表示）"),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: /^自動（既定）/ }),
+  ).toHaveAttribute("aria-pressed", "true");
+  // 登録済みモデルは「キャラクター / 差分」または名前で並ぶ
+  await expect(
+    page.getByRole("button", { name: "セレナ / ドレス" }),
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "other_model" })).toBeVisible();
+
+  await page.getByRole("button", { name: "2D 立ち絵を使う" }).click();
+  await expect.poll(() => puts.length).toBe(1);
+  expect(puts).toEqual([{ mode: "none", avatar_id: null }]);
+  // 応答のスレッドで選択状態が更新される
+  await page.getByRole("button", { name: "姿", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "2D 立ち絵を使う" }),
+  ).toHaveAttribute("aria-pressed", "true");
+  // 右パネルにも表示中のモデルが出る
+  await expect(page.locator(".character-chat-panel__avatar")).toContainText(
+    "3Dモデルなし",
+  );
+});

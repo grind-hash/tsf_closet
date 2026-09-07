@@ -58,6 +58,25 @@ export const characterChat = {
     adventureUnavailable:
       "This scenario has ended or been deleted. The appearance can only be changed within this chat.",
     adventureNoImage: "No image available",
+    avatarSection: "3D model (VRM)",
+    avatarCurrent: "Showing: {{name}} ({{source}})",
+    avatarCurrentNone: "No 3D model (showing the 2D portrait)",
+    avatarAuto: "Automatic (default)",
+    avatarAutoHint:
+      "The guide uses the bundled dedicated model, scenario characters use the face-to-face model of the scenario, and otherwise a registered model whose character name matches.",
+    avatarNone: "Use the 2D portrait",
+    avatarRegistered: "Choose a registered model",
+    avatarRegisteredLoading: "Loading the model list...",
+    avatarRegisteredEmpty:
+      'No 3D models are registered. You can add them under "3D Model (VRM)" in the settings screen.',
+    avatarRegisteredFailed: "Could not load the model list",
+    avatarSourceBundled: "bundled model",
+    avatarSourceRegistered: "registered model",
+    avatarSourceRun: "scenario setting",
+    avatarMissing:
+      "The chosen 3D model has been deleted, so the selection went back to automatic.",
+    appearanceTagsOnly:
+      'Only the appearance tags were updated because a 3D model is shown. Use "Redraw portrait" in the Appearance menu to draw the portrait.',
     changeAppearance: "Change appearance",
     appearancePickerTitle: "Choose an image for the appearance",
     regeneratePortrait: "Redraw portrait",
@@ -147,6 +166,7 @@ export const characterChat = {
     outfit: "Outfit",
     playMemory: "Play memo",
     appearance: "Appearance",
+    avatar: "3D model",
     adventure: "Scenario status",
     adventureHint:
       "Live values of the linked TSF scenario, read fresh on every reply.",
@@ -173,6 +193,7 @@ export const characterChat = {
     portraitFailed: "Could not draw the portrait",
     createFailed: "Could not create the character",
     appearanceFailed: "Could not change the appearance",
+    avatarFailed: "Could not switch the 3D model",
     deleteFailed: "Could not delete the conversation",
   },
 };

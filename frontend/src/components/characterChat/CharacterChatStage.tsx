@@ -8,6 +8,7 @@ import type {
 } from "../../constants/companionAvatar";
 import { useTransparentImage } from "../../hooks/useTransparentImage";
 import type { VisemeFrame } from "../../utils/visemeTimeline";
+import type { AvatarRestPose } from "../adventure/avatar/avatarMotion";
 
 // three.js を含むため別チャンクにする(Adventure の対面会話モードと同じ)
 const CompanionAvatarStage = lazy(
@@ -16,6 +17,8 @@ const CompanionAvatarStage = lazy(
 
 export interface CharacterChatStageAvatar {
   url: string;
+  /** 待機姿勢。案内役キャラだけ手を前で重ねる clasped にする */
+  restPose: AvatarRestPose;
   expression: AvatarExpressionKey | null;
   gesture: AvatarGestureKey | null;
   gestureKey: string | null;
@@ -70,6 +73,7 @@ export default function CharacterChatStage({
               expression={avatar.expression}
               gesture={avatar.gesture}
               gestureKey={avatar.gestureKey}
+              restPose={avatar.restPose}
               getVoiceLevel={avatar.getVoiceLevel}
               getVisemeFrame={avatar.getVisemeFrame}
               onError={avatar.onError}

@@ -25,7 +25,10 @@ from sqlalchemy import delete, desc, func, select
 from ..consts.character_chat import (
     ADVENTURE_RECENT_CHAT_MAX,
     ADVENTURE_SCENE_CONTEXT_MAX,
+    AVATAR_MODES,
     BASE_APPEARANCE_DESCRIPTION,
+    BASE_AVATAR_FILENAME,
+    BASE_AVATAR_URL,
     BASE_CHARACTER_KEY,
     BASE_CHARACTER_NAME,
     BASE_CHARACTER_PRONOUN,
@@ -55,7 +58,12 @@ from ..consts.companion_avatar import (
 from ..consts.language import normalize_language
 from ..consts.novelai_models import resolve_user_image_model
 from ..databases.base import async_session_factory
-from ..databases.models import CharacterChatMessage, CharacterChatThread, User
+from ..databases.models import (
+    AvatarModel,
+    CharacterChatMessage,
+    CharacterChatThread,
+    User,
+)
 from ..settings.config import settings
 from .adventure_inventory import inventory_enabled, lean_inventory_for_llm
 from .adventure_romance import (
@@ -63,7 +71,14 @@ from .adventure_romance import (
     romance_script_names,
     talk_relationship_context,
 )
-from .avatar_service import avatar_file_url
+from .avatar_service import (
+    avatar_display_name,
+    avatar_exists,
+    avatar_file_url,
+    avatar_variant_label,
+    list_avatar_variants,
+    list_avatars,
+)
 from .character_chat_lookups import run_lookups, session_candidates
 from .character_chat_models import (
     CharacterChatAppearanceOutput,
@@ -203,6 +218,26 @@ def _split_portrait_tags(tags: str) -> tuple[str, str]:
         if part and not _COMPOSITION_TAG_PATTERN.search(part)
     ]
     return ", ".join(identity), ", ".join(clothing)
+
+
+def _base_avatar_file() -> Path | None:
+    """案内役キャラの同梱 3D モデル(base_portrait_dir()/serena.vrm)。無ければ None。"""
+    path = base_portrait_dir() / BASE_AVATAR_FILENAME
+    return path if path.is_file() else None
+
+
+def _avatar_choice(appearance: dict[str, Any]) -> tuple[str, str | None]:
+    """appearance["avatar"] に保存した 3D モデルの指定を (mode, avatar_id) で返す。"""
+    raw = appearance.get("avatar")
+    if not isinstance(raw, dict):
+        return "auto", None
+    mode = str(raw.get("mode") or "auto")
+    if mode not in AVATAR_MODES:
+        mode = "auto"
+    avatar_id = str(raw.get("avatar_id") or "").strip() or None
+    if mode == "model" and not avatar_id:
+        mode = "auto"
+    return mode, avatar_id
 
 
 _APPEARANCE_KEYS = (
@@ -603,6 +638,7 @@ class CharacterChatService:
         last_message: CharacterChatMessage | None,
         messages: list[CharacterChatMessage] | None = None,
         adventure: dict[str, Any] | None = None,
+        avatar: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         appearance = _json_load(thread.appearance_json, {})
         portrait = self._portrait_file(thread)
@@ -611,6 +647,8 @@ class CharacterChatService:
             "kind": thread.kind,
             "source_run_id": thread.source_run_id,
             "adventure": adventure,
+            # 3D モデル(VRM)の解決結果。一覧では省略(None)
+            "avatar": avatar,
             "name": thread.name,
             "pronoun": thread.pronoun,
             "portrait_url": self.image_url(thread.id, portrait.name)
@@ -659,12 +697,14 @@ class CharacterChatService:
         adventure = None
         if thread.kind == CHARACTER_CHAT_KIND_ADVENTURE:
             adventure = await self._adventure_summary(thread)
+        avatar = await self._resolve_avatar(db, thread, adventure=adventure)
         return self._thread_to_dict(
             thread,
             message_count=count,
             last_message=last_message,
             messages=messages if with_messages else None,
             adventure=adventure,
+            avatar=avatar,
         )
 
     # ------------------------------------------------------------------
@@ -1148,6 +1188,212 @@ class CharacterChatService:
     # ------------------------------------------------------------------
     # 会話
     # ------------------------------------------------------------------
+
+    # ------------------------------------------------------------------
+    # 3D モデル(VRM)
+    # ------------------------------------------------------------------
+
+    def base_avatar_path(self) -> Path:
+        """案内役キャラの同梱 3D モデルの実ファイル。無ければ avatar_not_found。"""
+        path = _base_avatar_file()
+        if path is None:
+            raise CharacterChatError("avatar_not_found", "同梱の 3D モデルがありません")
+        return path
+
+    def _avatar_name_candidates(
+        self, thread: CharacterChatThread, adventure: dict[str, Any] | None
+    ) -> set[str]:
+        """登録済みモデルの character_name と照合する名前(casefold 済み)。"""
+        names: list[str] = [str(thread.name or "")]
+        if thread.kind == CHARACTER_CHAT_KIND_BASE:
+            names.extend(BASE_CHARACTER_NAME.values())
+        elif thread.kind == CHARACTER_CHAT_KIND_SESSION:
+            persona = _json_load(thread.persona_json, {})
+            names.append(str(persona.get("character_name") or ""))
+        elif adventure:
+            names.append(str(adventure.get("partner_name") or ""))
+        return {name.strip().casefold() for name in names if name.strip()}
+
+    @staticmethod
+    def _avatar_payload(
+        *,
+        mode: str,
+        source: str | None,
+        url: str | None,
+        name: str | None,
+        model: AvatarModel | None = None,
+        variants: list[AvatarModel] | None = None,
+        missing: bool = False,
+    ) -> dict[str, Any]:
+        rows = variants or []
+        return {
+            "mode": mode,
+            "id": model.id if model is not None else None,
+            "url": url,
+            "source": source,
+            "name": name,
+            "character_name": (
+                str(model.character_name or "").strip() or None
+                if model is not None
+                else None
+            ),
+            "variant_label": (
+                str(model.variant_label or "").strip() or None
+                if model is not None
+                else None
+            ),
+            # 同じキャラクターの衣装差分(2 件以上あるときだけ)
+            "variants": [
+                {
+                    "id": row.id,
+                    "label": avatar_variant_label(row),
+                    "current": bool(model is not None and row.id == model.id),
+                }
+                for row in rows
+            ]
+            if len(rows) > 1
+            else [],
+            # 明示的に選んだモデルが削除されていて自動に倒したとき True
+            "missing": missing,
+        }
+
+    async def _resolve_avatar(
+        self,
+        db,
+        thread: CharacterChatThread,
+        *,
+        adventure: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        """表示する 3D モデルを決める。
+
+        優先順は 明示選択 → (案内役) 同梱 serena.vrm → (adventure 種) run の対面会話
+        モデル → character_name が一致する登録済みモデル → なし(2D 立ち絵)。
+        adventure は _adventure_summary の dict(companion_avatar_id / partner_name)。
+        """
+        appearance = _json_load(thread.appearance_json, {})
+        mode, chosen_id = _avatar_choice(appearance)
+        if mode == "none":
+            return self._avatar_payload(mode="none", source=None, url=None, name=None)
+        missing = False
+        if mode == "model" and chosen_id:
+            model = await db.get(AvatarModel, chosen_id)
+            if model is not None:
+                return self._avatar_payload(
+                    mode="model",
+                    source="registered",
+                    url=avatar_file_url(model.id),
+                    name=avatar_display_name(model),
+                    model=model,
+                    variants=await list_avatar_variants(db, model.id),
+                )
+            missing = True
+        if thread.kind == CHARACTER_CHAT_KIND_BASE and _base_avatar_file() is not None:
+            return self._avatar_payload(
+                mode="auto",
+                source="bundled",
+                url=BASE_AVATAR_URL,
+                name=thread.name,
+                missing=missing,
+            )
+        run_avatar_id = (
+            str(adventure.get("companion_avatar_id") or "").strip()
+            if thread.kind == CHARACTER_CHAT_KIND_ADVENTURE and adventure
+            else ""
+        )
+        if run_avatar_id:
+            model = await db.get(AvatarModel, run_avatar_id)
+            if model is not None:
+                return self._avatar_payload(
+                    mode="auto",
+                    source="run",
+                    url=avatar_file_url(model.id),
+                    name=avatar_display_name(model),
+                    model=model,
+                    variants=await list_avatar_variants(db, model.id),
+                    missing=missing,
+                )
+        candidates = self._avatar_name_candidates(thread, adventure)
+        matched = [
+            model
+            for model in await list_avatars(db)
+            if str(model.character_name or "").strip().casefold() in candidates
+        ]
+        if matched:
+            # list_avatar_variants と同じ並び(差分ラベル → 名前 → 登録順)の先頭
+            matched.sort(
+                key=lambda row: (
+                    str(row.variant_label or ""),
+                    str(row.name or ""),
+                    row.created_at or datetime.min,
+                )
+            )
+            model = matched[0]
+            return self._avatar_payload(
+                mode="auto",
+                source="registered",
+                url=avatar_file_url(model.id),
+                name=avatar_display_name(model),
+                model=model,
+                variants=await list_avatar_variants(db, model.id),
+                missing=missing,
+            )
+        return self._avatar_payload(
+            mode="auto", source=None, url=None, name=None, missing=missing
+        )
+
+    async def set_avatar(
+        self, thread_id: str, *, mode: str = "auto", avatar_id: str | None = None
+    ) -> dict[str, Any]:
+        """3D モデルの表示指定を保存する(auto / none / model)。"""
+        if mode not in AVATAR_MODES:
+            raise CharacterChatError("invalid_input", "3D モデルの指定が不正です")
+        async with self._thread_locks[thread_id], async_session_factory() as db:
+            thread = await self._get_thread_orm(db, thread_id)
+            chosen = str(avatar_id or "").strip() or None
+            if mode == "model" and (
+                chosen is None or not await avatar_exists(db, chosen)
+            ):
+                raise CharacterChatError("avatar_not_found", "3Dモデルが見つかりません")
+            appearance = _json_load(thread.appearance_json, {})
+            appearance["avatar"] = {
+                "mode": mode,
+                "avatar_id": chosen if mode == "model" else None,
+            }
+            thread.appearance_json = json.dumps(appearance, ensure_ascii=False)
+            thread.updated_at = datetime.now()
+            await db.commit()
+            await db.refresh(thread)
+            return await self._thread_payload(db, thread, with_messages=False, limit=1)
+
+    async def _apply_appearance_tags(
+        self, thread_id: str, appearance: dict[str, Any]
+    ) -> dict[str, Any]:
+        """立ち絵を描かずに外見タグだけ thread へ反映し、appearance_updated の data を返す。
+
+        3D モデル表示中の着替えに使う。見えない立ち絵の画像生成を省き、
+        「立ち絵を描き直す」で後から描ける状態にしておく。
+        """
+        async with async_session_factory() as db:
+            thread = await self._get_thread_orm(db, thread_id)
+            merged = _json_load(thread.appearance_json, {})
+            for key in ("identity_tags", "clothing_tags", "description"):
+                merged[key] = str(appearance.get(key) or "")
+            if thread.kind == CHARACTER_CHAT_KIND_ADVENTURE:
+                # チャット側で変えた姿は run に追従させない(シナリオの姿に合わせるで戻す)
+                source = dict(merged.get("source") or {})
+                source["type"] = "adventure"
+                source["run_id"] = thread.source_run_id
+                source["adventure_mode"] = "custom"
+                merged["source"] = source
+            thread.appearance_json = json.dumps(merged, ensure_ascii=False)
+            thread.updated_at = datetime.now()
+            await db.commit()
+            await db.refresh(thread)
+            payload = self._thread_to_dict(thread, message_count=0, last_message=None)
+        return {
+            "appearance": payload["appearance"],
+            "portrait_url": payload["portrait_url"],
+        }
 
     # ------------------------------------------------------------------
     # adventure 種(TSF シナリオの攻略対象)
@@ -1838,6 +2084,7 @@ class CharacterChatService:
             appearance_description=description,
             appearance_change_request=appearance_change_request,
             origin_lore_block_text=origin_lore_block(origin_lore_text, language),
+            header_instruction=header_instruction,
         )
 
     async def _persist_messages(
@@ -1912,7 +2159,8 @@ class CharacterChatService:
         Yields:
             status{phase: plan|reply|portrait|memory} / chat_chunk{chunk} /
             chat_done{user_message, character_message, thread} /
-            portrait_image{image_url, appearance} / portrait_error{code, message} /
+            portrait_image{image_url, appearance} / appearance_updated{appearance,
+            portrait_url}(3D モデル表示中の着替え) / portrait_error{code, message} /
             cost{cost_usd} / complete{}
         """
         tracker = begin_cost_tracking()
@@ -1939,6 +2187,7 @@ class CharacterChatService:
             adventure_context: dict[str, Any] | None = None
             header_instruction = ""
             after_turn: int | None = None
+            view: _AdventureView | None = None
             if thread.kind == CHARACTER_CHAT_KIND_ADVENTURE:
                 view = (
                     await _load_adventure_view(thread.source_run_id)
@@ -1957,9 +2206,24 @@ class CharacterChatService:
                 if view is not None:
                     nsfw_mode = bool(view.run.nsfw_mode)
                     after_turn = int(view.run.turn_count or 0)
-                    if view.companion and view.avatar_id:
-                        header_instruction = avatar_talk_header_instruction()
             appearance = _json_load(thread.appearance_json, {})
+            # 3D モデルを表示しているなら(種類を問わず)表情・身振りのヘッダを求める
+            async with async_session_factory() as db:
+                avatar = await self._resolve_avatar(
+                    db,
+                    thread,
+                    adventure=(
+                        {
+                            "companion_avatar_id": view.avatar_id,
+                            "partner_name": view.partner_name,
+                        }
+                        if view is not None
+                        else None
+                    ),
+                )
+            avatar_shown = bool(avatar.get("url"))
+            if avatar_shown:
+                header_instruction = avatar_talk_header_instruction()
 
             yield {"event": "status", "data": {"phase": "plan"}}
             plan = await self._plan(
@@ -2015,7 +2279,7 @@ class CharacterChatService:
                 for item in recent
             ]
             reply = ""
-            # 3D モデル表示中の adventure 種は先頭ヘッダ行を配信前に剥がす
+            # 3D モデル表示中は先頭ヘッダ行(表情・身振り)を配信前に剥がす
             header = _HeaderBuffer(enabled=bool(header_instruction))
             try:
                 async for chunk in llm_service.generate_feeling_stream(
@@ -2061,12 +2325,14 @@ class CharacterChatService:
                     "lookups": lookup_details,
                     "appearance_request": plan.appearance_request,
                     **(
-                        {
-                            "after_turn": after_turn,
-                            "expression": expression,
-                            "gesture": gesture,
-                        }
+                        {"after_turn": after_turn}
                         if thread.kind == CHARACTER_CHAT_KIND_ADVENTURE
+                        else {}
+                    ),
+                    # 3D モデル表示中の返答だけ表情・身振りを残す(種類を問わない)
+                    **(
+                        {"expression": expression, "gesture": gesture}
+                        if header_instruction
                         else {}
                     ),
                 },
@@ -2094,14 +2360,21 @@ class CharacterChatService:
                 yield {"event": "status", "data": {"phase": "portrait"}}
                 try:
                     new_appearance = await appearance_task
-                    data = await self._apply_portrait(
-                        thread_id,
-                        new_appearance,
-                        nsfw_mode=nsfw_mode,
-                        user_settings=user_settings,
-                        message_id=character_message.id,
-                    )
-                    yield {"event": "portrait_image", "data": data}
+                    if avatar_shown:
+                        # 3D モデル表示中は見えない立ち絵を描かず、外見タグだけ更新する
+                        data = await self._apply_appearance_tags(
+                            thread_id, new_appearance
+                        )
+                        yield {"event": "appearance_updated", "data": data}
+                    else:
+                        data = await self._apply_portrait(
+                            thread_id,
+                            new_appearance,
+                            nsfw_mode=nsfw_mode,
+                            user_settings=user_settings,
+                            message_id=character_message.id,
+                        )
+                        yield {"event": "portrait_image", "data": data}
                 except Exception as exc:
                     code = getattr(exc, "code", "portrait_failed")
                     logger.warning(

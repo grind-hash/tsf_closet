@@ -76,7 +76,7 @@ export interface CharacterChatMessageMeta {
   portrait_filename?: string | null;
   /** adventure 種: この発言が交わされた時点の手番(次の手番の文脈になる) */
   after_turn?: number | null;
-  /** adventure 種で 3D モデル表示中: 返答の表情・身振り */
+  /** 3D モデル表示中の返答: 表情・身振り(種類を問わない) */
   expression?: string | null;
   gesture?: string | null;
   imported?: boolean;
@@ -121,6 +121,26 @@ export interface CharacterChatPersona {
   speech_style?: string;
 }
 
+export type CharacterChatAvatarMode = "auto" | "none" | "model";
+export type CharacterChatAvatarSource = "bundled" | "registered" | "run";
+
+/** 3D モデル(VRM)の解決結果。url が null なら 2D 立ち絵を表示する */
+export interface CharacterChatAvatarInfo {
+  /** 保存している指定。auto = 自動、none = 2D 立ち絵、model = 登録済みモデルを明示 */
+  mode: CharacterChatAvatarMode;
+  id: string | null;
+  /** API_BASE 適用済み(/avatars/{id}/file または /character-chat/avatar/base) */
+  url: string | null;
+  source: CharacterChatAvatarSource | null;
+  name: string | null;
+  character_name: string | null;
+  variant_label: string | null;
+  /** 同じキャラクターの衣装差分(2 件以上あるときだけ) */
+  variants: Array<{ id: string; label: string; current: boolean }>;
+  /** 明示的に選んだモデルが削除されていて自動に倒したとき true */
+  missing: boolean;
+}
+
 export interface CharacterChatThread {
   id: string;
   kind: CharacterChatKind;
@@ -137,6 +157,8 @@ export interface CharacterChatThread {
   /** adventure 種: 紐づく run の ID と状況 */
   source_run_id?: string | null;
   adventure?: CharacterChatAdventureInfo | null;
+  /** 3D モデル(VRM)の解決結果。一覧では省略(null) */
+  avatar?: CharacterChatAvatarInfo | null;
   summary_text: string | null;
   message_count: number;
   last_message: {
@@ -178,6 +200,14 @@ export type CharacterChatStreamEvent =
       type: "portrait_image";
       data: { image_url: string; appearance: CharacterChatAppearance };
     }
+  | {
+      /** 3D モデル表示中の着替え: 立ち絵は描かず外見タグだけ更新した */
+      type: "appearance_updated";
+      data: {
+        appearance: CharacterChatAppearance;
+        portrait_url: string | null;
+      };
+    }
   | { type: "portrait_error"; data: { code: string; message: string } }
   | { type: "cost"; data: { cost_usd: number } }
   | { type: "complete"; data: Record<string, never> }
@@ -217,10 +247,14 @@ function normalizeThread(thread: CharacterChatThread): CharacterChatThread {
         ),
       }
     : (thread.adventure ?? null);
+  const avatar = thread.avatar
+    ? { ...thread.avatar, url: characterChatImageUrl(thread.avatar.url) }
+    : (thread.avatar ?? null);
   return {
     ...thread,
     portrait_url: characterChatImageUrl(thread.portrait_url),
     adventure,
+    avatar,
   };
 }
 
@@ -308,6 +342,18 @@ export async function setCharacterChatAdventureAppearance(
   return normalizeThread(thread);
 }
 
+/** 3D モデル(VRM)の表示を切り替える(auto / none / model) */
+export async function setCharacterChatAvatar(
+  threadId: string,
+  request: { mode: CharacterChatAvatarMode; avatar_id?: string | null },
+): Promise<CharacterChatThread> {
+  const thread = await requestJson<CharacterChatThread>(
+    `${BASE}/threads/${encodeURIComponent(threadId)}/avatar`,
+    jsonInit("PUT", request),
+  );
+  return normalizeThread(thread);
+}
+
 /** 姿を作成時点(同梱の立ち絵 / 選んだ画像とタグ)へ戻す。画像生成はしない */
 export async function resetCharacterChatAppearance(
   threadId: string,
@@ -329,6 +375,20 @@ async function readSse(
   for await (const { event, data } of readSseEvents(response.body)) {
     if (event === "message") continue;
     const parsed = JSON.parse(data) as Record<string, unknown>;
+    if (event === "appearance_updated") {
+      const payload = parsed as {
+        appearance: CharacterChatAppearance;
+        portrait_url: string | null;
+      };
+      onEvent({
+        type: "appearance_updated",
+        data: {
+          appearance: payload.appearance,
+          portrait_url: characterChatImageUrl(payload.portrait_url),
+        },
+      });
+      continue;
+    }
     if (event === "portrait_image") {
       const payload = parsed as { image_url: string };
       onEvent({

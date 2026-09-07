@@ -47,6 +47,18 @@ class CharacterChatAdventureAppearanceRequest(BaseModel):
     mode: Literal["default", "partner_portrait", "scene"] = "default"
 
 
+class CharacterChatAvatarRequest(BaseModel):
+    """3D モデル(VRM)の表示の指定。
+
+    auto = 自動(案内役は同梱モデル → run の対面会話モデル → character_name が
+    一致する登録済みモデル → 2D 立ち絵)、none = 2D 立ち絵を使う、
+    model = avatar_id の登録済みモデルを明示する。
+    """
+
+    mode: Literal["auto", "none", "model"] = "auto"
+    avatar_id: str | None = None
+
+
 class CharacterChatPortraitRequest(BaseModel):
     """立ち絵の描き直し。
 

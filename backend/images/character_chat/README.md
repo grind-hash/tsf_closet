@@ -7,3 +7,12 @@
 ファイルが無い場合、画面には配置先の案内と「立ち絵を生成」ボタンが出て、
 `backend/gateway/consts/character_chat.py` の外見タグ（`BASE_IDENTITY_TAGS` /
 `BASE_CLOTHING_TAGS`）から画像生成できる。
+
+## 3D モデル (VRM)
+
+案内役キャラ専用の 3D モデルを `serena.vrm` としてこのディレクトリに置くと、
+キャラチャット画面で立ち絵の代わりに表示される（`GET /api/character-chat/avatar/base`
+で配信）。無い場合は、設定画面で登録した VRM のうち `character_name` が
+「セレナ」または「Serena」のものを使い、それも無ければ 2D 立ち絵に戻る。
+「姿」メニューの「3Dモデル (VRM)」で、自動 / 2D 立ち絵 / 登録済みモデルの明示を
+スレッドごとに切り替えられる。

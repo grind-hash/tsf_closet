@@ -18,6 +18,7 @@ import {
 import { useTranslation } from "react-i18next";
 import {
   type CharacterChatAdventureAppearanceMode,
+  type CharacterChatAvatarMode,
   type CharacterChatMessage,
   type CharacterChatPhase,
   type CharacterChatPortraitOptions,
@@ -32,6 +33,7 @@ import {
   resetCharacterChatAppearance,
   setCharacterChatAdventureAppearance,
   setCharacterChatAppearance,
+  setCharacterChatAvatar,
   streamCharacterChatMessage,
   streamCharacterChatPortrait,
 } from "../apis/characterChat";
@@ -81,6 +83,11 @@ interface CharacterChatContextValue {
   /** adventure 種: 姿を run の画像に切り替える */
   setAdventureAppearance: (
     mode: Exclude<CharacterChatAdventureAppearanceMode, "custom">,
+  ) => Promise<boolean>;
+  /** 3D モデルの表示を切り替える(自動 / 2D 立ち絵 / 登録済みモデル) */
+  setAvatar: (
+    mode: CharacterChatAvatarMode,
+    avatarId?: string | null,
   ) => Promise<boolean>;
   /** 3D モデルの読込に失敗したら立ち絵へ戻す(スレッド切替でリセット) */
   avatarFailed: boolean;
@@ -336,6 +343,19 @@ export function CharacterChatProvider({ children }: { children: ReactNode }) {
                   }
                 : prev,
             );
+          } else if (event.type === "appearance_updated") {
+            // 3D モデル表示中の着替え: 立ち絵は描かず外見タグだけ変わった
+            const { appearance, portrait_url } = event.data;
+            setActiveThread((prev) =>
+              prev && prev.id === threadId
+                ? { ...prev, appearance, portrait_url }
+                : prev,
+            );
+            showNotification(
+              "info",
+              t("characterChat.thread.appearanceChanged"),
+              t("characterChat.room.appearanceTagsOnly"),
+            );
           } else if (event.type === "portrait_error") {
             showNotification(
               "warning",
@@ -476,6 +496,30 @@ export function CharacterChatProvider({ children }: { children: ReactNode }) {
     [t, markPortraitBusy, applyThreadUpdate],
   );
 
+  const setAvatar = useCallback(
+    async (mode: CharacterChatAvatarMode, avatarId?: string | null) => {
+      const threadId = activeThreadIdRef.current;
+      if (!threadId || busyPortraitsRef.current[threadId]) return false;
+      markPortraitBusy(threadId, "appearance");
+      try {
+        const { messages: _ignored, ...thread } = await setCharacterChatAvatar(
+          threadId,
+          { mode, avatar_id: avatarId ?? null },
+        );
+        applyThreadUpdate(threadId, thread);
+        // 別のモデルに切り替えたら、前のモデルの読込失敗は引きずらない
+        setAvatarFailed(false);
+        return true;
+      } catch (err) {
+        setError(errorMessage(err, t("characterChat.errors.avatarFailed")));
+        return false;
+      } finally {
+        markPortraitBusy(threadId, null);
+      }
+    },
+    [t, markPortraitBusy, applyThreadUpdate],
+  );
+
   const activeBusyKind = activeThread
     ? (busyPortraits[activeThread.id] ?? null)
     : null;
@@ -506,6 +550,7 @@ export function CharacterChatProvider({ children }: { children: ReactNode }) {
       regeneratePortrait,
       resetAppearance,
       setAdventureAppearance,
+      setAvatar,
       avatarFailed,
       setAvatarFailed,
       clearError,
@@ -534,6 +579,7 @@ export function CharacterChatProvider({ children }: { children: ReactNode }) {
       regeneratePortrait,
       resetAppearance,
       setAdventureAppearance,
+      setAvatar,
       avatarFailed,
       clearError,
     ],

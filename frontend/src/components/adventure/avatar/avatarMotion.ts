@@ -649,6 +649,41 @@ export const DOWN: Vec3 = [0, -1, 0];
 /** rest ポーズにおける「上」。DOWN と同様、どのボーンの局所系でも同じ意味を持つ */
 export const UP: Vec3 = [0, 1, 0];
 
+export function dotV(a: Vec3, b: Vec3): number {
+  return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+}
+
+export function addV(a: Vec3, b: Vec3): Vec3 {
+  return [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+}
+
+export function subV(a: Vec3, b: Vec3): Vec3 {
+  return [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+}
+
+export function scaleV(v: Vec3, k: number): Vec3 {
+  return [v[0] * k, v[1] * k, v[2] * k];
+}
+
+export function lengthV(v: Vec3): number {
+  return Math.hypot(v[0], v[1], v[2]);
+}
+
+/** v を axis まわりに angle だけ回す(ロドリゲスの回転公式)。axis が 0 なら v のまま */
+export function rotateAbout(v: Vec3, axis: Vec3, angle: number): Vec3 {
+  const k = normalize(axis);
+  if (!k) return v;
+  const c = Math.cos(angle);
+  const s = Math.sin(angle);
+  const kv = cross(k, v);
+  const kd = dotV(k, v) * (1 - c);
+  return [
+    v[0] * c + kv[0] * s + k[0] * kd,
+    v[1] * c + kv[1] * s + k[1] * kd,
+    v[2] * c + kv[2] * s + k[2] * kd,
+  ];
+}
+
 export function cross(a: Vec3, b: Vec3): Vec3 {
   return [
     a[1] * b[2] - a[2] * b[1],
@@ -698,12 +733,140 @@ export interface ArmRestAngles {
 
 /**
  * 待機姿勢の腕の角度。左右をわずかに変え、鏡写しの硬さを避ける。
- * lower は肩幅の広い衣装でも体にめり込まず、かつ A ポーズに見えない範囲に置く
+ * lower は肩幅の広い衣装でも体にめり込まず、かつ A ポーズに見えない範囲に置く。
+ * ここは腕を体側へ下ろした土台で、手を前で組む分は ARM_CLASP が上に載る
  */
 export const ARM_REST: Record<ArmSide, ArmRestAngles> = {
   left: { lower: 1.3, forward: 0.07, bend: 0.28 },
   right: { lower: 1.3, forward: 0.09, bend: 0.34 },
 };
+
+/**
+ * 待機姿勢の種類。clasped は手を体の前で重ねる姿勢で、案内役キャラのように
+ * 姿勢まで決めたいモデルにだけ使う。既定は腕を体側へ下ろした relaxed
+ */
+export type AvatarRestPose = "relaxed" | "clasped";
+
+/**
+ * 手を重ねる位置。肩の中点から、腕の長さ(上腕 + 前腕の平均)を単位として測る。
+ * モデルごとに体格が違うため、絶対値ではなく腕の長さに対する比率で決める
+ */
+const CLASP_TARGET = {
+  /** 肩の中点から下ろす距離 */
+  down: 0.55,
+  /** 体の前へ出す距離 */
+  forward: 0.43,
+  /** 前後にずらして手を重ねる距離(手の厚みぶん)。前が上に重なる手 */
+  stack: 0.03,
+  /** 重なる側の手をわずかに上げる距離 */
+  rise: 0.01,
+};
+
+/**
+ * 手を体の前で重ねる目標位置を、左右ぶん返す。
+ *
+ * 関節角で決めると、左右の腕の長さや肩の高さが違うモデル(実在する)で手が
+ * 上下にずれる。手の位置そのものを目標にして IK で解くことで、体格に依らず
+ * 同じ見た目になる
+ */
+export function claspTargets(
+  shoulderMid: Vec3,
+  armLength: number,
+  facing: Facing,
+): Record<ArmSide, Vec3> {
+  const down = (k: number): Vec3 => [0, -k * armLength, 0];
+  const front = (k: number): Vec3 => [0, 0, facing * k * armLength];
+  const base = addV(
+    shoulderMid,
+    addV(down(CLASP_TARGET.down), front(CLASP_TARGET.forward)),
+  );
+  return {
+    // 右手を手前かつわずかに上へ置き、左手の上に重ねる
+    left: addV(base, front(-CLASP_TARGET.stack)),
+    right: addV(
+      base,
+      addV(front(CLASP_TARGET.stack), down(-CLASP_TARGET.rise)),
+    ),
+  };
+}
+
+export interface ArmIkInput {
+  /** 上腕の付け根(肩)の位置 */
+  shoulder: Vec3;
+  upperLength: number;
+  foreLength: number;
+  /** 手(前腕の先)を置きたい位置 */
+  target: Vec3;
+  /** 肘を向けたい側(体の外側・やや後ろ)。肩→目標と平行だと解けない */
+  pole: Vec3;
+}
+
+export interface ArmIkSolution {
+  /** 上腕の向き(単位ベクトル) */
+  upperDir: Vec3;
+  /** 前腕の向き(単位ベクトル) */
+  foreDir: Vec3;
+  /** 実際に手が届く位置(目標が遠すぎる/近すぎるときは丸めた位置) */
+  hand: Vec3;
+}
+
+/**
+ * 上腕と前腕の 2 本を目標位置へ向ける(2 ボーン IK)。
+ *
+ * 肩から目標までの距離を腕の可動範囲へ丸め、余弦定理で肘の位置を決める。
+ * 肘は pole の側へ出す。解けないとき(目標が肩と重なる、pole が肩→目標と
+ * 平行)は null を返し、呼び出し側は関節角の待機姿勢に留める
+ */
+export function solveArmIk(input: ArmIkInput): ArmIkSolution | null {
+  const { shoulder, upperLength: u, foreLength: f, target, pole } = input;
+  if (u <= 0 || f <= 0) return null;
+  const toTarget = subV(target, shoulder);
+  const dir = normalize(toTarget);
+  if (!dir) return null;
+  // 肘が伸びきる・折りたたみきる手前で止める
+  const reach = Math.min(
+    Math.max(lengthV(toTarget), Math.abs(u - f) + 1e-4),
+    (u + f) * 0.999,
+  );
+  const cosAngle = (u * u + reach * reach - f * f) / (2 * u * reach);
+  const angle = Math.acos(Math.min(1, Math.max(-1, cosAngle)));
+  const axis = normalize(cross(dir, pole));
+  if (!axis) return null;
+  // 肘が pole 側へ出る回転方向を選ぶ
+  const up = rotateAbout(dir, axis, angle);
+  const down = rotateAbout(dir, axis, -angle);
+  const upperDir = dotV(up, pole) >= dotV(down, pole) ? up : down;
+  const hand = addV(shoulder, scaleV(dir, reach));
+  const foreDir = normalize(subV(hand, addV(shoulder, scaleV(upperDir, u))));
+  if (!foreDir) return null;
+  return { upperDir, foreDir, hand };
+}
+
+/**
+ * 腕を動かす身振りが手の組みを完全にほどくまでの角度(ラジアン)。
+ * 手を振る・挙手・差し出すはいずれもこれを大きく超えるので、身振りの間は
+ * 通常の「腕を下ろした」姿勢から動きはじめる
+ */
+export const CLASP_RELEASE_SPAN = 0.5;
+
+/**
+ * この角度までの腕の動きでは組みをほどかない。呼吸の揺れ(armLift)で手が
+ * 離れると重なりが崩れて見えるため、身振りと呼吸をここで分ける
+ */
+export const CLASP_RELEASE_DEADZONE = 0.05;
+
+/**
+ * 手を重ねた姿勢をどれだけ保つか(1 = 重ねたまま、0 = 完全にほどく)。
+ *
+ * 重ねたまま腕を持ち上げると前腕が体を横切ってしまうため、腕を上げる・前へ出す・
+ * 前腕を振り上げる量に比例してほどく。呼吸ぶんの揺れは deadzone で無視する
+ */
+export function claspHold(arm: ArmChannels): number {
+  const moved =
+    Math.max(0, arm.lift) + Math.max(0, arm.forward) + Math.max(0, arm.elbowUp);
+  const released = Math.max(0, moved - CLASP_RELEASE_DEADZONE);
+  return Math.max(0, 1 - released / CLASP_RELEASE_SPAN);
+}
 
 /** 片腕ぶんの姿勢チャンネル。PoseOffsets から左右いずれかを取り出したもの */
 export interface ArmChannels {

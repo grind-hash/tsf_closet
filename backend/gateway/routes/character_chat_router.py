@@ -18,6 +18,7 @@ from ..consts.character_chat import THREAD_MESSAGE_LIMIT
 from ..schemas.character_chat import (
     CharacterChatAdventureAppearanceRequest,
     CharacterChatAppearanceRequest,
+    CharacterChatAvatarRequest,
     CharacterChatCreateRequest,
     CharacterChatMessageRequest,
     CharacterChatPortraitRequest,
@@ -37,6 +38,7 @@ _NOT_FOUND_CODES = {
     "image_not_found",
     "run_not_found",
     "reference_not_found",
+    "avatar_not_found",
 }
 
 
@@ -172,6 +174,27 @@ async def set_adventure_appearance(
         )
     except CharacterChatError as error:
         raise _http_error(error) from error
+
+
+@router.put("/threads/{thread_id}/avatar")
+async def set_avatar(thread_id: str, request: CharacterChatAvatarRequest) -> dict:
+    """3D モデル(VRM)の表示を切り替える(自動 / 2D 立ち絵 / 登録済みモデル)。"""
+    try:
+        return await character_chat_service.set_avatar(
+            thread_id, mode=request.mode, avatar_id=request.avatar_id
+        )
+    except CharacterChatError as error:
+        raise _http_error(error) from error
+
+
+@router.get("/avatar/base")
+async def get_base_avatar() -> FileResponse:
+    """案内役キャラの同梱 3D モデル(backend/images/character_chat/serena.vrm)。"""
+    try:
+        path = character_chat_service.base_avatar_path()
+    except CharacterChatError as error:
+        raise _http_error(error) from error
+    return FileResponse(path, media_type="model/gltf-binary", filename=path.name)
 
 
 @router.post("/threads/{thread_id}/appearance/reset")

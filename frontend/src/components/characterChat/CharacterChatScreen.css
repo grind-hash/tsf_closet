@@ -1204,6 +1204,21 @@
   line-height: 1.4;
 }
 
+.character-chat-panel__avatar {
+  display: flex;
+  gap: 0.4rem;
+  margin: 0.3rem 0 0.5rem;
+  font-size: 0.85rem;
+}
+
+.character-chat-panel__avatar dt {
+  color: var(--text-muted, #aaa);
+}
+
+.character-chat-panel__avatar dd {
+  margin: 0;
+}
+
 .character-chat-panel__text {
   margin: 0;
   line-height: 1.6;
@@ -1317,6 +1332,30 @@
   border: none;
   border-top: 1px solid #2f3742;
   margin: 0.25rem 0;
+}
+
+/* 「姿」メニューの見出しと選択中の項目、登録済みモデルの一覧 */
+.character-chat-room__menu-heading {
+  margin: 0.2rem 0 0;
+  padding: 0.3rem 0.6rem 0;
+  color: #efb85a;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.character-chat-room__menu-heading--sub {
+  color: var(--text-muted, #aaa);
+  font-weight: 600;
+}
+
+.character-chat-room__menu-item.is-active {
+  border-color: rgb(239 184 90 / 55%);
+  background: rgb(239 184 90 / 10%);
+}
+
+.character-chat-room__menu-models {
+  max-height: 180px;
+  overflow-y: auto;
 }
 
 .character-chat-room__menu-note {

@@ -44,6 +44,21 @@ export default function CharacterChatInfoPanel({
       : source.type === "session"
         ? t("characterChat.room.sourceSession")
         : t("characterChat.room.sourceBase");
+  const avatar = thread.avatar ?? null;
+  const avatarSourceLabel =
+    avatar?.source === "bundled"
+      ? t("characterChat.room.avatarSourceBundled")
+      : avatar?.source === "run"
+        ? t("characterChat.room.avatarSourceRun")
+        : avatar?.source === "registered"
+          ? t("characterChat.room.avatarSourceRegistered")
+          : "";
+  const avatarLabel = avatar?.url
+    ? t("characterChat.room.avatarCurrent", {
+        name: avatar.name ?? "",
+        source: avatarSourceLabel,
+      })
+    : t("characterChat.room.avatarCurrentNone");
   const tags = [
     thread.appearance.identity_tags,
     thread.appearance.clothing_tags,
@@ -308,6 +323,10 @@ export default function CharacterChatInfoPanel({
       <section className="character-chat-panel__section">
         <h3>{t("characterChat.panel.appearance")}</h3>
         <div className="character-chat__portrait-source">{sourceLabel}</div>
+        <dl className="character-chat-panel__avatar">
+          <dt>{t("characterChat.panel.avatar")}</dt>
+          <dd>{avatarLabel}</dd>
+        </dl>
         {thread.appearance.description && (
           <p className="character-chat-panel__text">
             {thread.appearance.description}

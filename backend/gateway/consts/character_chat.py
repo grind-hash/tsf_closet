@@ -38,6 +38,13 @@ BASE_CHARACTER_NAME = {"ja": "セレナ", "en": "Serena"}
 BASE_CHARACTER_PRONOUN = {"ja": "私", "en": "I"}
 # 同梱の立ち絵。backend/images/character_chat/ に置く(無ければタグから生成できる)
 BASE_PORTRAIT_FILENAME = "serena.png"
+# 案内役キャラ専用の 3D モデル(VRM)。同じディレクトリに置けば立ち絵の代わりに表示する
+BASE_AVATAR_FILENAME = "serena.vrm"
+# 同梱 VRM の配信 URL(FE が API_BASE を付ける)
+BASE_AVATAR_URL = "/character-chat/avatar/base"
+# 3D モデルの表示指定: auto = 自動(同梱 → run → 名前一致)、none = 2D 立ち絵、
+# model = 登録済みモデルを明示
+AVATAR_MODES = ("auto", "none", "model")
 
 # コンセプト画像から起こした外見タグ。identity は着替えで変えない部分
 BASE_IDENTITY_TAGS = (

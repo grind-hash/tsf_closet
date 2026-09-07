@@ -17,7 +17,6 @@ from gateway.schemas.adventure import (
     AdventureCreateRequest,
     AdventureSetupGenerateRequest,
 )
-from gateway.services import adventure_service as adv
 from gateway.services import source_snapshot as snap
 from gateway.services.adventure_service import AdventureError, AdventureService
 from gateway.services.prompt_expander_service import PromptExpanderError

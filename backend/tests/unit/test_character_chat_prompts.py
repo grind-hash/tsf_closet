@@ -219,3 +219,21 @@ def test_appearance_change_prompts_require_english_tags() -> None:
     assert "rejected_previous_output" in retry
     assert "総レースタイトスカート" in retry
     assert "translate garment names" in retry
+
+
+def test_reply_system_prompt_appends_avatar_header_instruction() -> None:
+    kwargs = dict(
+        name="セレナ",
+        pronoun="私",
+        persona_block=base_persona_block("ja"),
+        memory_block_text="",
+        summary_text=None,
+        lookup_block_text="",
+        appearance_description="",
+        appearance_change_request=None,
+    )
+    assert "[expression=" not in reply_system_prompt("ja", **kwargs)
+    with_header = reply_system_prompt(
+        "ja", **kwargs, header_instruction="[expression=<key> gesture=<key>] HEADER"
+    )
+    assert "[expression=<key> gesture=<key>] HEADER" in with_header

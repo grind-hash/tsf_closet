@@ -77,6 +77,7 @@ export default function CharacterChatRoom({
     regeneratePortrait,
     resetAppearance,
     setAdventureAppearance,
+    setAvatar,
     takePendingPortrait,
     avatarFailed,
     setAvatarFailed,
@@ -193,8 +194,9 @@ export default function CharacterChatRoom({
     preciseAvailable &&
     (usePrecise ?? adventure?.use_precise_reference ?? false);
 
-  // 3D モデル(VRM)。run に割り当てがあり読込に失敗していなければ立ち絵の代わりに置く
-  const avatarUrl = adventure?.companion_avatar_url ?? null;
+  // 3D モデル(VRM)。バックエンドが解決したモデル(明示 → 同梱 → run → 名前一致)があり、
+  // 読込に失敗していなければ立ち絵の代わりに置く
+  const avatarUrl = thread?.avatar?.url ?? null;
   const latestCharacterMessage =
     [...(thread?.messages ?? [])]
       .reverse()
@@ -220,10 +222,21 @@ export default function CharacterChatRoom({
     },
     [setAvatarFailed, showNotification, t],
   );
+  // 明示的に選んでいたモデルが削除されていたら、自動へ倒したことを知らせる
+  const avatarMissing = Boolean(thread?.avatar?.missing);
+  useEffect(() => {
+    if (!avatarMissing) return;
+    showNotification("warning", t("characterChat.room.avatarMissing"));
+  }, [avatarMissing, showNotification, t]);
   const stageAvatar =
     avatarUrl && !avatarFailed
       ? {
           url: avatarUrl,
+          // 案内役キャラ(セレナ)だけ、手を体の前で重ねた待機姿勢にする
+          restPose:
+            thread?.kind === "base"
+              ? ("clasped" as const)
+              : ("relaxed" as const),
           expression: normalizeAvatarExpression(
             latestCharacterMessage?.meta?.expression ?? null,
           ),
@@ -370,6 +383,11 @@ export default function CharacterChatRoom({
                 onAdventureMode={(mode) => {
                   setAppearanceOpen(false);
                   void setAdventureAppearance(mode);
+                }}
+                avatar={thread.avatar ?? null}
+                onAvatarChange={(mode, avatarId) => {
+                  setAppearanceOpen(false);
+                  void setAvatar(mode, avatarId);
                 }}
                 onRedrawFromScene={handleRedrawFromScene}
                 preciseAvailable={preciseAvailable && Boolean(adventure)}

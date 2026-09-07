@@ -16,7 +16,11 @@ import {
   BLINK_OPEN_SEC,
   BLINK_TOTAL_SEC,
   blinkWeight,
+  CLASP_RELEASE_DEADZONE,
+  CLASP_RELEASE_SPAN,
   CLOSED_MOUTH_TARGETS,
+  claspHold,
+  claspTargets,
   DOWN,
   detectFacing,
   type Facing,
@@ -34,7 +38,10 @@ import {
   POSE_KEYS,
   type PoseOffsets,
   poseToBoneRotation,
+  rotateAbout,
   sampleGesture,
+  solveArmIk,
+  subV,
   tiltTowards,
   type Vec3,
   ZERO_POSE,
@@ -303,6 +310,45 @@ describe("avatarMotion rest pose geometry", () => {
     expect(ARM_REST.left).not.toEqual(ARM_REST.right);
   });
 
+  it("releases the clasp as the arm is raised or reaches out", () => {
+    const rest = armChannels(ZERO_POSE, "right");
+    expect(claspHold(rest)).toBe(1);
+    // 呼吸ぶんの揺れでは重ねたまま(手が離れて見えない)
+    for (const time of [0, 0.7, 1.2, 2.6, 4.1]) {
+      expect(claspHold(armChannels(idlePose(time), "right"))).toBe(1);
+    }
+    // 持ち上げ・前振り・振り上げは足し合わせて効く
+    expect(
+      claspHold({
+        ...rest,
+        lift: CLASP_RELEASE_DEADZONE + CLASP_RELEASE_SPAN / 2,
+      }),
+    ).toBeCloseTo(0.5, 9);
+    expect(
+      claspHold({
+        ...rest,
+        lift: CLASP_RELEASE_SPAN / 4,
+        forward: CLASP_RELEASE_SPAN / 2,
+        elbowUp: CLASP_RELEASE_SPAN / 2,
+      }),
+    ).toBe(0);
+    // 腕を下ろす・肘を伸ばす向きの値では、組みは解けない
+    expect(claspHold({ ...rest, lift: -0.4, forward: -0.4 })).toBe(1);
+    // 腕を動かす身振りは、山では必ず組みが解けている
+    for (const key of [
+      "wave_hand",
+      "raise_hand",
+      "reach_out",
+      "cheer",
+    ] as const) {
+      const peak = sampleGesture(key, 0.5);
+      const moved = ["left", "right"] as const;
+      expect(
+        moved.some((side) => claspHold(armChannels(peak, side)) === 0),
+      ).toBe(true);
+    }
+  });
+
   it.each(RIGS)("hangs both arms down, slightly forward, for $label", ({
     facing,
     leftArmX,
@@ -329,6 +375,140 @@ describe("avatarMotion rest pose geometry", () => {
       expect(forearmDir.z * facing).toBeGreaterThan(upperDir.z * facing);
       expect(forearmDir.y).toBeLessThan(-0.8);
     }
+  });
+
+  it("rotates a vector about an axis and ignores a zero axis", () => {
+    const turned = rotateAbout([1, 0, 0], [0, 0, 1], Math.PI / 2);
+    expect(turned[0]).toBeCloseTo(0, 9);
+    expect(turned[1]).toBeCloseTo(1, 9);
+    expect(rotateAbout([1, 2, 3], [0, 0, 0], 1)).toEqual([1, 2, 3]);
+  });
+
+  it.each(RIGS)("places the clasp targets on the centerline for $label", ({
+    facing,
+  }) => {
+    const targets = claspTargets([0.01, 0.77, 0.05], 0.175, facing);
+    for (const target of [targets.left, targets.right]) {
+      // 体の中心線上、肩より下、体の前
+      expect(target[0]).toBeCloseTo(0.01, 9);
+      expect(target[1]).toBeLessThan(0.77 - 0.05);
+      expect((target[2] - 0.05) * facing).toBeGreaterThan(0.05);
+    }
+    // 右手が手前かつわずかに上(左手の上に重なる)
+    expect((targets.right[2] - targets.left[2]) * facing).toBeGreaterThan(0);
+    expect(targets.right[1]).toBeGreaterThan(targets.left[1]);
+    // 目標は腕の長さに比例する
+    const wide = claspTargets([0.01, 0.77, 0.05], 0.35, facing);
+    expect(0.77 - wide.left[1]).toBeCloseTo((0.77 - targets.left[1]) * 2, 9);
+  });
+
+  it("solves the arm to the target and puts the elbow on the pole side", () => {
+    const shoulder: Vec3 = [0.17, 0.77, 0.05];
+    const solution = solveArmIk({
+      shoulder,
+      upperLength: 0.16,
+      foreLength: 0.18,
+      target: [0.01, 0.58, 0.13],
+      pole: [1, 0, -0.5],
+    });
+    expect(solution).not.toBeNull();
+    const { upperDir, foreDir, hand } = solution as NonNullable<
+      typeof solution
+    >;
+    expect(hand[0]).toBeCloseTo(0.01, 6);
+    expect(hand[1]).toBeCloseTo(0.58, 6);
+    expect(hand[2]).toBeCloseTo(0.13, 6);
+    // 肩 → 上腕 → 前腕 とたどると手に届く
+    const reached = new Vector3(...shoulder)
+      .add(new Vector3(...upperDir).multiplyScalar(0.16))
+      .add(new Vector3(...foreDir).multiplyScalar(0.18));
+    expect(reached.distanceTo(new Vector3(...hand))).toBeLessThan(1e-6);
+    // 肘は肩→目標の直線より pole 側(体の外側)へ出る
+    const straight = new Vector3(...shoulder)
+      .sub(new Vector3(0.01, 0.58, 0.13))
+      .normalize()
+      .negate();
+    const bulge = new Vector3(...upperDir).sub(straight);
+    expect(bulge.dot(new Vector3(1, 0, -0.5).normalize())).toBeGreaterThan(0);
+  });
+
+  it("clamps an unreachable target and rejects degenerate input", () => {
+    const shoulder: Vec3 = [0, 1, 0];
+    const far = solveArmIk({
+      shoulder,
+      upperLength: 0.16,
+      foreLength: 0.18,
+      target: [0, 0, 0],
+      pole: [1, 0, 0],
+    });
+    expect(far).not.toBeNull();
+    // 届く範囲まで丸め、向きは目標のまま
+    const reach = new Vector3(
+      ...subV((far as NonNullable<typeof far>).hand, shoulder),
+    );
+    expect(reach.length()).toBeCloseTo(0.34 * 0.999, 6);
+    expect(reach.x).toBeCloseTo(0, 9);
+    // pole が肩→目標と平行、腕の長さが 0 のときは解かない
+    expect(
+      solveArmIk({
+        shoulder,
+        upperLength: 0.16,
+        foreLength: 0.18,
+        target: [0, 0.5, 0],
+        pole: [0, 1, 0],
+      }),
+    ).toBeNull();
+    expect(
+      solveArmIk({
+        shoulder,
+        upperLength: 0,
+        foreLength: 0.18,
+        target: [0, 0.5, 0],
+        pole: [1, 0, 0],
+      }),
+    ).toBeNull();
+  });
+
+  it("overlaps both hands even when the rig is asymmetric", () => {
+    // 実在するモデル(セレナ)の実測値。右腕が 8% 長く、右肩が低い
+    const arms = {
+      left: {
+        shoulder: [0.0789, 0.7704, 0.0508] as Vec3,
+        upper: 0.0785,
+        fore: 0.0897,
+      },
+      right: {
+        shoulder: [-0.0601, 0.7616, 0.0537] as Vec3,
+        upper: 0.091,
+        fore: 0.0913,
+      },
+    };
+    const mid: Vec3 = [
+      (arms.left.shoulder[0] + arms.right.shoulder[0]) / 2,
+      (arms.left.shoulder[1] + arms.right.shoulder[1]) / 2,
+      (arms.left.shoulder[2] + arms.right.shoulder[2]) / 2,
+    ];
+    const armLength =
+      (arms.left.upper + arms.left.fore + arms.right.upper + arms.right.fore) /
+      2;
+    const targets = claspTargets(mid, armLength, 1);
+    const hands = (["left", "right"] as const).map((side) => {
+      const arm = arms[side];
+      const solution = solveArmIk({
+        shoulder: arm.shoulder,
+        upperLength: arm.upper,
+        foreLength: arm.fore,
+        target: targets[side],
+        pole: [(side === "left" ? 1 : -1) * 0.7, 0, -0.5],
+      });
+      expect(solution).not.toBeNull();
+      return (solution as NonNullable<typeof solution>).hand;
+    });
+    // 左右の寸法が違っても、手は同じ中心線・ほぼ同じ高さに来る
+    expect(hands[0][0]).toBeCloseTo(hands[1][0], 6);
+    expect(Math.abs(hands[0][1] - hands[1][1])).toBeLessThan(0.03 * armLength);
+    // 右手が手前に重なる
+    expect(hands[1][2] - hands[0][2]).toBeGreaterThan(0);
   });
 
   it.each(RIGS)("turns the palm toward the front for $label", ({ facing }) => {

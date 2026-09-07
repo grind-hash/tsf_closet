@@ -297,8 +297,9 @@ def reply_system_prompt(
     appearance_description: str,
     appearance_change_request: str | None,
     origin_lore_block_text: str = "",
+    header_instruction: str = "",
 ) -> str:
-    """返答本文の system prompt。"""
+    """返答本文の system prompt。header_instruction は 3D モデル表示中の表情・身振りヘッダ。"""
     lang = _lang(language)
     sections: list[str] = [persona_block]
     if appearance_description:
@@ -336,6 +337,8 @@ def reply_system_prompt(
                 "短く描写してください。立ち絵は返答の後に描き直されます。"
             )
         )
+    if header_instruction:
+        sections.append(header_instruction)
     if lang == "en":
         rules = (
             "Conversation rules:\n"

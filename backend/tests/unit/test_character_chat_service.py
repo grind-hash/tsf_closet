@@ -13,6 +13,10 @@ import pytest
 from PIL import Image
 from sqlalchemy import select
 
+# isolated_db は fixture 実行時に import 済みのモジュールだけ session factory を差し替える。
+# 遅延 import される adventure_service を先に読み込み、単体ファイル実行でも DB を揃える
+import gateway.services.adventure_service  # noqa: F401
+from gateway.databases.models import AvatarModel as AvatarModelORM
 from gateway.databases.models import CharacterChatMessage, CharacterChatThread, User
 from gateway.databases.models import History as HistoryORM
 from gateway.databases.models import PlaySummary as PlaySummaryORM
@@ -696,6 +700,32 @@ from gateway.databases.models import AdventureTurn as AdventureTurnORM  # noqa: 
 from gateway.services.character_chat_service import _HeaderBuffer  # noqa: E402
 
 
+async def _seed_avatar(
+    factory,
+    avatar_id: str,
+    *,
+    name: str | None = None,
+    character_name: str | None = None,
+    variant_label: str | None = None,
+) -> None:
+    """登録済み 3D モデルの行だけを入れる(ファイル本体は要らない)。"""
+    async with factory() as db:
+        db.add(
+            AvatarModelORM(
+                id=avatar_id,
+                name=name or avatar_id,
+                character_name=character_name,
+                variant_label=variant_label,
+                file_path=f"{avatar_id}.vrm",
+                file_size=1,
+                vrm_spec_version="0",
+                meta_json="{}",
+                created_at=datetime(2026, 9, 1, 10, 0, 0),
+            )
+        )
+        await db.commit()
+
+
 async def _seed_run(
     factory,
     tmp_path: Path,
@@ -1001,7 +1031,8 @@ async def test_adventure_message_reads_live_state_and_feeds_next_turn(
     done = next(event for event in events if event["event"] == "chat_done")["data"]
     assert done["user_message"]["meta"]["after_turn"] == 2
     assert done["character_message"]["meta"]["after_turn"] == 2
-    assert done["character_message"]["meta"]["expression"] is None
+    # 3D モデルを表示していない返答には表情・身振りを残さない
+    assert done["character_message"]["meta"].get("expression") is None
 
     # 次の手番へは前の手番(2)以降の発言だけを渡す(取り込んだ古いトークは除く)
     recent = await service.recent_adventure_messages("run-1", after_turn=2)
@@ -1040,8 +1071,12 @@ async def test_adventure_companion_reply_header_is_stripped_and_recorded(
         companion=True,
         avatar_id="avatar-1",
     )
+    await _seed_avatar(isolated_db.async_factory, "avatar-1", name="misaki")
     thread = await service.get_or_create_adventure_thread("run-1")
     assert thread["adventure"]["companion_avatar_url"] == "/avatars/avatar-1/file"
+    # run の対面会話モデルがそのままキャラチャットの 3D モデルになる
+    assert thread["avatar"]["source"] == "run"
+    assert thread["avatar"]["url"] == "/avatars/avatar-1/file"
     fake_generate_text, _ = _llm_router()
     captured: dict = {}
     monkeypatch.setattr(module.llm_service, "generate_text", fake_generate_text)
@@ -1254,3 +1289,186 @@ async def test_adventure_thread_falls_back_to_filtered_initial_appearance(
     assert thread["appearance"]["identity_tags"] == "1girl, brown hair, blue eyes"
     # 服装は場面の攻略対象エントリから
     assert thread["appearance"]["clothing_tags"] == "school uniform"
+
+
+@pytest.mark.asyncio
+async def test_base_thread_avatar_resolution_order(
+    service: CharacterChatService, isolated_db, tmp_path: Path
+) -> None:
+    """案内役: 明示選択 → 同梱 serena.vrm → 名前一致の登録済みモデル → 2D 立ち絵。"""
+    factory = isolated_db.async_factory
+    thread = await service.get_or_create_base_thread()
+    detail = await service.get_thread(thread["id"])
+    assert detail["avatar"] == {
+        "mode": "auto",
+        "id": None,
+        "url": None,
+        "source": None,
+        "name": None,
+        "character_name": None,
+        "variant_label": None,
+        "variants": [],
+        "missing": False,
+    }
+
+    # character_name が「セレナ」の登録済みモデル(衣装差分 2 件)は差分ラベル順の先頭
+    await _seed_avatar(
+        factory, "av-b", name="serena_b", character_name="セレナ", variant_label="水着"
+    )
+    await _seed_avatar(
+        factory,
+        "av-a",
+        name="serena_a",
+        character_name="セレナ",
+        variant_label="ドレス",
+    )
+    detail = await service.get_thread(thread["id"])
+    assert detail["avatar"]["source"] == "registered"
+    assert detail["avatar"]["id"] == "av-a"
+    assert detail["avatar"]["url"] == "/avatars/av-a/file"
+    assert detail["avatar"]["name"] == "セレナ / ドレス"
+    assert detail["avatar"]["variants"] == [
+        {"id": "av-a", "label": "ドレス", "current": True},
+        {"id": "av-b", "label": "水着", "current": False},
+    ]
+
+    # 同梱の専用モデルがあれば登録済みより優先する
+    bundled = tmp_path / "bundled" / "serena.vrm"
+    bundled.write_bytes(b"glTF")
+    detail = await service.get_thread(thread["id"])
+    assert detail["avatar"]["source"] == "bundled"
+    assert detail["avatar"]["url"] == "/character-chat/avatar/base"
+    assert detail["avatar"]["name"] == "セレナ"
+    assert service.base_avatar_path() == bundled
+
+    # 明示選択は同梱より優先。none で 2D に戻す
+    chosen = await service.set_avatar(thread["id"], mode="model", avatar_id="av-b")
+    assert chosen["avatar"]["mode"] == "model"
+    assert chosen["avatar"]["id"] == "av-b"
+    assert chosen["avatar"]["source"] == "registered"
+    assert chosen["avatar"]["variants"][1] == {
+        "id": "av-b",
+        "label": "水着",
+        "current": True,
+    }
+    none = await service.set_avatar(thread["id"], mode="none")
+    assert none["avatar"]["mode"] == "none" and none["avatar"]["url"] is None
+    with pytest.raises(CharacterChatError) as excinfo:
+        await service.set_avatar(thread["id"], mode="model", avatar_id="nope")
+    assert excinfo.value.code == "avatar_not_found"
+
+    # 選んでいたモデルが削除されたら missing を立てて自動(同梱)へ倒す
+    await service.set_avatar(thread["id"], mode="model", avatar_id="av-b")
+    async with factory() as db:
+        row = await db.get(AvatarModelORM, "av-b")
+        await db.delete(row)
+        await db.commit()
+    detail = await service.get_thread(thread["id"])
+    assert detail["avatar"]["missing"] is True
+    assert detail["avatar"]["source"] == "bundled"
+    # 「最初の姿に戻す」相当の appearance 操作でも 3D の指定は残る
+    appearance = json.loads((await _thread_row(factory, thread["id"])).appearance_json)
+    assert appearance["avatar"] == {"mode": "model", "avatar_id": "av-b"}
+
+
+async def _thread_row(factory, thread_id: str) -> CharacterChatThread:
+    async with factory() as db:
+        row = await db.get(CharacterChatThread, thread_id)
+        assert row is not None
+        db.expunge(row)
+        return row
+
+
+@pytest.mark.asyncio
+async def test_session_thread_avatar_matches_character_name(
+    service: CharacterChatService, isolated_db, tmp_path: Path
+) -> None:
+    factory = isolated_db.async_factory
+    await _seed_session(factory, tmp_path / "start.png")
+    thread = await service.create_session_thread(
+        source_session_id="sess-1", source_history_id=None
+    )
+    assert (await service.get_thread(thread["id"]))["avatar"]["url"] is None
+    # 大文字小文字・前後の空白は無視して人物名と照合する
+    await _seed_avatar(
+        factory, "av-s", name="s", character_name=f" {thread['name'].upper()} "
+    )
+    await _seed_avatar(factory, "av-other", name="o", character_name="別人")
+    detail = await service.get_thread(thread["id"])
+    assert detail["avatar"]["source"] == "registered"
+    assert detail["avatar"]["id"] == "av-s"
+
+
+@pytest.mark.asyncio
+async def test_adventure_thread_avatar_prefers_run_model_then_partner_name(
+    service: CharacterChatService, isolated_db, tmp_path: Path
+) -> None:
+    factory = isolated_db.async_factory
+    await _seed_run(
+        factory, tmp_path, composite=False, companion=True, avatar_id="av-run"
+    )
+    await _seed_avatar(factory, "av-run", name="run_model")
+    await _seed_avatar(factory, "av-name", name="misaki", character_name="美咲")
+    thread = await service.get_or_create_adventure_thread("run-1")
+    assert thread["avatar"]["source"] == "run"
+    assert thread["avatar"]["id"] == "av-run"
+
+    # run のモデルが削除されていれば攻略対象名で登録済みモデルを探す
+    async with factory() as db:
+        await db.delete(await db.get(AvatarModelORM, "av-run"))
+        await db.commit()
+    detail = await service.get_thread(thread["id"])
+    assert detail["avatar"]["source"] == "registered"
+    assert detail["avatar"]["id"] == "av-name"
+
+
+@pytest.mark.asyncio
+async def test_stream_message_with_avatar_updates_tags_without_portrait(
+    service: CharacterChatService, isolated_db, tmp_path: Path, monkeypatch
+) -> None:
+    """3D モデル表示中: 表情ヘッダを求めて剥がし、着替えは外見タグだけ更新して立ち絵を描かない。"""
+    (tmp_path / "bundled" / "serena.vrm").write_bytes(b"glTF")
+    thread = await service.get_or_create_base_thread()
+    fake_generate_text, calls = _llm_router(
+        plan=_DRESS_UP_PLAN, appearance=_ENGLISH_TAGS
+    )
+    captured: dict = {}
+    monkeypatch.setattr(module.llm_service, "generate_text", fake_generate_text)
+    monkeypatch.setattr(
+        module.llm_service,
+        "generate_feeling_stream",
+        _fake_stream(["[expression=happy gesture=nod]\n", "着替えたよ"], captured),
+    )
+    portrait_mock = AsyncMock(return_value=_png("blue"))
+    monkeypatch.setattr(module, "generate_portrait_bytes", portrait_mock)
+
+    events = await _collect(
+        service.stream_message(
+            thread_id=thread["id"],
+            content="シフォンブラウスと、総レースタイトスカートに着替えよう",
+        )
+    )
+    kinds = [event["event"] for event in events]
+    assert "[expression=<key> gesture=<key>]" in captured["system"]
+    assert [e["data"]["chunk"] for e in events if e["event"] == "chat_chunk"] == [
+        "着替えたよ"
+    ]
+    assert "appearance_updated" in kinds
+    assert "portrait_image" not in kinds
+    assert kinds[-1] == "complete"
+    portrait_mock.assert_not_awaited()
+    assert calls == ["plan", "appearance"]
+    done = next(e for e in events if e["event"] == "chat_done")["data"]
+    assert done["character_message"]["meta"]["expression"] == "happy"
+    assert done["character_message"]["meta"]["gesture"] == "nod"
+    updated = next(e for e in events if e["event"] == "appearance_updated")["data"]
+    assert (
+        updated["appearance"]["clothing_tags"]
+        == "white chiffon blouse, black lace pencil skirt"
+    )
+    detail = await service.get_thread(thread["id"])
+    assert (
+        detail["appearance"]["clothing_tags"]
+        == "white chiffon blouse, black lace pencil skirt"
+    )
+    assert detail["portrait_missing"] is True

@@ -164,3 +164,44 @@ def test_portrait_stream_accepts_optional_options(
     ):
         pass
     assert seen == [("current", False), ("scene", True)]
+
+
+def test_avatar_endpoint_validates_mode_and_forwards(
+    client: TestClient, monkeypatch
+) -> None:
+    calls: list[tuple[str, str | None]] = []
+
+    async def fake(thread_id, *, mode, avatar_id):
+        calls.append((mode, avatar_id))
+        return {"id": thread_id, "avatar": {"mode": mode}}
+
+    monkeypatch.setattr(router_module.character_chat_service, "set_avatar", fake)
+    ok = client.put(
+        "/api/character-chat/threads/t1/avatar",
+        json={"mode": "model", "avatar_id": "av-1"},
+    )
+    assert ok.status_code == 200 and calls == [("model", "av-1")]
+    none = client.put("/api/character-chat/threads/t1/avatar", json={"mode": "none"})
+    assert none.status_code == 200 and calls[-1] == ("none", None)
+    bad = client.put("/api/character-chat/threads/t1/avatar", json={"mode": "x"})
+    assert bad.status_code == 422
+
+
+def test_base_avatar_file_route(client: TestClient, monkeypatch, tmp_path) -> None:
+    def missing():
+        raise CharacterChatError("avatar_not_found", "無い")
+
+    monkeypatch.setattr(
+        router_module.character_chat_service, "base_avatar_path", missing
+    )
+    assert client.get("/api/character-chat/avatar/base").status_code == 404
+
+    bundled = tmp_path / "serena.vrm"
+    bundled.write_bytes(b"glTF-test")
+    monkeypatch.setattr(
+        router_module.character_chat_service, "base_avatar_path", lambda: bundled
+    )
+    response = client.get("/api/character-chat/avatar/base")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("model/gltf-binary")
+    assert response.content == b"glTF-test"

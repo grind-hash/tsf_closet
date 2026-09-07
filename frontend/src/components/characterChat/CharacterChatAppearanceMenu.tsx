@@ -1,5 +1,17 @@
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { CharacterChatAdventureInfo } from "../../apis/characterChat";
+import { type AvatarModel, listAvatarModels } from "../../apis/avatars";
+import type {
+  CharacterChatAdventureInfo,
+  CharacterChatAvatarInfo,
+  CharacterChatAvatarMode,
+} from "../../apis/characterChat";
+
+/** 登録済みモデルの表示名(分類済みなら「キャラクター / 差分」) */
+function avatarModelLabel(model: AvatarModel): string {
+  if (!model.character_name) return model.name;
+  return `${model.character_name} / ${model.variant_label ?? model.name}`;
+}
 
 interface CharacterChatAppearanceMenuProps {
   open: boolean;
@@ -12,6 +24,12 @@ interface CharacterChatAppearanceMenuProps {
   onChangeAppearance: () => void;
   onRegenerate: () => void;
   onReset: () => void;
+  /** 3D モデル(VRM)の解決結果と切り替え(自動 / 2D 立ち絵 / 登録済みモデル) */
+  avatar?: CharacterChatAvatarInfo | null;
+  onAvatarChange?: (
+    mode: CharacterChatAvatarMode,
+    avatarId?: string | null,
+  ) => void;
   /** adventure 種: run の画像を使う切り替えと、場面画像から描く操作 */
   adventure?: CharacterChatAdventureInfo | null;
   onAdventureMode?: (mode: "default" | "partner_portrait" | "scene") => void;
@@ -37,6 +55,8 @@ export default function CharacterChatAppearanceMenu({
   onChangeAppearance,
   onRegenerate,
   onReset,
+  avatar,
+  onAvatarChange,
   adventure,
   onAdventureMode,
   onRedrawFromScene,
@@ -47,6 +67,43 @@ export default function CharacterChatAppearanceMenu({
   const { t } = useTranslation();
   const isAdventure = Boolean(adventure);
   const mode = adventure?.appearance_mode ?? "default";
+  const avatarMode = avatar?.mode ?? "auto";
+  // 登録済みモデルの一覧は、メニューを最初に開いたときに 1 回だけ取る
+  const [models, setModels] = useState<AvatarModel[] | null>(null);
+  const [modelsFailed, setModelsFailed] = useState(false);
+  useEffect(() => {
+    if (!open || models !== null) return;
+    let cancelled = false;
+    listAvatarModels()
+      .then((items) => {
+        if (cancelled) return;
+        setModels(
+          [...items].sort((a, b) =>
+            avatarModelLabel(a).localeCompare(avatarModelLabel(b), "ja"),
+          ),
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setModelsFailed(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, models]);
+  const avatarSourceLabel =
+    avatar?.source === "bundled"
+      ? t("characterChat.room.avatarSourceBundled")
+      : avatar?.source === "run"
+        ? t("characterChat.room.avatarSourceRun")
+        : avatar?.source === "registered"
+          ? t("characterChat.room.avatarSourceRegistered")
+          : "";
+  const avatarCurrentLabel = avatar?.url
+    ? t("characterChat.room.avatarCurrent", {
+        name: avatar.name ?? "",
+        source: avatarSourceLabel,
+      })
+    : t("characterChat.room.avatarCurrentNone");
   return (
     <div className="character-chat__sound">
       <button
@@ -60,6 +117,69 @@ export default function CharacterChatAppearanceMenu({
       </button>
       {open && (
         <div className="character-chat__popover character-chat-room__menu">
+          <p className="character-chat-room__menu-heading">
+            {t("characterChat.room.avatarSection")}
+          </p>
+          <p className="character-chat-room__menu-note">{avatarCurrentLabel}</p>
+          <button
+            type="button"
+            className={`character-chat-room__menu-item${avatarMode === "auto" ? " is-active" : ""}`}
+            aria-pressed={avatarMode === "auto"}
+            disabled={busy}
+            onClick={() => onAvatarChange?.("auto")}
+          >
+            <strong>{t("characterChat.room.avatarAuto")}</strong>
+            <small>{t("characterChat.room.avatarAutoHint")}</small>
+          </button>
+          <button
+            type="button"
+            className={`character-chat-room__menu-item${avatarMode === "none" ? " is-active" : ""}`}
+            aria-pressed={avatarMode === "none"}
+            disabled={busy}
+            onClick={() => onAvatarChange?.("none")}
+          >
+            <strong>{t("characterChat.room.avatarNone")}</strong>
+          </button>
+          <p className="character-chat-room__menu-heading character-chat-room__menu-heading--sub">
+            {t("characterChat.room.avatarRegistered")}
+          </p>
+          {modelsFailed ? (
+            <p className="character-chat-room__menu-note">
+              {t("characterChat.room.avatarRegisteredFailed")}
+            </p>
+          ) : models === null ? (
+            <p className="character-chat-room__menu-note">
+              {t("characterChat.room.avatarRegisteredLoading")}
+            </p>
+          ) : models.length === 0 ? (
+            <p className="character-chat-room__menu-note">
+              {t("characterChat.room.avatarRegisteredEmpty")}
+            </p>
+          ) : (
+            <div className="character-chat-room__menu-models">
+              {models.map((model) => {
+                const chosen =
+                  avatarMode === "model" && avatar?.id === model.id;
+                const shown = avatar?.id === model.id;
+                return (
+                  <button
+                    key={model.id}
+                    type="button"
+                    className={`character-chat-room__menu-item${chosen ? " is-active" : ""}`}
+                    aria-pressed={chosen}
+                    disabled={busy}
+                    onClick={() => onAvatarChange?.("model", model.id)}
+                  >
+                    <strong>{avatarModelLabel(model)}</strong>
+                    {shown && !chosen && avatarSourceLabel && (
+                      <small>{avatarSourceLabel}</small>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          <hr className="character-chat-room__menu-divider" />
           {isAdventure && adventure && (
             <>
               {adventure.available ? (
