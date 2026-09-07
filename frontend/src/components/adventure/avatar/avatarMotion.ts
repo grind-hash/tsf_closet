@@ -756,18 +756,36 @@ const CLASP_TARGET = {
   down: 0.55,
   /** 体の前へ出す距離 */
   forward: 0.43,
-  /** 前後にずらして手を重ねる距離(手の厚みぶん)。前が上に重なる手 */
-  stack: 0.03,
-  /** 重なる側の手をわずかに上げる距離 */
-  rise: 0.01,
+  /** 手前の手を体から離す距離(手の厚みぶん)。狭いと手がめり込む */
+  stack: 0.07,
+  /**
+   * 手首を体の中心から左右へ振り分ける距離(手の長さの半分ほど)。
+   * 両手首を中心に置くと指が反対側へはみ出し、手を重ねたというより
+   * 平手を交差させた見た目になる
+   */
+  spread: 0.12,
 };
+
+/**
+ * 重ねた手の手のひらの向き。両手とも体の側へ向け、手前の右手の手のひらが
+ * 奥の左手の甲へそっと重なるようにする。
+ *
+ * 手のひらを真上・真下へ向けると前腕を 180 度近くひねることになり、袖がねじれて
+ * 「差し出している」ように見えるため、体側へ向ける
+ */
+export function claspPalm(facing: Facing): Vec3 {
+  return [0, 0, -facing];
+}
+
+/** 親指を人差し指の側へ寄せる角(中手骨)。開いたままだと手が乱雑に見える */
+export const THUMB_TUCK = 0.5;
 
 /**
  * 手を体の前で重ねる目標位置を、左右ぶん返す。
  *
  * 関節角で決めると、左右の腕の長さや肩の高さが違うモデル(実在する)で手が
  * 上下にずれる。手の位置そのものを目標にして IK で解くことで、体格に依らず
- * 同じ見た目になる
+ * 同じ見た目になる。左手を下に置き、その手の厚みぶん上へ右手を重ねる
  */
 export function claspTargets(
   shoulderMid: Vec3,
@@ -780,12 +798,15 @@ export function claspTargets(
     shoulderMid,
     addV(down(CLASP_TARGET.down), front(CLASP_TARGET.forward)),
   );
+  // モデルから見た左方向(VRM 0.x/1.0 のどちらでも正しい向きになる)
+  const toLeft = cross([0, 1, 0], [0, 0, facing]);
+  const side = (k: number): Vec3 => scaleV(toLeft, k * armLength);
   return {
-    // 右手を手前かつわずかに上へ置き、左手の上に重ねる
-    left: addV(base, front(-CLASP_TARGET.stack)),
+    // 手首を左右へ振り分け(指が相手の手へ乗る)、右手だけ手前に置いて重ねる
+    left: addV(base, side(CLASP_TARGET.spread)),
     right: addV(
       base,
-      addV(front(CLASP_TARGET.stack), down(-CLASP_TARGET.rise)),
+      addV(side(-CLASP_TARGET.spread), front(CLASP_TARGET.stack)),
     ),
   };
 }

@@ -175,8 +175,8 @@ components/
     AdventureInventoryPanel.tsx   持ち物システムの HUD ポップオーバー中身（所持品と capabilities ごとの 渡す/使う/着る・脱ぐ/捨てる → submitTurn("item_action")。ログ文言の整形 formatInventoryLogEntry / formatInventoryEvents / formatInventoryActor と React key 用 keyedInventoryEntries を export し、メッセージ窓のメタ行とライトボックスでも使う）
     AdventureBgmControl.tsx       サウンドボタン(♪)+ポップオーバー。BGM(mute/volume)とセリフ読み上げ(ON/OFF・音量・状態・停止。TTS無効時は disabled+案内)を並べる。再生は useAdventureBgm / useAdventureVoice
     avatar/CompanionAvatarStage.tsx  対面会話モードの 3D モデル(VRM)ステージ。攻略対象 <img> の代わりに `.adventure-stage__frame` 内へ置く(default export、`React.lazy` で three.js を別チャンクに)。canvas はエンジンごとに動的生成(開発モードの二重 effect で Context Lost を拾わないため)
-    avatar/vrmAvatarEngine.ts        React 非依存の描画エンジン(three + @pixiv/three-vrm)。読込・待機姿勢(ボーンの実方向から回転軸を求めて腕下ろし・肘曲げ・指の握り。VRM 0.x/1.0 の向き差を吸収。`restPose="clasped"` のときだけ、rest の寸法を測って 2 ボーン IK で手の位置を解き、待機姿勢へ slerp で重ねる。`setRestPose` で読込済みモデルにも即反映)・外接ボックス基準の上半身フレーミング・呼吸/揺れ・まばたき・視線・音量口パク・表情クロスフェード・手続き的ジェスチャー・dispose
-    avatar/avatarMotion.ts           three 非依存の純関数(ジェスチャーのキーフレーム表、idlePose、待機姿勢の関節角 ARM_REST/FINGER_CURL と tiltTowards、手を前で重ねる目標位置 claspTargets と 2 ボーン IK solveArmIk(腕を動かす身振りの間は claspHold で関節角の姿勢へ戻す)、mouthWeightsFromLevel、blink)。vitest 対象
+    avatar/vrmAvatarEngine.ts        React 非依存の描画エンジン(three + @pixiv/three-vrm)。読込・待機姿勢(ボーンの実方向から回転軸を求めて腕下ろし・肘曲げ・指の握り。VRM 0.x/1.0 の向き差を吸収。`restPose="clasped"` のときだけ、rest の寸法を測って 2 ボーン IK で手の位置を解き、手のひらの向きも前腕のひねりで揃えて待機姿勢へ slerp で重ねる。親指は人差し指側へ寄せる。`setRestPose` で読込済みモデルにも即反映)・外接ボックス基準の上半身フレーミング・呼吸/揺れ・まばたき・視線・音量口パク・表情クロスフェード・手続き的ジェスチャー・dispose
+    avatar/avatarMotion.ts           three 非依存の純関数(ジェスチャーのキーフレーム表、idlePose、待機姿勢の関節角 ARM_REST/FINGER_CURL と tiltTowards、手を体の前で重ねる目標位置 claspTargets(手首は左右へ振り分け、右手だけ手前。手のひらは claspPalm で体側)と 2 ボーン IK solveArmIk(腕を動かす身振りの間は claspHold で関節角の姿勢へ戻す)、mouthWeightsFromLevel、blink)。vitest 対象
 
   characterChat/
     CharacterChatScreen.tsx     /talk（Hub）と /talk/:threadId（Room）の切り替えと CSS の読み込みだけ

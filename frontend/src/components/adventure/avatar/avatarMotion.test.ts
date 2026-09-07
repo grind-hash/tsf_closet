@@ -20,6 +20,7 @@ import {
   CLASP_RELEASE_SPAN,
   CLOSED_MOUTH_TARGETS,
   claspHold,
+  claspPalm,
   claspTargets,
   DOWN,
   detectFacing,
@@ -384,22 +385,36 @@ describe("avatarMotion rest pose geometry", () => {
     expect(rotateAbout([1, 2, 3], [0, 0, 0], 1)).toEqual([1, 2, 3]);
   });
 
-  it.each(RIGS)("places the clasp targets on the centerline for $label", ({
+  it.each(RIGS)("folds the hands in front of the belly for $label", ({
     facing,
   }) => {
-    const targets = claspTargets([0.01, 0.77, 0.05], 0.175, facing);
+    const mid: Vec3 = [0.01, 0.77, 0.05];
+    const targets = claspTargets(mid, 0.175, facing);
     for (const target of [targets.left, targets.right]) {
-      // 体の中心線上、肩より下、体の前
-      expect(target[0]).toBeCloseTo(0.01, 9);
-      expect(target[1]).toBeLessThan(0.77 - 0.05);
-      expect((target[2] - 0.05) * facing).toBeGreaterThan(0.05);
+      // 肩より下、体の前
+      expect(target[1]).toBeLessThan(mid[1] - 0.05);
+      expect((target[2] - mid[2]) * facing).toBeGreaterThan(0.05);
     }
-    // 右手が手前かつわずかに上(左手の上に重なる)
-    expect((targets.right[2] - targets.left[2]) * facing).toBeGreaterThan(0);
-    expect(targets.right[1]).toBeGreaterThan(targets.left[1]);
+    // 手首は体の中心から左右へ振り分ける(指が相手の手へ乗る)
+    const toLeft = facing;
+    expect((targets.left[0] - mid[0]) * toLeft).toBeGreaterThan(0.01);
+    expect(targets.left[0] - mid[0]).toBeCloseTo(
+      -(targets.right[0] - mid[0]),
+      9,
+    );
+    // 右手だけ手前に置いて重ねる。高さは揃える
+    expect((targets.right[2] - targets.left[2]) * facing).toBeGreaterThan(
+      0.005,
+    );
+    expect(targets.right[1]).toBeCloseTo(targets.left[1], 9);
     // 目標は腕の長さに比例する
-    const wide = claspTargets([0.01, 0.77, 0.05], 0.35, facing);
-    expect(0.77 - wide.left[1]).toBeCloseTo((0.77 - targets.left[1]) * 2, 9);
+    const wide = claspTargets(mid, 0.35, facing);
+    expect(mid[1] - wide.left[1]).toBeCloseTo(
+      (mid[1] - targets.left[1]) * 2,
+      9,
+    );
+    // 手のひらは体の側を向く(前腕を 180 度ひねらない)
+    expect(claspPalm(facing)[2] * facing).toBeLessThan(0);
   });
 
   it("solves the arm to the target and puts the elbow on the pole side", () => {
@@ -504,9 +519,9 @@ describe("avatarMotion rest pose geometry", () => {
       expect(solution).not.toBeNull();
       return (solution as NonNullable<typeof solution>).hand;
     });
-    // 左右の寸法が違っても、手は同じ中心線・ほぼ同じ高さに来る
-    expect(hands[0][0]).toBeCloseTo(hands[1][0], 6);
-    expect(Math.abs(hands[0][1] - hands[1][1])).toBeLessThan(0.03 * armLength);
+    // 左右の寸法が違っても、手は体の中心をはさんで対称・同じ高さに来る
+    expect(hands[0][0] - mid[0]).toBeCloseTo(-(hands[1][0] - mid[0]), 6);
+    expect(Math.abs(hands[0][1] - hands[1][1])).toBeLessThan(0.01 * armLength);
     // 右手が手前に重なる
     expect(hands[1][2] - hands[0][2]).toBeGreaterThan(0);
   });

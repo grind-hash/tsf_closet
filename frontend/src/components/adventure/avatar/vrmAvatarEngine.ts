@@ -40,6 +40,7 @@ import {
   blinkWeight,
   CLOSED_MOUTH_TARGETS,
   claspHold,
+  claspPalm,
   claspTargets,
   DOWN,
   detectFacing,
@@ -61,6 +62,7 @@ import {
   scaleV,
   solveArmIk,
   subV,
+  THUMB_TUCK,
   UP,
   type Vec3,
   ZERO_POSE,
@@ -137,7 +139,11 @@ interface ArmRig {
    * 手を体の前で重ねた姿勢(2 ボーン IK の解)。clasped のときだけ入り、
    * 腕を動かす身振りの間は claspHold の割合だけ関節角の姿勢へ戻す
    */
-  clasp: { upper: THREE.Quaternion; fore: THREE.Quaternion } | null;
+  clasp: {
+    upper: THREE.Quaternion;
+    fore: THREE.Quaternion;
+    hand: THREE.Quaternion;
+  } | null;
   /** 前腕のひねり軸。rest の骨軸(±X)と平行で、手のひら(rest で下向き)を前方へ向ける */
   twistAxis: THREE.Vector3;
   /** 手ボーン。ひねりの半分を受け持つ(無いモデルは前腕が全部受ける) */
@@ -186,9 +192,15 @@ function boneDirection(child: THREE.Object3D | null): Vec3 | null {
 
 /**
  * 指を手のひら側へ軽く曲げる。指の向きは根元 2 関節の位置関係から取り、
- * 同じ指の各関節に共通の軸を使う(rest では指は一直線なので十分)
+ * 同じ指の各関節に共通の軸を使う(rest では指は一直線なので十分)。
+ * 親指だけは付け根を人差し指の側へ寄せ、開いたままにしない
  */
 function applyFingerCurl(humanoid: VRMHumanoid, side: ArmSide): void {
+  const indexDir = boneDirection(
+    humanoid.getNormalizedBoneNode(
+      fingerBoneName(side, "index", "proximal") as VRMHumanBoneName,
+    ),
+  );
   for (const finger of FINGER_NAMES) {
     const segments = FINGER_SEGMENTS[finger];
     const curls = FINGER_CURL[finger];
@@ -206,6 +218,13 @@ function applyFingerCurl(humanoid: VRMHumanoid, side: ArmSide): void {
       const angle = curls[index] ?? 0;
       if (node && angle !== 0) node.quaternion.setFromAxisAngle(axis, angle);
     });
+    // 親指の付け根は曲げずに、人差し指の側へ寄せる
+    if (finger === "thumb" && indexDir && nodes[0]) {
+      const tuckAxis = axisBetween(direction, indexDir);
+      if (tuckAxis) {
+        nodes[0].quaternion.setFromAxisAngle(axisOf(tuckAxis), THUMB_TUCK);
+      }
+    }
   }
 }
 
@@ -238,6 +257,29 @@ function measureArm(
   const foreLength = lengthV(subV(wrist, elbow));
   if (upperLength <= 0 || foreLength <= 0) return null;
   return { shoulder, upperLength, foreLength };
+}
+
+/**
+ * 手のひらを狙いの向きへ回すために、前腕の軸まわりに必要なひねり角を求める。
+ * rest の手のひらの法線は左右とも下向き。前腕の軸に平行な成分しか無いときは 0
+ */
+function palmTwistAngle(
+  facing: Facing,
+  upper: THREE.Quaternion,
+  fore: THREE.Quaternion,
+  foreDirWorld: Vec3,
+): number {
+  const axis = new THREE.Vector3(...foreDirWorld).normalize();
+  const current = new THREE.Vector3(...DOWN)
+    .applyQuaternion(fore)
+    .applyQuaternion(upper)
+    .projectOnPlane(axis);
+  const wanted = new THREE.Vector3(...claspPalm(facing)).projectOnPlane(axis);
+  if (current.lengthSq() < 1e-8 || wanted.lengthSq() < 1e-8) return 0;
+  current.normalize();
+  wanted.normalize();
+  const angle = Math.acos(Math.min(1, Math.max(-1, current.dot(wanted))));
+  return current.cross(wanted).dot(axis) < 0 ? -angle : angle;
 }
 
 /**
@@ -289,7 +331,16 @@ function solveClaspPose(rigs: ArmRig[], facing: Facing): void {
       new THREE.Vector3(...rig.foreDir),
       localFore,
     );
-    rig.clasp = { upper, fore };
+    // 手のひらを狙いの向きへ。ひねりは前腕と手で半分ずつ持ち、手首のねじれを抑える
+    const twist = palmTwistAngle(facing, upper, fore, solution.foreDir);
+    const hand = new THREE.Quaternion().setFromAxisAngle(
+      new THREE.Vector3(...rig.foreDir),
+      twist / 2,
+    );
+    fore.premultiply(
+      new THREE.Quaternion().setFromAxisAngle(localFore, twist / 2),
+    );
+    rig.clasp = { upper, fore, hand };
   }
 }
 
@@ -395,6 +446,7 @@ function applyArmPose(rig: ArmRig, arm: ArmChannels): void {
   if (rig.clasp && hold > 0) {
     rig.upperArm.quaternion.slerp(rig.clasp.upper, hold);
     rig.lowerArm.quaternion.slerp(rig.clasp.fore, hold);
+    rig.hand?.quaternion.slerp(rig.clasp.hand, hold);
   }
 }
 
