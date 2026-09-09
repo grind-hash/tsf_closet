@@ -22,6 +22,7 @@ from gateway.services.adventure_inventory import (
     apply_world_events,
     coerce_reality_patch,
     coerce_world_events,
+    is_wage_item_name,
     item_resolution_narrative_suffix,
     lean_inventory_for_llm,
     npc_states_for_llm,
@@ -221,6 +222,73 @@ def test_transfer_to_player_adds_and_merges_items() -> None:
     )
     assert len(items) == 1 and items[0]["quantity"] == 3
     assert state["inventory"]["log"][-1]["from"] == "character:サクラ"
+
+
+def test_work_turn_never_adds_wage_items() -> None:
+    """バイト手番の賃金は所持金側で確定済みなので持ち物にしない。"""
+    state = make_state()
+
+    def wage_event(name: str) -> dict:
+        return {
+            "type": "item_transfer",
+            "from": "world",
+            "to": "player",
+            "item": {"name": name, "category": "other"},
+        }
+
+    applied = apply_world_events(
+        state,
+        [wage_event("給料"), wage_event("バイト代"), wage_event("Salary envelope")],
+        turn_number=2,
+        input_kind="work",
+    )
+    assert applied == []
+    assert state["inventory"]["items"] == []
+    assert state["inventory"]["log"] == []
+    # 同じバイト手番でも金銭以外の品は従来どおり持ち物になる
+    applied = apply_world_events(
+        state,
+        [
+            {
+                "type": "item_transfer",
+                "from": "world",
+                "to": "player",
+                "item": {"name": "まかないの弁当", "category": "consumable"},
+            }
+        ],
+        turn_number=2,
+        input_kind="work",
+    )
+    assert [entry["item"] for entry in applied] == ["まかないの弁当"]
+    assert [item["name"] for item in state["inventory"]["items"]] == ["まかないの弁当"]
+    # バイト以外の手番は判定を変えない
+    applied = apply_world_events(
+        state, [wage_event("給料")], turn_number=3, input_kind="free_text"
+    )
+    assert [entry["item"] for entry in applied] == ["給料"]
+
+
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        ("給料", True),
+        ("今日の給料", True),
+        ("賃金の入った封筒", True),
+        ("お金", True),
+        ("1万円", True),
+        ("salary", True),
+        ("Cash", True),
+        ("wages", True),
+        ("Cashmere scarf", False),
+        ("payments", False),
+        ("まかないの弁当", False),
+        ("制服", False),
+        ("", False),
+        (None, False),
+    ],
+)
+def test_is_wage_item_name(name, expected) -> None:
+    assert is_wage_item_name(name) is expected
 
 
 def test_transfer_from_player_requires_ownership_and_quantity() -> None:

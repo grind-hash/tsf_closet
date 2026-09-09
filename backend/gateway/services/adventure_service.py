@@ -89,6 +89,7 @@ from .adventure_inventory import (
     INVENTORY_VISUAL_INSTRUCTION,
     REALITY_PATCH_INSTRUCTION,
     ROMANCE_BOUNDARY_SCORING_INSTRUCTION,
+    WORK_WAGE_EVENTS_INSTRUCTION,
     WORLD_EVENTS_INSTRUCTION,
     InventoryActionError,
     apply_item_resolution,
@@ -2404,6 +2405,7 @@ Keep the narrative under 800 characters. Never decide the player's feelings, con
         outfit_keys: tuple[str, ...] = (),
         inventory: bool = False,
         reality_patch: bool = False,
+        work: bool = False,
     ) -> str:
         response_language = "Japanese" if language == "ja" else "English"
         # 選択肢ラベルは行動フレーズなので、人称を載せない旨を併記する
@@ -2443,6 +2445,9 @@ Keep the narrative under 800 characters. Never decide the player's feelings, con
                 inventory_rule = (
                     f"{inventory_rule} {ROMANCE_BOUNDARY_SCORING_INSTRUCTION}"
                 )
+            if work:
+                # バイト手番: 賃金は所持金側で確定済みなので持ち物に載せない
+                inventory_rule = f"{inventory_rule} {WORK_WAGE_EVENTS_INSTRUCTION}"
             if reality_patch:
                 inventory_rule = f"{inventory_rule}\n{REALITY_PATCH_INSTRUCTION}"
                 inventory_schema += ',"reality_patch":null'
@@ -2538,6 +2543,7 @@ scene_tags contains only environment, camera, composition, lighting, and the obs
         outfit_keys: tuple[str, ...] = (),
         inventory: bool = False,
         reality_patch: bool = False,
+        work: bool = False,
     ) -> AdventureResolutionOutput:
         return await self._generate_structured_output(
             AdventureRomanceResolutionOutput if romance else AdventureResolutionOutput,
@@ -2551,6 +2557,7 @@ scene_tags contains only environment, camera, composition, lighting, and the obs
                 outfit_keys=outfit_keys,
                 inventory=inventory,
                 reality_patch=reality_patch,
+                work=work,
             ),
             user_prompt=json.dumps(
                 {**turn_context, "narrative": narrative}, ensure_ascii=False
@@ -5066,6 +5073,7 @@ The objective must name a concrete target and an observable end condition that c
                 ),
                 inventory=contexts.inventory_enabled,
                 reality_patch=contexts.input_kind == "reality_alter",
+                work=contexts.input_kind == "work",
             )
             await queue.put(("resolution", resolution))
         except Exception as error:
@@ -7759,6 +7767,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                     ),
                     inventory=contexts.inventory_enabled,
                     reality_patch=contexts.input_kind == "reality_alter",
+                    work=contexts.input_kind == "work",
                 ),
                 "user": turn_user_prompt,
             },

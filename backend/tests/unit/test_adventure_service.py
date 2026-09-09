@@ -6670,6 +6670,16 @@ def test_inventory_prompts_only_when_enabled() -> None:
     assert '"reality_patch":null' in romance_alter
     assert "npc_boundary_reset" in romance_alter
     assert "affection_delta must be negative" in romance_alter
+    # バイト手番だけ賃金を item_transfer にしない指示を添える
+    wage_rule = "never report the pay, salary, wages"
+    assert wage_rule not in romance_alter
+    romance_work = service._resolution_system_prompt(
+        "ja", romance=True, inventory=True, work=True
+    )
+    assert wage_rule in romance_work
+    assert wage_rule not in service._resolution_system_prompt(
+        "ja", romance=True, work=True
+    )
 
     assert "worn_inventory_items" not in service._visual_system_prompt("ja")
     assert "worn_inventory_items" in service._visual_system_prompt(
