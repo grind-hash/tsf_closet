@@ -864,6 +864,9 @@ def test_lean_state_for_llm_strips_image_fields() -> None:
             "opening_image_path": "/tmp/a.png",
             "partner_portrait_status": "scene_unchanged",
             "visual_state": {"location": "部屋"},
+            "identity_tags": "1girl, blonde hair",
+            "partner_identity_tags": "1boy, black hair",
+            "image_seed": 1234,
         }
     )
     assert "setting" in lean
@@ -872,6 +875,10 @@ def test_lean_state_for_llm_strips_image_fields() -> None:
     assert "last_image_prompt" not in lean
     assert "opening_image_path" not in lean
     assert "partner_portrait_status" not in lean
+    # 同一性タグ署名と画像シードは画像用の内部値で、物語生成には見せない
+    assert "identity_tags" not in lean
+    assert "partner_identity_tags" not in lean
+    assert "image_seed" not in lean
 
 
 def test_detect_reality_declaration_accepts_player_notation() -> None:
@@ -7233,3 +7240,641 @@ async def test_stream_turn_applies_reality_patch_only_on_reality_alter(
     assert [item["name"] for item in saved["inventory"]["items"]] == ["黒いブラ"]
     assert saved["npc_states"]["美咲"]["boundary_violations"] == 1
     assert saved["world_events_applied"] == []
+
+
+# --- 同一性タグ署名(identity_signature) ---------------------------------------
+
+
+def _signature_run() -> SimpleNamespace:
+    return SimpleNamespace(text_model=None, nsfw_mode=False, preset="generated")
+
+
+def _patch_user_settings(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.session_store.get_user_settings",
+        AsyncMock(return_value={}),
+    )
+
+
+@pytest.mark.asyncio
+async def test_prepare_image_prompt_applies_identity_signature_to_copy_only(
+    monkeypatch,
+) -> None:
+    """署名は変換後の複製にだけ先頭注入し、raw(last_image_prompt 用)は変えない。"""
+    service = AdventureService()
+    _patch_user_settings(monkeypatch)
+    state = {
+        "identity_tags": "1girl, blonde hair, long hair, blue eyes",
+        "visual_state": {},
+    }
+    override = AdventureImagePromptOutput(
+        scene_tags="classroom",
+        player_tags="1boy, black hair, short hair, school uniform, smile",
+    )
+
+    image_prompt, *_rest, raw = await service._prepare_image_prompt(
+        _signature_run(), state, redraw_from_reference=False, prompt_override=override
+    )
+
+    assert raw is override
+    assert override.player_tags == "1boy, black hair, short hair, school uniform, smile"
+    assert image_prompt.player_tags == (
+        "1girl, blonde hair, long hair, blue eyes, school uniform, smile"
+    )
+
+
+@pytest.mark.asyncio
+async def test_prepare_image_prompt_override_beats_state_signature(monkeypatch) -> None:
+    """手番中は DB の state が古いため、呼び出し側の override を優先する。"""
+    service = AdventureService()
+    _patch_user_settings(monkeypatch)
+    state = {"identity_tags": "1girl, blonde hair", "visual_state": {}}
+    override = AdventureImagePromptOutput(
+        scene_tags="classroom", player_tags="1girl, blonde hair, school uniform"
+    )
+
+    image_prompt, *_rest = await service._prepare_image_prompt(
+        _signature_run(),
+        state,
+        redraw_from_reference=False,
+        prompt_override=override,
+        identity_tags_override="1girl, pink hair, twintails",
+    )
+
+    assert image_prompt.player_tags == "1girl, pink hair, twintails, school uniform"
+
+
+@pytest.mark.asyncio
+async def test_prepare_image_prompt_signs_partner_entry_only(monkeypatch) -> None:
+    """攻略対象の npc 枠にだけ署名を付け、他の NPC は書き換えない。
+
+    手番中は prompt_override(AdventureVisualOutput)の visual_state を state より
+    優先して添字を引く。
+    """
+    from gateway.services.adventure_models import AdventureVisualCharacter
+
+    service = AdventureService()
+    _patch_user_settings(monkeypatch)
+    state = {
+        "identity_tags": "1boy, black hair",
+        "partner_identity_tags": "1girl, silver hair, red eyes",
+        "sim": {"partner_name": "美咲"},
+        # state 側は添字 0 に攻略対象を置き、override 側の並び(添字 1)が勝つことを見る
+        "visual_state": {"main_characters": [{"name": "美咲"}, {"name": "友人"}]},
+    }
+    override = AdventureVisualOutput(
+        scene_tags="cafe",
+        player_tags="1boy, black hair, jacket",
+        npc_tags=["1boy, brown hair, apron", "1girl, black hair, blue eyes, dress"],
+        visual_state=AdventureVisualState(
+            location="cafe",
+            appearance="黒髪の青年",
+            main_characters=[
+                AdventureVisualCharacter(name="友人", description="店員"),
+                AdventureVisualCharacter(name="美咲", description="笑顔"),
+            ],
+        ),
+    )
+
+    image_prompt, *_rest = await service._prepare_image_prompt(
+        _signature_run(), state, redraw_from_reference=False, prompt_override=override
+    )
+
+    assert image_prompt.npc_tags[0] == "1boy, brown hair, apron"
+    assert image_prompt.npc_tags[1] == "1girl, silver hair, red eyes, dress"
+    assert override.npc_tags[1] == "1girl, black hair, blue eyes, dress"
+
+
+@pytest.mark.asyncio
+async def test_prepare_image_prompt_honors_user_edited_identity(monkeypatch) -> None:
+    """画像プロンプトモーダルの手編集は署名より優先し、新しい署名として保存する。
+
+    未編集(raw と同じ)や服装だけの編集では署名を変えない。
+    """
+    service = AdventureService()
+    _patch_user_settings(monkeypatch)
+
+    def build_state() -> dict:
+        return {
+            "identity_tags": "1girl, blonde hair",
+            "last_image_prompt": {
+                "scene_tags": "classroom",
+                "player_tags": "1girl, blonde hair, dress",
+                "npc_tags": [],
+            },
+            "visual_state": {},
+        }
+
+    # 同一性を編集 → 採用して state に書く
+    state = build_state()
+    image_prompt, *_rest = await service._prepare_image_prompt(
+        _signature_run(),
+        state,
+        redraw_from_reference=False,
+        prompt_override=AdventureImagePromptOutput(
+            scene_tags="classroom", player_tags="1girl, silver hair, dress"
+        ),
+        honor_user_edits=True,
+    )
+    assert image_prompt.player_tags == "1girl, silver hair, dress"
+    assert state["identity_tags"] == "1girl, silver hair"
+
+    # 服装だけの編集 → 署名は据え置き
+    state = build_state()
+    image_prompt, *_rest = await service._prepare_image_prompt(
+        _signature_run(),
+        state,
+        redraw_from_reference=False,
+        prompt_override=AdventureImagePromptOutput(
+            scene_tags="classroom", player_tags="1girl, blonde hair, swimsuit"
+        ),
+        honor_user_edits=True,
+    )
+    assert image_prompt.player_tags == "1girl, blonde hair, swimsuit"
+    assert state["identity_tags"] == "1girl, blonde hair"
+
+    # honor_user_edits が無い経路(手番・開幕)は署名を強制する
+    state = build_state()
+    image_prompt, *_rest = await service._prepare_image_prompt(
+        _signature_run(),
+        state,
+        redraw_from_reference=False,
+        prompt_override=AdventureImagePromptOutput(
+            scene_tags="classroom", player_tags="1girl, silver hair, dress"
+        ),
+    )
+    assert image_prompt.player_tags == "1girl, blonde hair, dress"
+    assert state["identity_tags"] == "1girl, blonde hair"
+
+
+@pytest.mark.asyncio
+async def test_prepare_image_prompt_honors_user_edited_partner_identity(
+    monkeypatch,
+) -> None:
+    service = AdventureService()
+    _patch_user_settings(monkeypatch)
+    state = {
+        "identity_tags": "1boy, black hair",
+        "partner_identity_tags": "1girl, blonde hair",
+        "sim": {"partner_name": "美咲"},
+        "visual_state": {"main_characters": [{"name": "美咲"}]},
+        "last_image_prompt": {
+            "scene_tags": "cafe",
+            "player_tags": "1boy, black hair, jacket",
+            "npc_tags": ["1girl, blonde hair, dress"],
+        },
+    }
+
+    image_prompt, *_rest = await service._prepare_image_prompt(
+        _signature_run(),
+        state,
+        redraw_from_reference=False,
+        prompt_override=AdventureImagePromptOutput(
+            scene_tags="cafe",
+            player_tags="1boy, black hair, jacket",
+            npc_tags=["1girl, red hair, dress"],
+        ),
+        honor_user_edits=True,
+    )
+
+    assert image_prompt.npc_tags == ["1girl, red hair, dress"]
+    assert state["partner_identity_tags"] == "1girl, red hair"
+    assert state["identity_tags"] == "1boy, black hair"
+
+
+def test_scene_character_frames_add_cross_identity_negatives() -> None:
+    from gateway.services.adventure_service import _scene_character_frames
+
+    with_npc = AdventureImagePromptOutput(
+        scene_tags="street",
+        player_tags="1boy, black hair, brown eyes, jacket",
+        npc_tags=["1girl, blonde hair, blue eyes, dress"],
+    )
+    frames = _scene_character_frames(
+        with_npc, player_prompt="player prompt", nsfw_mode=False
+    )
+    assert frames[0]["prompt"] == "player prompt"
+    assert frames[0]["position"] == (0.55, 0.5)
+    assert frames[0]["negative_prompt"] == "blonde hair, blue eyes"
+    assert frames[1]["position"] == (0.18, 0.5)
+    assert frames[1]["negative_prompt"] == "black hair, brown eyes"
+    assert "1girl, blonde hair, blue eyes, dress" in frames[1]["prompt"]
+
+    solo = AdventureImagePromptOutput(
+        scene_tags="street", player_tags="1boy, black hair, jacket"
+    )
+    solo_frames = _scene_character_frames(
+        solo, player_prompt="player prompt", nsfw_mode=False
+    )
+    assert len(solo_frames) == 1
+    assert "negative_prompt" not in solo_frames[0]
+
+
+@pytest.mark.asyncio
+async def test_generate_image_passes_cross_identity_negatives_to_novelai(
+    monkeypatch, tmp_path
+) -> None:
+    service = AdventureService()
+    service._images_dir = tmp_path
+    current_path = tmp_path / "current.png"
+    current_path.write_bytes(b"current")
+    run = SimpleNamespace(
+        id="run-1",
+        turn_count=0,
+        current_image_path=str(current_path),
+        initial_image_path=str(current_path),
+        state_json="{}",
+        text_model=None,
+        nsfw_mode=False,
+        preset="generated",
+    )
+    persisted_run = SimpleNamespace(
+        id="run-1",
+        current_image_path=str(current_path),
+        updated_at=None,
+        state_json="{}",
+    )
+    generate_image = AsyncMock(return_value=SimpleNamespace(images=[b"generated"]))
+    monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.session_store.get_user_settings",
+        AsyncMock(return_value={"nsfw_mode": False, "language": "ja"}),
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.llm_service.generate_text",
+        AsyncMock(
+            return_value=SimpleNamespace(
+                content=json.dumps(
+                    {
+                        "scene_tags": "street, night",
+                        "player_tags": "1girl, blonde hair, blue eyes, navy dress",
+                        "npc_tags": ["1boy, black hair, brown eyes, suit"],
+                        "identity_tags": "1girl, blonde hair, blue eyes",
+                    }
+                )
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.image_service.generate_image",
+        generate_image,
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.async_session_factory",
+        fake_database_factory({(AdventureRun, None): persisted_run}),
+    )
+
+    await service.generate_image("run-1", redraw_from_reference=True)
+
+    characters = generate_image.await_args.kwargs["characters"]
+    assert characters[0]["negative_prompt"] == "black hair, brown eyes"
+    assert characters[1]["negative_prompt"] == "blonde hair, blue eyes"
+    # last_image_prompt は従来どおり 3 キー(identity_tags は持たない)
+    saved = json.loads(persisted_run.state_json)
+    assert set(saved["last_image_prompt"]) == {"scene_tags", "player_tags", "npc_tags"}
+
+
+@pytest.mark.asyncio
+async def test_generate_partner_portrait_unlocked_applies_signature(
+    monkeypatch, tmp_path
+) -> None:
+    service = AdventureService()
+    service._images_dir = tmp_path
+    run = SimpleNamespace(
+        id="run-1",
+        state_json=json.dumps(
+            {
+                "partner_identity_tags": "1girl, silver hair, red eyes",
+                "sim": {"partner_name": "美咲"},
+            }
+        ),
+        nsfw_mode=False,
+    )
+    generate_image = patch_portrait_generation(monkeypatch, service, run)
+
+    await service._generate_partner_portrait_unlocked(
+        "run-1", partner_tags="1girl, black hair, smile, dress", turn_number=2
+    )
+    prompt = generate_image.await_args.args[0]
+    assert prompt.startswith("1girl, silver hair, red eyes, smile, dress")
+    assert "black hair" not in prompt
+
+    # 手番中は override が保存済みの署名より優先される
+    await service._generate_partner_portrait_unlocked(
+        "run-1",
+        partner_tags="1girl, black hair, smile, dress",
+        turn_number=3,
+        partner_identity_override="1girl, pink hair",
+    )
+    prompt = generate_image.await_args.args[0]
+    assert prompt.startswith("1girl, pink hair, smile, dress")
+
+
+def test_partner_portrait_tags_from_state_applies_signature() -> None:
+    state = {
+        "partner_identity_tags": "1girl, silver hair",
+        "sim": {"partner_name": "美咲", "partner_appearance": "1girl, black hair"},
+        "visual_state": {
+            "main_characters": [{"name": "美咲", "clothing": "dress"}],
+        },
+        "last_image_prompt": {"npc_tags": ["1girl, black hair, dress, smile"]},
+    }
+    tags = AdventureService._partner_portrait_tags_from_state(state)
+    assert tags == "1girl, silver hair, dress, smile"
+
+    # 相手が居ない手番の補完(sim の外見 + 服装)にも署名が付く
+    state["visual_state"]["main_characters"] = []
+    assert AdventureService._partner_portrait_tags_from_state(state) == (
+        "1girl, silver hair"
+    )
+
+    # 署名が無ければ従来どおり
+    del state["partner_identity_tags"]
+    assert AdventureService._partner_portrait_tags_from_state(state) == (
+        "1girl, black hair"
+    )
+
+
+@pytest.mark.asyncio
+async def test_prepare_turn_state_backfills_identity_and_seed() -> None:
+    service = AdventureService()
+    run = SimpleNamespace(turn_count=2, opening_state_json="{}")
+    state = {
+        "appearance_lock": "1girl, blonde hair, long hair",
+        "last_image_prompt": {
+            "scene_tags": "park",
+            "player_tags": "1girl, blonde hair, blue eyes, dress",
+            "npc_tags": ["1boy, black hair, suit"],
+        },
+        "sim": {"partner_name": "太郎", "partner_appearance": "1boy, brown hair"},
+        "visual_state": {"main_characters": [{"name": "太郎"}]},
+    }
+
+    await service._prepare_turn_state(run, state)
+
+    assert state["identity_tags"] == "1girl, blonde hair, blue eyes"
+    assert state["partner_identity_tags"] == "1boy, black hair"
+    assert 0 <= state["image_seed"] <= 999_999_999
+    seed = state["image_seed"]
+
+    # 2 回目は据え置き(再採番しない)
+    await service._prepare_turn_state(run, state)
+    assert state["image_seed"] == seed
+
+    # 画像タグが無い旧 run は外見ロックと sim の外見から起こす
+    legacy = {
+        "appearance_lock": "1boy, black hair, short hair",
+        "sim": {"partner_name": "花子", "partner_appearance": "1girl, red hair"},
+        "visual_state": {"main_characters": []},
+    }
+    await service._prepare_turn_state(run, legacy)
+    assert legacy["identity_tags"] == "1boy, black hair, short hair"
+    assert legacy["partner_identity_tags"] == "1girl, red hair"
+
+
+def _visual_for_refresh(
+    *, player_tags: str, identity_tags: str = "", appearance: str = "少女"
+) -> AdventureVisualOutput:
+    return AdventureVisualOutput(
+        scene_tags="park",
+        player_tags=player_tags,
+        identity_tags=identity_tags,
+        visual_state=AdventureVisualState(location="park", appearance=appearance),
+    )
+
+
+def test_refresh_identity_tags_uses_turn_output_not_old_signature() -> None:
+    """現実改変の手番は、この手番の出力だけから署名を作り直す(旧署名は補完に使わない)。"""
+    service = AdventureService()
+    state = {"identity_tags": "1boy, black hair, brown eyes"}
+    visual = _visual_for_refresh(
+        player_tags="1girl, silver hair, long hair, dress",
+        identity_tags="",
+        appearance="1girl, silver hair, long hair, blue eyes",
+    )
+
+    service._refresh_identity_tags(state, visual, template=None, template_resolution={})
+
+    assert state["identity_tags"] == "1girl, silver hair, long hair, blue eyes"
+
+    # LLM が identity_tags に旧署名を写しても player_tags が優先される
+    visual = _visual_for_refresh(
+        player_tags="1girl, silver hair, long hair, dress",
+        identity_tags="1boy, black hair, brown eyes",
+    )
+    service._refresh_identity_tags(state, visual, template=None, template_resolution={})
+    assert state["identity_tags"] == "1girl, silver hair, long hair, brown eyes"
+
+    # 同一性タグの無い出力は据え置き
+    service._refresh_identity_tags(
+        state,
+        _visual_for_refresh(player_tags="dress, smile"),
+        template=None,
+        template_resolution={},
+    )
+    assert state["identity_tags"] == "1girl, silver hair, long hair, brown eyes"
+
+
+def test_refresh_identity_tags_applies_template_transform_on_perfect_score() -> None:
+    service = AdventureService()
+    template = SCENARIO_TEMPLATES["princess_locked_room"]
+    state = {"identity_tags": "1boy, black hair, short hair"}
+    # LLM が変身を取りこぼした出力でも、テンプレートの変換で女性化される
+    visual = _visual_for_refresh(player_tags="1boy, black hair, short hair, dress")
+
+    service._refresh_identity_tags(
+        state, visual, template=template, template_resolution={"event": "perfect_score"}
+    )
+
+    signature = state["identity_tags"]
+    assert "1boy" not in signature
+    assert signature.startswith("1girl, ")
+    assert "long hair" in signature
+    assert "short hair" not in signature
+    assert "black hair" in signature
+
+
+def test_refresh_partner_identity_tags_uses_turn_npc_tags() -> None:
+    from gateway.services.adventure_models import AdventureVisualCharacter
+
+    service = AdventureService()
+    state = {"partner_identity_tags": "1girl, blonde hair"}
+    visual = AdventureVisualOutput(
+        scene_tags="park",
+        player_tags="1boy",
+        npc_tags=["1boy, black hair, short hair, suit"],
+        visual_state=AdventureVisualState(
+            location="park",
+            appearance="x",
+            main_characters=[AdventureVisualCharacter(name="美咲", description="x")],
+        ),
+    )
+
+    service._refresh_partner_identity_tags(state, visual, {"partner_name": "美咲"})
+    assert state["partner_identity_tags"] == "1boy, black hair, short hair"
+
+    # 相手が居ない手番は据え置き
+    service._refresh_partner_identity_tags(state, visual, {"partner_name": "花子"})
+    assert state["partner_identity_tags"] == "1boy, black hair, short hair"
+
+
+def test_sync_partner_identity_tags_follows_changed_appearance_only() -> None:
+    service = AdventureService()
+    state = {
+        "partner_identity_tags": "1girl, blonde hair, long hair, blue eyes",
+        "sim": {"partner_appearance": "1girl, blonde hair"},
+    }
+    # 外見が変わっていなければ、npc_tags 由来の詳しい署名を残す
+    service._sync_partner_identity_tags(state, previous_appearance="1girl, blonde hair")
+    assert state["partner_identity_tags"] == "1girl, blonde hair, long hair, blue eyes"
+
+    state["sim"]["partner_appearance"] = "1boy, black hair"
+    service._sync_partner_identity_tags(state, previous_appearance="1girl, blonde hair")
+    assert state["partner_identity_tags"] == "1boy, black hair"
+
+
+@pytest.mark.asyncio
+async def test_persist_opening_identity_prefers_llm_identity_tags(monkeypatch) -> None:
+    service = AdventureService()
+    persisted = SimpleNamespace(id="run-1", state_json="{}")
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.async_session_factory",
+        fake_database_factory({(AdventureRun, "run-1"): persisted}),
+    )
+    state = {
+        "identity_tags": "1boy",
+        "sim": {"partner_name": "美咲"},
+        "visual_state": {"main_characters": [{"name": "美咲"}]},
+    }
+    image_prompt = AdventureImagePromptOutput(
+        scene_tags="campus",
+        player_tags="1boy, black hair, short hair, uniform",
+        npc_tags=["1girl, blonde hair, dress"],
+        identity_tags="1boy, black hair, brown eyes",
+    )
+
+    await service._persist_opening_identity("run-1", state, image_prompt)
+
+    saved = json.loads(persisted.state_json)
+    # identity_tags を優先し、欠けたカテゴリ(髪の長さ)は player_tags で補う
+    assert saved["identity_tags"] == "1boy, black hair, short hair, brown eyes"
+    assert saved["partner_identity_tags"] == "1girl, blonde hair"
+    assert state["identity_tags"] == saved["identity_tags"]
+    assert state["partner_identity_tags"] == saved["partner_identity_tags"]
+
+
+@pytest.mark.asyncio
+async def test_stream_turn_shares_run_seed_and_passes_partner_identity(
+    monkeypatch, tmp_path
+) -> None:
+    """立ち絵の seed は run 固定の値で、署名は in-memory の値が override で渡る。"""
+    service = AdventureService()
+    service._images_dir = tmp_path
+    run, persisted = _companion_stream_run(stale_status="scene_unchanged")
+    partner_path = tmp_path / "run-1" / "partner-4-abcd1234.png"
+    partner_path.parent.mkdir(parents=True)
+    partner_path.write_bytes(b"png")
+    partner = AsyncMock(return_value=partner_path)
+
+    events = await _run_companion_turn(
+        service,
+        monkeypatch,
+        run,
+        persisted,
+        visual=AsyncMock(return_value=_companion_visual(scene_tags="campus, sunset")),
+        partner=partner,
+    )
+
+    assert events[-1]["event"] == "complete"
+    saved = json.loads(persisted.state_json)
+    kwargs = partner.await_args.kwargs
+    assert kwargs["seed_override"] == saved["image_seed"]
+    # 旧 run は last_image_prompt の npc_tags から署名をバックフィルする
+    assert saved["partner_identity_tags"] == "1girl"
+    assert kwargs["partner_identity_override"] == "1girl"
+
+
+def test_visual_prompts_carry_identity_signature() -> None:
+    from gateway.services.adventure_service import _visual_user_payload
+
+    service = AdventureService()
+    system_prompt = service._visual_system_prompt("ja", romance=True)
+    assert '"identity_tags":"..."' in system_prompt
+    assert "required_identity_tags" in system_prompt
+    assert "romance_partner.identity_tags" in system_prompt
+
+    payload = json.loads(
+        _visual_user_payload(
+            narrative="x",
+            turn_context={},
+            previous_visual={},
+            appearance_lock="lock",
+            previous_image_tags=None,
+            romance_partner=None,
+            identity_tags="1girl, blonde hair",
+        )
+    )
+    assert payload["required_identity_tags"] == "1girl, blonde hair"
+    blank = json.loads(
+        _visual_user_payload(
+            narrative="x",
+            turn_context={},
+            previous_visual={},
+            appearance_lock="lock",
+            previous_image_tags=None,
+            romance_partner=None,
+        )
+    )
+    assert blank["required_identity_tags"] is None
+
+
+@pytest.mark.asyncio
+async def test_image_prompt_converter_passes_required_identity_tags(
+    monkeypatch,
+) -> None:
+    service = AdventureService()
+    captured: dict[str, str] = {}
+
+    async def fake_generate_validated(
+        _model, *, generate, system_prompt, user_prompt, repair_prompt
+    ):
+        captured["system"] = system_prompt
+        captured["user"] = user_prompt
+        return AdventureImagePromptOutput(scene_tags="park", player_tags="1girl")
+
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.generate_validated",
+        fake_generate_validated,
+    )
+
+    await service._generate_image_prompt_output(
+        {"location": "park"}, "glm-4-6", required_identity_tags="1girl, blonde hair"
+    )
+
+    assert '"identity_tags":"..."' in captured["system"]
+    assert "copy it into identity_tags verbatim" in captured["system"]
+    assert (
+        json.loads(captured["user"])["required_identity_tags"] == "1girl, blonde hair"
+    )
+
+
+def test_image_prompt_output_tolerates_garbage_identity_tags() -> None:
+    assert (
+        AdventureImagePromptOutput(
+            scene_tags="x", player_tags="y", identity_tags=None
+        ).identity_tags
+        == ""
+    )
+    assert (
+        AdventureImagePromptOutput(
+            scene_tags="x", player_tags="y", identity_tags=["1girl", "blonde hair"]
+        ).identity_tags
+        == "1girl, blonde hair"
+    )
+    overlong = AdventureImagePromptOutput(
+        scene_tags="x", player_tags="y", identity_tags="a" * 2000
+    )
+    assert len(overlong.identity_tags) == 400
+    assert (
+        AdventureImagePromptOutput(scene_tags="x", player_tags="y").identity_tags == ""
+    )

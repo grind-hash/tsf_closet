@@ -945,7 +945,11 @@ ROMANCE_VISUAL_GUIDANCE = (
     "must always begin with the partner's explicit sex tokens (for example "
     "female, 1girl or male, 1boy) taken from the partner's body after any change "
     "declared through reality_rules, so a partner whose body has become male is "
-    "never drawn female."
+    "never drawn female. When romance_partner.identity_tags is provided, the "
+    "partner's entry in npc_tags must begin with exactly those tags, in that "
+    "order, unless reality_rules or reality_rule_declared_this_turn changed the "
+    "partner's body this turn, in which case the change wins and the entry begins "
+    "with the partner's new identity."
 )
 
 # 背景キャッシュは visual_state.location をキーにする。言い換えで別キーになると

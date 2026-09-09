@@ -160,6 +160,12 @@ from .clothing_layers import (
     split_tag_tokens,
 )
 from .cost_tracker import begin_cost_tracking, record_cost
+from .identity_signature import (
+    apply_identity_signature,
+    compose_signature,
+    cross_identity_negative,
+    signature_from_tags,
+)
 from .image_generation import image_service
 from .llm_json import (
     StructuredOutputError,
@@ -190,6 +196,29 @@ from .source_snapshot import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+_IMAGE_SEED_MAX = 999_999_999
+
+
+def _run_image_seed(state: dict[str, Any]) -> int:
+    """run 単位で固定した画像シードを返す。
+
+    立ち絵・攻略対象の立ち絵・合成シーンで手番をまたいで同じ値を使い、同じ
+    タグ列のときに顔立ちが揃いやすくする(NovelAI 公式が勧める seed の再利用)。
+    旧 run でキーが無ければ採番して state へ入れる(次のコミットで永続化)。
+    ↻ の手動描き直しはこの値を使わず乱数のままにする。
+    """
+    raw = state.get("image_seed")
+    if (
+        isinstance(raw, int)
+        and not isinstance(raw, bool)
+        and 0 <= raw <= _IMAGE_SEED_MAX
+    ):
+        return raw
+    seed = random.randint(0, _IMAGE_SEED_MAX)
+    state["image_seed"] = seed
+    return seed
 
 
 def _image_calls_parallelizable() -> bool:
@@ -333,6 +362,12 @@ def _lean_state_for_llm(state: dict[str, Any]) -> dict[str, Any]:
         # 食い違うため LLM に見せると元の姿へ戻す誘導になる
         "initial_appearance_lock",
         "initial_partner_appearance",
+        # 同一性タグ署名は画像用の内部値。visual プロンプトへは
+        # required_identity_tags / romance_partner.identity_tags として別途渡す
+        "identity_tags",
+        "partner_identity_tags",
+        # run 単位で固定した画像シード。物語生成には無関係
+        "image_seed",
         # 未反映の付与ルール。内容は reality_rules と
         # reality_rule_declared_this_turn で別途渡すため重複して見せない
         "pending_reality_rules",
@@ -806,6 +841,46 @@ def _compose_scene_base_tags(image_prompt: AdventureImagePromptOutput) -> str:
     return _merge_player_tags(image_prompt.player_tags, image_prompt.scene_tags)
 
 
+_SCENE_PLAYER_POSITION = (0.55, 0.5)
+_SCENE_NPC_POSITIONS = ((0.18, 0.5), (0.82, 0.5), (0.12, 0.5))
+
+
+def _scene_character_frames(
+    image_prompt: AdventureImagePromptOutput, *, player_prompt: str, nsfw_mode: bool
+) -> list[dict[str, Any]]:
+    """合成シーンの NovelAI キャラクター枠(主人公 + NPC 最大3)を組み立てる。
+
+    NPC が居る場面では枠ごとの negative_prompt に他キャラの髪色・髪の長さ・
+    瞳色・肌色を入れ、属性の混入(主人公が相手の髪色で描かれる等)を抑える
+    (NovelAI 公式 Multi-Character Prompting の推奨)。solo では付けない。
+    """
+    npc_tags = [str(tag) for tag in image_prompt.npc_tags[:3]]
+    player_frame: dict[str, Any] = {
+        "prompt": player_prompt,
+        "position": _SCENE_PLAYER_POSITION,
+    }
+    if npc_tags:
+        player_negative = cross_identity_negative(image_prompt.player_tags, npc_tags)
+        if player_negative:
+            player_frame["negative_prompt"] = player_negative
+    frames = [player_frame]
+    for index, npc_prompt in enumerate(npc_tags):
+        frame: dict[str, Any] = {
+            "prompt": enhance_prompt_for_novelai(
+                npc_prompt + _NPC_PROMPT_SUFFIX, nsfw_mode=nsfw_mode
+            ),
+            "position": _SCENE_NPC_POSITIONS[index],
+        }
+        others = [image_prompt.player_tags] + [
+            tag for other, tag in enumerate(npc_tags) if other != index
+        ]
+        npc_negative = cross_identity_negative(npc_prompt, others)
+        if npc_negative:
+            frame["negative_prompt"] = npc_negative
+        frames.append(frame)
+    return frames
+
+
 def _merge_player_tags(base: str, extra: str) -> str:
     base_clean = base.strip().strip(",")
     extra_clean = extra.strip().strip(",")
@@ -1080,6 +1155,25 @@ def _romance_replay_player_name(replay_state: dict[str, Any]) -> str:
     return normalize_player_name(str(replay_sim.get("player_name") or ""))
 
 
+def _romance_partner_member_index(
+    main_characters: list[Any], partner_name: str
+) -> int | None:
+    """main_characters から攻略対象の添字を名前の部分一致で探す。無ければ None。"""
+    name_key = str(partner_name or "").strip()
+    if not name_key:
+        return None
+    for index, member in enumerate(main_characters):
+        if isinstance(member, dict):
+            member_name = str(member.get("name") or "").strip()
+        else:
+            member_name = str(getattr(member, "name", "") or "").strip()
+        if not member_name:
+            continue
+        if name_key in member_name or member_name in name_key:
+            return index
+    return None
+
+
 def _romance_partner_visual_entry(
     main_characters: list[Any], npc_tags: list[str], partner_name: str
 ) -> tuple[dict[str, str] | None, str]:
@@ -1088,29 +1182,24 @@ def _romance_partner_visual_entry(
     エントリは dict / Pydantic モデルの両方を受け付ける(state 保存値と
     LLM 出力の両方から呼ばれるため)。
     """
-    name_key = str(partner_name or "").strip()
-    if not name_key:
+    index = _romance_partner_member_index(main_characters, partner_name)
+    if index is None:
         return None, ""
-    for index, member in enumerate(main_characters):
-        if isinstance(member, dict):
-            member_name = str(member.get("name") or "").strip()
-            description = str(member.get("description") or "")
-            clothing = str(member.get("clothing") or "")
-        else:
-            member_name = str(getattr(member, "name", "") or "").strip()
-            description = str(getattr(member, "description", "") or "")
-            clothing = str(getattr(member, "clothing", "") or "")
-        if not member_name:
-            continue
-        if name_key in member_name or member_name in name_key:
-            entry = {
-                "name": member_name,
-                "description": description,
-                "clothing": clothing,
-            }
-            tags = npc_tags[index] if index < len(npc_tags) else ""
-            return entry, tags
-    return None, ""
+    member = main_characters[index]
+    if isinstance(member, dict):
+        entry = {
+            "name": str(member.get("name") or "").strip(),
+            "description": str(member.get("description") or ""),
+            "clothing": str(member.get("clothing") or ""),
+        }
+    else:
+        entry = {
+            "name": str(getattr(member, "name", "") or "").strip(),
+            "description": str(getattr(member, "description", "") or ""),
+            "clothing": str(getattr(member, "clothing", "") or ""),
+        }
+    tags = npc_tags[index] if index < len(npc_tags) else ""
+    return entry, tags
 
 
 def _normalized_appearance(value: Any) -> str:
@@ -1775,6 +1864,42 @@ def _normalize_reality_rules(rules: Iterable[Any]) -> list[str]:
 
 
 # 画像生成へ渡すときに付ける定型サフィックス。プレビューと送信で同じものを使う
+# 同一性タグ署名を visual LLM に出力させる指示。required_identity_tags は
+# state["identity_tags"](identity_signature.py)で、変化の無い手番はそのまま写させ、
+# 現実改変・変身・進行型ルールの手番だけ書き換えを許す(変更が署名より優先)
+_IDENTITY_TAGS_INSTRUCTION = (
+    "identity_tags is the player's complete identity signature as concise English "
+    "comma-separated tags in this order: sex tokens (for example female, 1girl or "
+    "male, 1boy), hair color, hair length, hairstyle and bangs, eye color and eye "
+    "shape, skin tone, body type and build, distinguishing marks (moles, freckles, "
+    "scars, fangs, pointy ears, animal ears, horns, tail, heterochromia), and facial "
+    "features (eyebrows, eyelashes, facial hair). It must never contain clothing, "
+    "accessories, pose, expression, action, camera, lighting, or scene tags. When "
+    "required_identity_tags is provided, copy it into identity_tags verbatim, "
+    "character for character, and begin player_tags with exactly those tags, unless "
+    "this turn changes the player's own body or identity under the rules above "
+    "(authored_template_resolution triggers the change, "
+    "reality_rule_declared_this_turn changes the player's own body or identity, or "
+    "a progressive_reality_rules entry advances it); in that case the change wins: "
+    "rewrite identity_tags to describe the new body completely, keep every trait "
+    "the change does not affect, and begin player_tags with the rewritten "
+    "identity_tags. When required_identity_tags and required_visual_appearance "
+    "disagree, required_identity_tags wins for the traits it lists. When "
+    "required_identity_tags is absent, derive identity_tags from "
+    "visual_state.appearance."
+)
+# 開幕コンバータ(visual_state → タグ)向け。手番の文脈が無いので写すだけ
+_IDENTITY_TAGS_CONVERTER_INSTRUCTION = (
+    " identity_tags is the player's complete identity signature derived from "
+    "visual_state.appearance as concise English comma-separated tags in this "
+    "order: sex tokens (for example female, 1girl or male, 1boy), hair color, hair "
+    "length, hairstyle and bangs, eye color and eye shape, skin tone, body type and "
+    "build, distinguishing marks, and facial features. It must never contain "
+    "clothing, accessories, pose, expression, action, camera, or scene tags. When "
+    "required_identity_tags is provided, copy it into identity_tags verbatim. "
+    "player_tags must begin with identity_tags."
+)
+
 _SCENE_PROMPT_SUFFIX = (
     ", visual novel scene, protagonist in foreground, supporting NPCs secondary"
 )
@@ -1802,6 +1927,7 @@ def _visual_user_payload(
     appearance_lock: str,
     previous_image_tags: dict[str, Any] | None,
     romance_partner: dict[str, Any] | None,
+    identity_tags: str = "",
 ) -> str:
     """ビジュアル呼び出しの user prompt。プレビューと送信で同じものを使う。"""
     authored_scene_tags = str(turn_context.get("authored_scene_tags") or "").strip()
@@ -1817,6 +1943,8 @@ def _visual_user_payload(
             "previous_visual_state": previous_visual,
             "previous_image_tags": previous_image_tags,
             "required_visual_appearance": appearance_lock,
+            # 同一性タグ署名(identity_signature.py)。空なら None
+            "required_identity_tags": identity_tags or None,
             # 現実改変を外見へ反映させるための世界ルール。宣言ターンの
             # 検出は reality_rule_declared_this_turn で伝える
             "reality_rules": turn_context.get("reality_rules", []),
@@ -1873,6 +2001,11 @@ class _TurnContexts:
     inventory_enabled: bool = False
     # 持ち物パネル由来の行動の検証結果(resolve_item_action)。無ければ None
     item_resolution: dict[str, Any] | None = None
+    # 主人公の同一性タグ署名(state["identity_tags"])。visual プロンプトの
+    # required_identity_tags と、画像生成への override に使う
+    identity_tags: str = ""
+    # 攻略対象の同一性タグ署名(state["partner_identity_tags"])。romance 以外は空
+    partner_identity_tags: str = ""
 
 
 def _take_established_reality_rules(
@@ -2353,11 +2486,12 @@ Base every value strictly on the supplied narrative and game state, and never in
         inventory_rule = f"\n{INVENTORY_VISUAL_INSTRUCTION}" if inventory_worn else ""
         return f"""You update the visual state of an adventure scene and convert it into NovelAI image tags.
 Return one JSON object only, matching this schema:
-{{"visual_state":{{"location":"...","appearance":"...","clothing":"...","surroundings":"...","main_characters":[{{"name":"...","description":"...","clothing":"...","action":"..."}}]}},"scene_tags":"...","player_tags":"...","npc_tags":["..."]}}
+{{"visual_state":{{"location":"...","appearance":"...","clothing":"...","surroundings":"...","main_characters":[{{"name":"...","description":"...","clothing":"...","action":"..."}}]}},"scene_tags":"...","player_tags":"...","npc_tags":["..."],"identity_tags":"..."}}
 Write visual_state values in {response_language}. Write scene_tags, player_tags, and npc_tags as concise English comma-separated tags.
 Derive visual_state from previous_visual_state, changing only what the narrative states. Treat required_visual_appearance as an immutable identity signature: copy its sex, hair color, hair length, hairstyle, eye color, and body features exactly into visual_state.appearance, and never replace or supplement those traits unless authored_template_resolution explicitly triggers that change, or reality_rule_declared_this_turn declares a change to the player's own body or identity; in that case rewrite visual_state.appearance to match the declared rule while keeping every unaffected trait, and when the declaration does not concern the player's own body, copy required_visual_appearance unchanged. reality_rules are established facts of this world; keep visual_state, player_tags, and npc_tags consistent with them. The player only puts on, removes, or changes clothing when player_input explicitly chose that action, or when reality_rule_declared_this_turn changes the player's own body or identity; in that case clothing follows the body, so rewrite visual_state.clothing to the outfit that body is actually wearing after the change, and when the declaration swaps or exchanges the player with another character the player now wears the clothing that character was wearing while that character now wears the player's previous clothing, which their entry in main_characters must reflect. Separately, a reality_rules entry may itself state what the player wears or how the player looks; such a rule outranks previous_visual_state, so visual_state.clothing and visual_state.appearance must satisfy it on every turn it remains in reality_rules, not only on the turn it was established. progressive_reality_rules lists the reality rules that describe a gradual, repeated, or per-turn ongoing change (for example, the player's body becoming more feminine every turn); on every turn each such rule advances by one clearly noticeable step, so rewrite the affected traits in visual_state.appearance and player_tags one visible step further advanced than previous_visual_state and required_visual_appearance, never reverting to an earlier stage while the rule remains, and the immutable-identity-signature rule does not protect the traits such a rule changes. Otherwise keep previous_visual_state.clothing unchanged. Unless layering was explicitly requested, a new garment replaces the previous outfit. Keep visual_state concrete enough to illustrate the main characters, their clothing, and the surrounding location. main_characters contains NPCs, never the player.
 When previous_image_tags is provided, treat it as the wording a human editor deliberately chose: reuse its scene_tags, player_tags, and npc_tags as the starting point and edit them only where visual_state or the narrative now requires a change, preserving the rest of the original wording and phrasing style. When previous_image_tags is absent, write the tags from scratch.
-scene_tags contains only environment, camera, composition, lighting, and the observable interaction; it must not contain any character's gender, body, face, hair, or clothing. player_tags describes only the player from visual_state.appearance and visual_state.clothing. The player is always the primary subject in the center foreground. visual_state.clothing is authoritative and must never be replaced with an NPC outfit. npc_tags must contain one entry per NPC in main_characters, in the same order, describing only that NPC; every NPC is a secondary subject placed to the side or behind the player. Never merge player and NPC attributes. Do not add text, UI, split panels, or unstated changes. When authored_scene_tags is provided, reuse those environment tags as the base of scene_tags and only append concrete changes required by the narrative. When authored_visual_style is provided, keep visual_state.location and visual_state.surroundings aligned with it unless the narrative explicitly moves the scene to a new place after a successful exit.{layer_rule}{romance_rule}{inventory_rule}"""
+scene_tags contains only environment, camera, composition, lighting, and the observable interaction; it must not contain any character's gender, body, face, hair, or clothing. player_tags describes only the player from visual_state.appearance and visual_state.clothing. The player is always the primary subject in the center foreground. visual_state.clothing is authoritative and must never be replaced with an NPC outfit. npc_tags must contain one entry per NPC in main_characters, in the same order, describing only that NPC; every NPC is a secondary subject placed to the side or behind the player. Never merge player and NPC attributes. Do not add text, UI, split panels, or unstated changes. When authored_scene_tags is provided, reuse those environment tags as the base of scene_tags and only append concrete changes required by the narrative. When authored_visual_style is provided, keep visual_state.location and visual_state.surroundings aligned with it unless the narrative explicitly moves the scene to a new place after a successful exit.
+{_IDENTITY_TAGS_INSTRUCTION}{layer_rule}{romance_rule}{inventory_rule}"""
 
     async def _generate_structured_output(
         self,
@@ -2505,6 +2639,7 @@ scene_tags contains only environment, camera, composition, lighting, and the obs
         romance: bool = False,
         romance_partner: dict[str, Any] | None = None,
         inventory_worn: bool = False,
+        identity_tags: str = "",
     ) -> AdventureVisualOutput:
         authored_scene_tags = str(turn_context.get("authored_scene_tags") or "").strip()
         visual_output = await self._generate_structured_output(
@@ -2522,6 +2657,7 @@ scene_tags contains only environment, camera, composition, lighting, and the obs
                 appearance_lock=appearance_lock,
                 previous_image_tags=previous_image_tags,
                 romance_partner=romance_partner,
+                identity_tags=identity_tags,
             ),
             text_model=text_model,
             error_code="invalid_image_prompt",
@@ -3300,6 +3436,13 @@ The objective must name a concrete target and an observable end condition that c
             # 開始時の外見。現実改変で appearance_lock が動いたかの判定に使い、
             # 乖離後は元画像を参照に使わない(_appearance_diverged)
             "initial_appearance_lock": appearance,
+            # 同一性タグ署名(identity_signature.py)。開幕コンバータの出力で確定し、
+            # 以後は外見が変わり得る手番だけ作り直す。画像用の内部値で、LLM へは
+            # required_identity_tags として別途渡す
+            "identity_tags": signature_from_tags(appearance),
+            # run 単位で固定する画像シード。立ち絵・攻略対象立ち絵・合成シーンで
+            # 共有し、手番をまたいでも同じ値を使う(↻ の手動描き直しだけ乱数)
+            "image_seed": random.randint(0, _IMAGE_SEED_MAX),
             "scenario_template_id": source.scenario_template_id,
             "replayed_from_run_id": request.replay_run_id,
             "scenario_capabilities": start_state,
@@ -3351,6 +3494,10 @@ The objective must name a concrete target and an observable end condition that c
             )
             # 攻略対象の開始時の外見。主人公側と同じく乖離判定にだけ使う
             state["initial_partner_appearance"] = romance.partner_appearance
+            # 攻略対象の同一性タグ署名。開幕コンバータの npc_tags で上書きされる
+            state["partner_identity_tags"] = signature_from_tags(
+                identity_tags_only(romance.partner_appearance)
+            )
             if partner_reference_path is not None:
                 state["partner_image_path"] = str(partner_reference_path)
         if authored_scene_tags:
@@ -3762,6 +3909,8 @@ The objective must name a concrete target and an observable end condition that c
         # 持ち物システムの ON/OFF は設定。所持品そのものは巻き戻し先の
         # スナップショットに従う(再生成前に得た品だけが残ることはない)
         "inventory_enabled",
+        # 画像シードは run 定数。バックフィル前のスナップショットへ戻っても再採番しない
+        "image_seed",
     )
 
     async def rewind_to_turn(self, run_id: str, turn_number: int) -> dict[str, Any]:
@@ -4769,6 +4918,32 @@ The objective must name a concrete target and an observable end condition that c
             state["initial_partner_appearance"] = str(
                 sim_backfill.get("partner_appearance") or ""
             )
+        # 同一性タグ署名と画像シードのバックフィル(identity_signature.py)。
+        # 旧 run は直近の画像タグ、無ければ外見ロックから署名を起こす
+        _run_image_seed(state)
+        last_prompt = state.get("last_image_prompt")
+        stored_prompt = last_prompt if isinstance(last_prompt, dict) else {}
+        if not str(state.get("identity_tags") or ""):
+            backfilled = signature_from_tags(
+                str(stored_prompt.get("player_tags") or "")
+            ) or signature_from_tags(str(state.get("appearance_lock") or ""))
+            if backfilled:
+                state["identity_tags"] = backfilled
+        if isinstance(sim_backfill, dict) and not str(
+            state.get("partner_identity_tags") or ""
+        ):
+            _entry, partner_tags = _romance_partner_visual_entry(
+                list(state.get("visual_state", {}).get("main_characters") or []),
+                [str(tag) for tag in (stored_prompt.get("npc_tags") or [])],
+                str(sim_backfill.get("partner_name") or ""),
+            )
+            backfilled_partner = signature_from_tags(
+                identity_tags_only(partner_tags)
+            ) or signature_from_tags(
+                identity_tags_only(str(sim_backfill.get("partner_appearance") or ""))
+            )
+            if backfilled_partner:
+                state["partner_identity_tags"] = backfilled_partner
 
         # 手番0への巻き戻し用に、最初のターン処理前の状態を保存する。
         # 旧runの初回ターンでも拾えるようここで行う(create_run 直後とは
@@ -4944,12 +5119,14 @@ The objective must name a concrete target and an observable end condition that c
                 romance_partner={
                     "name": str(romance_sim.get("partner_name") or ""),
                     "appearance": str(romance_sim.get("partner_appearance") or ""),
+                    "identity_tags": contexts.partner_identity_tags or None,
                 }
                 if romance_sim is not None
                 else None,
                 inventory_worn=bool(
                     contexts.visual_turn_context.get("worn_inventory_items")
                 ),
+                identity_tags=contexts.identity_tags,
             )
         except Exception as error:
             logger.warning("Adventure visual generation failed: %s", error)
@@ -4973,6 +5150,22 @@ The objective must name a concrete target and an observable end condition that c
             visual.visual_state,
             allow_update=contexts.appearance_update_allowed,
         )
+        # 同一性タグ署名も外見が変わり得る手番(現実改変・宣言の反映・進行型
+        # ルール・作品シナリオの変身)だけ、この手番の出力から作り直す。
+        # 画像ヘルパは DB から state を読み直すため、値は override で渡す
+        if contexts.appearance_update_allowed or (
+            template_resolution.get("event") == "perfect_score"
+        ):
+            self._refresh_identity_tags(
+                state,
+                visual,
+                template=template,
+                template_resolution=template_resolution,
+            )
+            if romance_sim is not None:
+                self._refresh_partner_identity_tags(state, visual, romance_sim)
+        identity_override = str(state.get("identity_tags") or "")
+        partner_identity_override = str(state.get("partner_identity_tags") or "")
         await queue.put(("visual", visual))
 
         next_visual = visual.visual_state.model_dump()
@@ -5070,8 +5263,9 @@ The objective must name a concrete target and an observable end condition that c
             + int(draw_partner_portrait)
             + int(enable_composite)
         )
-        # 立ち絵と合成シーンで同一シードを使い、衣装の描画差を抑える
-        turn_seed = random.randint(0, 999_999_999)
+        # 立ち絵・攻略対象立ち絵・合成シーンで run 固定のシードを共有し、
+        # 手番をまたいでも顔立ち・衣装の描画差を抑える
+        turn_seed = _run_image_seed(state)
 
         async def portrait_step() -> Path | None:
             if skip_player_portrait:
@@ -5086,6 +5280,8 @@ The objective must name a concrete target and an observable end condition that c
                     turn_number=run.turn_count + 1,
                     worn_items_override=resolved_worn_items,
                     seed_override=turn_seed,
+                    identity_tags_override=identity_override,
+                    partner_identity_override=partner_identity_override,
                 )
             except Exception as error:
                 logger.warning("Adventure turn portrait generation failed: %s", error)
@@ -5120,6 +5316,7 @@ The objective must name a concrete target and an observable end condition that c
                     partner_tags=partner_tags,
                     turn_number=run.turn_count + 1,
                     seed_override=turn_seed,
+                    partner_identity_override=partner_identity_override,
                 )
             except Exception as error:
                 # 相手立ち絵の失敗はターン進行を止めない
@@ -5209,6 +5406,8 @@ The objective must name a concrete target and an observable end condition that c
                 else None,
                 worn_items_override=resolved_worn_items,
                 seed_override=turn_seed,
+                identity_tags_override=identity_override,
+                partner_identity_override=partner_identity_override,
             )
             await queue.put(("image", image_path))
         except Exception as error:
@@ -5398,6 +5597,12 @@ The objective must name a concrete target and an observable end condition that c
                 -BOUNDARY_AFFECTION_FLOOR,
             )
         if romance_resolution is not None:
+            sim_before = state.get("sim")
+            previous_partner_appearance = (
+                str(sim_before.get("partner_appearance") or "")
+                if isinstance(sim_before, dict)
+                else ""
+            )
             # sim を更新し、milestone と ending_status を Python 算出値で上書き
             apply_romance_outcome(state, output, romance_resolution, resolution)
             # 攻略対象の外見は、実際にその手番を描いた visual 出力を優先する。
@@ -5406,6 +5611,12 @@ The objective must name a concrete target and an observable end condition that c
             # 相手が元の姿へ戻ってしまう
             if contexts.appearance_update_allowed and visual_output is not None:
                 self._apply_partner_appearance_lock(state, visual_output)
+            if contexts.appearance_update_allowed:
+                # 相手不在の手番に updated_partner_appearance で変わった外見にも
+                # 署名を追従させる(visual 由来の更新は同じ値になる)
+                self._sync_partner_identity_tags(
+                    state, previous_appearance=previous_partner_appearance
+                )
             # 専用ボタンと重複する選択肢は選んでも機械処理が走らず空振りする。
             # プロンプトの禁止指示に LLM が従わないため、ここで確実に落とす
             output.choices = [
@@ -5816,7 +6027,174 @@ The objective must name a concrete target and an observable end condition that c
             outfit_options=list(outfit_options or []) if script_names else [],
             inventory_enabled=enabled,
             item_resolution=item_resolution,
+            identity_tags=str(state.get("identity_tags") or ""),
+            partner_identity_tags=str(state.get("partner_identity_tags") or "")
+            if romance_sim is not None
+            else "",
         )
+
+    def _refresh_identity_tags(
+        self,
+        state: dict[str, Any],
+        visual: AdventureVisualOutput,
+        *,
+        template: dict[str, Any] | None,
+        template_resolution: dict[str, Any],
+    ) -> None:
+        """外見が変わり得る手番に、主人公の同一性タグ署名をこの手番の出力から作り直す。
+
+        古い署名は補完にも使わない(現実改変・変身を必ず通すため)。player_tags を
+        最優先にするのは、LLM が identity_tags に旧署名を写しながら player_tags
+        だけ新しい体を書く失敗が既知のため。作品シナリオの変身イベントでは
+        テンプレートの appearance_transform を安全網として掛ける。空出力は据え置き。
+        """
+        candidate = compose_signature(
+            visual.player_tags,
+            visual.identity_tags,
+            visual.visual_state.appearance,
+        )
+        if template and template_resolution.get("event") == "perfect_score":
+            transform = self._template_event_config(template, template_resolution).get(
+                "appearance_transform"
+            )
+            if isinstance(transform, dict):
+                candidate = signature_from_tags(
+                    _transform_appearance(
+                        candidate or str(state.get("identity_tags") or ""),
+                        transform,
+                    )
+                )
+        if candidate:
+            state["identity_tags"] = candidate
+
+    def _refresh_partner_identity_tags(
+        self,
+        state: dict[str, Any],
+        visual: AdventureVisualOutput,
+        romance_sim: dict[str, Any],
+    ) -> None:
+        """外見が変わり得る手番に、攻略対象の署名をこの手番の npc_tags から作り直す。
+
+        相手が場面に居ない・タグを取れない手番は据え置く。
+        """
+        _entry, partner_tags = _romance_partner_visual_entry(
+            list(visual.visual_state.main_characters),
+            list(visual.npc_tags),
+            str(romance_sim.get("partner_name") or ""),
+        )
+        candidate = signature_from_tags(identity_tags_only(partner_tags))
+        if candidate:
+            state["partner_identity_tags"] = candidate
+
+    def _sync_partner_identity_tags(
+        self, state: dict[str, Any], *, previous_appearance: str
+    ) -> None:
+        """コミット時に sim["partner_appearance"] の変化へ攻略対象の署名を追従させる。
+
+        visual 出力から書き戻した場合は producer 側の更新と同じ値になり、相手が
+        不在で resolution の updated_partner_appearance だけが変わった場合を拾う。
+        外見が変わっていなければ触らない(npc_tags 由来の詳しい署名を残す)。
+        """
+        sim = state.get("sim")
+        if not isinstance(sim, dict):
+            return
+        current = str(sim.get("partner_appearance") or "")
+        if _normalized_appearance(current) == _normalized_appearance(
+            previous_appearance
+        ):
+            return
+        candidate = signature_from_tags(identity_tags_only(current))
+        if candidate:
+            state["partner_identity_tags"] = candidate
+
+    def _adopt_user_edited_identity(
+        self,
+        state: dict[str, Any],
+        prompt_override: AdventureImagePromptOutput,
+        *,
+        identity: str,
+        partner_identity: str,
+    ) -> tuple[str, str]:
+        """画像プロンプトモーダルで手編集された同一性タグを新しい署名として採用する。
+
+        未編集の再生成は last_image_prompt(raw)と同じタグを送ってくるため、
+        同一性部分が raw と異なるときだけユーザーの編集とみなす(服装だけの編集で
+        LLM 由来のずれを署名に取り込まないため)。採用した署名は state に書き、
+        呼び出し側が last_image_prompt と一緒に永続化する。
+        """
+        last_prompt = state.get("last_image_prompt")
+        stored = last_prompt if isinstance(last_prompt, dict) else {}
+        edited = signature_from_tags(prompt_override.player_tags)
+        stored_identity = signature_from_tags(str(stored.get("player_tags") or ""))
+        if edited and _normalized_appearance(edited) != _normalized_appearance(
+            stored_identity
+        ):
+            identity = edited
+            state["identity_tags"] = edited
+        sim_state = state.get("sim")
+        if isinstance(sim_state, dict):
+            index = _romance_partner_member_index(
+                list(state.get("visual_state", {}).get("main_characters") or []),
+                str(sim_state.get("partner_name") or ""),
+            )
+            stored_npc = [str(tag) for tag in (stored.get("npc_tags") or [])]
+            if index is not None and index < len(prompt_override.npc_tags):
+                edited_partner = signature_from_tags(
+                    identity_tags_only(prompt_override.npc_tags[index])
+                )
+                stored_partner = signature_from_tags(
+                    identity_tags_only(
+                        stored_npc[index] if index < len(stored_npc) else ""
+                    )
+                )
+                if edited_partner and _normalized_appearance(
+                    edited_partner
+                ) != _normalized_appearance(stored_partner):
+                    partner_identity = edited_partner
+                    state["partner_identity_tags"] = edited_partner
+        return identity, partner_identity
+
+    async def _persist_opening_identity(
+        self,
+        run_id: str,
+        state: dict[str, Any],
+        image_prompt: AdventureImagePromptOutput,
+    ) -> None:
+        """開幕コンバータの出力から同一性タグ署名を確定し、各 step より前に永続化する。
+
+        立ち絵・合成の各 step は DB から state を読み直すため、ここで書いておく。
+        開幕だけ identity_tags を優先し、欠けたカテゴリは player_tags で補う。
+        空出力なら開始素材由来の署名(_build_initial_state)を残す。
+        """
+        opening_identity = compose_signature(
+            image_prompt.identity_tags, image_prompt.player_tags
+        )
+        partner_identity = ""
+        sim_state = state.get("sim")
+        if isinstance(sim_state, dict):
+            _entry, partner_tags = _romance_partner_visual_entry(
+                list(state.get("visual_state", {}).get("main_characters") or []),
+                list(image_prompt.npc_tags),
+                str(sim_state.get("partner_name") or ""),
+            )
+            partner_identity = signature_from_tags(identity_tags_only(partner_tags))
+        if not opening_identity and not partner_identity:
+            return
+        if opening_identity:
+            state["identity_tags"] = opening_identity
+        if partner_identity:
+            state["partner_identity_tags"] = partner_identity
+        async with self._persist_locks[run_id], async_session_factory() as db:
+            persisted_run = await db.get(AdventureRun, run_id)
+            if persisted_run is None:
+                raise AdventureError("run_not_found", "アドベンチャーが見つかりません")
+            persisted_state = _json_load(persisted_run.state_json, {})
+            if opening_identity:
+                persisted_state["identity_tags"] = opening_identity
+            if partner_identity:
+                persisted_state["partner_identity_tags"] = partner_identity
+            persisted_run.state_json = json.dumps(persisted_state, ensure_ascii=False)
+            await db.commit()
 
     def _apply_partner_appearance_lock(
         self, state: dict[str, Any], visual_output: AdventureVisualOutput
@@ -5860,15 +6238,18 @@ The objective must name a concrete target and an observable end condition that c
         *,
         authored_scene_tags: str = "",
         respect_clothing_layers: bool = False,
+        required_identity_tags: str = "",
     ) -> AdventureImagePromptOutput:
         system_prompt = """Convert a visual_state into NovelAI image tags.
-Return one JSON object only: {"scene_tags":"...","player_tags":"...","npc_tags":["..."]}.
+Return one JSON object only: {"scene_tags":"...","player_tags":"...","npc_tags":["..."],"identity_tags":"..."}.
 All values must be concise English comma-separated tags. scene_tags contains only environment, camera, composition, lighting, and the observable interaction; it must not contain any character's gender, body, face, hair, or clothing. player_tags describes only the player from visual_state.appearance and visual_state.clothing. The player is always the primary subject in the center foreground. visual_state.clothing is authoritative and must never be replaced with an NPC outfit. main_characters contains NPCs, not the player. npc_tags must contain one entry per important NPC in the same order, describing only that NPC; every NPC is a secondary subject placed to the side or behind the player. Never merge player and NPC attributes. Do not add text, UI, split panels, or unstated changes. When authored_scene_tags is provided, reuse those environment tags as the base of scene_tags and only append concrete changes required by visual_state."""
+        system_prompt += _IDENTITY_TAGS_CONVERTER_INSTRUCTION
         if respect_clothing_layers:
             system_prompt += _CLOTHING_LAYER_TAG_RULE
         payload = {
             "visual_state": visual_state,
             "authored_scene_tags": authored_scene_tags or None,
+            "required_identity_tags": required_identity_tags or None,
         }
         try:
             image_prompt = await generate_validated(
@@ -5909,6 +6290,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 turn_id,
                 redraw_from_reference=redraw_from_reference,
                 prompt_override=prompt_override,
+                honor_user_edits=prompt_override is not None,
             )
         result: dict[str, Any] = {
             "image_url": self.image_url(run_id, image_path),
@@ -5934,6 +6316,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 turn_id,
                 redraw_from_reference=redraw_from_reference,
                 prompt_override=prompt_override,
+                honor_user_edits=prompt_override is not None,
             )
         result: dict[str, Any] = {
             "image_url": self.image_url(run_id, portrait_path),
@@ -5968,16 +6351,18 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         )
         partner_name = str(sim_state.get("partner_name") or "")
         partner_appearance = str(sim_state.get("partner_appearance") or "")
+        signature = str(state.get("partner_identity_tags") or "")
         tags = _romance_partner_turn_portrait_tags(
             main_characters, stored_tags, partner_name, partner_appearance
         )
         if tags:
-            return tags
+            return apply_identity_signature(tags, signature)
         entry, _ = _romance_partner_visual_entry(
             main_characters, stored_tags, partner_name
         )
         clothing = entry["clothing"] if entry else ""
-        return ", ".join(part for part in (partner_appearance, clothing) if part)
+        fallback = ", ".join(part for part in (partner_appearance, clothing) if part)
+        return apply_identity_signature(fallback, signature) if fallback else fallback
 
     async def generate_partner_portrait(self, run_id: str) -> dict[str, Any]:
         """romance の攻略対象の立ち絵だけを作り直す(対面会話モードの↻)。"""
@@ -6076,6 +6461,9 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         partner_reference_image_override: bytes | None = None,
         worn_items_override: list[str] | None = None,
         seed_override: int | None = None,
+        identity_tags_override: str | None = None,
+        partner_identity_override: str | None = None,
+        honor_user_edits: bool = False,
     ) -> tuple[Path, str | None]:
         """呼び出し側が既に run ロックを保持している前提で画像を生成する。
 
@@ -6117,27 +6505,16 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 prompt_override=prompt_override,
                 worn_items_override=worn_items_override,
                 turn_number=effective_turn_number,
+                identity_tags_override=identity_tags_override,
+                partner_identity_override=partner_identity_override,
+                honor_user_edits=honor_user_edits,
             )
             player_prompt = enhance_prompt_for_novelai(
                 image_prompt.player_tags + _PLAYER_PROMPT_SUFFIX,
                 nsfw_mode=nsfw_mode,
             )
-            characters = [
-                {
-                    "prompt": player_prompt,
-                    "position": (0.55, 0.5),
-                }
-            ]
-            npc_positions = ((0.18, 0.5), (0.82, 0.5), (0.12, 0.5))
-            characters.extend(
-                {
-                    "prompt": enhance_prompt_for_novelai(
-                        npc_prompt + _NPC_PROMPT_SUFFIX,
-                        nsfw_mode=nsfw_mode,
-                    ),
-                    "position": npc_positions[index],
-                }
-                for index, npc_prompt in enumerate(image_prompt.npc_tags[:3])
+            characters = _scene_character_frames(
+                image_prompt, player_prompt=player_prompt, nsfw_mode=nsfw_mode
             )
             source_image = (
                 source_image_override
@@ -6314,6 +6691,9 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         prompt_override: AdventureImagePromptOutput | None,
         worn_items_override: list[str] | None = None,
         turn_number: int | None = None,
+        identity_tags_override: str | None = None,
+        partner_identity_override: str | None = None,
+        honor_user_edits: bool = False,
     ) -> tuple[
         AdventureImagePromptOutput,
         bool,
@@ -6334,8 +6714,31 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         template = SCENARIO_TEMPLATES.get(str(state.get("scenario_template_id") or ""))
         authored_scene_tags = _authored_scene_tags(template=template, state=state)
         respect_clothing_layers = bool(state.get("respect_clothing_layers"))
+        # 同一性タグ署名(identity_signature.py)。手番中は DB の state が古いため
+        # 呼び出し側の override を優先する
+        identity = (
+            identity_tags_override
+            if identity_tags_override is not None
+            else str(state.get("identity_tags") or "")
+        )
+        sim_state = state.get("sim")
+        partner_identity = ""
+        if isinstance(sim_state, dict):
+            partner_identity = (
+                partner_identity_override
+                if partner_identity_override is not None
+                else str(state.get("partner_identity_tags") or "")
+            )
         if prompt_override is not None:
             raw_image_prompt = prompt_override
+            if honor_user_edits:
+                # 画像プロンプトモーダルでの手編集は署名より優先し、以後も固定する
+                identity, partner_identity = self._adopt_user_edited_identity(
+                    state,
+                    prompt_override,
+                    identity=identity,
+                    partner_identity=partner_identity,
+                )
             # 呼び出し側の prompt_override を last_image_prompt として保存する経路が
             # あるため、決定論変換は複製に対して行い、元は書き換えない。
             image_prompt = prompt_override.model_copy(deep=True)
@@ -6349,8 +6752,31 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 run.text_model,
                 authored_scene_tags=authored_scene_tags,
                 respect_clothing_layers=respect_clothing_layers,
+                required_identity_tags=identity,
             )
             image_prompt = raw_image_prompt.model_copy(deep=True)
+        # 同一性署名は変換後の複製にだけ先頭注入する(raw は last_image_prompt へ
+        # 保存され、次の手番の previous_image_tags になる)。攻略対象は該当する
+        # npc 枠だけに付け、他の NPC は書き換えない
+        image_prompt.player_tags = apply_identity_signature(
+            image_prompt.player_tags, identity
+        )
+        if partner_identity and isinstance(sim_state, dict):
+            override_visual = getattr(prompt_override, "visual_state", None)
+            main_characters = (
+                list(override_visual.main_characters)
+                if override_visual is not None
+                else list((visual_state or {}).get("main_characters") or [])
+            )
+            partner_index = _romance_partner_member_index(
+                main_characters, str(sim_state.get("partner_name") or "")
+            )
+            if partner_index is not None and partner_index < len(image_prompt.npc_tags):
+                npc_tags = list(image_prompt.npc_tags)
+                npc_tags[partner_index] = apply_identity_signature(
+                    npc_tags[partner_index], partner_identity
+                )
+                image_prompt.npc_tags = npc_tags
         # romance は昼/夜が turn_number から決まる。LLM 任せにすると夜のターンで
         # 真昼の絵が出るため、照明タグを決定論で確定させる
         if getattr(run, "preset", "") == "romance" and turn_number is not None:
@@ -6530,6 +6956,9 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         turn_number: int | None = None,
         worn_items_override: list[str] | None = None,
         seed_override: int | None = None,
+        identity_tags_override: str | None = None,
+        partner_identity_override: str | None = None,
+        honor_user_edits: bool = False,
     ) -> tuple[Path, str | None]:
         """呼び出し側が既に run ロックを保持している前提で中央の立ち絵を生成する。"""
         run = await self.get_run_orm(run_id)
@@ -6565,6 +6994,9 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 prompt_override=prompt_override,
                 worn_items_override=worn_items_override,
                 turn_number=effective_turn_number,
+                identity_tags_override=identity_tags_override,
+                partner_identity_override=partner_identity_override,
+                honor_user_edits=honor_user_edits,
             )
             provider, effective_image_model = await self._resolve_provider_and_model(
                 state, nsfw_mode
@@ -6692,6 +7124,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         partner_tags: str,
         turn_number: int,
         seed_override: int | None = None,
+        partner_identity_override: str | None = None,
     ) -> Path:
         """romance の攻略対象の立ち絵を生成する(非合成モードの並置表示用)。
 
@@ -6706,6 +7139,13 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             state, nsfw_mode
         )
         partner_empty_message = "相手の立ち絵が生成されませんでした"
+        # 同一性タグ署名を先頭注入する(手番中は override、↻ は保存済み state)
+        partner_tags = apply_identity_signature(
+            partner_tags,
+            partner_identity_override
+            if partner_identity_override is not None
+            else str(state.get("partner_identity_tags") or ""),
+        )
         prompt = enhance_prompt_for_novelai(
             partner_tags + _portrait_prompt_suffix(effective_image_model),
             nsfw_mode=nsfw_mode,
@@ -6814,8 +7254,11 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 prompt_override=None,
                 turn_number=1,
             )
-            # 立ち絵と合成シーンで同一シードを使い、衣装の描画差を抑える
-            opening_seed = random.randint(0, 999_999_999)
+            # 同一性タグ署名を開幕コンバータの出力で確定し、各 step(DB から state を
+            # 読み直す)より前に永続化する
+            await self._persist_opening_identity(run_id, state, image_prompt)
+            # 立ち絵・攻略対象立ち絵・合成シーンで run 固定のシードを共有する
+            opening_seed = _run_image_seed(state)
 
             # 対面会話モード: 開幕背景も現在地キーでキャッシュに登録し、
             # 手番1で同じ場所なら描き直さない(時間帯タグは落として生成する)
@@ -7284,6 +7727,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 "appearance": str(
                     (contexts.romance_sim or {}).get("partner_appearance") or ""
                 ),
+                "identity_tags": contexts.partner_identity_tags or None,
             }
             if romance
             else None
@@ -7334,6 +7778,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                     appearance_lock=contexts.appearance_lock,
                     previous_image_tags=state.get("last_image_prompt"),
                     romance_partner=romance_partner,
+                    identity_tags=contexts.identity_tags,
                 ),
                 "narrative_is_placeholder": True,
             },
