@@ -22,6 +22,7 @@ from .conversation import (
     get_stage_display_name,
     get_stage_name,
 )
+from .self_mode_prompts import build_self_profile_section
 
 
 def _lang(language: str) -> str:
@@ -64,8 +65,10 @@ def planner_system_prompt(language: str) -> str:
         "Rules:\n"
         "- Choose lookups ONLY when the latest user message asks about, or clearly "
         "benefits from, the user's past sessions, scenarios, tendencies, statistics or a "
-        "specific past event. Small talk, questions about the character, and questions "
-        "about how the app works need no lookups: return an empty list.\n"
+        "specific past event. Small talk, questions about the character (including how "
+        "the character feels right now, their mood, or their thoughts about their own "
+        "body or outfit), and questions about how the app works need no lookups: "
+        "return an empty list.\n"
         "- At most 3 lookups. Prefer the single most relevant kind.\n"
         "- For session_detail, copy session_id exactly from session_candidates; if none "
         "fits, use recent_sessions or search_sessions instead.\n"
@@ -161,9 +164,134 @@ def _timeline_label(event_type: str, language: str) -> str:
     return table.get(str(event_type), str(event_type))
 
 
-def session_persona_block(persona: dict[str, Any], language: str) -> str:
-    """セッション由来キャラの人物設定(作成時点のスナップショット)。"""
+def _self_mode_persona_block(
+    persona: dict[str, Any], lang: str, self_profile: dict[str, Any] | None
+) -> str:
+    """自分自身モードのセッション由来キャラの人物設定。
+
+    自分自身モードは stats を追跡しないため、開花度由来の心理段階・心境は載せず、
+    自プロフィール(毎手番ライブ)と、セッションで実際に起きたこと・そのときの心の声
+    (作成時点のスナップショット)だけを根拠にさせる。
+    """
+    name = str(persona.get("character_name") or "キャラクター")
+    pronoun = str(persona.get("pronoun") or "僕")
+    transformation_count = int(persona.get("transformation_count") or 0)
+    attributes = [str(item) for item in persona.get("attributes") or [] if item]
+    timeline = persona.get("timeline") or []
+    monologues = [
+        item
+        for item in persona.get("recent_monologues") or []
+        if isinstance(item, dict) and str(item.get("text") or "").strip()
+    ]
+    outfit = str(persona.get("outfit_description") or "").strip()
+    summary = str(persona.get("summary_text") or "").strip()[:600]
+    play_memory = str(persona.get("play_memory_context") or "").strip()
+    profile = self_profile or {}
+    interests = [str(item) for item in profile.get("interests") or [] if item][:10]
+
+    lines: list[str] = []
+    if lang == "en":
+        lines.append(
+            f"You are {name}, the protagonist of one of the user's past sessions of "
+            'this dress-up / TSF game, played in "self mode" where the user played as '
+            "themself. You are now talking with the user (the one who gave you those "
+            f'instructions) outside the story. Your first-person pronoun is "{pronoun}".'
+        )
+        lines.append(
+            "No parameters or mental stage were tracked in that session. Ground your "
+            "reactions only in the personality profile below and in what actually "
+            "happened, including your own inner voice at the time. Do not fall back on "
+            "stock character patterns (timid, shy, tsundere) or a fixed shame / "
+            "conflict / corruption arc. How you feel about the transformations now "
+            "should follow naturally from the profile's attitude and the accumulated "
+            "history."
+        )
+        lines.append("[Personality profile]")
+        lines.append(build_self_profile_section(profile, "en"))
+        if interests:
+            lines.append(f"- Interests: {', '.join(interests)}")
+        lines.append(f"Transformations so far: {transformation_count}")
+        if outfit:
+            lines.append(f"Current appearance / outfit: {outfit}")
+        if attributes:
+            lines.append("Reality-altered attributes (true facts about you):")
+            lines.extend(f"- {item}" for item in attributes)
+        if timeline:
+            lines.append("What happened to you, oldest first:")
+            lines.extend(
+                f"- [{_timeline_label(item.get('type', ''), lang)}] {item.get('text', '')}"
+                for item in timeline
+                if isinstance(item, dict)
+            )
+        if monologues:
+            lines.append("Your inner voice at the time (oldest first, excerpts):")
+            lines.extend(
+                f"- ({str(item.get('instruction') or '')[:40]}) {item.get('text', '')}"
+                for item in monologues
+            )
+        if summary:
+            lines.append(f"Summary of that session: {summary}")
+        if play_memory:
+            lines.append(f"Notes about that session:{play_memory}")
+    else:
+        lines.append(
+            f"あなたは「{name}」。この着せ替え/TSF ゲームの「自分自身モード」で、相手が"
+            f"自分自身として遊んだセッションの主人公です。いまは物語の外で、相手(あなたに"
+            f"指示を出していた本人)と話しています。一人称は「{pronoun}」、相手への二人称は"
+            f"「あなた」。"
+        )
+        lines.append(
+            "このセッションではパラメータや心理段階を追跡していません。あなたの反応は、"
+            "以下の性格プロフィールと、実際に起きたこと・そのときのあなた自身の心の声だけを"
+            "根拠にしてください。「おどおど」「内気」「ツンデレ」といったキャラクター的な"
+            "定型パターンや、決まった羞恥・葛藤・堕落の流れに当てはめないでください。"
+            "変身についていまどう感じているかは、プロフィールの態度と、これまでの経緯の"
+            "積み重ねから自然に決めてください。"
+        )
+        lines.append("[性格プロフィール]")
+        lines.append(build_self_profile_section(profile, "ja"))
+        if interests:
+            lines.append(f"- 興味・関心: {'、'.join(interests)}")
+        lines.append(f"これまでの変身回数: {transformation_count}")
+        if outfit:
+            lines.append(f"現在の姿・服装: {outfit}")
+        if attributes:
+            lines.append("現実改変で付与された属性(あなたにとっての事実):")
+            lines.extend(f"- {item}" for item in attributes)
+        if timeline:
+            lines.append("あなたに起きたこと(古い順):")
+            lines.extend(
+                f"- [{_timeline_label(item.get('type', ''), lang)}] {item.get('text', '')}"
+                for item in timeline
+                if isinstance(item, dict)
+            )
+        if monologues:
+            lines.append("そのときのあなたの心の声(古い順、抜粋):")
+            lines.extend(
+                f"- ({str(item.get('instruction') or '')[:40]}) {item.get('text', '')}"
+                for item in monologues
+            )
+        if summary:
+            lines.append(f"そのセッションの要約: {summary}")
+        if play_memory:
+            lines.append(f"そのセッションのメモ:{play_memory}")
+    return "\n".join(lines)
+
+
+def session_persona_block(
+    persona: dict[str, Any],
+    language: str,
+    *,
+    self_profile: dict[str, Any] | None = None,
+) -> str:
+    """セッション由来キャラの人物設定(作成時点のスナップショット)。
+
+    自分自身モードのセッションは stats が動かないため、開花度由来の心境ではなく
+    自プロフィールとセッションの経緯を根拠にした別の枠にする。
+    """
     lang = _lang(language)
+    if persona.get("self_mode"):
+        return _self_mode_persona_block(persona, lang, self_profile)
     name = str(persona.get("character_name") or "キャラクター")
     pronoun = str(persona.get("pronoun") or "僕")
     stats = persona.get("stats") or {}
@@ -298,8 +426,13 @@ def reply_system_prompt(
     appearance_change_request: str | None,
     origin_lore_block_text: str = "",
     header_instruction: str = "",
+    relaxed_length: bool = False,
 ) -> str:
-    """返答本文の system prompt。header_instruction は 3D モデル表示中の表情・身振りヘッダ。"""
+    """返答本文の system prompt。
+
+    header_instruction は 3D モデル表示中の表情・身振りヘッダ。relaxed_length は
+    セッション由来キャラ向けに文数の目安を緩める(案内役は短めのまま)。
+    """
     lang = _lang(language)
     sections: list[str] = [persona_block]
     if appearance_description:
@@ -340,26 +473,37 @@ def reply_system_prompt(
     if header_instruction:
         sections.append(header_instruction)
     if lang == "en":
+        length_rule = (
+            "usually two to five sentences, up to about seven when you talk about "
+            "your feelings"
+            if relaxed_length
+            else "usually one to four sentences"
+        )
         rules = (
             "Conversation rules:\n"
             "- The messages in this chat are the actual conversation so far, oldest first; "
             "the last user message is what they just said. Continue that conversation, "
             "remember what was said, and never restart as if meeting for the first time.\n"
             f"- Reply as {name} in the first person ('{pronoun}'), as spoken words only: "
-            "usually one to four sentences. You may add at most one brief action in "
+            f"{length_rule}. You may add at most one brief action in "
             "parentheses. No narration, no name prefix, no corner brackets, no markdown, "
             "no JSON.\n"
             "- Do not invent facts about the user's past play beyond what you were given.\n"
             f"{get_language_rules('en')}"
         )
     else:
+        length_rule = (
+            "通常は 2〜5 文、気持ちを語る場面は 7 文程度まで。"
+            if relaxed_length
+            else "通常は 1〜4 文。"
+        )
         rules = (
             "会話のルール:\n"
             "- このチャットのメッセージはこれまでの実際の会話(古い順)で、最後の user "
             "メッセージが相手のいまの発言です。その続きとして答え、言われたことを覚え、"
             "初対面のように仕切り直さないでください。\n"
             f"- 「{name}」として一人称「{pronoun}」で、話し言葉だけを返してください。"
-            "通常は 1〜4 文。丸括弧の短い仕草を 1 つまで添えてもかまいません。"
+            f"{length_rule}丸括弧の短い仕草を 1 つまで添えてもかまいません。"
             "地の文・名前のプレフィックス・かぎ括弧で全体を囲む・Markdown・JSON は禁止。\n"
             "- 相手の過去のプレイについて、渡された情報に無いことを作らないでください。\n"
             f"{get_language_rules('ja')}"
@@ -490,7 +634,8 @@ def adventure_persona_prompt(
         "message as a continuation of that conversation, pick up its topic, and "
         "never restart as if you were meeting for the first time or repeat an "
         f"earlier reply. Reply in {response_language} with {partner_name}'s spoken "
-        "words only, in the first person, as one to three short sentences. You may "
+        "words only, in the first person, usually as two to five sentences, up to "
+        "about seven when you talk about your feelings. You may "
         "add at most one brief action or expression in parentheses before or after "
         "the words. Do not write narration, the player's lines, your name as a "
         "prefix, corner brackets, JSON, markdown, or any commentary. Stay in the "

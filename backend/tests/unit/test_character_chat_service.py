@@ -54,7 +54,9 @@ def service(isolated_db, tmp_path: Path, monkeypatch) -> CharacterChatService:
     return svc
 
 
-async def _seed_session(factory, image: Path, *, session_id: str = "sess-1") -> None:
+async def _seed_session(
+    factory, image: Path, *, session_id: str = "sess-1", self_mode: bool = False
+) -> None:
     image.write_bytes(_png())
     async with factory() as db:
         if await db.get(User, DEFAULT_USER_ID) is None:
@@ -66,6 +68,7 @@ async def _seed_session(factory, image: Path, *, session_id: str = "sess-1") -> 
                 current_image_path=str(image),
                 character_id="char1",
                 transformation_count=2,
+                self_mode=self_mode,
             )
         )
         db.add(
@@ -80,6 +83,19 @@ async def _seed_session(factory, image: Path, *, session_id: str = "sess-1") -> 
                 created_at=datetime(2026, 9, 1, 10, 0, 0),
             )
         )
+        if self_mode:
+            db.add(
+                HistoryORM(
+                    id=f"{session_id}-h2",
+                    session_id=session_id,
+                    instruction="水着に着替える",
+                    image_path=str(image),
+                    feeling_text="女性として過ごすのも悪くない",
+                    after_description="1girl, brown hair, black eyes, swimsuit, standing",
+                    instruction_type="dress_up",
+                    created_at=datetime(2026, 9, 1, 11, 0, 0),
+                )
+            )
         db.add(
             SessionStatsORM(
                 session_id=session_id, bloom=30, shame=60, adaptation=10, nsfw_mode=0
@@ -237,6 +253,115 @@ async def test_create_session_thread_snapshots_persona(
         persona = json.loads(row.persona_json)
         assert persona["transformation_count"] == 1
         assert row.source_history_id == "sess-1-h1"
+
+
+def test_recent_monologues_respects_history_point() -> None:
+    rows = [
+        SimpleNamespace(
+            id="h1", instruction="  メイド服に  着替える ", feeling_text=" 恥ずかしい "
+        ),
+        SimpleNamespace(id="h2", instruction="行動", feeling_text=""),
+        SimpleNamespace(id="h3", instruction="水着", feeling_text="x" * 300),
+        SimpleNamespace(id="h4", instruction="後", feeling_text="後の心の声"),
+    ]
+    all_rows = module._recent_monologues(rows, until_history_id=None)
+    assert [item["text"][:5] for item in all_rows] == [
+        "恥ずかしい",
+        "xxxxx",
+        "後の心の声",
+    ]
+    assert all_rows[0]["instruction"] == "メイド服に 着替える"
+    assert len(all_rows[1]["text"]) == module.PERSONA_MONOLOGUE_CHARS
+    until = module._recent_monologues(rows, until_history_id="h3")
+    assert [item["text"][:5] for item in until] == ["恥ずかしい", "xxxxx"]
+    many = [
+        SimpleNamespace(id=str(i), instruction="", feeling_text=str(i))
+        for i in range(9)
+    ]
+    assert [
+        item["text"] for item in module._recent_monologues(many, until_history_id=None)
+    ] == [
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_create_self_mode_session_thread(
+    service: CharacterChatService, isolated_db, tmp_path: Path, monkeypatch
+) -> None:
+    # 自分自身モードは stats が動かないので、プロフィールとそのときの心の声を根拠にする
+    await _seed_session(
+        isolated_db.async_factory, tmp_path / "start.png", self_mode=True
+    )
+    monkeypatch.setattr(
+        module.settings_service,
+        "get_self_profile",
+        AsyncMock(
+            return_value={
+                "display_name": "自分",
+                "pronoun": "俺",
+                "gender": "man",
+                "personality": "論理的で前向き",
+                "reaction_style": "bold",
+                "tsf_attitude": "抵抗はない",
+                "interests": ["筋トレ"],
+            }
+        ),
+    )
+    thread = await service.create_session_thread(
+        source_session_id="sess-1", source_history_id=None
+    )
+    assert thread["name"] == "自分"
+    assert thread["pronoun"] == "俺"
+    persona = thread["persona"]
+    assert persona["self_mode"] is True
+    assert persona["stage"] is None
+    assert persona["stage_label"] == ""
+    assert "stats" not in persona
+    assert "recent_monologues" not in persona
+    async with isolated_db.async_factory() as db:
+        row = await db.get(CharacterChatThread, thread["id"])
+        stored = json.loads(row.persona_json)
+        assert [item["text"] for item in stored["recent_monologues"]] == [
+            "恥ずかしい",
+            "女性として過ごすのも悪くない",
+        ]
+        assert stored["recent_monologues"][-1]["instruction"] == "水着に着替える"
+
+    fake_generate_text, _ = _llm_router()
+    captured: dict = {}
+    monkeypatch.setattr(module.llm_service, "generate_text", fake_generate_text)
+    monkeypatch.setattr(
+        module.llm_service,
+        "generate_feeling_stream",
+        _fake_stream(["悪くないよ"], captured),
+    )
+    await _collect(
+        service.stream_message(thread_id=thread["id"], content="いまどんな感じ？")
+    )
+    system = captured["system"]
+    assert "自分自身モード" in system
+    assert "性格: 論理的で前向き" in system
+    assert "興味・関心: 筋トレ" in system
+    assert "女性として過ごすのも悪くない" in system
+    assert "通常は 2〜5 文" in system
+    assert "開花" not in system
+    assert "心理段階:" not in system
+    assert "抵抗・困惑" not in system
+    assert "元に戻りたい" not in system
+
+    # 履歴時点を指定すると、心の声もその時点までに絞られる
+    at_point = await service.create_session_thread(
+        source_session_id="sess-1", source_history_id="sess-1-h1"
+    )
+    async with isolated_db.async_factory() as db:
+        row = await db.get(CharacterChatThread, at_point["id"])
+        stored = json.loads(row.persona_json)
+        assert [item["text"] for item in stored["recent_monologues"]] == ["恥ずかしい"]
 
 
 @pytest.mark.asyncio

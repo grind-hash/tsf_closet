@@ -241,6 +241,9 @@ export default function CharacterChatInfoPanel({
             {persona.self_mode && (
               <div>
                 <dd>{t("characterChat.panel.selfMode")}</dd>
+                <dd className="character-chat-panel__hint">
+                  {t("characterChat.panel.selfModeDesc")}
+                </dd>
               </div>
             )}
             <div>
@@ -250,7 +253,7 @@ export default function CharacterChatInfoPanel({
                 })}
               </dd>
             </div>
-            {persona.stage_label && (
+            {!persona.self_mode && persona.stage_label && (
               <div>
                 <dt>{t("characterChat.panel.stage")}</dt>
                 <dd>

@@ -161,6 +161,8 @@ export const characterChat = {
     stats: "Bloom {{bloom}} / Shame {{shame}} / Adaptation {{adaptation}}",
     transformations: "Transformations: {{count}}",
     selfMode: "Self-mode session",
+    selfModeDesc:
+      "Parameter tracking is disabled. Replies follow the self profile and what happened in the session.",
     attributes: "Granted attributes",
     timeline: "Timeline (oldest first)",
     outfit: "Outfit",

@@ -159,6 +159,8 @@ export const characterChat = {
     stats: "開花 {{bloom}} / 羞恥 {{shame}} / 適応 {{adaptation}}",
     transformations: "変身回数: {{count}}",
     selfMode: "自分自身モードのセッション",
+    selfModeDesc:
+      "パラメータ追跡は無効です。性格プロフィールとセッションの経緯から応答します。",
     attributes: "付与された属性",
     timeline: "経緯（古い順）",
     outfit: "服装",

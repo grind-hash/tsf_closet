@@ -40,6 +40,8 @@ from ..consts.character_chat import (
     CHARACTER_CHAT_KIND_SESSION,
     HISTORY_MESSAGES,
     MESSAGE_MAX,
+    PERSONA_MONOLOGUE_CHARS,
+    PERSONA_MONOLOGUES_MAX,
     PERSONA_TIMELINE_MAX,
     PLANNER_RECENT_MESSAGES,
     REPLY_MAX,
@@ -151,6 +153,32 @@ def _to_iso(value: datetime | None) -> str | None:
 
 def _lang(language: str | None) -> str:
     return "en" if normalize_language(language) == "en" else "ja"
+
+
+def _recent_monologues(
+    histories: list[Any], *, until_history_id: str | None
+) -> list[dict[str, str]]:
+    """自分自身モード用: 履歴の feeling_text(心の声)を古い順に、指定履歴まで・直近 N 件に絞って短く写す。
+
+    自分自身モードは stats を追跡しないため、キャラチャットの人物設定では
+    これを心境の根拠にする。
+    """
+    rows = list(histories)
+    if until_history_id:
+        for index, row in enumerate(rows):
+            if getattr(row, "id", None) == until_history_id:
+                rows = rows[: index + 1]
+                break
+    picked: list[dict[str, str]] = []
+    for row in rows:
+        text = " ".join(str(getattr(row, "feeling_text", "") or "").split())
+        if not text:
+            continue
+        instruction = " ".join(str(getattr(row, "instruction", "") or "").split())
+        picked.append(
+            {"instruction": instruction[:40], "text": text[:PERSONA_MONOLOGUE_CHARS]}
+        )
+    return picked[-PERSONA_MONOLOGUES_MAX:]
 
 
 def normalize_chat_input(text: str) -> str:
@@ -511,13 +539,19 @@ class CharacterChatService:
         transformation_count = int(persona.get("transformation_count") or 0)
         bloom = int(stats.get("bloom") or 0)
         english = thread.language == "en"
-        if transformation_count == 0:
+        self_mode = bool(persona.get("self_mode"))
+        stage: str | None
+        if self_mode:
+            # 自分自身モードは stats を追跡しないので心理段階・数値を出さない
+            stage = None
+            stage_label = ""
+        elif transformation_count == 0:
             stage = "pre_transform"
             stage_label = "Not yet transformed" if english else "未変身"
         else:
             stage = get_stage_name(bloom)
             stage_label = stage if english else get_stage_display_name(stage)
-        return {
+        payload: dict[str, Any] = {
             "character_name": str(persona.get("character_name") or thread.name),
             "session_updated_at": persona.get("session_updated_at"),
             "summary_title": str(persona.get("summary_title") or ""),
@@ -525,11 +559,6 @@ class CharacterChatService:
             "stage": stage,
             "stage_label": stage_label,
             "transformation_count": transformation_count,
-            "stats": {
-                "bloom": int(stats.get("bloom") or 0),
-                "shame": int(stats.get("shame") or 0),
-                "adaptation": int(stats.get("adaptation") or 0),
-            },
             "attributes": [str(item) for item in persona.get("attributes") or []],
             "timeline": [
                 {
@@ -541,8 +570,15 @@ class CharacterChatService:
             ],
             "outfit_description": str(persona.get("outfit_description") or ""),
             "play_memory_context": str(persona.get("play_memory_context") or ""),
-            "self_mode": bool(persona.get("self_mode")),
+            "self_mode": self_mode,
         }
+        if not self_mode:
+            payload["stats"] = {
+                "bloom": int(stats.get("bloom") or 0),
+                "shame": int(stats.get("shame") or 0),
+                "adaptation": int(stats.get("adaptation") or 0),
+            }
+        return payload
 
     def _initial_appearance(
         self, thread: CharacterChatThread, appearance: dict[str, Any]
@@ -843,6 +879,7 @@ class CharacterChatService:
         session = None
         transformation_count = 0
         play_memory_context = ""
+        recent_monologues: list[dict[str, str]] = []
         if source_session_id and not source_prompt_expander_entry_id:
             session = await session_store.get_session_by_id(source_session_id)
             if session is not None:
@@ -857,6 +894,12 @@ class CharacterChatService:
                         for item in snapshot.get("timeline") or []
                         if isinstance(item, dict)
                         and item.get("type") in ("dress_up", "reality_alter")
+                    )
+                if bool(getattr(session, "self_mode", False)):
+                    # 自分自身モードは stats が動かないので、そのときの心の声を心境の根拠にする
+                    recent_monologues = _recent_monologues(
+                        await session_store.get_history(source_session_id),
+                        until_history_id=source_history_id,
                     )
                 try:
                     from .play_memory_service import play_memory_service
@@ -888,6 +931,7 @@ class CharacterChatService:
             "transformation_count": transformation_count,
             "attributes": list(snapshot.get("attributes") or []),
             "timeline": timeline,
+            "recent_monologues": recent_monologues,
             "play_memory_context": play_memory_context,
             "outfit_description": str(snapshot.get("clothing") or ""),
             "nsfw_mode": bool(nsfw_mode),
@@ -2024,6 +2068,7 @@ class CharacterChatService:
         adventure_context: dict[str, Any] | None = None,
         header_instruction: str = "",
         origin_lore_text: str = "",
+        self_profile: dict[str, Any] | None = None,
     ) -> str:
         persona = _json_load(thread.persona_json, {})
         appearance = _json_load(thread.appearance_json, {})
@@ -2061,7 +2106,9 @@ class CharacterChatService:
         if thread.kind == CHARACTER_CHAT_KIND_BASE:
             persona_text = base_persona_block(language)
         else:
-            persona_text = session_persona_block(persona, language)
+            persona_text = session_persona_block(
+                persona, language, self_profile=self_profile
+            )
         description = str(appearance.get("description") or "").strip()
         if not description:
             tags = ", ".join(
@@ -2085,6 +2132,7 @@ class CharacterChatService:
             appearance_change_request=appearance_change_request,
             origin_lore_block_text=origin_lore_block(origin_lore_text, language),
             header_instruction=header_instruction,
+            relaxed_length=thread.kind == CHARACTER_CHAT_KIND_SESSION,
         )
 
     async def _persist_messages(
@@ -2179,6 +2227,19 @@ class CharacterChatService:
             text_model = user_settings.get("novelai_text_model")
             language = _lang(user_settings.get("language"))
             memory_text = await settings_service.get_memory_text()
+            # 自分自身モード由来は、通常プレイと同じく自プロフィールを毎手番ライブで読む
+            self_profile: dict[str, Any] | None = None
+            if thread.kind == CHARACTER_CHAT_KIND_SESSION and bool(
+                _json_load(thread.persona_json, {}).get("self_mode")
+            ):
+                try:
+                    self_profile = await settings_service.get_self_profile()
+                except Exception as exc:  # pragma: no cover - 補助情報
+                    logger.warning(
+                        "character chat self profile failed: %s: %s",
+                        type(exc).__name__,
+                        exc,
+                    )
             nsfw_mode = (
                 bool(user_settings.get("nsfw_mode"))
                 if thread.kind == CHARACTER_CHAT_KIND_BASE
@@ -2270,6 +2331,7 @@ class CharacterChatService:
                 adventure_context=adventure_context,
                 header_instruction=header_instruction,
                 origin_lore_text=origin_lore_text,
+                self_profile=self_profile,
             )
             history = [
                 {

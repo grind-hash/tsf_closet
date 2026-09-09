@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -120,6 +121,31 @@ async def test_session_detail_and_search(isolated_db) -> None:
     assert none.session_ids == ()
     empty = await lookups.render_search_sessions("", 5, "ja")
     assert empty.text == "(取得できませんでした)"
+
+
+@pytest.mark.asyncio
+async def test_session_detail_self_mode_hides_stage(isolated_db, monkeypatch) -> None:
+    # 自分自身モードは stats を追跡しないので、開花度由来の段階を出さない
+    await _seed(isolated_db.async_factory)
+    async with isolated_db.async_factory() as db:
+        session = await db.get(SessionORM, "s1")
+        session.self_mode = True
+        await db.commit()
+    monkeypatch.setattr(
+        lookups.session_store,
+        "get_self_profile",
+        AsyncMock(return_value={"display_name": "自分", "pronoun": "俺"}),
+    )
+    detail = await lookups.render_session_detail("s1", 5, "ja")
+    assert "自分 (自分自身モード)" in detail.text
+    assert (
+        "変身2回(自分自身モード: パラメータ・心理段階は追跡していません)" in detail.text
+    )
+    assert "開花" not in detail.text
+    assert "揺らぎ・葛藤" not in detail.text
+    english = await lookups.render_session_detail("s1", 5, "en")
+    assert "self mode: no parameters or mental stage are tracked" in english.text
+    assert "bloom" not in english.text
 
 
 @pytest.mark.asyncio

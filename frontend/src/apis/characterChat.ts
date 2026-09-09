@@ -101,7 +101,7 @@ export interface CharacterChatPersona {
   session_updated_at?: string | null;
   summary_title?: string;
   summary_text?: string;
-  stage?: string;
+  stage?: string | null;
   stage_label?: string;
   transformation_count?: number;
   stats?: { bloom: number; shame: number; adaptation: number };

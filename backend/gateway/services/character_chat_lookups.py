@@ -194,17 +194,27 @@ async def render_session_detail(
             lines.append(f"Title: {title}" if lang == "en" else f"称号: {title}")
         if body:
             lines.append(f"Summary: {body}" if lang == "en" else f"要約: {body}")
-    stats = await session_store.get_session_stats(session_id)
-    if stats is not None:
-        stage = get_stage_name(int(stats.bloom))
-        stage_label = stage if lang == "en" else get_stage_display_name(stage)
+    if bool(getattr(session, "self_mode", False)):
+        # 自分自身モードは stats を追跡しないので、開花度由来の段階を出さない
         lines.append(
-            f"Transformations: {session.transformation_count}, stage: {stage_label} "
-            f"(bloom {stats.bloom}, shame {stats.shame}, adaptation {stats.adaptation})"
+            f"Transformations: {session.transformation_count} (self mode: no "
+            "parameters or mental stage are tracked)"
             if lang == "en"
-            else f"変身{session.transformation_count}回、心理段階: {stage_label}"
-            f"(開花{stats.bloom} / 羞恥{stats.shame} / 適応{stats.adaptation})"
+            else f"変身{session.transformation_count}回"
+            "(自分自身モード: パラメータ・心理段階は追跡していません)"
         )
+    else:
+        stats = await session_store.get_session_stats(session_id)
+        if stats is not None:
+            stage = get_stage_name(int(stats.bloom))
+            stage_label = stage if lang == "en" else get_stage_display_name(stage)
+            lines.append(
+                f"Transformations: {session.transformation_count}, stage: {stage_label} "
+                f"(bloom {stats.bloom}, shame {stats.shame}, adaptation {stats.adaptation})"
+                if lang == "en"
+                else f"変身{session.transformation_count}回、心理段階: {stage_label}"
+                f"(開花{stats.bloom} / 羞恥{stats.shame} / 適応{stats.adaptation})"
+            )
     attributes = await session_store.get_session_attribute_texts(session_id)
     if attributes:
         joined = " / ".join(_short(item, 40) for item in attributes[:8])

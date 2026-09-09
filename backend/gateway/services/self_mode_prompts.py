@@ -78,25 +78,36 @@ SELF_MODE_MULTIPLE_PEOPLE_FEELING_APPENDIX = """
 - 指示に他の人が含まれない場合は、従来通り主人公のみの描写で構いません"""
 
 
-def _build_self_profile_section(self_profile: dict) -> str:
-    """Format the self_profile dict into a text section for the system prompt.
+def build_self_profile_section(self_profile: dict, language: str = "ja") -> str:
+    """Build the self-profile section for prompts.
 
     Args:
-        self_profile: SelfProfile dict with personality, reaction_style, etc.
+        self_profile: Self-profile dict (gender, personality, reaction_style,
+            tsf_attitude, ...)
+        language: "ja" or "en" for the label language
 
     Returns:
         Formatted text block
     """
+    en = language == "en"
     parts: list[str] = []
 
     gender = self_profile.get("gender", "")
     if gender:
-        gender_label = "男性" if gender == "man" else "女性"
-        parts.append(f"- 性別: {gender_label}")
+        if en:
+            gender_label = "Male" if gender == "man" else "Female"
+            parts.append(f"- Gender: {gender_label}")
+        else:
+            gender_label = "男性" if gender == "man" else "女性"
+            parts.append(f"- 性別: {gender_label}")
 
     personality = self_profile.get("personality", "")
     if personality:
-        parts.append(f"- 性格: {personality[:200]}")
+        parts.append(
+            f"- Personality: {personality[:200]}"
+            if en
+            else f"- 性格: {personality[:200]}"
+        )
 
     reaction = self_profile.get("reaction_style", "")
     if reaction and reaction != "default":
@@ -108,13 +119,27 @@ def _build_self_profile_section(self_profile: dict) -> str:
             "calm": "冷静",
             "passionate": "情熱的",
         }
-        parts.append(f"- 反応スタイル: {style_labels.get(reaction, reaction)}")
+        parts.append(
+            f"- Reaction style: {reaction}"
+            if en
+            else f"- 反応スタイル: {style_labels.get(reaction, reaction)}"
+        )
 
     tsf_att = self_profile.get("tsf_attitude", "")
     if tsf_att:
-        parts.append(f"- 変身に対する態度: {tsf_att[:200]}")
+        parts.append(
+            f"- Attitude toward transformation: {tsf_att[:200]}"
+            if en
+            else f"- 変身に対する態度: {tsf_att[:200]}"
+        )
 
-    return "\n".join(parts) if parts else "（プロフィール未設定）"
+    if parts:
+        return "\n".join(parts)
+    return "(profile not set)" if en else "（プロフィール未設定）"
+
+
+# 既存呼び出し互換
+_build_self_profile_section = build_self_profile_section
 
 
 def build_self_mode_feeling_prompt(

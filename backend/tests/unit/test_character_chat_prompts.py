@@ -102,6 +102,81 @@ def test_session_persona_block_reflects_stage() -> None:
     assert "まだ変身を経験していない" in untransformed
 
 
+def test_session_persona_block_self_mode_uses_profile_not_stage() -> None:
+    # 自分自身モードは stats が動かないため、開花 0 でも羞恥・回帰願望の心境を載せない
+    persona = {
+        "character_name": "サクラ",
+        "pronoun": "俺",
+        "stats": {"bloom": 0, "shame": 50, "adaptation": 0},
+        "transformation_count": 8,
+        "attributes": ["猫耳が生えている"],
+        "timeline": [{"type": "dress_up", "text": "水着に着替える"}],
+        "recent_monologues": [
+            {"instruction": "水着に着替える", "text": "もう戻りたいとは思わない"}
+        ],
+        "summary_text": "海で一日を過ごした",
+        "outfit_description": "gold swimsuit",
+        "nsfw_mode": False,
+        "self_mode": True,
+    }
+    profile = {
+        "gender": "man",
+        "personality": "論理的で前向き",
+        "reaction_style": "bold",
+        "tsf_attitude": "抵抗はない",
+        "interests": ["筋トレ", "料理"],
+    }
+    block = session_persona_block(persona, "ja", self_profile=profile)
+    assert "心理段階:" not in block
+    assert "抵抗・困惑" not in block
+    assert "羞恥心" not in block
+    assert "元に戻りたい" not in block
+    assert "自分自身モード" in block
+    assert "一人称は「俺」" in block
+    assert "性格: 論理的で前向き" in block
+    assert "反応スタイル: 大胆" in block
+    assert "変身に対する態度: 抵抗はない" in block
+    assert "興味・関心: 筋トレ、料理" in block
+    assert "これまでの変身回数: 8" in block
+    assert "[着替] 水着に着替える" in block
+    assert "(水着に着替える) もう戻りたいとは思わない" in block
+    assert "そのセッションの要約: 海で一日を過ごした" in block
+    assert "gold swimsuit" in block
+
+    english = session_persona_block(persona, "en", self_profile=profile)
+    assert "Mental stage:" not in english
+    assert "Personality profile" in english
+    assert "Reaction style: bold" in english
+    assert "Your inner voice at the time" in english
+
+    unset = session_persona_block(persona, "ja", self_profile=None)
+    assert "プロフィール未設定" in unset
+    assert "心理段階:" not in unset
+
+
+def test_reply_system_prompt_length_rule() -> None:
+    common = dict(
+        name="サクラ",
+        pronoun="僕",
+        persona_block="人物設定",
+        memory_block_text="",
+        summary_text=None,
+        lookup_block_text="",
+        appearance_description="",
+        appearance_change_request=None,
+    )
+    default_ja = reply_system_prompt("ja", **common)
+    assert "通常は 1〜4 文" in default_ja
+    relaxed_ja = reply_system_prompt("ja", relaxed_length=True, **common)
+    assert "通常は 2〜5 文" in relaxed_ja
+    assert "7 文程度まで" in relaxed_ja
+    assert "1〜4 文" not in relaxed_ja
+    default_en = reply_system_prompt("en", **common)
+    assert "one to four sentences" in default_en
+    relaxed_en = reply_system_prompt("en", relaxed_length=True, **common)
+    assert "two to five sentences" in relaxed_en
+
+
 def test_planner_prompt_lists_every_lookup_kind() -> None:
     prompt = planner_system_prompt("ja")
     for kind in (
@@ -112,6 +187,8 @@ def test_planner_prompt_lists_every_lookup_kind() -> None:
         "recent_adventures",
     ):
         assert f'"{kind}"' in prompt
+    # キャラ自身の今の気持ちを聞かれても調べ物は不要
+    assert "how the character feels right now" in prompt
 
 
 def test_planner_prompt_gates_origin_lore_on_explicit_names() -> None:

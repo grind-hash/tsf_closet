@@ -8,6 +8,7 @@ from gateway.services.self_mode_prompts import (
     _build_self_profile_section,
     build_self_mode_feeling_prompt,
     build_self_profile_generation_prompt,
+    build_self_profile_section,
 )
 
 # ── _build_self_profile_section ──
@@ -45,6 +46,22 @@ def test_profile_section_truncates_long_personality() -> None:
     result = _build_self_profile_section(profile)
     # Should truncate to 200
     assert len(result.split("性格: ")[1]) <= 200
+
+
+def test_profile_section_english_labels() -> None:
+    profile = {
+        "gender": "man",
+        "personality": "calm",
+        "reaction_style": "bold",
+        "tsf_attitude": "open to it",
+    }
+    result = build_self_profile_section(profile, "en")
+    assert "Gender: Male" in result
+    assert "Personality: calm" in result
+    assert "Reaction style: bold" in result
+    assert "Attitude toward transformation: open to it" in result
+    assert "性格" not in result
+    assert build_self_profile_section({}, "en") == "(profile not set)"
 
 
 # ── build_self_mode_feeling_prompt ──
