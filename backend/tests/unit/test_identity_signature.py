@@ -6,8 +6,10 @@ from gateway.services.identity_signature import (
     PLAYER_TAGS_MAX_LENGTH,
     apply_identity_signature,
     classify_identity_tag,
+    complete_age_signature,
     compose_signature,
     cross_identity_negative,
+    has_explicit_adult_age,
     signature_from_tags,
 )
 
@@ -17,10 +19,16 @@ from gateway.services.identity_signature import (
     [
         ("1girl", "sex"),
         ("male", "sex"),
-        ("mature woman", "sex"),
-        ("dark elf", "species_age"),
-        ("cat girl", "species_age"),
-        ("old man", "species_age"),
+        ("mature woman", "age"),
+        ("dark elf", "species"),
+        ("cat girl", "species"),
+        ("old man", "age"),
+        ("young adult", "age"),
+        ("1.2::young adult man::", "age"),
+        ("21-year-old", "age"),
+        ("21 years old", "age"),
+        ("long legs", "proportions"),
+        ("adult proportions", "proportions"),
         ("black hair", "hair_color"),
         ("light brown hair", "hair_color"),
         ("long black hair", "hair_color"),
@@ -81,6 +89,9 @@ def test_classify_identity_tag_categories(tag: str, category: str) -> None:
         "tail coat",
         "cowboy shot",
         "playboy bunny",
+        "old-fashioned dress",
+        "year 2025",
+        "adult costume",
         "",
         "  ",
         "黒髪の少女",
@@ -152,6 +163,72 @@ def test_compose_signature_fills_missing_categories_from_later_sources() -> None
 def test_compose_signature_ignores_blank_sources() -> None:
     assert compose_signature("", None, "1boy, black hair") == "1boy, black hair"  # type: ignore[arg-type]
     assert compose_signature("", "") == ""
+
+
+def test_age_and_species_are_completed_independently() -> None:
+    assert (
+        compose_signature("1boy, elf, slim", "adult, human, black hair, long legs")
+        == "1boy, elf, adult, black hair, slim, long legs"
+    )
+
+
+def test_incomplete_signature_preserves_weighted_age_and_proportions() -> None:
+    signature = "1boy, black hair, slim"
+    tags = "1boy, 1.2::young adult::, black hair, slim, long legs, coat"
+    result = apply_identity_signature(tags, signature)
+    assert result == "1boy, 1.2::young adult::, black hair, slim, long legs, coat"
+    assert apply_identity_signature(result, signature) == result
+
+
+def test_age_only_signature_does_not_erase_other_traits() -> None:
+    assert (
+        apply_identity_signature("1boy, black hair, blue eyes, suit", "young adult")
+        == "young adult, 1boy, black hair, blue eyes, suit"
+    )
+
+
+def test_age_completion_preserves_current_setting_and_other_tag_order() -> None:
+    signature = "1boy, blue eyes, black hair, adult, short legs"
+    assert complete_age_signature(signature, "child, long legs") == signature
+    assert (
+        complete_age_signature("1boy, blue eyes, black hair", "1girl, adult, long legs")
+        == "1boy, adult, blue eyes, black hair, long legs"
+    )
+
+
+def test_age_completion_prioritizes_age_within_length_limit() -> None:
+    long_signature = "1boy, " + ", ".join(f"black hair {i}" for i in range(30))
+    result = complete_age_signature(long_signature, "young adult")
+    assert result.startswith("1boy, young adult, ")
+    assert len(result) <= 400
+
+
+@pytest.mark.parametrize("signature", ["1boy, adult", "1boy, child"])
+def test_explicit_age_replaces_conflicting_age(signature: str) -> None:
+    result = apply_identity_signature("1boy, young adult, child, coat", signature)
+    assert result == f"{signature}, coat"
+
+
+@pytest.mark.parametrize(
+    ("tags", "expected"),
+    [
+        ("1boy, young adult", True),
+        ("1girl, {adult woman}", True),
+        ("1.3::21-year-old man::", True),
+        ("18 years old", True),
+        ("elderly woman", True),
+        ("17 years old", False),
+        ("1boy, male, slender", False),
+        ("1girl, young", False),
+        ("adult, child", False),
+        ("adult, 12 years old", False),
+        ("aged up", False),
+        ("adult costume, year 2025", False),
+        ("", False),
+    ],
+)
+def test_explicit_adult_age_requires_unambiguous_age(tags: str, expected: bool) -> None:
+    assert has_explicit_adult_age(tags) is expected
 
 
 def test_cross_identity_negative_only_for_differing_categories() -> None:

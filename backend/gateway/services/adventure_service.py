@@ -162,7 +162,9 @@ from .clothing_layers import (
 )
 from .cost_tracker import begin_cost_tracking, record_cost
 from .identity_signature import (
+    age_identity_tags,
     apply_identity_signature,
+    complete_age_signature,
     compose_signature,
     cross_identity_negative,
     signature_from_tags,
@@ -179,6 +181,7 @@ from .portrait_generation import (
     PORTRAIT_PROMPT_SUFFIX,
     PORTRAIT_PROMPT_SUFFIX_V5,
     REDRAW_REFERENCE_INSTRUCTION,
+    build_portrait_prompt,
     character_reference_entry,
     character_reference_strength,
     portrait_prompt_suffix,
@@ -1871,8 +1874,9 @@ def _normalize_reality_rules(rules: Iterable[Any]) -> list[str]:
 _IDENTITY_TAGS_INSTRUCTION = (
     "identity_tags is the player's complete identity signature as concise English "
     "comma-separated tags in this order: sex tokens (for example female, 1girl or "
-    "male, 1boy), hair color, hair length, hairstyle and bangs, eye color and eye "
-    "shape, skin tone, body type and build, distinguishing marks (moles, freckles, "
+    "male, 1boy), species, explicitly established apparent age, hair color, hair "
+    "length, hairstyle and bangs, eye color and eye shape, skin tone, body type, "
+    "build and body proportions, distinguishing marks (moles, freckles, "
     "scars, fangs, pointy ears, animal ears, horns, tail, heterochromia), and facial "
     "features (eyebrows, eyelashes, facial hair). It must never contain clothing, "
     "accessories, pose, expression, action, camera, lighting, or scene tags. When "
@@ -1887,18 +1891,29 @@ _IDENTITY_TAGS_INSTRUCTION = (
     "identity_tags. When required_identity_tags and required_visual_appearance "
     "disagree, required_identity_tags wins for the traits it lists. When "
     "required_identity_tags is absent, derive identity_tags from "
-    "visual_state.appearance."
+    "visual_state.appearance. Preserve explicit apparent age (for example young "
+    "adult or 21 years old) and body proportions in both identity_tags and "
+    "player_tags. When the required signature lacks these traits, append them "
+    "only if the current visual appearance explicitly establishes them. Never "
+    "infer age from 1boy, 1girl, clothing, gender or art style. An explicit "
+    "age-changing transformation replaces the previous age; do not restore it "
+    "from the initial appearance."
 )
 # 開幕コンバータ(visual_state → タグ)向け。手番の文脈が無いので写すだけ
 _IDENTITY_TAGS_CONVERTER_INSTRUCTION = (
     " identity_tags is the player's complete identity signature derived from "
     "visual_state.appearance as concise English comma-separated tags in this "
-    "order: sex tokens (for example female, 1girl or male, 1boy), hair color, hair "
+    "order: sex tokens (for example female, 1girl or male, 1boy), species, "
+    "explicitly established apparent age, hair color, hair "
     "length, hairstyle and bangs, eye color and eye shape, skin tone, body type and "
-    "build, distinguishing marks, and facial features. It must never contain "
+    "build and body proportions, distinguishing marks, and facial features. It must never contain "
     "clothing, accessories, pose, expression, action, camera, or scene tags. When "
     "required_identity_tags is provided, copy it into identity_tags verbatim. "
-    "player_tags must begin with identity_tags."
+    "player_tags must begin with identity_tags. Preserve explicit apparent age "
+    "(for example young adult or 21 years old) and body proportions in both "
+    "identity_tags and player_tags. If the required signature lacks these "
+    "traits, append only those explicitly established by visual_state.appearance. "
+    "Never infer age from 1boy, 1girl, clothing, gender or art style."
 )
 
 _SCENE_PROMPT_SUFFIX = (
@@ -4952,6 +4967,8 @@ The objective must name a concrete target and an observable end condition that c
             if backfilled_partner:
                 state["partner_identity_tags"] = backfilled_partner
 
+        self._complete_current_age_signatures(state, stored_prompt)
+
         # 手番0への巻き戻し用に、最初のターン処理前の状態を保存する。
         # 旧runの初回ターンでも拾えるようここで行う(create_run 直後とは
         # 開幕画像生成の分だけ state が違うため、この時点の値が正)
@@ -5172,6 +5189,8 @@ The objective must name a concrete target and an observable end condition that c
             )
             if romance_sim is not None:
                 self._refresh_partner_identity_tags(state, visual, romance_sim)
+        else:
+            self._complete_current_age_signatures(state, visual.model_dump())
         identity_override = str(state.get("identity_tags") or "")
         partner_identity_override = str(state.get("partner_identity_tags") or "")
         await queue.put(("visual", visual))
@@ -6041,6 +6060,36 @@ The objective must name a concrete target and an observable end condition that c
             else "",
         )
 
+    def _complete_current_age_signatures(
+        self, state: dict[str, Any], image_prompt: dict[str, Any]
+    ) -> None:
+        """通常時と旧 run の署名に、現在の外見で明示された年齢・身体比率を補う。"""
+        visual = image_prompt.get("visual_state") or state.get("visual_state") or {}
+        identity = complete_age_signature(
+            str(state.get("identity_tags") or ""),
+            str(state.get("appearance_lock") or ""),
+            str(visual.get("appearance") or ""),
+            str(image_prompt.get("identity_tags") or ""),
+            str(image_prompt.get("player_tags") or ""),
+        )
+        if identity:
+            state["identity_tags"] = identity
+        sim = state.get("sim")
+        if not isinstance(sim, dict):
+            return
+        _entry, partner_tags = _romance_partner_visual_entry(
+            list(visual.get("main_characters") or []),
+            [str(tag) for tag in (image_prompt.get("npc_tags") or [])],
+            str(sim.get("partner_name") or ""),
+        )
+        partner_identity = complete_age_signature(
+            str(state.get("partner_identity_tags") or ""),
+            str(sim.get("partner_appearance") or ""),
+            partner_tags,
+        )
+        if partner_identity:
+            state["partner_identity_tags"] = partner_identity
+
     def _refresh_identity_tags(
         self,
         state: dict[str, Any],
@@ -6057,6 +6106,8 @@ The objective must name a concrete target and an observable end condition that c
         テンプレートの appearance_transform を安全網として掛ける。空出力は据え置き。
         """
         candidate = compose_signature(
+            age_identity_tags(visual.player_tags),
+            age_identity_tags(visual.visual_state.appearance),
             visual.player_tags,
             visual.identity_tags,
             visual.visual_state.appearance,
@@ -6085,12 +6136,19 @@ The objective must name a concrete target and an observable end condition that c
 
         相手が場面に居ない・タグを取れない手番は据え置く。
         """
-        _entry, partner_tags = _romance_partner_visual_entry(
+        entry, partner_tags = _romance_partner_visual_entry(
             list(visual.visual_state.main_characters),
             list(visual.npc_tags),
             str(romance_sim.get("partner_name") or ""),
         )
-        candidate = signature_from_tags(identity_tags_only(partner_tags))
+        candidate = (
+            compose_signature(
+                identity_tags_only(partner_tags),
+                age_identity_tags(str((entry or {}).get("description") or "")),
+            )
+            if entry is not None
+            else ""
+        )
         if candidate:
             state["partner_identity_tags"] = candidate
 
@@ -6175,7 +6233,10 @@ The objective must name a concrete target and an observable end condition that c
         空出力なら開始素材由来の署名(_build_initial_state)を残す。
         """
         opening_identity = compose_signature(
-            image_prompt.identity_tags, image_prompt.player_tags
+            age_identity_tags(str(state.get("identity_tags") or "")),
+            age_identity_tags(str(state.get("appearance_lock") or "")),
+            image_prompt.identity_tags,
+            image_prompt.player_tags,
         )
         partner_identity = ""
         sim_state = state.get("sim")
@@ -6185,7 +6246,11 @@ The objective must name a concrete target and an observable end condition that c
                 list(image_prompt.npc_tags),
                 str(sim_state.get("partner_name") or ""),
             )
-            partner_identity = signature_from_tags(identity_tags_only(partner_tags))
+            partner_identity = compose_signature(
+                age_identity_tags(str(state.get("partner_identity_tags") or "")),
+                age_identity_tags(str(sim_state.get("partner_appearance") or "")),
+                identity_tags_only(partner_tags),
+            )
         if not opening_identity and not partner_identity:
             return
         if opening_identity:
@@ -6359,7 +6424,9 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         )
         partner_name = str(sim_state.get("partner_name") or "")
         partner_appearance = str(sim_state.get("partner_appearance") or "")
-        signature = str(state.get("partner_identity_tags") or "")
+        signature = complete_age_signature(
+            str(state.get("partner_identity_tags") or ""), partner_appearance
+        )
         tags = _romance_partner_turn_portrait_tags(
             main_characters, stored_tags, partner_name, partner_appearance
         )
@@ -6737,6 +6804,21 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 if partner_identity_override is not None
                 else str(state.get("partner_identity_tags") or "")
             )
+        # 明示 override はこの手番の確定値。DB の古い外見からは補完しない。
+        if identity_tags_override is None and not honor_user_edits:
+            identity = complete_age_signature(
+                identity,
+                str(state.get("appearance_lock") or ""),
+                str(visual_state.get("appearance") or ""),
+            )
+        if (
+            isinstance(sim_state, dict)
+            and partner_identity_override is None
+            and not honor_user_edits
+        ):
+            partner_identity = complete_age_signature(
+                partner_identity, str(sim_state.get("partner_appearance") or "")
+            )
         if prompt_override is not None:
             raw_image_prompt = prompt_override
             if honor_user_edits:
@@ -6766,6 +6848,11 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         # 同一性署名は変換後の複製にだけ先頭注入する(raw は last_image_prompt へ
         # 保存され、次の手番の previous_image_tags になる)。攻略対象は該当する
         # npc 枠だけに付け、他の NPC は書き換えない
+        identity = complete_age_signature(
+            identity,
+            raw_image_prompt.identity_tags,
+            image_prompt.player_tags,
+        )
         image_prompt.player_tags = apply_identity_signature(
             image_prompt.player_tags, identity
         )
@@ -7012,9 +7099,9 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             portrait_empty_message = "ポートレート画像が生成されませんでした"
             # 立ち絵はフロント側で背景を透過するため、必ず白背景で生成させる。
             # （V5モデルのみ透過背景をネイティブ生成させる）
-            player_prompt = enhance_prompt_for_novelai(
-                image_prompt.player_tags
-                + _portrait_prompt_suffix(effective_image_model),
+            player_prompt = build_portrait_prompt(
+                image_prompt.player_tags,
+                effective_image_model,
                 nsfw_mode=nsfw_mode,
             )
             # 現実改変で外見が変わった後の初期画像は元の姿のままで、参照に
@@ -7148,14 +7235,18 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         )
         partner_empty_message = "相手の立ち絵が生成されませんでした"
         # 同一性タグ署名を先頭注入する(手番中は override、↻ は保存済み state)
-        partner_tags = apply_identity_signature(
-            partner_tags,
+        partner_identity = complete_age_signature(
             partner_identity_override
             if partner_identity_override is not None
             else str(state.get("partner_identity_tags") or ""),
+            ""
+            if partner_identity_override is not None
+            else str((state.get("sim") or {}).get("partner_appearance") or ""),
         )
-        prompt = enhance_prompt_for_novelai(
-            partner_tags + _portrait_prompt_suffix(effective_image_model),
+        partner_tags = apply_identity_signature(partner_tags, partner_identity)
+        prompt = build_portrait_prompt(
+            partner_tags,
+            effective_image_model,
             nsfw_mode=nsfw_mode,
         )
         character_references = None
@@ -7851,12 +7942,14 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             "scene_prompt": scene_prompt,
             "player_prompt": player_prompt,
             "npc_prompts": npc_prompts,
-            "portrait_prompt": enhance_prompt_for_novelai(
-                image_prompt.player_tags + _portrait_prompt_suffix(preview_image_model),
+            "portrait_prompt": build_portrait_prompt(
+                image_prompt.player_tags,
+                preview_image_model,
                 nsfw_mode=nsfw_mode,
             ),
-            "partner_prompt": enhance_prompt_for_novelai(
-                partner_tags + _portrait_prompt_suffix(preview_image_model),
+            "partner_prompt": build_portrait_prompt(
+                partner_tags,
+                preview_image_model,
                 nsfw_mode=nsfw_mode,
             )
             if partner_tags

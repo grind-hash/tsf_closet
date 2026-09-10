@@ -26,13 +26,15 @@ PLAYER_TAGS_MAX_LENGTH = 1200
 # 署名内の並び順(NovelAI 公式チュートリアルの「上から下へ」に合わせる)
 CATEGORY_ORDER = (
     "sex",
-    "species_age",
+    "species",
+    "age",
     "hair_color",
     "hair_length",
     "hairstyle",
     "eyes",
     "skin",
     "body",
+    "proportions",
     "marks",
     "face",
 )
@@ -111,6 +113,60 @@ _AGE_WHOLE = frozenset(
         "aged down",
         "mature female",
         "mature male",
+        "young adult",
+        "young man",
+        "young woman",
+        "adult male",
+        "adult female",
+        "adult man",
+        "adult woman",
+        "young adult male",
+        "young adult female",
+        "young adult man",
+        "young adult woman",
+        "mature man",
+        "mature woman",
+        "middle-aged man",
+        "middle-aged woman",
+        "elderly man",
+        "elderly woman",
+        "child",
+        "young boy",
+        "young girl",
+        "teen",
+        "teenager",
+        "infant",
+        "toddler",
+    }
+)
+# 数値年齢は単独のタグだけを認識し、画風の年号や衣装名には反応しない。
+_NUMERIC_AGE = re.compile(
+    r"(?P<age>\d{1,3})(?:-year-old| years? old)"
+    r"(?: (?:male|female|man|woman|boy|girl))?"
+)
+_AMBIGUOUS_OR_YOUNGER_AGE = frozenset(
+    {
+        "young",
+        "teenage",
+        "teen",
+        "teenager",
+        "child",
+        "young boy",
+        "young girl",
+        "infant",
+        "toddler",
+        "aged up",
+        "aged down",
+    }
+)
+_PROPORTIONS = frozenset(
+    {
+        "adult proportions",
+        "mature proportions",
+        "long legs",
+        "short legs",
+        "long torso",
+        "short torso",
     }
 )
 _FACE = re.compile(
@@ -189,8 +245,12 @@ def classify_identity_tag(tag: str) -> str | None:
     norm = normalize_tag_for_match(tag)
     if not norm or _is_guarded(norm):
         return None
-    if norm in _AGE_WHOLE or _SPECIES.search(norm):
-        return "species_age"
+    if norm in _AGE_WHOLE or _NUMERIC_AGE.fullmatch(norm):
+        return "age"
+    if _SPECIES.search(norm):
+        return "species"
+    if norm in _PROPORTIONS:
+        return "proportions"
     if _FACE.search(norm):
         return "face"
     has_hair = bool(_HAIR_WORD.search(norm))
@@ -276,19 +336,79 @@ def compose_signature(*sources: str, max_length: int = SIGNATURE_MAX_LENGTH) -> 
     return _join_within(ordered, max_length)
 
 
+def age_identity_tags(tags: str) -> str:
+    """明示された年齢・身体比率のタグだけを元の順序と重みで取り出す。"""
+    return ", ".join(
+        tag
+        for tag in split_tag_tokens(tags)
+        if classify_identity_tag(tag) in {"age", "proportions"}
+    )
+
+
+def complete_age_signature(signature: str, *sources: str) -> str:
+    """署名にない年齢・身体比率だけを、現在の外見タグから優先順に補う。
+
+    他の同一性カテゴリは補完せず、既存の表記・順序を保持する。
+    日本語の外見記述は既存の画像タグ生成 LLM で翻訳してから渡す。
+    """
+    tokens = split_tag_tokens(signature)
+    buckets = _bucketize(signature)
+    source_buckets = [_bucketize(source) for source in sources]
+    for category in ("age", "proportions"):
+        if buckets.get(category):
+            continue
+        for source in source_buckets:
+            if entries := source.get(category):
+                if category == "age":
+                    # 長い署名でも年齢が末尾切り詰めで消えないよう性別・種族の後に置く。
+                    index = next(
+                        (
+                            i
+                            for i, tag in enumerate(tokens)
+                            if classify_identity_tag(tag) not in {"sex", "species"}
+                        ),
+                        len(tokens),
+                    )
+                    tokens[index:index] = entries
+                else:
+                    tokens.extend(entries)
+                break
+    # 補完がないときは空白を含め元の署名をそのまま返す。
+    if tokens == split_tag_tokens(signature):
+        return signature
+    return _join_within(tokens, SIGNATURE_MAX_LENGTH)
+
+
+def has_explicit_adult_age(tags: str) -> bool:
+    """明確な成人年齢があり、若年・曖昧な年齢指定と矛盾しないかを返す。"""
+    ages = _bucketize(tags).get("age", [])
+    if not ages:
+        return False
+    for tag in ages:
+        norm = normalize_tag_for_match(tag)
+        if norm in _AMBIGUOUS_OR_YOUNGER_AGE:
+            return False
+        if (match := _NUMERIC_AGE.fullmatch(norm)) and int(match["age"]) < 18:
+            return False
+    return True
+
+
 def apply_identity_signature(
     tags: str, signature: str, *, max_length: int = PLAYER_TAGS_MAX_LENGTH
 ) -> str:
     """タグ列の同一性タグを署名で置き換え、署名を先頭に置く。
 
-    入力から同一性カテゴリのタグを全て除き(服装・ポーズ・表情・情景は残す)、
+    入力から同一性カテゴリのタグを除き(服装・ポーズ・表情・情景は残す)、
     「署名, 残り」を返す。2 回適用しても同じ結果になる(冪等)。署名または
-    入力が空なら入力をそのまま返す。
+    入力が空なら入力をそのまま返す。署名にない年齢・身体比率は入力から保つ。
     """
     base = str(tags or "")
     signature_tokens = split_tag_tokens(str(signature or ""))
     if not signature_tokens or not base.strip():
         return base
+    signature_tokens = split_tag_tokens(complete_age_signature(signature, base))
+    signature_categories = {classify_identity_tag(tag) for tag in signature_tokens}
+    age_only = signature_categories <= {"age", "proportions"}
     merged: list[str] = []
     seen: set[str] = set()
     for token in signature_tokens:
@@ -298,7 +418,12 @@ def apply_identity_signature(
             merged.append(token)
     for token in split_tag_tokens(base):
         norm = normalize_tag_for_match(token)
-        if not norm or norm in seen or classify_identity_tag(token) is not None:
+        category = classify_identity_tag(token)
+        # 旧 run に年齢だけを補えた場合、未確定の髪や性別まで消さない。
+        replace_identity = category is not None and (
+            not age_only or category in signature_categories
+        )
+        if not norm or norm in seen or replace_identity:
             continue
         seen.add(norm)
         merged.append(token)

@@ -7868,6 +7868,229 @@ async def test_image_prompt_converter_passes_required_identity_tags(
     )
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("signature", "appearance", "expected_age"),
+    [
+        ("1boy, black hair", "adult, black hair", "adult"),
+        ("1boy, young adult, black hair", "child, black hair", "young adult"),
+        ("1boy, black hair", "black hair", ""),
+        ("", "adult, black hair", "adult"),
+    ],
+)
+async def test_age_prepare_uses_current_appearance_without_mutating_raw(
+    monkeypatch, signature, appearance, expected_age
+) -> None:
+    service = AdventureService()
+    _patch_user_settings(monkeypatch)
+    override = AdventureImagePromptOutput(
+        scene_tags="garden", player_tags="1boy, black hair, white shirt"
+    )
+    state = {"identity_tags": signature, "appearance_lock": appearance}
+    prompt, *_rest, raw = await service._prepare_image_prompt(
+        _signature_run(), state, redraw_from_reference=False, prompt_override=override
+    )
+    assert raw is override
+    assert override.player_tags == "1boy, black hair, white shirt"
+    assert "black hair" in prompt.player_tags
+    assert "1boy" in prompt.player_tags
+    if expected_age:
+        assert expected_age in prompt.player_tags
+    else:
+        assert "adult" not in prompt.player_tags
+    assert "child" not in prompt.player_tags
+
+
+@pytest.mark.asyncio
+async def test_age_turn_override_does_not_restore_old_adult_setting(
+    monkeypatch,
+) -> None:
+    service = AdventureService()
+    _patch_user_settings(monkeypatch)
+    state = {
+        "identity_tags": "1boy, adult, black hair",
+        "appearance_lock": "adult, black hair",
+    }
+    visual = _visual_for_refresh(
+        player_tags="1boy, child, black hair, coat",
+        identity_tags="1boy, adult, black hair",
+        appearance="child, black hair",
+    )
+    service._refresh_identity_tags(state, visual, template=None, template_resolution={})
+    assert "child" in state["identity_tags"]
+    assert "adult" not in state["identity_tags"]
+    stale_state = {"identity_tags": "1boy, adult", "appearance_lock": "adult"}
+    prompt, *_rest = await service._prepare_image_prompt(
+        _signature_run(),
+        stale_state,
+        redraw_from_reference=False,
+        prompt_override=visual,
+        identity_tags_override=state["identity_tags"],
+    )
+    assert "child" in prompt.player_tags
+    assert "adult" not in prompt.player_tags
+
+    # 人物タグから年齢が漏れても、更新後の外見を旧署名より優先する。
+    visual.player_tags = "1boy, black hair, coat"
+    service._refresh_identity_tags(state, visual, template=None, template_resolution={})
+    assert "child" in state["identity_tags"]
+    assert "adult" not in state["identity_tags"]
+
+
+@pytest.mark.asyncio
+async def test_age_user_edit_overrides_existing_age(monkeypatch) -> None:
+    service = AdventureService()
+    _patch_user_settings(monkeypatch)
+    state = {
+        "identity_tags": "1boy, child, black hair",
+        "appearance_lock": "child, black hair",
+        "last_image_prompt": {"player_tags": "1boy, child, black hair, coat"},
+    }
+    prompt, *_rest = await service._prepare_image_prompt(
+        _signature_run(),
+        state,
+        redraw_from_reference=False,
+        prompt_override=AdventureImagePromptOutput(
+            scene_tags="garden", player_tags="1boy, young adult, black hair, coat"
+        ),
+        honor_user_edits=True,
+    )
+    assert "young adult" in state["identity_tags"]
+    assert "young adult" in prompt.player_tags
+    assert "child" not in prompt.player_tags
+
+
+@pytest.mark.asyncio
+async def test_age_backfill_and_normal_turn_keep_current_player_and_partner_age() -> (
+    None
+):
+    service = AdventureService()
+    state = {
+        "identity_tags": "1boy, black hair",
+        "appearance_lock": "young adult, black hair",
+        "initial_appearance_lock": "child, black hair",
+        "partner_identity_tags": "1girl, blonde hair",
+        "sim": {"partner_name": "美咲", "partner_appearance": "adult, blonde hair"},
+        "visual_state": {"main_characters": [{"name": "美咲"}]},
+        "last_image_prompt": {
+            "player_tags": "1boy, black hair, coat",
+            "npc_tags": ["1girl, blonde hair, dress"],
+        },
+    }
+    await service._prepare_turn_state(SimpleNamespace(turn_count=1), state)
+    assert "young adult" in state["identity_tags"]
+    assert "adult" in state["partner_identity_tags"]
+    assert "child" not in state["identity_tags"]
+    service._complete_current_age_signatures(
+        state, {"player_tags": "1boy, child", "npc_tags": ["1girl, child"]}
+    )
+    assert "young adult" in state["identity_tags"]
+    assert "child" not in state["partner_identity_tags"]
+
+
+@pytest.mark.asyncio
+async def test_age_opening_preserves_source_age_when_converter_omits_it(
+    monkeypatch,
+) -> None:
+    service = AdventureService()
+    persisted = SimpleNamespace(id="run-1", state_json="{}")
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.async_session_factory",
+        fake_database_factory({(AdventureRun, "run-1"): persisted}),
+    )
+    state = {
+        "identity_tags": "1boy, young adult, black hair",
+        "sim": {"partner_name": "美咲", "partner_appearance": "adult, blonde hair"},
+        "visual_state": {"main_characters": [{"name": "美咲"}]},
+    }
+    await service._persist_opening_identity(
+        "run-1",
+        state,
+        AdventureImagePromptOutput(
+            scene_tags="garden",
+            player_tags="1boy, black hair, coat",
+            identity_tags="1boy, black hair",
+            npc_tags=["1girl, blonde hair, dress"],
+        ),
+    )
+    saved = json.loads(persisted.state_json)
+    assert "young adult" in saved["identity_tags"]
+    assert "adult" in saved["partner_identity_tags"]
+
+
+@pytest.mark.asyncio
+async def test_age_scene_portraits_and_preview_share_effective_identity(
+    monkeypatch, tmp_path
+) -> None:
+    service = AdventureService()
+    service._images_dir = tmp_path
+    _patch_user_settings(monkeypatch)
+    model = "nai-diffusion-4-5-full"
+    initial = tmp_path / "initial.png"
+    initial.write_bytes(b"initial")
+    override = AdventureImagePromptOutput(
+        scene_tags="garden",
+        player_tags="1boy, black hair, white shirt",
+        npc_tags=["1girl, blonde hair, blue dress"],
+    )
+    state = {
+        "identity_tags": "1boy, black hair",
+        "appearance_lock": "young adult, black hair",
+        "partner_identity_tags": "1girl, blonde hair",
+        "sim": {"partner_name": "美咲", "partner_appearance": "adult, blonde hair"},
+        "visual_state": {"main_characters": [{"name": "美咲"}]},
+        "last_image_prompt": override.model_dump(),
+    }
+    run = SimpleNamespace(
+        id="run-1",
+        turn_count=0,
+        preset="romance",
+        state_json=json.dumps(state),
+        initial_image_path=str(initial),
+        current_image_path=str(initial),
+        portrait_image_path=None,
+        nsfw_mode=False,
+        text_model="glm-4-6",
+        image_model=model,
+    )
+    monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
+    monkeypatch.setattr(service, "_resolve_image_model", AsyncMock(return_value=model))
+    monkeypatch.setattr(
+        service,
+        "_resolve_provider_and_model",
+        AsyncMock(return_value=("novelai", model)),
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.async_session_factory",
+        fake_database_factory({(AdventureRun, "run-1"): run}),
+    )
+    dispatch = AsyncMock(return_value=SimpleNamespace(images=[b"image"]))
+    monkeypatch.setattr(service, "_dispatch_image_generation", dispatch)
+    preview = await service._preview_image_prompts(run, state)
+    assert preview is not None
+    assert run.state_json == json.dumps(state)
+    await service._generate_portrait_unlocked(
+        run.id, prompt_override=override, turn_number=0, seed_override=123
+    )
+    assert dispatch.await_args.args[0] == preview["portrait_prompt"]
+    assert "young adult" in dispatch.await_args.args[0]
+    assert "adult proportions" in dispatch.await_args.args[0]
+    await service._generate_partner_portrait_unlocked(
+        run.id, partner_tags=override.npc_tags[0], turn_number=0, seed_override=123
+    )
+    assert dispatch.await_args.args[0] == preview["partner_prompt"]
+    assert "adult proportions" in dispatch.await_args.args[0]
+    await service._generate_image_unlocked(
+        run.id, None, prompt_override=override, turn_number=0, seed_override=123
+    )
+    assert dispatch.await_args.args[0] == preview["scene_prompt"]
+    frames = dispatch.await_args.kwargs["characters"]
+    assert frames[0]["prompt"] == preview["player_prompt"]
+    assert "young adult" in frames[0]["prompt"]
+    assert "adult" in frames[1]["prompt"]
+    assert all(call.kwargs["seed"] == 123 for call in dispatch.await_args_list)
+
+
 def test_image_prompt_output_tolerates_garbage_identity_tags() -> None:
     assert (
         AdventureImagePromptOutput(

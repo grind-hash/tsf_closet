@@ -7,12 +7,18 @@ Adventure 側の生成メソッド(_generate_portrait_unlocked 等)は run の s
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from ..consts.novelai_models import is_v5_image_model, supports_character_references
 from ..settings.config import settings
-from .clothing_layers import merge_negative_prompt
+from .clothing_layers import (
+    merge_negative_prompt,
+    normalize_tag_for_match,
+    split_tag_tokens,
+)
 from .cost_tracker import record_cost
+from .identity_signature import has_explicit_adult_age
 from .image_generation import image_service
 from .prompts import enhance_prompt_for_novelai
 from .providers import Provider
@@ -87,6 +93,25 @@ def portrait_prompt_suffix(image_model: str | None) -> str:
     )
 
 
+def build_portrait_prompt(
+    tags: str, image_model: str | None, *, nsfw_mode: bool = False
+) -> str:
+    """年齢・明示的な画風を尊重した立ち絵プロンプトを生成とプレビューで共用する。"""
+    normalized = [normalize_tag_for_match(tag) for tag in split_tag_tokens(tags)]
+    deformed = any(
+        re.search(r"\b(?:chibi|super[- ]deformed)\b", tag) for tag in normalized
+    )
+    if (
+        has_explicit_adult_age(tags)
+        and not deformed
+        and not {"adult proportions", "mature proportions"}.intersection(normalized)
+    ):
+        tags = f"{tags.rstrip(', ')}, adult proportions"
+    return enhance_prompt_for_novelai(
+        tags + portrait_prompt_suffix(image_model), nsfw_mode=nsfw_mode
+    )
+
+
 async def generate_portrait_bytes(
     *,
     tags: str,
@@ -108,9 +133,7 @@ async def generate_portrait_bytes(
     料金は cost_tracker に記録する。
     """
     provider_name = str(provider)
-    prompt = enhance_prompt_for_novelai(
-        tags + portrait_prompt_suffix(image_model), nsfw_mode=nsfw_mode
-    )
+    prompt = build_portrait_prompt(tags, image_model, nsfw_mode=nsfw_mode)
     if provider_name == "novelai":
         negative = merge_negative_prompt(
             settings.novelai_negative_prompt,
