@@ -2,15 +2,22 @@
 
 from __future__ import annotations
 
+from gateway.consts.character_chat import (
+    LIVE2D_EXPRESSIONS,
+    LIVE2D_GESTURES,
+    LIVE2D_TALK_HEADER_INSTRUCTION,
+)
 from gateway.consts.companion_avatar import (
     AVATAR_EXPRESSIONS,
     AVATAR_GESTURES,
+    TALK_HEADER_COMMON_RULES,
     avatar_expression_keys,
     avatar_gesture_keys,
     avatar_resolution_instruction,
     avatar_talk_header_instruction,
     get_avatar_expression_guide,
     get_avatar_gesture_guide,
+    may_start_talk_header,
     normalize_avatar_expression,
     normalize_avatar_gesture,
     parse_talk_header,
@@ -88,6 +95,39 @@ def test_parse_talk_header_variants() -> None:
     )
 
 
+def test_parse_talk_header_accepts_bare_header_line() -> None:
+    # 角括弧を落とした先頭行も、ラベル付きの値だけが並んで改行で終われば剥がす
+    assert parse_talk_header("expression=sad gesture=idle\n(涙ぐんで) なんで…") == (
+        "sad",
+        "idle",
+        "(涙ぐんで) なんで…",
+    )
+    assert parse_talk_header("Expression: happy, gesture: nod\n\nうん") == (
+        "happy",
+        "nod",
+        "うん",
+    )
+    assert parse_talk_header("expression=angry") == ("angry", None, "")
+    # 同じ行にセリフが続く形や、語彙に無い値だけの行はセリフとして残す
+    assert parse_talk_header("expression=happy gesture=nod そうだね") == (
+        None,
+        None,
+        "expression=happy gesture=nod そうだね",
+    )
+    assert parse_talk_header("Expression: nice\nhello") == (
+        None,
+        None,
+        "Expression: nice\nhello",
+    )
+
+
+def test_may_start_talk_header() -> None:
+    for text in ("", " ", "[", "exp", "Expression=ha", "  gest", "gesture: nod"):
+        assert may_start_talk_header(text) is True
+    for text in ("えっ", "Exa", "Hello", "(微笑んで)"):
+        assert may_start_talk_header(text) is False
+
+
 def test_prompt_instructions_mention_schema_and_keys() -> None:
     resolution = avatar_resolution_instruction()
     assert "partner_expression" in resolution and "partner_gesture" in resolution
@@ -103,3 +143,19 @@ def test_prompt_instructions_mention_schema_and_keys() -> None:
     for description in AVATAR_GESTURES.values():
         assert description in talk
     assert "rather than defaulting to neutral and idle" in talk
+    # 丸括弧の仕草でヘッダを代用させず、表情の依頼にもヘッダで応えさせる
+    assert TALK_HEADER_COMMON_RULES in talk
+    assert "the parentheses never replace it" in talk
+    assert "asks you to make a certain face" in talk
+
+
+def test_live2d_header_instruction_offers_only_model_expressions() -> None:
+    assert "[expression=<key> gesture=idle]" in LIVE2D_TALK_HEADER_INSTRUCTION
+    for key in LIVE2D_EXPRESSIONS:
+        assert f"{key} ({AVATAR_EXPRESSIONS[key]})" in LIVE2D_TALK_HEADER_INSTRUCTION
+    # モデルに無い表情・身振りは選ばせない
+    for key in set(AVATAR_EXPRESSIONS) - set(LIVE2D_EXPRESSIONS):
+        assert key not in LIVE2D_TALK_HEADER_INSTRUCTION
+    for key in set(AVATAR_GESTURES) - set(LIVE2D_GESTURES):
+        assert f"{key} (" not in LIVE2D_TALK_HEADER_INSTRUCTION
+    assert TALK_HEADER_COMMON_RULES in LIVE2D_TALK_HEADER_INSTRUCTION

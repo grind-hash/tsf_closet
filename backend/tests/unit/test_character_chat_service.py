@@ -1003,6 +1003,56 @@ def test_header_buffer_strips_split_header_and_passes_plain_text() -> None:
     trailing = _HeaderBuffer(enabled=True)
     assert trailing.feed("[expression=sad gesture=bow]") == []
     assert trailing.flush() == []
+    # 角括弧を落としたヘッダ行も剥がす
+    bare = _HeaderBuffer(enabled=True)
+    assert bare.feed("expre") == []
+    assert bare.feed("ssion=sad gesture=idle\n") == []
+    assert bare.feed("(涙ぐんで)") == ["(涙ぐんで)"]
+    # 先頭の空行ではまだ判定しない
+    leading = _HeaderBuffer(enabled=True)
+    assert leading.feed("\n") == []
+    assert leading.feed("[expression=happy gesture=nod]\nやあ") == ["やあ"]
+    english = _HeaderBuffer(enabled=True)
+    assert english.feed("Ex") == []
+    assert english.feed("actly!") == ["Exactly!"]
+
+
+def test_reply_history_strips_leftover_headers_and_fills_defaults() -> None:
+    items = [
+        SimpleNamespace(role="user", content="怒って", meta_json=None),
+        # 解析できずに本文へ残った角括弧なしのヘッダ(記録は null)
+        SimpleNamespace(
+            role="character",
+            content="expression=angry gesture=idle\nもう！",
+            meta_json=json.dumps({"expression": None, "gesture": None}),
+        ),
+        SimpleNamespace(role="character", content="[happy=nod] はい", meta_json=None),
+        SimpleNamespace(
+            role="character",
+            content="ええ",
+            meta_json=json.dumps({"expression": "sad", "gesture": "bow"}),
+        ),
+        SimpleNamespace(role="character", content="そう", meta_json=None),
+    ]
+    live2d = module._reply_history(
+        items, expressions=module.LIVE2D_EXPRESSIONS, gestures=module.LIVE2D_GESTURES
+    )
+    assert [item["role"] for item in live2d] == ["user"] + ["assistant"] * 4
+    assert [item["content"] for item in live2d] == [
+        "怒って",
+        "[expression=angry gesture=idle]\nもう！",
+        "[expression=happy gesture=idle]\nはい",
+        "[expression=sad gesture=idle]\nええ",
+        "[expression=neutral gesture=idle]\nそう",
+    ]
+    # 表情ヘッダを求めない手番でも、本文に残ったヘッダは渡さない
+    assert [item["content"] for item in module._reply_history(items)] == [
+        "怒って",
+        "もう！",
+        "はい",
+        "ええ",
+        "そう",
+    ]
 
 
 @pytest.mark.asyncio
@@ -1604,6 +1654,61 @@ async def test_stream_message_with_avatar_updates_tags_without_portrait(
         == "white chiffon blouse, black lace pencil skirt"
     )
     assert detail["portrait_missing"] is True
+
+
+@pytest.mark.asyncio
+async def test_stream_message_history_restores_expression_headers(
+    service: CharacterChatService, isolated_db, monkeypatch
+) -> None:
+    """表情ヘッダを求める手番では、保存時に剥がしたヘッダを履歴の返答へ付け直す。"""
+    thread = await service.get_or_create_base_thread()
+    await service.set_avatar(thread["id"], mode="live2d")
+    fake_generate_text, _ = _llm_router()
+    monkeypatch.setattr(module.llm_service, "generate_text", fake_generate_text)
+    captured: dict = {}
+    turns = [
+        ("怒った表情", ["[expression=angry gesture=idle]\n", "もう、知らない"]),
+        # ヘッダを書かなかった返答は画面の表示と同じ neutral / idle で埋める
+        ("笑って", ["(ふふっと笑って) はい"]),
+        # Live2D に無い表情・身振りも neutral / idle に倒す
+        ("わっ", ["[expression=surprised gesture=nod]\n", "えっ"]),
+        ("元気？", ["ええ"]),
+    ]
+    for content, chunks in turns:
+        monkeypatch.setattr(
+            module.llm_service,
+            "generate_feeling_stream",
+            _fake_stream(chunks, captured),
+        )
+        await _collect(service.stream_message(thread_id=thread["id"], content=content))
+
+    history = captured["history"]
+    assert [item["content"] for item in history if item["role"] == "user"] == [
+        "怒った表情",
+        "笑って",
+        "わっ",
+    ]
+    assert [item["content"] for item in history if item["role"] == "assistant"] == [
+        "[expression=angry gesture=idle]\nもう、知らない",
+        "[expression=neutral gesture=idle]\n(ふふっと笑って) はい",
+        "[expression=neutral gesture=idle]\nえっ",
+    ]
+    # 保存する本文にはヘッダを残さない
+    detail = await service.get_thread(thread["id"])
+    assert [m["content"] for m in detail["messages"] if m["role"] == "character"] == [
+        "もう、知らない",
+        "(ふふっと笑って) はい",
+        "えっ",
+        "ええ",
+    ]
+
+    # 2D 立ち絵の手番ではヘッダを求めないので、履歴にも付けない
+    await service.set_avatar(thread["id"], mode="none")
+    await _collect(service.stream_message(thread_id=thread["id"], content="またね"))
+    assert "[expression=" not in captured["system"]
+    assert not any(
+        item["content"].startswith("[expression=") for item in captured["history"]
+    )
 
 
 @pytest.mark.asyncio

@@ -40,6 +40,8 @@ from ..consts.character_chat import (
     CHARACTER_CHAT_KIND_BASE,
     CHARACTER_CHAT_KIND_SESSION,
     HISTORY_MESSAGES,
+    LIVE2D_EXPRESSIONS,
+    LIVE2D_GESTURES,
     LIVE2D_TALK_HEADER_INSTRUCTION,
     MESSAGE_MAX,
     PERSONA_MONOLOGUE_CHARS,
@@ -54,7 +56,12 @@ from ..consts.character_chat import (
     load_origin_lore,
 )
 from ..consts.companion_avatar import (
+    AVATAR_EXPRESSION_DEFAULT,
+    AVATAR_GESTURE_DEFAULT,
+    avatar_expression_keys,
+    avatar_gesture_keys,
     avatar_talk_header_instruction,
+    may_start_talk_header,
     normalize_avatar_expression,
     normalize_avatar_gesture,
     parse_talk_header,
@@ -214,6 +221,43 @@ def normalize_chat_reply(text: str, name: str) -> str:
     return reply[:REPLY_MAX].strip()
 
 
+def _reply_history(
+    messages: list[CharacterChatMessage],
+    *,
+    expressions: tuple[str, ...] = (),
+    gestures: tuple[str, ...] = (),
+) -> list[dict[str, str]]:
+    """返答 LLM へ渡す会話履歴。
+
+    expressions を渡した手番(表情ヘッダを求める手番)では、保存時に剥がした
+    ヘッダを過去の返答へ付け直す。履歴の返答がヘッダ無しのままだと、モデルが
+    その形を真似てヘッダを書かなくなるため。記録の無い返答と、いまの表示で
+    表せないキーは、画面に実際に出た表示と同じ neutral / idle で埋める。
+    解析できずに本文へ残ったヘッダ(角括弧の欠けた形など)は、表示の有無に
+    かかわらず剥がし、記録が無ければその値を使う。
+    """
+    history: list[dict[str, str]] = []
+    for item in messages:
+        if item.role == "user":
+            history.append({"role": "user", "content": item.content})
+            continue
+        left_expression, left_gesture, content = parse_talk_header(item.content)
+        content = content.strip()
+        if expressions:
+            meta = _json_load(item.meta_json, {})
+            expression = (
+                normalize_avatar_expression(meta.get("expression")) or left_expression
+            )
+            gesture = normalize_avatar_gesture(meta.get("gesture")) or left_gesture
+            if expression not in expressions:
+                expression = AVATAR_EXPRESSION_DEFAULT
+            if gesture not in gestures:
+                gesture = AVATAR_GESTURE_DEFAULT
+            content = f"[expression={expression} gesture={gesture}]\n{content}"
+        history.append({"role": "assistant", "content": content})
+    return history
+
+
 async def _generate_text(
     system_prompt: str, user_prompt: str, *, text_model: str | None
 ) -> str:
@@ -295,8 +339,9 @@ def _with_initial(
 class _HeaderBuffer:
     """返答の先頭ヘッダ行 ``[expression=.. gesture=..]`` を配信前に取り除くバッファ。
 
-    3D モデル表示中の adventure 種でだけ有効。改行か一定長までは溜め、先頭が
-    ``[`` でないと分かった時点で即時に流す(Adventure のトークから移した)。
+    表情ヘッダを求める手番(3D モデル・Live2D 表示中)でだけ有効。本文の改行か
+    一定長までは溜め、先頭がヘッダの書き出し(``[`` か expression= / gesture= の
+    ラベル)でないと分かった時点で即時に流す(Adventure のトークから移した)。
     """
 
     _LIMIT = 64
@@ -309,10 +354,10 @@ class _HeaderBuffer:
         if self._decided:
             return [chunk]
         self._pending += chunk
-        stripped = self._pending.lstrip()
-        if stripped and not stripped.startswith("["):
+        if self._pending.strip() and not may_start_talk_header(self._pending):
             return self._release()
-        if "\n" in self._pending or len(self._pending) >= self._LIMIT:
+        # 先頭の空行ではまだ判定しない(ヘッダは改行の後に来ることがある)
+        if "\n" in self._pending.lstrip() or len(self._pending) >= self._LIMIT:
             return self._release()
         return []
 
@@ -2263,6 +2308,9 @@ class CharacterChatService:
             )
             adventure_context: dict[str, Any] | None = None
             header_instruction = ""
+            # 表情ヘッダで選べるキー。履歴の返答へヘッダを付け直すときの範囲にもなる
+            header_expressions: tuple[str, ...] = ()
+            header_gestures: tuple[str, ...] = ()
             after_turn: int | None = None
             view: _AdventureView | None = None
             if thread.kind == CHARACTER_CHAT_KIND_ADVENTURE:
@@ -2300,11 +2348,14 @@ class CharacterChatService:
                 )
             avatar_shown = bool(avatar.get("url"))
             if avatar_shown:
-                header_instruction = (
-                    LIVE2D_TALK_HEADER_INSTRUCTION
-                    if avatar.get("mode") == "live2d"
-                    else avatar_talk_header_instruction()
-                )
+                if avatar.get("mode") == "live2d":
+                    header_instruction = LIVE2D_TALK_HEADER_INSTRUCTION
+                    header_expressions = LIVE2D_EXPRESSIONS
+                    header_gestures = LIVE2D_GESTURES
+                else:
+                    header_instruction = avatar_talk_header_instruction()
+                    header_expressions = avatar_expression_keys()
+                    header_gestures = avatar_gesture_keys()
 
             yield {"event": "status", "data": {"phase": "plan"}}
             plan = await self._plan(
@@ -2353,13 +2404,9 @@ class CharacterChatService:
                 origin_lore_text=origin_lore_text,
                 self_profile=self_profile,
             )
-            history = [
-                {
-                    "role": "user" if item.role == "user" else "assistant",
-                    "content": item.content,
-                }
-                for item in recent
-            ]
+            history = _reply_history(
+                recent, expressions=header_expressions, gestures=header_gestures
+            )
             reply = ""
             # 3D モデル表示中は先頭ヘッダ行(表情・身振り)を配信前に剥がす
             header = _HeaderBuffer(enabled=bool(header_instruction))

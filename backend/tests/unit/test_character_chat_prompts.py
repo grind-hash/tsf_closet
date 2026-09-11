@@ -309,8 +309,19 @@ def test_reply_system_prompt_appends_avatar_header_instruction() -> None:
         appearance_description="",
         appearance_change_request=None,
     )
-    assert "[expression=" not in reply_system_prompt("ja", **kwargs)
+    plain = reply_system_prompt("ja", **kwargs)
+    assert "[expression=" not in plain
+    assert "表情ヘッダ" not in plain
     with_header = reply_system_prompt(
         "ja", **kwargs, header_instruction="[expression=<key> gesture=<key>] HEADER"
     )
-    assert "[expression=<key> gesture=<key>] HEADER" in with_header
+    # 「話し言葉だけ」の規則に上書きされないよう、ヘッダ指示はルールより後ろ(末尾)に置く
+    assert with_header.endswith("[expression=<key> gesture=<key>] HEADER")
+    assert with_header.index("会話のルール") < with_header.index("HEADER")
+    assert "表情ヘッダ行を 1 行目に置き、2 行目から「セレナ」として" in with_header
+
+    en_kwargs = {**kwargs, "persona_block": base_persona_block("en")}
+    assert "header line" not in reply_system_prompt("en", **en_kwargs)
+    en = reply_system_prompt("en", **en_kwargs, header_instruction="HEADER")
+    assert en.endswith("HEADER")
+    assert "Start with the header line described at the end, then reply" in en

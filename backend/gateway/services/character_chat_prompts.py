@@ -430,8 +430,9 @@ def reply_system_prompt(
 ) -> str:
     """返答本文の system prompt。
 
-    header_instruction は 3D モデル表示中の表情・身振りヘッダ。relaxed_length は
-    セッション由来キャラ向けに文数の目安を緩める(案内役は短めのまま)。
+    header_instruction は 3D モデル・Live2D 表示中の表情・身振りヘッダ。会話の
+    ルールの「話し言葉だけ」に上書きされないよう、ルールより後ろ(末尾)に置く。
+    relaxed_length はセッション由来キャラ向けに文数の目安を緩める(案内役は短めのまま)。
     """
     lang = _lang(language)
     sections: list[str] = [persona_block]
@@ -470,8 +471,6 @@ def reply_system_prompt(
                 "短く描写してください。立ち絵は返答の後に描き直されます。"
             )
         )
-    if header_instruction:
-        sections.append(header_instruction)
     if lang == "en":
         length_rule = (
             "usually two to five sentences, up to about seven when you talk about "
@@ -479,13 +478,18 @@ def reply_system_prompt(
             if relaxed_length
             else "usually one to four sentences"
         )
+        reply_lead = (
+            "Start with the header line described at the end, then reply"
+            if header_instruction
+            else "Reply"
+        )
         rules = (
             "Conversation rules:\n"
             "- The messages in this chat are the actual conversation so far, oldest first; "
             "the last user message is what they just said. Continue that conversation, "
             "remember what was said, and never restart as if meeting for the first time.\n"
-            f"- Reply as {name} in the first person ('{pronoun}'), as spoken words only: "
-            f"{length_rule}. You may add at most one brief action in "
+            f"- {reply_lead} as {name} in the first person ('{pronoun}'), as spoken "
+            f"words only: {length_rule}. You may add at most one brief action in "
             "parentheses. No narration, no name prefix, no corner brackets, no markdown, "
             "no JSON.\n"
             "- Do not invent facts about the user's past play beyond what you were given.\n"
@@ -497,18 +501,25 @@ def reply_system_prompt(
             if relaxed_length
             else "通常は 1〜4 文。"
         )
+        reply_lead = (
+            "末尾で指定する表情ヘッダ行を 1 行目に置き、2 行目から"
+            if header_instruction
+            else ""
+        )
         rules = (
             "会話のルール:\n"
             "- このチャットのメッセージはこれまでの実際の会話(古い順)で、最後の user "
             "メッセージが相手のいまの発言です。その続きとして答え、言われたことを覚え、"
             "初対面のように仕切り直さないでください。\n"
-            f"- 「{name}」として一人称「{pronoun}」で、話し言葉だけを返してください。"
-            f"{length_rule}丸括弧の短い仕草を 1 つまで添えてもかまいません。"
+            f"- {reply_lead}「{name}」として一人称「{pronoun}」で、話し言葉だけを"
+            f"返してください。{length_rule}丸括弧の短い仕草を 1 つまで添えてもかまいません。"
             "地の文・名前のプレフィックス・かぎ括弧で全体を囲む・Markdown・JSON は禁止。\n"
             "- 相手の過去のプレイについて、渡された情報に無いことを作らないでください。\n"
             f"{get_language_rules('ja')}"
         )
     sections.append(rules)
+    if header_instruction:
+        sections.append(header_instruction)
     return "\n\n".join(section for section in sections if section)
 
 
