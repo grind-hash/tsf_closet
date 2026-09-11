@@ -41,6 +41,8 @@ export const characterChat = {
   room: {
     back: "一覧へ戻る",
     backToScenario: "シナリオへ戻る",
+    hideWindow: "ウィンドウを隠す",
+    showWindow: "ウィンドウを表示",
     adventureFollow: "シナリオの姿に合わせる",
     adventureFollowHint:
       "表示モードに合わせた既定（合成モードなら相手が写る最新の場面画像、それ以外は最新の立ち絵）に戻し、以後もシナリオの変化に追従します。",
@@ -57,7 +59,20 @@ export const characterChat = {
     adventureUnavailable:
       "このシナリオは終了または削除されています。姿はこの会話の中だけで変えられます。",
     adventureNoImage: "画像がありません",
-    avatarSection: "3Dモデル (VRM)",
+    avatarSection: "キャラクター表示",
+    avatarLive2d: "Live2D",
+    avatarLive2dHint:
+      "セレナの全身モデル。表情・まばたき・読み上げに連動し、髪や袖が揺れます。全身／寄り表示を切り替えられます。着替えは見た目に反映されません。",
+    avatarLive2dUnavailable:
+      "Live2D SDK が配置されていないため選べません。設定画面の「Live2D モデル」に導入手順があります。",
+    live2dSdkPathPackaged: "配布版の配置先: backend/static/live2d/vendor/",
+    live2dSdkPathDev: "ソースから起動する場合: frontend/public/live2d/vendor/",
+    live2dCamera: "Live2D の表示範囲",
+    live2dFull: "全身",
+    live2dPortrait: "寄り",
+    live2dLoading: "Live2D を読み込んでいます…",
+    live2dFailed:
+      "Live2D を表示できないため、立ち絵に戻しました。「姿」から再選択できます。",
     avatarCurrent: "表示中: {{name}}（{{source}}）",
     avatarCurrentNone: "3Dモデルなし（2D 立ち絵を表示）",
     avatarAuto: "自動（既定）",
@@ -75,7 +90,7 @@ export const characterChat = {
     avatarMissing:
       "選んでいた 3D モデルが削除されていたため、自動に戻しました。",
     appearanceTagsOnly:
-      "3D モデルを表示中なので外見タグだけ更新しました。立ち絵は「姿」の「立ち絵を描き直す」で描けます。",
+      "モデルを表示中なので外見タグだけ更新しました。モデルの見た目は変わりません。立ち絵は「姿」の「立ち絵を描き直す」で描けます。",
     changeAppearance: "姿を変更",
     appearancePickerTitle: "姿にする画像を選ぶ",
     regeneratePortrait: "立ち絵を描き直す",
@@ -166,7 +181,7 @@ export const characterChat = {
     outfit: "服装",
     playMemory: "プレイメモ",
     appearance: "姿",
-    avatar: "3Dモデル",
+    avatar: "キャラクター表示",
     adventure: "シナリオの状況",
     adventureHint:
       "紐づく TSF シナリオの現在値です。会話のたびに最新を読みます。",
@@ -193,7 +208,7 @@ export const characterChat = {
     portraitFailed: "立ち絵を描けませんでした",
     createFailed: "キャラクターを作れませんでした",
     appearanceFailed: "姿を変更できませんでした",
-    avatarFailed: "3D モデルを切り替えられませんでした",
+    avatarFailed: "キャラクター表示を切り替えられませんでした",
     deleteFailed: "会話を削除できませんでした",
   },
 };

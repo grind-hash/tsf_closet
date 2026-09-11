@@ -42,9 +42,19 @@ BASE_PORTRAIT_FILENAME = "serena.png"
 BASE_AVATAR_FILENAME = "serena.vrm"
 # 同梱 VRM の配信 URL(FE が API_BASE を付ける)
 BASE_AVATAR_URL = "/character-chat/avatar/base"
-# 3D モデルの表示指定: auto = 自動(同梱 → run → 名前一致)、none = 2D 立ち絵、
-# model = 登録済みモデルを明示
-AVATAR_MODES = ("auto", "none", "model")
+# アバターの表示指定: auto = VRM 自動(同梱 → run → 名前一致)、none = 2D 立ち絵、
+# model = 登録済み VRM を明示、live2d = 案内役の同梱 Live2D
+AVATAR_MODES = ("auto", "none", "model", "live2d")
+# 案内役専用。フロントエンドが配信する実行素材の URL。描画に必要な Cubism Core は
+# 同梱せず、利用者が live2d/vendor/ へ配置する(未配置なら 2D 立ち絵のまま)
+BASE_LIVE2D_URL = "/live2d/serena-fullbody-v4/cubism/fullbody-face-rig.model3.json"
+LIVE2D_TALK_HEADER_INSTRUCTION = (
+    "返答の先頭に [expression=<key> gesture=idle] のヘッダを1行だけ付け、"
+    "改行後に発言本文を書く。expression は返答の気持ちに合わせて "
+    "neutral（平静）、happy（喜び）、angry（怒り）、sad（悲しみ）の1つを選ぶ。"
+    "身振りは未対応なので gesture は必ず idle とする。"
+    "ヘッダの内容を本文で繰り返さない。"
+)
 
 # コンセプト画像から起こした外見タグ。identity は着替えで変えない部分
 BASE_IDENTITY_TAGS = (

@@ -121,10 +121,10 @@ export interface CharacterChatPersona {
   speech_style?: string;
 }
 
-export type CharacterChatAvatarMode = "auto" | "none" | "model";
+export type CharacterChatAvatarMode = "auto" | "none" | "model" | "live2d";
 export type CharacterChatAvatarSource = "bundled" | "registered" | "run";
 
-/** 3D モデル(VRM)の解決結果。url が null なら 2D 立ち絵を表示する */
+/** アバターの解決結果。live2d の URL はフロント配信、それ以外は API 配信 */
 export interface CharacterChatAvatarInfo {
   /** 保存している指定。auto = 自動、none = 2D 立ち絵、model = 登録済みモデルを明示 */
   mode: CharacterChatAvatarMode;
@@ -248,7 +248,13 @@ function normalizeThread(thread: CharacterChatThread): CharacterChatThread {
       }
     : (thread.adventure ?? null);
   const avatar = thread.avatar
-    ? { ...thread.avatar, url: characterChatImageUrl(thread.avatar.url) }
+    ? {
+        ...thread.avatar,
+        url:
+          thread.avatar.mode === "live2d"
+            ? thread.avatar.url
+            : characterChatImageUrl(thread.avatar.url),
+      }
     : (thread.avatar ?? null);
   return {
     ...thread,
@@ -258,13 +264,22 @@ function normalizeThread(thread: CharacterChatThread): CharacterChatThread {
   };
 }
 
-export async function fetchCharacterChatThreads(): Promise<
-  CharacterChatThread[]
-> {
-  const data = await requestJson<{ threads: CharacterChatThread[] }>(
-    `${BASE}/threads`,
-  );
-  return (data.threads ?? []).map(normalizeThread);
+/** スレッド一覧と、環境変数由来のグローバル設定 */
+export interface CharacterChatThreadList {
+  threads: CharacterChatThread[];
+  /** ENABLE_PROMPT_PREVIEW。開発者向けの案内を出し分ける */
+  enablePromptPreview: boolean;
+}
+
+export async function fetchCharacterChatThreads(): Promise<CharacterChatThreadList> {
+  const data = await requestJson<{
+    threads: CharacterChatThread[];
+    enable_prompt_preview?: boolean;
+  }>(`${BASE}/threads`);
+  return {
+    threads: (data.threads ?? []).map(normalizeThread),
+    enablePromptPreview: data.enable_prompt_preview ?? false,
+  };
 }
 
 /** 案内役キャラ(セレナ)のスレッドを開く。無ければ作られる(冪等) */

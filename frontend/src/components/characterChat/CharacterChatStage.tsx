@@ -6,6 +6,7 @@ import type {
   AvatarExpressionKey,
   AvatarGestureKey,
 } from "../../constants/companionAvatar";
+import { useCharacterChat } from "../../contexts/CharacterChatContext";
 import { useTransparentImage } from "../../hooks/useTransparentImage";
 import type { VisemeFrame } from "../../utils/visemeTimeline";
 import type { AvatarRestPose } from "../adventure/avatar/avatarMotion";
@@ -14,6 +15,7 @@ import type { AvatarRestPose } from "../adventure/avatar/avatarMotion";
 const CompanionAvatarStage = lazy(
   () => import("../adventure/avatar/CompanionAvatarStage"),
 );
+const CharacterChatLive2D = lazy(() => import("./live2d/CharacterChatLive2D"));
 
 export interface CharacterChatStageAvatar {
   url: string;
@@ -54,9 +56,12 @@ export default function CharacterChatStage({
   avatar,
 }: CharacterChatStageProps) {
   const { t } = useTranslation();
+  const { avatarFailed } = useCharacterChat();
+  const live2d =
+    thread.kind === "base" && thread.avatar?.mode === "live2d" && !avatarFailed;
   const standing = thread.appearance.portrait_kind === "standing";
   const { url, processing } = useTransparentImage(
-    avatar ? null : thread.portrait_url,
+    avatar || live2d ? null : thread.portrait_url,
     standing,
     PORTRAIT_ALPHA_OPTIONS,
   );
@@ -65,7 +70,11 @@ export default function CharacterChatStage({
   return (
     <div className="character-chat-room__stage" aria-busy={working}>
       <div className="character-chat-room__backdrop" />
-      {avatar ? (
+      {live2d ? (
+        <Suspense fallback={null}>
+          <CharacterChatLive2D />
+        </Suspense>
+      ) : avatar ? (
         <div className="character-chat-room__avatar">
           <Suspense fallback={null}>
             <CompanionAvatarStage

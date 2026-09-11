@@ -6,6 +6,8 @@ import type {
   CharacterChatAvatarInfo,
   CharacterChatAvatarMode,
 } from "../../apis/characterChat";
+import { useCharacterChat } from "../../contexts/CharacterChatContext";
+import { live2dCoreAvailable } from "./live2d/cubismPilotRenderer";
 
 /** 登録済みモデルの表示名(分類済みなら「キャラクター / 差分」) */
 function avatarModelLabel(model: AvatarModel): string {
@@ -65,9 +67,23 @@ export default function CharacterChatAppearanceMenu({
   onUsePreciseChange,
 }: CharacterChatAppearanceMenuProps) {
   const { t } = useTranslation();
+  const { activeThread, setAvatar, promptPreviewEnabled } = useCharacterChat();
   const isAdventure = Boolean(adventure);
   const mode = adventure?.appearance_mode ?? "default";
   const avatarMode = avatar?.mode ?? "auto";
+  // Cubism Core は同梱しない。未配置なら Live2D は選べないので、判定できるまでは
+  // 押せない状態にしておく(判定前は null)
+  const [coreAvailable, setCoreAvailable] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (!open || coreAvailable !== null) return;
+    let cancelled = false;
+    void live2dCoreAvailable().then((available) => {
+      if (!cancelled) setCoreAvailable(available);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, coreAvailable]);
   // 登録済みモデルの一覧は、メニューを最初に開いたときに 1 回だけ取る
   const [models, setModels] = useState<AvatarModel[] | null>(null);
   const [modelsFailed, setModelsFailed] = useState(false);
@@ -98,12 +114,15 @@ export default function CharacterChatAppearanceMenu({
         : avatar?.source === "registered"
           ? t("characterChat.room.avatarSourceRegistered")
           : "";
-  const avatarCurrentLabel = avatar?.url
-    ? t("characterChat.room.avatarCurrent", {
-        name: avatar.name ?? "",
-        source: avatarSourceLabel,
-      })
-    : t("characterChat.room.avatarCurrentNone");
+  const avatarCurrentLabel =
+    avatarMode === "live2d"
+      ? t("characterChat.room.avatarLive2d")
+      : avatar?.url
+        ? t("characterChat.room.avatarCurrent", {
+            name: avatar.name ?? "",
+            source: avatarSourceLabel,
+          })
+        : t("characterChat.room.avatarCurrentNone");
   return (
     <div className="character-chat__sound">
       <button
@@ -121,6 +140,32 @@ export default function CharacterChatAppearanceMenu({
             {t("characterChat.room.avatarSection")}
           </p>
           <p className="character-chat-room__menu-note">{avatarCurrentLabel}</p>
+          {activeThread?.kind === "base" && (
+            <button
+              type="button"
+              className={`character-chat-room__menu-item${avatarMode === "live2d" ? " is-active" : ""}`}
+              aria-pressed={avatarMode === "live2d"}
+              disabled={busy || !coreAvailable}
+              onClick={() => {
+                onToggleOpen();
+                void setAvatar("live2d");
+              }}
+            >
+              <strong>{t("characterChat.room.avatarLive2d")}</strong>
+              <small>
+                {coreAvailable === false
+                  ? t("characterChat.room.avatarLive2dUnavailable")
+                  : t("characterChat.room.avatarLive2dHint")}
+              </small>
+              {/* 開発者向け。ENABLE_PROMPT_PREVIEW のときだけ配置先を出す */}
+              {coreAvailable === false && promptPreviewEnabled && (
+                <>
+                  <small>{t("characterChat.room.live2dSdkPathPackaged")}</small>
+                  <small>{t("characterChat.room.live2dSdkPathDev")}</small>
+                </>
+              )}
+            </button>
+          )}
           <button
             type="button"
             className={`character-chat-room__menu-item${avatarMode === "auto" ? " is-active" : ""}`}

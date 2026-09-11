@@ -26,6 +26,29 @@ def test_create_requires_a_source(client: TestClient) -> None:
     assert response.status_code == 422
 
 
+def test_thread_list_carries_prompt_preview_flag(
+    client: TestClient, monkeypatch
+) -> None:
+    """一覧は ENABLE_PROMPT_PREVIEW を添える(開発者向け案内の出し分けに使う)。"""
+
+    async def no_threads():
+        return []
+
+    monkeypatch.setattr(
+        router_module.character_chat_service, "list_threads", no_threads
+    )
+
+    monkeypatch.setattr(router_module.settings, "enable_prompt_preview", False)
+    body = client.get("/api/character-chat/threads").json()
+    assert body == {"threads": [], "enable_prompt_preview": False}
+
+    monkeypatch.setattr(router_module.settings, "enable_prompt_preview", True)
+    assert client.get("/api/character-chat/threads").json() == {
+        "threads": [],
+        "enable_prompt_preview": True,
+    }
+
+
 def test_not_found_codes_map_to_404(client: TestClient, monkeypatch) -> None:
     async def missing(thread_id, **kwargs):
         raise CharacterChatError("thread_not_found", "無い")

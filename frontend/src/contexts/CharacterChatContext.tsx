@@ -38,10 +38,18 @@ import {
   streamCharacterChatPortrait,
 } from "../apis/characterChat";
 import type { AdventureSourceSelection } from "../components/adventure/AdventureSessionPickerModal";
+import {
+  type UseAdventureVoiceResult,
+  useAdventureVoice,
+} from "../hooks/useAdventureVoice";
+import { stripStageDirections } from "../utils/adventureDialogue";
+import { textToVoiceSegments } from "../utils/adventureVoiceSegments";
 import { useNotification } from "./NotificationContext";
 import { useSettings } from "./SettingsContext";
 
 interface CharacterChatContextValue {
+  voice: UseAdventureVoiceResult;
+  speakMessage: (message: CharacterChatMessage) => void;
   threads: CharacterChatThread[];
   threadsLoading: boolean;
   activeThread: CharacterChatThread | null;
@@ -69,6 +77,7 @@ interface CharacterChatContextValue {
   /** createFromSource で立ち絵生成を予約したスレッドなら true を 1 回だけ返す */
   takePendingPortrait: (threadId: string) => boolean;
   loadThread: (threadId: string) => Promise<CharacterChatThread | null>;
+  leaveThread: () => void;
   deleteThread: (threadId: string) => Promise<boolean>;
   submitMessage: (text: string) => Promise<CharacterChatMessage | null>;
   setAppearanceFromSource: (
@@ -92,6 +101,10 @@ interface CharacterChatContextValue {
   /** 3D モデルの読込に失敗したら立ち絵へ戻す(スレッド切替でリセット) */
   avatarFailed: boolean;
   setAvatarFailed: (failed: boolean) => void;
+  /** ENABLE_PROMPT_PREVIEW。開発者向けの案内を出し分ける */
+  promptPreviewEnabled: boolean;
+  /** 一覧をまだ取っていなければ取る(会話画面へ直接来たとき用) */
+  ensureThreadsLoaded: () => void;
   clearError: () => void;
 }
 
@@ -120,7 +133,28 @@ function errorMessage(error: unknown, fallback: string): string {
 
 export function CharacterChatProvider({ children }: { children: ReactNode }) {
   const { t } = useTranslation();
-  const { addTotalCost } = useSettings();
+  const { addTotalCost, state: settingsState } = useSettings();
+  const voice = useAdventureVoice({
+    available: settingsState.ttsEnabled,
+    speakerId:
+      settingsState.ttsStyleId?.trim() ||
+      settingsState.ttsSpeakerId?.trim() ||
+      null,
+    engineDir: settingsState.ttsEngineDir,
+    useGpu: settingsState.ttsUseGpu,
+  });
+  const speakMessage = useCallback(
+    (message: CharacterChatMessage) => {
+      const key = `chat:${message.id}`;
+      voice.speakSegments(
+        textToVoiceSegments(stripStageDirections(message.content), key),
+        key,
+      );
+    },
+    [voice.speakSegments],
+  );
+  const voiceRef = useRef(voice);
+  voiceRef.current = voice;
   const { showNotification } = useNotification();
   const [threads, setThreads] = useState<CharacterChatThread[]>([]);
   const [threadsLoading, setThreadsLoading] = useState(false);
@@ -141,9 +175,11 @@ export function CharacterChatProvider({ children }: { children: ReactNode }) {
   busyPortraitsRef.current = busyPortraits;
   const [error, setError] = useState<string | null>(null);
   const [avatarFailed, setAvatarFailed] = useState(false);
+  const [promptPreviewEnabled, setPromptPreviewEnabled] = useState(false);
   // 送信中に別スレッドへ移動しても古いストリームの結果を混ぜない
   const activeThreadIdRef = useRef<string | null>(null);
   activeThreadIdRef.current = activeThread?.id ?? null;
+  const threadEpochRef = useRef(0);
   // Hub で「立ち絵を生成する」を ON にして作ったスレッド。Room が開いた時点で 1 回だけ描く
   const pendingPortraitRef = useRef<string | null>(null);
 
@@ -174,16 +210,34 @@ export function CharacterChatProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  // 一覧を一度でも取りにいったか。会話画面へ直接来たときの取りこぼしを防ぐ
+  const threadsRequestedRef = useRef(false);
+
   const refreshThreads = useCallback(async () => {
+    threadsRequestedRef.current = true;
     setThreadsLoading(true);
     try {
-      setThreads(await fetchCharacterChatThreads());
+      const list = await fetchCharacterChatThreads();
+      setThreads(list.threads);
+      setPromptPreviewEnabled(list.enablePromptPreview);
     } catch (err) {
       setError(errorMessage(err, t("characterChat.errors.loadFailed")));
     } finally {
       setThreadsLoading(false);
     }
   }, [t]);
+
+  /**
+   * 一覧をまだ取っていなければ取る。
+   *
+   * 一覧のペイロードには ENABLE_PROMPT_PREVIEW が乗っており、入口(ハブ)を通らず
+   * /talk/:threadId へ直接来たときは取りこぼす。ハブは毎回 refreshThreads で
+   * 取り直すため、こちらは初回だけでよい。
+   */
+  const ensureThreadsLoaded = useCallback(() => {
+    if (threadsRequestedRef.current) return;
+    void refreshThreads();
+  }, [refreshThreads]);
 
   const openAdventure = useCallback(
     async (runId: string) => {
@@ -252,25 +306,41 @@ export function CharacterChatProvider({ children }: { children: ReactNode }) {
 
   const loadThread = useCallback(
     async (threadId: string) => {
+      const epoch = ++threadEpochRef.current;
       setThreadLoading(true);
+      setSending(false);
+      setError(null);
       setDraft("");
       setPendingInput(null);
       setPhase("idle");
       setAvatarFailed(false);
       try {
         const thread = await fetchCharacterChatThread(threadId);
+        if (epoch !== threadEpochRef.current) return null;
         setActiveThread(thread);
         return thread;
       } catch (err) {
+        if (epoch !== threadEpochRef.current) return null;
         setActiveThread(null);
         setError(errorMessage(err, t("characterChat.errors.loadFailed")));
         return null;
       } finally {
-        setThreadLoading(false);
+        if (epoch === threadEpochRef.current) setThreadLoading(false);
       }
     },
     [t],
   );
+
+  const leaveThread = useCallback(() => {
+    threadEpochRef.current++;
+    activeThreadIdRef.current = null;
+    voiceRef.current.stop();
+    setActiveThread(null);
+    setSending(false);
+    setPendingInput(null);
+    setDraft("");
+    setPhase("idle");
+  }, []);
 
   const deleteThread = useCallback(
     async (threadId: string) => {
@@ -292,6 +362,8 @@ export function CharacterChatProvider({ children }: { children: ReactNode }) {
       const content = text.trim();
       const threadId = activeThreadIdRef.current;
       if (!content || !threadId || sending) return null;
+      const epoch = threadEpochRef.current;
+      voiceRef.current.stop();
       setSending(true);
       setError(null);
       setDraft("");
@@ -300,7 +372,11 @@ export function CharacterChatProvider({ children }: { children: ReactNode }) {
       let characterMessage: CharacterChatMessage | null = null;
       try {
         await streamCharacterChatMessage(threadId, { content }, (event) => {
-          if (activeThreadIdRef.current !== threadId) return;
+          if (
+            activeThreadIdRef.current !== threadId ||
+            epoch !== threadEpochRef.current
+          )
+            return;
           if (event.type === "status") {
             setPhase(event.data.phase);
           } else if (event.type === "chat_chunk") {
@@ -331,6 +407,7 @@ export function CharacterChatProvider({ children }: { children: ReactNode }) {
             );
             setPendingInput(null);
             setDraft("");
+            if (voiceRef.current.canSpeak) speakMessage(character_message);
           } else if (event.type === "portrait_image") {
             const { image_url, appearance } = event.data;
             setActiveThread((prev) =>
@@ -370,9 +447,13 @@ export function CharacterChatProvider({ children }: { children: ReactNode }) {
           }
         });
       } catch (err) {
-        setError(errorMessage(err, t("characterChat.errors.sendFailed")));
+        if (epoch === threadEpochRef.current)
+          setError(errorMessage(err, t("characterChat.errors.sendFailed")));
       } finally {
-        if (activeThreadIdRef.current === threadId) {
+        if (
+          activeThreadIdRef.current === threadId &&
+          epoch === threadEpochRef.current
+        ) {
           setSending(false);
           setPhase("idle");
           setDraft("");
@@ -381,7 +462,7 @@ export function CharacterChatProvider({ children }: { children: ReactNode }) {
       }
       return characterMessage;
     },
-    [sending, addTotalCost, showNotification, t],
+    [sending, addTotalCost, showNotification, speakMessage, t],
   );
 
   const setAppearanceFromSource = useCallback(
@@ -527,6 +608,8 @@ export function CharacterChatProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<CharacterChatContextValue>(
     () => ({
+      voice,
+      speakMessage,
       threads,
       threadsLoading,
       activeThread,
@@ -544,6 +627,7 @@ export function CharacterChatProvider({ children }: { children: ReactNode }) {
       createFromSource,
       takePendingPortrait,
       loadThread,
+      leaveThread,
       deleteThread,
       submitMessage,
       setAppearanceFromSource,
@@ -553,9 +637,13 @@ export function CharacterChatProvider({ children }: { children: ReactNode }) {
       setAvatar,
       avatarFailed,
       setAvatarFailed,
+      promptPreviewEnabled,
+      ensureThreadsLoaded,
       clearError,
     }),
     [
+      voice,
+      speakMessage,
       threads,
       threadsLoading,
       activeThread,
@@ -573,6 +661,7 @@ export function CharacterChatProvider({ children }: { children: ReactNode }) {
       createFromSource,
       takePendingPortrait,
       loadThread,
+      leaveThread,
       deleteThread,
       submitMessage,
       setAppearanceFromSource,
@@ -581,6 +670,8 @@ export function CharacterChatProvider({ children }: { children: ReactNode }) {
       setAdventureAppearance,
       setAvatar,
       avatarFailed,
+      promptPreviewEnabled,
+      ensureThreadsLoaded,
       clearError,
     ],
   );

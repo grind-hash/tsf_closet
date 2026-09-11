@@ -48,14 +48,14 @@ class CharacterChatAdventureAppearanceRequest(BaseModel):
 
 
 class CharacterChatAvatarRequest(BaseModel):
-    """3D モデル(VRM)の表示の指定。
+    """アバターの表示の指定。
 
     auto = 自動(案内役は同梱モデル → run の対面会話モデル → character_name が
     一致する登録済みモデル → 2D 立ち絵)、none = 2D 立ち絵を使う、
-    model = avatar_id の登録済みモデルを明示する。
+    model = avatar_id の登録済みモデル、live2d = 案内役専用の試作を明示する。
     """
 
-    mode: Literal["auto", "none", "model"] = "auto"
+    mode: Literal["auto", "none", "model", "live2d"] = "auto"
     avatar_id: str | None = None
 
 

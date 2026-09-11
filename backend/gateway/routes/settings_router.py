@@ -14,6 +14,7 @@ from ..schemas.settings import (
     UserSettingsUpdateRequest,
 )
 from ..services.settings_service import settings_service
+from ..settings.config import settings as app_settings
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -51,7 +52,10 @@ async def reset_settings(session_id: str = "default") -> dict[str, str]:
 @router.get("/user", response_model=UserSettingsResponse)
 async def get_user_settings() -> UserSettingsResponse:
     settings = await settings_service.get_user_settings()
-    return UserSettingsResponse(**settings)
+    return UserSettingsResponse(
+        **settings,
+        enable_prompt_preview=bool(app_settings.enable_prompt_preview),
+    )
 
 
 @router.put("/user", response_model=UserSettingsResponse)
@@ -78,7 +82,10 @@ async def update_user_settings(
             tts_style_id=request.tts_style_id,
             tts_output_format=request.tts_output_format,
         )
-        return UserSettingsResponse(**updated)
+        return UserSettingsResponse(
+            **updated,
+            enable_prompt_preview=bool(app_settings.enable_prompt_preview),
+        )
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

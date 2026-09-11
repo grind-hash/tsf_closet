@@ -238,6 +238,29 @@ export const settings = {
     updateWarning:
       "The result was saved, but the automatic memory could not be updated.",
   },
+  live2d: {
+    sectionTitle: "Live2D model",
+    description:
+      "Shows the guide character (Serena) as a Live2D model. The model itself ships with the app, but Live2D Cubism Core, which is needed to render it, does not. Follow the steps below to install it, then pick Live2D from Appearance in character chat. Until then the 2D portrait is used.",
+    statusChecking: "Checking\u2026",
+    statusReady: "Installed",
+    statusMissing: "Not installed",
+    recheck: "Check again",
+    guideTitle: "Installing Live2D Cubism Core",
+    step1: "Download the Cubism SDK for Web from the official Live2D site.",
+    step2: "Take the following file out of the downloaded ZIP.",
+    step3: "Place that file in the folder that matches how you run the app.",
+    step3Single: "Place that file in the folder below.",
+    pathPackaged: "Using the packaged build",
+    pathDev: "Running from source",
+    step4: "Restart the app and reload the browser.",
+    step5:
+      "Open \u201cTalk with Serena\u201d in character chat and pick Live2D from Appearance.",
+    openDownload: "Open the download page in a browser",
+    licenseNote:
+      "Live2D Cubism Core is distributed under the Live2D Proprietary Software License. It is not bundled with this app, so please obtain it yourself after agreeing to the license.",
+    licenseLink: "Live2D Proprietary Software License Agreement",
+  },
   avatar: {
     sectionTitle: "3D models (VRM)",
     description:

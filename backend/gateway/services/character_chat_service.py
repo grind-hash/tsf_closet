@@ -34,11 +34,13 @@ from ..consts.character_chat import (
     BASE_CHARACTER_PRONOUN,
     BASE_CLOTHING_TAGS,
     BASE_IDENTITY_TAGS,
+    BASE_LIVE2D_URL,
     BASE_PORTRAIT_FILENAME,
     CHARACTER_CHAT_KIND_ADVENTURE,
     CHARACTER_CHAT_KIND_BASE,
     CHARACTER_CHAT_KIND_SESSION,
     HISTORY_MESSAGES,
+    LIVE2D_TALK_HEADER_INSTRUCTION,
     MESSAGE_MAX,
     PERSONA_MONOLOGUE_CHARS,
     PERSONA_MONOLOGUES_MAX,
@@ -249,7 +251,11 @@ def _split_portrait_tags(tags: str) -> tuple[str, str]:
 
 
 def _base_avatar_file() -> Path | None:
-    """案内役キャラの同梱 3D モデル(base_portrait_dir()/serena.vrm)。無ければ None。"""
+    """案内役キャラの同梱 3D モデル(base_portrait_dir()/serena.vrm)。無ければ None。
+
+    同梱しない配布では None になり、_resolve_avatar はこの候補を飛ばして
+    名前一致の登録済みモデル、それも無ければ 2D 立ち絵へ倒れる。
+    """
     path = base_portrait_dir() / BASE_AVATAR_FILENAME
     return path if path.is_file() else None
 
@@ -1318,6 +1324,14 @@ class CharacterChatService:
         mode, chosen_id = _avatar_choice(appearance)
         if mode == "none":
             return self._avatar_payload(mode="none", source=None, url=None, name=None)
+        if mode == "live2d":
+            if thread.kind != CHARACTER_CHAT_KIND_BASE:
+                return self._avatar_payload(
+                    mode="none", source=None, url=None, name=None
+                )
+            return self._avatar_payload(
+                mode="live2d", source="bundled", url=BASE_LIVE2D_URL, name=thread.name
+            )
         missing = False
         if mode == "model" and chosen_id:
             model = await db.get(AvatarModel, chosen_id)
@@ -1388,11 +1402,13 @@ class CharacterChatService:
     async def set_avatar(
         self, thread_id: str, *, mode: str = "auto", avatar_id: str | None = None
     ) -> dict[str, Any]:
-        """3D モデルの表示指定を保存する(auto / none / model)。"""
+        """アバターの表示指定を既存の外見設定へ保存する。"""
         if mode not in AVATAR_MODES:
             raise CharacterChatError("invalid_input", "3D モデルの指定が不正です")
         async with self._thread_locks[thread_id], async_session_factory() as db:
             thread = await self._get_thread_orm(db, thread_id)
+            if mode == "live2d" and thread.kind != CHARACTER_CHAT_KIND_BASE:
+                raise CharacterChatError("invalid_input", "Live2D は案内役専用です")
             chosen = str(avatar_id or "").strip() or None
             if mode == "model" and (
                 chosen is None or not await avatar_exists(db, chosen)
@@ -2268,7 +2284,7 @@ class CharacterChatService:
                     nsfw_mode = bool(view.run.nsfw_mode)
                     after_turn = int(view.run.turn_count or 0)
             appearance = _json_load(thread.appearance_json, {})
-            # 3D モデルを表示しているなら(種類を問わず)表情・身振りのヘッダを求める
+            # 選択したアバターで表現できる表情・身振りのヘッダを求める
             async with async_session_factory() as db:
                 avatar = await self._resolve_avatar(
                     db,
@@ -2284,7 +2300,11 @@ class CharacterChatService:
                 )
             avatar_shown = bool(avatar.get("url"))
             if avatar_shown:
-                header_instruction = avatar_talk_header_instruction()
+                header_instruction = (
+                    LIVE2D_TALK_HEADER_INSTRUCTION
+                    if avatar.get("mode") == "live2d"
+                    else avatar_talk_header_instruction()
+                )
 
             yield {"event": "status", "data": {"phase": "plan"}}
             plan = await self._plan(

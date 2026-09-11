@@ -1548,12 +1548,15 @@ async def test_adventure_thread_avatar_prefers_run_model_then_partner_name(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("avatar_mode", ["auto", "live2d"])
 async def test_stream_message_with_avatar_updates_tags_without_portrait(
-    service: CharacterChatService, isolated_db, tmp_path: Path, monkeypatch
+    service: CharacterChatService, isolated_db, tmp_path: Path, monkeypatch, avatar_mode
 ) -> None:
     """3D モデル表示中: 表情ヘッダを求めて剥がし、着替えは外見タグだけ更新して立ち絵を描かない。"""
-    (tmp_path / "bundled" / "serena.vrm").write_bytes(b"glTF")
+    if avatar_mode == "auto":
+        (tmp_path / "bundled" / "serena.vrm").write_bytes(b"glTF")
     thread = await service.get_or_create_base_thread()
+    await service.set_avatar(thread["id"], mode=avatar_mode)
     fake_generate_text, calls = _llm_router(
         plan=_DRESS_UP_PLAN, appearance=_ENGLISH_TAGS
     )
@@ -1574,7 +1577,11 @@ async def test_stream_message_with_avatar_updates_tags_without_portrait(
         )
     )
     kinds = [event["event"] for event in events]
-    assert "[expression=<key> gesture=<key>]" in captured["system"]
+    if avatar_mode == "live2d":
+        assert module.LIVE2D_TALK_HEADER_INSTRUCTION in captured["system"]
+        assert "wave_hand" not in captured["system"]
+    else:
+        assert "[expression=<key> gesture=<key>]" in captured["system"]
     assert [e["data"]["chunk"] for e in events if e["event"] == "chat_chunk"] == [
         "着替えたよ"
     ]
@@ -1597,3 +1604,24 @@ async def test_stream_message_with_avatar_updates_tags_without_portrait(
         == "white chiffon blouse, black lace pencil skirt"
     )
     assert detail["portrait_missing"] is True
+
+
+@pytest.mark.asyncio
+async def test_live2d_selection_is_explicit_persisted_and_base_only(
+    service: CharacterChatService, isolated_db, tmp_path: Path
+) -> None:
+    thread = await service.get_or_create_base_thread()
+    assert thread["avatar"]["mode"] == "auto"
+    selected = await service.set_avatar(thread["id"], mode="live2d")
+    assert selected["avatar"]["url"] == module.BASE_LIVE2D_URL
+    assert selected["avatar"]["id"] is None
+    assert (await service.get_thread(thread["id"]))["avatar"]["mode"] == "live2d"
+    none = await service.set_avatar(thread["id"], mode="none")
+    assert none["avatar"]["url"] is None
+    await _seed_session(isolated_db.async_factory, tmp_path / "source.png")
+    other = await service.create_session_thread(
+        source_session_id="sess-1", source_history_id=None
+    )
+    with pytest.raises(CharacterChatError) as caught:
+        await service.set_avatar(other["id"], mode="live2d")
+    assert caught.value.code == "invalid_input"

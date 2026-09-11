@@ -10,12 +10,9 @@ import { useCharacterChat } from "../../contexts/CharacterChatContext";
 import { useNotification } from "../../contexts/NotificationContext";
 import { useSettings } from "../../contexts/SettingsContext";
 import { useAdventureSpeechInput } from "../../hooks/useAdventureSpeechInput";
-import { useAdventureVoice } from "../../hooks/useAdventureVoice";
 import { useCharacterChatPortraitPreference } from "../../hooks/useCharacterChatPortraitPreference";
 import { usePersistedState } from "../../hooks/usePersistedState";
 import { ROUTES } from "../../routes";
-import { stripStageDirections } from "../../utils/adventureDialogue";
-import { textToVoiceSegments } from "../../utils/adventureVoiceSegments";
 import { readStorageFlag, writeStorageFlag } from "../../utils/storage";
 import AdventureSessionPickerModal, {
   type AdventureSourceSelection,
@@ -71,6 +68,7 @@ export default function CharacterChatRoom({
     error,
     clearError,
     loadThread,
+    leaveThread,
     deleteThread,
     submitMessage,
     setAppearanceFromSource,
@@ -81,12 +79,16 @@ export default function CharacterChatRoom({
     takePendingPortrait,
     avatarFailed,
     setAvatarFailed,
+    ensureThreadsLoaded,
+    voice,
+    speakMessage,
   } = useCharacterChat();
   const [input, setInput] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [soundOpen, setSoundOpen] = useState(false);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [logOpen, setLogOpen] = useState(false);
+  const [messageWindowHidden, setMessageWindowHidden] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -103,8 +105,11 @@ export default function CharacterChatRoom({
   useEffect(() => {
     setLoaded(false);
     setLogOpen(false);
+    setMessageWindowHidden(false);
     setAppearanceOpen(false);
     setUsePrecise(null);
+    // ハブを通らずここへ直接来たときも、一覧由来の設定(開発者向け案内の出し分け)を取る
+    ensureThreadsLoaded();
     void loadThread(threadId).then((thread) => {
       setLoaded(true);
       // Hub で「立ち絵を生成する」を ON にして作った直後は、開いた時点で描く
@@ -112,7 +117,15 @@ export default function CharacterChatRoom({
         void regeneratePortrait(threadId);
       }
     });
-  }, [threadId, loadThread, takePendingPortrait, regeneratePortrait]);
+    return leaveThread;
+  }, [
+    threadId,
+    loadThread,
+    leaveThread,
+    takePendingPortrait,
+    regeneratePortrait,
+    ensureThreadsLoaded,
+  ]);
 
   // 右パネルのユーザーメモリ。設定画面を開いていない起動直後は未取得のことがある
   const memoryText = settingsState.memoryText;
@@ -120,43 +133,14 @@ export default function CharacterChatRoom({
     if (memoryText === null) void loadMemoryText();
   }, [memoryText, loadMemoryText]);
 
-  // 返答の読み上げ(AivisSpeech)。設定画面の TTS が有効なときだけ動く。既定 OFF
-  const voice = useAdventureVoice({
-    available: settingsState.ttsEnabled,
-    speakerId:
-      settingsState.ttsStyleId?.trim() ||
-      settingsState.ttsSpeakerId?.trim() ||
-      null,
-    engineDir: settingsState.ttsEngineDir,
-    useGpu: settingsState.ttsUseGpu,
-  });
-  const speakMessage = useCallback(
-    (message: CharacterChatMessage) => {
-      const key = voiceKey(message.id);
-      voice.speakSegments(
-        textToVoiceSegments(stripStageDirections(message.content), key),
-        key,
-      );
-    },
-    [voice],
-  );
-
   const handleSubmit = useCallback(
     async (text?: string) => {
       const content = (text ?? input).trim();
       if (!content || sending) return;
       setInput("");
-      const reply = await submitMessage(content);
-      if (reply && voice.enabled && voice.canSpeak) speakMessage(reply);
+      await submitMessage(content);
     },
-    [
-      input,
-      sending,
-      submitMessage,
-      voice.enabled,
-      voice.canSpeak,
-      speakMessage,
-    ],
+    [input, sending, submitMessage],
   );
 
   const speechInput = useAdventureSpeechInput({
@@ -229,7 +213,7 @@ export default function CharacterChatRoom({
     showNotification("warning", t("characterChat.room.avatarMissing"));
   }, [avatarMissing, showNotification, t]);
   const stageAvatar =
-    avatarUrl && !avatarFailed
+    avatarUrl && thread?.avatar?.mode !== "live2d" && !avatarFailed
       ? {
           url: avatarUrl,
           // 案内役キャラ(セレナ)だけ、手を体の前で重ねた待機姿勢にする
@@ -458,31 +442,49 @@ export default function CharacterChatRoom({
 
         {thread && (
           <>
-            <CharacterChatMessageBox
-              thread={thread}
-              draft={draft}
-              pendingInput={pendingInput}
-              phase={phase}
-              voice={threadVoice}
+            <button
+              type="button"
+              className="character-chat-room__window-toggle"
+              aria-controls="character-chat-message-window"
+              aria-expanded={!messageWindowHidden}
+              onClick={() => setMessageWindowHidden((hidden) => !hidden)}
             >
-              <CharacterChatInput
-                value={input}
-                onChange={setInput}
-                onSubmit={() => void handleSubmit()}
-                name={thread.name}
-                busy={sending}
-                speech={{
-                  supported: speechInput.supported,
-                  listening: speechInput.listening,
-                  autoSend: speechInput.prefs.autoSend,
-                  error: speechInput.error,
-                  onToggleListening: speechInput.listening
-                    ? speechInput.stopListening
-                    : speechInput.startListening,
-                  onToggleAutoSend: speechInput.toggleAutoSend,
-                }}
-              />
-            </CharacterChatMessageBox>
+              {t(
+                messageWindowHidden
+                  ? "characterChat.room.showWindow"
+                  : "characterChat.room.hideWindow",
+              )}
+            </button>
+            <div
+              id="character-chat-message-window"
+              hidden={messageWindowHidden}
+            >
+              <CharacterChatMessageBox
+                thread={thread}
+                draft={draft}
+                pendingInput={pendingInput}
+                phase={phase}
+                voice={threadVoice}
+              >
+                <CharacterChatInput
+                  value={input}
+                  onChange={setInput}
+                  onSubmit={() => void handleSubmit()}
+                  name={thread.name}
+                  busy={sending}
+                  speech={{
+                    supported: speechInput.supported,
+                    listening: speechInput.listening,
+                    autoSend: speechInput.prefs.autoSend,
+                    error: speechInput.error,
+                    onToggleListening: speechInput.listening
+                      ? speechInput.stopListening
+                      : speechInput.startListening,
+                    onToggleAutoSend: speechInput.toggleAutoSend,
+                  }}
+                />
+              </CharacterChatMessageBox>
+            </div>
             <CharacterChatLogDrawer
               open={logOpen}
               thread={thread}

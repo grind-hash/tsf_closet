@@ -233,6 +233,29 @@ export const settings = {
     updateWarning:
       "今回の結果は保存されましたが、自動メモを更新できませんでした。",
   },
+  live2d: {
+    sectionTitle: "Live2D モデル",
+    description:
+      "案内役キャラ(セレナ)を Live2D で表示します。モデルはアプリに同梱していますが、描画に必要な Live2D Cubism Core は同梱していません。下の手順で配置すると、キャラチャットの「姿」から Live2D を選べるようになります。配置しない間は 2D 立ち絵で会話できます。",
+    statusChecking: "確認中…",
+    statusReady: "配置済み",
+    statusMissing: "未配置",
+    recheck: "配置状況を確認",
+    guideTitle: "Live2D Cubism Core の配置手順",
+    step1: "Live2D の公式サイトから Cubism SDK for Web をダウンロードします。",
+    step2: "ダウンロードしたZIPから、次のファイルを取り出します。",
+    step3: "取り出したファイルを、起動方法に合わせて次のフォルダへ置きます。",
+    step3Single: "取り出したファイルを、次のフォルダへ置きます。",
+    pathPackaged: "配布パッケージを使っている場合",
+    pathDev: "ソースから起動している場合",
+    step4: "アプリを再起動し、ブラウザを再読み込みします。",
+    step5:
+      "キャラチャットで「セレナと話す」を開き、「姿」から「Live2D」を選ぶと表示されます。",
+    openDownload: "ダウンロードページをブラウザで開く",
+    licenseNote:
+      "Live2D Cubism Core は Live2D Proprietary Software License の配布物です。本アプリには同梱していないため、利用者ご自身で使用許諾に同意のうえ入手してください。",
+    licenseLink: "Live2D Proprietary Software 使用許諾契約書",
+  },
   avatar: {
     sectionTitle: "3Dモデル (VRM)",
     description:

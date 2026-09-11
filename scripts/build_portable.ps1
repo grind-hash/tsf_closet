@@ -351,6 +351,12 @@ if (-not (Test-Path $FrontendDistDir)) {
 } else {
     New-Item -ItemType Directory -Path $PackageStaticDir -Force | Out-Null
     Copy-Item -Path "$FrontendDistDir\*" -Destination $PackageStaticDir -Recurse -Force
+    # Live2D Cubism Core は Live2D Proprietary Software License の配布物のため
+    # パッケージに含めない。利用者が backend/static/live2d/vendor/ へ配置する
+    $Live2dVendorDir = Join-Path $PackageStaticDir "live2d\vendor"
+    if (Test-Path $Live2dVendorDir) {
+        Remove-Item -Path $Live2dVendorDir -Recurse -Force
+    }
     Write-Success "static/ に配置完了"
 }
 

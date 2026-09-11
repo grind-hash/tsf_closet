@@ -45,6 +45,9 @@ class UserSettingsResponse(BaseModel):
     tts_speaker_id: str | None = None
     tts_style_id: str | None = None
     tts_output_format: Literal["wav"] = "wav"
+    # ENABLE_PROMPT_PREVIEW。環境変数由来の読み取り専用で DB には持たない。
+    # 開発者にしか意味がない案内(リポジトリ内のパス等)の出し分けに使う
+    enable_prompt_preview: bool = False
 
 
 class UserSettingsUpdateRequest(BaseModel):

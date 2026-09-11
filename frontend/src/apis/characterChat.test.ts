@@ -59,11 +59,13 @@ describe("fetchCharacterChatThreads / createCharacterChatThread", () => {
       }),
     );
     vi.stubGlobal("fetch", fetchMock);
-    const threads = await fetchCharacterChatThreads();
-    expect(threads.map((t) => t.portrait_url)).toEqual([
+    const list = await fetchCharacterChatThreads();
+    expect(list.threads.map((t) => t.portrait_url)).toEqual([
       "/api/character-chat/images/t1/serena.png",
       null,
     ]);
+    // 未指定の enable_prompt_preview は false 扱い
+    expect(list.enablePromptPreview).toBe(false);
     expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/character-chat/threads");
   });
 

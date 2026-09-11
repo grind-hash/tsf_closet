@@ -27,6 +27,7 @@ from ..services.character_chat_service import (
     CharacterChatError,
     character_chat_service,
 )
+from ..settings.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +69,12 @@ def _sse_error(error: Exception, phase: str) -> dict:
 
 @router.get("/threads")
 async def list_threads() -> dict:
-    return {"threads": await character_chat_service.list_threads()}
+    return {
+        "threads": await character_chat_service.list_threads(),
+        # 環境変数由来のグローバル設定。通常ゲームは session stats 経由で受け取るが
+        # キャラチャットはそこを見ないため、一覧のペイロードへ載せる
+        "enable_prompt_preview": bool(settings.enable_prompt_preview),
+    }
 
 
 @router.post("/threads/base")

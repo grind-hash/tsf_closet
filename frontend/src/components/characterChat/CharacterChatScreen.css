@@ -318,6 +318,14 @@
   --cc-box-inset: clamp(0px, 1.6vw, 20px);
   --cc-box-max-width: 1120px;
   --cc-topbar-height: 52px;
+  --cc-portrait-bottom: calc(var(--cc-box-height) + var(--cc-box-inset) - 24px);
+  --cc-portrait-height: calc(
+    100% -
+    var(--cc-box-height) -
+    var(--cc-box-inset) -
+    var(--cc-topbar-height) +
+    40px
+  );
 
   position: relative;
   height: 100vh;
@@ -348,17 +356,11 @@
 /* 立ち絵はメッセージ窓の上端まで使い、中央に立たせる(Adventure の立ち絵と同じ寸法) */
 .character-chat-room__portrait {
   position: absolute;
-  bottom: calc(var(--cc-box-height) + var(--cc-box-inset) - 24px);
+  bottom: var(--cc-portrait-bottom);
   left: 50%;
   z-index: 2;
   width: auto;
-  height: calc(
-    100% -
-    var(--cc-box-height) -
-    var(--cc-box-inset) -
-    var(--cc-topbar-height) +
-    40px
-  );
+  height: var(--cc-portrait-height);
   max-width: 92%;
   object-fit: contain;
   object-position: bottom center;
@@ -558,6 +560,30 @@
     0 18px 40px rgb(0 0 0 / 55%),
     inset 0 1px 0 rgb(255 255 255 / 8%);
   backdrop-filter: blur(6px);
+}
+
+.character-chat-room__window-toggle {
+  position: absolute;
+  right: calc(var(--cc-box-inset) + 12px);
+  bottom: calc(var(--cc-box-height) + var(--cc-box-inset) + 8px);
+  z-index: 5;
+  min-height: 36px;
+  padding: 6px 12px;
+  border: 1px solid #707982;
+  border-radius: 999px;
+  background: rgb(13 17 20 / 82%);
+  color: #fff;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.character-chat-room__window-toggle[aria-expanded="false"] {
+  bottom: calc(var(--cc-box-inset) + 12px);
+}
+
+.character-chat-room__window-toggle:focus-visible {
+  outline: 2px solid #efb85a;
+  outline-offset: 2px;
 }
 
 .character-chat-room__meta {
@@ -1304,6 +1330,90 @@
 
 .character-chat-room__avatar .adventure-avatar-stage {
   pointer-events: none;
+}
+
+.character-chat-room__live2d {
+  --cc-live2d-portrait-top: calc(var(--cc-topbar-height) + 16px);
+
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.character-chat-room__live2d canvas {
+  position: absolute;
+  bottom: var(--cc-portrait-bottom);
+  left: 4%;
+  display: block;
+  width: 92%;
+  height: var(--cc-portrait-height);
+  object-fit: contain;
+}
+
+.character-chat-room__live2d[data-camera="portrait"] canvas {
+  top: var(--cc-live2d-portrait-top);
+  bottom: auto;
+  left: 12px;
+  width: calc(100% - 24px);
+  height: calc(
+    100% -
+    var(--cc-live2d-portrait-top) -
+    var(--cc-box-height) -
+    var(--cc-box-inset) -
+    12px
+  );
+}
+
+.character-chat-room__live2d [role="status"] {
+  position: absolute;
+}
+
+.character-chat-room__live2d-camera {
+  position: absolute;
+  top: calc(var(--cc-topbar-height) + 16px);
+  right: 12px;
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid rgb(255 255 255 / 16%);
+  border-radius: 10px;
+  background: rgb(20 18 28 / 85%);
+  pointer-events: auto;
+}
+
+.character-chat-room__live2d-camera button {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #d6d0df;
+  cursor: pointer;
+}
+
+.character-chat-room__live2d-camera button[aria-pressed="true"] {
+  background: #655278;
+  color: #fff;
+}
+
+.character-chat-room__live2d-camera button:focus-visible {
+  outline: 2px solid #d4b6f0;
+  outline-offset: 2px;
+}
+
+@media (max-width: 640px) {
+  .character-chat-room__live2d {
+    --cc-live2d-portrait-top: 164px;
+  }
+
+  .character-chat-room__live2d-camera {
+    top: 104px;
+  }
 }
 
 /* 「姿」メニューのサムネイル付き項目と区切り */

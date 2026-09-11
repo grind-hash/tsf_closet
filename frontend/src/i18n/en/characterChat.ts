@@ -42,6 +42,8 @@ export const characterChat = {
   room: {
     back: "Back to list",
     backToScenario: "Back to the scenario",
+    hideWindow: "Hide window",
+    showWindow: "Show window",
     adventureFollow: "Follow the scenario's look",
     adventureFollowHint:
       "Returns to the default for the display mode (the latest scene image with the partner in composite mode, otherwise the latest portrait) and keeps following the scenario afterwards.",
@@ -58,7 +60,20 @@ export const characterChat = {
     adventureUnavailable:
       "This scenario has ended or been deleted. The appearance can only be changed within this chat.",
     adventureNoImage: "No image available",
-    avatarSection: "3D model (VRM)",
+    avatarSection: "Character display",
+    avatarLive2d: "Live2D",
+    avatarLive2dHint:
+      "Serena's full-body model with expressions, blinking, speech lip sync and gentle hair and sleeve movement. Switch between full and close views. Outfit changes do not alter this model.",
+    avatarLive2dUnavailable:
+      "The Live2D SDK is not installed, so this cannot be selected. See \u201cLive2D model\u201d in Settings for the setup steps.",
+    live2dSdkPathPackaged: "Packaged build: backend/static/live2d/vendor/",
+    live2dSdkPathDev: "Running from source: frontend/public/live2d/vendor/",
+    live2dCamera: "Live2D framing",
+    live2dFull: "Full body",
+    live2dPortrait: "Close up",
+    live2dLoading: "Loading Live2D…",
+    live2dFailed:
+      "Live2D could not be displayed. Using the portrait instead. Select it again in Appearance to retry.",
     avatarCurrent: "Showing: {{name}} ({{source}})",
     avatarCurrentNone: "No 3D model (showing the 2D portrait)",
     avatarAuto: "Automatic (default)",
@@ -76,7 +91,7 @@ export const characterChat = {
     avatarMissing:
       "The chosen 3D model has been deleted, so the selection went back to automatic.",
     appearanceTagsOnly:
-      'Only the appearance tags were updated because a 3D model is shown. Use "Redraw portrait" in the Appearance menu to draw the portrait.',
+      'Only the appearance tags were updated. The displayed model does not change. Use "Redraw portrait" in the Appearance menu to draw the portrait.',
     changeAppearance: "Change appearance",
     appearancePickerTitle: "Choose an image for the appearance",
     regeneratePortrait: "Redraw portrait",
@@ -168,7 +183,7 @@ export const characterChat = {
     outfit: "Outfit",
     playMemory: "Play memo",
     appearance: "Appearance",
-    avatar: "3D model",
+    avatar: "Character display",
     adventure: "Scenario status",
     adventureHint:
       "Live values of the linked TSF scenario, read fresh on every reply.",
@@ -195,7 +210,7 @@ export const characterChat = {
     portraitFailed: "Could not draw the portrait",
     createFailed: "Could not create the character",
     appearanceFailed: "Could not change the appearance",
-    avatarFailed: "Could not switch the 3D model",
+    avatarFailed: "Could not switch the character display",
     deleteFailed: "Could not delete the conversation",
   },
 };

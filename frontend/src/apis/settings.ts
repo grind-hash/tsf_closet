@@ -92,6 +92,8 @@ export interface UserSettingsResponse {
   tts_speaker_id?: string | null;
   tts_style_id?: string | null;
   tts_output_format?: "wav";
+  /** ENABLE_PROMPT_PREVIEW。読み取り専用(PUT では送らない) */
+  enable_prompt_preview?: boolean;
 }
 
 /** PUT /api/settings/user に送る差分（未指定の項目は据え置き） */
