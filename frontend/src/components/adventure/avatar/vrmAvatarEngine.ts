@@ -70,7 +70,10 @@ import {
 
 export interface VrmAvatarEngineOptions {
   canvas: HTMLCanvasElement;
-  /** キャンバスの親。サイズはこの要素に追従する */
+  /**
+   * キャンバスの親。構図(上半身の収まり)はこの要素の高さで決める。
+   * キャンバスを CSS で親より下へはみ出させると、はみ出した分にモデルの続きを描く
+   */
   container: HTMLElement;
   /** 待機姿勢の種類。既定は腕を体側へ下ろす relaxed */
   restPose?: AvatarRestPose;
@@ -510,10 +513,15 @@ export function createVrmAvatarEngine(
   const frameSpan = { bottom: 0, top: 1.6 };
 
   function resize(): void {
-    const width = Math.max(1, container.clientWidth);
-    const height = Math.max(1, container.clientHeight);
+    const width = Math.max(1, canvas.clientWidth);
+    const height = Math.max(1, canvas.clientHeight);
+    const frameHeight = Math.min(height, Math.max(1, container.clientHeight));
     renderer.setSize(width, height, false);
-    camera.aspect = width / height;
+    // 構図は親の高さで組み、キャンバスがそれより高ければ視錐台を下へ延ばす
+    camera.aspect = width / frameHeight;
+    if (frameHeight < height)
+      camera.setViewOffset(width, frameHeight, 0, 0, width, height);
+    else camera.clearViewOffset();
     frameCamera();
   }
 
@@ -818,6 +826,7 @@ export function createVrmAvatarEngine(
   canvas.addEventListener("webglcontextlost", onContextLost);
   const observer = new ResizeObserver(() => resize());
   observer.observe(container);
+  observer.observe(canvas);
   resize();
 
   function dispose(): void {

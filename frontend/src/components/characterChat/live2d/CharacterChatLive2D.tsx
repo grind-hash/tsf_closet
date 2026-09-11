@@ -15,6 +15,8 @@ export default function CharacterChatLive2D() {
   const { activeThread, sending, pendingInput, error, voice, setAvatarFailed } =
     useCharacterChat();
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  // 寄りの構図を収める範囲(メッセージ窓の上端まで)。キャンバスは窓の裏まで伸びる
+  const frameRef = useRef<HTMLDivElement>(null);
   const [ready, setReady] = useState(false);
   const [camera, setCamera] = useState<PilotCamera>("full");
   const thinking = sending && pendingInput !== null && !error;
@@ -103,6 +105,10 @@ export default function CharacterChatLive2D() {
           motionEnabled: !reducedMotion.matches,
           camera: input.camera,
           cameraMix: reducedMotion.matches ? 1 : blend,
+          frameHeight:
+            input.camera === "portrait"
+              ? (frameRef.current?.clientHeight ?? null)
+              : null,
         });
       } catch (caught) {
         fail(caught);
@@ -149,6 +155,7 @@ export default function CharacterChatLive2D() {
         role="img"
         aria-label={t("characterChat.room.avatarLive2d")}
       />
+      <div ref={frameRef} className="character-chat-room__live2d-frame" />
       <div
         className="character-chat-room__live2d-camera"
         role="group"

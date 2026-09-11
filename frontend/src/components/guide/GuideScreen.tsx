@@ -157,7 +157,7 @@ export default function GuideScreen() {
               <button
                 type="button"
                 className="guide-screen__cta"
-                onClick={() => setExperimentalAdventureEnabled(true)}
+                onClick={() => setAdventureEnabled(true)}
               >
                 {t("guide.inventory.enableParent")}
               </button>

@@ -27,6 +27,11 @@ interface PilotFrame {
   motionEnabled: boolean;
   camera: PilotCamera;
   cameraMix: number;
+  /**
+   * 構図を収める範囲の高さ(CSS px)。キャンバスの上端から数える。
+   * キャンバスがこれより高ければ、その下へモデルの続きを描く。null はキャンバス全体。
+   */
+  frameHeight: number | null;
 }
 
 /**
@@ -350,7 +355,11 @@ void main() {
     for (let i = 0; i < 4; i++)
       this.view[i] += (target[i] - this.view[i]) * state.cameraMix;
     const [x, y, w, h] = this.view;
-    const fit = Math.min(width / w, height / h);
+    const frame =
+      state.frameHeight === null
+        ? height
+        : Math.min(height, Math.max(1, Math.round(state.frameHeight * ratio)));
+    const fit = Math.min(width / w, frame / h);
     const viewWidth = width / fit;
     const viewHeight = height / fit;
     gl.viewport(0, 0, width, height);
@@ -361,8 +370,8 @@ void main() {
     gl.uniform4f(
       this.viewUniform,
       x - (viewWidth - w) / 2,
-      // 全身は 2D 立ち絵の object-position: bottom center にそろえる。
-      y - (viewHeight - h) * (state.camera === "full" ? 1 : 0.5),
+      // 全身は 2D 立ち絵の object-position: bottom center にそろえ、寄りは構図の範囲の中央に置く。
+      y - (frame / fit - h) * (state.camera === "full" ? 1 : 0.5),
       viewWidth,
       viewHeight,
     );

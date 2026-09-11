@@ -21,6 +21,8 @@ interface CharacterChatMessageBoxProps {
   pendingInput: string | null;
   phase: CharacterChatPhase | "idle";
   voice: CharacterChatMessageBoxVoice;
+  /** 窓の操作(ログ・隠す)。話者名の行の右端に置く */
+  actions?: ReactNode;
   /** 入力欄。メッセージ窓の下端にドッキングする */
   children: ReactNode;
 }
@@ -36,6 +38,7 @@ export default function CharacterChatMessageBox({
   pendingInput,
   phase,
   voice,
+  actions,
   children,
 }: CharacterChatMessageBoxProps) {
   const { t } = useTranslation();
@@ -78,10 +81,19 @@ export default function CharacterChatMessageBox({
             🔊
           </button>
         )}
-        {userLine && (
-          <span className="character-chat-room__user-line" title={userLine}>
-            {t("characterChat.thread.you")}「{userLine}」
-          </span>
+        {(userLine || actions) && (
+          <div className="character-chat-room__meta-end">
+            {userLine && (
+              <span className="character-chat-room__user-line" title={userLine}>
+                {t("characterChat.thread.you")}「{userLine}」
+              </span>
+            )}
+            {actions && (
+              <div className="character-chat-room__window-actions">
+                {actions}
+              </div>
+            )}
+          </div>
         )}
       </div>
       <div className="character-chat-room__text" aria-live="polite">

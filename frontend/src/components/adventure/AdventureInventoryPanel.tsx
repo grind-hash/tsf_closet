@@ -126,7 +126,7 @@ export default function AdventureInventoryPanel({
   viewingPast,
 }: AdventureInventoryPanelProps) {
   const { t } = useTranslation();
-  const { activeRun, streaming, talking, submitTurn } = useAdventure();
+  const { activeRun, streaming, submitTurn } = useAdventure();
   const [giveTarget, setGiveTarget] = useState("");
   if (!activeRun?.inventory_enabled) return null;
   const inventory = activeRun.inventory ?? { items: [], log: [] };
@@ -145,8 +145,7 @@ export default function AdventureInventoryPanel({
   const target = targets.includes(giveTarget) ? giveTarget : (targets[0] ?? "");
   const latestTurn = activeRun.turns[activeRun.turns.length - 1];
   const recentEvents = latestTurn?.world_events_applied ?? [];
-  const canAct =
-    !streaming && !talking && !viewingPast && canActOnRun(activeRun);
+  const canAct = !streaming && !viewingPast && canActOnRun(activeRun);
   const recentLog = inventory.log.slice(-5).reverse();
 
   const act = (

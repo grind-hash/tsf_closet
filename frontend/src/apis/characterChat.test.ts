@@ -50,13 +50,14 @@ describe("characterChatImageUrl", () => {
 
 describe("fetchCharacterChatThreads / createCharacterChatThread", () => {
   it("normalizes portrait urls in the list", async () => {
-    const fetchMock = vi.fn(async () =>
-      jsonResponse(200, {
-        threads: [
-          { id: "t1", portrait_url: "/character-chat/images/t1/serena.png" },
-          { id: "t2", portrait_url: null },
-        ],
-      }),
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        jsonResponse(200, {
+          threads: [
+            { id: "t1", portrait_url: "/character-chat/images/t1/serena.png" },
+            { id: "t2", portrait_url: null },
+          ],
+        }),
     );
     vi.stubGlobal("fetch", fetchMock);
     const list = await fetchCharacterChatThreads();
@@ -70,8 +71,9 @@ describe("fetchCharacterChatThreads / createCharacterChatThread", () => {
   });
 
   it("posts the source ids as JSON", async () => {
-    const fetchMock = vi.fn(async () =>
-      jsonResponse(201, { id: "t3", portrait_url: null }),
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        jsonResponse(201, { id: "t3", portrait_url: null }),
     );
     vi.stubGlobal("fetch", fetchMock);
     await createCharacterChatThread({
@@ -109,7 +111,10 @@ describe("streamCharacterChatMessage", () => {
       'event: cost\ndata: {"cost_usd":0.002}\n\n',
       "event: complete\ndata: {}\n\n",
     ].join("");
-    const fetchMock = vi.fn(async () => sseResponse(text));
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        sseResponse(text),
+    );
     vi.stubGlobal("fetch", fetchMock);
     const events: CharacterChatStreamEvent[] = [];
     await streamCharacterChatMessage("t1", { content: "やあ" }, (event) =>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import type { CharacterChatMessage } from "../../apis/characterChat";
@@ -126,6 +126,20 @@ export default function CharacterChatRoom({
     regeneratePortrait,
     ensureThreadsLoaded,
   ]);
+
+  // 窓の ✕ と「ウィンドウを表示」は押すと消えるため、押した後は対になるボタンへフォーカスを移す
+  const hideWindowRef = useRef<HTMLButtonElement>(null);
+  const showWindowRef = useRef<HTMLButtonElement>(null);
+  const windowToggledRef = useRef(false);
+  useEffect(() => {
+    if (!windowToggledRef.current) return;
+    windowToggledRef.current = false;
+    (messageWindowHidden ? showWindowRef : hideWindowRef).current?.focus();
+  }, [messageWindowHidden]);
+  const toggleMessageWindow = () => {
+    windowToggledRef.current = true;
+    setMessageWindowHidden((hidden) => !hidden);
+  };
 
   // 右パネルのユーザーメモリ。設定画面を開いていない起動直後は未取得のことがある
   const memoryText = settingsState.memoryText;
@@ -395,14 +409,6 @@ export default function CharacterChatRoom({
               />
               <button
                 type="button"
-                className={`character-chat-room__action${logOpen ? " is-on" : ""}`}
-                aria-pressed={logOpen}
-                onClick={() => setLogOpen((prev) => !prev)}
-              >
-                {t("characterChat.room.log")}
-              </button>
-              <button
-                type="button"
                 className="character-chat__delete"
                 aria-label={t("characterChat.hub.delete")}
                 title={t("characterChat.hub.delete")}
@@ -442,19 +448,18 @@ export default function CharacterChatRoom({
 
         {thread && (
           <>
-            <button
-              type="button"
-              className="character-chat-room__window-toggle"
-              aria-controls="character-chat-message-window"
-              aria-expanded={!messageWindowHidden}
-              onClick={() => setMessageWindowHidden((hidden) => !hidden)}
-            >
-              {t(
-                messageWindowHidden
-                  ? "characterChat.room.showWindow"
-                  : "characterChat.room.hideWindow",
-              )}
-            </button>
+            {messageWindowHidden && (
+              <div className="character-chat-room__window-restore">
+                <button
+                  ref={showWindowRef}
+                  type="button"
+                  aria-controls="character-chat-message-window"
+                  onClick={toggleMessageWindow}
+                >
+                  {t("characterChat.room.showWindow")}
+                </button>
+              </div>
+            )}
             <div
               id="character-chat-message-window"
               hidden={messageWindowHidden}
@@ -465,6 +470,29 @@ export default function CharacterChatRoom({
                 pendingInput={pendingInput}
                 phase={phase}
                 voice={threadVoice}
+                actions={
+                  <>
+                    <button
+                      type="button"
+                      className={`character-chat-room__window-button${logOpen ? " is-on" : ""}`}
+                      aria-pressed={logOpen}
+                      onClick={() => setLogOpen((prev) => !prev)}
+                    >
+                      {t("characterChat.room.log")}
+                    </button>
+                    <button
+                      ref={hideWindowRef}
+                      type="button"
+                      className="character-chat-room__window-button character-chat-room__window-hide"
+                      aria-controls="character-chat-message-window"
+                      aria-label={t("characterChat.room.hideWindow")}
+                      title={t("characterChat.room.hideWindow")}
+                      onClick={toggleMessageWindow}
+                    >
+                      ✕
+                    </button>
+                  </>
+                }
               >
                 <CharacterChatInput
                   value={input}

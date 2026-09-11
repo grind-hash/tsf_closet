@@ -9,6 +9,7 @@ import { useCharacterChat } from "../../contexts/CharacterChatContext";
 import { useSettings } from "../../contexts/SettingsContext";
 import { useCharacterChatPortraitPreference } from "../../hooks/useCharacterChatPortraitPreference";
 import { usePersistedState } from "../../hooks/usePersistedState";
+import type { TranslationKey } from "../../i18n";
 import { ROUTES } from "../../routes";
 import AdventureSessionPickerModal, {
   type AdventureSourceSelection,
@@ -28,7 +29,7 @@ const THREAD_FILTERS: readonly CharacterChatThreadFilter[] = [
   "adventure",
 ];
 
-const KIND_LABEL_KEY: Record<CharacterChatKind, string> = {
+const KIND_LABEL_KEY: Record<CharacterChatKind, TranslationKey> = {
   base: "characterChat.hub.kindBase",
   session: "characterChat.hub.kindSession",
   adventure: "characterChat.hub.kindAdventure",

@@ -562,11 +562,57 @@
   backdrop-filter: blur(6px);
 }
 
-.character-chat-room__window-toggle {
+/* 窓の操作(ログ・隠す)。話者名の行の右端にまとめる */
+.character-chat-room__window-actions {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.character-chat-room__window-button {
+  min-width: 30px;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid #4a535c;
+  border-radius: 999px;
+  background: transparent;
+  color: #c8ced4;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.character-chat-room__window-button:hover {
+  border-color: #efb85a;
+  color: #fff;
+}
+
+.character-chat-room__window-button.is-on {
+  border-color: #efb85a;
+  color: #efb85a;
+}
+
+/* 隠すはログドロワーの「閉じる」と同じ ✕ */
+.character-chat-room__window-hide {
+  padding: 0;
+  line-height: 1;
+}
+
+/* 隠している間の「ウィンドウを表示」。画面端ではなく、窓があった位置の右下にそろえる */
+.character-chat-room__window-restore {
   position: absolute;
-  right: calc(var(--cc-box-inset) + 12px);
-  bottom: calc(var(--cc-box-height) + var(--cc-box-inset) + 8px);
+  right: var(--cc-box-inset);
+  bottom: var(--cc-box-inset);
+  left: var(--cc-box-inset);
   z-index: 5;
+  display: flex;
+  justify-content: flex-end;
+  max-width: var(--cc-box-max-width);
+  margin-inline: auto;
+  pointer-events: none;
+}
+
+.character-chat-room__window-restore button {
   min-height: 36px;
   padding: 6px 12px;
   border: 1px solid #707982;
@@ -575,13 +621,15 @@
   color: #fff;
   font-size: 0.8rem;
   cursor: pointer;
+  pointer-events: auto;
 }
 
-.character-chat-room__window-toggle[aria-expanded="false"] {
-  bottom: calc(var(--cc-box-inset) + 12px);
+.character-chat-room__window-restore button:hover {
+  border-color: #efb85a;
 }
 
-.character-chat-room__window-toggle:focus-visible {
+.character-chat-room__window-button:focus-visible,
+.character-chat-room__window-restore button:focus-visible {
   outline: 2px solid #efb85a;
   outline-offset: 2px;
 }
@@ -601,9 +649,18 @@
   font-size: 0.95rem;
 }
 
-.character-chat-room__user-line {
+/* 右端: 直前の自分の発言と、窓の操作(ログ・隠す) */
+.character-chat-room__meta-end {
   margin-left: auto;
-  max-width: 45%;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+  max-width: 60%;
+}
+
+.character-chat-room__user-line {
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1332,6 +1389,11 @@
   pointer-events: none;
 }
 
+/* 構図は上の枠で決め、キャンバスはメッセージ窓の裏を通って画面下端まで伸ばす */
+.character-chat-room__avatar .adventure-avatar-stage__canvas {
+  height: calc(100% + var(--cc-box-height) + var(--cc-box-inset) - 24px);
+}
+
 .character-chat-room__live2d {
   --cc-live2d-portrait-top: calc(var(--cc-topbar-height) + 16px);
 
@@ -1354,11 +1416,21 @@
   object-fit: contain;
 }
 
+/* 寄りはメッセージ窓の裏を通って画面下端まで描く。窓を隠すと下半身まで見える */
 .character-chat-room__live2d[data-camera="portrait"] canvas {
   top: var(--cc-live2d-portrait-top);
   bottom: auto;
   left: 12px;
   width: calc(100% - 24px);
+  height: calc(100% - var(--cc-live2d-portrait-top));
+}
+
+/* 寄りの構図を収める範囲(メッセージ窓の上端まで)。高さを測るためだけの要素 */
+.character-chat-room__live2d-frame {
+  position: absolute;
+  top: var(--cc-live2d-portrait-top);
+  left: 0;
+  width: 0;
   height: calc(
     100% -
     var(--cc-live2d-portrait-top) -
@@ -1366,6 +1438,7 @@
     var(--cc-box-inset) -
     12px
   );
+  visibility: hidden;
 }
 
 .character-chat-room__live2d [role="status"] {
