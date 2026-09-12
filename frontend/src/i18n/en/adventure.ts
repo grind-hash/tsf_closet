@@ -535,7 +535,7 @@ export const adventure = {
   mic: {
     start: "Speak with the microphone",
     startHint:
-      "Uses the browser's speech recognition to fill the input field. In Chrome your voice is sent to Google's servers.",
+      "Turns what you say into text in the input field using your browser's built-in speech recognition. The conversion is done by your browser vendor's speech service (Google for Chrome); this app never records or stores your voice.",
     listening: "Listening... press again to stop",
     autoSend: "Send right after recognition",
     autoSendHint:

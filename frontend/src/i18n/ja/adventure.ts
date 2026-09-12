@@ -540,7 +540,7 @@ export const adventure = {
   mic: {
     start: "マイクで話す",
     startHint:
-      "ブラウザの音声認識で話した内容を入力欄に入れます。Chrome では音声が Google のサーバーへ送られます。",
+      "ブラウザ標準の音声認識で、話した言葉を文字にして入力欄に入れます。文字への変換はブラウザの提供元（Chrome では Google）が行い、このアプリが音声を録音・保存することはありません。",
     listening: "聞き取り中... もう一度押すと止まります",
     autoSend: "認識したらすぐ送る",
     autoSendHint:
