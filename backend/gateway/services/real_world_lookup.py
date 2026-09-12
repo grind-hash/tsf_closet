@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -38,6 +39,26 @@ SNIPPET_MAX_CHARS = 200
 FORECAST_CURRENT_FIELDS = (
     "temperature_2m,relative_humidity_2m,apparent_temperature,"
     "precipitation,weather_code,wind_speed_10m"
+)
+
+# Tavily の利用規約(Acceptable Use Policy)は、ポルノ・性的に露骨な内容を検索・取得
+# するためにサービスを使うことを禁じ、違反は予告なしの停止・解約になり得る。判定 LLM の
+# 判断とは別に、送る直前にも明白な語で止める(検索語と元の発言の両方に使う)。
+# 服装・色・健康・機器の語(水着・下着・ヌードカラー・ロリータファッション・性感染症・
+# AV機器など)は流行やニュースの検索を止めないため除く
+_SEARCH_POLICY_PATTERN = re.compile(
+    r"ポルノ|アダルト(?!チルドレン)|セクシー女優|FANZA|"
+    r"(?<![A-Za-z])AV(?![A-Za-z0-9]|機器|アンプ|ケーブル|レシーバー|端子|ラック|ボード|"
+    r"入力|出力|セレクター|ルーム)|"
+    r"エロ(?!かわ|カワ)|エッチ(?!ング)|えっち|官能(?:小説|漫画|マンガ|動画)|"
+    r"ヌード(?:写真|画像|動画)|18禁|R-?18|無修正|"
+    r"(?:成人|大人)向け(?:の)?"
+    r"(?:漫画|マンガ|動画|ビデオ|ゲーム|作品|同人|コンテンツ|サイト)|"
+    r"セックス(?!レス)|中出し|フェラ|手コキ|乱交|援助交際|援交|風俗嬢|デリヘル|"
+    r"ソープ嬢|ロリコン|ショタコン|"
+    r"\b(?:porn\w*|xxx|nsfw|hentai|erotica?|onlyfans|xvideos|xhamster|jav|"
+    r"blowjobs?|handjobs?|gangbang|sex\s?(?:tapes?|videos?|toys?|scenes?))\b",
+    re.IGNORECASE,
 )
 
 # WMO weather interpretation codes (Open-Meteo の weather_code)
@@ -75,6 +96,10 @@ _WMO_LABELS: dict[int, tuple[str, str]] = {
 
 class RealWorldLookupError(RuntimeError):
     """外部 API の呼び出しに失敗した。"""
+
+
+class SearchPolicyError(RealWorldLookupError):
+    """検索サービスの利用規約で禁止されている内容のため、送らなかった。"""
 
 
 @dataclass(slots=True)
@@ -147,6 +172,11 @@ def real_world_configuration() -> dict[str, bool]:
 
 def wmo_label(code: int) -> tuple[str, str]:
     return _WMO_LABELS.get(int(code), ("不明", "Unknown"))
+
+
+def violates_search_policy(text: str) -> bool:
+    """検索語が検索サービスの利用規約で禁止されている内容に当たるか(明白な語だけで判定)。"""
+    return bool(_SEARCH_POLICY_PATTERN.search(str(text or "")))
 
 
 def _single_line(value: Any) -> str:
@@ -350,8 +380,11 @@ async def tavily_search(query: str, *, language: str = "ja") -> SearchInfo:
     """Tavily で検索し、関連度の低い結果を落として素材にする。
 
     送るのは検索語だけ。日本語の会話では日本の情報を優先させる(country は
-    topic が general のときだけ有効な指定)。
+    topic が general のときだけ有効な指定)。利用規約で禁止されている内容に当たる
+    検索語は送らず SearchPolicyError を投げる。
     """
+    if violates_search_policy(query):
+        raise SearchPolicyError("the query is not allowed by the search service policy")
     api_key = settings.tavily_api_key
     if not api_key:
         raise RealWorldLookupError("TAVILY_API_KEY is not configured")

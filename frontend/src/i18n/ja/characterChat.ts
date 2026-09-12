@@ -141,6 +141,8 @@ export const characterChat = {
     lookupWithQuery: "{{kind}}「{{query}}」",
     citationQuery: "検索語: {{query}}",
     citationWebQuery: "Web検索に送った語: {{query}}",
+    citationRefusedQuery: "送らなかった検索語: {{query}}",
+    lookupRefused: "{{kind}}（利用規約により見送り）",
     citationSources: "出典",
     citationOpenSession: "このセッションをギャラリーで開く",
     citationNoText: "この返答の時点では内容を記録していません。",

@@ -94,6 +94,7 @@ from .avatar_service import (
 from .character_chat_lookups import (
     LookupRun,
     available_real_world_kinds,
+    is_policy_refused,
     run_lookups,
     session_candidates,
 )
@@ -119,6 +120,7 @@ from .character_chat_prompts import (
     session_persona_block,
     summary_system_prompt,
     summary_user_prompt,
+    web_search_refusal_block,
 )
 from .conversation import get_stage_display_name, get_stage_name
 from .cost_tracker import begin_cost_tracking, record_cost
@@ -2157,6 +2159,7 @@ class CharacterChatService:
         origin_lore_text: str = "",
         self_profile: dict[str, Any] | None = None,
         real_world_text: str = "",
+        search_refused: bool = False,
     ) -> str:
         persona = _json_load(thread.persona_json, {})
         appearance = _json_load(thread.appearance_json, {})
@@ -2228,6 +2231,9 @@ class CharacterChatService:
             ),
             real_world_block_text=(
                 real_world_block(real_world_text, language) if is_base else ""
+            ),
+            search_refusal_text=(
+                web_search_refusal_block(language) if is_base and search_refused else ""
             ),
         )
 
@@ -2420,13 +2426,18 @@ class CharacterChatService:
             )
             lookups = LookupRun()
             if plan.lookups:
-                if any(lookup.kind in real_world_kinds for lookup in plan.lookups):
+                if any(
+                    lookup.kind in real_world_kinds
+                    and not is_policy_refused(lookup, message=message)
+                    for lookup in plan.lookups
+                ):
                     # 外部 API は待ち時間が長くなりうるため、進捗を分けて示す
                     yield {"event": "status", "data": {"phase": "search"}}
                 lookups = await run_lookups(
                     plan,
                     language=language,
                     allowed_kinds=(*PAST_PLAY_LOOKUP_KINDS, *real_world_kinds),
+                    message=message,
                 )
             # 「別の層の記憶」は案内役キャラだけ。判定 LLM が呼んだ手番にだけ載せる
             origin_lore_text = ""
@@ -2458,6 +2469,7 @@ class CharacterChatService:
                 memory_text=memory_text,
                 lookup_text=lookups.text,
                 real_world_text=lookups.real_world_text,
+                search_refused=lookups.web_search_refused,
                 appearance_change_request=plan.appearance_request,
                 adventure_context=adventure_context,
                 header_instruction=header_instruction,

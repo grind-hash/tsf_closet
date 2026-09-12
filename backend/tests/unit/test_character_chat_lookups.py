@@ -391,3 +391,80 @@ def test_available_real_world_kinds_requires_toggle_and_config(monkeypatch) -> N
     assert lookups.available_real_world_kinds(
         use_web_search=True, use_weather=True
     ) == {"web_search", "weather"}
+
+
+_POLICY_REFUSED_JA = (
+    "(検索サービス Tavily の利用規約に反するおそれがあるため、検索しませんでした)"
+)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "item",
+    [
+        # 判定 LLM が見送りの印を付けた
+        {"kind": "web_search", "query": "グラビア 撮影会 2026", "refused": True},
+        # 印が無くても、検索語が明白な性的語に当たれば送らない
+        {"kind": "web_search", "query": "AV女優 人気 2026"},
+    ],
+    ids=["planner_refused", "policy_terms"],
+)
+async def test_run_lookups_refuses_web_search_under_search_policy(
+    monkeypatch, item: dict
+) -> None:
+    search = AsyncMock()
+    monkeypatch.setattr(lookups.real_world_lookup, "tavily_search", search)
+    plan = _real_world_plan([item])
+
+    run = await lookups.run_lookups(
+        plan, language="ja", allowed_kinds=_REAL_WORLD_ALLOWED
+    )
+
+    search.assert_not_awaited()
+    assert run.web_search_refused is True
+    assert run.real_world_text == ""
+    # 送らなかった検索語と理由は引用表示のために残す
+    assert run.details == [
+        {
+            "kind": "web_search",
+            "query": item["query"],
+            "session_id": None,
+            "text": _POLICY_REFUSED_JA,
+            "session_ids": [],
+            "sources": [],
+            "refused": "search_policy",
+        }
+    ]
+
+
+def test_is_policy_refused_ignores_ordinary_lookups() -> None:
+    plan = _real_world_plan(
+        [{"kind": "web_search", "query": "秋 ファッション 2026"}, {"kind": "weather"}]
+    )
+    assert [lookups.is_policy_refused(item) for item in plan.lookups] == [
+        False,
+        False,
+    ]
+
+
+@pytest.mark.asyncio
+async def test_run_lookups_refuses_when_the_message_asks_for_explicit_content(
+    monkeypatch,
+) -> None:
+    """判定 LLM が検索語を当たり障りのない形に言い換えても、元の発言で止める。"""
+    search = AsyncMock()
+    monkeypatch.setattr(lookups.real_world_lookup, "tavily_search", search)
+    plan = _real_world_plan([{"kind": "web_search", "query": "人気 作品 新作 2026"}])
+    assert not lookups.is_policy_refused(plan.lookups[0])
+
+    run = await lookups.run_lookups(
+        plan,
+        language="ja",
+        allowed_kinds=_REAL_WORLD_ALLOWED,
+        message="最新のAVのおすすめある？",
+    )
+
+    search.assert_not_awaited()
+    assert run.web_search_refused is True
+    assert run.details[0]["refused"] == "search_policy"
+    assert run.details[0]["query"] == "人気 作品 新作 2026"

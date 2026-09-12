@@ -142,6 +142,8 @@ export const characterChat = {
     lookupWithQuery: '{{kind}} "{{query}}"',
     citationQuery: "Search terms: {{query}}",
     citationWebQuery: "Sent to web search: {{query}}",
+    citationRefusedQuery: "Not sent to web search: {{query}}",
+    lookupRefused: "{{kind}} (skipped under the search service's terms)",
     citationSources: "Sources",
     citationOpenSession: "Open this session in the gallery",
     citationNoText: "The content was not recorded for this reply.",

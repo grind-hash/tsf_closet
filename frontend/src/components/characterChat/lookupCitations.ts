@@ -34,6 +34,8 @@ export interface LookupCitation {
   sessionIds: string[];
   /** Web 検索の出典。出典を持たない種類と旧データは空 */
   sources: CitationSource[];
+  /** 検索サービスの利用規約で見送った Web 検索。query は送らなかった検索語 */
+  refused?: boolean;
 }
 
 /**
@@ -92,6 +94,7 @@ export function toLookupCitations(
         (id): id is string => typeof id === "string" && id.length > 0,
       ),
       sources: toCitationSources(item.sources),
+      ...(item.refused ? { refused: true } : {}),
     });
   }
   return citations;

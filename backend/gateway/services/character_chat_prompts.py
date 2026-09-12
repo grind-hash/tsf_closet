@@ -64,9 +64,27 @@ def _real_world_rules(offered: list[str]) -> str:
             "or small talk. At most one web_search.\n"
             "- web_search query: 2-8 neutral keywords in the conversation language; add "
             "the year from today when recency matters. Never include wording from the "
-            "chat, the character's or the user's names, bodies, transformation, sexual "
-            "or adult content, or personal information. If no safe query can be formed, "
-            "do not use web_search.\n"
+            "chat, the character's or the user's names, bodies, transformation, or "
+            "personal information.\n"
+            "- The search service's acceptable use policy forbids using it to request, "
+            "obtain or spread pornographic or sexually explicit content. Judge by what "
+            "the search is for: whenever it would look for, recommend, rank or lead to "
+            "such material, keep the web_search with its keywords and add "
+            '"refused": true; it will not be sent, and the character will explain why. '
+            "This includes adult videos (AV) and their new releases or rankings, adult "
+            "performers (AV actresses, sexy actresses), adult or porn sites, R18 / 18禁 "
+            "works, erotic manga, games, novels or images, and nude or explicit photos, "
+            "even when the keywords themselves look neutral. Ordinary fashion, swimwear, "
+            "underwear, beauty and health topics are not refused. Never add "
+            '"refused" when no web search is needed.\n'
+            '- Also add "refused": true when the search would sexualize or target '
+            "minors; help plan, commit or give instructions for crimes or other "
+            "wrongdoing (illegal drugs, weapons, hacking, malware, fraud, pirated "
+            "copies); harass, threaten or incite violence against people; or look up "
+            "private or sensitive information about a real person (home address, phone "
+            "number, ID numbers, passwords or other credentials). News reports and "
+            "general information about such topics (for example, what happened in an "
+            "incident or how to protect yourself) are not refused.\n"
         )
     if "weather" in offered:
         rules.append(
@@ -505,6 +523,35 @@ def real_world_block(rendered: str, language: str) -> str:
     )
 
 
+def web_search_refusal_block(language: str) -> str:
+    """Web 検索を検索サービスの利用規約で見送った手番に、理由を最初に伝えさせる枠。"""
+    if _lang(language) == "en":
+        return (
+            "[Web search skipped]\n"
+            "The user's question needed a web search, but it may go against the "
+            "acceptable use policy of the search service Tavily (for example "
+            "pornographic or sexually explicit content, content that sexualizes minors, "
+            "help with crimes, harassment, or someone's private information), so no "
+            "search was made. In the first sentence you speak, apologize briefly and say "
+            "so (for example: \"I'm sorry, this may go against the terms of the search "
+            "service Tavily, so I didn't search the web.\"). Then, if the question is "
+            "fine to answer, answer from your own knowledge and note that it may be out "
+            "of date. Never help with crimes, never sexualize minors, and never reveal "
+            "or guess someone's private information."
+        )
+    return (
+        "[Web 検索を見送った理由]\n"
+        "相手の質問には Web 検索が必要でしたが、検索サービス Tavily の利用規約に反するおそれ"
+        "(ポルノや性的に露骨な内容、未成年者を性的に扱う内容、違法行為の手助け、嫌がらせ、"
+        "他人の個人情報など)があるため、検索していません。話し始めの一文で、そのことを短く"
+        "謝って伝えてください(例: 「申し訳ありません。この内容は検索サービス Tavily の"
+        "利用規約に反するおそれがあるため、Web 検索はしませんでした」)。そのうえで、答えて"
+        "よい内容ならあなた自身の知識の範囲で答え、最近のことは知識が古いかもしれないと"
+        "添えてください。違法行為の手助け、未成年者を性的に扱う内容、他人の個人情報の特定や"
+        "推測には答えないでください。"
+    )
+
+
 def origin_lore_block(lore_text: str, language: str) -> str:
     """案内役キャラの「別の層の記憶」を、その手番だけ語ってよい枠で包む。空なら空文字。"""
     text = str(lore_text or "").strip()
@@ -549,6 +596,7 @@ def reply_system_prompt(
     relaxed_length: bool = False,
     current_time_text: str = "",
     real_world_block_text: str = "",
+    search_refusal_text: str = "",
 ) -> str:
     """返答本文の system prompt。
 
@@ -556,7 +604,8 @@ def reply_system_prompt(
     ルールの「話し言葉だけ」に上書きされないよう、ルールより後ろ(末尾)に置く。
     relaxed_length はセッション由来キャラ向けに文数の目安を緩める(案内役は短めのまま)。
     current_time_text / real_world_block_text は案内役キャラだけが受け取る、いまの日時と
-    Web 検索・天気の結果。過去プレイの調べ物の後ろに置く。
+    Web 検索・天気の結果。過去プレイの調べ物の後ろに置く。search_refusal_text は
+    Web 検索を利用規約で見送った手番の説明(同じく案内役キャラだけ)。
     """
     lang = _lang(language)
     sections: list[str] = [persona_block]
@@ -582,6 +631,8 @@ def reply_system_prompt(
         sections.append(current_time_text)
     if real_world_block_text:
         sections.append(real_world_block_text)
+    if search_refusal_text:
+        sections.append(search_refusal_text)
     if appearance_change_request:
         sections.append(
             (

@@ -85,16 +85,31 @@ function CitationSources({ sources }: { sources: CitationSource[] }) {
 /**
  * 返答の根拠として実行した調べ物(引用)。本文があるものは折りたたみで開け、
  * キャラが実際に読んだ整形済みテキストをそのまま見せる。Web 検索は送った語と
- * 出典のリンクも添える。旧データ(種類だけ)のときは種類の一覧を 1 行で出す。
+ * 出典のリンクも添え、利用規約で見送ったものは送らなかった語と理由を示す。
+ * 旧データ(種類だけ)のときは種類の一覧を 1 行で出す。
  */
 export default function CharacterChatCitations({
   citations,
 }: CharacterChatCitationsProps) {
   const { t } = useTranslation();
   if (citations.length === 0) return null;
+  const kindLabel = (citation: LookupCitation) => {
+    const kind = t(`characterChat.thread.lookupKind.${citation.kind}`);
+    return citation.refused
+      ? t("characterChat.thread.lookupRefused", { kind })
+      : kind;
+  };
+  const queryLabel = (citation: LookupCitation, query: string) => {
+    if (citation.refused) {
+      return t("characterChat.thread.citationRefusedQuery", { query });
+    }
+    return citation.kind === "web_search"
+      ? t("characterChat.thread.citationWebQuery", { query })
+      : t("characterChat.thread.citationQuery", { query });
+  };
   const kinds = citations
     .map((citation) => {
-      const kind = t(`characterChat.thread.lookupKind.${citation.kind}`);
+      const kind = kindLabel(citation);
       return citation.query
         ? t("characterChat.thread.lookupWithQuery", {
             kind,
@@ -119,16 +134,10 @@ export default function CharacterChatCitations({
           className="character-chat__citation"
         >
           <div className="character-chat__citation-head">
-            <span>{t(`characterChat.thread.lookupKind.${citation.kind}`)}</span>
+            <span>{kindLabel(citation)}</span>
             {citation.query && (
               <span className="character-chat__citation-query">
-                {citation.kind === "web_search"
-                  ? t("characterChat.thread.citationWebQuery", {
-                      query: citation.query,
-                    })
-                  : t("characterChat.thread.citationQuery", {
-                      query: citation.query,
-                    })}
+                {queryLabel(citation, citation.query)}
               </span>
             )}
           </div>

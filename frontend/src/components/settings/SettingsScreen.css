@@ -99,6 +99,73 @@
   line-height: 1.5;
 }
 
+/* Web 検索の利用条件(同意と読み返し)。文面が長いため幅を広げ、見出しとボタンを残して本文だけスクロールする */
+.settings-screen__terms-dialog {
+  display: flex;
+  flex-direction: column;
+  max-width: 640px;
+  max-height: 90vh;
+  box-sizing: border-box;
+}
+
+.settings-screen__terms-dialog .confirm-dialog__body {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.settings-screen__terms-dialog .confirm-dialog__body h4 {
+  margin: 1rem 0 0.4rem;
+  font-size: 0.95rem;
+  color: var(--text-color, #eee);
+}
+
+/* 同意のたびに読む要約。行ごとに区切るが段落ほど空けない */
+.settings-screen__terms-summary {
+  margin: 0 0 0.75rem;
+}
+
+.settings-screen__terms-dialog .settings-screen__terms-summary p {
+  margin: 0 0 0.35rem;
+}
+
+/* 詳細な注意事項。既定は閉じる */
+.settings-screen__terms-details {
+  margin: 0 0 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border-color, #444);
+  border-radius: 6px;
+}
+
+.settings-screen__terms-details > summary {
+  cursor: pointer;
+  color: var(--text-color, #eee);
+}
+
+.settings-screen__terms-details[open] > summary {
+  margin-bottom: 0.5rem;
+}
+
+.settings-screen__terms-list {
+  margin: 0 0 0.75rem;
+  padding-left: 1.25rem;
+}
+
+.settings-screen__terms-list li + li {
+  margin-top: 0.2rem;
+}
+
+/* 項目の下の補助操作(利用条件を読む)。リンクのように見せる */
+.settings-screen__terms-read {
+  margin-top: 0.4rem;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent-color, #e94560);
+  font-size: 0.8rem;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 /* ラジオグループ */
 .settings-screen__radio-group {
   display: flex;

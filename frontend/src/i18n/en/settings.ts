@@ -59,9 +59,93 @@ export const settings = {
     "Show a screen for one-on-one conversations with a character outside the TSF scenario: the guide character Serena, or a character brought back from a past session",
   characterChatWebSearch: "Let Serena search the web",
   characterChatWebSearchDesc:
-    "In Character Chat, Serena searches the web (Tavily) only when you ask about recent events or real-world topics. Only the topic keywords are sent, never the conversation text. Each search uses 1 Tavily credit.",
+    "In Character Chat, Serena searches the web (Tavily) only when you ask about recent events or real-world topics. Only the topic keywords are sent, never the conversation text. Searches that may go against Tavily's terms, such as sexually explicit topics, are skipped (Serena tells you when this happens). You are asked to agree to the terms when turning this on. Each search uses 1 Tavily credit.",
   characterChatWebSearchUnavailable:
     "TAVILY_API_KEY is not set on the server, so no search runs even when this is on. Set it in .env (config.env for the packaged build) and restart the server.",
+  characterChatWebSearchTerms: {
+    title: "About the web search feature",
+    summary: [
+      "This feature uses your own Tavily API key.",
+      "Please comply with Tavily's Terms of Service and Acceptable Use Policy when using it.",
+      "It cannot be used to search for content that Tavily prohibits (such as pornography or sexually explicit content).",
+      "To deter searches that violate the terms, TSF Closet may refuse or restrict searches.",
+      "In addition, the accuracy and completeness of search results obtained from external services are not guaranteed.",
+    ],
+    details: "Detailed notes",
+    intro: [
+      "The web search feature uses the external service Tavily.",
+      "To use this feature, you need to set a Tavily API key that you obtained yourself. Your use of Tavily is subject to Tavily's Terms of Service and Acceptable Use Policy (AUP).",
+    ],
+    sections: [
+      {
+        heading: "1. Complying with Tavily's terms",
+        paragraphs: [
+          "When using the web search feature, you agree to comply with Tavily's Terms of Service and Acceptable Use Policy.",
+          "You must not use this feature to search for, obtain, generate, or otherwise process any content that Tavily prohibits.",
+          "This includes, for example:",
+        ],
+        items: [
+          "Pornography or sexually explicit content",
+          "Content that sexualizes minors, or other content that is harmful or inappropriate for minors",
+          "Content that promotes, assists, or gives specific instructions for illegal activities",
+          "Harmful content, including discrimination, harassment, threats, or incitement to violence",
+          "Personal information, authentication credentials, and other information that Tavily restricts from being obtained or processed",
+          "Any other content prohibited by Tavily's Terms of Service or Acceptable Use Policy",
+        ],
+        after: [
+          "For details of prohibited content, check Tavily's latest Terms of Service and Acceptable Use Policy.",
+        ],
+      },
+      {
+        heading: "2. Safeguards",
+        paragraphs: [
+          "To deter searches that violate Tavily's terms, TSF Closet may apply safeguards such as inspecting and refusing search queries and restricting what is searched.",
+          "As a result, regardless of the conversation, the web search alone may not run, or search queries may be restricted or changed.",
+          "However, these safeguards do not guarantee that every inappropriate or terms-violating input or search result will be detected or prevented.",
+          "You remain responsible for complying with Tavily's terms, whether or not safeguards are in place.",
+        ],
+      },
+      {
+        heading: "3. Information that is sent",
+        paragraphs: [
+          "Web search does not send the conversation text itself. Only the search keywords that TSF Closet creates from the conversation are sent to Tavily.",
+          'You can check the keywords that were sent under "Looked up" in Serena\'s reply. When a search is skipped because it may violate the terms, the keywords that were not sent are shown there as well.',
+          'Weather lookups ("Let Serena check the weather") use Open-Meteo instead of Tavily and send only the configured location.',
+        ],
+      },
+      {
+        heading: "4. API key and fees",
+        paragraphs: [
+          "Web search uses the Tavily API key that you obtained and set yourself.",
+          "You are responsible for managing your API key, your Tavily account, API usage, fees, and anything else arising from your agreement with Tavily.",
+          "TSF Closet makes no guarantees regarding Tavily fees, API usage limits, account suspension, or anything else arising from your agreement with Tavily.",
+        ],
+      },
+      {
+        heading: "5. Web search results",
+        paragraphs: [
+          "Web search results are obtained from information provided by Tavily and third parties on the internet.",
+          "TSF Closet does not guarantee the accuracy, completeness, timeliness, legality, safety, non-infringement, appropriateness, or fitness for a particular purpose of search results.",
+          "Search results may contain inaccurate, inappropriate, or unintended information, or information that may infringe the rights of third parties.",
+          "When using search results, check the content yourself and, where necessary, consult primary sources or other reliable sources.",
+        ],
+      },
+      {
+        heading: "6. Restrictions",
+        paragraphs: [
+          "TSF Closet may refuse or restrict web searches when it determines that they may violate these terms or Tavily's terms.",
+          "TSF Closet may also change the specifications or terms of this feature in response to changes in Tavily's specifications, Terms of Service, Acceptable Use Policy, or other external services.",
+        ],
+      },
+    ],
+    consent:
+      'By selecting "Agree and turn on", you agree to the above and to the detailed notes.',
+    link: "Tavily Acceptable Use Policy",
+    accept: "Agree and turn on",
+    cancel: "Cancel",
+    read: "Read the web search terms",
+    close: "Close",
+  },
   characterChatWeather: "Let Serena check the weather",
   characterChatWeatherDesc:
     "Serena checks the current weather at the configured location only when you ask about the weather or what to wear. Weather data comes from Open-Meteo and needs no API key.",

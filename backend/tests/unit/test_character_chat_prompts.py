@@ -28,6 +28,7 @@ from gateway.services.character_chat_prompts import (
     real_world_block,
     reply_system_prompt,
     session_persona_block,
+    web_search_refusal_block,
 )
 
 _JST = timezone(timedelta(hours=9))
@@ -433,6 +434,80 @@ def test_plan_model_web_search_query_rules() -> None:
     assert lookups([{"kind": "web_search"}]) == []
     # 天気は検索語を使わない
     assert lookups([{"kind": "weather", "query": "東京"}])[0].query is None
+
+
+def test_planner_prompt_flags_search_policy_refusal() -> None:
+    """性的に露骨な話題の Web 検索は、送らずに見送りの印を付けさせる。"""
+    prompt = planner_system_prompt("ja", real_world_kinds={"web_search"})
+    assert "forbids using it to request, obtain or spread pornographic" in prompt
+    # 話題ではなく目的で判断させる(ポルノ作品を探す・薦める検索は無難な語でも見送る)
+    assert "Judge by what the search is for" in prompt
+    assert "adult videos (AV) and their new releases or rankings" in prompt
+    assert "even when the keywords themselves look neutral" in prompt
+    # 性的な内容以外の禁止事項(未成年者・違法行為の手助け・嫌がらせ・個人情報)も見送る
+    assert "sexualize or target minors" in prompt
+    assert "help plan, commit or give instructions for crimes" in prompt
+    assert "harass, threaten or incite violence" in prompt
+    assert "private or sensitive information about a real person" in prompt
+    # 事件の報道や身を守るための情報は止めない
+    assert "News reports and general information about such topics" in prompt
+    assert '"refused": true' in prompt
+    # 服装や健康の話題まで止めない
+    assert "Ordinary fashion, swimwear, underwear, beauty and health" in prompt
+    assert '"refused"' not in planner_system_prompt("ja", real_world_kinds={"weather"})
+
+
+def test_web_search_refusal_block_apologizes_then_answers() -> None:
+    ja = web_search_refusal_block("ja")
+    assert ja.startswith("[Web 検索を見送った理由]\n")
+    assert "Tavily の利用規約に反するおそれ" in ja
+    # 違法な手助けなどは、検索しないだけでなく知識からも答えさせない
+    assert "違法行為の手助け、未成年者を性的に扱う内容" in ja
+    assert "には答えないでください" in ja
+    assert "申し訳ありません" in ja
+    assert "あなた自身の知識の範囲で答え" in ja
+    en = web_search_refusal_block("en")
+    assert "acceptable use policy of the search service Tavily" in en
+    assert "I'm sorry" in en
+
+
+def test_reply_system_prompt_places_refusal_after_real_world() -> None:
+    prompt = reply_system_prompt(
+        "ja",
+        name="セレナ",
+        pronoun="私",
+        persona_block="P",
+        memory_block_text="",
+        summary_text=None,
+        lookup_block_text="",
+        appearance_description="",
+        appearance_change_request=None,
+        real_world_block_text=real_world_block("## 天気\n東京: 晴れ", "ja"),
+        search_refusal_text=web_search_refusal_block("ja"),
+    )
+    assert (
+        prompt.index("[現実世界について")
+        < prompt.index("[Web 検索を見送った理由]")
+        < prompt.index("会話のルール:")
+    )
+
+
+def test_plan_model_keeps_refused_web_search() -> None:
+    context = {"allowed_kinds": REAL_WORLD_LOOKUP_KINDS}
+
+    def lookups(items: list[dict], ctx: dict | None = context):
+        return CharacterChatPlan.model_validate({"lookups": items}, context=ctx).lookups
+
+    refused = lookups([{"kind": "web_search", "query": "q", "refused": "true"}])
+    assert refused[0].refused is True
+    assert lookups([{"kind": "web_search", "query": "q"}])[0].refused is False
+    # 検索語が無くても、見送りの印があれば理由を伝えるために残す
+    bare = lookups([{"kind": "web_search", "refused": True}])
+    assert bare[0].refused is True
+    assert bare[0].query is None
+    # web_search 以外の印は無視する
+    other = lookups([{"kind": "tendencies", "refused": True}], None)
+    assert other[0].refused is False
 
 
 def test_appearance_output_cleans_tags() -> None:

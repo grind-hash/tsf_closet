@@ -70,6 +70,8 @@ export interface CharacterChatLookupCitation {
   session_ids?: string[] | null;
   /** web_search の出典。表示前に http(s) の URL だけへ絞る */
   sources?: Array<{ title?: string | null; url?: string | null }> | null;
+  /** web_search を送らなかった理由(search_policy = 検索サービスの利用規約)。送った場合は無い */
+  refused?: string | null;
 }
 
 export interface CharacterChatMessageMeta {

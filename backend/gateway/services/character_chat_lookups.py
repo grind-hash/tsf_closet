@@ -478,6 +478,28 @@ async def _dispatch(lookup: CharacterChatLookup, language: str) -> LookupResult:
     return LookupResult(_unavailable(language))
 
 
+def is_policy_refused(lookup: CharacterChatLookup, *, message: str = "") -> bool:
+    """Web 検索のうち、検索サービスの利用規約で禁止されている内容として送らないもの。
+
+    判定 LLM の印(refused)、検索語、元の発言のいずれかが明白な性的語に当たれば送らない。
+    判定 LLM が検索語を当たり障りのない形に言い換えても、発言が当たれば止める。
+    """
+    return lookup.kind == "web_search" and (
+        lookup.refused
+        or real_world_lookup.violates_search_policy(lookup.query or "")
+        or real_world_lookup.violates_search_policy(message)
+    )
+
+
+def _policy_refused(language: str) -> str:
+    return (
+        "(Not searched: this may go against the acceptable use policy of the search "
+        "service Tavily)"
+        if _lang(language) == "en"
+        else "(検索サービス Tavily の利用規約に反するおそれがあるため、検索しませんでした)"
+    )
+
+
 def available_real_world_kinds(
     *, use_web_search: bool, use_weather: bool
 ) -> frozenset[str]:
@@ -498,12 +520,14 @@ class LookupRun:
     """run_lookups の結果。
 
     text は過去プレイの調べ物、real_world_text は Web 検索・天気の本文(返答プロンプトでは
-    別の枠に載せる)。details は引用表示用の明細。
+    別の枠に載せる)。details は引用表示用の明細。web_search_refused は Web 検索を
+    利用規約で見送ったか(返答で理由を伝える)。
     """
 
     text: str = ""
     real_world_text: str = ""
     details: list[dict[str, Any]] = field(default_factory=list)
+    web_search_refused: bool = False
 
 
 async def run_lookups(
@@ -511,10 +535,13 @@ async def run_lookups(
     *,
     language: str,
     allowed_kinds: Collection[str] = PAST_PLAY_LOOKUP_KINDS,
+    message: str = "",
 ) -> LookupRun:
     """計画の調べ物を順に実行する。
 
     allowed_kinds に無い種類は実行しない(判定 LLM の計画の検証と二重の防御)。
+    利用規約で禁止されている Web 検索(is_policy_refused。message は相手の今回の発言)は
+    送らず、見送った検索語と理由だけを明細に残す。
     明細は 1 件ごとに kind / query / session_id / text / session_ids を持ち、Web 検索は
     sources も持つ。text はプロンプトに載せたものと同じ整形済み本文で、返答メッセージの
     meta_json に保存して UI の「参照した記録」に使う。
@@ -523,9 +550,29 @@ async def run_lookups(
     past_blocks: list[str] = []
     real_world_blocks: list[str] = []
     details: list[dict[str, Any]] = []
+    web_search_refused = False
     for lookup in plan.lookups:
         if lookup.kind not in allowed_kinds:
             logger.info("character chat lookup %s is not allowed; skipped", lookup.kind)
+            continue
+        if is_policy_refused(lookup, message=message):
+            logger.info(
+                "character chat web search refused by the search service policy: "
+                "query=%s",
+                lookup.query,
+            )
+            web_search_refused = True
+            details.append(
+                {
+                    "kind": lookup.kind,
+                    "query": lookup.query,
+                    "session_id": None,
+                    "text": _policy_refused(language),
+                    "session_ids": [],
+                    "sources": [],
+                    "refused": "search_policy",
+                }
+            )
             continue
         if lookup.kind == "web_search" and not lookup.query:
             continue
@@ -565,4 +612,5 @@ async def run_lookups(
         text=_clip("\n\n".join(past_blocks), LOOKUP_TOTAL_CAP),
         real_world_text=_clip("\n\n".join(real_world_blocks), REAL_WORLD_TOTAL_CAP),
         details=details,
+        web_search_refused=web_search_refused,
     )
