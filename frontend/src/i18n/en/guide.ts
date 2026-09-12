@@ -39,7 +39,7 @@ export const guide = {
   characterChat: {
     title: "Character Chat",
     desc: "Talk one-on-one with a character outside the TSF scenario. The guide character Serena remembers your tastes and past play and looks things up when you ask about recent sessions or tendencies. You can also bring back a character from a past session with the feelings they had at that point, choose the appearance from past images, and ask for a change of clothes to redraw the portrait.",
-    note: "Each reply first decides what to look up, so replies take a little longer than a plain chat. Asking for a change of clothes also runs image generation.",
+    note: 'Each reply first decides what to look up, so replies take a little longer than a plain chat. Asking for a change of clothes also runs image generation. Optionally, turning on "Let Serena check the weather" and "Let Serena search the web" in the settings screen lets her look up the weather and recent topics on the web (requires server-side setup).',
     open: "Open Character Chat",
   },
   voice: {

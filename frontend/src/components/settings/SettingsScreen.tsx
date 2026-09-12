@@ -14,6 +14,7 @@ import { NovelaiUsageBar } from "../NovelaiUsageBar";
 import AvatarModelSettings, {
   type AvatarModelSummary,
 } from "./AvatarModelSettings";
+import CharacterChatRealWorldSettings from "./CharacterChatRealWorldSettings";
 import Live2dSettings, { type Live2dCoreStatus } from "./Live2dSettings";
 import MemorySettings from "./MemorySettings";
 import SelfProfileEditor from "./SelfProfileEditor";
@@ -761,6 +762,8 @@ export default function SettingsScreen() {
                 <span className="settings-screen__toggle-switch" />
               </label>
             </div>
+
+            <CharacterChatRealWorldSettings />
 
             <div className="settings-screen__item">
               <label className="settings-screen__toggle">

@@ -48,6 +48,10 @@ class UserSettingsResponse(BaseModel):
     # ENABLE_PROMPT_PREVIEW。環境変数由来の読み取り専用で DB には持たない。
     # 開発者にしか意味がない案内(リポジトリ内のパス等)の出し分けに使う
     enable_prompt_preview: bool = False
+    # キャラチャットの Web 検索・天気に必要な TAVILY_API_KEY / WEATHER_LOCATION が
+    # サーバーに設定されているか。環境変数由来の読み取り専用で、値そのものは返さない
+    web_search_configured: bool = False
+    weather_configured: bool = False
 
 
 class UserSettingsUpdateRequest(BaseModel):

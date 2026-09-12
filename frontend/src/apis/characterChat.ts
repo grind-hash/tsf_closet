@@ -68,6 +68,8 @@ export interface CharacterChatLookupCitation {
   text?: string | null;
   /** 本文に含まれるセッションの ID(「[先頭8桁]」からギャラリーへ飛ぶ対応表) */
   session_ids?: string[] | null;
+  /** web_search の出典。表示前に http(s) の URL だけへ絞る */
+  sources?: Array<{ title?: string | null; url?: string | null }> | null;
 }
 
 export interface CharacterChatMessageMeta {
@@ -179,7 +181,13 @@ export interface CharacterChatSourceRequest {
   source_prompt_expander_entry_id?: string;
 }
 
-export type CharacterChatPhase = "plan" | "reply" | "portrait" | "memory";
+/** search = 天気・Web 検索の実行中(plan と reply の間。案内役で有効なときだけ) */
+export type CharacterChatPhase =
+  | "plan"
+  | "search"
+  | "reply"
+  | "portrait"
+  | "memory";
 
 export type CharacterChatStreamEvent =
   | { type: "status"; data: { phase: CharacterChatPhase } }
@@ -423,10 +431,22 @@ async function readSse(
   }
 }
 
-/** 発言を送り、判定 → 返答チャンク → 確定 → (立ち絵) → (要約) → cost → complete を受ける */
+/**
+ * 発言の送信内容。調べ物の可否は設定画面の値を毎回載せる
+ * (案内役以外のスレッドとサーバー側の設定が無いときはサーバーが無視する)
+ */
+export interface CharacterChatMessageRequest {
+  content: string;
+  /** Web 検索(Tavily)を許可する */
+  use_web_search?: boolean;
+  /** 天気(Open-Meteo)の取得を許可する */
+  use_weather?: boolean;
+}
+
+/** 発言を送り、判定 → (調べ物) → 返答チャンク → 確定 → (立ち絵) → (要約) → cost → complete を受ける */
 export async function streamCharacterChatMessage(
   threadId: string,
-  body: { content: string },
+  body: CharacterChatMessageRequest,
   onEvent: (event: CharacterChatStreamEvent) => void,
 ): Promise<void> {
   const response = await fetch(

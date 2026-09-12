@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
 from ..consts.character_chat import (
     APPEARANCE_DESCRIPTION_MAX,
@@ -21,8 +21,12 @@ from ..consts.character_chat import (
     LOOKUP_LIMIT_MAX,
     LOOKUP_MAX_PER_TURN,
     LOOKUP_QUERY_MAX,
+    PAST_PLAY_LOOKUP_KINDS,
+    REAL_WORLD_LOOKUP_KINDS,
+    WEB_SEARCH_QUERY_MAX,
+    WEB_SEARCH_TERMS_MAX,
 )
-from .session_search import search_terms
+from .session_search import SEARCH_TERMS_MAX, search_terms
 
 LookupKind = Literal[
     "recent_sessions",
@@ -30,6 +34,8 @@ LookupKind = Literal[
     "search_sessions",
     "tendencies",
     "recent_adventures",
+    "web_search",
+    "weather",
 ]
 
 _NULL_WORDS = {"", "null", "none", "no", "false", "n/a"}
@@ -61,6 +67,21 @@ def _clean_text(value: Any, limit: int) -> str | None:
     return text[:limit]
 
 
+def _search_query(value: Any, *, limit: int, max_terms: int) -> str | None:
+    # 判定 LLM は検索語を引用符で包んで返すことがある。検索に渡す語と meta_json に
+    # 残す語の両方から外す(空白区切りの各語について両端だけ)
+    text = _clean_text(value, limit)
+    if text is None:
+        return None
+    return " ".join(search_terms(text, max_terms=max_terms)) or None
+
+
+def _web_search_query(value: Any) -> str | None:
+    return _search_query(
+        value, limit=WEB_SEARCH_QUERY_MAX, max_terms=WEB_SEARCH_TERMS_MAX
+    )
+
+
 class CharacterChatLookup(BaseModel):
     kind: LookupKind
     query: str | None = None
@@ -69,13 +90,13 @@ class CharacterChatLookup(BaseModel):
 
     @field_validator("query", mode="before")
     @classmethod
-    def _clean_query(cls, value: Any) -> str | None:
-        # 判定 LLM は検索語を引用符で包んで返すことがある。LIKE 検索と meta_json に
-        # 残す検索語の両方から外す(空白区切りの各語について両端だけ)
-        text = _clean_text(value, LOOKUP_QUERY_MAX)
-        if text is None:
+    def _clean_query(cls, value: Any, info: ValidationInfo) -> str | None:
+        kind = info.data.get("kind")
+        if kind == "weather":
             return None
-        return " ".join(search_terms(text)) or None
+        if kind == "web_search":
+            return _web_search_query(value)
+        return _search_query(value, limit=LOOKUP_QUERY_MAX, max_terms=SEARCH_TERMS_MAX)
 
     @field_validator("session_id", mode="before")
     @classmethod
@@ -100,9 +121,13 @@ class CharacterChatPlan(BaseModel):
 
     @field_validator("lookups", mode="before")
     @classmethod
-    def _coerce_lookups(cls, value: Any) -> list[dict[str, Any]]:
+    def _coerce_lookups(cls, value: Any, info: ValidationInfo) -> list[dict[str, Any]]:
         if not isinstance(value, list):
             return []
+        # 使ってよい種類は呼び出し側が検証 context で渡す。無ければ過去プレイの調べ物だけ。
+        # 上限件数で切る前に落とし、使えない種類が枠を埋めないようにする
+        context = info.context if isinstance(info.context, dict) else {}
+        allowed = set(context.get("allowed_kinds", PAST_PLAY_LOOKUP_KINDS))
         kept: list[dict[str, Any]] = []
         seen: set[tuple[Any, ...]] = set()
         for item in value:
@@ -111,9 +136,16 @@ class CharacterChatPlan(BaseModel):
             if not isinstance(item, dict):
                 continue
             kind = str(item.get("kind") or "").strip().lower()
-            if kind not in LOOKUP_KINDS:
+            if kind not in LOOKUP_KINDS or kind not in allowed:
                 continue
-            key = (kind, item.get("query"), item.get("session_id"))
+            if kind == "web_search" and _web_search_query(item.get("query")) is None:
+                continue
+            # 現実世界の調べ物は 1 手番に種類ごと 1 件まで
+            key = (
+                (kind,)
+                if kind in REAL_WORLD_LOOKUP_KINDS
+                else (kind, item.get("query"), item.get("session_id"))
+            )
             if key in seen:
                 continue
             seen.add(key)

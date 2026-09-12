@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -23,11 +23,13 @@ from gateway.databases.models import PlaySummary as PlaySummaryORM
 from gateway.databases.models import Session as SessionORM
 from gateway.databases.models import SessionStats as SessionStatsORM
 from gateway.services import character_chat_service as module
+from gateway.services import real_world_lookup
 from gateway.services.character_chat_service import (
     CharacterChatError,
     CharacterChatService,
     normalize_chat_reply,
 )
+from gateway.services.real_world_lookup import SearchInfo, SearchSource
 from gateway.services.session import DEFAULT_USER_ID
 
 PLAN_EMPTY = json.dumps({"lookups": [], "appearance_request": None})
@@ -118,11 +120,12 @@ def _llm_router(
     appearance: str | list[str] | None = None,
     summary: str = "要約",
     prompts: list[tuple[str, str]] | None = None,
+    systems: list[tuple[str, str]] | None = None,
 ):
     """generate_text の差し替え。system prompt の種類で返す JSON を切り替える。
 
     appearance にリストを渡すと呼び出しごとに順に返す(再試行の検証用。末尾を繰り返す)。
-    prompts を渡すと (種類, user prompt) を記録する。
+    prompts を渡すと (種類, user prompt) を、systems を渡すと (種類, system prompt) を記録する。
     """
     calls: list[str] = []
     appearance_queue = (
@@ -148,6 +151,8 @@ def _llm_router(
             content = summary
         if prompts is not None:
             prompts.append((kind, user_prompt))
+        if systems is not None:
+            systems.append((kind, system_prompt))
         return SimpleNamespace(content=content, cost_usd=0.001)
 
     return fake_generate_text, calls
@@ -635,6 +640,206 @@ async def test_stream_message_runs_lookups_and_changes_appearance(
     assert "水瀬ユウヤ" in lookups[1]["text"]
     assert lookups[1]["session_ids"] == ["sess-1"]
     assert detail["messages"][1]["meta"]["portrait_filename"] == filename
+
+
+# ---------------------------------------------------------------------------
+# 案内役キャラの現実世界の情報(いまの日時・Web 検索・天気)
+# ---------------------------------------------------------------------------
+
+_FIXED_NOW = datetime(2026, 9, 12, 14, 5, tzinfo=timezone(timedelta(hours=9)))
+_WEB_PLAN = json.dumps(
+    {
+        "lookups": [{"kind": "web_search", "query": "秋 ファッション 2026"}],
+        "appearance_request": None,
+    }
+)
+
+
+def _configure_real_world(
+    monkeypatch, *, key: str = "tvly-test", location: str = "Tokyo"
+) -> AsyncMock:
+    """Tavily のキーと天気の地点を設定し、Tavily の呼び出しを差し替える。"""
+    monkeypatch.setattr(real_world_lookup.settings, "tavily_api_key", key)
+    monkeypatch.setattr(real_world_lookup.settings, "weather_location", location)
+    search = AsyncMock(
+        return_value=SearchInfo(
+            query="秋 ファッション 2026",
+            answer="Y2K リバイバルが中心",
+            sources=[
+                SearchSource(
+                    title="秋の流行",
+                    url="https://example.com/a",
+                    snippet="厚底ローファーが人気",
+                )
+            ],
+        )
+    )
+    monkeypatch.setattr(real_world_lookup, "tavily_search", search)
+    return search
+
+
+def _phases(events: list[dict]) -> list[str]:
+    return [event["data"]["phase"] for event in events if event["event"] == "status"]
+
+
+def _planner_system(systems: list[tuple[str, str]]) -> str:
+    return next(system for kind, system in systems if kind == "plan")
+
+
+@pytest.mark.asyncio
+async def test_base_reply_carries_current_time(
+    service: CharacterChatService, monkeypatch
+) -> None:
+    monkeypatch.setattr(module, "_local_now", lambda: _FIXED_NOW)
+    thread = await service.get_or_create_base_thread()
+    fake_generate_text, _ = _llm_router()
+    captured: dict = {}
+    monkeypatch.setattr(module.llm_service, "generate_text", fake_generate_text)
+    monkeypatch.setattr(
+        module.llm_service,
+        "generate_feeling_stream",
+        _fake_stream(["土曜日ですね"], captured),
+    )
+
+    await _collect(
+        service.stream_message(thread_id=thread["id"], content="今日は何曜日？")
+    )
+
+    assert "[現在の日時]\n2026-09-12 (土) 14:05 (UTC+09:00)" in captured["system"]
+    # 調べ物をしていない手番には現実世界の枠を出さない
+    assert "[現実世界について" not in captured["system"]
+
+
+@pytest.mark.asyncio
+async def test_stream_message_web_search_emits_search_phase_and_persists_sources(
+    service: CharacterChatService, monkeypatch
+) -> None:
+    monkeypatch.setattr(module, "_local_now", lambda: _FIXED_NOW)
+    search = _configure_real_world(monkeypatch)
+    thread = await service.get_or_create_base_thread()
+    prompts: list[tuple[str, str]] = []
+    systems: list[tuple[str, str]] = []
+    fake_generate_text, _ = _llm_router(
+        plan=_WEB_PLAN, prompts=prompts, systems=systems
+    )
+    captured: dict = {}
+    monkeypatch.setattr(module.llm_service, "generate_text", fake_generate_text)
+    monkeypatch.setattr(
+        module.llm_service,
+        "generate_feeling_stream",
+        _fake_stream(["厚底ローファーが人気みたいです"], captured),
+    )
+
+    events = await _collect(
+        service.stream_message(
+            thread_id=thread["id"],
+            content="今年の秋に流行っている服は？",
+            use_web_search=True,
+        )
+    )
+
+    assert _phases(events) == ["plan", "search", "reply"]
+    search.assert_awaited_once_with("秋 ファッション 2026", language="ja")
+    planner_system = _planner_system(systems)
+    assert '"web_search"' in planner_system
+    # 天気は OFF のままなので選択肢に載せない
+    assert '"weather"' not in planner_system
+    planner_user = json.loads(next(user for kind, user in prompts if kind == "plan"))
+    assert planner_user["today"] == "2026-09-12"
+    assert "[現実世界について、いま調べた結果]" in captured["system"]
+    assert "厚底ローファーが人気" in captured["system"]
+    assert "https://example.com" not in captured["system"]
+
+    detail = await service.get_thread(thread["id"])
+    (lookup,) = detail["messages"][1]["meta"]["lookups"]
+    assert lookup["kind"] == "web_search"
+    assert lookup["query"] == "秋 ファッション 2026"
+    assert lookup["text"].startswith("要約: Y2K リバイバルが中心")
+    assert lookup["sources"] == [{"title": "秋の流行", "url": "https://example.com/a"}]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("use_web_search", "key"),
+    [(False, "tvly-test"), (True, "")],
+    ids=["toggle_off", "key_missing"],
+)
+async def test_stream_message_ignores_web_search_when_toggle_off_or_unconfigured(
+    service: CharacterChatService, monkeypatch, use_web_search: bool, key: str
+) -> None:
+    search = _configure_real_world(monkeypatch, key=key)
+    thread = await service.get_or_create_base_thread()
+    systems: list[tuple[str, str]] = []
+    # 判定 LLM が web_search を返しても、許可していない種類は実行しない
+    fake_generate_text, _ = _llm_router(plan=_WEB_PLAN, systems=systems)
+    captured: dict = {}
+    monkeypatch.setattr(module.llm_service, "generate_text", fake_generate_text)
+    monkeypatch.setattr(
+        module.llm_service,
+        "generate_feeling_stream",
+        _fake_stream(["うーん"], captured),
+    )
+
+    events = await _collect(
+        service.stream_message(
+            thread_id=thread["id"],
+            content="今年の秋に流行っている服は？",
+            use_web_search=use_web_search,
+        )
+    )
+
+    assert _phases(events) == ["plan", "reply"]
+    search.assert_not_awaited()
+    assert '"web_search"' not in _planner_system(systems)
+    assert "[現実世界について" not in captured["system"]
+    detail = await service.get_thread(thread["id"])
+    assert detail["messages"][1]["meta"]["lookups"] == []
+
+
+@pytest.mark.asyncio
+async def test_session_thread_gets_no_real_world_or_current_time(
+    service: CharacterChatService, isolated_db, tmp_path: Path, monkeypatch
+) -> None:
+    """セッション由来のキャラは作中の人物なので、日時も現実世界の調べ物も渡さない。"""
+    monkeypatch.setattr(module, "_local_now", lambda: _FIXED_NOW)
+    search = _configure_real_world(monkeypatch)
+    weather = AsyncMock()
+    monkeypatch.setattr(real_world_lookup, "fetch_weather", weather)
+    await _seed_session(isolated_db.async_factory, tmp_path / "start.png")
+    thread = await service.create_session_thread(
+        source_session_id="sess-1", source_history_id=None
+    )
+    systems: list[tuple[str, str]] = []
+    plan = json.dumps(
+        {
+            "lookups": [{"kind": "web_search", "query": "q"}, {"kind": "weather"}],
+            "appearance_request": None,
+        }
+    )
+    fake_generate_text, _ = _llm_router(plan=plan, systems=systems)
+    captured: dict = {}
+    monkeypatch.setattr(module.llm_service, "generate_text", fake_generate_text)
+    monkeypatch.setattr(
+        module.llm_service, "generate_feeling_stream", _fake_stream(["やあ"], captured)
+    )
+
+    events = await _collect(
+        service.stream_message(
+            thread_id=thread["id"],
+            content="今日の天気は？",
+            use_web_search=True,
+            use_weather=True,
+        )
+    )
+
+    assert _phases(events) == ["plan", "reply"]
+    search.assert_not_awaited()
+    weather.assert_not_awaited()
+    planner_system = _planner_system(systems)
+    assert '"web_search"' not in planner_system
+    assert '"weather"' not in planner_system
+    assert "[現在の日時]" not in captured["system"]
+    assert "[現実世界について" not in captured["system"]
 
 
 @pytest.mark.asyncio

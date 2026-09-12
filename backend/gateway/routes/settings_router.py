@@ -13,6 +13,7 @@ from ..schemas.settings import (
     UserSettingsResponse,
     UserSettingsUpdateRequest,
 )
+from ..services.real_world_lookup import real_world_configuration
 from ..services.settings_service import settings_service
 from ..settings.config import settings as app_settings
 
@@ -55,6 +56,7 @@ async def get_user_settings() -> UserSettingsResponse:
     return UserSettingsResponse(
         **settings,
         enable_prompt_preview=bool(app_settings.enable_prompt_preview),
+        **real_world_configuration(),
     )
 
 
@@ -85,6 +87,7 @@ async def update_user_settings(
         return UserSettingsResponse(
             **updated,
             enable_prompt_preview=bool(app_settings.enable_prompt_preview),
+            **real_world_configuration(),
         )
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

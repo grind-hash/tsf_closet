@@ -444,6 +444,8 @@ An experimental feature that reads lines aloud with the AivisSpeech engine. Enab
 | `IMAGE_DESCRIPTION_PROVIDER` | Image description provider                                 | `selfhost` |
 | `FEELING_PROVIDER`           | Mood text provider                                         | `selfhost` |
 | `ENABLE_PROMPT_PREVIEW`      | Prompt preview feature for the TSF Scenario                | `false`    |
+| `TAVILY_API_KEY`             | Tavily API key for Serena's web search in character chat (used with the Settings toggle) | (none)     |
+| `WEATHER_LOCATION`           | City name for Serena's weather lookup in character chat, e.g. `Tokyo` (Open-Meteo, no key) | (none)     |
 
 ### ComfyUI (selfhost)
 

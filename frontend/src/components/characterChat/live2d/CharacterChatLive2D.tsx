@@ -2,12 +2,20 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useCharacterChat } from "../../../contexts/CharacterChatContext";
 import { useNotification } from "../../../contexts/NotificationContext";
+import { usePersistedState } from "../../../hooks/usePersistedState";
 import {
   CubismPilotRenderer,
   type PilotCamera,
   type PilotEmotion,
   type PilotWeights,
 } from "./cubismPilotRenderer";
+
+/** 全身 / 寄りの選択。画面を開き直しても保つ(localStorage) */
+export const LIVE2D_CAMERA_KEY = "character_chat_live2d_camera";
+
+function isPilotCamera(value: string): value is PilotCamera {
+  return value === "full" || value === "portrait";
+}
 
 export default function CharacterChatLive2D() {
   const { t } = useTranslation();
@@ -18,7 +26,14 @@ export default function CharacterChatLive2D() {
   // 寄りの構図を収める範囲(メッセージ窓の上端まで)。キャンバスは窓の裏まで伸びる
   const frameRef = useRef<HTMLDivElement>(null);
   const [ready, setReady] = useState(false);
-  const [camera, setCamera] = useState<PilotCamera>("full");
+  const [camera, setCamera] = usePersistedState<PilotCamera>(
+    LIVE2D_CAMERA_KEY,
+    "full",
+    {
+      serialize: (value) => value,
+      deserialize: (raw) => (isPilotCamera(raw) ? raw : "full"),
+    },
+  );
   const thinking = sending && pendingInput !== null && !error;
   const messages = activeThread?.messages ?? [];
   const message =

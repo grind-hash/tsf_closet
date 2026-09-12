@@ -133,6 +133,7 @@ export const characterChat = {
     you: "You",
     phase: {
       plan: "Checking memories...",
+      search: "Looking up current information...",
       reply: "Thinking about a reply...",
       portrait: "Redrawing the portrait...",
       memory: "Organizing the conversation...",
@@ -140,6 +141,8 @@ export const characterChat = {
     lookups: "Looked up: {{kinds}}",
     lookupWithQuery: '{{kind}} "{{query}}"',
     citationQuery: "Search terms: {{query}}",
+    citationWebQuery: "Sent to web search: {{query}}",
+    citationSources: "Sources",
     citationOpenSession: "Open this session in the gallery",
     citationNoText: "The content was not recorded for this reply.",
     lookupKind: {
@@ -148,6 +151,8 @@ export const characterChat = {
       search_sessions: "past play search",
       tendencies: "tendencies and statistics",
       recent_adventures: "TSF scenarios",
+      web_search: "web search",
+      weather: "weather",
     },
     appearanceChanged: "Appearance changed",
   },

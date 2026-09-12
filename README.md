@@ -444,6 +444,8 @@ AivisSpeech エンジンによるセリフの読み上げに対応した実験�
 | `IMAGE_DESCRIPTION_PROVIDER` | 画像説明プロバイダー                                         | `selfhost` |
 | `FEELING_PROVIDER`           | 心境生成プロバイダー                                         | `selfhost` |
 | `ENABLE_PROMPT_PREVIEW`      | TSFシナリオのプロンプト確認機能                              | `false`    |
+| `TAVILY_API_KEY`             | キャラチャットのセレナが使う Web 検索 (Tavily) の API キー。設定画面のトグルと併用 | (なし)     |
+| `WEATHER_LOCATION`           | キャラチャットのセレナが天気を調べる都市名 (例: `Tokyo`、Open-Meteo でキー不要) | (なし)     |
 
 ### ComfyUI (selfhost)
 

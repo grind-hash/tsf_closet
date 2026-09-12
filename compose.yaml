@@ -27,6 +27,8 @@ services:
     ports:
       - "8000:8000"
     environment:
+      # 現在日時(キャラチャットのセレナ等)のタイムゾーン。.env.docker は起動後に読まれるため効かない
+      - TZ=${TZ:-Asia/Tokyo}
       - LITELLM_BASE_URL=http://litellm:4000
       - LITELLM_API_KEY=sk-1234
       - COMFYUI_BASE_URL=http://comfyui:8188

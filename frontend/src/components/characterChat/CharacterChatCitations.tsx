@@ -1,7 +1,11 @@
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { ROUTES } from "../../routes";
-import { type LookupCitation, sessionIdByPrefix } from "./lookupCitations";
+import {
+  type CitationSource,
+  type LookupCitation,
+  sessionIdByPrefix,
+} from "./lookupCitations";
 
 interface CharacterChatCitationsProps {
   citations: LookupCitation[];
@@ -52,10 +56,36 @@ function CitationText({ text, sessionIds }: CitationTextProps) {
   );
 }
 
+/** Web 検索の出典。URL は正規化の段階で http(s) のものだけに絞ってある */
+function CitationSources({ sources }: { sources: CitationSource[] }) {
+  const { t } = useTranslation();
+  return (
+    <div className="character-chat__citation-sources">
+      <span className="character-chat__citation-sources-title">
+        {t("characterChat.thread.citationSources")}
+      </span>
+      <ul className="character-chat__citation-source-list">
+        {sources.map((source) => (
+          <li key={source.url}>
+            <a
+              className="character-chat__citation-link"
+              href={source.url}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {source.title}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 /**
  * 返答の根拠として実行した調べ物(引用)。本文があるものは折りたたみで開け、
- * キャラが実際に読んだ整形済みテキストをそのまま見せる。旧データ(種類だけ)の
- * ときは種類の一覧を 1 行で出す。
+ * キャラが実際に読んだ整形済みテキストをそのまま見せる。Web 検索は送った語と
+ * 出典のリンクも添える。旧データ(種類だけ)のときは種類の一覧を 1 行で出す。
  */
 export default function CharacterChatCitations({
   citations,
@@ -74,7 +104,9 @@ export default function CharacterChatCitations({
     })
     .join(" / ");
   const label = t("characterChat.thread.lookups", { kinds });
-  if (!citations.some((citation) => citation.text)) {
+  if (
+    !citations.some((citation) => citation.text || citation.sources.length > 0)
+  ) {
     return <div className="character-chat__citations is-static">{label}</div>;
   }
   return (
@@ -90,9 +122,13 @@ export default function CharacterChatCitations({
             <span>{t(`characterChat.thread.lookupKind.${citation.kind}`)}</span>
             {citation.query && (
               <span className="character-chat__citation-query">
-                {t("characterChat.thread.citationQuery", {
-                  query: citation.query,
-                })}
+                {citation.kind === "web_search"
+                  ? t("characterChat.thread.citationWebQuery", {
+                      query: citation.query,
+                    })
+                  : t("characterChat.thread.citationQuery", {
+                      query: citation.query,
+                    })}
               </span>
             )}
           </div>
@@ -102,9 +138,14 @@ export default function CharacterChatCitations({
               sessionIds={citation.sessionIds}
             />
           ) : (
-            <p className="character-chat__citation-text">
-              {t("characterChat.thread.citationNoText")}
-            </p>
+            citation.sources.length === 0 && (
+              <p className="character-chat__citation-text">
+                {t("characterChat.thread.citationNoText")}
+              </p>
+            )
+          )}
+          {citation.sources.length > 0 && (
+            <CitationSources sources={citation.sources} />
           )}
         </section>
       ))}

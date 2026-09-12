@@ -875,6 +875,26 @@
   color: #ffd27a;
 }
 
+/* Web 検索の出典。本文の下にリンクを並べる */
+.character-chat__citation-sources {
+  margin-top: 0.35rem;
+}
+
+.character-chat__citation-sources-title {
+  font-weight: 600;
+  color: #c8ced4;
+}
+
+.character-chat__citation-source-list {
+  margin: 0.15rem 0 0;
+  padding-left: 1.1rem;
+  color: #b8c0c8;
+}
+
+.character-chat__citation-source-list li {
+  word-break: break-word;
+}
+
 .character-chat__badge {
   padding: 0.05rem 0.5rem;
   border-radius: 999px;

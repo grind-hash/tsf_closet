@@ -20,6 +20,7 @@ import {
   type CharacterChatAdventureAppearanceMode,
   type CharacterChatAvatarMode,
   type CharacterChatMessage,
+  type CharacterChatMessageRequest,
   type CharacterChatPhase,
   type CharacterChatPortraitOptions,
   type CharacterChatSourceRequest,
@@ -371,7 +372,12 @@ export function CharacterChatProvider({ children }: { children: ReactNode }) {
       setPhase("plan");
       let characterMessage: CharacterChatMessage | null = null;
       try {
-        await streamCharacterChatMessage(threadId, { content }, (event) => {
+        const request: CharacterChatMessageRequest = {
+          content,
+          use_web_search: settingsState.characterChatWebSearchEnabled,
+          use_weather: settingsState.characterChatWeatherEnabled,
+        };
+        await streamCharacterChatMessage(threadId, request, (event) => {
           if (
             activeThreadIdRef.current !== threadId ||
             epoch !== threadEpochRef.current
@@ -462,7 +468,15 @@ export function CharacterChatProvider({ children }: { children: ReactNode }) {
       }
       return characterMessage;
     },
-    [sending, addTotalCost, showNotification, speakMessage, t],
+    [
+      sending,
+      settingsState.characterChatWebSearchEnabled,
+      settingsState.characterChatWeatherEnabled,
+      addTotalCost,
+      showNotification,
+      speakMessage,
+      t,
+    ],
   );
 
   const setAppearanceFromSource = useCallback(

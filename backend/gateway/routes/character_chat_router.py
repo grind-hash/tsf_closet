@@ -133,12 +133,15 @@ async def delete_thread(thread_id: str) -> None:
 async def message_stream(
     thread_id: str, request: CharacterChatMessageRequest
 ) -> EventSourceResponse:
-    """発言を送り、判定 → 返答ストリーム → 保存 → (着替え) → (要約) を SSE で返す。"""
+    """発言を送り、判定 → (調べ物) → 返答ストリーム → 保存 → (着替え) → (要約) を SSE で返す。"""
 
     async def event_generator() -> AsyncGenerator[dict, None]:
         try:
             async for event in character_chat_service.stream_message(
-                thread_id=thread_id, content=request.content
+                thread_id=thread_id,
+                content=request.content,
+                use_web_search=request.use_web_search,
+                use_weather=request.use_weather,
             ):
                 yield {
                     "event": event["event"],

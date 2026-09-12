@@ -86,7 +86,9 @@
   margin: 0.25rem 0 0 0;
 }
 
-.settings-screen__play-memory-warning {
+/* 項目の注意書き。item-note は動作条件を満たしていないときの説明(スイッチは操作できる) */
+.settings-screen__play-memory-warning,
+.settings-screen__item-note {
   margin: 0.65rem 0 0;
   padding: 0.6rem 0.75rem;
   border-left: 3px solid #d99a36;

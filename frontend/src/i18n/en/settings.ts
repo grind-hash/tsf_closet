@@ -57,6 +57,16 @@ export const settings = {
   experimentalCharacterChat: "Character Chat",
   experimentalCharacterChatDesc:
     "Show a screen for one-on-one conversations with a character outside the TSF scenario: the guide character Serena, or a character brought back from a past session",
+  characterChatWebSearch: "Let Serena search the web",
+  characterChatWebSearchDesc:
+    "In Character Chat, Serena searches the web (Tavily) only when you ask about recent events or real-world topics. Only the topic keywords are sent, never the conversation text. Each search uses 1 Tavily credit.",
+  characterChatWebSearchUnavailable:
+    "TAVILY_API_KEY is not set on the server, so no search runs even when this is on. Set it in .env (config.env for the packaged build) and restart the server.",
+  characterChatWeather: "Let Serena check the weather",
+  characterChatWeatherDesc:
+    "Serena checks the current weather at the configured location only when you ask about the weather or what to wear. Weather data comes from Open-Meteo and needs no API key.",
+  characterChatWeatherUnavailable:
+    "WEATHER_LOCATION (e.g. Tokyo) is not set on the server, so the weather is not checked even when this is on. Set it in .env (config.env for the packaged build) and restart the server.",
   adventureSection: "TSF Scenario",
   adventureEnabled: "Show TSF Scenario in the menu",
   adventureEnabledDesc:

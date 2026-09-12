@@ -35,6 +35,9 @@ class CharacterChatAppearanceRequest(CharacterChatSourceRequest):
 
 class CharacterChatMessageRequest(BaseModel):
     content: str = Field(..., min_length=1, max_length=MESSAGE_MAX)
+    # 設定画面のトグル。案内役キャラのスレッドで、サーバーにキー・地点があるときだけ効く
+    use_web_search: bool = False
+    use_weather: bool = False
 
 
 class CharacterChatAdventureAppearanceRequest(BaseModel):

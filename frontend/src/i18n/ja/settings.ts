@@ -56,6 +56,16 @@ export const settings = {
   experimentalCharacterChat: "キャラチャット",
   experimentalCharacterChatDesc:
     "TSFシナリオを経由せず、キャラクターと1対1で会話する画面をメニューに表示します。案内役のセレナと、過去セッションの人物を呼び出して話せます",
+  characterChatWebSearch: "セレナがWeb検索で調べる",
+  characterChatWebSearchDesc:
+    "キャラチャットで最近の出来事や現実の話題を聞かれたときだけ、セレナがWeb検索（Tavily）で調べて答えます。送るのは話題のキーワードだけで、会話の文章は送りません。検索1回につきTavilyのクレジットを1消費します。",
+  characterChatWebSearchUnavailable:
+    "サーバーに TAVILY_API_KEY が設定されていないため、ONにしても検索は行われません。.env（配布版は config.env）に設定してサーバーを再起動してください。",
+  characterChatWeather: "セレナが天気を調べる",
+  characterChatWeatherDesc:
+    "天気や服装の相談をされたときだけ、セレナが設定された地点の今の天気を調べて答えます。天気の取得には Open-Meteo を使い、APIキーは不要です。",
+  characterChatWeatherUnavailable:
+    "サーバーに WEATHER_LOCATION（例: Tokyo）が設定されていないため、ONにしても天気は調べません。.env（配布版は config.env）に設定してサーバーを再起動してください。",
   adventureSection: "TSFシナリオ",
   adventureEnabled: "TSFシナリオをメニューに表示",
   adventureEnabledDesc:

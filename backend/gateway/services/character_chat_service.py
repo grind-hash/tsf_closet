@@ -44,6 +44,7 @@ from ..consts.character_chat import (
     LIVE2D_GESTURES,
     LIVE2D_TALK_HEADER_INSTRUCTION,
     MESSAGE_MAX,
+    PAST_PLAY_LOOKUP_KINDS,
     PERSONA_MONOLOGUE_CHARS,
     PERSONA_MONOLOGUES_MAX,
     PERSONA_TIMELINE_MAX,
@@ -90,7 +91,12 @@ from .avatar_service import (
     list_avatar_variants,
     list_avatars,
 )
-from .character_chat_lookups import run_lookups, session_candidates
+from .character_chat_lookups import (
+    LookupRun,
+    available_real_world_kinds,
+    run_lookups,
+    session_candidates,
+)
 from .character_chat_models import (
     CharacterChatAppearanceOutput,
     CharacterChatPlan,
@@ -102,11 +108,13 @@ from .character_chat_prompts import (
     appearance_change_system_prompt,
     appearance_change_user_prompt,
     base_persona_block,
+    current_time_block,
     lookup_block,
     memory_block,
     origin_lore_block,
     planner_system_prompt,
     planner_user_prompt,
+    real_world_block,
     reply_system_prompt,
     session_persona_block,
     summary_system_prompt,
@@ -256,6 +264,11 @@ def _reply_history(
             content = f"[expression={expression} gesture={gesture}]\n{content}"
         history.append({"role": "assistant", "content": content})
     return history
+
+
+def _local_now() -> datetime:
+    """サーバーのローカル時刻(タイムゾーン付き)。テストで差し替える。"""
+    return datetime.now().astimezone()
 
 
 async def _generate_text(
@@ -2018,8 +2031,13 @@ class CharacterChatService:
         message: str,
         text_model: str | None,
         language: str,
+        real_world_kinds: frozenset[str] = frozenset(),
     ) -> CharacterChatPlan:
-        """判定 LLM。失敗しても返答は止めず、空の計画に倒す。"""
+        """判定 LLM。失敗しても返答は止めず、空の計画に倒す。
+
+        real_world_kinds は今回使ってよい現実世界の調べ物。判定 LLM の選択肢に載せ、
+        計画の検証でもそれ以外の種類を落とす。
+        """
         try:
             candidates = await session_candidates(language)
         except Exception as exc:
@@ -2042,14 +2060,22 @@ class CharacterChatService:
                 generate=lambda system, user: _generate_text(
                     system, user, text_model=text_model
                 ),
-                system_prompt=planner_system_prompt(language),
+                system_prompt=planner_system_prompt(
+                    language, real_world_kinds=real_world_kinds
+                ),
                 user_prompt=planner_user_prompt(
                     kind=kind,
                     character_name=name,
                     recent_messages=recent_messages,
                     session_candidates=candidates,
                     message=message,
+                    today=(
+                        _local_now().date().isoformat()
+                        if "web_search" in real_world_kinds
+                        else None
+                    ),
                 ),
+                context={"allowed_kinds": (*PAST_PLAY_LOOKUP_KINDS, *real_world_kinds)},
             )
         except (StructuredOutputError, Exception) as exc:
             logger.warning(
@@ -2130,6 +2156,7 @@ class CharacterChatService:
         header_instruction: str = "",
         origin_lore_text: str = "",
         self_profile: dict[str, Any] | None = None,
+        real_world_text: str = "",
     ) -> str:
         persona = _json_load(thread.persona_json, {})
         appearance = _json_load(thread.appearance_json, {})
@@ -2164,7 +2191,8 @@ class CharacterChatService:
                 chat_appearance_description=chat_look,
                 appearance_change_request=appearance_change_request,
             )
-        if thread.kind == CHARACTER_CHAT_KIND_BASE:
+        is_base = thread.kind == CHARACTER_CHAT_KIND_BASE
+        if is_base:
             persona_text = base_persona_block(language)
         else:
             persona_text = session_persona_block(
@@ -2194,6 +2222,13 @@ class CharacterChatService:
             origin_lore_block_text=origin_lore_block(origin_lore_text, language),
             header_instruction=header_instruction,
             relaxed_length=thread.kind == CHARACTER_CHAT_KIND_SESSION,
+            # いまの日時と現実世界の調べ物は案内役キャラだけ(セッション由来は作中の人物)
+            current_time_text=(
+                current_time_block(_local_now(), language) if is_base else ""
+            ),
+            real_world_block_text=(
+                real_world_block(real_world_text, language) if is_base else ""
+            ),
         )
 
     async def _persist_messages(
@@ -2261,12 +2296,20 @@ class CharacterChatService:
             await db.commit()
 
     async def stream_message(
-        self, *, thread_id: str, content: str
+        self,
+        *,
+        thread_id: str,
+        content: str,
+        use_web_search: bool = False,
+        use_weather: bool = False,
     ) -> AsyncGenerator[dict[str, Any], None]:
         """1 発言の処理。
 
+        use_web_search / use_weather は設定画面のトグル。案内役キャラのスレッドで、
+        サーバーにキー・地点が設定されているときだけ効く。
+
         Yields:
-            status{phase: plan|reply|portrait|memory} / chat_chunk{chunk} /
+            status{phase: plan|search|reply|portrait|memory} / chat_chunk{chunk} /
             chat_done{user_message, character_message, thread} /
             portrait_image{image_url, appearance} / appearance_updated{appearance,
             portrait_url}(3D モデル表示中の着替え) / portrait_error{code, message} /
@@ -2357,6 +2400,14 @@ class CharacterChatService:
                     header_expressions = avatar_expression_keys()
                     header_gestures = avatar_gesture_keys()
 
+            # 現実世界の調べ物(Web 検索・天気)は案内役キャラだけが使う
+            real_world_kinds = (
+                available_real_world_kinds(
+                    use_web_search=use_web_search, use_weather=use_weather
+                )
+                if thread.kind == CHARACTER_CHAT_KIND_BASE
+                else frozenset()
+            )
             yield {"event": "status", "data": {"phase": "plan"}}
             plan = await self._plan(
                 kind=thread.kind,
@@ -2365,10 +2416,18 @@ class CharacterChatService:
                 message=message,
                 text_model=text_model,
                 language=language,
+                real_world_kinds=real_world_kinds,
             )
-            lookup_text, lookup_details = (
-                await run_lookups(plan, language=language) if plan.lookups else ("", [])
-            )
+            lookups = LookupRun()
+            if plan.lookups:
+                if any(lookup.kind in real_world_kinds for lookup in plan.lookups):
+                    # 外部 API は待ち時間が長くなりうるため、進捗を分けて示す
+                    yield {"event": "status", "data": {"phase": "search"}}
+                lookups = await run_lookups(
+                    plan,
+                    language=language,
+                    allowed_kinds=(*PAST_PLAY_LOOKUP_KINDS, *real_world_kinds),
+                )
             # 「別の層の記憶」は案内役キャラだけ。判定 LLM が呼んだ手番にだけ載せる
             origin_lore_text = ""
             if plan.origin_lore and thread.kind == CHARACTER_CHAT_KIND_BASE:
@@ -2397,7 +2456,8 @@ class CharacterChatService:
                 thread,
                 language=language,
                 memory_text=memory_text,
-                lookup_text=lookup_text,
+                lookup_text=lookups.text,
+                real_world_text=lookups.real_world_text,
                 appearance_change_request=plan.appearance_request,
                 adventure_context=adventure_context,
                 header_instruction=header_instruction,
@@ -2450,8 +2510,8 @@ class CharacterChatService:
                 user_text=message,
                 reply_text=reply,
                 meta={
-                    # 引用表示用の明細(種類・検索語・本文・関係するセッション)
-                    "lookups": lookup_details,
+                    # 引用表示用の明細(種類・検索語・本文・関係するセッション・出典)
+                    "lookups": lookups.details,
                     "appearance_request": plan.appearance_request,
                     **(
                         {"after_turn": after_turn}

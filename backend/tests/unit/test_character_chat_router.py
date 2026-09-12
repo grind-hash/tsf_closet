@@ -60,7 +60,7 @@ def test_not_found_codes_map_to_404(client: TestClient, monkeypatch) -> None:
 
 
 def test_message_stream_emits_named_events(client: TestClient, monkeypatch) -> None:
-    async def fake_stream(*, thread_id, content):
+    async def fake_stream(*, thread_id, content, **kwargs):
         assert thread_id == "t1"
         assert content == "やあ"
         yield {"event": "status", "data": {"phase": "plan"}}
@@ -84,7 +84,7 @@ def test_message_stream_emits_named_events(client: TestClient, monkeypatch) -> N
 
 
 def test_message_stream_converts_service_error(client: TestClient, monkeypatch) -> None:
-    async def broken(*, thread_id, content):
+    async def broken(*, thread_id, content, **kwargs):
         raise CharacterChatError("invalid_model_output", "解析できません")
         yield  # pragma: no cover - ジェネレータにするため
 
@@ -107,6 +107,31 @@ def test_message_rejects_empty_content(client: TestClient) -> None:
         "/api/character-chat/threads/t1/messages/stream", json={"content": ""}
     )
     assert response.status_code == 422
+
+
+def test_message_stream_forwards_real_world_flags(
+    client: TestClient, monkeypatch
+) -> None:
+    """設定画面のトグル(Web 検索・天気)を送信ごとにサービスへ渡す。省略時は OFF。"""
+    received: list[dict] = []
+
+    async def fake_stream(*, thread_id, content, **kwargs):
+        received.append(kwargs)
+        yield {"event": "complete", "data": {}}
+
+    monkeypatch.setattr(
+        router_module.character_chat_service, "stream_message", fake_stream
+    )
+    for body in ({"content": "やあ"}, {"content": "やあ", "use_web_search": True}):
+        with client.stream(
+            "POST", "/api/character-chat/threads/t1/messages/stream", json=body
+        ) as response:
+            assert response.status_code == 200
+            "".join(response.iter_text())
+    assert received == [
+        {"use_web_search": False, "use_weather": False},
+        {"use_web_search": True, "use_weather": False},
+    ]
 
 
 def test_portrait_stream_reports_unexpected_exceptions(

@@ -129,7 +129,13 @@ test("opens the base character, streams a reply, and deletes the thread", async 
     page.getByText("最近はメイド服のセッションが多かったですね"),
   ).toBeVisible();
   await expect(page.getByText("調べたこと: 最近のセッション")).toBeVisible();
-  expect(sent).toEqual([{ content: "最近のやり取りを教えて" }]);
+  expect(sent).toEqual([
+    {
+      content: "最近のやり取りを教えて",
+      use_web_search: false,
+      use_weather: false,
+    },
+  ]);
   await expect(input).toHaveValue("");
 
   // 削除は確認ダイアログを経て一覧へ戻る

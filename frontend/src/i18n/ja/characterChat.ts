@@ -132,6 +132,7 @@ export const characterChat = {
     you: "あなた",
     phase: {
       plan: "記憶を確認しています...",
+      search: "最新の情報を調べています...",
       reply: "返事を考えています...",
       portrait: "立ち絵を描き直しています...",
       memory: "会話を整理しています...",
@@ -139,6 +140,8 @@ export const characterChat = {
     lookups: "調べたこと: {{kinds}}",
     lookupWithQuery: "{{kind}}「{{query}}」",
     citationQuery: "検索語: {{query}}",
+    citationWebQuery: "Web検索に送った語: {{query}}",
+    citationSources: "出典",
     citationOpenSession: "このセッションをギャラリーで開く",
     citationNoText: "この返答の時点では内容を記録していません。",
     lookupKind: {
@@ -147,6 +150,8 @@ export const characterChat = {
       search_sessions: "過去の検索",
       tendencies: "傾向・統計",
       recent_adventures: "TSFシナリオ",
+      web_search: "Web検索",
+      weather: "天気",
     },
     appearanceChanged: "姿が変わりました",
   },

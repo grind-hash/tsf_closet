@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from gateway.consts.character_chat import PAST_PLAY_LOOKUP_KINDS
 from gateway.databases.models import Conversation as ConversationORM
 from gateway.databases.models import History as HistoryORM
 from gateway.databases.models import PlaySummary as PlaySummaryORM
@@ -16,6 +17,7 @@ from gateway.databases.models import TransformationTag as TransformationTagORM
 from gateway.databases.models import User
 from gateway.services import character_chat_lookups as lookups
 from gateway.services.character_chat_models import CharacterChatPlan
+from gateway.services.real_world_lookup import SearchInfo, SearchSource, WeatherInfo
 from gateway.services.session import DEFAULT_USER_ID
 
 
@@ -207,7 +209,9 @@ async def test_run_lookups_survives_failures(isolated_db, monkeypatch) -> None:
     plan = CharacterChatPlan.model_validate(
         {"lookups": [{"kind": "recent_adventures"}, {"kind": "tendencies"}]}
     )
-    text, details = await lookups.run_lookups(plan, language="ja")
+    run = await lookups.run_lookups(plan, language="ja")
+    text, details = run.text, run.details
+    assert run.real_world_text == ""
     assert [item["kind"] for item in details] == ["recent_adventures", "tendencies"]
     assert "## 最近のTSFシナリオ\n(取得できませんでした)" in text
     assert "## 傾向・統計" in text
@@ -235,7 +239,8 @@ async def test_run_lookups_details_carry_query_and_session_ids(isolated_db) -> N
             ]
         }
     )
-    text, details = await lookups.run_lookups(plan, language="ja")
+    run = await lookups.run_lookups(plan, language="ja")
+    text, details = run.text, run.details
     assert "## 検索結果\n「猫耳」に一致するセッション(新しい順):" in text
     assert details[0]["query"] == "猫耳"
     assert details[0]["session_ids"] == ["s2"]
@@ -244,3 +249,145 @@ async def test_run_lookups_details_carry_query_and_session_ids(isolated_db) -> N
     assert details[2]["session_ids"] == ["s2"]
     for item in details:
         assert f"## {lookups._TITLES[item['kind']]['ja']}\n{item['text']}" in text
+
+
+# ---------------------------------------------------------------------------
+# 現実世界の調べ物(Web 検索・天気)
+# ---------------------------------------------------------------------------
+
+_REAL_WORLD_ALLOWED = (*PAST_PLAY_LOOKUP_KINDS, "web_search", "weather")
+
+
+def _real_world_plan(items: list[dict]) -> CharacterChatPlan:
+    return CharacterChatPlan.model_validate(
+        {"lookups": items}, context={"allowed_kinds": _REAL_WORLD_ALLOWED}
+    )
+
+
+@pytest.mark.asyncio
+async def test_run_lookups_skips_real_world_kinds_by_default(monkeypatch) -> None:
+    """許可されていなければ、計画に入っていても外部 API を呼ばない。"""
+    search = AsyncMock()
+    weather = AsyncMock()
+    monkeypatch.setattr(lookups.real_world_lookup, "tavily_search", search)
+    monkeypatch.setattr(lookups.real_world_lookup, "fetch_weather", weather)
+    plan = _real_world_plan([{"kind": "web_search", "query": "q"}, {"kind": "weather"}])
+    assert [item.kind for item in plan.lookups] == ["web_search", "weather"]
+
+    run = await lookups.run_lookups(plan, language="ja")
+
+    search.assert_not_awaited()
+    weather.assert_not_awaited()
+    assert run.details == []
+    assert run.text == ""
+    assert run.real_world_text == ""
+
+
+@pytest.mark.asyncio
+async def test_run_lookups_web_search_goes_to_real_world_text_with_sources(
+    isolated_db, monkeypatch
+) -> None:
+    await _seed(isolated_db.async_factory)
+    info = SearchInfo(
+        query="秋 ファッション 2026",
+        answer="要約です",
+        sources=[
+            SearchSource(title="記事A", url="https://example.com/a", snippet="本文A"),
+            SearchSource(title="記事B", url="", snippet="本文B"),
+        ],
+    )
+    search = AsyncMock(return_value=info)
+    monkeypatch.setattr(lookups.real_world_lookup, "tavily_search", search)
+    plan = _real_world_plan(
+        [
+            {"kind": "tendencies"},
+            {"kind": "web_search", "query": "秋 ファッション 2026"},
+        ]
+    )
+
+    run = await lookups.run_lookups(
+        plan, language="ja", allowed_kinds=_REAL_WORLD_ALLOWED
+    )
+
+    search.assert_awaited_once_with("秋 ファッション 2026", language="ja")
+    assert run.real_world_text.startswith(
+        "## Web検索「秋 ファッション 2026」\n要約: 要約です"
+    )
+    assert "- 記事A: 本文A" in run.real_world_text
+    assert "https://" not in run.real_world_text
+    # 過去プレイの枠には混ぜない
+    assert "## 傾向・統計" in run.text
+    assert "Web検索" not in run.text
+    tendencies, web = run.details
+    assert "sources" not in tendencies
+    assert web["kind"] == "web_search"
+    assert web["query"] == "秋 ファッション 2026"
+    # 出典リンクは http(s) の URL を持つものだけ
+    assert web["sources"] == [{"title": "記事A", "url": "https://example.com/a"}]
+
+
+@pytest.mark.asyncio
+async def test_run_lookups_weather_renders_current_conditions(monkeypatch) -> None:
+    weather = AsyncMock(
+        return_value=WeatherInfo(
+            location="東京",
+            location_raw="Tokyo",
+            weather_code=1,
+            label_ja="晴れ",
+            label_en="Mainly clear",
+            temperature_c=29.4,
+            humidity_pct=60,
+        )
+    )
+    monkeypatch.setattr(lookups.real_world_lookup, "fetch_weather", weather)
+    # 天気の検索語は使わない
+    plan = _real_world_plan([{"kind": "weather", "query": "東京"}])
+
+    run = await lookups.run_lookups(
+        plan, language="ja", allowed_kinds=_REAL_WORLD_ALLOWED
+    )
+
+    assert run.real_world_text == "## 天気\n東京: 晴れ 29.4°C 湿度60%"
+    assert run.details == [
+        {
+            "kind": "weather",
+            "query": None,
+            "session_id": None,
+            "text": "東京: 晴れ 29.4°C 湿度60%",
+            "session_ids": [],
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_run_lookups_real_world_failure_is_non_fatal(monkeypatch) -> None:
+    monkeypatch.setattr(
+        lookups.real_world_lookup,
+        "tavily_search",
+        AsyncMock(side_effect=RuntimeError("timeout")),
+    )
+    plan = _real_world_plan([{"kind": "web_search", "query": "q"}])
+
+    run = await lookups.run_lookups(
+        plan, language="en", allowed_kinds=_REAL_WORLD_ALLOWED
+    )
+
+    assert run.real_world_text == '## Web search: "q"\n(could not be retrieved)'
+    assert run.details[0]["sources"] == []
+
+
+def test_available_real_world_kinds_requires_toggle_and_config(monkeypatch) -> None:
+    settings = lookups.real_world_lookup.settings
+    monkeypatch.setattr(settings, "tavily_api_key", "tvly-test")
+    monkeypatch.setattr(settings, "weather_location", "")
+    assert lookups.available_real_world_kinds(
+        use_web_search=True, use_weather=True
+    ) == {"web_search"}
+    assert (
+        lookups.available_real_world_kinds(use_web_search=False, use_weather=True)
+        == frozenset()
+    )
+    monkeypatch.setattr(settings, "weather_location", "Tokyo")
+    assert lookups.available_real_world_kinds(
+        use_web_search=True, use_weather=True
+    ) == {"web_search", "weather"}

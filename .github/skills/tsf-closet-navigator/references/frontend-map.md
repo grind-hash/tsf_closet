@@ -43,7 +43,7 @@
 
 ### キャラチャット専用Provider
 
-`App.tsx` は `/talk` 配下だけを `CharacterChatProvider` で包む。`CharacterChatContext`（`useCharacterChat()`）は `threads` / `activeThread`（`messages` 込み）/ 送信中の `sending` / `phase`（plan → reply → portrait → memory）/ ストリーミング中の `draft` / `pendingInput` / `portraitBusy` / `error` と、`refreshThreads` / `openBase`（案内役キャラ「セレナ」。冪等）/ `openAdventure(runId)`（TSF シナリオの攻略対象。run ごとに 1 件）/ `setAdventureAppearance(mode)` / `avatarFailed`（3D モデルの読込失敗）/ `createFromSource(selection)`（`AdventureSourceSelection` をそのまま受ける）/ `loadThread` / `deleteThread` / `submitMessage`（SSE を state へ反映し、確定したキャラの発言を返す。`cost` は `SettingsContext.addTotalCost`）/ `setAppearanceFromSource` / `regeneratePortrait` を持つ。通常ゲームの Context には統合しない。
+`App.tsx` は `/talk` 配下だけを `CharacterChatProvider` で包む。`CharacterChatContext`（`useCharacterChat()`）は `threads` / `activeThread`（`messages` 込み）/ 送信中の `sending` / `phase`（plan → search → reply → portrait → memory。search は Web 検索・天気を調べる手番だけ）/ ストリーミング中の `draft` / `pendingInput` / `portraitBusy` / `error` と、`refreshThreads` / `openBase`（案内役キャラ「セレナ」。冪等）/ `openAdventure(runId)`（TSF シナリオの攻略対象。run ごとに 1 件）/ `setAdventureAppearance(mode)` / `avatarFailed`（3D モデルの読込失敗）/ `createFromSource(selection)`（`AdventureSourceSelection` をそのまま受ける）/ `loadThread` / `deleteThread` / `submitMessage`（SSE を state へ反映し、確定したキャラの発言を返す。送信ボディに設定の `characterChatWebSearchEnabled` / `characterChatWeatherEnabled` を `use_web_search` / `use_weather` として載せる。`cost` は `SettingsContext.addTotalCost`）/ `setAppearanceFromSource` / `regeneratePortrait` を持つ。通常ゲームの Context には統合しない。
 
 ### Adventure専用Provider
 
@@ -58,6 +58,7 @@
 - `adventureEnabled`: Adventure 画面・BGM テスト・メニュー項目・Prompt Expander の「TSFシナリオへ」のゲート。既定 ON。v0.9.0 で Experimental から設定画面の「TSFシナリオ」セクションへ昇格（旧 `experimentalAdventureEnabled` と、常時表示になったエンディングの旧 `experimentalEndingEnabled` は `loadInitialState` で読み捨てる）。遊び方ガイドのカードは残す
 - `experimentalPromptExpanderEnabled`: Prompt Expander画面とメニュー、WelcomeScreen/Adventureピッカーの「Prompt Expander」入口のゲート
 - `experimentalCharacterChatEnabled`: キャラチャット画面（`/talk`）とメニュー項目のゲート。既定 OFF。遊び方ガイドにもカードがある
+- `characterChatWebSearchEnabled` / `characterChatWeatherEnabled`: キャラチャットの案内役キャラ（セレナ）が Web 検索・天気を使うか。既定 OFF で localStorage のみ（DB 列は無い）。設定画面の `CharacterChatRealWorldSettings` がトグルを出し、`GET /api/settings/user` の `web_search_configured` / `weather_configured` が false なら「ON にしても効かない」説明文を添える
 - `playMemoryEnabled`、`playMemorySystemEnabled`、`playMemoryUserEnabled`: セッションプレイメモ
 - `historyLookbackCount`、`historyLookbackTargets`: 指示タイプ別の履歴遡及
 - `respectClothingLayers`: 衣装レイヤー可視性。既定OFF
@@ -187,7 +188,7 @@ components/
     CharacterChatLogDrawer.tsx  ログドロワー（右に重ねる）。CharacterChatThread で全文（🔊 再読み上げ付き）
     CharacterChatAppearanceMenu.tsx 「姿」ポップオーバー: adventure 種では先頭に シナリオの姿に合わせる / 攻略対象の立ち絵を使う / 場面の画像を使う（サムネイル付き）/ 場面の画像から立ち絵を描く（NovelAI なら精密参照トグル → AnlasConfirmDialog、抑止は sessionStorage `character_chat_anlas_warn_suppressed`）。続けて 姿を変更 / 立ち絵を描き直す / 最初の姿に戻す（`can_reset_appearance` が偽なら disabled + 理由）と「立ち絵を生成する」トグル（`hooks/useCharacterChatPortraitPreference`、localStorage `character_chat_generate_portrait`、既定 OFF。Hub の「セッションから作る」と共有）
     CharacterChatInfoPanel.tsx  MainLayout の右パネル（開閉は localStorage `character_chat_info_panel_open`、既定 開）。ユーザーメモリ（`SettingsContext.memoryText`。未取得なら `loadMemoryText`）・会話の要約・セッション由来キャラのセッション概要（`thread.persona`: 最終プレイ日・変身回数・心理段階と数値・PlaySummary の称号/要約・服装・属性・経緯・プレイメモ）・姿（出どころ・説明・外見タグ）
-    CharacterChatThread.tsx     メッセージ一覧（ログドロワー内。仮吹き出し・下書きのキャレット・phase 別のスピナー付き進捗・調べたことのメタ行・「姿が変わりました」バッジ・🔊 再読み上げ）
+    CharacterChatThread.tsx     メッセージ一覧（ログドロワー内。仮吹き出し・下書きのキャレット・phase 別のスピナー付き進捗・調べたことのメタ行（`CharacterChatCitations`。Web 検索は送った検索語と出典リンク）・「姿が変わりました」バッジ・🔊 再読み上げ）
     CharacterChatInput.tsx      入力欄（送信中も無効化しない。🎤 と自動送信は adventure.mic.* の文言を共用）
     CharacterChatSoundControl.tsx 🔊 ポップオーバー（読み上げ ON/OFF・音量・速度・状態。TTS 無効時は disabled + 案内）
     CharacterChatScreen.css     BEM `character-chat__*`
@@ -232,6 +233,7 @@ components/
     AvatarModelSettings.tsx   3Dモデル(VRM)の登録(ドロップゾーン+隠し file input `multiple`。複数ファイルを順に登録し、進捗 i/n をスピナーに出す。失敗分は飛ばして続ける)、キャラクター別のグループ表示(`groupAvatarModels`。見出しはキャラクター名の toggle ボタン(`aria-expanded`)・差分数・「キャラクター名を変更」(全件 PATCH)。キャラクターは既定で閉じ、開閉は localStorage `avatar_settings_group_open` に保持。未分類は末尾「キャラクター未設定」で常に展開。付け替え・自動分類で入ったグループは開く。`data-testid="avatar-group"`)、ドロップゾーン下のツールバー「ファイル名から自動分類」(`POST /api/avatars/auto-classify`。未設定の項目だけ埋め、結果を `role="status"` に出す)、親へ `onSummaryChange({total, characters})` で件数を知らせる(設定画面の見出し要約用)、各行に差分ラベル(未分類はモデル名)・モデル名(副次)・作者・ライセンス(リンク)・サイズ・登録日、行末に VRM 0.x/1.0 バッジとゴミ箱アイコン、「キャラクターを編集」でインライン編集(キャラクター名は既存名の datalist、差分の説明。未設定の欄は `classifyAvatarFilename(model.name)` で事前入力。空欄で解除。`data-testid="avatar-character-editor"`)、改名、削除確認。設定画面(`SettingsScreen`)では最下部(リセットの手前)の折りたたみセクションに置き、既定は閉じる(localStorage `settings_avatar_section_open`、`data-testid="settings-avatar-toggle"`、見出しに「登録 N件・キャラクター M」の要約)
     AvatarPreviewModal.tsx    登録済み VRM のプレビュー(表情 6 種・身振り 8 種を LLM 無しで確認。口は動かない)
     SelfProfileEditor.tsx
+    CharacterChatRealWorldSettings.tsx キャラチャットのセレナの Web 検索・天気のトグル(localStorage)。`GET /api/settings/user` の `web_search_configured` / `weather_configured` が false なら説明文を添える(トグルは常に操作可能)
 ```
 
 ## 主要型

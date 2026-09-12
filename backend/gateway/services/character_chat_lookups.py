@@ -1,16 +1,18 @@
-"""キャラチャットの「調べ物」(LLM を使わない DB 参照)。
+"""キャラチャットの「調べ物」(LLM を使わない参照)。
 
 判定 LLM が返した計画(CharacterChatPlan)を実行し、返答プロンプトへ載せる
-テキストへ整形する。各項目は失敗しても会話を止めず「(取得できませんでした)」に
-落とし、1 件 LOOKUP_RENDER_CAP・合計 LOOKUP_TOTAL_CAP 文字で切る。
-実行した明細(種類・検索語・本文・関係するセッション)は返答メッセージの
+テキストへ整形する。過去プレイの調べ物は DB 参照、現実世界の調べ物(Web 検索・天気)は
+real_world_lookup 経由の外部 API で、返答プロンプトでは別の枠に載せる。
+各項目は失敗しても会話を止めず「(取得できませんでした)」に落とし、文字数の上限で切る。
+実行した明細(種類・検索語・本文・関係するセッション・出典)は返答メッセージの
 meta_json に保存し、UI の「参照した記録」(引用表示)に使う。
 """
 
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from collections.abc import Collection
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
@@ -20,12 +22,17 @@ from ..consts.character_chat import (
     LOOKUP_LIMIT_DEFAULT,
     LOOKUP_RENDER_CAP,
     LOOKUP_TOTAL_CAP,
+    PAST_PLAY_LOOKUP_KINDS,
+    REAL_WORLD_LOOKUP_KINDS,
+    REAL_WORLD_RENDER_CAP,
+    REAL_WORLD_TOTAL_CAP,
     SESSION_CANDIDATES,
 )
 from ..databases.base import async_session_factory
 from ..databases.models import History as HistoryORM
 from ..databases.models import Session as SessionORM
 from ..databases.models import TransformationTag as TransformationTagORM
+from . import real_world_lookup
 from .achievements import get_global_stats
 from .character_chat_models import CharacterChatLookup, CharacterChatPlan
 from .conversation import get_stage_display_name, get_stage_name
@@ -46,6 +53,8 @@ _TITLES = {
     "search_sessions": {"ja": "検索結果", "en": "Search results"},
     "tendencies": {"ja": "傾向・統計", "en": "Tendencies and statistics"},
     "recent_adventures": {"ja": "最近のTSFシナリオ", "en": "Recent TSF scenarios"},
+    "web_search": {"ja": "Web検索", "en": "Web search"},
+    "weather": {"ja": "天気", "en": "Weather"},
 }
 _INSTRUCTION_LABELS = {
     "ja": {
@@ -75,6 +84,8 @@ class LookupResult:
 
     text: str
     session_ids: tuple[str, ...] = ()
+    # Web 検索の出典({title, url})。引用表示のリンクに使い、プロンプトには載せない
+    sources: tuple[dict[str, str], ...] = ()
 
 
 def _lang(language: str) -> str:
@@ -426,6 +437,28 @@ async def render_recent_adventures(limit: int, language: str) -> LookupResult:
     return LookupResult("\n".join(lines))
 
 
+async def render_web_search(query: str | None, language: str) -> LookupResult:
+    if not query:
+        return LookupResult(_unavailable(language))
+    lang = _lang(language)
+    info = await real_world_lookup.tavily_search(query, language=lang)
+    return LookupResult(
+        real_world_lookup.format_search(info, lang),
+        sources=tuple(
+            {"title": source.title, "url": source.url}
+            for source in info.sources
+            if source.url
+        ),
+    )
+
+
+async def render_weather(language: str) -> LookupResult:
+    info = await real_world_lookup.fetch_weather()
+    if info is None:
+        return LookupResult(_unavailable(language))
+    return LookupResult(real_world_lookup.format_weather(info, _lang(language)))
+
+
 async def _dispatch(lookup: CharacterChatLookup, language: str) -> LookupResult:
     limit = int(lookup.limit or LOOKUP_LIMIT_DEFAULT)
     if lookup.kind == "recent_sessions":
@@ -438,22 +471,65 @@ async def _dispatch(lookup: CharacterChatLookup, language: str) -> LookupResult:
         return await render_tendencies(language)
     if lookup.kind == "recent_adventures":
         return await render_recent_adventures(limit, language)
+    if lookup.kind == "web_search":
+        return await render_web_search(lookup.query, language)
+    if lookup.kind == "weather":
+        return await render_weather(language)
     return LookupResult(_unavailable(language))
 
 
-async def run_lookups(
-    plan: CharacterChatPlan, *, language: str
-) -> tuple[str, list[dict[str, Any]]]:
-    """計画の調べ物を順に実行し、(プロンプト用テキスト, 引用用の明細) を返す。
+def available_real_world_kinds(
+    *, use_web_search: bool, use_weather: bool
+) -> frozenset[str]:
+    """設定で ON にし、サーバーにもキー・地点がある現実世界の調べ物。
 
-    明細は 1 件ごとに kind / query / session_id / text / session_ids を持つ。
-    text はプロンプトに載せたものと同じ整形済み本文で、返答メッセージの meta_json に
-    保存して UI の「参照した記録」に使う。
+    案内役キャラに限る判断は呼び出し側で行う。
+    """
+    kinds: set[str] = set()
+    if use_web_search and real_world_lookup.web_search_configured():
+        kinds.add("web_search")
+    if use_weather and real_world_lookup.weather_configured():
+        kinds.add("weather")
+    return frozenset(kinds)
+
+
+@dataclass(frozen=True)
+class LookupRun:
+    """run_lookups の結果。
+
+    text は過去プレイの調べ物、real_world_text は Web 検索・天気の本文(返答プロンプトでは
+    別の枠に載せる)。details は引用表示用の明細。
+    """
+
+    text: str = ""
+    real_world_text: str = ""
+    details: list[dict[str, Any]] = field(default_factory=list)
+
+
+async def run_lookups(
+    plan: CharacterChatPlan,
+    *,
+    language: str,
+    allowed_kinds: Collection[str] = PAST_PLAY_LOOKUP_KINDS,
+) -> LookupRun:
+    """計画の調べ物を順に実行する。
+
+    allowed_kinds に無い種類は実行しない(判定 LLM の計画の検証と二重の防御)。
+    明細は 1 件ごとに kind / query / session_id / text / session_ids を持ち、Web 検索は
+    sources も持つ。text はプロンプトに載せたものと同じ整形済み本文で、返答メッセージの
+    meta_json に保存して UI の「参照した記録」に使う。
     """
     lang = _lang(language)
-    blocks: list[str] = []
+    past_blocks: list[str] = []
+    real_world_blocks: list[str] = []
     details: list[dict[str, Any]] = []
     for lookup in plan.lookups:
+        if lookup.kind not in allowed_kinds:
+            logger.info("character chat lookup %s is not allowed; skipped", lookup.kind)
+            continue
+        if lookup.kind == "web_search" and not lookup.query:
+            continue
+        real_world = lookup.kind in REAL_WORLD_LOOKUP_KINDS
         try:
             result = await _dispatch(lookup, language)
         except Exception as exc:
@@ -464,16 +540,29 @@ async def run_lookups(
                 exc,
             )
             result = LookupResult(_unavailable(language))
-        text = _clip(result.text, LOOKUP_RENDER_CAP)
-        title = _TITLES.get(lookup.kind, {}).get(lang, lookup.kind)
-        blocks.append(f"## {title}\n{text}")
-        details.append(
-            {
-                "kind": lookup.kind,
-                "query": lookup.query,
-                "session_id": lookup.session_id,
-                "text": text,
-                "session_ids": list(result.session_ids),
-            }
+        text = _clip(
+            result.text, REAL_WORLD_RENDER_CAP if real_world else LOOKUP_RENDER_CAP
         )
-    return _clip("\n\n".join(blocks), LOOKUP_TOTAL_CAP), details
+        title = _TITLES.get(lookup.kind, {}).get(lang, lookup.kind)
+        if lookup.kind == "web_search":
+            title = (
+                f'{title}: "{lookup.query}"'
+                if lang == "en"
+                else f"{title}「{lookup.query}」"
+            )
+        (real_world_blocks if real_world else past_blocks).append(f"## {title}\n{text}")
+        detail: dict[str, Any] = {
+            "kind": lookup.kind,
+            "query": lookup.query,
+            "session_id": lookup.session_id,
+            "text": text,
+            "session_ids": list(result.session_ids),
+        }
+        if lookup.kind == "web_search":
+            detail["sources"] = [dict(source) for source in result.sources]
+        details.append(detail)
+    return LookupRun(
+        text=_clip("\n\n".join(past_blocks), LOOKUP_TOTAL_CAP),
+        real_world_text=_clip("\n\n".join(real_world_blocks), REAL_WORLD_TOTAL_CAP),
+        details=details,
+    )

@@ -156,19 +156,29 @@ PERSONA_MONOLOGUES_MAX = 5
 PERSONA_MONOLOGUE_CHARS = 200
 PLANNER_RECENT_MESSAGES = 6
 
-LOOKUP_KINDS = (
+# 過去プレイの調べ物(DB 参照)
+PAST_PLAY_LOOKUP_KINDS = (
     "recent_sessions",
     "session_detail",
     "search_sessions",
     "tendencies",
     "recent_adventures",
 )
+# 現実世界の調べ物(外部 API)。案内役キャラだけが、設定で有効にしたときに使う
+REAL_WORLD_LOOKUP_KINDS = ("web_search", "weather")
+LOOKUP_KINDS = PAST_PLAY_LOOKUP_KINDS + REAL_WORLD_LOOKUP_KINDS
 LOOKUP_MAX_PER_TURN = 3
 LOOKUP_RENDER_CAP = 1200
 LOOKUP_TOTAL_CAP = 3000
 LOOKUP_LIMIT_DEFAULT = 5
 LOOKUP_LIMIT_MAX = 10
 LOOKUP_QUERY_MAX = 60
+# Web 検索で Tavily へ送る検索語の上限(文字数 / 語数)
+WEB_SEARCH_QUERY_MAX = 80
+WEB_SEARCH_TERMS_MAX = 8
+# 現実世界の調べ物の本文上限(1 件 / 合計)
+REAL_WORLD_RENDER_CAP = 2000
+REAL_WORLD_TOTAL_CAP = 2400
 SESSION_CANDIDATES = 10
 
 APPEARANCE_REQUEST_MAX = 200

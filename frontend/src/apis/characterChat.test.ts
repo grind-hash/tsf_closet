@@ -117,8 +117,10 @@ describe("streamCharacterChatMessage", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
     const events: CharacterChatStreamEvent[] = [];
-    await streamCharacterChatMessage("t1", { content: "やあ" }, (event) =>
-      events.push(event),
+    await streamCharacterChatMessage(
+      "t1",
+      { content: "やあ", use_web_search: true, use_weather: false },
+      (event) => events.push(event),
     );
     expect(events.map((event) => event.type)).toEqual([
       "status",
@@ -136,7 +138,11 @@ describe("streamCharacterChatMessage", () => {
     );
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe("/api/character-chat/threads/t1/messages/stream");
-    expect(JSON.parse(String(init.body))).toEqual({ content: "やあ" });
+    expect(JSON.parse(String(init.body))).toEqual({
+      content: "やあ",
+      use_web_search: true,
+      use_weather: false,
+    });
   });
 
   it("throws an ApiError on a non-2xx response", async () => {
