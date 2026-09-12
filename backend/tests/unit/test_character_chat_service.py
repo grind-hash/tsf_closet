@@ -1935,3 +1935,86 @@ async def test_live2d_selection_is_explicit_persisted_and_base_only(
     with pytest.raises(CharacterChatError) as caught:
         await service.set_avatar(other["id"], mode="live2d")
     assert caught.value.code == "invalid_input"
+
+
+@pytest.mark.asyncio
+async def test_stream_message_refused_web_search_explains_policy(
+    service: CharacterChatService, monkeypatch
+) -> None:
+    """性的に露骨な話題の Web 検索は送らず、セレナが理由を伝えてから答える。"""
+    search = _configure_real_world(monkeypatch)
+    thread = await service.get_or_create_base_thread()
+    plan = json.dumps(
+        {
+            "lookups": [
+                {"kind": "web_search", "query": "AV女優 人気 2026", "refused": True}
+            ],
+            "appearance_request": None,
+        }
+    )
+    fake_generate_text, _ = _llm_router(plan=plan)
+    captured: dict = {}
+    monkeypatch.setattr(module.llm_service, "generate_text", fake_generate_text)
+    monkeypatch.setattr(
+        module.llm_service,
+        "generate_feeling_stream",
+        _fake_stream(["申し訳ありません。検索はせずにお答えしますね"], captured),
+    )
+
+    events = await _collect(
+        service.stream_message(
+            thread_id=thread["id"],
+            content="最近人気のAV女優は？",
+            use_web_search=True,
+        )
+    )
+
+    # 実際には調べないので「最新の情報を調べています」の進捗は出さない
+    assert _phases(events) == ["plan", "reply"]
+    search.assert_not_awaited()
+    assert "[Web 検索を見送った理由]" in captured["system"]
+    assert "[現実世界について" not in captured["system"]
+    detail = await service.get_thread(thread["id"])
+    (lookup,) = detail["messages"][1]["meta"]["lookups"]
+    assert lookup["refused"] == "search_policy"
+    assert lookup["query"] == "AV女優 人気 2026"
+    assert lookup["sources"] == []
+
+
+@pytest.mark.asyncio
+async def test_stream_message_refuses_neutral_query_for_explicit_request(
+    service: CharacterChatService, monkeypatch
+) -> None:
+    """判定 LLM が印を付けず、検索語も無難でも、発言がポルノ作品を求めていれば送らない。"""
+    search = _configure_real_world(monkeypatch)
+    thread = await service.get_or_create_base_thread()
+    plan = json.dumps(
+        {
+            "lookups": [{"kind": "web_search", "query": "人気 作品 新作 2026"}],
+            "appearance_request": None,
+        }
+    )
+    fake_generate_text, _ = _llm_router(plan=plan)
+    captured: dict = {}
+    monkeypatch.setattr(module.llm_service, "generate_text", fake_generate_text)
+    monkeypatch.setattr(
+        module.llm_service,
+        "generate_feeling_stream",
+        _fake_stream(["申し訳ありません"], captured),
+    )
+
+    events = await _collect(
+        service.stream_message(
+            thread_id=thread["id"],
+            content="最新のAVのおすすめある？",
+            use_web_search=True,
+        )
+    )
+
+    assert _phases(events) == ["plan", "reply"]
+    search.assert_not_awaited()
+    assert "[Web 検索を見送った理由]" in captured["system"]
+    detail = await service.get_thread(thread["id"])
+    (lookup,) = detail["messages"][1]["meta"]["lookups"]
+    assert lookup["refused"] == "search_policy"
+    assert lookup["query"] == "人気 作品 新作 2026"

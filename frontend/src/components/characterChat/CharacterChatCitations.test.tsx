@@ -136,4 +136,32 @@ describe("CharacterChatCitations", () => {
       screen.getByRole("link", { name: "good" }).getAttribute("href"),
     ).toBe("https://example.com/a");
   });
+
+  it("shows the keywords that were not sent when a web search was skipped", () => {
+    const note =
+      "(検索サービス Tavily の利用規約で禁止されている内容のため、検索しませんでした)";
+    renderCitations(
+      toLookupCitations({
+        lookups: [
+          {
+            kind: "web_search",
+            query: "AV女優 人気",
+            text: note,
+            session_ids: [],
+            sources: [],
+            refused: "search_policy",
+          },
+        ],
+      }),
+    );
+    expect(
+      screen.getByText(
+        "調べたこと: Web検索（利用規約により見送り）「AV女優 人気」",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText("送らなかった検索語: AV女優 人気")).toBeTruthy();
+    expect(screen.queryByText(/Web検索に送った語/)).toBeNull();
+    expect(screen.getByText(note)).toBeTruthy();
+    expect(screen.queryByRole("link")).toBeNull();
+  });
 });

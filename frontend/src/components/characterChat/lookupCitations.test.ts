@@ -96,6 +96,33 @@ describe("toLookupCitations", () => {
     ]);
   });
 
+  it("marks web searches skipped under the search service's terms", () => {
+    const note =
+      "(検索サービス Tavily の利用規約で禁止されている内容のため、検索しませんでした)";
+    const citations = toLookupCitations({
+      lookups: [
+        {
+          kind: "web_search",
+          query: "AV女優 人気",
+          text: note,
+          session_ids: [],
+          sources: [],
+          refused: "search_policy",
+        },
+      ],
+    });
+    expect(citations).toEqual([
+      {
+        kind: "web_search",
+        query: "AV女優 人気",
+        text: note,
+        sessionIds: [],
+        sources: [],
+        refused: true,
+      },
+    ]);
+  });
+
   it("returns an empty list when meta has no lookups", () => {
     expect(toLookupCitations(undefined)).toEqual([]);
     expect(toLookupCitations({})).toEqual([]);

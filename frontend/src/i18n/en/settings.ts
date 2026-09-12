@@ -59,9 +59,34 @@ export const settings = {
     "Show a screen for one-on-one conversations with a character outside the TSF scenario: the guide character Serena, or a character brought back from a past session",
   characterChatWebSearch: "Let Serena search the web",
   characterChatWebSearchDesc:
-    "In Character Chat, Serena searches the web (Tavily) only when you ask about recent events or real-world topics. Only the topic keywords are sent, never the conversation text. Each search uses 1 Tavily credit.",
+    "In Character Chat, Serena searches the web (Tavily) only when you ask about recent events or real-world topics. Only the topic keywords are sent, never the conversation text. Sexually explicit topics are never searched, following Tavily's terms (Serena tells you when this happens). Each search uses 1 Tavily credit.",
   characterChatWebSearchUnavailable:
     "TAVILY_API_KEY is not set on the server, so no search runs even when this is on. Set it in .env (config.env for the packaged build) and restart the server.",
+  characterChatWebSearchTermsTitle: "Before turning on web search",
+  characterChatWebSearchTermsIntro:
+    "This feature uses the external search service Tavily.",
+  characterChatWebSearchTermsMustFollow:
+    "When you use web search, you must follow Tavily's Acceptable Use Policy.",
+  characterChatWebSearchTermsProhibitedLead:
+    "Searching for the following is prohibited:",
+  characterChatWebSearchTermsProhibitedSexual:
+    "Pornography or sexually explicit content",
+  characterChatWebSearchTermsProhibitedMinors:
+    "Inappropriate content involving minors",
+  characterChatWebSearchTermsProhibitedIllegal:
+    "Content related to illegal activities",
+  characterChatWebSearchTermsProhibitedOther:
+    "Any other content prohibited by Tavily's Acceptable Use Policy",
+  characterChatWebSearchTermsSafeguards:
+    "To prevent prohibited searches, TSF Closet applies safeguards such as inspecting and refusing search queries.",
+  characterChatWebSearchTermsResults:
+    "However, web search results come from external services and public websites, so they may contain inaccurate, inappropriate, or unintended content.",
+  characterChatWebSearchTermsConsent:
+    "By using web search, you agree to the above and to Tavily's terms of use.",
+  characterChatWebSearchTermsLink:
+    "Read Tavily's Acceptable Use Policy (external site)",
+  characterChatWebSearchTermsAccept: "Agree and turn on",
+  characterChatWebSearchTermsCancel: "Cancel",
   characterChatWeather: "Let Serena check the weather",
   characterChatWeatherDesc:
     "Serena checks the current weather at the configured location only when you ask about the weather or what to wear. Weather data comes from Open-Meteo and needs no API key.",

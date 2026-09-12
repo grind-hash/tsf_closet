@@ -129,6 +129,7 @@ describe("CharacterChatRealWorldSettings", () => {
     expect(weatherSwitch().checked).toBe(false);
 
     fireEvent.click(webSearchSwitch());
+    fireEvent.click(screen.getByRole("button", { name: "同意して有効にする" }));
     expect(webSearchSwitch().checked).toBe(true);
     expect(weatherSwitch().checked).toBe(false);
 
@@ -158,5 +159,65 @@ describe("CharacterChatRealWorldSettings", () => {
     renderSettings();
     await settle();
     expect(screen.queryByRole("note")).toBeNull();
+  });
+
+  it("asks for agreement to Tavily's terms before turning web search on", async () => {
+    userSettings = {
+      nsfw_mode: false,
+      difficulty: "normal",
+      web_search_configured: true,
+      weather_configured: true,
+    };
+    renderSettings();
+    await settle();
+
+    fireEvent.click(webSearchSwitch());
+    const dialog = screen.getByRole("dialog");
+    expect(dialog.textContent).toMatch(
+      /外部検索サービス「Tavily」を利用します/,
+    );
+    expect(
+      screen.getAllByRole("listitem").map((item) => item.textContent),
+    ).toEqual([
+      "ポルノまたは露骨な性的コンテンツ",
+      "未成年者に関する不適切なコンテンツ",
+      "違法行為に関するコンテンツ",
+      "その他TavilyのAcceptable Use Policyで禁止されているコンテンツ",
+    ]);
+    expect(dialog.textContent).toMatch(
+      /上記およびTavilyの利用条件に同意したものとします/,
+    );
+    const link = screen.getByRole("link", {
+      name: /TavilyのAcceptable Use Policyを読む/,
+    });
+    expect(link.getAttribute("href")).toBe(
+      "https://www.tavily.com/acceptable-use-policy",
+    );
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(link.getAttribute("rel")).toBe("noopener noreferrer");
+    // 同意するまでは OFF のまま
+    expect(webSearchSwitch().checked).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "キャンセル" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(webSearchSwitch().checked).toBe(false);
+
+    fireEvent.click(webSearchSwitch());
+    fireEvent.click(screen.getByRole("button", { name: "同意して有効にする" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(webSearchSwitch().checked).toBe(true);
+
+    // OFF にするときは確認しない
+    fireEvent.click(webSearchSwitch());
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(webSearchSwitch().checked).toBe(false);
+  });
+
+  it("does not ask for agreement when turning the weather on", async () => {
+    renderSettings();
+    await settle();
+    fireEvent.click(weatherSwitch());
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(weatherSwitch().checked).toBe(true);
   });
 });

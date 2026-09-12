@@ -58,9 +58,33 @@ export const settings = {
     "TSFシナリオを経由せず、キャラクターと1対1で会話する画面をメニューに表示します。案内役のセレナと、過去セッションの人物を呼び出して話せます",
   characterChatWebSearch: "セレナがWeb検索で調べる",
   characterChatWebSearchDesc:
-    "キャラチャットで最近の出来事や現実の話題を聞かれたときだけ、セレナがWeb検索（Tavily）で調べて答えます。送るのは話題のキーワードだけで、会話の文章は送りません。検索1回につきTavilyのクレジットを1消費します。",
+    "キャラチャットで最近の出来事や現実の話題を聞かれたときだけ、セレナがWeb検索（Tavily）で調べて答えます。送るのは話題のキーワードだけで、会話の文章は送りません。性的に露骨な内容は、Tavilyの利用規約に従って検索しません（セレナがその旨を伝えます）。検索1回につきTavilyのクレジットを1消費します。",
   characterChatWebSearchUnavailable:
     "サーバーに TAVILY_API_KEY が設定されていないため、ONにしても検索は行われません。.env（配布版は config.env）に設定してサーバーを再起動してください。",
+  characterChatWebSearchTermsTitle: "Web検索を有効にする前に",
+  characterChatWebSearchTermsIntro:
+    "この機能では、外部検索サービス「Tavily」を利用します。",
+  characterChatWebSearchTermsMustFollow:
+    "Web検索を利用する際は、TavilyのAcceptable Use Policyに従う必要があります。",
+  characterChatWebSearchTermsProhibitedLead:
+    "以下の内容を検索することは禁止されています。",
+  characterChatWebSearchTermsProhibitedSexual:
+    "ポルノまたは露骨な性的コンテンツ",
+  characterChatWebSearchTermsProhibitedMinors:
+    "未成年者に関する不適切なコンテンツ",
+  characterChatWebSearchTermsProhibitedIllegal: "違法行為に関するコンテンツ",
+  characterChatWebSearchTermsProhibitedOther:
+    "その他TavilyのAcceptable Use Policyで禁止されているコンテンツ",
+  characterChatWebSearchTermsSafeguards:
+    "TSF Closetでは禁止された検索を防止するため、検索クエリの検査・拒否などのセーフガードを実施しています。",
+  characterChatWebSearchTermsResults:
+    "ただし、Web検索結果は外部サービスおよび公開Webサイトから取得されるため、不正確、不適切、または意図しない内容が含まれる場合があります。",
+  characterChatWebSearchTermsConsent:
+    "Web検索機能を利用することで、上記およびTavilyの利用条件に同意したものとします。",
+  characterChatWebSearchTermsLink:
+    "TavilyのAcceptable Use Policyを読む（外部サイト）",
+  characterChatWebSearchTermsAccept: "同意して有効にする",
+  characterChatWebSearchTermsCancel: "キャンセル",
   characterChatWeather: "セレナが天気を調べる",
   characterChatWeatherDesc:
     "天気や服装の相談をされたときだけ、セレナが設定された地点の今の天気を調べて答えます。天気の取得には Open-Meteo を使い、APIキーは不要です。",

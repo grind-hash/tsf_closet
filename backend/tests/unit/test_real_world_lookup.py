@@ -11,10 +11,12 @@ from gateway.services import real_world_lookup as svc
 from gateway.services.real_world_lookup import (
     RealWorldLookupError,
     SearchInfo,
+    SearchPolicyError,
     SearchSource,
     WeatherInfo,
     format_search,
     format_weather,
+    violates_search_policy,
     wmo_label,
 )
 
@@ -280,6 +282,79 @@ async def test_tavily_search_requires_api_key(monkeypatch) -> None:
     requests = _mock_http(monkeypatch)
     with pytest.raises(RealWorldLookupError):
         await svc.tavily_search("q")
+    assert requests == []
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "AV女優 人気 2026",
+        "エロ漫画 おすすめ",
+        "R18 同人 新作",
+        "ポルノ サイト",
+        "hentai ranking 2026",
+        "Porn trends",
+        "sex tape news",
+        # ポルノ作品そのものを探す・薦める検索
+        "新作 AV おすすめ 2026",
+        "最新のAVのおすすめある？",
+        "av 新作 ランキング",
+        "セクシー女優 人気 2026",
+        "FANZA 新作",
+        "アダルトゲーム 人気",
+        "エッチな漫画 おすすめ",
+        "官能小説 名作",
+        "大人向けの動画でおすすめある？",
+        "JAV ranking",
+    ],
+)
+def test_violates_search_policy_blocks_explicit_terms(query: str) -> None:
+    assert violates_search_policy(query) is True
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "水着 トレンド 2026",
+        "下着 ブランド 人気",
+        "ヌードカラー ネイル",
+        "ロリータファッション 新作",
+        "エロかわ ファッション",
+        "AV機器 おすすめ",
+        "成人向け 英会話 講座",
+        "セックスレス 調査 2026",
+        "性感染症 増加 ニュース",
+        "Essex weather",
+        "sexual harassment law news",
+        # AV を含む機器・技術の語
+        "AV機器 おすすめ",
+        "AVアンプ 2026",
+        "AVケーブル 選び方",
+        "AV1 コーデック 対応",
+        "AVAX 価格",
+        "AVIF 画像形式",
+        "NAVI 更新",
+        "Java 入門",
+        "アダルトチルドレン 本",
+        "エッチング 版画 展示",
+        "官能的な香水 人気",
+        "大人向けの服 ブランド",
+    ],
+)
+def test_violates_search_policy_allows_ordinary_topics(query: str) -> None:
+    """服装・色・健康・ニュースの検索は止めない。"""
+    assert violates_search_policy(query) is False
+
+
+@pytest.mark.asyncio
+async def test_tavily_search_refuses_policy_violations_without_sending(
+    monkeypatch,
+) -> None:
+    """利用規約で禁止されている検索語は、どの呼び出し元からでも送らない。"""
+    _configure(monkeypatch)
+    requests = _mock_http(monkeypatch)
+    with pytest.raises(SearchPolicyError):
+        await svc.tavily_search("AV女優 人気 2026")
     assert requests == []
 
 

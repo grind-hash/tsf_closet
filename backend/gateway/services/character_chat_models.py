@@ -67,6 +67,15 @@ def _clean_text(value: Any, limit: int) -> str | None:
     return text[:limit]
 
 
+def _truthy(value: Any) -> bool:
+    # 判定 LLM は "true" / "yes" のような文字列で返すことがある。それ以外は false
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int | float):
+        return bool(value)
+    return str(value or "").strip().lower() in {"true", "yes", "1"}
+
+
 def _search_query(value: Any, *, limit: int, max_terms: int) -> str | None:
     # 判定 LLM は検索語を引用符で包んで返すことがある。検索に渡す語と meta_json に
     # 残す語の両方から外す(空白区切りの各語について両端だけ)
@@ -87,6 +96,9 @@ class CharacterChatLookup(BaseModel):
     query: str | None = None
     session_id: str | None = None
     limit: int = LOOKUP_LIMIT_DEFAULT
+    # web_search のうち、話題が検索サービスの利用規約で禁止されている(性的に露骨)と
+    # 判定 LLM が見なしたもの。検索は送らず、見送った理由を返答で伝える
+    refused: bool = False
 
     @field_validator("query", mode="before")
     @classmethod
@@ -111,6 +123,11 @@ class CharacterChatLookup(BaseModel):
         except (TypeError, ValueError):
             return LOOKUP_LIMIT_DEFAULT
         return max(1, min(LOOKUP_LIMIT_MAX, number))
+
+    @field_validator("refused", mode="before")
+    @classmethod
+    def _coerce_refused(cls, value: Any, info: ValidationInfo) -> bool:
+        return info.data.get("kind") == "web_search" and _truthy(value)
 
 
 class CharacterChatPlan(BaseModel):
@@ -138,7 +155,13 @@ class CharacterChatPlan(BaseModel):
             kind = str(item.get("kind") or "").strip().lower()
             if kind not in LOOKUP_KINDS or kind not in allowed:
                 continue
-            if kind == "web_search" and _web_search_query(item.get("query")) is None:
+            # 検索語の無い web_search は捨てる。利用規約で見送る印があれば、理由を
+            # 伝えるために検索語が無くても残す
+            if (
+                kind == "web_search"
+                and _web_search_query(item.get("query")) is None
+                and not _truthy(item.get("refused"))
+            ):
                 continue
             # 現実世界の調べ物は 1 手番に種類ごと 1 件まで
             key = (
@@ -164,12 +187,7 @@ class CharacterChatPlan(BaseModel):
     @field_validator("origin_lore", mode="before")
     @classmethod
     def _coerce_origin_lore(cls, value: Any) -> bool:
-        # 判定 LLM は "true" / "yes" のような文字列で返すことがある。それ以外は false
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, int | float):
-            return bool(value)
-        return str(value or "").strip().lower() in {"true", "yes", "1"}
+        return _truthy(value)
 
 
 def empty_plan() -> CharacterChatPlan:

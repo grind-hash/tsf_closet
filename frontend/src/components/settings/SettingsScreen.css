@@ -99,6 +99,22 @@
   line-height: 1.5;
 }
 
+/* Web 検索の同意モーダル。文面が長いため幅を広げ、画面に収まらなければ中でスクロールする */
+.settings-screen__terms-dialog {
+  max-width: 520px;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.settings-screen__terms-list {
+  margin: 0 0 0.75rem;
+  padding-left: 1.25rem;
+}
+
+.settings-screen__terms-list li + li {
+  margin-top: 0.2rem;
+}
+
 /* ラジオグループ */
 .settings-screen__radio-group {
   display: flex;

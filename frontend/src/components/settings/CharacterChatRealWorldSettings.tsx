@@ -4,12 +4,25 @@
  * 値は localStorage に保存し、発言のたびにリクエストへ載せる。サーバー側に
  * TAVILY_API_KEY / WEATHER_LOCATION が無いと ON でも調べないため、その場合は
  * 項目の下に理由を添える。スイッチはどの状態でも操作できる。
+ * Web 検索を ON にするときは、Tavily の Acceptable Use Policy に従うことと、検索結果に
+ * 不正確・不適切な内容が含まれ得ることへの同意を確認する。
  */
 
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { fetchUserSettings } from "../../apis/settings";
 import { useSettings } from "../../contexts/SettingsContext";
+import ConfirmDialog from "../ui/ConfirmDialog";
+
+const TAVILY_AUP_URL = "https://www.tavily.com/acceptable-use-policy";
+
+/** 同意モーダルに挙げる、検索してはいけない内容 */
+const TERMS_PROHIBITED_KEYS = [
+  "settings.characterChatWebSearchTermsProhibitedSexual",
+  "settings.characterChatWebSearchTermsProhibitedMinors",
+  "settings.characterChatWebSearchTermsProhibitedIllegal",
+  "settings.characterChatWebSearchTermsProhibitedOther",
+] as const;
 
 /** サーバー側の設定状況。取得前・取得失敗・項目の無い応答では undefined(注記を出さない) */
 interface RealWorldConfiguration {
@@ -67,6 +80,7 @@ export default function CharacterChatRealWorldSettings() {
   const [configuration, setConfiguration] = useState<RealWorldConfiguration>(
     {},
   );
+  const [termsOpen, setTermsOpen] = useState(false);
   useEffect(() => {
     let cancelled = false;
     void fetchUserSettings()
@@ -96,7 +110,11 @@ export default function CharacterChatRealWorldSettings() {
             : null
         }
         checked={state.characterChatWebSearchEnabled}
-        onChange={setCharacterChatWebSearchEnabled}
+        onChange={(checked) => {
+          // 有効にするときだけ、利用規約への同意を確認してから ON にする
+          if (checked) setTermsOpen(true);
+          else setCharacterChatWebSearchEnabled(false);
+        }}
       />
       <RealWorldToggle
         label={t("settings.characterChatWeather")}
@@ -109,6 +127,36 @@ export default function CharacterChatRealWorldSettings() {
         checked={state.characterChatWeatherEnabled}
         onChange={setCharacterChatWeatherEnabled}
       />
+      <ConfirmDialog
+        open={termsOpen}
+        title={t("settings.characterChatWebSearchTermsTitle")}
+        confirmLabel={t("settings.characterChatWebSearchTermsAccept")}
+        cancelLabel={t("settings.characterChatWebSearchTermsCancel")}
+        onConfirm={() => {
+          setTermsOpen(false);
+          setCharacterChatWebSearchEnabled(true);
+        }}
+        onCancel={() => setTermsOpen(false)}
+        className="settings-screen__terms-dialog"
+        testId="character-chat-web-search-terms"
+      >
+        <p>{t("settings.characterChatWebSearchTermsIntro")}</p>
+        <p>{t("settings.characterChatWebSearchTermsMustFollow")}</p>
+        <p>{t("settings.characterChatWebSearchTermsProhibitedLead")}</p>
+        <ul className="settings-screen__terms-list">
+          {TERMS_PROHIBITED_KEYS.map((key) => (
+            <li key={key}>{t(key)}</li>
+          ))}
+        </ul>
+        <p>{t("settings.characterChatWebSearchTermsSafeguards")}</p>
+        <p>{t("settings.characterChatWebSearchTermsResults")}</p>
+        <p>{t("settings.characterChatWebSearchTermsConsent")}</p>
+        <p>
+          <a href={TAVILY_AUP_URL} target="_blank" rel="noopener noreferrer">
+            {t("settings.characterChatWebSearchTermsLink")}
+          </a>
+        </p>
+      </ConfirmDialog>
     </>
   );
 }
