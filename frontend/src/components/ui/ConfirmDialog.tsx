@@ -102,19 +102,19 @@ export default function ConfirmDialog({
         <div className="confirm-dialog__actions">
           <button
             type="button"
-            className="confirm-dialog__cancel"
-            onClick={onCancel}
-            disabled={busy}
-          >
-            {cancelLabel}
-          </button>
-          <button
-            type="button"
             className="confirm-dialog__confirm"
             onClick={() => onConfirm({ doNotShowAgain })}
             disabled={busy || confirmDisabled}
           >
             {confirmLabel}
+          </button>
+          <button
+            type="button"
+            className="confirm-dialog__cancel"
+            onClick={onCancel}
+            disabled={busy}
+          >
+            {cancelLabel}
           </button>
         </div>
       </div>

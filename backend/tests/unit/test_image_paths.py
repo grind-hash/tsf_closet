@@ -1,8 +1,9 @@
-"""services/image_paths.resolve_stored_image_path のユニットテスト。
+"""services/image_paths.resolve_stored_image_path / remove_history_image のユニットテスト。
 
 旧 GameService._resolve_image_path（data 相対 → BASE_DIR 相対）と
 AdventureService._resolve_image / session_store.resolve_history_image_file
 （文字列どおり → data 相対 → 履歴ディレクトリ直下の同名）の候補をすべて含むことを確認する。
+削除は履歴画像ディレクトリ直下のファイルに限られることを確認する。
 """
 
 from __future__ import annotations
@@ -12,7 +13,7 @@ from pathlib import Path
 import pytest
 
 import gateway.settings.config as cfg_mod
-from gateway.services.image_paths import resolve_stored_image_path
+from gateway.services.image_paths import remove_history_image, resolve_stored_image_path
 
 
 @pytest.fixture
@@ -88,3 +89,34 @@ def test_directory_is_not_a_match(dirs: dict[str, Path]) -> None:
     (dirs["history"] / "subdir").mkdir()
 
     assert resolve_stored_image_path("history_images/subdir") is None
+
+
+def test_remove_history_image_deletes_data_relative_file(
+    dirs: dict[str, Path],
+) -> None:
+    img = dirs["history"] / "h1.png"
+    img.write_bytes(b"PNG_DATA")
+
+    assert remove_history_image("history_images/h1.png") is True
+    assert not img.exists()
+
+
+def test_remove_history_image_keeps_files_outside_history_dir(
+    dirs: dict[str, Path],
+) -> None:
+    char_img = dirs["base"] / "images" / "characters" / "char1.png"
+    char_img.parent.mkdir(parents=True)
+    char_img.write_bytes(b"CHAR_IMG")
+    custom_img = dirs["history"] / "custom" / "c1.png"
+    custom_img.parent.mkdir()
+    custom_img.write_bytes(b"CUSTOM")
+
+    assert remove_history_image("images/characters/char1.png") is False
+    assert remove_history_image("history_images/custom/c1.png") is False
+    assert char_img.exists()
+    assert custom_img.exists()
+
+
+def test_remove_history_image_missing_returns_false(dirs: dict[str, Path]) -> None:
+    assert remove_history_image("history_images/gone.png") is False
+    assert remove_history_image(None) is False

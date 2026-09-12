@@ -5,11 +5,8 @@ Gallery API endpoints
 
 from __future__ import annotations
 
-import contextlib
 import json
-import os
 from datetime import datetime
-from pathlib import Path
 from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Query
@@ -29,6 +26,8 @@ from ..schemas.gallery import (
     GallerySessionsResponse,
 )
 from ..services.characters import CharacterManager
+from ..services.custom_sessions import delete_custom_session_metadata
+from ..services.image_paths import remove_history_image
 from ..services.session_search import (
     escape_like,
     fetch_match_snippets,
@@ -365,9 +364,10 @@ async def delete_gallery_session(session_id: str):
         try:
             rows = (
                 await db_session.execute(
-                    select(HistoryORM.id, HistoryORM.image_path).where(
-                        HistoryORM.session_id == session_id
-                    )
+                    select(
+                        HistoryORM.image_path,
+                        HistoryORM.surroundings_image_path,
+                    ).where(HistoryORM.session_id == session_id)
                 )
             ).all()
 
@@ -377,16 +377,6 @@ async def delete_gallery_session(session_id: str):
                     detail=f"Session {session_id} not found or has no history",
                 )
 
-            deleted_count = len(rows)
-
-            for row in rows:
-                image_path_value = row.image_path
-                if image_path_value:
-                    image_path = Path(image_path_value)
-                    if image_path.exists():
-                        with contextlib.suppress(OSError):
-                            os.remove(image_path)
-
             await db_session.execute(
                 delete(HistoryORM).where(HistoryORM.session_id == session_id)
             )
@@ -394,17 +384,24 @@ async def delete_gallery_session(session_id: str):
                 delete(SessionORM).where(SessionORM.id == session_id)
             )
             await db_session.commit()
-
-            return DeleteResponse(
-                success=True,
-                deleted_count=deleted_count,
-                message=f"Session {session_id} and {deleted_count} history items deleted",
-            )
         except HTTPException:
             raise
         except Exception as exc:
             await db_session.rollback()
             raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    # ファイルはコミット後に消す。消せなくても DB 側は整合したまま残る
+    for row in rows:
+        remove_history_image(row.image_path)
+        remove_history_image(row.surroundings_image_path)
+    delete_custom_session_metadata(session_id)
+
+    deleted_count = len(rows)
+    return DeleteResponse(
+        success=True,
+        deleted_count=deleted_count,
+        message=f"Session {session_id} and {deleted_count} history items deleted",
+    )
 
 
 @router.delete("/{item_id}", response_model=DeleteResponse)
@@ -415,7 +412,6 @@ async def delete_gallery_item(item_id: str):
             row = (
                 await db_session.execute(
                     select(
-                        HistoryORM.id,
                         HistoryORM.image_path,
                         HistoryORM.surroundings_image_path,
                     )
@@ -427,35 +423,23 @@ async def delete_gallery_item(item_id: str):
             if not row:
                 raise HTTPException(status_code=404, detail=f"Item {item_id} not found")
 
-            # メイン画像を削除
-            if row.image_path:
-                image_path = Path(row.image_path)
-                if image_path.exists():
-                    with contextlib.suppress(OSError):
-                        os.remove(image_path)
-
-            # 周囲状況画像を削除
-            if row.surroundings_image_path:
-                surroundings_path = (
-                    settings.history_images_dir.parent / row.surroundings_image_path
-                )
-                if surroundings_path.exists():
-                    with contextlib.suppress(OSError):
-                        os.remove(surroundings_path)
-
             await db_session.execute(delete(HistoryORM).where(HistoryORM.id == item_id))
             await db_session.commit()
-
-            return DeleteResponse(
-                success=True,
-                deleted_count=1,
-                message=f"Item {item_id} deleted",
-            )
         except HTTPException:
             raise
         except Exception as exc:
             await db_session.rollback()
             raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    # メイン画像と周囲状況画像はコミット後に消す
+    remove_history_image(row.image_path)
+    remove_history_image(row.surroundings_image_path)
+
+    return DeleteResponse(
+        success=True,
+        deleted_count=1,
+        message=f"Item {item_id} deleted",
+    )
 
 
 # ------------------------------------------------------------------

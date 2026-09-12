@@ -14,9 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from datetime import datetime
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from sqlalchemy import delete, select, update
@@ -40,7 +38,7 @@ from ..databases.parameter_change_log_repo import (
     fetch_change_logs_by_session,
 )
 from ..models import CRITICAL_POINTS, SessionStats
-from ..settings.config import settings
+from .image_paths import remove_history_image
 
 if TYPE_CHECKING:
     from .session import DatabaseSessionStore
@@ -129,27 +127,8 @@ async def apply_history_revert(
 
 def _remove_history_files(history_row: HistoryORM) -> None:
     """履歴の画像ファイルと周囲画像ファイルを削除する(失敗は警告のみ)。"""
-    if history_row.image_path:
-        image_path = Path(history_row.image_path)
-        if image_path.exists():
-            try:
-                os.remove(image_path)
-            except OSError as exc:
-                logger.warning("Failed to delete image %s: %s", image_path, exc)
-
-    if history_row.surroundings_image_path:
-        surr_path = (
-            settings.history_images_dir.parent / history_row.surroundings_image_path
-        )
-        if surr_path.exists():
-            try:
-                os.remove(surr_path)
-            except OSError as exc:
-                logger.warning(
-                    "Failed to delete surroundings image %s: %s",
-                    surr_path,
-                    exc,
-                )
+    remove_history_image(history_row.image_path)
+    remove_history_image(history_row.surroundings_image_path)
 
 
 async def _latest_history_row(

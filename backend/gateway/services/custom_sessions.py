@@ -9,10 +9,13 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
 from ..settings.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 def normalize_gender(value: str | None) -> str:
@@ -49,6 +52,20 @@ def load_custom_session_metadata(session_id: str) -> dict[str, Any]:
 def save_custom_session_metadata(session_id: str, metadata: dict[str, Any]) -> None:
     path = custom_images_dir() / f"session_{session_id}.json"
     path.write_text(json.dumps(metadata, ensure_ascii=False), encoding="utf-8")
+
+
+def delete_custom_session_metadata(session_id: str) -> None:
+    """セッションごとのプロフィールを消す。無ければ何もしない。"""
+    path = settings.history_images_dir / "custom" / f"session_{session_id}.json"
+    try:
+        path.unlink(missing_ok=True)
+    except OSError as exc:
+        logger.warning(
+            "Failed to delete custom session metadata %s: %s: %s",
+            path,
+            type(exc).__name__,
+            exc,
+        )
 
 
 def save_custom_character(

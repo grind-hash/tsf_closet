@@ -1,10 +1,12 @@
 import sys
 from datetime import datetime, timedelta
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+import gateway.settings.config as cfg_mod
 from gateway.databases.models import Conversation, History, Session, User
 from gateway.routes.gallery_router import router
 
@@ -159,3 +161,88 @@ def test_gallery_endpoints_return_expected_shapes(isolated_db, monkeypatch):
     assert detail_payload["item"]["id"] == "gallery-history-2"
     assert detail_payload["prev_id"] == "gallery-history-1"
     assert detail_payload["next_id"] is None
+
+
+async def _seed_sessions_with_images(test_session_factory: async_sessionmaker) -> None:
+    now = datetime.now()
+    async with test_session_factory() as db_session:
+        db_session.add(User(id="gallery-user"))
+        db_session.add_all(
+            [
+                Session(
+                    id=session_id,
+                    user_id="gallery-user",
+                    character_id="char-1",
+                    current_image_path=f"history_images/{history_id}.png",
+                    transformation_count=0,
+                    is_active=False,
+                    created_at=now,
+                    updated_at=now,
+                )
+                for session_id, history_id in (("s-a", "a2"), ("s-b", "b1"))
+            ]
+        )
+        db_session.add_all(
+            [
+                History(
+                    id="a1",
+                    session_id="s-a",
+                    instruction="first",
+                    image_path="history_images/a1.png",
+                    surroundings_image_path="history_images/surroundings_a1.png",
+                    created_at=now - timedelta(minutes=2),
+                ),
+                History(
+                    id="a2",
+                    session_id="s-a",
+                    instruction="second",
+                    image_path="history_images/a2.png",
+                    created_at=now - timedelta(minutes=1),
+                ),
+                History(
+                    id="b1",
+                    session_id="s-b",
+                    instruction="other",
+                    image_path="history_images/b1.png",
+                    surroundings_image_path="history_images/surroundings_b1.png",
+                    created_at=now,
+                ),
+            ]
+        )
+        await db_session.commit()
+
+
+def test_gallery_delete_removes_image_files(isolated_db, monkeypatch, tmp_path: Path):
+    """DB に data 相対で保存された画像を、削除 API が実際に消す。"""
+    import asyncio
+
+    history_dir = tmp_path / "data" / "history_images"
+    custom_dir = history_dir / "custom"
+    custom_dir.mkdir(parents=True)
+    monkeypatch.setattr(cfg_mod.settings, "history_images_dir", history_dir)
+
+    asyncio.run(_seed_sessions_with_images(isolated_db.async_factory))
+    for name in ("a1", "a2", "surroundings_a1", "b1", "surroundings_b1"):
+        (history_dir / f"{name}.png").write_bytes(b"PNG")
+    for session_id in ("s-a", "s-b"):
+        (custom_dir / f"session_{session_id}.json").write_text("{}", encoding="utf-8")
+    reusable_character = custom_dir / "c1.png"
+    reusable_character.write_bytes(b"CUSTOM")
+
+    app = FastAPI()
+    app.include_router(router, prefix="/api")
+
+    with TestClient(app) as client:
+        session_response = client.delete("/api/gallery/sessions/s-a")
+        remaining_after_session = sorted(p.name for p in history_dir.glob("*.png"))
+        item_response = client.delete("/api/gallery/b1")
+
+    assert session_response.status_code == 200
+    assert session_response.json()["deleted_count"] == 2
+    assert remaining_after_session == ["b1.png", "surroundings_b1.png"]
+    assert not (custom_dir / "session_s-a.json").exists()
+    assert (custom_dir / "session_s-b.json").exists()
+
+    assert item_response.status_code == 200
+    assert list(history_dir.glob("*.png")) == []
+    assert reusable_character.exists()
