@@ -98,7 +98,9 @@ TALK_HEADER_COMMON_RULES: str = (
     "The header is machine-read and drives your face on screen; it is never "
     "shown, so it must not contain anything else and the spoken words must not "
     "repeat it. Put the header on every reply, including replies with an action "
-    "in parentheses; the parentheses never replace it. When the user asks you to "
+    "in parentheses; the parentheses never replace it. Write it only once, at the "
+    "very start of the reply; never repeat it before later sentences or "
+    "paragraphs, even in a long reply. When the user asks you to "
     "make a certain face, pick the expression key closest to that face."
 )
 
@@ -193,6 +195,68 @@ def parse_talk_header(text: str) -> tuple[str | None, str | None, str]:
     return expression, gesture, source[match.end() :]
 
 
+# 本文の途中に紛れたヘッダの行(モデルが段落ごとにヘッダを繰り返したもの)。ラベル付きの
+# 形だけを対象にし、セリフの角括弧には触れない。ヘッダだけの行は角括弧の有無を問わず、
+# 角括弧で囲んだヘッダは後ろにセリフが続いても剥がす
+_TALK_HEADER_PAIRS = (
+    r"(?:expression|gesture)[ \t]*[=:][ \t]*[A-Za-z_\-]+"
+    r"(?:[ \t,]+(?:expression|gesture)[ \t]*[=:][ \t]*[A-Za-z_\-]+)?"
+)
+_TALK_HEADER_ONLY_LINE_RE = re.compile(
+    rf"^[ \t]*\[?[ \t]*({_TALK_HEADER_PAIRS})[ \t,]*\]?[ \t]*$", re.IGNORECASE
+)
+_TALK_HEADER_LINE_PREFIX_RE = re.compile(
+    rf"^[ \t]*\[[ \t]*({_TALK_HEADER_PAIRS})[ \t,]*\][ \t]*", re.IGNORECASE
+)
+
+
+def _talk_header_line_match(line: str) -> re.Match[str] | None:
+    return _TALK_HEADER_ONLY_LINE_RE.match(line) or _TALK_HEADER_LINE_PREFIX_RE.match(
+        line
+    )
+
+
+def strip_talk_header_line(line: str) -> str | None:
+    """1 行(改行を含まない)からヘッダを剥がす。ヘッダだけの行なら None を返す。
+
+    ストリームで、段落ごとに繰り返されたヘッダを行単位で取り除くときに使う。
+    """
+    match = _talk_header_line_match(line)
+    if match is None:
+        return line
+    rest = line[match.end() :]
+    return rest if rest.strip() else None
+
+
+def strip_talk_header_lines(text: str) -> tuple[str | None, str | None, str]:
+    """先頭ヘッダに加え、本文の途中に紛れたヘッダの行も剥がす。
+
+    (expression, gesture, 残りの本文) を返す。値は先頭のヘッダを優先し、無ければ
+    途中で最初に見つかったヘッダの値を使う。剥がした後の 3 行以上の空行は 1 つに畳む。
+    """
+    expression, gesture, rest = parse_talk_header(text)
+    kept: list[str] = []
+    removed = False
+    for line in rest.split("\n"):
+        match = _talk_header_line_match(line)
+        if match is None:
+            kept.append(line)
+            continue
+        removed = True
+        for label, value in _TALK_HEADER_LABEL_RE.findall(match.group(1)):
+            if label.lower() == "expression":
+                expression = expression or normalize_avatar_expression(value)
+            else:
+                gesture = gesture or normalize_avatar_gesture(value)
+        remainder = line[match.end() :]
+        if remainder.strip():
+            kept.append(remainder)
+    result = "\n".join(kept)
+    if removed:
+        result = re.sub(r"\n{3,}", "\n\n", result)
+    return expression, gesture, result
+
+
 def may_start_talk_header(text: str) -> bool:
     """配信途中の先頭文字列が、まだヘッダの書き出しでありうるか。
 
@@ -265,4 +329,6 @@ __all__ = [
     "normalize_avatar_gesture",
     "normalize_avatar_outfit_key",
     "parse_talk_header",
+    "strip_talk_header_line",
+    "strip_talk_header_lines",
 ]

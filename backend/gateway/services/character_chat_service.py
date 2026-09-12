@@ -66,6 +66,8 @@ from ..consts.companion_avatar import (
     normalize_avatar_expression,
     normalize_avatar_gesture,
     parse_talk_header,
+    strip_talk_header_line,
+    strip_talk_header_lines,
 )
 from ..consts.language import normalize_language
 from ..consts.novelai_models import resolve_user_image_model
@@ -209,10 +211,11 @@ def normalize_chat_reply(text: str, name: str) -> str:
     """LLM の返答から名前プレフィックス・全体を囲む括弧・ヘッダ行を剥がして上限で切る。
 
     adventure_romance.normalize_talk_reply と同じ規則だが、セレナがアプリの
-    説明をする場面もあるため上限は REPLY_MAX にする。
+    説明をする場面もあるため上限は REPLY_MAX にする。ヘッダ行は先頭だけでなく、
+    モデルが段落ごとに繰り返したものも剥がす。
     """
     reply = strip_code_fence(str(text or ""))
-    _, _, reply = parse_talk_header(reply)
+    _, _, reply = strip_talk_header_lines(reply)
     reply = reply.strip()
     clean_name = str(name or "").strip()
     if clean_name:
@@ -229,6 +232,17 @@ def normalize_chat_reply(text: str, name: str) -> str:
     reply = re.sub(r"[ \t]+", " ", reply)
     reply = re.sub(r"\n{3,}", "\n\n", reply).strip()
     return reply[:REPLY_MAX].strip()
+
+
+def _spoken_text(message: Any) -> str:
+    """表示・要約・文脈に渡す発言の本文。
+
+    キャラの発言からは本文に残ったヘッダの行を除く(以前の保存分には、段落ごとに
+    繰り返されたヘッダが残っていることがある)。ユーザーの発言には手を入れない。
+    """
+    if message.role == "user":
+        return message.content
+    return strip_talk_header_lines(message.content)[2].strip()
 
 
 def _reply_history(
@@ -251,7 +265,7 @@ def _reply_history(
         if item.role == "user":
             history.append({"role": "user", "content": item.content})
             continue
-        left_expression, left_gesture, content = parse_talk_header(item.content)
+        left_expression, left_gesture, content = strip_talk_header_lines(item.content)
         content = content.strip()
         if expressions:
             meta = _json_load(item.meta_json, {})
@@ -352,40 +366,74 @@ def _with_initial(
 
 
 class _HeaderBuffer:
-    """返答の先頭ヘッダ行 ``[expression=.. gesture=..]`` を配信前に取り除くバッファ。
+    """返答のヘッダ行 ``[expression=.. gesture=..]`` を配信前に取り除くバッファ。
 
-    表情ヘッダを求める手番(3D モデル・Live2D 表示中)でだけ有効。本文の改行か
-    一定長までは溜め、先頭がヘッダの書き出し(``[`` か expression= / gesture= の
-    ラベル)でないと分かった時点で即時に流す(Adventure のトークから移した)。
+    表情ヘッダを求める手番(3D モデル・Live2D 表示中)でだけ有効。先頭のヘッダに
+    加え、モデルが段落ごとに繰り返したヘッダの行も取り除く。行頭がヘッダの書き出し
+    (``[`` か expression= / gesture= のラベル)でありうる間だけ改行か一定長まで溜め、
+    そうでないと分かった行は即時に流す。本文より前の空行は流さない。
     """
 
     _LIMIT = 64
 
     def __init__(self, *, enabled: bool) -> None:
-        self._pending = ""
-        self._decided = not enabled
+        self._enabled = enabled
+        self._buffer = ""
+        # 行頭にいるか(ヘッダの判定は行頭の文字列だけに行う)
+        self._at_line_start = True
+        # 本文をまだ流していないか(先頭ヘッダは語彙のキーだけの形も剥がす)
+        self._before_text = True
 
     def feed(self, chunk: str) -> list[str]:
-        if self._decided:
+        if not self._enabled:
             return [chunk]
-        self._pending += chunk
-        if self._pending.strip() and not may_start_talk_header(self._pending):
-            return self._release()
-        # 先頭の空行ではまだ判定しない(ヘッダは改行の後に来ることがある)
-        if "\n" in self._pending.lstrip() or len(self._pending) >= self._LIMIT:
-            return self._release()
-        return []
+        self._buffer += chunk
+        return self._drain(final=False)
 
     def flush(self) -> list[str]:
-        if self._decided:
+        if not self._enabled:
             return []
-        return self._release()
+        return self._drain(final=True)
 
-    def _release(self) -> list[str]:
-        self._decided = True
-        _, _, rest = parse_talk_header(self._pending)
-        self._pending = ""
-        return [rest] if rest else []
+    def _drain(self, *, final: bool) -> list[str]:
+        out: list[str] = []
+        while self._buffer:
+            newline = self._buffer.find("\n")
+            end = len(self._buffer) if newline < 0 else newline + 1
+            if not self._at_line_start:
+                # 行の途中は行末の改行までそのまま流す
+                out.append(self._buffer[:end])
+                self._buffer = self._buffer[end:]
+                self._at_line_start = newline >= 0
+                continue
+            line = self._buffer if newline < 0 else self._buffer[:newline]
+            if (
+                newline < 0
+                and not final
+                and (
+                    not line.strip()
+                    or (len(line) < self._LIMIT and may_start_talk_header(line))
+                )
+            ):
+                # ヘッダの書き出しでありうる行頭は、改行まで溜める
+                break
+            self._buffer = self._buffer[end:]
+            kept = self._strip(line)
+            if kept is not None:
+                out.append(kept + ("\n" if newline >= 0 else ""))
+                self._before_text = False
+            self._at_line_start = newline >= 0
+        return out
+
+    def _strip(self, line: str) -> str | None:
+        """行頭から確定した 1 行のヘッダを剥がす。流すものが無ければ None。"""
+        if self._before_text:
+            if not line.strip():
+                return None
+            _, _, line = parse_talk_header(line)
+            if not line.strip():
+                return None
+        return strip_talk_header_line(line)
 
 
 @dataclass
@@ -588,7 +636,7 @@ class CharacterChatService:
         return {
             "id": message.id,
             "role": message.role,
-            "content": message.content,
+            "content": _spoken_text(message),
             "meta": _json_load(message.meta_json, {}),
             "created_at": _to_iso(message.created_at),
         }
@@ -771,7 +819,7 @@ class CharacterChatService:
             "last_message": (
                 {
                     "role": last_message.role,
-                    "content": last_message.content[:120],
+                    "content": _spoken_text(last_message)[:120],
                     "created_at": _to_iso(last_message.created_at),
                 }
                 if last_message is not None
@@ -2018,7 +2066,7 @@ class CharacterChatService:
             entries.append(
                 {
                     "role": "user" if row.role == "user" else "partner",
-                    "text": row.content,
+                    "text": _spoken_text(row),
                     "after_turn": turn,
                 }
             )
@@ -2052,7 +2100,7 @@ class CharacterChatService:
         recent_messages = [
             {
                 "role": "user" if item.role == "user" else "character",
-                "content": item.content[:300],
+                "content": _spoken_text(item)[:300],
             }
             for item in recent[-PLANNER_RECENT_MESSAGES:]
         ]
@@ -2289,7 +2337,9 @@ class CharacterChatService:
                 summary_system_prompt(language),
                 summary_user_prompt(
                     previous=thread.summary_text,
-                    messages=[{"role": m.role, "content": m.content} for m in fresh],
+                    messages=[
+                        {"role": m.role, "content": _spoken_text(m)} for m in fresh
+                    ],
                     character_name=thread.name,
                 ),
                 text_model=text_model,
@@ -2504,7 +2554,7 @@ class CharacterChatService:
                 raise
             expression = gesture = None
             if header_instruction:
-                raw_expression, raw_gesture, _ = parse_talk_header(
+                raw_expression, raw_gesture, _ = strip_talk_header_lines(
                     strip_code_fence(reply)
                 )
                 expression = normalize_avatar_expression(raw_expression)

@@ -21,7 +21,49 @@ from gateway.consts.companion_avatar import (
     normalize_avatar_expression,
     normalize_avatar_gesture,
     parse_talk_header,
+    strip_talk_header_line,
+    strip_talk_header_lines,
 )
+
+
+def test_strip_talk_header_lines_removes_headers_repeated_mid_reply() -> None:
+    """モデルが段落ごとにヘッダを繰り返しても、本文には残さない。"""
+    text = (
+        "はい、お伝えしますね。\n\n"
+        "[expression=neutral gesture=idle]\n"
+        "2026年は多極化しています。\n\n"
+        "expression=happy gesture=nod\n"
+        "[expression=sad gesture=bow] また、フィジカルAIも。"
+    )
+    expression, gesture, rest = strip_talk_header_lines(text)
+    # 先頭にヘッダが無ければ、途中で最初に見つかったヘッダを使う
+    assert (expression, gesture) == ("neutral", "idle")
+    assert rest == (
+        "はい、お伝えしますね。\n\n2026年は多極化しています。\n\nまた、フィジカルAIも。"
+    )
+
+    # 先頭のヘッダを優先する
+    assert strip_talk_header_lines(
+        "[expression=happy gesture=nod]\nやあ\n[expression=sad gesture=bow]\nまたね"
+    ) == ("happy", "nod", "やあ\nまたね")
+
+    # ラベルの無い角括弧や、セリフの中の語は剥がさない
+    plain = "[小声で] ひみつです\n表情(expression)を変えてみますね"
+    assert strip_talk_header_lines(plain) == (None, None, plain)
+
+
+def test_strip_talk_header_line() -> None:
+    assert strip_talk_header_line("[expression=happy gesture=idle]") is None
+    assert strip_talk_header_line("  expression=happy gesture=idle ") is None
+    assert strip_talk_header_line("[expression=happy gesture=idle] やあ") == "やあ"
+    assert strip_talk_header_line("[小声で] ひみつ") == "[小声で] ひみつ"
+    assert strip_talk_header_line("") == ""
+
+
+def test_header_rules_ask_for_a_single_leading_header() -> None:
+    assert "Write it only once, at the very start of the reply" in (
+        TALK_HEADER_COMMON_RULES
+    )
 
 
 def test_guides_enumerate_every_key() -> None:

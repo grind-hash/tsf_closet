@@ -1222,6 +1222,55 @@ def test_header_buffer_strips_split_header_and_passes_plain_text() -> None:
     assert english.feed("actly!") == ["Exactly!"]
 
 
+def test_header_buffer_strips_headers_repeated_before_paragraphs() -> None:
+    """段落ごとに繰り返されたヘッダも配信しない。ふつうの文は溜めずに流す。"""
+    buffer = _HeaderBuffer(enabled=True)
+    assert buffer.feed("はい、少々") == ["はい、少々"]
+    chunks = [
+        "お待ちくださいね。\n\n[expres",
+        "sion=neutral gesture=idle]\n2026年は",
+        "多極化しています。\n\nexpression=happy gesture=idle\nまた、",
+        "フィジカルAIも。",
+    ]
+    out = [piece for chunk in chunks for piece in buffer.feed(chunk)]
+    out += buffer.flush()
+    assert "".join(out) == (
+        "お待ちくださいね。\n\n2026年は多極化しています。\n\nまた、フィジカルAIも。"
+    )
+    # ラベルの無い角括弧の行は、行が確定したらそのまま流す
+    aside = _HeaderBuffer(enabled=True)
+    assert aside.feed("はい。\n[小声") == ["はい。\n"]
+    assert aside.feed("で] ひみつです\n") == ["[小声で] ひみつです\n"]
+
+
+def test_reply_history_drops_headers_left_mid_reply() -> None:
+    items = [
+        SimpleNamespace(
+            role="character",
+            content="はい。\n\n[expression=happy gesture=idle]\n本文です。",
+            meta_json=None,
+        )
+    ]
+    live2d = module._reply_history(
+        items, expressions=module.LIVE2D_EXPRESSIONS, gestures=module.LIVE2D_GESTURES
+    )
+    assert live2d == [
+        {
+            "role": "assistant",
+            "content": "[expression=happy gesture=idle]\nはい。\n\n本文です。",
+        }
+    ]
+
+
+def test_normalize_chat_reply_drops_headers_repeated_mid_reply() -> None:
+    assert (
+        normalize_chat_reply(
+            "はい。\n\n[expression=neutral gesture=idle]\n本文です。", "セレナ"
+        )
+        == "はい。\n\n本文です。"
+    )
+
+
 def test_reply_history_strips_leftover_headers_and_fills_defaults() -> None:
     items = [
         SimpleNamespace(role="user", content="怒って", meta_json=None),
@@ -1935,6 +1984,70 @@ async def test_live2d_selection_is_explicit_persisted_and_base_only(
     with pytest.raises(CharacterChatError) as caught:
         await service.set_avatar(other["id"], mode="live2d")
     assert caught.value.code == "invalid_input"
+
+
+@pytest.mark.asyncio
+async def test_stream_message_strips_headers_repeated_mid_reply(
+    service: CharacterChatService, monkeypatch
+) -> None:
+    """モデルが段落ごとにヘッダを繰り返しても、配信・保存(読み上げ)に出さない。"""
+    thread = await service.get_or_create_base_thread()
+    await service.set_avatar(thread["id"], mode="live2d")
+    fake_generate_text, _ = _llm_router()
+    monkeypatch.setattr(module.llm_service, "generate_text", fake_generate_text)
+    captured: dict = {}
+    monkeypatch.setattr(
+        module.llm_service,
+        "generate_feeling_stream",
+        _fake_stream(
+            [
+                "はい、お伝えしますね。\n\n[expression=happy ",
+                "gesture=idle]\n2026年は",
+                "多極化しています。",
+            ],
+            captured,
+        ),
+    )
+
+    events = await _collect(
+        service.stream_message(thread_id=thread["id"], content="最近の話題は？")
+    )
+
+    streamed = "".join(
+        event["data"]["chunk"] for event in events if event["event"] == "chat_chunk"
+    )
+    assert streamed == "はい、お伝えしますね。\n\n2026年は多極化しています。"
+    done = next(event for event in events if event["event"] == "chat_done")
+    message = done["data"]["character_message"]
+    assert message["content"] == "はい、お伝えしますね。\n\n2026年は多極化しています。"
+    # 先頭にヘッダが無ければ、途中の最初のヘッダを表情に使う
+    assert message["meta"]["expression"] == "happy"
+    assert "Write it only once, at the very start of the reply" in captured["system"]
+
+
+@pytest.mark.asyncio
+async def test_saved_replies_hide_leftover_expression_headers(
+    service: CharacterChatService,
+) -> None:
+    """以前に途中のヘッダごと保存された返答も、表示と一覧では剥がして渡す。"""
+    thread = await service.get_or_create_base_thread()
+    await service._persist_messages(
+        thread["id"],
+        user_text="[expression=happy gesture=idle] と打ってみた",
+        reply_text="はい。\n\n[expression=neutral gesture=idle]\n本文です。",
+        meta={},
+        user_meta=None,
+    )
+
+    detail = await service.get_thread(thread["id"])
+    assert detail["messages"][1]["content"] == "はい。\n\n本文です。"
+    # ユーザーの発言には手を入れない
+    assert (
+        detail["messages"][0]["content"]
+        == "[expression=happy gesture=idle] と打ってみた"
+    )
+    (listed,) = await service.list_threads()
+    assert listed["last_message"]["content"] == "はい。\n\n本文です。"
 
 
 @pytest.mark.asyncio
