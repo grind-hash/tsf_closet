@@ -2751,22 +2751,30 @@ button:disabled {
   font-size: 0.8rem;
 }
 
+/* 自由入力欄。内容に合わせて縦に伸び、送信ボタンは下端にそろえる */
 .adventure-freeinput {
   display: flex;
   flex: 0 0 auto;
+  align-items: flex-end;
   gap: 8px;
 }
 
+/* 伸びる上限は枠の高さの 3 割。超えた分は欄の中でスクロールし、選択肢の欄を残す */
 .adventure-freeinput__field {
   flex: 1 1 auto;
   min-width: 0;
   min-height: 36px;
-  padding: 6px 10px;
+  max-height: calc(var(--adv-story-height) * 0.3);
+  padding: 8px 10px;
   border: 1px solid #4a535c;
   border-radius: 6px;
   color: #eef2f6;
   background: #161b21;
+  font-family: inherit;
   font-size: 0.82rem;
+  line-height: 1.4;
+  resize: none;
+  overflow-y: auto;
 }
 
 .adventure-freeinput__field:focus-visible {
@@ -3346,6 +3354,11 @@ button:disabled {
   .adventure-freeinput__field,
   .adventure-freeinput__submit {
     min-height: 34px;
+  }
+
+  /* 1 行のときに 34px へ収まるよう上下の余白を詰める */
+  .adventure-freeinput__field {
+    padding-block: 7px;
   }
 
   .adventure-controls::before {

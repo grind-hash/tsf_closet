@@ -1,4 +1,5 @@
 import { useTranslation } from "react-i18next";
+import { useSubmitTextarea } from "../../hooks/useSubmitTextarea";
 
 interface AdventureFreeInputProps {
   value: string;
@@ -11,7 +12,9 @@ interface AdventureFreeInputProps {
 /**
  * 常設の自由入力欄。streaming 中も入力自体は許可し(無効化するとフォーカスが
  * 外れて次の数字キーが選択肢送信になる)、送信は呼び出し側のガードと
- * ボタンの disabled で止める。攻略対象との雑談はキャラチャットへ移動して行う。
+ * ボタンの disabled / Enter の判定で止める。攻略対象との雑談はキャラチャットへ移動して行う。
+ * 通常プレイの入力欄と同じく、内容に合わせて縦に伸びる複数行入力にする
+ * (Enter で送信、Shift+Enter で改行)。
  */
 export default function AdventureFreeInput({
   value,
@@ -21,6 +24,8 @@ export default function AdventureFreeInput({
 }: AdventureFreeInputProps) {
   const { t } = useTranslation();
   const placeholder = t("adventure.freeInput");
+  const canSubmit = value.trim() !== "" && !busy;
+  const field = useSubmitTextarea({ value, canSubmit, onSubmit });
   return (
     <form
       className="adventure-freeinput"
@@ -29,21 +34,22 @@ export default function AdventureFreeInput({
         onSubmit();
       }}
     >
-      <input
-        type="text"
+      <textarea
+        ref={field.ref}
         className="adventure-freeinput__field"
         value={value}
+        rows={1}
         maxLength={1000}
         onChange={(event) => onChange(event.target.value)}
+        onKeyDown={field.onKeyDown}
         placeholder={placeholder}
         aria-label={placeholder}
         title={t("adventure.freeInputHint")}
-        enterKeyHint="send"
       />
       <button
         type="submit"
         className="adventure-freeinput__submit"
-        disabled={!value.trim() || busy}
+        disabled={!canSubmit}
       >
         {t("adventure.send")}
       </button>

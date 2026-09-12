@@ -1,6 +1,6 @@
-import { type KeyboardEvent, useLayoutEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import type { SpeechInputErrorCode } from "../../hooks/useSpeechInput";
+import { useSubmitTextarea } from "../../hooks/useSubmitTextarea";
 
 export interface CharacterChatInputSpeech {
   supported: boolean;
@@ -23,7 +23,7 @@ interface CharacterChatInputProps {
 
 /**
  * メッセージ窓の下端の入力欄。通常プレイの入力欄と同じく、内容に合わせて縦に伸びる
- * 複数行入力にする(上限は CSS の max-height、超えた分は欄の中でスクロール)。
+ * 複数行入力にする(Enter で送信、Shift+Enter で改行)。
  */
 export default function CharacterChatInput({
   value,
@@ -35,36 +35,8 @@ export default function CharacterChatInput({
 }: CharacterChatInputProps) {
   const { t } = useTranslation();
   const placeholder = t("characterChat.input.placeholder", { name });
-  const fieldRef = useRef<HTMLTextAreaElement>(null);
   const canSubmit = value.trim() !== "" && !busy;
-
-  // 音声入力や送信後のクリアで値が変わったときも高さを合わせる
-  useLayoutEffect(() => {
-    const field = fieldRef.current;
-    if (!field) return;
-    // value の変更をトリガーに高さを再計算する
-    void value;
-    field.style.height = "auto";
-    // 窓を隠している間(display: none)は測れないため、1 行の高さのままにする
-    if (field.scrollHeight === 0) return;
-    // box-sizing: border-box なので、内容の高さに上下の枠線を足す
-    field.style.height = `${field.scrollHeight + field.offsetHeight - field.clientHeight}px`;
-  }, [value]);
-
-  // Enter で送信、Shift+Enter で改行。変換中の Enter は確定に使う。
-  // タッチ端末(pointer: coarse)では通常プレイの入力欄と同じく Enter を改行にする
-  const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (
-      event.key !== "Enter" ||
-      event.shiftKey ||
-      event.nativeEvent.isComposing ||
-      !window.matchMedia("(pointer: fine)").matches
-    ) {
-      return;
-    }
-    event.preventDefault();
-    if (canSubmit) onSubmit();
-  };
+  const field = useSubmitTextarea({ value, canSubmit, onSubmit });
 
   return (
     <div className="character-chat__input-wrap">
@@ -76,13 +48,13 @@ export default function CharacterChatInput({
         }}
       >
         <textarea
-          ref={fieldRef}
+          ref={field.ref}
           className="character-chat__input-field"
           value={value}
           rows={1}
           maxLength={1000}
           onChange={(event) => onChange(event.target.value)}
-          onKeyDown={handleKeyDown}
+          onKeyDown={field.onKeyDown}
           placeholder={placeholder}
           aria-label={placeholder}
           title={t("characterChat.input.hint")}

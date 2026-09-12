@@ -550,7 +550,7 @@ export const adventure = {
   },
   freeInput: "Enter an action or dialogue",
   freeInputHint:
-    'Type any action or line of dialogue. Starting with "reality: " registers a world rule that applies to every later judgement.',
+    'Type any action or line of dialogue. Starting with "reality: " registers a world rule that applies to every later judgement. Press Enter to send, Shift+Enter for a new line.',
   send: "Send",
   regenerateImage: "Regenerate the current scene image",
   regenerateChoices: "Regenerate choices",

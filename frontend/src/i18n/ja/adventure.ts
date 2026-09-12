@@ -555,7 +555,7 @@ export const adventure = {
   },
   freeInput: "行動や会話を自由に入力",
   freeInputHint:
-    "行動や会話をそのまま入力できます。「現実改変：〜」で始めると、以降のすべての判定に適用される世界ルールとして登録されます。",
+    "行動や会話をそのまま入力できます。「現実改変：〜」で始めると、以降のすべての判定に適用される世界ルールとして登録されます。Enter で送信、Shift+Enter で改行します。",
   send: "送信",
   regenerateImage: "現在の場面画像を再生成",
   regenerateChoices: "選択肢を再生成",
