@@ -160,7 +160,7 @@ export const characterChat = {
   input: {
     placeholder: "{{name}}に話しかける",
     send: "送信",
-    hint: "Enter で送信",
+    hint: "Enter で送信、Shift+Enter で改行",
   },
   panel: {
     title: "メモリと情報",

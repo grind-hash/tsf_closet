@@ -161,7 +161,7 @@ export const characterChat = {
   input: {
     placeholder: "Say something to {{name}}",
     send: "Send",
-    hint: "Press Enter to send",
+    hint: "Press Enter to send, Shift+Enter for a new line",
   },
   panel: {
     title: "Memory and info",

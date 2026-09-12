@@ -543,6 +543,11 @@
   left: var(--cc-box-inset);
   z-index: 5;
   display: grid;
+  /*
+   * 列は minmax(0, 1fr) で窓の幅に固定する。既定の auto 列だと、折り返さない自分の発言
+   * (あなた「…」)の全文幅まで列が広がり、入力欄や送信ボタンが窓の外へ押し出される
+   */
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 6px;
   height: var(--cc-box-height);
@@ -688,7 +693,9 @@
   margin-top: 2px;
 }
 
+/* 複数行に伸びる入力欄は窓の高さの 4 割までにして、返答の欄を残す */
 .character-chat-room .character-chat__input-field {
+  max-height: calc(var(--cc-box-height) * 0.4);
   background-color: rgb(0 0 0 / 35%);
   border-color: #4a535c;
 }
@@ -980,11 +987,11 @@
   }
 }
 
-/* 入力欄 */
+/* 入力欄。内容に合わせて縦に伸び、ボタンは下端にそろえる */
 .character-chat__input {
   display: flex;
   gap: 0.5rem;
-  align-items: center;
+  align-items: flex-end;
 }
 
 .character-chat__input-field {
@@ -995,7 +1002,11 @@
   border: 1px solid var(--border-color, #444);
   background-color: rgba(0, 0, 0, 0.25);
   color: inherit;
+  font-family: inherit;
   font-size: 0.95rem;
+  line-height: 1.4;
+  resize: none;
+  overflow-y: auto;
 }
 
 .character-chat__send,
@@ -1195,8 +1206,10 @@
     gap: 0.4rem;
   }
 
+  /* 送信ボタンの段がある分、入力欄の伸びる上限を下げる */
   .character-chat-room .character-chat__input-field {
     flex: 1 1 100%;
+    max-height: calc(var(--cc-box-height) * 0.3);
     padding: 0.5rem 0.6rem;
     font-size: 0.9rem;
   }
