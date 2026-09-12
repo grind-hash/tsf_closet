@@ -124,7 +124,11 @@ APP_OVERVIEW = {
         "- メモリ: 過去のプレイから好みの傾向を要約したユーザーメモリ(設定画面で生成・編集)。\n"
         "- 設定: 難易度・NSFW・言語・画像/テキストのプロバイダ・読み上げなど。\n"
         "- キャラチャット: いまの会話。過去セッションの人物とも話せる。姿は過去の画像から選べ、"
-        "着替えを頼むと立ち絵が変わる。"
+        "着替えを頼むと立ち絵が変わる。\n"
+        "- おすすめのプレイ: 頼まれると、プレイ記録とメモリをもとに通常プレイの提案カード"
+        "(キャラクター・テーマ・最初の指示)を返答の下に出せる。カードのボタンで新しいプレイが"
+        "始まり、最初の指示は入力欄に入る(送信は相手が行う)。この会話の「おすすめのプレイを"
+        "聞く」ボタンからも頼める。カードは提案を用意できた返答にだけ付く。"
     ),
     "en": (
         "Main features of TSF Closet:\n"
@@ -140,9 +144,34 @@ APP_OVERVIEW = {
         "- Settings: difficulty, NSFW, language, image/text providers, speech, etc.\n"
         "- Character chat: this conversation. You can also talk with a character from a "
         "past session, choose the appearance from past images, and ask for a change of "
-        "clothes to redraw the portrait."
+        "clothes to redraw the portrait.\n"
+        "- Recommended play: when asked, you can show a normal-play proposal card "
+        "(character, theme and first instruction) under your reply, based on the user's "
+        "play records and memory. Its button starts a new play and puts the first "
+        "instruction into the input box (the user sends it). The user can also ask with "
+        "the recommended-play button in this chat. A card appears only on replies where "
+        "a proposal was prepared."
     ),
 }
+
+# おすすめのプレイ(案内役キャラの提案カード)。保存形は kind で種類を分け、後から
+# TSF シナリオの提案を足せるようにする
+PLAY_PROPOSAL_KIND = "play"
+# 最初の指示に使える指示タイプ(画像のみは提案しない)
+PLAY_PROPOSAL_INSTRUCTION_TYPES = (
+    "dress_up",
+    "reality_alter",
+    "action",
+    "conversation",
+)
+PLAY_PROPOSAL_TITLE_MAX = 40
+PLAY_PROPOSAL_REASON_MAX = 160
+# 通常プレイの指示の上限(500)より短くする
+PLAY_PROPOSAL_INSTRUCTION_MAX = 200
+# 提案の候補に載せる作成済みキャラの件数(新しい順)
+PLAY_PROPOSAL_CUSTOM_MAX = 12
+# 提案の根拠に読む最近のセッションの件数
+PLAY_PROPOSAL_RECENT_SESSIONS = 5
 
 # プロンプト予算・上限
 MESSAGE_MAX = 1000

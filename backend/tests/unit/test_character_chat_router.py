@@ -112,7 +112,8 @@ def test_message_rejects_empty_content(client: TestClient) -> None:
 def test_message_stream_forwards_real_world_flags(
     client: TestClient, monkeypatch
 ) -> None:
-    """設定画面のトグル(Web 検索・天気)を送信ごとにサービスへ渡す。省略時は OFF。"""
+    """設定画面のトグル(Web 検索・天気)と、おすすめのプレイの依頼を送信ごとに
+    サービスへ渡す。省略時は OFF。"""
     received: list[dict] = []
 
     async def fake_stream(*, thread_id, content, **kwargs):
@@ -122,15 +123,32 @@ def test_message_stream_forwards_real_world_flags(
     monkeypatch.setattr(
         router_module.character_chat_service, "stream_message", fake_stream
     )
-    for body in ({"content": "やあ"}, {"content": "やあ", "use_web_search": True}):
+    for body in (
+        {"content": "やあ"},
+        {"content": "やあ", "use_web_search": True},
+        {"content": "おすすめのプレイを教えて", "request_play_proposal": True},
+    ):
         with client.stream(
             "POST", "/api/character-chat/threads/t1/messages/stream", json=body
         ) as response:
             assert response.status_code == 200
             "".join(response.iter_text())
     assert received == [
-        {"use_web_search": False, "use_weather": False},
-        {"use_web_search": True, "use_weather": False},
+        {
+            "use_web_search": False,
+            "use_weather": False,
+            "request_play_proposal": False,
+        },
+        {
+            "use_web_search": True,
+            "use_weather": False,
+            "request_play_proposal": False,
+        },
+        {
+            "use_web_search": False,
+            "use_weather": False,
+            "request_play_proposal": True,
+        },
     ]
 
 

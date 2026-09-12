@@ -145,6 +145,28 @@ describe("streamCharacterChatMessage", () => {
     });
   });
 
+  it("sends the play proposal request flag and passes the propose phase through", async () => {
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        sseResponse(
+          'event: status\ndata: {"phase":"propose"}\n\nevent: complete\ndata: {}\n\n',
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const events: CharacterChatStreamEvent[] = [];
+    await streamCharacterChatMessage(
+      "t1",
+      { content: "おすすめのプレイを教えて", request_play_proposal: true },
+      (event) => events.push(event),
+    );
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toEqual({
+      content: "おすすめのプレイを教えて",
+      request_play_proposal: true,
+    });
+    expect(events[0]).toEqual({ type: "status", data: { phase: "propose" } });
+  });
+
   it("throws an ApiError on a non-2xx response", async () => {
     vi.stubGlobal(
       "fetch",

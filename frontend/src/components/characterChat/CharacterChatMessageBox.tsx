@@ -7,7 +7,9 @@ import type {
 } from "../../apis/characterChat";
 import type { TranslationKey } from "../../i18n";
 import CharacterChatCitations from "./CharacterChatCitations";
+import CharacterChatPlayProposalCard from "./CharacterChatPlayProposalCard";
 import { toLookupCitations } from "./lookupCitations";
+import { toPlayProposal } from "./playProposal";
 
 export interface CharacterChatMessageBoxVoice {
   canSpeak: boolean;
@@ -53,6 +55,7 @@ export default function CharacterChatMessageBox({
   const userLine = streaming ? pendingInput : (latestUser?.content ?? null);
   const bodyText = streaming ? draft : (latestReply?.content ?? "");
   const citations = toLookupCitations(latestReply?.meta);
+  const proposal = streaming ? null : toPlayProposal(latestReply?.meta);
   const phaseKey: TranslationKey | null =
     phase === "idle" ? null : `characterChat.thread.phase.${phase}`;
   const showProgress =
@@ -109,6 +112,7 @@ export default function CharacterChatMessageBox({
             </p>
           )
         )}
+        {proposal && <CharacterChatPlayProposalCard proposal={proposal} />}
         {!streaming && latestReply && (
           <CharacterChatCitations citations={citations} />
         )}

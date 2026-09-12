@@ -16,6 +16,9 @@ from ..consts.character_chat import (
     APP_OVERVIEW,
     BASE_CHARACTER_PERSONA,
     LOOKUP_KINDS,
+    PLAY_PROPOSAL_INSTRUCTION_MAX,
+    PLAY_PROPOSAL_REASON_MAX,
+    PLAY_PROPOSAL_TITLE_MAX,
     REAL_WORLD_LOOKUP_KINDS,
     SUMMARY_MAX_CHARS,
 )
@@ -126,15 +129,16 @@ def planner_system_prompt(
         "You are the retrieval planner for a character chat inside a dress-up / TSF "
         "game app. Before the character answers, decide whether the character should "
         f"look something up {look_up_what}, whether the user asked the "
-        "character to change their appearance, and whether the guide character's hidden "
-        "origin was invoked. Output JSON only, no prose, no code fence.\n\n"
+        "character to change their appearance, whether the guide character's hidden "
+        "origin was invoked, and whether the user asked the guide character to "
+        "recommend a play. Output JSON only, no prose, no code fence.\n\n"
         "Available lookups:\n"
         f"{lookups}\n\n"
         "Output schema:\n"
         '{"lookups": [{"kind": "<kind>", "query": "<keywords or null>", '
         '"session_id": "<id from session_candidates or null>", "limit": <1-10>}], '
         '"appearance_request": "<the requested change in the user\'s own words, or null>", '
-        '"origin_lore": <true|false>}\n\n'
+        '"origin_lore": <true|false>, "play_proposal": <true|false>}\n\n'
         "Rules:\n"
         f"- Choose {choose} ONLY when the latest user message asks about, or clearly "
         "benefits from, the user's past sessions, scenarios, tendencies, statistics or a "
@@ -162,6 +166,13 @@ def planner_system_prompt(
         "triggers: the character's own name alone, ordinary questions about her, and "
         '"イツキ" / "ユキ" / "Itsuki" / "Yuki" used as the user\'s own name, another '
         "person's name or a session character's name.\n"
+        '- play_proposal: true ONLY when character_kind is "base" AND the latest user '
+        "message asks the character to recommend or suggest what to play next in this "
+        "app, or asks for a play idea (e.g. '何かおすすめある？', '次は何して遊べばいい？', "
+        "'おすすめのプレイを教えて', 'suggest something to play'), including a request for "
+        "a different proposal right after one. Otherwise false: questions about how a "
+        "feature works, questions about past play, requests to recommend a TSF scenario, "
+        "and small talk.\n"
         f"- The conversation language is {'Japanese' if _lang(language) == 'ja' else 'English'}."
     )
 
@@ -580,6 +591,173 @@ def origin_lore_block(lore_text: str, language: str) -> str:
     )
 
 
+# ---------------------------------------------------------------------------
+# おすすめのプレイ(案内役キャラの提案カード)
+# ---------------------------------------------------------------------------
+
+_PROPOSAL_TYPE_LABELS = {
+    "ja": {
+        "dress_up": "着せ替え",
+        "reality_alter": "現実改変",
+        "action": "行動",
+        "conversation": "会話",
+    },
+    "en": {
+        "dress_up": "dress-up",
+        "reality_alter": "reality alteration",
+        "action": "action",
+        "conversation": "conversation",
+    },
+}
+
+
+def play_proposal_system_prompt(
+    language: str, *, nsfw_mode: bool, self_mode_available: bool
+) -> str:
+    """おすすめのプレイを 1 件作らせる system prompt。JSON だけを返させる。
+
+    判定 LLM・着替え LLM と取り違えないよう "retrieval planner" / "appearance tags" の
+    語は含めない。
+    """
+    self_mode_rule = (
+        "- self_mode: true makes the user play as themself (their own personality in "
+        "self_profile) with the chosen character's look. Set it only when self_profile "
+        "fits the idea; otherwise false.\n"
+        if self_mode_available
+        else "- self_mode: always false (the user has no personality profile).\n"
+    )
+    content_rule = (
+        ""
+        if nsfw_mode
+        else "- Keep everything non-explicit: no nudity, sexual acts or fetish content.\n"
+    )
+    language_name = "Japanese" if _lang(language) == "ja" else "English"
+    return (
+        "You are the play proposal planner for TSF Closet, a dress-up / TSF (gender "
+        "transformation) game app. The guide character is about to recommend one play "
+        "to the user: choose one character from characters and write the first "
+        "instruction the user will send when the play starts. Output JSON only, no "
+        "prose, no code fence.\n\n"
+        "How a play works: the user picks a character and sends instructions one at a "
+        "time. Each instruction produces an image and the character's inner monologue, "
+        "and the character's feelings change as the play goes on.\n"
+        "Instruction types:\n"
+        '- "dress_up": change the character\'s clothes, hairstyle or look.\n'
+        '- "reality_alter": rewrite reality so that something becomes true and '
+        "everyone accepts it (e.g. the character has always been a girl).\n"
+        '- "action": have the character do something or go somewhere.\n'
+        '- "conversation": talk with the character.\n\n'
+        "Output schema:\n"
+        f'{{"title": "<a short theme, at most {PLAY_PROPOSAL_TITLE_MAX} characters>", '
+        f'"reason": "<why this fits the user, at most {PLAY_PROPOSAL_REASON_MAX} '
+        'characters>", "character_ref": "<a ref copied from characters>", '
+        '"self_mode": <true|false>, "instruction_type": '
+        '"<dress_up|reality_alter|action|conversation>", "instruction": "<the first '
+        f'instruction, at most {PLAY_PROPOSAL_INSTRUCTION_MAX} characters>"}}\n\n'
+        "Rules:\n"
+        "- character_ref: copy one ref exactly from characters. Never invent a "
+        "character.\n"
+        f"{self_mode_rule}"
+        "- instruction: one concrete instruction of one or two sentences that the user "
+        "can send as is, matching instruction_type. It is only the first step; do not "
+        "list several steps.\n"
+        "- reason: ground it only in play_records and user_memory and never invent past "
+        "play. When there are no records, propose an easy first play and say that there "
+        "are no records yet.\n"
+        "- Prefer something related to what the user enjoyed but different from their "
+        "most recent play, so that it feels fresh. If the latest user message states a "
+        "wish (a character, an outfit, a mood), follow it.\n"
+        f"{content_rule}"
+        "- Never involve minors in romantic or sexual situations.\n"
+        f"- Write title, reason and instruction in {language_name}."
+    )
+
+
+def play_proposal_user_prompt(
+    *,
+    characters: list[dict[str, str]],
+    self_profile: dict[str, Any] | None,
+    play_records: str,
+    memory_text: str | None,
+    recent_messages: list[dict[str, str]],
+    message: str,
+) -> str:
+    """提案 LLM への入力。self_profile は自分自身モードを提案できるときだけ渡す。"""
+    payload: dict[str, Any] = {
+        "characters": characters,
+        "self_mode_available": self_profile is not None,
+    }
+    if self_profile is not None:
+        payload["self_profile"] = self_profile
+    payload["play_records"] = str(play_records or "").strip() or "(no records)"
+    memory = str(memory_text or "").strip()
+    if memory:
+        payload["user_memory"] = memory
+    payload["recent_messages"] = recent_messages
+    payload["latest_user_message"] = message
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def play_proposal_block(proposal: dict[str, Any], language: str) -> str:
+    """提案カードを出す手番に、カードの中身と紹介の仕方を伝える枠。"""
+    lang = _lang(language)
+    character = proposal.get("character") or {}
+    first = proposal.get("first_instruction") or {}
+    kind = str(first.get("instruction_type") or "")
+    type_label = _PROPOSAL_TYPE_LABELS[lang].get(kind, kind)
+    name = str(character.get("name") or "")
+    if lang == "en":
+        if proposal.get("self_mode"):
+            name += " (self mode: the user plays as themself)"
+        return (
+            "[Recommended play card]\n"
+            "A card with this proposal is shown under your reply. Its button starts a "
+            "new play with this character and puts the first instruction into the input "
+            "box; the user sends it.\n"
+            f"- Theme: {proposal.get('title', '')}\n"
+            f"- Character: {name}\n"
+            f"- First instruction ({type_label}): {first.get('text', '')}\n"
+            f"- Why: {proposal.get('reason', '')}\n"
+            "Recommend it briefly in your own words. Do not contradict the card and do "
+            "not read the instruction out word for word. You may mention the button "
+            "under your reply once."
+        )
+    if proposal.get("self_mode"):
+        name += "(自分自身モード)"
+    return (
+        "[おすすめのプレイ(提案カード)]\n"
+        "この返答の下に、次の提案がカードとして表示されます。カードのボタンを押すと、"
+        "このキャラクターで新しいプレイが始まり、最初の指示が入力欄に入ります(送信は"
+        "相手が行います)。\n"
+        f"- テーマ: {proposal.get('title', '')}\n"
+        f"- キャラクター: {name}\n"
+        f"- 最初の指示({type_label}): {first.get('text', '')}\n"
+        f"- おすすめの理由: {proposal.get('reason', '')}\n"
+        "この提案を、あなた自身の言葉で短く勧めてください。カードと食い違うことは言わず、"
+        "指示文を一字一句読み上げないでください。ボタンから始められることに一度触れても"
+        "かまいません。"
+    )
+
+
+def play_proposal_unavailable_block(language: str) -> str:
+    """提案を求められたがカードを用意できなかった手番の枠。カードがあると言わせない。"""
+    if _lang(language) == "en":
+        return (
+            "[Recommended play]\n"
+            "The user asked for a play recommendation, but no proposal card could be "
+            "prepared this time. Never say that a card is shown or that a button can "
+            "start a play. Apologize briefly and ask them to try again in a moment; you "
+            "may add one idea in words."
+        )
+    return (
+        "[おすすめのプレイ]\n"
+        "相手はおすすめのプレイを求めていますが、今回は提案カードを用意できませんでした。"
+        "カードを表示した、ボタンで始められる、とは言わないでください。短く謝り、少し"
+        "時間をおいてもう一度頼んでほしいと伝えてください。言葉でアイデアを 1 つ添えても"
+        "かまいません。"
+    )
+
+
 def reply_system_prompt(
     language: str,
     *,
@@ -597,6 +775,7 @@ def reply_system_prompt(
     current_time_text: str = "",
     real_world_block_text: str = "",
     search_refusal_text: str = "",
+    play_proposal_text: str = "",
 ) -> str:
     """返答本文の system prompt。
 
@@ -606,6 +785,8 @@ def reply_system_prompt(
     current_time_text / real_world_block_text は案内役キャラだけが受け取る、いまの日時と
     Web 検索・天気の結果。過去プレイの調べ物の後ろに置く。search_refusal_text は
     Web 検索を利用規約で見送った手番の説明(同じく案内役キャラだけ)。
+    play_proposal_text は案内役キャラのおすすめのプレイの枠(カードの中身、または
+    用意できなかったこと)。会話のルールより前に置く。
     """
     lang = _lang(language)
     sections: list[str] = [persona_block]
@@ -633,6 +814,8 @@ def reply_system_prompt(
         sections.append(real_world_block_text)
     if search_refusal_text:
         sections.append(search_refusal_text)
+    if play_proposal_text:
+        sections.append(play_proposal_text)
     if appearance_change_request:
         sections.append(
             (

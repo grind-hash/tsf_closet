@@ -178,3 +178,10 @@ class CustomStartRequest(BaseModel):
     gender: str = Field("other", description="性別 (man/woman/other)")
     base_tags: str = Field("", description="Danbooru形式の外見タグ (英語)")
     self_mode: bool = Field(False, description="自分自身モード")
+    use_saved_profile: bool = Field(
+        False,
+        description=(
+            "custom_character_id の保存済み人物設定を使う（name などの値は無視する）。"
+            "見つからなければセッションをリセットせずに 400 を返す"
+        ),
+    )

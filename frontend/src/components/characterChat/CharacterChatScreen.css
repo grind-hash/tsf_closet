@@ -567,6 +567,14 @@
   backdrop-filter: blur(6px);
 }
 
+/*
+ * おすすめのプレイの提案カードが出ている間は、カードが収まるよう窓を高くする。
+ * 立ち絵の位置と高さも同じ変数から決まるため、窓に合わせて上へ寄る
+ */
+.character-chat-room--with-proposal {
+  --cc-box-height: clamp(300px, 46vh, 460px);
+}
+
 /* 窓の操作(ログ・隠す)。話者名の行の右端にまとめる */
 .character-chat-room__window-actions {
   flex-shrink: 0;
@@ -902,6 +910,143 @@
   word-break: break-word;
 }
 
+/*
+ * おすすめのプレイの提案。引用と同じく左罫線と薄い背景で本文と分け、
+ * 開始ボタンはカードの下端に全幅で置く。文言は省略せず全文を折り返す
+ */
+.character-chat__proposal {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 0.6rem;
+  padding: 0.6rem 0.8rem 0.7rem;
+  border-left: 2px solid rgba(239, 184, 90, 0.55);
+  border-radius: 0 8px 8px 0;
+  background-color: rgba(255, 255, 255, 0.04);
+  font-size: 0.85rem;
+  line-height: 1.6;
+  color: #c8ced4;
+}
+
+.character-chat__proposal-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #efb85a;
+}
+
+.character-chat__proposal-title {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.5;
+  color: #fff;
+  word-break: break-word;
+}
+
+.character-chat__proposal .character-chat__proposal-reason,
+.character-chat__proposal .character-chat__proposal-note,
+.character-chat__proposal .character-chat__proposal-error {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.character-chat__proposal-reason {
+  color: #b8c0c8;
+}
+
+.character-chat__proposal-rows {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.3rem 0.75rem;
+  margin: 0;
+}
+
+.character-chat__proposal-rows dt {
+  color: #9aa4ae;
+  white-space: nowrap;
+}
+
+.character-chat__proposal-rows dd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.5rem;
+  min-width: 0;
+  margin: 0;
+  word-break: break-word;
+}
+
+.character-chat__proposal-instruction {
+  white-space: pre-wrap;
+}
+
+.character-chat__proposal-note {
+  font-size: 0.78rem;
+  color: #9aa4ae;
+}
+
+.character-chat__proposal-error {
+  font-size: 0.8rem;
+  color: #ff9ec7;
+}
+
+/* 開始ボタンはカードの下端に全幅。準備中は文言をスピナー付きの進捗に差し替える */
+.character-chat__primary.character-chat__proposal-start {
+  align-self: stretch;
+  width: 100%;
+  margin-top: 0.2rem;
+}
+
+.character-chat__primary.character-chat__proposal-start.is-starting:disabled {
+  opacity: 0.85;
+  cursor: progress;
+}
+
+.character-chat__proposal-start .character-chat__progress {
+  color: inherit;
+  font-size: inherit;
+}
+
+.character-chat__proposal-start .character-chat__progress > span:first-child {
+  border-color: currentColor;
+  border-right-color: transparent;
+}
+
+/* 入力欄のすぐ上の段(案内役の「おすすめのプレイを聞く」) */
+.character-chat__input-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.4rem;
+}
+
+.character-chat__proposal-chip {
+  min-height: 30px;
+  padding: 0.25rem 0.8rem;
+  border: 1px solid rgba(239, 184, 90, 0.55);
+  border-radius: 999px;
+  background-color: rgba(239, 184, 90, 0.08);
+  color: #efb85a;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.character-chat__proposal-chip:hover:not(:disabled) {
+  border-color: #efb85a;
+  color: #fff;
+}
+
+.character-chat__proposal-chip:focus-visible {
+  outline: 2px solid #efb85a;
+  outline-offset: 2px;
+}
+
+.character-chat__proposal-chip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .character-chat__badge {
   padding: 0.05rem 0.5rem;
   border-radius: 999px;
@@ -1183,6 +1328,10 @@
   .character-chat-room {
     --cc-box-height: clamp(190px, 34vh, 280px);
     --cc-box-inset: 6px;
+  }
+
+  .character-chat-room.character-chat-room--with-proposal {
+    --cc-box-height: clamp(260px, 52vh, 420px);
   }
 
   .character-chat-room__topbar {

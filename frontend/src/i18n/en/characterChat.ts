@@ -134,6 +134,7 @@ export const characterChat = {
     phase: {
       plan: "Checking memories...",
       search: "Looking up current information...",
+      propose: "Thinking of a play to recommend...",
       reply: "Thinking about a reply...",
       portrait: "Redrawing the portrait...",
       memory: "Organizing the conversation...",
@@ -162,6 +163,23 @@ export const characterChat = {
     placeholder: "Say something to {{name}}",
     send: "Send",
     hint: "Press Enter to send, Shift+Enter for a new line",
+  },
+  proposal: {
+    chip: "Ask for a recommended play",
+    chipHint:
+      "Serena suggests one play to try next, based on your tastes and past play.",
+    requestMessage: "What play would you recommend?",
+    label: "Recommended play",
+    character: "Character",
+    selfMode: "Self Mode",
+    firstInstruction: "First instruction",
+    startNote:
+      "Starting puts the first instruction in the input box. Check it before sending.",
+    start: "Start playing with this character",
+    starting: "Preparing the play...",
+    startFailed: "Could not start the play.",
+    selfProfileMissing:
+      "Character settings for Self Mode are not configured yet, so this cannot start. Please set them up in settings first.",
   },
   panel: {
     title: "Memory and info",

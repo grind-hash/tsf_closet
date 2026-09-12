@@ -133,6 +133,7 @@ export const characterChat = {
     phase: {
       plan: "記憶を確認しています...",
       search: "最新の情報を調べています...",
+      propose: "おすすめのプレイを考えています...",
       reply: "返事を考えています...",
       portrait: "立ち絵を描き直しています...",
       memory: "会話を整理しています...",
@@ -161,6 +162,23 @@ export const characterChat = {
     placeholder: "{{name}}に話しかける",
     send: "送信",
     hint: "Enter で送信、Shift+Enter で改行",
+  },
+  proposal: {
+    chip: "おすすめのプレイを聞く",
+    chipHint:
+      "セレナが、あなたの好みや過去のプレイから、次に遊ぶプレイを1つ提案します。",
+    requestMessage: "おすすめのプレイを教えて",
+    label: "おすすめのプレイ",
+    character: "キャラクター",
+    selfMode: "自分自身モード",
+    firstInstruction: "最初の指示",
+    startNote:
+      "開始すると最初の指示が入力欄に入ります。確認してから送信してください。",
+    start: "このキャラクターでプレイを始める",
+    starting: "プレイを準備しています...",
+    startFailed: "プレイを開始できませんでした。",
+    selfProfileMissing:
+      "自分自身モードのキャラ設定が未登録のため始められません。先に設定画面で登録してください。",
   },
   panel: {
     title: "メモリと情報",

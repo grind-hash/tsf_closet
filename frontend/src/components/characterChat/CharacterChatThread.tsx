@@ -7,7 +7,9 @@ import type {
 } from "../../apis/characterChat";
 import type { TranslationKey } from "../../i18n";
 import CharacterChatCitations from "./CharacterChatCitations";
+import CharacterChatPlayProposalCard from "./CharacterChatPlayProposalCard";
 import { toLookupCitations } from "./lookupCitations";
+import { toPlayProposal } from "./playProposal";
 
 export interface CharacterChatThreadVoice {
   canSpeak: boolean;
@@ -55,6 +57,8 @@ export default function CharacterChatThread({
       {messages.map((message) => {
         const citations =
           message.role === "character" ? toLookupCitations(message.meta) : [];
+        const proposal =
+          message.role === "character" ? toPlayProposal(message.meta) : null;
         const replaying = voice.activeMessageId === message.id;
         return (
           <div
@@ -90,6 +94,7 @@ export default function CharacterChatThread({
                 🔊
               </button>
             )}
+            {proposal && <CharacterChatPlayProposalCard proposal={proposal} />}
           </div>
         );
       })}

@@ -103,8 +103,18 @@ from .character_chat_lookups import (
 from .character_chat_models import (
     CharacterChatAppearanceOutput,
     CharacterChatPlan,
+    CharacterChatPlayProposal,
     empty_plan,
     non_english_tag_parts,
+)
+from .character_chat_play_proposal import (
+    PlayProposalOutcome,
+    build_play_catalog,
+    catalog_names,
+    catalog_prompt_items,
+    grounding_plan,
+    play_proposal_meta,
+    self_profile_hint,
 )
 from .character_chat_prompts import (
     adventure_persona_prompt,
@@ -117,6 +127,10 @@ from .character_chat_prompts import (
     origin_lore_block,
     planner_system_prompt,
     planner_user_prompt,
+    play_proposal_block,
+    play_proposal_system_prompt,
+    play_proposal_unavailable_block,
+    play_proposal_user_prompt,
     real_world_block,
     reply_system_prompt,
     session_persona_block,
@@ -243,6 +257,19 @@ def _spoken_text(message: Any) -> str:
     if message.role == "user":
         return message.content
     return strip_talk_header_lines(message.content)[2].strip()
+
+
+def _planner_recent_messages(
+    recent: list[CharacterChatMessage],
+) -> list[dict[str, str]]:
+    """判定 LLM・提案 LLM に渡す直近の会話(話し言葉だけ、1 件 300 文字まで)。"""
+    return [
+        {
+            "role": "user" if item.role == "user" else "character",
+            "content": _spoken_text(item)[:300],
+        }
+        for item in recent[-PLANNER_RECENT_MESSAGES:]
+    ]
 
 
 def _reply_history(
@@ -2097,13 +2124,7 @@ class CharacterChatService:
                 exc,
             )
             candidates = []
-        recent_messages = [
-            {
-                "role": "user" if item.role == "user" else "character",
-                "content": _spoken_text(item)[:300],
-            }
-            for item in recent[-PLANNER_RECENT_MESSAGES:]
-        ]
+        recent_messages = _planner_recent_messages(recent)
         try:
             return await generate_validated(
                 CharacterChatPlan,
@@ -2134,6 +2155,107 @@ class CharacterChatService:
                 exc,
             )
             return empty_plan()
+
+    async def _propose_play(
+        self,
+        *,
+        language: str,
+        text_model: str | None,
+        nsfw_mode: bool,
+        memory_text: str | None,
+        recent: list[CharacterChatMessage],
+        message: str,
+        lookups: LookupRun,
+    ) -> PlayProposalOutcome:
+        """おすすめのプレイを 1 件作る。失敗しても返答は止めず、カードの無い結果に倒す。
+
+        根拠には判定 LLM がすでに調べた本文に加えて、傾向と最近のセッションを読む。
+        生成は返答と同じ設定プロバイダー(_generate_text)で行い、料金も同じ集計に載せる。
+        """
+        try:
+            catalog = build_play_catalog()
+        except Exception as exc:
+            logger.warning(
+                "character chat play catalog failed: %s: %s", type(exc).__name__, exc
+            )
+            catalog = {}
+        if not catalog:
+            logger.warning("character chat play proposal skipped: no characters")
+            return PlayProposalOutcome(
+                meta=None, reply_block=play_proposal_unavailable_block(language)
+            )
+        try:
+            profile_hint = self_profile_hint(await settings_service.get_self_profile())
+        except Exception as exc:
+            logger.warning(
+                "character chat self profile for play proposal failed: %s: %s",
+                type(exc).__name__,
+                exc,
+            )
+            profile_hint = None
+        self_mode_available = profile_hint is not None
+        already_run = {str(item.get("kind")) for item in lookups.details}
+        try:
+            grounding = await run_lookups(
+                grounding_plan(already_run), language=language
+            )
+        except Exception as exc:
+            logger.warning(
+                "character chat play proposal lookups failed: %s: %s",
+                type(exc).__name__,
+                exc,
+            )
+            grounding = LookupRun()
+        try:
+            proposal = await generate_validated(
+                CharacterChatPlayProposal,
+                generate=lambda system, user: _generate_text(
+                    system, user, text_model=text_model
+                ),
+                system_prompt=play_proposal_system_prompt(
+                    language,
+                    nsfw_mode=nsfw_mode,
+                    self_mode_available=self_mode_available,
+                ),
+                user_prompt=play_proposal_user_prompt(
+                    characters=catalog_prompt_items(catalog),
+                    self_profile=profile_hint,
+                    play_records="\n\n".join(
+                        text for text in (lookups.text, grounding.text) if text
+                    ),
+                    memory_text=memory_text,
+                    recent_messages=_planner_recent_messages(recent),
+                    message=message,
+                ),
+                context={
+                    "catalog": catalog_names(catalog),
+                    "self_mode_available": self_mode_available,
+                },
+            )
+        except (StructuredOutputError, Exception) as exc:
+            logger.warning(
+                "character chat play proposal failed: %s: %s", type(exc).__name__, exc
+            )
+            return PlayProposalOutcome(
+                meta=None,
+                reply_block=play_proposal_unavailable_block(language),
+                grounding_text=grounding.text,
+                grounding_details=grounding.details,
+            )
+        entry = catalog[proposal.character_ref]
+        meta = play_proposal_meta(proposal, entry)
+        logger.info(
+            "character chat play proposal: %s (%s, self_mode=%s)",
+            entry.ref,
+            proposal.instruction_type,
+            proposal.self_mode,
+        )
+        return PlayProposalOutcome(
+            meta=meta,
+            reply_block=play_proposal_block(meta, language),
+            grounding_text=grounding.text,
+            grounding_details=grounding.details,
+        )
 
     async def _resolve_appearance_change(
         self,
@@ -2208,6 +2330,7 @@ class CharacterChatService:
         self_profile: dict[str, Any] | None = None,
         real_world_text: str = "",
         search_refused: bool = False,
+        play_proposal_text: str = "",
     ) -> str:
         persona = _json_load(thread.persona_json, {})
         appearance = _json_load(thread.appearance_json, {})
@@ -2283,6 +2406,8 @@ class CharacterChatService:
             search_refusal_text=(
                 web_search_refusal_block(language) if is_base and search_refused else ""
             ),
+            # おすすめのプレイは案内役キャラだけ
+            play_proposal_text=play_proposal_text if is_base else "",
         )
 
     async def _persist_messages(
@@ -2358,14 +2483,19 @@ class CharacterChatService:
         content: str,
         use_web_search: bool = False,
         use_weather: bool = False,
+        request_play_proposal: bool = False,
     ) -> AsyncGenerator[dict[str, Any], None]:
         """1 発言の処理。
 
         use_web_search / use_weather は設定画面のトグル。案内役キャラのスレッドで、
-        サーバーにキー・地点が設定されているときだけ効く。
+        サーバーにキー・地点が設定されているときだけ効く。request_play_proposal は
+        「おすすめのプレイを聞く」ボタンからの送信で、案内役キャラのスレッドでは判定 LLM を
+        省いて必ず提案する(判定 LLM が依頼を拾った手番も提案する)。提案は
+        character_message の meta.play_proposal に載る。
 
         Yields:
-            status{phase: plan|search|reply|portrait|memory} / chat_chunk{chunk} /
+            status{phase: plan|search|propose|reply|portrait|memory} /
+            chat_chunk{chunk} /
             chat_done{user_message, character_message, thread} /
             portrait_image{image_url, appearance} / appearance_updated{appearance,
             portrait_url}(3D モデル表示中の着替え) / portrait_error{code, message} /
@@ -2464,16 +2594,28 @@ class CharacterChatService:
                 if thread.kind == CHARACTER_CHAT_KIND_BASE
                 else frozenset()
             )
-            yield {"event": "status", "data": {"phase": "plan"}}
-            plan = await self._plan(
-                kind=thread.kind,
-                name=thread.name,
-                recent=recent,
-                message=message,
-                text_model=text_model,
-                language=language,
-                real_world_kinds=real_world_kinds,
-            )
+            is_base = thread.kind == CHARACTER_CHAT_KIND_BASE
+            # 「おすすめのプレイを聞く」ボタンからの送信は、判定 LLM を待たずに必ず提案する
+            # (案内役キャラだけ)。判定 LLM を省くため、この手番は判定由来の調べ物をしない
+            forced_proposal = request_play_proposal and is_base
+            if request_play_proposal and not is_base:
+                logger.info(
+                    "character chat play proposal requested outside the guide thread; "
+                    "ignored"
+                )
+            if forced_proposal:
+                plan = empty_plan()
+            else:
+                yield {"event": "status", "data": {"phase": "plan"}}
+                plan = await self._plan(
+                    kind=thread.kind,
+                    name=thread.name,
+                    recent=recent,
+                    message=message,
+                    text_model=text_model,
+                    language=language,
+                    real_world_kinds=real_world_kinds,
+                )
             lookups = LookupRun()
             if plan.lookups:
                 if any(
@@ -2488,6 +2630,28 @@ class CharacterChatService:
                     language=language,
                     allowed_kinds=(*PAST_PLAY_LOOKUP_KINDS, *real_world_kinds),
                     message=message,
+                )
+            # おすすめのプレイは返答がその内容に触れるため、返答ストリームの前に作る
+            proposal: PlayProposalOutcome | None = None
+            if is_base and (forced_proposal or plan.play_proposal):
+                yield {"event": "status", "data": {"phase": "propose"}}
+                proposal = await self._propose_play(
+                    language=language,
+                    text_model=text_model,
+                    nsfw_mode=nsfw_mode,
+                    memory_text=memory_text,
+                    recent=recent,
+                    message=message,
+                    lookups=lookups,
+                )
+                # 提案のために読んだ記録も、返答の根拠と引用表示に載せる
+                lookups = LookupRun(
+                    text="\n\n".join(
+                        text for text in (lookups.text, proposal.grounding_text) if text
+                    ),
+                    real_world_text=lookups.real_world_text,
+                    details=[*lookups.details, *proposal.grounding_details],
+                    web_search_refused=lookups.web_search_refused,
                 )
             # 「別の層の記憶」は案内役キャラだけ。判定 LLM が呼んだ手番にだけ載せる
             origin_lore_text = ""
@@ -2525,6 +2689,7 @@ class CharacterChatService:
                 header_instruction=header_instruction,
                 origin_lore_text=origin_lore_text,
                 self_profile=self_profile,
+                play_proposal_text=proposal.reply_block if proposal else "",
             )
             history = _reply_history(
                 recent, expressions=header_expressions, gestures=header_gestures
@@ -2575,6 +2740,12 @@ class CharacterChatService:
                     # 引用表示用の明細(種類・検索語・本文・関係するセッション・出典)
                     "lookups": lookups.details,
                     "appearance_request": plan.appearance_request,
+                    # おすすめのプレイの提案カード(用意できた手番だけ)
+                    **(
+                        {"play_proposal": proposal.meta}
+                        if proposal is not None and proposal.meta
+                        else {}
+                    ),
                     **(
                         {"after_turn": after_turn}
                         if thread.kind == CHARACTER_CHAT_KIND_ADVENTURE

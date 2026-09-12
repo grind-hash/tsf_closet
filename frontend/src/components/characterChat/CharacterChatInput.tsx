@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { SpeechInputErrorCode } from "../../hooks/useSpeechInput";
 import { useSubmitTextarea } from "../../hooks/useSubmitTextarea";
@@ -19,6 +20,8 @@ interface CharacterChatInputProps {
   /** 送信中。入力自体は許可し、送信だけ止める(無効化するとフォーカスが外れる) */
   busy: boolean;
   speech: CharacterChatInputSpeech;
+  /** 入力欄のすぐ上の段に並べる操作(案内役の「おすすめのプレイを聞く」など) */
+  toolbar?: ReactNode;
 }
 
 /**
@@ -32,6 +35,7 @@ export default function CharacterChatInput({
   name,
   busy,
   speech,
+  toolbar,
 }: CharacterChatInputProps) {
   const { t } = useTranslation();
   const placeholder = t("characterChat.input.placeholder", { name });
@@ -40,6 +44,9 @@ export default function CharacterChatInput({
 
   return (
     <div className="character-chat__input-wrap">
+      {toolbar && (
+        <div className="character-chat__input-toolbar">{toolbar}</div>
+      )}
       <form
         className="character-chat__input"
         onSubmit={(event) => {

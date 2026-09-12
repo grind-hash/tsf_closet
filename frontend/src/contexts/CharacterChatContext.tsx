@@ -22,6 +22,7 @@ import {
   type CharacterChatMessage,
   type CharacterChatMessageRequest,
   type CharacterChatPhase,
+  type CharacterChatPlayProposal,
   type CharacterChatPortraitOptions,
   type CharacterChatSourceRequest,
   type CharacterChatThread,
@@ -45,6 +46,8 @@ import {
 } from "../hooks/useAdventureVoice";
 import { stripStageDirections } from "../utils/adventureDialogue";
 import { textToVoiceSegments } from "../utils/adventureVoiceSegments";
+import { useChat } from "./ChatContext";
+import { useGame } from "./GameContext";
 import { useNotification } from "./NotificationContext";
 import { useSettings } from "./SettingsContext";
 
@@ -80,7 +83,18 @@ interface CharacterChatContextValue {
   loadThread: (threadId: string) => Promise<CharacterChatThread | null>;
   leaveThread: () => void;
   deleteThread: (threadId: string) => Promise<boolean>;
-  submitMessage: (text: string) => Promise<CharacterChatMessage | null>;
+  /** 発言を送る。requestPlayProposal なら案内役におすすめの通常プレイを添えさせる */
+  submitMessage: (
+    text: string,
+    options?: { requestPlayProposal?: boolean },
+  ) => Promise<CharacterChatMessage | null>;
+  /** 案内役に定型の依頼文でおすすめのプレイを求める(提案の要求付きで送る) */
+  requestPlayProposal: () => Promise<CharacterChatMessage | null>;
+  /**
+   * 提案のキャラクターで新規セッションを開始し、最初の指示をプレイ画面の入力欄と
+   * 指示タイプへ入れる(送信はしない)。session_id を返す。失敗時は投げる
+   */
+  startProposedPlay: (proposal: CharacterChatPlayProposal) => Promise<string>;
   setAppearanceFromSource: (
     selection: AdventureSourceSelection,
   ) => Promise<boolean>;
@@ -157,6 +171,9 @@ export function CharacterChatProvider({ children }: { children: ReactNode }) {
   const voiceRef = useRef(voice);
   voiceRef.current = voice;
   const { showNotification } = useNotification();
+  // 提案からのプレイ開始用。CharacterChatProvider は main.tsx の GameProvider / ChatProvider の内側にある
+  const { startNewSession } = useGame();
+  const { clearMessages, setInputText, setInstructionType } = useChat();
   const [threads, setThreads] = useState<CharacterChatThread[]>([]);
   const [threadsLoading, setThreadsLoading] = useState(false);
   const [activeThread, setActiveThread] = useState<CharacterChatThread | null>(
@@ -359,23 +376,26 @@ export function CharacterChatProvider({ children }: { children: ReactNode }) {
   );
 
   const submitMessage = useCallback(
-    async (text: string) => {
+    async (text: string, options?: { requestPlayProposal?: boolean }) => {
       const content = text.trim();
       const threadId = activeThreadIdRef.current;
       if (!content || !threadId || sending) return null;
+      const requestPlayProposal = options?.requestPlayProposal === true;
       const epoch = threadEpochRef.current;
       voiceRef.current.stop();
       setSending(true);
       setError(null);
       setDraft("");
       setPendingInput(content);
-      setPhase("plan");
+      // 提案を求めたときは、最初の status を待たずに提案の生成中として見せる
+      setPhase(requestPlayProposal ? "propose" : "plan");
       let characterMessage: CharacterChatMessage | null = null;
       try {
         const request: CharacterChatMessageRequest = {
           content,
           use_web_search: settingsState.characterChatWebSearchEnabled,
           use_weather: settingsState.characterChatWeatherEnabled,
+          ...(requestPlayProposal ? { request_play_proposal: true } : {}),
         };
         await streamCharacterChatMessage(threadId, request, (event) => {
           if (
@@ -477,6 +497,34 @@ export function CharacterChatProvider({ children }: { children: ReactNode }) {
       speakMessage,
       t,
     ],
+  );
+
+  const requestPlayProposal = useCallback(
+    () =>
+      submitMessage(t("characterChat.proposal.requestMessage"), {
+        requestPlayProposal: true,
+      }),
+    [submitMessage, t],
+  );
+
+  const startProposedPlay = useCallback(
+    async (proposal: CharacterChatPlayProposal) => {
+      // 読み上げ中の返答はプレイ画面へ持ち込まない
+      voiceRef.current.stop();
+      const sessionId = await startNewSession({
+        source: proposal.character.source,
+        characterId: proposal.character.id,
+        selfMode: proposal.self_mode,
+      });
+      // 前のセッションのチャット表示を消し(ギャラリーの分岐開始と同じ)、最初の指示を
+      // 送信せずに下書きとして入れる。ChatContext はルート切替の外側にあるため、
+      // /play/{id} へ移っても入力欄と指示タイプは残る(消えるのは送信時の CLEAR_INPUT だけ)
+      clearMessages();
+      setInstructionType(proposal.first_instruction.instruction_type);
+      setInputText(proposal.first_instruction.text);
+      return sessionId;
+    },
+    [startNewSession, clearMessages, setInstructionType, setInputText],
   );
 
   const setAppearanceFromSource = useCallback(
@@ -644,6 +692,8 @@ export function CharacterChatProvider({ children }: { children: ReactNode }) {
       leaveThread,
       deleteThread,
       submitMessage,
+      requestPlayProposal,
+      startProposedPlay,
       setAppearanceFromSource,
       regeneratePortrait,
       resetAppearance,
@@ -678,6 +728,8 @@ export function CharacterChatProvider({ children }: { children: ReactNode }) {
       leaveThread,
       deleteThread,
       submitMessage,
+      requestPlayProposal,
+      startProposedPlay,
       setAppearanceFromSource,
       regeneratePortrait,
       resetAppearance,

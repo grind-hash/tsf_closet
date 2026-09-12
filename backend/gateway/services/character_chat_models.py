@@ -1,14 +1,16 @@
 """キャラチャットの LLM 構造化出力(Pydantic)。
 
-判定 LLM の計画(何を調べるか / 着替え要求か / 来歴の記憶を呼ぶか)と、
-着替え時の外見タグ更新の出力形。崩れた値は検証エラーにせず、adventure_models と
-同じく切り詰め・既定値で受ける(修復リトライに落とさない)。
+判定 LLM の計画(何を調べるか / 着替え要求か / 来歴の記憶を呼ぶか / おすすめのプレイを
+求められたか)、着替え時の外見タグ更新、おすすめのプレイの提案の出力形。計画と外見タグは
+崩れた値を検証エラーにせず、adventure_models と同じく切り詰め・既定値で受ける(修復
+リトライに落とさない)。提案は誤ったカードを出さないよう、キャラクターと指示タイプの
+誤りを検証エラーにして修復リトライに回す。
 """
 
 from __future__ import annotations
 
 import re
-from typing import Any, Literal
+from typing import Any, Literal, get_args
 
 from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
@@ -22,6 +24,10 @@ from ..consts.character_chat import (
     LOOKUP_MAX_PER_TURN,
     LOOKUP_QUERY_MAX,
     PAST_PLAY_LOOKUP_KINDS,
+    PLAY_PROPOSAL_INSTRUCTION_MAX,
+    PLAY_PROPOSAL_INSTRUCTION_TYPES,
+    PLAY_PROPOSAL_REASON_MAX,
+    PLAY_PROPOSAL_TITLE_MAX,
     REAL_WORLD_LOOKUP_KINDS,
     WEB_SEARCH_QUERY_MAX,
     WEB_SEARCH_TERMS_MAX,
@@ -38,11 +44,14 @@ LookupKind = Literal[
     "weather",
 ]
 
+PlayInstructionType = Literal["dress_up", "reality_alter", "action", "conversation"]
+assert set(get_args(PlayInstructionType)) == set(PLAY_PROPOSAL_INSTRUCTION_TYPES)
+
 _NULL_WORDS = {"", "null", "none", "no", "false", "n/a"}
 
 
 # 外見タグに混ざってはいけない文字(ひらがな・カタカナ・漢字・全角記号)
-_CJK_RE = re.compile(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uff00-\uffef]")
+_CJK_RE = re.compile(r"[぀-ヿ㐀-䶿一-鿿＀-￯]")
 
 
 def non_english_tag_parts(tags: str) -> list[str]:
@@ -135,6 +144,8 @@ class CharacterChatPlan(BaseModel):
     appearance_request: str | None = None
     # 案内役キャラの「別の層の記憶」を今回の返答に載せるか(base 種だけ意味を持つ)
     origin_lore: bool = False
+    # 案内役キャラにおすすめのプレイを求めたか(base 種だけ意味を持つ)
+    play_proposal: bool = False
 
     @field_validator("lookups", mode="before")
     @classmethod
@@ -184,9 +195,9 @@ class CharacterChatPlan(BaseModel):
             return None
         return _clean_text(value, APPEARANCE_REQUEST_MAX)
 
-    @field_validator("origin_lore", mode="before")
+    @field_validator("origin_lore", "play_proposal", mode="before")
     @classmethod
-    def _coerce_origin_lore(cls, value: Any) -> bool:
+    def _coerce_flags(cls, value: Any) -> bool:
         return _truthy(value)
 
 
@@ -212,3 +223,86 @@ class CharacterChatAppearanceOutput(BaseModel):
     @classmethod
     def _clean_description(cls, value: Any) -> str:
         return _clean_text(value, APPEARANCE_DESCRIPTION_MAX) or ""
+
+
+# 指示タイプの表記ゆれ(LLM が別名や日本語で返すことがある)
+_INSTRUCTION_TYPE_ALIASES = {
+    "dressup": "dress_up",
+    "dress-up": "dress_up",
+    "dress": "dress_up",
+    "着せ替え": "dress_up",
+    "reality": "reality_alter",
+    "reality-alter": "reality_alter",
+    "reality_alteration": "reality_alter",
+    "alter": "reality_alter",
+    "現実改変": "reality_alter",
+    "行動": "action",
+    "talk": "conversation",
+    "chat": "conversation",
+    "会話": "conversation",
+}
+_PROPOSAL_TEXT_LIMITS = {
+    "title": PLAY_PROPOSAL_TITLE_MAX,
+    "reason": PLAY_PROPOSAL_REASON_MAX,
+    "instruction": PLAY_PROPOSAL_INSTRUCTION_MAX,
+}
+
+
+class CharacterChatPlayProposal(BaseModel):
+    """おすすめのプレイ(通常プレイ)の提案。
+
+    character_ref は検証 context の catalog(参照キー → キャラクター名)にあるものだけを
+    受け、self_mode は context の self_mode_available が真のときだけ立てる。
+    """
+
+    title: str
+    reason: str
+    character_ref: str
+    self_mode: bool = False
+    instruction_type: PlayInstructionType
+    instruction: str
+
+    @field_validator("title", "reason", "instruction", mode="before")
+    @classmethod
+    def _clean_required_text(cls, value: Any, info: ValidationInfo) -> str:
+        text = (
+            _clean_text(value, _PROPOSAL_TEXT_LIMITS[info.field_name])
+            if isinstance(value, str)
+            else None
+        )
+        if not text:
+            raise ValueError(f"{info.field_name} must be a non-empty string")
+        return text
+
+    @field_validator("character_ref", mode="before")
+    @classmethod
+    def _known_character(cls, value: Any, info: ValidationInfo) -> str:
+        context = info.context if isinstance(info.context, dict) else {}
+        catalog: dict[str, str] = context.get("catalog") or {}
+        if not catalog:
+            raise ValueError("no characters are available to propose")
+        ref = str(value or "").strip()
+        if ref in catalog:
+            return ref
+        # 参照キーの代わりにキャラクター名を書くことがある。一意に一致すれば読み替える
+        matches = [key for key, name in catalog.items() if name == ref]
+        if len(matches) == 1:
+            return matches[0]
+        raise ValueError(
+            "character_ref must be copied exactly from characters[].ref: "
+            + ", ".join(catalog)
+        )
+
+    @field_validator("self_mode", mode="before")
+    @classmethod
+    def _self_mode_if_available(cls, value: Any, info: ValidationInfo) -> bool:
+        context = info.context if isinstance(info.context, dict) else {}
+        return bool(context.get("self_mode_available")) and _truthy(value)
+
+    @field_validator("instruction_type", mode="before")
+    @classmethod
+    def _normalize_instruction_type(cls, value: Any) -> Any:
+        if not isinstance(value, str):
+            return value
+        key = value.strip().lower()
+        return _INSTRUCTION_TYPE_ALIASES.get(key, key)

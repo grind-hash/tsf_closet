@@ -142,6 +142,7 @@ async def message_stream(
                 content=request.content,
                 use_web_search=request.use_web_search,
                 use_weather=request.use_weather,
+                request_play_proposal=request.request_play_proposal,
             ):
                 yield {
                     "event": event["event"],

@@ -10,12 +10,16 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Any
 
 from ..settings.config import settings
 
 logger = logging.getLogger(__name__)
+
+# 保存済みカスタムキャラクターの ID(uuid)。外部から受けた値をパスに使う前に形を確かめる
+_CUSTOM_ID_PATTERN = re.compile(r"[A-Za-z0-9_-]{1,80}")
 
 
 def normalize_gender(value: str | None) -> str:
@@ -83,30 +87,70 @@ def custom_character_image_path(custom_image_id: str) -> Path:
     return custom_images_dir() / f"{custom_image_id}.png"
 
 
+def _read_custom_metadata(image_file: Path) -> dict[str, Any]:
+    """カスタムキャラクターの画像に並ぶメタデータ。無い・壊れているときは空 dict。"""
+    metadata_file = image_file.with_suffix(".json")
+    if not metadata_file.exists():
+        return {}
+    try:
+        metadata = json.loads(metadata_file.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return metadata if isinstance(metadata, dict) else {}
+
+
+def _custom_profile(custom_image_id: str, metadata: dict[str, Any]) -> dict[str, Any]:
+    """メタデータを既定値で補った人物設定。"""
+    return {
+        "id": custom_image_id,
+        "name": metadata.get("name", "カスタムキャラクター"),
+        "description": metadata.get("description", ""),
+        "pronoun": metadata.get("pronoun", "僕"),
+        "personality": metadata.get("personality", ""),
+        "gender": normalize_gender(metadata.get("gender", "other")),
+        "base_tags": metadata.get("base_tags", ""),
+    }
+
+
+def _custom_image_files() -> list[Path]:
+    """保存済みカスタムキャラクターの画像(新しい順)。"""
+    return sorted(
+        custom_images_dir().glob("*.png"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+
+
 def list_custom_characters() -> list[dict[str, Any]]:
     """保存済みのカスタムキャラクター（新しい順）をサムネイル付きで返す。"""
-    directory = custom_images_dir()
     items: list[dict[str, Any]] = []
-    for image_file in sorted(
-        directory.glob("*.png"), key=lambda p: p.stat().st_mtime, reverse=True
-    ):
-        metadata_file = image_file.with_suffix(".json")
-        metadata: dict[str, Any] = {}
-        if metadata_file.exists():
-            try:
-                metadata = json.loads(metadata_file.read_text(encoding="utf-8"))
-            except Exception:
-                metadata = {}
+    for image_file in _custom_image_files():
+        profile = _custom_profile(image_file.stem, _read_custom_metadata(image_file))
         items.append(
             {
-                "id": image_file.stem,
+                **profile,
                 "thumbnail": base64.b64encode(image_file.read_bytes()).decode("utf-8"),
-                "name": metadata.get("name", "カスタムキャラクター"),
-                "description": metadata.get("description", ""),
-                "pronoun": metadata.get("pronoun", "僕"),
-                "personality": metadata.get("personality", ""),
-                "gender": normalize_gender(metadata.get("gender", "other")),
-                "base_tags": metadata.get("base_tags", ""),
             }
         )
     return items
+
+
+def list_custom_character_profiles(limit: int | None = None) -> list[dict[str, Any]]:
+    """保存済みのカスタムキャラクターの人物設定（新しい順）。画像は読まない。"""
+    files = _custom_image_files()
+    if limit is not None:
+        files = files[: max(0, limit)]
+    return [
+        _custom_profile(image_file.stem, _read_custom_metadata(image_file))
+        for image_file in files
+    ]
+
+
+def load_custom_character_profile(custom_image_id: str | None) -> dict[str, Any] | None:
+    """保存済みカスタムキャラクターの人物設定。ID が不正・画像が無いときは None。"""
+    if not custom_image_id or not _CUSTOM_ID_PATTERN.fullmatch(custom_image_id):
+        return None
+    image_file = custom_character_image_path(custom_image_id)
+    if not image_file.exists():
+        return None
+    return _custom_profile(custom_image_id, _read_custom_metadata(image_file))

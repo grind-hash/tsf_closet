@@ -5,6 +5,7 @@
  * SSE の解析は utils/sse.ts の readSseEvents を使い、通常ゲームの useSSE には流さない。
  */
 
+import type { InstructionType } from "../types";
 import { API_BASE } from "../utils/api";
 import { apiErrorFromResponse, jsonInit, requestJson } from "../utils/http";
 import { readSseEvents } from "../utils/sse";
@@ -74,6 +75,31 @@ export interface CharacterChatLookupCitation {
   refused?: string | null;
 }
 
+/** 提案の最初の指示に使える指示タイプ(画像のみは提案しない) */
+export type CharacterChatProposalInstructionType = Exclude<
+  InstructionType,
+  "image_only"
+>;
+
+/**
+ * 案内役の返答に添える通常プレイの提案(meta.play_proposal)。
+ * サーバーの値は components/characterChat/playProposal.ts の toPlayProposal で確かめてから使う
+ */
+export interface CharacterChatPlayProposal {
+  kind: "play";
+  /** 40 文字以内 */
+  title: string;
+  /** 160 文字以内 */
+  reason: string;
+  character: { source: "template" | "custom"; id: string; name: string };
+  self_mode: boolean;
+  first_instruction: {
+    instruction_type: CharacterChatProposalInstructionType;
+    /** 200 文字以内。開始時にプレイ画面の入力欄へ入れる(送信はしない) */
+    text: string;
+  };
+}
+
 export interface CharacterChatMessageMeta {
   lookups?: Array<string | CharacterChatLookupCitation>;
   appearance_request?: string | null;
@@ -84,6 +110,8 @@ export interface CharacterChatMessageMeta {
   expression?: string | null;
   gesture?: string | null;
   imported?: boolean;
+  /** 案内役の返答: おすすめの通常プレイ。形が不正なものや未知の種類は表示しない */
+  play_proposal?: CharacterChatPlayProposal | null;
 }
 
 export interface CharacterChatMessage {
@@ -183,10 +211,14 @@ export interface CharacterChatSourceRequest {
   source_prompt_expander_entry_id?: string;
 }
 
-/** search = 天気・Web 検索の実行中(plan と reply の間。案内役で有効なときだけ) */
+/**
+ * search = 天気・Web 検索の実行中(plan と reply の間。案内役で有効なときだけ)。
+ * propose = おすすめのプレイの生成中(reply の前。案内役に提案を求めたときだけ)
+ */
 export type CharacterChatPhase =
   | "plan"
   | "search"
+  | "propose"
   | "reply"
   | "portrait"
   | "memory";
@@ -443,6 +475,8 @@ export interface CharacterChatMessageRequest {
   use_web_search?: boolean;
   /** 天気(Open-Meteo)の取得を許可する */
   use_weather?: boolean;
+  /** 案内役のスレッドで true のとき、返答におすすめの通常プレイの提案を必ず添えさせる */
+  request_play_proposal?: boolean;
 }
 
 /** 発言を送り、判定 → (調べ物) → 返答チャンク → 確定 → (立ち絵) → (要約) → cost → complete を受ける */

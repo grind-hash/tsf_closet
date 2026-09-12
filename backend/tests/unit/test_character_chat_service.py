@@ -24,6 +24,7 @@ from gateway.databases.models import Session as SessionORM
 from gateway.databases.models import SessionStats as SessionStatsORM
 from gateway.services import character_chat_service as module
 from gateway.services import real_world_lookup
+from gateway.services.character_chat_play_proposal import PlayCatalogEntry
 from gateway.services.character_chat_service import (
     CharacterChatError,
     CharacterChatService,
@@ -119,21 +120,32 @@ def _llm_router(
     plan: str = PLAN_EMPTY,
     appearance: str | list[str] | None = None,
     summary: str = "要約",
+    proposal: str | list[str] | None = None,
     prompts: list[tuple[str, str]] | None = None,
     systems: list[tuple[str, str]] | None = None,
 ):
     """generate_text の差し替え。system prompt の種類で返す JSON を切り替える。
 
-    appearance にリストを渡すと呼び出しごとに順に返す(再試行の検証用。末尾を繰り返す)。
-    prompts を渡すと (種類, user prompt) を、systems を渡すと (種類, system prompt) を記録する。
+    appearance・proposal にリストを渡すと呼び出しごとに順に返す(再試行の検証用。末尾を
+    繰り返す)。prompts を渡すと (種類, user prompt) を、systems を渡すと
+    (種類, system prompt) を記録する。
     """
     calls: list[str] = []
     appearance_queue = (
         list(appearance) if isinstance(appearance, list) else [appearance or "{}"]
     )
+    proposal_queue = (
+        list(proposal) if isinstance(proposal, list) else [proposal or "{}"]
+    )
 
     async def fake_generate_text(system_prompt, user_prompt, **kwargs):
-        if "retrieval planner" in system_prompt:
+        if "play proposal planner" in system_prompt:
+            calls.append("proposal")
+            kind = "proposal"
+            content = (
+                proposal_queue.pop(0) if len(proposal_queue) > 1 else proposal_queue[0]
+            )
+        elif "retrieval planner" in system_prompt:
             calls.append("plan")
             kind = "plan"
             content = plan
@@ -2131,3 +2143,231 @@ async def test_stream_message_refuses_neutral_query_for_explicit_request(
     (lookup,) = detail["messages"][1]["meta"]["lookups"]
     assert lookup["refused"] == "search_policy"
     assert lookup["query"] == "人気 作品 新作 2026"
+
+
+# ---------------------------------------------------------------------------
+# おすすめのプレイ(案内役キャラの提案カード)
+# ---------------------------------------------------------------------------
+
+
+def _proposal_json(**overrides) -> str:
+    data = {
+        "title": "文化祭のメイド喫茶",
+        "reason": "着せ替えのプレイが多いので",
+        "character_ref": "template:char1",
+        "self_mode": True,
+        "instruction_type": "dress_up",
+        "instruction": "メイド服に着替える",
+    }
+    data.update(overrides)
+    return json.dumps(data, ensure_ascii=False)
+
+
+def _patch_play_catalog(monkeypatch, *, profile: dict | None = None) -> None:
+    catalog = {
+        "template:char1": PlayCatalogEntry(
+            ref="template:char1",
+            source="template",
+            id="char1",
+            name="カナタ",
+            gender="man",
+            personality="",
+            description="",
+        ),
+        "custom:1": PlayCatalogEntry(
+            ref="custom:1",
+            source="custom",
+            id="uuid-1",
+            name="サクラ",
+            gender="woman",
+            personality="",
+            description="",
+        ),
+    }
+    monkeypatch.setattr(module, "build_play_catalog", lambda: catalog)
+    monkeypatch.setattr(
+        module.settings_service, "get_self_profile", AsyncMock(return_value=profile)
+    )
+
+
+def _done_meta(events: list[dict]) -> dict:
+    done = next(event for event in events if event["event"] == "chat_done")
+    return done["data"]["character_message"]["meta"]
+
+
+@pytest.mark.asyncio
+async def test_forced_play_proposal_skips_planner_and_persists_card(
+    service: CharacterChatService, monkeypatch
+) -> None:
+    """ボタンからの依頼は判定 LLM を省き、提案 → 返答の順に進んでカードを保存する。"""
+    _patch_play_catalog(
+        monkeypatch, profile={"display_name": "ミナト", "interests": ["コスプレ"]}
+    )
+    thread = await service.get_or_create_base_thread()
+    prompts: list[tuple[str, str]] = []
+    fake_generate_text, calls = _llm_router(proposal=_proposal_json(), prompts=prompts)
+    captured: dict = {}
+    monkeypatch.setattr(module.llm_service, "generate_text", fake_generate_text)
+    monkeypatch.setattr(
+        module.llm_service,
+        "generate_feeling_stream",
+        _fake_stream(["こんな遊び方はいかがでしょう"], captured),
+    )
+
+    events = await _collect(
+        service.stream_message(
+            thread_id=thread["id"],
+            content="おすすめのプレイを教えて",
+            request_play_proposal=True,
+        )
+    )
+
+    assert _phases(events) == ["propose", "reply"]
+    assert calls == ["proposal"]
+    assert events[-1]["event"] == "complete"
+    # 提案の料金も同じ集計に載る
+    cost = next(event for event in events if event["event"] == "cost")
+    assert cost["data"]["cost_usd"] == pytest.approx(0.001)
+
+    ((_, user_prompt),) = [item for item in prompts if item[0] == "proposal"]
+    payload = json.loads(user_prompt)
+    assert [item["ref"] for item in payload["characters"]] == [
+        "template:char1",
+        "custom:1",
+    ]
+    assert payload["self_mode_available"] is True
+    assert payload["self_profile"]["display_name"] == "ミナト"
+    assert "セッション総数" in payload["play_records"]
+    assert payload["user_memory"] == "メイド服を好む"
+
+    assert "[おすすめのプレイ(提案カード)]" in captured["system"]
+    assert "カナタ(自分自身モード)" in captured["system"]
+    meta = _done_meta(events)
+    assert meta["play_proposal"] == {
+        "kind": "play",
+        "title": "文化祭のメイド喫茶",
+        "reason": "着せ替えのプレイが多いので",
+        "character": {"source": "template", "id": "char1", "name": "カナタ"},
+        "self_mode": True,
+        "first_instruction": {
+            "instruction_type": "dress_up",
+            "text": "メイド服に着替える",
+        },
+    }
+    # 提案の根拠に読んだ記録は引用表示にも残る
+    assert [item["kind"] for item in meta["lookups"]] == [
+        "tendencies",
+        "recent_sessions",
+    ]
+    detail = await service.get_thread(thread["id"])
+    assert detail["messages"][1]["meta"]["play_proposal"]["title"] == (
+        "文化祭のメイド喫茶"
+    )
+
+
+@pytest.mark.asyncio
+async def test_planner_requested_play_proposal_reuses_lookups(
+    service: CharacterChatService, monkeypatch
+) -> None:
+    """判定 LLM が依頼を拾った手番も提案する。自プロフィールが無ければ自分自身モードにしない。"""
+    _patch_play_catalog(monkeypatch, profile=None)
+    thread = await service.get_or_create_base_thread()
+    plan = json.dumps(
+        {
+            "lookups": [{"kind": "tendencies"}],
+            "appearance_request": None,
+            "play_proposal": True,
+        }
+    )
+    fake_generate_text, calls = _llm_router(plan=plan, proposal=_proposal_json())
+    monkeypatch.setattr(module.llm_service, "generate_text", fake_generate_text)
+    monkeypatch.setattr(
+        module.llm_service, "generate_feeling_stream", _fake_stream(["どうぞ"], {})
+    )
+
+    events = await _collect(
+        service.stream_message(thread_id=thread["id"], content="何かおすすめある？")
+    )
+
+    assert _phases(events) == ["plan", "propose", "reply"]
+    assert calls == ["plan", "proposal"]
+    meta = _done_meta(events)
+    assert meta["play_proposal"]["self_mode"] is False
+    # 判定 LLM が調べた傾向は二重に読まない
+    assert [item["kind"] for item in meta["lookups"]] == [
+        "tendencies",
+        "recent_sessions",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_play_proposal_failure_replies_without_card(
+    service: CharacterChatService, monkeypatch
+) -> None:
+    """検証に 2 回失敗したらカードを出さず、カードがあると言わせない。"""
+    _patch_play_catalog(monkeypatch)
+    thread = await service.get_or_create_base_thread()
+    fake_generate_text, calls = _llm_router(
+        proposal=_proposal_json(character_ref="template:char9")
+    )
+    captured: dict = {}
+    monkeypatch.setattr(module.llm_service, "generate_text", fake_generate_text)
+    monkeypatch.setattr(
+        module.llm_service,
+        "generate_feeling_stream",
+        _fake_stream(["申し訳ありません"], captured),
+    )
+
+    events = await _collect(
+        service.stream_message(
+            thread_id=thread["id"], content="おすすめ", request_play_proposal=True
+        )
+    )
+
+    assert calls == ["proposal", "proposal"]
+    assert events[-1]["event"] == "complete"
+    assert "play_proposal" not in _done_meta(events)
+    assert "[おすすめのプレイ]" in captured["system"]
+    assert "用意できませんでした" in captured["system"]
+
+    # 候補のキャラクターがいなければ LLM を呼ばずに同じ扱いにする
+    monkeypatch.setattr(module, "build_play_catalog", lambda: {})
+    calls.clear()
+    events = await _collect(
+        service.stream_message(
+            thread_id=thread["id"], content="おすすめ", request_play_proposal=True
+        )
+    )
+    assert calls == []
+    assert "play_proposal" not in _done_meta(events)
+    assert "用意できませんでした" in captured["system"]
+
+
+@pytest.mark.asyncio
+async def test_play_proposal_is_guide_thread_only(
+    service: CharacterChatService, isolated_db, tmp_path: Path, monkeypatch
+) -> None:
+    """セッション由来キャラには、依頼フラグや判定 LLM が true でも提案させない。"""
+    _patch_play_catalog(monkeypatch)
+    await _seed_session(isolated_db.async_factory, tmp_path / "start.png")
+    session_thread = await service.create_session_thread(
+        source_session_id="sess-1", source_history_id=None
+    )
+    plan = json.dumps({"lookups": [], "play_proposal": True})
+    fake_generate_text, calls = _llm_router(plan=plan, proposal=_proposal_json())
+    monkeypatch.setattr(module.llm_service, "generate_text", fake_generate_text)
+    monkeypatch.setattr(
+        module.llm_service, "generate_feeling_stream", _fake_stream(["うん"], {})
+    )
+
+    events = await _collect(
+        service.stream_message(
+            thread_id=session_thread["id"],
+            content="おすすめある？",
+            request_play_proposal=True,
+        )
+    )
+
+    assert _phases(events) == ["plan", "reply"]
+    assert "proposal" not in calls
+    assert "play_proposal" not in _done_meta(events)

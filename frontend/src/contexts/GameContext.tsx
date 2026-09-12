@@ -66,6 +66,8 @@ import {
   regeneratePlayMemory as apiRegeneratePlayMemory,
   removeSessionAttribute as apiRemoveSessionAttribute,
   restoreSession as apiRestoreSession,
+  startCustomGame as apiStartCustomGame,
+  startGame as apiStartGame,
   updatePlayMemory as apiUpdatePlayMemory,
   type BranchSessionResponse,
   type PlayMemoryApiResponse,
@@ -375,6 +377,15 @@ interface GameContextType {
     historyId: string,
     options?: { inheritStats?: boolean; selfMode?: boolean },
   ) => Promise<BranchSessionResponse>;
+  /**
+   * キャラクターを指定して新規セッションを開始する(キャラチャットの提案から使う)。
+   * 開始後にセッションを取り直して Game 状態を差し替え、session_id を返す。失敗時は投げる。
+   */
+  startNewSession: (options: {
+    source: "template" | "custom";
+    characterId: string;
+    selfMode: boolean;
+  }) => Promise<string>;
   resetSession: () => Promise<void>;
   updateStats: (stats: Partial<SessionStats>) => void;
   updateFromSSE: (data: {
@@ -778,6 +789,49 @@ export function GameProvider({ children }: { children: ReactNode }) {
     [syncPlayMemoryPreferences],
   );
 
+  const startNewSession = useCallback(
+    async (options: {
+      source: "template" | "custom";
+      characterId: string;
+      selfMode: boolean;
+    }): Promise<string> => {
+      // 難易度と NSFW は WelcomeScreen の開始と同じ固定値(手番ごとに設定を読み直す)
+      const started =
+        options.source === "custom"
+          ? await apiStartCustomGame({
+              custom_character_id: options.characterId,
+              use_saved_profile: true,
+              difficulty: "normal",
+              nsfw_mode: false,
+              self_mode: options.selfMode,
+            })
+          : await apiStartGame({
+              character_id: options.characterId,
+              difficulty: "normal",
+              nsfw_mode: false,
+              self_mode: options.selfMode,
+            });
+      // 開始の応答は一部の項目だけのため、セッション全体を取り直して状態を差し替える
+      const data = await apiRestoreSession(started.session_id);
+      const action = mapSessionResponse(
+        data as Parameters<typeof mapSessionResponse>[0],
+      );
+      const playMemory = await syncPlayMemoryPreferences(data.session_id);
+      if (playMemory) {
+        action.payload.playMemory = playMemory;
+      }
+      dispatch(action);
+      try {
+        const records = await listSessionCharacters(data.session_id);
+        dispatch({ type: "SET_SESSION_CHARACTERS", payload: records });
+      } catch {
+        dispatch({ type: "SET_SESSION_CHARACTERS", payload: [] });
+      }
+      return data.session_id;
+    },
+    [syncPlayMemoryPreferences],
+  );
+
   const resetSession = useCallback(async () => {
     try {
       await apiDeleteActiveSession();
@@ -1122,6 +1176,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
       restoreActiveSession,
       restoreSessionById,
       startSessionFromHistory,
+      startNewSession,
       resetSession,
       updateStats,
       updateFromSSE,
@@ -1167,6 +1222,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
       restoreActiveSession,
       restoreSessionById,
       startSessionFromHistory,
+      startNewSession,
       resetSession,
       updateStats,
       updateFromSSE,

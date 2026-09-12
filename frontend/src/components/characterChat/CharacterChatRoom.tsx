@@ -25,8 +25,10 @@ import CharacterChatInfoPanel from "./CharacterChatInfoPanel";
 import CharacterChatInput from "./CharacterChatInput";
 import CharacterChatLogDrawer from "./CharacterChatLogDrawer";
 import CharacterChatMessageBox from "./CharacterChatMessageBox";
+import CharacterChatProposalChip from "./CharacterChatProposalChip";
 import CharacterChatSoundControl from "./CharacterChatSoundControl";
 import CharacterChatStage from "./CharacterChatStage";
+import { toPlayProposal } from "./playProposal";
 
 interface CharacterChatRoomProps {
   threadId: string;
@@ -199,6 +201,11 @@ export default function CharacterChatRoom({
     [...(thread?.messages ?? [])]
       .reverse()
       .find((message) => message.role === "character") ?? null;
+  // 最新の返答に提案があれば、カードが収まるよう窓を高くする。メッセージ窓がカードを出す
+  // 条件(返答の確定後。立ち絵・要約の工程中も出る)と揃える
+  const proposalShown =
+    pendingInput === null &&
+    toPlayProposal(latestCharacterMessage?.meta) !== null;
   const voiceBusy = voice.status === "loading" || voice.status === "playing";
   const avatarGestureKey =
     voice.enabled && voice.canSpeak
@@ -315,7 +322,9 @@ export default function CharacterChatRoom({
       showRightPanel={panelOpen}
       onToggleRightPanel={() => setPanelOpen((prev) => !prev)}
     >
-      <div className="character-chat-room">
+      <div
+        className={`character-chat-room${proposalShown ? " character-chat-room--with-proposal" : ""}`}
+      >
         {thread && (
           <CharacterChatStage
             thread={thread}
@@ -500,6 +509,11 @@ export default function CharacterChatRoom({
                   onSubmit={() => void handleSubmit()}
                   name={thread.name}
                   busy={sending}
+                  toolbar={
+                    thread.kind === "base" ? (
+                      <CharacterChatProposalChip />
+                    ) : undefined
+                  }
                   speech={{
                     supported: speechInput.supported,
                     listening: speechInput.listening,

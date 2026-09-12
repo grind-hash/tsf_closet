@@ -38,6 +38,9 @@ class CharacterChatMessageRequest(BaseModel):
     # 設定画面のトグル。案内役キャラのスレッドで、サーバーにキー・地点があるときだけ効く
     use_web_search: bool = False
     use_weather: bool = False
+    # 「おすすめのプレイを聞く」ボタンからの送信。案内役キャラのスレッドでだけ、判定 LLM を
+    # 待たずに必ず提案を作る
+    request_play_proposal: bool = False
 
 
 class CharacterChatAdventureAppearanceRequest(BaseModel):
