@@ -332,6 +332,7 @@ async def start_game_custom(request: CustomStartRequest) -> GameStartResponse:
             difficulty=request.difficulty,
             nsfw_mode=request.nsfw_mode,
             self_mode=request.self_mode,
+            use_saved_profile=request.use_saved_profile,
         )
     except GameServiceError as exc:
         raise HTTPException(

@@ -100,4 +100,22 @@ describe("ConfirmDialog", () => {
       false,
     );
   });
+
+  it("shows only the confirm button when cancelLabel is omitted", () => {
+    const onConfirm = vi.fn();
+    render(
+      <ConfirmDialog
+        open
+        title="Title"
+        confirmLabel="Close"
+        onConfirm={onConfirm}
+        onCancel={() => {}}
+      >
+        body
+      </ConfirmDialog>,
+    );
+    expect(screen.getAllByRole("button")).toHaveLength(1);
+    fireEvent.click(screen.getByText("Close"));
+    expect(onConfirm).toHaveBeenCalledWith({ doNotShowAgain: false });
+  });
 });

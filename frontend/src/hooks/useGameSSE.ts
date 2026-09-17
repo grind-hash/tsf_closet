@@ -43,9 +43,6 @@ export function useGameSSE() {
       game.appendFeelingText(`\n\n【${data.name}】\n${data.speech}`);
     },
     onEnding: (data) => {
-      if (!settings.state.experimentalEndingEnabled) {
-        return;
-      }
       game.setEnding({
         id: data.ending_id,
         name: data.title,

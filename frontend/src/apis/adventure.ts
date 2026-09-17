@@ -209,18 +209,6 @@ export interface AdventureImageRegenerateOptions
   target?: "scene" | "portrait" | "partner";
 }
 
-/** トークモード(手番を消費しない会話)の1件。romance のみ */
-export interface AdventureTalkEntry {
-  id: string;
-  role: "user" | "partner";
-  text: string;
-  /** この会話が交わされた時点の turn_count。次の手番の文脈になる */
-  after_turn: number;
-  /** 3D モデル向けの表情・身振り(攻略対象の行のみ。旧ログ・語彙外は null) */
-  expression?: string | null;
-  gesture?: string | null;
-}
-
 export interface AdventureTurn {
   id: string;
   turn_number: number;
@@ -372,8 +360,6 @@ export interface AdventureRun {
   /** 対面会話モードで描く 3D モデル(VRM)の登録 ID と配信 URL。未設定は null */
   companion_avatar_id?: string | null;
   companion_avatar_url?: string | null;
-  /** romance のみ。トークモードの会話ログ(古い順) */
-  talk_log?: AdventureTalkEntry[];
   /** 持ち物システム(全プリセット)。既定 OFF。作品シナリオでは常に false */
   inventory_enabled: boolean;
   /** 持ち物 ON のときだけ配信される所持品と履歴。OFF は null */
@@ -497,8 +483,6 @@ export interface AdventureStreamEvent {
     | "portrait_image"
     | "partner_image"
     | "background_image"
-    | "talk_chunk"
-    | "talk_done"
     | "cost"
     | "complete"
     | "error";
@@ -519,7 +503,6 @@ function normalizeRun(run: AdventureRun): AdventureRun {
     companion_mode: Boolean(run.companion_mode),
     companion_avatar_id: run.companion_avatar_id ?? null,
     companion_avatar_url: withApiBase(run.companion_avatar_url ?? null),
-    talk_log: run.talk_log ?? [],
     inventory_enabled: Boolean(run.inventory_enabled),
     inventory: run.inventory ?? null,
     npc_states: run.npc_states ?? null,
@@ -692,23 +675,6 @@ export async function streamAdventureTurn(
 ): Promise<void> {
   const response = await fetch(
     `${API_BASE}/adventure/runs/${runId}/turns/stream`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    },
-  );
-  await readSse(response, onEvent);
-}
-
-/** トークモード: 手番を消費せずに攻略対象と会話する(romance のみ) */
-export async function streamAdventureTalk(
-  runId: string,
-  body: { user_input: string },
-  onEvent: (event: AdventureStreamEvent) => void,
-): Promise<void> {
-  const response = await fetch(
-    `${API_BASE}/adventure/runs/${runId}/talk/stream`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },

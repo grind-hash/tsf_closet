@@ -24,6 +24,13 @@ cd frontend; npx rg 'data-removal-version="v0.8.0"' src
 
 ## 削除済み
 
+### Experimental 設定「エンディング」「TSFシナリオ」
+
+- 廃止: v0.9.0
+- エンディング: 常時表示（メニューと通知）。`experimentalEndingEnabled` は削除
+- TSFシナリオ: 設定画面の「TSFシナリオ」セクションの `adventureEnabled`（既定 ON）へ移動。`experimentalAdventureEnabled` は削除
+- localStorage `app_settings` に残る旧キーは `SettingsContext.loadInitialState` で読み捨てる（既定 ON に揃えるため引き継がない）
+
 ### 右パネル「保持する要素」セクション
 
 - 非推奨化: v0.7.0

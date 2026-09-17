@@ -9,6 +9,7 @@ import { appLoading } from "./appLoading";
 import { bgmTest } from "./bgmTest";
 import { branchSession } from "./branchSession";
 import { character } from "./character";
+import { characterChat } from "./characterChat";
 import { characterPanel } from "./characterPanel";
 import { chat } from "./chat";
 import { common } from "./common";
@@ -54,5 +55,6 @@ export const en = {
   consentDeclined,
   apiKeyConsent,
   character,
+  characterChat,
   promptExpander,
 };

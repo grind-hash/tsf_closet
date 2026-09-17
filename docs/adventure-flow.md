@@ -118,7 +118,7 @@ sequenceDiagram
     and ③ ビジュアルと画像生成
         SV->>L: ビジュアルの構造化出力
         L-->>SV: visual_state と画像タグ
-        SV->>SV: 外見ロックの更新（外見が変わり得る手番のみ）
+        SV->>SV: 外見ロック・同一性タグ署名の更新（外見が変わり得る手番のみ）
         opt 立ち絵ONのターン
             SV->>I: 主人公の立ち絵
             I-->>SV: 画像
@@ -161,7 +161,13 @@ sequenceDiagram
   立ち絵・合成は既存画像の編集で賄う。
 - **並列なのは②と③だけ**で、①の本文が確定してから走る。③は本文を入力に取るため。
 - **画像は③の中で直列**に生成する（背景 → 主人公の立ち絵 → 攻略対象の立ち絵 →
-  合成シーン）。立ち絵と合成で同じシードを使い、衣装の描画差を抑える。
+  合成シーン）。run 作成時に固定したシード（`state_json["image_seed"]`）を開幕と
+  全手番の立ち絵・攻略対象立ち絵・合成シーンで共有し、↻ の手動再生成だけ乱数を
+  使う。あわせて同一性タグ署名（`state_json["identity_tags"]` /
+  `partner_identity_tags`、`services/identity_signature.py`）を立ち絵と合成の
+  キャラクター枠へ毎手番先頭注入し、精密参照 OFF でも同一人物に寄せる。署名は
+  現実改変・宣言の反映・進行型ルール・作品シナリオの変身の手番だけ作り直し、
+  画像プロンプトモーダルでの手編集も新しい署名として採用する。
   **対面会話モード**（romance の `state_json["companion_mode"]`）では
   1手番＝1往復の会話になる（半日枠・昼夜・時間経過は無く、判定結果の
   day/slot は LLM に見せない。尺は日数でなくターン数）。本文は3ビート
@@ -190,7 +196,7 @@ sequenceDiagram
 - SSE イベントは `status` / `narrative_chunk` / `narrative_done` / `portrait_image` /
   `partner_image` / `background_image` / `image` / `cost` / `turn` / `complete` /
   `error`。通常ゲームの `useSSE` には流さず、`apis/adventure.ts` の専用パーサで
-  処理する。トーク（5. 参照）は同じパーサで `talk_chunk` / `talk_done` を扱う。
+  処理する。トーク（手番を消費しない会話）はキャラチャット（`/talk/:threadId`）へ移動して行う。
 - **3D モデル表示中の FE** は `narrative_done` の時点で攻略対象のセリフの読み上げを
   始め（②の判定と保存を待たない）、ステージの進捗オーバーレイを出さずに判定中の
   進捗を行動パネルに出す。表情・身振りは `turn` で届くので、その時点で切り替える。
@@ -282,15 +288,12 @@ sequenceDiagram
     end
 
     rect rgb(250, 240, 245)
-        Note over U,DB: トーク（romance。手番を消費しない会話）
-        U->>C: 「トーク」で自由入力を送信
-        C->>R: POST /runs/{id}/talk/stream
-        R->>SV: stream_talk
-        SV->>SV: 攻略対象として返答（LLM 1回、画像なし）
-        SV-->>C: talk_chunk（逐次）
-        SV->>DB: state_json.talk_log だけを更新（上限40件）
-        SV-->>C: talk_done / cost / complete
-        Note over SV: turn_count・status・sim・AdventureTurn には触れない。<br/>最後の手番以降の分は次の手番へ recent_talk として渡る。<br/>採点（好感度・金銭）には影響させない
+        Note over U,DB: トーク（romance。手番を消費しない会話）はキャラチャットへ
+        U->>C: 行動パネルの「トーク」
+        C->>R: POST /api/character-chat/threads/adventure/{id}
+        R-->>C: スレッド（run ごとに 1 件。旧 talk_log は初回に取り込み）
+        C->>C: /talk/:threadId へ移動（会話は character_chat_service）
+        Note over SV: 次の手番は recent_adventure_messages で<br/>前の手番以降の発言を recent_talk として受け取る。<br/>採点（好感度・金銭）には影響させない
     end
 
     rect rgb(245, 240, 240)

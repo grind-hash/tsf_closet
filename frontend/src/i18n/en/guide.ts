@@ -1,7 +1,7 @@
 export const guide = {
   title: "Play Style Guide",
   intro:
-    "A list of play styles that are off by default. Turning one on here adds it to the main menu. You can change these settings anytime from the settings screen.",
+    "A list of play styles. Those that are off by default can be turned on here, which adds them to the main menu. You can change these settings anytime from the settings screen.",
   enable: "Enable",
   addedToMenu: "Added to the menu",
   openSettings: "Open settings",
@@ -13,10 +13,10 @@ export const guide = {
   },
   talk: {
     title: "Talk & Face-to-Face Mode",
-    desc: "During the romance simulation, you can chat without spending a turn (Talk) and converse one exchange at a time in face-to-face mode. Combine them with line read-aloud and microphone input.",
-    note: "Face-to-face mode can be turned on in the romance simulation's start screen and image settings.",
-    open: "Open TSF Scenario",
-    enableParent: "Enable TSF Scenario first",
+    desc: "During the romance simulation, you can converse one exchange at a time in face-to-face mode. Free chat that does not spend a turn (Talk) opens Character Chat from the action panel, and what you talk about carries into the next scene.",
+    note: "Face-to-face mode is turned on in the romance simulation's start screen and image settings; Talk needs Character Chat enabled.",
+    open: "Open Character Chat",
+    enableParent: "Enable Character Chat first",
   },
   inventory: {
     title: "Inventory System",
@@ -36,6 +36,12 @@ export const guide = {
     note: "NovelAI provider only.",
     open: "Open Prompt Expander",
   },
+  characterChat: {
+    title: "Character Chat",
+    desc: "Talk one-on-one with a character outside the TSF scenario. The guide character Serena remembers your tastes and past play and looks things up when you ask about recent sessions or tendencies. You can also bring back a character from a past session with the feelings they had at that point, choose the appearance from past images, and ask for a change of clothes to redraw the portrait.",
+    note: 'Each reply first decides what to look up, so replies take a little longer than a plain chat. Asking for a change of clothes also runs image generation. Optionally, turning on "Let Serena check the weather" and "Let Serena search the web" in the settings screen lets her look up the weather and recent topics on the web (requires server-side setup).',
+    open: "Open Character Chat",
+  },
   voice: {
     title: "Line Read-Aloud (Speech Synthesis)",
     desc: "Reads character lines aloud. Available in normal-play chat and in the TSF Scenario's face-to-face mode.",
@@ -47,11 +53,5 @@ export const guide = {
     note: "When enabled, an auto memo is generated per response, so completion may take longer.",
     enabledHint:
       'A "Play Memory" panel appears on the right side of normal play',
-  },
-  endings: {
-    title: "Endings",
-    desc: "Endings trigger when their conditions are met, and you can review them in the list screen.",
-    note: "When enabled, ending notifications and the endings menu are shown.",
-    open: "Open the endings list",
   },
 };

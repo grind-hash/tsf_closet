@@ -99,6 +99,12 @@ class Settings:
         os.getenv("ENABLE_PROMPT_PREVIEW", "false").lower() == "true"
     )
 
+    # キャラチャットの案内役キャラ(セレナ)が使う現実世界の情報。未設定なら該当機能は動かない
+    # Web 検索 (Tavily) の API キー
+    tavily_api_key: str = os.getenv("TAVILY_API_KEY", "").strip()
+    # 天気を取得する都市名 (例: Tokyo)。Open-Meteo を使うため API キーは不要
+    weather_location: str = os.getenv("WEATHER_LOCATION", "").strip()
+
     # 画像生成プロバイダー設定
     # selfhost: ComfyUI (デフォルト), openrouter: OpenRouter API, novelai: NovelAI Image API
     image_provider: str = os.getenv("IMAGE_PROVIDER", "selfhost")

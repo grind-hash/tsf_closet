@@ -356,6 +356,9 @@ if [[ ! -d "$FRONTEND_DIST_DIR" ]]; then
 else
     mkdir -p "$PACKAGE_STATIC_DIR"
     cp -r "$FRONTEND_DIST_DIR/"* "$PACKAGE_STATIC_DIR/"
+    # Live2D Cubism Core は Live2D Proprietary Software License の配布物のため
+    # パッケージに含めない。利用者が backend/static/live2d/vendor/ へ配置する
+    rm -rf "$PACKAGE_STATIC_DIR/live2d/vendor"
     write_success "static/ に配置完了"
 fi
 

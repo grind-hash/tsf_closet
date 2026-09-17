@@ -5,11 +5,8 @@ Gallery API endpoints
 
 from __future__ import annotations
 
-import contextlib
 import json
-import os
 from datetime import datetime
-from pathlib import Path
 from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Query
@@ -17,7 +14,6 @@ from fastapi.responses import Response
 from sqlalchemy import and_, delete, desc, func, or_, select
 
 from ..databases.base import async_session_factory
-from ..databases.models import Conversation as ConversationORM
 from ..databases.models import History as HistoryORM
 from ..databases.models import PlaySummary as PlaySummaryORM
 from ..databases.models import Session as SessionORM
@@ -30,151 +26,16 @@ from ..schemas.gallery import (
     GallerySessionsResponse,
 )
 from ..services.characters import CharacterManager
+from ..services.custom_sessions import delete_custom_session_metadata
+from ..services.image_paths import remove_history_image
+from ..services.session_search import (
+    escape_like,
+    fetch_match_snippets,
+    matching_session_ids_select,
+)
 from ..settings.config import settings
 
 router = APIRouter(prefix="/gallery", tags=["gallery"])
-
-
-def _escape_like(value: str) -> str:
-    """LIKE パターン用に % / _ / \\ をエスケープする"""
-    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-
-
-def _make_snippet(text: str, query: str, max_len: int = 80) -> str:
-    """検索語周辺を切り出したスニペットを返す"""
-    if not text:
-        return ""
-
-    idx = text.lower().find(query.lower())
-    if idx < 0:
-        idx = text.find(query)
-    if idx < 0:
-        snippet = text[:max_len]
-        return snippet + ("…" if len(text) > max_len else "")
-
-    start = max(0, idx - 20)
-    end = min(len(text), idx + len(query) + 40)
-    snippet = text[start:end]
-    if start > 0:
-        snippet = f"…{snippet}"
-    if end < len(text):
-        snippet = f"{snippet}…"
-    return snippet
-
-
-def _matching_session_ids_select(pattern: str):
-    """指示・会話・要約のいずれかに一致する session_id を返す SELECT"""
-    history_match = select(HistoryORM.session_id.label("session_id")).where(
-        or_(
-            HistoryORM.instruction.like(pattern, escape="\\"),
-            HistoryORM.feeling_text.like(pattern, escape="\\"),
-            HistoryORM.before_description.like(pattern, escape="\\"),
-            HistoryORM.after_description.like(pattern, escape="\\"),
-        )
-    )
-    conversation_match = select(ConversationORM.session_id.label("session_id")).where(
-        ConversationORM.content.like(pattern, escape="\\")
-    )
-    summary_match = select(PlaySummaryORM.session_id.label("session_id")).where(
-        or_(
-            PlaySummaryORM.title.like(pattern, escape="\\"),
-            PlaySummaryORM.summary.like(pattern, escape="\\"),
-        )
-    )
-    return history_match.union(conversation_match, summary_match)
-
-
-async def _fetch_match_snippets(
-    db_session,
-    session_ids: list[str],
-    query: str,
-) -> dict[str, str]:
-    """セッションごとの代表的なマッチ箇所を取得する（会話を優先）"""
-    if not session_ids or not query:
-        return {}
-
-    pattern = f"%{_escape_like(query)}%"
-    snippets: dict[str, str] = {}
-
-    conv_rows = (
-        await db_session.execute(
-            select(ConversationORM.session_id, ConversationORM.content)
-            .where(
-                ConversationORM.session_id.in_(session_ids),
-                ConversationORM.content.like(pattern, escape="\\"),
-            )
-            .order_by(desc(ConversationORM.created_at))
-        )
-    ).all()
-    for session_id, content in conv_rows:
-        sid = str(session_id)
-        if sid not in snippets and content:
-            snippets[sid] = _make_snippet(content, query)
-
-    remaining = [sid for sid in session_ids if sid not in snippets]
-    if remaining:
-        history_rows = (
-            await db_session.execute(
-                select(
-                    HistoryORM.session_id,
-                    HistoryORM.instruction,
-                    HistoryORM.feeling_text,
-                    HistoryORM.before_description,
-                    HistoryORM.after_description,
-                )
-                .where(
-                    HistoryORM.session_id.in_(remaining),
-                    or_(
-                        HistoryORM.instruction.like(pattern, escape="\\"),
-                        HistoryORM.feeling_text.like(pattern, escape="\\"),
-                        HistoryORM.before_description.like(pattern, escape="\\"),
-                        HistoryORM.after_description.like(pattern, escape="\\"),
-                    ),
-                )
-                .order_by(desc(HistoryORM.created_at))
-            )
-        ).all()
-        for row in history_rows:
-            sid = str(row.session_id)
-            if sid in snippets:
-                continue
-            for field in (
-                row.instruction,
-                row.feeling_text,
-                row.before_description,
-                row.after_description,
-            ):
-                if field and (query.lower() in field.lower() or query in field):
-                    snippets[sid] = _make_snippet(field, query)
-                    break
-
-    remaining = [sid for sid in session_ids if sid not in snippets]
-    if remaining:
-        summary_rows = (
-            await db_session.execute(
-                select(
-                    PlaySummaryORM.session_id,
-                    PlaySummaryORM.title,
-                    PlaySummaryORM.summary,
-                ).where(
-                    PlaySummaryORM.session_id.in_(remaining),
-                    or_(
-                        PlaySummaryORM.title.like(pattern, escape="\\"),
-                        PlaySummaryORM.summary.like(pattern, escape="\\"),
-                    ),
-                )
-            )
-        ).all()
-        for row in summary_rows:
-            sid = str(row.session_id)
-            if sid in snippets:
-                continue
-            for field in (row.title, row.summary):
-                if field and (query.lower() in field.lower() or query in field):
-                    snippets[sid] = _make_snippet(field, query)
-                    break
-
-    return snippets
 
 
 def _load_custom_session_name(session_id: str) -> str | None:
@@ -213,7 +74,7 @@ async def get_gallery_sessions(
     offset = (page - 1) * page_size
     query = (q or "").strip()
     match_select = (
-        _matching_session_ids_select(f"%{_escape_like(query)}%") if query else None
+        matching_session_ids_select(f"%{escape_like(query)}%") if query else None
     )
 
     async with async_session_factory() as db_session:
@@ -294,7 +155,7 @@ async def get_gallery_sessions(
         snippets: dict[str, str] = {}
         if query and rows:
             session_ids = [str(row.session_id) for row in rows]
-            snippets = await _fetch_match_snippets(db_session, session_ids, query)
+            snippets = await fetch_match_snippets(db_session, session_ids, query)
 
     char_manager = CharacterManager()
 
@@ -503,9 +364,10 @@ async def delete_gallery_session(session_id: str):
         try:
             rows = (
                 await db_session.execute(
-                    select(HistoryORM.id, HistoryORM.image_path).where(
-                        HistoryORM.session_id == session_id
-                    )
+                    select(
+                        HistoryORM.image_path,
+                        HistoryORM.surroundings_image_path,
+                    ).where(HistoryORM.session_id == session_id)
                 )
             ).all()
 
@@ -515,16 +377,6 @@ async def delete_gallery_session(session_id: str):
                     detail=f"Session {session_id} not found or has no history",
                 )
 
-            deleted_count = len(rows)
-
-            for row in rows:
-                image_path_value = row.image_path
-                if image_path_value:
-                    image_path = Path(image_path_value)
-                    if image_path.exists():
-                        with contextlib.suppress(OSError):
-                            os.remove(image_path)
-
             await db_session.execute(
                 delete(HistoryORM).where(HistoryORM.session_id == session_id)
             )
@@ -532,17 +384,24 @@ async def delete_gallery_session(session_id: str):
                 delete(SessionORM).where(SessionORM.id == session_id)
             )
             await db_session.commit()
-
-            return DeleteResponse(
-                success=True,
-                deleted_count=deleted_count,
-                message=f"Session {session_id} and {deleted_count} history items deleted",
-            )
         except HTTPException:
             raise
         except Exception as exc:
             await db_session.rollback()
             raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    # ファイルはコミット後に消す。消せなくても DB 側は整合したまま残る
+    for row in rows:
+        remove_history_image(row.image_path)
+        remove_history_image(row.surroundings_image_path)
+    delete_custom_session_metadata(session_id)
+
+    deleted_count = len(rows)
+    return DeleteResponse(
+        success=True,
+        deleted_count=deleted_count,
+        message=f"Session {session_id} and {deleted_count} history items deleted",
+    )
 
 
 @router.delete("/{item_id}", response_model=DeleteResponse)
@@ -553,7 +412,6 @@ async def delete_gallery_item(item_id: str):
             row = (
                 await db_session.execute(
                     select(
-                        HistoryORM.id,
                         HistoryORM.image_path,
                         HistoryORM.surroundings_image_path,
                     )
@@ -565,35 +423,23 @@ async def delete_gallery_item(item_id: str):
             if not row:
                 raise HTTPException(status_code=404, detail=f"Item {item_id} not found")
 
-            # メイン画像を削除
-            if row.image_path:
-                image_path = Path(row.image_path)
-                if image_path.exists():
-                    with contextlib.suppress(OSError):
-                        os.remove(image_path)
-
-            # 周囲状況画像を削除
-            if row.surroundings_image_path:
-                surroundings_path = (
-                    settings.history_images_dir.parent / row.surroundings_image_path
-                )
-                if surroundings_path.exists():
-                    with contextlib.suppress(OSError):
-                        os.remove(surroundings_path)
-
             await db_session.execute(delete(HistoryORM).where(HistoryORM.id == item_id))
             await db_session.commit()
-
-            return DeleteResponse(
-                success=True,
-                deleted_count=1,
-                message=f"Item {item_id} deleted",
-            )
         except HTTPException:
             raise
         except Exception as exc:
             await db_session.rollback()
             raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    # メイン画像と周囲状況画像はコミット後に消す
+    remove_history_image(row.image_path)
+    remove_history_image(row.surroundings_image_path)
+
+    return DeleteResponse(
+        success=True,
+        deleted_count=1,
+        message=f"Item {item_id} deleted",
+    )
 
 
 # ------------------------------------------------------------------

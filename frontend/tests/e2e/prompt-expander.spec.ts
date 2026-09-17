@@ -212,7 +212,7 @@ function runPayload() {
 
 type FeatureFlags = {
   experimentalPromptExpanderEnabled?: boolean;
-  experimentalAdventureEnabled?: boolean;
+  adventureEnabled?: boolean;
 };
 
 async function enableFeatures(page: Page, flags: FeatureFlags) {
@@ -1819,7 +1819,7 @@ test("adventure setup can start from a Prompt Expander entry", async ({
 }) => {
   await enableFeatures(page, {
     experimentalPromptExpanderEnabled: true,
-    experimentalAdventureEnabled: true,
+    adventureEnabled: true,
   });
   await mockPromptExpanderApis(page);
   await mockGameApis(page);
@@ -1863,7 +1863,7 @@ test("adventure deep link preselects the Prompt Expander entry", async ({
 }) => {
   await enableFeatures(page, {
     experimentalPromptExpanderEnabled: true,
-    experimentalAdventureEnabled: true,
+    adventureEnabled: true,
   });
   await mockPromptExpanderApis(page);
   await mockGameApis(page);
@@ -1884,7 +1884,7 @@ test("romance player picker does not offer the Prompt Expander tab", async ({
 }) => {
   await enableFeatures(page, {
     experimentalPromptExpanderEnabled: true,
-    experimentalAdventureEnabled: true,
+    adventureEnabled: true,
   });
   await mockPromptExpanderApis(page);
   await mockGameApis(page);

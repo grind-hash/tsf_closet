@@ -29,7 +29,9 @@ import {
   ARM_REST,
   type ArmChannels,
   type ArmSide,
+  type AvatarRestPose,
   addPose,
+  addV,
   approachMouthTargets,
   armChannels,
   axisBetween,
@@ -37,6 +39,9 @@ import {
   BLINK_OPEN_SEC,
   blinkWeight,
   CLOSED_MOUTH_TARGETS,
+  claspHold,
+  claspPalm,
+  claspTargets,
   DOWN,
   detectFacing,
   type Facing,
@@ -47,12 +52,17 @@ import {
   GESTURE_CLIPS,
   gestureDuration,
   idlePose,
+  lengthV,
   type MouthTargets,
   mouthWeightsFromLevel,
   mouthWeightsFromViseme,
   nextBlinkDelay,
   poseToBoneRotation,
   sampleGesture,
+  scaleV,
+  solveArmIk,
+  subV,
+  THUMB_TUCK,
   UP,
   type Vec3,
   ZERO_POSE,
@@ -60,8 +70,13 @@ import {
 
 export interface VrmAvatarEngineOptions {
   canvas: HTMLCanvasElement;
-  /** キャンバスの親。サイズはこの要素に追従する */
+  /**
+   * キャンバスの親。構図(上半身の収まり)はこの要素の高さで決める。
+   * キャンバスを CSS で親より下へはみ出させると、はみ出した分にモデルの続きを描く
+   */
   container: HTMLElement;
+  /** 待機姿勢の種類。既定は腕を体側へ下ろす relaxed */
+  restPose?: AvatarRestPose;
   onError: (error: unknown) => void;
 }
 
@@ -81,6 +96,8 @@ export interface VrmAvatarEngine {
    * フォールバックする。解除は null を渡す
    */
   setVisemeSource: (source: (() => VisemeFrame | null) | null) => void;
+  /** 待機姿勢の種類を切り替える(読み込み済みのモデルへ即座に反映する) */
+  setRestPose: (pose: AvatarRestPose) => void;
   dispose: () => void;
 }
 
@@ -121,10 +138,27 @@ interface ArmRig {
   bendRest: number;
   /** 前腕を前額面で上へ振り上げる回転軸 */
   upAxis: THREE.Vector3;
+  /**
+   * 手を体の前で重ねた姿勢(2 ボーン IK の解)。clasped のときだけ入り、
+   * 腕を動かす身振りの間は claspHold の割合だけ関節角の姿勢へ戻す
+   */
+  clasp: {
+    upper: THREE.Quaternion;
+    fore: THREE.Quaternion;
+    hand: THREE.Quaternion;
+  } | null;
   /** 前腕のひねり軸。rest の骨軸(±X)と平行で、手のひら(rest で下向き)を前方へ向ける */
   twistAxis: THREE.Vector3;
   /** 手ボーン。ひねりの半分を受け持つ(無いモデルは前腕が全部受ける) */
   hand: THREE.Object3D | null;
+  /** rest での上腕の向き(単位ベクトル)。IK の基準になる */
+  armDir: Vec3;
+  /** rest での前腕の向き。T ポーズが完全な直線でないモデルがあるため別に持つ */
+  foreDir: Vec3;
+  /** rest での肩・上腕・前腕の寸法(normalized bone の局所系)。IK に使う */
+  shoulder: Vec3 | null;
+  upperLength: number;
+  foreLength: number;
 }
 
 interface RestPose {
@@ -161,9 +195,15 @@ function boneDirection(child: THREE.Object3D | null): Vec3 | null {
 
 /**
  * 指を手のひら側へ軽く曲げる。指の向きは根元 2 関節の位置関係から取り、
- * 同じ指の各関節に共通の軸を使う(rest では指は一直線なので十分)
+ * 同じ指の各関節に共通の軸を使う(rest では指は一直線なので十分)。
+ * 親指だけは付け根を人差し指の側へ寄せ、開いたままにしない
  */
 function applyFingerCurl(humanoid: VRMHumanoid, side: ArmSide): void {
+  const indexDir = boneDirection(
+    humanoid.getNormalizedBoneNode(
+      fingerBoneName(side, "index", "proximal") as VRMHumanBoneName,
+    ),
+  );
   for (const finger of FINGER_NAMES) {
     const segments = FINGER_SEGMENTS[finger];
     const curls = FINGER_CURL[finger];
@@ -181,16 +221,144 @@ function applyFingerCurl(humanoid: VRMHumanoid, side: ArmSide): void {
       const angle = curls[index] ?? 0;
       if (node && angle !== 0) node.quaternion.setFromAxisAngle(axis, angle);
     });
+    // 親指の付け根は曲げずに、人差し指の側へ寄せる
+    if (finger === "thumb" && indexDir && nodes[0]) {
+      const tuckAxis = axisBetween(direction, indexDir);
+      if (tuckAxis) {
+        nodes[0].quaternion.setFromAxisAngle(axisOf(tuckAxis), THUMB_TUCK);
+      }
+    }
+  }
+}
+
+/** normalized bone の位置を、normalized リグの局所系で読む */
+function normalizedPosition(humanoid: VRMHumanoid, node: THREE.Object3D): Vec3 {
+  node.updateWorldMatrix(true, false);
+  const point = new THREE.Vector3().setFromMatrixPosition(node.matrixWorld);
+  humanoid.normalizedHumanBonesRoot.worldToLocal(point);
+  return [point.x, point.y, point.z];
+}
+
+interface ArmGeometry {
+  shoulder: Vec3;
+  upperLength: number;
+  foreLength: number;
+}
+
+/** rest 姿勢のまま、肩の位置と上腕・前腕の長さを測る(手ボーンが無ければ null) */
+function measureArm(
+  humanoid: VRMHumanoid,
+  upperArm: THREE.Object3D,
+  lowerArm: THREE.Object3D,
+  hand: THREE.Object3D | null,
+): ArmGeometry | null {
+  if (!hand) return null;
+  const shoulder = normalizedPosition(humanoid, upperArm);
+  const elbow = normalizedPosition(humanoid, lowerArm);
+  const wrist = normalizedPosition(humanoid, hand);
+  const upperLength = lengthV(subV(elbow, shoulder));
+  const foreLength = lengthV(subV(wrist, elbow));
+  if (upperLength <= 0 || foreLength <= 0) return null;
+  return { shoulder, upperLength, foreLength };
+}
+
+/**
+ * 手のひらを狙いの向きへ回すために、前腕の軸まわりに必要なひねり角を求める。
+ * rest の手のひらの法線は左右とも下向き。前腕の軸に平行な成分しか無いときは 0
+ */
+function palmTwistAngle(
+  facing: Facing,
+  upper: THREE.Quaternion,
+  fore: THREE.Quaternion,
+  foreDirWorld: Vec3,
+): number {
+  const axis = new THREE.Vector3(...foreDirWorld).normalize();
+  const current = new THREE.Vector3(...DOWN)
+    .applyQuaternion(fore)
+    .applyQuaternion(upper)
+    .projectOnPlane(axis);
+  const wanted = new THREE.Vector3(...claspPalm(facing)).projectOnPlane(axis);
+  if (current.lengthSq() < 1e-8 || wanted.lengthSq() < 1e-8) return 0;
+  current.normalize();
+  wanted.normalize();
+  const angle = Math.acos(Math.min(1, Math.max(-1, current.dot(wanted))));
+  return current.cross(wanted).dot(axis) < 0 ? -angle : angle;
+}
+
+/**
+ * 手を体の前で重ねた姿勢を 2 ボーン IK で解き、各腕へ入れる。
+ *
+ * 左右で腕の長さや肩の高さが違うモデルがあるため、関節角ではなく手の位置を
+ * 目標にする。寸法を測れない腕(手ボーンが無い等)は組まない
+ */
+function solveClaspPose(rigs: ArmRig[], facing: Facing): void {
+  const left = rigs.find((rig) => rig.side === "left");
+  const right = rigs.find((rig) => rig.side === "right");
+  if (!left?.shoulder || !right?.shoulder) {
+    for (const rig of rigs) rig.clasp = null;
+    return;
+  }
+  const shoulderMid = scaleV(addV(left.shoulder, right.shoulder), 0.5);
+  const armLength =
+    (left.upperLength +
+      left.foreLength +
+      right.upperLength +
+      right.foreLength) /
+    2;
+  const targets = claspTargets(shoulderMid, armLength, facing);
+  for (const rig of rigs) {
+    // 肘は体の外側・やや後ろへ出す
+    const pole = addV(scaleV(rig.armDir, 0.7), [0, 0, -facing * 0.5]);
+    const solution = rig.shoulder
+      ? solveArmIk({
+          shoulder: rig.shoulder,
+          upperLength: rig.upperLength,
+          foreLength: rig.foreLength,
+          target: targets[rig.side],
+          pole,
+        })
+      : null;
+    if (!solution) {
+      rig.clasp = null;
+      continue;
+    }
+    const upper = new THREE.Quaternion().setFromUnitVectors(
+      new THREE.Vector3(...rig.armDir),
+      new THREE.Vector3(...solution.upperDir),
+    );
+    // 前腕の回転は上腕の局所系で持ち、前腕自身の rest 向きから回す
+    const localFore = new THREE.Vector3(...solution.foreDir).applyQuaternion(
+      upper.clone().invert(),
+    );
+    const fore = new THREE.Quaternion().setFromUnitVectors(
+      new THREE.Vector3(...rig.foreDir),
+      localFore,
+    );
+    // 手のひらを狙いの向きへ。ひねりは前腕と手で半分ずつ持ち、手首のねじれを抑える
+    const twist = palmTwistAngle(facing, upper, fore, solution.foreDir);
+    const hand = new THREE.Quaternion().setFromAxisAngle(
+      new THREE.Vector3(...rig.foreDir),
+      twist / 2,
+    );
+    fore.premultiply(
+      new THREE.Quaternion().setFromAxisAngle(localFore, twist / 2),
+    );
+    rig.clasp = { upper, fore, hand };
   }
 }
 
 /**
- * 腕を体側へ下ろし、肘を前へ曲げ、指を軽く握った待機姿勢にする。
+ * 腕を体側へ下ろし、肘を軽く曲げ、指を軽く握った待機姿勢にする。
+ * clasped のときは続けて、手を体の前で重ねる姿勢を IK で解いて重ねる。
  * 回転軸は実際のボーンの向きから求めるので、腕が +X に伸びる VRM 1.0 でも
  * -X に伸びる 0.x でも同じ見た目になる。軸はすべてリグへ保存し、
  * 身振り再生中は applyArmPose が同じ軸で毎フレーム組み直す
  */
-function applyArmRestPose(humanoid: VRMHumanoid, facing: Facing): ArmRig[] {
+function applyArmRestPose(
+  humanoid: VRMHumanoid,
+  facing: Facing,
+  restPose: AvatarRestPose,
+): ArmRig[] {
   const forward: Vec3 = [0, 0, facing];
   const rigs: ArmRig[] = [];
   for (const side of ARM_SIDES) {
@@ -199,6 +367,8 @@ function applyArmRestPose(humanoid: VRMHumanoid, facing: Facing): ArmRig[] {
     const hand = humanoid.getNormalizedBoneNode(`${side}Hand`);
     const armDir = boneDirection(lowerArm);
     if (!upperArm || !lowerArm || !armDir) continue;
+    // 回転を当てる前に、rest の寸法を測る(手を重ねる姿勢の IK に使う)
+    const geometry = measureArm(humanoid, upperArm, lowerArm, hand);
     const angles = ARM_REST[side];
     const lowerAxis = axisBetween(armDir, DOWN);
     const forwardAxis = axisBetween(DOWN, forward);
@@ -222,24 +392,35 @@ function applyArmRestPose(humanoid: VRMHumanoid, facing: Facing): ArmRig[] {
       bendRest: angles.bend,
       upAxis: axisOf(upAxis),
       twistAxis: axisOf(twistAxis),
+      clasp: null,
       hand,
+      armDir,
+      foreDir: boneDirection(hand) ?? armDir,
+      shoulder: geometry?.shoulder ?? null,
+      upperLength: geometry?.upperLength ?? 0,
+      foreLength: geometry?.foreLength ?? 0,
     };
     applyArmPose(rig, armChannels(ZERO_POSE, side));
     applyFingerCurl(humanoid, side);
     rigs.push(rig);
   }
+  if (restPose === "clasped") solveClaspPose(rigs, facing);
+  for (const rig of rigs) applyArmPose(rig, armChannels(ZERO_POSE, rig.side));
   return rigs;
 }
 
 const armPoseQuat = new THREE.Quaternion();
 
 /**
- * 片腕の回転を組み直す。上腕は「下ろす(lift ぶん戻す)→ 前へ振る」、
+ * 片腕の回転を組み直す。上腕は「下ろす(lift ぶん戻す)→ 前へ振る → 内旋する」、
  * 前腕は「手のひらをひねる → 肘を前へ曲げる → 前額面で上へ振り上げる」の順。
  * 肘は待機角より逆(伸展)側へは曲げない。ひねりは前腕と手に半分ずつ配り、
- * 手首・肘まわりのメッシュのねじれを抑える
+ * 手首・肘まわりのメッシュのねじれを抑える。
+ * 手を前で組む上乗せ(内旋と肘の追加曲げ)は claspHold の割合だけ効かせ、
+ * 腕を持ち上げる身振りの間は腕を下ろした姿勢から動かす
  */
 function applyArmPose(rig: ArmRig, arm: ArmChannels): void {
+  const hold = rig.clasp ? claspHold(arm) : 0;
   rig.upperArm.quaternion
     .setFromAxisAngle(rig.lowerAxis, rig.lowerAngle - arm.lift)
     .premultiply(
@@ -264,6 +445,12 @@ function applyArmPose(rig: ArmRig, arm: ArmChannels): void {
   if (rig.hand) {
     rig.hand.quaternion.setFromAxisAngle(rig.twistAxis, palm - forearmTwist);
   }
+  // 手を重ねた姿勢へ寄せる。身振りで腕が動くぶんだけ関節角の姿勢へ戻る
+  if (rig.clasp && hold > 0) {
+    rig.upperArm.quaternion.slerp(rig.clasp.upper, hold);
+    rig.lowerArm.quaternion.slerp(rig.clasp.fore, hold);
+    rig.hand?.quaternion.slerp(rig.clasp.hand, hold);
+  }
 }
 
 interface ActiveGesture {
@@ -281,6 +468,7 @@ export function createVrmAvatarEngine(
   options: VrmAvatarEngineOptions,
 ): VrmAvatarEngine {
   const { canvas, container, onError } = options;
+  let restPoseKind: AvatarRestPose = options.restPose ?? "relaxed";
   const renderer = new THREE.WebGLRenderer({
     canvas,
     alpha: true,
@@ -325,10 +513,15 @@ export function createVrmAvatarEngine(
   const frameSpan = { bottom: 0, top: 1.6 };
 
   function resize(): void {
-    const width = Math.max(1, container.clientWidth);
-    const height = Math.max(1, container.clientHeight);
+    const width = Math.max(1, canvas.clientWidth);
+    const height = Math.max(1, canvas.clientHeight);
+    const frameHeight = Math.min(height, Math.max(1, container.clientHeight));
     renderer.setSize(width, height, false);
-    camera.aspect = width / height;
+    // 構図は親の高さで組み、キャンバスがそれより高ければ視錐台を下へ延ばす
+    camera.aspect = width / frameHeight;
+    if (frameHeight < height)
+      camera.setViewOffset(width, frameHeight, 0, 0, width, height);
+    else camera.clearViewOffset();
     frameCamera();
   }
 
@@ -362,7 +555,7 @@ export function createVrmAvatarEngine(
       boneDirection(humanoid.getNormalizedBoneNode("leftLowerArm")),
       specVersion,
     );
-    const arms = applyArmRestPose(humanoid, facing);
+    const arms = applyArmRestPose(humanoid, facing, restPoseKind);
     const head = humanoid.getNormalizedBoneNode("head");
     const spine = humanoid.getNormalizedBoneNode("spine");
     const hips = humanoid.getNormalizedBoneNode("hips");
@@ -430,6 +623,15 @@ export function createVrmAvatarEngine(
     );
     startLoop();
     return { specVersion, missingExpressions };
+  }
+
+  function setRestPose(pose: AvatarRestPose): void {
+    if (pose === restPoseKind) return;
+    restPoseKind = pose;
+    if (!rest) return;
+    // 腕の回転は毎フレーム組み直すので、重ねる姿勢を差し替えるだけでよい
+    if (pose === "clasped") solveClaspPose(rest.arms, rest.facing);
+    else for (const arm of rest.arms) arm.clasp = null;
   }
 
   function setExpression(key: AvatarExpressionKey | null): void {
@@ -624,6 +826,7 @@ export function createVrmAvatarEngine(
   canvas.addEventListener("webglcontextlost", onContextLost);
   const observer = new ResizeObserver(() => resize());
   observer.observe(container);
+  observer.observe(canvas);
   resize();
 
   function dispose(): void {
@@ -645,6 +848,7 @@ export function createVrmAvatarEngine(
     playGesture,
     setLevelSource,
     setVisemeSource,
+    setRestPose,
     dispose,
   };
 }

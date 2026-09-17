@@ -92,7 +92,19 @@ AVATAR_RESOLUTION_INSTRUCTION: str = (
     "stays still. When nothing clearly fits use neutral and idle."
 )
 
-# トーク返答の先頭ヘッダ行の指示。対面会話モードのときだけ使う
+# トーク返答のヘッダ指示に共通で添える規則。丸括弧の仕草でヘッダを代用させず、
+# 表情の依頼にもヘッダで応えさせる(キャラチャットの Live2D 用指示でも使う)
+TALK_HEADER_COMMON_RULES: str = (
+    "The header is machine-read and drives your face on screen; it is never "
+    "shown, so it must not contain anything else and the spoken words must not "
+    "repeat it. Put the header on every reply, including replies with an action "
+    "in parentheses; the parentheses never replace it. Write it only once, at the "
+    "very start of the reply; never repeat it before later sentences or "
+    "paragraphs, even in a long reply. When the user asks you to "
+    "make a certain face, pick the expression key closest to that face."
+)
+
+# トーク返答の先頭ヘッダ行の指示。3D モデル(VRM)表示中のキャラチャットで使う
 AVATAR_TALK_HEADER_INSTRUCTION: str = (
     "Begin your reply with exactly one header line of the form "
     "[expression=<key> gesture=<key>] followed by a newline, then the spoken "
@@ -101,8 +113,7 @@ AVATAR_TALK_HEADER_INSTRUCTION: str = (
     "expression= and gesture=; never abbreviate it or merge the two fields. "
     "Pick the pair whose descriptions best match the feeling of your reply, "
     "using the full vocabulary rather than defaulting to neutral and idle. "
-    "The header is machine-read and never shown, so it must not contain anything "
-    "else; the spoken words must not repeat it."
+    + TALK_HEADER_COMMON_RULES
 )
 
 # 衣装差分(同じキャラクターとして登録した VRM が 2 件以上)があるときだけ、
@@ -135,6 +146,14 @@ TALK_HEADER_RE = re.compile(r"^\s*\[([^\[\]\n]{1,120})\]\s*\n?")
 _TALK_HEADER_LABEL_RE = re.compile(
     r"(expression|gesture)\s*[=:]\s*([A-Za-z_\-]+)", re.IGNORECASE
 )
+# 角括弧を落とした先頭行(expression=happy gesture=nod)。セリフと取り違えないよう
+# ラベル付きの値だけが並んで改行で終わる行に限る
+_TALK_HEADER_BARE_RE = re.compile(
+    r"^\s*((?:expression|gesture)\s*[=:]\s*[A-Za-z_\-]+"
+    r"(?:[ \t,]+(?:expression|gesture)\s*[=:]\s*[A-Za-z_\-]+)?)[ \t,]*(?:\n\s*|$)",
+    re.IGNORECASE,
+)
+_TALK_HEADER_LABELS = ("expression", "gesture")
 # ラベルが無いときに語彙のキーとして解釈するトークン
 _TALK_HEADER_TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z_\-]*")
 
@@ -144,10 +163,15 @@ def parse_talk_header(text: str) -> tuple[str | None, str | None, str]:
 
     expression / gesture のラベルを含むか、語彙のキーとして解釈できるトークンを
     含む先頭の角括弧ブロックだけをヘッダとして剥がす。それ以外の角括弧は
-    セリフの一部として残す。
+    セリフの一部として残す。LLM が角括弧を落とした先頭行
+    (expression=happy gesture=nod)は、ラベル付きの値だけが並んで改行で終わり、
+    語彙のキーを 1 つ以上含むときだけ剥がす。
     """
     source = str(text or "")
     match = TALK_HEADER_RE.match(source)
+    bare = match is None
+    if bare:
+        match = _TALK_HEADER_BARE_RE.match(source)
     if match is None:
         return None, None, source
     body = match.group(1)
@@ -166,7 +190,87 @@ def parse_talk_header(text: str) -> tuple[str | None, str | None, str]:
             gesture = gesture or normalize_avatar_gesture(token)
         if expression is None and gesture is None:
             return None, None, source
+    if bare and expression is None and gesture is None:
+        return None, None, source
     return expression, gesture, source[match.end() :]
+
+
+# 本文の途中に紛れたヘッダの行(モデルが段落ごとにヘッダを繰り返したもの)。ラベル付きの
+# 形だけを対象にし、セリフの角括弧には触れない。ヘッダだけの行は角括弧の有無を問わず、
+# 角括弧で囲んだヘッダは後ろにセリフが続いても剥がす
+_TALK_HEADER_PAIRS = (
+    r"(?:expression|gesture)[ \t]*[=:][ \t]*[A-Za-z_\-]+"
+    r"(?:[ \t,]+(?:expression|gesture)[ \t]*[=:][ \t]*[A-Za-z_\-]+)?"
+)
+_TALK_HEADER_ONLY_LINE_RE = re.compile(
+    rf"^[ \t]*\[?[ \t]*({_TALK_HEADER_PAIRS})[ \t,]*\]?[ \t]*$", re.IGNORECASE
+)
+_TALK_HEADER_LINE_PREFIX_RE = re.compile(
+    rf"^[ \t]*\[[ \t]*({_TALK_HEADER_PAIRS})[ \t,]*\][ \t]*", re.IGNORECASE
+)
+
+
+def _talk_header_line_match(line: str) -> re.Match[str] | None:
+    return _TALK_HEADER_ONLY_LINE_RE.match(line) or _TALK_HEADER_LINE_PREFIX_RE.match(
+        line
+    )
+
+
+def strip_talk_header_line(line: str) -> str | None:
+    """1 行(改行を含まない)からヘッダを剥がす。ヘッダだけの行なら None を返す。
+
+    ストリームで、段落ごとに繰り返されたヘッダを行単位で取り除くときに使う。
+    """
+    match = _talk_header_line_match(line)
+    if match is None:
+        return line
+    rest = line[match.end() :]
+    return rest if rest.strip() else None
+
+
+def strip_talk_header_lines(text: str) -> tuple[str | None, str | None, str]:
+    """先頭ヘッダに加え、本文の途中に紛れたヘッダの行も剥がす。
+
+    (expression, gesture, 残りの本文) を返す。値は先頭のヘッダを優先し、無ければ
+    途中で最初に見つかったヘッダの値を使う。剥がした後の 3 行以上の空行は 1 つに畳む。
+    """
+    expression, gesture, rest = parse_talk_header(text)
+    kept: list[str] = []
+    removed = False
+    for line in rest.split("\n"):
+        match = _talk_header_line_match(line)
+        if match is None:
+            kept.append(line)
+            continue
+        removed = True
+        for label, value in _TALK_HEADER_LABEL_RE.findall(match.group(1)):
+            if label.lower() == "expression":
+                expression = expression or normalize_avatar_expression(value)
+            else:
+                gesture = gesture or normalize_avatar_gesture(value)
+        remainder = line[match.end() :]
+        if remainder.strip():
+            kept.append(remainder)
+    result = "\n".join(kept)
+    if removed:
+        result = re.sub(r"\n{3,}", "\n\n", result)
+    return expression, gesture, result
+
+
+def may_start_talk_header(text: str) -> bool:
+    """配信途中の先頭文字列が、まだヘッダの書き出しでありうるか。
+
+    角括弧で始まるか、expression / gesture のラベル(の途中まで)で始まれば True。
+    ストリームで先頭ヘッダを剥がすとき、どこまで溜めるかの判定に使う。
+    """
+    stripped = str(text or "").lstrip()
+    if stripped.startswith("["):
+        return True
+    head = stripped[: max(map(len, _TALK_HEADER_LABELS))].lower()
+    return any(
+        label.startswith(head) or head.startswith(label)
+        for label in _TALK_HEADER_LABELS
+    )
 
 
 def avatar_resolution_instruction() -> str:
@@ -210,6 +314,7 @@ __all__ = [
     "AVATAR_GESTURE_DEFAULT",
     "AVATAR_WARDROBE_NARRATIVE_INSTRUCTION",
     "AVATAR_WARDROBE_RESOLUTION_INSTRUCTION",
+    "TALK_HEADER_COMMON_RULES",
     "TALK_HEADER_RE",
     "avatar_expression_keys",
     "avatar_gesture_keys",
@@ -219,8 +324,11 @@ __all__ = [
     "avatar_wardrobe_resolution_instruction",
     "get_avatar_expression_guide",
     "get_avatar_gesture_guide",
+    "may_start_talk_header",
     "normalize_avatar_expression",
     "normalize_avatar_gesture",
     "normalize_avatar_outfit_key",
     "parse_talk_header",
+    "strip_talk_header_line",
+    "strip_talk_header_lines",
 ]

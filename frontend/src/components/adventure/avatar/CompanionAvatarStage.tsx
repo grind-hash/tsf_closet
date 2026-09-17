@@ -12,6 +12,7 @@ import type {
   AvatarGestureKey,
 } from "../../../constants/companionAvatar";
 import type { VisemeFrame } from "../../../utils/visemeTimeline";
+import type { AvatarRestPose } from "./avatarMotion";
 import { createVrmAvatarEngine, type VrmAvatarEngine } from "./vrmAvatarEngine";
 import "./CompanionAvatarStage.css";
 
@@ -21,6 +22,8 @@ export interface CompanionAvatarStageProps {
   gesture: AvatarGestureKey | null;
   /** 変化するたびに gesture を再生する(セリフ到着・再読み上げの識別子) */
   gestureKey: string | null;
+  /** 待機姿勢。既定は腕を体側へ下ろす relaxed、clasped は手を前で重ねる */
+  restPose?: AvatarRestPose;
   /** 口パク用の音量レベル(0..1)。毎フレーム呼ばれる */
   getVoiceLevel: () => number;
   /**
@@ -39,6 +42,7 @@ export default function CompanionAvatarStage({
   expression,
   gesture,
   gestureKey,
+  restPose = "relaxed",
   getVoiceLevel,
   getVisemeFrame,
   onReady,
@@ -58,6 +62,9 @@ export default function CompanionAvatarStage({
   getVisemeFrameRef.current = getVisemeFrame;
   const gestureRef = useRef(gesture);
   gestureRef.current = gesture;
+  // エンジンは 1 度しか作らないため、初期値は ref 経由で渡す
+  const restPoseRef = useRef(restPose);
+  restPoseRef.current = restPose;
 
   useEffect(() => {
     const container = containerRef.current;
@@ -73,6 +80,7 @@ export default function CompanionAvatarStage({
       engine = createVrmAvatarEngine({
         canvas,
         container,
+        restPose: restPoseRef.current,
         onError: (error) => {
           setStatus("error");
           onErrorRef.current(error);
@@ -122,6 +130,10 @@ export default function CompanionAvatarStage({
     if (status !== "ready") return;
     engineRef.current?.setExpression(expression);
   }, [expression, status]);
+
+  useEffect(() => {
+    engineRef.current?.setRestPose(restPose);
+  }, [restPose]);
 
   // gestureKey が変わったときだけ再生する(gesture は ref 経由で読む)
   useEffect(() => {

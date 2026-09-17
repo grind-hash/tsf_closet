@@ -77,6 +77,36 @@ INVENTORY_ACTOR_CHARACTER_PREFIX: str = "character:"
 # ログの由来。event=判定 LLM の World Event、reality=現実改変、action=UI の行動
 INVENTORY_LOG_ORIGINS: tuple[str, ...] = ("event", "reality", "action")
 
+# バイト(input_kind=work)手番で持ち物にしない金銭の品名。賃金は
+# romance_resolution.money_delta が所持金へ反映するため、判定 LLM が
+# 「給料」を item_transfer として返しても持ち物には入れない。
+# 日本語は部分一致、英語は大小無視の単語単位で判定する
+WORK_WAGE_ITEM_KEYWORDS: tuple[str, ...] = (
+    "給料",
+    "給与",
+    "賃金",
+    "報酬",
+    "バイト代",
+    "日給",
+    "時給",
+    "月給",
+    "お金",
+    "現金",
+    "お給金",
+    "小銭",
+    "万円",
+    "千円",
+    "円札",
+    "salary",
+    "wage",
+    "wages",
+    "paycheck",
+    "payment",
+    "cash",
+    "money",
+    "yen",
+)
+
 # 上限
 INVENTORY_ITEMS_MAX: int = 24
 INVENTORY_QUANTITY_MAX: int = 99
@@ -129,6 +159,7 @@ __all__ = [
     "INVENTORY_WEARABLE_CATEGORIES",
     "REALITY_PATCH_OPS",
     "REALITY_PATCH_OPS_MAX",
+    "WORK_WAGE_ITEM_KEYWORDS",
     "WORLD_EVENTS_MAX",
     "WORLD_EVENT_TYPES",
 ]

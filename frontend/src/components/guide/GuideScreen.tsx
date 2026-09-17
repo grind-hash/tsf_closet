@@ -65,9 +65,9 @@ export default function GuideScreen() {
   const navigate = useNavigate();
   const {
     state,
-    setExperimentalAdventureEnabled,
+    setAdventureEnabled,
     setExperimentalPromptExpanderEnabled,
-    setExperimentalEndingEnabled,
+    setExperimentalCharacterChatEnabled,
     setPlayMemoryEnabled,
   } = useSettings();
 
@@ -94,16 +94,16 @@ export default function GuideScreen() {
             <div className="guide-screen__card-status">
               <GuideToggle
                 label={t("guide.enable")}
-                checked={state.experimentalAdventureEnabled}
-                onChange={setExperimentalAdventureEnabled}
+                checked={state.adventureEnabled}
+                onChange={setAdventureEnabled}
               />
-              {state.experimentalAdventureEnabled && (
+              {state.adventureEnabled && (
                 <span className="guide-screen__added" role="status">
                   {t("guide.addedToMenu")}
                 </span>
               )}
             </div>
-            {state.experimentalAdventureEnabled && (
+            {state.adventureEnabled && (
               <button
                 type="button"
                 className="guide-screen__cta"
@@ -120,11 +120,11 @@ export default function GuideScreen() {
             desc={t("guide.talk.desc")}
             note={t("guide.talk.note")}
           >
-            {state.experimentalAdventureEnabled ? (
+            {state.experimentalCharacterChatEnabled ? (
               <button
                 type="button"
                 className="guide-screen__cta"
-                onClick={() => navigate(ROUTES.ADVENTURE)}
+                onClick={() => navigate(ROUTES.CHARACTER_CHAT)}
               >
                 {t("guide.talk.open")}
               </button>
@@ -132,7 +132,7 @@ export default function GuideScreen() {
               <button
                 type="button"
                 className="guide-screen__cta"
-                onClick={() => setExperimentalAdventureEnabled(true)}
+                onClick={() => setExperimentalCharacterChatEnabled(true)}
               >
                 {t("guide.talk.enableParent")}
               </button>
@@ -145,7 +145,7 @@ export default function GuideScreen() {
             desc={t("guide.inventory.desc")}
             note={t("guide.inventory.note")}
           >
-            {state.experimentalAdventureEnabled ? (
+            {state.adventureEnabled ? (
               <button
                 type="button"
                 className="guide-screen__cta"
@@ -157,7 +157,7 @@ export default function GuideScreen() {
               <button
                 type="button"
                 className="guide-screen__cta"
-                onClick={() => setExperimentalAdventureEnabled(true)}
+                onClick={() => setAdventureEnabled(true)}
               >
                 {t("guide.inventory.enableParent")}
               </button>
@@ -209,6 +209,35 @@ export default function GuideScreen() {
           </GuideCard>
 
           <GuideCard
+            icon="💬"
+            title={t("guide.characterChat.title")}
+            desc={t("guide.characterChat.desc")}
+            note={t("guide.characterChat.note")}
+          >
+            <div className="guide-screen__card-status">
+              <GuideToggle
+                label={t("guide.enable")}
+                checked={state.experimentalCharacterChatEnabled}
+                onChange={setExperimentalCharacterChatEnabled}
+              />
+              {state.experimentalCharacterChatEnabled && (
+                <span className="guide-screen__added" role="status">
+                  {t("guide.addedToMenu")}
+                </span>
+              )}
+            </div>
+            {state.experimentalCharacterChatEnabled && (
+              <button
+                type="button"
+                className="guide-screen__cta"
+                onClick={() => navigate(ROUTES.CHARACTER_CHAT)}
+              >
+                {t("guide.characterChat.open")}
+              </button>
+            )}
+          </GuideCard>
+
+          <GuideCard
             icon="🔊"
             title={t("guide.voice.title")}
             desc={t("guide.voice.desc")}
@@ -240,35 +269,6 @@ export default function GuideScreen() {
               <span className="guide-screen__added" role="status">
                 {t("guide.playMemory.enabledHint")}
               </span>
-            )}
-          </GuideCard>
-
-          <GuideCard
-            icon="🎬"
-            title={t("guide.endings.title")}
-            desc={t("guide.endings.desc")}
-            note={t("guide.endings.note")}
-          >
-            <div className="guide-screen__card-status">
-              <GuideToggle
-                label={t("guide.enable")}
-                checked={state.experimentalEndingEnabled}
-                onChange={setExperimentalEndingEnabled}
-              />
-              {state.experimentalEndingEnabled && (
-                <span className="guide-screen__added" role="status">
-                  {t("guide.addedToMenu")}
-                </span>
-              )}
-            </div>
-            {state.experimentalEndingEnabled && (
-              <button
-                type="button"
-                className="guide-screen__cta"
-                onClick={() => navigate(ROUTES.ENDINGS)}
-              >
-                {t("guide.endings.open")}
-              </button>
             )}
           </GuideCard>
         </div>

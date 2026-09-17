@@ -75,6 +75,7 @@ from .comfy import ComfyUIClient
 from .cost_tracker import CostTracker, begin_cost_tracking, record_cost
 from .custom_sessions import (
     custom_character_image_path,
+    load_custom_character_profile,
     load_custom_session_metadata,
     normalize_gender,
     save_custom_character,
@@ -642,11 +643,28 @@ class GameService:
         difficulty: str,
         nsfw_mode: bool,
         self_mode: bool,
+        use_saved_profile: bool = False,
     ) -> tuple[PersistedSession, SessionStats, str]:
         """アップロード画像（または保存済みカスタムキャラクター）でセッションを開始する。
 
-        Raises: GameServiceError(code=invalid_image)
+        use_saved_profile のときは custom_character_id の保存済み人物設定を使い、引数の
+        name などは無視する。見つからなければ、進行中のセッションをリセットする前に失敗する。
+
+        Raises: GameServiceError(code=invalid_image / custom_character_not_found)
         """
+        if use_saved_profile:
+            saved = load_custom_character_profile(custom_character_id)
+            if saved is None:
+                raise GameServiceError(
+                    "保存済みのカスタムキャラクターが見つかりません",
+                    code="custom_character_not_found",
+                )
+            name = str(saved.get("name") or "カスタムキャラクター")
+            description = str(saved.get("description") or "")
+            pronoun = str(saved.get("pronoun") or "僕")
+            personality = str(saved.get("personality") or "")
+            gender = str(saved.get("gender") or "other")
+            base_tags = str(saved.get("base_tags") or "")
         await session_store.reset_session()
 
         custom_image_id = custom_character_id or str(uuid.uuid4())

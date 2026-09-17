@@ -495,7 +495,7 @@ export const adventure = {
     title: "Voice playback",
     enable: "Read the partner's lines aloud",
     enableHint:
-      "After each turn and each talk reply, the partner's lines are played with AivisSpeech (only Name「line」 lines are read). BGM is lowered while a voice plays.",
+      "After each turn, the partner's lines are played with AivisSpeech (only Name「line」 lines are read). BGM is lowered while a voice plays.",
     disabledHint:
       "Enable speech synthesis and pick a speaker under Settings > Speech synthesis to use this.",
     volume: "Volume",
@@ -524,22 +524,18 @@ export const adventure = {
   },
   actionPanel: {
     title: "Actions",
-    act: "Act",
-    talk: "Talk",
-    talkHint:
-      "Chat with the partner without spending a turn (affection, money, and days do not change)",
+    openChat: "Talk",
+    openChatHint:
+      "Chat with {{name}} in Character Chat (turns, affection, money, and days do not change; what you talk about carries into the next scene)",
+    openChatFailed: "Could not open Character Chat",
   },
   talk: {
-    placeholder: "Say something to {{name}}",
-    hint: "A free chat that does not spend a turn. Affection, money, and days stay the same, and what you talk about carries into the next scene.",
-    emptyHint: "Say something to {{name}}. This does not spend a turn.",
     you: "You",
-    pending: "{{name}} is thinking...",
   },
   mic: {
     start: "Speak with the microphone",
     startHint:
-      "Uses the browser's speech recognition to fill the input field. In Chrome your voice is sent to Google's servers.",
+      "Turns what you say into text in the input field using your browser's built-in speech recognition. The conversion is done by your browser vendor's speech service (Google for Chrome); this app never records or stores your voice.",
     listening: "Listening... press again to stop",
     autoSend: "Send right after recognition",
     autoSendHint:
@@ -554,7 +550,7 @@ export const adventure = {
   },
   freeInput: "Enter an action or dialogue",
   freeInputHint:
-    'Type any action or line of dialogue. Starting with "reality: " registers a world rule that applies to every later judgement.',
+    'Type any action or line of dialogue. Starting with "reality: " registers a world rule that applies to every later judgement. Press Enter to send, Shift+Enter for a new line.',
   send: "Send",
   regenerateImage: "Regenerate the current scene image",
   regenerateChoices: "Regenerate choices",

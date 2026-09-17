@@ -87,7 +87,7 @@ export default function AdventureStage({
   children,
 }: AdventureStageProps) {
   const { t } = useTranslation();
-  const { activeRun, streaming, talking, regenerateImage } = useAdventure();
+  const { activeRun, streaming, regenerateImage } = useAdventure();
   if (!activeRun) return null;
 
   return (
@@ -200,7 +200,7 @@ export default function AdventureStage({
           type="button"
           className="adventure-stage__regenerate"
           onClick={onRegenerate}
-          disabled={streaming || talking || viewingPast}
+          disabled={streaming || viewingPast}
           title={t(
             isCompanion
               ? "adventure.regeneratePartnerPortrait"

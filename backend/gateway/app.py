@@ -21,6 +21,7 @@ from .routes import (
     adventure_router,
     aivisspeech_router,
     avatar_router,
+    character_chat_router,
     character_router,
     favorites_router,
     gallery_router,
@@ -152,6 +153,9 @@ app.include_router(prompt_expander_router, prefix="/api")
 
 # 3D アバター(VRM)の登録・配信(Adventure 対面会話モードで使用)
 app.include_router(avatar_router, prefix="/api")
+
+# キャラチャット(TSF シナリオを経由しないキャラクターとの会話)
+app.include_router(character_chat_router, prefix="/api")
 
 app.include_router(history_router, prefix="/api")
 

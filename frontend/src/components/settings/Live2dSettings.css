@@ -1,0 +1,120 @@
+.live2d-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.live2d-settings__description {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  opacity: 0.85;
+}
+
+.live2d-settings__status {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.live2d-settings__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.28rem 0.6rem;
+  border: 1px solid var(--border-color, #333);
+  border-radius: 999px;
+  font-size: 0.82rem;
+  line-height: 1;
+}
+
+.live2d-settings__badge--ready {
+  border-color: #4caf87;
+  background: rgba(76, 175, 135, 0.14);
+}
+
+.live2d-settings__badge--missing {
+  border-color: rgba(140, 150, 165, 0.6);
+  background: rgba(120, 130, 150, 0.1);
+}
+
+.live2d-settings__guide {
+  border: 1px solid var(--border-color, #333);
+  border-radius: 10px;
+  background: color-mix(in oklab, var(--bg-color, #1a1a2e) 92%, #ffffff 8%);
+  padding: 0.85rem;
+}
+
+.live2d-settings__guide-title {
+  margin: 0 0 0.45rem;
+  font-size: 0.92rem;
+  color: var(--text-color, #eee);
+  font-weight: 600;
+}
+
+.live2d-settings__steps {
+  margin: 0;
+  padding-left: 1.2rem;
+  color: var(--text-muted, #aaa);
+  font-size: 0.85rem;
+  line-height: 1.6;
+}
+
+.live2d-settings__steps li + li {
+  margin-top: 0.55rem;
+}
+
+.live2d-settings__code {
+  margin: 0.4rem 0 0;
+  padding: 0.5rem 0.6rem;
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--bg-color, #1a1a2e) 88%, #ffffff 12%);
+  color: var(--text-color, #eee);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.85rem;
+  word-break: break-all;
+}
+
+.live2d-settings__path-label {
+  margin: 0.5rem 0 0;
+  font-size: 0.82rem;
+  opacity: 0.85;
+}
+
+.live2d-settings__actions {
+  margin-top: 0.6rem;
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.live2d-settings__button {
+  border: 1px solid var(--border-color, #333);
+  background: var(--bg-color, #1a1a2e);
+  color: var(--text-color, #eee);
+  border-radius: 8px;
+  padding: 0.55rem 0.75rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    background-color 0.15s;
+}
+
+.live2d-settings__button:hover:not(:disabled) {
+  border-color: var(--accent-color, #e94560);
+  background: rgba(233, 69, 96, 0.12);
+}
+
+.live2d-settings__button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.live2d-settings__license {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.6;
+  opacity: 0.8;
+}

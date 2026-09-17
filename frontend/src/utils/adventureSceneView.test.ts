@@ -40,7 +40,6 @@ function makeRun(overrides: Partial<AdventureRun>): AdventureRun {
       surroundings: "",
       main_characters: [],
     },
-    talk_log: [],
     ...overrides,
   } as unknown as AdventureRun;
 }
@@ -83,7 +82,6 @@ function build(
     isViewingPast: false,
     streamingNarrative: "",
     pendingUserInput: null,
-    actionMode: "act",
     t,
     ...extra,
   });
@@ -184,28 +182,6 @@ describe("buildAdventureSceneView", () => {
     expect(view.sim).toBeNull();
     expect(view.partnerName).toBe("");
     expect(view.playerDisplayName).toBe("adventure.talk.you");
-  });
-
-  it("トークモードは romance の talk のときだけ有効で、今の手番の会話だけを拾う", () => {
-    const run = makeRun({
-      preset: "romance",
-      turn_count: 2,
-      sim: { partner_name: "サクラ" } as unknown as AdventureRun["sim"],
-      talk_log: [
-        { id: "t1", role: "user", text: "旧", after_turn: 1 },
-        { id: "t2", role: "partner", text: "旧返答", after_turn: 1 },
-        { id: "t3", role: "user", text: "今", after_turn: 2 },
-        { id: "t4", role: "partner", text: "今の返答", after_turn: 2 },
-      ],
-    });
-    const view = build(run, { actionMode: "talk" });
-    expect(view.talkMode).toBe(true);
-    expect(view.currentTalkEntries.map((entry) => entry.id)).toEqual([
-      "t3",
-      "t4",
-    ]);
-    expect(view.lastPartnerTalk?.id).toBe("t4");
-    expect(build(makeRun({}), { actionMode: "talk" }).talkMode).toBe(false);
   });
 
   it("表示中フレームの持ち物の変化を 1 行の案内にする", () => {

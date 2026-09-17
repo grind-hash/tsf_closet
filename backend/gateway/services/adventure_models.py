@@ -399,11 +399,24 @@ class AdventureImagePromptOutput(BaseModel):
     scene_tags: str = Field(min_length=1, max_length=1800)
     player_tags: str = Field(min_length=1, max_length=1200)
     npc_tags: list[str] = Field(default_factory=list, max_length=3)
+    # 主人公の同一性署名(性別・髪・瞳・肌・体型・特徴のタグ列)。空は「未出力」で、
+    # adventure_service 側が player_tags から補う。last_image_prompt には保存しない
+    identity_tags: str = Field(default="", max_length=400)
 
     @field_validator("scene_tags", "player_tags", mode="before")
     @classmethod
     def clamp_overlong_text(cls, value: Any, info: ValidationInfo) -> Any:
         return _clamp_to_declared_max(cls, value, info.field_name)
+
+    @field_validator("identity_tags", mode="before")
+    @classmethod
+    def coerce_identity_tags(cls, value: Any, info: ValidationInfo) -> Any:
+        # None / リスト / 非文字列は検証エラーにせず空へ倒し、長すぎる出力は切り詰める
+        if isinstance(value, list):
+            value = ", ".join(str(item) for item in value)
+        if not isinstance(value, str):
+            return ""
+        return _clamp_to_declared_max(cls, value.strip(), info.field_name)
 
 
 class AdventureResolutionOutput(BaseModel):

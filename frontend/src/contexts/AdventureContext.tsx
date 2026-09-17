@@ -15,7 +15,6 @@ import {
   type AdventureSettingsUpdateRequest,
   type AdventureSetup,
   type AdventureSetupRequest,
-  type AdventureTalkEntry,
   type AdventureTemplate,
   type AdventureTurn,
   type AdventureTurnOptions,
@@ -31,7 +30,6 @@ import {
   rewindAdventureRun,
   startAdventureEpilogue,
   streamAdventureImage,
-  streamAdventureTalk,
   streamAdventureTurn,
   updateAdventureRealityRules,
   updateAdventureRunSettings,
@@ -122,14 +120,6 @@ interface AdventureContextValue {
     inputKind: AdventureInputKind,
     options?: AdventureTurnOptions,
   ) => Promise<void>;
-  /** トークモード(romance)。手番を消費せず攻略対象と会話する */
-  talking: boolean;
-  /** ストリーミング中の攻略対象の返答(途中経過) */
-  talkDraft: string;
-  /** 送信済みでまだ talk_log に載っていない自分のメッセージ */
-  pendingTalkInput: string | null;
-  /** 返答の確定後に攻略対象のエントリを返す(読み上げのトリガに使う)。失敗時は null */
-  submitTalk: (text: string) => Promise<AdventureTalkEntry | null>;
   /** Anlas確認ダイアログ待ちのターン送信(romanceで精密参照ON時のみ) */
   pendingAnlasTurn: {
     input: string;
@@ -204,9 +194,6 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
   const [streamingNarrative, setStreamingNarrative] = useState("");
   const [pendingUserInput, setPendingUserInput] = useState<string | null>(null);
   const [narrativeSettled, setNarrativeSettled] = useState(false);
-  const [talking, setTalking] = useState(false);
-  const [talkDraft, setTalkDraft] = useState("");
-  const [pendingTalkInput, setPendingTalkInput] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   // 直前に開いた/作成した run。Hub の再開バナーと SideMenu の導線が参照する
   const [lastRunId, setLastRunId] = useState<string | null>(() =>
@@ -343,8 +330,6 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     setPendingAnlasTurn(null);
     setPendingUsageWarnTurn(null);
-    setTalkDraft("");
-    setPendingTalkInput(null);
   }, [activeRun?.id]);
 
   // 3D モデルの読込失敗は run の切替と割り当ての変更(手動・着替え)でやり直す
@@ -359,7 +344,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       inputKind: AdventureInputKind,
       options?: AdventureTurnOptions,
     ) => {
-      if (!activeRun || streaming || talking) return;
+      if (!activeRun || streaming) return;
       const runId = activeRun.id;
       // 立ち絵の毎ターン生成OFFは、合成モード・精密参照の有無に関わらず効く
       const generatePortrait = readDrawPortraitEveryTurn();
@@ -520,73 +505,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
         setNarrativeSettled(false);
       }
     },
-    [activeRun, streaming, talking, addTotalCost, companionAvatarFailed],
-  );
-
-  // トークモード: 手番・好感度・画像を一切動かさず、talk_log だけを伸ばす。
-  // 次の手番の fetchAdventureRun でサーバ側と同期されるため再取得はしない
-  const submitTalk = useCallback(
-    async (text: string): Promise<AdventureTalkEntry | null> => {
-      if (!activeRun || streaming || talking || !canActOnRun(activeRun)) {
-        return null;
-      }
-      const runId = activeRun.id;
-      const message = text.trim();
-      if (!message) return null;
-      setTalking(true);
-      setTalkDraft("");
-      setPendingTalkInput(message);
-      setError(null);
-      let partnerEntry: AdventureTalkEntry | null = null;
-      try {
-        await streamAdventureTalk(runId, { user_input: message }, (event) => {
-          if (event.type === "talk_chunk") {
-            const chunk = String(event.data.chunk ?? "");
-            if (chunk) {
-              setTalkDraft((current) =>
-                current ? current + chunk : chunk.replace(/^\s+/, ""),
-              );
-            }
-          } else if (event.type === "talk_done") {
-            const userEntry = event.data.user_entry as
-              | AdventureTalkEntry
-              | undefined;
-            const partner = event.data.partner_entry as
-              | AdventureTalkEntry
-              | undefined;
-            const entries = [userEntry, partner].filter(
-              (entry): entry is AdventureTalkEntry => Boolean(entry?.id),
-            );
-            partnerEntry = partner?.id ? partner : null;
-            setPendingTalkInput(null);
-            setTalkDraft("");
-            setActiveRun((current) =>
-              current && current.id === runId
-                ? {
-                    ...current,
-                    talk_log: [...(current.talk_log ?? []), ...entries],
-                  }
-                : current,
-            );
-          } else if (event.type === "cost") {
-            const cost = Number(event.data.cost_usd);
-            if (Number.isFinite(cost) && cost > 0) {
-              addTotalCost(cost);
-            }
-          } else if (event.type === "error") {
-            setError(String(event.data.message ?? "Talk failed"));
-          }
-        });
-      } catch (caught) {
-        setError(caught instanceof Error ? caught.message : String(caught));
-      } finally {
-        setTalking(false);
-        setTalkDraft("");
-        setPendingTalkInput(null);
-      }
-      return partnerEntry;
-    },
-    [activeRun, streaming, talking, addTotalCost],
+    [activeRun, streaming, addTotalCost, companionAvatarFailed],
   );
 
   // 送信経路(選択肢・自由入力・ギフト・属性付与)が分散しても漏れないよう、
@@ -677,7 +596,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
 
   const regenerateImage = useCallback(
     async (options?: AdventureImageRegenerateOptions) => {
-      if (!activeRun || streaming || talking) return;
+      if (!activeRun || streaming) return;
       setStreaming(true);
       setPhase("image_generation");
       setPhaseStep(null);
@@ -778,7 +697,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
         setPhaseStep(null);
       }
     },
-    [activeRun, streaming, talking, addTotalCost],
+    [activeRun, streaming, addTotalCost],
   );
 
   const regenerateChoices = useCallback(async () => {
@@ -927,10 +846,6 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       phaseStep,
       pendingUserInput,
       narrativeSettled,
-      talking,
-      talkDraft,
-      pendingTalkInput,
-      submitTalk,
       error,
       loadRuns,
       loadTemplates,
@@ -969,10 +884,6 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       phaseStep,
       pendingUserInput,
       narrativeSettled,
-      talking,
-      talkDraft,
-      pendingTalkInput,
-      submitTalk,
       error,
       loadRuns,
       loadTemplates,

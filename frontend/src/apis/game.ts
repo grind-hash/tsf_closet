@@ -211,6 +211,50 @@ export async function branchSessionFromHistory(
   );
 }
 
+/** POST /game/start と /game/start-custom の応答。以後の状態は restoreSession で取り直す */
+export interface StartGameResponse {
+  session_id: string;
+  image_path?: string;
+}
+
+export interface StartGameRequest {
+  character_id: string;
+  difficulty: string;
+  nsfw_mode: boolean;
+  self_mode: boolean;
+}
+
+/** 同梱キャラクターで新規セッションを開始する */
+export async function startGame(
+  body: StartGameRequest,
+): Promise<StartGameResponse> {
+  return requestJson<StartGameResponse>(
+    `${API_BASE}/game/start`,
+    jsonInit("POST", body),
+    { fallbackMessage: "Start game failed" },
+  );
+}
+
+export interface StartCustomGameRequest {
+  custom_character_id: string;
+  /** true のとき名前・性別・タグは保存済みの内容をサーバーが読み込む(画像やプロフィールは送らない) */
+  use_saved_profile: boolean;
+  difficulty: string;
+  nsfw_mode: boolean;
+  self_mode: boolean;
+}
+
+/** 保存済みのカスタムキャラクターで新規セッションを開始する。存在しない ID は 400 */
+export async function startCustomGame(
+  body: StartCustomGameRequest,
+): Promise<StartGameResponse> {
+  return requestJson<StartGameResponse>(
+    `${API_BASE}/game/start-custom`,
+    jsonInit("POST", body),
+    { fallbackMessage: "Start custom game failed" },
+  );
+}
+
 // ----------------------------------------------------------------
 // セッション / キャラクター / 属性 / プレイメモ（GameContext から使う）
 // ----------------------------------------------------------------

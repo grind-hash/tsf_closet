@@ -14,6 +14,8 @@ import { NovelaiUsageBar } from "../NovelaiUsageBar";
 import AvatarModelSettings, {
   type AvatarModelSummary,
 } from "./AvatarModelSettings";
+import CharacterChatRealWorldSettings from "./CharacterChatRealWorldSettings";
+import Live2dSettings, { type Live2dCoreStatus } from "./Live2dSettings";
 import MemorySettings from "./MemorySettings";
 import SelfProfileEditor from "./SelfProfileEditor";
 import SpeechSynthesisSettings from "./SpeechSynthesisSettings";
@@ -37,6 +39,8 @@ const HISTORY_LOOKBACK_TARGETS: Array<{
 
 /** 3Dモデルセクションの開閉。モデルが増えると長くなるため既定は閉じる */
 const SETTINGS_AVATAR_SECTION_OPEN_KEY = "settings_avatar_section_open";
+/** Live2D セクションの開閉。導入済みなら普段は開く必要がないため既定は閉じる */
+const SETTINGS_LIVE2D_SECTION_OPEN_KEY = "settings_live2d_section_open";
 
 export default function SettingsScreen() {
   const { t } = useTranslation();
@@ -54,6 +58,20 @@ export default function SettingsScreen() {
   const toggleAvatarSection = useCallback(() => {
     setAvatarSectionOpen((current) => !current);
   }, [setAvatarSectionOpen]);
+  const [live2dSectionOpen, setLive2dSectionOpen] = usePersistedState<boolean>(
+    SETTINGS_LIVE2D_SECTION_OPEN_KEY,
+    false,
+    {
+      serialize: (open) => (open ? "1" : "0"),
+      deserialize: (raw) => raw === "1",
+    },
+  );
+  const [live2dStatus, setLive2dStatus] = useState<Live2dCoreStatus | null>(
+    null,
+  );
+  const toggleLive2dSection = useCallback(() => {
+    setLive2dSectionOpen((current) => !current);
+  }, [setLive2dSectionOpen]);
   const {
     state,
     setDifficulty,
@@ -64,9 +82,9 @@ export default function SettingsScreen() {
     setNsfwMode,
     setShowAchievementNotifications,
     setShowRealityAttributeNotification,
-    setExperimentalEndingEnabled,
-    setExperimentalAdventureEnabled,
+    setAdventureEnabled,
     setExperimentalPromptExpanderEnabled,
+    setExperimentalCharacterChatEnabled,
     setAdventureEnableCompositeScene,
     setPlayMemoryEnabled,
     setEnableSurroundingsImage,
@@ -382,6 +400,55 @@ export default function SettingsScreen() {
             </div>
           </section>
 
+          {/* TSFシナリオ(v0.9.0 で Experimental から昇格。既定 ON) */}
+          <section className="settings-screen__section">
+            <h2 className="settings-screen__section-title">
+              {t("settings.adventureSection")}
+            </h2>
+
+            <div className="settings-screen__item">
+              <label className="settings-screen__toggle">
+                <div className="settings-screen__toggle-info">
+                  <span className="settings-screen__item-label">
+                    {t("settings.adventureEnabled")}
+                  </span>
+                  <span className="settings-screen__item-desc">
+                    {t("settings.adventureEnabledDesc")}
+                  </span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={state.adventureEnabled}
+                  onChange={(e) => setAdventureEnabled(e.target.checked)}
+                  className="settings-screen__toggle-input"
+                />
+                <span className="settings-screen__toggle-switch" />
+              </label>
+            </div>
+
+            <div className="settings-screen__item">
+              <label className="settings-screen__toggle">
+                <div className="settings-screen__toggle-info">
+                  <span className="settings-screen__item-label">
+                    {t("settings.adventureEnableCompositeScene")}
+                  </span>
+                  <span className="settings-screen__item-desc">
+                    {t("settings.adventureEnableCompositeSceneDesc")}
+                  </span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={state.adventureEnableCompositeScene}
+                  onChange={(e) =>
+                    setAdventureEnableCompositeScene(e.target.checked)
+                  }
+                  className="settings-screen__toggle-input"
+                />
+                <span className="settings-screen__toggle-switch" />
+              </label>
+            </div>
+          </section>
+
           {/* 表示設定 */}
           <section className="settings-screen__section">
             <h2 className="settings-screen__section-title">
@@ -642,74 +709,6 @@ export default function SettingsScreen() {
               <label className="settings-screen__toggle">
                 <div className="settings-screen__toggle-info">
                   <span className="settings-screen__item-label">
-                    {t("settings.experimentalEnding")}
-                  </span>
-                  <span className="settings-screen__item-desc">
-                    {t("settings.experimentalEndingDesc")}
-                  </span>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={state.experimentalEndingEnabled}
-                  onChange={(e) =>
-                    setExperimentalEndingEnabled(e.target.checked)
-                  }
-                  className="settings-screen__toggle-input"
-                />
-                <span className="settings-screen__toggle-switch" />
-              </label>
-            </div>
-
-            <div className="settings-screen__item">
-              <label className="settings-screen__toggle">
-                <div className="settings-screen__toggle-info">
-                  <span className="settings-screen__item-label">
-                    {t("settings.experimentalAdventure")}
-                  </span>
-                  <span className="settings-screen__item-desc">
-                    {t("settings.experimentalAdventureDesc")}
-                  </span>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={state.experimentalAdventureEnabled}
-                  onChange={(e) =>
-                    setExperimentalAdventureEnabled(e.target.checked)
-                  }
-                  className="settings-screen__toggle-input"
-                />
-                <span className="settings-screen__toggle-switch" />
-              </label>
-            </div>
-
-            {state.experimentalAdventureEnabled && (
-              <div className="settings-screen__item">
-                <label className="settings-screen__toggle">
-                  <div className="settings-screen__toggle-info">
-                    <span className="settings-screen__item-label">
-                      {t("settings.adventureEnableCompositeScene")}
-                    </span>
-                    <span className="settings-screen__item-desc">
-                      {t("settings.adventureEnableCompositeSceneDesc")}
-                    </span>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={state.adventureEnableCompositeScene}
-                    onChange={(e) =>
-                      setAdventureEnableCompositeScene(e.target.checked)
-                    }
-                    className="settings-screen__toggle-input"
-                  />
-                  <span className="settings-screen__toggle-switch" />
-                </label>
-              </div>
-            )}
-
-            <div className="settings-screen__item">
-              <label className="settings-screen__toggle">
-                <div className="settings-screen__toggle-info">
-                  <span className="settings-screen__item-label">
                     {t("settings.experimentalPromptExpander")}
                     <span
                       className="feature-chip-experimental"
@@ -734,6 +733,37 @@ export default function SettingsScreen() {
                 <span className="settings-screen__toggle-switch" />
               </label>
             </div>
+
+            <div className="settings-screen__item">
+              <label className="settings-screen__toggle">
+                <div className="settings-screen__toggle-info">
+                  <span className="settings-screen__item-label">
+                    {t("settings.experimentalCharacterChat")}
+                    <span
+                      className="feature-chip-experimental"
+                      data-feature-version="v0.9.0"
+                      style={{ marginLeft: "0.5rem" }}
+                    >
+                      Experimental
+                    </span>
+                  </span>
+                  <span className="settings-screen__item-desc">
+                    {t("settings.experimentalCharacterChatDesc")}
+                  </span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={state.experimentalCharacterChatEnabled}
+                  onChange={(e) =>
+                    setExperimentalCharacterChatEnabled(e.target.checked)
+                  }
+                  className="settings-screen__toggle-input"
+                />
+                <span className="settings-screen__toggle-switch" />
+              </label>
+            </div>
+
+            <CharacterChatRealWorldSettings />
 
             <div className="settings-screen__item">
               <label className="settings-screen__toggle">
@@ -1024,6 +1054,48 @@ export default function SettingsScreen() {
             </h2>
             <div id="settings-avatar-section" hidden={!avatarSectionOpen}>
               <AvatarModelSettings onSummaryChange={setAvatarSummary} />
+            </div>
+          </section>
+
+          {/* Live2D: 案内役キャラの Live2D 表示に必要な Cubism Core は同梱して
+              いないため、入手先と配置先を案内する。3Dモデル(VRM)と同じく既定で
+              閉じ、見出しの要約に配置状況を出す */}
+          <section
+            className={`settings-screen__section settings-screen__section--collapsible${
+              live2dSectionOpen ? " is-open" : " is-collapsed"
+            }`}
+          >
+            <h2 className="settings-screen__section-title">
+              <button
+                type="button"
+                className="settings-screen__section-toggle"
+                aria-expanded={live2dSectionOpen}
+                aria-controls="settings-live2d-section"
+                data-testid="settings-live2d-toggle"
+                onClick={toggleLive2dSection}
+              >
+                <span className="settings-screen__section-chevron" aria-hidden>
+                  ▾
+                </span>
+                {t("settings.live2d.sectionTitle")}
+                <span
+                  className="feature-chip-experimental"
+                  data-feature-version="v0.9.0"
+                  style={{ marginLeft: "0.5rem" }}
+                >
+                  Experimental
+                </span>
+                {live2dStatus !== null && (
+                  <span className="settings-screen__section-summary">
+                    {live2dStatus === "ready"
+                      ? t("settings.live2d.statusReady")
+                      : t("settings.live2d.statusMissing")}
+                  </span>
+                )}
+              </button>
+            </h2>
+            <div id="settings-live2d-section" hidden={!live2dSectionOpen}>
+              <Live2dSettings onStatusChange={setLive2dStatus} />
             </div>
           </section>
 

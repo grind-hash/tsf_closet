@@ -73,3 +73,8 @@ logs/
 # Temporary files
 *.tmp
 temp/
+
+# Live2D Cubism Core は Live2D Proprietary Software License の配布物。
+# リポジトリには含めず、開発時に各自ダウンロードして配置する
+frontend/public/live2d/vendor/*
+!frontend/public/live2d/vendor/README.md

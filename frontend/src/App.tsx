@@ -7,6 +7,7 @@ import AchievementsScreen from "./components/achievements/AchievementsScreen";
 import AdventureScreen from "./components/adventure/AdventureScreen";
 import { hasApiKeyConsent } from "./components/apiKeyConsentStorage";
 import BgmTestScreen from "./components/bgm/BgmTestScreen";
+import CharacterChatScreen from "./components/characterChat/CharacterChatScreen";
 import EndingModal from "./components/EndingModal";
 import EndingsScreen from "./components/endings/EndingsScreen";
 import GamePlayScreen from "./components/GamePlayScreen";
@@ -19,6 +20,7 @@ import PromptExpanderScreen from "./components/promptExpander/PromptExpanderScre
 import SessionListModal from "./components/SessionListModal";
 import SettingsScreen from "./components/settings/SettingsScreen";
 import { AdventureProvider } from "./contexts/AdventureContext";
+import { CharacterChatProvider } from "./contexts/CharacterChatContext";
 import { PromptExpanderProvider } from "./contexts/PromptExpanderContext";
 import { useSettings } from "./contexts/SettingsContext";
 import { useGameSSE } from "./hooks/useGameSSE";
@@ -69,10 +71,7 @@ function AppRoutes() {
   ) {
     return <GalleryScreen />;
   }
-  if (
-    location.pathname === "/endings" &&
-    settingsState.experimentalEndingEnabled
-  ) {
+  if (location.pathname === "/endings") {
     return <EndingsScreen />;
   }
   if (location.pathname === "/achievements") {
@@ -87,19 +86,34 @@ function AppRoutes() {
   }
   // TSFシナリオのBGMカタログを試聴する画面。ゲートはTSFシナリオと同一にする
   if (location.pathname === "/bgm-test") {
-    if (!settingsState.experimentalAdventureEnabled) {
+    if (!settingsState.adventureEnabled) {
       return <Navigate to="/play/new" replace />;
     }
     return <BgmTestScreen />;
   }
   if (location.pathname.startsWith("/adventure")) {
-    if (!settingsState.experimentalAdventureEnabled) {
+    if (!settingsState.adventureEnabled) {
       return <Navigate to="/play/new" replace />;
     }
     return (
       <AdventureProvider>
         <AdventureScreen />
       </AdventureProvider>
+    );
+  }
+  // キャラチャット（実験機能）。/talk と /talk/:threadId。ゲートは設定画面のトグル
+  if (location.pathname === "/talk" || location.pathname.startsWith("/talk/")) {
+    // TSFシナリオの「トーク」から遷移するため、Adventure が有効なら通す
+    if (
+      !settingsState.experimentalCharacterChatEnabled &&
+      !settingsState.adventureEnabled
+    ) {
+      return <Navigate to="/play/new" replace />;
+    }
+    return (
+      <CharacterChatProvider>
+        <CharacterChatScreen />
+      </CharacterChatProvider>
     );
   }
   // Prompt Expander（実験機能）。ゲートは設定画面のトグルで切り替える

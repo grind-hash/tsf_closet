@@ -18,7 +18,6 @@ from ..schemas.adventure import (
     AdventureRewindRequest,
     AdventureSettingsUpdateRequest,
     AdventureSetupGenerateRequest,
-    AdventureTalkRequest,
     AdventureTurnRequest,
 )
 from ..services.adventure_service import (
@@ -225,38 +224,6 @@ async def play_turn(run_id: str, request: AdventureTurnRequest) -> EventSourceRe
                         "code": error.code,
                         "message": str(error),
                         "phase": "narrative",
-                        "retryable": error.code == "invalid_model_output",
-                    },
-                    ensure_ascii=False,
-                ),
-            }
-
-    return EventSourceResponse(event_generator())
-
-
-@router.post("/runs/{run_id}/talk/stream")
-async def talk_stream(
-    run_id: str, request: AdventureTalkRequest
-) -> EventSourceResponse:
-    """トークモード: 手番を消費せずに攻略対象と会話する(romance 専用)。"""
-
-    async def event_generator() -> AsyncGenerator[dict, None]:
-        try:
-            async for event in adventure_service.stream_talk(
-                run_id=run_id, user_input=request.user_input
-            ):
-                yield {
-                    "event": event["event"],
-                    "data": json.dumps(event["data"], ensure_ascii=False),
-                }
-        except AdventureError as error:
-            yield {
-                "event": "error",
-                "data": json.dumps(
-                    {
-                        "code": error.code,
-                        "message": str(error),
-                        "phase": "talk",
                         "retryable": error.code == "invalid_model_output",
                     },
                     ensure_ascii=False,

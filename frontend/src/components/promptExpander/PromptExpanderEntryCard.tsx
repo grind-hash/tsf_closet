@@ -351,7 +351,7 @@ export default function PromptExpanderEntryCard({
           >
             {t("promptExpander.entry.useInGame")}
           </button>
-          {settingsState.experimentalAdventureEnabled && (
+          {settingsState.adventureEnabled && (
             <button
               type="button"
               className="prompt-expander__btn prompt-expander__btn--sm"

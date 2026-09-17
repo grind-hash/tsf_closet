@@ -12,7 +12,8 @@ export interface ConfirmDialogProps {
   /** 本文。文字列でも要素（入力欄など）でもよい */
   children?: ReactNode;
   confirmLabel: ReactNode;
-  cancelLabel: ReactNode;
+  /** 省略するとキャンセルボタンを出さない(読むだけのダイアログ) */
+  cancelLabel?: ReactNode;
   onConfirm: (result: ConfirmDialogResult) => void;
   onCancel: () => void;
   /** 指定するとチェック欄を表示する（Anlas 確認の抑止など） */
@@ -102,20 +103,22 @@ export default function ConfirmDialog({
         <div className="confirm-dialog__actions">
           <button
             type="button"
-            className="confirm-dialog__cancel"
-            onClick={onCancel}
-            disabled={busy}
-          >
-            {cancelLabel}
-          </button>
-          <button
-            type="button"
             className="confirm-dialog__confirm"
             onClick={() => onConfirm({ doNotShowAgain })}
             disabled={busy || confirmDisabled}
           >
             {confirmLabel}
           </button>
+          {cancelLabel !== undefined && (
+            <button
+              type="button"
+              className="confirm-dialog__cancel"
+              onClick={onCancel}
+              disabled={busy}
+            >
+              {cancelLabel}
+            </button>
+          )}
         </div>
       </div>
     </div>

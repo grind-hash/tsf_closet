@@ -58,6 +58,7 @@ from ..consts.adventure_inventory import (
     INVENTORY_TAGS_MAX,
     INVENTORY_WEARABLE_CATEGORIES,
     REALITY_PATCH_OPS_MAX,
+    WORK_WAGE_ITEM_KEYWORDS,
     WORLD_EVENTS_MAX,
 )
 from ..consts.adventure_narration import (
@@ -104,6 +105,23 @@ _HONORIFIC_SUFFIX = re.compile(r"(?:さん|ちゃん|くん|君|様|さま)$")
 
 def _npc_key(value: Any) -> str:
     return _HONORIFIC_SUFFIX.sub("", _match_key(value))
+
+
+# 英語の金銭語は単語単位で照合する(cashmere / payments などの誤検出を避ける)。
+# 日本語は分かち書きが無いので部分一致
+_WAGE_ITEM_PATTERN = re.compile(
+    "|".join(
+        rf"\b{re.escape(keyword)}\b" if keyword.isascii() else re.escape(keyword)
+        for keyword in WORK_WAGE_ITEM_KEYWORDS
+    ),
+    re.IGNORECASE,
+)
+
+
+def is_wage_item_name(name: Any) -> bool:
+    """品名が賃金・給料など金銭を指すか。バイト手番の持ち物除外に使う。"""
+    text = " ".join(str(name or "").split())
+    return bool(text) and _WAGE_ITEM_PATTERN.search(text) is not None
 
 
 def normalize_category(value: Any) -> str:
@@ -809,6 +827,10 @@ def _apply_world_event(
         source, target = event.from_, event.to
         if target == INVENTORY_ACTOR_PLAYER and source != INVENTORY_ACTOR_PLAYER:
             if event.item is None:
+                return None
+            # バイト手番の賃金は romance_resolution.money_delta が所持金へ反映済み。
+            # 「給料」を品物として重ねて持たせない。金銭以外の品は従来どおり
+            if input_kind == "work" and is_wage_item_name(event.item.name):
                 return None
             obtained_from = _canonical_actor(source, state) or INVENTORY_ACTOR_WORLD
             if obtained_from == INVENTORY_ACTOR_REALITY:
@@ -1544,6 +1566,14 @@ WORLD_EVENTS_INSTRUCTION = (
     "violation of social norms and no entry in reality_rules covers the act. Events "
     "for what item_resolution already resolved may be omitted. Keep the list empty "
     "when nothing changed hands."
+)
+
+# バイト手番だけ WORLD_EVENTS_INSTRUCTION の後ろに添える
+WORK_WAGE_EVENTS_INSTRUCTION = (
+    "This turn is part-time work: the wages are already applied to the player's "
+    "money by romance_resolution.money_delta, so never report the pay, salary, "
+    "wages, or any cash as an item_transfer. Report only non-monetary things the "
+    "player actually received during the shift."
 )
 
 ROMANCE_BOUNDARY_SCORING_INSTRUCTION = (

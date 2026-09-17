@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from gateway.databases.models import (
     History as HistoryORM,
@@ -243,3 +243,40 @@ async def test_history_delete_without_change_log_does_not_break(
             .first()
         )
     assert (row.bloom, row.shame, row.adaptation) == (40, 30, 5)
+
+
+@pytest.mark.asyncio
+async def test_history_delete_removes_data_relative_image_files(
+    isolated_db, tmp_path: Path, monkeypatch
+):
+    """data 相対で保存された履歴画像・周囲状況画像が実際に削除される."""
+    store = await _setup_store(tmp_path, monkeypatch)
+    module = sys.modules["gateway.services.session"]
+    factory = isolated_db.async_factory
+
+    sid = "sess-D"
+    await _seed_session_with_history(
+        module,
+        session_id=sid,
+        history_specs=[("h1", 1), ("h2", 2)],
+        stats=(10, 50, 0),
+    )
+    async with factory() as db:
+        await db.execute(
+            update(HistoryORM)
+            .where(HistoryORM.id == "h2")
+            .values(
+                image_path="history_images/h2.png",
+                surroundings_image_path="history_images/surroundings_h2.png",
+            )
+        )
+        await db.commit()
+    history_dir = tmp_path / "history_images"
+    (history_dir / "h2.png").write_bytes(b"PNG")
+    (history_dir / "surroundings_h2.png").write_bytes(b"PNG")
+
+    result = await store.delete_history_entry(session_id=sid, history_id="h2")
+
+    assert result is not None
+    assert not (history_dir / "h2.png").exists()
+    assert not (history_dir / "surroundings_h2.png").exists()
