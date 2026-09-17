@@ -16,7 +16,9 @@
       "!!**/node_modules",
       "!!**/package-lock.json",
       "!**/*.min.js",
-      "!**/*.{md,mdx}"
+      "!**/*.{md,mdx}",
+      "!public/live2d/**/*.json",
+      "!public/live2d/vendor"
     ]
   },
   "formatter": {
