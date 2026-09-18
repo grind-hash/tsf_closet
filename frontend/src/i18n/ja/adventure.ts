@@ -353,6 +353,7 @@ export const adventure = {
   inventoryLog: "最近のやり取り",
   inventoryRecentChanges: "この手番の変化",
   inventoryChanges: "持ち物の変化",
+  boundaryChanges: "不快にさせた相手",
   inventoryGiveTarget: "渡す相手",
   inventoryNoTarget: "近くに渡せる相手がいません",
   inventoryActor: {

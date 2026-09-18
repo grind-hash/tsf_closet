@@ -97,6 +97,7 @@ export default function AdventureMessageBox({
     partnerName,
     playerDisplayName,
     inventoryNote,
+    boundaryNote,
   } = scene;
 
   return (
@@ -142,6 +143,12 @@ export default function AdventureMessageBox({
           <span className="adventure-messagebox__inventory-note">
             <span aria-hidden>🎒</span>
             {inventoryNote}
+          </span>
+        )}
+        {boundaryNote && (
+          <span className="adventure-messagebox__boundary-note">
+            <span aria-hidden>⚠</span>
+            {boundaryNote}
           </span>
         )}
         <button

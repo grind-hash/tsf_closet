@@ -3524,7 +3524,8 @@ button:disabled {
   }
 
   .adventure-messagebox__portrait-note,
-  .adventure-messagebox__inventory-note {
+  .adventure-messagebox__inventory-note,
+  .adventure-messagebox__boundary-note {
     padding: 2px 8px;
     font-size: 0.7rem;
   }
@@ -4646,7 +4647,8 @@ button:disabled {
 /* 攻略対象の立ち絵を据え置いた手番の案内(メタ行)。操作要素ではない。
    min-width:0 と overflow-wrap で折り返し、ログ/✕ボタンを押し出さない */
 .adventure-messagebox__portrait-note,
-.adventure-messagebox__inventory-note {
+.adventure-messagebox__inventory-note,
+.adventure-messagebox__boundary-note {
   display: inline-flex;
   flex: 0 1 auto;
   align-items: center;
@@ -4667,6 +4669,14 @@ button:disabled {
 .adventure-messagebox--romance .adventure-messagebox__inventory-note {
   border-color: rgb(240 143 183 / 45%);
   color: #ffc7de;
+}
+
+/* 境界侵害は持ち物の増減ではなく相手の心証なので、鞄の案内と色で区別する。
+   romance でも警告色のままにする */
+.adventure-messagebox__boundary-note {
+  border-color: rgb(239 184 90 / 55%);
+  color: #f3cc84;
+  background: #2a2418;
 }
 
 /* サウンドポップオーバーの見出しと読み上げ状態行 */

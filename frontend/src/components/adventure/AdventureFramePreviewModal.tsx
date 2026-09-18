@@ -65,6 +65,13 @@ export default function AdventureFramePreviewModal({
   // romance のターン詳細用。開幕フレーム(手番0)には日付が無い。
   // 導出はサーバの scene_day/scene_slot に一本化し、HUD と食い違わせない
   const lightboxDaySlot = frameDaySlot(lightboxFrame);
+  // 境界侵害は持ち物の増減ではなく相手の心証なので、見出しを分けて並べる
+  const inventoryChangeEntries = (lightboxFrame?.worldEvents ?? []).filter(
+    (entry) => entry.type !== "boundary_violation",
+  );
+  const boundaryChangeEntries = (lightboxFrame?.worldEvents ?? []).filter(
+    (entry) => entry.type === "boundary_violation",
+  );
   const canShowBackground = Boolean(lightboxFrame?.backgroundUrl);
   const canShowPortrait = Boolean(lightboxFrame?.portraitUrl);
   // romance: そのフレーム時点の攻略対象立ち絵があれば過去手番でも切替可能
@@ -383,17 +390,33 @@ export default function AdventureFramePreviewModal({
                   </p>
                 </section>
 
-                {(lightboxFrame.worldEvents?.length ?? 0) > 0 && (
+                {/* 境界侵害は持ち物の増減ではないので、見出しを分けて並べる */}
+                {inventoryChangeEntries.length > 0 && (
                   <section className="image-preview-modal__detail-section">
                     <h2 className="image-preview-modal__detail-label">
                       {t("adventure.inventoryChanges")}
                     </h2>
                     <ul className="adventure-preview__inventory-events">
-                      {keyedInventoryEntries(
-                        lightboxFrame.worldEvents ?? [],
-                      ).map(({ key, entry }) => (
-                        <li key={key}>{formatInventoryLogEntry(entry, t)}</li>
-                      ))}
+                      {keyedInventoryEntries(inventoryChangeEntries).map(
+                        ({ key, entry }) => (
+                          <li key={key}>{formatInventoryLogEntry(entry, t)}</li>
+                        ),
+                      )}
+                    </ul>
+                  </section>
+                )}
+
+                {boundaryChangeEntries.length > 0 && (
+                  <section className="image-preview-modal__detail-section">
+                    <h2 className="image-preview-modal__detail-label">
+                      {t("adventure.boundaryChanges")}
+                    </h2>
+                    <ul className="adventure-preview__inventory-events">
+                      {keyedInventoryEntries(boundaryChangeEntries).map(
+                        ({ key, entry }) => (
+                          <li key={key}>{formatInventoryLogEntry(entry, t)}</li>
+                        ),
+                      )}
                     </ul>
                   </section>
                 )}

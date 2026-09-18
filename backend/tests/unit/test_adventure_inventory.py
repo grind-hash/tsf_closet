@@ -122,6 +122,65 @@ def test_world_event_normalizes_aliases_and_vocabulary() -> None:
     assert give.from_ == "player" and give.to == "character:サクラ"
 
 
+def test_world_event_accepts_japanese_actors_and_one_sided_transfers() -> None:
+    """判定 LLM は日本語で応答するため、from / to が訳語や欠落でも受け渡しになる。"""
+    received = WorldEvent.model_validate(
+        {"type": "item_transfer", "from": "世界", "to": "プレイヤー", "item": "水着"}
+    )
+    assert received.from_ == "world" and received.to == "player"
+    # to を書き忘れた受領。補わないとどちらの分岐にも入らず黙って捨てられる
+    found = WorldEvent.model_validate(
+        {"type": "item_transfer", "from": "店", "item": "水着"}
+    )
+    assert found.from_ == "world" and found.to == "player"
+    # from も to も無い「手に入れた」は世界からの受領として扱う
+    bare = WorldEvent.model_validate({"type": "item_transfer", "item": "水着"})
+    assert bare.from_ is None and bare.to == "player"
+    # from だけがプレイヤーなら手放した側
+    handed = WorldEvent.model_validate(
+        {"type": "item_transfer", "from": "僕", "item_id": "i1"}
+    )
+    assert handed.to == "world"
+    # to だけが NPC なら渡した側
+    given = WorldEvent.model_validate(
+        {"type": "item_transfer", "to": "サクラ", "item_id": "i1"}
+    )
+    assert given.from_ == "player"
+
+
+def test_reality_patch_op_accepts_translated_and_partial_shapes() -> None:
+    """現実改変の宣言どおりに入るよう、op の訳語・name 直書き・items キーも受ける。"""
+    state = make_state()
+    applied = apply_reality_patch(
+        state,
+        {
+            # inventory ではなく items で返ってくることがある
+            "items": [
+                # op が訳語、品名を item ではなく name に直書き
+                {"op": "追加", "name": "Minecraft"},
+                # transfer で to を書き忘れた受領
+                {
+                    "op": "transfer",
+                    "from": "現実",
+                    "item": {"name": "グラフィックボード"},
+                },
+                # 宣言が着用を述べていれば着た状態で入る
+                {
+                    "op": "add",
+                    "item": {"name": "レディース水着", "category": "clothing"},
+                    "worn": True,
+                },
+            ]
+        },
+        turn_number=3,
+    )
+    assert len(applied) == 3
+    items = {item["name"]: item for item in state["inventory"]["items"]}
+    assert set(items) == {"Minecraft", "グラフィックボード", "レディース水着"}
+    assert items["グラフィックボード"]["obtained_from"] == "reality"
+    assert items["レディース水着"]["worn"] is True
+
+
 def test_resolution_output_accepts_world_events_and_reality_patch_leniently() -> None:
     output = AdventureResolutionOutput.model_validate(
         {"choices": three_choices(), "world_events": "junk", "reality_patch": "junk"},
