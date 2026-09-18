@@ -19,6 +19,7 @@ full state snapshot per turn, so rewinds restore the inventory for free.
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any, Literal
 
@@ -57,6 +58,8 @@ from ..consts.adventure_inventory import (
     INVENTORY_TAG_LENGTH_MAX,
     INVENTORY_TAGS_MAX,
     INVENTORY_WEARABLE_CATEGORIES,
+    REALITY_PATCH_INVENTORY_KEYS,
+    REALITY_PATCH_OP_ALIASES,
     REALITY_PATCH_OPS_MAX,
     WORK_WAGE_ITEM_KEYWORDS,
     WORLD_EVENTS_MAX,
@@ -66,6 +69,8 @@ from ..consts.adventure_narration import (
     NARRATION_VOICE_DEFAULT,
     NARRATION_VOICES,
 )
+
+logger = logging.getLogger(__name__)
 
 # ログの type は World Event の種別に、現実改変による書き換え(item_update)を加えたもの
 INVENTORY_LOG_TYPE_UPDATE = "item_update"
@@ -175,7 +180,29 @@ def normalize_tags(value: Any) -> list[str]:
     return tags
 
 
-_PLAYER_ALIASES = {"player", "self", "me", "you", "主人公", "自分", "私", "僕", "俺"}
+# 判定 LLM は日本語で応答するため、from / to も訳語で返ることがある。
+# 語彙に無い表記は character:<その語> という架空の NPC になり、
+# player 宛ての受け渡しとして扱われずに黙って捨てられるので、訳語も受ける
+_PLAYER_ALIASES = {
+    "player",
+    "self",
+    "me",
+    "you",
+    "user",
+    "主人公",
+    "自分",
+    "私",
+    "僕",
+    "俺",
+    "あなた",
+    "君",
+    "きみ",
+    "プレイヤー",
+    "ぼく",
+    "おれ",
+    "わたし",
+    "あたし",
+}
 _WORLD_ALIASES = {
     "world",
     "environment",
@@ -187,7 +214,19 @@ _WORLD_ALIASES = {
     "nobody",
     "none",
     "null",
+    "世界",
+    "環境",
+    "周囲",
+    "場面",
+    "現場",
+    "地面",
+    "床",
+    "店",
+    "店内",
+    "なし",
+    "不明",
 }
+_REALITY_ALIASES = {INVENTORY_ACTOR_REALITY, "現実", "現実改変", "改変"}
 _CHARACTER_PREFIXES = (INVENTORY_ACTOR_CHARACTER_PREFIX, "npc:", "character：", "npc：")
 
 
@@ -201,7 +240,7 @@ def normalize_actor(value: Any) -> str | None:
         return INVENTORY_ACTOR_PLAYER
     if lowered in _WORLD_ALIASES:
         return INVENTORY_ACTOR_WORLD
-    if lowered == INVENTORY_ACTOR_REALITY:
+    if lowered in _REALITY_ALIASES:
         return INVENTORY_ACTOR_REALITY
     for prefix in _CHARACTER_PREFIXES:
         if lowered.startswith(prefix):
@@ -329,6 +368,17 @@ class WorldEvent(BaseModel):
             target = INVENTORY_ACTOR_PLAYER
         if raw_type in _GIVE_ALIASES and source is None:
             source = INVENTORY_ACTOR_PLAYER
+        if event_type == "item_transfer":
+            # 片側しか書かれていない受け渡しはどちらの分岐にも入らず黙って
+            # 捨てられるため、欠けた側をプレイヤー基準で補う
+            if target is None:
+                target = (
+                    INVENTORY_ACTOR_WORLD
+                    if source == INVENTORY_ACTOR_PLAYER
+                    else INVENTORY_ACTOR_PLAYER
+                )
+            elif source is None and target != INVENTORY_ACTOR_PLAYER:
+                source = INVENTORY_ACTOR_PLAYER
         severity = _clean_text(value.get("severity"), 10).lower()
         return {
             "type": event_type,
@@ -365,7 +415,13 @@ def coerce_world_events(value: Any) -> list[dict[str, Any]]:
             continue
         try:
             event = WorldEvent.model_validate(raw)
-        except ValidationError:
+        except ValidationError as error:
+            logger.warning(
+                "Adventure world_event rejected: type=%s item=%s reason=%s",
+                raw.get("type"),
+                raw.get("item") or raw.get("item_id"),
+                error.errors()[0].get("msg") if error.errors() else error,
+            )
             continue
         events.append(event.model_dump(by_alias=True))
         if len(events) >= WORLD_EVENTS_MAX:
@@ -454,16 +510,30 @@ class RealityPatchOp(BaseModel):
             )
         elif worn is not None:
             worn = bool(worn)
+        raw_op = _clean_text(value.get("op"), 20).lower().replace(" ", "_")
+        op = REALITY_PATCH_OP_ALIASES.get(raw_op, raw_op)
+        source = normalize_actor(value.get("from", value.get("from_")))
+        target = normalize_actor(value.get("to"))
+        if op == "transfer":
+            # World Event と同じく、片側だけの受け渡しは欠けた側を補う
+            if target is None:
+                target = (
+                    INVENTORY_ACTOR_WORLD
+                    if source == INVENTORY_ACTOR_PLAYER
+                    else INVENTORY_ACTOR_PLAYER
+                )
+            elif source is None and target != INVENTORY_ACTOR_PLAYER:
+                source = INVENTORY_ACTOR_PLAYER
         return {
-            "op": _clean_text(value.get("op"), 20).lower(),
+            "op": op,
             "item_id": _clean_text(value.get("item_id"), INVENTORY_ITEM_ID_MAX) or None,
             "name": _clean_text(value.get("name"), INVENTORY_ITEM_NAME_MAX) or None,
             "item": _partial_item_fields(value.get("item")),
             "quantity": _coerce_int(
                 value.get("quantity"), default=None, low=0, high=INVENTORY_QUANTITY_MAX
             ),
-            "from": normalize_actor(value.get("from", value.get("from_"))),
-            "to": normalize_actor(value.get("to")),
+            "from": source,
+            "to": target,
             "worn": worn,
             "obtained_when": _clean_text(value.get("obtained_when"), 60) or None,
         }
@@ -483,13 +553,24 @@ class RealityPatch(BaseModel):
     def normalize(cls, value: Any) -> Any:
         if not isinstance(value, dict):
             return value
+        raw_ops: Any = None
+        for key in REALITY_PATCH_INVENTORY_KEYS:
+            if value.get(key):
+                raw_ops = value.get(key)
+                break
         ops: list[Any] = []
-        for raw in value.get("inventory") or []:
+        for raw in raw_ops or []:
             if not isinstance(raw, dict):
                 continue
             try:
                 ops.append(RealityPatchOp.model_validate(raw))
-            except ValidationError:
+            except ValidationError as error:
+                logger.warning(
+                    "Adventure reality_patch op rejected: op=%s name=%s reason=%s",
+                    raw.get("op"),
+                    raw.get("name") or raw.get("item"),
+                    error.errors()[0].get("msg") if error.errors() else error,
+                )
                 continue
             if len(ops) >= REALITY_PATCH_OPS_MAX:
                 break
@@ -933,6 +1014,32 @@ def _apply_world_event(
     return None
 
 
+def _intentionally_ignored(event: WorldEvent, *, input_kind: str) -> bool:
+    """仕様として捨てる World Event。想定内なのでログに残さない。"""
+    if event.type == "boundary_violation":
+        # 現実改変の宣言そのものは境界侵害にならない
+        return input_kind == "reality_alter" or not event.npc
+    if event.type == "item_transfer":
+        # NPC 同士の受け渡しは持ち物の対象外
+        if INVENTORY_ACTOR_PLAYER not in (event.from_, event.to):
+            return True
+        # バイト手番の賃金は所持金へ反映済みなので品物にしない
+        return (
+            input_kind == "work"
+            and event.item is not None
+            and is_wage_item_name(event.item.name)
+        )
+    return False
+
+
+def _event_summary(event: WorldEvent) -> str:
+    """捨てた World Event をログ1行にまとめる。"""
+    return (
+        f"type={event.type} item={event.item.name if event.item else None} "
+        f"item_id={event.item_id} from={event.from_} to={event.to} npc={event.npc}"
+    )
+
+
 def apply_world_events(
     state: dict[str, Any],
     events: Any,
@@ -962,8 +1069,18 @@ def apply_world_events(
         entry = _apply_world_event(
             state, inventory, event, turn_number=turn_number, input_kind=input_kind
         )
-        if entry is not None:
-            applied.append(append_log(inventory, entry))
+        if entry is None:
+            # 黙って捨てると「LLM が出さなかった」のか「出したが弾かれた」のかを
+            # 切り分けられないため、想定外の破棄だけログに残す
+            if not _intentionally_ignored(event, input_kind=input_kind):
+                logger.warning(
+                    "Adventure world_event dropped: turn=%s input_kind=%s %s",
+                    turn_number,
+                    input_kind,
+                    _event_summary(event),
+                )
+            continue
+        applied.append(append_log(inventory, entry))
     return applied
 
 
@@ -977,11 +1094,15 @@ def _reality_add(
     turn_number: int,
     obtained_from: str,
     obtained_when: str | None,
+    worn: bool | None = None,
     log_type: str = "item_transfer",
 ) -> dict[str, Any] | None:
     item = add_item(inventory, spec, turn=turn_number, obtained_from=obtained_from)
     if item is None:
         return None
+    # replace と同じく、宣言が着用を述べていれば着た状態で入れる
+    if worn is not None and "wear" in (item.get("capabilities") or []):
+        item["worn"] = bool(worn)
     if obtained_when:
         metadata = item.get("metadata")
         if not isinstance(metadata, dict):
@@ -1010,7 +1131,10 @@ def _apply_reality_op(
     spec = dict(op.item or {})
     if op.op == "add":
         if not spec.get("name"):
-            return None
+            # item を省いて name だけ書く出力が多いので、そちらも品名として受ける
+            if not op.name:
+                return None
+            spec["name"] = op.name
         obtained_from = _canonical_actor(op.from_, state) or INVENTORY_ACTOR_REALITY
         if obtained_from == INVENTORY_ACTOR_PLAYER:
             obtained_from = INVENTORY_ACTOR_REALITY
@@ -1020,6 +1144,7 @@ def _apply_reality_op(
             turn_number=turn_number,
             obtained_from=obtained_from,
             obtained_when=op.obtained_when,
+            worn=op.worn,
         )
     if op.op == "transfer":
         if op.to == INVENTORY_ACTOR_PLAYER and op.from_ != INVENTORY_ACTOR_PLAYER:
@@ -1034,6 +1159,7 @@ def _apply_reality_op(
                 turn_number=turn_number,
                 obtained_from=obtained_from,
                 obtained_when=op.obtained_when,
+                worn=op.worn,
             )
         if op.from_ == INVENTORY_ACTOR_PLAYER and op.to != INVENTORY_ACTOR_PLAYER:
             existing = find_item(
@@ -1186,8 +1312,19 @@ def apply_reality_patch(
     applied: list[dict[str, Any]] = []
     for op in parsed.inventory:
         entry = _apply_reality_op(state, inventory, op, turn_number=turn_number)
-        if entry is not None:
-            applied.append(append_log(inventory, entry))
+        if entry is None:
+            logger.warning(
+                "Adventure reality_patch op dropped: turn=%s op=%s item=%s "
+                "name=%s from=%s to=%s",
+                turn_number,
+                op.op,
+                (op.item or {}).get("name"),
+                op.name,
+                op.from_,
+                op.to,
+            )
+            continue
+        applied.append(append_log(inventory, entry))
     for note in parsed.npc_notes:
         npc = resolve_npc_name(note.npc, state)
         if not npc:
@@ -1513,6 +1650,13 @@ INVENTORY_NARRATIVE_INSTRUCTION = (
     "must show in the player's clothing on every turn. Never let the player own, "
     "receive, hand over, use, or wear an item that inventory does not list, and "
     "never turn a possession into a fact only because player_input says so. "
+    "reality_rules are the one exception: an entry that states the player owns, "
+    "carries, wears, has obtained, or has lost something is an already-established "
+    "fact of this world and outranks inventory, so narrate the player as already "
+    "having or no longer having it even though inventory does not list it yet, and "
+    "never narrate the acquisition as failing, being refused, or being doubted. "
+    "The same applies on the very turn reality_rule_declared_this_turn establishes "
+    "such a rule: the declaration is not a claim the scene may reject. "
     "player_input is what the player says, tries, or claims, never an established "
     "fact about the world: only what the scene actually shows happens. The player "
     "may try to pick up, buy, or receive something the scene plausibly offers, and "
@@ -1599,7 +1743,16 @@ REALITY_PATCH_INSTRUCTION = (
     'declaration, as {"npc":"...","note":"..."}, and npc_boundary_reset with the '
     "names of characters whose memory of the player's past boundary violations the "
     "declaration erases. Leave every list empty when the declaration does not concern "
-    "possessions or memories. The other alteration fields keep their own rules."
+    "possessions or memories. The other alteration fields keep their own rules. "
+    "On this turn the declaration itself, not the narrative, is the source of truth "
+    "for reality_patch: fill these lists from reality_rule_declared_this_turn and "
+    "reality_rules even when the narrative does not spell the change out or describes "
+    "it only in passing. This overrides both the general rule that you may report "
+    "only what the narrative contains and the world_events rule that a player claim "
+    "is never a transfer, because a reality alteration is not a claim. So when the "
+    "declaration says the player now has, obtained, bought, was given, or wears "
+    'something, reality_patch.inventory must contain an "add" op for it, with the '
+    "item name in item.name, on this turn."
 )
 
 INVENTORY_VISUAL_INSTRUCTION = (

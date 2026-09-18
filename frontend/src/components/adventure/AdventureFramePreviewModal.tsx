@@ -383,20 +383,41 @@ export default function AdventureFramePreviewModal({
                   </p>
                 </section>
 
-                {(lightboxFrame.worldEvents?.length ?? 0) > 0 && (
-                  <section className="image-preview-modal__detail-section">
-                    <h2 className="image-preview-modal__detail-label">
-                      {t("adventure.inventoryChanges")}
-                    </h2>
-                    <ul className="adventure-preview__inventory-events">
-                      {keyedInventoryEntries(
-                        lightboxFrame.worldEvents ?? [],
-                      ).map(({ key, entry }) => (
-                        <li key={key}>{formatInventoryLogEntry(entry, t)}</li>
-                      ))}
-                    </ul>
-                  </section>
-                )}
+                {/* 境界侵害は持ち物の増減ではないので、見出しを分けて並べる */}
+                {[
+                  {
+                    label: "adventure.inventoryChanges",
+                    entries: (lightboxFrame.worldEvents ?? []).filter(
+                      (entry) => entry.type !== "boundary_violation",
+                    ),
+                  },
+                  {
+                    label: "adventure.boundaryChanges",
+                    entries: (lightboxFrame.worldEvents ?? []).filter(
+                      (entry) => entry.type === "boundary_violation",
+                    ),
+                  },
+                ]
+                  .filter((section) => section.entries.length > 0)
+                  .map((section) => (
+                    <section
+                      key={section.label}
+                      className="image-preview-modal__detail-section"
+                    >
+                      <h2 className="image-preview-modal__detail-label">
+                        {t(section.label)}
+                      </h2>
+                      <ul className="adventure-preview__inventory-events">
+                        {keyedInventoryEntries(section.entries).map(
+                          ({ key, entry }) => (
+                            <li key={key}>
+                              {formatInventoryLogEntry(entry, t)}
+                            </li>
+                          ),
+                        )}
+                      </ul>
+                    </section>
+                  ))}
 
                 {lightboxFrame.location && (
                   <section className="image-preview-modal__detail-section">

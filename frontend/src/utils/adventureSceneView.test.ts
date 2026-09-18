@@ -202,6 +202,38 @@ describe("buildAdventureSceneView", () => {
     });
     const view = build(run, { latestFrame: frame });
     expect(view.inventoryNote).not.toBeNull();
+    expect(view.boundaryNote).toBeNull();
     expect(build(run, { latestFrame: makeFrame({}) }).inventoryNote).toBeNull();
+  });
+
+  it("境界侵害は持ち物の変化とは別の案内に分ける", () => {
+    const run = makeRun({
+      inventory_enabled: true,
+      inventory: { items: [], log: [] },
+    } as unknown as Partial<AdventureRun>);
+    const frame = makeFrame({
+      worldEvents: [
+        {
+          type: "boundary_violation",
+          origin: "event",
+          npc: "サクラ",
+          turn: 1,
+        },
+        {
+          type: "item_transfer",
+          origin: "event",
+          to: "player",
+          item: "本",
+          turn: 1,
+        },
+      ] as unknown as AdventureStageFrame["worldEvents"],
+    });
+    const view = build(run, { latestFrame: frame });
+    expect(view.inventoryNote).toBe(
+      "adventure.inventoryLogEntry.item_transfer_found",
+    );
+    expect(view.boundaryNote).toBe(
+      "adventure.inventoryLogEntry.boundary_violation",
+    );
   });
 });

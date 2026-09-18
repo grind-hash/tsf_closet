@@ -32,6 +32,8 @@ export interface AdventureSceneView {
   playerDisplayName: string;
   /** 表示中フレームの持ち物の変化(1行)。無ければ null */
   inventoryNote: string | null;
+  /** 表示中フレームの境界侵害(1行)。持ち物の増減ではないので別扱い。無ければ null */
+  boundaryNote: string | null;
 }
 
 interface BuildSceneViewOptions {
@@ -99,13 +101,25 @@ export function buildAdventureSceneView({
         );
       })?.clothing ?? "")
     : "";
-  // 表示中フレームの持ち物の変化。メッセージ窓のメタ行に1行で出す
+  // 表示中フレームの持ち物の変化。メッセージ窓のメタ行に1行で出す。
+  // 境界侵害は品物の増減ではなく相手の心証の記録なので、鞄アイコンで
+  // まとめず別の行に分ける
   const frameWorldEvents = inventory
     ? ((isViewingPast ? selectedFrame : latestFrame)?.worldEvents ?? [])
     : [];
+  const frameItemEvents = frameWorldEvents.filter(
+    (entry) => entry.type !== "boundary_violation",
+  );
+  const frameBoundaryEvents = frameWorldEvents.filter(
+    (entry) => entry.type === "boundary_violation",
+  );
   const inventoryNote =
-    frameWorldEvents.length > 0
-      ? formatInventoryEvents(frameWorldEvents, t)
+    frameItemEvents.length > 0
+      ? formatInventoryEvents(frameItemEvents, t)
+      : null;
+  const boundaryNote =
+    frameBoundaryEvents.length > 0
+      ? formatInventoryEvents(frameBoundaryEvents, t)
       : null;
   const playerDisplayName = sim?.player_name?.trim() || t("adventure.talk.you");
   return {
@@ -125,5 +139,6 @@ export function buildAdventureSceneView({
     partnerClothing,
     playerDisplayName,
     inventoryNote,
+    boundaryNote,
   };
 }

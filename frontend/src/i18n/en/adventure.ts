@@ -353,6 +353,7 @@ export const adventure = {
   inventoryLog: "Recent exchanges",
   inventoryRecentChanges: "Changes this turn",
   inventoryChanges: "Inventory changes",
+  boundaryChanges: "Characters you upset",
   inventoryGiveTarget: "Give to",
   inventoryNoTarget: "Nobody nearby to give it to",
   inventoryActor: {

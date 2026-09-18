@@ -67,6 +67,49 @@ REALITY_PATCH_OPS: tuple[str, ...] = (
     "update",
     "transfer",
 )
+# 判定 LLM は日本語で応答するため、op を訳語や同義語で返すことがある。
+# 語彙外の op は要素ごと捨てられるので、正規の op へ寄せてから検証する
+REALITY_PATCH_OP_ALIASES: dict[str, str] = {
+    "追加": "add",
+    "取得": "add",
+    "入手": "add",
+    "付与": "add",
+    "create": "add",
+    "grant": "add",
+    "gain": "add",
+    "acquire": "add",
+    "obtain": "add",
+    "削除": "remove",
+    "除去": "remove",
+    "破棄": "remove",
+    "喪失": "remove",
+    "delete": "remove",
+    "discard": "remove",
+    "drop": "remove",
+    "lose": "remove",
+    "置換": "replace",
+    "交換": "replace",
+    "swap": "replace",
+    "更新": "update",
+    "変更": "update",
+    "書き換え": "update",
+    "modify": "update",
+    "change": "update",
+    "edit": "update",
+    "数量": "set_quantity",
+    "数量変更": "set_quantity",
+    "set_count": "set_quantity",
+    "setquantity": "set_quantity",
+    "quantity": "set_quantity",
+    "譲渡": "transfer",
+    "移動": "transfer",
+    "受け渡し": "transfer",
+    "give": "transfer",
+    "move": "transfer",
+    "hand_over": "transfer",
+}
+# reality_patch の持ち物書き換え一覧のキー。LLM が items で返すことがある
+REALITY_PATCH_INVENTORY_KEYS: tuple[str, ...] = ("inventory", "items")
 
 # 所有者・入手元の表記
 INVENTORY_ACTOR_PLAYER: str = "player"
@@ -157,8 +200,10 @@ __all__ = [
     "INVENTORY_TAGS_MAX",
     "INVENTORY_TAG_LENGTH_MAX",
     "INVENTORY_WEARABLE_CATEGORIES",
+    "REALITY_PATCH_INVENTORY_KEYS",
     "REALITY_PATCH_OPS",
     "REALITY_PATCH_OPS_MAX",
+    "REALITY_PATCH_OP_ALIASES",
     "WORK_WAGE_ITEM_KEYWORDS",
     "WORLD_EVENTS_MAX",
     "WORLD_EVENT_TYPES",
