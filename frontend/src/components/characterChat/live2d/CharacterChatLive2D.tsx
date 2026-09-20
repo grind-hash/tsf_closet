@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { useCharacterChat } from "../../../contexts/CharacterChatContext";
 import { useNotification } from "../../../contexts/NotificationContext";
 import { usePersistedState } from "../../../hooks/usePersistedState";
+import { live2dPortraitFrame } from "./costumes";
 import {
   CubismPilotRenderer,
   type PilotCamera,
@@ -45,8 +46,10 @@ export default function CharacterChatLive2D() {
     : expression === "happy" || expression === "angry" || expression === "sad"
       ? expression
       : "neutral";
-  const inputRef = useRef({ emotion, voice, camera });
-  inputRef.current = { emotion, voice, camera };
+  // 寄りの構図は衣装ごとに違う(うさ耳のぶん顔の位置が下がるなど)
+  const portrait = live2dPortraitFrame(activeThread?.avatar?.live2d_costume);
+  const inputRef = useRef({ emotion, voice, camera, portrait });
+  inputRef.current = { emotion, voice, camera, portrait };
   const modelUrl = activeThread?.avatar?.url;
 
   useEffect(() => {
@@ -119,6 +122,7 @@ export default function CharacterChatLive2D() {
           timeSeconds: (now - startedAt) / 1000,
           motionEnabled: !reducedMotion.matches,
           camera: input.camera,
+          portrait: input.portrait,
           cameraMix: reducedMotion.matches ? 1 : blend,
           frameHeight:
             input.camera === "portrait"

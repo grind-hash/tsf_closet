@@ -63,7 +63,13 @@ export const characterChat = {
     avatarSection: "Character display",
     avatarLive2d: "Live2D",
     avatarLive2dHint:
-      "Serena's full-body model with expressions, blinking, speech lip sync and gentle hair and sleeve movement. Switch between full and close views. Outfit changes do not alter this model.",
+      "Serena's bundled model with expressions, blinking and speech lip sync. Switch between full and close views. While a costume is shown, that is what she is wearing; clothes changed in the conversation stay on the 2D portrait.",
+    avatarLive2dCurrent: "Showing: Live2D ({{costume}})",
+    // Display names of the bundled Live2D costumes; the ids live in LIVE2D_COSTUMES
+    live2dCostumes: {
+      dress: "Gown",
+      bunny: "Bunny",
+    },
     avatarLive2dUnavailable:
       "The Live2D SDK is not installed, so this cannot be selected. See \u201cLive2D model\u201d in Settings for the setup steps.",
     live2dSdkPathPackaged: "Packaged build: backend/static/live2d/vendor/",

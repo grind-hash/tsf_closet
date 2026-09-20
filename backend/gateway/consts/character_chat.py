@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import NamedTuple
 
 from ..settings.config import settings
 from .companion_avatar import AVATAR_EXPRESSIONS, TALK_HEADER_COMMON_RULES
@@ -46,9 +47,6 @@ BASE_AVATAR_URL = "/character-chat/avatar/base"
 # アバターの表示指定: auto = VRM 自動(同梱 → run → 名前一致)、none = 2D 立ち絵、
 # model = 登録済み VRM を明示、live2d = 案内役の同梱 Live2D
 AVATAR_MODES = ("auto", "none", "model", "live2d")
-# 案内役専用。フロントエンドが配信する実行素材の URL。描画に必要な Cubism Core は
-# 同梱せず、利用者が live2d/vendor/ へ配置する(未配置なら 2D 立ち絵のまま)
-BASE_LIVE2D_URL = "/live2d/serena-fullbody-v4/cubism/fullbody-face-rig.model3.json"
 # 同梱 Live2D が持つ表情(モデルの ParamEmotion*)。フロントエンドの PilotEmotion と
 # 揃える。身振りのパラメータは無いため gesture は idle だけ
 LIVE2D_EXPRESSIONS: tuple[str, ...] = ("neutral", "happy", "angry", "sad")
@@ -87,6 +85,70 @@ BASE_APPEARANCE_DESCRIPTION = {
         "chest, and black strap shoes."
     ),
 }
+
+
+class Live2dCostume(NamedTuple):
+    """案内役キャラの同梱 Live2D 衣装。
+
+    id は会話ごとに保存する値、url はフロントエンドが配信する実行素材(model3.json)、
+    description は表示中だけ system prompt へ渡す姿の説明(言語 -> 本文)。
+    """
+
+    id: str
+    url: str
+    description: dict[str, str]
+
+
+# 同梱 Live2D 衣装。先頭が既定で、描画に必要な Cubism Core は同梱せず利用者が
+# live2d/vendor/ へ配置する(未配置なら 2D 立ち絵のまま)。
+# 衣装を足すときは frontend/public/live2d/ へ素材を置いてこの並びへ 1 件加え、
+# 表示名を i18n(characterChat.room.live2dCostumes.*)へ、寄りの構図が既定で合わない
+# ときは frontend の components/characterChat/live2d/costumes.ts へ書く。
+LIVE2D_COSTUMES: tuple[Live2dCostume, ...] = (
+    Live2dCostume(
+        id="dress",
+        url="/live2d/serena-fullbody-v4/cubism/fullbody-face-rig.model3.json",
+        description=BASE_APPEARANCE_DESCRIPTION,
+    ),
+    Live2dCostume(
+        id="bunny",
+        url="/live2d/serena-bunny-v1/cubism/serena-bunny.model3.json",
+        description={
+            "ja": (
+                "腰まで届く波打つ銀髪と翠の瞳。白いうさ耳のカチューシャに、"
+                "青い宝石をあしらった金の髪飾り。フリルで縁取られたオフショルダーの"
+                "紫のバニースーツに青い宝石の飾り、同じ色のチョーカー、フリルの"
+                "デタッチドスリーブ、白いニーハイソックス、レースの長いトレーン、"
+                "リボンの付いた紫のヒール。"
+            ),
+            "en": (
+                "Waist-length wavy silver hair and green eyes, with white bunny ears "
+                "and a gold hair ornament set with a blue gem. A purple off-shoulder "
+                "bunny leotard trimmed with frills and blue gems, a matching choker, "
+                "frilled detached sleeves, white thigh-high socks, a long lace train "
+                "and purple heels with ribbons."
+            ),
+        },
+    ),
+)
+LIVE2D_COSTUME_IDS: tuple[str, ...] = tuple(costume.id for costume in LIVE2D_COSTUMES)
+DEFAULT_LIVE2D_COSTUME = LIVE2D_COSTUMES[0].id
+
+
+def live2d_costume(costume_id: str | None) -> Live2dCostume:
+    """id に対応する衣装。未設定・未知の id(素材を外した後など)は既定の衣装。"""
+    for costume in LIVE2D_COSTUMES:
+        if costume.id == costume_id:
+            return costume
+    return LIVE2D_COSTUMES[0]
+
+
+def live2d_costume_description(costume_id: str | None, language: str) -> str:
+    """表示中の衣装の姿の説明。"""
+    description = live2d_costume(costume_id).description
+    lang = "en" if language == "en" else "ja"
+    return description.get(lang) or description.get("ja", "")
+
 
 BASE_CHARACTER_PERSONA = {
     "ja": (

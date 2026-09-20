@@ -122,7 +122,8 @@ from .reality_prompts import (
 from .self_mode_prompts import build_self_mode_feeling_prompt
 from .session import session_store
 from .settings_service import settings_service
-from .tag_classifier import TransformationTags, classify_tags
+from .tag_classifier import TransformationTags
+from .tag_classifier_jev import resolve_tags
 
 logger = logging.getLogger(__name__)
 
@@ -3154,8 +3155,8 @@ class GameService:
         history = outcome.history
         is_reality = request.is_reality
 
-        # 5.1. タグ分類 (T023)
-        tags = classify_tags(ctx.original_instruction)
+        # 5.1. タグ分類 (T023)。Jev が有効なときは判定を突き合わせる
+        tags = await resolve_tags(ctx.original_instruction)
         await session_store.save_transformation_tag(
             history_id=history.id,
             costume_category=tags.costume_category,

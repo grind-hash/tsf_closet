@@ -59,10 +59,12 @@ class CharacterChatAvatarRequest(BaseModel):
     auto = 自動(案内役は同梱モデル → run の対面会話モデル → character_name が
     一致する登録済みモデル → 2D 立ち絵)、none = 2D 立ち絵を使う、
     model = avatar_id の登録済みモデル、live2d = 案内役専用の試作を明示する。
+    live2d_costume は live2d で着せる同梱衣装の id(省略時は保存済み、無ければ既定)。
     """
 
     mode: Literal["auto", "none", "model", "live2d"] = "auto"
     avatar_id: str | None = None
+    live2d_costume: str | None = Field(None, max_length=40)
 
 
 class CharacterChatPortraitRequest(BaseModel):

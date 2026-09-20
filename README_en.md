@@ -446,6 +446,9 @@ An experimental feature that reads lines aloud with the AivisSpeech engine. Enab
 | `ENABLE_PROMPT_PREVIEW`      | Prompt preview feature for the TSF Scenario                | `false`    |
 | `TAVILY_API_KEY`             | Tavily API key for Serena's web search in character chat (used with the Settings toggle) | (none)     |
 | `WEATHER_LOCATION`           | City name for Serena's weather lookup in character chat, e.g. `Tokyo` (Open-Meteo, no key) | (none)     |
+| `JEV_PROVIDER`               | Structured judgment (TypeSafe AI Jev) transport (`off` / `openrouter` / `typesafe`) | `off`      |
+| `JEV_LIVE_TARGETS`           | Judgments where Jev's answer actually changes behaviour (empty = log only) | (none)     |
+| `TYPESAFE_API_KEY`           | API key for calling TypeSafe AI directly                     | (none)     |
 
 ### ComfyUI (selfhost)
 
@@ -475,6 +478,32 @@ In the selfhost configuration (`.env.example.selfhost`) the default for all thre
 | `OPENROUTER_IMAGE_MODEL`  | `google/gemini-2.5-flash-image` |
 | `OPENROUTER_VISION_MODEL` | `google/gemini-3-flash-preview` |
 | `OPENROUTER_LLM_MODEL`    | `google/gemini-3-flash-preview` |
+
+### TypeSafe AI (Jev) — experimental
+
+Jev is a judgment-only model that generates no text. Gender congruence, Serena's
+real-world lookups and transformation tag classification can ask it typed questions
+instead of asking a general-purpose LLM to write JSON. It is an axis of its own, so it
+can be added without changing `IMAGE_PROVIDER` and friends.
+
+It defaults to `off` and **is never used just because an API key is present**. Turning it
+on bills the transport you pick (`openrouter` uses `OPENROUTER_API_KEY`). See
+`.env.example.jev` for a worked configuration.
+
+| Variable                       | Default                     |
+| ------------------------------ | --------------------------- |
+| `JEV_PROVIDER`                 | `off`                       |
+| `JEV_MODEL`                    | (per-transport default)     |
+| `JEV_TIMEOUT`                  | `10`                        |
+| `JEV_LIVE_TARGETS`             | (empty = shadow everywhere) |
+| `JEV_HIGH` / `JEV_LOW`         | `0.7` / `0.3`               |
+| `JEV_MIN_CONFIDENCE`           | `0.5`                       |
+| `JEV_INPUT_PRICE_USD_PER_MTOK` | `0.042`                     |
+
+While `JEV_LIVE_TARGETS` is empty, Jev runs alongside the existing judgment and only
+writes the comparison to the log (lines starting with `jev_shadow`); behaviour is
+unchanged. Check the agreement rate first, then add `congruence`, `chat_lookup`,
+`search_policy` and `tags` one at a time.
 
 ### NovelAI
 

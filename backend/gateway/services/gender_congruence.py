@@ -14,6 +14,7 @@ feeling_mode:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -66,7 +67,7 @@ def should_use_congruence_llm(
 FitKind = Literal["congruent", "incongruent", "ambiguous"]
 BodyState = Literal["original", "altered", "unknown"]
 SocialRecognition = Literal["original", "opposite", "unknown"]
-SourceKind = Literal["rule", "llm", "fallback"]
+SourceKind = Literal["rule", "llm", "fallback", "jev"]
 
 # 明示的な女性向けマーカー（他語と共起しても優先。例: レディーススーツ）
 EXPLICIT_FEMININE_MARKERS: list[str] = [
@@ -500,6 +501,33 @@ def parse_congruence_llm_response(raw: str) -> GenderCongruenceResult | None:
     )
 
 
+_TIMELINE_LABELS = {
+    "dress_up": "着替",
+    "reality_alter": "改変",
+    "action": "行動",
+    "conversation": "会話",
+}
+
+
+def _timeline_entries(
+    session_timeline: list[tuple[str, str]] | None,
+    *,
+    limit: int,
+    clip: int,
+) -> list[tuple[str, str]]:
+    """履歴を (種別, 本文) の組に正規化する。末尾から limit 件、本文は clip 文字まで。"""
+    if not session_timeline:
+        return []
+
+    entries: list[tuple[str, str]] = []
+    for entry in session_timeline[-limit:]:
+        if not isinstance(entry, tuple) or len(entry) < 2:
+            continue
+        itype, text = entry[0], entry[1]
+        entries.append((str(itype), (text or "")[:clip].replace("\n", " ")))
+    return entries
+
+
 def _build_timeline_section(
     session_timeline: list[tuple[str, str]] | None,
     limit: int = 12,
@@ -508,20 +536,10 @@ def _build_timeline_section(
     if not session_timeline:
         return "(履歴なし)"
 
-    labels = {
-        "dress_up": "着替",
-        "reality_alter": "改変",
-        "action": "行動",
-        "conversation": "会話",
-    }
-    lines: list[str] = []
-    for entry in session_timeline[-limit:]:
-        if not isinstance(entry, tuple) or len(entry) < 2:
-            continue
-        itype, text = entry[0], entry[1]
-        label = labels.get(itype, itype)
-        clipped = (text or "")[:120].replace("\n", " ")
-        lines.append(f"- [{label}] {clipped}")
+    lines = [
+        f"- [{_TIMELINE_LABELS.get(itype, itype)}] {text}"
+        for itype, text in _timeline_entries(session_timeline, limit=limit, clip=120)
+    ]
 
     joined = "\n".join(lines)
     if len(joined) > max_chars:
@@ -554,6 +572,119 @@ def build_congruence_user_prompt(
     )
 
 
+async def _evaluate_with_llm(
+    *,
+    instruction: str,
+    original_gender: str,
+    appearance_desc: str,
+    session_timeline: list[tuple[str, str]] | None,
+    attributes: list[str] | None,
+    instruction_type: str,
+    novelai_model_override: str | None,
+) -> GenderCongruenceResult | None:
+    """従来の汎用 LLM で判定する。呼べない・パースできないときは None。"""
+    try:
+        from .llm_service import llm_service
+
+        user_prompt = build_congruence_user_prompt(
+            instruction=instruction,
+            original_gender=original_gender,
+            appearance_desc=appearance_desc,
+            session_timeline=session_timeline,
+            attributes=attributes,
+            instruction_type=instruction_type,
+        )
+
+        if resolve_image_provider() == Provider.NOVELAI:
+            effective_provider = Provider.NOVELAI
+        else:
+            effective_provider = resolve_text_provider()
+
+        result = await llm_service.generate_feeling(
+            system_prompt=CONGRUENCE_SYSTEM_PROMPT,
+            user_prompt=user_prompt,
+            provider_override=effective_provider,
+            novelai_model_override=novelai_model_override,
+            max_tokens=256,
+        )
+    except Exception as e:
+        logger.warning(
+            "Gender congruence LLM failed, fallback to rule: %s: %s",
+            type(e).__name__,
+            e,
+        )
+        return None
+
+    parsed = parse_congruence_llm_response(result.content)
+    if parsed is None:
+        logger.warning(
+            "Gender congruence LLM parse failed, fallback to rule. raw=%s",
+            (result.content or "")[:200],
+        )
+    return parsed
+
+
+def _apply_under_detection_override(
+    rule_result: GenderCongruenceResult, parsed: GenderCongruenceResult
+) -> GenderCongruenceResult:
+    """ルールが不適合確定なのに判定器が適合と言ったら、ルールを採用する。
+
+    判定器が指示文中の主張(「これは男性服です」など)に引きずられた場合の
+    防波堤でもあるため、LLM 経路と Jev 経路の両方で必ず通す。
+    """
+    if (
+        rule_result.fit == "incongruent"
+        and rule_result.should_feel_gender_discomfort
+        and not parsed.should_feel_gender_discomfort
+    ):
+        logger.warning(
+            "Gender congruence %s under-detected discomfort "
+            "(rule incongruent, judge congruent). Prefer rule. judge_reason=%s",
+            parsed.source,
+            parsed.reason,
+        )
+        return GenderCongruenceResult(
+            fit=rule_result.fit,
+            should_feel_gender_discomfort=True,
+            body_state=parsed.body_state,
+            social_recognition=parsed.social_recognition,
+            reason=f"rule_override: {rule_result.reason} (llm said: {parsed.reason})",
+            source="fallback",
+        )
+
+    logger.info(
+        "Gender congruence %s: fit=%s discomfort=%s reason=%s",
+        parsed.source,
+        parsed.fit,
+        parsed.should_feel_gender_discomfort,
+        parsed.reason,
+    )
+    return parsed
+
+
+def _rule_fallback(rule_result: GenderCongruenceResult) -> GenderCongruenceResult:
+    """判定器が使えなかったときに返す、ルール結果と同値で source だけ違う結果。"""
+    return GenderCongruenceResult(
+        fit=rule_result.fit,
+        should_feel_gender_discomfort=rule_result.should_feel_gender_discomfort,
+        body_state=rule_result.body_state,
+        social_recognition=rule_result.social_recognition,
+        reason=f"llm_fallback: {rule_result.reason}",
+        source="fallback",
+    )
+
+
+def _shadow_fields(
+    label: str, result: GenderCongruenceResult | None
+) -> dict[str, object]:
+    if result is None:
+        return {f"{label}_fit": "none", f"{label}_dis": "none"}
+    return {
+        f"{label}_fit": result.fit,
+        f"{label}_dis": result.should_feel_gender_discomfort,
+    }
+
+
 async def evaluate_gender_congruence(
     instruction: str,
     original_gender: str = "man",
@@ -567,8 +698,15 @@ async def evaluate_gender_congruence(
     """性別適合を評価する。
 
     use_llm=False のときはルールのみ。
-    use_llm=True のときは専用 LLM を試し、失敗時はルールにフォールバック。
+    use_llm=True のときは判定器を試し、失敗時はルールにフォールバックする。
+    判定器は JEV_PROVIDER / JEV_LIVE_TARGETS の設定で切り替わる。
+    - 未設定: 従来の汎用 LLM
+    - Jev 有効 + congruence がシャドー: 従来の LLM と Jev を並列に呼び、比較だけ記録する
+    - Jev 有効 + congruence が live: Jev を採用し、呼べなければ従来の LLM へ倒す
     """
+    from .jev_client import log_shadow
+    from .providers import jev_judge_enabled, jev_live
+
     rule_result = evaluate_gender_congruence_rule(
         instruction=instruction,
         original_gender=original_gender,
@@ -578,7 +716,7 @@ async def evaluate_gender_congruence(
     if not use_llm:
         return rule_result
 
-    # レディース/メンズ等の明示マーカーがあるときはルールを優先（LLMの誤読を防ぐ）
+    # レディース/メンズ等の明示マーカーがあるときはルールを優先（判定器の誤読を防ぐ）
     hard_marker = rule_has_hard_gender_marker(
         instruction, original_gender, appearance_desc
     )
@@ -590,77 +728,68 @@ async def evaluate_gender_congruence(
         )
         return rule_result
 
-    try:
-        from .llm_service import llm_service
+    llm_kwargs = {
+        "instruction": instruction,
+        "original_gender": original_gender,
+        "appearance_desc": appearance_desc,
+        "session_timeline": session_timeline,
+        "attributes": attributes,
+        "instruction_type": instruction_type,
+    }
 
-        user_prompt = build_congruence_user_prompt(
-            instruction=instruction,
-            original_gender=original_gender,
-            appearance_desc=appearance_desc,
-            session_timeline=session_timeline,
-            attributes=attributes,
-            instruction_type=instruction_type,
-        )
+    parsed: GenderCongruenceResult | None
+    if jev_judge_enabled():
+        from .gender_congruence_jev import evaluate_with_jev
 
-        effective_provider = None
-        if resolve_image_provider() == Provider.NOVELAI:
-            effective_provider = Provider.NOVELAI
+        if jev_live("congruence"):
+            parsed = await evaluate_with_jev(**llm_kwargs, rule_result=rule_result)
+            if parsed is None:
+                # Jev が使えないときは従来の品質を保つため既存 LLM へ倒す
+                parsed = await _evaluate_with_llm(
+                    **llm_kwargs, novelai_model_override=novelai_model_override
+                )
         else:
-            effective_provider = resolve_text_provider()
-
-        result = await llm_service.generate_feeling(
-            system_prompt=CONGRUENCE_SYSTEM_PROMPT,
-            user_prompt=user_prompt,
-            provider_override=effective_provider,
-            novelai_model_override=novelai_model_override,
-            max_tokens=256,
-        )
-        parsed = parse_congruence_llm_response(result.content)
-        if parsed is not None:
-            # ルールが不適合確定なのに LLM が適合と言ったらルールを採用
-            if (
-                rule_result.fit == "incongruent"
-                and rule_result.should_feel_gender_discomfort
-                and not parsed.should_feel_gender_discomfort
-            ):
-                logger.warning(
-                    "Gender congruence LLM under-detected discomfort "
-                    "(rule incongruent, llm congruent). Prefer rule. llm_reason=%s",
-                    parsed.reason,
-                )
-                return GenderCongruenceResult(
-                    fit=rule_result.fit,
-                    should_feel_gender_discomfort=True,
-                    body_state=parsed.body_state,
-                    social_recognition=parsed.social_recognition,
-                    reason=f"rule_override: {rule_result.reason} (llm said: {parsed.reason})",
-                    source="fallback",
-                )
-
-            logger.info(
-                "Gender congruence LLM: fit=%s discomfort=%s reason=%s",
-                parsed.fit,
-                parsed.should_feel_gender_discomfort,
-                parsed.reason,
+            # シャドー: 挙動は従来のまま。並列に呼び、突き合わせだけ記録する
+            baseline, shadow = await asyncio.gather(
+                _evaluate_with_llm(
+                    **llm_kwargs, novelai_model_override=novelai_model_override
+                ),
+                evaluate_with_jev(**llm_kwargs, rule_result=rule_result),
+                return_exceptions=True,
             )
-            return parsed
-
-        logger.warning(
-            "Gender congruence LLM parse failed, fallback to rule. raw=%s",
-            (result.content or "")[:200],
+            parsed = baseline if isinstance(baseline, GenderCongruenceResult) else None
+            jev_result = shadow if isinstance(shadow, GenderCongruenceResult) else None
+            log_shadow(
+                "congruence",
+                {
+                    "itype": instruction_type,
+                    **_shadow_fields("rule", rule_result),
+                    **_shadow_fields("base", parsed),
+                    **_shadow_fields("jev", jev_result),
+                    "agree_fit": (
+                        parsed is not None
+                        and jev_result is not None
+                        and parsed.fit == jev_result.fit
+                    ),
+                    "agree_dis": (
+                        parsed is not None
+                        and jev_result is not None
+                        and parsed.should_feel_gender_discomfort
+                        == jev_result.should_feel_gender_discomfort
+                    ),
+                    "jev_reason": repr(jev_result.reason if jev_result else ""),
+                    "instr": repr(instruction[:80]),
+                },
+            )
+    else:
+        parsed = await _evaluate_with_llm(
+            **llm_kwargs, novelai_model_override=novelai_model_override
         )
-    except Exception as e:
-        logger.warning("Gender congruence LLM failed, fallback to rule: %s", e)
 
-    # フォールバック: ルール結果に source を上書きした同等物
-    return GenderCongruenceResult(
-        fit=rule_result.fit,
-        should_feel_gender_discomfort=rule_result.should_feel_gender_discomfort,
-        body_state=rule_result.body_state,
-        social_recognition=rule_result.social_recognition,
-        reason=f"llm_fallback: {rule_result.reason}",
-        source="fallback",
-    )
+    if parsed is not None:
+        return _apply_under_detection_override(rule_result, parsed)
+
+    return _rule_fallback(rule_result)
 
 
 def discomfort_free_result() -> GenderCongruenceResult:

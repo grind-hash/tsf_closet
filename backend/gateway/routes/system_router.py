@@ -9,6 +9,9 @@ from fastapi import APIRouter
 from ..services.http_client import async_client
 from ..services.providers import (
     Provider,
+    cost_tracking_enabled,
+    jev_judge_enabled,
+    resolve_decision_transport,
     resolve_image_description_provider,
     resolve_image_provider,
     resolve_text_provider,
@@ -27,6 +30,7 @@ async def health() -> dict[str, Any]:
     Returns:
         Dict[str, Any]: ヘルスステータスと各サービスの状態
     """
+    from ..services.jev_client import jev_client
     from ..services.litellm_client import litellm_client
 
     result: dict[str, Any] = {
@@ -36,6 +40,16 @@ async def health() -> dict[str, Any]:
         "image_provider": settings.image_provider,
         "image_description_provider": settings.image_description_provider,
         "feeling_provider": settings.feeling_provider,
+        # 従量課金の外部 API を使う構成か。フロントの料金表示はこれで切り替える
+        "cost_tracking": cost_tracking_enabled(),
+        # 構造化判定 (Jev)。生成プロバイダーとは独立した軸
+        "judge": {
+            "enabled": jev_judge_enabled(),
+            "transport": (
+                str(resolve_decision_transport()) if jev_judge_enabled() else None
+            ),
+            "model": jev_client.model if jev_judge_enabled() else None,
+        },
     }
 
     # ComfyUI 接続確認 (IMAGE_PROVIDER=selfhost時のみ)

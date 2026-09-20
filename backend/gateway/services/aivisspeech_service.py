@@ -9,6 +9,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import time
 import unicodedata
 import wave
 import zipfile
@@ -20,7 +21,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from ..settings.app_settings import BASE_DIR, settings
+from ..settings.app_settings import BASE_DIR, quiet_http_logs, settings
 from .http_client import async_client
 
 logger = logging.getLogger(__name__)
@@ -30,6 +31,10 @@ logger = logging.getLogger(__name__)
 # specific to the bundled engine (aivmx model install, bundled run.exe) do not
 # apply to it.
 AIVIS_ENGINE_BRAND = "AivisSpeech"
+
+# brand_name is fixed for the lifetime of an engine process, so the status poll
+# (a few seconds apart) reuses it instead of calling /engine_manifest each time.
+_ENGINE_BRAND_CACHE_TTL_SEC = 60.0
 
 
 class AivisSpeechError(Exception):
@@ -41,6 +46,15 @@ class AivisSpeechError(Exception):
 _VOWEL_TO_VISEME = {"a": "aa", "i": "ih", "u": "ou", "e": "ee", "o": "oh"}
 # 無声化母音(大文字 A/I/U/E/O)は口を小さめに開く
 _DEVOICED_VISEME_WEIGHT = 0.4
+
+
+@dataclass(frozen=True)
+class _EngineBrandCache:
+    """Cached /engine_manifest brand for one engine base URL."""
+
+    base_url: str
+    brand: str | None
+    expires_at: float
 
 
 @dataclass(frozen=True)
@@ -70,6 +84,7 @@ class AivisSpeechService:
         self._engine_process: subprocess.Popen | None = None
         self._engine_log_file: IO[str] | None = None
         self._engine_log_path: Path | None = None
+        self._engine_brand_cache: _EngineBrandCache | None = None
 
     @staticmethod
     def _ensure_windows() -> None:
@@ -140,6 +155,34 @@ class AivisSpeechService:
             return None
         brand = payload.get("brand_name") or payload.get("name")
         return str(brand) if brand else None
+
+    def _invalidate_engine_brand_cache(self) -> None:
+        self._engine_brand_cache = None
+
+    async def _resolve_engine_brand(
+        self, client: httpx.AsyncClient, base_url: str
+    ) -> str | None:
+        """Return the engine brand, hitting /engine_manifest only when stale.
+
+        The cache is dropped whenever the engine is started, stopped, or found
+        unreachable, so a replaced engine is re-identified on its next poll.
+        """
+        cached = self._engine_brand_cache
+        now = time.monotonic()
+        if (
+            cached is not None
+            and cached.base_url == base_url
+            and now < cached.expires_at
+        ):
+            return cached.brand
+
+        brand = await self._fetch_engine_brand(client, base_url)
+        self._engine_brand_cache = _EngineBrandCache(
+            base_url=base_url,
+            brand=brand,
+            expires_at=now + _ENGINE_BRAND_CACHE_TTL_SEC,
+        )
+        return brand
 
     @staticmethod
     def _expand_path(path_value: str) -> Path:
@@ -302,6 +345,7 @@ class AivisSpeechService:
         self, engine_dir: str, use_gpu: bool = False
     ) -> dict[str, Any]:
         self._ensure_windows()
+        self._invalidate_engine_brand_cache()
 
         port = await self.resolve_engine_port()
         base_url = self._build_base_url(port)
@@ -449,6 +493,7 @@ class AivisSpeechService:
 
     async def stop_engine(self) -> dict[str, Any]:
         self._ensure_windows()
+        self._invalidate_engine_brand_cache()
 
         if not self._is_running(self._engine_process):
             self._engine_process = None
@@ -878,19 +923,26 @@ class AivisSpeechService:
         engine_version: str | None = None
         engine_brand: str | None = None
         try:
-            async with async_client(timeout=httpx.Timeout(2.5)) as client:
-                response = await client.get(endpoint)
-                if response.status_code < 400:
-                    engine_http = "ok"
-                    try:
-                        engine_version = str(response.json())
-                    except ValueError:
-                        engine_version = None
-                    engine_brand = await self._fetch_engine_brand(client, base_url)
-                else:
-                    engine_http = f"error:{response.status_code}"
+            # 数秒間隔で呼ばれるため、成否はレスポンスで分かる通信のログは残さない
+            with quiet_http_logs():
+                async with async_client(timeout=httpx.Timeout(2.5)) as client:
+                    response = await client.get(endpoint)
+                    if response.status_code < 400:
+                        engine_http = "ok"
+                        try:
+                            engine_version = str(response.json())
+                        except ValueError:
+                            engine_version = None
+                        engine_brand = await self._resolve_engine_brand(
+                            client, base_url
+                        )
+                    else:
+                        engine_http = f"error:{response.status_code}"
         except Exception:
             engine_http = "unreachable"
+
+        if engine_http != "ok":
+            self._invalidate_engine_brand_cache()
 
         if sys.platform == "win32":
             platform_name = "windows"

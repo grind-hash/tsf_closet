@@ -188,10 +188,13 @@ async def set_adventure_appearance(
 
 @router.put("/threads/{thread_id}/avatar")
 async def set_avatar(thread_id: str, request: CharacterChatAvatarRequest) -> dict:
-    """3D モデル(VRM)の表示を切り替える(自動 / 2D 立ち絵 / 登録済みモデル)。"""
+    """3D モデル(VRM)の表示を切り替える(自動 / 2D 立ち絵 / 登録済みモデル / Live2D)。"""
     try:
         return await character_chat_service.set_avatar(
-            thread_id, mode=request.mode, avatar_id=request.avatar_id
+            thread_id,
+            mode=request.mode,
+            avatar_id=request.avatar_id,
+            live2d_costume=request.live2d_costume,
         )
     except CharacterChatError as error:
         raise _http_error(error) from error

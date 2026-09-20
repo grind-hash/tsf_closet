@@ -23,7 +23,7 @@ import {
   updateAppSettings,
   updateUserSettings,
 } from "../apis/settings";
-import { fetchHealth } from "../apis/system";
+import { fetchHealth, shouldShowCost } from "../apis/system";
 import { DEFAULT_LANGUAGE, type UiLanguage } from "../constants/language";
 import {
   DEFAULT_NSFW_IMAGE_MODEL,
@@ -675,10 +675,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
           dispatch({ type: "SET_IMAGE_PROVIDER", payload: provider });
         }
 
-        const hasCostProvider =
-          data.image_provider === "openrouter" ||
-          data.image_description_provider === "openrouter" ||
-          data.feeling_provider === "openrouter";
+        const hasCostProvider = shouldShowCost(data);
         dispatch({ type: "SET_SHOW_COST", payload: hasCostProvider });
 
         if (provider !== "novelai") {

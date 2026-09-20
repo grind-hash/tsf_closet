@@ -235,10 +235,10 @@ def test_portrait_stream_accepts_optional_options(
 def test_avatar_endpoint_validates_mode_and_forwards(
     client: TestClient, monkeypatch
 ) -> None:
-    calls: list[tuple[str, str | None]] = []
+    calls: list[tuple[str, str | None, str | None]] = []
 
-    async def fake(thread_id, *, mode, avatar_id):
-        calls.append((mode, avatar_id))
+    async def fake(thread_id, *, mode, avatar_id, live2d_costume):
+        calls.append((mode, avatar_id, live2d_costume))
         return {"id": thread_id, "avatar": {"mode": mode}}
 
     monkeypatch.setattr(router_module.character_chat_service, "set_avatar", fake)
@@ -246,9 +246,15 @@ def test_avatar_endpoint_validates_mode_and_forwards(
         "/api/character-chat/threads/t1/avatar",
         json={"mode": "model", "avatar_id": "av-1"},
     )
-    assert ok.status_code == 200 and calls == [("model", "av-1")]
+    assert ok.status_code == 200 and calls == [("model", "av-1", None)]
     none = client.put("/api/character-chat/threads/t1/avatar", json={"mode": "none"})
-    assert none.status_code == 200 and calls[-1] == ("none", None)
+    assert none.status_code == 200 and calls[-1] == ("none", None, None)
+    # Live2D は衣装も一緒に渡す
+    costume = client.put(
+        "/api/character-chat/threads/t1/avatar",
+        json={"mode": "live2d", "live2d_costume": "bunny"},
+    )
+    assert costume.status_code == 200 and calls[-1] == ("live2d", None, "bunny")
     bad = client.put("/api/character-chat/threads/t1/avatar", json={"mode": "x"})
     assert bad.status_code == 422
 

@@ -45,8 +45,14 @@ test.use({
   },
 });
 
+// 同梱衣装の実行素材。既定はドレスで、バニーは揺れのパラメータを持たない
 const modelUrl =
   "/live2d/serena-fullbody-v4/cubism/fullbody-face-rig.model3.json";
+const bunnyModelUrl = "/live2d/serena-bunny-v1/cubism/serena-bunny.model3.json";
+const costumeUrls: Record<string, string> = {
+  dress: modelUrl,
+  bunny: bunnyModelUrl,
+};
 const stageSelector = ".character-chat-room__live2d";
 
 function trackModel() {
@@ -192,6 +198,11 @@ async function setup(
       variant_label: null,
       variants: [],
       missing: false,
+      live2d_costume: "dress",
+      live2d_costumes: [
+        { id: "dress", current: true },
+        { id: "bunny", current: false },
+      ],
     },
   };
   const avatarSelections: unknown[] = [];
@@ -250,8 +261,15 @@ async function setup(
       const selection = route.request().postDataJSON();
       avatarSelections.push(selection);
       if (thread.avatar) {
+        const costume: string =
+          selection.live2d_costume ?? thread.avatar.live2d_costume ?? "dress";
         thread.avatar.mode = selection.mode;
-        thread.avatar.url = selection.mode === "live2d" ? modelUrl : null;
+        thread.avatar.live2d_costume = costume;
+        thread.avatar.live2d_costumes = thread.avatar.live2d_costumes.map(
+          (item) => ({ ...item, current: item.id === costume }),
+        );
+        thread.avatar.url =
+          selection.mode === "live2d" ? costumeUrls[costume] : null;
       }
       await route.fulfill({ json: thread });
     } else if (
@@ -358,16 +376,39 @@ test("案内役の明示選択、実モデル、ストリームと後処理、PC
   await page.emulateMedia({ reducedMotion: "reduce" });
   const state = await setup(page);
   await expect(page.locator(stageSelector)).toHaveCount(0);
-  await select(page, "Live2D");
+  await select(page, "ドレス");
   const stage = page.locator(stageSelector);
   await expect(stage).toHaveAttribute("data-ready", "true", { timeout: 20000 });
-  expect(state.avatarSelections).toEqual([{ mode: "live2d", avatar_id: null }]);
+  expect(state.avatarSelections).toEqual([
+    { mode: "live2d", avatar_id: null, live2d_costume: "dress" },
+  ]);
   await expect(stage.locator("canvas")).toHaveCount(1);
   expect(await page.evaluate(() => window.pilotModel?.parts.count)).toBe(13);
   expect(await page.evaluate(() => window.pilotModel?.drawables.count)).toBe(
     12,
   );
   expect(await page.evaluate(() => window.pilotModelCount)).toBe(1);
+  // 衣装を替えると、その実行素材へ読み直す(前のモデルは解放する)
+  await select(page, "バニー");
+  await expect
+    .poll(() => page.evaluate(() => window.pilotModel?.drawables.count), {
+      timeout: 20000,
+    })
+    .toBe(8);
+  expect(state.avatarSelections.at(-1)).toEqual({
+    mode: "live2d",
+    avatar_id: null,
+    live2d_costume: "bunny",
+  });
+  await expect(stage).toHaveAttribute("data-ready", "true", { timeout: 20000 });
+  expect(await page.evaluate(() => window.pilotModelCount)).toBe(1);
+  await select(page, "ドレス");
+  await expect
+    .poll(() => page.evaluate(() => window.pilotModel?.drawables.count), {
+      timeout: 20000,
+    })
+    .toBe(12);
+  await expect(stage).toHaveAttribute("data-ready", "true", { timeout: 20000 });
   await send(page);
   await expect(stage).toHaveAttribute("data-emotion", "thinking");
   await emit(page, "status", { phase: "reply" });
@@ -496,7 +537,7 @@ for (const viewport of [
       portraitBounds.y + portraitBounds.height,
       0,
     );
-    await select(page, "Live2D");
+    await select(page, "ドレス");
     await expect(stage).toHaveAttribute("data-ready", "true");
     await pixels(page);
     const actualScale = await canvas.evaluate((element) => {
@@ -629,7 +670,7 @@ test("読み込み失敗と通信失敗から復帰し、退室後の遅延返�
   await expect(page.locator(".character-chat-room__portrait")).toBeVisible();
   await page.getByRole("alert").getByRole("button", { name: "閉じる" }).click();
   await page.unroute("**/fullbody-face-rig.moc3");
-  await select(page, "Live2D");
+  await select(page, "ドレス");
   const stage = page.locator(stageSelector);
   await expect(stage).toHaveAttribute("data-ready", "true");
   await send(page);
@@ -690,7 +731,7 @@ test("素材の読み込み途中の切り替えと WebGL の喪失でリソー�
     releaseTexture();
   }
   await page.unroute(textureUrl);
-  await select(page, "Live2D");
+  await select(page, "ドレス");
   await expect(stage).toHaveAttribute("data-ready", "true");
   expect(await page.evaluate(() => window.pilotModelCount)).toBe(1);
   await stage.locator("canvas").evaluate((canvas) => {
@@ -704,7 +745,7 @@ test("素材の読み込み途中の切り替えと WebGL の喪失でリソー�
   await expect(page.locator(".character-chat-room__portrait")).toBeVisible();
   await expect.poll(() => page.evaluate(() => window.pilotModelCount)).toBe(0);
   await page.getByRole("alert").getByRole("button", { name: "閉じる" }).click();
-  await select(page, "Live2D");
+  await select(page, "ドレス");
   await expect(stage).toHaveAttribute("data-ready", "true");
   expect(await page.evaluate(() => window.pilotModelCount)).toBe(1);
   expect(state.errors).toEqual([]);
