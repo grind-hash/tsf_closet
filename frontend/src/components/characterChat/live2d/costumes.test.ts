@@ -13,6 +13,13 @@ describe("live2dPortraitFrame", () => {
     expect(height).toBeGreaterThan(0);
   });
 
+  it("keeps the default framing for costumes whose face sits where the gown's does", () => {
+    // プリンセスの顔は既定の衣装とほぼ同じ位置(中心 434 / 441、上端 127 / 132)
+    expect(live2dPortraitFrame("princess")).toEqual(
+      live2dPortraitFrame("dress"),
+    );
+  });
+
   it("falls back to the default framing for a costume it does not know", () => {
     expect(live2dPortraitFrame("tuxedo")).toEqual(live2dPortraitFrame("dress"));
     expect(live2dPortraitFrame(null)).toEqual(live2dPortraitFrame("dress"));

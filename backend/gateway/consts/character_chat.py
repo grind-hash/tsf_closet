@@ -111,6 +111,26 @@ LIVE2D_COSTUMES: tuple[Live2dCostume, ...] = (
         description=BASE_APPEARANCE_DESCRIPTION,
     ),
     Live2dCostume(
+        id="princess",
+        url="/live2d/serena-princess-v1/cubism/serena-princess.model3.json",
+        description={
+            "ja": (
+                "腰まで届く波打つ銀髪と翠の瞳。桃と青の宝石を散らした金のティアラを戴き、"
+                "右側頭部の宝石の髪飾りでサイドの髪を結い上げている。"
+                "青と桃の宝石をあしらった金の首飾り、レースで縁取られたオフショルダーの"
+                "桃色のボールガウンに宝石の刺繍、金と宝石の腰飾り、両手首に金の腕輪。"
+            ),
+            "en": (
+                "Waist-length wavy silver hair and green eyes, crowned with a gold "
+                "tiara set with pink and blue gems, her hair gathered at the right "
+                "side by a jewelled ornament. A gold necklace with blue and pink "
+                "gems, an off-shoulder pink ball gown trimmed with lace and gem "
+                "embroidery, a gold jewelled waist ornament and gold bracelets on "
+                "both wrists."
+            ),
+        },
+    ),
+    Live2dCostume(
         id="bunny",
         url="/live2d/serena-bunny-v1/cubism/serena-bunny.model3.json",
         description={

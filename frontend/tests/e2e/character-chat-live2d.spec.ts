@@ -51,6 +51,7 @@ const modelUrl =
 const bunnyModelUrl = "/live2d/serena-bunny-v1/cubism/serena-bunny.model3.json";
 const costumeUrls: Record<string, string> = {
   dress: modelUrl,
+  princess: "/live2d/serena-princess-v1/cubism/serena-princess.model3.json",
   bunny: bunnyModelUrl,
 };
 const stageSelector = ".character-chat-room__live2d";
@@ -201,6 +202,7 @@ async function setup(
       live2d_costume: "dress",
       live2d_costumes: [
         { id: "dress", current: true },
+        { id: "princess", current: false },
         { id: "bunny", current: false },
       ],
     },

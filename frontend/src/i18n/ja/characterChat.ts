@@ -67,6 +67,7 @@ export const characterChat = {
     // 同梱 Live2D 衣装の表示名。id はバックエンドの LIVE2D_COSTUMES にある
     live2dCostumes: {
       dress: "ドレス",
+      princess: "プリンセス",
       bunny: "バニー",
     },
     avatarLive2dUnavailable:

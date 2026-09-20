@@ -68,6 +68,7 @@ export const characterChat = {
     // Display names of the bundled Live2D costumes; the ids live in LIVE2D_COSTUMES
     live2dCostumes: {
       dress: "Gown",
+      princess: "Princess",
       bunny: "Bunny",
     },
     avatarLive2dUnavailable:
