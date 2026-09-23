@@ -4836,18 +4836,73 @@ def test_romance_replay_player_selection_restores_stored_choice() -> None:
     # テンプレートキャラクター形式
     assert _romance_replay_player_selection(
         {"sim": {"player_character_id": "char2"}}
-    ) == ("char2", None, None)
+    ) == ("char2", None, None, None)
     # セッション形式は時点IDも復元する
     assert _romance_replay_player_selection(
         {"sim": {"player_character_id": "session:abc", "player_history_id": "42"}}
-    ) == (None, "abc", "42")
+    ) == (None, "abc", "42", None)
     # 時点IDを持たない旧runはセッションの現在状態
     assert _romance_replay_player_selection(
         {"sim": {"player_character_id": "session:abc"}}
-    ) == (None, "abc", None)
+    ) == (None, "abc", None, None)
+    # Prompt Expander エントリ形式
+    assert _romance_replay_player_selection(
+        {"sim": {"player_character_id": "prompt_expander:pe-1"}}
+    ) == (None, None, None, "pe-1")
     # 主人公情報のないさらに古いrunは既定キャラクターへフォールバック
-    assert _romance_replay_player_selection({"sim": {}}) == (None, None, None)
-    assert _romance_replay_player_selection({}) == (None, None, None)
+    assert _romance_replay_player_selection({"sim": {}}) == (None, None, None, None)
+    assert _romance_replay_player_selection({}) == (None, None, None, None)
+
+
+@pytest.mark.asyncio
+async def test_setup_romance_uses_prompt_expander_entry_as_player(
+    monkeypatch, tmp_path
+) -> None:
+    """主人公に Prompt Expander エントリを選ぶと、その姿と参照を主人公に使う。"""
+    service = AdventureService()
+    build_snapshot = AsyncMock(
+        return_value=(
+            {"character_name": None, "clothing": "pink bra"},
+            tmp_path / "pe.png",
+            "1girl, silver hair",
+            False,
+        )
+    )
+    monkeypatch.setattr(service, "_build_snapshot", build_snapshot)
+    monkeypatch.setattr(
+        service,
+        "_generate_structured_output",
+        AsyncMock(return_value=SimpleNamespace(partner_speech_style="")),
+    )
+    source = SimpleNamespace(
+        romance_player_prompt_expander_entry_id="pe-1",
+        romance_player_session_id=None,
+        romance_player_history_id=None,
+        romance_player_character_id=None,
+        player_name_override="サクラ",
+    )
+
+    romance = await service._setup_romance(
+        source,
+        SimpleNamespace(companion_mode=False, romance_partner_speech_style=""),
+        SimpleNamespace(max_turns=20, setting="", objective="", constraints=[]),
+        snapshot={},
+        partner_appearance="",
+        partner_image=tmp_path / "partner.png",
+        text_model="glm-4-6",
+        language="ja",
+    )
+
+    assert build_snapshot.await_args.kwargs == {
+        "source_prompt_expander_entry_id": "pe-1"
+    }
+    assert romance.player_ref == "prompt_expander:pe-1"
+    assert romance.player_appearance == "1girl, silver hair"
+    assert romance.player_image == tmp_path / "pe.png"
+    # 主人公側の素材の服装を開幕の服装へ引き継ぐ
+    assert romance.player_clothing == "pink bra"
+    # エントリは名前を持たないため、セットアップで指定した呼び名を使う
+    assert romance.player_name == "サクラ"
 
 
 def test_apply_appearance_lock_updates_lock_only_on_alter_turn() -> None:

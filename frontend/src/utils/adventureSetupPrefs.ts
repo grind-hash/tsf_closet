@@ -27,6 +27,8 @@ export type AdventureSetupPrefs = {
   romancePlayerCharacterId: string;
   /** 主人公を「セッションの姿」にしたときのセッションID */
   romancePlayerSessionId: string;
+  /** 主人公に Prompt Expander エントリを選んだときのエントリID */
+  romancePlayerPromptExpanderEntryId: string;
   /** romance の主人公の呼び名。"" は選択したキャラクターの名前に従う */
   romancePlayerName: string;
   /** run 単位のNovelAI画像モデル。"default" はグローバル設定に従う */

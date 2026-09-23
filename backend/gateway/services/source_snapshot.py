@@ -46,6 +46,15 @@ SCENE_OR_ACTION_TAG_PATTERN = re.compile(
     r"background|shelf)\b",
     re.IGNORECASE,
 )
+# Prompt Expander の最終プロンプトに含まれる、人物の見た目ではない指定
+# (画質・文字/吹き出し/コマ割り・表情・ポーズ・変身の出来事)
+PROMPT_META_TAG_PATTERN = re.compile(
+    r"\b(?:quality|aesthetic|masterpiece|absurdres|highres|text|bubble|border|"
+    r"comic|manga|panels?|4koma|multiple views|signature|watermark|expression|"
+    r"pose|posing|tsf|transformation)\b",
+    re.IGNORECASE,
+)
+PROMPT_PROSE_WORD_LIMIT = 4
 
 
 def history_visual_description(history: Any) -> tuple[str, str]:
@@ -67,6 +76,48 @@ def history_visual_description(history: Any) -> tuple[str, str]:
         and not SCENE_OR_ACTION_TAG_PATTERN.search(tag)
     ]
     return ", ".join(appearance) or extracted, ", ".join(clothing)
+
+
+def _is_prose_segment(segment: str) -> bool:
+    """カンマ区切りの1区切りが、タグではなく自然文(英文)かどうか。"""
+    return (
+        len(segment.split()) > PROMPT_PROSE_WORD_LIMIT
+        or ". " in segment
+        or segment.endswith(".")
+    )
+
+
+def prompt_expander_visual_description(
+    final_prompt: str, character_prompts: list[str]
+) -> tuple[str, str]:
+    """Prompt Expander エントリのプロンプトから (外見タグ, 服装タグ) を取り出す。
+
+    最終プロンプトは画像全体への指示なので、先頭のタグ列だけを使い、続く英文
+    (漫画の筋書き等)以降は捨てる。キャラクタープロンプトは履歴と同じく先頭を
+    主人公とみなし、他の人物の外見は混ぜない。タグ列からも画質・文字・コマ割り・
+    情景など人物の見た目ではない指定を除き、残りを history_visual_description と
+    同じ規則で外見と服装に分ける。
+    """
+    tags: list[str] = []
+    for prompt in [final_prompt, *character_prompts[:1]]:
+        for raw in str(prompt or "").split(","):
+            segment = raw.strip()
+            if not segment:
+                continue
+            if _is_prose_segment(segment):
+                break
+            if '"' in segment or PROMPT_META_TAG_PATTERN.search(segment):
+                continue
+            if segment not in tags:
+                tags.append(segment)
+    clothing = [tag for tag in tags if CLOTHING_TAG_PATTERN.search(tag)]
+    appearance = [
+        tag
+        for tag in tags
+        if not CLOTHING_TAG_PATTERN.search(tag)
+        and not SCENE_OR_ACTION_TAG_PATTERN.search(tag)
+    ]
+    return ", ".join(appearance), ", ".join(clothing)
 
 
 def identity_tags_only(tags: str) -> str:
@@ -115,8 +166,8 @@ async def build_prompt_expander_snapshot(
 ) -> tuple[dict[str, Any], Path, str, bool]:
     """Prompt Expander のエントリを開始素材にしたスナップショットを組み立てる。
 
-    ゲームセッション由来の時系列・属性・統計は無く、外見は保存済みの最終プロンプト
-    （＋キャラクタープロンプト）を使う。NSFW は画像モデルの family から導出する。
+    ゲームセッション由来の時系列・属性・統計は無く、外見・服装は保存済みの最終プロンプト
+    （＋キャラクタープロンプト）から取り出す。NSFW は画像モデルの family から導出する。
     """
     try:
         async with async_session_factory() as db:
@@ -132,18 +183,17 @@ async def build_prompt_expander_snapshot(
         ) from exc
     if image_path is None:
         raise SourceSnapshotError("image_not_found", "開始画像が見つかりません")
-    appearance_parts = [str(view.get("final_prompt") or "").strip()]
-    appearance_parts.extend(
-        str(item).strip() for item in view.get("character_prompts") or []
+    appearance, clothing = prompt_expander_visual_description(
+        str(view.get("final_prompt") or ""),
+        [str(item) for item in view.get("character_prompts") or []],
     )
-    appearance = ", ".join(part for part in appearance_parts if part)
     snapshot = {
         "source_session_id": None,
         "source_history_id": None,
         "source_prompt_expander_entry_id": entry_id,
         "character_name": None,
         "appearance": appearance,
-        "clothing": "",
+        "clothing": clothing,
         "attributes": [],
         "timeline": [],
         "stats": None,
@@ -201,6 +251,11 @@ async def build_source_snapshot(
             ),
             None,
         )
+        # 画像を変える操作をしていないセッションは現在画像が開始時の元画像のままで、
+        # 初期状態の履歴は同じ画像を別名で保存しているためファイル名が一致しない。
+        # その場合は初期状態(最初の履歴)の記述を使う
+        if current_history is None and histories:
+            current_history = histories[0]
         if current_history is not None:
             appearance, starting_clothing = history_visual_description(current_history)
 

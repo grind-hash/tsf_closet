@@ -439,6 +439,8 @@ export interface AdventureCreateRequest extends AdventureSetupRequest {
   /** romance の主人公を特定セッション時点の変身状態にする場合に指定 */
   romance_player_session_id?: string;
   romance_player_history_id?: string;
+  /** romance の主人公を Prompt Expander エントリの姿にする場合に指定 */
+  romance_player_prompt_expander_entry_id?: string;
   /** romance の主人公の呼び名(攻略対象がセリフで呼ぶ名前)。空ならキャラクター名 */
   romance_player_name?: string;
   /** romance の攻略対象の口調。空なら人物像からLLMが決める */

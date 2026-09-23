@@ -352,6 +352,7 @@ export default function AdventureHub() {
   const hasSource = Boolean(sourceSessionId || sourcePeEntryId);
   const romancePlayerSessionId = playerSelection?.sessionId ?? "";
   const romancePlayerHistoryId = playerSelection?.historyId;
+  const romancePlayerPeEntryId = playerSelection?.promptExpanderEntryId ?? "";
   // 呼び名の既定値。テンプレキャラならその名前、セッションの姿なら紐づく主人公名
   const romancePlayerDefaultName =
     romancePlayerId === ROMANCE_PLAYER_SESSION_VALUE
@@ -383,6 +384,7 @@ export default function AdventureHub() {
       companionAvatarId,
       romancePlayerCharacterId: romancePlayerId,
       romancePlayerSessionId,
+      romancePlayerPromptExpanderEntryId: romancePlayerPeEntryId,
       romancePlayerName,
       imageModel: imageModelChoice,
       inventoryEnabled,
@@ -402,22 +404,54 @@ export default function AdventureHub() {
     companionAvatarId,
     romancePlayerId,
     romancePlayerSessionId,
+    romancePlayerPeEntryId,
     romancePlayerName,
     imageModelChoice,
     inventoryEnabled,
   ]);
 
-  // セッションの姿モードで未選択の間は、保存済みセッションIDを解決する。
-  // 1ページ目に見つからなければ先頭セッションへ倒す(時点は現在の状態)
+  // 保存済みの Prompt Expander エントリが取得できなかったら、セッションの解決へ倒す
+  const [playerPeRestoreFailed, setPlayerPeRestoreFailed] = useState(false);
+  // セッションの姿モードで未選択の間は、保存済みの選択を解決する。
+  // Prompt Expander エントリを優先し、セッションは1ページ目に見つからなければ
+  // 先頭セッションへ倒す(時点は現在の状態)
   useEffect(() => {
     if (romancePlayerId !== ROMANCE_PLAYER_SESSION_VALUE) return;
-    if (playerSelection || sessions.length === 0) return;
+    if (playerSelection) return;
+    const savedPeEntryId = savedSetupPrefs.romancePlayerPromptExpanderEntryId;
+    if (
+      savedPeEntryId &&
+      settingsState.experimentalPromptExpanderEnabled &&
+      !playerPeRestoreFailed
+    ) {
+      let cancelled = false;
+      void fetchPromptExpanderEntry(savedPeEntryId)
+        .then((entry) => {
+          if (!cancelled)
+            setPlayerSelection(selectionFromPromptExpanderEntry(entry));
+        })
+        .catch((caught: unknown) => {
+          console.warn("Failed to load Prompt Expander entry:", caught);
+          if (!cancelled) setPlayerPeRestoreFailed(true);
+        });
+      return () => {
+        cancelled = true;
+      };
+    }
+    if (sessions.length === 0) return;
     const saved = sessions.find(
       (session) =>
         session.session_id === savedSetupPrefs.romancePlayerSessionId,
     );
     setPlayerSelection(selectionFromSession(saved ?? sessions[0]));
-  }, [romancePlayerId, sessions, playerSelection, savedSetupPrefs]);
+  }, [
+    romancePlayerId,
+    sessions,
+    playerSelection,
+    savedSetupPrefs,
+    settingsState.experimentalPromptExpanderEnabled,
+    playerPeRestoreFailed,
+  ]);
 
   // 主人公候補は romance を選んだときだけ読み込む
   useEffect(() => {
@@ -684,6 +718,12 @@ export default function AdventureHub() {
           preset === "romance" &&
           romancePlayerId === ROMANCE_PLAYER_SESSION_VALUE
             ? romancePlayerHistoryId
+            : undefined,
+        romance_player_prompt_expander_entry_id:
+          startMode === "generated" &&
+          preset === "romance" &&
+          romancePlayerId === ROMANCE_PLAYER_SESSION_VALUE
+            ? romancePlayerPeEntryId || undefined
             : undefined,
         // 空欄はサーバ側で選択したキャラクターの名前へ倒す
         romance_player_name:
@@ -1452,11 +1492,7 @@ export default function AdventureHub() {
             pickerTarget === "source" ? handleSourceSelect : handlePlayerSelect
           }
           onClose={() => setPickerTarget(null)}
-          // 主人公(player)側は変身後の姿を選ぶ用途なので Prompt Expander は出さない
-          allowPromptExpander={
-            pickerTarget === "source" &&
-            settingsState.experimentalPromptExpanderEnabled
-          }
+          allowPromptExpander={settingsState.experimentalPromptExpanderEnabled}
         />
       )}
       {creating && (

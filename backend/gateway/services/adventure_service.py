@@ -1128,13 +1128,15 @@ def _romance_prompt_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
 
 def _romance_replay_player_selection(
     replay_state: dict[str, Any],
-) -> tuple[str | None, str | None, str | None]:
+) -> tuple[str | None, str | None, str | None, str | None]:
     """リプレイ元 run の sim から主人公の選択を復元する。
 
-    返り値は (character_id, session_id, history_id)。sim の player_character_id
-    は "session:{id}" 形式でセッション由来の主人公を表す。history_id を持たない
-    旧 run はセッションの現在状態から始め直す。player_character_id を持たない
-    さらに古い run は全て None を返し、既定キャラクターへフォールバックする。
+    返り値は (character_id, session_id, history_id, prompt_expander_entry_id)。
+    sim の player_character_id は "session:{id}" 形式でセッション由来、
+    "prompt_expander:{id}" 形式で Prompt Expander エントリ由来の主人公を表す。
+    history_id を持たない旧 run はセッションの現在状態から始め直す。
+    player_character_id を持たないさらに古い run は全て None を返し、
+    既定キャラクターへフォールバックする。
     """
     replay_sim = (
         replay_state["sim"] if isinstance(replay_state.get("sim"), dict) else {}
@@ -1145,10 +1147,18 @@ def _romance_replay_player_selection(
             None,
             stored_player.removeprefix("session:"),
             str(replay_sim.get("player_history_id") or "") or None,
+            None,
+        )
+    if stored_player.startswith("prompt_expander:"):
+        return (
+            None,
+            None,
+            None,
+            stored_player.removeprefix("prompt_expander:"),
         )
     if stored_player:
-        return stored_player, None, None
-    return None, None, None
+        return stored_player, None, None, None
+    return None, None, None, None
 
 
 def _romance_replay_player_name(replay_state: dict[str, Any]) -> str:
@@ -2176,6 +2186,7 @@ class CreateRunRequest:
     romance_player_character_id: str | None = None
     romance_player_session_id: str | None = None
     romance_player_history_id: str | None = None
+    romance_player_prompt_expander_entry_id: str | None = None
     romance_player_name: str = ""
     romance_partner_speech_style: str = ""
     image_model: str | None = None
@@ -2204,6 +2215,7 @@ class _ScenarioSource:
     romance_player_character_id: str | None
     romance_player_session_id: str | None
     romance_player_history_id: str | None
+    romance_player_prompt_expander_entry_id: str | None
     player_name_override: str
 
 
@@ -2233,6 +2245,8 @@ class _RomanceSetup:
     player_ref: str
     player_appearance: str
     player_image: Path
+    # セッション時点 / Prompt Expander エントリの主人公が着ている服装。テンプレキャラは空
+    player_clothing: str = ""
 
 
 class AdventureService:
@@ -2889,6 +2903,7 @@ The objective must name a concrete target and an observable end condition that c
         romance_player_character_id: str | None = None,
         romance_player_session_id: str | None = None,
         romance_player_history_id: str | None = None,
+        romance_player_prompt_expander_entry_id: str | None = None,
         romance_player_name: str = "",
         romance_partner_speech_style: str = "",
         image_model: str | None = None,
@@ -2925,6 +2940,9 @@ The objective must name a concrete target and an observable end condition that c
             romance_player_character_id=romance_player_character_id,
             romance_player_session_id=romance_player_session_id,
             romance_player_history_id=romance_player_history_id,
+            romance_player_prompt_expander_entry_id=(
+                romance_player_prompt_expander_entry_id
+            ),
             romance_player_name=romance_player_name,
             romance_partner_speech_style=normalize_partner_speech_style(
                 romance_partner_speech_style
@@ -3071,6 +3089,7 @@ The objective must name a concrete target and an observable end condition that c
         romance_player_character_id = request.romance_player_character_id
         romance_player_session_id = request.romance_player_session_id
         romance_player_history_id = request.romance_player_history_id
+        romance_player_pe_entry_id = request.romance_player_prompt_expander_entry_id
         # 主人公の呼び名の上書き。空ならテンプレート名・セッション名へ倒す
         player_name_override = normalize_player_name(request.romance_player_name)
         replay_run = None
@@ -3100,11 +3119,16 @@ The objective must name a concrete target and an observable end condition that c
                     )
                     source_history_id = replay_run.source_history_id
                     source_prompt_expander_entry_id = None
-                if not (romance_player_character_id or romance_player_session_id):
+                if not (
+                    romance_player_character_id
+                    or romance_player_session_id
+                    or romance_player_pe_entry_id
+                ):
                     (
                         romance_player_character_id,
                         romance_player_session_id,
                         romance_player_history_id,
+                        romance_player_pe_entry_id,
                     ) = _romance_replay_player_selection(replay_state)
                     # 主人公の選択ごと引き継ぐときは呼び名も元 run に揃える
                     if not player_name_override:
@@ -3135,6 +3159,7 @@ The objective must name a concrete target and an observable end condition that c
             romance_player_character_id=romance_player_character_id,
             romance_player_session_id=romance_player_session_id,
             romance_player_history_id=romance_player_history_id,
+            romance_player_prompt_expander_entry_id=romance_player_pe_entry_id,
             player_name_override=player_name_override,
         )
 
@@ -3214,19 +3239,29 @@ The objective must name a concrete target and an observable end condition that c
         language: str,
     ) -> _RomanceSetup:
         """主人公(自分)を解決し、相手・バイト・ギフトカタログを LLM で 1 回だけ設計する。"""
-        # 主人公(自分)を解決する。セッション指定があればその時点の変身状態、
-        # なければテンプレートキャラクター(既定 char1)を使う
-        if source.romance_player_session_id:
+        # 主人公(自分)を解決する。Prompt Expander エントリ指定があればその姿、
+        # セッション指定があればその時点の変身状態、なければテンプレート
+        # キャラクター(既定 char1)を使う
+        player_pe_entry_id = source.romance_player_prompt_expander_entry_id
+        if player_pe_entry_id or source.romance_player_session_id:
             (
                 player_snapshot,
                 player_image,
                 player_appearance,
                 _,
             ) = await self._build_snapshot(
-                source.romance_player_session_id, source.romance_player_history_id
+                source.romance_player_session_id,
+                source.romance_player_history_id,
+                source_prompt_expander_entry_id=player_pe_entry_id,
             )
+            # Prompt Expander エントリは名前を持たないため、呼び名はセットアップでの指定に従う
             player_name = str(player_snapshot.get("character_name") or "")
-            player_ref = f"session:{source.romance_player_session_id}"
+            player_clothing = str(player_snapshot.get("clothing") or "")
+            player_ref = (
+                f"prompt_expander:{player_pe_entry_id}"
+                if player_pe_entry_id
+                else f"session:{source.romance_player_session_id}"
+            )
         else:
             player_id = (
                 str(source.romance_player_character_id or "").strip()
@@ -3240,6 +3275,7 @@ The objective must name a concrete target and an observable end condition that c
                 )
             player_image = BASE_DIR / template_player.image_path
             player_appearance = _romance_template_player_appearance(template_player)
+            player_clothing = ""
             player_name = template_player.name
             player_ref = template_player.id
         # セットアップで呼び名が指定されていればそちらを優先する
@@ -3288,6 +3324,7 @@ The objective must name a concrete target and an observable end condition that c
             player_ref=player_ref,
             player_appearance=player_appearance,
             player_image=player_image,
+            player_clothing=player_clothing,
         )
 
     async def _generate_opening(
@@ -3338,6 +3375,8 @@ The objective must name a concrete target and an observable end condition that c
                     "relationship_origin": romance_setup.relationship_origin,
                     "job_name": romance_setup.job_name,
                     "player_name": romance_player_name,
+                    # 開幕で上書きする主人公の服装。本文の描写を揃えるために渡す
+                    "player_clothing": romance.player_clothing,
                     # 対面会話モードには昼夜の枠が無く、尺はターン数で示す
                     **(
                         {"total_turns": definition.max_turns, "companion_mode": True}
@@ -3396,9 +3435,14 @@ The objective must name a concrete target and an observable end condition that c
                 fixed_clothing.get(language) or fixed_clothing.get("en") or ""
             )
         else:
-            starting_clothing = str(snapshot.get("clothing") or "")
-            # romance のスナップショット服装は攻略対象のものなので主人公へは適用しない
-            if starting_clothing and romance_setup is None:
+            # romance のスナップショット服装は攻略対象のものなので、主人公には
+            # 主人公側の素材(セッション時点 / Prompt Expander エントリ)の服装を使う
+            starting_clothing = (
+                romance.player_clothing
+                if romance is not None
+                else str(snapshot.get("clothing") or "")
+            )
+            if starting_clothing:
                 opening.visual_state.clothing = starting_clothing
         if visual_style:
             _apply_visual_style_to_state(opening.visual_state, visual_style, language)
@@ -3511,6 +3555,7 @@ The objective must name a concrete target and an observable end condition that c
                 player_character_id=romance.player_ref,
                 player_history_id=str(source.romance_player_history_id or "")
                 if source.romance_player_session_id
+                and not source.romance_player_prompt_expander_entry_id
                 else "",
                 partner_speech_style=partner_speech_style,
             )

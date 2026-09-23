@@ -1,7 +1,8 @@
 /**
  * PromptExpanderEntryGrid - 全セッション横断のエントリグリッド（選択用）
  *
- * fetchPromptExpanderEntries でページングし「もっと見る」で追加読み込みする。
+ * fetchPromptExpanderEntries でページングし、末尾までスクロールすると追加読み込みする
+ * （「もっと見る」ボタンも残す）。
  * Prompt Expander 内の生成元選択と、後続の WelcomeScreen / Adventure の選択 UI で再利用する。
  */
 
@@ -13,11 +14,21 @@ import {
   promptExpanderImageUrl,
 } from "../../apis/promptExpander";
 import { PROMPT_EXPANDER_ALPHA_OPTIONS } from "../../constants/promptExpander";
+import { useInfiniteScroll } from "../../hooks/useInfiniteScroll";
 import { useTransparentImage } from "../../hooks/useTransparentImage";
 import "./PromptExpanderShared.css";
 import "./PromptExpanderPicker.css";
 
 const PAGE_SIZE = 24;
+
+/** いちばん近い縦スクロールの祖先。呼び出し元（各モーダルの本体）を問わず監視できるようにする */
+function findScrollParent(node: HTMLElement): Element | null {
+  for (let el = node.parentElement; el; el = el.parentElement) {
+    const { overflowY } = getComputedStyle(el);
+    if (overflowY === "auto" || overflowY === "scroll") return el;
+  }
+  return null;
+}
 
 /** サムネイル。透過エントリはカードと同じ設定で背景を切り抜く（結果はキャッシュを共有） */
 function GridImage({ entry }: { entry: PromptExpanderEntry }) {
@@ -72,8 +83,18 @@ export default function PromptExpanderEntryGrid({
     void loadPage(1);
   }, [loadPage]);
 
+  const [scrollRoot, setScrollRoot] = useState<Element | null>(null);
+  const wrapRef = useCallback((node: HTMLDivElement | null) => {
+    setScrollRoot(node ? findScrollParent(node) : null);
+  }, []);
+  const sentinelRef = useInfiniteScroll({
+    enabled: hasMore && !loading && !error && items.length > 0,
+    onLoadMore: () => void loadPage(page + 1),
+    root: scrollRoot,
+  });
+
   return (
-    <div className="prompt-expander__entry-grid-wrap">
+    <div className="prompt-expander__entry-grid-wrap" ref={wrapRef}>
       {error && (
         <p className="prompt-expander__error" role="alert">
           {error}
@@ -132,6 +153,11 @@ export default function PromptExpanderEntryGrid({
           {t("promptExpander.picker.loadMore")}
         </button>
       )}
+      <div
+        ref={sentinelRef}
+        className="prompt-expander__entry-grid-sentinel"
+        aria-hidden
+      />
     </div>
   );
 }

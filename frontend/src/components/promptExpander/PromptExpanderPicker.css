@@ -28,6 +28,12 @@
   gap: 0.7rem;
 }
 
+/* 末尾到達で次ページを読む監視用。gap の分だけ余白が増えないよう負のマージンで打ち消す */
+.prompt-expander__entry-grid-sentinel {
+  height: 1px;
+  margin-top: -0.7rem;
+}
+
 .prompt-expander__entry-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
