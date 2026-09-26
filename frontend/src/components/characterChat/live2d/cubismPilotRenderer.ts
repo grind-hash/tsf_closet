@@ -1,4 +1,7 @@
-// 全身 v4 専用。変形はモデル内のキーを使い、マスク・特殊合成には対応しない。
+// 案内役キャラの同梱衣装専用。変形はモデル内のキーを使い、マスク・特殊合成には
+// 対応しない。
+import type { Live2dPortraitFrame } from "./costumes";
+
 export type PilotEmotion = "neutral" | "happy" | "angry" | "sad" | "thinking";
 export type PilotWeights = Record<PilotEmotion, number>;
 export type PilotCamera = "full" | "portrait";
@@ -19,6 +22,20 @@ const PARAMETERS = [
   "ParamSleeveImageRight",
 ] as const;
 
+/**
+ * どの衣装にも要る表情・まばたき・口パクのパラメータ。揺れ(呼吸・体の傾き・髪・袖)は
+ * 衣装によって無いものがあり、無ければその動きを省いて描く。
+ */
+const REQUIRED_PARAMETERS: readonly (typeof PARAMETERS)[number][] = [
+  "ParamEmotionHappy",
+  "ParamEmotionAngry",
+  "ParamEmotionSad",
+  "ParamEmotionThinking",
+  "ParamEyeLOpen",
+  "ParamEyeROpen",
+  "ParamMouthOpenY",
+];
+
 interface PilotFrame {
   weights: PilotWeights;
   blink: number;
@@ -32,6 +49,8 @@ interface PilotFrame {
    * キャンバスがこれより高ければ、その下へモデルの続きを描く。null はキャンバス全体。
    */
   frameHeight: number | null;
+  /** 寄り表示で切り取る範囲(モデルのキャンバス座標)。衣装ごとに顔の位置が違う */
+  portrait: Live2dPortraitFrame;
 }
 
 /**
@@ -188,7 +207,7 @@ export class CubismPilotRenderer {
       throw new Error("この Live2D モデルの描画形式には対応していません");
     const parameterIds: string[] = model.parameters.ids;
     this.parameterIds = new Map(parameterIds.map((id, index) => [id, index]));
-    for (const id of PARAMETERS) {
+    for (const id of REQUIRED_PARAMETERS) {
       if (!this.parameterIds.has(id))
         throw new Error(`必要な Live2D パラメータがありません: ${id}`);
     }
@@ -346,11 +365,11 @@ void main() {
       canvas.width = width;
       canvas.height = height;
     }
-    // 寄り表示の範囲は v4 原画の座標。全身と同じモデルを使う。
+    // 寄り表示の範囲は衣装ごとの原画の座標。全身と同じモデルを使う。
     const info = model.canvasinfo;
     const target =
       state.camera === "portrait"
-        ? [203, 12, 476, 600]
+        ? state.portrait
         : [0, 0, info.CanvasWidth, info.CanvasHeight];
     for (let i = 0; i < 4; i++)
       this.view[i] += (target[i] - this.view[i]) * state.cameraMix;

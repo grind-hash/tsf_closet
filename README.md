@@ -446,6 +446,9 @@ AivisSpeech エンジンによるセリフの読み上げに対応した実験�
 | `ENABLE_PROMPT_PREVIEW`      | TSFシナリオのプロンプト確認機能                              | `false`    |
 | `TAVILY_API_KEY`             | キャラチャットのセレナが使う Web 検索 (Tavily) の API キー。設定画面のトグルと併用 | (なし)     |
 | `WEATHER_LOCATION`           | キャラチャットのセレナが天気を調べる都市名 (例: `Tokyo`、Open-Meteo でキー不要) | (なし)     |
+| `JEV_PROVIDER`               | 構造化判定 (TypeSafe AI Jev) の経路 (`off` / `openrouter` / `typesafe`) | `off`      |
+| `JEV_LIVE_TARGETS`           | Jev の判定を実際の挙動へ反映する対象 (空ならログのみ)        | (なし)     |
+| `TYPESAFE_API_KEY`           | TypeSafe AI を直接利用する場合の API キー                    | (なし)     |
 
 ### ComfyUI (selfhost)
 
@@ -475,6 +478,29 @@ AivisSpeech エンジンによるセリフの読み上げに対応した実験�
 | `OPENROUTER_IMAGE_MODEL`  | `google/gemini-2.5-flash-image` |
 | `OPENROUTER_VISION_MODEL` | `google/gemini-3-flash-preview` |
 | `OPENROUTER_LLM_MODEL`    | `google/gemini-3-flash-preview` |
+
+### TypeSafe AI (Jev) — 実験的
+
+テキストを生成しない判定専用モデル。性別適合判定・セレナの調べ物の必要性・変身タグ分類を、
+汎用 LLM に JSON を書かせる代わりに型付きの質問として問い合わせます。
+生成プロバイダーとは独立した軸なので、`IMAGE_PROVIDER` などの構成は変えずに足せます。
+
+既定は `off` で、**API キーが設定されているだけでは使いません**。有効にすると選んだ経路
+(`openrouter` なら `OPENROUTER_API_KEY`) に課金されます。設定例は `.env.example.jev` を参照してください。
+
+| 変数名                         | デフォルト                    |
+| ------------------------------ | ----------------------------- |
+| `JEV_PROVIDER`                 | `off`                         |
+| `JEV_MODEL`                    | (経路ごとの既定)              |
+| `JEV_TIMEOUT`                  | `10`                          |
+| `JEV_LIVE_TARGETS`             | (空 = すべてシャドー)         |
+| `JEV_HIGH` / `JEV_LOW`         | `0.7` / `0.3`                 |
+| `JEV_MIN_CONFIDENCE`           | `0.5`                         |
+| `JEV_INPUT_PRICE_USD_PER_MTOK` | `0.042`                       |
+
+`JEV_LIVE_TARGETS` が空のあいだは、既存の判定と並べて走らせた結果をログに出すだけで挙動は変わりません
+(`jev_shadow` で始まる行)。一致率を確かめてから `congruence` / `chat_lookup` / `search_policy` / `tags`
+を 1 つずつ足してください。
 
 ### NovelAI
 

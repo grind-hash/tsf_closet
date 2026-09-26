@@ -769,6 +769,7 @@ def reply_system_prompt(
     lookup_block_text: str,
     appearance_description: str,
     appearance_change_request: str | None,
+    live2d_costume_text: str = "",
     origin_lore_block_text: str = "",
     header_instruction: str = "",
     relaxed_length: bool = False,
@@ -781,6 +782,8 @@ def reply_system_prompt(
 
     header_instruction は 3D モデル・Live2D 表示中の表情・身振りヘッダ。会話の
     ルールの「話し言葉だけ」に上書きされないよう、ルールより後ろ(末尾)に置く。
+    live2d_costume_text は同梱 Live2D で表示中の衣装の姿。保存している外見と
+    食い違うとき(会話で着替えた後など)に、見えている方を優先させるために置く。
     relaxed_length はセッション由来キャラ向けに文数の目安を緩める(案内役は短めのまま)。
     current_time_text / real_world_block_text は案内役キャラだけが受け取る、いまの日時と
     Web 検索・天気の結果。過去プレイの調べ物の後ろに置く。search_refusal_text は
@@ -795,6 +798,27 @@ def reply_system_prompt(
             f"[Your current appearance]\n{appearance_description}"
             if lang == "en"
             else f"[あなたの今の姿]\n{appearance_description}"
+        )
+    # 着替えの最中は「着替え中」の依頼を優先し、既に姿と同じ説明なら繰り返さない
+    if (
+        live2d_costume_text
+        and not appearance_change_request
+        and live2d_costume_text != appearance_description
+    ):
+        sections.append(
+            (
+                "[What you are wearing now]\n"
+                f"{live2d_costume_text}\n"
+                "This is how you look to the user right now. When clothes come up, "
+                'follow this rather than "Your current appearance" above.'
+            )
+            if lang == "en"
+            else (
+                "[いま着ている衣装]\n"
+                f"{live2d_costume_text}\n"
+                "いま相手に見えているのはこの姿です。服装の話になったら、上の"
+                "「あなたの今の姿」ではなくこちらに合わせてください。"
+            )
         )
     if origin_lore_block_text:
         sections.append(origin_lore_block_text)

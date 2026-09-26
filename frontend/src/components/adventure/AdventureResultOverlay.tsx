@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { PORTRAIT_ALPHA_OPTIONS } from "../../constants/adventure";
@@ -32,7 +33,18 @@ export default function AdventureResultOverlay({
     true,
     PORTRAIT_ALPHA_OPTIONS,
   );
-  if (!activeRun || activeRun.status === "active" || dismissed) return null;
+  const visible = Boolean(
+    activeRun && activeRun.status !== "active" && !dismissed,
+  );
+  useEffect(() => {
+    if (!visible) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onDismiss();
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [visible, onDismiss]);
+  if (!activeRun || !visible) return null;
   const resultImageUrl = isCompositeMode
     ? (activeRun.current_image_url ?? activeRun.portrait_image_url)
     : (transparentResultUrl ?? activeRun.current_image_url);
@@ -53,81 +65,85 @@ export default function AdventureResultOverlay({
           />
         )}
         <div className="adventure-result__body">
-          <span className="adventure-result__badge">
-            {t(`adventure.status.${activeRun.status}`)}
-          </span>
-          <h2>{activeRun.ending_title ?? activeRun.title}</h2>
-          <p className="adventure-result__summary">
-            {activeRun.ending_summary}
-          </p>
-          <dl className="adventure-result__stats">
-            <div>
-              <dt>{t("adventure.result.turns")}</dt>
-              <dd>
-                {activeRun.turn_count}
-                <i>/{activeRun.max_turns}</i>
-              </dd>
+          <div className="adventure-result__content">
+            <span className="adventure-result__badge">
+              {t(`adventure.status.${activeRun.status}`)}
+            </span>
+            <h2>{activeRun.ending_title ?? activeRun.title}</h2>
+            <p className="adventure-result__summary">
+              {activeRun.ending_summary}
+            </p>
+            <dl className="adventure-result__stats">
+              <div>
+                <dt>{t("adventure.result.turns")}</dt>
+                <dd>
+                  {activeRun.turn_count}
+                  <i>/{activeRun.max_turns}</i>
+                </dd>
+              </div>
+              <div>
+                <dt>{t("adventure.milestones")}</dt>
+                <dd>
+                  {completedMilestones.size}
+                  <i>/{activeRun.milestones.length}</i>
+                </dd>
+              </div>
+              <div>
+                <dt>{t("adventure.clues")}</dt>
+                <dd>{activeRun.clues.length}</dd>
+              </div>
+            </dl>
+            {activeRun.milestones.length > 0 && (
+              <ul className="adventure-result__milestones">
+                {activeRun.milestones.map((milestone) => {
+                  const done = completedMilestones.has(milestone.id);
+                  return (
+                    <li key={milestone.id} className={done ? "is-done" : ""}>
+                      <span aria-hidden>{done ? "✓" : "・"}</span>
+                      {milestone.label}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+          <div className="adventure-result__footer">
+            <div className="adventure-result__actions">
+              <button type="button" onClick={onReadLog}>
+                {t("adventure.result.readLog")}
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  navigate("/adventure", {
+                    state: { replayRunId: activeRun.id },
+                  })
+                }
+              >
+                {t("adventure.result.replay")}
+              </button>
+              <button type="button" onClick={() => navigate("/adventure")}>
+                {t("adventure.result.backToHub")}
+              </button>
+              <button
+                type="button"
+                disabled={streaming}
+                onClick={() => {
+                  onDismiss();
+                  if (!isEpilogue) void startEpilogue();
+                }}
+              >
+                {t("adventure.result.continueEpilogue")}
+              </button>
             </div>
-            <div>
-              <dt>{t("adventure.milestones")}</dt>
-              <dd>
-                {completedMilestones.size}
-                <i>/{activeRun.milestones.length}</i>
-              </dd>
-            </div>
-            <div>
-              <dt>{t("adventure.clues")}</dt>
-              <dd>{activeRun.clues.length}</dd>
-            </div>
-          </dl>
-          {activeRun.milestones.length > 0 && (
-            <ul className="adventure-result__milestones">
-              {activeRun.milestones.map((milestone) => {
-                const done = completedMilestones.has(milestone.id);
-                return (
-                  <li key={milestone.id} className={done ? "is-done" : ""}>
-                    <span aria-hidden>{done ? "✓" : "・"}</span>
-                    {milestone.label}
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-          <div className="adventure-result__actions">
-            <button type="button" onClick={onReadLog}>
-              {t("adventure.result.readLog")}
-            </button>
             <button
               type="button"
-              onClick={() =>
-                navigate("/adventure", {
-                  state: { replayRunId: activeRun.id },
-                })
-              }
+              className="adventure-result__close"
+              onClick={onDismiss}
             >
-              {t("adventure.result.replay")}
-            </button>
-            <button type="button" onClick={() => navigate("/adventure")}>
-              {t("adventure.result.backToHub")}
-            </button>
-            <button
-              type="button"
-              disabled={streaming}
-              onClick={() => {
-                onDismiss();
-                if (!isEpilogue) void startEpilogue();
-              }}
-            >
-              {t("adventure.result.continueEpilogue")}
+              {t("adventure.result.close")}
             </button>
           </div>
-          <button
-            type="button"
-            className="adventure-result__close"
-            onClick={onDismiss}
-          >
-            {t("adventure.result.close")}
-          </button>
         </div>
       </div>
     </div>

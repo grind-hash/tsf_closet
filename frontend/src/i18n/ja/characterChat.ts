@@ -62,7 +62,14 @@ export const characterChat = {
     avatarSection: "キャラクター表示",
     avatarLive2d: "Live2D",
     avatarLive2dHint:
-      "セレナの全身モデル。表情・まばたき・読み上げに連動し、髪や袖が揺れます。全身／寄り表示を切り替えられます。着替えは見た目に反映されません。",
+      "セレナ専用の同梱モデル。表情・まばたき・読み上げに連動し、全身／寄り表示を切り替えられます。衣装を選ぶと、表示している間はその衣装が今の姿になります（会話での着替えは立ち絵にだけ残ります）。",
+    avatarLive2dCurrent: "表示中: Live2D（{{costume}}）",
+    // 同梱 Live2D 衣装の表示名。id はバックエンドの LIVE2D_COSTUMES にある
+    live2dCostumes: {
+      dress: "ドレス",
+      princess: "プリンセス",
+      bunny: "バニー",
+    },
     avatarLive2dUnavailable:
       "Live2D SDK が配置されていないため選べません。設定画面の「Live2D モデル」に導入手順があります。",
     live2dSdkPathPackaged: "配布版の配置先: backend/static/live2d/vendor/",

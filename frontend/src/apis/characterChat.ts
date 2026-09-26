@@ -171,6 +171,10 @@ export interface CharacterChatAvatarInfo {
   variants: Array<{ id: string; label: string; current: boolean }>;
   /** 明示的に選んだモデルが削除されていて自動に倒したとき true */
   missing: boolean;
+  /** 同梱 Live2D の衣装 id。案内役キャラ以外は null */
+  live2d_costume: string | null;
+  /** 選べる同梱 Live2D 衣装。案内役キャラ以外は空 */
+  live2d_costumes: Array<{ id: string; current: boolean }>;
 }
 
 export interface CharacterChatThread {
@@ -399,10 +403,15 @@ export async function setCharacterChatAdventureAppearance(
   return normalizeThread(thread);
 }
 
-/** 3D モデル(VRM)の表示を切り替える(auto / none / model) */
+/** キャラクター表示を切り替える(auto / none / model / live2d の衣装) */
 export async function setCharacterChatAvatar(
   threadId: string,
-  request: { mode: CharacterChatAvatarMode; avatar_id?: string | null },
+  request: {
+    mode: CharacterChatAvatarMode;
+    avatar_id?: string | null;
+    /** live2d の衣装 id。省略すると保存済みの衣装のまま */
+    live2d_costume?: string | null;
+  },
 ): Promise<CharacterChatThread> {
   const thread = await requestJson<CharacterChatThread>(
     `${BASE}/threads/${encodeURIComponent(threadId)}/avatar`,

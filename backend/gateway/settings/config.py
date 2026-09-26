@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
@@ -19,6 +22,54 @@ load_dotenv(_env_file, override=True)
 LOG_LEVEL: Final[str] = os.getenv("LOG_LEVEL", "INFO").upper()
 
 
+class HealthCheckAccessFilter(logging.Filter):
+    """タイマーでポーリングされるエンドポイントのアクセスログを抑制する。
+
+    音声合成エンジンの状態は数秒間隔でポーリングされるため、そのままでは
+    他の INFO ログが流れてしまう。
+    """
+
+    SILENCED_PATHS: Final[tuple[str, ...]] = ("/api/aivisspeech/status",)
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        # uvicorn.access は (client_addr, method, full_path, http_version,
+        # status_code) を record.args に渡す
+        args = record.args
+        if not isinstance(args, tuple) or len(args) < 3:
+            return True
+        path = str(args[2])
+        return not any(
+            path == silenced or path.startswith(f"{silenced}?")
+            for silenced in self.SILENCED_PATHS
+        )
+
+
+# 抑制中かどうかはタスクごとのコンテキストで持つ。asyncio では並行して走る他の
+# リクエストのログに影響しない
+_SUPPRESS_HTTP_LOGS: ContextVar[bool] = ContextVar("suppress_http_logs", default=False)
+
+
+class SuppressedHttpLogFilter(logging.Filter):
+    """quiet_http_logs() の中で発生した HTTP クライアントのログを落とす。"""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return not _SUPPRESS_HTTP_LOGS.get()
+
+
+@contextmanager
+def quiet_http_logs() -> Iterator[None]:
+    """このブロック内で送信した HTTP リクエストのログを抑制する。
+
+    数秒間隔のヘルスチェックのように、成否だけが分かればよく、毎回ログに
+    残す価値のない通信に使う。
+    """
+    token = _SUPPRESS_HTTP_LOGS.set(True)
+    try:
+        yield
+    finally:
+        _SUPPRESS_HTTP_LOGS.reset(token)
+
+
 def configure_logging() -> None:
     """アプリケーション全体のロギング設定を適用"""
     level = getattr(logging, LOG_LEVEL, logging.INFO)
@@ -29,8 +80,24 @@ def configure_logging() -> None:
     )
     # uvicornのログレベルも設定
     logging.getLogger("uvicorn").setLevel(level)
-    logging.getLogger("uvicorn.access").setLevel(level)
     logging.getLogger("uvicorn.error").setLevel(level)
+
+    access_logger = logging.getLogger("uvicorn.access")
+    access_logger.setLevel(level)
+    if not any(
+        isinstance(existing, HealthCheckAccessFilter)
+        for existing in access_logger.filters
+    ):
+        access_logger.addFilter(HealthCheckAccessFilter())
+
+    # httpx はリクエストごとに INFO を出し、httpcore は DEBUG で内部の通信を出す
+    for logger_name in ("httpx", "httpcore"):
+        http_logger = logging.getLogger(logger_name)
+        if not any(
+            isinstance(existing, SuppressedHttpLogFilter)
+            for existing in http_logger.filters
+        ):
+            http_logger.addFilter(SuppressedHttpLogFilter())
 
 
 def _resolve_path(path_value: str) -> Path:
@@ -93,6 +160,29 @@ class Settings:
     )
     litellm_request_timeout: float = float(os.getenv("LITELLM_REQUEST_TIMEOUT", "60"))
     litellm_api_key: str = os.getenv("LITELLM_API_KEY", "")
+
+    # 構造化判定 (TypeSafe AI Jev)。テキストを生成せず、state と型付き質問から
+    # 型付き回答を返す判定専用モデル。FEELING_PROVIDER とは独立した軸として扱う。
+    # API キーがあることを利用の根拠にしないため、既定は off。
+    # off / openrouter (OPENROUTER_API_KEY を流用) / typesafe (TYPESAFE_API_KEY)
+    jev_provider: str = os.getenv("JEV_PROVIDER", "off").strip().lower()
+    typesafe_api_key: str = os.getenv("TYPESAFE_API_KEY", "").strip()
+    # 空なら経路ごとの既定 (typesafe/jev-1.13 または jev-latest)
+    jev_model: str = os.getenv("JEV_MODEL", "").strip()
+    jev_timeout: float = float(os.getenv("JEV_TIMEOUT", "10"))
+    # 判定結果を実際の挙動へ反映する対象。空なら全てシャドー(ログのみ)、all で全て反映。
+    # 指定できる値: congruence, chat_lookup, search_policy, tags
+    jev_live_targets: str = os.getenv("JEV_LIVE_TARGETS", "").strip().lower()
+    # 真偽確率(noul)の判断不能帯。この外側だけを結論として採用する
+    jev_high: float = float(os.getenv("JEV_HIGH", "0.7"))
+    jev_low: float = float(os.getenv("JEV_LOW", "0.3"))
+    # choice / score を採用する最低 confidence。未満は unknown 扱い
+    jev_min_confidence: float = float(os.getenv("JEV_MIN_CONFIDENCE", "0.5"))
+    # TypeSafe 直接 API は料金を返さないため、入力トークンから推定する単価。
+    # 公表値 $0.042 / 1M input tokens (出力は無料)
+    jev_input_price_usd_per_mtok: float = float(
+        os.getenv("JEV_INPUT_PRICE_USD_PER_MTOK", "0.042")
+    )
 
     # デバッグ設定
     enable_prompt_preview: bool = (

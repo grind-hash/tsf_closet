@@ -1750,6 +1750,11 @@ async def test_base_thread_avatar_resolution_order(
         "variant_label": None,
         "variants": [],
         "missing": False,
+        "live2d_costume": module.LIVE2D_COSTUMES[0].id,
+        "live2d_costumes": [
+            {"id": costume.id, "current": index == 0}
+            for index, costume in enumerate(module.LIVE2D_COSTUMES)
+        ],
     }
 
     # character_name が「セレナ」の登録済みモデル(衣装差分 2 件)は差分ラベル順の先頭
@@ -1809,7 +1814,11 @@ async def test_base_thread_avatar_resolution_order(
     assert detail["avatar"]["source"] == "bundled"
     # 「最初の姿に戻す」相当の appearance 操作でも 3D の指定は残る
     appearance = json.loads((await _thread_row(factory, thread["id"])).appearance_json)
-    assert appearance["avatar"] == {"mode": "model", "avatar_id": "av-b"}
+    assert appearance["avatar"] == {
+        "mode": "model",
+        "avatar_id": "av-b",
+        "live2d_costume": None,
+    }
 
 
 async def _thread_row(factory, thread_id: str) -> CharacterChatThread:
@@ -1984,7 +1993,8 @@ async def test_live2d_selection_is_explicit_persisted_and_base_only(
     thread = await service.get_or_create_base_thread()
     assert thread["avatar"]["mode"] == "auto"
     selected = await service.set_avatar(thread["id"], mode="live2d")
-    assert selected["avatar"]["url"] == module.BASE_LIVE2D_URL
+    assert selected["avatar"]["url"] == module.LIVE2D_COSTUMES[0].url
+    assert selected["avatar"]["live2d_costume"] == module.LIVE2D_COSTUMES[0].id
     assert selected["avatar"]["id"] is None
     assert (await service.get_thread(thread["id"]))["avatar"]["mode"] == "live2d"
     none = await service.set_avatar(thread["id"], mode="none")
@@ -1996,6 +2006,73 @@ async def test_live2d_selection_is_explicit_persisted_and_base_only(
     with pytest.raises(CharacterChatError) as caught:
         await service.set_avatar(other["id"], mode="live2d")
     assert caught.value.code == "invalid_input"
+
+
+@pytest.mark.asyncio
+async def test_live2d_costume_is_selected_and_remembered(
+    service: CharacterChatService, isolated_db
+) -> None:
+    """衣装: 選ぶと実行素材が変わり、2D 立ち絵へ戻しても覚えている。"""
+    thread = await service.get_or_create_base_thread()
+    listed = (await service.get_thread(thread["id"]))["avatar"]["live2d_costumes"]
+    assert [item["id"] for item in listed] == [
+        costume.id for costume in module.LIVE2D_COSTUMES
+    ]
+    assert [item["id"] for item in listed if item["current"]] == [
+        module.LIVE2D_COSTUMES[0].id
+    ]
+    other = module.LIVE2D_COSTUMES[1]
+    chosen = await service.set_avatar(
+        thread["id"], mode="live2d", live2d_costume=other.id
+    )
+    assert chosen["avatar"]["url"] == other.url
+    assert [
+        item["id"] for item in chosen["avatar"]["live2d_costumes"] if item["current"]
+    ] == [other.id]
+    # 2D 立ち絵へ戻しても衣装は覚えていて、Live2D に戻すとその衣装で表示する
+    none = await service.set_avatar(thread["id"], mode="none")
+    assert none["avatar"]["live2d_costume"] == other.id
+    again = await service.set_avatar(thread["id"], mode="live2d")
+    assert again["avatar"]["url"] == other.url
+    with pytest.raises(CharacterChatError) as caught:
+        await service.set_avatar(thread["id"], mode="live2d", live2d_costume="unknown")
+    assert caught.value.code == "invalid_input"
+
+
+@pytest.mark.asyncio
+async def test_live2d_costume_is_described_in_the_reply_prompt(
+    service: CharacterChatService, isolated_db, monkeypatch
+) -> None:
+    """衣装を表示している手番は、見えている姿を system prompt に渡す。"""
+    thread = await service.get_or_create_base_thread()
+    costume = module.LIVE2D_COSTUMES[1]
+    await service.set_avatar(thread["id"], mode="live2d", live2d_costume=costume.id)
+    fake_generate_text, _ = _llm_router()
+    monkeypatch.setattr(module.llm_service, "generate_text", fake_generate_text)
+    captured: dict = {}
+    monkeypatch.setattr(
+        module.llm_service,
+        "generate_feeling_stream",
+        _fake_stream(["[expression=happy gesture=idle]\n", "ありがとう"], captured),
+    )
+    await _collect(
+        service.stream_message(thread_id=thread["id"], content="その衣装、似合ってるね")
+    )
+    assert costume.description["ja"] in captured["system"]
+
+    # 既定の衣装は保存している姿と同じ説明なので、二重には載せない
+    await service.set_avatar(
+        thread["id"], mode="live2d", live2d_costume=module.LIVE2D_COSTUMES[0].id
+    )
+    monkeypatch.setattr(
+        module.llm_service,
+        "generate_feeling_stream",
+        _fake_stream(["[expression=neutral gesture=idle]\n", "ええ"], captured),
+    )
+    await _collect(
+        service.stream_message(thread_id=thread["id"], content="いつもの服も好きだよ")
+    )
+    assert "[いま着ている衣装]" not in captured["system"]
 
 
 @pytest.mark.asyncio

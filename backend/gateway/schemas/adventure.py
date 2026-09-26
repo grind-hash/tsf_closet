@@ -131,6 +131,11 @@ class AdventureCreateRequest(BaseModel):
     # session_id があればテンプレートキャラクターより優先される
     romance_player_session_id: str | None = Field(default=None, max_length=80)
     romance_player_history_id: str | None = Field(default=None, max_length=80)
+    # romance の主人公を Prompt Expander エントリの姿にする場合に指定。
+    # テンプレートキャラクター・セッションより優先される
+    romance_player_prompt_expander_entry_id: str | None = Field(
+        default=None, max_length=80
+    )
     # romance の主人公の呼び名(攻略対象がセリフで呼ぶ名前)。空なら
     # テンプレートキャラクター名またはセッションの主人公名を使う
     romance_player_name: str = Field(

@@ -106,6 +106,11 @@ export default function CharacterChatAppearanceMenu({
       cancelled = true;
     };
   }, [open, models]);
+  // 同梱 Live2D の衣装。案内役キャラのスレッドでだけ入る
+  const costumes = avatar?.live2d_costumes ?? [];
+  const currentCostume = costumes.find((costume) => costume.current);
+  const costumeLabel = (id: string) =>
+    t(`characterChat.room.live2dCostumes.${id}`, { defaultValue: id });
   const avatarSourceLabel =
     avatar?.source === "bundled"
       ? t("characterChat.room.avatarSourceBundled")
@@ -116,7 +121,11 @@ export default function CharacterChatAppearanceMenu({
           : "";
   const avatarCurrentLabel =
     avatarMode === "live2d"
-      ? t("characterChat.room.avatarLive2d")
+      ? currentCostume
+        ? t("characterChat.room.avatarLive2dCurrent", {
+            costume: costumeLabel(currentCostume.id),
+          })
+        : t("characterChat.room.avatarLive2d")
       : avatar?.url
         ? t("characterChat.room.avatarCurrent", {
             name: avatar.name ?? "",
@@ -140,31 +149,48 @@ export default function CharacterChatAppearanceMenu({
             {t("characterChat.room.avatarSection")}
           </p>
           <p className="character-chat-room__menu-note">{avatarCurrentLabel}</p>
-          {activeThread?.kind === "base" && (
-            <button
-              type="button"
-              className={`character-chat-room__menu-item${avatarMode === "live2d" ? " is-active" : ""}`}
-              aria-pressed={avatarMode === "live2d"}
-              disabled={busy || !coreAvailable}
-              onClick={() => {
-                onToggleOpen();
-                void setAvatar("live2d");
-              }}
-            >
-              <strong>{t("characterChat.room.avatarLive2d")}</strong>
-              <small>
+          {activeThread?.kind === "base" && costumes.length > 0 && (
+            <>
+              <p className="character-chat-room__menu-heading character-chat-room__menu-heading--sub">
+                {t("characterChat.room.avatarLive2d")}
+              </p>
+              <p className="character-chat-room__menu-note">
                 {coreAvailable === false
                   ? t("characterChat.room.avatarLive2dUnavailable")
                   : t("characterChat.room.avatarLive2dHint")}
-              </small>
+              </p>
               {/* 開発者向け。ENABLE_PROMPT_PREVIEW のときだけ配置先を出す */}
               {coreAvailable === false && promptPreviewEnabled && (
                 <>
-                  <small>{t("characterChat.room.live2dSdkPathPackaged")}</small>
-                  <small>{t("characterChat.room.live2dSdkPathDev")}</small>
+                  <p className="character-chat-room__menu-note">
+                    {t("characterChat.room.live2dSdkPathPackaged")}
+                  </p>
+                  <p className="character-chat-room__menu-note">
+                    {t("characterChat.room.live2dSdkPathDev")}
+                  </p>
                 </>
               )}
-            </button>
+              <div className="character-chat-room__menu-models">
+                {costumes.map((costume) => {
+                  const shown = avatarMode === "live2d" && costume.current;
+                  return (
+                    <button
+                      key={costume.id}
+                      type="button"
+                      className={`character-chat-room__menu-item${shown ? " is-active" : ""}`}
+                      aria-pressed={shown}
+                      disabled={busy || !coreAvailable}
+                      onClick={() => {
+                        onToggleOpen();
+                        void setAvatar("live2d", null, costume.id);
+                      }}
+                    >
+                      <strong>{costumeLabel(costume.id)}</strong>
+                    </button>
+                  );
+                })}
+              </div>
+            </>
           )}
           <button
             type="button"

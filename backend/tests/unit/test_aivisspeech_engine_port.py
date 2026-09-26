@@ -130,3 +130,43 @@ async def test_fetch_engine_brand_returns_none_when_unavailable() -> None:
         )
 
     assert brand is None
+
+
+@pytest.mark.asyncio
+async def test_resolve_engine_brand_caches_the_engine_manifest() -> None:
+    """The status poll runs every few seconds; brand_name must not be refetched."""
+    request_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal request_count
+        request_count += 1
+        return httpx.Response(200, json={"brand_name": "AivisSpeech"}, request=request)
+
+    service = AivisSpeechService()
+    base_url = "http://127.0.0.1:10101"
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        assert await service._resolve_engine_brand(client, base_url) == "AivisSpeech"
+        assert await service._resolve_engine_brand(client, base_url) == "AivisSpeech"
+        assert request_count == 1
+
+        service._invalidate_engine_brand_cache()
+        assert await service._resolve_engine_brand(client, base_url) == "AivisSpeech"
+        assert request_count == 2
+
+
+@pytest.mark.asyncio
+async def test_resolve_engine_brand_refetches_when_the_port_changes() -> None:
+    requested_ports: list[int | None] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requested_ports.append(request.url.port)
+        return httpx.Response(200, json={"brand_name": "AivisSpeech"}, request=request)
+
+    service = AivisSpeechService()
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        await service._resolve_engine_brand(client, "http://127.0.0.1:10101")
+        await service._resolve_engine_brand(client, "http://127.0.0.1:10102")
+
+    assert requested_ports == [10101, 10102]

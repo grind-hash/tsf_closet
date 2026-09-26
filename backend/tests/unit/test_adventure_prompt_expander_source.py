@@ -86,16 +86,15 @@ async def test_build_snapshot_from_prompt_expander_entry(pe_source):
         None, None, source_prompt_expander_entry_id="pe-entry-1"
     )
     assert image_path == png_path
-    assert (
-        appearance == "1girl, silver hair, red dress, 1girl, silver hair, 1boy, glasses"
-    )
+    # 服装は外見から分け、2人目以降のキャラクタープロンプトは混ぜない
+    assert appearance == "1girl, silver hair"
     assert nsfw is True
     assert snapshot["source_prompt_expander_entry_id"] == "pe-entry-1"
     assert snapshot["source_session_id"] is None
     assert snapshot["character_name"] is None
     assert snapshot["attributes"] == [] and snapshot["timeline"] == []
     assert snapshot["stats"] is None
-    assert snapshot["clothing"] == ""
+    assert snapshot["clothing"] == "red dress"
 
 
 @pytest.mark.asyncio

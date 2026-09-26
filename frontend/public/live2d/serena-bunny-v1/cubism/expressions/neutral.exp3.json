@@ -1,0 +1,27 @@
+{
+  "Type": "Live2D Expression",
+  "FadeInTime": 0.18,
+  "FadeOutTime": 0.18,
+  "Parameters": [
+    {
+      "Id": "ParamEmotionHappy",
+      "Value": 0,
+      "Blend": "Overwrite"
+    },
+    {
+      "Id": "ParamEmotionAngry",
+      "Value": 0,
+      "Blend": "Overwrite"
+    },
+    {
+      "Id": "ParamEmotionSad",
+      "Value": 0,
+      "Blend": "Overwrite"
+    },
+    {
+      "Id": "ParamEmotionThinking",
+      "Value": 0,
+      "Blend": "Overwrite"
+    }
+  ]
+}

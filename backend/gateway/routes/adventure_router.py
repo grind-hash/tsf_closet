@@ -89,6 +89,9 @@ async def create_run(request: AdventureCreateRequest) -> dict:
             romance_player_character_id=request.romance_player_character_id,
             romance_player_session_id=request.romance_player_session_id,
             romance_player_history_id=request.romance_player_history_id,
+            romance_player_prompt_expander_entry_id=(
+                request.romance_player_prompt_expander_entry_id
+            ),
             romance_player_name=request.romance_player_name,
             romance_partner_speech_style=request.romance_partner_speech_style,
             image_model=request.image_model,

@@ -108,10 +108,11 @@ interface CharacterChatContextValue {
   setAdventureAppearance: (
     mode: Exclude<CharacterChatAdventureAppearanceMode, "custom">,
   ) => Promise<boolean>;
-  /** 3D モデルの表示を切り替える(自動 / 2D 立ち絵 / 登録済みモデル) */
+  /** 表示を切り替える(自動 / 2D 立ち絵 / 登録済みモデル / Live2D の衣装) */
   setAvatar: (
     mode: CharacterChatAvatarMode,
     avatarId?: string | null,
+    live2dCostume?: string | null,
   ) => Promise<boolean>;
   /** 3D モデルの読込に失敗したら立ち絵へ戻す(スレッド切替でリセット) */
   avatarFailed: boolean;
@@ -640,14 +641,22 @@ export function CharacterChatProvider({ children }: { children: ReactNode }) {
   );
 
   const setAvatar = useCallback(
-    async (mode: CharacterChatAvatarMode, avatarId?: string | null) => {
+    async (
+      mode: CharacterChatAvatarMode,
+      avatarId?: string | null,
+      live2dCostume?: string | null,
+    ) => {
       const threadId = activeThreadIdRef.current;
       if (!threadId || busyPortraitsRef.current[threadId]) return false;
       markPortraitBusy(threadId, "appearance");
       try {
         const { messages: _ignored, ...thread } = await setCharacterChatAvatar(
           threadId,
-          { mode, avatar_id: avatarId ?? null },
+          {
+            mode,
+            avatar_id: avatarId ?? null,
+            live2d_costume: live2dCostume ?? null,
+          },
         );
         applyThreadUpdate(threadId, thread);
         // 別のモデルに切り替えたら、前のモデルの読込失敗は引きずらない

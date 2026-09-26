@@ -34,12 +34,13 @@ from ..consts.character_chat import (
     BASE_CHARACTER_PRONOUN,
     BASE_CLOTHING_TAGS,
     BASE_IDENTITY_TAGS,
-    BASE_LIVE2D_URL,
     BASE_PORTRAIT_FILENAME,
     CHARACTER_CHAT_KIND_ADVENTURE,
     CHARACTER_CHAT_KIND_BASE,
     CHARACTER_CHAT_KIND_SESSION,
     HISTORY_MESSAGES,
+    LIVE2D_COSTUME_IDS,
+    LIVE2D_COSTUMES,
     LIVE2D_EXPRESSIONS,
     LIVE2D_GESTURES,
     LIVE2D_TALK_HEADER_INSTRUCTION,
@@ -53,7 +54,10 @@ from ..consts.character_chat import (
     SUMMARY_EVERY,
     SUMMARY_MAX_CHARS,
     THREAD_MESSAGE_LIMIT,
+    Live2dCostume,
     base_portrait_dir,
+    live2d_costume,
+    live2d_costume_description,
     load_origin_lore,
 )
 from ..consts.companion_avatar import (
@@ -372,6 +376,13 @@ def _avatar_choice(appearance: dict[str, Any]) -> tuple[str, str | None]:
     if mode == "model" and not avatar_id:
         mode = "auto"
     return mode, avatar_id
+
+
+def _live2d_costume_choice(appearance: dict[str, Any]) -> str:
+    """appearance["avatar"] に保存した Live2D 衣装の id。未設定・未知なら既定。"""
+    raw = appearance.get("avatar")
+    stored = str(raw.get("live2d_costume") or "") if isinstance(raw, dict) else ""
+    return live2d_costume(stored).id
 
 
 _APPEARANCE_KEYS = (
@@ -1409,6 +1420,8 @@ class CharacterChatService:
         model: AvatarModel | None = None,
         variants: list[AvatarModel] | None = None,
         missing: bool = False,
+        live2d_costume: str | None = None,
+        live2d_costumes: tuple[Live2dCostume, ...] = (),
     ) -> dict[str, Any]:
         rows = variants or []
         return {
@@ -1440,6 +1453,13 @@ class CharacterChatService:
             else [],
             # 明示的に選んだモデルが削除されていて自動に倒したとき True
             "missing": missing,
+            # 同梱 Live2D(案内役専用)。衣装は表示していなくても覚えておき、
+            # 選べる衣装の一覧は案内役のスレッドでだけ入る
+            "live2d_costume": live2d_costume,
+            "live2d_costumes": [
+                {"id": costume.id, "current": costume.id == live2d_costume}
+                for costume in live2d_costumes
+            ],
         }
 
     async def _resolve_avatar(
@@ -1457,21 +1477,33 @@ class CharacterChatService:
         """
         appearance = _json_load(thread.appearance_json, {})
         mode, chosen_id = _avatar_choice(appearance)
-        if mode == "none":
-            return self._avatar_payload(mode="none", source=None, url=None, name=None)
-        if mode == "live2d":
-            if thread.kind != CHARACTER_CHAT_KIND_BASE:
-                return self._avatar_payload(
-                    mode="none", source=None, url=None, name=None
-                )
+        # 同梱 Live2D は案内役専用。衣装は表示中かどうかに関わらず、姿メニューの
+        # 選択肢として毎回返す
+        is_base = thread.kind == CHARACTER_CHAT_KIND_BASE
+        costume = (
+            live2d_costume(_live2d_costume_choice(appearance)) if is_base else None
+        )
+
+        def payload(**fields: Any) -> dict[str, Any]:
             return self._avatar_payload(
-                mode="live2d", source="bundled", url=BASE_LIVE2D_URL, name=thread.name
+                live2d_costume=costume.id if costume is not None else None,
+                live2d_costumes=LIVE2D_COSTUMES if costume is not None else (),
+                **fields,
+            )
+
+        if mode == "none":
+            return payload(mode="none", source=None, url=None, name=None)
+        if mode == "live2d":
+            if costume is None:
+                return payload(mode="none", source=None, url=None, name=None)
+            return payload(
+                mode="live2d", source="bundled", url=costume.url, name=thread.name
             )
         missing = False
         if mode == "model" and chosen_id:
             model = await db.get(AvatarModel, chosen_id)
             if model is not None:
-                return self._avatar_payload(
+                return payload(
                     mode="model",
                     source="registered",
                     url=avatar_file_url(model.id),
@@ -1480,8 +1512,8 @@ class CharacterChatService:
                     variants=await list_avatar_variants(db, model.id),
                 )
             missing = True
-        if thread.kind == CHARACTER_CHAT_KIND_BASE and _base_avatar_file() is not None:
-            return self._avatar_payload(
+        if is_base and _base_avatar_file() is not None:
+            return payload(
                 mode="auto",
                 source="bundled",
                 url=BASE_AVATAR_URL,
@@ -1496,7 +1528,7 @@ class CharacterChatService:
         if run_avatar_id:
             model = await db.get(AvatarModel, run_avatar_id)
             if model is not None:
-                return self._avatar_payload(
+                return payload(
                     mode="auto",
                     source="run",
                     url=avatar_file_url(model.id),
@@ -1521,7 +1553,7 @@ class CharacterChatService:
                 )
             )
             model = matched[0]
-            return self._avatar_payload(
+            return payload(
                 mode="auto",
                 source="registered",
                 url=avatar_file_url(model.id),
@@ -1530,16 +1562,25 @@ class CharacterChatService:
                 variants=await list_avatar_variants(db, model.id),
                 missing=missing,
             )
-        return self._avatar_payload(
-            mode="auto", source=None, url=None, name=None, missing=missing
-        )
+        return payload(mode="auto", source=None, url=None, name=None, missing=missing)
 
     async def set_avatar(
-        self, thread_id: str, *, mode: str = "auto", avatar_id: str | None = None
+        self,
+        thread_id: str,
+        *,
+        mode: str = "auto",
+        avatar_id: str | None = None,
+        live2d_costume: str | None = None,
     ) -> dict[str, Any]:
-        """アバターの表示指定を既存の外見設定へ保存する。"""
+        """アバターの表示指定を既存の外見設定へ保存する。
+
+        live2d_costume は同梱 Live2D の衣装。省略したときは保存済みの衣装を保つ。
+        """
         if mode not in AVATAR_MODES:
             raise CharacterChatError("invalid_input", "3D モデルの指定が不正です")
+        costume = str(live2d_costume or "").strip() or None
+        if costume is not None and costume not in LIVE2D_COSTUME_IDS:
+            raise CharacterChatError("invalid_input", "Live2D の衣装の指定が不正です")
         async with self._thread_locks[thread_id], async_session_factory() as db:
             thread = await self._get_thread_orm(db, thread_id)
             if mode == "live2d" and thread.kind != CHARACTER_CHAT_KIND_BASE:
@@ -1550,9 +1591,17 @@ class CharacterChatService:
             ):
                 raise CharacterChatError("avatar_not_found", "3Dモデルが見つかりません")
             appearance = _json_load(thread.appearance_json, {})
+            stored = appearance.get("avatar")
+            previous = (
+                str(stored.get("live2d_costume") or "")
+                if isinstance(stored, dict)
+                else ""
+            )
             appearance["avatar"] = {
                 "mode": mode,
                 "avatar_id": chosen if mode == "model" else None,
+                # 2D 立ち絵や VRM へ切り替えても、選んでいた衣装は覚えておく
+                "live2d_costume": costume or previous or None,
             }
             thread.appearance_json = json.dumps(appearance, ensure_ascii=False)
             thread.updated_at = datetime.now()
@@ -2156,6 +2205,78 @@ class CharacterChatService:
             )
             return empty_plan()
 
+    async def _plan_with_gate(
+        self,
+        *,
+        thread_kind: str,
+        name: str,
+        recent: list[CharacterChatMessage],
+        message: str,
+        text_model: str | None,
+        language: str,
+        real_world_kinds: frozenset[str],
+    ) -> CharacterChatPlan:
+        """判定 LLM を呼び、Jev が有効なら並列に意図ゲートも走らせて計画を絞る。
+
+        Jev は現実世界の調べ物が提示されている手番でだけ呼ぶ(それ以外では効かず、
+        費用だけがかかるため)。ゲートは一方向で、Jev が「不要」「安全」と言っても
+        既存の判定を覆すことはない。
+        """
+        from .character_chat_jev import (
+            apply_intent_gate,
+            screen_chat_intent,
+            shadow_fields,
+        )
+        from .jev_client import log_shadow
+        from .providers import jev_judge_enabled, jev_live
+
+        plan_call = self._plan(
+            kind=thread_kind,
+            name=name,
+            recent=recent,
+            message=message,
+            text_model=text_model,
+            language=language,
+            real_world_kinds=real_world_kinds,
+        )
+        if not real_world_kinds or not jev_judge_enabled():
+            return await plan_call
+
+        plan, gate = await asyncio.gather(
+            plan_call,
+            screen_chat_intent(
+                character_kind=thread_kind,
+                character_name=name,
+                recent_messages=_planner_recent_messages(recent),
+                latest_message=message,
+                available_real_world_lookups=sorted(real_world_kinds),
+                today=(
+                    _local_now().date().isoformat()
+                    if "web_search" in real_world_kinds
+                    else None
+                ),
+            ),
+            return_exceptions=True,
+        )
+        if isinstance(plan, BaseException):
+            logger.warning(
+                "character chat planner failed: %s: %s", type(plan).__name__, plan
+            )
+            plan = empty_plan()
+        if isinstance(gate, BaseException):
+            logger.warning(
+                "character chat jev gate failed: %s: %s", type(gate).__name__, gate
+            )
+            gate = None
+
+        log_shadow("chat_lookup", shadow_fields(plan, gate))
+        return apply_intent_gate(
+            plan,
+            gate,
+            gate_lookups=jev_live("chat_lookup"),
+            gate_policy=jev_live("search_policy"),
+        )
+
     async def _propose_play(
         self,
         *,
@@ -2331,7 +2452,13 @@ class CharacterChatService:
         real_world_text: str = "",
         search_refused: bool = False,
         play_proposal_text: str = "",
+        live2d_costume_id: str = "",
     ) -> str:
+        """返答本文の system prompt を組む。
+
+        live2d_costume_id は同梱 Live2D を表示している手番の衣装。着替えの依頼が
+        無い手番でだけ、見えている衣装を姿として渡す(保存した外見タグは変えない)。
+        """
         persona = _json_load(thread.persona_json, {})
         appearance = _json_load(thread.appearance_json, {})
         if thread.kind == CHARACTER_CHAT_KIND_ADVENTURE:
@@ -2393,6 +2520,11 @@ class CharacterChatService:
             lookup_block_text=lookup_block(lookup_text, language),
             appearance_description=description,
             appearance_change_request=appearance_change_request,
+            live2d_costume_text=(
+                live2d_costume_description(live2d_costume_id, language)
+                if live2d_costume_id
+                else ""
+            ),
             origin_lore_block_text=origin_lore_block(origin_lore_text, language),
             header_instruction=header_instruction,
             relaxed_length=thread.kind == CHARACTER_CHAT_KIND_SESSION,
@@ -2607,8 +2739,8 @@ class CharacterChatService:
                 plan = empty_plan()
             else:
                 yield {"event": "status", "data": {"phase": "plan"}}
-                plan = await self._plan(
-                    kind=thread.kind,
+                plan = await self._plan_with_gate(
+                    thread_kind=thread.kind,
                     name=thread.name,
                     recent=recent,
                     message=message,
@@ -2690,6 +2822,11 @@ class CharacterChatService:
                 origin_lore_text=origin_lore_text,
                 self_profile=self_profile,
                 play_proposal_text=proposal.reply_block if proposal else "",
+                live2d_costume_id=(
+                    str(avatar.get("live2d_costume") or "")
+                    if avatar.get("mode") == "live2d" and avatar_shown
+                    else ""
+                ),
             )
             history = _reply_history(
                 recent, expressions=header_expressions, gestures=header_gestures

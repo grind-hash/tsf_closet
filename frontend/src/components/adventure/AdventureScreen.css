@@ -2355,7 +2355,7 @@ button:disabled {
 .adventure-hud__popover::-webkit-scrollbar,
 .adventure-ending::-webkit-scrollbar,
 .adventure-turn-strip::-webkit-scrollbar,
-.adventure-result__card::-webkit-scrollbar {
+.adventure-result__content::-webkit-scrollbar {
   width: 10px;
   /* ターンストリップ(横スクロール)用 */
   height: 10px;
@@ -2366,7 +2366,7 @@ button:disabled {
 .adventure-hud__popover::-webkit-scrollbar-track,
 .adventure-ending::-webkit-scrollbar-track,
 .adventure-turn-strip::-webkit-scrollbar-track,
-.adventure-result__card::-webkit-scrollbar-track {
+.adventure-result__content::-webkit-scrollbar-track {
   border-radius: 999px;
   background: rgb(255 255 255 / 7%);
 }
@@ -2376,7 +2376,7 @@ button:disabled {
 .adventure-hud__popover::-webkit-scrollbar-thumb,
 .adventure-ending::-webkit-scrollbar-thumb,
 .adventure-turn-strip::-webkit-scrollbar-thumb,
-.adventure-result__card::-webkit-scrollbar-thumb {
+.adventure-result__content::-webkit-scrollbar-thumb {
   border: 2px solid transparent;
   border-radius: 999px;
   background: #6b7681;
@@ -2389,7 +2389,7 @@ button:disabled {
 .adventure-hud__popover::-webkit-scrollbar-thumb:hover,
 .adventure-ending::-webkit-scrollbar-thumb:hover,
 .adventure-turn-strip::-webkit-scrollbar-thumb:hover,
-.adventure-result__card::-webkit-scrollbar-thumb:hover {
+.adventure-result__content::-webkit-scrollbar-thumb:hover {
   background: #9aa5b0;
   background-clip: padding-box;
 }
@@ -2400,7 +2400,7 @@ button:disabled {
   .adventure-hud__popover,
   .adventure-ending,
   .adventure-turn-strip,
-  .adventure-result__card {
+  .adventure-result__content {
     scrollbar-width: thin;
     scrollbar-color: #6b7681 rgb(255 255 255 / 8%);
   }
@@ -2903,6 +2903,11 @@ button:disabled {
 .adventure-result__card {
   display: grid;
   grid-template-columns: minmax(0, 280px) minmax(0, 1fr);
+  /*
+   * 行を明示しないと暗黙の auto 行が内容の高さまで伸び、max-height を超えた
+   * 本文が overflow: hidden で切り取られる(スクロールもできない)。
+   */
+  grid-template-rows: minmax(0, 1fr);
   width: min(880px, 100%);
   max-height: min(660px, calc(100dvh - 40px));
   overflow: hidden;
@@ -2923,10 +2928,27 @@ button:disabled {
 .adventure-result__body {
   display: flex;
   flex-direction: column;
+  min-height: 0;
+}
+
+/* 本文だけをスクロールさせ、操作ボタンは常にカード下端に見せる */
+.adventure-result__content {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
   gap: 10px;
   min-height: 0;
-  padding: 22px 24px;
-  overflow: auto;
+  padding: 22px 24px 14px;
+  overflow-y: auto;
+}
+
+.adventure-result__footer {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 24px 10px;
+  border-top: 1px solid #2c343b;
 }
 
 .adventure-result__badge {
@@ -3029,8 +3051,6 @@ button:disabled {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-top: auto;
-  padding-top: 8px;
 }
 
 .adventure-result__actions button {
@@ -3071,8 +3091,12 @@ button:disabled {
     object-position: top center;
   }
 
-  .adventure-result__body {
-    padding: 16px;
+  .adventure-result__content {
+    padding: 16px 16px 12px;
+  }
+
+  .adventure-result__footer {
+    padding: 10px 16px 8px;
   }
 }
 

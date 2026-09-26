@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   type AivisSpeaker,
@@ -70,6 +70,11 @@ export default function SpeechSynthesisSettings() {
   const isExternalEngine = externalEngineName !== null;
   const modelPathDisplay =
     statusInfo?.default_model_dir ?? "%APPDATA%/AivisSpeech-Engine/Models";
+  // engine_http を優先して判定する。process はポート上のプロセス検出に依存し、
+  // アプリ管理外のエンジンでは stopped のままになることがある。
+  const engineReady =
+    statusInfo?.engine_http === "ok" || statusInfo?.process === "running";
+  const hasVoiceSelection = Boolean(state.ttsSpeakerId || state.ttsStyleId);
 
   const setOperationFailed = useCallback(
     (error: unknown) => {
@@ -129,6 +134,13 @@ export default function SpeechSynthesisSettings() {
     [setTtsSpeakerId, setTtsStyleId, state.ttsSpeakerId, state.ttsStyleId],
   );
 
+  // 一覧の取得はエンジンが使えるようになった時だけでよい。この関数を依存に入れると
+  // スピーカーやスタイルを選び直すたびに取り直してしまうため、ref 経由で参照する
+  const reconcileSpeakerSelectionRef = useRef(reconcileSpeakerSelection);
+  useEffect(() => {
+    reconcileSpeakerSelectionRef.current = reconcileSpeakerSelection;
+  }, [reconcileSpeakerSelection]);
+
   const selectedSpeaker = useMemo(
     () =>
       speakers.find((item) => item.speaker_uuid === state.ttsSpeakerId) ?? null,
@@ -168,32 +180,31 @@ export default function SpeechSynthesisSettings() {
   }, [refreshStatus]);
 
   useEffect(() => {
-    // engine_http を優先して判定する。process はポート上のプロセス検出に依存し、
-    // アプリ管理外のエンジンでは stopped のままになることがある。
-    if (statusInfo?.engine_http !== "ok" && statusInfo?.process !== "running") {
-      return;
-    }
-    if (!state.ttsSpeakerId && !state.ttsStyleId) {
+    // 依存は真偽値だけにする。statusInfo はポーリングのたびに別オブジェクトへ
+    // 差し替わるため、そのまま依存に入れると 5 秒ごとに一覧を取り直してしまう。
+    if (!engineReady || !hasVoiceSelection) {
       return;
     }
 
+    let cancelled = false;
     const syncSpeakers = async () => {
       try {
         const result = await getAivisSpeakers();
+        if (cancelled) {
+          return;
+        }
         setSpeakers(result);
-        await reconcileSpeakerSelection(result);
+        await reconcileSpeakerSelectionRef.current(result);
       } catch {
         // Keep current UI state; manual fetch remains available.
       }
     };
 
     void syncSpeakers();
-  }, [
-    reconcileSpeakerSelection,
-    state.ttsSpeakerId,
-    state.ttsStyleId,
-    statusInfo,
-  ]);
+    return () => {
+      cancelled = true;
+    };
+  }, [engineReady, hasVoiceSelection]);
 
   const handlePrepareEngine = async () => {
     setBusy(true);
@@ -418,8 +429,6 @@ export default function SpeechSynthesisSettings() {
     }
   };
 
-  const engineReady =
-    statusInfo?.engine_http === "ok" || statusInfo?.process === "running";
   const hasError = currentAction === t("settings.speech.actionFailed");
 
   let bannerVariant: "busy" | "error" | "ready" | "idle" = "idle";

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Navigate, useLocation } from "react-router-dom";
 import { fetchAnlasBalance } from "./apis/anlas";
+import { shouldShowCost } from "./apis/system";
 import ApiKeyConsentModal from "./components/ApiKeyConsentModal";
 import AchievementsScreen from "./components/achievements/AchievementsScreen";
 import AdventureScreen from "./components/adventure/AdventureScreen";
@@ -266,11 +267,7 @@ function AppMain() {
             ) {
               detectedProvider = data.image_provider;
             }
-            // いずれかのproviderがopenrouterならコスト表示
-            const hasCostProvider =
-              data.image_provider === "openrouter" ||
-              data.image_description_provider === "openrouter" ||
-              data.feeling_provider === "openrouter";
+            const hasCostProvider = shouldShowCost(data);
             // キャッシュに保存
             writeStorage("session", IMAGE_PROVIDER_CACHE_KEY, detectedProvider);
             writeStorage(
