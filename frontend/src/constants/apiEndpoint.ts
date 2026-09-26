@@ -35,3 +35,18 @@ export const CHARACTER_PRESETS = `${API_BASE}/game/character-presets`;
 
 export const CHARACTER_PRESET = (presetId: string): string =>
   `${API_BASE}/game/character-presets/${encodeURIComponent(presetId)}`;
+
+export const CHARACTERS_FROM_GROUP = (
+  sessionId: string,
+  groupId: string,
+): string =>
+  `${API_BASE}/game/session/${encodeURIComponent(sessionId)}/characters/from-group/${encodeURIComponent(groupId)}`;
+
+export const CHARACTER_GROUP_PRESETS = `${API_BASE}/game/character-group-presets`;
+
+export const CHARACTER_GROUP_PRESET = (groupId: string): string =>
+  `${API_BASE}/game/character-group-presets/${encodeURIComponent(groupId)}`;
+
+export const CHARACTERS_GENERATE_PROFILE = `${API_BASE}/game/characters/generate-profile`;
+
+export const CHARACTERS_RESOLVE_SOURCE = `${API_BASE}/game/characters/resolve-source`;

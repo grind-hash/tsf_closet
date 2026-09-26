@@ -9,6 +9,11 @@ from __future__ import annotations
 
 import random
 
+from .multi_people_prompts import (
+    append_session_characters_section,
+    build_multi_people_rule,
+)
+
 # =============================================================================
 # 現実改変用システムプロンプト（通常モード）
 # =============================================================================
@@ -456,6 +461,7 @@ def build_reality_feeling_prompt(
     attributes: list[str] | None = None,
     nsfw_mode: bool = False,
     enable_multiple_people: bool = False,
+    session_characters_section: str | None = None,
 ) -> tuple[str, str]:
     """現実改変用心境生成プロンプトを構築
 
@@ -469,6 +475,7 @@ def build_reality_feeling_prompt(
         pronoun: 一人称
         attributes: キャラクターに付与された属性リスト
         nsfw_mode: NSFWモードかどうか
+        session_characters_section: 登場人物一覧（ユーザープロンプト末尾に付ける）
 
     Returns:
         (システムプロンプト, ユーザープロンプト) のタプル
@@ -488,14 +495,9 @@ def build_reality_feeling_prompt(
 
     system_prompt = stage["system_prompt"]
 
-    # 複数人表示モードの場合、他者との相互作用描写を許可
+    # 複数人表示モードの場合、他者との相互作用描写を許可（登場人物一覧があれば従わせる）
     if enable_multiple_people:
-        system_prompt += (
-            "\n\n【複数人モード】\n"
-            "- ユーザーの指示に他の人物が関わる場合、その人物との相互作用や会話を自然に描写してよい。\n"
-            "- 他のキャラクターの名前はLLMが自由に決定してよい。\n"
-            "- ただし主人公の一人称は必ず維持すること。"
-        )
+        system_prompt += build_multi_people_rule(session_characters_section)
 
     user_prompt = (
         REALITY_FEELING_USER_PROMPT_TEMPLATE.format(
@@ -506,6 +508,9 @@ def build_reality_feeling_prompt(
             opening=opening,
         )
         + attribute_section
+    )
+    user_prompt = append_session_characters_section(
+        user_prompt, session_characters_section
     )
 
     return system_prompt, user_prompt

@@ -11,19 +11,8 @@ import {
   saveSelfProfile,
 } from "../../apis/settings";
 import { useSettings } from "../../contexts/SettingsContext";
+import ProfileFields from "./ProfileFields";
 import "./SelfProfileEditor.css";
-
-const REACTION_STYLES = [
-  "default",
-  "bold",
-  "gentle",
-  "cheerful",
-  "shy",
-  "calm",
-  "passionate",
-] as const;
-
-const GENDERS = ["man", "woman"] as const;
 
 export default function SelfProfileEditor() {
   const { t } = useTranslation();
@@ -81,13 +70,9 @@ export default function SelfProfileEditor() {
     }
   }, [editProfile, setSelfProfile, loadSelfProfile, t]);
 
-  const updateField = useCallback(
-    (field: keyof SelfProfile, value: string | string[]) => {
-      if (!editProfile) return;
-      setEditProfile({ ...editProfile, [field]: value });
-    },
-    [editProfile],
-  );
+  const updateField = useCallback((field: keyof SelfProfile, value: string) => {
+    setEditProfile((prev) => (prev ? { ...prev, [field]: value } : prev));
+  }, []);
 
   return (
     <div className="self-profile-editor">
@@ -132,96 +117,12 @@ export default function SelfProfileEditor() {
             />
           </div>
 
-          <div className="self-profile-editor__field">
-            <label className="self-profile-editor__label">
-              {t("settings.selfProfile.personality")}
-            </label>
-            <textarea
-              className="self-profile-editor__textarea self-profile-editor__textarea--small"
-              value={editProfile.personality}
-              onChange={(e) => updateField("personality", e.target.value)}
-              rows={2}
-            />
-          </div>
-
-          <div className="self-profile-editor__field">
-            <label className="self-profile-editor__label">
-              {t("settings.selfProfile.reactionStyle")}
-            </label>
-            <select
-              className="self-profile-editor__select"
-              value={editProfile.reaction_style}
-              onChange={(e) => updateField("reaction_style", e.target.value)}
-            >
-              {REACTION_STYLES.map((style) => (
-                <option key={style} value={style}>
-                  {t(`settings.selfProfile.reactionStyles.${style}`)}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="self-profile-editor__field">
-            <label className="self-profile-editor__label">
-              {t("settings.selfProfile.pronoun")}
-            </label>
-            <input
-              type="text"
-              className="self-profile-editor__input"
-              value={editProfile.pronoun}
-              onChange={(e) => updateField("pronoun", e.target.value)}
-            />
-          </div>
-
-          <div className="self-profile-editor__field">
-            <label className="self-profile-editor__label">
-              {t("settings.selfProfile.gender")}
-            </label>
-            <select
-              className="self-profile-editor__select"
-              value={editProfile.gender || "man"}
-              onChange={(e) => updateField("gender", e.target.value)}
-            >
-              {GENDERS.map((g) => (
-                <option key={g} value={g}>
-                  {t(`settings.selfProfile.genders.${g}`)}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="self-profile-editor__field">
-            <label className="self-profile-editor__label">
-              {t("settings.selfProfile.interests")}
-            </label>
-            <input
-              type="text"
-              className="self-profile-editor__input"
-              value={editProfile.interests.join(", ")}
-              onChange={(e) =>
-                updateField(
-                  "interests",
-                  e.target.value
-                    .split(",")
-                    .map((s) => s.trim())
-                    .filter(Boolean),
-                )
-              }
-              placeholder={t("settings.selfProfile.interestsPlaceholder")}
-            />
-          </div>
-
-          <div className="self-profile-editor__field">
-            <label className="self-profile-editor__label">
-              {t("settings.selfProfile.tsfAttitude")}
-            </label>
-            <input
-              type="text"
-              className="self-profile-editor__input"
-              value={editProfile.tsf_attitude}
-              onChange={(e) => updateField("tsf_attitude", e.target.value)}
-            />
-          </div>
+          <ProfileFields
+            value={editProfile}
+            onChange={(patch) =>
+              setEditProfile((prev) => (prev ? { ...prev, ...patch } : prev))
+            }
+          />
 
           <button
             type="button"

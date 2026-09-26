@@ -469,6 +469,28 @@ export type CharacterPosition =
   | "center-right"
   | "right";
 
+export type CharacterReactionStyle =
+  | "default"
+  | "bold"
+  | "gentle"
+  | "cheerful"
+  | "shy"
+  | "calm"
+  | "passionate";
+
+/** 登場人物の性格プロフィール（自分自身モードの SelfProfile と同じ項目） */
+export interface CharacterProfile {
+  personality: string;
+  reaction_style: CharacterReactionStyle;
+  pronoun: string;
+  /** 空文字は未設定 */
+  gender: "man" | "woman" | "";
+  interests: string[];
+  tsf_attitude: string;
+  /** 自動生成の元にするメモ */
+  memo: string;
+}
+
 // Note: AGENTS.md naming exception - backend returns snake_case fields,
 // so the frontend types follow snake_case as well for direct mapping.
 export interface SessionCharacter {
@@ -483,6 +505,13 @@ export interface SessionCharacter {
   appearance_lock: boolean;
   exclude_from_effects: boolean;
   source_preset_id: string | null;
+  /** 人物ごとのネガティブタグ（NovelAI の character prompt の uc） */
+  negative_tags: string;
+  profile: CharacterProfile | null;
+  /** false の人物は登録を残したまま画像・テキストに反映しない */
+  on_stage: boolean;
+  /** 姿を選んだソースのサムネイル（API 相対パス） */
+  thumbnail_url: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -493,6 +522,32 @@ export interface CharacterPreset {
   appearance_natural: string;
   appearance_tags: string;
   default_position: CharacterPosition;
+  negative_tags: string;
+  profile: CharacterProfile | null;
+  thumbnail_url: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** 組み合わせプリセットに保存された 1 人分 */
+export interface CharacterGroupMember {
+  name: string;
+  appearance_natural: string;
+  appearance_tags: string;
+  negative_tags: string;
+  position: CharacterPosition;
+  appearance_lock: boolean;
+  exclude_from_effects: boolean;
+  on_stage: boolean;
+  profile: CharacterProfile | null;
+  thumbnail_url: string | null;
+}
+
+/** 登場人物の組み合わせ（主人公以外の一式） */
+export interface CharacterGroupPreset {
+  id: string;
+  name: string;
+  members: CharacterGroupMember[];
   created_at: string;
   updated_at: string;
 }

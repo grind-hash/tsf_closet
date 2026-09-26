@@ -7,16 +7,23 @@
  */
 
 import {
+  CHARACTER_GROUP_PRESET,
+  CHARACTER_GROUP_PRESETS,
   CHARACTER_PRESET,
   CHARACTER_PRESETS,
+  CHARACTERS_FROM_GROUP,
   CHARACTERS_FROM_PRESET,
+  CHARACTERS_GENERATE_PROFILE,
+  CHARACTERS_RESOLVE_SOURCE,
   SESSION_CHARACTER,
   SESSION_CHARACTERS,
   SESSION_CHARACTERS_ENSURE_PROTAGONIST,
 } from "../constants/apiEndpoint";
 import type {
+  CharacterGroupPreset,
   CharacterPosition,
   CharacterPreset,
+  CharacterProfile,
   SessionCharacter,
 } from "../types";
 import { requestJson } from "../utils/http";
@@ -65,6 +72,10 @@ export interface CreateSessionCharacterPayload {
   source_preset_id?: string | null;
   appearance_lock?: boolean;
   exclude_from_effects?: boolean;
+  negative_tags?: string;
+  profile?: CharacterProfile | null;
+  on_stage?: boolean;
+  thumbnail_url?: string | null;
 }
 
 export async function createSessionCharacter(
@@ -85,6 +96,10 @@ export interface UpdateSessionCharacterPayload {
   slot_index?: number;
   appearance_lock?: boolean;
   exclude_from_effects?: boolean;
+  negative_tags?: string;
+  profile?: CharacterProfile;
+  on_stage?: boolean;
+  thumbnail_url?: string;
 }
 
 export async function updateSessionCharacter(
@@ -110,11 +125,65 @@ export async function deleteSessionCharacter(
 export async function applyPresetToSession(
   sessionId: string,
   presetId: string,
+  options: { onStage?: boolean } = {},
 ): Promise<SessionCharacter> {
+  const query =
+    options.onStage === undefined ? "" : `?on_stage=${options.onStage}`;
   return request<SessionCharacter>(
-    CHARACTERS_FROM_PRESET(sessionId, presetId),
+    `${CHARACTERS_FROM_PRESET(sessionId, presetId)}${query}`,
     { method: "POST" },
   );
+}
+
+/** 主人公以外の登場人物を、組み合わせプリセットのメンバーで置き換える */
+export async function applyGroupPresetToSession(
+  sessionId: string,
+  groupId: string,
+): Promise<SessionCharacter[]> {
+  const data = await request<SessionCharacterListResponse>(
+    CHARACTERS_FROM_GROUP(sessionId, groupId),
+    { method: "POST" },
+  );
+  return data.characters;
+}
+
+export interface GenerateCharacterProfilePayload {
+  name: string;
+  appearance_natural: string;
+  appearance_tags: string;
+  memo: string;
+}
+
+/** 名前・外見・メモから性格プロフィールを LLM で生成する（保存はしない） */
+export async function generateCharacterProfile(
+  payload: GenerateCharacterProfilePayload,
+): Promise<CharacterProfile> {
+  return request<CharacterProfile>(CHARACTERS_GENERATE_PROFILE, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export interface ResolveCharacterSourcePayload {
+  session_id?: string;
+  history_id?: string;
+  prompt_expander_entry_id?: string;
+}
+
+export interface ResolvedCharacterSource {
+  name: string | null;
+  appearance_natural: string;
+  appearance_tags: string;
+}
+
+/** セッション・お気に入り・Prompt Expander の選択から名前と外見を取り出す */
+export async function resolveCharacterSource(
+  payload: ResolveCharacterSourcePayload,
+): Promise<ResolvedCharacterSource> {
+  return request<ResolvedCharacterSource>(CHARACTERS_RESOLVE_SOURCE, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -140,6 +209,9 @@ export interface CreatePresetRawPayload {
   appearance_natural?: string;
   appearance_tags?: string;
   default_position?: CharacterPosition;
+  negative_tags?: string;
+  profile?: CharacterProfile | null;
+  thumbnail_url?: string | null;
 }
 
 export async function createCharacterPreset(
@@ -156,6 +228,9 @@ export interface UpdateCharacterPresetPayload {
   appearance_natural?: string;
   appearance_tags?: string;
   default_position?: CharacterPosition;
+  negative_tags?: string;
+  profile?: CharacterProfile;
+  thumbnail_url?: string;
 }
 
 export async function updateCharacterPreset(
@@ -172,4 +247,49 @@ export async function deleteCharacterPreset(presetId: string): Promise<void> {
   await request<void>(CHARACTER_PRESET(presetId), {
     method: "DELETE",
   });
+}
+
+// ---------------------------------------------------------------------------
+// Group presets (cast combinations)
+// ---------------------------------------------------------------------------
+
+export interface CharacterGroupPresetListResponse {
+  groups: CharacterGroupPreset[];
+}
+
+export async function listCharacterGroupPresets(): Promise<
+  CharacterGroupPreset[]
+> {
+  const data = await request<CharacterGroupPresetListResponse>(
+    CHARACTER_GROUP_PRESETS,
+  );
+  return data.groups;
+}
+
+/** セッションの登場人物（主人公以外）を組み合わせとして保存する */
+export async function createCharacterGroupPreset(payload: {
+  name: string;
+  from_session_id: string;
+}): Promise<CharacterGroupPreset> {
+  return request<CharacterGroupPreset>(CHARACTER_GROUP_PRESETS, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+/** 名前の変更、またはセッションの登場人物での上書き */
+export async function updateCharacterGroupPreset(
+  groupId: string,
+  payload: { name?: string; from_session_id?: string },
+): Promise<CharacterGroupPreset> {
+  return request<CharacterGroupPreset>(CHARACTER_GROUP_PRESET(groupId), {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteCharacterGroupPreset(
+  groupId: string,
+): Promise<void> {
+  await request<void>(CHARACTER_GROUP_PRESET(groupId), { method: "DELETE" });
 }

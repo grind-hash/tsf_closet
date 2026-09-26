@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..consts.language import normalize_language
+from ..databases.base import async_session_factory
 from .characters import character_manager
 from .conversation import (
     build_conversation_prompt,
@@ -74,6 +75,34 @@ class ConversationService:
             current_user_prompt = f"{user_prompt}\n\nIMPORTANT: Respond in {'English only' if language == 'en' else 'Japanese only'}."
         return None
 
+    @staticmethod
+    async def _load_session_characters_section(
+        session_id: str, user_settings: dict, nsfw_mode: bool
+    ) -> str | None:
+        """人物パネルの登場人物一覧（性格つき）。取得に失敗したら None。"""
+        from .character_service import (
+            build_session_characters_prompt_section,
+            load_session_characters_for_prompt,
+            resolve_stage_limit,
+        )
+
+        try:
+            async with async_session_factory() as db:
+                records = await load_session_characters_for_prompt(db, session_id)
+        except Exception as exc:  # noqa: BLE001 - 一覧が無くても会話は続ける
+            logger.warning(
+                "chat session_character fetch skipped: %s: %s",
+                type(exc).__name__,
+                exc,
+            )
+            return None
+        return (
+            build_session_characters_prompt_section(
+                records, limit=resolve_stage_limit(user_settings, nsfw_mode)
+            )
+            or None
+        )
+
     async def build_chat_context(
         self,
         *,
@@ -83,6 +112,7 @@ class ConversationService:
         enable_multiple_people: bool,
         use_play_memory: bool,
         use_history_lookback: bool | None,
+        use_character_panel: bool = True,
     ) -> ChatContext:
         """セッションと履歴を読み、プロンプトを組み立て、ユーザー発言を保存する。
 
@@ -143,6 +173,13 @@ class ConversationService:
             language or user_settings.get("language")
         )
         novelai_text_model = user_settings.get("novelai_text_model")
+        session_characters_section = (
+            await self._load_session_characters_section(
+                session_id, user_settings, stats.nsfw_mode
+            )
+            if enable_multiple_people and use_character_panel
+            else None
+        )
 
         timeline_limit = math.ceil(lookback_count * 1.6)
         session_timeline = (
@@ -171,6 +208,7 @@ class ConversationService:
                 session_timeline=session_timeline,
                 enable_multiple_people=enable_multiple_people,
                 lookback_count=lookback_count,
+                session_characters_section=session_characters_section,
             )
         else:
             system_prompt, user_prompt = build_conversation_prompt(
@@ -186,6 +224,7 @@ class ConversationService:
                 language=effective_language,
                 session_timeline=session_timeline,
                 lookback_count=lookback_count,
+                session_characters_section=session_characters_section,
             )
         if use_play_memory:
             from .play_memory_service import play_memory_service

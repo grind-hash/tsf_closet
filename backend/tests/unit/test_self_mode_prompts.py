@@ -199,3 +199,37 @@ def test_self_profile_generation_system_contains_json_schema() -> None:
     assert "pronoun" in system
     assert "interests" in system
     assert "tsf_attitude" in system
+
+
+# ── Multi-character roster ──
+
+_ROSTER = (
+    "\n[同シーンの登場キャラクター一覧]\n- サクラ（位置=左）\n  人物設定: 一人称=わたし"
+)
+
+
+def test_feeling_prompt_uses_roster_instead_of_free_names() -> None:
+    profile = {"pronoun": "僕", "personality": "calm"}
+    system, user = build_self_mode_feeling_prompt(
+        before_desc="before",
+        after_desc="after",
+        instruction="dress",
+        self_profile=profile,
+        enable_multiple_people=True,
+        session_characters_section=_ROSTER,
+    )
+    assert "自由に決めてください" not in system
+    assert "一覧の設定どおり" in system
+    assert user.rstrip().endswith("人物設定: 一人称=わたし")
+
+
+def test_feeling_prompt_keeps_free_names_without_roster() -> None:
+    system, user = build_self_mode_feeling_prompt(
+        before_desc="before",
+        after_desc="after",
+        instruction="dress",
+        self_profile={"pronoun": "僕"},
+        enable_multiple_people=True,
+    )
+    assert "自由に決めてください" in system
+    assert "同シーンの登場キャラクター一覧" not in user

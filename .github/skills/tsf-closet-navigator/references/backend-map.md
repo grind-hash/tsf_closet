@@ -71,9 +71,15 @@
 - `/session/{session_id}/characters`: セッション人物の一覧・追加
 - `/session/{session_id}/characters/ensure-protagonist`: 主人公レコードの冪等確保
 - `/session/{session_id}/characters/{character_id}`: 更新・削除
-- `/session/{session_id}/characters/from-preset/{preset_id}`: プリセット適用
+- `/session/{session_id}/characters/from-preset/{preset_id}`: プリセット適用（`on_stage` クエリ）
+- `/session/{session_id}/characters/from-group/{group_id}`: 組み合わせプリセットで主人公以外を入れ替え
 - `/characters/generate-tags`: 複数人物タグの一括生成
+- `/characters/generate-profile`: 名前・外見・メモから人物の性格プロフィールを生成（FEELING_PROVIDER＋ユーザーの `novelai_text_model`）
+- `/characters/resolve-source`: セッション・お気に入り・Prompt Expander の選択から名前と外見を取り出す
 - `/character-presets`: プリセット CRUD
+- `/character-group-presets`: 組み合わせプリセット（主人公以外の一式）の CRUD
+
+人物ごとに `negative_tags`（character prompt の uc）、`profile_json`（性格）、`on_stage`（登場 ON/OFF）、`thumbnail_url` を持つ。登録は主人公を含め 22 人まで、画像・テキストに載るのは登場中の人物で、画像モデルの上限（V4.5=6 / V5=22）で切り詰める。
 
 ### Adventure
 
@@ -146,7 +152,9 @@
 | `session_branch_service.py` | 履歴地点からのセッション分岐                       |
 | `play_memory_service.py`    | セッション単位の自動/ユーザープレイメモ            |
 | `memory_job_service.py`     | ユーザー単位メモリ生成ジョブと監査スナップショット |
-| `character_service.py`      | SessionCharacter、CharacterPreset、人物外見同期    |
+| `character_service.py`      | SessionCharacter、CharacterPreset、組み合わせプリセット、人物外見同期。登場順（主人公→slot 順・登場中のみ・画像モデル上限で切り詰め）を決める `build_stage_roster` を、画像/テキストの人物一覧・LLM 出力 `characters[i]` の対応・人物別ネガティブ付与 `attach_stage_negatives` で共通に使う |
+| `character_profile.py`      | 人物の性格プロフィールの正規化・1 行要約 `format_profile_line_ja`・自動生成、姿ソースの解決 `resolve_character_source` |
+| `multi_people_prompts.py`   | 複数人モードのルール文。登場人物一覧があれば名前・一人称・性格を一覧に従わせ、無ければ従来どおり他人物の名前を LLM に任せる |
 | `characters.py`             | テンプレートキャラクターメタデータ                 |
 | `source_snapshot.py`        | 開始素材（セッション / 履歴 / Prompt Expander エントリ）→ `(snapshot, 画像パス, 外見タグ, nsfw_mode)` の `build_source_snapshot`（`SourceSnapshotError.code`: `source_not_found` / `image_not_found`）、服装・情景タグの判定 `CLOTHING_TAG_PATTERN` / `SCENE_OR_ACTION_TAG_PATTERN`、`history_visual_description`、`identity_tags_only`、人物名と一人称の 3 段解決 `resolve_session_identity`（self_profile → テンプレ → カスタム）。Adventure の `_build_snapshot` はここへ委譲し `AdventureError` に写す。キャラチャットのキャラ作成・姿の差し替えも共用 |
 | `portrait_generation.py`    | 立ち絵（全身・単独・白/透過背景）の共通定数 `PORTRAIT_EXTRA_NEGATIVE` / `portrait_prompt_suffix(model)` / `REDRAW_REFERENCE_INSTRUCTION` / `character_reference_entry` と、run に依存しない `generate_portrait_bytes(tags, nsfw_mode, provider, image_model, reference_bytes)`（NovelAI は txt2img で精密参照なし、他は参照画像を編集元に。料金は `record_cost`）。adventure_service は別名で従来どおり参照する |

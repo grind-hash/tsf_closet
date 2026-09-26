@@ -141,10 +141,10 @@ Adventureイベントは `apis/adventure.ts` の専用パーサを変更し、�
 
 ### 複数人物を変更する
 
-- BE: `character_router.py`、`character_service.py`、`databases/character_repo.py`、`SessionCharacter` / `CharacterPreset`
-- FE: `apis/characters.ts`、`GameContext.tsx`、`panel/CharacterPanel.tsx`、`CharacterPresetPicker.tsx`
-- Prompt: `game_service.py`、`llm_service.py`
-- E2E/unit: 人物上限、主人公の冪等確保、lock/exclude、preset CRUD、画像プロンプト反映
+- BE: `character_router.py`、`character_service.py`、`character_profile.py`、`databases/character_repo.py`、`SessionCharacter` / `CharacterPreset` / `CharacterGroupPreset`
+- FE: `apis/characters.ts`、`GameContext.tsx`、`utils/characterStage.ts`、`panel/CharacterPanel.tsx`、`CharacterCastModal.tsx`、`CharacterDetailEditor.tsx`、`CharacterGroupPresetModal.tsx`、`CharacterPresetPicker.tsx`
+- Prompt: `game_service.py`（`_load_multi_character_sections` / `_build_image_payload`）、`multi_people_prompts.py`、各 feeling / action / conversation ビルダー
+- E2E/unit: 人物上限（登録 22・登場は画像モデル別）、登場順と `stage_index` の対応、主人公の冪等確保、lock/exclude、preset / group CRUD、画像・テキストへの反映（`tests/unit/test_character_stage.py`、`tests/e2e/character-cast.spec.ts`）
 
 `enableMultiplePeople` と `multiCharacterPanelEnabled` の意味を分け、OFF時の従来挙動を保つ。
 

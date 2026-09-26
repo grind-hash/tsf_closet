@@ -106,3 +106,62 @@ async def test_update_position_change(isolated_db):
         await db.commit()
     assert updated is not None
     assert updated.position == "right"
+
+
+@pytest.mark.asyncio
+async def test_protagonist_cannot_be_taken_off_stage(isolated_db):
+    from gateway.services.character_service import (
+        upsert_protagonist_session_character,
+    )
+
+    factory = await _setup(isolated_db.async_factory)
+    async with factory() as db:
+        hero = await upsert_protagonist_session_character(
+            db, "sess-1", name="Hero", appearance_tags="1boy"
+        )
+        await db.commit()
+
+    async with factory() as db:
+        updated = await SessionCharacterService.update(
+            db, hero.id, on_stage=False, negative_tags="hat"
+        )
+        await db.commit()
+    assert updated is not None
+    assert updated.on_stage is True
+    assert updated.negative_tags == "hat"
+
+
+@pytest.mark.asyncio
+async def test_branch_copy_keeps_cast_fields(isolated_db):
+    from gateway.services.session_branch_service import _copy_session_characters
+
+    factory = await _setup(isolated_db.async_factory)
+    async with factory() as db:
+        db.add(
+            SessionORM(
+                id="sess-2",
+                user_id="user-1",
+                current_image_path="img/start.png",
+                character_id="char-1",
+            )
+        )
+        await SessionCharacterService.create_in_session(
+            db,
+            "sess-1",
+            name="Sakura",
+            negative_tags="glasses",
+            profile={"pronoun": "わたし"},
+            on_stage=False,
+            thumbnail_url="/prompt-expander/images/abc",
+        )
+        await db.commit()
+
+    await _copy_session_characters("sess-1", "sess-2")
+
+    async with factory() as db:
+        copied = list(await SessionCharacterService.list_for_session(db, "sess-2"))
+    assert len(copied) == 1
+    assert copied[0].negative_tags == "glasses"
+    assert copied[0].on_stage is False
+    assert copied[0].thumbnail_url == "/prompt-expander/images/abc"
+    assert "わたし" in (copied[0].profile_json or "")

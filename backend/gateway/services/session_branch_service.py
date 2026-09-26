@@ -101,6 +101,10 @@ async def _copy_session_characters(source_session_id: str, new_session_id: str) 
                 is_protagonist=bool(rec.is_protagonist),
                 appearance_lock=bool(getattr(rec, "appearance_lock", False)),
                 exclude_from_effects=bool(getattr(rec, "exclude_from_effects", False)),
+                negative_tags=rec.negative_tags or "",
+                profile_json=rec.profile_json,
+                on_stage=bool(rec.on_stage),
+                thumbnail_url=rec.thumbnail_url,
             )
         await db_session.commit()
 

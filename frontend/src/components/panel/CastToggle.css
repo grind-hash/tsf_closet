@@ -1,0 +1,59 @@
+/* CastToggle - 登場人物まわりのトグルスイッチ */
+
+.cast-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--text-muted, rgba(255, 255, 255, 0.7));
+}
+
+.cast-toggle--disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.cast-toggle__input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.cast-toggle__switch {
+  position: relative;
+  width: 34px;
+  height: 18px;
+  background-color: var(--border-color, #333);
+  border-radius: 9px;
+  transition: background-color 0.2s;
+  flex-shrink: 0;
+}
+
+.cast-toggle__switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  background-color: white;
+  border-radius: 50%;
+  transition: transform 0.2s;
+}
+
+.cast-toggle__input:checked + .cast-toggle__switch {
+  background-color: var(--accent-color, #e94560);
+}
+
+.cast-toggle__input:checked + .cast-toggle__switch::after {
+  transform: translateX(16px);
+}
+
+.cast-toggle__input:focus-visible + .cast-toggle__switch {
+  outline: 2px solid var(--accent-color, #e94560);
+  outline-offset: 2px;
+}

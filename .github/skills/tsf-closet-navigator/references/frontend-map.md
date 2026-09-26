@@ -225,8 +225,12 @@ components/
 
   panel/
     CharacterStatePanel.tsx   通常ゲームの人物状態
-    CharacterPanel.tsx        複数人物編集
+    CharacterPanel.tsx        複数人物の要約（登場 ON/OFF・人数）
+    CharacterCastModal.tsx    登場人物の設定（一覧＋姿・ネガティブ・性格の編集）
+    CharacterDetailEditor.tsx 1 人分の編集（blur/閉じるときに保存）
+    CharacterGroupPresetModal.tsx 組み合わせプリセットの保存・入れ替え
     CharacterPresetPicker.tsx
+    CastToggle.tsx            ON/OFF のトグルスイッチ
 
   settings/
     SettingsScreen.tsx

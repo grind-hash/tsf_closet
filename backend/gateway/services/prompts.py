@@ -8,6 +8,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from .multi_people_prompts import (
+    append_session_characters_section,
+    build_multi_people_rule,
+)
+
 if TYPE_CHECKING:
     from .gender_congruence import GenderCongruenceResult
 
@@ -956,6 +961,7 @@ def build_enhanced_feeling_prompt(
     used_openings: list[str] | None = None,
     enable_multiple_people: bool = False,
     gender_congruence: GenderCongruenceResult | None = None,
+    session_characters_section: str | None = None,
 ) -> tuple[str, str]:
     """Build an enhanced feeling prompt with psychological stage and personality.
 
@@ -977,6 +983,8 @@ def build_enhanced_feeling_prompt(
         used_openings: Recently used opening lines for dedup
         gender_congruence: Optional gender-congruence judgment. When
             should_feel_gender_discomfort is False, uses a non-TSF monologue.
+        session_characters_section: Registered on-stage characters (with
+            personality lines) appended to the user prompt.
 
     Returns:
         (system_prompt, user_prompt) tuple
@@ -1023,14 +1031,9 @@ def build_enhanced_feeling_prompt(
         personality_section += "- このキャラクターの性格特性に合わせて、語調・反応・思考パターンを調整してください。"
         system_prompt += personality_section
 
-    # 複数人表示モードの場合、他者との相互作用描写を許可
+    # 複数人表示モードの場合、他者との相互作用描写を許可（登場人物一覧があれば従わせる）
     if enable_multiple_people:
-        system_prompt += (
-            "\n\n【複数人モード】\n"
-            "- ユーザーの指示に他の人物が関わる場合、その人物との相互作用や会話を自然に描写してよい。\n"
-            "- 他のキャラクターの名前はLLMが自由に決定してよい。\n"
-            "- ただし主人公の一人称は必ず維持すること。"
-        )
+        system_prompt += build_multi_people_rule(session_characters_section)
 
     # 属性情報を追加
     attribute_section = ""
@@ -1050,6 +1053,9 @@ def build_enhanced_feeling_prompt(
             opening=opening,
         )
         + attribute_section
+    )
+    user_prompt = append_session_characters_section(
+        user_prompt, session_characters_section
     )
 
     return system_prompt, user_prompt

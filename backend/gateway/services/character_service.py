@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,26 +18,35 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..consts.character_limits import (
     APPEARANCE_NATURAL_MAX_LEN,
     APPEARANCE_TAGS_MAX_LEN,
+    MAX_REGISTERED_CHARACTERS,
 )
 from ..databases.character_repo import (
+    delete_character_group_preset,
     delete_character_preset,
+    delete_non_protagonist_session_characters,
     delete_session_character,
+    fetch_character_group_preset,
+    fetch_character_group_presets,
     fetch_character_preset,
     fetch_character_presets,
     fetch_protagonist_session_character,
     fetch_session_character,
     fetch_session_characters,
+    insert_character_group_preset,
     insert_character_preset,
     insert_session_character,
+    update_character_group_preset,
     update_character_preset,
     update_session_character,
 )
-from ..databases.models import CharacterPreset, SessionCharacter
+from ..databases.models import CharacterGroupPreset, CharacterPreset, SessionCharacter
+from .character_profile import format_profile_line_ja
 
 logger = logging.getLogger(__name__)
 
 
-CHARACTER_LIMIT = 4
+# 主人公以外に登録できる人数（主人公を含めて MAX_REGISTERED_CHARACTERS 人）
+CHARACTER_LIMIT = MAX_REGISTERED_CHARACTERS - 1
 ALLOWED_POSITIONS = (
     "left",
     "center-left",
@@ -50,6 +61,36 @@ class CharacterLimitExceededError(ValueError):
 
     def __init__(self) -> None:
         super().__init__("character_limit_exceeded")
+
+
+def dump_profile(profile: dict[str, Any] | None) -> str | None:
+    """性格プロフィール dict を profile_json 列の値にする。"""
+    if not profile:
+        return None
+    return json.dumps(profile, ensure_ascii=False)
+
+
+def record_profile(record: Any) -> dict[str, Any] | None:
+    """profile_json 列を dict に戻す。壊れた JSON や未設定は None。"""
+    raw = getattr(record, "profile_json", None)
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _profile_patch(patch: dict[str, Any]) -> dict[str, Any]:
+    """API の ``profile`` キーを DB の ``profile_json`` 列へ置き換える。"""
+    if "profile" not in patch:
+        return patch
+    converted = dict(patch)
+    profile = converted.pop("profile")
+    if profile is not None:
+        converted["profile_json"] = dump_profile(profile) or ""
+    return converted
 
 
 # ---------------------------------------------------------------------------
@@ -79,6 +120,10 @@ class SessionCharacterService:
         source_preset_id: str | None = None,
         appearance_lock: bool = False,
         exclude_from_effects: bool = False,
+        negative_tags: str = "",
+        profile: dict[str, Any] | None = None,
+        on_stage: bool = True,
+        thumbnail_url: str | None = None,
     ) -> SessionCharacter:
         existing = list(await fetch_session_characters(db, session_id))
         non_protagonist_count = sum(1 for r in existing if not r.is_protagonist)
@@ -99,6 +144,10 @@ class SessionCharacterService:
             source_preset_id=source_preset_id,
             appearance_lock=appearance_lock,
             exclude_from_effects=exclude_from_effects,
+            negative_tags=negative_tags,
+            profile_json=dump_profile(profile),
+            on_stage=on_stage,
+            thumbnail_url=thumbnail_url,
         )
         await SessionCharacterService.reassign_positions(db, session_id)
         return record
@@ -115,6 +164,12 @@ class SessionCharacterService:
             and patch["position"] not in ALLOWED_POSITIONS
         ):
             raise ValueError(f"invalid_position:{patch['position']}")
+        patch = _profile_patch(patch)
+        if patch.get("on_stage") is False:
+            # 主人公は常に登場扱い。OFF への変更だけ無視する
+            current = await fetch_session_character(db, character_id)
+            if current is not None and current.is_protagonist:
+                patch = {k: v for k, v in patch.items() if k != "on_stage"}
         record = await update_session_character(db, character_id, **patch)
         if record is not None and "slot_index" in patch:
             await SessionCharacterService.reassign_positions(db, record.session_id)
@@ -153,6 +208,8 @@ class SessionCharacterService:
         db: AsyncSession,
         session_id: str,
         preset_id: str,
+        *,
+        on_stage: bool = True,
     ) -> SessionCharacter:
         preset = await fetch_character_preset(db, preset_id)
         if preset is None:
@@ -165,6 +222,10 @@ class SessionCharacterService:
             appearance_tags=preset.appearance_tags,
             position=preset.default_position,
             source_preset_id=preset.id,
+            negative_tags=preset.negative_tags or "",
+            profile=record_profile(preset),
+            on_stage=on_stage,
+            thumbnail_url=preset.thumbnail_url,
         )
 
 
@@ -190,6 +251,9 @@ class CharacterPresetService:
         appearance_natural: str = "",
         appearance_tags: str = "",
         default_position: str = "center",
+        negative_tags: str = "",
+        profile: dict[str, Any] | None = None,
+        thumbnail_url: str | None = None,
     ) -> CharacterPreset:
         if default_position not in ALLOWED_POSITIONS:
             raise ValueError(f"invalid_position:{default_position}")
@@ -199,6 +263,9 @@ class CharacterPresetService:
             appearance_natural=appearance_natural,
             appearance_tags=appearance_tags,
             default_position=default_position,
+            negative_tags=negative_tags,
+            profile_json=dump_profile(profile),
+            thumbnail_url=thumbnail_url,
         )
 
     @staticmethod
@@ -217,6 +284,9 @@ class CharacterPresetService:
             appearance_natural=source.appearance_natural,
             appearance_tags=source.appearance_tags,
             default_position=source.position,
+            negative_tags=source.negative_tags or "",
+            profile_json=source.profile_json,
+            thumbnail_url=source.thumbnail_url,
         )
 
     @staticmethod
@@ -231,7 +301,7 @@ class CharacterPresetService:
             and patch["default_position"] not in ALLOWED_POSITIONS
         ):
             raise ValueError(f"invalid_position:{patch['default_position']}")
-        return await update_character_preset(db, preset_id, **patch)
+        return await update_character_preset(db, preset_id, **_profile_patch(patch))
 
     @staticmethod
     async def delete_preset(db: AsyncSession, preset_id: str) -> bool:
@@ -243,6 +313,276 @@ class CharacterPresetService:
 
 
 # ---------------------------------------------------------------------------
+# CharacterGroupPresetService
+# ---------------------------------------------------------------------------
+
+
+def _member_from_record(record: SessionCharacter) -> dict[str, Any]:
+    """セッション人物 1 人を組み合わせプリセットのメンバー dict にする。"""
+    return {
+        "name": record.name,
+        "appearance_natural": record.appearance_natural or "",
+        "appearance_tags": record.appearance_tags or "",
+        "negative_tags": record.negative_tags or "",
+        "position": record.position,
+        "appearance_lock": bool(record.appearance_lock),
+        "exclude_from_effects": bool(record.exclude_from_effects),
+        "on_stage": bool(record.on_stage),
+        "profile": record_profile(record),
+        "thumbnail_url": record.thumbnail_url,
+    }
+
+
+def group_members(group: CharacterGroupPreset) -> list[dict[str, Any]]:
+    """members_json を dict のリストに戻す。壊れた要素は捨てる。"""
+    try:
+        data = json.loads(group.members_json or "[]")
+    except (TypeError, ValueError):
+        return []
+    if not isinstance(data, list):
+        return []
+    members: list[dict[str, Any]] = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        if not name:
+            continue
+        position = item.get("position")
+        profile = item.get("profile")
+        members.append(
+            {
+                "name": name,
+                "appearance_natural": str(item.get("appearance_natural") or ""),
+                "appearance_tags": str(item.get("appearance_tags") or ""),
+                "negative_tags": str(item.get("negative_tags") or ""),
+                "position": position if position in ALLOWED_POSITIONS else "center",
+                "appearance_lock": bool(item.get("appearance_lock", False)),
+                "exclude_from_effects": bool(item.get("exclude_from_effects", False)),
+                "on_stage": bool(item.get("on_stage", True)),
+                "profile": profile if isinstance(profile, dict) else None,
+                "thumbnail_url": item.get("thumbnail_url") or None,
+            }
+        )
+    return members
+
+
+class CharacterGroupPresetService:
+    """登場人物の組み合わせ（主人公以外の一式）を名前付きで保存・適用する。"""
+
+    @staticmethod
+    async def _snapshot_session(db: AsyncSession, session_id: str) -> str:
+        records = await fetch_session_characters(db, session_id)
+        members = [_member_from_record(r) for r in records if not r.is_protagonist]
+        return json.dumps(members, ensure_ascii=False)
+
+    @staticmethod
+    async def list_groups(db: AsyncSession) -> Sequence[CharacterGroupPreset]:
+        return await fetch_character_group_presets(db)
+
+    @staticmethod
+    async def create_from_session(
+        db: AsyncSession, *, name: str, session_id: str
+    ) -> CharacterGroupPreset:
+        members_json = await CharacterGroupPresetService._snapshot_session(
+            db, session_id
+        )
+        return await insert_character_group_preset(
+            db, name=name, members_json=members_json
+        )
+
+    @staticmethod
+    async def update_group(
+        db: AsyncSession,
+        group_id: str,
+        *,
+        name: str | None = None,
+        from_session_id: str | None = None,
+    ) -> CharacterGroupPreset | None:
+        members_json = (
+            await CharacterGroupPresetService._snapshot_session(db, from_session_id)
+            if from_session_id
+            else None
+        )
+        return await update_character_group_preset(
+            db, group_id, name=name, members_json=members_json
+        )
+
+    @staticmethod
+    async def delete_group(db: AsyncSession, group_id: str) -> bool:
+        return (await delete_character_group_preset(db, group_id)) > 0
+
+    @staticmethod
+    async def apply_to_session(
+        db: AsyncSession, session_id: str, group_id: str
+    ) -> Sequence[SessionCharacter]:
+        """主人公以外の登場人物を、組み合わせのメンバーで置き換える。
+
+        削除と挿入は同じトランザクションで行う。呼び出し側が 1 回だけ commit する。
+        """
+        group = await fetch_character_group_preset(db, group_id)
+        if group is None:
+            raise LookupError("group_preset_not_found")
+        members = group_members(group)
+        if len(members) > CHARACTER_LIMIT:
+            raise CharacterLimitExceededError()
+        await delete_non_protagonist_session_characters(db, session_id)
+        # 主人公がいれば slot 0、他は 1 以降。reassign_positions で詰め直す
+        base_slot = 1
+        for offset, member in enumerate(members):
+            await insert_session_character(
+                db,
+                session_id=session_id,
+                slot_index=base_slot + offset,
+                name=member["name"],
+                appearance_natural=member["appearance_natural"],
+                appearance_tags=member["appearance_tags"],
+                position=member["position"],
+                appearance_lock=member["appearance_lock"],
+                exclude_from_effects=member["exclude_from_effects"],
+                negative_tags=member["negative_tags"],
+                profile_json=dump_profile(member["profile"]),
+                on_stage=member["on_stage"],
+                thumbnail_url=member["thumbnail_url"],
+            )
+        await SessionCharacterService.reassign_positions(db, session_id)
+        return await fetch_session_characters(db, session_id)
+
+
+# ---------------------------------------------------------------------------
+# Stage roster (on-stage characters in prompt order)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class StageCharacter:
+    """プロンプトに載せる 1 人分。``record_id`` が None なのは未保存の主人公。"""
+
+    record_id: str | None
+    name: str
+    position: str
+    appearance_natural: str
+    appearance_tags: str
+    negative_tags: str
+    is_protagonist: bool
+    appearance_lock: bool
+    exclude_from_effects: bool
+    profile: dict[str, Any] | None
+
+
+def _stage_from_record(record: Any) -> StageCharacter:
+    return StageCharacter(
+        record_id=getattr(record, "id", None),
+        name=record.name,
+        position=record.position,
+        appearance_natural=(getattr(record, "appearance_natural", "") or "").strip(),
+        appearance_tags=(getattr(record, "appearance_tags", "") or "").strip(),
+        negative_tags=(getattr(record, "negative_tags", "") or "").strip(),
+        is_protagonist=bool(getattr(record, "is_protagonist", False)),
+        appearance_lock=bool(getattr(record, "appearance_lock", False)),
+        exclude_from_effects=bool(getattr(record, "exclude_from_effects", False)),
+        profile=record_profile(record),
+    )
+
+
+def build_stage_roster(
+    records: Sequence[Any],
+    *,
+    limit: int | None = None,
+    protagonist_name: str | None = None,
+    protagonist_tags: str | None = None,
+) -> list[StageCharacter]:
+    """登場中の人物を、プロンプトに載せる順（主人公→slot 順）に並べる。
+
+    画像用・テキスト用の人物一覧、LLM が返す ``characters[i]`` と人物の対応、
+    人物別ネガティブの付与は、すべてこの並び順を基準にする。
+
+    - 主人公と ``on_stage`` の人物だけを残す（主人公は常に登場扱い）
+    - DB に主人公がまだ無い初回ターンは、kwargs の主人公を先頭へ差し込む
+    - ``limit``（画像モデルのキャラクタープロンプト上限）を超える分は切り捨てる
+    """
+    visible = [
+        r
+        for r in records
+        if getattr(r, "is_protagonist", False) or getattr(r, "on_stage", True)
+    ]
+    ordered = sorted(
+        visible,
+        key=lambda r: (0 if getattr(r, "is_protagonist", False) else 1, r.slot_index),
+    )
+    roster = [_stage_from_record(r) for r in ordered]
+    kwarg_tags = (protagonist_tags or "").strip()
+    if kwarg_tags and not any(c.is_protagonist for c in roster):
+        name = (protagonist_name or "Protagonist").strip() or "Protagonist"
+        roster.insert(
+            0,
+            StageCharacter(
+                record_id=None,
+                name=name,
+                position="center",
+                appearance_natural="",
+                appearance_tags=kwarg_tags,
+                negative_tags="",
+                is_protagonist=True,
+                appearance_lock=False,
+                exclude_from_effects=False,
+                profile=None,
+            ),
+        )
+    if limit is not None and limit > 0 and len(roster) > limit:
+        logger.info(
+            "stage roster truncated to model limit: %d -> %d", len(roster), limit
+        )
+        roster = roster[:limit]
+    return roster
+
+
+def resolve_stage_limit(user_settings: dict[str, Any], nsfw_mode: bool) -> int:
+    """画像生成 1 回に載せられる人物数。NovelAI はモデルごと（V4.5=6 / V5=22）。
+
+    チャットのように手番の TurnContext を持たない経路で、手番と同じ上限を使うため。
+    """
+    from ..consts.novelai_models import resolve_user_image_model
+    from ..consts.prompt_expander import (
+        MAX_CHARACTER_PROMPTS_V45,
+        max_character_prompts,
+    )
+    from .providers import resolve_image_provider
+
+    if resolve_image_provider() == "novelai":
+        return max_character_prompts(resolve_user_image_model(user_settings, nsfw_mode))
+    return MAX_CHARACTER_PROMPTS_V45
+
+
+def attach_stage_negatives(
+    characters: Sequence[dict[str, Any]],
+    stage: Sequence[StageCharacter],
+    limit: int | None,
+) -> list[dict[str, Any]]:
+    """画像生成用の character prompt に人物別ネガティブを付け、上限で切り詰める。
+
+    ``characters`` は LLM 出力をパースしたもの。各要素の ``stage_index``
+    （無ければ配列位置）で ``stage`` の人物に対応させる。一覧に無い人物
+    （指示で新たに登場した人など）にはネガティブを付けない。
+    """
+    result: list[dict[str, Any]] = []
+    for pos, entry in enumerate(characters):
+        item = dict(entry)
+        idx = item.get("stage_index", pos)
+        if isinstance(idx, int) and 0 <= idx < len(stage):
+            negative = stage[idx].negative_tags
+            if negative and not item.get("negative_prompt"):
+                item["negative_prompt"] = negative
+        result.append(item)
+    if limit is not None and limit > 0 and len(result) > limit:
+        logger.info(
+            "character prompts truncated to model limit: %d -> %d", len(result), limit
+        )
+        result = result[:limit]
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Appearance-update bridge (filled by US2 in T030)
 # ---------------------------------------------------------------------------
 
@@ -251,13 +591,17 @@ async def apply_character_prompt_tags(
     db: AsyncSession,
     session_id: str,
     character_prompts: Sequence[dict[str, Any]],
+    stage_ids: Sequence[str | None] | None = None,
 ) -> int:
     """Write confirmed image-generation character prompts into session rows.
 
     ``character_prompts`` is the Opus-split list of
-    ``{"prompt": "<tags>", "position": ...}`` (index 0 = protagonist).
+    ``{"prompt": "<tags>", "position": ..., "stage_index": i}``.
+    ``stage_ids`` is the record id of each on-stage character in prompt order
+    (see :func:`build_stage_roster`); index 0 is the protagonist, whose id may
+    be ``None`` on the first turn before the row exists. When omitted, the
+    current on-stage roster is used.
     Rows with ``appearance_lock`` / ``exclude_from_effects`` are skipped.
-    Non-protagonist rows are matched by ``slot_index`` (0-based).
 
     Returns the number of rows updated.
     """
@@ -266,11 +610,13 @@ async def apply_character_prompt_tags(
     records = await fetch_session_characters(db, session_id)
     if not records:
         return 0
-    by_slot = {r.slot_index: r for r in records}
+    by_id = {r.id: r for r in records}
     protagonist = next((r for r in records if r.is_protagonist), None)
+    if stage_ids is None:
+        stage_ids = [c.record_id for c in build_stage_roster(records)]
     written = 0
 
-    for idx, entry in enumerate(character_prompts):
+    for pos, entry in enumerate(character_prompts):
         if not isinstance(entry, dict):
             continue
         tags = entry.get("prompt")
@@ -279,12 +625,17 @@ async def apply_character_prompt_tags(
         tags_stripped = tags.strip()
         if not tags_stripped:
             continue
+        idx = entry.get("stage_index", pos)
+        if not isinstance(idx, int) or idx < 0 or idx >= len(stage_ids):
+            continue
 
-        target: SessionCharacter | None = None
-        if idx == 0 and protagonist is not None:
-            target = protagonist
+        target: SessionCharacter | None
+        record_id = stage_ids[idx]
+        if record_id is None:
+            # 初回ターンの主人公はターン中に作られるため、id ではなく主人公として探す
+            target = protagonist if idx == 0 else None
         else:
-            target = by_slot.get(idx)
+            target = by_id.get(record_id)
 
         if target is None:
             continue
@@ -382,40 +733,65 @@ _POSITION_LABEL_JA = {
 
 
 def build_session_characters_prompt_section(
-    records: Sequence[SessionCharacter],
+    records: Sequence[Any],
+    *,
+    limit: int | None = None,
+    protagonist_name: str | None = None,
+    protagonist_tags: str | None = None,
+    include_profile: bool = True,
 ) -> str:
     """Build a Japanese prompt fragment from session-character records.
 
-    Returns an empty string when there are no records, so callers can append
-    the result unconditionally and fall back to existing single-character
-    behavior automatically (FR-011 / SC-003).
+    Returns an empty string when there are no on-stage records, so callers can
+    append the result unconditionally and fall back to existing
+    single-character behavior automatically (FR-011 / SC-003).
+
+    ``include_profile`` adds each non-protagonist's personality line. The
+    protagonist keeps using the self profile / template character personality
+    that the narrative prompts already carry.
     """
-    if not records:
+    roster = build_stage_roster(
+        records,
+        limit=limit,
+        protagonist_name=protagonist_name,
+        protagonist_tags=protagonist_tags,
+    )
+    if not roster:
         return ""
 
-    sorted_records = sorted(records, key=lambda r: r.slot_index)
     lines: list[str] = ["", "[同シーンの登場キャラクター一覧]"]
-    for rec in sorted_records:
-        position_label = _POSITION_LABEL_JA.get(rec.position, rec.position)
-        natural = (rec.appearance_natural or "").strip()
-        tags = (rec.appearance_tags or "").strip()
+    has_profile = False
+    for character in roster:
+        position_label = _POSITION_LABEL_JA.get(character.position, character.position)
         descriptor_bits: list[str] = [f"位置={position_label}"]
-        if natural:
-            descriptor_bits.append(f"外見: {natural}")
-        if tags:
-            descriptor_bits.append(f"タグ: {tags}")
+        if character.appearance_natural:
+            descriptor_bits.append(f"外見: {character.appearance_natural}")
+        if character.appearance_tags:
+            descriptor_bits.append(f"タグ: {character.appearance_tags}")
         markers: list[str] = []
-        if getattr(rec, "exclude_from_effects", False):
+        if character.is_protagonist:
+            markers.append("[主人公]")
+        if character.exclude_from_effects:
             markers.append("[指示対象外・外見を変更しない]")
-        if getattr(rec, "appearance_lock", False):
+        if character.appearance_lock:
             markers.append("[外見ロック中]")
         marker_str = (" " + " ".join(markers)) if markers else ""
-        lines.append(f"- {rec.name}（{', '.join(descriptor_bits)}）{marker_str}")
+        lines.append(f"- {character.name}（{', '.join(descriptor_bits)}）{marker_str}")
+        if include_profile and not character.is_protagonist:
+            profile_line = format_profile_line_ja(character.profile)
+            if profile_line:
+                lines.append(f"  人物設定: {profile_line}")
+                has_profile = True
     lines.append("上記の登場人物が同じ場面に共存している前提で描写してください。")
     lines.append(
         "「指示対象外」とマークされた人物にはユーザー指示の効果（着替え・行動・現実改変等）を適用せず、"
         "現在の外見をそのまま保ってください。"
     )
+    if has_profile:
+        lines.append(
+            "「人物設定」がある人物は、その一人称・性格・反応スタイルを厳守し、"
+            "セリフや反応をそれに合わせてください。"
+        )
     return "\n".join(lines)
 
 
@@ -482,88 +858,91 @@ _POSITION_LABEL_EN = {
 }
 
 
+_GENDER_TOKEN_PATTERN = re.compile(
+    r"\b\d*\+?(?:girl|boy|other)s?\b|\b(?:woman|man|women|men|female|male)\b",
+    re.IGNORECASE,
+)
+
+
+def _with_gender_token(tags: str, profile: dict[str, Any] | None) -> str:
+    """性別トークンが無いタグに、性格プロフィールの性別から 1girl / 1boy を補う。
+
+    性別トークンが無いと女性寄りに描かれやすいため、画像用の一覧に載せるときだけ補う。
+    """
+    if not tags or _GENDER_TOKEN_PATTERN.search(tags):
+        return tags
+    gender = (profile or {}).get("gender")
+    if gender == "woman":
+        return f"1girl, {tags}"
+    if gender == "man":
+        return f"1boy, {tags}"
+    return tags
+
+
 def build_novelai_characters_section(
-    records: Sequence[SessionCharacter],
+    records: Sequence[Any],
     *,
     protagonist_name: str | None = None,
     protagonist_tags: str | None = None,
+    limit: int | None = None,
 ) -> str:
     """Build an English NovelAI-image prompt section from session-character records.
 
-    Returns an empty string when there are no records with useful tag/name data
-    so callers can append the result unconditionally (FR-010 / FR-012).
+    Returns an empty string when there are no on-stage records with useful
+    tag/name data so callers can append the result unconditionally
+    (FR-010 / FR-012).
 
-    Records with ``is_protagonist=True`` are rendered first with a [protagonist]
-    marker. ``protagonist_name`` / ``protagonist_tags`` kwargs act as a fallback
-    for callers that resolve the identity before the DB record is created
-    (i.e. the very first upsert turn). When both a DB protagonist record and
-    kwargs are supplied, the DB record takes precedence.
+    Characters are numbered in :func:`build_stage_roster` order (protagonist
+    first) and the LLM is told to emit its ``characters`` array in the same
+    order, so ``characters[i]`` maps back to the i-th on-stage character.
+    ``protagonist_name`` / ``protagonist_tags`` act as a fallback for callers
+    that resolve the identity before the DB record is created (i.e. the very
+    first upsert turn). When both a DB protagonist record and kwargs are
+    supplied, the DB record takes precedence.
     """
-    # Sort: protagonist first (slot_index=0), then others by slot_index.
-    sorted_records = sorted(
-        records, key=lambda r: (0 if r.is_protagonist else 1, r.slot_index)
+    roster = build_stage_roster(
+        records,
+        limit=limit,
+        protagonist_name=protagonist_name,
+        protagonist_tags=protagonist_tags,
     )
-
-    # Check whether we have a protagonist via DB record or kwargs fallback.
-    db_has_protagonist = any(r.is_protagonist for r in sorted_records)
-    kwarg_tags = (protagonist_tags or "").strip()
-    has_protagonist = db_has_protagonist or bool(kwarg_tags)
-
-    if not sorted_records and not has_protagonist:
+    if not roster:
         return ""
 
     lines: list[str] = [
         "",
         "## Registered Characters (MUST appear in image, MUST use these tags as-is)",
     ]
-
-    counter = 1
-    protagonist_emitted = False
-    for rec in sorted_records:
-        position = _POSITION_LABEL_EN.get(rec.position, rec.position)
-        tags = (rec.appearance_tags or "").strip()
-        natural = (rec.appearance_natural or "").strip()
+    for number, character in enumerate(roster, start=1):
+        position = _POSITION_LABEL_EN.get(character.position, character.position)
+        tags = character.appearance_tags
+        if not character.is_protagonist:
+            tags = _with_gender_token(tags, character.profile)
         descriptor: list[str] = [f"position: {position}"]
         if tags:
             descriptor.append(f"tags: {tags}")
-        elif natural:
-            descriptor.append(f"appearance: {natural}")
+        elif character.appearance_natural:
+            descriptor.append(f"appearance: {character.appearance_natural}")
         marker_parts: list[str] = []
-        if rec.is_protagonist:
+        if character.is_protagonist:
             marker_parts.append("[protagonist]")
-        if getattr(rec, "exclude_from_effects", False):
+        if character.exclude_from_effects:
             marker_parts.append(
                 "[bystander, do NOT apply user instruction effects, keep tags exactly]"
             )
-        if getattr(rec, "appearance_lock", False):
+        if character.appearance_lock:
             marker_parts.append("[appearance locked, keep tags exactly]")
         marker = (" " + " ".join(marker_parts)) if marker_parts else ""
         lines.append(
-            f"- Character {counter} ({rec.name}, {', '.join(descriptor)}){marker}"
+            f"- Character {number} ({character.name}, {', '.join(descriptor)}){marker}"
         )
-        if rec.is_protagonist:
-            protagonist_emitted = True
-        counter += 1
 
-    # Fallback: kwargs-only protagonist (first play turn before upsert is committed)
-    if not protagonist_emitted and kwarg_tags:
-        name = (protagonist_name or "Protagonist").strip() or "Protagonist"
-        descriptor = ["position: center", f"tags: {kwarg_tags}"]
-        lines.insert(
-            2,  # after the header line
-            f"- Character 1 ({name}, {', '.join(descriptor)}) [protagonist]",
-        )
-        # renumber the rest
-        renumbered: list[str] = [lines[0], lines[1], lines[2]]
-        for i, line in enumerate(lines[3:], start=2):
-            if line.startswith("- Character "):
-                renumbered.append(
-                    line.replace(f"Character {i - 1} ", f"Character {i} ", 1)
-                )
-            else:
-                renumbered.append(line)
-        lines = renumbered
-
+    lines.append(
+        'Output the "characters" array in EXACTLY this order: entry 1 = '
+        "Character 1, entry 2 = Character 2, and so on, one entry per listed "
+        "character. People who are not listed (only when the instruction "
+        "introduces them) go AFTER all listed characters."
+    )
     lines.append(
         "All listed characters MUST be present in the image alongside the main "
         "subject; preserve their tags exactly."
@@ -784,7 +1163,8 @@ async def restore_session_characters_appearance_from_history(
 
     Non-protagonist rows (slot_index >= 1):
         Restored only when the latest remaining history is a multi-character
-        JSON payload. ``slot_index`` is matched against the array index in
+        JSON payload. The row's position in the on-stage roster
+        (:func:`build_stage_roster`) is matched against the array index in
         ``characters[i].tags``. If the payload is single-character format,
         absent, or the index is missing, the row is left untouched (no
         fallback exists for non-protagonist tags). Only ``appearance_tags``
@@ -836,6 +1216,10 @@ async def restore_session_characters_appearance_from_history(
     updated_count = 0
     async with async_session_factory() as db:
         records = await fetch_session_characters(db, session_id)
+        # 履歴の characters[i] は、その時点の登場順（主人公→slot 順）で並んでいる
+        stage_index = {
+            c.record_id: i for i, c in enumerate(build_stage_roster(records))
+        }
         for rec in sorted(records, key=lambda r: r.slot_index):
             if getattr(rec, "appearance_lock", False) or getattr(
                 rec, "exclude_from_effects", False
@@ -852,10 +1236,10 @@ async def restore_session_characters_appearance_from_history(
                     patch["appearance_tags"] = protagonist_tags
             else:
                 # Non-protagonist: only restore when multi-char JSON history
-                # provides an entry at the matching slot index.
+                # provides an entry at the matching stage index.
                 if history_characters is None:
                     continue
-                idx = rec.slot_index
+                idx = stage_index.get(rec.id, -1)
                 if idx < 0 or idx >= len(history_characters):
                     continue
                 entry = history_characters[idx]
@@ -888,10 +1272,18 @@ __all__ = [
     "ALLOWED_POSITIONS",
     "CHARACTER_LIMIT",
     "CharacterLimitExceededError",
+    "CharacterGroupPresetService",
+    "dump_profile",
+    "group_members",
+    "record_profile",
     "CharacterPresetService",
     "SessionCharacterService",
+    "StageCharacter",
     "apply_appearance_updates",
     "apply_character_prompt_tags",
+    "attach_stage_negatives",
+    "build_stage_roster",
+    "resolve_stage_limit",
     "build_novelai_characters_section",
     "build_session_characters_prompt_section",
     "extract_characters_from_history",

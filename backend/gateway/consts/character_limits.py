@@ -21,9 +21,18 @@ APPEARANCE_TAGS_MAX_LEN: Final[int] = 400
 # プロンプト指示で LLM に伝える簡潔さの目安（自然文）。
 APPEARANCE_NATURAL_SOFT_LIMIT: Final[int] = 120
 
+# 人物ごとのネガティブタグの上限（文字数）。
+NEGATIVE_TAGS_MAX_LEN: Final[int] = 400
+
+# 1 セッションに登録できる人物数（主人公を含む）。NovelAI V5 のキャラクター
+# プロンプト上限（22）に合わせる。登場させられる人数は画像モデルごとに別途絞る。
+MAX_REGISTERED_CHARACTERS: Final[int] = 22
+
 
 __all__ = [
     "APPEARANCE_NATURAL_MAX_LEN",
     "APPEARANCE_TAGS_MAX_LEN",
     "APPEARANCE_NATURAL_SOFT_LIMIT",
+    "NEGATIVE_TAGS_MAX_LEN",
+    "MAX_REGISTERED_CHARACTERS",
 ]

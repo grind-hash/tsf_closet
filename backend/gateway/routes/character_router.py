@@ -7,26 +7,42 @@ Endpoints (all under /api/game prefix when registered in app.py):
 - PUT    /game/session/{sid}/characters/{cid}
 - DELETE /game/session/{sid}/characters/{cid}
 - POST   /game/session/{sid}/characters/from-preset/{preset_id}
+- POST   /game/session/{sid}/characters/from-group/{group_id}
 - POST   /game/characters/generate-tags
+- POST   /game/characters/generate-profile
+- POST   /game/characters/resolve-source
 - GET    /game/character-presets
 - POST   /game/character-presets
 - PUT    /game/character-presets/{preset_id}
 - DELETE /game/character-presets/{preset_id}
+- GET    /game/character-group-presets
+- POST   /game/character-group-presets
+- PUT    /game/character-group-presets/{group_id}
+- DELETE /game/character-group-presets/{group_id}
 """
 
 from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import select
 
 from ..databases.base import async_session_factory
 from ..databases.models import Session as SessionORM
 from ..schemas.characters import (
+    CharacterGroupMember,
+    CharacterGroupPresetCreate,
+    CharacterGroupPresetListResponse,
+    CharacterGroupPresetRead,
+    CharacterGroupPresetUpdate,
     CharacterPresetListResponse,
     CharacterPresetRead,
     CharacterPresetUpdate,
+    CharacterProfile,
+    CharacterProfileGenerateRequest,
+    CharacterSourceResolveRequest,
+    CharacterSourceResolveResponse,
     GenerateTagsRequest,
     GenerateTagsResponse,
     GenerateTagsResultItem,
@@ -37,10 +53,20 @@ from ..schemas.characters import (
     SessionCharacterRead,
     SessionCharacterUpdate,
 )
+from ..services.character_profile import (
+    CharacterProfileGenerationError,
+    CharacterSourceNotFoundError,
+    generate_character_profile,
+    normalize_character_profile,
+    resolve_character_source,
+)
 from ..services.character_service import (
+    CharacterGroupPresetService,
     CharacterLimitExceededError,
     CharacterPresetService,
     SessionCharacterService,
+    group_members,
+    record_profile,
 )
 from ..services.llm_service import LLMServiceError, llm_service
 
@@ -60,6 +86,23 @@ async def _ensure_session_exists(session_id: str) -> None:
             )
 
 
+def _limit_exceeded() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail={
+            "detail": "character_limit_exceeded",
+            "code": "character_limit_exceeded",
+        },
+    )
+
+
+def _serialize_profile(record) -> CharacterProfile | None:
+    profile = record_profile(record)
+    if profile is None:
+        return None
+    return CharacterProfile.model_validate(normalize_character_profile(profile))
+
+
 def _serialize_character(record) -> SessionCharacterRead:
     return SessionCharacterRead(
         id=record.id,
@@ -73,6 +116,10 @@ def _serialize_character(record) -> SessionCharacterRead:
         appearance_lock=getattr(record, "appearance_lock", False),
         exclude_from_effects=getattr(record, "exclude_from_effects", False),
         source_preset_id=record.source_preset_id,
+        negative_tags=record.negative_tags or "",
+        profile=_serialize_profile(record),
+        on_stage=bool(record.on_stage),
+        thumbnail_url=record.thumbnail_url,
         created_at=record.created_at,
         updated_at=record.updated_at,
     )
@@ -85,6 +132,27 @@ def _serialize_preset(record) -> CharacterPresetRead:
         appearance_natural=record.appearance_natural,
         appearance_tags=record.appearance_tags,
         default_position=record.default_position,  # type: ignore[arg-type]
+        negative_tags=record.negative_tags or "",
+        profile=_serialize_profile(record),
+        thumbnail_url=record.thumbnail_url,
+        created_at=record.created_at,
+        updated_at=record.updated_at,
+    )
+
+
+def _serialize_group(record) -> CharacterGroupPresetRead:
+    members: list[CharacterGroupMember] = []
+    for member in group_members(record):
+        if member["profile"] is not None:
+            member = {
+                **member,
+                "profile": normalize_character_profile(member["profile"]),
+            }
+        members.append(CharacterGroupMember.model_validate(member))
+    return CharacterGroupPresetRead(
+        id=record.id,
+        name=record.name,
+        members=members,
         created_at=record.created_at,
         updated_at=record.updated_at,
     )
@@ -205,15 +273,13 @@ async def create_session_character(
                 source_preset_id=payload.source_preset_id,
                 appearance_lock=payload.appearance_lock,
                 exclude_from_effects=payload.exclude_from_effects,
+                negative_tags=payload.negative_tags,
+                profile=payload.profile.model_dump() if payload.profile else None,
+                on_stage=payload.on_stage,
+                thumbnail_url=payload.thumbnail_url,
             )
         except CharacterLimitExceededError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail={
-                    "detail": "character_limit_exceeded",
-                    "code": "character_limit_exceeded",
-                },
-            ) from exc
+            raise _limit_exceeded() from exc
         except ValueError as exc:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -299,12 +365,13 @@ async def delete_session_character_endpoint(
 async def add_character_from_preset(
     session_id: str,
     preset_id: str,
+    on_stage: bool = Query(True),
 ) -> SessionCharacterRead:
     await _ensure_session_exists(session_id)
     async with async_session_factory() as db:
         try:
             record = await SessionCharacterService.apply_preset_to_session(
-                db, session_id, preset_id
+                db, session_id, preset_id, on_stage=on_stage
             )
         except LookupError as exc:
             raise HTTPException(
@@ -312,16 +379,40 @@ async def add_character_from_preset(
                 detail={"detail": "preset_not_found", "code": "preset_not_found"},
             ) from exc
         except CharacterLimitExceededError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail={
-                    "detail": "character_limit_exceeded",
-                    "code": "character_limit_exceeded",
-                },
-            ) from exc
+            raise _limit_exceeded() from exc
         await db.commit()
         await db.refresh(record)
         return _serialize_character(record)
+
+
+@router.post(
+    "/session/{session_id}/characters/from-group/{group_id}",
+    response_model=SessionCharacterListResponse,
+    summary="Replace non-protagonist characters with a group preset",
+)
+async def apply_group_preset_to_session(
+    session_id: str,
+    group_id: str,
+) -> SessionCharacterListResponse:
+    await _ensure_session_exists(session_id)
+    async with async_session_factory() as db:
+        try:
+            records = await CharacterGroupPresetService.apply_to_session(
+                db, session_id, group_id
+            )
+        except LookupError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "detail": "group_preset_not_found",
+                    "code": "group_preset_not_found",
+                },
+            ) from exc
+        except CharacterLimitExceededError as exc:
+            raise _limit_exceeded() from exc
+        await db.commit()
+        characters = [_serialize_character(r) for r in records]
+    return SessionCharacterListResponse(characters=characters)
 
 
 # ---------------------------------------------------------------------------
@@ -351,6 +442,51 @@ async def generate_character_tags(
     return GenerateTagsResponse(
         results=[GenerateTagsResultItem(id=r["id"], tags=r["tags"]) for r in results],
     )
+
+
+@router.post(
+    "/characters/generate-profile",
+    response_model=CharacterProfile,
+    summary="Generate a personality profile for one character",
+)
+async def generate_character_profile_endpoint(
+    payload: CharacterProfileGenerateRequest,
+) -> CharacterProfile:
+    try:
+        profile = await generate_character_profile(
+            name=payload.name,
+            appearance_natural=payload.appearance_natural,
+            appearance_tags=payload.appearance_tags,
+            memo=payload.memo,
+        )
+    except CharacterProfileGenerationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={"detail": str(exc), "code": "llm_failure"},
+        ) from exc
+    return CharacterProfile.model_validate(profile)
+
+
+@router.post(
+    "/characters/resolve-source",
+    response_model=CharacterSourceResolveResponse,
+    summary="Resolve name and appearance from a session / favorite / Prompt Expander",
+)
+async def resolve_character_source_endpoint(
+    payload: CharacterSourceResolveRequest,
+) -> CharacterSourceResolveResponse:
+    try:
+        resolved = await resolve_character_source(
+            session_id=payload.session_id,
+            history_id=payload.history_id,
+            prompt_expander_entry_id=payload.prompt_expander_entry_id,
+        )
+    except CharacterSourceNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"detail": str(exc), "code": "source_not_found"},
+        ) from exc
+    return CharacterSourceResolveResponse.model_validate(resolved)
 
 
 # ---------------------------------------------------------------------------
@@ -395,6 +531,9 @@ async def create_character_preset(
                     appearance_natural=payload.appearance_natural,
                     appearance_tags=payload.appearance_tags,
                     default_position=payload.default_position,
+                    negative_tags=payload.negative_tags,
+                    profile=payload.profile.model_dump() if payload.profile else None,
+                    thumbnail_url=payload.thumbnail_url,
                 )
         except LookupError as exc:
             raise HTTPException(
@@ -454,5 +593,91 @@ async def delete_character_preset_endpoint(preset_id: str) -> None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail={"detail": "preset_not_found", "code": "preset_not_found"},
+            )
+        await db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Group preset CRUD
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/character-group-presets",
+    response_model=CharacterGroupPresetListResponse,
+    summary="List cast combinations (group presets)",
+)
+async def list_character_group_presets() -> CharacterGroupPresetListResponse:
+    async with async_session_factory() as db:
+        records = await CharacterGroupPresetService.list_groups(db)
+        groups = [_serialize_group(r) for r in records]
+    return CharacterGroupPresetListResponse(groups=groups)
+
+
+@router.post(
+    "/character-group-presets",
+    response_model=CharacterGroupPresetRead,
+    status_code=status.HTTP_201_CREATED,
+    summary="Save the session's non-protagonist cast as a group preset",
+)
+async def create_character_group_preset(
+    payload: CharacterGroupPresetCreate,
+) -> CharacterGroupPresetRead:
+    await _ensure_session_exists(payload.from_session_id)
+    async with async_session_factory() as db:
+        record = await CharacterGroupPresetService.create_from_session(
+            db, name=payload.name, session_id=payload.from_session_id
+        )
+        await db.commit()
+        await db.refresh(record)
+        return _serialize_group(record)
+
+
+@router.put(
+    "/character-group-presets/{group_id}",
+    response_model=CharacterGroupPresetRead,
+    summary="Rename a group preset or overwrite it with a session's cast",
+)
+async def update_character_group_preset_endpoint(
+    group_id: str,
+    payload: CharacterGroupPresetUpdate,
+) -> CharacterGroupPresetRead:
+    if payload.from_session_id:
+        await _ensure_session_exists(payload.from_session_id)
+    async with async_session_factory() as db:
+        record = await CharacterGroupPresetService.update_group(
+            db,
+            group_id,
+            name=payload.name,
+            from_session_id=payload.from_session_id,
+        )
+        if record is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "detail": "group_preset_not_found",
+                    "code": "group_preset_not_found",
+                },
+            )
+        await db.commit()
+        await db.refresh(record)
+        return _serialize_group(record)
+
+
+@router.delete(
+    "/character-group-presets/{group_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a group preset",
+)
+async def delete_character_group_preset_endpoint(group_id: str) -> None:
+    async with async_session_factory() as db:
+        ok = await CharacterGroupPresetService.delete_group(db, group_id)
+        if not ok:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "detail": "group_preset_not_found",
+                    "code": "group_preset_not_found",
+                },
             )
         await db.commit()

@@ -113,18 +113,20 @@ MemorySettings → /api/memory/text
 ## 複数人物
 
 ```text
-CharacterPanel / CharacterPresetPicker
+CharacterPanel / CharacterCastModal / CharacterGroupPresetModal / CharacterPresetPicker
   ↓ apis/characters.ts
-/api/game/session/{id}/characters と /character-presets
+/api/game/session/{id}/characters、/character-presets、/character-group-presets
   ↓
-SessionCharacter / CharacterPreset
+SessionCharacter / CharacterPreset / CharacterGroupPreset
   ↓
 GameContext.sessionCharacters
-  ↓ use_character_panel=true の画像プロンプト
-character_service → game_service / llm_service
+  ↓ use_character_panel=true（手番・チャット）
+character_service.build_stage_roster（登場中のみ・画像モデル上限で切り詰め）
+  ├→ 画像: Registered Characters 一覧 → LLM の characters[i] → 人物別ネガティブを付けて NovelAI へ
+  └→ テキスト: 性格つきの登場人物一覧 → 心の声（着せ替え・現実改変・自分自身）・行動・チャット
 ```
 
-`enableMultiplePeople` は複数人生成自体、`multiCharacterPanelEnabled` はSessionCharacterをプロンプトへ注入するかを制御する。主人公は `ensure-protagonist` で冪等に確保する。
+`enableMultiplePeople` は複数人生成自体、`multiCharacterPanelEnabled` はSessionCharacterをプロンプトへ注入するかを制御する。主人公は `ensure-protagonist` で冪等に確保する。主人公の性格は従来どおり自分自身モードのプロフィールまたはテンプレートキャラから取り、人物の性格は主人公以外にだけ付ける。
 
 ## Adventure
 

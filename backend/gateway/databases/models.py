@@ -429,7 +429,7 @@ class SessionCharacter(Base):
     """Per-session character record (spec 005).
 
     Belongs to one Session. Cascade-deleted when session is removed.
-    Multiple characters per session (max 4 enforced at service layer).
+    Multiple characters per session (max count enforced at service layer).
     """
 
     __tablename__ = "session_character"
@@ -453,6 +453,18 @@ class SessionCharacter(Base):
         Boolean, default=False, nullable=False, server_default="0"
     )
     source_preset_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    # 人物ごとのネガティブタグ（NovelAI の character prompt の uc に入る）
+    negative_tags: Mapped[str] = mapped_column(
+        Text, default="", nullable=False, server_default=""
+    )
+    # 性格プロフィール（CharacterProfile の JSON）。未設定は None
+    profile_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # False の人物は登録を残したまま画像・テキストのプロンプトから外す
+    on_stage: Mapped[bool] = mapped_column(
+        Boolean, default=True, nullable=False, server_default="1"
+    )
+    # 姿を選んだソースのサムネイル（API 相対パス）
+    thumbnail_url: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         default=func.current_timestamp(), nullable=False
     )
@@ -485,6 +497,11 @@ class CharacterPreset(Base):
         String(16), default="center", nullable=False
     )
     tags_meta: Mapped[str | None] = mapped_column(Text, nullable=True)
+    negative_tags: Mapped[str] = mapped_column(
+        Text, default="", nullable=False, server_default=""
+    )
+    profile_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    thumbnail_url: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         default=func.current_timestamp(), nullable=False
     )
@@ -495,6 +512,32 @@ class CharacterPreset(Base):
     )
 
     __table_args__ = (Index("idx_character_preset_name", "name"),)
+
+
+class CharacterGroupPreset(Base):
+    """Named snapshot of a session's non-protagonist cast.
+
+    Members are stored as a JSON list so the group stays usable even when the
+    one-person presets it was built from are edited or deleted.
+    """
+
+    __tablename__ = "character_group_preset"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    members_json: Mapped[str] = mapped_column(
+        Text, default="[]", nullable=False, server_default="[]"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        default=func.current_timestamp(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        default=func.current_timestamp(),
+        onupdate=func.current_timestamp(),
+        nullable=False,
+    )
+
+    __table_args__ = (Index("idx_character_group_preset_name", "name"),)
 
 
 class PlaySummary(Base):

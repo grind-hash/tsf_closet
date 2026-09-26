@@ -506,7 +506,9 @@ async def test_novelai_opus_dress_up_splits_characters_and_skips_vision(
     call = harness.image_calls[0]
     # scene は品質タグ付きで、characters は JSON から分離される
     assert call["args"][1] == "scene tags, very aesthetic, best quality"
-    assert call["characters"] == [{"prompt": "1boy, red dress", "position": (0.5, 0.5)}]
+    assert call["characters"] == [
+        {"prompt": "1boy, red dress", "position": (0.5, 0.5), "stage_index": 0}
+    ]
     assert call["novelai_image_model_override"] == "nai-diffusion-4-5-curated"
     complete = _one(events, "complete").data
     assert complete["before_desc"] == "1boy, previous prompt"

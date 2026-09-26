@@ -57,6 +57,10 @@ export function useConversationStream() {
         });
         if (settingsState.enableMultiplePeople) {
           params.set("enable_multiple_people", "true");
+          params.set(
+            "use_character_panel",
+            String(settingsState.multiCharacterPanelEnabled),
+          );
         }
         if (settingsState.playMemoryEnabled) {
           params.set("use_play_memory", "true");
@@ -169,6 +173,7 @@ export function useConversationStream() {
       setConversationHistory,
       settingsState.language,
       settingsState.enableMultiplePeople,
+      settingsState.multiCharacterPanelEnabled,
       settingsState.playMemoryEnabled,
       settingsState.historyLookbackTargets,
       showNotification,
