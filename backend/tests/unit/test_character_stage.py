@@ -7,16 +7,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from gateway.databases.models import Session as SessionORM
-from gateway.databases.models import User
 from gateway.services.character_service import (
-    SessionCharacterService,
-    apply_character_prompt_tags,
     attach_stage_negatives,
     build_novelai_characters_section,
     build_session_characters_prompt_section,
     build_stage_roster,
-    upsert_protagonist_session_character,
 )
 from gateway.services.game_service import _parse_novelai_prompt_json
 
@@ -133,10 +128,10 @@ def test_novelai_section_numbers_on_stage_only_and_states_order() -> None:
         _rec(2, "Mio", tags="1girl, twintails"),
     ]
     result = build_novelai_characters_section(records)
-    assert "Character 1 (Hero" in result
-    assert "Character 2 (Mio" in result
+    assert "C1 (Hero" in result
+    assert "C2 (Mio" in result
     assert "Sakura" not in result
-    assert "EXACTLY this order" in result
+    assert '"ref" set to its code' in result
 
 
 def test_novelai_section_adds_gender_token_from_profile() -> None:
@@ -218,59 +213,3 @@ def test_parse_keeps_original_index_when_entry_is_empty() -> None:
     assert parsed is not None
     _scene, characters = parsed
     assert [c["stage_index"] for c in characters] == [0, 2]
-
-
-async def _setup_session(factory) -> None:
-    async with factory() as db:
-        db.add(User(id="user-1"))
-        db.add(
-            SessionORM(
-                id="sess-1",
-                user_id="user-1",
-                current_image_path="img/start.png",
-                character_id="char-1",
-            )
-        )
-        await db.commit()
-
-
-@pytest.mark.asyncio
-async def test_apply_prompt_tags_skips_off_stage_character(isolated_db):
-    factory = isolated_db.async_factory
-    await _setup_session(factory)
-    async with factory() as db:
-        await upsert_protagonist_session_character(
-            db, "sess-1", name="Hero", appearance_tags="1boy, old"
-        )
-        await SessionCharacterService.create_in_session(
-            db, "sess-1", name="Sakura", appearance_tags="1girl, old", on_stage=False
-        )
-        await SessionCharacterService.create_in_session(
-            db, "sess-1", name="Mio", appearance_tags="1girl, old mio"
-        )
-        await db.commit()
-
-    async with factory() as db:
-        records = await SessionCharacterService.list_for_session(db, "sess-1")
-        stage_ids = [c.record_id for c in build_stage_roster(records)]
-        written = await apply_character_prompt_tags(
-            db,
-            "sess-1",
-            [
-                {"prompt": "1boy, new", "stage_index": 0},
-                {"prompt": "1girl, new mio", "stage_index": 1},
-            ],
-            stage_ids=stage_ids,
-        )
-        await db.commit()
-    assert written == 2
-
-    async with factory() as db:
-        by_name = {
-            r.name: r
-            for r in await SessionCharacterService.list_for_session(db, "sess-1")
-        }
-    assert by_name["Hero"].appearance_tags == "1boy, new"
-    assert by_name["Mio"].appearance_tags == "1girl, new mio"
-    # 登場 OFF の Sakura は、slot 順では 2 番目でも書き換えない
-    assert by_name["Sakura"].appearance_tags == "1girl, old"

@@ -14,7 +14,13 @@ import json
 import logging
 import random
 import uuid
-from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
+from collections.abc import (
+    AsyncGenerator,
+    AsyncIterator,
+    Awaitable,
+    Callable,
+    Sequence,
+)
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -25,6 +31,10 @@ from ..consts.novelai_models import (
 )
 from ..consts.prompt_expander import MAX_CHARACTER_PROMPTS_V45, max_character_prompts
 from ..databases.base import async_session_factory
+from ..databases.character_repo import (
+    fetch_latest_character_states,
+    fetch_protagonist_session_character,
+)
 from ..models import (
     CRITICAL_POINTS,
     DIFFICULTY_PRESETS,
@@ -53,12 +63,15 @@ from .action_prompts import (
 from .anlas_service import get_anlas_balance
 from .character_service import (
     StageCharacter,
-    apply_character_prompt_tags,
     attach_stage_negatives,
+    build_character_states,
     build_novelai_characters_section,
     build_session_characters_prompt_section,
     build_stage_roster,
     load_session_characters_for_prompt,
+    looks_by_id,
+    parse_character_states,
+    ref_to_stage_index,
     upsert_protagonist_session_character,
 )
 from .character_service import (
@@ -158,21 +171,45 @@ def _parse_novelai_prompt_json(
     # Multi-character format: {"characters": [...], "scene": "..."}
     characters_list = parsed.get("characters")
     if isinstance(characters_list, list) and len(characters_list) > 0:
+        entries = [
+            (index, entry)
+            for index, entry in enumerate(characters_list)
+            if isinstance(entry, dict)
+        ]
+        # 登場人物一覧の ref（"C1" など）が付いていればそれで人物に対応付ける。
+        # 付いていない出力（古い形式）は従来どおり配列の順番を使う
+        use_refs = any(
+            ref_to_stage_index(entry.get("ref")) is not None for _, entry in entries
+        )
+        seen: set[int] = set()
         result_chars = []
-        for index, char_entry in enumerate(characters_list):
-            tags = char_entry.get("tags", "").strip()
+        for index, char_entry in entries:
+            tags = str(char_entry.get("tags") or "").strip()
             if not tags:
                 continue
+            stage_index: int | None = index
+            if use_refs:
+                stage_index = ref_to_stage_index(char_entry.get("ref"))
+                if stage_index is not None and stage_index in seen:
+                    stage_index = None
+            if stage_index is not None:
+                seen.add(stage_index)
             pos_name = char_entry.get("position", "center")
             position = _POSITION_MAP.get(pos_name, (0.5, 0.5))
-            # stage_index: 登場人物一覧の何番目か。空要素を飛ばしてもずれないよう元の添字を持つ
+            # stage_index: 登場人物一覧の何番目か（一覧外の人物は None）
             result_chars.append(
-                {"prompt": tags, "position": position, "stage_index": index}
+                {"prompt": tags, "position": position, "stage_index": stage_index}
+            )
+        if use_refs:
+            # 上限で切り詰めるときに一覧外の人物から落ちるよう、一覧の順に並べる
+            result_chars.sort(
+                key=lambda c: (c["stage_index"] is None, c["stage_index"] or 0)
             )
         if result_chars:
             logger.info(
-                "Multi-character prompt parsed: %d characters, scene_len=%d",
+                "Multi-character prompt parsed: %d characters, refs=%s, scene_len=%d",
                 len(result_chars),
+                use_refs,
                 len(scene_prompt),
             )
             return scene_prompt, result_chars
@@ -516,6 +553,25 @@ class _MultiCharacterSections:
     text_for_image: str | None = None
     image: str | None = None
     stage: tuple[StageCharacter, ...] = ()
+    # 直前に描いた各人物の姿（履歴の character_states）と、登録中の人物 ID
+    previous_states: tuple[dict, ...] = ()
+    registered_ids: frozenset[str] = frozenset()
+
+    def protagonist_spec_look(self) -> str | None:
+        """主人公を設定の姿で描くべきときの姿（タグ、無ければ自然文）。
+
+        姿を固定しているとき、またはユーザーが手番の後に主人公の設定を変えた
+        （連番が 1 以上で、履歴の姿より設定が新しい）ときだけ返す。
+        それ以外は None で、直前の履歴の姿をそのまま引き継ぐ。
+        """
+        protagonist = next((c for c in self.stage if c.is_protagonist), None)
+        if protagonist is None or protagonist.record_id is None:
+            return None
+        if protagonist.look_source == "fixed" or (
+            protagonist.look_source == "spec" and protagonist.spec_rev > 0
+        ):
+            return protagonist.look_tags or protagonist.appearance_natural or None
+        return None
 
 
 @dataclass
@@ -2047,6 +2103,10 @@ class GameService:
         try:
             async with async_session_factory() as db:
                 records = await load_session_characters_for_prompt(db, ctx.session.id)
+                previous_states = parse_character_states(
+                    await fetch_latest_character_states(db, ctx.session.id)
+                )
+            looks = looks_by_id(previous_states)
             protagonist_name, protagonist_tags = _resolve_protagonist_image_identity(
                 last_after_description=last_after_description,
                 character=ctx.character,
@@ -2055,8 +2115,7 @@ class GameService:
             )
             if upsert_protagonist:
                 # FR-010: 初期 upsert — DB に主人公レコードが未存在で解決された
-                # タグがある場合、CharacterPanel 表示用にプレースホルダーを作成する。
-                # 今ターン終了後の事後 upsert で最新タグに上書きされる。
+                # タグがある場合、主人公の行を作る（このタグが主人公の設定の初期値になる）。
                 has_protagonist = any(r.is_protagonist for r in records)
                 if not has_protagonist and protagonist_name and protagonist_tags:
                     try:
@@ -2093,6 +2152,7 @@ class GameService:
                 "limit": ctx.stage_limit,
                 "protagonist_name": protagonist_name,
                 "protagonist_tags": protagonist_tags,
+                "looks": looks,
             }
             stage = tuple(build_stage_roster(records, **roster_kwargs))
             text_section = (
@@ -2120,9 +2180,16 @@ class GameService:
                 text_for_image=text_for_image,
                 image=image_section,
                 stage=stage,
+                previous_states=tuple(previous_states),
+                registered_ids=frozenset(r.id for r in records),
             )
         except Exception as exc:
-            logger.debug("session_character fetch (%s) skipped: %s", log_label, exc)
+            logger.warning(
+                "session_character fetch (%s) skipped: %s: %s",
+                log_label,
+                type(exc).__name__,
+                exc,
+            )
             return _MultiCharacterSections()
 
     async def _evaluate_turn_congruence(
@@ -2337,6 +2404,11 @@ class GameService:
             upsert_protagonist=False,
             log_label="image-only",
         )
+        spec_look = sections.protagonist_spec_look()
+        if spec_look and ctx.is_novelai_opus and not text_to_image:
+            # 手番の後に主人公の設定が変わった・固定中: 直前の姿ではなく設定の姿から描く
+            previous_description = spec_look
+            current_description = spec_look
 
         characters: list[dict] | None = None
         if ctx.is_novelai_opus:
@@ -2396,9 +2468,10 @@ class GameService:
             apply_override=True,
             stage=sections.stage,
         )
-        after_description = payload.final_prompt
-        if payload.characters and isinstance(payload.characters[0].get("prompt"), str):
-            after_description = payload.characters[0]["prompt"]
+        after_description = (
+            self._protagonist_prompt(payload.characters, sections.stage)
+            or payload.final_prompt
+        )
 
         image_data, image_cost, image_seed = await self._generate_image(
             None if text_to_image else ctx.before_image,
@@ -2425,6 +2498,9 @@ class GameService:
             after_description=after_description,
             instruction_type="image_only",
             seed=image_seed,
+            character_states=await self._character_states_for_history(
+                ctx, sections, payload.api_characters
+            ),
         )
         await session_store.update_session(
             session_id=ctx.session.id,
@@ -2517,6 +2593,10 @@ class GameService:
             upsert_protagonist=True,
             log_label="action",
         )
+        spec_look = sections.protagonist_spec_look()
+        if spec_look and ctx.is_novelai_opus:
+            # 手番の後に主人公の設定が変わった・固定中: 直前の姿ではなく設定の姿から描く
+            current_desc = spec_look
 
         # 行動時の性別適合。feeling_mode=gender_aware かつ self_mode 以外
         congruence = await self._evaluate_turn_congruence(
@@ -2574,11 +2654,10 @@ class GameService:
             stage=sections.stage,
         )
         # 履歴用: inventory 付き状態を保持
-        if payload.characters and isinstance(payload.characters[0].get("prompt"), str):
-            prompt_desc = payload.characters[0]["prompt"]
-        else:
-            prompt_desc = payload.final_prompt
-        characters = payload.characters
+        prompt_desc = (
+            self._protagonist_prompt(payload.characters, sections.stage)
+            or payload.final_prompt
+        )
 
         # T010: Action-specific default i2i_strength (0.85)
         inpaint_strength = (
@@ -2623,7 +2702,6 @@ class GameService:
                 result.image_error,
             )
             prompt_desc = current_desc
-            characters = None
         elif result.image_data is not None:
             final_image = result.image_data
 
@@ -2636,6 +2714,13 @@ class GameService:
             after_description=prompt_desc,
             instruction_type="action",
             seed=result.image_seed,
+            character_states=(
+                None
+                if result.image_error
+                else await self._character_states_for_history(
+                    ctx, sections, payload.api_characters
+                )
+            ),
         )
         if history.image_path:
             await session_store.update_session(
@@ -2643,18 +2728,15 @@ class GameService:
                 current_image_path=history.image_path,
             )
 
-        # FR-010 / FR-013: 確定タグ直書き + 容姿自然文の自動更新（add_history 直後）
+        # FR-010: 主人公の行が無ければ作り、名前を合わせる（姿は履歴に残した）
         if request.multi_character_panel:
-            await _sync_session_characters_after_turn(
+            await _ensure_protagonist_after_turn(
                 session_id=ctx.session.id,
                 after_description=prompt_desc,
-                character_prompts=characters,
-                instruction_text=ctx.instruction,
                 character=ctx.character,
                 self_profile=ctx.self_profile,
                 custom_metadata=ctx.custom_metadata,
                 log_label="action",
-                stage_ids=[c.record_id for c in sections.stage],
             )
 
         if result.image_data is not None:
@@ -2892,6 +2974,11 @@ class GameService:
             upsert_protagonist=True,
             log_label="dress-up",
         )
+        spec_look = sections.protagonist_spec_look()
+        if spec_look and ctx.is_novelai_opus:
+            # 手番の後に主人公の設定が変わった・固定中: 直前の姿ではなく設定の姿から描く
+            previous_prompt = spec_look
+            before_desc = spec_look
 
         # 性別適合判定（gender_aware かつ通常着せ替えのみ。現実改変は対象外）
         congruence: GenderCongruenceResult | None = None
@@ -2941,6 +3028,7 @@ class GameService:
             ctx,
             payload,
             generated_novelai_prompt=generated_novelai_prompt,
+            stage=sections.stage,
         )
         used_openings = await self._collect_used_openings(ctx.session.id)
 
@@ -2996,20 +3084,20 @@ class GameService:
             after_description=after_desc,
             instruction_type=request.instruction_type or "dress_up",
             seed=result.image_seed,
+            character_states=await self._character_states_for_history(
+                ctx, sections, payload.api_characters
+            ),
         )
 
-        # FR-010 / FR-013: 確定タグ直書き + 容姿自然文の自動更新（add_history 直後）
+        # FR-010: 主人公の行が無ければ作り、名前を合わせる（姿は履歴に残した）
         if request.multi_character_panel:
-            await _sync_session_characters_after_turn(
+            await _ensure_protagonist_after_turn(
                 session_id=ctx.session.id,
                 after_description=after_desc,
-                character_prompts=payload.characters,
-                instruction_text=ctx.original_instruction,
                 character=ctx.character,
                 self_profile=ctx.self_profile,
                 custom_metadata=ctx.custom_metadata,
                 log_label="dress-up",
-                stage_ids=[c.record_id for c in sections.stage],
             )
 
         outcome = _TransformationOutcome(
@@ -3102,11 +3190,71 @@ class GameService:
         return prompt, None, None
 
     @staticmethod
+    async def _character_states_for_history(
+        ctx: TurnContext,
+        sections: _MultiCharacterSections,
+        characters: list[dict] | None,
+    ) -> list[dict] | None:
+        """この手番で描いた各人物の姿（履歴に残す値）。記録しない手番は None。
+
+        人物パネルが OFF のとき・人物ごとのタグが無いとき（非 Opus、分割失敗）は
+        None を返し、直前に記録した姿がそのまま続く。
+        """
+        if not ctx.request.multi_character_panel or not sections.stage:
+            return None
+        if not characters:
+            return None
+        protagonist_id: str | None = None
+        if any(m.is_protagonist and m.record_id is None for m in sections.stage):
+            # 初回ターンなどで主人公の行が後から作られた場合、その ID で記録する
+            try:
+                async with async_session_factory() as db:
+                    row = await fetch_protagonist_session_character(db, ctx.session.id)
+                protagonist_id = row.id if row else None
+            except Exception as exc:  # noqa: BLE001 - 主人公の記録だけを諦める
+                logger.warning(
+                    "protagonist lookup for character states failed: %s: %s",
+                    type(exc).__name__,
+                    exc,
+                )
+        return build_character_states(
+            sections.previous_states,
+            sections.stage,
+            characters,
+            sections.registered_ids,
+            protagonist_id=protagonist_id,
+        )
+
+    @staticmethod
+    def _protagonist_prompt(
+        characters: list[dict] | None, stage: Sequence[StageCharacter] = ()
+    ) -> str | None:
+        """人物ごとの出力から主人公のタグを取り出す（空なら None）。
+
+        登場人物一覧があれば主人公の登場順（ref）で探す。LLM が並べ替えても
+        別の人物のタグを主人公の姿として履歴に残さないため。見つからなければ先頭。
+        """
+        if not characters:
+            return None
+        entry = characters[0]
+        protagonist_index = next(
+            (i for i, member in enumerate(stage) if member.is_protagonist), None
+        )
+        if protagonist_index is not None:
+            entry = next(
+                (c for c in characters if c.get("stage_index") == protagonist_index),
+                entry,
+            )
+        prompt = entry.get("prompt")
+        return prompt if isinstance(prompt, str) and prompt.strip() else None
+
+    @staticmethod
     def _infer_after_description(
         ctx: TurnContext,
         payload: _ImagePayload,
         *,
         generated_novelai_prompt: str | None,
+        stage: Sequence[StageCharacter] = (),
     ) -> str:
         """履歴と心境入力に使う「変身後の姿」の説明を決める。
 
@@ -3114,13 +3262,11 @@ class GameService:
         character プロンプトを優先）、それ以外は指示文から組み立てる。
         """
         if ctx.is_novelai_opus:
-            characters = payload.characters
-            if (
-                characters
-                and isinstance(characters[0].get("prompt"), str)
-                and characters[0]["prompt"].strip()
-            ):
-                return characters[0]["prompt"]
+            protagonist_prompt = GameService._protagonist_prompt(
+                payload.characters, stage
+            )
+            if protagonist_prompt:
+                return protagonist_prompt
             if payload.final_prompt.strip():
                 return payload.final_prompt
             if generated_novelai_prompt:
@@ -4091,128 +4237,39 @@ class GameService:
 game_service = GameService()
 
 
-async def _sync_session_characters_after_turn(
+async def _ensure_protagonist_after_turn(
     *,
     session_id: str,
     after_description: str | None,
-    character_prompts: list[dict] | None,
-    instruction_text: str,
     character: Any | None,
     self_profile: dict | None,
     custom_metadata: dict | None,
     log_label: str,
-    stage_ids: list[str | None] | None = None,
 ) -> None:
-    """Persist post-turn appearance onto session_character rows (FR-010 / FR-013).
+    """Create the protagonist session_character if missing and sync its name (FR-010).
 
-    1. Prefer confirmed Opus character prompts as appearance_tags source of truth.
-    2. Fall back to resolving tags from after_description / base identity.
-    3. Best-effort LLM update for appearance_natural (and residual tag diffs).
-
+    The look drawn this turn is kept in the history row (``character_states``),
+    so the character rows (the user's settings) are never rewritten here.
     Failures are logged and never raised to the caller.
     """
     try:
-        post_name, post_tags = _resolve_protagonist_image_identity(
+        name, tags = _resolve_protagonist_image_identity(
             last_after_description=after_description,
             character=character,
             self_profile=self_profile,
             custom_metadata=custom_metadata,
         )
-        # Confirmed character prompt overrides extract/fallback when present.
-        if (
-            character_prompts
-            and isinstance(character_prompts[0], dict)
-            and isinstance(character_prompts[0].get("prompt"), str)
-            and character_prompts[0]["prompt"].strip()
-        ):
-            post_tags = character_prompts[0]["prompt"].strip()
-
+        if not (name and tags):
+            return
         async with async_session_factory() as db:
-            if post_name and post_tags:
-                await upsert_protagonist_session_character(
-                    db,
-                    session_id,
-                    name=post_name,
-                    appearance_tags=post_tags,
-                )
-            if character_prompts:
-                applied = await apply_character_prompt_tags(
-                    db, session_id, character_prompts, stage_ids=stage_ids
-                )
-                if applied:
-                    logger.info(
-                        "[FR-010 %s] applied character prompt tags to %d row(s)",
-                        log_label,
-                        applied,
-                    )
-            await db.commit()
-
-        if post_name and post_tags:
-            logger.info(
-                "[FR-010 %s] post-history upsert ok name=%r tags=%r",
-                log_label,
-                post_name,
-                post_tags[:80],
+            await upsert_protagonist_session_character(
+                db, session_id, name=name, appearance_tags=tags
             )
+            await db.commit()
     except Exception as exc:  # noqa: BLE001 - best-effort panel sync
         logger.warning(
-            "[FR-010 %s] post-history upsert failed: %s",
+            "[FR-010 %s] protagonist ensure failed: %s: %s",
             log_label,
+            type(exc).__name__,
             exc,
-        )
-
-    await _async_apply_appearance_updates(session_id, instruction_text)
-
-
-async def _async_apply_appearance_updates(session_id: str, action_text: str) -> None:
-    """005 US2: Action / dress-up 後にキャラクター容姿の差分を適用する。
-
-    失敗時はログに記録し、アクション応答へは伝播させない (FR-014)。
-    """
-    try:
-        # session_character の取得
-        async with async_session_factory() as db:
-            records = await load_session_characters_for_prompt(db, session_id)
-        # 登場 OFF の人物はこの場面にいないため、外見を変えない
-        records = [
-            r for r in records if r.is_protagonist or getattr(r, "on_stage", True)
-        ]
-        if not records:
-            return
-
-        # 出力言語をユーザー設定から解決（取得失敗時は ja 既定）
-        try:
-            user_settings = await session_store.get_user_settings(session_id)
-            effective_language = normalize_language(user_settings.get("language"))
-        except Exception:  # noqa: BLE001 - 設定取得失敗は致命的でない
-            effective_language = normalize_language(None)
-
-        characters_payload = [
-            {
-                "id": r.id,
-                "name": r.name,
-                "appearance_natural": r.appearance_natural or "",
-                "appearance_tags": r.appearance_tags or "",
-                "appearance_lock": bool(getattr(r, "appearance_lock", False)),
-                "exclude_from_effects": bool(getattr(r, "exclude_from_effects", False)),
-            }
-            for r in records
-        ]
-
-        updates = await llm_service.infer_appearance_updates(
-            characters_payload,
-            action_text,
-            language=effective_language,
-        )
-        if not updates:
-            return
-
-        from .character_service import apply_appearance_updates
-
-        async with async_session_factory() as db:
-            await apply_appearance_updates(db, session_id, updates)
-            await db.commit()
-    except Exception as exc:
-        logger.warning(
-            "auto-appearance update skipped (session=%s): %s", session_id, exc
         )

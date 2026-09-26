@@ -229,3 +229,91 @@ def test_generate_profile_failure_returns_502(app_and_client, monkeypatch):
         )
         assert resp.status_code == 502
         assert resp.json()["detail"]["code"] == "llm_failure"
+
+
+def _add_history(factory, history_id: str, states, minutes: int):
+    import asyncio
+    import json
+    from datetime import datetime, timedelta
+
+    from gateway.databases.models import History
+
+    async def _insert():
+        async with factory() as db:
+            db.add(
+                History(
+                    id=history_id,
+                    session_id="sess-1",
+                    instruction=history_id,
+                    image_path=f"img/{history_id}.png",
+                    character_states_json=json.dumps(states),
+                    created_at=datetime(2026, 9, 26, 10, 0)
+                    + timedelta(minutes=minutes),
+                )
+            )
+            await db.commit()
+
+    asyncio.run(_insert())
+
+
+def _delete_history(factory, history_id: str):
+    import asyncio
+
+    from gateway.databases.models import History
+
+    async def _delete():
+        async with factory() as db:
+            await db.delete(await db.get(History, history_id))
+            await db.commit()
+
+    asyncio.run(_delete())
+
+
+def test_list_returns_current_look_from_history(app_and_client):
+    app, factory = app_and_client
+    with TestClient(app) as client:
+        emma = client.post(
+            "/api/game/session/sess-1/characters",
+            json={"name": "エマ", "appearance_tags": "1girl, red hair, hostess dress"},
+        ).json()
+        resp = client.get("/api/game/session/sess-1/characters")
+        [before] = resp.json()["characters"]
+        assert before["look_source"] == "spec"
+        assert before["current_tags"] is None
+
+        _add_history(
+            factory,
+            "hist-1",
+            [{"character_id": emma["id"], "tags": "1girl, red hair, bikini"}],
+            minutes=1,
+        )
+        _add_history(
+            factory,
+            "hist-2",
+            [{"character_id": emma["id"], "tags": "1girl, red hair, maid"}],
+            minutes=2,
+        )
+        [current] = client.get("/api/game/session/sess-1/characters").json()[
+            "characters"
+        ]
+        assert current["look_source"] == "history"
+        assert current["current_tags"] == "1girl, red hair, maid"
+        # 設定は書き換わらない
+        assert current["appearance_tags"] == "1girl, red hair, hostess dress"
+
+        # 最新の履歴を消すと、1 つ前の姿に戻る
+        _delete_history(factory, "hist-2")
+        [reverted] = client.get("/api/game/session/sess-1/characters").json()[
+            "characters"
+        ]
+        assert reverted["current_tags"] == "1girl, red hair, bikini"
+
+        # 「設定の姿に戻す」: 次の手番から設定の姿で描く
+        resp = client.put(
+            f"/api/game/session/sess-1/characters/{emma['id']}",
+            json={"reset_look": True},
+        )
+        assert resp.status_code == 200
+        reset = resp.json()
+        assert reset["look_source"] == "spec"
+        assert reset["current_tags"] == "1girl, red hair, bikini"

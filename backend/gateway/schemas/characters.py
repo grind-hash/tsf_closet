@@ -93,6 +93,10 @@ class SessionCharacterRead(BaseModel):
     profile: CharacterProfile | None = None
     on_stage: bool = True
     thumbnail_url: str | None = None
+    # 今の姿の出どころ: 設定 / 直前の手番の結果（履歴） / 姿を固定
+    look_source: Literal["spec", "history", "fixed"] = "spec"
+    # 直前の手番で描いた姿（履歴に残したタグ）。まだ無ければ None
+    current_tags: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -132,6 +136,8 @@ class SessionCharacterUpdate(BaseModel):
     thumbnail_url: str | None = Field(
         None, max_length=_THUMBNAIL_URL_MAX_LEN, pattern=_THUMBNAIL_URL_PATTERN
     )
+    # true: 次の手番は直前の姿を引き継がず、設定の姿で描く
+    reset_look: bool | None = None
 
 
 class CharacterPresetRead(BaseModel):

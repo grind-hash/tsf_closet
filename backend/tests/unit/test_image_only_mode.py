@@ -162,6 +162,7 @@ async def test_image_only_saves_image_without_feeling_or_stats(monkeypatch) -> N
         after_description="final image prompt",
         instruction_type="image_only",
         seed=12345,
+        character_states=None,
     )
     update_session_mock.assert_awaited_once_with(
         session_id=session.id,

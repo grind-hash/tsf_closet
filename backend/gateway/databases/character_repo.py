@@ -9,13 +9,14 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import delete as sa_delete
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .models import CharacterGroupPreset, CharacterPreset, SessionCharacter
+from .models import CharacterGroupPreset, CharacterPreset, History, SessionCharacter
 
 # ---------------------------------------------------------------------------
 # SessionCharacter helpers
@@ -77,6 +78,7 @@ async def insert_session_character(
     profile_json: str | None = None,
     on_stage: bool = True,
     thumbnail_url: str | None = None,
+    appearance_spec_rev: int = 0,
 ) -> SessionCharacter:
     """Insert one SessionCharacter and return the persisted instance."""
     record = SessionCharacter(
@@ -95,6 +97,7 @@ async def insert_session_character(
         profile_json=profile_json,
         on_stage=on_stage,
         thumbnail_url=thumbnail_url,
+        appearance_spec_rev=appearance_spec_rev,
     )
     db.add(record)
     await db.flush()
@@ -124,12 +127,36 @@ async def update_session_character(
         "profile_json",
         "on_stage",
         "thumbnail_url",
+        "appearance_spec_rev",
     }
     for key, value in patch.items():
         if key in allowed and value is not None:
             setattr(record, key, value)
     await db.flush()
     return record
+
+
+async def fetch_latest_character_states(
+    db: AsyncSession,
+    session_id: str,
+    *,
+    until: datetime | None = None,
+) -> str | None:
+    """Return the newest non-NULL ``history.character_states_json`` of a session.
+
+    Turns without per-character tags store NULL, so skipping them keeps the
+    last drawn look instead of falling back to the settings. ``until`` limits
+    the search to histories created at or before that time (session branch).
+    """
+    stmt = select(History.character_states_json).where(
+        History.session_id == session_id,
+        History.character_states_json.is_not(None),
+    )
+    if until is not None:
+        stmt = stmt.where(History.created_at <= until)
+    stmt = stmt.order_by(History.created_at.desc(), History.id.desc()).limit(1)
+    result = await db.execute(stmt)
+    return result.scalar_one_or_none()
 
 
 async def delete_session_character(db: AsyncSession, character_id: str) -> int:
@@ -304,6 +331,7 @@ __all__ = [
     "update_session_character",
     "delete_session_character",
     "delete_non_protagonist_session_characters",
+    "fetch_latest_character_states",
     "fetch_character_presets",
     "fetch_character_preset",
     "insert_character_preset",

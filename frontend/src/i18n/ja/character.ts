@@ -34,7 +34,7 @@ export const character = {
     negative_tags: "ネガティブタグ（この人物に描かないもの）",
     negative_tags_placeholder: "例：glasses, beard, hat",
     position: "立ち位置",
-    appearance_lock: "外見ロック（結果で上書きしない）",
+    appearance_lock: "姿を固定（毎回、設定どおりに描く）",
     exclude_from_effects: "効果対象外（指示の影響を受けない）",
     on_stage: "登場",
     on_stage_of: "{{name}}を登場させる",
@@ -47,13 +47,16 @@ export const character = {
     right: "右",
   },
   badge: {
-    appearance_lock: "外見ロック中：結果で上書きされません",
-    lock_short: "ロック",
+    appearance_lock: "姿を固定中：毎回、設定どおりに描きます",
+    lock_short: "固定",
     exclude_from_effects: "効果対象外：指示の影響を受けません",
     bystander_short: "対象外",
     profile: "性格が設定されています",
     profile_short: "性格",
     not_used_short: "上限外",
+    look_changed:
+      "直前の手番で、設定から姿が変わっています（次の手番もこの姿を引き継ぎます）",
+    look_changed_short: "変化あり",
   },
   save_status: {
     saved: "保存済み",
@@ -94,7 +97,28 @@ export const character = {
     add: "人物を追加",
     addFromPreset: "プリセットから追加",
     newName: "人物{{number}}",
-    appearanceSection: "姿",
+    appearanceSection: "姿の設定",
+    currentLookSection: "現在の姿（直前の手番の結果）",
+    currentLookHistory:
+      "次の手番は、この姿を引き継いで描きます。姿の設定の欄は書き換わりません。",
+    currentLookSpecNext:
+      "設定が直前の手番より新しいため、次の手番は設定の姿で描きます。下は直前の手番で描いた姿です。",
+    currentLookFixed: "姿を固定しているため、毎回設定の姿で描きます。",
+    currentLookEmpty:
+      "まだ手番の結果がありません。次の手番は設定の姿で描きます。",
+    copyToSpec: "設定にコピー",
+    copyToSpecConfirm: "今の外見タグを、現在の姿のタグで置き換えますか？",
+    resetLook: "設定の姿に戻す（次の手番から）",
+    resetLookUnavailable: "次の手番はすでに設定の姿で描きます",
+    generateTags: "自然文からタグを作る",
+    generatingTags: "タグを作成中…",
+    generateTagsError: "タグを作れませんでした",
+    generateTagsConfirm:
+      "今の外見タグを、自然文から作ったタグで置き換えますか？",
+    generateTagsNeedNatural: "先に外見（自然文）を入力してください",
+    tagsHint: "画像にはタグを使います。タグが空のときだけ自然文を使います。",
+    naturalChangedHint:
+      "自然文を変えましたが、画像には今のタグが使われます。必要なら「自然文からタグを作る」でタグを作り直してください。",
     profileSection: "性格",
     pickAppearance: "姿を選ぶ",
     pickerTitle: "{{name}}の姿を選ぶ",

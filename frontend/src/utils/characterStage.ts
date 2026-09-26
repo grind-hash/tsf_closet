@@ -48,3 +48,22 @@ export function overflowCharacterIds(
   );
   return new Set(others.slice(Math.max(0, limit - 1)).map((c) => c.id));
 }
+
+function normalizeTags(tags: string): string {
+  return tags
+    .split(",")
+    .map((tag) => tag.trim().toLowerCase())
+    .filter(Boolean)
+    .join(",");
+}
+
+/** 次の手番で使う姿が、直前の手番の結果（設定から変化した姿）か */
+export function hasLookChanged(character: SessionCharacter): boolean {
+  if (character.look_source !== "history" || !character.current_tags) {
+    return false;
+  }
+  return (
+    normalizeTags(character.current_tags) !==
+    normalizeTags(character.appearance_tags ?? "")
+  );
+}

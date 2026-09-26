@@ -14,6 +14,7 @@ import {
   CHARACTERS_FROM_GROUP,
   CHARACTERS_FROM_PRESET,
   CHARACTERS_GENERATE_PROFILE,
+  CHARACTERS_GENERATE_TAGS,
   CHARACTERS_RESOLVE_SOURCE,
   SESSION_CHARACTER,
   SESSION_CHARACTERS,
@@ -100,6 +101,8 @@ export interface UpdateSessionCharacterPayload {
   profile?: CharacterProfile;
   on_stage?: boolean;
   thumbnail_url?: string;
+  /** true: 次の手番は直前の姿を引き継がず、設定の姿で描く */
+  reset_look?: boolean;
 }
 
 export async function updateSessionCharacter(
@@ -162,6 +165,23 @@ export async function generateCharacterProfile(
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+export interface GenerateCharacterTagsItem {
+  id: string;
+  name: string;
+  natural: string;
+}
+
+/** 自然文の外見から NovelAI 形式のタグを作る（保存はしない） */
+export async function generateCharacterTags(
+  items: GenerateCharacterTagsItem[],
+): Promise<Array<{ id: string; tags: string }>> {
+  const data = await request<{ results: Array<{ id: string; tags: string }> }>(
+    CHARACTERS_GENERATE_TAGS,
+    { method: "POST", body: JSON.stringify({ items }) },
+  );
+  return data.results;
 }
 
 export interface ResolveCharacterSourcePayload {

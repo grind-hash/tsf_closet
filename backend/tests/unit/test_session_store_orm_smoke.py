@@ -1,4 +1,5 @@
 import ast
+import json
 import sys
 from pathlib import Path
 
@@ -57,6 +58,19 @@ async def test_session_store_smoke_works_with_orm(
     history_list = await store.get_history(created.id)
     assert len(history_list) == 1
     assert history_list[0].id == history.id
+    assert history_list[0].character_states_json is None
+
+    states = [{"character_id": "emma", "tags": "1girl, red hair", "spec_rev": 0}]
+    with_states = await store.add_history(
+        session_id=created.id,
+        instruction="multi",
+        image_data=b"PNG",
+        character_states=states,
+    )
+    stored = await store.get_history_by_id(with_states.id)
+    assert stored is not None
+    assert stored.character_states_json is not None
+    assert json.loads(stored.character_states_json) == states
 
     stats = await store.get_or_create_session_stats(
         created.id, difficulty="hard", nsfw_mode=True

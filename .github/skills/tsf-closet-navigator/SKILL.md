@@ -59,7 +59,7 @@ frontend/tests/e2e/      Playwright
 - 共有状態は既存 Context に置く。複数階層の props 中継や props から Context への同期を追加しない。
 - `AdventureContext` は `/adventure` 配下だけで提供され、他4 Context は `main.tsx` で全体提供される。
 - 指示タイプは `dress_up`、`reality_alter`、`conversation`、`action`、`image_only`。追加時は型、送信UI、APIモデル、サービス分岐、履歴、E2Eを同時に確認する。
-- `image_only` は画像履歴だけを更新し、心境・パラメータ・実績・人物状態を更新しない。失敗時は履歴を残さない。
+- `image_only` は画像履歴だけを更新し、心境・パラメータ・実績・人物パネルの設定を更新しない（描いた登場人物の姿は画像履歴の一部として残す）。失敗時は履歴を残さない。
 - `original_instruction`、心境用の展開済み指示、画像用 `image_instruction` を混同しない。画像メモリは明示的な opt-in 時だけ注入する。
 - `prompt_override` を送る経路へ履歴遡及を自動注入しない。
 - プレイメモはセッション単位、設定画面のメモリ本文はユーザー単位。用途と保存先を分ける。

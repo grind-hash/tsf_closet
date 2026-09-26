@@ -1,6 +1,9 @@
 /**
  * CharacterDetailEditor - 登場人物の設定モーダルの右側。1 人分の姿と性格を編集する。
  *
+ * 「姿の設定」はユーザーが書く入力で、手番の結果で書き換わることはない。
+ * 手番で描いた姿は履歴に残り、「現在の姿」に読み取り専用で出す。
+ *
  * テキスト欄は IME 変換が途切れないよう入力値をローカルに持ち、blur 時に保存する。
  * 人物の切り替えやモーダルを閉じたとき（アンマウント時）も未保存の入力を保存する。
  */
@@ -16,6 +19,7 @@ import { useTranslation } from "react-i18next";
 import {
   createCharacterPreset,
   generateCharacterProfile,
+  generateCharacterTags,
   listCharacterPresets,
   updateCharacterPreset,
 } from "../../apis/characters";
@@ -95,6 +99,8 @@ interface SavedTextFieldProps {
   /** 欄の右上に置く操作 */
   action?: ReactNode;
   testId?: string;
+  /** 入力中の値を親へ知らせる（保存前の下書きを使う操作のため） */
+  onTextChange?: (text: string) => void;
 }
 
 function SavedTextField({
@@ -106,6 +112,7 @@ function SavedTextField({
   maxLength,
   action,
   testId,
+  onTextChange,
 }: SavedTextFieldProps) {
   const [text, setText] = useState(value);
   const [status, setStatus] = useState<SaveStatus>("saved");
@@ -161,6 +168,7 @@ function SavedTextField({
   const handleChange = (next: string) => {
     setText(next);
     setStatus(next === syncedRef.current ? "saved" : "dirty");
+    onTextChange?.(next);
   };
 
   return (
@@ -293,6 +301,19 @@ export default function CharacterDetailEditor({
   const [savingPreset, setSavingPreset] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
+  const [generatingTags, setGeneratingTags] = useState(false);
+  const [tagsError, setTagsError] = useState<string | null>(null);
+  // 自然文を保存したのにタグが古いまま（画像にはタグを使うため注意を出す）
+  const [naturalAheadOfTags, setNaturalAheadOfTags] = useState(false);
+  const naturalDraftRef = useRef(character.appearance_natural);
+  const [naturalFilled, setNaturalFilled] = useState(
+    Boolean(character.appearance_natural.trim()),
+  );
+  useEffect(() => {
+    // 姿を選んだときなど、保存済みの自然文が外から変わったら下書きも合わせる
+    naturalDraftRef.current = character.appearance_natural;
+    setNaturalFilled(Boolean(character.appearance_natural.trim()));
+  }, [character.appearance_natural]);
 
   const persist = useCallback(
     async (patch: Parameters<typeof updateSessionCharacterAction>[1]) => {
@@ -383,6 +404,53 @@ export default function CharacterDetailEditor({
       setGenerating(false);
     }
   };
+
+  // ── 姿の設定: 自然文からタグを作る ──
+  const handleGenerateTags = async () => {
+    const natural = naturalDraftRef.current.trim();
+    if (!natural) return;
+    if (
+      character.appearance_tags.trim() &&
+      !window.confirm(t("character.cast.generateTagsConfirm"))
+    ) {
+      return;
+    }
+    setGeneratingTags(true);
+    setTagsError(null);
+    try {
+      const [result] = await generateCharacterTags([
+        { id: character.id, name: character.name, natural },
+      ]);
+      if (!result?.tags) {
+        throw new Error("empty_tags");
+      }
+      await persist({ appearance_tags: result.tags });
+      setNaturalAheadOfTags(false);
+    } catch (err) {
+      console.error("Failed to generate character tags", err);
+      setTagsError(t("character.cast.generateTagsError"));
+    } finally {
+      setGeneratingTags(false);
+    }
+  };
+
+  // ── 現在の姿: 設定にコピー・設定の姿に戻す ──
+  const currentTags = character.current_tags ?? "";
+  const lookSource = character.look_source ?? "spec";
+  const handleCopyToSpec = () => {
+    if (!currentTags) return;
+    if (!window.confirm(t("character.cast.copyToSpecConfirm"))) return;
+    persistQuietly({ appearance_tags: currentTags });
+    setNaturalAheadOfTags(false);
+  };
+  const currentLookNote =
+    lookSource === "fixed"
+      ? t("character.cast.currentLookFixed")
+      : lookSource === "history"
+        ? t("character.cast.currentLookHistory")
+        : currentTags
+          ? t("character.cast.currentLookSpecNext")
+          : t("character.cast.currentLookEmpty");
 
   // ── 削除・プリセット保存 ──
   const handleDelete = async () => {
@@ -569,18 +637,62 @@ export default function CharacterDetailEditor({
         <SavedTextField
           label={t("character.field.appearance_natural")}
           value={character.appearance_natural}
-          onSave={(appearance_natural) => persist({ appearance_natural })}
+          onSave={async (appearance_natural) => {
+            await persist({ appearance_natural });
+            if (character.appearance_tags.trim()) setNaturalAheadOfTags(true);
+          }}
+          onTextChange={(text) => {
+            naturalDraftRef.current = text;
+            setNaturalFilled(Boolean(text.trim()));
+          }}
           multiline
           maxLength={1000}
+          testId="character-detail-natural"
         />
         <SavedTextField
           label={t("character.field.appearance_tags")}
           value={character.appearance_tags}
-          onSave={(appearance_tags) => persist({ appearance_tags })}
+          onSave={async (appearance_tags) => {
+            await persist({ appearance_tags });
+            setNaturalAheadOfTags(false);
+          }}
           multiline
           maxLength={2000}
           testId="character-detail-tags"
+          action={
+            <button
+              type="button"
+              className="character-panel__btn"
+              onClick={() => void handleGenerateTags()}
+              disabled={generatingTags || !naturalFilled}
+              title={
+                naturalFilled
+                  ? undefined
+                  : t("character.cast.generateTagsNeedNatural")
+              }
+              data-testid="character-generate-tags"
+            >
+              {generatingTags ? (
+                <>
+                  <span
+                    className="character-cast__spinner"
+                    aria-hidden="true"
+                  />
+                  {t("character.cast.generatingTags")}
+                </>
+              ) : (
+                t("character.cast.generateTags")
+              )}
+            </button>
+          }
         />
+        <p className="character-cast__hint">{t("character.cast.tagsHint")}</p>
+        {naturalAheadOfTags && (
+          <p className="character-cast__warning" role="status">
+            {t("character.cast.naturalChangedHint")}
+          </p>
+        )}
+        {tagsError && <div className="character-panel__error">{tagsError}</div>}
         <SavedTextField
           label={t("character.field.negative_tags")}
           value={character.negative_tags}
@@ -605,6 +717,52 @@ export default function CharacterDetailEditor({
             onChange={(next) => persistQuietly({ exclude_from_effects: next })}
             testId="character-exclude-from-effects"
           />
+        </div>
+      </CastSection>
+
+      <CastSection
+        id="current-look"
+        title={t("character.cast.currentLookSection")}
+      >
+        <p
+          className="character-cast__note"
+          data-testid="character-current-note"
+        >
+          {currentLookNote}
+        </p>
+        {currentTags && (
+          <textarea
+            className="character-cast__readonly"
+            value={currentTags}
+            readOnly
+            aria-label={t("character.cast.currentLookSection")}
+            data-testid="character-current-tags"
+          />
+        )}
+        <div className="character-cast__current-actions">
+          <button
+            type="button"
+            className="character-panel__btn"
+            onClick={handleCopyToSpec}
+            disabled={!currentTags}
+            data-testid="character-copy-to-spec"
+          >
+            {t("character.cast.copyToSpec")}
+          </button>
+          <button
+            type="button"
+            className="character-panel__btn"
+            onClick={() => persistQuietly({ reset_look: true })}
+            disabled={lookSource !== "history"}
+            title={
+              lookSource !== "history"
+                ? t("character.cast.resetLookUnavailable")
+                : undefined
+            }
+            data-testid="character-reset-look"
+          >
+            {t("character.cast.resetLook")}
+          </button>
         </div>
       </CastSection>
 

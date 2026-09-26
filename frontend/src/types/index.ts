@@ -491,6 +491,9 @@ export interface CharacterProfile {
   memo: string;
 }
 
+/** 今の姿の出どころ: 設定 / 直前の手番の結果（履歴） / 姿を固定 */
+export type CharacterLookSource = "spec" | "history" | "fixed";
+
 // Note: AGENTS.md naming exception - backend returns snake_case fields,
 // so the frontend types follow snake_case as well for direct mapping.
 export interface SessionCharacter {
@@ -512,6 +515,10 @@ export interface SessionCharacter {
   on_stage: boolean;
   /** 姿を選んだソースのサムネイル（API 相対パス） */
   thumbnail_url: string | null;
+  /** 次の手番で使う姿の出どころ */
+  look_source: CharacterLookSource;
+  /** 直前の手番で描いた姿（履歴に残したタグ）。まだ無ければ null */
+  current_tags: string | null;
   created_at: string;
   updated_at: string;
 }

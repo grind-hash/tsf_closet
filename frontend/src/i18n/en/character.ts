@@ -34,7 +34,7 @@ export const character = {
     negative_tags: "Negative tags (things not to draw on this character)",
     negative_tags_placeholder: "e.g. glasses, beard, hat",
     position: "Position",
-    appearance_lock: "Lock appearance (don't overwrite with results)",
+    appearance_lock: "Fix the look (always draw it as set)",
     exclude_from_effects: "Exclude from effects (not affected by instructions)",
     on_stage: "On stage",
     on_stage_of: "Put {{name}} on stage",
@@ -47,13 +47,16 @@ export const character = {
     right: "Right",
   },
   badge: {
-    appearance_lock: "Appearance locked: results won't overwrite it",
-    lock_short: "Locked",
+    appearance_lock: "Look fixed: always drawn as set",
+    lock_short: "Fixed",
     exclude_from_effects: "Excluded from effects: instructions don't affect it",
     bystander_short: "Excluded",
     profile: "Personality is set",
     profile_short: "Persona",
     not_used_short: "Over limit",
+    look_changed:
+      "The look changed from the setting in the last turn (the next turn carries it over)",
+    look_changed_short: "Changed",
   },
   save_status: {
     saved: "Saved",
@@ -94,7 +97,29 @@ export const character = {
     add: "Add character",
     addFromPreset: "Add from preset",
     newName: "Character {{number}}",
-    appearanceSection: "Look",
+    appearanceSection: "Look setting",
+    currentLookSection: "Current look (result of the last turn)",
+    currentLookHistory:
+      "The next turn carries this look over. The look setting fields are not rewritten.",
+    currentLookSpecNext:
+      "The setting is newer than the last turn, so the next turn draws the set look. Below is the look drawn in the last turn.",
+    currentLookFixed: "The look is fixed, so every turn draws the set look.",
+    currentLookEmpty: "No turn result yet. The next turn draws the set look.",
+    copyToSpec: "Copy to setting",
+    copyToSpecConfirm:
+      "Replace the current appearance tags with the tags of the current look?",
+    resetLook: "Go back to the set look (from the next turn)",
+    resetLookUnavailable: "The next turn already draws the set look",
+    generateTags: "Make tags from the text",
+    generatingTags: "Making tags…",
+    generateTagsError: "Couldn't make tags",
+    generateTagsConfirm:
+      "Replace the current appearance tags with tags made from the text?",
+    generateTagsNeedNatural: "Enter the appearance text first",
+    tagsHint:
+      "Images use the tags. The text is used only when the tags are empty.",
+    naturalChangedHint:
+      'You changed the text, but images still use the current tags. If needed, use "Make tags from the text" to remake them.',
     profileSection: "Personality",
     pickAppearance: "Choose look",
     pickerTitle: "Choose {{name}}'s look",

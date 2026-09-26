@@ -63,10 +63,13 @@ from ..services.character_profile import (
 from ..services.character_service import (
     CharacterGroupPresetService,
     CharacterLimitExceededError,
+    CharacterLook,
     CharacterPresetService,
     SessionCharacterService,
     group_members,
+    load_character_looks,
     record_profile,
+    resolve_character_look,
 )
 from ..services.llm_service import LLMServiceError, llm_service
 
@@ -103,7 +106,10 @@ def _serialize_profile(record) -> CharacterProfile | None:
     return CharacterProfile.model_validate(normalize_character_profile(profile))
 
 
-def _serialize_character(record) -> SessionCharacterRead:
+def _serialize_character(
+    record, looks: dict[str, CharacterLook] | None = None
+) -> SessionCharacterRead:
+    _look_tags, look_source, current_tags = resolve_character_look(record, looks)
     return SessionCharacterRead(
         id=record.id,
         session_id=record.session_id,
@@ -120,6 +126,8 @@ def _serialize_character(record) -> SessionCharacterRead:
         profile=_serialize_profile(record),
         on_stage=bool(record.on_stage),
         thumbnail_url=record.thumbnail_url,
+        look_source=look_source,  # type: ignore[arg-type]
+        current_tags=current_tags,
         created_at=record.created_at,
         updated_at=record.updated_at,
     )
@@ -174,8 +182,9 @@ async def list_session_characters(
     await _ensure_session_exists(session_id)
     async with async_session_factory() as db:
         records = await SessionCharacterService.list_for_session(db, session_id)
+        looks = await load_character_looks(db, session_id)
     return SessionCharacterListResponse(
-        characters=[_serialize_character(r) for r in records],
+        characters=[_serialize_character(r, looks) for r in records],
     )
 
 
@@ -243,9 +252,10 @@ async def ensure_protagonist_session_character(
             )
             await db.commit()
             records = await load_session_characters_for_prompt(db, session_id)
+        looks = await load_character_looks(db, session_id)
 
     return SessionCharacterListResponse(
-        characters=[_serialize_character(r) for r in records],
+        characters=[_serialize_character(r, looks) for r in records],
     )
 
 
@@ -317,7 +327,8 @@ async def update_session_character_endpoint(
             )
         await db.commit()
         await db.refresh(record)
-        return _serialize_character(record)
+        looks = await load_character_looks(db, session_id)
+        return _serialize_character(record, looks)
 
 
 @router.delete(
@@ -428,12 +439,18 @@ async def apply_group_preset_to_session(
 async def generate_character_tags(
     payload: GenerateTagsRequest,
 ) -> GenerateTagsResponse:
+    from ..services.session import session_store
+
     items = [
         {"id": item.id, "name": item.name, "natural": item.natural}
         for item in payload.items
     ]
+    # 本文生成と同じプロバイダ（FEELING_PROVIDER）とユーザーのテキストモデルを使う
+    user_settings = await session_store.get_user_settings()
     try:
-        results = await llm_service.generate_character_tags_batch(items)
+        results = await llm_service.generate_character_tags_batch(
+            items, novelai_model_override=user_settings.get("novelai_text_model")
+        )
     except LLMServiceError as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,

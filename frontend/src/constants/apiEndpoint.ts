@@ -49,4 +49,6 @@ export const CHARACTER_GROUP_PRESET = (groupId: string): string =>
 
 export const CHARACTERS_GENERATE_PROFILE = `${API_BASE}/game/characters/generate-profile`;
 
+export const CHARACTERS_GENERATE_TAGS = `${API_BASE}/game/characters/generate-tags`;
+
 export const CHARACTERS_RESOLVE_SOURCE = `${API_BASE}/game/characters/resolve-source`;

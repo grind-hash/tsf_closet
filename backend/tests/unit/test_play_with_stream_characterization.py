@@ -683,3 +683,111 @@ async def test_session_setup_failure_emits_error_only(monkeypatch) -> None:
 
     assert _types(events) == ["error"]
     assert _one(events, "error").data == {"message": "no session"}
+
+
+# ---------------------------------------------------------------------------
+# 複数人表示: 設定と現在の姿（履歴に残す姿）
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_multi_character_turn_records_looks_by_ref(monkeypatch) -> None:
+    from gateway.services.character_service import CharacterLook, build_stage_roster
+    from gateway.services.game_service import _MultiCharacterSections
+
+    store = FakeSessionStore(
+        latest_history=SimpleNamespace(
+            after_description="1boy, short black hair",
+            feeling_text="前回",
+            instruction="前回の指示",
+        )
+    )
+    harness = _build(
+        monkeypatch,
+        provider="novelai",
+        store=store,
+        novelai_prompt_json={
+            # LLM が人物の順番を入れ替えても ref で対応付ける
+            "characters": [
+                {"ref": "C2", "tags": "1girl, red hair, hostess dress"},
+                {"ref": "C1", "tags": "1girl, milky beige hair, shocked"},
+            ],
+            "scene": "bar",
+        },
+    )
+    records = [
+        SimpleNamespace(
+            id="nao",
+            slot_index=0,
+            name="ナオ",
+            position="center",
+            appearance_tags="1girl, milky beige hair, white blouse",
+            appearance_natural="",
+            is_protagonist=True,
+            on_stage=True,
+            negative_tags="",
+            profile_json=None,
+            appearance_lock=False,
+            exclude_from_effects=False,
+            # ユーザーが手番の後に主人公の設定を書き換えた
+            appearance_spec_rev=1,
+        ),
+        SimpleNamespace(
+            id="emma",
+            slot_index=1,
+            name="エマ",
+            position="center",
+            appearance_tags="1girl, red hair, hostess dress",
+            appearance_natural="",
+            is_protagonist=False,
+            on_stage=True,
+            negative_tags="",
+            profile_json=None,
+            appearance_lock=False,
+            exclude_from_effects=False,
+            appearance_spec_rev=0,
+        ),
+    ]
+    previous = [
+        {"character_id": "nao", "tags": "1boy, short black hair", "spec_rev": 0},
+    ]
+    looks = {"nao": CharacterLook(tags="1boy, short black hair", spec_rev=0)}
+    sections = _MultiCharacterSections(
+        image="## Registered Characters",
+        stage=tuple(build_stage_roster(records, looks=looks)),
+        previous_states=tuple(previous),
+        registered_ids=frozenset({"nao", "emma"}),
+    )
+    monkeypatch.setattr(
+        harness.service,
+        "_load_multi_character_sections",
+        AsyncMock(return_value=sections),
+    )
+    ensure = AsyncMock()
+    monkeypatch.setattr(gs_module, "_ensure_protagonist_after_turn", ensure)
+
+    await _run(
+        harness,
+        instruction="僕は、ホステスドレスの女性であるエマに呪文をかけられ、美少女になった",
+        enable_multiple_people=True,
+        use_character_panel=True,
+    )
+
+    novelai_call = next(c["novelai"] for c in harness.text_calls if "novelai" in c)
+    # 主人公は直前の姿（1boy）ではなく、書き換えた設定の姿から描く
+    assert novelai_call["previous_prompt"] == "1girl, milky beige hair, white blouse"
+    [history] = harness.store.calls_of("add_history")
+    assert history["after_description"] == "1girl, milky beige hair, shocked"
+    assert sorted(history["character_states"], key=lambda s: s["character_id"]) == [
+        {
+            "character_id": "emma",
+            "tags": "1girl, red hair, hostess dress",
+            "spec_rev": 0,
+        },
+        {
+            "character_id": "nao",
+            "tags": "1girl, milky beige hair, shocked",
+            "spec_rev": 1,
+        },
+    ]
+    ensure.assert_awaited_once()

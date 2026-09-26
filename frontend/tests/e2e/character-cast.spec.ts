@@ -22,6 +22,8 @@ interface MockCharacter {
   profile: Record<string, unknown> | null;
   on_stage: boolean;
   thumbnail_url: string | null;
+  look_source: "spec" | "history" | "fixed";
+  current_tags: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -47,6 +49,8 @@ function makeCharacter(
     profile: null,
     on_stage: true,
     thumbnail_url: null,
+    look_source: "spec",
+    current_tags: null,
     created_at: "2026-09-26T10:00:00",
     updated_at: "2026-09-26T10:00:00",
     ...overrides,
@@ -66,6 +70,7 @@ interface MockState {
   profileRequests: Array<Record<string, unknown>>;
   resolveRequests: Array<Record<string, unknown>>;
   groupCreates: Array<Record<string, unknown>>;
+  tagRequests: Array<Record<string, unknown>>;
 }
 
 async function mockCastSession(
@@ -79,6 +84,7 @@ async function mockCastSession(
     profileRequests: [],
     resolveRequests: [],
     groupCreates: [],
+    tagRequests: [],
   };
   await page.addInitScript(() => {
     window.localStorage.setItem("novelai_api_key_consent", "true");
@@ -244,11 +250,16 @@ async function mockCastSession(
       if (method === "PUT") {
         const body = request.postDataJSON() as Record<string, unknown>;
         state.updates.push({ id: characterId, body });
-        state.characters = state.characters.map((c) =>
-          c.id === characterId
-            ? { ...c, ...(body as Partial<MockCharacter>) }
-            : c,
-        );
+        state.characters = state.characters.map((c) => {
+          if (c.id !== characterId) return c;
+          const { reset_look: resetLook, ...fields } = body;
+          const next = { ...c, ...(fields as Partial<MockCharacter>) };
+          // 画像に使う設定が変わると、次の手番は設定の姿で描く（バックエンドと同じ）
+          if (resetLook || "appearance_tags" in fields) {
+            next.look_source = c.appearance_lock ? "fixed" : "spec";
+          }
+          return next;
+        });
         await route.fulfill({
           status: 200,
           json: state.characters.find((c) => c.id === characterId),
@@ -273,6 +284,21 @@ async function mockCastSession(
         name: "ミオ",
         appearance_natural: "",
         appearance_tags: "1girl, twintails, pink hair",
+      },
+    });
+  });
+  await page.route("**/api/game/characters/generate-tags", async (route) => {
+    const body = route.request().postDataJSON() as {
+      items: Array<Record<string, unknown>>;
+    };
+    state.tagRequests.push(body);
+    await route.fulfill({
+      status: 200,
+      json: {
+        results: body.items.map((item) => ({
+          id: item.id,
+          tags: "1girl, long hair, milky beige hair, green eyes",
+        })),
       },
     });
   });
@@ -502,5 +528,89 @@ test.describe("複数人表示の登場人物", () => {
     await expect(
       page.getByTestId("character-row").filter({ hasText: "レン" }),
     ).toHaveCount(0);
+  });
+
+  test("自然文からタグを作り、設定のタグとして保存する", async ({ page }) => {
+    const state = await mockCastSession(page, [
+      makeCharacter("hero", 0, {
+        name: "ナオ",
+        is_protagonist: true,
+        appearance_tags: "masterpiece, 1boy, short black hair",
+      }),
+    ]);
+    await gotoSession(page);
+    await page.getByTestId("character-open-cast").click();
+    const detail = page.getByTestId("character-detail");
+
+    await detail
+      .getByTestId("character-detail-natural")
+      .fill("美少女、ミルキーベージュのロングヘア、緑色の瞳");
+    page.once("dialog", (dialog) => void dialog.accept());
+    await detail.getByTestId("character-generate-tags").click();
+
+    await expect(detail.getByTestId("character-detail-tags")).toHaveValue(
+      "1girl, long hair, milky beige hair, green eyes",
+    );
+    // 保存前の下書き（入力中の自然文）からタグを作る
+    expect(state.tagRequests[0]).toEqual({
+      items: [
+        {
+          id: "hero",
+          name: "ナオ",
+          natural: "美少女、ミルキーベージュのロングヘア、緑色の瞳",
+        },
+      ],
+    });
+    expect(
+      state.updates.some(
+        (u) =>
+          u.body.appearance_tags ===
+          "1girl, long hair, milky beige hair, green eyes",
+      ),
+    ).toBe(true);
+  });
+
+  test("現在の姿を読み取り専用で出し、設定へのコピーと設定の姿に戻すを送る", async ({
+    page,
+  }) => {
+    const state = await mockCastSession(page, [
+      makeCharacter("hero", 0, { name: "ナオ", is_protagonist: true }),
+      makeCharacter("emma", 1, {
+        name: "エマ",
+        appearance_tags: "1girl, red hair, hostess dress",
+        look_source: "history",
+        current_tags: "1girl, red hair, bikini",
+      }),
+    ]);
+    await gotoSession(page);
+
+    const row = page.getByTestId("character-row").filter({ hasText: "エマ" });
+    await expect(row.getByTestId("character-look-changed")).toBeVisible();
+    await row.locator(".character-panel__row-main").click();
+
+    const detail = page.getByTestId("character-detail");
+    await expect(detail.getByTestId("character-current-tags")).toHaveValue(
+      "1girl, red hair, bikini",
+    );
+    // 設定の欄は手番の結果で書き換わらない
+    await expect(detail.getByTestId("character-detail-tags")).toHaveValue(
+      "1girl, red hair, hostess dress",
+    );
+
+    await detail.getByTestId("character-reset-look").click();
+    await expect
+      .poll(() => state.updates.at(-1)?.body)
+      .toEqual({
+        reset_look: true,
+      });
+    await expect(detail.getByTestId("character-reset-look")).toBeDisabled();
+
+    page.once("dialog", (dialog) => void dialog.accept());
+    await detail.getByTestId("character-copy-to-spec").click();
+    await expect
+      .poll(() => state.updates.at(-1)?.body)
+      .toEqual({
+        appearance_tags: "1girl, red hair, bikini",
+      });
   });
 });

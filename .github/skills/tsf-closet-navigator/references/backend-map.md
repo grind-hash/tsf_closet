@@ -73,13 +73,13 @@
 - `/session/{session_id}/characters/{character_id}`: 更新・削除
 - `/session/{session_id}/characters/from-preset/{preset_id}`: プリセット適用（`on_stage` クエリ）
 - `/session/{session_id}/characters/from-group/{group_id}`: 組み合わせプリセットで主人公以外を入れ替え
-- `/characters/generate-tags`: 複数人物タグの一括生成
+- `/characters/generate-tags`: 自然文の外見からタグを作る（FEELING_PROVIDER＋ユーザーの `novelai_text_model`）
 - `/characters/generate-profile`: 名前・外見・メモから人物の性格プロフィールを生成（FEELING_PROVIDER＋ユーザーの `novelai_text_model`）
 - `/characters/resolve-source`: セッション・お気に入り・Prompt Expander の選択から名前と外見を取り出す
 - `/character-presets`: プリセット CRUD
 - `/character-group-presets`: 組み合わせプリセット（主人公以外の一式）の CRUD
 
-人物ごとに `negative_tags`（character prompt の uc）、`profile_json`（性格）、`on_stage`（登場 ON/OFF）、`thumbnail_url` を持つ。登録は主人公を含め 22 人まで、画像・テキストに載るのは登場中の人物で、画像モデルの上限（V4.5=6 / V5=22）で切り詰める。
+人物ごとに `negative_tags`（character prompt の uc）、`profile_json`（性格）、`on_stage`（登場 ON/OFF）、`thumbnail_url`、`appearance_spec_rev` を持つ。登録は主人公を含め 22 人まで、画像・テキストに載るのは登場中の人物で、画像モデルの上限（V4.5=6 / V5=22）で切り詰める。人物の欄はユーザーの設定で、手番で描いた姿は `history.character_states_json` に残す。一覧・PUT の応答は `look_source`（spec / history / fixed）と `current_tags` を返し、PUT は `reset_look` を受け付ける。
 
 ### Adventure
 
@@ -152,7 +152,7 @@
 | `session_branch_service.py` | 履歴地点からのセッション分岐                       |
 | `play_memory_service.py`    | セッション単位の自動/ユーザープレイメモ            |
 | `memory_job_service.py`     | ユーザー単位メモリ生成ジョブと監査スナップショット |
-| `character_service.py`      | SessionCharacter、CharacterPreset、組み合わせプリセット、人物外見同期。登場順（主人公→slot 順・登場中のみ・画像モデル上限で切り詰め）を決める `build_stage_roster` を、画像/テキストの人物一覧・LLM 出力 `characters[i]` の対応・人物別ネガティブ付与 `attach_stage_negatives` で共通に使う |
+| `character_service.py`      | SessionCharacter、CharacterPreset、組み合わせプリセット。登場順（主人公→slot 順・登場中のみ・画像モデル上限で切り詰め・`C1` などの ref）を決める `build_stage_roster` を、画像/テキストの人物一覧・LLM 出力との対応・人物別ネガティブ付与 `attach_stage_negatives` で共通に使う。現在の姿は `resolve_character_look`（設定 / 履歴 / 固定）、履歴に残す姿は `build_character_states` |
 | `character_profile.py`      | 人物の性格プロフィールの正規化・1 行要約 `format_profile_line_ja`・自動生成、姿ソースの解決 `resolve_character_source` |
 | `multi_people_prompts.py`   | 複数人モードのルール文。登場人物一覧があれば名前・一人称・性格を一覧に従わせ、無ければ従来どおり他人物の名前を LLM に任せる |
 | `characters.py`             | テンプレートキャラクターメタデータ                 |

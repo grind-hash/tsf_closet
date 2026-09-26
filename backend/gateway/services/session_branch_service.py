@@ -13,11 +13,13 @@ from pathlib import Path
 
 from ..databases.base import async_session_factory
 from ..databases.character_repo import (
+    fetch_latest_character_states,
     fetch_session_characters,
     insert_session_character,
 )
 from ..schemas.session import BranchSessionResponse
 from ..settings.config import settings
+from .character_service import parse_character_states
 from .session import session_store
 from .summary_service import summary_service
 
@@ -84,12 +86,19 @@ def _copy_surroundings_image(
     return str(dest_file.relative_to(settings.history_images_dir.parent))
 
 
-async def _copy_session_characters(source_session_id: str, new_session_id: str) -> None:
-    """Best-effort copy of current session_characters (no historical snapshot)."""
+async def _copy_session_characters(
+    source_session_id: str, new_session_id: str
+) -> dict[str, str]:
+    """Best-effort copy of current session_characters.
+
+    Returns the mapping from source character id to the new character id, so
+    the drawn looks kept in history can be carried over to the branch.
+    """
+    id_map: dict[str, str] = {}
     async with async_session_factory() as db_session:
         records = list(await fetch_session_characters(db_session, source_session_id))
         for rec in records:
-            await insert_session_character(
+            copied = await insert_session_character(
                 db_session,
                 session_id=new_session_id,
                 name=rec.name,
@@ -105,8 +114,29 @@ async def _copy_session_characters(source_session_id: str, new_session_id: str) 
                 profile_json=rec.profile_json,
                 on_stage=bool(rec.on_stage),
                 thumbnail_url=rec.thumbnail_url,
+                appearance_spec_rev=int(rec.appearance_spec_rev or 0),
             )
+            id_map[rec.id] = copied.id
         await db_session.commit()
+    return id_map
+
+
+async def _branch_character_states(
+    source_session_id: str, until: datetime, id_map: dict[str, str]
+) -> list[dict] | None:
+    """分岐時点で描かれていた各人物の姿を、分岐先の人物 ID に付け替える。"""
+    if not id_map:
+        return None
+    async with async_session_factory() as db_session:
+        raw = await fetch_latest_character_states(
+            db_session, source_session_id, until=until
+        )
+    states = [
+        {**entry, "character_id": id_map[entry["character_id"]]}
+        for entry in parse_character_states(raw)
+        if entry["character_id"] in id_map
+    ]
+    return states or None
 
 
 async def branch_session_from_history(
@@ -225,10 +255,16 @@ async def branch_session_from_history(
                 attr["attribute_text"],
             )
 
+    character_states: list[dict] | None = None
     try:
-        await _copy_session_characters(source_session.id, new_session.id)
+        id_map = await _copy_session_characters(source_session.id, new_session.id)
+        character_states = await _branch_character_states(
+            source_session.id, source_history.created_at, id_map
+        )
     except Exception as exc:
-        logger.warning("Failed to copy session characters: %s", exc)
+        logger.warning(
+            "Failed to copy session characters: %s: %s", type(exc).__name__, exc
+        )
 
     # Temporary history id for surroundings naming; add_history generates its own id
     # so we copy surroundings after knowing the real history id if needed.
@@ -242,6 +278,7 @@ async def branch_session_from_history(
         before_description=desc,
         after_description=desc,
         instruction_type="session_branch",
+        character_states=character_states,
     )
 
     if source_history.surroundings_image_path:

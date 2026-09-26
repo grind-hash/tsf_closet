@@ -15,6 +15,7 @@ import { mediaUrl } from "../../utils/adventureFormat";
 import {
   countOnStage,
   getStageLimit,
+  hasLookChanged,
   overflowCharacterIds,
   sortRoster,
 } from "../../utils/characterStage";
@@ -217,6 +218,15 @@ export default function CharacterPanel() {
                         title={t("character.badge.profile")}
                       >
                         {t("character.badge.profile_short")}
+                      </span>
+                    )}
+                    {hasLookChanged(character) && (
+                      <span
+                        className="character-panel__badge character-panel__badge--changed"
+                        title={t("character.badge.look_changed")}
+                        data-testid="character-look-changed"
+                      >
+                        {t("character.badge.look_changed_short")}
                       </span>
                     )}
                     {overflowIds.has(character.id) && (

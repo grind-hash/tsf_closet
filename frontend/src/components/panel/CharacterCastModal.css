@@ -350,6 +350,27 @@
   gap: 8px;
 }
 
+/* 現在の姿（読み取り専用） */
+.character-cast__readonly {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 56px;
+  resize: vertical;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 6px 8px;
+  border: 1px dashed var(--border-color, #333);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-color, #eee);
+}
+
+.character-cast__current-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .character-cast__detail-footer {
   display: flex;
   justify-content: flex-end;

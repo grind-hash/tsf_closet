@@ -276,6 +276,12 @@
   border: 1px solid rgba(167, 139, 250, 0.4);
 }
 
+.character-panel__badge--changed {
+  background-color: rgba(52, 211, 153, 0.12);
+  color: #6ee7b7;
+  border: 1px solid rgba(52, 211, 153, 0.4);
+}
+
 .character-panel__badge--protagonist {
   background-color: rgba(233, 69, 96, 0.15);
   color: #fda4af;

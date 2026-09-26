@@ -36,11 +36,11 @@ useSSE → useGameSSE
 
 | 指示タイプ      | 主な副作用                                                        |
 | --------------- | ----------------------------------------------------------------- |
-| `dress_up`      | 画像、心境、stats、履歴、タグ、実績、人物外見                     |
-| `reality_alter` | 画像、心境、stats、履歴、属性、実績、人物外見                     |
-| `action`        | 画像、心境、stats、履歴。設定時は情景画像も生成                   |
+| `dress_up`      | 画像、心境、stats、履歴（登場人物の姿を含む）、タグ、実績 |
+| `reality_alter` | 画像、心境、stats、履歴（登場人物の姿を含む）、属性、実績 |
+| `action`        | 画像、心境、stats、履歴（登場人物の姿を含む）。設定時は情景画像も生成 |
 | `conversation`  | 会話を保存し、画像生成を行わない                                  |
-| `image_only`    | 画像と画像履歴だけを保存。心境、stats、実績、人物状態を更新しない |
+| `image_only`    | 画像と画像履歴（描いた登場人物の姿を含む）だけを保存。心境、stats、実績、人物パネルの設定を更新しない |
 
 `image_only` は失敗時にHistoryを残さない。保存する場合は指示、画像、空の心境、seed、画像状態記述を保持する。
 
@@ -121,12 +121,21 @@ SessionCharacter / CharacterPreset / CharacterGroupPreset
   ↓
 GameContext.sessionCharacters
   ↓ use_character_panel=true（手番・チャット）
-character_service.build_stage_roster（登場中のみ・画像モデル上限で切り詰め）
-  ├→ 画像: Registered Characters 一覧 → LLM の characters[i] → 人物別ネガティブを付けて NovelAI へ
-  └→ テキスト: 性格つきの登場人物一覧 → 心の声（着せ替え・現実改変・自分自身）・行動・チャット
+character_service.build_stage_roster（登場中のみ・画像モデル上限で切り詰め・C1… の ref）
+  ├→ 画像: Registered Characters 一覧 → LLM の characters（ref で人物に対応）→ 人物別ネガティブを付けて NovelAI へ
+  │        → 描いた各人物のタグを history.character_states_json に人物 ID で保存
+  └→ テキスト: 性格・現在の姿つきの登場人物一覧 → 心の声（着せ替え・現実改変・自分自身）・行動・チャット
 ```
 
 `enableMultiplePeople` は複数人生成自体、`multiCharacterPanelEnabled` はSessionCharacterをプロンプトへ注入するかを制御する。主人公は `ensure-protagonist` で冪等に確保する。主人公の性格は従来どおり自分自身モードのプロフィールまたはテンプレートキャラから取り、人物の性格は主人公以外にだけ付ける。
+
+SessionCharacter の外見・ネガティブの欄はユーザーが書く「設定」で、手番の結果で書き換えない。手番で描いた姿は履歴（`character_states_json`、人物 ID ごとのタグと `spec_rev`）に残し、次の手番は最新の NULL でない記録を引き継ぐ（`resolve_character_look`）。
+
+- 設定のタグ（タグが空なら自然文）を変えると `appearance_spec_rev` が上がり、次の手番は設定の姿で描く。「設定の姿に戻す」は `reset_look` で同じことをする。
+- 姿を固定（`appearance_lock`）の人物は毎回設定の姿で描き、記録を上書きしない。
+- 主人公の設定をユーザーが手番の後に変えた・固定中のときは、Opus の直前プロンプトも設定の姿に置き換える（`protagonist_spec_look`）。
+- 履歴を削除すると、残った履歴の記録から姿を計算し直すため、戻す処理は無い。分岐は分岐時点の記録を新しい人物 ID に付け替えて引き継ぐ。
+- 人物ごとのタグが無い手番（非 Opus・分割失敗・生成失敗・パネル OFF）は記録せず、前の姿が続く。
 
 ## Adventure
 

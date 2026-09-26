@@ -79,9 +79,10 @@ class ConversationService:
     async def _load_session_characters_section(
         session_id: str, user_settings: dict, nsfw_mode: bool
     ) -> str | None:
-        """人物パネルの登場人物一覧（性格つき）。取得に失敗したら None。"""
+        """人物パネルの登場人物一覧（性格・現在の姿つき）。取得に失敗したら None。"""
         from .character_service import (
             build_session_characters_prompt_section,
+            load_character_looks,
             load_session_characters_for_prompt,
             resolve_stage_limit,
         )
@@ -89,6 +90,7 @@ class ConversationService:
         try:
             async with async_session_factory() as db:
                 records = await load_session_characters_for_prompt(db, session_id)
+                looks = await load_character_looks(db, session_id)
         except Exception as exc:  # noqa: BLE001 - 一覧が無くても会話は続ける
             logger.warning(
                 "chat session_character fetch skipped: %s: %s",
@@ -98,7 +100,9 @@ class ConversationService:
             return None
         return (
             build_session_characters_prompt_section(
-                records, limit=resolve_stage_limit(user_settings, nsfw_mode)
+                records,
+                limit=resolve_stage_limit(user_settings, nsfw_mode),
+                looks=looks,
             )
             or None
         )

@@ -172,6 +172,9 @@ class History(Base):
     instruction_type: Mapped[str | None] = mapped_column(Text, nullable=True)
     seed: Mapped[int | None] = mapped_column(Integer, nullable=True)
     surroundings_image_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 複数人表示: この手番で描いた各人物の姿 [{character_id, tags, spec_rev}]。
+    # 人物ごとのタグが無い手番（非 Opus・生成失敗など）は NULL
+    character_states_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         default=func.current_timestamp(), nullable=False
     )
@@ -465,6 +468,11 @@ class SessionCharacter(Base):
     )
     # 姿を選んだソースのサムネイル（API 相対パス）
     thumbnail_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    # 画像に使う設定（タグ、タグが空なら自然文）を変えるたびに上がる連番。
+    # 履歴に残した姿の spec_rev と一致する間だけ、その姿を引き継ぐ
+    appearance_spec_rev: Mapped[int] = mapped_column(
+        Integer, default=0, nullable=False, server_default="0"
+    )
     created_at: Mapped[datetime] = mapped_column(
         default=func.current_timestamp(), nullable=False
     )
