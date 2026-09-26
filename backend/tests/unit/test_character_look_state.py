@@ -14,11 +14,13 @@ from gateway.databases.models import Session as SessionORM
 from gateway.services.character_service import (
     CharacterLook,
     SessionCharacterService,
+    attach_stage_negatives,
     build_character_states,
     build_novelai_characters_section,
     build_session_characters_prompt_section,
     build_stage_roster,
     ref_to_stage_index,
+    remove_avoided_tags,
     resolve_character_look,
     upsert_protagonist_session_character,
 )
@@ -245,6 +247,8 @@ def test_image_section_lists_refs_rules_and_avoid() -> None:
         in (section)
     )
     assert "refer to C1 (the protagonist)" in section
+    # 服を指定しない変身（「美少女になった」）で服が消えないよう、服の引き継ぎを明示する
+    assert "Clothing carries over" in section
     assert "describes THAT character" in section
     assert "Never move a change onto a different character" in section
 
@@ -414,3 +418,37 @@ async def test_branch_remaps_states_to_new_character_ids(isolated_db):
         "sess-1", created_at, {"old-emma": "new-emma"}
     )
     assert states == [{"character_id": "new-emma", "tags": "1girl", "spec_rev": 1}]
+
+
+# ---------------------------------------------------------------------------
+# Avoided tags
+# ---------------------------------------------------------------------------
+
+
+def test_remove_avoided_tags_ignores_case_underscores_and_emphasis() -> None:
+    prompt = "1girl, E-cup breasts, pubic hair, {Pubic_Hair}, surprised"
+    assert (
+        remove_avoided_tags(prompt, "pubic hair, silver sequin")
+        == "1girl, E-cup breasts, surprised"
+    )
+    assert remove_avoided_tags(prompt, "") == prompt
+
+
+def test_avoided_tags_are_removed_only_from_that_character() -> None:
+    stage = build_stage_roster(
+        [
+            _rec("nao", 0, tags="1girl", is_protagonist=True, negative="pubic hair"),
+            _rec("emma", 1, tags="1girl, red hair"),
+        ]
+    )
+    result = attach_stage_negatives(
+        [
+            {"prompt": "1girl, milky beige hair, pubic hair", "stage_index": 0},
+            {"prompt": "1girl, red hair, pubic hair", "stage_index": 1},
+        ],
+        stage,
+        limit=6,
+    )
+    assert result[0]["prompt"] == "1girl, milky beige hair"
+    assert result[0]["negative_prompt"] == "pubic hair"
+    assert result[1]["prompt"] == "1girl, red hair, pubic hair"

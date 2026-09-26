@@ -122,7 +122,7 @@ SessionCharacter / CharacterPreset / CharacterGroupPreset
 GameContext.sessionCharacters
   ↓ use_character_panel=true（手番・チャット）
 character_service.build_stage_roster（登場中のみ・画像モデル上限で切り詰め・C1… の ref）
-  ├→ 画像: Registered Characters 一覧 → LLM の characters（ref で人物に対応）→ 人物別ネガティブを付けて NovelAI へ
+  ├→ 画像: Registered Characters 一覧 → LLM の characters（ref で人物に対応）→ 人物別ネガティブを付け、同じタグはポジティブから除いて NovelAI へ
   │        → 描いた各人物のタグを history.character_states_json に人物 ID で保存
   └→ テキスト: 性格・現在の姿つきの登場人物一覧 → 心の声（着せ替え・現実改変・自分自身）・行動・チャット
 ```

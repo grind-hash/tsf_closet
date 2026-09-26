@@ -755,6 +755,29 @@ def resolve_stage_limit(user_settings: dict[str, Any], nsfw_mode: bool) -> int:
     return MAX_CHARACTER_PROMPTS_V45
 
 
+def _normalize_tag(tag: str) -> str:
+    """タグ比較用の正規化（大小文字・アンダースコア・強調の括弧を無視）。"""
+    return " ".join(tag.strip().strip("{}[]()").replace("_", " ").lower().split())
+
+
+def remove_avoided_tags(prompt: str, negative_tags: str) -> str:
+    """ポジティブのタグ列から、ネガティブに指定されたタグと同じものを取り除く。
+
+    同じタグがポジティブとネガティブの両方にあると打ち消し合うため、
+    人物ごとのネガティブ設定を LLM の出力（好みメモリ由来のタグなど）より優先する。
+    """
+    avoided = {_normalize_tag(t) for t in negative_tags.split(",") if t.strip()}
+    avoided.discard("")
+    if not avoided:
+        return prompt
+    kept = [
+        tag.strip()
+        for tag in prompt.split(",")
+        if tag.strip() and _normalize_tag(tag) not in avoided
+    ]
+    return ", ".join(kept)
+
+
 def attach_stage_negatives(
     characters: Sequence[dict[str, Any]],
     stage: Sequence[StageCharacter],
@@ -765,6 +788,7 @@ def attach_stage_negatives(
     ``characters`` は LLM 出力をパースしたもの。各要素の ``stage_index``
     （無ければ配列位置）で ``stage`` の人物に対応させる。一覧に無い人物
     （指示で新たに登場した人など）にはネガティブを付けない。
+    ネガティブに指定したタグは、その人物のポジティブからも取り除く。
     """
     result: list[dict[str, Any]] = []
     for pos, entry in enumerate(characters):
@@ -774,6 +798,17 @@ def attach_stage_negatives(
             negative = stage[idx].negative_tags
             if negative and not item.get("negative_prompt"):
                 item["negative_prompt"] = negative
+            prompt = item.get("prompt")
+            if negative and isinstance(prompt, str):
+                cleaned = remove_avoided_tags(prompt, negative)
+                if cleaned != prompt:
+                    logger.info(
+                        "removed avoided tags from %s: %r -> %r",
+                        stage[idx].ref or idx,
+                        prompt[:120],
+                        cleaned[:120],
+                    )
+                    item["prompt"] = cleaned
         result.append(item)
     if limit is not None and limit > 0 and len(result) > limit:
         logger.info(
@@ -1016,6 +1051,13 @@ def build_novelai_characters_section(
         "[fixed look] or [bystander] character, keep that character as is and "
         "do not give the change to anyone else."
     )
+    lines.append(
+        "- Clothing carries over: if the instruction does not give a character "
+        "new clothes, KEEP the clothing and accessory tags from that character's "
+        "current look. A body, gender or age transformation alone never removes "
+        "clothes. Remove or change clothes only when the instruction explicitly "
+        "says so for that character."
+    )
     lines.append("- Never put a character's \"avoid\" tags into that character's tags.")
     lines.append(
         '- Output one "characters" entry per listed character, in the order '
@@ -1217,6 +1259,7 @@ __all__ = [
     "SessionCharacterService",
     "StageCharacter",
     "attach_stage_negatives",
+    "remove_avoided_tags",
     "build_character_states",
     "build_novelai_characters_section",
     "build_session_characters_prompt_section",
