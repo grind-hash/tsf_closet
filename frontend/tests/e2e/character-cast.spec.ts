@@ -24,6 +24,12 @@ interface MockCharacter {
   thumbnail_url: string | null;
   look_source: "spec" | "history" | "fixed";
   current_tags: string | null;
+  stats: {
+    bloom: number;
+    shame: number;
+    adaptation: number;
+    transformation_count: number;
+  } | null;
   created_at: string;
   updated_at: string;
 }
@@ -51,6 +57,7 @@ function makeCharacter(
     thumbnail_url: null,
     look_source: "spec",
     current_tags: null,
+    stats: null,
     created_at: "2026-09-26T10:00:00",
     updated_at: "2026-09-26T10:00:00",
     ...overrides,
@@ -612,5 +619,35 @@ test.describe("複数人表示の登場人物", () => {
       .toEqual({
         appearance_tags: "1girl, red hair, bikini",
       });
+  });
+
+  test("指示の対象になった人物の行にその人物のパラメータを出す", async ({
+    page,
+  }) => {
+    await mockCastSession(page, [
+      makeCharacter("hero", 0, { name: "エミ", is_protagonist: true }),
+      makeCharacter("ryo", 1, { name: "リョウ" }),
+      makeCharacter("aya", 2, {
+        name: "アヤ",
+        stats: { bloom: 12, shame: 45, adaptation: 3, transformation_count: 2 },
+      }),
+    ]);
+    await gotoSession(page);
+
+    const aya = page.getByTestId("character-row").filter({ hasText: "アヤ" });
+    const stats = aya.getByTestId("character-stats");
+    await expect(stats).toContainText("開花度 12");
+    await expect(stats).toContainText("羞恥度 45");
+    await expect(stats).toContainText("順応度 3");
+    await expect(stats).toContainText("変身回数 2回");
+    // まだ対象になっていない人物・主人公（HUD に出る）には出さない
+    for (const name of ["エミ", "リョウ"]) {
+      await expect(
+        page
+          .getByTestId("character-row")
+          .filter({ hasText: name })
+          .getByTestId("character-stats"),
+      ).toHaveCount(0);
+    }
   });
 });

@@ -193,8 +193,33 @@ export default function CharacterPanel() {
                         </span>
                       )}
                     </span>
-                    <span className="character-panel__name">
-                      {displayNameOf(character)}
+                    <span className="character-panel__name-block">
+                      <span className="character-panel__name">
+                        {displayNameOf(character)}
+                      </span>
+                      {!character.is_protagonist && character.stats && (
+                        <span
+                          className="character-panel__stats"
+                          data-testid="character-stats"
+                        >
+                          <span>
+                            {t("characterPanel.bloom")} {character.stats.bloom}
+                          </span>
+                          <span>
+                            {t("characterPanel.shame")} {character.stats.shame}
+                          </span>
+                          <span>
+                            {t("characterPanel.adaptation")}{" "}
+                            {character.stats.adaptation}
+                          </span>
+                          <span>
+                            {t("characterPanel.transformCountLabel")}{" "}
+                            {t("characterPanel.transformCountValue", {
+                              count: character.stats.transformation_count,
+                            })}
+                          </span>
+                        </span>
+                      )}
                     </span>
                     {character.appearance_lock && (
                       <span

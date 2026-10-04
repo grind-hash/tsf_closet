@@ -791,3 +791,151 @@ async def test_multi_character_turn_records_looks_by_ref(monkeypatch) -> None:
         },
     ]
     ensure.assert_awaited_once()
+
+
+def _stage_record(record_id: str, slot_index: int, **fields: Any) -> SimpleNamespace:
+    values: dict[str, Any] = {
+        "id": record_id,
+        "slot_index": slot_index,
+        "name": record_id,
+        "position": "center",
+        "appearance_tags": "",
+        "appearance_natural": "",
+        "is_protagonist": False,
+        "on_stage": True,
+        "negative_tags": "",
+        "profile_json": None,
+        "appearance_lock": False,
+        "exclude_from_effects": False,
+        "appearance_spec_rev": 0,
+    }
+    values.update(fields)
+    return SimpleNamespace(**values)
+
+
+@pytest.mark.asyncio
+async def test_turn_targeting_only_another_character_keeps_protagonist(
+    monkeypatch,
+) -> None:
+    """主人公とリョウが指示対象外で、アヤだけが着替える手番。"""
+    from gateway.services.character_service import CharacterLook, build_stage_roster
+    from gateway.services.game_service import _MultiCharacterSections
+
+    store = FakeSessionStore(
+        latest_history=SimpleNamespace(
+            after_description="1girl, brown hair, red dress",
+            feeling_text="前回",
+            instruction="前回の指示",
+        )
+    )
+    harness = _build(
+        monkeypatch,
+        provider="novelai",
+        store=store,
+        novelai_prompt_json={
+            "characters": [
+                # LLM が指示対象外の主人公まで着替えさせてしまった出力
+                {"ref": "C1", "tags": "1girl, brown hair, green dress"},
+                {"ref": "C2", "tags": "1boy, black hair, blue suit"},
+                {"ref": "C3", "tags": "1girl, blonde hair, green dress"},
+            ],
+            "scene": "room",
+            "targets": ["C3"],
+        },
+    )
+    records = [
+        _stage_record(
+            "emi",
+            0,
+            name="エミ",
+            position="left",
+            appearance_tags="1girl, brown hair, white t-shirt",
+            is_protagonist=True,
+            exclude_from_effects=True,
+        ),
+        _stage_record(
+            "ryo",
+            1,
+            name="リョウ",
+            position="right",
+            appearance_tags="1boy, black hair, blue suit",
+            exclude_from_effects=True,
+        ),
+        _stage_record(
+            "aya",
+            2,
+            name="アヤ",
+            position="center",
+            appearance_tags="1girl, blonde hair, yellow dress",
+        ),
+    ]
+    aya_stats = {"bloom": 10, "shame": 50, "adaptation": 4, "transformation_count": 1}
+    previous = [
+        {"character_id": "emi", "tags": "1girl, brown hair, red dress", "spec_rev": 0},
+        {
+            "character_id": "aya",
+            "tags": "1girl, blonde hair, yellow dress",
+            "spec_rev": 0,
+            "stats": aya_stats,
+        },
+    ]
+    looks = {
+        "emi": CharacterLook(tags="1girl, brown hair, red dress", spec_rev=0),
+        "aya": CharacterLook(
+            tags="1girl, blonde hair, yellow dress", spec_rev=0, stats=aya_stats
+        ),
+    }
+    sections = _MultiCharacterSections(
+        text="[同シーンの登場キャラクター一覧]",
+        image="## Registered Characters",
+        stage=tuple(build_stage_roster(records, looks=looks)),
+        previous_states=tuple(previous),
+        registered_ids=frozenset({"emi", "ryo", "aya"}),
+    )
+    monkeypatch.setattr(
+        harness.service,
+        "_load_multi_character_sections",
+        AsyncMock(return_value=sections),
+    )
+    monkeypatch.setattr(gs_module, "_ensure_protagonist_after_turn", AsyncMock())
+
+    events = await _run(
+        harness,
+        instruction="緑の長袖のロングワンピース、白い靴",
+        enable_multiple_people=True,
+        use_character_panel=True,
+    )
+
+    # 主人公のタグ記録・パラメータ・変身回数は動かさない
+    assert _types(events) == ["text", "text", "image", "cost", "complete"]
+    assert _one(events, "complete").data["transformation_count"] == 2
+    assert store.calls_of("increment_transformation_count") == []
+    assert store.calls_of("update_session_stats") == []
+    assert store.calls_of("save_transformation_tag") == []
+
+    # 指示対象外の主人公は今の姿のまま、登録した立ち位置の左から順に並ぶ
+    call = harness.image_calls[0]
+    assert [(c["prompt"], c["position"]) for c in call["characters"]] == [
+        ("1girl, brown hair, red dress", (0.1, 0.5)),
+        ("1girl, blonde hair, green dress", (0.5, 0.5)),
+        ("1boy, black hair, blue suit", (0.9, 0.5)),
+    ]
+    assert all(c["fixed_position"] for c in call["characters"])
+
+    # 心境は主人公が見た反応として書かせる
+    [feeling] = harness.feeling_calls
+    assert "姿が変わったのは主人公ではなく" in feeling["system_prompt"]
+    assert (
+        "- アヤ：1girl, blonde hair, yellow dress → 1girl, blonde hair, green dress"
+        in (feeling["user_prompt"])
+    )
+
+    # アヤだけパラメータが進み、主人公の姿（履歴）は前回のまま
+    [history] = store.calls_of("add_history")
+    assert history["after_description"] == "1girl, brown hair, red dress"
+    by_id = {s["character_id"]: s for s in history["character_states"]}
+    assert by_id["emi"]["tags"] == "1girl, brown hair, red dress"
+    assert by_id["aya"]["tags"] == "1girl, blonde hair, green dress"
+    assert by_id["aya"]["stats"]["transformation_count"] == 2
+    assert set(by_id["aya"]["stats"]) == set(aya_stats)
+    assert "stats" not in by_id["emi"]

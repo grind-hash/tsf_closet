@@ -494,6 +494,14 @@ export interface CharacterProfile {
 /** 今の姿の出どころ: 設定 / 直前の手番の結果（履歴） / 姿を固定 */
 export type CharacterLookSource = "spec" | "history" | "fixed";
 
+/** 主人公以外の人物が指示の対象になったときに持つパラメータ（履歴に残した値） */
+export interface CharacterStats {
+  bloom: number;
+  shame: number;
+  adaptation: number;
+  transformation_count: number;
+}
+
 // Note: AGENTS.md naming exception - backend returns snake_case fields,
 // so the frontend types follow snake_case as well for direct mapping.
 export interface SessionCharacter {
@@ -519,6 +527,8 @@ export interface SessionCharacter {
   look_source: CharacterLookSource;
   /** 直前の手番で描いた姿（履歴に残したタグ）。まだ無ければ null */
   current_tags: string | null;
+  /** 主人公以外のパラメータ。まだ指示の対象になっていなければ null */
+  stats: CharacterStats | null;
   created_at: string;
   updated_at: string;
 }

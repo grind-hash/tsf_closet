@@ -482,13 +482,38 @@ class CharacterGroupPresetService:
 
 @dataclass(frozen=True)
 class CharacterLook:
-    """履歴に残した 1 人分の姿（その手番で描いたタグと、そのときの設定の連番）。"""
+    """履歴に残した 1 人分の姿（その手番で描いたタグと、そのときの設定の連番）。
+
+    ``stats`` は主人公以外の人物が指示の対象になったときに持つパラメータ
+    （開花度・羞恥度・順応度・変身回数）。まだ対象になっていなければ None。
+    """
 
     tags: str
     spec_rev: int
+    stats: dict[str, int] | None = None
 
 
 LOOK_SOURCES = ("spec", "history", "fixed")
+
+# 主人公以外の人物が初めて指示の対象になったときのパラメータ（主人公の初期値と同じ）
+CHARACTER_STATS_DEFAULTS: dict[str, int] = {
+    "bloom": 0,
+    "shame": 50,
+    "adaptation": 0,
+    "transformation_count": 0,
+}
+
+
+def _parse_character_stats(raw: Any) -> dict[str, int] | None:
+    """履歴に残した人物のパラメータを読む。数値でない項目は初期値にする。"""
+    if not isinstance(raw, dict):
+        return None
+    stats: dict[str, int] = {}
+    for key, default in CHARACTER_STATS_DEFAULTS.items():
+        value = raw.get(key, default)
+        is_number = isinstance(value, int) and not isinstance(value, bool)
+        stats[key] = value if is_number else default
+    return stats
 
 
 def parse_character_states(raw: str | None) -> list[dict[str, Any]]:
@@ -512,13 +537,15 @@ def parse_character_states(raw: str | None) -> list[dict[str, Any]]:
         if not isinstance(tags, str):
             continue
         spec_rev = item.get("spec_rev", 0)
-        entries.append(
-            {
-                "character_id": character_id,
-                "tags": tags.strip(),
-                "spec_rev": spec_rev if isinstance(spec_rev, int) else 0,
-            }
-        )
+        entry: dict[str, Any] = {
+            "character_id": character_id,
+            "tags": tags.strip(),
+            "spec_rev": spec_rev if isinstance(spec_rev, int) else 0,
+        }
+        stats = _parse_character_stats(item.get("stats"))
+        if stats is not None:
+            entry["stats"] = stats
+        entries.append(entry)
     return entries
 
 
@@ -526,7 +553,9 @@ def looks_by_id(entries: Sequence[dict[str, Any]]) -> dict[str, CharacterLook]:
     """人物 ID ごとの姿。"""
     return {
         entry["character_id"]: CharacterLook(
-            tags=entry["tags"], spec_rev=entry["spec_rev"]
+            tags=entry["tags"],
+            spec_rev=entry["spec_rev"],
+            stats=entry.get("stats"),
         )
         for entry in entries
     }
@@ -685,6 +714,94 @@ def build_stage_roster(
     return [replace(c, ref=stage_ref(i)) for i, c in enumerate(roster)]
 
 
+def can_receive_effects(member: StageCharacter) -> bool:
+    """指示の効果（着替え・行動・現実改変）を受ける人物か。指示対象外・姿の固定は受けない。"""
+    return not (member.exclude_from_effects or member.appearance_lock)
+
+
+def default_effect_targets(stage: Sequence[StageCharacter]) -> list[StageCharacter]:
+    """主語のない指示が向く人物。
+
+    主人公が効果を受けるなら主人公だけ。主人公が指示対象外・姿の固定なら、
+    効果を受ける登場人物の全員（いなければ空）。主人公が一覧にいなければ空。
+    """
+    protagonist = next((m for m in stage if m.is_protagonist), None)
+    if protagonist is None:
+        return []
+    if can_receive_effects(protagonist):
+        return [protagonist]
+    return [m for m in stage if can_receive_effects(m)]
+
+
+@dataclass(frozen=True)
+class TurnTargets:
+    """この手番の指示で姿が変わる登場人物。
+
+    ``protagonist`` が False の手番は、主人公のパラメータ・変身回数を動かさず、
+    心境も主人公が他の人物の変化を見た反応として書く。人物パネルを使わない手番は
+    従来どおり主人公だけが対象（既定値）。
+    """
+
+    members: tuple[StageCharacter, ...] = ()
+    protagonist: bool = True
+
+    @property
+    def others(self) -> tuple[StageCharacter, ...]:
+        return tuple(m for m in self.members if not m.is_protagonist)
+
+
+def parse_declared_targets(
+    raw: str | None, stage: Sequence[StageCharacter]
+) -> list[int] | None:
+    """画像プロンプト JSON の ``targets``（"C2" や人物名）を登場順の添字にする。
+
+    項目が無い・空・どの人物にも対応しないときは None（宣言なし）を返す。
+    """
+    payload = _parse_history_after_description_json(raw)
+    if payload is None:
+        return None
+    declared = payload.get("targets")
+    if isinstance(declared, str):
+        declared = [declared]
+    if not isinstance(declared, list):
+        return None
+    names = {m.name.strip(): i for i, m in enumerate(stage) if m.name.strip()}
+    indices: list[int] = []
+    for ref in declared:
+        index = ref_to_stage_index(ref)
+        if index is None and isinstance(ref, str):
+            index = names.get(ref.strip())
+        if index is not None and 0 <= index < len(stage) and index not in indices:
+            indices.append(index)
+    return indices or None
+
+
+def resolve_turn_targets(
+    stage: Sequence[StageCharacter], declared: Sequence[int] | None
+) -> TurnTargets:
+    """手番の対象人物を決める。
+
+    画像プロンプトの LLM が宣言した人物（``declared``）のうち効果を受けられる人物を
+    対象にする。宣言が無ければ :func:`default_effect_targets` に従う。
+    一覧に主人公がいなければ、従来どおり主人公も対象として扱う。
+    """
+    if not stage:
+        return TurnTargets()
+    if declared:
+        members = [
+            stage[i]
+            for i in declared
+            if 0 <= i < len(stage) and can_receive_effects(stage[i])
+        ]
+    else:
+        members = default_effect_targets(stage)
+    has_protagonist = any(m.is_protagonist for m in stage)
+    return TurnTargets(
+        members=tuple(members),
+        protagonist=not has_protagonist or any(m.is_protagonist for m in members),
+    )
+
+
 def build_character_states(
     previous: Sequence[dict[str, Any]],
     stage: Sequence[StageCharacter],
@@ -692,6 +809,7 @@ def build_character_states(
     registered_ids: Iterable[str],
     *,
     protagonist_id: str | None = None,
+    stats_updates: dict[str, dict[str, int]] | None = None,
 ) -> list[dict[str, Any]] | None:
     """この手番で描いた各人物の姿（履歴に残す値）を作る。
 
@@ -700,10 +818,13 @@ def build_character_states(
     - 姿を固定・指示対象外の人物は上書きしない（前回の姿のまま）
     - 一覧外の人物（``stage_index`` が None）は記録しない
     - ``protagonist_id`` は、初回ターンでまだ行が無かった主人公（record_id None）の ID
+    - ``stats_updates`` は指示の対象になった人物の新しいパラメータ（人物 ID ごと）。
+      パラメータは姿と一緒に引き継ぎ、更新があった人物だけ書き換える
 
-    人物ごとの出力が無い手番は None を返し、履歴には何も残さない（前の姿が続く）。
+    人物ごとの出力もパラメータの更新も無い手番は None を返し、履歴には何も残さない
+    （前の姿が続く）。
     """
-    if not character_prompts:
+    if not character_prompts and not stats_updates:
         return None
     registered = set(registered_ids)
     if protagonist_id:
@@ -713,7 +834,7 @@ def build_character_states(
         for entry in previous
         if entry["character_id"] in registered
     }
-    for pos, entry in enumerate(character_prompts):
+    for pos, entry in enumerate(character_prompts or []):
         if not isinstance(entry, dict):
             continue
         idx = entry.get("stage_index", pos)
@@ -725,16 +846,34 @@ def build_character_states(
             record_id = protagonist_id
         if record_id is None or record_id not in registered:
             continue
-        if member.appearance_lock or member.exclude_from_effects:
+        if not can_receive_effects(member):
             continue
         tags = entry.get("prompt")
         if not isinstance(tags, str) or not tags.strip():
             continue
-        states[record_id] = {
+        state: dict[str, Any] = {
             "character_id": record_id,
             "tags": tags.strip(),
             "spec_rev": member.spec_rev,
         }
+        previous_stats = states.get(record_id, {}).get("stats")
+        if previous_stats is not None:
+            state["stats"] = previous_stats
+        states[record_id] = state
+    spec_revs = {m.record_id: m.spec_rev for m in stage if m.record_id}
+    for record_id, stats in (stats_updates or {}).items():
+        if record_id not in registered:
+            continue
+        # 姿をまだ記録していない人物は、タグ無し（設定の姿を使う）で記録する
+        state = states.setdefault(
+            record_id,
+            {
+                "character_id": record_id,
+                "tags": "",
+                "spec_rev": spec_revs.get(record_id, 0),
+            },
+        )
+        state["stats"] = dict(stats)
     return list(states.values())
 
 
@@ -818,6 +957,91 @@ def attach_stage_negatives(
     return result
 
 
+def keep_bystander_looks(
+    characters: Sequence[dict[str, Any]], stage: Sequence[StageCharacter]
+) -> list[dict[str, Any]]:
+    """指示対象外・姿を固定した人物のタグを、今の姿のタグに戻す。
+
+    LLM が効果を誤ってその人物に適用しても、画像と履歴に残す姿を変えないため。
+    今の姿のタグが無い人物（自然文だけの設定）は出力のままにする。
+    """
+    result: list[dict[str, Any]] = []
+    for entry in characters:
+        item = dict(entry)
+        idx = item.get("stage_index")
+        if isinstance(idx, int) and 0 <= idx < len(stage):
+            member = stage[idx]
+            if not can_receive_effects(member) and member.look_tags:
+                tags = member.look_tags
+                if not member.is_protagonist:
+                    tags = _with_gender_token(tags, member.profile)
+                if item.get("prompt") != tags:
+                    logger.info(
+                        "kept bystander look for %s: %r -> %r",
+                        member.ref or idx,
+                        str(item.get("prompt") or "")[:120],
+                        tags[:120],
+                    )
+                    item["prompt"] = tags
+        result.append(item)
+    return result
+
+
+# 登録した立ち位置を、NovelAI の 5x5 グリッドの列に写す（V4 / V4.5 はグリッド上の位置だけ）
+POSITION_COORDS: dict[str, tuple[float, float]] = {
+    "left": (0.1, 0.5),
+    "center-left": (0.3, 0.5),
+    "center": (0.5, 0.5),
+    "center-right": (0.7, 0.5),
+    "right": (0.9, 0.5),
+}
+
+
+def _position_x(position: Any) -> float:
+    if isinstance(position, (tuple, list)) and position:
+        try:
+            return float(position[0])
+        except (TypeError, ValueError):
+            return 0.5
+    return 0.5
+
+
+def apply_stage_positions(
+    characters: Sequence[dict[str, Any]], stage: Sequence[StageCharacter]
+) -> list[dict[str, Any]]:
+    """一覧の人物を登録した立ち位置に置き、画像の左の人物から順に並べる。
+
+    NovelAI は座標を使わないとき、キャラクタープロンプトの順に左から配置する。
+    そのため立ち位置の左→右に並べ替える（同じ立ち位置どうしは今の順のまま）。
+    2 人以上が全員一覧の人物で、立ち位置が重ならないときだけ ``fixed_position`` を
+    付け、画像生成側で座標指定を有効にさせる。一覧が無ければ何もしない。
+    """
+    if not stage:
+        return [dict(entry) for entry in characters]
+    result: list[dict[str, Any]] = []
+    stage_positions: list[str] = []
+    for entry in characters:
+        item = dict(entry)
+        idx = item.get("stage_index")
+        if isinstance(idx, int) and 0 <= idx < len(stage):
+            position = stage[idx].position
+            coords = POSITION_COORDS.get(position)
+            if coords is not None:
+                item["position"] = coords
+                stage_positions.append(position)
+        result.append(item)
+    result.sort(key=lambda item: _position_x(item.get("position")))
+    fixed = (
+        len(result) >= 2
+        and len(stage_positions) == len(result)
+        and len(set(stage_positions)) == len(stage_positions)
+    )
+    if fixed:
+        for item in result:
+            item["fixed_position"] = True
+    return result
+
+
 _POSITION_LABEL_JA = {
     "left": "左",
     "center-left": "中央左",
@@ -887,6 +1111,19 @@ def build_session_characters_prompt_section(
         "「指示対象外」「姿を固定」とマークされた人物にはユーザー指示の効果（着替え・行動・現実改変等）を"
         "適用せず、現在の外見をそのまま保ってください。その効果を別の人物に移してもいけません。"
     )
+    protagonist = next((c for c in roster if c.is_protagonist), None)
+    if protagonist is not None and not can_receive_effects(protagonist):
+        default_targets = default_effect_targets(roster)
+        if default_targets:
+            names = "、".join(c.name for c in default_targets)
+            lines.append(
+                "主人公は指示の効果を受けないため、主語のない指示（服装だけの指示など）は"
+                f"{names}への指示として扱ってください。"
+            )
+        else:
+            lines.append(
+                "指示の効果を受けられる登場人物がいないため、誰の外見も変えないでください。"
+            )
     if has_profile:
         lines.append(
             "「人物設定」がある人物は、その一人称・性格・反応スタイルを厳守し、"
@@ -1034,12 +1271,32 @@ def build_novelai_characters_section(
 
     protagonist = next((c for c in roster if c.is_protagonist), None)
     lines.append("Rules for the registered characters:")
-    if protagonist is not None:
+    if protagonist is not None and can_receive_effects(protagonist):
         lines.append(
             f"- First-person words in the instruction (I, me, my, 僕, 私, 俺, "
             f"わたし) and sentences without a subject refer to {protagonist.ref} "
             "(the protagonist)."
         )
+    elif protagonist is not None:
+        lines.append(
+            f"- First-person words in the instruction (I, me, my, 僕, 私, 俺, "
+            f"わたし) refer to {protagonist.ref} (the protagonist), who does not "
+            "receive instruction effects this turn."
+        )
+        default_targets = default_effect_targets(roster)
+        if default_targets:
+            refs = ", ".join(c.ref for c in default_targets)
+            lines.append(
+                "- Sentences without a subject (for example, only an outfit) are "
+                f"about {refs}: apply them to "
+                f"{'that character' if len(default_targets) == 1 else 'each of them'}"
+                f", never to {protagonist.ref}."
+            )
+        else:
+            lines.append(
+                "- No listed character can receive instruction effects this turn; "
+                "keep every listed character as is."
+            )
     lines.append(
         "- A description attached to a listed character inside the instruction "
         '(e.g. "Emma, the woman in a hostess dress") describes THAT character. '
@@ -1061,10 +1318,15 @@ def build_novelai_characters_section(
     lines.append("- Never put a character's \"avoid\" tags into that character's tags.")
     lines.append(
         '- Output one "characters" entry per listed character, in the order '
-        'above, each with "ref" set to its code, e.g. '
-        '{"ref": "C1", "tags": "...", "position": "center"}. People who are not '
-        "listed (only when the instruction introduces them) go AFTER all listed "
-        'characters and have no "ref".'
+        'above, each with "ref" set to its code and "position" set to its listed '
+        'position, e.g. {"ref": "C1", "tags": "...", "position": "center"}. People '
+        "who are not listed (only when the instruction introduces them) go AFTER "
+        'all listed characters and have no "ref".'
+    )
+    lines.append(
+        '- Also output a top-level "targets" array with the refs of the listed '
+        "characters whose look this instruction changes, e.g. "
+        '"targets": ["C2"]. Never include a [bystander] or [fixed look] character.'
     )
     return "\n".join(lines)
 

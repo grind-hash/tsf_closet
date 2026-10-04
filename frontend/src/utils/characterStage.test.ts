@@ -31,6 +31,7 @@ function character(
     thumbnail_url: null,
     look_source: "spec",
     current_tags: null,
+    stats: null,
     created_at: "",
     updated_at: "",
     ...overrides,

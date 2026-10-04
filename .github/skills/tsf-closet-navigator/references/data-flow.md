@@ -122,8 +122,8 @@ SessionCharacter / CharacterPreset / CharacterGroupPreset
 GameContext.sessionCharacters
   ↓ use_character_panel=true（手番・チャット）
 character_service.build_stage_roster（登場中のみ・画像モデル上限で切り詰め・C1… の ref）
-  ├→ 画像: Registered Characters 一覧 → LLM の characters（ref で人物に対応）→ 人物別ネガティブを付け、同じタグはポジティブから除いて NovelAI へ
-  │        → 描いた各人物のタグを history.character_states_json に人物 ID で保存
+  ├→ 画像: Registered Characters 一覧 → LLM の characters（ref で人物に対応）→ 人物別ネガティブを付け、同じタグはポジティブから除き、立ち位置の左から並べて NovelAI へ
+  │        → 描いた各人物のタグ（対象になった主人公以外はパラメータも）を history.character_states_json に人物 ID で保存
   └→ テキスト: 性格・現在の姿つきの登場人物一覧 → 心の声（着せ替え・現実改変・自分自身）・行動・チャット
 ```
 
@@ -133,6 +133,9 @@ SessionCharacter の外見・ネガティブの欄はユーザーが書く「設
 
 - 設定のタグ（タグが空なら自然文）を変えると `appearance_spec_rev` が上がり、次の手番は設定の姿で描く。「設定の姿に戻す」は `reset_look` で同じことをする。
 - 姿を固定（`appearance_lock`）の人物は毎回設定の姿で描き、記録を上書きしない。
+- 指示対象外・姿を固定の人物は、LLM の出力に関わらず今の姿のタグで描く（`keep_bystander_looks`、着せ替え・現実改変の手番）。
+- 立ち位置: NovelAI は座標なし（AI's Choice）だとキャラクタープロンプトの順に左から置くため、`apply_stage_positions` が登録した立ち位置の左→右に並べ替える。全員が一覧の人物で立ち位置が重ならないときだけ `fixed_position` を付け、`image_generation` が `use_coords` を有効にする（V4/V4.5 は 5x5 グリッドなので `POSITION_COORDS` は 0.1〜0.9）。
+- 手番の対象（着せ替え・現実改変）: Opus の JSON の `targets`（ref）を `resolve_turn_targets` が効果を受けられる人物に絞る。宣言が無ければ主語のない指示の既定の向き先（主人公、主人公が対象外なら効果を受けられる全員）。主人公が対象でない手番は、主人公のタグ記録・stats・変身回数・エンディング・実績を動かさず、心境は主人公が見た反応（`build_observer_feeling_prompt`）にする。対象になった主人公以外の人物は、主人公と同じ計算でパラメータ（bloom/shame/adaptation/transformation_count）を進め、`character_states` の `stats` に残す（API は `SessionCharacterRead.stats`、人物パネルの行に表示）。
 - 主人公の設定をユーザーが手番の後に変えた・固定中のときは、Opus の直前プロンプトも設定の姿に置き換える（`protagonist_spec_look`）。
 - 履歴を削除すると、残った履歴の記録から姿を計算し直すため、戻す処理は無い。分岐は分岐時点の記録を新しい人物 ID に付け替えて引き継ぐ。
 - 人物ごとのタグが無い手番（非 Opus・分割失敗・生成失敗・パネル OFF）は記録せず、前の姿が続く。

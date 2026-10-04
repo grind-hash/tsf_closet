@@ -75,6 +75,15 @@ class CharacterProfile(BaseModel):
         return self
 
 
+class CharacterStats(BaseModel):
+    """主人公以外の人物が指示の対象になったときに持つパラメータ（履歴に残した値）。"""
+
+    bloom: int
+    shame: int
+    adaptation: int
+    transformation_count: int
+
+
 class SessionCharacterRead(BaseModel):
     """Read model for SessionCharacter."""
 
@@ -97,6 +106,8 @@ class SessionCharacterRead(BaseModel):
     look_source: Literal["spec", "history", "fixed"] = "spec"
     # 直前の手番で描いた姿（履歴に残したタグ）。まだ無ければ None
     current_tags: str | None = None
+    # 主人公以外の人物のパラメータ。まだ指示の対象になっていなければ None
+    stats: CharacterStats | None = None
     created_at: datetime
     updated_at: datetime
 

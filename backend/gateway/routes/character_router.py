@@ -110,6 +110,7 @@ def _serialize_character(
     record, looks: dict[str, CharacterLook] | None = None
 ) -> SessionCharacterRead:
     _look_tags, look_source, current_tags = resolve_character_look(record, looks)
+    look = (looks or {}).get(record.id)
     return SessionCharacterRead(
         id=record.id,
         session_id=record.session_id,
@@ -128,6 +129,7 @@ def _serialize_character(
         thumbnail_url=record.thumbnail_url,
         look_source=look_source,  # type: ignore[arg-type]
         current_tags=current_tags,
+        stats=look.stats if look is not None else None,
         created_at=record.created_at,
         updated_at=record.updated_at,
     )

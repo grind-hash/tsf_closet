@@ -660,6 +660,13 @@ class NovelAIImageClient:
             # ここでモデルとアクションを上書きする（リクエスト直前）
             req.model = model_to_use
             req.action = action_to_use
+            if characters and all(c.get("fixed_position") for c in characters):
+                # SDK は常に AI's Choice（use_coords=False）で送るため、登録した
+                # 立ち位置を使う手番だけ Custom 配置（座標指定）に切り替える
+                req.parameters.use_coords = True
+                if req.parameters.v4_prompt is not None:
+                    req.parameters.v4_prompt.use_coords = True
+                logger.info("V4 character positions: use_coords enabled")
             if normalized_mask:
                 req.parameters.add_original_image = False
                 req.parameters.inpaintImg2ImgStrength = strength

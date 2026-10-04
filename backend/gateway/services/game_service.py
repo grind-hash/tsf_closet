@@ -62,16 +62,22 @@ from .action_prompts import (
 )
 from .anlas_service import get_anlas_balance
 from .character_service import (
+    CHARACTER_STATS_DEFAULTS,
     StageCharacter,
+    TurnTargets,
+    apply_stage_positions,
     attach_stage_negatives,
     build_character_states,
     build_novelai_characters_section,
     build_session_characters_prompt_section,
     build_stage_roster,
+    keep_bystander_looks,
     load_session_characters_for_prompt,
     looks_by_id,
     parse_character_states,
+    parse_declared_targets,
     ref_to_stage_index,
+    resolve_turn_targets,
     upsert_protagonist_session_character,
 )
 from .character_service import (
@@ -127,6 +133,7 @@ from .prompts import (
     FEELING_SYSTEM_PROMPT,
     build_enhanced_feeling_prompt,
     build_feeling_prompt,
+    build_observer_feeling_prompt,
     enhance_prompt_for_novelai,
     get_critical_speech,
 )
@@ -408,6 +415,11 @@ def apply_parameter_change(
     )
 
 
+def reality_parameter_boost() -> tuple[int, int, int]:
+    """現実改変の追加変化量 (bloom, shame, adaptation)。開花を大きく上げ、羞恥と順応を揺さぶる。"""
+    return random.randint(5, 15), 5 + random.randint(-2, 2), random.randint(-3, 3)
+
+
 def check_critical_point(
     old_bloom: int,
     new_bloom: int,
@@ -624,6 +636,9 @@ class _TransformationOutcome:
     image_seed: int | None
     dress_up_characters: list[dict] | None
     congruence: GenderCongruenceResult | None
+    tags: TransformationTags
+    # この手番の指示で姿が変わった人物（主人公が対象でなければ主人公の値を動かさない）
+    targets: TurnTargets = field(default_factory=TurnTargets)
 
 
 class GameService:
@@ -1443,6 +1458,52 @@ class GameService:
         ):
             yield chunk
 
+    async def _generate_observer_feeling_stream(
+        self,
+        *,
+        instruction: str,
+        pronoun: str,
+        changes: tuple[tuple[str, str, str], ...],
+        protagonist_look: str,
+        is_reality: bool,
+        personality: str,
+        description: str,
+        attributes: list[str] | None,
+        language: str,
+        enable_multiple_people: bool,
+        novelai_model_override: str | None,
+        use_memory: bool,
+        history_context: str,
+        session_characters_section: str | None,
+    ) -> AsyncGenerator[str, None]:
+        """主人公以外の人物だけが対象の手番の心境（主人公が見た反応）をストリーミング生成する。"""
+        system_prompt, user_prompt = build_observer_feeling_prompt(
+            instruction=instruction,
+            pronoun=pronoun,
+            changes=changes,
+            protagonist_look=protagonist_look,
+            is_reality=is_reality,
+            personality=personality,
+            description=description,
+            attributes=attributes,
+            enable_multiple_people=enable_multiple_people,
+            session_characters_section=session_characters_section,
+        )
+        user_prompt += history_context
+        from .conversation import get_language_rules
+
+        system_prompt = f"{system_prompt}\n\n{get_language_rules(language)}"
+        if use_memory:
+            system_prompt += await self._get_memory_priority_suffix(language)
+        async for chunk in self._stream_feeling(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            language=language,
+            error_context="観察者心境ストリーミングエラー",
+            novelai_model_override=novelai_model_override,
+        ):
+            yield chunk
+
     async def _stream_feeling(
         self,
         system_prompt: str,
@@ -2044,9 +2105,11 @@ class GameService:
 
         ``characters`` には登場人物ごとのネガティブを付け、画像モデルの
         キャラクタープロンプト上限で切り詰める（人物パネルが OFF でも上限は効く）。
+        一覧の人物は登録した立ち位置に置き、左の人物から順に並べる。
         """
         if characters:
             characters = attach_stage_negatives(characters, stage, ctx.stage_limit)
+            characters = apply_stage_positions(characters, stage)
         final_prompt = prompt
         override = ctx.request.prompt_override_text
         if apply_override and override:
@@ -3016,6 +3079,10 @@ class GameService:
             multi_char_image_section=sections.image,
             suppress_gender_image_cues=suppress_gender_image_cues,
         )
+        if characters and sections.stage:
+            # 指示対象外・姿を固定した人物は、LLM の出力に関わらず今の姿で描く
+            characters = keep_bystander_looks(characters, sections.stage)
+        targets = self._resolve_turn_targets(ctx, sections, generated_novelai_prompt)
         payload = self._build_image_payload(
             ctx,
             image_edit_prompt,
@@ -3031,6 +3098,11 @@ class GameService:
             stage=sections.stage,
         )
         used_openings = await self._collect_used_openings(ctx.session.id)
+        observed_changes = (
+            None
+            if targets.protagonist
+            else self._observed_changes(targets, payload.characters)
+        )
 
         async def generate_after_image() -> tuple[bytes, float | None, int | None]:
             return await self._generate_image(
@@ -3061,6 +3133,7 @@ class GameService:
                 congruence=congruence,
                 history_context=history_context,
                 session_characters_section=sections.text,
+                observed_changes=observed_changes,
             ),
             generate_after_image,
             result,
@@ -3074,6 +3147,11 @@ class GameService:
         if result.image_data is None:
             raise GameServiceError("画像が生成されませんでした")
 
+        # 4.5 タグ分類 (T023)。Jev が有効なときは判定を突き合わせる。
+        # 主人公以外の対象人物のパラメータは履歴の人物ごとの状態に残すため、保存前に計算する
+        tags = await resolve_tags(ctx.original_instruction)
+        stats_updates = self._advance_character_stats(ctx, targets, sections, tags)
+
         # 5. 履歴に追加
         history = await session_store.add_history(
             session_id=ctx.session.id,
@@ -3085,7 +3163,7 @@ class GameService:
             instruction_type=request.instruction_type or "dress_up",
             seed=result.image_seed,
             character_states=await self._character_states_for_history(
-                ctx, sections, payload.api_characters
+                ctx, sections, payload.api_characters, stats_updates=stats_updates
             ),
         )
 
@@ -3109,6 +3187,8 @@ class GameService:
             image_seed=result.image_seed,
             dress_up_characters=payload.characters,
             congruence=congruence,
+            tags=tags,
+            targets=targets,
         )
         async for event in self._stream_post_turn_events(ctx, cost, outcome):
             yield event
@@ -3190,19 +3270,126 @@ class GameService:
         return prompt, None, None
 
     @staticmethod
+    def _resolve_turn_targets(
+        ctx: TurnContext,
+        sections: _MultiCharacterSections,
+        generated_novelai_prompt: str | None,
+    ) -> TurnTargets:
+        """この手番の指示で姿が変わる人物を決める。
+
+        人物パネルを使わない手番は従来どおり主人公だけ。使う手番は、画像プロンプトの
+        LLM が宣言した ``targets``（無ければ主語のない指示の既定の向き先）から、
+        指示対象外・姿の固定を除いた人物にする。
+        """
+        if not ctx.request.multi_character_panel or not sections.stage:
+            return TurnTargets()
+        declared = parse_declared_targets(generated_novelai_prompt, sections.stage)
+        targets = resolve_turn_targets(sections.stage, declared)
+        logger.info(
+            "Turn targets: declared=%s -> %s (protagonist=%s)",
+            declared,
+            [m.ref for m in targets.members],
+            targets.protagonist,
+        )
+        return targets
+
+    @staticmethod
+    def _observed_changes(
+        targets: TurnTargets, characters: list[dict] | None
+    ) -> tuple[tuple[str, str, str], ...]:
+        """主人公以外の対象人物ごとの (名前, 変化前の姿, 変化後の姿)。心境の入力に使う。"""
+        after_by_index = {
+            entry.get("stage_index"): entry.get("prompt")
+            for entry in characters or []
+            if isinstance(entry.get("stage_index"), int)
+        }
+        changes: list[tuple[str, str, str]] = []
+        for member in targets.others:
+            after = after_by_index.get(ref_to_stage_index(member.ref))
+            changes.append(
+                (
+                    member.name,
+                    member.look_tags or member.appearance_natural,
+                    after.strip() if isinstance(after, str) else "",
+                )
+            )
+        return tuple(changes)
+
+    @staticmethod
+    def _advance_character_stats(
+        ctx: TurnContext,
+        targets: TurnTargets,
+        sections: _MultiCharacterSections,
+        tags: TransformationTags,
+    ) -> dict[str, dict[str, int]]:
+        """主人公以外で指示の対象になった人物のパラメータを進める（人物 ID ごと）。
+
+        計算は主人公と同じ（衣装タグ・難易度・計算方式・現実改変の追加変化）。
+        性別適合の判定は主人公の元の性別に基づくため、他の人物には使わない。
+        自分自身モードはパラメータを追跡しないため何もしない。
+        """
+        if ctx.session.self_mode or not targets.others:
+            return {}
+        previous = {
+            entry["character_id"]: entry.get("stats")
+            for entry in sections.previous_states
+        }
+        updates: dict[str, dict[str, int]] = {}
+        for member in targets.others:
+            if member.record_id is None:
+                continue
+            current = {
+                **CHARACTER_STATS_DEFAULTS,
+                **(previous.get(member.record_id) or {}),
+            }
+            stats = SessionStats(
+                session_id=ctx.session.id,
+                bloom=current["bloom"],
+                shame=current["shame"],
+                adaptation=current["adaptation"],
+                difficulty=ctx.difficulty,
+            )
+            bloom_delta, shame_delta, adaptation_delta = calculate_parameter_change(
+                tags, stats, bloom_calc_method=ctx.bloom_calc_method
+            )
+            if ctx.request.is_reality:
+                bloom_boost, shame_boost, adaptation_boost = reality_parameter_boost()
+                bloom_delta += bloom_boost
+                shame_delta += shame_boost
+                adaptation_delta += adaptation_boost
+            new_stats = apply_parameter_change(
+                stats, bloom_delta, shame_delta, adaptation_delta
+            )
+            updates[member.record_id] = {
+                "bloom": new_stats.bloom,
+                "shame": new_stats.shame,
+                "adaptation": new_stats.adaptation,
+                "transformation_count": current["transformation_count"] + 1,
+            }
+            logger.info(
+                "Character stats advanced: %s %s -> %s",
+                member.ref,
+                current,
+                updates[member.record_id],
+            )
+        return updates
+
+    @staticmethod
     async def _character_states_for_history(
         ctx: TurnContext,
         sections: _MultiCharacterSections,
         characters: list[dict] | None,
+        *,
+        stats_updates: dict[str, dict[str, int]] | None = None,
     ) -> list[dict] | None:
         """この手番で描いた各人物の姿（履歴に残す値）。記録しない手番は None。
 
-        人物パネルが OFF のとき・人物ごとのタグが無いとき（非 Opus、分割失敗）は
-        None を返し、直前に記録した姿がそのまま続く。
+        人物パネルが OFF のとき・人物ごとのタグもパラメータの更新も無いとき
+        （非 Opus、分割失敗）は None を返し、直前に記録した姿がそのまま続く。
         """
         if not ctx.request.multi_character_panel or not sections.stage:
             return None
-        if not characters:
+        if not characters and not stats_updates:
             return None
         protagonist_id: str | None = None
         if any(m.is_protagonist and m.record_id is None for m in sections.stage):
@@ -3223,6 +3410,7 @@ class GameService:
             characters,
             sections.registered_ids,
             protagonist_id=protagonist_id,
+            stats_updates=stats_updates,
         )
 
     @staticmethod
@@ -3311,9 +3499,31 @@ class GameService:
         congruence: GenderCongruenceResult | None,
         history_context: str,
         session_characters_section: str | None = None,
+        observed_changes: tuple[tuple[str, str, str], ...] | None = None,
     ) -> AsyncGenerator[str, None]:
-        """自分自身モード / 現実改変 / 衣装変更のどれかの心境ストリームを返す。"""
+        """自分自身モード / 現実改変 / 衣装変更のどれかの心境ストリームを返す。
+
+        ``observed_changes`` がある手番（主人公以外だけが対象）は、どのモードでも
+        主人公が他の人物の変化を見た反応として書く。
+        """
         request = ctx.request
+        if observed_changes is not None:
+            return self._generate_observer_feeling_stream(
+                instruction=ctx.instruction,
+                pronoun=ctx.pronoun,
+                changes=observed_changes,
+                protagonist_look=after_desc,
+                is_reality=request.is_reality,
+                personality=ctx.character.personality if ctx.character else "",
+                description=ctx.character.description if ctx.character else "",
+                attributes=attributes,
+                language=ctx.language,
+                enable_multiple_people=request.enable_multiple_people,
+                novelai_model_override=ctx.novelai_text_model,
+                use_memory=request.use_memory,
+                history_context=history_context,
+                session_characters_section=session_characters_section,
+            )
         common = {
             "before_desc": before_desc,
             "after_desc": after_desc,
@@ -3358,28 +3568,39 @@ class GameService:
         outcome: _TransformationOutcome,
     ) -> AsyncGenerator[StreamEvent, None]:
         """履歴保存後の後続処理: タグ → 属性 → パラメータ → 変身回数 → エンディング →
-        実績 → 画像・料金・完了イベント。"""
+        実績 → 画像・料金・完了イベント。
+
+        主人公が指示の対象でない手番（他の登場人物だけが変わった）は、主人公の
+        タグ記録・パラメータ・変身回数・エンディング・実績を動かさない。
+        """
         request = ctx.request
         session = ctx.session
         history = outcome.history
         is_reality = request.is_reality
+        tags = outcome.tags
+        protagonist_targeted = outcome.targets.protagonist
 
-        # 5.1. タグ分類 (T023)。Jev が有効なときは判定を突き合わせる
-        tags = await resolve_tags(ctx.original_instruction)
-        await session_store.save_transformation_tag(
-            history_id=history.id,
-            costume_category=tags.costume_category,
-            exposure_level=tags.exposure_level,
-            age_impression=tags.age_impression,
-        )
-        yield StreamEvent(
-            type="tags",
-            data={
-                "costume_category": tags.costume_category,
-                "exposure_level": tags.exposure_level,
-                "age_impression": tags.age_impression,
-            },
-        )
+        # 5.1. タグ分類の記録（エンディング判定の集計に使うため主人公が対象の手番だけ）
+        if protagonist_targeted:
+            await session_store.save_transformation_tag(
+                history_id=history.id,
+                costume_category=tags.costume_category,
+                exposure_level=tags.exposure_level,
+                age_impression=tags.age_impression,
+            )
+            yield StreamEvent(
+                type="tags",
+                data={
+                    "costume_category": tags.costume_category,
+                    "exposure_level": tags.exposure_level,
+                    "age_impression": tags.age_impression,
+                },
+            )
+        else:
+            logger.info(
+                "Protagonist not targeted (targets=%s): keep protagonist stats",
+                [m.ref for m in outcome.targets.members],
+            )
 
         # 5.1.5 現実改変時: 指示文をセッション属性に自動追加
         if is_reality:
@@ -3400,7 +3621,7 @@ class GameService:
 
         # 5.2. パラメータ計算と更新（self_mode はスキップ, US5 T026）
         new_stats: SessionStats | None = None
-        if not session.self_mode:
+        if not session.self_mode and protagonist_targeted:
             stats = await session_store.get_or_create_session_stats(session.id)
             old_bloom = stats.bloom
 
@@ -3417,12 +3638,13 @@ class GameService:
                 gender_discomfort=gender_discomfort_for_params,
             )
             if is_reality:
-                # 現実改変は影響大: 開花を大きく上げ、羞恥と順応を揺さぶる
-                bloom_reality_boost = random.randint(5, 15)
+                (
+                    bloom_reality_boost,
+                    shame_reality_boost,
+                    adaptation_reality_boost,
+                ) = reality_parameter_boost()
                 bloom_delta += bloom_reality_boost
-                shame_reality_boost = 5 + random.randint(-2, 2)
                 shame_delta += shame_reality_boost
-                adaptation_reality_boost = random.randint(-3, 3)
                 adaptation_delta += adaptation_reality_boost
                 logger.info(
                     f"Reality alteration boost: bloom+{bloom_reality_boost}, "
@@ -3496,10 +3718,12 @@ class GameService:
                     },
                 )
 
-        # 6. 変身回数をインクリメント
-        transformation_count = await session_store.increment_transformation_count(
-            session.id
-        )
+        # 6. 変身回数をインクリメント（主人公が対象の手番だけ）
+        transformation_count = session.transformation_count
+        if protagonist_targeted:
+            transformation_count = await session_store.increment_transformation_count(
+                session.id
+            )
 
         if not session.self_mode and new_stats is not None:
             # 6.1 エンディング判定 (T048)

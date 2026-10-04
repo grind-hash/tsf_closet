@@ -14,6 +14,8 @@ from .multi_people_prompts import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from .gender_congruence import GenderCongruenceResult
 
 # システムプロンプト
@@ -1020,29 +1022,13 @@ def build_enhanced_feeling_prompt(
         )
         user_template = FEELING_USER_PROMPT_TEMPLATE
 
-    if personality:
-        truncated = personality[:500] if len(personality) > 500 else personality
-        personality_section = f"\n\n【このキャラクターの性格】\n- 性格: {truncated}\n"
-        if description:
-            desc_truncated = (
-                description[:500] if len(description) > 500 else description
-            )
-            personality_section += f"- 説明: {desc_truncated}\n"
-        personality_section += "- このキャラクターの性格特性に合わせて、語調・反応・思考パターンを調整してください。"
-        system_prompt += personality_section
+    system_prompt += _build_personality_section(personality, description)
 
     # 複数人表示モードの場合、他者との相互作用描写を許可（登場人物一覧があれば従わせる）
     if enable_multiple_people:
         system_prompt += build_multi_people_rule(session_characters_section)
 
-    # 属性情報を追加
-    attribute_section = ""
-    if attributes:
-        attribute_section = (
-            "\n\n【キャラクターの特殊属性】\n"
-            + "\n".join(f"- {attr}" for attr in attributes)
-            + "\n（これらの属性を心境表現に反映してください）"
-        )
+    attribute_section = _build_attribute_section(attributes)
 
     user_prompt = (
         user_template.format(
@@ -1058,6 +1044,127 @@ def build_enhanced_feeling_prompt(
         user_prompt, session_characters_section
     )
 
+    return system_prompt, user_prompt
+
+
+def _build_personality_section(personality: str, description: str) -> str:
+    """心境のシステムプロンプトに足す性格の節。性格が無ければ空文字。"""
+    if not personality:
+        return ""
+    section = f"\n\n【このキャラクターの性格】\n- 性格: {personality[:500]}\n"
+    if description:
+        section += f"- 説明: {description[:500]}\n"
+    section += "- このキャラクターの性格特性に合わせて、語調・反応・思考パターンを調整してください。"
+    return section
+
+
+def _build_attribute_section(attributes: list[str] | None) -> str:
+    """心境のユーザープロンプトに足す属性の節。属性が無ければ空文字。"""
+    if not attributes:
+        return ""
+    return (
+        "\n\n【キャラクターの特殊属性】\n"
+        + "\n".join(f"- {attr}" for attr in attributes)
+        + "\n（これらの属性を心境表現に反映してください）"
+    )
+
+
+# 主人公以外の登場人物だけが指示の対象になった手番の心境
+OBSERVER_FEELING_SYSTEM_PROMPT = """あなたは物語の主人公の心の声を書く作家です。
+今回の指示で姿が変わったのは主人公ではなく、同じ場面にいる別の人物です。主人公の服装と姿は変わっていません。
+
+主人公の一人称視点で、その人物の変化を目の前で見た直後の心境をモノローグ形式で表現してください。
+
+**書き方:**
+- 変化した人物の服装や姿は、主人公の目に映った様子として書く
+- 主人公自身の気持ち（驚き、戸惑い、見とれる気持ち、自分と比べる気持ちなど）を中心にする
+- 主人公の性格とこれまでの経緯に沿った反応にする
+
+**禁止事項:**
+- 主人公自身が着替えた・着ている・姿が変わったという表現
+- 変化した人物の内心や、肌に触れる感触などの身体感覚を、その人物の視点で書くこと
+- 相手のセリフ
+
+**文字数指示: 200〜400文字で描写してください。**"""
+
+OBSERVER_FEELING_USER_PROMPT_TEMPLATE = """{situation}直後の、主人公の心境をモノローグで書いてください。
+
+条件：
+- 一人称は必ず「{pronoun}」を使用（厳守。他のいかなる一人称にも変えないこと）
+- 主人公の今の姿（今回は変化なし）：{protagonist_look}
+
+今回変化した人物：
+{changes}"""
+
+
+def build_observer_feeling_prompt(
+    *,
+    instruction: str,
+    pronoun: str,
+    changes: Sequence[tuple[str, str, str]],
+    protagonist_look: str,
+    is_reality: bool = False,
+    personality: str = "",
+    description: str = "",
+    attributes: list[str] | None = None,
+    enable_multiple_people: bool = False,
+    session_characters_section: str | None = None,
+) -> tuple[str, str]:
+    """主人公以外の人物だけが指示の対象になった手番の心境プロンプト。
+
+    主人公の一人称のまま、変化した人物を見た反応として書かせる。主人公自身が
+    着替えたような表現と、変化した人物の視点の混入を防ぐ。
+
+    Args:
+        instruction: ユーザーの指示
+        pronoun: 主人公の一人称
+        changes: 変化した人物ごとの (名前, 変化前の姿, 変化後の姿)。
+            変化後の姿が分からなければ空文字
+        protagonist_look: 主人公の今の姿（変化なし）
+        is_reality: 現実改変の手番か
+        personality: 主人公の性格テキスト
+        description: 主人公の説明テキスト
+        attributes: 主人公のセッション属性
+        enable_multiple_people: 複数人表示モードか
+        session_characters_section: 登場人物一覧（ユーザープロンプトの末尾に付ける）
+
+    Returns:
+        (system_prompt, user_prompt) tuple
+    """
+    names = "、".join(name for name, _before, _after in changes)
+    if not names:
+        situation = f"「{instruction}」という指示があったものの、誰の姿も変わらなかった"
+    elif is_reality:
+        situation = f"「{instruction}」という現実改変で{names}が変化した"
+    else:
+        situation = f"「{instruction}」という指示で{names}の衣装が変更された"
+
+    change_lines: list[str] = []
+    for name, before, after in changes:
+        if before and after:
+            change_lines.append(f"- {name}：{before} → {after}")
+        elif after:
+            change_lines.append(f"- {name}：{after}")
+        else:
+            change_lines.append(
+                f"- {name}：{before or '（外見の記録なし）'}（この指示で変化）"
+            )
+
+    system_prompt = OBSERVER_FEELING_SYSTEM_PROMPT + _build_personality_section(
+        personality, description
+    )
+    if enable_multiple_people:
+        system_prompt += build_multi_people_rule(session_characters_section)
+
+    user_prompt = OBSERVER_FEELING_USER_PROMPT_TEMPLATE.format(
+        situation=situation,
+        pronoun=pronoun,
+        protagonist_look=protagonist_look or "（記録なし）",
+        changes="\n".join(change_lines) or "- （外見が変わった人物はいない）",
+    ) + _build_attribute_section(attributes)
+    user_prompt = append_session_characters_section(
+        user_prompt, session_characters_section
+    )
     return system_prompt, user_prompt
 
 
