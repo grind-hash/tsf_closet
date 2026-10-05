@@ -14,6 +14,8 @@
 
 ---
 
+この README は `develop` ブランチの実装を対象としています。配布版は [Releases](https://github.com/grind-hash/tsf_closet/releases) の各バージョンを確認してください。
+
 ## スクリーンショット
 
 ### ゲームプレイ
@@ -50,59 +52,46 @@
 
 ## 主な機能
 
-| 機能                      | 説明                                                            |
-| ------------------------- | --------------------------------------------------------------- |
-| **キャラクター選択**      | プリセットキャラクター or カスタム画像アップロード              |
-| **着せ替え実行**          | 自然言語で衣装変更を指示 (例:「バニーレオタードに着替えて」)    |
-| **AI 画像生成**           | ComfyUI / OpenRouter / NovelAI の 3 プロバイダーを切り替え可能  |
-| **心境セリフ生成**        | Vision LLM + Text LLM でキャラクターの反応をストリーミング表示  |
-| **パラメータシステム**    | 開花度・羞恥心・順応度が衣装に応じて変動                        |
-| **臨界点イベント**        | 開花度が閾値に達すると特別な演出セリフが発火                    |
-| **実績システム**          | 12 種類の実績を自動判定                                         |
-| **ギャラリー**            | 過去の変身画像・達成エンディングを閲覧                          |
-| **プレイ要約 & 称号**     | LLM がプレイ履歴から要約と称号 (二つ名) を自動生成              |
-| **共有プレビュー**        | 要約カードを OGP 風画像 (1200×630) で保存・クリップボードコピー |
-| **インペイント / マスク** | 部分的な衣装変更に対応 (システム / 履歴 / プリセットマスク)     |
-| **キャラクター会話**      | 着せ替え以外にもキャラクターとチャット可能                      |
-| **TSFシナリオ**           | 変身後の状態から始まるノベルゲーム。恋愛シミュレーション等 5 種のミッション |
-| **対面会話モード**        | 攻略対象と 1 ターン = 1 往復で会話。3Dモデル (VRM) の表示と音声入力に対応 (実験的機能) |
-| **Prompt Expander**       | 自然文の指示を NovelAI 用プロンプトへ拡張し、ゲームと独立に画像を生成 (実験的機能) |
-| **音声合成**              | AivisSpeech によるセリフの読み上げ (実験的機能)                 |
-| **NAI Diffusion V5 対応** | NSFW / 非 NSFW ごとのモデル選択と残り利用量の表示               |
-| **メモリ**                | 好みメモリ (プレイ横断) とプレイメモ (プレイ内) を生成へ反映    |
-| **お気に入り衣装**        | 履歴画像の☆登録・ラベル付け・一覧からの再開                    |
-| **分岐 / 比較**           | 履歴画像から別セッションを開始、Before/After スライダーで変身を比較 |
-| **エクスポート**          | チャット履歴を Markdown / 小説形式 HTML の ZIP で保存           |
-| **複数キャラクター**      | セッションを跨ぐ容姿の永続化とキャラクタープリセット (実験的機能) |
-| **多言語対応**            | 日本語 / English 切り替え (会話言語バリデーション付き)          |
+| 機能                      | 説明                                                                                                                            |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| **キャラクター選択**      | プリセットキャラクター or カスタム画像アップロード                                                                              |
+| **着せ替え実行**          | 自然言語で衣装変更を指示 (例:「バニーレオタードに着替えて」)                                                                    |
+| **AI 画像生成**           | ComfyUI / OpenRouter / NovelAI の 3 プロバイダーを切り替え可能                                                                  |
+| **心境セリフ生成**        | Vision LLM + Text LLM でキャラクターの反応をストリーミング表示                                                                  |
+| **パラメータシステム**    | 開花度・羞恥心・順応度が衣装に応じて変動                                                                                        |
+| **臨界点イベント**        | 開花度が閾値に達すると特別な演出セリフが発火                                                                                    |
+| **実績システム**          | 12 種類の実績を自動判定                                                                                                         |
+| **ギャラリー**            | 過去の変身画像・達成エンディングを閲覧                                                                                          |
+| **プレイ要約 & 称号**     | LLM がプレイ履歴から要約と称号 (二つ名) を自動生成                                                                              |
+| **共有プレビュー**        | 要約カードを OGP 風画像 (1200×630) で保存・クリップボードコピー                                                                 |
+| **インペイント / マスク** | 部分的な衣装変更に対応 (システム / 履歴 / プリセットマスク)                                                                     |
+| **キャラクター会話**      | 通常プレイ中の会話に加え、独立した「キャラチャット」でセレナ・過去セッションの人物・シナリオの攻略対象と会話                    |
+| **Live2D / VRM 表示**     | キャラチャットで 2D 立ち絵・VRM・セレナ専用 Live2D を選択。Live2D はドレス / プリンセス / バニーに対応（Core の別途配置が必要） |
+| **自分自身モード**        | 自分のプロフィールを設定し、パラメータ追跡なしで着せ替え・行動・現実改変をプレイ                                                |
+| **TSFシナリオ**           | 変身後の状態から始まるノベルゲーム。恋愛シミュレーション等 5 種のミッション                                                     |
+| **対面会話モード**        | 攻略対象と 1 ターン = 1 往復で会話。3Dモデル (VRM) の表示と音声入力に対応 (実験的機能)                                          |
+| **Prompt Expander**       | 自然文の指示を NovelAI 用プロンプトへ拡張し、ゲームと独立に画像を生成 (実験的機能)                                              |
+| **音声合成**              | AivisSpeech によるセリフの読み上げ (実験的機能)                                                                                 |
+| **NAI Diffusion V5 対応** | NSFW / 非 NSFW ごとのモデル選択と残り利用量の表示                                                                               |
+| **メモリ**                | 好みメモリ (プレイ横断) とプレイメモ (プレイ内) を生成へ反映                                                                    |
+| **お気に入り衣装**        | 履歴画像の☆登録・ラベル付け・一覧からの再開                                                                                     |
+| **分岐 / 比較**           | 履歴画像から別セッションを開始、Before/After スライダーで変身を比較                                                             |
+| **エクスポート**          | チャット履歴を Markdown / 小説形式 HTML の ZIP で保存                                                                           |
+| **複数キャラクター**      | セッションを跨ぐ容姿の永続化とキャラクタープリセット (実験的機能)                                                               |
+| **多言語対応**            | 日本語 / English 切り替え (会話言語バリデーション付き)                                                                          |
 
 ---
 
 ## アーキテクチャ
 
-```
-┌────────────────────┐
-│  Browser (React)   │
-│  :3000 (dev)       │
-└────────┬───────────┘
-         │ /api/*
-         ▼
-┌────────────────────┐     ┌──────────────────────────────────┐
-│  FastAPI Backend   │────▶│  Image Generation                │
-│  :8000             │     │  ├ ComfyUI (selfhost, GPU)       │
-│                    │     │  ├ OpenRouter API (cloud)         │
-│  ├ Game / Chars    │     │  └ NovelAI Image API             │
-│  ├ Adventure       │     └──────────────────────────────────┘
-│  ├ Prompt Expander │     ┌──────────────────────────────────┐
-│  ├ Gallery / Favs  │────▶│  LLM / Vision                   │
-│  ├ Achievements    │     │  ├ LiteLLM → Ollama (selfhost)  │
-│  ├ Memory          │     │  ├ OpenRouter Vision / LLM      │
-│  ├ Avatars (VRM)   │     │  └ NovelAI Text API              │
-│  ├ AivisSpeech     │     └──────────────────────────────────┘
-│  ├ Settings        │     ┌──────────────────────────────────┐
-│  └ Health          │────▶│  Speech Synthesis                │
-└────────────────────┘     │  └ AivisSpeech Engine (TTS)      │
-                           └──────────────────────────────────┘
+```mermaid
+flowchart TD
+    Browser["Browser: React / Live2D / VRM"] -->|HTTP / SSE| Backend["FastAPI :8000"]
+    Backend --> Data["SQLite / images / avatars"]
+    Backend --> Images["Images: ComfyUI / OpenRouter / NovelAI"]
+    Backend --> Text["Text: LiteLLM + Ollama / OpenRouter / NovelAI"]
+    Backend --> Speech["Speech: AivisSpeech / VOICEVOX-compatible engine"]
+    Backend --> Optional["Optional: Jev / Tavily / weather"]
 ```
 
 ### 技術スタック
@@ -115,80 +104,95 @@
 | 画像生成       | ComfyUI (Qwen Image Edit) / OpenRouter / NovelAI   |
 | テキスト生成   | LiteLLM Proxy → Ollama / OpenRouter / NovelAI Text |
 | 国際化         | i18next (ja / en)                                  |
-| コンテナ       | Docker Compose (6 サービス)                        |
+| コンテナ       | Docker Compose (7 サービス)                        |
 
 ---
 
 ## クイックスタート
 
-### 前提条件
+### 配布版で遊ぶ
 
-- Python 3.12+
-- Node.js 20+
-- [uv](https://docs.astral.sh/uv/) (Python パッケージマネージャー)
-- 画像生成プロバイダー (いずれか 1 つ):
-  - ComfyUI + NVIDIA GPU (セルフホスト)
-  - OpenRouter API キー
-  - NovelAI API キー (Opus 推奨)
+[Releases](https://github.com/grind-hash/tsf_closet/releases) から利用する OS・プロバイダーのパッケージを選び、展開します。NovelAI 版では `config.env` の `NOVELAI_API_KEY` を設定し、Windows は `start.bat`、Linux は `bash start.sh` で起動します。ブラウザで `http://127.0.0.1:8000/` を開いてください。詳細はパッケージ同梱の README を参照してください。
 
-### 1. セットアップ
+### ソースから起動する場合の前提条件
+
+- Git、Python 3.12+、Node.js 24（開発・CI の基準）
+- [uv](https://docs.astral.sh/uv/)（Python パッケージマネージャー）
+- 画像・テキスト生成プロバイダーの準備：NovelAI API キー、OpenRouter API キー、または ComfyUI + LiteLLM / Ollama のセルフホスト環境
+- 以下は Windows PowerShell の例です。NovelAI / OpenRouter 利用時は、画像生成用のローカル GPU は不要です。
+
+### 1. リポジトリと環境変数の準備
 
 ```powershell
-# バックエンド依存パッケージ
+git clone --branch develop https://github.com/grind-hash/tsf_closet.git
+cd tsf_closet
+
+# NovelAI を使う場合。コピー後、.env の NOVELAI_API_KEY を設定
+Copy-Item .env.example.novelai .env
+```
+
+OpenRouter は `.env.example.openrouter`、セルフホストは `.env.example.selfhost` をコピーしてください。既存の `.env` がある場合は上書きせず、必要な設定を追記・変更します。汎用の `.env.example` はセルフホストが既定です。`.env` はリポジトリルートに置きます。
+
+### 2. 依存パッケージとデータベースの準備
+
+```powershell
+# リポジトリルートから実行
 cd backend
-uv sync
-
-# フロントエンド依存パッケージ
+uv sync --frozen
+New-Item -ItemType Directory -Force data | Out-Null
+uv run alembic upgrade head
 cd ../frontend
-npm install
+npm ci
+cd ..
 ```
 
-### 2. 環境変数の設定
-
-`.env.example` をコピーして `.env` を作成し、利用するプロバイダーに応じて設定します:
-
-```powershell
-Copy-Item .env.example .env
-```
+Linux では `Copy-Item` の代わりに `cp`、データディレクトリ作成には `mkdir -p data` を使います。
 
 ### 3. アプリケーション起動
 
+それぞれ別のターミナルをリポジトリルートで開きます。
+
 ```powershell
-# バックエンド (ポート 8000)
+# ターミナル1: バックエンド（ポート8000）
 cd backend
 uv run uvicorn gateway.app:app --host 0.0.0.0 --port 8000 --reload
+```
 
-# フロントエンド (ポート 3000) ※別ターミナル
+```powershell
+# ターミナル2: フロントエンド（ポート3000）
 cd frontend
 npm run dev
 ```
 
-ブラウザで `http://localhost:3000/` にアクセスしてください。
+ブラウザで `http://localhost:3000/` を開きます。API 仕様は `http://localhost:8000/docs`、稼働確認は `http://localhost:8000/health` で確認できます。
 
 ---
 
 ## Docker デプロイ
 
+同梱の `compose.yaml` は GPU を使うセルフホスト構成です。リポジトリルートの `.env`（Compose / LiteLLM 用）と `.env.docker`（バックエンド用）を確認してから起動します。バックエンド設定は `.env.docker` が読み込まれるため、クラウド API キーなどを使う場合もこちらに設定します。起動後は `http://localhost/` を開きます。
+
 ```powershell
 docker compose up -d
 # バックエンドのデータベースマイグレーション適用
-docker compose exec backend bash -c "uv run alembic upgrade head"
+docker compose exec backend uv run alembic upgrade head
 ```
 
 > **注意**: ComfyUI のモデルダウンロード完了まで 1 時間以上かかる場合があります。`docker compose logs -f comfyui` で進行状況を確認してください。
 
-| サービス     | 説明               | ポート |
-| ------------ | ------------------ | ------ |
-| `frontend`   | React + nginx      | 80     |
-| `backend`    | FastAPI            | (内部) |
-| `litellm`    | LiteLLM Proxy      | 4000   |
-| `litellm_db` | PostgreSQL 16      | 5432   |
-| `ollama`     | ローカル LLM (GPU) | —      |
-| `comfyui`    | 画像生成 (GPU)     | 8188   |
+| サービス     | 説明                     | ポート |
+| ------------ | ------------------------ | ------ |
+| `frontend`   | React + nginx            | 80     |
+| `backend`    | FastAPI                  | 8000   |
+| `litellm`    | LiteLLM Proxy            | 4000   |
+| `litellm_db` | PostgreSQL 16            | 5432   |
+| `ollama`     | ローカル LLM (GPU)       | —      |
+| `comfyui`    | 画像生成 (GPU)           | 8188   |
+| `aivis`      | AivisSpeech Engine (GPU) | 10101  |
 
 **システム要件** (Docker):
 
-- NVIDIA GPU (ollama, comfyui)
+- NVIDIA GPU (ollama, comfyui, aivis)
 - ストレージ: 100 GB 以上の空き容量
 - メモリ: 64 GB 以上推奨
 
@@ -196,10 +200,12 @@ docker compose exec backend bash -c "uv run alembic upgrade head"
 
 ## ポータブル版ビルド
 
-GPU 環境がないユーザー向けに、Windows ポータブル配布パッケージを作成できます:
+Windows / Linux 向けのポータブル配布パッケージを作成できます。以下はリポジトリルートから実行します。
+
+### Windows
 
 ```powershell
-.\scripts\build_portable.ps1 -Version "0.1.0" -Provider novelai
+.\scripts\build_portable.ps1 -Version "dev" -Provider novelai
 ```
 
 | パラメータ      | 説明                                  | デフォルト |
@@ -212,6 +218,18 @@ GPU 環境がないユーザー向けに、Windows ポータブル配布パッ�
 | `-SkipPython`   | Python 環境構築をスキップ             | —          |
 
 出力先: `dist/tsf_closet_portable_v{Version}_{Provider}/`
+
+### Linux
+
+```bash
+bash scripts/build_portable_linux.sh --version dev --provider novelai
+```
+
+`--provider` は `novelai` / `selfhost` / `openrouter` を指定できます。`--force`、`--no-archive`、`--skip-frontend`、`--skip-python` にも対応します。ビルドには Node.js / npm、curl、tar、bc などが必要です。
+
+出力先: `dist/tsf_closet_portable_v{Version}_{Provider}_linux/`（アーカイブは `.tar.gz`）。
+
+両 OS とも Python とビルド済みフロントエンドを同梱します。生成 API、セルフホスト用サーバー、音声合成エンジンは別途必要です。
 
 ---
 
@@ -289,7 +307,7 @@ GPU 環境がないユーザー向けに、Windows ポータブル配布パッ�
 変身後の状態 (セッションの任意の時点) を起点に、独立したノベルゲーム形式のシナリオをプレイできます。メインメニューの「TSFシナリオ」から開けます (設定画面の「TSFシナリオ」で非表示にもできます)。
 
 - **ミッション**: 「恋愛シミュレーション」「潜入」「脱出・帰還」「交渉」「なりすまし・着替え」の 5 種類。舞台・ゴール・制約は AI による自動生成のほか、直接入力や用意された作品シナリオ (「女装してプリンセスにならないと出られない部屋」) からの選択に対応
-- **恋愛シミュレーション**: 日数制 (昼・夜) の進行、好感度、所持金、バイト、ギフトショップ、告白、エンディング後のエピローグ。主人公には別セッションの姿を使用でき、攻略対象が主人公を呼ぶ「呼び名」も指定可能
+- **恋愛シミュレーション**: 日数制 (昼・夜) の進行、好感度、所持金、バイト、ギフトショップ、告白、エンディング後のエピローグ。主人公には別セッションや Prompt Expander の画像を使用でき、攻略対象が主人公を呼ぶ「呼び名」も指定可能
 - **現実改変**: 「現実改変：〜」で世界ルールを宣言し、以降のすべての判定に適用 (手番を消費しない属性付与も可能)
 - **トーク**: 手番を消費しない雑談。好感度・所持金・日数は変わらず、会話の内容は次の手番の物語に引き継がれる
 - **BGM 自動選曲**: 場面に合わせて BGM を自動選曲 (楽曲は Suno AI 製)。BGM テスト画面で試聴可能
@@ -310,6 +328,19 @@ GPU 環境がないユーザー向けに、Windows ポータブル配布パッ�
 - マイクによる音声入力に対応 (Chrome / Edge)。ブラウザの音声認識を使うため、Chrome では音声が Google のサーバーへ送られます
 
 <!-- TODO: screenshot repo_resources/screen10_adventure_companion.png (対面会話モード + 3Dモデル) -->
+
+---
+
+## キャラチャット / Live2D
+
+設定の「Experimental（実験的機能）」で「キャラチャット」を有効にすると、メニューから `/talk` を開けます。
+
+- **案内役セレナ**: 好みメモリや過去のプレイを踏まえて会話し、おすすめのプレイを提案します。
+- **過去セッションの人物**: 履歴の画像・心境・経緯を引き継いで会話を開始できます。TSFシナリオの攻略対象との会話にも対応します。
+- **姿と音声**: 2D 立ち絵、登録済み VRM、セレナ専用 Live2D を選択でき、AivisSpeech で返答を読み上げます。Live2D はドレス / プリンセス / バニーの切り替え、全身 / 寄り表示、表情・まばたき・口の動きに対応します。
+- **調べ物**: セレナの Web 検索は `TAVILY_API_KEY` と設定画面での有効化が必要です。天気の都市は `WEATHER_LOCATION` で設定します。
+
+Live2D Cubism Core はリポジトリに含まれません。[配置手順](frontend/public/live2d/vendor/README.md) に従い、`live2dcubismcore.min.js` をソース版では `frontend/public/live2d/vendor/`、配布版では `backend/static/live2d/vendor/` に配置してください。配置しなくても 2D 立ち絵で利用できます。Live2D Core・モデルの利用条件はそれぞれの配布元を確認してください。
 
 ---
 
@@ -343,7 +374,7 @@ GPU 環境がないユーザー向けに、Windows ポータブル配布パッ�
 
 AivisSpeech エンジンによるセリフの読み上げに対応した実験的機能です。設定画面の「音声合成 (AivisSpeech)」から有効化します。
 
-- 通常プレイのチャット読み上げと、TSFシナリオ (対面会話モード) のセリフ自動再生に対応
+- 通常プレイのチャット読み上げ、TSFシナリオ (対面会話モード) のセリフ自動再生、キャラチャットの返答読み上げに対応
 - VOICEVOX 互換エンジンへの接続にも対応
 - 音声の初期音量は 50% で、音量と再生速度を調整できます
 
@@ -359,6 +390,8 @@ AivisSpeech エンジンによるセリフの読み上げに対応した実験�
 ---
 
 ## API エンドポイント
+
+主なエンドポイントを抜粋しています。リクエスト・レスポンスの最新スキーマは、起動後の `http://localhost:8000/docs` または `/openapi.json` を参照してください。表中の `/` はプレフィックス自体を示します（末尾スラッシュなし）。
 
 ### Game (`/api/game`)
 
@@ -404,28 +437,31 @@ AivisSpeech エンジンによるセリフの読み上げに対応した実験�
 
 ### その他のルーター (概要)
 
-| プレフィックス         | 説明                                                                                    |
-| ---------------------- | --------------------------------------------------------------------------------------- |
-| `/api/adventure`       | TSFシナリオ (Run / テンプレート / 手番 SSE / トーク SSE / 現実改変 / 巻き戻し / BGM)     |
-| `/api/prompt-expander` | Prompt Expander (セッション / エントリ / 拡張 / 生成 / 漫画ネーム / 設定)                |
-| `/api/avatars`         | 3Dモデル (VRM) の登録・自動分類・配信                                                    |
-| `/api/aivisspeech`     | 音声合成 (`/synthesize`、viseme タイムライン付き `/synthesize-timed`、エンジン管理)      |
-| `/api/memory`          | 好みメモリの生成ジョブ・本文編集                                                         |
-| `/api/favorites`       | お気に入り衣装の一覧・登録・ラベル変更                                                   |
-| `/api/game` (複数人物) | セッション人物の管理とキャラクタープリセット                                             |
+| プレフィックス         | 説明                                                                                 |
+| ---------------------- | ------------------------------------------------------------------------------------ |
+| `/api/adventure`       | TSFシナリオ (Run / テンプレート / 手番 SSE / トーク SSE / 現実改変 / 巻き戻し / BGM) |
+| `/api/prompt-expander` | Prompt Expander (セッション / エントリ / 拡張 / 生成 / 漫画ネーム / 設定)            |
+| `/api/character-chat`  | キャラチャットのスレッド作成・削除、会話 SSE、姿・モデル切り替え、立ち絵生成         |
+| `/api/avatars`         | 3Dモデル (VRM) の登録・自動分類・配信                                                |
+| `/api/aivisspeech`     | 音声合成 (`/synthesize`、viseme タイムライン付き `/synthesize-timed`、エンジン管理)  |
+| `/api/memory`          | 好みメモリの生成ジョブ・本文編集                                                     |
+| `/api/favorites`       | お気に入り衣装の一覧・登録・ラベル変更                                               |
+| `/api/game` (複数人物) | セッション人物の管理とキャラクタープリセット                                         |
 
 ### SSE イベント (`/api/game/play/stream`)
 
 | イベント      | データ                                  |
 | ------------- | --------------------------------------- |
-| `feeling`     | キャラクターの心境セリフ (チャンク形式) |
+| `text`        | キャラクターの心境セリフ (チャンク形式) |
 | `image`       | 生成画像の Base64 データ                |
 | `tags`        | 衣装タグ情報 (カテゴリ・露出度)         |
 | `stats`       | パラメータ変動値                        |
 | `critical`    | 臨界点到達時の演出セリフ                |
 | `ending`      | エンディング判定結果                    |
 | `achievement` | 実績アンロック通知                      |
-| `done`        | 処理完了                                |
+| `complete`    | 処理完了                                |
+
+料金 (`cost`)・Anlas 残量 (`anlas`)・処理エラー (`error`) などのイベントも送信します。
 
 ---
 
@@ -436,28 +472,28 @@ AivisSpeech エンジンによるセリフの読み上げに対応した実験�
 
 ### 共通
 
-| 変数名                       | 説明                                                         | デフォルト |
-| ---------------------------- | ------------------------------------------------------------ | ---------- |
-| `PORT`                       | サーバーポート                                               | `8000`     |
-| `LOG_LEVEL`                  | ログレベル                                                   | `info`     |
-| `IMAGE_PROVIDER`             | 画像生成プロバイダー (`selfhost` / `openrouter` / `novelai`) | `selfhost` |
-| `IMAGE_DESCRIPTION_PROVIDER` | 画像説明プロバイダー                                         | `selfhost` |
-| `FEELING_PROVIDER`           | 心境生成プロバイダー                                         | `selfhost` |
-| `ENABLE_PROMPT_PREVIEW`      | TSFシナリオのプロンプト確認機能                              | `false`    |
+| 変数名                       | 説明                                                                               | デフォルト |
+| ---------------------------- | ---------------------------------------------------------------------------------- | ---------- |
+| `PORT`                       | サーバーポート                                                                     | `8000`     |
+| `LOG_LEVEL`                  | ログレベル                                                                         | `info`     |
+| `IMAGE_PROVIDER`             | 画像生成プロバイダー (`selfhost` / `openrouter` / `novelai`)                       | `selfhost` |
+| `IMAGE_DESCRIPTION_PROVIDER` | 画像説明プロバイダー                                                               | `selfhost` |
+| `FEELING_PROVIDER`           | 心境生成プロバイダー                                                               | `selfhost` |
+| `ENABLE_PROMPT_PREVIEW`      | TSFシナリオのプロンプト確認機能                                                    | `false`    |
 | `TAVILY_API_KEY`             | キャラチャットのセレナが使う Web 検索 (Tavily) の API キー。設定画面のトグルと併用 | (なし)     |
-| `WEATHER_LOCATION`           | キャラチャットのセレナが天気を調べる都市名 (例: `Tokyo`、Open-Meteo でキー不要) | (なし)     |
-| `JEV_PROVIDER`               | 構造化判定 (TypeSafe AI Jev) の経路 (`off` / `openrouter` / `typesafe`) | `off`      |
-| `JEV_LIVE_TARGETS`           | Jev の判定を実際の挙動へ反映する対象 (空ならログのみ)        | (なし)     |
-| `TYPESAFE_API_KEY`           | TypeSafe AI を直接利用する場合の API キー                    | (なし)     |
+| `WEATHER_LOCATION`           | キャラチャットのセレナが天気を調べる都市名 (例: `Tokyo`、Open-Meteo でキー不要)    | (なし)     |
+| `JEV_PROVIDER`               | 構造化判定 (TypeSafe AI Jev) の経路 (`off` / `openrouter` / `typesafe`)            | `off`      |
+| `JEV_LIVE_TARGETS`           | Jev の判定を実際の挙動へ反映する対象 (空ならログのみ)                              | (なし)     |
+| `TYPESAFE_API_KEY`           | TypeSafe AI を直接利用する場合の API キー                                          | (なし)     |
 
 ### ComfyUI (selfhost)
 
-| 変数名                    | デフォルト                                |
-| ------------------------- | ----------------------------------------- |
-| `COMFYUI_BASE_URL`        | `http://127.0.0.1:8188`                   |
-| `COMFYUI_WORKFLOW_PATH`   | `workflows/qwen_image_edit_template.json` |
+| 変数名                          | デフォルト                                                                                                                                                       |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `COMFYUI_BASE_URL`              | `http://127.0.0.1:8188`                                                                                                                                          |
+| `COMFYUI_WORKFLOW_PATH`         | `workflows/qwen_image_edit_template.json`                                                                                                                        |
 | `COMFYUI_TXT2IMG_WORKFLOW_PATH` | 未設定時は `COMFYUI_WORKFLOW_PATH` のファイル名の `image_edit` を `image_txt2img` に置き換えたもの (無ければ `workflows/qwen_image_txt2img_template_local.json`) |
-| `COMFYUI_REQUEST_TIMEOUT` | `180`                                     |
+| `COMFYUI_REQUEST_TIMEOUT`       | `180`                                                                                                                                                            |
 
 ### LiteLLM (selfhost)
 
@@ -488,15 +524,15 @@ AivisSpeech エンジンによるセリフの読み上げに対応した実験�
 既定は `off` で、**API キーが設定されているだけでは使いません**。有効にすると選んだ経路
 (`openrouter` なら `OPENROUTER_API_KEY`) に課金されます。設定例は `.env.example.jev` を参照してください。
 
-| 変数名                         | デフォルト                    |
-| ------------------------------ | ----------------------------- |
-| `JEV_PROVIDER`                 | `off`                         |
-| `JEV_MODEL`                    | (経路ごとの既定)              |
-| `JEV_TIMEOUT`                  | `10`                          |
-| `JEV_LIVE_TARGETS`             | (空 = すべてシャドー)         |
-| `JEV_HIGH` / `JEV_LOW`         | `0.7` / `0.3`                 |
-| `JEV_MIN_CONFIDENCE`           | `0.5`                         |
-| `JEV_INPUT_PRICE_USD_PER_MTOK` | `0.042`                       |
+| 変数名                         | デフォルト            |
+| ------------------------------ | --------------------- |
+| `JEV_PROVIDER`                 | `off`                 |
+| `JEV_MODEL`                    | (経路ごとの既定)      |
+| `JEV_TIMEOUT`                  | `10`                  |
+| `JEV_LIVE_TARGETS`             | (空 = すべてシャドー) |
+| `JEV_HIGH` / `JEV_LOW`         | `0.7` / `0.3`         |
+| `JEV_MIN_CONFIDENCE`           | `0.5`                 |
+| `JEV_INPUT_PRICE_USD_PER_MTOK` | `0.042`               |
 
 `JEV_LIVE_TARGETS` が空のあいだは、既存の判定と並べて走らせた結果をログに出すだけで挙動は変わりません
 (`jev_shadow` で始まる行)。一致率を確かめてから `congruence` / `chat_lookup` / `search_policy` / `tags`
@@ -554,39 +590,49 @@ AivisSpeech エンジンによるセリフの読み上げに対応した実験�
 
 ## フロントエンド画面
 
-| パス               | 画面                                       |
-| ------------------ | ------------------------------------------ |
-| `/` `/play`        | メインゲーム画面                           |
-| `/gallery`         | ギャラリー                                 |
-| `/achievements`    | 実績一覧                                   |
-| `/endings`         | エンディング一覧                           |
-| `/adventure`       | TSFシナリオ (設定で非表示にできる)         |
-| `/bgm-test`        | BGM テスト (TSFシナリオ有効時)             |
-| `/prompt-expander` | Prompt Expander (実験的機能で有効化)       |
-| `/settings`        | 設定                                       |
+| パス                      | 画面                                 |
+| ------------------------- | ------------------------------------ |
+| `/` `/play`               | メインゲーム画面                     |
+| `/gallery`                | ギャラリー                           |
+| `/achievements`           | 実績一覧                             |
+| `/endings`                | エンディング一覧                     |
+| `/adventure`              | TSFシナリオ (設定で非表示にできる)   |
+| `/bgm-test`               | BGM テスト (TSFシナリオ有効時)       |
+| `/prompt-expander`        | Prompt Expander (実験的機能で有効化) |
+| `/talk` `/talk/:threadId` | キャラチャット（実験的機能で有効化） |
+| `/guide`                  | 使い方ガイド                         |
+| `/settings`               | 設定                                 |
 
 ---
 
 ## 開発
 
+作業前に [AGENTS.md](AGENTS.md) と [Constitution](.specify/memory/constitution.md) を確認してください。起動手順はクイックスタートを参照してください。
+
+各コードブロックはリポジトリルートから実行します。検証は変更対象に絞ってください。
+
 ```powershell
-# バックエンド (ホットリロード)
-cd backend
-uv run alembic upgrade head
-uv run uvicorn gateway.app:app --host 0.0.0.0 --port 8000 --reload
-
-# フロントエンド (Vite dev server)
+# フロントエンド
 cd frontend
-npm run dev
+npm run lint
+npm run build
+npm run test
+# E2E を実行する場合はブラウザを事前に導入
+npx playwright install chromium
+npm run e2e:test
+```
 
-# Lint
-cd frontend; npm run lint
-cd backend; uv run ruff check .
+```powershell
+# バックエンド
+cd backend
+uv run ruff check .
+uv run pytest
+```
 
-# テスト
-cd frontend; npm run test
-cd frontend; npm run e2e:test
-cd backend; uv run pytest
+```powershell
+# README の整形確認（Markdown は Prettier）
+cd frontend
+npx prettier --check ../README.md ../README_en.md
 ```
 
 ### マイグレーション
@@ -596,6 +642,10 @@ cd backend
 uv run alembic revision --autogenerate -m "migration_comment"
 uv run alembic upgrade head
 ```
+
+### データの保存とバックアップ
+
+通常は `backend/data/` に SQLite、生成画像、登録済みモデルなどが保存されます。アプリを停止してからフォルダ全体をバックアップしてください。保存先を環境変数で変更した場合は、その保存先も対象です。Docker では `tsf_closet_backend_data` ボリュームに保存されます。
 
 ---
 
@@ -610,9 +660,9 @@ uv run alembic upgrade head
 - インペイント / マスク機能の追加
 - 実績システムの追加
 - ギャラリー機能の拡張 (お気に入り衣装、変身の比較、キーワード検索、履歴分岐)
-- 会話 (チャット) 機能の追加
+- 会話 (チャット) 機能と独立したキャラチャット / Live2D 表示の追加
 - 多言語対応 (i18next)
-- ポータブル版ビルドスクリプト
+- Windows / Linux ポータブル版ビルドスクリプト
 - 画質改善機能
 - TSFシナリオ (アドベンチャーモード) の追加
 - 対面会話モードと 3Dモデル (VRM) アバターの追加
