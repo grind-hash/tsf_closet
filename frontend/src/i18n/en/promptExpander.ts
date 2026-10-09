@@ -162,6 +162,8 @@ export const promptExpander = {
     originTitle: "LLM conversion applied (instruction: {{instruction}})",
     v45JapaneseHint:
       'Japanese prompts are less accurate on V4.5. The "Tags" output format is recommended.',
+    negativeEconomyHint:
+      'With V5 Full (Medium effort), negative prompts are ignored for generations without a mask (they still apply when inpainting). To exclude something, add negative emphasis such as "-3::hat::" to the positive prompt.',
     characterToggle: "Character prompts",
     characterOffHint:
       "Turn on to use per-character prompt slots (V5: up to 22, V4.5: up to 6)",

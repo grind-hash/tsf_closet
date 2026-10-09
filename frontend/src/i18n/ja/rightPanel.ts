@@ -31,6 +31,8 @@ export const rightPanel = {
   negativePrompt: "ネガティブプロンプト:",
   negativePromptPlaceholder: "例: blurry, bad anatomy, low quality",
   negativePromptHint: "除外したいタグを入力",
+  negativePromptEconomyHint:
+    "V5 Full（節約）では、マスクなしの生成にネガティブプロンプトが反映されません（インペイント時は反映されます）",
   i2iStrengthHint: "低いほど元画像に忠実（0.05〜0.99）",
   inpaintNoiseLabel: "ノイズ",
   inpaintNoiseHint: "インペイントノイズ（0.0〜0.5）",

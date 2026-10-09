@@ -155,12 +155,14 @@ function settingsPayload() {
     ],
     image_model_options: [
       "nai-diffusion-5-full",
+      "nai-diffusion-5-full-medium",
       "nai-diffusion-5-curated",
       "nai-diffusion-4-5-full",
       "nai-diffusion-4-5-curated",
     ],
     max_character_prompts: {
       "nai-diffusion-5-full": 22,
+      "nai-diffusion-5-full-medium": 22,
       "nai-diffusion-5-curated": 22,
       "nai-diffusion-4-5-full": 6,
       "nai-diffusion-4-5-curated": 6,
@@ -888,6 +890,37 @@ test("comic mode is V5-only, its options are sent with expand/generate, and entr
   await expect.poll(() => state.expandBodies.length).toBe(2);
   expect(state.expandBodies[1]).toMatchObject({ manga_mode: false });
   expect(state.expandBodies[1]).not.toHaveProperty("manga");
+});
+
+test("the economy V5 model warns that the negative prompt is ignored without a mask", async ({
+  page,
+}) => {
+  await enableFeatures(page, { experimentalPromptExpanderEnabled: true });
+  const state = await mockPromptExpanderApis(page);
+  await openSession(page);
+
+  const warning = page.getByText(
+    /V5 Full（節約）では、マスクなしの生成にネガティブプロンプトが反映されません/,
+  );
+  await expect(warning).toHaveCount(0);
+
+  await page
+    .getByLabel("画像モデル")
+    .selectOption("nai-diffusion-5-full-medium");
+  await expect(warning).toBeVisible();
+  // インペイントでは反映されるので、欄は無効化せず入力・送信できる
+  await expect(negativeField(page)).toBeEditable();
+  await positiveField(page).fill("1girl, raw prompt");
+  await negativeField(page).fill("hat");
+  await generateButton(page).click();
+  await expect.poll(() => state.generateBodies.length).toBe(1);
+  expect(state.generateBodies[0]).toMatchObject({
+    image_model: "nai-diffusion-5-full-medium",
+    negative_prompt: "hat",
+  });
+
+  await page.getByLabel("画像モデル").selectOption("nai-diffusion-5-full");
+  await expect(warning).toHaveCount(0);
 });
 
 test("precise reference is V4.5-only, needs an image and an Anlas confirm, and is sent with generate", async ({

@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import { isEconomyImageModel } from "../../../constants/novelaiImageModels";
 import { useSettings } from "../../../contexts/SettingsContext";
 import { NovelaiUsageBar } from "../../NovelaiUsageBar";
 import PreciseReferencesPanel from "./PreciseReferencesPanel";
@@ -79,6 +80,7 @@ export default function NovelaiSettingsSection({
     setNovelaiImageModel,
     setNovelaiCuratedImageModel,
     isNovelaiV5Active,
+    effectiveNovelaiImageModel,
   } = useSettings();
 
   return (
@@ -121,7 +123,9 @@ export default function NovelaiSettingsSection({
           rows={2}
         />
         <small className="right-panel__hint">
-          {t("rightPanel.negativePromptHint")}
+          {isEconomyImageModel(effectiveNovelaiImageModel)
+            ? t("rightPanel.negativePromptEconomyHint")
+            : t("rightPanel.negativePromptHint")}
         </small>
       </div>
 
@@ -348,6 +352,9 @@ export default function NovelaiSettingsSection({
           </option>
           <option value="nai-diffusion-5-full">
             {t("settings.novelaiImageModelV5Full")}
+          </option>
+          <option value="nai-diffusion-5-full-medium">
+            {t("settings.novelaiImageModelV5FullEconomy")}
           </option>
         </select>
       </div>

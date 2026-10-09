@@ -22,6 +22,7 @@ class NovelAIImageModelInfo:
       V5 モデルでは対応する v4.5 モデル名を入れ、実際の送信モデルは
       リクエスト直前に req.model を上書きして差し替える。
     - family: "full" (NSFW 用) | "curated" (非 NSFW 用)
+    - is_economy: 節約モード（steps 固定・独自ネガティブ不可）の蒸留モデルか
     """
 
     name: str
@@ -29,6 +30,7 @@ class NovelAIImageModelInfo:
     sdk_base_model: str
     is_v5: bool
     family: str
+    is_economy: bool = False
 
 
 NOVELAI_IMAGE_MODELS: dict[str, NovelAIImageModelInfo] = {
@@ -55,6 +57,17 @@ NOVELAI_IMAGE_MODELS: dict[str, NovelAIImageModelInfo] = {
         is_v5=True,
         family="full",
     ),
+    # V5 Full の節約モード（NovelAI の Medium effort）。steps 14・Euler Ancestral 固定で、
+    # 独自ネガティブとプリセット変更は不可。節約版インペイントのモデル名が未確認のため、
+    # インペイントは通常の V5 Full インペイントを使う
+    "nai-diffusion-5-full-medium": NovelAIImageModelInfo(
+        name="nai-diffusion-5-full-medium",
+        inpaint_model="nai-diffusion-5-full-inpainting",
+        sdk_base_model="nai-diffusion-4-5-full",
+        is_v5=True,
+        family="full",
+        is_economy=True,
+    ),
     # V5 Curated のインペイントは nai-diffusion-4-5-curated-inpainting を使う。
     # NovelAI 本家 UI が V5 Curated 選択時にこのモデルを用いる挙動を踏襲した意図的な設定。
     "nai-diffusion-5-curated": NovelAIImageModelInfo(
@@ -67,11 +80,20 @@ NOVELAI_IMAGE_MODELS: dict[str, NovelAIImageModelInfo] = {
 }
 
 # ユーザー設定で選択可能なモデル（NSFW ON 用 / OFF 用）
-NSFW_IMAGE_MODEL_OPTIONS = ("nai-diffusion-4-5-full", "nai-diffusion-5-full")
+NSFW_IMAGE_MODEL_OPTIONS = (
+    "nai-diffusion-4-5-full",
+    "nai-diffusion-5-full",
+    "nai-diffusion-5-full-medium",
+)
 SFW_IMAGE_MODEL_OPTIONS = ("nai-diffusion-4-5-curated", "nai-diffusion-5-curated")
 
 DEFAULT_NSFW_IMAGE_MODEL = "nai-diffusion-4-5-full"
 DEFAULT_SFW_IMAGE_MODEL = "nai-diffusion-4-5-curated"
+
+# 節約モードの固定値。steps は NovelAI 側で 14 固定、UC プリセットは公式 UI の
+# heavy（SDK 上の名前は "strong"）固定で、独自ネガティブは送らない
+NOVELAI_ECONOMY_STEPS = 14
+NOVELAI_ECONOMY_UC_PRESET = "strong"
 
 # Pydantic の入力検証に使うモデル名の Literal。各 schemas で列挙を書き直さず
 # ここから import する。レジストリ / 選択肢との整合は import 時に検証する
@@ -79,9 +101,14 @@ NovelAIImageModel = Literal[
     "nai-diffusion-4-5-full",
     "nai-diffusion-4-5-curated",
     "nai-diffusion-5-full",
+    "nai-diffusion-5-full-medium",
     "nai-diffusion-5-curated",
 ]
-NsfwImageModel = Literal["nai-diffusion-4-5-full", "nai-diffusion-5-full"]
+NsfwImageModel = Literal[
+    "nai-diffusion-4-5-full",
+    "nai-diffusion-5-full",
+    "nai-diffusion-5-full-medium",
+]
 SfwImageModel = Literal["nai-diffusion-4-5-curated", "nai-diffusion-5-curated"]
 
 assert set(NovelAIImageModel.__args__) == set(NOVELAI_IMAGE_MODELS)  # type: ignore[attr-defined]
@@ -95,6 +122,14 @@ def is_v5_image_model(name: str | None) -> bool:
         return False
     info = NOVELAI_IMAGE_MODELS.get(name)
     return info.is_v5 if info else False
+
+
+def is_economy_image_model(name: str | None) -> bool:
+    """モデル名が節約モードの蒸留モデルかどうかを返す。未知名・None は False。"""
+    if not name:
+        return False
+    info = NOVELAI_IMAGE_MODELS.get(name)
+    return info.is_economy if info else False
 
 
 def supports_character_references(name: str | None) -> bool:

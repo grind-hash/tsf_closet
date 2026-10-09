@@ -12,6 +12,7 @@ from .novelai_models import is_v5_image_model
 # 画像モデル（NovelAI のみ。NSFW は family から導出する）
 PROMPT_EXPANDER_IMAGE_MODEL_OPTIONS: Final[tuple[str, ...]] = (
     "nai-diffusion-5-full",
+    "nai-diffusion-5-full-medium",
     "nai-diffusion-5-curated",
     "nai-diffusion-4-5-full",
     "nai-diffusion-4-5-curated",

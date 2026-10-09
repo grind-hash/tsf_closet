@@ -31,6 +31,8 @@ export const rightPanel = {
   negativePrompt: "Negative Prompt:",
   negativePromptPlaceholder: "e.g. blurry, bad anatomy, low quality",
   negativePromptHint: "Tags to exclude",
+  negativePromptEconomyHint:
+    "With V5 Full (Medium effort), negative prompts are ignored for generations without a mask (they still apply when inpainting)",
   i2iStrengthHint: "Lower values preserve original image (0.05-0.99)",
   inpaintNoiseLabel: "Noise",
   inpaintNoiseHint: "Inpaint noise (0.0-0.5)",

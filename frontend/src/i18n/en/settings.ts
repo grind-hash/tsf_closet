@@ -199,12 +199,13 @@ export const settings = {
   novelaiTextModelXialong: "Xialong v1 (Experimental)",
   novelaiImageModelNsfw: "Image Generation Model (NSFW)",
   novelaiImageModelNsfwDesc:
-    "Select the NovelAI image model used while NSFW mode is ON.",
+    "Select the NovelAI image model used while NSFW mode is ON. V5 Full (Medium effort) uses about 40% less quota, but negative prompts are ignored for generations without a mask.",
   novelaiImageModelSfw: "Image Generation Model (Non-NSFW)",
   novelaiImageModelSfwDesc:
     "Select the NovelAI image model used while NSFW mode is OFF.",
   novelaiImageModelV45Full: "NAI Diffusion V4.5 Full (Default)",
   novelaiImageModelV5Full: "NAI Diffusion V5 Full",
+  novelaiImageModelV5FullEconomy: "NAI Diffusion V5 Full (Medium effort)",
   novelaiImageModelV45Curated: "NAI Diffusion V4.5 Curated (Default)",
   novelaiImageModelV5Curated: "NAI Diffusion V5 Curated",
   novelaiUsageTitle: "V5 Usage Limit",

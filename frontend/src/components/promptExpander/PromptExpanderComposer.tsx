@@ -16,7 +16,10 @@ import {
 } from "react";
 import { flushSync } from "react-dom";
 import { useTranslation } from "react-i18next";
-import { isV5ImageModel } from "../../constants/novelaiImageModels";
+import {
+  isEconomyImageModel,
+  isV5ImageModel,
+} from "../../constants/novelaiImageModels";
 import {
   appendedTags,
   getPromptExpanderImageModelLabel,
@@ -1023,6 +1026,11 @@ export default function PromptExpanderComposer() {
             aria-busy={negativeBusy}
             placeholder={t("promptExpander.composer.negativePlaceholder")}
           />
+          {isEconomyImageModel(settings.image_model) && (
+            <p className="prompt-expander__hint prompt-expander__hint--warning">
+              {t("promptExpander.composer.negativeEconomyHint")}
+            </p>
+          )}
           {negativeBusy && (
             <PromptExpanderProgress
               label={t("promptExpander.composer.expandingHint")}

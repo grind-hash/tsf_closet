@@ -163,6 +163,8 @@ export const promptExpander = {
     originTitle: "LLM の変換結果を反映済み（指示: {{instruction}}）",
     v45JapaneseHint:
       "V4.5 では日本語プロンプトの精度が落ちます。出力形式は「タグ」を推奨します。",
+    negativeEconomyHint:
+      "V5 Full（節約）では、マスクなしの生成にネガティブプロンプトが反映されません（インペイント時は反映されます）。除外したい要素は、ポジティブに「-3::hat::」のようなマイナス強調で書いてください。",
     characterToggle: "キャラクタープロンプト",
     characterOffHint:
       "ON にすると登場人物ごとのプロンプト欄を使えます（V5: 最大22、V4.5: 最大6）",
