@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import importlib
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from gateway.services import session as session_module
 from gateway.services.llm_service import LLMServiceError
 
 character_router_module = importlib.import_module("gateway.routes.character_router")
@@ -18,11 +20,15 @@ character_router = character_router_module.router
 class _StubLLM:
     def __init__(self, return_values=None, fail_with=None):
         self.calls: list[Any] = []
+        self.model_overrides: list[str | None] = []
         self._returns = return_values or []
         self._fail_with = fail_with
 
-    async def generate_character_tags_batch(self, items, *, provider_override=None):
+    async def generate_character_tags_batch(
+        self, items, *, provider_override=None, novelai_model_override=None
+    ):
         self.calls.append(list(items))
+        self.model_overrides.append(novelai_model_override)
         if self._fail_with is not None:
             raise self._fail_with
         return [{"id": i["id"], "tags": "blue eyes, short hair"} for i in items]
@@ -31,6 +37,11 @@ class _StubLLM:
 def _make_app(stub):
     monkey = pytest.MonkeyPatch()
     monkey.setattr(character_router_module, "llm_service", stub)
+    monkey.setattr(
+        session_module.session_store,
+        "get_user_settings",
+        AsyncMock(return_value={"novelai_text_model": "glm-4-6"}),
+    )
     app = FastAPI()
     app.include_router(character_router, prefix="/api")
     return app, monkey
@@ -55,6 +66,8 @@ def test_generate_tags_n2_single_call():
         assert [r["id"] for r in results] == ["a", "b"]
         assert len(stub.calls) == 1
         assert len(stub.calls[0]) == 2
+        # 本文生成と同じく、ユーザー設定のテキストモデルで生成する
+        assert stub.model_overrides == ["glm-4-6"]
     finally:
         monkey.undo()
 

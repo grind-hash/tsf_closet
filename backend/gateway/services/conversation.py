@@ -13,6 +13,7 @@ import re
 from typing import TYPE_CHECKING
 
 from ..consts.history_lookback import HISTORY_LOOKBACK_DEFAULT
+from .multi_people_prompts import build_multi_people_rule
 
 if TYPE_CHECKING:
     from ..models import ConversationMessage, SessionStats
@@ -237,6 +238,7 @@ def build_conversation_prompt(
     language: str = "ja",
     session_timeline: list[tuple[str, str]] | None = None,
     lookback_count: int | None = None,
+    session_characters_section: str | None = None,
 ) -> tuple[str, str]:
     """会話プロンプトを構築
 
@@ -251,6 +253,8 @@ def build_conversation_prompt(
         nsfw_mode: NSFWモードかどうか
         transformation_count: 変身回数（0=未変身）
         session_timeline: history+conversationをマージした経緯リスト
+        session_characters_section: 複数人表示で登録された登場人物の一覧。
+            あれば他の人物の名前・一人称・性格を一覧に従わせる
 
     Returns:
         (システムプロンプト, ユーザープロンプト) のタプル
@@ -298,6 +302,9 @@ def build_conversation_prompt(
         )
         + attribute_section
     )
+    if session_characters_section:
+        system_prompt += build_multi_people_rule(session_characters_section)
+        system_prompt += f"\n\n{session_characters_section.strip()}"
 
     # spec 004 (US4): lookback_count に従った遅及件数
     effective_lookback = (

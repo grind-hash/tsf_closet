@@ -199,3 +199,80 @@ def test_enhanced_prompt_gender_congruent_skips_discomfort() -> None:
     assert "抵抗と理屈" not in user
     assert "着心地" in user or "第一印象" in user
     # 禁止指示としての言及は可。強制構成の「抵抗と理屈」は使わない
+
+
+# ── Multi-character roster ──
+
+_ROSTER = (
+    "\n[同シーンの登場キャラクター一覧]\n- サクラ（位置=左）\n  人物設定: 一人称=わたし"
+)
+_FREE_NAMES = "他のキャラクターの名前はLLMが自由に決定してよい"
+
+
+def test_enhanced_feeling_prompt_follows_roster() -> None:
+    system, user = build_enhanced_feeling_prompt(
+        before_desc="before",
+        after_desc="after",
+        instruction="dress",
+        enable_multiple_people=True,
+        session_characters_section=_ROSTER,
+    )
+    assert _FREE_NAMES not in system
+    assert "一覧の設定どおり" in system
+    assert user.rstrip().endswith("人物設定: 一人称=わたし")
+
+    system_free, user_free = build_enhanced_feeling_prompt(
+        before_desc="before",
+        after_desc="after",
+        instruction="dress",
+        enable_multiple_people=True,
+    )
+    assert _FREE_NAMES in system_free
+    assert "同シーンの登場キャラクター一覧" not in user_free
+
+
+def test_reality_and_action_prompts_follow_roster() -> None:
+    from gateway.services.action_prompts import build_action_prompt
+    from gateway.services.reality_prompts import build_reality_feeling_prompt
+
+    system, user = build_reality_feeling_prompt(
+        before_desc="before",
+        after_desc="after",
+        instruction="alter",
+        enable_multiple_people=True,
+        session_characters_section=_ROSTER,
+    )
+    assert _FREE_NAMES not in system
+    assert "人物設定: 一人称=わたし" in user
+
+    system, user = build_action_prompt(
+        instruction="walk",
+        current_description="1boy",
+        enable_multiple_people=True,
+        session_characters_section=_ROSTER,
+    )
+    assert _FREE_NAMES not in system
+    assert "人物設定: 一人称=わたし" in user
+
+
+def test_conversation_prompt_includes_roster_in_system() -> None:
+    from gateway.models import SessionStats
+    from gateway.services.conversation import build_conversation_prompt
+
+    system, _user = build_conversation_prompt(
+        message="こんにちは",
+        conversation_history=[],
+        stats=SessionStats(session_id="sess-1"),
+        current_outfit_desc="",
+        session_characters_section=_ROSTER,
+    )
+    assert "一覧の設定どおり" in system
+    assert "人物設定: 一人称=わたし" in system
+
+    system_plain, _ = build_conversation_prompt(
+        message="こんにちは",
+        conversation_history=[],
+        stats=SessionStats(session_id="sess-1"),
+        current_outfit_desc="",
+    )
+    assert "同シーンの登場キャラクター一覧" not in system_plain

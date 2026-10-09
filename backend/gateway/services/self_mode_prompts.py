@@ -9,7 +9,12 @@ from __future__ import annotations
 
 import math
 
+from ..consts.character_profile import REACTION_STYLE_LABELS_JA
 from ..consts.history_lookback import HISTORY_LOOKBACK_DEFAULT
+from .multi_people_prompts import (
+    append_session_characters_section,
+    build_multi_people_rule,
+)
 
 SELF_MODE_SYSTEM_PROMPT = """あなたは物語の主人公の心の声を書く作家です。
 これは「自分自身」モードです。主人公は実在の人物の性格を反映しています。
@@ -111,18 +116,10 @@ def build_self_profile_section(self_profile: dict, language: str = "ja") -> str:
 
     reaction = self_profile.get("reaction_style", "")
     if reaction and reaction != "default":
-        style_labels = {
-            "bold": "大胆",
-            "gentle": "穏やか",
-            "cheerful": "明るい",
-            "shy": "内気",
-            "calm": "冷静",
-            "passionate": "情熱的",
-        }
         parts.append(
             f"- Reaction style: {reaction}"
             if en
-            else f"- 反応スタイル: {style_labels.get(reaction, reaction)}"
+            else f"- 反応スタイル: {REACTION_STYLE_LABELS_JA.get(reaction, reaction)}"
         )
 
     tsf_att = self_profile.get("tsf_attitude", "")
@@ -149,6 +146,7 @@ def build_self_mode_feeling_prompt(
     self_profile: dict,
     nsfw_mode: bool = False,
     enable_multiple_people: bool = False,
+    session_characters_section: str | None = None,
 ) -> tuple[str, str]:
     """Build system and user prompts for self-mode feeling generation.
 
@@ -161,6 +159,8 @@ def build_self_mode_feeling_prompt(
         self_profile: Self-profile dict (SelfProfile-compatible structure)
         nsfw_mode: Whether NSFW mode is enabled
         enable_multiple_people: Whether multiple people mode is active
+        session_characters_section: Registered on-stage characters appended
+            to the user prompt
 
     Returns:
         (system_prompt, user_prompt) tuple
@@ -178,7 +178,11 @@ def build_self_mode_feeling_prompt(
         )
 
     if enable_multiple_people:
-        system_prompt += SELF_MODE_MULTIPLE_PEOPLE_FEELING_APPENDIX
+        system_prompt += (
+            build_multi_people_rule(session_characters_section)
+            if session_characters_section
+            else SELF_MODE_MULTIPLE_PEOPLE_FEELING_APPENDIX
+        )
 
     # Build interests section
     interests = self_profile.get("interests", [])
@@ -193,6 +197,9 @@ def build_self_mode_feeling_prompt(
         instruction=instruction,
         pronoun=pronoun,
         interests_section=interests_section,
+    )
+    user_prompt = append_session_characters_section(
+        user_prompt, session_characters_section
     )
 
     return system_prompt, user_prompt
@@ -262,6 +269,7 @@ def build_self_mode_conversation_prompt(
     session_timeline: list[tuple[str, str]] | None = None,
     enable_multiple_people: bool = False,
     lookback_count: int | None = None,
+    session_characters_section: str | None = None,
 ) -> tuple[str, str]:
     """Build conversation prompt for self-mode using the user's personality profile.
 
@@ -277,6 +285,8 @@ def build_self_mode_conversation_prompt(
         language: Response language
         session_timeline: history+conversation merged timeline list
         enable_multiple_people: Whether multiple people mode is active
+        session_characters_section: Registered on-stage characters. When set,
+            the other characters follow it instead of being invented freely.
 
     Returns:
         (system_prompt, user_prompt) tuple
@@ -306,7 +316,10 @@ def build_self_mode_conversation_prompt(
         interests_text = "、".join(str(i) for i in interests[:10])
         system_prompt += f"\n\n**主人公の興味・関心:** {interests_text}"
 
-    if enable_multiple_people:
+    if enable_multiple_people and session_characters_section:
+        system_prompt += build_multi_people_rule(session_characters_section)
+        system_prompt += f"\n\n{session_characters_section.strip()}"
+    elif enable_multiple_people:
         system_prompt += (
             "\n\n**複数人表示モード:**\n"
             "- ユーザーが複数のキャラクターとの会話を求めた場合、複数のキャラクターのセリフや反応を自然に含めてください\n"

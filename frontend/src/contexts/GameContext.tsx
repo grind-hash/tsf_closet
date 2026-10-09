@@ -52,6 +52,7 @@ import {
   deleteSessionCharacter as apiDeleteSessionCharacter,
   ensureProtagonistCharacter as apiEnsureProtagonistCharacter,
   updateSessionCharacter as apiUpdateSessionCharacter,
+  applyGroupPresetToSession,
   applyPresetToSession,
   type CreateSessionCharacterPayload,
   listSessionCharacters,
@@ -430,7 +431,14 @@ interface GameContextType {
     payload: UpdateSessionCharacterPayload,
   ) => Promise<SessionCharacter>;
   removeSessionCharacter: (characterId: string) => Promise<void>;
-  applyPresetToCurrentSession: (presetId: string) => Promise<SessionCharacter>;
+  applyPresetToCurrentSession: (
+    presetId: string,
+    options?: { onStage?: boolean },
+  ) => Promise<SessionCharacter>;
+  /** 主人公以外の登場人物を組み合わせプリセットで置き換える */
+  applyGroupPresetToCurrentSession: (
+    groupId: string,
+  ) => Promise<SessionCharacter[]>;
   updatePlayMemory: (updates: {
     system_enabled?: boolean;
     user_enabled?: boolean;
@@ -1084,11 +1092,18 @@ export function GameProvider({ children }: { children: ReactNode }) {
   );
 
   const applyPresetToCurrentSession = useCallback(
-    async (presetId: string): Promise<SessionCharacter> => {
+    async (
+      presetId: string,
+      options: { onStage?: boolean } = {},
+    ): Promise<SessionCharacter> => {
       if (!state.sessionId) {
         throw new Error("session_inactive");
       }
-      const created = await applyPresetToSession(state.sessionId, presetId);
+      const created = await applyPresetToSession(
+        state.sessionId,
+        presetId,
+        options,
+      );
       dispatch({ type: "UPSERT_SESSION_CHARACTER", payload: created });
       try {
         const records = await listSessionCharacters(state.sessionId);
@@ -1097,6 +1112,18 @@ export function GameProvider({ children }: { children: ReactNode }) {
         // ignore
       }
       return created;
+    },
+    [state.sessionId],
+  );
+
+  const applyGroupPresetToCurrentSession = useCallback(
+    async (groupId: string): Promise<SessionCharacter[]> => {
+      if (!state.sessionId) {
+        throw new Error("session_inactive");
+      }
+      const records = await applyGroupPresetToSession(state.sessionId, groupId);
+      dispatch({ type: "SET_SESSION_CHARACTERS", payload: records });
+      return records;
     },
     [state.sessionId],
   );
@@ -1211,6 +1238,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
       updateSessionCharacterAction,
       removeSessionCharacter,
       applyPresetToCurrentSession,
+      applyGroupPresetToCurrentSession,
       updatePlayMemory,
       regeneratePlayMemory,
     }),
@@ -1257,6 +1285,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
       updateSessionCharacterAction,
       removeSessionCharacter,
       applyPresetToCurrentSession,
+      applyGroupPresetToCurrentSession,
       updatePlayMemory,
       regeneratePlayMemory,
     ],

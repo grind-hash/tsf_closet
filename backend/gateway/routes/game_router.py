@@ -708,6 +708,9 @@ async def chat_with_character(
     message: str = Query(..., min_length=1, max_length=500, description="メッセージ"),
     language: str | None = Query(None, description="応答言語 (ja/en)"),
     enable_multiple_people: bool = Query(False, description="複数人表示を有効にする"),
+    use_character_panel: bool = Query(
+        True, description="人物パネルの登場人物を会話に反映する"
+    ),
     use_play_memory: bool = Query(False, description="プレイメモを有効にする"),
     use_history_lookback: bool | None = Query(None, description="履歴遡及を利用するか"),
 ) -> dict:
@@ -717,6 +720,7 @@ async def chat_with_character(
         message=message,
         language=language,
         enable_multiple_people=enable_multiple_people,
+        use_character_panel=use_character_panel,
         use_play_memory=use_play_memory,
         use_history_lookback=use_history_lookback,
     )
@@ -764,6 +768,9 @@ async def chat_with_character_stream(
     message: str = Query(..., min_length=1, max_length=500, description="メッセージ"),
     language: str | None = Query(None, description="応答言語 (ja/en)"),
     enable_multiple_people: bool = Query(False, description="複数人表示を有効にする"),
+    use_character_panel: bool = Query(
+        True, description="人物パネルの登場人物を会話に反映する"
+    ),
     use_play_memory: bool = Query(False, description="プレイメモを有効にする"),
     use_history_lookback: bool | None = Query(None, description="履歴遡及を利用するか"),
 ) -> EventSourceResponse:
@@ -776,6 +783,7 @@ async def chat_with_character_stream(
         message=message,
         language=language,
         enable_multiple_people=enable_multiple_people,
+        use_character_panel=use_character_panel,
         use_play_memory=use_play_memory,
         use_history_lookback=use_history_lookback,
     )
@@ -1234,23 +1242,7 @@ async def delete_history_entry(
                 "message": "History not found in this session",
             },
         )
-    # 複数人モード使用中の全キャラ克ターの外見を最新履歴に復帰
-    try:
-        from ..services.character_service import (
-            restore_session_characters_appearance_from_history,
-        )
-
-        await restore_session_characters_appearance_from_history(session_id)
-    except Exception as exc:  # noqa: BLE001
-        import logging
-
-        logging.getLogger(__name__).warning(
-            "Failed to restore session characters appearance after history "
-            "delete (session=%s, history=%s): %s",
-            session_id,
-            history_id,
-            exc,
-        )
+    # 登場人物の現在の姿は、残った履歴から読み出し時に計算するため戻す処理は不要
     return {
         "success": True,
         **result,
@@ -1286,21 +1278,6 @@ async def delete_latest_history(session_id: str) -> dict:
             },
         )
 
-    # 複数人モード使用中の全キャラ克ターの外見を最新履歴に復帰
-    try:
-        from ..services.character_service import (
-            restore_session_characters_appearance_from_history,
-        )
-
-        await restore_session_characters_appearance_from_history(session_id)
-    except Exception as exc:  # noqa: BLE001
-        import logging
-
-        logging.getLogger(__name__).warning(
-            "Failed to restore session characters appearance after "
-            "latest-history delete (session=%s): %s",
-            session_id,
-            exc,
-        )
+    # 登場人物の現在の姿は、残った履歴から読み出し時に計算するため戻す処理は不要
 
     return result

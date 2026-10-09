@@ -11,15 +11,25 @@ import {
   listCharacterPresets,
 } from "../../apis/characters";
 import { useGame } from "../../contexts/GameContext";
-import type { CharacterPreset } from "../../types";
+import type { CharacterPreset, SessionCharacter } from "../../types";
+import { MAX_REGISTERED_CHARACTERS } from "../../utils/characterStage";
 import "./CharacterPresetPicker.css";
 
 interface Props {
   open: boolean;
   onClose: () => void;
+  /** 追加する人物を登場させるか（登場人数の上限に達していれば false） */
+  onStage?: boolean;
+  /** 追加できたときに、作られた人物を受け取る */
+  onApplied?: (created: SessionCharacter) => void;
 }
 
-export default function CharacterPresetPicker({ open, onClose }: Props) {
+export default function CharacterPresetPicker({
+  open,
+  onClose,
+  onStage,
+  onApplied,
+}: Props) {
   const { t } = useTranslation();
   const { state, applyPresetToCurrentSession, updateSessionCharacterAction } =
     useGame();
@@ -83,13 +93,18 @@ export default function CharacterPresetPicker({ open, onClose }: Props) {
     setApplyingId(preset.id);
     setError(null);
     try {
-      await applyPresetToCurrentSession(preset.id);
+      const created = await applyPresetToCurrentSession(preset.id, {
+        onStage,
+      });
+      onApplied?.(created);
       onClose();
     } catch (err) {
       const message = err instanceof Error ? err.message : "error";
       if (message === "character_limit_exceeded") {
         setError(
-          t("character.error.limit_exceeded", "登場人物は最大4人までです"),
+          t("character.error.limit_exceeded", {
+            max: MAX_REGISTERED_CHARACTERS,
+          }),
         );
       } else {
         setError(message);
@@ -120,6 +135,10 @@ export default function CharacterPresetPicker({ open, onClose }: Props) {
         appearance_natural: preset.appearance_natural,
         appearance_tags: preset.appearance_tags,
         position: preset.default_position,
+        negative_tags: preset.negative_tags,
+        ...(preset.thumbnail_url
+          ? { thumbnail_url: preset.thumbnail_url }
+          : {}),
       });
       onClose();
     } catch (err) {

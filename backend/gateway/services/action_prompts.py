@@ -8,6 +8,10 @@ psychological-stage pattern as reality_prompts.py (R-005).
 from __future__ import annotations
 
 from ..consts.history_lookback import HISTORY_LOOKBACK_DEFAULT
+from .multi_people_prompts import (
+    append_session_characters_section,
+    build_multi_people_rule,
+)
 
 
 def _get_action_stage(
@@ -868,14 +872,9 @@ def build_action_prompt(
         personality_sys += "- このキャラクターの性格特性に合わせて、語調・反応・思考パターンを調整してください。"
         system_prompt += personality_sys
 
-    # 複数人表示モードの場合、他者との相互作用描写を許可
+    # 複数人表示モードの場合、他者との相互作用描写を許可（登場人物一覧があれば従わせる）
     if enable_multiple_people:
-        system_prompt += (
-            "\n\n【複数人モード】\n"
-            "- ユーザーの指示に他の人物が関わる場合、その人物との相互作用や会話を自然に描写してよい。\n"
-            "- 他のキャラクターの名前はLLMが自由に決定してよい。\n"
-            "- ただし主人公の一人称は必ず維持すること。"
-        )
+        system_prompt += build_multi_people_rule(session_characters_section)
 
     # セッション属性をシステムプロンプトに反映
     if attributes:
@@ -956,7 +955,8 @@ def build_action_prompt(
             personality_section=personality_section,
         )
 
-    if session_characters_section:
-        user_prompt = f"{user_prompt}\n\n{session_characters_section}"
+    user_prompt = append_session_characters_section(
+        user_prompt, session_characters_section
+    )
 
     return system_prompt, user_prompt

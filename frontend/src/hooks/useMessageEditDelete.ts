@@ -195,8 +195,7 @@ export function useMessageEditDelete({
         }
       }
 
-      // 履歴削除に伴いバックエンドが SessionCharacter の外見を最新履歴に
-      // 復帰するため、フロント側のキャラクターパネル表示も再同期する。
+      // 登場人物の現在の姿は残った履歴から計算されるため、パネル表示を再同期する。
       void loadSessionCharacters();
 
       setDeleteConfirm(null);
@@ -281,8 +280,7 @@ export function useMessageEditDelete({
         await onSessionStart();
       }
 
-      // 履歴削除に伴いバックエンドが SessionCharacter の外見を最新履歴に
-      // 復帰するため、フロント側のキャラクターパネル表示も再同期する。
+      // 登場人物の現在の姿は残った履歴から計算されるため、パネル表示を再同期する。
       void loadSessionCharacters();
 
       setEditConfirm(null);

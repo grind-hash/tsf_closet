@@ -173,7 +173,7 @@ def test_section_includes_protagonist_when_tags_provided() -> None:
         protagonist_tags="1boy, short black hair, blue eyes",
     )
     assert "Registered Characters" in result
-    assert "Character 1 (Hash" in result
+    assert "C1 (Hash" in result
     assert "[protagonist]" in result
     assert "1boy, short black hair, blue eyes" in result
     assert "position: center" in result
@@ -189,9 +189,9 @@ def test_section_renumbers_supporting_characters_after_protagonist() -> None:
         protagonist_name="Hash",
         protagonist_tags="1boy, short black hair",
     )
-    p_protagonist = result.index("Character 1 (Hash")
-    p_kana = result.index("Character 2 (Kana")
-    p_yuu = result.index("Character 3 (Yuu")
+    p_protagonist = result.index("C1 (Hash")
+    p_kana = result.index("C2 (Kana")
+    p_yuu = result.index("C3 (Yuu")
     assert p_protagonist < p_kana < p_yuu
 
 
@@ -220,4 +220,4 @@ def test_section_uses_default_name_when_protagonist_name_missing() -> None:
         protagonist_name=None,
         protagonist_tags="1boy, solo",
     )
-    assert "Character 1 (Protagonist" in result
+    assert "C1 (Protagonist" in result

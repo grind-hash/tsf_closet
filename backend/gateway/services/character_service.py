@@ -8,34 +8,44 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Sequence
+import re
+from collections.abc import Iterable, Sequence
+from dataclasses import dataclass, replace
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..consts.character_limits import (
-    APPEARANCE_NATURAL_MAX_LEN,
-    APPEARANCE_TAGS_MAX_LEN,
+    MAX_REGISTERED_CHARACTERS,
 )
 from ..databases.character_repo import (
+    delete_character_group_preset,
     delete_character_preset,
+    delete_non_protagonist_session_characters,
     delete_session_character,
+    fetch_character_group_preset,
+    fetch_character_group_presets,
     fetch_character_preset,
     fetch_character_presets,
+    fetch_latest_character_states,
     fetch_protagonist_session_character,
     fetch_session_character,
     fetch_session_characters,
+    insert_character_group_preset,
     insert_character_preset,
     insert_session_character,
+    update_character_group_preset,
     update_character_preset,
     update_session_character,
 )
-from ..databases.models import CharacterPreset, SessionCharacter
+from ..databases.models import CharacterGroupPreset, CharacterPreset, SessionCharacter
+from .character_profile import format_profile_line_ja
 
 logger = logging.getLogger(__name__)
 
 
-CHARACTER_LIMIT = 4
+# 主人公以外に登録できる人数（主人公を含めて MAX_REGISTERED_CHARACTERS 人）
+CHARACTER_LIMIT = MAX_REGISTERED_CHARACTERS - 1
 ALLOWED_POSITIONS = (
     "left",
     "center-left",
@@ -52,9 +62,54 @@ class CharacterLimitExceededError(ValueError):
         super().__init__("character_limit_exceeded")
 
 
+def dump_profile(profile: dict[str, Any] | None) -> str | None:
+    """性格プロフィール dict を profile_json 列の値にする。"""
+    if not profile:
+        return None
+    return json.dumps(profile, ensure_ascii=False)
+
+
+def record_profile(record: Any) -> dict[str, Any] | None:
+    """profile_json 列を dict に戻す。壊れた JSON や未設定は None。"""
+    raw = getattr(record, "profile_json", None)
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _profile_patch(patch: dict[str, Any]) -> dict[str, Any]:
+    """API の ``profile`` キーを DB の ``profile_json`` 列へ置き換える。"""
+    if "profile" not in patch:
+        return patch
+    converted = dict(patch)
+    profile = converted.pop("profile")
+    if profile is not None:
+        converted["profile_json"] = dump_profile(profile) or ""
+    return converted
+
+
 # ---------------------------------------------------------------------------
 # SessionCharacterService
 # ---------------------------------------------------------------------------
+
+
+def _changes_drawn_setting(current: SessionCharacter, patch: dict[str, Any]) -> bool:
+    """画像に使う設定（タグ、タグが空なら自然文）が変わる更新か。
+
+    自然文だけの修正では、タグが入っている限り描く姿は変わらないため False。
+    """
+    old_tags = (current.appearance_tags or "").strip()
+    new_tags = (patch.get("appearance_tags", old_tags) or "").strip()
+    if new_tags != old_tags:
+        return True
+    if new_tags or "appearance_natural" not in patch:
+        return False
+    old_natural = (current.appearance_natural or "").strip()
+    return (patch["appearance_natural"] or "").strip() != old_natural
 
 
 class SessionCharacterService:
@@ -79,6 +134,10 @@ class SessionCharacterService:
         source_preset_id: str | None = None,
         appearance_lock: bool = False,
         exclude_from_effects: bool = False,
+        negative_tags: str = "",
+        profile: dict[str, Any] | None = None,
+        on_stage: bool = True,
+        thumbnail_url: str | None = None,
     ) -> SessionCharacter:
         existing = list(await fetch_session_characters(db, session_id))
         non_protagonist_count = sum(1 for r in existing if not r.is_protagonist)
@@ -99,6 +158,10 @@ class SessionCharacterService:
             source_preset_id=source_preset_id,
             appearance_lock=appearance_lock,
             exclude_from_effects=exclude_from_effects,
+            negative_tags=negative_tags,
+            profile_json=dump_profile(profile),
+            on_stage=on_stage,
+            thumbnail_url=thumbnail_url,
         )
         await SessionCharacterService.reassign_positions(db, session_id)
         return record
@@ -115,6 +178,24 @@ class SessionCharacterService:
             and patch["position"] not in ALLOWED_POSITIONS
         ):
             raise ValueError(f"invalid_position:{patch['position']}")
+        patch = _profile_patch(patch)
+        reset_look = bool(patch.pop("reset_look", False))
+        needs_current = (
+            reset_look
+            or patch.get("on_stage") is False
+            or "appearance_tags" in patch
+            or "appearance_natural" in patch
+        )
+        current = (
+            await fetch_session_character(db, character_id) if needs_current else None
+        )
+        if current is not None:
+            if patch.get("on_stage") is False and current.is_protagonist:
+                # 主人公は常に登場扱い。OFF への変更だけ無視する
+                patch = {k: v for k, v in patch.items() if k != "on_stage"}
+            if reset_look or _changes_drawn_setting(current, patch):
+                # 画像に使う設定が変わった: 次の手番は履歴の姿ではなく設定の姿で描く
+                patch["appearance_spec_rev"] = int(current.appearance_spec_rev or 0) + 1
         record = await update_session_character(db, character_id, **patch)
         if record is not None and "slot_index" in patch:
             await SessionCharacterService.reassign_positions(db, record.session_id)
@@ -153,6 +234,8 @@ class SessionCharacterService:
         db: AsyncSession,
         session_id: str,
         preset_id: str,
+        *,
+        on_stage: bool = True,
     ) -> SessionCharacter:
         preset = await fetch_character_preset(db, preset_id)
         if preset is None:
@@ -165,6 +248,10 @@ class SessionCharacterService:
             appearance_tags=preset.appearance_tags,
             position=preset.default_position,
             source_preset_id=preset.id,
+            negative_tags=preset.negative_tags or "",
+            profile=record_profile(preset),
+            on_stage=on_stage,
+            thumbnail_url=preset.thumbnail_url,
         )
 
 
@@ -190,6 +277,9 @@ class CharacterPresetService:
         appearance_natural: str = "",
         appearance_tags: str = "",
         default_position: str = "center",
+        negative_tags: str = "",
+        profile: dict[str, Any] | None = None,
+        thumbnail_url: str | None = None,
     ) -> CharacterPreset:
         if default_position not in ALLOWED_POSITIONS:
             raise ValueError(f"invalid_position:{default_position}")
@@ -199,6 +289,9 @@ class CharacterPresetService:
             appearance_natural=appearance_natural,
             appearance_tags=appearance_tags,
             default_position=default_position,
+            negative_tags=negative_tags,
+            profile_json=dump_profile(profile),
+            thumbnail_url=thumbnail_url,
         )
 
     @staticmethod
@@ -217,6 +310,9 @@ class CharacterPresetService:
             appearance_natural=source.appearance_natural,
             appearance_tags=source.appearance_tags,
             default_position=source.position,
+            negative_tags=source.negative_tags or "",
+            profile_json=source.profile_json,
+            thumbnail_url=source.thumbnail_url,
         )
 
     @staticmethod
@@ -231,7 +327,7 @@ class CharacterPresetService:
             and patch["default_position"] not in ALLOWED_POSITIONS
         ):
             raise ValueError(f"invalid_position:{patch['default_position']}")
-        return await update_character_preset(db, preset_id, **patch)
+        return await update_character_preset(db, preset_id, **_profile_patch(patch))
 
     @staticmethod
     async def delete_preset(db: AsyncSession, preset_id: str) -> bool:
@@ -243,133 +339,707 @@ class CharacterPresetService:
 
 
 # ---------------------------------------------------------------------------
-# Appearance-update bridge (filled by US2 in T030)
+# CharacterGroupPresetService
 # ---------------------------------------------------------------------------
 
 
-async def apply_character_prompt_tags(
-    db: AsyncSession,
-    session_id: str,
-    character_prompts: Sequence[dict[str, Any]],
-) -> int:
-    """Write confirmed image-generation character prompts into session rows.
+def _member_from_record(record: SessionCharacter) -> dict[str, Any]:
+    """セッション人物 1 人を組み合わせプリセットのメンバー dict にする。"""
+    return {
+        "name": record.name,
+        "appearance_natural": record.appearance_natural or "",
+        "appearance_tags": record.appearance_tags or "",
+        "negative_tags": record.negative_tags or "",
+        "position": record.position,
+        "appearance_lock": bool(record.appearance_lock),
+        "exclude_from_effects": bool(record.exclude_from_effects),
+        "on_stage": bool(record.on_stage),
+        "profile": record_profile(record),
+        "thumbnail_url": record.thumbnail_url,
+    }
 
-    ``character_prompts`` is the Opus-split list of
-    ``{"prompt": "<tags>", "position": ...}`` (index 0 = protagonist).
-    Rows with ``appearance_lock`` / ``exclude_from_effects`` are skipped.
-    Non-protagonist rows are matched by ``slot_index`` (0-based).
 
-    Returns the number of rows updated.
-    """
-    if not character_prompts:
-        return 0
-    records = await fetch_session_characters(db, session_id)
-    if not records:
-        return 0
-    by_slot = {r.slot_index: r for r in records}
-    protagonist = next((r for r in records if r.is_protagonist), None)
-    written = 0
-
-    for idx, entry in enumerate(character_prompts):
-        if not isinstance(entry, dict):
+def group_members(group: CharacterGroupPreset) -> list[dict[str, Any]]:
+    """members_json を dict のリストに戻す。壊れた要素は捨てる。"""
+    try:
+        data = json.loads(group.members_json or "[]")
+    except (TypeError, ValueError):
+        return []
+    if not isinstance(data, list):
+        return []
+    members: list[dict[str, Any]] = []
+    for item in data:
+        if not isinstance(item, dict):
             continue
-        tags = entry.get("prompt")
+        name = str(item.get("name") or "").strip()
+        if not name:
+            continue
+        position = item.get("position")
+        profile = item.get("profile")
+        members.append(
+            {
+                "name": name,
+                "appearance_natural": str(item.get("appearance_natural") or ""),
+                "appearance_tags": str(item.get("appearance_tags") or ""),
+                "negative_tags": str(item.get("negative_tags") or ""),
+                "position": position if position in ALLOWED_POSITIONS else "center",
+                "appearance_lock": bool(item.get("appearance_lock", False)),
+                "exclude_from_effects": bool(item.get("exclude_from_effects", False)),
+                "on_stage": bool(item.get("on_stage", True)),
+                "profile": profile if isinstance(profile, dict) else None,
+                "thumbnail_url": item.get("thumbnail_url") or None,
+            }
+        )
+    return members
+
+
+class CharacterGroupPresetService:
+    """登場人物の組み合わせ（主人公以外の一式）を名前付きで保存・適用する。"""
+
+    @staticmethod
+    async def _snapshot_session(db: AsyncSession, session_id: str) -> str:
+        records = await fetch_session_characters(db, session_id)
+        members = [_member_from_record(r) for r in records if not r.is_protagonist]
+        return json.dumps(members, ensure_ascii=False)
+
+    @staticmethod
+    async def list_groups(db: AsyncSession) -> Sequence[CharacterGroupPreset]:
+        return await fetch_character_group_presets(db)
+
+    @staticmethod
+    async def create_from_session(
+        db: AsyncSession, *, name: str, session_id: str
+    ) -> CharacterGroupPreset:
+        members_json = await CharacterGroupPresetService._snapshot_session(
+            db, session_id
+        )
+        return await insert_character_group_preset(
+            db, name=name, members_json=members_json
+        )
+
+    @staticmethod
+    async def update_group(
+        db: AsyncSession,
+        group_id: str,
+        *,
+        name: str | None = None,
+        from_session_id: str | None = None,
+    ) -> CharacterGroupPreset | None:
+        members_json = (
+            await CharacterGroupPresetService._snapshot_session(db, from_session_id)
+            if from_session_id
+            else None
+        )
+        return await update_character_group_preset(
+            db, group_id, name=name, members_json=members_json
+        )
+
+    @staticmethod
+    async def delete_group(db: AsyncSession, group_id: str) -> bool:
+        return (await delete_character_group_preset(db, group_id)) > 0
+
+    @staticmethod
+    async def apply_to_session(
+        db: AsyncSession, session_id: str, group_id: str
+    ) -> Sequence[SessionCharacter]:
+        """主人公以外の登場人物を、組み合わせのメンバーで置き換える。
+
+        削除と挿入は同じトランザクションで行う。呼び出し側が 1 回だけ commit する。
+        """
+        group = await fetch_character_group_preset(db, group_id)
+        if group is None:
+            raise LookupError("group_preset_not_found")
+        members = group_members(group)
+        if len(members) > CHARACTER_LIMIT:
+            raise CharacterLimitExceededError()
+        await delete_non_protagonist_session_characters(db, session_id)
+        # 主人公がいれば slot 0、他は 1 以降。reassign_positions で詰め直す
+        base_slot = 1
+        for offset, member in enumerate(members):
+            await insert_session_character(
+                db,
+                session_id=session_id,
+                slot_index=base_slot + offset,
+                name=member["name"],
+                appearance_natural=member["appearance_natural"],
+                appearance_tags=member["appearance_tags"],
+                position=member["position"],
+                appearance_lock=member["appearance_lock"],
+                exclude_from_effects=member["exclude_from_effects"],
+                negative_tags=member["negative_tags"],
+                profile_json=dump_profile(member["profile"]),
+                on_stage=member["on_stage"],
+                thumbnail_url=member["thumbnail_url"],
+            )
+        await SessionCharacterService.reassign_positions(db, session_id)
+        return await fetch_session_characters(db, session_id)
+
+
+# ---------------------------------------------------------------------------
+# Stage roster (on-stage characters in prompt order)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class CharacterLook:
+    """履歴に残した 1 人分の姿（その手番で描いたタグと、そのときの設定の連番）。
+
+    ``stats`` は主人公以外の人物が指示の対象になったときに持つパラメータ
+    （開花度・羞恥度・順応度・変身回数）。まだ対象になっていなければ None。
+    """
+
+    tags: str
+    spec_rev: int
+    stats: dict[str, int] | None = None
+
+
+LOOK_SOURCES = ("spec", "history", "fixed")
+
+# 主人公以外の人物が初めて指示の対象になったときのパラメータ（主人公の初期値と同じ）
+CHARACTER_STATS_DEFAULTS: dict[str, int] = {
+    "bloom": 0,
+    "shame": 50,
+    "adaptation": 0,
+    "transformation_count": 0,
+}
+
+
+def _parse_character_stats(raw: Any) -> dict[str, int] | None:
+    """履歴に残した人物のパラメータを読む。数値でない項目は初期値にする。"""
+    if not isinstance(raw, dict):
+        return None
+    stats: dict[str, int] = {}
+    for key, default in CHARACTER_STATS_DEFAULTS.items():
+        value = raw.get(key, default)
+        is_number = isinstance(value, int) and not isinstance(value, bool)
+        stats[key] = value if is_number else default
+    return stats
+
+
+def parse_character_states(raw: str | None) -> list[dict[str, Any]]:
+    """``history.character_states_json`` を読む。壊れた要素は捨てる。"""
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+    except (TypeError, ValueError):
+        return []
+    if not isinstance(data, list):
+        return []
+    entries: list[dict[str, Any]] = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        character_id = item.get("character_id")
+        tags = item.get("tags")
+        if not isinstance(character_id, str) or not character_id:
+            continue
         if not isinstance(tags, str):
             continue
-        tags_stripped = tags.strip()
-        if not tags_stripped:
-            continue
-
-        target: SessionCharacter | None = None
-        if idx == 0 and protagonist is not None:
-            target = protagonist
-        else:
-            target = by_slot.get(idx)
-
-        if target is None:
-            continue
-        if getattr(target, "appearance_lock", False) or getattr(
-            target, "exclude_from_effects", False
-        ):
-            continue
-        if (target.appearance_tags or "") == tags_stripped:
-            continue
-        await update_session_character(db, target.id, appearance_tags=tags_stripped)
-        written += 1
-    return written
+        spec_rev = item.get("spec_rev", 0)
+        entry: dict[str, Any] = {
+            "character_id": character_id,
+            "tags": tags.strip(),
+            "spec_rev": spec_rev if isinstance(spec_rev, int) else 0,
+        }
+        stats = _parse_character_stats(item.get("stats"))
+        if stats is not None:
+            entry["stats"] = stats
+        entries.append(entry)
+    return entries
 
 
-async def apply_appearance_updates(
-    db: AsyncSession,
-    session_id: str,
-    updates: list[dict[str, Any]],
-) -> int:
-    """Apply LLM-inferred appearance updates to SessionCharacter rows.
+def looks_by_id(entries: Sequence[dict[str, Any]]) -> dict[str, CharacterLook]:
+    """人物 ID ごとの姿。"""
+    return {
+        entry["character_id"]: CharacterLook(
+            tags=entry["tags"],
+            spec_rev=entry["spec_rev"],
+            stats=entry.get("stats"),
+        )
+        for entry in entries
+    }
 
-    Args:
-        db: Active AsyncSession (caller commits).
-        session_id: Owning session id.
-        updates: List of dicts conforming to research R-002 schema:
-            ``{character_id, changed, appearance_natural?, appearance_tags?}``.
 
-    Returns:
-        Number of rows updated.
+async def load_character_looks(
+    db: AsyncSession, session_id: str
+) -> dict[str, CharacterLook]:
+    """セッションの最新の姿（人物ごとのタグを持つ最後の履歴）を読む。"""
+    raw = await fetch_latest_character_states(db, session_id)
+    return looks_by_id(parse_character_states(raw))
+
+
+def resolve_character_look(
+    record: Any, looks: dict[str, CharacterLook] | None
+) -> tuple[str, str, str | None]:
+    """人物の今の姿を決める。戻り値は (画像に使うタグ, 出どころ, 履歴の姿)。
+
+    - 姿を固定（appearance_lock）: 毎回設定のタグ（"fixed"）
+    - 履歴の姿があり、記録時の設定の連番が今と同じ: 履歴の姿（"history"）
+    - それ以外（登場したばかり・手番の後に設定を変えた）: 設定のタグ（"spec"）
+
+    設定のタグが空なら 1 つ目は空文字になり、呼び出し側が自然文を使う。
+    3 つ目は画面表示用で、設定が優先されている間も直前に描いた姿を返す。
     """
-    if not updates:
-        return 0
-    by_id = {c.id: c for c in await fetch_session_characters(db, session_id)}
-    written = 0
-    for entry in updates:
+    spec_tags = (getattr(record, "appearance_tags", "") or "").strip()
+    entry = (looks or {}).get(getattr(record, "id", None) or "")
+    current = entry.tags if entry and entry.tags else None
+    if getattr(record, "appearance_lock", False):
+        return spec_tags, "fixed", current
+    spec_rev = int(getattr(record, "appearance_spec_rev", 0) or 0)
+    if entry and entry.tags and entry.spec_rev == spec_rev:
+        return entry.tags, "history", current
+    return spec_tags, "spec", current
+
+
+@dataclass(frozen=True)
+class StageCharacter:
+    """プロンプトに載せる 1 人分。``record_id`` が None なのは未保存の主人公。
+
+    ``appearance_*`` はユーザーが書いた設定、``look_tags`` は今回使う姿のタグ
+    （``look_source`` が設定か履歴か固定か）。``ref`` は LLM とのやり取りに使う
+    "C1" などの呼び名で、LLM の出力はこれで人物に対応付ける。
+    """
+
+    record_id: str | None
+    name: str
+    position: str
+    appearance_natural: str
+    appearance_tags: str
+    negative_tags: str
+    is_protagonist: bool
+    appearance_lock: bool
+    exclude_from_effects: bool
+    profile: dict[str, Any] | None
+    look_tags: str = ""
+    look_source: str = "spec"
+    spec_rev: int = 0
+    ref: str = ""
+
+
+def _stage_from_record(
+    record: Any, looks: dict[str, CharacterLook] | None
+) -> StageCharacter:
+    look_tags, look_source, _current = resolve_character_look(record, looks)
+    return StageCharacter(
+        record_id=getattr(record, "id", None),
+        name=record.name,
+        position=record.position,
+        appearance_natural=(getattr(record, "appearance_natural", "") or "").strip(),
+        appearance_tags=(getattr(record, "appearance_tags", "") or "").strip(),
+        negative_tags=(getattr(record, "negative_tags", "") or "").strip(),
+        is_protagonist=bool(getattr(record, "is_protagonist", False)),
+        appearance_lock=bool(getattr(record, "appearance_lock", False)),
+        exclude_from_effects=bool(getattr(record, "exclude_from_effects", False)),
+        profile=record_profile(record),
+        look_tags=look_tags,
+        look_source=look_source,
+        spec_rev=int(getattr(record, "appearance_spec_rev", 0) or 0),
+    )
+
+
+def stage_ref(index: int) -> str:
+    """登場順の添字から LLM 向けの呼び名（"C1" など）を作る。"""
+    return f"C{index + 1}"
+
+
+_REF_PATTERN = re.compile(r"^\s*(?:c|character)?\s*(\d+)\s*$", re.IGNORECASE)
+
+
+def ref_to_stage_index(ref: Any) -> int | None:
+    """ "C2" / "c2" / "Character 2" / 2 を登場順の添字（1）に戻す。読めなければ None。"""
+    if isinstance(ref, int) and not isinstance(ref, bool):
+        return ref - 1 if ref >= 1 else None
+    if not isinstance(ref, str):
+        return None
+    match = _REF_PATTERN.match(ref)
+    if not match:
+        return None
+    number = int(match.group(1))
+    return number - 1 if number >= 1 else None
+
+
+def build_stage_roster(
+    records: Sequence[Any],
+    *,
+    limit: int | None = None,
+    protagonist_name: str | None = None,
+    protagonist_tags: str | None = None,
+    looks: dict[str, CharacterLook] | None = None,
+) -> list[StageCharacter]:
+    """登場中の人物を、プロンプトに載せる順（主人公→slot 順）に並べる。
+
+    画像用・テキスト用の人物一覧、LLM が返す ``characters`` と人物の対応、
+    人物別ネガティブの付与、履歴に残す姿は、すべてこの並びと ``ref`` を基準にする。
+
+    - 主人公と ``on_stage`` の人物だけを残す（主人公は常に登場扱い）
+    - DB に主人公がまだ無い初回ターンは、kwargs の主人公を先頭へ差し込む
+    - ``limit``（画像モデルのキャラクタープロンプト上限）を超える分は切り捨てる
+    - ``looks`` は履歴に残した姿。無ければ全員が設定の姿になる
+    """
+    visible = [
+        r
+        for r in records
+        if getattr(r, "is_protagonist", False) or getattr(r, "on_stage", True)
+    ]
+    ordered = sorted(
+        visible,
+        key=lambda r: (0 if getattr(r, "is_protagonist", False) else 1, r.slot_index),
+    )
+    roster = [_stage_from_record(r, looks) for r in ordered]
+    kwarg_tags = (protagonist_tags or "").strip()
+    if kwarg_tags and not any(c.is_protagonist for c in roster):
+        name = (protagonist_name or "Protagonist").strip() or "Protagonist"
+        roster.insert(
+            0,
+            StageCharacter(
+                record_id=None,
+                name=name,
+                position="center",
+                appearance_natural="",
+                appearance_tags=kwarg_tags,
+                negative_tags="",
+                is_protagonist=True,
+                appearance_lock=False,
+                exclude_from_effects=False,
+                profile=None,
+                look_tags=kwarg_tags,
+            ),
+        )
+    if limit is not None and limit > 0 and len(roster) > limit:
+        logger.info(
+            "stage roster truncated to model limit: %d -> %d", len(roster), limit
+        )
+        roster = roster[:limit]
+    return [replace(c, ref=stage_ref(i)) for i, c in enumerate(roster)]
+
+
+def can_receive_effects(member: StageCharacter) -> bool:
+    """指示の効果（着替え・行動・現実改変）を受ける人物か。指示対象外・姿の固定は受けない。"""
+    return not (member.exclude_from_effects or member.appearance_lock)
+
+
+def default_effect_targets(stage: Sequence[StageCharacter]) -> list[StageCharacter]:
+    """主語のない指示が向く人物。
+
+    主人公が効果を受けるなら主人公だけ。主人公が指示対象外・姿の固定なら、
+    効果を受ける登場人物の全員（いなければ空）。主人公が一覧にいなければ空。
+    """
+    protagonist = next((m for m in stage if m.is_protagonist), None)
+    if protagonist is None:
+        return []
+    if can_receive_effects(protagonist):
+        return [protagonist]
+    return [m for m in stage if can_receive_effects(m)]
+
+
+@dataclass(frozen=True)
+class TurnTargets:
+    """この手番の指示で姿が変わる登場人物。
+
+    ``protagonist`` が False の手番は、主人公のパラメータ・変身回数を動かさず、
+    心境も主人公が他の人物の変化を見た反応として書く。人物パネルを使わない手番は
+    従来どおり主人公だけが対象（既定値）。
+    """
+
+    members: tuple[StageCharacter, ...] = ()
+    protagonist: bool = True
+
+    @property
+    def others(self) -> tuple[StageCharacter, ...]:
+        return tuple(m for m in self.members if not m.is_protagonist)
+
+
+def parse_declared_targets(
+    raw: str | None, stage: Sequence[StageCharacter]
+) -> list[int] | None:
+    """画像プロンプト JSON の ``targets``（"C2" や人物名）を登場順の添字にする。
+
+    項目が無い・空・どの人物にも対応しないときは None（宣言なし）を返す。
+    """
+    payload = _parse_history_after_description_json(raw)
+    if payload is None:
+        return None
+    declared = payload.get("targets")
+    if isinstance(declared, str):
+        declared = [declared]
+    if not isinstance(declared, list):
+        return None
+    names = {m.name.strip(): i for i, m in enumerate(stage) if m.name.strip()}
+    indices: list[int] = []
+    for ref in declared:
+        index = ref_to_stage_index(ref)
+        if index is None and isinstance(ref, str):
+            index = names.get(ref.strip())
+        if index is not None and 0 <= index < len(stage) and index not in indices:
+            indices.append(index)
+    return indices or None
+
+
+def resolve_turn_targets(
+    stage: Sequence[StageCharacter], declared: Sequence[int] | None
+) -> TurnTargets:
+    """手番の対象人物を決める。
+
+    画像プロンプトの LLM が宣言した人物（``declared``）のうち効果を受けられる人物を
+    対象にする。宣言が無ければ :func:`default_effect_targets` に従う。
+    一覧に主人公がいなければ、従来どおり主人公も対象として扱う。
+    """
+    if not stage:
+        return TurnTargets()
+    if declared:
+        members = [
+            stage[i]
+            for i in declared
+            if 0 <= i < len(stage) and can_receive_effects(stage[i])
+        ]
+    else:
+        members = default_effect_targets(stage)
+    has_protagonist = any(m.is_protagonist for m in stage)
+    return TurnTargets(
+        members=tuple(members),
+        protagonist=not has_protagonist or any(m.is_protagonist for m in members),
+    )
+
+
+def build_character_states(
+    previous: Sequence[dict[str, Any]],
+    stage: Sequence[StageCharacter],
+    character_prompts: Sequence[dict[str, Any]] | None,
+    registered_ids: Iterable[str],
+    *,
+    protagonist_id: str | None = None,
+    stats_updates: dict[str, dict[str, int]] | None = None,
+) -> list[dict[str, Any]] | None:
+    """この手番で描いた各人物の姿（履歴に残す値）を作る。
+
+    - 前回の姿を人物 ID ごとに引き継ぐ（登場 OFF の人物も含む）。削除された人物は捨てる
+    - 登場中の人物は、今回の出力（``stage_index`` で対応付け済み）のタグで上書きする
+    - 姿を固定・指示対象外の人物は上書きしない（前回の姿のまま）
+    - 一覧外の人物（``stage_index`` が None）は記録しない
+    - ``protagonist_id`` は、初回ターンでまだ行が無かった主人公（record_id None）の ID
+    - ``stats_updates`` は指示の対象になった人物の新しいパラメータ（人物 ID ごと）。
+      パラメータは姿と一緒に引き継ぎ、更新があった人物だけ書き換える
+
+    人物ごとの出力もパラメータの更新も無い手番は None を返し、履歴には何も残さない
+    （前の姿が続く）。
+    """
+    if not character_prompts and not stats_updates:
+        return None
+    registered = set(registered_ids)
+    if protagonist_id:
+        registered.add(protagonist_id)
+    states: dict[str, dict[str, Any]] = {
+        entry["character_id"]: dict(entry)
+        for entry in previous
+        if entry["character_id"] in registered
+    }
+    for pos, entry in enumerate(character_prompts or []):
         if not isinstance(entry, dict):
             continue
-        if not entry.get("changed"):
+        idx = entry.get("stage_index", pos)
+        if not isinstance(idx, int) or not 0 <= idx < len(stage):
             continue
-        cid = entry.get("character_id")
-        if not cid or cid not in by_id:
+        member = stage[idx]
+        record_id = member.record_id
+        if record_id is None and member.is_protagonist:
+            record_id = protagonist_id
+        if record_id is None or record_id not in registered:
             continue
-        record = by_id[cid]
-        # 保護フラグが立っているキャラはサーバ側で無視する（LLM 指示違反への安全網）
-        if getattr(record, "appearance_lock", False) or getattr(
-            record, "exclude_from_effects", False
-        ):
-            logger.info(
-                "apply_appearance_updates: skip protected character "
-                "(id=%s, lock=%s, exclude=%s)",
-                cid,
-                getattr(record, "appearance_lock", False),
-                getattr(record, "exclude_from_effects", False),
-            )
+        if not can_receive_effects(member):
             continue
-        patch: dict[str, Any] = {}
-        nat = entry.get("appearance_natural")
-        tags = entry.get("appearance_tags")
-        if isinstance(nat, str) and nat != "":
-            if len(nat) > APPEARANCE_NATURAL_MAX_LEN:
-                logger.info(
-                    "apply_appearance_updates: truncate appearance_natural "
-                    "(id=%s, %d -> %d chars)",
-                    cid,
-                    len(nat),
-                    APPEARANCE_NATURAL_MAX_LEN,
-                )
-                nat = nat[:APPEARANCE_NATURAL_MAX_LEN].rstrip()
-            patch["appearance_natural"] = nat
-        if isinstance(tags, str) and tags != "":
-            if len(tags) > APPEARANCE_TAGS_MAX_LEN:
-                logger.info(
-                    "apply_appearance_updates: truncate appearance_tags "
-                    "(id=%s, %d -> %d chars)",
-                    cid,
-                    len(tags),
-                    APPEARANCE_TAGS_MAX_LEN,
-                )
-                tags = tags[:APPEARANCE_TAGS_MAX_LEN].rstrip().rstrip(",")
-            patch["appearance_tags"] = tags
-        if not patch:
+        tags = entry.get("prompt")
+        if not isinstance(tags, str) or not tags.strip():
             continue
-        await update_session_character(db, cid, **patch)
-        written += 1
-    return written
+        state: dict[str, Any] = {
+            "character_id": record_id,
+            "tags": tags.strip(),
+            "spec_rev": member.spec_rev,
+        }
+        previous_stats = states.get(record_id, {}).get("stats")
+        if previous_stats is not None:
+            state["stats"] = previous_stats
+        states[record_id] = state
+    spec_revs = {m.record_id: m.spec_rev for m in stage if m.record_id}
+    for record_id, stats in (stats_updates or {}).items():
+        if record_id not in registered:
+            continue
+        # 姿をまだ記録していない人物は、タグ無し（設定の姿を使う）で記録する
+        state = states.setdefault(
+            record_id,
+            {
+                "character_id": record_id,
+                "tags": "",
+                "spec_rev": spec_revs.get(record_id, 0),
+            },
+        )
+        state["stats"] = dict(stats)
+    return list(states.values())
+
+
+def resolve_stage_limit(user_settings: dict[str, Any], nsfw_mode: bool) -> int:
+    """画像生成 1 回に載せられる人物数。NovelAI はモデルごと（V4.5=6 / V5=22）。
+
+    チャットのように手番の TurnContext を持たない経路で、手番と同じ上限を使うため。
+    """
+    from ..consts.novelai_models import resolve_user_image_model
+    from ..consts.prompt_expander import (
+        MAX_CHARACTER_PROMPTS_V45,
+        max_character_prompts,
+    )
+    from .providers import resolve_image_provider
+
+    if resolve_image_provider() == "novelai":
+        return max_character_prompts(resolve_user_image_model(user_settings, nsfw_mode))
+    return MAX_CHARACTER_PROMPTS_V45
+
+
+def _normalize_tag(tag: str) -> str:
+    """タグ比較用の正規化（大小文字・アンダースコア・強調の括弧を無視）。"""
+    return " ".join(tag.strip().strip("{}[]()").replace("_", " ").lower().split())
+
+
+def remove_avoided_tags(prompt: str, negative_tags: str) -> str:
+    """ポジティブのタグ列から、ネガティブに指定されたタグと同じものを取り除く。
+
+    同じタグがポジティブとネガティブの両方にあると打ち消し合うため、
+    人物ごとのネガティブ設定を LLM の出力（好みメモリ由来のタグなど）より優先する。
+    """
+    avoided = {_normalize_tag(t) for t in negative_tags.split(",") if t.strip()}
+    avoided.discard("")
+    if not avoided:
+        return prompt
+    kept = [
+        tag.strip()
+        for tag in prompt.split(",")
+        if tag.strip() and _normalize_tag(tag) not in avoided
+    ]
+    return ", ".join(kept)
+
+
+def attach_stage_negatives(
+    characters: Sequence[dict[str, Any]],
+    stage: Sequence[StageCharacter],
+    limit: int | None,
+) -> list[dict[str, Any]]:
+    """画像生成用の character prompt に人物別ネガティブを付け、上限で切り詰める。
+
+    ``characters`` は LLM 出力をパースしたもの。各要素の ``stage_index``
+    （無ければ配列位置）で ``stage`` の人物に対応させる。一覧に無い人物
+    （指示で新たに登場した人など）にはネガティブを付けない。
+    ネガティブに指定したタグは、その人物のポジティブからも取り除く。
+    """
+    result: list[dict[str, Any]] = []
+    for pos, entry in enumerate(characters):
+        item = dict(entry)
+        idx = item.get("stage_index", pos)
+        if isinstance(idx, int) and 0 <= idx < len(stage):
+            negative = stage[idx].negative_tags
+            if negative and not item.get("negative_prompt"):
+                item["negative_prompt"] = negative
+            prompt = item.get("prompt")
+            if negative and isinstance(prompt, str):
+                cleaned = remove_avoided_tags(prompt, negative)
+                if cleaned != prompt:
+                    logger.info(
+                        "removed avoided tags from %s: %r -> %r",
+                        stage[idx].ref or idx,
+                        prompt[:120],
+                        cleaned[:120],
+                    )
+                    item["prompt"] = cleaned
+        result.append(item)
+    if limit is not None and limit > 0 and len(result) > limit:
+        logger.info(
+            "character prompts truncated to model limit: %d -> %d", len(result), limit
+        )
+        result = result[:limit]
+    return result
+
+
+def keep_bystander_looks(
+    characters: Sequence[dict[str, Any]], stage: Sequence[StageCharacter]
+) -> list[dict[str, Any]]:
+    """指示対象外・姿を固定した人物のタグを、今の姿のタグに戻す。
+
+    LLM が効果を誤ってその人物に適用しても、画像と履歴に残す姿を変えないため。
+    今の姿のタグが無い人物（自然文だけの設定）は出力のままにする。
+    """
+    result: list[dict[str, Any]] = []
+    for entry in characters:
+        item = dict(entry)
+        idx = item.get("stage_index")
+        if isinstance(idx, int) and 0 <= idx < len(stage):
+            member = stage[idx]
+            if not can_receive_effects(member) and member.look_tags:
+                tags = member.look_tags
+                if not member.is_protagonist:
+                    tags = _with_gender_token(tags, member.profile)
+                if item.get("prompt") != tags:
+                    logger.info(
+                        "kept bystander look for %s: %r -> %r",
+                        member.ref or idx,
+                        str(item.get("prompt") or "")[:120],
+                        tags[:120],
+                    )
+                    item["prompt"] = tags
+        result.append(item)
+    return result
+
+
+# 登録した立ち位置を、NovelAI の 5x5 グリッドの列に写す（V4 / V4.5 はグリッド上の位置だけ）
+POSITION_COORDS: dict[str, tuple[float, float]] = {
+    "left": (0.1, 0.5),
+    "center-left": (0.3, 0.5),
+    "center": (0.5, 0.5),
+    "center-right": (0.7, 0.5),
+    "right": (0.9, 0.5),
+}
+
+
+def _position_x(position: Any) -> float:
+    if isinstance(position, (tuple, list)) and position:
+        try:
+            return float(position[0])
+        except (TypeError, ValueError):
+            return 0.5
+    return 0.5
+
+
+def apply_stage_positions(
+    characters: Sequence[dict[str, Any]], stage: Sequence[StageCharacter]
+) -> list[dict[str, Any]]:
+    """一覧の人物を登録した立ち位置に置き、画像の左の人物から順に並べる。
+
+    NovelAI は座標を使わないとき、キャラクタープロンプトの順に左から配置する。
+    そのため立ち位置の左→右に並べ替える（同じ立ち位置どうしは今の順のまま）。
+    2 人以上が全員一覧の人物で、立ち位置が重ならないときだけ ``fixed_position`` を
+    付け、画像生成側で座標指定を有効にさせる。一覧が無ければ何もしない。
+    """
+    if not stage:
+        return [dict(entry) for entry in characters]
+    result: list[dict[str, Any]] = []
+    stage_positions: list[str] = []
+    for entry in characters:
+        item = dict(entry)
+        idx = item.get("stage_index")
+        if isinstance(idx, int) and 0 <= idx < len(stage):
+            position = stage[idx].position
+            coords = POSITION_COORDS.get(position)
+            if coords is not None:
+                item["position"] = coords
+                stage_positions.append(position)
+        result.append(item)
+    result.sort(key=lambda item: _position_x(item.get("position")))
+    fixed = (
+        len(result) >= 2
+        and len(stage_positions) == len(result)
+        and len(set(stage_positions)) == len(stage_positions)
+    )
+    if fixed:
+        for item in result:
+            item["fixed_position"] = True
+    return result
 
 
 _POSITION_LABEL_JA = {
@@ -382,40 +1052,83 @@ _POSITION_LABEL_JA = {
 
 
 def build_session_characters_prompt_section(
-    records: Sequence[SessionCharacter],
+    records: Sequence[Any],
+    *,
+    limit: int | None = None,
+    protagonist_name: str | None = None,
+    protagonist_tags: str | None = None,
+    include_profile: bool = True,
+    looks: dict[str, CharacterLook] | None = None,
 ) -> str:
     """Build a Japanese prompt fragment from session-character records.
 
-    Returns an empty string when there are no records, so callers can append
-    the result unconditionally and fall back to existing single-character
-    behavior automatically (FR-011 / SC-003).
+    Returns an empty string when there are no on-stage records, so callers can
+    append the result unconditionally and fall back to existing
+    single-character behavior automatically (FR-011 / SC-003).
+
+    Each character is shown with the look used this turn (``looks``). The
+    user-written natural description is included only while the setting is in
+    effect, so an outdated setting doesn't contradict the carried-over look.
+    ``include_profile`` adds each non-protagonist's personality line. The
+    protagonist keeps using the self profile / template character personality
+    that the narrative prompts already carry.
     """
-    if not records:
+    roster = build_stage_roster(
+        records,
+        limit=limit,
+        protagonist_name=protagonist_name,
+        protagonist_tags=protagonist_tags,
+        looks=looks,
+    )
+    if not roster:
         return ""
 
-    sorted_records = sorted(records, key=lambda r: r.slot_index)
     lines: list[str] = ["", "[同シーンの登場キャラクター一覧]"]
-    for rec in sorted_records:
-        position_label = _POSITION_LABEL_JA.get(rec.position, rec.position)
-        natural = (rec.appearance_natural or "").strip()
-        tags = (rec.appearance_tags or "").strip()
+    has_profile = False
+    for character in roster:
+        position_label = _POSITION_LABEL_JA.get(character.position, character.position)
         descriptor_bits: list[str] = [f"位置={position_label}"]
-        if natural:
-            descriptor_bits.append(f"外見: {natural}")
-        if tags:
-            descriptor_bits.append(f"タグ: {tags}")
+        if character.look_source != "history" and character.appearance_natural:
+            descriptor_bits.append(f"外見: {character.appearance_natural}")
+        if character.look_tags:
+            descriptor_bits.append(f"タグ: {character.look_tags}")
         markers: list[str] = []
-        if getattr(rec, "exclude_from_effects", False):
+        if character.is_protagonist:
+            markers.append("[主人公]")
+        if character.exclude_from_effects:
             markers.append("[指示対象外・外見を変更しない]")
-        if getattr(rec, "appearance_lock", False):
-            markers.append("[外見ロック中]")
+        if character.appearance_lock:
+            markers.append("[姿を固定]")
         marker_str = (" " + " ".join(markers)) if markers else ""
-        lines.append(f"- {rec.name}（{', '.join(descriptor_bits)}）{marker_str}")
+        lines.append(f"- {character.name}（{', '.join(descriptor_bits)}）{marker_str}")
+        if include_profile and not character.is_protagonist:
+            profile_line = format_profile_line_ja(character.profile)
+            if profile_line:
+                lines.append(f"  人物設定: {profile_line}")
+                has_profile = True
     lines.append("上記の登場人物が同じ場面に共存している前提で描写してください。")
     lines.append(
-        "「指示対象外」とマークされた人物にはユーザー指示の効果（着替え・行動・現実改変等）を適用せず、"
-        "現在の外見をそのまま保ってください。"
+        "「指示対象外」「姿を固定」とマークされた人物にはユーザー指示の効果（着替え・行動・現実改変等）を"
+        "適用せず、現在の外見をそのまま保ってください。その効果を別の人物に移してもいけません。"
     )
+    protagonist = next((c for c in roster if c.is_protagonist), None)
+    if protagonist is not None and not can_receive_effects(protagonist):
+        default_targets = default_effect_targets(roster)
+        if default_targets:
+            names = "、".join(c.name for c in default_targets)
+            lines.append(
+                "主人公は指示の効果を受けないため、主語のない指示（服装だけの指示など）は"
+                f"{names}への指示として扱ってください。"
+            )
+        else:
+            lines.append(
+                "指示の効果を受けられる登場人物がいないため、誰の外見も変えないでください。"
+            )
+    if has_profile:
+        lines.append(
+            "「人物設定」がある人物は、その一人称・性格・反応スタイルを厳守し、"
+            "セリフや反応をそれに合わせてください。"
+        )
     return "\n".join(lines)
 
 
@@ -434,10 +1147,11 @@ async def upsert_protagonist_session_character(
     name: str,
     appearance_tags: str,
 ) -> SessionCharacter:
-    """Create or update the protagonist session_character for a session.
+    """Create the protagonist session_character, or sync its name.
 
-    Called on every play turn when multi-person mode is active so the
-    CharacterPanel always reflects the current protagonist identity (FR-010).
+    The row's appearance fields are the user's setting. They are filled from
+    the resolved identity only when the row is created; later turns never
+    overwrite them (the drawn look is kept per history instead).
     The record is always placed at slot_index=0, position=center.
     """
     existing = await fetch_protagonist_session_character(db, session_id)
@@ -455,20 +1169,8 @@ async def upsert_protagonist_session_character(
         # Shift non-protagonist records to start at slot 1
         await SessionCharacterService.reassign_positions(db, session_id)
         return record
-    # Update only when values have changed to avoid unnecessary writes.
-    # appearance_lock / exclude_from_effects が True の場合は外見タグを上書きしない
-    # (名前はメタ情報のため例外的に更新可能)
-    appearance_locked = bool(
-        getattr(existing, "appearance_lock", False)
-        or getattr(existing, "exclude_from_effects", False)
-    )
-    patch: dict = {}
-    if existing.name != name:
-        patch["name"] = name
-    if not appearance_locked and existing.appearance_tags != appearance_tags:
-        patch["appearance_tags"] = appearance_tags
-    if patch:
-        await update_session_character(db, existing.id, **patch)
+    if name and existing.name != name:
+        await update_session_character(db, existing.id, name=name)
         await db.refresh(existing)
     return existing
 
@@ -482,91 +1184,149 @@ _POSITION_LABEL_EN = {
 }
 
 
+_GENDER_TOKEN_PATTERN = re.compile(
+    r"\b\d*\+?(?:girl|boy|other)s?\b|\b(?:woman|man|women|men|female|male)\b",
+    re.IGNORECASE,
+)
+
+
+def _with_gender_token(tags: str, profile: dict[str, Any] | None) -> str:
+    """性別トークンが無いタグに、性格プロフィールの性別から 1girl / 1boy を補う。
+
+    性別トークンが無いと女性寄りに描かれやすいため、画像用の一覧に載せるときだけ補う。
+    """
+    if not tags or _GENDER_TOKEN_PATTERN.search(tags):
+        return tags
+    gender = (profile or {}).get("gender")
+    if gender == "woman":
+        return f"1girl, {tags}"
+    if gender == "man":
+        return f"1boy, {tags}"
+    return tags
+
+
 def build_novelai_characters_section(
-    records: Sequence[SessionCharacter],
+    records: Sequence[Any],
     *,
     protagonist_name: str | None = None,
     protagonist_tags: str | None = None,
+    limit: int | None = None,
+    looks: dict[str, CharacterLook] | None = None,
 ) -> str:
     """Build an English NovelAI-image prompt section from session-character records.
 
-    Returns an empty string when there are no records with useful tag/name data
-    so callers can append the result unconditionally (FR-010 / FR-012).
+    Returns an empty string when there are no on-stage records with useful
+    tag/name data so callers can append the result unconditionally
+    (FR-010 / FR-012).
 
-    Records with ``is_protagonist=True`` are rendered first with a [protagonist]
-    marker. ``protagonist_name`` / ``protagonist_tags`` kwargs act as a fallback
-    for callers that resolve the identity before the DB record is created
-    (i.e. the very first upsert turn). When both a DB protagonist record and
-    kwargs are supplied, the DB record takes precedence.
+    Characters are listed in :func:`build_stage_roster` order with a ``ref``
+    ("C1", "C2", ...) and their current look (``looks``). The LLM is told to
+    put that ``ref`` on each entry, so its output maps back to characters by
+    ref instead of array position. ``protagonist_name`` / ``protagonist_tags``
+    act as a fallback for callers that resolve the identity before the DB
+    record is created (i.e. the very first upsert turn). When both a DB
+    protagonist record and kwargs are supplied, the DB record takes precedence.
     """
-    # Sort: protagonist first (slot_index=0), then others by slot_index.
-    sorted_records = sorted(
-        records, key=lambda r: (0 if r.is_protagonist else 1, r.slot_index)
+    roster = build_stage_roster(
+        records,
+        limit=limit,
+        protagonist_name=protagonist_name,
+        protagonist_tags=protagonist_tags,
+        looks=looks,
     )
-
-    # Check whether we have a protagonist via DB record or kwargs fallback.
-    db_has_protagonist = any(r.is_protagonist for r in sorted_records)
-    kwarg_tags = (protagonist_tags or "").strip()
-    has_protagonist = db_has_protagonist or bool(kwarg_tags)
-
-    if not sorted_records and not has_protagonist:
+    if not roster:
         return ""
 
     lines: list[str] = [
         "",
-        "## Registered Characters (MUST appear in image, MUST use these tags as-is)",
+        "## Registered Characters (all MUST appear in the image; tags are each "
+        "character's CURRENT look: keep them unless the instruction changes "
+        "THAT character)",
     ]
-
-    counter = 1
-    protagonist_emitted = False
-    for rec in sorted_records:
-        position = _POSITION_LABEL_EN.get(rec.position, rec.position)
-        tags = (rec.appearance_tags or "").strip()
-        natural = (rec.appearance_natural or "").strip()
+    for character in roster:
+        position = _POSITION_LABEL_EN.get(character.position, character.position)
+        tags = character.look_tags
+        if not character.is_protagonist:
+            tags = _with_gender_token(tags, character.profile)
         descriptor: list[str] = [f"position: {position}"]
         if tags:
             descriptor.append(f"tags: {tags}")
-        elif natural:
-            descriptor.append(f"appearance: {natural}")
+        elif character.appearance_natural:
+            descriptor.append(f"appearance: {character.appearance_natural}")
         marker_parts: list[str] = []
-        if rec.is_protagonist:
+        if character.is_protagonist:
             marker_parts.append("[protagonist]")
-        if getattr(rec, "exclude_from_effects", False):
+        if character.exclude_from_effects:
             marker_parts.append(
                 "[bystander, do NOT apply user instruction effects, keep tags exactly]"
             )
-        if getattr(rec, "appearance_lock", False):
-            marker_parts.append("[appearance locked, keep tags exactly]")
+        if character.appearance_lock:
+            marker_parts.append("[fixed look, keep these tags exactly]")
+        if character.negative_tags:
+            marker_parts.append(f"avoid: {character.negative_tags}")
         marker = (" " + " ".join(marker_parts)) if marker_parts else ""
         lines.append(
-            f"- Character {counter} ({rec.name}, {', '.join(descriptor)}){marker}"
+            f"- {character.ref} ({character.name}, {', '.join(descriptor)}){marker}"
         )
-        if rec.is_protagonist:
-            protagonist_emitted = True
-        counter += 1
 
-    # Fallback: kwargs-only protagonist (first play turn before upsert is committed)
-    if not protagonist_emitted and kwarg_tags:
-        name = (protagonist_name or "Protagonist").strip() or "Protagonist"
-        descriptor = ["position: center", f"tags: {kwarg_tags}"]
-        lines.insert(
-            2,  # after the header line
-            f"- Character 1 ({name}, {', '.join(descriptor)}) [protagonist]",
+    protagonist = next((c for c in roster if c.is_protagonist), None)
+    lines.append("Rules for the registered characters:")
+    if protagonist is not None and can_receive_effects(protagonist):
+        lines.append(
+            f"- First-person words in the instruction (I, me, my, 僕, 私, 俺, "
+            f"わたし) and sentences without a subject refer to {protagonist.ref} "
+            "(the protagonist)."
         )
-        # renumber the rest
-        renumbered: list[str] = [lines[0], lines[1], lines[2]]
-        for i, line in enumerate(lines[3:], start=2):
-            if line.startswith("- Character "):
-                renumbered.append(
-                    line.replace(f"Character {i - 1} ", f"Character {i} ", 1)
-                )
-            else:
-                renumbered.append(line)
-        lines = renumbered
-
+    elif protagonist is not None:
+        lines.append(
+            f"- First-person words in the instruction (I, me, my, 僕, 私, 俺, "
+            f"わたし) refer to {protagonist.ref} (the protagonist), who does not "
+            "receive instruction effects this turn."
+        )
+        default_targets = default_effect_targets(roster)
+        if default_targets:
+            refs = ", ".join(c.ref for c in default_targets)
+            lines.append(
+                "- Sentences without a subject (for example, only an outfit) are "
+                f"about {refs}: apply them to "
+                f"{'that character' if len(default_targets) == 1 else 'each of them'}"
+                f", never to {protagonist.ref}."
+            )
+        else:
+            lines.append(
+                "- No listed character can receive instruction effects this turn; "
+                "keep every listed character as is."
+            )
     lines.append(
-        "All listed characters MUST be present in the image alongside the main "
-        "subject; preserve their tags exactly."
+        "- A description attached to a listed character inside the instruction "
+        '(e.g. "Emma, the woman in a hostess dress") describes THAT character. '
+        "It is NOT a new outfit or look for the protagonist or anyone else."
+    )
+    lines.append(
+        "- Apply each change only to the character it happens to. Never move a "
+        "change onto a different character. If the instruction changes a "
+        "[fixed look] or [bystander] character, keep that character as is and "
+        "do not give the change to anyone else."
+    )
+    lines.append(
+        "- Clothing carries over: if the instruction does not give a character "
+        "new clothes, KEEP the clothing and accessory tags from that character's "
+        "current look. A body, gender or age transformation alone never removes "
+        "clothes. Remove or change clothes only when the instruction explicitly "
+        "says so for that character."
+    )
+    lines.append("- Never put a character's \"avoid\" tags into that character's tags.")
+    lines.append(
+        '- Output one "characters" entry per listed character, in the order '
+        'above, each with "ref" set to its code and "position" set to its listed '
+        'position, e.g. {"ref": "C1", "tags": "...", "position": "center"}. People '
+        "who are not listed (only when the instruction introduces them) go AFTER "
+        'all listed characters and have no "ref".'
+    )
+    lines.append(
+        '- Also output a top-level "targets" array with the refs of the listed '
+        "characters whose look this instruction changes, e.g. "
+        '"targets": ["C2"]. Never include a [bystander] or [fixed look] character.'
     )
     return "\n".join(lines)
 
@@ -605,24 +1365,6 @@ def _parse_history_after_description_json(
     if not isinstance(data, dict):
         return None
     return data
-
-
-def extract_characters_from_history(
-    after_description: str | None,
-) -> list[dict] | None:
-    """Return the ``characters`` array from a multi-character history entry.
-
-    Returns ``None`` for single-character format ``{"character": "..."}`` or
-    any other shape. Used to restore non-protagonist appearance after a
-    history delete/edit.
-    """
-    data = _parse_history_after_description_json(after_description)
-    if data is None:
-        return None
-    characters = data.get("characters")
-    if not isinstance(characters, list) or not characters:
-        return None
-    return [c for c in characters if isinstance(c, dict)]
 
 
 def _looks_like_novelai_tag_list(text: str) -> bool:
@@ -768,136 +1510,34 @@ def resolve_protagonist_image_identity(
     return (name, tags)
 
 
-async def restore_session_characters_appearance_from_history(
-    session_id: str,
-) -> int:
-    """Reset SessionCharacter rows so they reflect the latest remaining
-    history after a delete/edit.
-
-    Protagonist (slot_index=0):
-        Resolution priority is delegated to
-        :func:`resolve_protagonist_image_identity`, which prefers
-        ``characters[0].tags`` extracted from the previous history's
-        ``after_description`` and falls back to base/self-profile tags when no
-        history JSON remains. Both ``name`` and ``appearance_tags`` may be
-        updated.
-
-    Non-protagonist rows (slot_index >= 1):
-        Restored only when the latest remaining history is a multi-character
-        JSON payload. ``slot_index`` is matched against the array index in
-        ``characters[i].tags``. If the payload is single-character format,
-        absent, or the index is missing, the row is left untouched (no
-        fallback exists for non-protagonist tags). Only ``appearance_tags``
-        is updated.
-
-    Per-row skip conditions (both protagonist and others):
-        - ``appearance_lock`` is True
-        - ``exclude_from_effects`` is True
-
-    Returns the number of rows actually mutated.
-    """
-    # Lazy imports to avoid circular dependencies (services -> routes etc.)
-    from ..databases.base import async_session_factory
-    from .characters import character_manager
-    from .game_service import game_service
-    from .session import session_store
-
-    async with async_session_factory() as db:
-        records = await fetch_session_characters(db, session_id)
-        if not records:
-            return 0
-
-    session = await session_store.get_session_by_id(session_id)
-    if session is None:
-        return 0
-
-    character = None
-    if getattr(session, "character_id", None):
-        character = character_manager.get_by_id(session.character_id)
-
-    self_profile: dict | None = None
-    if getattr(session, "self_mode", False):
-        self_profile = await session_store.get_self_profile()
-
-    custom_metadata = game_service._load_custom_session_metadata(session_id)
-    last_history = await session_store.get_latest_history(session_id)
-    last_after_description = last_history.after_description if last_history else None
-
-    history_characters = extract_characters_from_history(last_after_description)
-
-    # Resolve protagonist identity (with fallback) up-front.
-    protagonist_name, protagonist_tags = resolve_protagonist_image_identity(
-        last_after_description=last_after_description,
-        character=character,
-        self_profile=self_profile,
-        custom_metadata=custom_metadata,
-    )
-
-    updated_count = 0
-    async with async_session_factory() as db:
-        records = await fetch_session_characters(db, session_id)
-        for rec in sorted(records, key=lambda r: r.slot_index):
-            if getattr(rec, "appearance_lock", False) or getattr(
-                rec, "exclude_from_effects", False
-            ):
-                continue
-
-            patch: dict = {}
-            if rec.is_protagonist:
-                if not protagonist_tags:
-                    continue
-                if protagonist_name and rec.name != protagonist_name:
-                    patch["name"] = protagonist_name
-                if rec.appearance_tags != protagonist_tags:
-                    patch["appearance_tags"] = protagonist_tags
-            else:
-                # Non-protagonist: only restore when multi-char JSON history
-                # provides an entry at the matching slot index.
-                if history_characters is None:
-                    continue
-                idx = rec.slot_index
-                if idx < 0 or idx >= len(history_characters):
-                    continue
-                entry = history_characters[idx]
-                tags = entry.get("tags") if isinstance(entry, dict) else None
-                if not isinstance(tags, str):
-                    continue
-                tags_stripped = tags.strip()
-                if not tags_stripped:
-                    continue
-                if rec.appearance_tags != tags_stripped:
-                    patch["appearance_tags"] = tags_stripped
-
-            if not patch:
-                continue
-            await update_session_character(db, rec.id, **patch)
-            updated_count += 1
-
-        if updated_count:
-            await db.commit()
-            logger.info(
-                "Restored session characters appearance after history change "
-                "(session=%s, updated=%d)",
-                session_id,
-                updated_count,
-            )
-    return updated_count
-
-
 __all__ = [
     "ALLOWED_POSITIONS",
     "CHARACTER_LIMIT",
+    "CharacterGroupPresetService",
     "CharacterLimitExceededError",
+    "CharacterLook",
     "CharacterPresetService",
+    "LOOK_SOURCES",
     "SessionCharacterService",
-    "apply_appearance_updates",
-    "apply_character_prompt_tags",
+    "StageCharacter",
+    "attach_stage_negatives",
+    "remove_avoided_tags",
+    "build_character_states",
     "build_novelai_characters_section",
     "build_session_characters_prompt_section",
-    "extract_characters_from_history",
+    "build_stage_roster",
+    "dump_profile",
     "extract_protagonist_tags_from_history",
+    "group_members",
+    "load_character_looks",
     "load_session_characters_for_prompt",
+    "looks_by_id",
+    "parse_character_states",
+    "record_profile",
+    "ref_to_stage_index",
+    "resolve_character_look",
     "resolve_protagonist_image_identity",
-    "restore_session_characters_appearance_from_history",
+    "resolve_stage_limit",
+    "stage_ref",
     "upsert_protagonist_session_character",
 ]

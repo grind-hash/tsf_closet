@@ -17,8 +17,6 @@ from typing import Any, Literal, Protocol
 
 import httpx
 
-from ..consts.character_limits import APPEARANCE_NATURAL_SOFT_LIMIT
-from ..consts.language import LanguageCode, normalize_language
 from ..settings.config import settings
 from .http_client import async_client
 from .llm_json import strip_code_fence
@@ -928,12 +926,15 @@ class LLMService:
         items: list[dict[str, str]],
         *,
         provider_override: str | None = None,
+        novelai_model_override: str | None = None,
     ) -> list[dict[str, str]]:
         """Batch generate NovelAI-compatible tag strings for N characters in one call.
 
         Args:
             items: list of ``{id, name, natural}`` dicts (1..4 entries).
             provider_override: optional provider override.
+            novelai_model_override: the user's NovelAI text model (used only
+                when the text provider is NovelAI).
 
         Returns:
             List of ``{id, tags}`` dicts. The ``id`` order matches input. If
@@ -956,7 +957,14 @@ class LLMService:
             '"tag1, tag2, ..."}]} . The number of result entries MUST '
             "equal the number of input items, and each id MUST be echoed "
             "verbatim. Use lowercase, comma-separated tags only. Never "
-            "include any explanation or extra keys."
+            "include any explanation or extra keys.\n"
+            "Rules for each tag string:\n"
+            "- Start with the gender/count tag (1girl, 1boy or 1other) when the "
+            "description makes it clear.\n"
+            "- Describe only the visible look: body, hair, eyes, face, clothing "
+            "and accessories.\n"
+            "- Do not add quality tags (masterpiece, best quality, ...), solo, "
+            "the character's name, personality or the background."
         )
         # Compose user prompt as JSON for stable parsing.
         user_prompt = json.dumps({"items": items}, ensure_ascii=False)
@@ -966,6 +974,7 @@ class LLMService:
                 system_prompt,
                 user_prompt,
                 provider_override=provider_override,
+                novelai_model_override=novelai_model_override,
             )
             return result.content
 
@@ -986,99 +995,15 @@ class LLMService:
             except Exception as exc:  # network etc.
                 last_error = exc
                 logger.warning(
-                    "generate_character_tags_batch transport failure (attempt %d): %s",
+                    "generate_character_tags_batch transport failure (attempt %d): "
+                    "%s: %s",
                     attempt + 1,
+                    type(exc).__name__,
                     exc,
                 )
                 continue
 
         raise LLMServiceError(f"batch_tag_generation_failed: {last_error!s}")
-
-    async def infer_appearance_updates(
-        self,
-        characters: list[dict[str, Any]],
-        action_text: str,
-        *,
-        provider_override: str | None = None,
-        language: str = "ja",
-    ) -> list[dict[str, Any]]:
-        """Infer appearance diffs for N session characters after an action.
-
-        Args:
-            characters: list of dicts ``{id, name, appearance_natural,
-                appearance_tags, appearance_lock?, exclude_from_effects?}``
-                representing current state. lock/exclude が True のキャラは
-                changed=false を強制する。
-            action_text: latest player instruction text.
-            provider_override: optional provider override.
-            language: ``ja`` or ``en``. ``appearance_natural`` の出力言語を制約する。
-
-        Returns:
-            List of update dicts conforming to research R-002 schema:
-            ``{character_id, changed, appearance_natural?, appearance_tags?}``.
-            On any parse/transport failure returns an all-no-op list (per FR-014).
-        """
-        if not characters:
-            return []
-        lang: LanguageCode = normalize_language(language)
-        if lang == "en":
-            language_rule = (
-                "Write appearance_natural in natural English only. "
-                "Never mix Japanese characters."
-            )
-        else:
-            language_rule = (
-                "appearance_natural は必ず自然な日本語のみで記述し、"
-                "英単語・英文を混在させないこと。"
-            )
-        soft_limit = APPEARANCE_NATURAL_SOFT_LIMIT
-        system_prompt = (
-            "You analyze a player action and decide how each on-screen "
-            "character's appearance changed. Return strict JSON: "
-            '{"updates": [{"character_id": "<id>", "changed": <bool>, '
-            '"appearance_natural": "<full updated natural-language>", '
-            '"appearance_tags": "<full updated tag list>"}, ...]}.\n'
-            "Rules:\n"
-            "- If a character is unaffected, set changed=false and omit the "
-            "appearance_* fields.\n"
-            "- Always include exactly one entry per input character. "
-            "Never explain. Never invent ids.\n"
-            "- If an input character has appearance_lock=true or "
-            "exclude_from_effects=true, you MUST return changed=false for "
-            "that character and omit appearance_* fields (their appearance "
-            "must not change).\n"
-            "- appearance_natural must be the CURRENT total description "
-            "(a full replacement, NOT a diff appended to the previous "
-            f"value). Keep it concise: 1-2 sentences, at most {soft_limit} "
-            "characters. Do not enumerate every prior detail.\n"
-            "- appearance_tags in the input may already be the post-change "
-            "image tags. Prefer updating appearance_natural to match the "
-            "current look; only change appearance_tags when they clearly "
-            "conflict with the action or natural description. When you keep "
-            "tags, still set changed=true if natural was updated, and return "
-            "the current tags as-is or omit appearance_tags.\n"
-            "- appearance_tags must be a complete comma-separated tag list "
-            "for the CURRENT state, not a diff. Keep it tight; drop "
-            "redundant tags.\n"
-            f"- {language_rule}"
-        )
-        payload = {
-            "language": lang,
-            "characters": characters,
-            "action": action_text,
-        }
-        user_prompt = json.dumps(payload, ensure_ascii=False)
-        try:
-            result = await self.generate_feeling(
-                system_prompt,
-                user_prompt,
-                provider_override=provider_override,
-            )
-            parsed = _parse_appearance_update_response(result.content, characters)
-            return parsed
-        except Exception as exc:  # noqa: BLE001 - best-effort fallback
-            logger.warning("infer_appearance_updates failure: %s", exc)
-            return [{"character_id": c["id"], "changed": False} for c in characters]
 
 
 def _parse_tag_batch_response(
@@ -1111,36 +1036,4 @@ def _parse_tag_batch_response(
     return out
 
 
-def _parse_appearance_update_response(
-    raw: str, expected_characters: list[dict[str, str]]
-) -> list[dict[str, Any]]:
-    """Parse LLM JSON output for appearance updates (R-002)."""
-    cleaned = strip_code_fence(raw)
-    data = json.loads(cleaned)
-    if not isinstance(data, dict) or "updates" not in data:
-        raise ValueError("missing updates key")
-    updates = data["updates"]
-    if not isinstance(updates, list):
-        raise ValueError("updates not list")
-    valid_ids = {c["id"] for c in expected_characters}
-    out: list[dict[str, Any]] = []
-    for entry in updates:
-        if not isinstance(entry, dict):
-            continue
-        cid = entry.get("character_id")
-        if cid not in valid_ids:
-            continue
-        result: dict[str, Any] = {
-            "character_id": cid,
-            "changed": bool(entry.get("changed", False)),
-        }
-        if isinstance(entry.get("appearance_natural"), str):
-            result["appearance_natural"] = entry["appearance_natural"]
-        if isinstance(entry.get("appearance_tags"), str):
-            result["appearance_tags"] = entry["appearance_tags"]
-        out.append(result)
-    return out
-
-
-# グローバルインスタンス
 llm_service = LLMService()

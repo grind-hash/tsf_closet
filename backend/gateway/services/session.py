@@ -136,6 +136,7 @@ class DatabaseSessionStore:
             instruction_type=orm_history.instruction_type,
             seed=orm_history.seed,
             surroundings_image_path=orm_history.surroundings_image_path,
+            character_states_json=orm_history.character_states_json,
         )
 
     async def get_active_session(
@@ -478,8 +479,17 @@ class DatabaseSessionStore:
         instruction_type: str | None = None,
         seed: int | None = None,
         surroundings_image_path: str | None = None,
+        character_states: list[dict] | None = None,
     ) -> PersistedHistory:
-        """履歴を追加"""
+        """履歴を追加
+
+        character_states は複数人表示で描いた各人物の姿（人物 ID ごとのタグ）。
+        """
+        character_states_json = (
+            json.dumps(character_states, ensure_ascii=False)
+            if character_states is not None
+            else None
+        )
         history_id = str(uuid.uuid4())
         now = datetime.now()
 
@@ -501,6 +511,7 @@ class DatabaseSessionStore:
                 instruction_type=instruction_type,
                 seed=seed,
                 surroundings_image_path=surroundings_image_path,
+                character_states_json=character_states_json,
             )
             db_session.add(orm_history)
             await db_session.commit()
@@ -520,6 +531,7 @@ class DatabaseSessionStore:
             instruction_type=instruction_type,
             seed=seed,
             surroundings_image_path=surroundings_image_path,
+            character_states_json=character_states_json,
         )
 
     async def get_history(
