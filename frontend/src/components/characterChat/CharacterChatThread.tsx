@@ -6,6 +6,7 @@ import type {
   CharacterChatThread as CharacterChatThreadModel,
 } from "../../apis/characterChat";
 import type { TranslationKey } from "../../i18n";
+import { FavoritePromptSaveButton } from "../favoritePrompts/FavoritePromptButtons";
 import CharacterChatCitations from "./CharacterChatCitations";
 import CharacterChatPlayProposalCard from "./CharacterChatPlayProposalCard";
 import { toLookupCitations } from "./lookupCitations";
@@ -82,18 +83,21 @@ export default function CharacterChatThread({
                   </div>
                 )}
             </div>
-            {message.role === "character" && voice.canSpeak && (
-              <button
-                type="button"
-                className={`character-chat__replay${replaying ? " is-active" : ""}`}
-                aria-pressed={replaying}
-                aria-label={t("characterChat.room.voiceReplay")}
-                title={t("characterChat.room.voiceReplayHint")}
-                onClick={() => voice.onReplay(message)}
-              >
-                🔊
-              </button>
-            )}
+            <div className="character-chat__message-actions">
+              {message.role === "character" && voice.canSpeak && (
+                <button
+                  type="button"
+                  className={`character-chat__replay${replaying ? " is-active" : ""}`}
+                  aria-pressed={replaying}
+                  aria-label={t("characterChat.room.voiceReplay")}
+                  title={t("characterChat.room.voiceReplayHint")}
+                  onClick={() => voice.onReplay(message)}
+                >
+                  🔊
+                </button>
+              )}
+              <FavoritePromptSaveButton text={message.content} />
+            </div>
             {proposal && <CharacterChatPlayProposalCard proposal={proposal} />}
           </div>
         );

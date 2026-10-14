@@ -1069,6 +1069,13 @@
   border-color: var(--accent-color, #e94560);
 }
 
+/* ログの吹き出しの下に並べる操作（読み上げ・お気に入りプロンプトに保存） */
+.character-chat__message-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
 .character-chat__portrait-source {
   color: var(--text-muted, #aaa);
   font-size: 0.8rem;
@@ -1090,6 +1097,12 @@
   font-size: 0.8rem;
   line-height: 1.5;
   white-space: pre-wrap;
+}
+
+.character-chat__tags-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0.2rem;
 }
 
 .character-chat__caret {
@@ -1156,7 +1169,8 @@
 
 .character-chat__send,
 .character-chat__mic,
-.character-chat__autosend {
+.character-chat__autosend,
+.character-chat__favorite {
   padding: 0.55rem 0.9rem;
   border-radius: 8px;
   border: 1px solid var(--border-color, #444);
@@ -1164,6 +1178,14 @@
   color: inherit;
   cursor: pointer;
   white-space: nowrap;
+}
+
+/* お気に入りプロンプトの挿入（アイコンのみ） */
+.character-chat__favorite {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.55rem 0.7rem;
 }
 
 .character-chat__send {

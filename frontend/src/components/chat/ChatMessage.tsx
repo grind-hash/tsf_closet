@@ -15,6 +15,7 @@ import { useChat } from "../../contexts/ChatContext";
 import { useGame } from "../../contexts/GameContext";
 import { useSettings } from "../../contexts/SettingsContext";
 import type { ChatMessage } from "../../types";
+import { FavoritePromptSaveButton } from "../favoritePrompts/FavoritePromptButtons";
 import "./ChatMessage.css";
 
 interface ChatMessageProps {
@@ -270,6 +271,12 @@ const ChatMessageItem = forwardRef<HTMLDivElement, ChatMessageProps>(
               </svg>
             )}
           </button>
+          {message.content.trim() && (
+            <FavoritePromptSaveButton
+              text={message.content}
+              className="chat-message__action-btn"
+            />
+          )}
           {isUser &&
             (message.id.startsWith("user-") || message.conversationId) &&
             onDeleteMessage && (

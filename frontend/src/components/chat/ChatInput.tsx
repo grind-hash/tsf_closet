@@ -22,8 +22,10 @@ import { useChat } from "../../contexts/ChatContext";
 import { useGame } from "../../contexts/GameContext";
 import { useNotification } from "../../contexts/NotificationContext";
 import { useSettings } from "../../contexts/SettingsContext";
+import { useInsertAtCaret } from "../../hooks/useInsertAtCaret";
 import { usePersistedState } from "../../hooks/usePersistedState";
 import type { InstructionType } from "../../types";
+import { FavoritePromptInsertButton } from "../favoritePrompts/FavoritePromptButtons";
 import "./ChatInput.css";
 
 interface ChatInputProps {
@@ -118,6 +120,12 @@ export default function ChatInput({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const insertFavoritePrompt = useInsertAtCaret(
+    textareaRef,
+    state.inputText,
+    setInputText,
+    " ",
+  );
 
   // disabled状態になったらフォーカスを外す（カーソル点滅を停止）
   useEffect(() => {
@@ -327,6 +335,10 @@ export default function ChatInput({
             {t("chat.input.suggestInstruction")}
           </span>
         </button>
+        <FavoritePromptInsertButton
+          onInsert={insertFavoritePrompt}
+          disabled={disabled}
+        />
       </div>
 
       <div className="chat-input__row">

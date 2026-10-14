@@ -53,8 +53,13 @@ import {
   type PromptExpanderPickerTarget,
   usePromptExpander,
 } from "../../contexts/PromptExpanderContext";
+import { useInsertAtCaret } from "../../hooks/useInsertAtCaret";
 import { openPromptExpanderSection } from "../../hooks/usePersistedSectionState";
 import { useWindowFileDrop } from "../../hooks/useWindowFileDrop";
+import {
+  FavoritePromptInsertButton,
+  FavoritePromptSaveButton,
+} from "../favoritePrompts/FavoritePromptButtons";
 import FileDropOverlay from "../ui/FileDropOverlay";
 import PromptExpanderCharacterSlots from "./PromptExpanderCharacterSlots";
 import PromptExpanderDropChooserModal, {
@@ -342,6 +347,17 @@ export default function PromptExpanderComposer() {
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [seedDraft, setSeedDraft] = useState<string | null>(null);
   const positiveRef = useRef<HTMLTextAreaElement>(null);
+  const negativeRef = useRef<HTMLTextAreaElement>(null);
+  const insertFavoriteIntoPositive = useInsertAtCaret(
+    positiveRef,
+    positiveText,
+    setPositiveText,
+  );
+  const insertFavoriteIntoNegative = useInsertAtCaret(
+    negativeRef,
+    negativeText,
+    setNegativeText,
+  );
 
   // 記法チップ: カーソル位置（選択範囲があればそれを包む）へ挿入し、括弧の内側へカーソルを戻す
   const insertIntoPositive = (before: string, after: string) => {
@@ -381,6 +397,16 @@ export default function PromptExpanderComposer() {
   // LLM でプロンプト化／ネーム下書きしている欄は読み取り専用にして処理中を示す
   const positiveBusy = expandingTarget === "positive" || draftingScript;
   const negativeBusy = expandingTarget === "negative";
+  const favoritePromptButtons = (
+    text: string,
+    onInsert: (content: string) => void,
+    fieldBusy: boolean,
+  ) => (
+    <>
+      <FavoritePromptInsertButton onInsert={onInsert} disabled={fieldBusy} />
+      <FavoritePromptSaveButton text={text} />
+    </>
+  );
   const notConfigured = !options.novelaiConfigured;
   const notConfiguredText = t("promptExpander.composer.disabledNotConfigured");
 
@@ -908,7 +934,17 @@ export default function PromptExpanderComposer() {
                 </span>
               )}
             </label>
-            {renderFieldToolbar("positive", suggestButton(suggestReason))}
+            {renderFieldToolbar(
+              "positive",
+              <>
+                {suggestButton(suggestReason)}
+                {favoritePromptButtons(
+                  positiveText,
+                  insertFavoriteIntoPositive,
+                  positiveBusy,
+                )}
+              </>,
+            )}
           </div>
           {mangaActive && (
             <div
@@ -1014,9 +1050,17 @@ export default function PromptExpanderComposer() {
                 </span>
               )}
             </label>
-            {renderFieldToolbar("negative")}
+            {renderFieldToolbar(
+              "negative",
+              favoritePromptButtons(
+                negativeText,
+                insertFavoriteIntoNegative,
+                negativeBusy,
+              ),
+            )}
           </div>
           <textarea
+            ref={negativeRef}
             id="prompt-expander-negative"
             className={`prompt-expander__textarea${negativeBusy ? " prompt-expander__textarea--busy" : ""}`}
             rows={3}

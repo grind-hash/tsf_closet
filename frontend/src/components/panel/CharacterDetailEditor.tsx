@@ -24,12 +24,17 @@ import {
   updateCharacterPreset,
 } from "../../apis/characters";
 import { useGame } from "../../contexts/GameContext";
+import { useInsertAtCaret } from "../../hooks/useInsertAtCaret";
 import type {
   CharacterPosition,
   CharacterProfile,
   SessionCharacter,
 } from "../../types";
 import { mediaUrl } from "../../utils/adventureFormat";
+import {
+  FavoritePromptInsertButton,
+  FavoritePromptSaveButton,
+} from "../favoritePrompts/FavoritePromptButtons";
 import ProfileFields, {
   type ProfileFieldsValue,
 } from "../settings/ProfileFields";
@@ -101,6 +106,8 @@ interface SavedTextFieldProps {
   testId?: string;
   /** 入力中の値を親へ知らせる（保存前の下書きを使う操作のため） */
   onTextChange?: (text: string) => void;
+  /** お気に入りプロンプトの挿入 / 保存ボタンを欄の右上に出す */
+  favoritePrompt?: boolean;
 }
 
 function SavedTextField({
@@ -113,8 +120,10 @@ function SavedTextField({
   action,
   testId,
   onTextChange,
+  favoritePrompt = false,
 }: SavedTextFieldProps) {
   const [text, setText] = useState(value);
+  const fieldRef = useRef<HTMLTextAreaElement & HTMLInputElement>(null);
   const [status, setStatus] = useState<SaveStatus>("saved");
 
   // 外から値が変わった（再生成・姿の選択など）とき、編集中でなければ取り込む
@@ -171,15 +180,29 @@ function SavedTextField({
     onTextChange?.(next);
   };
 
+  // 挿入後は欄へフォーカスが戻るため、保存は通常どおり blur / アンマウントで行われる
+  const insertFavoritePrompt = useInsertAtCaret(fieldRef, text, handleChange);
+
   return (
     <div className="character-cast__field">
       <div className="character-cast__field-head">
         <span className="character-cast__field-label">{label}</span>
         <SaveStatusIcon status={status} />
-        {action && <div className="character-cast__field-action">{action}</div>}
+        {(favoritePrompt || action) && (
+          <div className="character-cast__field-action">
+            {favoritePrompt && (
+              <>
+                <FavoritePromptInsertButton onInsert={insertFavoritePrompt} />
+                <FavoritePromptSaveButton text={text} />
+              </>
+            )}
+            {action}
+          </div>
+        )}
       </div>
       {multiline ? (
         <textarea
+          ref={fieldRef}
           value={text}
           onChange={(e) => handleChange(e.target.value)}
           onBlur={handleBlur}
@@ -190,6 +213,7 @@ function SavedTextField({
         />
       ) : (
         <input
+          ref={fieldRef}
           type="text"
           value={text}
           onChange={(e) => handleChange(e.target.value)}
@@ -659,6 +683,7 @@ export default function CharacterDetailEditor({
           multiline
           maxLength={2000}
           testId="character-detail-tags"
+          favoritePrompt
           action={
             <button
               type="button"
@@ -698,6 +723,7 @@ export default function CharacterDetailEditor({
           value={character.negative_tags}
           onSave={(negative_tags) => persist({ negative_tags })}
           multiline
+          favoritePrompt
           maxLength={400}
           placeholder={t("character.field.negative_tags_placeholder")}
           testId="character-detail-negative"
@@ -763,6 +789,7 @@ export default function CharacterDetailEditor({
           >
             {t("character.cast.resetLook")}
           </button>
+          {currentTags && <FavoritePromptSaveButton text={currentTags} />}
         </div>
       </CastSection>
 

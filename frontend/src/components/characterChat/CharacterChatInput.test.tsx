@@ -1,7 +1,19 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import "../../i18n";
+import { FavoritePromptProvider } from "../../contexts/FavoritePromptContext";
+import { NotificationProvider } from "../../contexts/NotificationContext";
 import CharacterChatInput from "./CharacterChatInput";
+
+/** 入力欄のお気に入りプロンプトボタンが使う Context */
+function Providers({ children }: { children: ReactNode }) {
+  return (
+    <NotificationProvider>
+      <FavoritePromptProvider>{children}</FavoritePromptProvider>
+    </NotificationProvider>
+  );
+}
 
 const speech = {
   supported: false,
@@ -40,6 +52,7 @@ function renderInput({
       busy={busy}
       speech={speech}
     />,
+    { wrapper: Providers },
   );
   return { field: screen.getByRole("textbox"), onSubmit };
 }

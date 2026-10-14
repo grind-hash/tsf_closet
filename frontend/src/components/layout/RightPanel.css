@@ -371,6 +371,18 @@
   color: var(--text-muted, #888);
 }
 
+/* ラベルと、欄に紐づく操作（お気に入りプロンプト等）を同じ行に置く */
+.right-panel__label-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.right-panel__label-row .right-panel__label {
+  margin-bottom: 0;
+}
+
 .right-panel__select {
   width: 100%;
   padding: 0.5rem;

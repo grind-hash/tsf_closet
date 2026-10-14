@@ -23,6 +23,7 @@ from .routes import (
     avatar_router,
     character_chat_router,
     character_router,
+    favorite_prompts_router,
     favorites_router,
     gallery_router,
     game_router,
@@ -132,6 +133,9 @@ app.include_router(gallery_router, prefix="/api")
 
 # お気に入り衣装スナップショット (spec 009)
 app.include_router(favorites_router, prefix="/api")
+
+# お気に入りプロンプト（TSF Closet 内保存。NovelAI チャンクとは同期しない）
+app.include_router(favorite_prompts_router, prefix="/api")
 
 # 実績APIルーターを登録 (007-chat-interactive-ux)
 app.include_router(achievements_router, prefix="/api")

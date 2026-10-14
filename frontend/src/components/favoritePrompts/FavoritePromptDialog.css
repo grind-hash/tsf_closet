@@ -1,0 +1,459 @@
+/* お気に入りプロンプトのダイアログ。
+   キャスト編集(1100)・Prompt Expander(1500)・Adventure の画像タグ編集(2100) の上に重ね、
+   確認ダイアログと通知(9999) よりは下に置く。 */
+.favorite-prompts-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgb(6 9 12 / 70%);
+}
+
+.favorite-prompts {
+  display: flex;
+  flex-direction: column;
+  width: min(480px, 100%);
+  max-height: min(680px, calc(100vh - 32px));
+  max-height: min(680px, calc(100dvh - 32px));
+  overflow: hidden;
+  border: 1px solid var(--border-color, #333);
+  border-radius: 10px;
+  color: var(--text-color, #eee);
+  background: var(--side-menu-bg, #16213e);
+  box-shadow: 0 18px 60px rgb(0 0 0 / 45%);
+}
+
+.favorite-prompts__form {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.favorite-prompts__header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.8rem 1rem 0.4rem;
+}
+
+.favorite-prompts__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.favorite-prompts__header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.favorite-prompts__icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-color, #eee);
+  cursor: pointer;
+}
+
+.favorite-prompts__icon-btn:hover,
+.favorite-prompts__icon-btn:focus-visible {
+  background: var(--hover-bg, #1f2f50);
+  border-color: var(--border-color, #333);
+}
+
+/* 保存先の注記（NovelAI のプロンプトチャンクとは別物であることを常に示す） */
+.favorite-prompts__note {
+  flex: 0 0 auto;
+  margin: 0 1rem 0.6rem;
+  padding: 0.4rem 0.6rem;
+  border-left: 3px solid var(--border-color, #444);
+  border-radius: 4px;
+  background: rgb(255 255 255 / 4%);
+  color: var(--text-muted, #888);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.favorite-prompts__body {
+  flex: 1 1 auto;
+  min-height: 80px;
+  overflow-y: auto;
+  padding: 0.2rem 1rem 0.8rem;
+}
+
+.favorite-prompts__loading {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 0;
+  color: var(--text-muted, #888);
+  font-size: 0.85rem;
+}
+
+.favorite-prompts__spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border-color, #444);
+  border-top-color: var(--accent-color, #e94560);
+  border-radius: 50%;
+  animation: favorite-prompts-spin 0.8s linear infinite;
+}
+
+@keyframes favorite-prompts-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.favorite-prompts__empty,
+.favorite-prompts__empty-category {
+  margin: 0.4rem 0;
+  color: var(--text-muted, #888);
+  font-size: 0.82rem;
+  line-height: 1.6;
+}
+
+.favorite-prompts__empty-category {
+  padding-left: 0.5rem;
+  font-style: italic;
+}
+
+/* ---- チップ ---- */
+.favorite-prompts__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 0.6rem;
+  padding: 0;
+  list-style: none;
+}
+
+.favorite-prompts__chip {
+  display: inline-flex;
+  align-items: stretch;
+  max-width: 100%;
+  border: 1px solid var(--border-color, #333);
+  border-left: 3px solid var(--favorite-prompt-color, #6b7280);
+  border-radius: 6px;
+  background: var(--bg-color, #1a1a2e);
+}
+
+.favorite-prompts__chip-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+  padding: 0.3rem 0.4rem 0.3rem 0.55rem;
+  border: none;
+  border-radius: 6px 0 0 6px;
+  background: transparent;
+  color: var(--text-color, #eee);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.favorite-prompts__chip-main:hover,
+.favorite-prompts__chip-main:focus-visible {
+  background: var(--hover-bg, #1f2f50);
+}
+
+.favorite-prompts__chip-label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.favorite-prompts__dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--favorite-prompt-color, #6b7280);
+}
+
+.favorite-prompts__chip-edit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 0 6px 6px 0;
+  background: transparent;
+  color: var(--text-muted, #888);
+  cursor: pointer;
+}
+
+.favorite-prompts__chip-edit:hover,
+.favorite-prompts__chip-edit:focus-visible {
+  background: var(--hover-bg, #1f2f50);
+  color: var(--text-color, #eee);
+}
+
+/* ---- カテゴリー ---- */
+.favorite-prompts__category {
+  margin-bottom: 0.5rem;
+}
+
+.favorite-prompts__category-head {
+  display: flex;
+  align-items: stretch;
+  margin-bottom: 0.4rem;
+  border: 1px solid var(--border-color, #333);
+  border-radius: 6px;
+  background: rgb(255 255 255 / 3%);
+}
+
+.favorite-prompts__category-toggle {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+  padding: 0.45rem 0.6rem;
+  border: none;
+  border-radius: 6px 0 0 6px;
+  background: transparent;
+  color: var(--text-color, #eee);
+  font-size: 0.88rem;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+
+.favorite-prompts__category-toggle:hover,
+.favorite-prompts__category-toggle:focus-visible {
+  background: var(--hover-bg, #1f2f50);
+}
+
+.favorite-prompts__caret {
+  width: 0.8rem;
+  color: var(--text-muted, #888);
+  font-size: 0.7rem;
+}
+
+.favorite-prompts__category-label {
+  flex: 1 1 auto;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.favorite-prompts__category-count {
+  color: var(--text-muted, #888);
+  font-size: 0.78rem;
+  font-weight: 400;
+}
+
+.favorite-prompts__category .favorite-prompts__chips {
+  padding-left: 0.5rem;
+}
+
+/* ---- 全文プレビュー ---- */
+.favorite-prompts__preview {
+  flex: 0 0 auto;
+  max-height: 9rem;
+  overflow-y: auto;
+  padding: 0.6rem 1rem 0.8rem;
+  border-top: 1px solid var(--border-color, #333);
+  background: rgb(0 0 0 / 15%);
+}
+
+.favorite-prompts__preview-label {
+  margin-bottom: 0.25rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.favorite-prompts__preview-content,
+.favorite-prompts__preview-hint {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.favorite-prompts__preview-hint {
+  color: var(--text-muted, #888);
+}
+
+/* ---- フォーム ---- */
+.favorite-prompts__fields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.favorite-prompts__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.favorite-prompts__field-label {
+  color: var(--text-muted, #aaa);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.favorite-prompts__input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--border-color, #333);
+  border-radius: 6px;
+  background: var(--bg-color, #1a1a2e);
+  color: var(--text-color, #eee);
+  font: inherit;
+  font-size: 0.88rem;
+}
+
+.favorite-prompts__input:focus {
+  outline: none;
+  border-color: var(--accent-color, #e94560);
+}
+
+.favorite-prompts__textarea {
+  min-height: 5.5rem;
+  resize: vertical;
+}
+
+.favorite-prompts__color {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.favorite-prompts__swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.favorite-prompts__swatch {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.favorite-prompts__swatch[aria-pressed="true"] {
+  border-color: var(--text-color, #eee);
+  box-shadow: 0 0 0 2px var(--side-menu-bg, #16213e) inset;
+}
+
+.favorite-prompts__swatch:focus-visible {
+  outline: 2px solid var(--accent-color, #e94560);
+  outline-offset: 2px;
+}
+
+.favorite-prompts__color-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.favorite-prompts__color-input {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 36px;
+  padding: 2px;
+  border: 1px solid var(--border-color, #333);
+  border-radius: 6px;
+  background: var(--bg-color, #1a1a2e);
+  cursor: pointer;
+}
+
+.favorite-prompts__hex {
+  font-family: "Roboto Mono", monospace;
+}
+
+.favorite-prompts__footer {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border-top: 1px solid var(--border-color, #333);
+}
+
+.favorite-prompts__footer-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
+.favorite-prompts__btn {
+  min-width: 6rem;
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--border-color, #444);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-color, #eee);
+  font-size: 0.88rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.favorite-prompts__btn:hover:not(:disabled) {
+  background: var(--hover-bg, #1f2f50);
+}
+
+.favorite-prompts__btn--primary {
+  border-color: var(--accent-color, #e94560);
+  background: var(--accent-color, #e94560);
+  color: #fff;
+}
+
+.favorite-prompts__btn--primary:hover:not(:disabled) {
+  border-color: var(--accent-hover, #ff6b6b);
+  background: var(--accent-hover, #ff6b6b);
+}
+
+.favorite-prompts__btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 削除: 普段は控えめ、ホバーで赤 */
+.favorite-prompts__delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted, #888);
+  cursor: pointer;
+}
+
+.favorite-prompts__delete:hover:not(:disabled),
+.favorite-prompts__delete:focus-visible {
+  border-color: var(--accent-color, #e94560);
+  color: var(--accent-color, #e94560);
+}
+
+.favorite-prompts__delete:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

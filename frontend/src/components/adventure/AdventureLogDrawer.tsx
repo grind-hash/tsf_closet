@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useAdventure } from "../../contexts/AdventureContext";
 import type { AdventureStageFrame } from "../../utils/adventureFrames";
+import { FavoritePromptSaveButton } from "../favoritePrompts/FavoritePromptButtons";
 
 interface AdventureLogDrawerProps {
   open: boolean;
@@ -76,9 +77,12 @@ export default function AdventureLogDrawer({
             {activeRun.turns.map((turn) => (
               <article className="adventure-transcript__entry" key={turn.id}>
                 <div className="adventure-transcript__action">
-                  <span>
-                    {t("adventure.turn", { number: turn.turn_number })}
-                  </span>
+                  <div className="adventure-transcript__action-head">
+                    <span>
+                      {t("adventure.turn", { number: turn.turn_number })}
+                    </span>
+                    <FavoritePromptSaveButton text={turn.user_input} />
+                  </div>
                   <p>{turn.user_input}</p>
                 </div>
                 <p>{turn.narrative}</p>

@@ -22,6 +22,7 @@ import "@fontsource/roboto-mono/500.css";
 import "@fontsource/roboto-mono/700.css";
 
 import { ChatProvider } from "./contexts/ChatContext";
+import { FavoritePromptProvider } from "./contexts/FavoritePromptContext";
 import { GameProvider } from "./contexts/GameContext";
 import { NotificationProvider } from "./contexts/NotificationContext";
 // Context Providers
@@ -36,6 +37,7 @@ import { SettingsProvider } from "./contexts/SettingsContext";
  * 3. NotificationProvider - 通知システム
  * 4. GameProvider - ゲーム状態
  * 5. ChatProvider - チャット状態（GameProviderに依存）
+ * 6. FavoritePromptProvider - お気に入りプロンプト（全画面の挿入/保存ボタンとダイアログ）
  *
  * 注: RouterProviderを使用する代わりに、BrowserRouterでラップした上で
  * App.tsx内でuseLocationを使用してルートに応じたコンポーネントを切り替えます。
@@ -48,7 +50,9 @@ createRoot(document.getElementById("root")!).render(
         <NotificationProvider>
           <GameProvider>
             <ChatProvider>
-              <App />
+              <FavoritePromptProvider>
+                <App />
+              </FavoritePromptProvider>
             </ChatProvider>
           </GameProvider>
         </NotificationProvider>

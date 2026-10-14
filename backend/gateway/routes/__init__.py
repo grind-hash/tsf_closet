@@ -4,6 +4,7 @@ from .aivisspeech_router import router as aivisspeech_router
 from .avatar_router import router as avatar_router
 from .character_chat_router import router as character_chat_router
 from .character_router import router as character_router
+from .favorite_prompts_router import router as favorite_prompts_router
 from .favorites_router import router as favorites_router
 from .gallery_router import router as gallery_router
 from .game_router import router as game_router
@@ -22,6 +23,7 @@ __all__ = [
     "avatar_router",
     "character_chat_router",
     "character_router",
+    "favorite_prompts_router",
     "favorites_router",
     "gallery_router",
     "game_router",

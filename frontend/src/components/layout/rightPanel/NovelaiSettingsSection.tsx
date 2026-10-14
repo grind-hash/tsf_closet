@@ -1,7 +1,12 @@
-import type { ReactNode } from "react";
+import { type ReactNode, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { isEconomyImageModel } from "../../../constants/novelaiImageModels";
 import { useSettings } from "../../../contexts/SettingsContext";
+import { useInsertAtCaret } from "../../../hooks/useInsertAtCaret";
+import {
+  FavoritePromptInsertButton,
+  FavoritePromptSaveButton,
+} from "../../favoritePrompts/FavoritePromptButtons";
 import { NovelaiUsageBar } from "../../NovelaiUsageBar";
 import PreciseReferencesPanel from "./PreciseReferencesPanel";
 import PromptBuilderPanel from "./PromptBuilderPanel";
@@ -82,6 +87,18 @@ export default function NovelaiSettingsSection({
     isNovelaiV5Active,
     effectiveNovelaiImageModel,
   } = useSettings();
+  const promptRef = useRef<HTMLTextAreaElement>(null);
+  const negativeRef = useRef<HTMLTextAreaElement>(null);
+  const insertIntoPrompt = useInsertAtCaret(
+    promptRef,
+    settingsState.inpaintSettings.promptOverride,
+    (promptOverride) => setInpaintSettings({ promptOverride }),
+  );
+  const insertIntoNegative = useInsertAtCaret(
+    negativeRef,
+    settingsState.inpaintSettings.negativePrompt,
+    (negativePrompt) => setInpaintSettings({ negativePrompt }),
+  );
 
   return (
     <section className="right-panel__section">
@@ -91,10 +108,19 @@ export default function NovelaiSettingsSection({
 
       {/* T014: 直接プロンプト */}
       <div className="right-panel__form-group">
-        <label className="right-panel__label">
-          {t("rightPanel.directPrompt")}
-        </label>
+        <div className="right-panel__label-row">
+          <label className="right-panel__label">
+            {t("rightPanel.directPrompt")}
+          </label>
+          <span className="favorite-prompt-actions">
+            <FavoritePromptInsertButton onInsert={insertIntoPrompt} />
+            <FavoritePromptSaveButton
+              text={settingsState.inpaintSettings.promptOverride}
+            />
+          </span>
+        </div>
         <textarea
+          ref={promptRef}
           className="right-panel__textarea"
           value={settingsState.inpaintSettings.promptOverride}
           onChange={(e) =>
@@ -110,10 +136,19 @@ export default function NovelaiSettingsSection({
 
       {/* T015: ネガティブプロンプト */}
       <div className="right-panel__form-group">
-        <label className="right-panel__label">
-          {t("rightPanel.negativePrompt")}
-        </label>
+        <div className="right-panel__label-row">
+          <label className="right-panel__label">
+            {t("rightPanel.negativePrompt")}
+          </label>
+          <span className="favorite-prompt-actions">
+            <FavoritePromptInsertButton onInsert={insertIntoNegative} />
+            <FavoritePromptSaveButton
+              text={settingsState.inpaintSettings.negativePrompt}
+            />
+          </span>
+        </div>
         <textarea
+          ref={negativeRef}
           className="right-panel__textarea"
           value={settingsState.inpaintSettings.negativePrompt}
           onChange={(e) =>
