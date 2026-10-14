@@ -312,20 +312,31 @@ export async function deleteActiveSession(): Promise<void> {
   await fetch(`${API_BASE}/game/session`, { method: "DELETE" });
 }
 
+interface SessionAttributeApiResponse {
+  attribute: { id: string; attribute_text: string; text?: string };
+}
+
+/** 属性を追加する（現実改変の指示ほどの長文も入るため JSON ボディで送る） */
 export async function addSessionAttribute(
   sessionId: string,
   text: string,
-): Promise<{
-  attribute: { id: string; attribute_text: string; text?: string };
-}> {
-  const params = new URLSearchParams({
-    session_id: sessionId,
-    attribute_text: text,
-  });
+): Promise<SessionAttributeApiResponse> {
   return requestJson(
-    `${API_BASE}/game/attributes?${params.toString()}`,
-    { method: "POST" },
+    `${API_BASE}/game/attributes`,
+    jsonInit("POST", { session_id: sessionId, attribute_text: text }),
     { fallbackMessage: "Failed to add attribute" },
+  );
+}
+
+/** 属性の文言を置き換える（失敗しても元の属性は残る） */
+export async function updateSessionAttribute(
+  id: string,
+  text: string,
+): Promise<SessionAttributeApiResponse> {
+  return requestJson(
+    `${API_BASE}/game/attributes/${id}`,
+    jsonInit("PATCH", { attribute_text: text }),
+    { fallbackMessage: "Failed to update attribute" },
   );
 }
 

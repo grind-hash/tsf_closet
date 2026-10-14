@@ -18,6 +18,7 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { suggestInstruction } from "../../apis/game";
+import { INSTRUCTION_MAX_LENGTH } from "../../constants/playLimits";
 import { useChat } from "../../contexts/ChatContext";
 import { useGame } from "../../contexts/GameContext";
 import { useNotification } from "../../contexts/NotificationContext";
@@ -370,6 +371,7 @@ export default function ChatInput({
         {/* テキスト入力 */}
         <textarea
           ref={textareaRef}
+          maxLength={INSTRUCTION_MAX_LENGTH}
           className="chat-input__textarea"
           value={state.inputText}
           onChange={handleTextChange}

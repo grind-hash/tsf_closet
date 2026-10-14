@@ -6,6 +6,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from ..consts.play_limits import INSTRUCTION_MAX_LENGTH
+
 
 class PlayRequest(BaseModel):
     """着せ替えプレイリクエスト"""
@@ -16,7 +18,10 @@ class PlayRequest(BaseModel):
         None, description="Base64エンコード画像（カスタム時）"
     )
     instruction: str = Field(
-        ..., description="着せ替え指示テキスト", min_length=1, max_length=500
+        ...,
+        description="着せ替え指示テキスト",
+        min_length=1,
+        max_length=INSTRUCTION_MAX_LENGTH,
     )
     # 衣装参照画像
     costume_image: str | None = Field(
@@ -89,7 +94,7 @@ class PlayStreamRequest(BaseModel):
     """ストリーミング着せ替えリクエスト"""
 
     instruction: str = Field(
-        ..., min_length=1, max_length=500, description="着せ替え指示"
+        ..., min_length=1, max_length=INSTRUCTION_MAX_LENGTH, description="着せ替え指示"
     )
     session_id: str | None = Field(None, description="既存セッションID")
     character_id: str | None = Field(None, description="キャラクターID")

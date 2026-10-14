@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+from ..consts.play_limits import INSTRUCTION_MAX_LENGTH
+
 
 class ConversationMessageResponse(BaseModel):
     """会話メッセージ（API用）"""
@@ -29,7 +31,7 @@ class SuggestInstructionRequest(BaseModel):
     keyword: str | None = Field(
         None,
         description="生成に反映したいキーワード/自由入力テキスト（入力欄の内容等）",
-        max_length=500,
+        max_length=INSTRUCTION_MAX_LENGTH,
     )
     use_memory: bool = Field(
         False,

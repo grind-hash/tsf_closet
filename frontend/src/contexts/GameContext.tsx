@@ -70,6 +70,7 @@ import {
   startCustomGame as apiStartCustomGame,
   startGame as apiStartGame,
   updatePlayMemory as apiUpdatePlayMemory,
+  updateSessionAttribute as apiUpdateSessionAttribute,
   type BranchSessionResponse,
   type PlayMemoryApiResponse,
 } from "../apis/game";
@@ -137,6 +138,7 @@ type GameAction =
   | { type: "SET_ATTRIBUTES"; payload: SessionAttribute[] }
   | { type: "ADD_ATTRIBUTE"; payload: SessionAttribute }
   | { type: "REMOVE_ATTRIBUTE"; payload: string }
+  | { type: "UPDATE_ATTRIBUTE"; payload: SessionAttribute }
   | { type: "SET_SELF_MODE"; payload: boolean }
   | { type: "SET_CONVERSATION_HISTORY"; payload: ConversationMessage[] }
   | { type: "APPEND_FEELING_TEXT"; payload: string }
@@ -278,6 +280,13 @@ function gameReducer(state: GameState, action: GameAction): GameState {
           (attribute) => attribute.id !== action.payload,
         ),
       };
+    case "UPDATE_ATTRIBUTE":
+      return {
+        ...state,
+        attributes: state.attributes.map((attribute) =>
+          attribute.id === action.payload.id ? action.payload : attribute,
+        ),
+      };
     case "SET_SELF_MODE":
       return { ...state, selfMode: action.payload };
     case "SET_CONVERSATION_HISTORY":
@@ -410,6 +419,8 @@ interface GameContextType {
   setError: (error: string | null) => void;
   clearSession: () => void;
   addAttribute: (text: string) => Promise<void>;
+  /** 属性の文言を置き換える（並び順は保つ） */
+  updateAttribute: (id: string, text: string) => Promise<void>;
   removeAttribute: (id: string) => Promise<void>;
   setAttributes: (attributes: SessionAttribute[]) => void;
   setSelfMode: (selfMode: boolean) => void;
@@ -1147,6 +1158,25 @@ export function GameProvider({ children }: { children: ReactNode }) {
     [state.sessionId],
   );
 
+  const updateAttribute = useCallback(
+    async (id: string, text: string): Promise<void> => {
+      if (!state.sessionId) {
+        console.error("Cannot update attribute: no active session");
+        return;
+      }
+
+      const result = await apiUpdateSessionAttribute(id, text);
+      dispatch({
+        type: "UPDATE_ATTRIBUTE",
+        payload: {
+          id: result.attribute.id,
+          text: result.attribute.attribute_text || result.attribute.text || "",
+        },
+      });
+    },
+    [state.sessionId],
+  );
+
   const removeAttribute = useCallback(
     async (id: string): Promise<void> => {
       if (!state.sessionId) {
@@ -1221,6 +1251,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
       setError,
       clearSession,
       addAttribute,
+      updateAttribute,
       removeAttribute,
       setAttributes,
       setSelfMode,
@@ -1268,6 +1299,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
       setError,
       clearSession,
       addAttribute,
+      updateAttribute,
       removeAttribute,
       setAttributes,
       setSelfMode,

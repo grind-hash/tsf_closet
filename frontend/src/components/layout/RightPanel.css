@@ -255,20 +255,28 @@
   gap: 0.5rem;
   width: 100%;
   flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
-.right-panel__attribute-input input {
-  flex: 1;
+/* 現実改変ほどの長文も全文見えるよう、内容に合わせて縦に伸びる（上限を超えた分は欄内スクロール） */
+.right-panel__attribute-input textarea {
+  flex: 1 1 100%;
   min-width: 120px;
+  max-height: 14rem;
   padding: 0.5rem;
   background-color: var(--bg-color, #1a1a2e);
   border: 1px solid var(--border-color, #333);
   border-radius: 6px;
   color: var(--text-color, #eee);
+  font: inherit;
   font-size: 0.875rem;
+  line-height: 1.5;
+  resize: none;
+  overflow-y: auto;
+  box-sizing: border-box;
 }
 
-.right-panel__attribute-input input:focus {
+.right-panel__attribute-input textarea:focus {
   outline: none;
   border-color: var(--accent-color, #e94560);
 }

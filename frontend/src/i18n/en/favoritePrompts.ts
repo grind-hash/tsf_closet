@@ -28,7 +28,6 @@ export const favoritePrompts = {
   previewHint:
     "Hover over a name to see its content. Click it to insert into the field.",
   toggleCategory: 'Expand or collapse category "{{name}}"',
-  saved: 'Saved "{{name}}" in TSF Closet',
   deletePrompt: "Delete this favorite prompt",
   deleteCategory: "Delete this category",
   deletePromptConfirm: 'Delete "{{name}}"?',

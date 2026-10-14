@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+from ..consts.play_limits import ATTRIBUTE_TEXT_MAX_LENGTH
 from .conversation import ConversationMessageResponse
 from .parameters import SessionStatsResponse
 
@@ -44,6 +45,29 @@ class SessionAttributeResponse(BaseModel):
 
     id: str = Field(..., description="属性ID")
     text: str = Field(..., description="属性テキスト")
+
+
+class SessionAttributeCreateRequest(BaseModel):
+    """属性の追加リクエスト（長文になるため JSON ボディで受ける）"""
+
+    session_id: str = Field(..., description="セッションID")
+    attribute_text: str = Field(
+        ...,
+        min_length=1,
+        max_length=ATTRIBUTE_TEXT_MAX_LENGTH,
+        description="属性テキスト",
+    )
+
+
+class SessionAttributeUpdateRequest(BaseModel):
+    """属性の文言の更新リクエスト"""
+
+    attribute_text: str = Field(
+        ...,
+        min_length=1,
+        max_length=ATTRIBUTE_TEXT_MAX_LENGTH,
+        description="属性テキスト",
+    )
 
 
 class PlayMemoryResponse(BaseModel):

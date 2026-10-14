@@ -253,18 +253,13 @@ export function FavoritePromptProvider({ children }: { children: ReactNode }) {
       try {
         const prompt = await createFavoritePrompt(input);
         dispatch({ type: "UPSERT_PROMPT", prompt });
-        showNotification(
-          "success",
-          t("favoritePrompts.title"),
-          t("favoritePrompts.saved", { name: prompt.label }),
-        );
         return prompt;
       } catch (err) {
         reportError(t("favoritePrompts.saveFailed"), err);
         return null;
       }
     },
-    [reportError, showNotification, t],
+    [reportError, t],
   );
 
   const updatePrompt = useCallback(

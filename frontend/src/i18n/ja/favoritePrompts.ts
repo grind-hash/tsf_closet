@@ -28,7 +28,6 @@ export const favoritePrompts = {
   previewHint:
     "名前にカーソルを合わせると内容を表示します。クリックすると入力欄に挿入します。",
   toggleCategory: "カテゴリー「{{name}}」を開閉",
-  saved: "「{{name}}」を TSF Closet に保存しました",
   deletePrompt: "このお気に入りプロンプトを削除",
   deleteCategory: "このカテゴリーを削除",
   deletePromptConfirm: "「{{name}}」を削除しますか？",

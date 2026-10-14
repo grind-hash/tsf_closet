@@ -1295,6 +1295,24 @@ class DatabaseSessionStore:
             "created_at": now.isoformat(),
         }
 
+    async def update_session_attribute(
+        self,
+        attribute_id: str,
+        attribute_text: str,
+    ) -> dict | None:
+        """属性の文言を置き換える（並び順を保つため作成日時は変えない）。無ければ None"""
+        async with async_session_factory() as db_session:
+            orm_attr = await db_session.get(SessionAttributeORM, attribute_id)
+            if orm_attr is None:
+                return None
+            orm_attr.attribute_text = attribute_text
+            await db_session.commit()
+            return {
+                "id": orm_attr.id,
+                "attribute_text": orm_attr.attribute_text,
+                "created_at": _to_iso(orm_attr.created_at),
+            }
+
     async def remove_session_attribute(
         self,
         attribute_id: str,

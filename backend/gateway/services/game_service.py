@@ -29,6 +29,7 @@ from ..consts.novelai_models import (
     resolve_user_image_model,
     supports_character_references,
 )
+from ..consts.play_limits import REALITY_ATTRIBUTE_PREFIX
 from ..consts.prompt_expander import MAX_CHARACTER_PROMPTS_V45, max_character_prompts
 from ..databases.base import async_session_factory
 from ..databases.character_repo import (
@@ -3604,7 +3605,7 @@ class GameService:
 
         # 5.1.5 現実改変時: 指示文をセッション属性に自動追加
         if is_reality:
-            reality_attr_text = f"[現実改変] {ctx.original_instruction}"
+            reality_attr_text = f"{REALITY_ATTRIBUTE_PREFIX}{ctx.original_instruction}"
             existing_attrs = await session_store.get_session_attribute_texts(session.id)
             if reality_attr_text not in existing_attrs:
                 new_attr = await session_store.add_session_attribute(
