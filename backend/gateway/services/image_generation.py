@@ -21,7 +21,12 @@ from novelai.exceptions import NovelAIError
 from novelai.types import Character, CharacterReference, GenerateImageParams, I2iParams
 from PIL import Image, ImageFilter
 
-from ..consts.novelai_models import get_image_model_info
+from ..consts.novelai_models import (
+    NOVELAI_ECONOMY_STEPS,
+    NOVELAI_ECONOMY_UC_PRESET,
+    get_image_model_info,
+    is_economy_image_model,
+)
 from ..consts.prompt_expander import (
     PROMPT_EXPANDER_MASK_GRID_DIVISOR as MASK_GRID_DIVISOR,
 )
@@ -411,6 +416,26 @@ class NovelAIImageClient:
             self._client = AsyncNovelAI(api_key=self.api_key)
         return self._client
 
+    def _sampling_params(
+        self, economy: bool, negative_prompt: str | None
+    ) -> dict[str, Any]:
+        """GenerateImageParams に渡す steps / uc_preset / negative_prompt を返す。
+
+        節約モードのモデルは steps と UC プリセットが NovelAI 側で固定され、独自ネガティブを
+        受け付けないため、公式 UI と同じ固定値を送り、ネガティブは送らない。
+        """
+        if economy:
+            return {
+                "steps": NOVELAI_ECONOMY_STEPS,
+                "uc_preset": NOVELAI_ECONOMY_UC_PRESET,
+                "negative_prompt": None,
+            }
+        return {
+            "steps": self.steps,
+            "uc_preset": self.uc_preset,
+            "negative_prompt": negative_prompt,
+        }
+
     def _format_prompt(self, prompt: str, multiple_people: bool = False) -> str:
         """NovelAI向けに軽く整形
 
@@ -567,6 +592,8 @@ class NovelAIImageClient:
         model_info = get_image_model_info(wire_model, nsfw_mode=self.nsfw_mode)
         use_inpaint = normalized_mask is not None
         model_to_use = model_info.inpaint_model if use_inpaint else wire_model
+        # 節約モードの判定は実際に送るモデルで行う（インペイントは通常モデルで送るため対象外）
+        economy = is_economy_image_model(model_to_use)
         if use_inpaint:
             action_to_use = self.inpaint_action
         elif i2i_params is not None:
@@ -574,7 +601,7 @@ class NovelAIImageClient:
         else:
             action_to_use = "generate"
         logger.info(
-            f"[Inpaint Debug] use_inpaint={use_inpaint}, model={model_to_use}, action={action_to_use}, strength={strength}"
+            f"[Inpaint Debug] use_inpaint={use_inpaint}, model={model_to_use}, action={action_to_use}, strength={strength}, economy={economy}"
         )
 
         # V5系モデルは精密参照（character reference）非対応のため防御的に破棄する
@@ -614,7 +641,7 @@ class NovelAIImageClient:
             sdk_characters = [
                 Character(
                     prompt=c["prompt"],
-                    negative_prompt=c.get("negative_prompt", ""),
+                    negative_prompt="" if economy else c.get("negative_prompt", ""),
                     position=tuple(c.get("position", (0.5, 0.5))),
                     enabled=c.get("enabled", True),
                 )
@@ -642,10 +669,8 @@ class NovelAIImageClient:
             prompt=formatted_prompt,
             model=model_info.sdk_base_model,
             size=size_override or self.size,
-            steps=self.steps,
             scale=self.scale,
-            uc_preset=self.uc_preset,  # uc_presetは文字列リテラルでOK
-            negative_prompt=formatted_negative,
+            **self._sampling_params(economy, formatted_negative),
             quality=True,  # 自動でQUALITY_TAGSを付与
             i2i=i2i_params,
             n_samples=1,
@@ -756,12 +781,11 @@ class NovelAIImageClient:
             prompt=prompt,
             model=model_info.sdk_base_model,
             size=size,
-            steps=self.steps,
             scale=self.scale,
-            uc_preset=self.uc_preset,
-            negative_prompt=(neg_prompt + extra_negative)
-            if neg_prompt
-            else extra_negative,
+            **self._sampling_params(
+                model_info.is_economy,
+                (neg_prompt + extra_negative) if neg_prompt else extra_negative,
+            ),
             quality=True,
             n_samples=1,
             seed=actual_seed,

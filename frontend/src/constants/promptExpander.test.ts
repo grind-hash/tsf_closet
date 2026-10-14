@@ -26,9 +26,10 @@ import {
 } from "./promptExpander";
 
 describe("promptExpander constants", () => {
-  it("lists the four NovelAI models in the expected order", () => {
+  it("lists the NovelAI models in the expected order", () => {
     expect([...PROMPT_EXPANDER_IMAGE_MODEL_OPTIONS]).toEqual([
       "nai-diffusion-5-full",
+      "nai-diffusion-5-full-medium",
       "nai-diffusion-5-curated",
       "nai-diffusion-4-5-full",
       "nai-diffusion-4-5-curated",
@@ -43,6 +44,7 @@ describe("promptExpander constants", () => {
       MAX_CHARACTER_PROMPTS_V5,
     );
     expect(getMaxCharacterPrompts("nai-diffusion-5-curated")).toBe(22);
+    expect(getMaxCharacterPrompts("nai-diffusion-5-full-medium")).toBe(22);
     expect(getMaxCharacterPrompts("nai-diffusion-4-5-full")).toBe(
       MAX_CHARACTER_PROMPTS_V45,
     );
@@ -62,6 +64,9 @@ describe("promptExpander constants", () => {
     expect(getPromptExpanderImageModelLabel("nai-diffusion-5-full")).toBe(
       "NAI Diffusion V5 Full",
     );
+    expect(
+      getPromptExpanderImageModelLabel("nai-diffusion-5-full-medium"),
+    ).toBe("NAI Diffusion V5 Full (Medium effort)");
     expect(getPromptExpanderImageModelLabel("custom")).toBe("custom");
   });
 

@@ -37,11 +37,13 @@ def test_character_limit_map_covers_all_options():
     mapping = max_character_prompts_map()
     assert set(mapping) == set(PROMPT_EXPANDER_IMAGE_MODEL_OPTIONS)
     assert mapping["nai-diffusion-5-full"] == 22
+    assert mapping["nai-diffusion-5-full-medium"] == 22
     assert mapping["nai-diffusion-4-5-curated"] == 6
 
 
 def test_image_model_options():
     assert is_prompt_expander_image_model("nai-diffusion-5-curated")
+    assert is_prompt_expander_image_model("nai-diffusion-5-full-medium")
     assert not is_prompt_expander_image_model("nai-diffusion-3")
     assert not is_prompt_expander_image_model(None)
 

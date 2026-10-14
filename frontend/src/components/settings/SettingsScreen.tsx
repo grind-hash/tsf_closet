@@ -556,6 +556,9 @@ export default function SettingsScreen() {
                       <option value="nai-diffusion-5-full">
                         {t("settings.novelaiImageModelV5Full")}
                       </option>
+                      <option value="nai-diffusion-5-full-medium">
+                        {t("settings.novelaiImageModelV5FullEconomy")}
+                      </option>
                     </select>
                   </div>
                 </div>

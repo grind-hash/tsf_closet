@@ -67,7 +67,11 @@ interface MockState {
 
 async function mockPlaySession(
   page: Page,
-  options: { ttsEnabled?: boolean; imageProvider?: string } = {},
+  options: {
+    ttsEnabled?: boolean;
+    imageProvider?: string;
+    nsfwMode?: boolean;
+  } = {},
 ): Promise<MockState> {
   const state: MockState = {
     history: baseHistory(),
@@ -107,7 +111,7 @@ async function mockPlaySession(
     await route.fulfill({
       status: 200,
       json: {
-        nsfw_mode: false,
+        nsfw_mode: options.nsfwMode ?? false,
         difficulty: "normal",
         language: "ja",
         novelai_image_model: "nai-diffusion-4-5-full",
@@ -555,6 +559,31 @@ test.describe("右パネル(モック)", () => {
         }),
       )
       .toMatchObject({ mode: "textarea", who: "彼女", freeform: "自由文" });
+  });
+
+  test("V5 Full（節約）を選ぶとネガティブプロンプトの説明が切り替わる", async ({
+    page,
+  }) => {
+    await mockPlaySession(page, { nsfwMode: true });
+    await gotoSession(page);
+    await openRightPanel(page);
+    const panel = page.locator(".right-panel");
+    const nsfwModelSelect = panel.locator("select.right-panel__select", {
+      has: page.locator('option[value="nai-diffusion-5-full-medium"]'),
+    });
+    const economyHint = panel.getByText(
+      /V5 Full（節約）では、マスクなしの生成にネガティブプロンプトが反映されません/,
+    );
+
+    await expect(panel.getByText("除外したいタグを入力")).toBeVisible();
+    await expect(economyHint).toHaveCount(0);
+
+    await nsfwModelSelect.selectOption("nai-diffusion-5-full-medium");
+    await expect(economyHint).toBeVisible();
+    await expect(panel.getByText("除外したいタグを入力")).toHaveCount(0);
+
+    await nsfwModelSelect.selectOption("nai-diffusion-5-full");
+    await expect(economyHint).toHaveCount(0);
   });
 
   test("音声合成エンジンの状態を表示して停止できる", async ({ page }) => {

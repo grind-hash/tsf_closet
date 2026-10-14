@@ -4,6 +4,7 @@
 export const NSFW_IMAGE_MODEL_OPTIONS = [
   "nai-diffusion-4-5-full",
   "nai-diffusion-5-full",
+  "nai-diffusion-5-full-medium",
 ] as const;
 
 // NSFW OFF 時に選択可能なモデル
@@ -17,12 +18,21 @@ export const DEFAULT_SFW_IMAGE_MODEL = "nai-diffusion-4-5-curated";
 
 const V5_IMAGE_MODELS = new Set<string>([
   "nai-diffusion-5-full",
+  "nai-diffusion-5-full-medium",
   "nai-diffusion-5-curated",
 ]);
+
+// 節約モード（NovelAI の Medium effort）のモデル。steps 固定で独自ネガティブを受け付けない
+const ECONOMY_IMAGE_MODELS = new Set<string>(["nai-diffusion-5-full-medium"]);
 
 /** モデル名が V5 系かどうかを返す（未知名・空は false） */
 export function isV5ImageModel(name: string | null | undefined): boolean {
   return name ? V5_IMAGE_MODELS.has(name) : false;
+}
+
+/** モデル名が節約モードかどうかを返す（未知名・空は false） */
+export function isEconomyImageModel(name: string | null | undefined): boolean {
+  return name ? ECONOMY_IMAGE_MODELS.has(name) : false;
 }
 
 // V5 利用上限使い切り警告の抑止キー（ブラウザセッション単位、sessionStorage）。
@@ -38,6 +48,10 @@ export const ADVENTURE_IMAGE_MODEL_CHOICES: ReadonlyArray<{
   { value: "nai-diffusion-4-5-full", label: "NAI Diffusion V4.5 Full" },
   { value: "nai-diffusion-4-5-curated", label: "NAI Diffusion V4.5 Curated" },
   { value: "nai-diffusion-5-full", label: "NAI Diffusion V5 Full" },
+  {
+    value: "nai-diffusion-5-full-medium",
+    label: "NAI Diffusion V5 Full (Medium effort)",
+  },
   { value: "nai-diffusion-5-curated", label: "NAI Diffusion V5 Curated" },
 ];
 

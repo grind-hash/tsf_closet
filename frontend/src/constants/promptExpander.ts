@@ -5,6 +5,7 @@ import { isV5ImageModel } from "./novelaiImageModels";
 /** Prompt Expander で選択できる NovelAI 画像モデル（表示順） */
 export const PROMPT_EXPANDER_IMAGE_MODEL_OPTIONS = [
   "nai-diffusion-5-full",
+  "nai-diffusion-5-full-medium",
   "nai-diffusion-5-curated",
   "nai-diffusion-4-5-full",
   "nai-diffusion-4-5-curated",
@@ -22,6 +23,7 @@ export const PROMPT_EXPANDER_IMAGE_MODEL_LABELS: Record<
   string
 > = {
   "nai-diffusion-5-full": "NAI Diffusion V5 Full",
+  "nai-diffusion-5-full-medium": "NAI Diffusion V5 Full (Medium effort)",
   "nai-diffusion-5-curated": "NAI Diffusion V5 Curated",
   "nai-diffusion-4-5-full": "NAI Diffusion V4.5 Full",
   "nai-diffusion-4-5-curated": "NAI Diffusion V4.5 Curated",
@@ -33,6 +35,7 @@ export const PROMPT_EXPANDER_IMAGE_MODEL_SHORT_LABELS: Record<
   string
 > = {
   "nai-diffusion-5-full": "V5 Full",
+  "nai-diffusion-5-full-medium": "V5 Full Medium",
   "nai-diffusion-5-curated": "V5 Curated",
   "nai-diffusion-4-5-full": "V4.5 Full",
   "nai-diffusion-4-5-curated": "V4.5 Curated",

@@ -197,12 +197,13 @@ export const settings = {
   novelaiTextModelXialong: "Xialong v1（実験的）",
   novelaiImageModelNsfw: "画像生成モデル (NSFW)",
   novelaiImageModelNsfwDesc:
-    "NSFWモードがONのときに使用するNovelAI画像モデルを選択します。",
+    "NSFWモードがONのときに使用するNovelAI画像モデルを選択します。V5 Full（節約）は消費が約4割少ない代わりに、マスクなしの生成ではネガティブプロンプトが反映されません。",
   novelaiImageModelSfw: "画像生成モデル (非NSFW)",
   novelaiImageModelSfwDesc:
     "NSFWモードがOFFのときに使用するNovelAI画像モデルを選択します。",
   novelaiImageModelV45Full: "NAI Diffusion V4.5 Full（デフォルト）",
   novelaiImageModelV5Full: "NAI Diffusion V5 Full",
+  novelaiImageModelV5FullEconomy: "NAI Diffusion V5 Full（節約）",
   novelaiImageModelV45Curated: "NAI Diffusion V4.5 Curated（デフォルト）",
   novelaiImageModelV5Curated: "NAI Diffusion V5 Curated",
   novelaiUsageTitle: "V5 利用上限",

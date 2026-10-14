@@ -12,6 +12,7 @@ from gateway.consts.novelai_models import (
     NsfwImageModel,
     SfwImageModel,
     get_image_model_info,
+    is_economy_image_model,
     is_v5_image_model,
     resolve_user_image_model,
     supports_character_references,
@@ -32,6 +33,15 @@ class TestRegistry:
         assert info.inpaint_model == "nai-diffusion-5-full-inpainting"
         assert info.sdk_base_model == "nai-diffusion-4-5-full"
         assert info.is_v5
+        assert info.family == "full"
+
+    def test_v5_full_economy_uses_regular_v5_inpainting(self) -> None:
+        # 節約版インペイントのモデル名が未確認のため、通常の V5 Full インペイントを使う
+        info = get_image_model_info("nai-diffusion-5-full-medium", nsfw_mode=True)
+        assert info.inpaint_model == "nai-diffusion-5-full-inpainting"
+        assert info.sdk_base_model == "nai-diffusion-4-5-full"
+        assert info.is_v5
+        assert info.is_economy
         assert info.family == "full"
 
     def test_v5_curated_quirk_maps_to_v45_curated_inpainting(self) -> None:
@@ -55,6 +65,7 @@ class TestRegistry:
         assert NSFW_IMAGE_MODEL_OPTIONS == (
             "nai-diffusion-4-5-full",
             "nai-diffusion-5-full",
+            "nai-diffusion-5-full-medium",
         )
         assert SFW_IMAGE_MODEL_OPTIONS == (
             "nai-diffusion-4-5-curated",
@@ -64,10 +75,20 @@ class TestRegistry:
     def test_is_v5_image_model(self) -> None:
         assert is_v5_image_model("nai-diffusion-5-full")
         assert is_v5_image_model("nai-diffusion-5-curated")
+        assert is_v5_image_model("nai-diffusion-5-full-medium")
         assert not is_v5_image_model("nai-diffusion-4-5-full")
         assert not is_v5_image_model("unknown")
         assert not is_v5_image_model(None)
         assert not is_v5_image_model("")
+
+    def test_is_economy_image_model(self) -> None:
+        assert is_economy_image_model("nai-diffusion-5-full-medium")
+        assert not is_economy_image_model("nai-diffusion-5-full")
+        assert not is_economy_image_model("nai-diffusion-5-full-inpainting")
+        assert not is_economy_image_model("nai-diffusion-4-5-full")
+        assert not is_economy_image_model("unknown")
+        assert not is_economy_image_model(None)
+        assert not is_economy_image_model("")
 
     def test_literals_match_registry_and_options(self) -> None:
         assert set(NovelAIImageModel.__args__) == set(NOVELAI_IMAGE_MODELS)
@@ -77,6 +98,7 @@ class TestRegistry:
     def test_supports_character_references_is_false_only_for_v5(self) -> None:
         assert not supports_character_references("nai-diffusion-5-full")
         assert not supports_character_references("nai-diffusion-5-curated")
+        assert not supports_character_references("nai-diffusion-5-full-medium")
         assert supports_character_references("nai-diffusion-4-5-full")
         assert supports_character_references("nai-diffusion-4-5-curated")
         # 未登録名・未指定は v4.5 相当として扱う
