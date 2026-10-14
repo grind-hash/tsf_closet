@@ -264,9 +264,12 @@
 }
 
 /* ---- 全文プレビュー ---- */
+/* 高さは固定する。内容の長さで高さが変わると、中央寄せのダイアログ全体が
+   ホバーのたびに上下へ伸び縮みするため。収まらない分は欄の中でスクロールする */
 .favorite-prompts__preview {
   flex: 0 0 auto;
-  max-height: 9rem;
+  box-sizing: border-box;
+  height: 8rem;
   overflow-y: auto;
   padding: 0.6rem 1rem 0.8rem;
   border-top: 1px solid var(--border-color, #333);
@@ -511,7 +514,7 @@
   }
 
   .favorite-prompts__preview {
-    max-height: 13rem;
+    height: 10.5rem;
     padding: 0.85rem 1.25rem 1rem;
   }
 
