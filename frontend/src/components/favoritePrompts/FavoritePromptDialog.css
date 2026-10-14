@@ -457,3 +457,87 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* ---- PC: 一覧と内容を読みやすくするため、幅と高さを広げ文字と余白を少し大きくする ---- */
+@media (min-width: 769px) {
+  .favorite-prompts-overlay {
+    padding: 24px;
+  }
+
+  .favorite-prompts {
+    width: min(800px, 100%);
+    max-height: min(880px, calc(100vh - 48px));
+    max-height: min(880px, calc(100dvh - 48px));
+  }
+
+  .favorite-prompts__header {
+    padding: 1rem 1.25rem 0.5rem;
+  }
+
+  .favorite-prompts__title {
+    font-size: 1.1rem;
+  }
+
+  .favorite-prompts__note {
+    margin: 0 1.25rem 0.75rem;
+    font-size: 0.8rem;
+  }
+
+  .favorite-prompts__body {
+    padding: 0.25rem 1.25rem 1rem;
+  }
+
+  .favorite-prompts__chips {
+    gap: 8px;
+    margin-bottom: 0.75rem;
+  }
+
+  .favorite-prompts__chip-main {
+    padding: 0.4rem 0.5rem 0.4rem 0.7rem;
+    font-size: 0.92rem;
+  }
+
+  .favorite-prompts__chip-edit {
+    width: 30px;
+  }
+
+  .favorite-prompts__category {
+    margin-bottom: 0.75rem;
+  }
+
+  .favorite-prompts__category-toggle {
+    padding: 0.55rem 0.75rem;
+    font-size: 0.95rem;
+  }
+
+  .favorite-prompts__preview {
+    max-height: 13rem;
+    padding: 0.85rem 1.25rem 1rem;
+  }
+
+  .favorite-prompts__preview-label {
+    font-size: 0.9rem;
+  }
+
+  .favorite-prompts__preview-content,
+  .favorite-prompts__preview-hint {
+    font-size: 0.88rem;
+    line-height: 1.65;
+  }
+
+  .favorite-prompts__fields {
+    gap: 1rem;
+  }
+
+  .favorite-prompts__input {
+    font-size: 0.92rem;
+  }
+
+  .favorite-prompts__textarea {
+    min-height: 8rem;
+  }
+
+  .favorite-prompts__footer {
+    padding: 0.9rem 1.25rem;
+  }
+}
