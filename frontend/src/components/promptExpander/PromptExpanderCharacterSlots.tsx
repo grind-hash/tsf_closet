@@ -5,8 +5,14 @@
  * メモリからの提案はセクション見出しの「提案」ボタン（Composer 側）から開く。
  */
 
+import { useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { usePromptExpander } from "../../contexts/PromptExpanderContext";
+import { useInsertAtCaret } from "../../hooks/useInsertAtCaret";
+import {
+  FavoritePromptInsertButton,
+  FavoritePromptSaveButton,
+} from "../favoritePrompts/FavoritePromptButtons";
 import PromptExpanderDeleteButton from "./PromptExpanderDeleteButton";
 import "./PromptExpanderShared.css";
 import "./PromptExpanderComposer.css";
@@ -84,17 +90,11 @@ export default function PromptExpanderCharacterSlots() {
               className={`prompt-expander__slot ${index >= maxCharacterPrompts ? "prompt-expander__slot--over" : ""}`}
             >
               <span className="prompt-expander__slot-index">{index + 1}</span>
-              <textarea
-                className={`prompt-expander__textarea prompt-expander__slot-textarea${slotsBusy ? " prompt-expander__textarea--busy" : ""}`}
+              <CharacterSlotField
+                index={index}
                 value={slot}
-                rows={2}
-                readOnly={slotsBusy}
-                aria-busy={slotsBusy}
-                onChange={(e) => updateCharacterSlot(index, e.target.value)}
-                placeholder={t("promptExpander.composer.slotPlaceholder")}
-                aria-label={t("promptExpander.composer.slotLabel", {
-                  index: index + 1,
-                })}
+                busy={slotsBusy}
+                onChange={(text) => updateCharacterSlot(index, text)}
               />
               <PromptExpanderDeleteButton
                 label={t("promptExpander.composer.removeSlot", {
@@ -108,5 +108,46 @@ export default function PromptExpanderCharacterSlots() {
         </ol>
       )}
     </div>
+  );
+}
+
+/** キャラクタースロット 1 件の入力欄と、お気に入りプロンプトの挿入 / 保存 */
+function CharacterSlotField({
+  index,
+  value,
+  busy,
+  onChange,
+}: {
+  index: number;
+  value: string;
+  busy: boolean;
+  onChange: (text: string) => void;
+}) {
+  const { t } = useTranslation();
+  const ref = useRef<HTMLTextAreaElement>(null);
+  const insertFavoritePrompt = useInsertAtCaret(ref, value, onChange);
+  return (
+    <>
+      <textarea
+        ref={ref}
+        className={`prompt-expander__textarea prompt-expander__slot-textarea${busy ? " prompt-expander__textarea--busy" : ""}`}
+        value={value}
+        rows={2}
+        readOnly={busy}
+        aria-busy={busy}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={t("promptExpander.composer.slotPlaceholder")}
+        aria-label={t("promptExpander.composer.slotLabel", {
+          index: index + 1,
+        })}
+      />
+      <div className="prompt-expander__slot-favorite">
+        <FavoritePromptInsertButton
+          onInsert={insertFavoritePrompt}
+          disabled={busy}
+        />
+        <FavoritePromptSaveButton text={value} />
+      </div>
+    </>
   );
 }

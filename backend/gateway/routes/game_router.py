@@ -42,6 +42,8 @@ from ..schemas.session import (
     HistorySelectResponse,
     PlayMemoryResponse,
     PlayMemoryUpdateRequest,
+    SessionAttributeCreateRequest,
+    SessionAttributeUpdateRequest,
     SessionListResponse,
     SessionResetResponse,
     SessionResponse,
@@ -910,15 +912,10 @@ async def generate_standing_portrait(
     summary="属性を追加",
     description="セッションにカスタム属性を追加（画像生成プロンプトに反映）",
 )
-async def add_attribute(
-    session_id: str = Query(..., description="セッションID"),
-    attribute_text: str = Query(
-        ..., min_length=1, max_length=100, description="属性テキスト"
-    ),
-) -> dict:
-    """属性を追加"""
+async def add_attribute(request: SessionAttributeCreateRequest) -> dict:
+    """属性を追加（現実改変の指示ほどの長文も入るため JSON ボディで受ける）"""
     # セッション存在確認
-    session = await session_store.get_session_by_id(session_id)
+    session = await session_store.get_session_by_id(request.session_id)
     if session is None:
         raise HTTPException(
             status_code=404,
@@ -928,11 +925,36 @@ async def add_attribute(
             },
         )
 
-    attribute = await session_store.add_session_attribute(session_id, attribute_text)
+    attribute = await session_store.add_session_attribute(
+        request.session_id, request.attribute_text
+    )
     return {
         "success": True,
         "attribute": attribute,
     }
+
+
+@router.patch(
+    "/attributes/{attribute_id}",
+    summary="属性を更新",
+    description="属性の文言を置き換える（失敗しても元の属性は残る）",
+)
+async def update_attribute(
+    attribute_id: str, request: SessionAttributeUpdateRequest
+) -> dict:
+    """属性の文言を更新"""
+    attribute = await session_store.update_session_attribute(
+        attribute_id, request.attribute_text
+    )
+    if attribute is None:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": "attribute_not_found",
+                "message": "属性が見つかりません",
+            },
+        )
+    return {"success": True, "attribute": attribute}
 
 
 @router.delete(

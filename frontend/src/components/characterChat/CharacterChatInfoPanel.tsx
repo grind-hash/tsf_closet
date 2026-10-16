@@ -2,6 +2,7 @@ import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import type { CharacterChatThread } from "../../apis/characterChat";
 import { ROUTES } from "../../routes";
+import { FavoritePromptSaveButton } from "../favoritePrompts/FavoritePromptButtons";
 
 interface CharacterChatInfoPanelProps {
   thread: CharacterChatThread;
@@ -339,6 +340,9 @@ export default function CharacterChatInfoPanel({
           <details className="character-chat__tags">
             <summary>{t("characterChat.room.appearanceTags")}</summary>
             <p>{tags}</p>
+            <div className="character-chat__tags-actions">
+              <FavoritePromptSaveButton text={tags} />
+            </div>
           </details>
         )}
       </section>

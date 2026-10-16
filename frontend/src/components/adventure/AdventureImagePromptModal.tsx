@@ -1,9 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type {
   AdventureImagePrompt,
   AdventureImageRegenerateOptions,
 } from "../../apis/adventure";
+import { useInsertAtCaret } from "../../hooks/useInsertAtCaret";
+import {
+  FavoritePromptInsertButton,
+  FavoritePromptSaveButton,
+} from "../favoritePrompts/FavoritePromptButtons";
 
 interface AdventureImagePromptModalProps {
   isOpen: boolean;
@@ -23,6 +28,16 @@ export default function AdventureImagePromptModal({
   const [playerTags, setPlayerTags] = useState("");
   const [npcTags, setNpcTags] = useState("");
   const [redrawFromReference, setRedrawFromReference] = useState(true);
+  const sceneRef = useRef<HTMLTextAreaElement>(null);
+  const playerRef = useRef<HTMLTextAreaElement>(null);
+  const npcRef = useRef<HTMLTextAreaElement>(null);
+  const insertIntoScene = useInsertAtCaret(sceneRef, sceneTags, setSceneTags);
+  const insertIntoPlayer = useInsertAtCaret(
+    playerRef,
+    playerTags,
+    setPlayerTags,
+  );
+  const insertIntoNpc = useInsertAtCaret(npcRef, npcTags, setNpcTags);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -69,10 +84,17 @@ export default function AdventureImagePromptModal({
           {t("adventure.imagePrompt.hint")}
         </p>
 
-        <label htmlFor="adventure-prompt-scene">
-          {t("adventure.imagePrompt.sceneTags")}
-        </label>
+        <div className="adventure-prompt-modal__label-row">
+          <label htmlFor="adventure-prompt-scene">
+            {t("adventure.imagePrompt.sceneTags")}
+          </label>
+          <span className="favorite-prompt-actions">
+            <FavoritePromptInsertButton onInsert={insertIntoScene} />
+            <FavoritePromptSaveButton text={sceneTags} />
+          </span>
+        </div>
         <textarea
+          ref={sceneRef}
           id="adventure-prompt-scene"
           rows={3}
           maxLength={1800}
@@ -80,10 +102,17 @@ export default function AdventureImagePromptModal({
           onChange={(event) => setSceneTags(event.target.value)}
         />
 
-        <label htmlFor="adventure-prompt-player">
-          {t("adventure.imagePrompt.playerTags")}
-        </label>
+        <div className="adventure-prompt-modal__label-row">
+          <label htmlFor="adventure-prompt-player">
+            {t("adventure.imagePrompt.playerTags")}
+          </label>
+          <span className="favorite-prompt-actions">
+            <FavoritePromptInsertButton onInsert={insertIntoPlayer} />
+            <FavoritePromptSaveButton text={playerTags} />
+          </span>
+        </div>
         <textarea
+          ref={playerRef}
           id="adventure-prompt-player"
           rows={3}
           maxLength={1200}
@@ -91,10 +120,17 @@ export default function AdventureImagePromptModal({
           onChange={(event) => setPlayerTags(event.target.value)}
         />
 
-        <label htmlFor="adventure-prompt-npc">
-          {t("adventure.imagePrompt.npcTags")}
-        </label>
+        <div className="adventure-prompt-modal__label-row">
+          <label htmlFor="adventure-prompt-npc">
+            {t("adventure.imagePrompt.npcTags")}
+          </label>
+          <span className="favorite-prompt-actions">
+            <FavoritePromptInsertButton onInsert={insertIntoNpc} />
+            <FavoritePromptSaveButton text={npcTags} />
+          </span>
+        </div>
         <textarea
+          ref={npcRef}
           id="adventure-prompt-npc"
           rows={3}
           value={npcTags}

@@ -2525,7 +2525,8 @@ button:disabled {
 }
 
 .adventure-transcript__entry > span,
-.adventure-transcript__action > span {
+.adventure-transcript__action > span,
+.adventure-transcript__action-head > span {
   color: #efb85a;
   font-family: var(--font-sans, sans-serif);
   font-size: 0.75rem;
@@ -2534,6 +2535,14 @@ button:disabled {
 
 .adventure-transcript__entry p {
   margin: 6px 0 0;
+}
+
+/* 行動の見出し行（ターン番号と、お気に入りプロンプトに保存） */
+.adventure-transcript__action-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .adventure-transcript__action {
@@ -2796,6 +2805,27 @@ button:disabled {
 .adventure-freeinput__submit:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+/* お気に入りプロンプトの挿入（アイコンのみ。送信ボタンと高さをそろえる） */
+.adventure-freeinput__favorite {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  min-height: 36px;
+  padding: 0 8px;
+  border: 1px solid #3a434b;
+  border-radius: 6px;
+  color: #bbc3ca;
+  background: #1c2228;
+  cursor: pointer;
+}
+
+.adventure-freeinput__favorite:hover {
+  color: #e6ebef;
+  border-color: #59646e;
 }
 
 .adventure-ending {
@@ -3750,6 +3780,13 @@ button:disabled {
   color: #bbc3ca;
   font-size: 0.8rem;
   font-weight: 700;
+}
+
+/* ラベルと欄に紐づく操作（お気に入りプロンプト）を同じ行に置く */
+.adventure-prompt-modal__label-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .adventure-prompt-modal__panel textarea {

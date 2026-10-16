@@ -29,6 +29,7 @@ import { useTransparentImage } from "../../hooks/useTransparentImage";
 import PromptExpanderDeleteButton from "./PromptExpanderDeleteButton";
 import "./PromptExpanderShared.css";
 import "./PromptExpanderEntryList.css";
+import { FavoritePromptSaveButton } from "../favoritePrompts/FavoritePromptButtons";
 
 const MAIN_TEXT_LIMIT = 160;
 
@@ -316,6 +317,7 @@ export default function PromptExpanderEntryCard({
           >
             {t("promptExpander.entry.regenerate")}
           </button>
+          <FavoritePromptSaveButton text={entry.final_prompt ?? ""} />
           <button
             type="button"
             className={`prompt-expander__btn prompt-expander__btn--sm ${isCurrentSource ? "prompt-expander__btn--primary" : ""}`}

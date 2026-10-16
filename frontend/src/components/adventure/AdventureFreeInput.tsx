@@ -1,5 +1,7 @@
 import { useTranslation } from "react-i18next";
+import { useInsertAtCaret } from "../../hooks/useInsertAtCaret";
 import { useSubmitTextarea } from "../../hooks/useSubmitTextarea";
+import { FavoritePromptInsertButton } from "../favoritePrompts/FavoritePromptButtons";
 
 interface AdventureFreeInputProps {
   value: string;
@@ -26,6 +28,12 @@ export default function AdventureFreeInput({
   const placeholder = t("adventure.freeInput");
   const canSubmit = value.trim() !== "" && !busy;
   const field = useSubmitTextarea({ value, canSubmit, onSubmit });
+  const insertFavoritePrompt = useInsertAtCaret(
+    field.ref,
+    value,
+    onChange,
+    " ",
+  );
   return (
     <form
       className="adventure-freeinput"
@@ -45,6 +53,11 @@ export default function AdventureFreeInput({
         placeholder={placeholder}
         aria-label={placeholder}
         title={t("adventure.freeInputHint")}
+      />
+      <FavoritePromptInsertButton
+        onInsert={insertFavoritePrompt}
+        className="adventure-freeinput__favorite"
+        iconSize={16}
       />
       <button
         type="submit"

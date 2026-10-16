@@ -1,0 +1,44 @@
+/* 各画面に置く「お気に入りプロンプト」のアイコンボタン（挿入 / 保存） */
+.favorite-prompt-btn {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted, #888);
+  cursor: pointer;
+  transition:
+    color 0.15s,
+    background-color 0.15s,
+    border-color 0.15s;
+}
+
+.favorite-prompt-btn:hover:not(:disabled),
+.favorite-prompt-btn:focus-visible {
+  color: var(--text-color, #eee);
+  background-color: var(--hover-bg, #1f2f50);
+  border-color: var(--border-color, #333);
+}
+
+.favorite-prompt-btn:focus-visible {
+  outline: 2px solid var(--accent-color, #e94560);
+  outline-offset: 1px;
+}
+
+.favorite-prompt-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ラベル行の右端に並べるときのまとまり */
+.favorite-prompt-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}

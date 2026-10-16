@@ -15,6 +15,7 @@ import { chat } from "./chat";
 import { common } from "./common";
 import { consentDeclined } from "./consentDeclined";
 import { endings } from "./endings";
+import { favoritePrompts } from "./favoritePrompts";
 import { favorites } from "./favorites";
 import { gallery } from "./gallery";
 import { gameplay } from "./gameplay";
@@ -48,6 +49,7 @@ export const ja = {
   gameplay,
   gallery,
   favorites,
+  favoritePrompts,
   achievements,
   endings,
   novelaiWarning,

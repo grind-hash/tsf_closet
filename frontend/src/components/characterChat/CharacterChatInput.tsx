@@ -1,7 +1,9 @@
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import { useInsertAtCaret } from "../../hooks/useInsertAtCaret";
 import type { SpeechInputErrorCode } from "../../hooks/useSpeechInput";
 import { useSubmitTextarea } from "../../hooks/useSubmitTextarea";
+import { FavoritePromptInsertButton } from "../favoritePrompts/FavoritePromptButtons";
 
 export interface CharacterChatInputSpeech {
   supported: boolean;
@@ -41,6 +43,12 @@ export default function CharacterChatInput({
   const placeholder = t("characterChat.input.placeholder", { name });
   const canSubmit = value.trim() !== "" && !busy;
   const field = useSubmitTextarea({ value, canSubmit, onSubmit });
+  const insertFavoritePrompt = useInsertAtCaret(
+    field.ref,
+    value,
+    onChange,
+    " ",
+  );
 
   return (
     <div className="character-chat__input-wrap">
@@ -65,6 +73,11 @@ export default function CharacterChatInput({
           placeholder={placeholder}
           aria-label={placeholder}
           title={t("characterChat.input.hint")}
+        />
+        <FavoritePromptInsertButton
+          onInsert={insertFavoritePrompt}
+          className="character-chat__favorite"
+          iconSize={16}
         />
         {speech.supported && (
           <>

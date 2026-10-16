@@ -11,6 +11,7 @@ import BgmTestScreen from "./components/bgm/BgmTestScreen";
 import CharacterChatScreen from "./components/characterChat/CharacterChatScreen";
 import EndingModal from "./components/EndingModal";
 import EndingsScreen from "./components/endings/EndingsScreen";
+import FavoritePromptHost from "./components/favoritePrompts/FavoritePromptHost";
 import GamePlayScreen from "./components/GamePlayScreen";
 // 007-chat-interactive-ux: ルートベースの画面コンポーネント
 import GalleryScreen from "./components/gallery/GalleryScreen";
@@ -55,6 +56,8 @@ function App() {
           通知が出るよう、ルート分岐より外側に置く（AppMain の中に置くと通常プレイ
           画面へ移動するまでキューに溜まったままになる） */}
       <NotificationContainer />
+      {/* お気に入りプロンプトのダイアログ。どの画面のボタンからも開けるようルート外に 1 つ置く */}
+      <FavoritePromptHost />
       <AppRoutes />
     </>
   );

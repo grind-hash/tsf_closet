@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { ATTRIBUTE_TEXT_MAX_LENGTH } from "../../../constants/playLimits";
 import { useGame } from "../../../contexts/GameContext";
 import { useSettings } from "../../../contexts/SettingsContext";
 import { useAttributeInput } from "../../../hooks/useAttributeInput";
@@ -13,7 +14,12 @@ import AttributePresetSaveDialog from "../../attributes/AttributePresetSaveDialo
 /** 属性付与(現在の属性・プリセット・追加/編集フォーム・現実改変通知トグル) */
 export default function AttributesSection() {
   const { t } = useTranslation();
-  const { state: gameState, addAttribute, removeAttribute } = useGame();
+  const {
+    state: gameState,
+    addAttribute,
+    updateAttribute,
+    removeAttribute,
+  } = useGame();
   const { state: settingsState, setShowRealityAttributeNotification } =
     useSettings();
 
@@ -31,7 +37,7 @@ export default function AttributesSection() {
     remove: handleRemoveAttribute,
     beginEdit: handleEditAttribute,
     onKeyDown: handleAttributeKeyDown,
-  } = useAttributeInput({ addAttribute, removeAttribute });
+  } = useAttributeInput({ addAttribute, updateAttribute, removeAttribute });
 
   // 属性プリセット(localStorage 共有。人物パネルと同じ一覧を見る)
   const {
@@ -125,14 +131,14 @@ export default function AttributesSection() {
         {/* 追加ボタン / 入力フォーム */}
         {showAttributeInput ? (
           <div className="right-panel__attribute-input">
-            <input
+            <textarea
               ref={attributeInputRef}
-              type="text"
+              rows={1}
               value={attributeText}
               onChange={(e) => setAttributeText(e.target.value)}
               onKeyDown={handleAttributeKeyDown}
               placeholder={t("rightPanel.attributePlaceholder")}
-              maxLength={100}
+              maxLength={ATTRIBUTE_TEXT_MAX_LENGTH}
               disabled={isAddingAttribute}
             />
             <button

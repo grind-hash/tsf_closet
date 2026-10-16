@@ -639,6 +639,65 @@ class FavoriteOutfit(Base):
     )
 
 
+class FavoritePromptCategory(Base):
+    """お気に入りプロンプトのカテゴリー（TSF Closet 内に保存する）."""
+
+    __tablename__ = "favorite_prompt_categories"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    label: Mapped[str] = mapped_column(String(80), nullable=False)
+    color: Mapped[str] = mapped_column(String(7), nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        default=func.current_timestamp(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        default=func.current_timestamp(),
+        onupdate=func.current_timestamp(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        Index("idx_favorite_prompt_categories_user", "user_id", "sort_order"),
+    )
+
+
+class FavoritePrompt(Base):
+    """お気に入りプロンプト（よく使うタグや文章の保存先。NovelAI とは同期しない）."""
+
+    __tablename__ = "favorite_prompts"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    category_id: Mapped[str | None] = mapped_column(
+        String,
+        ForeignKey("favorite_prompt_categories.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    label: Mapped[str] = mapped_column(String(80), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    color: Mapped[str] = mapped_column(String(7), nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        default=func.current_timestamp(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        default=func.current_timestamp(),
+        onupdate=func.current_timestamp(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        Index("idx_favorite_prompts_user", "user_id", "sort_order"),
+        Index("idx_favorite_prompts_category", "category_id"),
+    )
+
+
 class PromptExpanderSession(Base):
     """Prompt Expander のセッション（1セッション複数エントリ）."""
 

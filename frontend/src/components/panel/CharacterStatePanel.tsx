@@ -14,6 +14,7 @@
 import { type ChangeEvent, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
+import { ATTRIBUTE_TEXT_MAX_LENGTH } from "../../constants/playLimits";
 import { useChat } from "../../contexts/ChatContext";
 import { useGame } from "../../contexts/GameContext";
 import { useSettings } from "../../contexts/SettingsContext";
@@ -64,6 +65,7 @@ export default function CharacterStatePanel({
     navigatePrevHistory,
     navigateNextHistory,
     addAttribute,
+    updateAttribute,
     removeAttribute,
     startSessionFromHistory,
   } = useGame();
@@ -94,7 +96,7 @@ export default function CharacterStatePanel({
     remove: handleRemoveAttribute,
     beginEdit: handleEditAttribute,
     onKeyDown: handleAttributeKeyDown,
-  } = useAttributeInput({ addAttribute, removeAttribute });
+  } = useAttributeInput({ addAttribute, updateAttribute, removeAttribute });
 
   // 属性プリセット（localStorage 共有。右パネルと同じ一覧を見る）
   const {
@@ -570,14 +572,14 @@ export default function CharacterStatePanel({
           {/* 追加ボタン / 入力フォーム */}
           {showAttributeInput ? (
             <div className="character-state-panel__attribute-input">
-              <input
+              <textarea
                 ref={attributeInputRef}
-                type="text"
+                rows={1}
                 value={attributeText}
                 onChange={(e) => setAttributeText(e.target.value)}
                 onKeyDown={handleAttributeKeyDown}
                 placeholder={t("characterPanel.attrPlaceholder")}
-                maxLength={50}
+                maxLength={ATTRIBUTE_TEXT_MAX_LENGTH}
                 disabled={isAddingAttribute}
               />
               <button

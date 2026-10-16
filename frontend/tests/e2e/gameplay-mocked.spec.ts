@@ -263,9 +263,9 @@ async function mockPlaySession(
       ].join("\n"),
     });
   });
-  await page.route("**/api/game/attributes?*", async (route) => {
-    const url = new URL(route.request().url());
-    const text = url.searchParams.get("attribute_text") ?? "";
+  await page.route("**/api/game/attributes", async (route) => {
+    const body = route.request().postDataJSON() as { attribute_text?: string };
+    const text = body.attribute_text ?? "";
     state.addedAttributes.push(text);
     const id = `attr-${state.addedAttributes.length + 1}`;
     state.attributes.push({ id, text });
@@ -500,7 +500,7 @@ test.describe("右パネル(モック)", () => {
       /猫耳/,
     ]);
     await panel.getByRole("button", { name: "➕ 追加" }).click();
-    const input = panel.locator(".right-panel__attribute-input input");
+    const input = panel.locator(".right-panel__attribute-input textarea");
     await input.fill("眼鏡");
     await input.press("Enter");
 

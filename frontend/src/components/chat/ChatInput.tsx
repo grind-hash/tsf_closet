@@ -18,12 +18,15 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { suggestInstruction } from "../../apis/game";
+import { INSTRUCTION_MAX_LENGTH } from "../../constants/playLimits";
 import { useChat } from "../../contexts/ChatContext";
 import { useGame } from "../../contexts/GameContext";
 import { useNotification } from "../../contexts/NotificationContext";
 import { useSettings } from "../../contexts/SettingsContext";
+import { useInsertAtCaret } from "../../hooks/useInsertAtCaret";
 import { usePersistedState } from "../../hooks/usePersistedState";
 import type { InstructionType } from "../../types";
+import { FavoritePromptInsertButton } from "../favoritePrompts/FavoritePromptButtons";
 import "./ChatInput.css";
 
 interface ChatInputProps {
@@ -118,6 +121,12 @@ export default function ChatInput({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const insertFavoritePrompt = useInsertAtCaret(
+    textareaRef,
+    state.inputText,
+    setInputText,
+    " ",
+  );
 
   // disabled状態になったらフォーカスを外す（カーソル点滅を停止）
   useEffect(() => {
@@ -327,6 +336,10 @@ export default function ChatInput({
             {t("chat.input.suggestInstruction")}
           </span>
         </button>
+        <FavoritePromptInsertButton
+          onInsert={insertFavoritePrompt}
+          disabled={disabled}
+        />
       </div>
 
       <div className="chat-input__row">
@@ -358,6 +371,7 @@ export default function ChatInput({
         {/* テキスト入力 */}
         <textarea
           ref={textareaRef}
+          maxLength={INSTRUCTION_MAX_LENGTH}
           className="chat-input__textarea"
           value={state.inputText}
           onChange={handleTextChange}
