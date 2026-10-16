@@ -14,6 +14,8 @@ Give natural-language instructions to change character outfits and watch AI tran
 
 ---
 
+This README describes the implementation on `develop`. For packaged versions, see [Releases](https://github.com/grind-hash/tsf_closet/releases).
+
 ## Screenshots
 
 ### Gameplay
@@ -50,59 +52,46 @@ Give natural-language instructions to change character outfits and watch AI tran
 
 ## Key Features
 
-| Feature                   | Description                                                            |
-| ------------------------- | ---------------------------------------------------------------------- |
-| **Character Selection**   | Preset characters or custom image upload                               |
-| **Dress-Up Execution**    | Natural language outfit instructions (e.g. "Change into a bunny suit") |
-| **AI Image Generation**   | Switch between ComfyUI / OpenRouter / NovelAI providers                |
-| **Mood Text Generation**  | Vision LLM + Text LLM stream character reactions in real-time          |
-| **Parameter System**      | Bloom, Shame, and Adaptation fluctuate based on outfits                |
-| **Critical-Point Events** | Special dialogue triggers when Bloom reaches thresholds                |
-| **Achievement System**    | 12 achievements auto-detected                                          |
-| **Gallery**               | Browse past transformation images and completed endings                |
-| **Play Summary & Title**  | LLM auto-generates a summary and title (epithet) from play history     |
-| **Share Preview**         | Save summary card as OGP-style image (1200×630) or copy to clipboard   |
-| **Inpaint / Masks**       | Partial outfit changes (system / history / preset masks)               |
-| **Character Chat**        | Chat with characters beyond dress-up instructions                      |
-| **TSF Scenario**          | Novel-game mode starting from a transformed state, with 5 mission types incl. romance sim (experimental) |
-| **Face-to-Face Mode**     | One turn = one exchange with the partner; 3D model (VRM) display and voice input (experimental) |
-| **Prompt Expander**       | Expand natural-language instructions into NovelAI prompts and generate images independently (experimental) |
-| **Speech Synthesis**      | Reads lines aloud via AivisSpeech (experimental)                       |
-| **NAI Diffusion V5**      | Per-NSFW/SFW model selection and remaining-usage display               |
-| **Memory**                | Preference memory (across plays) and play memory (within a play) feed generation |
-| **Favorite Outfits**      | Star history images, label them, and resume from the favorites tab     |
-| **Branch / Compare**      | Start a new session from any history image; Before/After slider        |
-| **Export**                | Save chat history as Markdown / novel-style HTML ZIP                   |
-| **Multiple Characters**   | Persistent appearances across sessions and character presets (experimental) |
-| **Multilingual**          | Japanese / English switching (with conversation language validation)   |
+| Feature                   | Description                                                                                                                                         |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Character Selection**   | Preset characters or custom image upload                                                                                                            |
+| **Dress-Up Execution**    | Natural language outfit instructions (e.g. "Change into a bunny suit")                                                                              |
+| **AI Image Generation**   | Switch between ComfyUI / OpenRouter / NovelAI providers                                                                                             |
+| **Mood Text Generation**  | Vision LLM + Text LLM stream character reactions in real-time                                                                                       |
+| **Parameter System**      | Bloom, Shame, and Adaptation fluctuate based on outfits                                                                                             |
+| **Critical-Point Events** | Special dialogue triggers when Bloom reaches thresholds                                                                                             |
+| **Achievement System**    | 12 achievements auto-detected                                                                                                                       |
+| **Gallery**               | Browse past transformation images and completed endings                                                                                             |
+| **Play Summary & Title**  | LLM auto-generates a summary and title (epithet) from play history                                                                                  |
+| **Share Preview**         | Save summary card as OGP-style image (1200×630) or copy to clipboard                                                                                |
+| **Inpaint / Masks**       | Partial outfit changes (system / history / preset masks)                                                                                            |
+| **Character Chat**        | In-game chat plus a separate chat screen for Serena, characters from past sessions, and scenario partners                                           |
+| **Live2D / VRM Display**  | Choose a 2D portrait, VRM, or Serena-specific Live2D in character chat; dress / princess / bunny Live2D outfits (Core must be installed separately) |
+| **Self Mode**             | Play dress-up, actions, and reality alteration using your profile without parameter tracking                                                        |
+| **TSF Scenario**          | Novel-game mode starting from a transformed state, with 5 mission types incl. romance sim                                                           |
+| **Face-to-Face Mode**     | One turn = one exchange with the partner; 3D model (VRM) display and voice input (experimental)                                                     |
+| **Prompt Expander**       | Expand natural-language instructions into NovelAI prompts and generate images independently (experimental)                                          |
+| **Speech Synthesis**      | Reads lines aloud via AivisSpeech (experimental)                                                                                                    |
+| **NAI Diffusion V5**      | Per-NSFW/SFW model selection and remaining-usage display                                                                                            |
+| **Memory**                | Preference memory (across plays) and play memory (within a play) feed generation                                                                    |
+| **Favorite Outfits**      | Star history images, label them, and resume from the favorites tab                                                                                  |
+| **Branch / Compare**      | Start a new session from any history image; Before/After slider                                                                                     |
+| **Export**                | Save chat history as Markdown / novel-style HTML ZIP                                                                                                |
+| **Multiple Characters**   | Persistent appearances across sessions and character presets (experimental)                                                                         |
+| **Multilingual**          | Japanese / English switching (with conversation language validation)                                                                                |
 
 ---
 
 ## Architecture
 
-```
-┌────────────────────┐
-│  Browser (React)   │
-│  :3000 (dev)       │
-└────────┬───────────┘
-         │ /api/*
-         ▼
-┌────────────────────┐     ┌──────────────────────────────────┐
-│  FastAPI Backend   │────▶│  Image Generation                │
-│  :8000             │     │  ├ ComfyUI (selfhost, GPU)       │
-│                    │     │  ├ OpenRouter API (cloud)         │
-│  ├ Game / Chars    │     │  └ NovelAI Image API             │
-│  ├ Adventure       │     └──────────────────────────────────┘
-│  ├ Prompt Expander │     ┌──────────────────────────────────┐
-│  ├ Gallery / Favs  │────▶│  LLM / Vision                   │
-│  ├ Achievements    │     │  ├ LiteLLM → Ollama (selfhost)  │
-│  ├ Memory          │     │  ├ OpenRouter Vision / LLM      │
-│  ├ Avatars (VRM)   │     │  └ NovelAI Text API              │
-│  ├ AivisSpeech     │     └──────────────────────────────────┘
-│  ├ Settings        │     ┌──────────────────────────────────┐
-│  └ Health          │────▶│  Speech Synthesis                │
-└────────────────────┘     │  └ AivisSpeech Engine (TTS)      │
-                           └──────────────────────────────────┘
+```mermaid
+flowchart TD
+    Browser["Browser: React / Live2D / VRM"] -->|HTTP / SSE| Backend["FastAPI :8000"]
+    Backend --> Data["SQLite / images / avatars"]
+    Backend --> Images["Images: ComfyUI / OpenRouter / NovelAI"]
+    Backend --> Text["Text: LiteLLM + Ollama / OpenRouter / NovelAI"]
+    Backend --> Speech["Speech: AivisSpeech / VOICEVOX-compatible engine"]
+    Backend --> Optional["Optional: Jev / Tavily / weather"]
 ```
 
 ### Tech Stack
@@ -115,80 +104,95 @@ Give natural-language instructions to change character outfits and watch AI tran
 | Image Gen | ComfyUI (Qwen Image Edit) / OpenRouter / NovelAI   |
 | Text Gen  | LiteLLM Proxy → Ollama / OpenRouter / NovelAI Text |
 | i18n      | i18next (ja / en)                                  |
-| Container | Docker Compose (6 services)                        |
+| Container | Docker Compose (7 services)                        |
 
 ---
 
 ## Quick Start
 
-### Prerequisites
+### Play a Packaged Version
 
-- Python 3.12+
-- Node.js 20+
+Choose a package for your OS and provider from [Releases](https://github.com/grind-hash/tsf_closet/releases) and extract it. For the NovelAI package, set `NOVELAI_API_KEY` in `config.env`, then run `start.bat` on Windows or `bash start.sh` on Linux. Open `http://127.0.0.1:8000/`. See the README bundled with the package for details.
+
+### Prerequisites for Running from Source
+
+- Git, Python 3.12+, and Node.js 24 (the development and CI baseline)
 - [uv](https://docs.astral.sh/uv/) (Python package manager)
-- Image generation provider (one of the following):
-  - ComfyUI + NVIDIA GPU (self-hosted)
-  - OpenRouter API key
-  - NovelAI API key (Opus plan recommended)
+- Image and text generation: a NovelAI API key, an OpenRouter API key, or a self-hosted ComfyUI + LiteLLM / Ollama environment
+- The examples below use Windows PowerShell. NovelAI / OpenRouter do not require a local GPU for image generation.
 
-### 1. Setup
+### 1. Prepare the Repository and Environment
 
 ```powershell
-# Backend dependencies
+git clone --branch develop https://github.com/grind-hash/tsf_closet.git
+cd tsf_closet
+
+# For NovelAI: set NOVELAI_API_KEY in .env after copying
+Copy-Item .env.example.novelai .env
+```
+
+For OpenRouter, copy `.env.example.openrouter`; for selfhost, copy `.env.example.selfhost`. If `.env` already exists, update the required settings instead of overwriting it. The generic `.env.example` defaults to selfhost. Keep `.env` at the repository root.
+
+### 2. Prepare Dependencies and the Database
+
+```powershell
+# Start at the repository root
 cd backend
-uv sync
-
-# Frontend dependencies
+uv sync --frozen
+New-Item -ItemType Directory -Force data | Out-Null
+uv run alembic upgrade head
 cd ../frontend
-npm install
+npm ci
+cd ..
 ```
 
-### 2. Environment Variables
-
-Copy `.env.example` to `.env` and configure for your provider:
-
-```powershell
-Copy-Item .env.example .env
-```
+On Linux, use `cp` instead of `Copy-Item` and `mkdir -p data` to create the data directory.
 
 ### 3. Start the Application
 
+Open each terminal at the repository root.
+
 ```powershell
-# Backend (port 8000)
+# Terminal 1: backend (port 8000)
 cd backend
 uv run uvicorn gateway.app:app --host 0.0.0.0 --port 8000 --reload
+```
 
-# Frontend (port 3000) - in a separate terminal
+```powershell
+# Terminal 2: frontend (port 3000)
 cd frontend
 npm run dev
 ```
 
-Open `http://localhost:3000/` in your browser.
+Open `http://localhost:3000/`. API documentation is available at `http://localhost:8000/docs`, and the health check at `http://localhost:8000/health`.
 
 ---
 
 ## Docker Deployment
 
+The bundled `compose.yaml` is a GPU-based selfhost configuration. Review `.env` (Compose / LiteLLM) and `.env.docker` (backend) at the repository root before starting. The backend loads `.env.docker`, so place any cloud API keys used by the backend there. Open `http://localhost/` after startup.
+
 ```powershell
 docker compose up -d
 # Apply backend database migrations
-docker compose exec backend bash -c "uv run alembic upgrade head"
+docker compose exec backend uv run alembic upgrade head
 ```
 
 > **Note**: ComfyUI model downloads may take over an hour. Monitor progress with `docker compose logs -f comfyui`.
 
-| Service      | Description     | Port       |
-| ------------ | --------------- | ---------- |
-| `frontend`   | React + nginx   | 80         |
-| `backend`    | FastAPI         | (internal) |
-| `litellm`    | LiteLLM Proxy   | 4000       |
-| `litellm_db` | PostgreSQL 16   | 5432       |
-| `ollama`     | Local LLM (GPU) | —          |
-| `comfyui`    | Image Gen (GPU) | 8188       |
+| Service      | Description              | Port  |
+| ------------ | ------------------------ | ----- |
+| `frontend`   | React + nginx            | 80    |
+| `backend`    | FastAPI                  | 8000  |
+| `litellm`    | LiteLLM Proxy            | 4000  |
+| `litellm_db` | PostgreSQL 16            | 5432  |
+| `ollama`     | Local LLM (GPU)          | —     |
+| `comfyui`    | Image Gen (GPU)          | 8188  |
+| `aivis`      | AivisSpeech Engine (GPU) | 10101 |
 
 **System Requirements** (Docker):
 
-- NVIDIA GPU (ollama, comfyui)
+- NVIDIA GPU (ollama, comfyui, aivis)
 - Storage: 100 GB+ free space
 - Memory: 64 GB+ recommended
 
@@ -196,10 +200,12 @@ docker compose exec backend bash -c "uv run alembic upgrade head"
 
 ## Portable Build
 
-Build a Windows portable distribution package for users without a GPU environment:
+Build portable packages for Windows / Linux. Run the commands below from the repository root.
+
+### Windows
 
 ```powershell
-.\scripts\build_portable.ps1 -Version "0.1.0" -Provider novelai
+.\scripts\build_portable.ps1 -Version "dev" -Provider novelai
 ```
 
 | Parameter       | Description                           | Default   |
@@ -212,6 +218,18 @@ Build a Windows portable distribution package for users without a GPU environmen
 | `-SkipPython`   | Skip Python environment setup         | —         |
 
 Output: `dist/tsf_closet_portable_v{Version}_{Provider}/`
+
+### Linux
+
+```bash
+bash scripts/build_portable_linux.sh --version dev --provider novelai
+```
+
+`--provider` accepts `novelai`, `selfhost`, or `openrouter`. Other options include `--force`, `--no-archive`, `--skip-frontend`, and `--skip-python`. Building requires Node.js / npm, curl, tar, bc, and related system tools.
+
+Output: `dist/tsf_closet_portable_v{Version}_{Provider}_linux/` (archived as `.tar.gz`).
+
+Both OS packages include Python and the built frontend. Generation APIs, selfhost servers, and speech engines must be provided separately.
 
 ---
 
@@ -286,10 +304,10 @@ Achievements are automatically unlocked based on conditions such as transform co
 
 ## TSF Scenario (Adventure Mode)
 
-An experimental mode that starts an independent novel-game scenario from a transformed state (any point of a session). Enable "TSF Scenario" under "Experimental" in the settings screen to show it in the main menu.
+Start an independent novel-game scenario from a transformed state (any point of a session). Open "TSF Scenario" from the main menu; it can be hidden in Settings.
 
 - **Missions**: 5 types — Romance Simulation, Infiltration, Escape & Return, Negotiation, and Impersonation & Dress-Up. Stage, goal, and constraints can be AI-generated, entered directly, or chosen from a bundled story scenario
-- **Romance Simulation**: day-based progression (day/night), affection, money, part-time jobs, a gift shop, confession, and an epilogue after the ending. The protagonist can use an appearance from another session, and you can set the name the partner calls the protagonist
+- **Romance Simulation**: day-based progression (day/night), affection, money, part-time jobs, a gift shop, confession, and an epilogue after the ending. The protagonist can use an image from another session or Prompt Expander, and you can set the name the partner calls the protagonist
 - **Reality Alteration**: declare world rules with "reality: ..." that apply to every later judgement (attributes can also be granted without spending a turn)
 - **Talk**: free chat that does not spend a turn. Affection, money, and days stay the same, and the conversation carries into the next scene
 - **Auto BGM**: picks background music to match the scene (tracks made with Suno AI); a BGM test screen is available
@@ -310,6 +328,19 @@ A mode available in the romance simulation (off by default). The partner stands 
 - Microphone voice input is supported (Chrome / Edge). It uses the browser's speech recognition, so in Chrome your voice is sent to Google's servers
 
 <!-- TODO: screenshot repo_resources/screen10_adventure_companion.png (face-to-face mode + 3D model) -->
+
+---
+
+## Character Chat / Live2D
+
+Enable "Character Chat" under "Experimental" in Settings to open `/talk` from the menu.
+
+- **Serena, the guide**: chats using preference memory and past play history, and suggests a play to try next.
+- **Characters from past sessions**: start a conversation using a history image and the character's mood and context. Conversations with TSF Scenario partners are also supported.
+- **Appearance and voice**: choose a 2D portrait, registered VRM, or Serena-specific Live2D, with AivisSpeech read-aloud. Live2D supports dress / princess / bunny outfits, full-body / close-up views, expressions, blinking, and mouth movement.
+- **Lookups**: Serena's web search requires `TAVILY_API_KEY` and enabling the feature in Settings. Set the weather location with `WEATHER_LOCATION`.
+
+Live2D Cubism Core is not included in the repository. Follow the [installation instructions](frontend/public/live2d/vendor/README.md) to place `live2dcubismcore.min.js` in `frontend/public/live2d/vendor/` for source builds or `backend/static/live2d/vendor/` for packaged builds. Without it, 2D portraits remain available. Consult the respective distributors for Live2D Core and model usage terms.
 
 ---
 
@@ -343,7 +374,7 @@ An experimental screen that expands natural-language instructions into NovelAI p
 
 An experimental feature that reads lines aloud with the AivisSpeech engine. Enable it under "Speech Synthesis (AivisSpeech)" in the settings screen.
 
-- Supports chat read-aloud in normal play and automatic line playback in the TSF Scenario (face-to-face mode)
+- Supports chat read-aloud in normal play, automatic line playback in the TSF Scenario (face-to-face mode), and character chat replies
 - VOICEVOX-compatible engines can also be connected
 - The default voice volume is 50%; volume and playback speed are adjustable
 
@@ -359,6 +390,8 @@ An experimental feature that reads lines aloud with the AivisSpeech engine. Enab
 ---
 
 ## API Endpoints
+
+Selected endpoints are listed below. For current request and response schemas, see `http://localhost:8000/docs` or `/openapi.json` after starting the backend. A path of `/` in the tables means the prefix itself, without a trailing slash.
 
 ### Game (`/api/game`)
 
@@ -404,28 +437,31 @@ An experimental feature that reads lines aloud with the AivisSpeech engine. Enab
 
 ### Other Routers (Overview)
 
-| Prefix                 | Description                                                                            |
-| ---------------------- | --------------------------------------------------------------------------------------- |
-| `/api/adventure`       | TSF Scenario (runs / templates / turn SSE / talk SSE / reality rules / rewind / BGM)     |
-| `/api/prompt-expander` | Prompt Expander (sessions / entries / expansion / generation / manga script / settings)  |
-| `/api/avatars`         | 3D model (VRM) registration, auto-classification, and file serving                       |
-| `/api/aivisspeech`     | Speech synthesis (`/synthesize`, `/synthesize-timed` with viseme timeline, engine mgmt.) |
-| `/api/memory`          | Preference memory generation jobs and text editing                                       |
-| `/api/favorites`       | Favorite outfits (list / add / relabel)                                                  |
-| `/api/game` (multi)    | Session characters and character presets                                                 |
+| Prefix                 | Description                                                                                               |
+| ---------------------- | --------------------------------------------------------------------------------------------------------- |
+| `/api/adventure`       | TSF Scenario (runs / templates / turn SSE / talk SSE / reality rules / rewind / BGM)                      |
+| `/api/prompt-expander` | Prompt Expander (sessions / entries / expansion / generation / manga script / settings)                   |
+| `/api/character-chat`  | Character chat threads, deletion, conversation SSE, appearance / model selection, and portrait generation |
+| `/api/avatars`         | 3D model (VRM) registration, auto-classification, and file serving                                        |
+| `/api/aivisspeech`     | Speech synthesis (`/synthesize`, `/synthesize-timed` with viseme timeline, engine mgmt.)                  |
+| `/api/memory`          | Preference memory generation jobs and text editing                                                        |
+| `/api/favorites`       | Favorite outfits (list / add / relabel)                                                                   |
+| `/api/game` (multi)    | Session characters and character presets                                                                  |
 
 ### SSE Events (`/api/game/play/stream`)
 
 | Event         | Data                                       |
 | ------------- | ------------------------------------------ |
-| `feeling`     | Character mood text (chunked)              |
+| `text`        | Character mood text (chunked)              |
 | `image`       | Generated image Base64 data                |
 | `tags`        | Outfit tag info (category, exposure level) |
 | `stats`       | Parameter change values                    |
 | `critical`    | Critical-point dialogue                    |
 | `ending`      | Ending judgment result                     |
 | `achievement` | Achievement unlock notification            |
-| `done`        | Processing complete                        |
+| `complete`    | Processing complete                        |
+
+Additional events include cost (`cost`), Anlas balance (`anlas`), and processing errors (`error`).
 
 ---
 
@@ -436,28 +472,28 @@ An experimental feature that reads lines aloud with the AivisSpeech engine. Enab
 
 ### Common
 
-| Variable                     | Description                                                | Default    |
-| ---------------------------- | ---------------------------------------------------------- | ---------- |
-| `PORT`                       | Server port                                                | `8000`     |
-| `LOG_LEVEL`                  | Log level                                                  | `info`     |
-| `IMAGE_PROVIDER`             | Image gen provider (`selfhost` / `openrouter` / `novelai`) | `selfhost` |
-| `IMAGE_DESCRIPTION_PROVIDER` | Image description provider                                 | `selfhost` |
-| `FEELING_PROVIDER`           | Mood text provider                                         | `selfhost` |
-| `ENABLE_PROMPT_PREVIEW`      | Prompt preview feature for the TSF Scenario                | `false`    |
-| `TAVILY_API_KEY`             | Tavily API key for Serena's web search in character chat (used with the Settings toggle) | (none)     |
+| Variable                     | Description                                                                                | Default    |
+| ---------------------------- | ------------------------------------------------------------------------------------------ | ---------- |
+| `PORT`                       | Server port                                                                                | `8000`     |
+| `LOG_LEVEL`                  | Log level                                                                                  | `info`     |
+| `IMAGE_PROVIDER`             | Image gen provider (`selfhost` / `openrouter` / `novelai`)                                 | `selfhost` |
+| `IMAGE_DESCRIPTION_PROVIDER` | Image description provider                                                                 | `selfhost` |
+| `FEELING_PROVIDER`           | Mood text provider                                                                         | `selfhost` |
+| `ENABLE_PROMPT_PREVIEW`      | Prompt preview feature for the TSF Scenario                                                | `false`    |
+| `TAVILY_API_KEY`             | Tavily API key for Serena's web search in character chat (used with the Settings toggle)   | (none)     |
 | `WEATHER_LOCATION`           | City name for Serena's weather lookup in character chat, e.g. `Tokyo` (Open-Meteo, no key) | (none)     |
-| `JEV_PROVIDER`               | Structured judgment (TypeSafe AI Jev) transport (`off` / `openrouter` / `typesafe`) | `off`      |
-| `JEV_LIVE_TARGETS`           | Judgments where Jev's answer actually changes behaviour (empty = log only) | (none)     |
-| `TYPESAFE_API_KEY`           | API key for calling TypeSafe AI directly                     | (none)     |
+| `JEV_PROVIDER`               | Structured judgment (TypeSafe AI Jev) transport (`off` / `openrouter` / `typesafe`)        | `off`      |
+| `JEV_LIVE_TARGETS`           | Judgments where Jev's answer actually changes behaviour (empty = log only)                 | (none)     |
+| `TYPESAFE_API_KEY`           | API key for calling TypeSafe AI directly                                                   | (none)     |
 
 ### ComfyUI (selfhost)
 
-| Variable                  | Default                                   |
-| ------------------------- | ----------------------------------------- |
-| `COMFYUI_BASE_URL`        | `http://127.0.0.1:8188`                   |
-| `COMFYUI_WORKFLOW_PATH`   | `workflows/qwen_image_edit_template.json` |
+| Variable                        | Default                                                                                                                                                            |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `COMFYUI_BASE_URL`              | `http://127.0.0.1:8188`                                                                                                                                            |
+| `COMFYUI_WORKFLOW_PATH`         | `workflows/qwen_image_edit_template.json`                                                                                                                          |
 | `COMFYUI_TXT2IMG_WORKFLOW_PATH` | When unset, the `COMFYUI_WORKFLOW_PATH` file name with `image_edit` replaced by `image_txt2img` (falls back to `workflows/qwen_image_txt2img_template_local.json`) |
-| `COMFYUI_REQUEST_TIMEOUT` | `180`                                     |
+| `COMFYUI_REQUEST_TIMEOUT`       | `180`                                                                                                                                                              |
 
 ### LiteLLM (selfhost)
 
@@ -557,39 +593,49 @@ You can also upload custom images through the UI when starting a game.
 
 ## Frontend Screens
 
-| Path               | Screen                                    |
-| ------------------ | ----------------------------------------- |
-| `/` `/play`        | Main game screen                          |
-| `/gallery`         | Gallery                                   |
-| `/achievements`    | Achievement list                          |
-| `/endings`         | Ending list (enabled via Experimental)    |
-| `/adventure`       | TSF Scenario (enabled via Experimental)   |
-| `/bgm-test`        | BGM test (with TSF Scenario enabled)      |
-| `/prompt-expander` | Prompt Expander (enabled via Experimental) |
-| `/settings`        | Settings                                  |
+| Path                      | Screen                                     |
+| ------------------------- | ------------------------------------------ |
+| `/` `/play`               | Main game screen                           |
+| `/gallery`                | Gallery                                    |
+| `/achievements`           | Achievement list                           |
+| `/endings`                | Ending list                                |
+| `/adventure`              | TSF Scenario (can be hidden in Settings)   |
+| `/bgm-test`               | BGM test (with TSF Scenario enabled)       |
+| `/prompt-expander`        | Prompt Expander (enabled via Experimental) |
+| `/talk` `/talk/:threadId` | Character chat (enabled via Experimental)  |
+| `/guide`                  | Usage guide                                |
+| `/settings`               | Settings                                   |
 
 ---
 
 ## Development
 
+Read [AGENTS.md](AGENTS.md) and the [Constitution](.specify/memory/constitution.md) before making changes. See Quick Start for startup commands.
+
+Run each code block from the repository root. Scope validation to the files and behavior you change.
+
 ```powershell
-# Backend (hot reload)
-cd backend
-uv run alembic upgrade head
-uv run uvicorn gateway.app:app --host 0.0.0.0 --port 8000 --reload
-
-# Frontend (Vite dev server)
+# Frontend
 cd frontend
-npm run dev
+npm run lint
+npm run build
+npm run test
+# Install the browser before running E2E tests
+npx playwright install chromium
+npm run e2e:test
+```
 
-# Lint
-cd frontend; npm run lint
-cd backend; uv run ruff check .
+```powershell
+# Backend
+cd backend
+uv run ruff check .
+uv run pytest
+```
 
-# Tests
-cd frontend; npm run test
-cd frontend; npm run e2e:test
-cd backend; uv run pytest
+```powershell
+# README formatting (Markdown uses Prettier)
+cd frontend
+npx prettier --check ../README.md ../README_en.md
 ```
 
 ### Migrations
@@ -599,6 +645,10 @@ cd backend
 uv run alembic revision --autogenerate -m "migration_comment"
 uv run alembic upgrade head
 ```
+
+### Data and Backups
+
+SQLite, generated images, and registered models are normally stored in `backend/data/`. Stop the app before backing up the entire directory. If environment variables override storage paths, back up those locations as well. Docker stores backend data in the `tsf_closet_backend_data` volume.
 
 ---
 
@@ -613,9 +663,9 @@ This project was forked from [wakuwaku-transform-magic](https://github.com/nata-
 - Inpaint / mask feature added
 - Achievement system added
 - Gallery feature expanded (favorite outfits, transform comparison, keyword search, session branching)
-- Conversation (chat) feature added
+- In-game conversation, independent character chat, and Live2D display added
 - Multilingual support (i18next)
-- Portable build script
+- Windows / Linux portable build scripts
 - Image quality improvements
 - TSF Scenario (adventure mode) added
 - Face-to-face mode and 3D model (VRM) avatars added
