@@ -544,3 +544,121 @@
     padding: 0.9rem 1.25rem;
   }
 }
+
+/* ---- ファイルの書き出し・読み込み ---- */
+.favorite-prompts__transfer {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.favorite-prompts__transfer-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.favorite-prompts__transfer-section + .favorite-prompts__transfer-section {
+  padding-top: 1rem;
+  border-top: 1px solid var(--border-color, #333);
+}
+
+.favorite-prompts__transfer-heading {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.favorite-prompts__transfer-text,
+.favorite-prompts__transfer-hint {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.6;
+}
+
+.favorite-prompts__transfer-hint {
+  color: var(--text-muted, #888);
+}
+
+.favorite-prompts__transfer-rules {
+  margin: 0;
+  padding-left: 1.2rem;
+  font-size: 0.82rem;
+  line-height: 1.6;
+}
+
+.favorite-prompts__transfer-columns {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.5rem 0.6rem;
+  border-radius: 6px;
+  background: rgb(255 255 255 / 4%);
+}
+
+.favorite-prompts__transfer-code {
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
+}
+
+.favorite-prompts__transfer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.favorite-prompts__transfer-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+}
+
+.favorite-prompts__file-input {
+  display: none;
+}
+
+/* 上書き確認: 対象が多くてもダイアログが画面からはみ出さないよう一覧だけをスクロールさせる */
+.favorite-prompts__overwrite-confirm {
+  max-width: 460px;
+}
+
+.favorite-prompts__overwrite-list {
+  max-height: min(40vh, 280px);
+  margin: 0 0 0.75rem;
+  padding: 0;
+  overflow-y: auto;
+  border: 1px solid var(--border-color, #333);
+  border-radius: 6px;
+  list-style: none;
+}
+
+.favorite-prompts__overwrite-item {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.85rem;
+}
+
+.favorite-prompts__overwrite-item + .favorite-prompts__overwrite-item {
+  border-top: 1px solid var(--border-color, #333);
+}
+
+.favorite-prompts__overwrite-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* 幅が可変のカテゴリー名は行末に寄せる */
+.favorite-prompts__overwrite-category {
+  flex: 0 1 auto;
+  max-width: 45%;
+  padding: 0.05rem 0.45rem;
+  border: 1px solid var(--border-color, #444);
+  border-radius: 999px;
+  color: var(--text-muted, #aaa);
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
+}

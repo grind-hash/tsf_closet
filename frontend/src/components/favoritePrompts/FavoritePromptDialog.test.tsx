@@ -1,9 +1,11 @@
 import {
+  act,
   cleanup,
   fireEvent,
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { useEffect, useRef, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -54,6 +56,34 @@ const listBody = {
   ],
 };
 
+const importedPrompt = {
+  id: "p-3",
+  category_id: "cat-2",
+  label: "ポニーテール",
+  content: "ponytail",
+  color: "#6B7280",
+  sort_order: 2,
+  created_at: "2026-10-17T00:00:00",
+  updated_at: "2026-10-17T00:00:00",
+};
+
+const importedCategory = {
+  id: "cat-2",
+  label: "髪型",
+  color: "#6B7280",
+  sort_order: 1,
+  created_at: "2026-10-17T00:00:00",
+  updated_at: "2026-10-17T00:00:00",
+};
+
+const overwritingPreview = {
+  create_count: 1,
+  overwrites: [{ category: "衣装", label: "白ワンピース" }],
+  new_categories: ["髪型"],
+};
+
+let importPreview: typeof overwritingPreview = overwritingPreview;
+
 function jsonResponse(status: number, body: unknown): Response {
   return {
     ok: status >= 200 && status < 300,
@@ -79,9 +109,48 @@ const fetchMock = vi.fn(
         ...body,
       });
     }
+    if (url.startsWith("/api/favorite-prompts/export?")) {
+      return {
+        ok: true,
+        status: 200,
+        blob: async () => new Blob(["csv"]),
+      } as unknown as Response;
+    }
+    if (url === "/api/favorite-prompts/import/preview") {
+      return jsonResponse(200, importPreview);
+    }
+    if (url === "/api/favorite-prompts/import") {
+      return jsonResponse(200, {
+        ...importPreview,
+        categories: [...listBody.categories, importedCategory],
+        prompts: [...listBody.prompts, importedPrompt],
+      });
+    }
     return jsonResponse(500, null);
   },
 );
+
+function calledUrls(): string[] {
+  return fetchMock.mock.calls.map(([input]) => String(input));
+}
+
+async function openTransferView() {
+  fireEvent.click(
+    screen.getByRole("button", { name: "お気に入りプロンプトを挿入" }),
+  );
+  await screen.findByRole("button", { name: "白ワンピース" });
+  fireEvent.click(
+    screen.getByRole("button", {
+      name: "ファイルに書き出す / ファイルから読み込む",
+    }),
+  );
+}
+
+function chooseImportFile(file: File) {
+  fireEvent.change(screen.getByTestId("favorite-prompts-import-input"), {
+    target: { files: [file] },
+  });
+}
 
 /** 挿入先の入力欄と、各ボタンを並べたテスト用の画面 */
 function Harness({ onParentEscape }: { onParentEscape?: () => void }) {
@@ -125,6 +194,7 @@ function renderHarness(onParentEscape?: () => void) {
 }
 
 beforeEach(() => {
+  importPreview = overwritingPreview;
   fetchMock.mockClear();
   vi.stubGlobal("fetch", fetchMock);
 });
@@ -204,5 +274,109 @@ describe("FavoritePromptDialog", () => {
 
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(onParentEscape).not.toHaveBeenCalled();
+  });
+
+  it("lists overwrite targets and imports only after confirmation", async () => {
+    const onParentEscape = vi.fn();
+    renderHarness(onParentEscape);
+    await openTransferView();
+
+    chooseImportFile(
+      new File(["名前,内容\n"], "favorites.csv", { type: "text/csv" }),
+    );
+
+    const message = await screen.findByText(
+      "以下の 1 件のお気に入りプロンプトが上書きされますが、よろしいですか？",
+    );
+    const confirm = message.closest(".confirm-dialog") as HTMLElement;
+    const item = within(confirm).getByText("白ワンピース").closest("li");
+    expect(within(item as HTMLElement).getByText("衣装")).toBeTruthy();
+    expect(
+      within(confirm).getByText("このほかに 1 件を新しく追加します。"),
+    ).toBeTruthy();
+    expect(
+      within(confirm).getByText("新しく作るカテゴリー: 髪型"),
+    ).toBeTruthy();
+    expect(calledUrls()).not.toContain("/api/favorite-prompts/import");
+
+    // 確認中の Escape では背後のダイアログも親モーダルも閉じない。
+    // 確認ダイアログの開閉は effect で親へ伝わるため、反映を待ってから押す
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(screen.getByText(/上書きされますが/)).toBeTruthy();
+    expect(onParentEscape).not.toHaveBeenCalled();
+
+    fireEvent.click(
+      within(confirm).getByRole("button", { name: "上書きして読み込む" }),
+    );
+
+    // 取り込み後は一覧へ戻り、新しいカテゴリーとプロンプトが並ぶ
+    expect(
+      await screen.findByRole("button", { name: "ポニーテール" }),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^髪型/ })).toBeTruthy();
+    const importCall = fetchMock.mock.calls.find(
+      ([input]) => String(input) === "/api/favorite-prompts/import",
+    );
+    const body = importCall?.[1]?.body;
+    expect(body).toBeInstanceOf(FormData);
+    expect(((body as FormData).get("file") as File).name).toBe("favorites.csv");
+  });
+
+  it("does not import when the overwrite is cancelled", async () => {
+    renderHarness();
+    await openTransferView();
+    chooseImportFile(new File(["{}"], "favorites.json"));
+
+    fireEvent.click(await screen.findByRole("button", { name: "キャンセル" }));
+
+    expect(screen.queryByText(/上書きされますが/)).toBeNull();
+    expect(calledUrls()).not.toContain("/api/favorite-prompts/import");
+    expect(
+      screen.getByRole("button", { name: "ファイルを選んで読み込む" }),
+    ).toBeTruthy();
+  });
+
+  it("imports right away when nothing would be overwritten", async () => {
+    importPreview = { create_count: 1, overwrites: [], new_categories: [] };
+    renderHarness();
+    await openTransferView();
+    chooseImportFile(new File(["名前,内容\n"], "favorites.csv"));
+
+    expect(
+      await screen.findByRole("button", { name: "ポニーテール" }),
+    ).toBeTruthy();
+    expect(screen.queryByText(/上書きされますが/)).toBeNull();
+    expect(calledUrls()).toContain("/api/favorite-prompts/import");
+  });
+
+  it("exports CSV with headers in the display language", async () => {
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: vi.fn(() => "blob:favorites"),
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      value: vi.fn(),
+    });
+    const click = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => {});
+    renderHarness();
+    await openTransferView();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "CSV ファイルに書き出す" }),
+    );
+
+    await waitFor(() => expect(click).toHaveBeenCalled());
+    expect(calledUrls()).toContain(
+      "/api/favorite-prompts/export?format=csv&lang=ja",
+    );
+    const link = click.mock.contexts[0] as HTMLAnchorElement;
+    expect(link.download).toMatch(/^tsf-closet-favorite-prompts-\d{8}\.csv$/);
+    click.mockRestore();
   });
 });

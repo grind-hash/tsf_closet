@@ -15,6 +15,7 @@ import { useFavoritePrompts } from "../../contexts/FavoritePromptContext";
 import {
   CloseIcon,
   FavoritePromptInsertIcon,
+  FileTransferIcon,
   FolderPlusIcon,
   PencilIcon,
   PlusIcon,
@@ -25,6 +26,7 @@ interface FavoritePromptListProps {
   onClose: () => void;
   onAddPrompt: () => void;
   onAddCategory: () => void;
+  onOpenTransfer: () => void;
   onEditPrompt: (prompt: FavoritePrompt) => void;
   onEditCategory: (category: FavoritePromptCategory) => void;
 }
@@ -38,6 +40,7 @@ export default function FavoritePromptList({
   onClose,
   onAddPrompt,
   onAddCategory,
+  onOpenTransfer,
   onEditPrompt,
   onEditCategory,
 }: FavoritePromptListProps) {
@@ -117,6 +120,15 @@ export default function FavoritePromptList({
           {t("favoritePrompts.title")}
         </h2>
         <div className="favorite-prompts__header-actions">
+          <button
+            type="button"
+            className="favorite-prompts__icon-btn"
+            onClick={onOpenTransfer}
+            aria-label={t("favoritePrompts.transfer.open")}
+            title={t("favoritePrompts.transfer.open")}
+          >
+            <FileTransferIcon size={18} />
+          </button>
           <button
             type="button"
             className="favorite-prompts__icon-btn"

@@ -36,4 +36,42 @@ export const favoritePrompts = {
   loadFailed: "お気に入りプロンプトを読み込めませんでした",
   saveFailed: "保存できませんでした",
   deleteFailed: "削除できませんでした",
+  transfer: {
+    open: "ファイルに書き出す / ファイルから読み込む",
+    title: "ファイルに書き出す・読み込む",
+    exportHeading: "書き出す（エクスポート）",
+    exportDescription:
+      "すべてのお気に入りプロンプトとカテゴリーを 1 つのファイルに保存します。",
+    exportCsv: "CSV ファイルに書き出す",
+    exportJson: "JSON ファイルに書き出す",
+    exportFormatHint:
+      "CSV は Excel や Google スプレッドシートで開いて編集できます。JSON はバックアップ向けです。",
+    exportEmpty: "まだ書き出すお気に入りプロンプトがありません。",
+    exporting: "書き出しています…",
+    importHeading: "読み込む（インポート）",
+    importDescription: "CSV または JSON ファイルの内容を取り込みます。",
+    importRuleOverwrite:
+      "同じカテゴリー・同じ名前のお気に入りプロンプトは、ファイルの内容で上書きされます（上書きする前に確認します）。",
+    importRuleCategory: "まだ無いカテゴリーは新しく作られます。",
+    csvColumnsTitle: "CSV の列",
+    csvColumns: "カテゴリー / 名前 / 内容 / 色 / カテゴリーの色",
+    csvColumnsHint:
+      "名前と内容は必須です。カテゴリーが空なら未分類になります。色が空なら、上書きするものは今の色のまま、新しく追加するものは既定の色になります。書き出した CSV をひな形にすると簡単です。",
+    importButton: "ファイルを選んで読み込む",
+    importing: "読み込んでいます…",
+    back: "一覧に戻る",
+    overwriteTitle: "上書きの確認",
+    overwriteMessage:
+      "以下の {{count}} 件のお気に入りプロンプトが上書きされますが、よろしいですか？",
+    overwriteExtra: "このほかに {{count}} 件を新しく追加します。",
+    overwriteNewCategories: "新しく作るカテゴリー: {{names}}",
+    overwriteConfirm: "上書きして読み込む",
+    importDone: "{{created}} 件を追加し、{{overwritten}} 件を上書きしました。",
+    importDoneWithCategories:
+      "{{created}} 件を追加し、{{overwritten}} 件を上書きしました。新しく作ったカテゴリー: {{names}}",
+    importNothing: "読み込む項目がありませんでした。",
+    importFailed: "ファイルを読み込めませんでした",
+    exportFailed: "書き出せませんでした",
+    listSeparator: "、",
+  },
 };

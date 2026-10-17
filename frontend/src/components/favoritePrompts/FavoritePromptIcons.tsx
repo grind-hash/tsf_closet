@@ -97,3 +97,35 @@ export function TrashIcon({ size }: IconProps) {
     </Svg>
   );
 }
+
+/** 書き出し・読み込み: 上下の矢印 */
+export function FileTransferIcon({ size }: IconProps) {
+  return (
+    <Svg size={size}>
+      <path d="M7 4v13" />
+      <path d="m3 13 4 4 4-4" />
+      <path d="M17 20V7" />
+      <path d="m13 11 4-4 4 4" />
+    </Svg>
+  );
+}
+
+export function DownloadIcon({ size }: IconProps) {
+  return (
+    <Svg size={size}>
+      <path d="M12 3v12" />
+      <path d="m7 10 5 5 5-5" />
+      <path d="M5 21h14" />
+    </Svg>
+  );
+}
+
+export function UploadIcon({ size }: IconProps) {
+  return (
+    <Svg size={size}>
+      <path d="M12 21V9" />
+      <path d="m7 14 5-5 5 5" />
+      <path d="M5 3h14" />
+    </Svg>
+  );
+}
