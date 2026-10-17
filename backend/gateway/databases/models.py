@@ -76,6 +76,10 @@ class User(Base):
     tts_output_format: Mapped[str] = mapped_column(
         String, default="wav", nullable=False, server_default="wav"
     )
+    # プロンプト生成時に参照する履歴件数（5..20）
+    history_lookback_count: Mapped[int] = mapped_column(
+        Integer, default=10, nullable=False, server_default="10"
+    )
     self_profile_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     memory_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Prompt Expander 専用設定（JSON）。スキーマは services/prompt_expander_service.PromptExpanderSettings

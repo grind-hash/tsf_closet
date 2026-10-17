@@ -17,10 +17,8 @@ import { fetchAnlasBalance } from "../apis/anlas";
 import { getMemoryText as fetchMemoryTextApi } from "../apis/memory";
 import type { SelfProfile } from "../apis/settings";
 import {
-  fetchAppSettings,
   getSelfProfile as fetchSelfProfileApi,
   fetchUserSettings,
-  updateAppSettings,
   updateUserSettings,
 } from "../apis/settings";
 import { fetchHealth, shouldShowCost } from "../apis/system";
@@ -740,6 +738,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
             ttsSpeakerId: data.tts_speaker_id ?? null,
             ttsStyleId: data.tts_style_id ?? null,
             ttsOutputFormat: data.tts_output_format ?? "wav",
+            historyLookbackCount: data.history_lookback_count ?? 10,
           },
         });
       } catch (error) {
@@ -747,24 +746,6 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       }
     };
     loadUserSettings();
-  }, []);
-
-  // spec 004 (US4): Load per-session settings (history_lookback_count etc.)
-  useEffect(() => {
-    const fetchSessionSettings = async () => {
-      try {
-        const settings = await fetchAppSettings();
-        if (settings && typeof settings.history_lookback_count === "number") {
-          dispatch({
-            type: "SET_HISTORY_LOOKBACK_COUNT",
-            payload: settings.history_lookback_count,
-          });
-        }
-      } catch (error) {
-        console.warn("Failed to fetch session settings from backend:", error);
-      }
-    };
-    fetchSessionSettings();
   }, []);
 
   // Load self-profile from backend on init (US6)
@@ -1249,7 +1230,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     const clamped = Math.max(5, Math.min(20, Math.trunc(count)));
     dispatch({ type: "SET_HISTORY_LOOKBACK_COUNT", payload: clamped });
     try {
-      await updateAppSettings({ history_lookback_count: clamped });
+      await updateUserSettings({ history_lookback_count: clamped });
     } catch (error) {
       console.error("Failed to save history_lookback_count to backend:", error);
     }

@@ -71,10 +71,6 @@ def _configure_image_only_service(
     )
     monkeypatch.setattr(service, "_load_custom_session_metadata", lambda _id: {})
     monkeypatch.setattr(
-        "gateway.services.game_service.settings_service.get_history_lookback_count",
-        lambda _id: 10,
-    )
-    monkeypatch.setattr(
         session_store,
         "get_user_settings",
         AsyncMock(

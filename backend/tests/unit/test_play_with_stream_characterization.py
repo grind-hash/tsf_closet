@@ -181,9 +181,6 @@ def _build(
     monkeypatch.setattr(settings, "feeling_provider", provider)
     monkeypatch.setattr(settings, "enable_prompt_preview", False)
     monkeypatch.setattr(gs_module, "session_store", store)
-    monkeypatch.setattr(
-        gs_module.settings_service, "get_history_lookback_count", lambda _id: 10
-    )
     monkeypatch.setattr(gs_module.random, "randint", lambda low, high: low)
 
     # 実績まわりは DB を触るので差し替える

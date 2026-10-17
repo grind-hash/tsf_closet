@@ -23,10 +23,12 @@ from .conversation import (
     is_response_language_valid,
 )
 from .custom_sessions import load_custom_session_metadata
-from .history_context import resolve_history_lookback_enabled
+from .history_context import (
+    clamp_history_lookback_count,
+    resolve_history_lookback_enabled,
+)
 from .llm_service import llm_service
 from .session import session_store
-from .settings_service import settings_service
 
 logger = logging.getLogger(__name__)
 
@@ -135,7 +137,10 @@ class ConversationService:
         lookback_enabled = resolve_history_lookback_enabled(
             use_history_lookback, instruction_type="conversation"
         )
-        lookback_count = settings_service.get_history_lookback_count(session_id)
+        user_settings = await session_store.get_user_settings()
+        lookback_count = clamp_history_lookback_count(
+            user_settings.get("history_lookback_count")
+        )
         conversation_limit = (
             math.ceil(lookback_count * 1.2) if self_mode else lookback_count
         )
@@ -172,7 +177,6 @@ class ConversationService:
             current_outfit_desc = history[-1].after_description or ""
 
         attributes = await session_store.get_session_attribute_texts(session_id)
-        user_settings = await session_store.get_user_settings()
         effective_language = normalize_language(
             language or user_settings.get("language")
         )
