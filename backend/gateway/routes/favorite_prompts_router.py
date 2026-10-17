@@ -20,6 +20,7 @@ from ..schemas.favorite_prompts import (
     FavoritePromptImportTarget,
     FavoritePromptItemResponse,
     FavoritePromptListResponse,
+    FavoritePromptReorderRequest,
     FavoritePromptUpdateRequest,
 )
 from ..services.favorite_prompt_file import (
@@ -143,7 +144,29 @@ async def create_favorite_prompt(body: FavoritePromptCreateRequest):
     return _serialize_prompt(prompt)
 
 
-# インポート / エクスポート・カテゴリー系は動的パス /{prompt_id} より先に定義する
+# 並べ替え・インポート / エクスポート・カテゴリー系は動的パス /{prompt_id} より先に定義する
+@router.put("/order", response_model=FavoritePromptListResponse)
+async def reorder_favorite_prompts(body: FavoritePromptReorderRequest):
+    """ドラッグ＆ドロップの並べ替え・カテゴリー移動を保存し、保存後の一覧を返す。"""
+    try:
+        async with async_session_factory() as db:
+            await FavoritePromptService.reorder_prompts(
+                db,
+                placements=[(p.id, p.category_id) for p in body.prompts],
+                user_id=DEFAULT_USER_ID,
+            )
+            await db.commit()
+            categories, prompts = await FavoritePromptService.list_all(
+                db, user_id=DEFAULT_USER_ID
+            )
+    except FavoritePromptServiceError as exc:
+        raise _http_error(exc) from exc
+    return FavoritePromptListResponse(
+        categories=[_serialize_category(c) for c in categories],
+        prompts=[_serialize_prompt(p) for p in prompts],
+    )
+
+
 @router.get("/export")
 async def export_favorite_prompts(
     file_format: Literal["json", "csv"] = Query("json", alias="format"),

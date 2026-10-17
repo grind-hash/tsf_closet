@@ -26,7 +26,10 @@ export const favoritePrompts = {
     "No favorite prompts yet. Add one with + at the top right, or use the save buttons on each screen.",
   emptyCategory: "Empty category",
   previewHint:
-    "Hover over a name to see its content. Click it to insert into the field.",
+    "Hover over a name to see its content. Click it to insert into the field. Drag it to reorder or move it to another category.",
+  dropHere: "Move here",
+  dropToUncategorized: "Move to Uncategorized",
+  reorderFailed: "Could not save the new order",
   toggleCategory: 'Expand or collapse category "{{name}}"',
   deletePrompt: "Delete this favorite prompt",
   deleteCategory: "Delete this category",

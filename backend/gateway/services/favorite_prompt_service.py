@@ -454,3 +454,36 @@ class FavoritePromptService:
             )
         await db.flush()
         return plan
+
+    @staticmethod
+    async def reorder_prompts(
+        db: AsyncSession,
+        *,
+        placements: list[tuple[str, str | None]],
+        user_id: str = DEFAULT_USER_ID,
+    ) -> None:
+        """並び順とカテゴリーをまとめて保存する（ドラッグ＆ドロップの並べ替え用）。
+
+        ``placements`` は表示順に並べた (プロンプトID, カテゴリーID)。含まれないプロンプト
+        （別の画面で追加された直後など）は、元の並びのまま後ろに置く。
+        """
+        categories, prompts = await FavoritePromptService.list_all(db, user_id=user_id)
+        by_id = {p.id: p for p in prompts}
+        category_ids = {c.id for c in categories}
+        ordered: list[tuple[FavoritePrompt, str | None]] = []
+        for prompt_id, category_id in placements:
+            prompt = by_id.pop(prompt_id, None)
+            if prompt is None:
+                raise FavoritePromptServiceError(
+                    "prompt_not_found", "お気に入りプロンプトが見つかりません"
+                )
+            if category_id is not None and category_id not in category_ids:
+                raise FavoritePromptServiceError(
+                    "category_not_found", "カテゴリーが見つかりません"
+                )
+            ordered.append((prompt, category_id))
+        ordered.extend((p, p.category_id) for p in by_id.values())
+        for index, (prompt, category_id) in enumerate(ordered):
+            prompt.sort_order = index
+            prompt.category_id = category_id
+        await db.flush()

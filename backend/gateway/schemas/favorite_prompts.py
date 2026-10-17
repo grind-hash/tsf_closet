@@ -23,6 +23,17 @@ class FavoritePromptUpdateRequest(BaseModel):
     category_id: str | None = None
 
 
+class FavoritePromptPlacement(BaseModel):
+    id: str
+    category_id: str | None = Field(None, description="カテゴリーID（null で未分類）")
+
+
+class FavoritePromptReorderRequest(BaseModel):
+    """表示順（未分類 → カテゴリー順）に並べたプロンプトと、それぞれの移動先。"""
+
+    prompts: list[FavoritePromptPlacement]
+
+
 class FavoritePromptCategoryCreateRequest(BaseModel):
     label: str = Field(..., max_length=80, description="カテゴリー名")
     color: str | None = Field(None, description="#RRGGBB（省略時は既定色）")

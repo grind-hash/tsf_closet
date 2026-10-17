@@ -170,3 +170,37 @@ def test_import_errors_use_coded_detail(client: TestClient):
     )
     assert res.status_code == 422
     assert res.json()["detail"]["code"] == "invalid_import_file"
+
+
+def test_reorder_returns_saved_list(client: TestClient):
+    category = client.post(
+        "/api/favorite-prompts/categories", json={"label": "衣装"}
+    ).json()
+    first = client.post(
+        "/api/favorite-prompts", json={"label": "a", "content": "a"}
+    ).json()
+    second = client.post(
+        "/api/favorite-prompts", json={"label": "b", "content": "b"}
+    ).json()
+
+    res = client.put(
+        "/api/favorite-prompts/order",
+        json={
+            "prompts": [
+                {"id": second["id"], "category_id": None},
+                {"id": first["id"], "category_id": category["id"]},
+            ]
+        },
+    )
+    assert res.status_code == 200
+    assert [(p["label"], p["category_id"]) for p in res.json()["prompts"]] == [
+        ("b", None),
+        ("a", category["id"]),
+    ]
+
+    res = client.put(
+        "/api/favorite-prompts/order",
+        json={"prompts": [{"id": "missing", "category_id": None}]},
+    )
+    assert res.status_code == 404
+    assert res.json()["detail"]["code"] == "prompt_not_found"

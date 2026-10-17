@@ -83,6 +83,7 @@ const overwritingPreview = {
 };
 
 let importPreview: typeof overwritingPreview = overwritingPreview;
+let reorderStatus = 200;
 
 function jsonResponse(status: number, body: unknown): Response {
   return {
@@ -119,6 +120,20 @@ const fetchMock = vi.fn(
     if (url === "/api/favorite-prompts/import/preview") {
       return jsonResponse(200, importPreview);
     }
+    if (url === "/api/favorite-prompts/order" && init?.method === "PUT") {
+      if (reorderStatus !== 200) return jsonResponse(reorderStatus, null);
+      const { prompts } = JSON.parse(String(init.body)) as {
+        prompts: { id: string; category_id: string | null }[];
+      };
+      return jsonResponse(200, {
+        categories: listBody.categories,
+        prompts: prompts.map((placed, index) => ({
+          ...listBody.prompts.find((p) => p.id === placed.id),
+          category_id: placed.category_id,
+          sort_order: index,
+        })),
+      });
+    }
     if (url === "/api/favorite-prompts/import") {
       return jsonResponse(200, {
         ...importPreview,
@@ -144,6 +159,38 @@ async function openTransferView() {
       name: "ファイルに書き出す / ファイルから読み込む",
     }),
   );
+}
+
+/** jsdom には DragEvent が無いため、座標と dataTransfer を持つ MouseEvent で代用する */
+function drag(element: Element, type: string, clientX = 0) {
+  const event = new MouseEvent(type, {
+    bubbles: true,
+    cancelable: true,
+    clientX,
+  });
+  Object.defineProperty(event, "dataTransfer", {
+    value: { setData: vi.fn(), effectAllowed: "", dropEffect: "" },
+  });
+  fireEvent(element, event);
+}
+
+function chipOf(label: string): HTMLElement {
+  return screen
+    .getByRole("button", { name: label })
+    .closest("li") as HTMLElement;
+}
+
+function chipLabels(container: HTMLElement): string[] {
+  return [...container.querySelectorAll(".favorite-prompts__chip-label")].map(
+    (el) => el.textContent ?? "",
+  );
+}
+
+async function openPicker() {
+  fireEvent.click(
+    screen.getByRole("button", { name: "お気に入りプロンプトを挿入" }),
+  );
+  await screen.findByRole("button", { name: "白ワンピース" });
 }
 
 function chooseImportFile(file: File) {
@@ -195,6 +242,7 @@ function renderHarness(onParentEscape?: () => void) {
 
 beforeEach(() => {
   importPreview = overwritingPreview;
+  reorderStatus = 200;
   fetchMock.mockClear();
   vi.stubGlobal("fetch", fetchMock);
 });
@@ -378,5 +426,71 @@ describe("FavoritePromptDialog", () => {
     const link = click.mock.contexts[0] as HTMLAnchorElement;
     expect(link.download).toMatch(/^tsf-closet-favorite-prompts-\d{8}\.csv$/);
     click.mockRestore();
+  });
+
+  it("moves a prompt into a category by dropping it before a chip", async () => {
+    renderHarness();
+    await openPicker();
+    const source = chipOf("笑顔");
+    const target = chipOf("白ワンピース");
+    vi.spyOn(target, "getBoundingClientRect").mockReturnValue({
+      left: 100,
+      width: 100,
+    } as DOMRect);
+
+    drag(source, "dragstart");
+    // ドラッグ中は各グループの末尾にドロップ枠が出る
+    expect(await screen.findAllByText("ここに移動")).toHaveLength(2);
+
+    // 左半分の上では直前に挿入位置の縦線を出す
+    drag(target, "dragover", 120);
+    expect(target.classList.contains("is-drop-before")).toBe(true);
+    drag(target, "drop", 120);
+
+    const outfit = screen
+      .getByRole("button", { name: /^衣装/ })
+      .closest("section") as HTMLElement;
+    expect(chipLabels(outfit)).toEqual(["笑顔", "白ワンピース"]);
+    expect(screen.queryByText("ここに移動")).toBeNull();
+    await waitFor(() =>
+      expect(calledUrls()).toContain("/api/favorite-prompts/order"),
+    );
+    const put = fetchMock.mock.calls.find(
+      ([input]) => String(input) === "/api/favorite-prompts/order",
+    );
+    expect(JSON.parse(String(put?.[1]?.body))).toEqual({
+      prompts: [
+        { id: "p-1", category_id: "cat-1" },
+        { id: "p-2", category_id: "cat-1" },
+      ],
+    });
+  });
+
+  it("drops onto a collapsed category header and restores the order on failure", async () => {
+    reorderStatus = 500;
+    renderHarness();
+    await openPicker();
+    const header = screen.getByRole("button", { name: /^衣装/ });
+    fireEvent.click(header);
+    expect(screen.queryByRole("button", { name: "白ワンピース" })).toBeNull();
+
+    drag(chipOf("笑顔"), "dragstart");
+    drag(header, "dragover");
+    expect(
+      header
+        .closest(".favorite-prompts__category-head")
+        ?.classList.contains("is-drop-target"),
+    ).toBe(true);
+    drag(header, "drop");
+
+    // 保存を待たずに折りたたみ中の衣装へ移り、失敗したら未分類へ戻る
+    const body = document.querySelector(
+      ".favorite-prompts__body",
+    ) as HTMLElement;
+    expect(chipLabels(body)).toEqual([]);
+    expect(header.textContent).toContain("2");
+    await waitFor(() => expect(chipLabels(body)).toEqual(["笑顔"]));
+    expect(header.textContent).toContain("1");
+    expect(calledUrls()).toContain("/api/favorite-prompts/order");
   });
 });

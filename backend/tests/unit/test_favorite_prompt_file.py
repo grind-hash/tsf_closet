@@ -83,7 +83,7 @@ def test_csv_accepts_shift_jis_english_headers_and_bare_colors():
     assert [(p.category, p.label, p.content, p.color) for p in entries.prompts] == [
         ("表情", "笑顔", "smile", "#ff0000"),
     ]
-    assert entries.categories == []
+    assert [(c.label, c.color) for c in entries.categories] == [("表情", None)]
 
 
 def test_csv_positions_follow_spreadsheet_rows():
@@ -131,3 +131,14 @@ def test_empty_file_is_rejected():
     with pytest.raises(FavoritePromptFileError) as exc:
         parse_file("a.csv", b"\xef\xbb\xbf\r\n")
     assert exc.value.code == "empty_file"
+
+
+def test_csv_keeps_category_order_of_rows():
+    text = "カテゴリー,名前,内容,カテゴリーの色\nA,a,a,\nB,,,#111111\nC,c,c,#222222\n"
+    entries = parse_file("a.csv", text.encode("utf-8"))
+
+    assert [(c.label, c.color) for c in entries.categories] == [
+        ("A", None),
+        ("B", "#111111"),
+        ("C", "#222222"),
+    ]

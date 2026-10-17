@@ -252,3 +252,37 @@ async def test_export_refers_categories_by_name(db):
     assert data.format == EXPORT_FORMAT
     assert [c.label for c in data.categories] == ["衣装"]
     assert [(p.category, p.label) for p in data.prompts] == [("衣装", "白ワンピース")]
+
+
+async def test_reorder_moves_between_categories_and_keeps_unlisted(db):
+    outfit = await FavoritePromptService.create_category(db, label="衣装")
+    a = await FavoritePromptService.create_prompt(db, label="a", content="a")
+    b = await FavoritePromptService.create_prompt(
+        db, label="b", content="b", category_id=outfit.id
+    )
+    c = await FavoritePromptService.create_prompt(db, label="c", content="c")
+    await db.commit()
+
+    # c を衣装の先頭へ移し、a を未分類に残す。b は送らない（後ろへ残る）
+    await FavoritePromptService.reorder_prompts(
+        db, placements=[(a.id, None), (c.id, outfit.id)]
+    )
+    await db.commit()
+
+    _, prompts = await FavoritePromptService.list_all(db)
+    assert [(p.id, p.category_id) for p in prompts] == [
+        (a.id, None),
+        (c.id, outfit.id),
+        (b.id, outfit.id),
+    ]
+
+
+@pytest.mark.parametrize("target", ["prompt", "category"])
+async def test_reorder_rejects_unknown_ids(db, target):
+    prompt = await FavoritePromptService.create_prompt(db, label="a", content="a")
+    await db.commit()
+    placements = [("missing", None)] if target == "prompt" else [(prompt.id, "missing")]
+
+    with pytest.raises(FavoritePromptServiceError) as exc:
+        await FavoritePromptService.reorder_prompts(db, placements=placements)
+    assert exc.value.code == f"{target}_not_found"

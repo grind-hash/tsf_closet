@@ -108,6 +108,27 @@ export async function deleteFavoritePrompt(promptId: string): Promise<void> {
   );
 }
 
+/** 表示順に並べたプロンプトと、それぞれの移動先カテゴリー */
+export interface FavoritePromptPlacement {
+  id: string;
+  category_id: string | null;
+}
+
+/** 並び順とカテゴリーをまとめて保存し、保存後の一覧を受け取る */
+export async function reorderFavoritePrompts(
+  placements: FavoritePromptPlacement[],
+): Promise<FavoritePromptList> {
+  const data = await requestJson<Partial<FavoritePromptList>>(
+    `${BASE}/order`,
+    jsonInit("PUT", { prompts: placements }),
+    { fallbackMessage: "並べ替えを保存できませんでした" },
+  );
+  return {
+    categories: data.categories ?? [],
+    prompts: data.prompts ?? [],
+  };
+}
+
 export function createFavoritePromptCategory(
   input: FavoritePromptCategoryInput,
 ): Promise<FavoritePromptCategory> {

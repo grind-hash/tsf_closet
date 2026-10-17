@@ -26,7 +26,10 @@ export const favoritePrompts = {
     "まだお気に入りプロンプトがありません。右上の＋から追加するか、各画面の保存ボタンから登録できます。",
   emptyCategory: "空のカテゴリー",
   previewHint:
-    "名前にカーソルを合わせると内容を表示します。クリックすると入力欄に挿入します。",
+    "名前にカーソルを合わせると内容を表示します。クリックすると入力欄に挿入します。ドラッグすると並べ替えやカテゴリーの移動ができます。",
+  dropHere: "ここに移動",
+  dropToUncategorized: "未分類に移動",
+  reorderFailed: "並べ替えを保存できませんでした",
   toggleCategory: "カテゴリー「{{name}}」を開閉",
   deletePrompt: "このお気に入りプロンプトを削除",
   deleteCategory: "このカテゴリーを削除",

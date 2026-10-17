@@ -262,7 +262,8 @@ def _parse_csv(text: str) -> FavoritePromptFileEntries:
             content = _csv_cell(row, columns, "content").replace("\r\n", "\n")
             category_color = _csv_color(_csv_cell(row, columns, "category_color"))
             is_category_only = not label.strip() and not content.strip()
-            if category.strip() and (category_color or is_category_only):
+            # 色の有無に関わらず記録し、新しく作るカテゴリーを行の順に並べる
+            if category.strip():
                 entries.categories.append(
                     FileCategoryEntry(
                         f"{row_number}行目のカテゴリー", category, category_color
