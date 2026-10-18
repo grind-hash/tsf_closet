@@ -83,6 +83,7 @@ type ChatAction =
       payload: { tempToken: string; historyId?: string | null };
     }
   | { type: "FAIL_PENDING_IDENTITY"; payload: { tempToken: string } }
+  | { type: "DISCARD_PENDING_IDENTITY"; payload: { tempToken: string } }
   | { type: "REPLACE_MESSAGE_ID"; payload: { oldId: string; newId: string } }
   | { type: "CLEAR_INPUT" }
   | { type: "CLEAR_MESSAGES" };
@@ -331,6 +332,28 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
             : identity,
         ),
       };
+    case "DISCARD_PENDING_IDENTITY": {
+      // 送信前に取り下げた指示: pending identity と紐づくメッセージを消す
+      const identity = state.pendingIdentities.find(
+        (entry) => entry.tempToken === action.payload.tempToken,
+      );
+
+      if (!identity) {
+        return state;
+      }
+
+      return {
+        ...state,
+        messages: state.messages.filter(
+          (message) =>
+            message.id !== identity.userMessageId &&
+            message.id !== identity.feelingMessageId,
+        ),
+        pendingIdentities: state.pendingIdentities.filter(
+          (entry) => entry.tempToken !== action.payload.tempToken,
+        ),
+      };
+    }
     case "REPLACE_MESSAGE_ID":
       return {
         ...state,
@@ -379,6 +402,7 @@ interface ChatContextType {
     historyId?: string | null,
   ) => void;
   failPendingIdentity: (tempToken: string) => void;
+  discardPendingIdentity: (tempToken: string) => void;
   replaceMessageId: (oldId: string, newId: string) => void;
   getMessageHistoryId: (messageId: string) => string | null;
   getLatestPendingIdentity: () => PendingMessageIdentity | null;
@@ -685,6 +709,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "FAIL_PENDING_IDENTITY", payload: { tempToken } });
   }, []);
 
+  const discardPendingIdentity = useCallback((tempToken: string) => {
+    dispatch({ type: "DISCARD_PENDING_IDENTITY", payload: { tempToken } });
+  }, []);
+
   const replaceMessageId = useCallback((oldId: string, newId: string) => {
     dispatch({ type: "REPLACE_MESSAGE_ID", payload: { oldId, newId } });
   }, []);
@@ -767,6 +795,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       resolvePendingIdentity,
       finalizePendingIdentity,
       failPendingIdentity,
+      discardPendingIdentity,
       replaceMessageId,
       getMessageHistoryId,
       getLatestPendingIdentity,
@@ -802,6 +831,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       resolvePendingIdentity,
       finalizePendingIdentity,
       failPendingIdentity,
+      discardPendingIdentity,
       replaceMessageId,
       getMessageHistoryId,
       getLatestPendingIdentity,
