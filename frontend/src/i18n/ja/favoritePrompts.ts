@@ -31,6 +31,8 @@ export const favoritePrompts = {
   dropToUncategorized: "未分類に移動",
   reorderFailed: "並べ替えを保存できませんでした",
   toggleCategory: "カテゴリー「{{name}}」を開閉",
+  expandAllCategories: "すべてのカテゴリーを開く",
+  collapseAllCategories: "すべてのカテゴリーを閉じる",
   deletePrompt: "このお気に入りプロンプトを削除",
   deleteCategory: "このカテゴリーを削除",
   deletePromptConfirm: "「{{name}}」を削除しますか？",

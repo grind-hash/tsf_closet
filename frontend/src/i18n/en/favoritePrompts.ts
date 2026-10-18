@@ -31,6 +31,8 @@ export const favoritePrompts = {
   dropToUncategorized: "Move to Uncategorized",
   reorderFailed: "Could not save the new order",
   toggleCategory: 'Expand or collapse category "{{name}}"',
+  expandAllCategories: "Expand all categories",
+  collapseAllCategories: "Collapse all categories",
   deletePrompt: "Delete this favorite prompt",
   deleteCategory: "Delete this category",
   deletePromptConfirm: 'Delete "{{name}}"?',

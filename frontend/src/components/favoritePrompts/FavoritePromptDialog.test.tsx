@@ -241,6 +241,7 @@ function renderHarness(onParentEscape?: () => void) {
 }
 
 beforeEach(() => {
+  localStorage.clear();
   importPreview = overwritingPreview;
   reorderStatus = 200;
   fetchMock.mockClear();
@@ -464,6 +465,43 @@ describe("FavoritePromptDialog", () => {
         { id: "p-2", category_id: "cat-1" },
       ],
     });
+  });
+
+  it("keeps a collapsed category closed after reopening the dialog", async () => {
+    renderHarness();
+    await openPicker();
+    fireEvent.click(screen.getByRole("button", { name: /^衣装/ }));
+    expect(screen.queryByRole("button", { name: "白ワンピース" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "閉じる" }));
+    cleanup();
+
+    renderHarness();
+    fireEvent.click(
+      screen.getByRole("button", { name: "お気に入りプロンプトを挿入" }),
+    );
+    const header = await screen.findByRole("button", { name: /^衣装/ });
+    expect(header.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByRole("button", { name: "白ワンピース" })).toBeNull();
+  });
+
+  it("expands and collapses every category from the header button", async () => {
+    renderHarness();
+    await openPicker();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "すべてのカテゴリーを閉じる" }),
+    );
+    expect(screen.queryByRole("button", { name: "白ワンピース" })).toBeNull();
+    expect(
+      screen
+        .getByRole("button", { name: /^衣装/ })
+        .getAttribute("aria-expanded"),
+    ).toBe("false");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "すべてのカテゴリーを開く" }),
+    );
+    expect(screen.getByRole("button", { name: "白ワンピース" })).toBeTruthy();
   });
 
   it("drops onto a collapsed category header and restores the order on failure", async () => {

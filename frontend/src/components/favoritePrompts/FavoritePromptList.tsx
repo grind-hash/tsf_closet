@@ -1,7 +1,8 @@
 /**
  * お気に入りプロンプトの一覧ビュー。
  *
- * 未分類のチップ → カテゴリーごとの折りたたみ行の順に並べる。チップをクリックすると
+ * 未分類のチップ → カテゴリーごとの折りたたみ行の順に並べる。カテゴリーの開閉状態は
+ * localStorage に保持し、ヘッダーのボタンでまとめて開閉できる。チップをクリックすると
  * 呼び出し元の入力欄へ内容を挿入する。ホバー/フォーカス中のチップは下部に全文を出す。
  * チップはドラッグ＆ドロップで並べ替え・カテゴリー移動ができる（チップの左右どちら寄りか
  * で挿入位置を決め、各グループ末尾の点線枠やカテゴリー見出しへのドロップは末尾に入れる）。
@@ -20,12 +21,15 @@ import type {
   FavoritePromptCategory,
 } from "../../apis/favoritePrompts";
 import { useFavoritePrompts } from "../../contexts/FavoritePromptContext";
+import { usePersistedState } from "../../hooks/usePersistedState";
 import {
   type FavoritePromptDropTarget,
   groupFavoritePrompts,
 } from "../../utils/favoritePromptOrder";
 import {
   CloseIcon,
+  CollapseAllIcon,
+  ExpandAllIcon,
   FavoritePromptInsertIcon,
   FileTransferIcon,
   FolderPlusIcon,
@@ -45,6 +49,17 @@ interface FavoritePromptListProps {
 
 // ファイルや文字列のドラッグと区別するための独自の形式
 const DRAG_TYPE = "application/x-tsf-closet-favorite-prompt";
+
+// 折りたたみ中のカテゴリー ID の配列（未記録のカテゴリーは開いた状態で出す）
+const COLLAPSED_STORAGE_KEY = "favorite_prompt_categories_collapsed";
+
+function parseCollapsedIds(raw: string): string[] {
+  const parsed: unknown = JSON.parse(raw);
+  if (!Array.isArray(parsed) || !parsed.every((id) => typeof id === "string")) {
+    throw new Error("invalid collapsed category ids");
+  }
+  return parsed;
+}
 
 function colorStyle(color: string): CSSProperties {
   return { "--favorite-prompt-color": color } as CSSProperties;
@@ -69,8 +84,10 @@ export default function FavoritePromptList({
   const { t } = useTranslation();
   const { prompts, categories, loaded, loading, insertPrompt, movePrompt } =
     useFavoritePrompts();
-  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(
-    () => new Set(),
+  const [collapsedIds, setCollapsedIds] = usePersistedState<string[]>(
+    COLLAPSED_STORAGE_KEY,
+    [],
+    { deserialize: parseCollapsedIds },
   );
   const [previewId, setPreviewId] = useState<string | null>(null);
   // ドロップ処理は ref を読む（dragover による state 更新の反映を待たない）
@@ -86,16 +103,27 @@ export default function FavoritePromptList({
     [prompts, categories],
   );
 
+  const collapsed = useMemo(() => new Set(collapsedIds), [collapsedIds]);
+  const allCategoriesOpen = categories.every((c) => !collapsed.has(c.id));
+  const toggleAllLabel = allCategoriesOpen
+    ? t("favoritePrompts.collapseAllCategories")
+    : t("favoritePrompts.expandAllCategories");
+
   const preview = prompts.find((p) => p.id === previewId) ?? null;
   const isEmpty = loaded && prompts.length === 0 && categories.length === 0;
 
   const toggleCategory = (categoryId: string) => {
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      if (next.has(categoryId)) next.delete(categoryId);
-      else next.add(categoryId);
-      return next;
+    setCollapsedIds((prev) => {
+      // 削除済みカテゴリーの ID は保存し直すときに落とす
+      const kept = prev.filter(
+        (id) => id !== categoryId && categories.some((c) => c.id === id),
+      );
+      return prev.includes(categoryId) ? kept : [...kept, categoryId];
     });
+  };
+
+  const toggleAllCategories = () => {
+    setCollapsedIds(allCategoriesOpen ? categories.map((c) => c.id) : []);
   };
 
   const showDropTarget = (target: FavoritePromptDropTarget | null) => {
@@ -253,6 +281,21 @@ export default function FavoritePromptList({
           {t("favoritePrompts.title")}
         </h2>
         <div className="favorite-prompts__header-actions">
+          {categories.length > 0 && (
+            <button
+              type="button"
+              className="favorite-prompts__icon-btn"
+              onClick={toggleAllCategories}
+              aria-label={toggleAllLabel}
+              title={toggleAllLabel}
+            >
+              {allCategoriesOpen ? (
+                <CollapseAllIcon size={18} />
+              ) : (
+                <ExpandAllIcon size={18} />
+              )}
+            </button>
+          )}
           <button
             type="button"
             className="favorite-prompts__icon-btn"

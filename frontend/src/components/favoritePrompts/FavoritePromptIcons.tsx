@@ -98,6 +98,26 @@ export function TrashIcon({ size }: IconProps) {
   );
 }
 
+/** すべて開く: 外向きの山形 */
+export function ExpandAllIcon({ size }: IconProps) {
+  return (
+    <Svg size={size}>
+      <path d="m7 15 5 5 5-5" />
+      <path d="m7 9 5-5 5 5" />
+    </Svg>
+  );
+}
+
+/** すべて閉じる: 内向きの山形 */
+export function CollapseAllIcon({ size }: IconProps) {
+  return (
+    <Svg size={size}>
+      <path d="m7 20 5-5 5 5" />
+      <path d="m7 4 5 5 5-5" />
+    </Svg>
+  );
+}
+
 /** 書き出し・読み込み: 上下の矢印 */
 export function FileTransferIcon({ size }: IconProps) {
   return (
