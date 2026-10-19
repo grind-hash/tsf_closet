@@ -60,7 +60,7 @@ function normalizeFeelingMode(raw: unknown): FeelingMode {
 }
 
 // 設定状態の型定義
-interface SettingsState {
+export interface SettingsState {
   // 難易度設定
   difficulty: "easy" | "normal" | "hard";
   // 開花度増分の計算方式 (legacy=従来, new=緩やか)
@@ -106,6 +106,9 @@ interface SettingsState {
 
   // お気に入り一覧からの削除時に確認ダイアログを表示する (spec 009)
   confirmFavoriteRemove: boolean;
+
+  // 設定画面を検索・カテゴリ別の新しいレイアウトで表示する（既定 OFF）
+  newSettingsScreenEnabled: boolean;
 
   // サウンド設定
   soundEnabled: boolean;
@@ -213,6 +216,7 @@ type SettingsAction =
   | { type: "SET_PLAY_MEMORY_SYSTEM_ENABLED"; payload: boolean }
   | { type: "SET_PLAY_MEMORY_USER_ENABLED"; payload: boolean }
   | { type: "SET_CONFIRM_FAVORITE_REMOVE"; payload: boolean }
+  | { type: "SET_NEW_SETTINGS_SCREEN_ENABLED"; payload: boolean }
   | { type: "SET_SOUND_ENABLED"; payload: boolean }
   | { type: "SET_SOUND_VOLUME"; payload: number }
   | { type: "TOGGLE_PANEL" }
@@ -283,6 +287,7 @@ const defaultState: SettingsState = {
   playMemorySystemEnabled: true,
   playMemoryUserEnabled: true,
   confirmFavoriteRemove: true,
+  newSettingsScreenEnabled: false,
   soundEnabled: true,
   soundVolume: 0.5,
   rightPanelOpen: false,
@@ -400,6 +405,8 @@ function settingsReducer(
       return { ...state, playMemoryUserEnabled: action.payload };
     case "SET_CONFIRM_FAVORITE_REMOVE":
       return { ...state, confirmFavoriteRemove: action.payload };
+    case "SET_NEW_SETTINGS_SCREEN_ENABLED":
+      return { ...state, newSettingsScreenEnabled: action.payload };
     case "SET_SOUND_ENABLED":
       return { ...state, soundEnabled: action.payload };
     case "SET_SOUND_VOLUME":
@@ -534,6 +541,7 @@ interface SettingsContextType {
   setPlayMemorySystemEnabled: (enabled: boolean) => void;
   setPlayMemoryUserEnabled: (enabled: boolean) => void;
   setConfirmFavoriteRemove: (enabled: boolean) => void;
+  setNewSettingsScreenEnabled: (enabled: boolean) => void;
   setSoundEnabled: (enabled: boolean) => void;
   setSoundVolume: (volume: number) => void;
   togglePanel: () => void;
@@ -1019,6 +1027,9 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const setConfirmFavoriteRemove = useCallback((enabled: boolean) => {
     dispatch({ type: "SET_CONFIRM_FAVORITE_REMOVE", payload: enabled });
   }, []);
+  const setNewSettingsScreenEnabled = useCallback((enabled: boolean) => {
+    dispatch({ type: "SET_NEW_SETTINGS_SCREEN_ENABLED", payload: enabled });
+  }, []);
 
   const setSoundEnabled = useCallback((enabled: boolean) => {
     dispatch({ type: "SET_SOUND_ENABLED", payload: enabled });
@@ -1299,6 +1310,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       setPlayMemorySystemEnabled,
       setPlayMemoryUserEnabled,
       setConfirmFavoriteRemove,
+      setNewSettingsScreenEnabled,
       setSoundEnabled,
       setSoundVolume,
       togglePanel,
@@ -1372,6 +1384,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       setPlayMemorySystemEnabled,
       setPlayMemoryUserEnabled,
       setConfirmFavoriteRemove,
+      setNewSettingsScreenEnabled,
       setSoundEnabled,
       setSoundVolume,
       togglePanel,
