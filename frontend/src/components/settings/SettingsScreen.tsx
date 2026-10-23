@@ -322,9 +322,6 @@ export default function SettingsScreen() {
         <div className="settings-screen__item-header">
           <span className="settings-screen__item-label">
             {t("settings.feelingMode")}
-            <span className="feature-chip-new" data-feature-version="v0.7.0">
-              New
-            </span>
             <span
               className="feature-chip-experimental"
               data-feature-version="v0.7.0"
@@ -918,13 +915,6 @@ export default function SettingsScreen() {
           <div className="settings-screen__toggle-info">
             <span className="settings-screen__item-label">
               {t("settings.experimentalPlayMemory")}
-              <span
-                className="feature-chip-new"
-                data-feature-version="v0.6.0"
-                style={{ marginLeft: "0.5rem" }}
-              >
-                New
-              </span>
             </span>
             <span className="settings-screen__item-desc">
               {t("settings.experimentalPlayMemoryDesc")}
@@ -1005,18 +995,7 @@ export default function SettingsScreen() {
       {/* メモリ機能 */}
       <SettingsSection
         category="memory"
-        title={
-          <>
-            {t("settings.memory.sectionTitle")}
-            <span
-              className="feature-chip-new"
-              data-feature-version="v0.6.0"
-              style={{ marginLeft: "0.5rem" }}
-            >
-              New
-            </span>
-          </>
-        }
+        title={t("settings.memory.sectionTitle")}
       >
         {renderItems("memory")}
       </SettingsSection>
@@ -1146,7 +1125,7 @@ export default function SettingsScreen() {
                 {t("settings.newSettingsScreen")}
                 <span
                   className="feature-chip-new"
-                  data-feature-version="v0.9.0"
+                  data-feature-version="v0.10.0"
                 >
                   New
                 </span>
