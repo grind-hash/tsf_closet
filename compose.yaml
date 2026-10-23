@@ -80,6 +80,8 @@ services:
       DATABASE_URL: "postgresql://llmproxy:dbpassword9090@litellm_db:5432/litellm"
       STORE_MODEL_IN_DB: "True" # allows adding models to proxy via UI
       LITELLM_MASTER_KEY: "sk-1234"
+      # ローカル開発用のため、sk-1234を許容する
+      LITELLM_DANGEROUSLY_PERMIT_WEAK_OR_UNSET_MASTER_KEY: true
     env_file:
       - .env # Load local .env file
     depends_on:
