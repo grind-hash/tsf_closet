@@ -229,6 +229,12 @@ export const settings = {
   fontBizUDMinchoDesc: "ユニバーサルデザイン 明朝体",
   fontInterDesc: "モダンな英語用サンセリフ",
   fontRobotoMonoDesc: "等幅フォント（英語）",
+  newSettingsScreen: "新しい設定画面を利用",
+  searchPlaceholder: "設定を検索…",
+  searchAria: "設定項目を検索",
+  searchClear: "検索をクリア",
+  searchNoResults: "「{{query}}」に一致する設定はありません",
+  categoryNavLabel: "設定のカテゴリ",
   selfProfile: {
     sectionTitle: "自分自身モードで利用するキャラ設定",
     inputLabel: "利用したい性格を教えてください",

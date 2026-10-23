@@ -1,4 +1,4 @@
-"""設定（アプリ設定・互換ユーザー設定・自分自身モードのプロフィール）の API モデル。"""
+"""設定（ユーザー設定・自分自身モードのプロフィール）の API モデル。"""
 
 from __future__ import annotations
 
@@ -45,6 +45,7 @@ class UserSettingsResponse(BaseModel):
     tts_speaker_id: str | None = None
     tts_style_id: str | None = None
     tts_output_format: Literal["wav"] = "wav"
+    history_lookback_count: int = HISTORY_LOOKBACK_DEFAULT
     # ENABLE_PROMPT_PREVIEW。環境変数由来の読み取り専用で DB には持たない。
     # 開発者にしか意味がない案内(リポジトリ内のパス等)の出し分けに使う
     enable_prompt_preview: bool = False
@@ -74,66 +75,6 @@ class UserSettingsUpdateRequest(BaseModel):
     tts_speaker_id: str | None = None
     tts_style_id: str | None = None
     tts_output_format: Literal["wav"] | None = None
-
-
-class InpaintSettingsModel(BaseModel):
-    strength: float = 0.75
-    mask_blur: int = 4
-    inpaint_full_res: bool = True
-    inpaint_full_res_padding: int = 32
-
-
-class ChangeSettingsModel(BaseModel):
-    preserve_face: bool = True
-    preserve_hair: bool = True
-    seed: int | None = None
-    use_random_seed: bool = True
-
-
-class SettingsModel(BaseModel):
-    difficulty: Literal["easy", "normal", "hard"] = "normal"
-    nsfw_mode: bool = False
-    image_provider: Literal["selfhost", "openrouter", "novelai"] = "selfhost"
-    default_instruction_type: Literal["dress_up", "reality_change", "conversation"] = (
-        "dress_up"
-    )
-    inpaint_settings: InpaintSettingsModel = InpaintSettingsModel()
-    inpaint_enabled: bool = False
-    change_settings: ChangeSettingsModel = ChangeSettingsModel()
-    show_achievement_notifications: bool = True
-    sound_enabled: bool = True
-    sound_volume: float = 0.25
-    right_panel_open: bool = False
-    enable_surroundings_image: bool = False
-    surroundings_include_people: bool = False
-    history_lookback_count: int = Field(
-        default=HISTORY_LOOKBACK_DEFAULT,
-        ge=HISTORY_LOOKBACK_MIN,
-        le=HISTORY_LOOKBACK_MAX,
-    )
-
-
-class SettingsResponse(BaseModel):
-    settings: SettingsModel
-    saved_at: str | None = None
-
-
-class SettingsUpdateRequest(BaseModel):
-    difficulty: Literal["easy", "normal", "hard"] | None = None
-    nsfw_mode: bool | None = None
-    image_provider: Literal["selfhost", "openrouter", "novelai"] | None = None
-    default_instruction_type: (
-        Literal["dress_up", "reality_change", "conversation"] | None
-    ) = None
-    inpaint_settings: InpaintSettingsModel | None = None
-    inpaint_enabled: bool | None = None
-    change_settings: ChangeSettingsModel | None = None
-    show_achievement_notifications: bool | None = None
-    sound_enabled: bool | None = None
-    sound_volume: float | None = None
-    right_panel_open: bool | None = None
-    enable_surroundings_image: bool | None = None
-    surroundings_include_people: bool | None = None
     history_lookback_count: int | None = Field(
         default=None, ge=HISTORY_LOOKBACK_MIN, le=HISTORY_LOOKBACK_MAX
     )

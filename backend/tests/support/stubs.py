@@ -5,7 +5,6 @@ DB を使わずに固定値を返す。DB を伴う検証には ``isolated_db`` 
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
 
@@ -76,23 +75,3 @@ class StubSettingsService:
             if value is not None:
                 self.state[key] = value
         return dict(self.state)
-
-    def get_settings_for_session(self, session_id: str, settings_model_cls):
-        return settings_model_cls()
-
-    def update_settings_for_session(
-        self,
-        session_id: str,
-        updates,
-        settings_model_cls,
-        inpaint_model_cls,
-        change_model_cls,
-    ):
-        return settings_model_cls()
-
-    def reset_settings_for_session(self, session_id: str):
-        return {"message": "Settings reset to defaults", "session_id": session_id}
-
-    @staticmethod
-    def utc_now_iso() -> str:
-        return datetime.now(UTC).isoformat()

@@ -395,12 +395,10 @@ An experimental feature that reads lines aloud with the AivisSpeech engine. Enab
 
 ### Settings (`/api/settings`)
 
-| Method | Path    | Description             |
-| ------ | ------- | ----------------------- |
-| `GET`  | `/`     | Get session settings    |
-| `PUT`  | `/`     | Update session settings |
-| `GET`  | `/user` | Get user settings       |
-| `PUT`  | `/user` | Update user settings    |
+| Method | Path    | Description          |
+| ------ | ------- | -------------------- |
+| `GET`  | `/user` | Get user settings    |
+| `PUT`  | `/user` | Update user settings |
 
 ### Other Routers (Overview)
 

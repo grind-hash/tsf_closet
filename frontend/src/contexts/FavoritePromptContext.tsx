@@ -4,6 +4,7 @@
  * 一覧データと、全画面で共有する 1 つのダイアログ（挿入 / 保存）を管理する。
  * 各画面のボタンは useFavoritePrompts() の openPicker / openSaveDialog を呼ぶだけで、
  * ダイアログ本体は App 直下の FavoritePromptHost が描画する。
+ * CSV / JSON ファイルへの書き出し・読み込みと、ドラッグ＆ドロップの並べ替えもここで行う。
  */
 
 import {
@@ -21,14 +22,26 @@ import {
   createFavoritePromptCategory,
   deleteFavoritePrompt,
   deleteFavoritePromptCategory,
+  exportFavoritePrompts,
   type FavoritePrompt,
   type FavoritePromptCategory,
   type FavoritePromptCategoryInput,
+  type FavoritePromptFileFormat,
+  type FavoritePromptImportPreview,
+  type FavoritePromptImportResult,
   type FavoritePromptInput,
+  type FavoritePromptPlacement,
   fetchFavoritePrompts,
+  importFavoritePrompts,
+  previewFavoritePromptImport,
+  reorderFavoritePrompts,
   updateFavoritePrompt,
   updateFavoritePromptCategory,
 } from "../apis/favoritePrompts";
+import {
+  type FavoritePromptDropTarget,
+  moveFavoritePrompt,
+} from "../utils/favoritePromptOrder";
 import { useNotification } from "./NotificationContext";
 
 /** picker: 一覧から選んで挿入する / save: 新規フォームを内容入りで開く */
@@ -54,6 +67,7 @@ type FavoritePromptAction =
     }
   | { type: "LOAD_FAILED" }
   | { type: "UPSERT_PROMPT"; prompt: FavoritePrompt }
+  | { type: "APPLY_ORDER"; placements: FavoritePromptPlacement[] }
   | { type: "REMOVE_PROMPT"; promptId: string }
   | { type: "UPSERT_CATEGORY"; category: FavoritePromptCategory }
   | { type: "REMOVE_CATEGORY"; categoryId: string }
@@ -110,6 +124,27 @@ function favoritePromptReducer(
       return { ...state, loading: false };
     case "UPSERT_PROMPT":
       return { ...state, prompts: upsert(state.prompts, action.prompt) };
+    case "APPLY_ORDER": {
+      // 保存の応答を待たずに並びを反映する（失敗したら元へ戻す）
+      const placed = new Map(
+        action.placements.map((p, index) => [p.id, { ...p, index }]),
+      );
+      return {
+        ...state,
+        prompts: bySortOrder(
+          state.prompts.map((prompt) => {
+            const next = placed.get(prompt.id);
+            return next
+              ? {
+                  ...prompt,
+                  category_id: next.category_id,
+                  sort_order: next.index,
+                }
+              : prompt;
+          }),
+        ),
+      };
+    }
     case "REMOVE_PROMPT":
       return {
         ...state,
@@ -168,6 +203,11 @@ interface FavoritePromptContextValue {
     changes: Partial<FavoritePromptInput>,
   ) => Promise<FavoritePrompt | null>;
   deletePrompt: (promptId: string) => Promise<boolean>;
+  /** 並べ替え・カテゴリー移動（すぐ画面に反映し、保存に失敗したら元へ戻す） */
+  movePrompt: (
+    promptId: string,
+    target: FavoritePromptDropTarget,
+  ) => Promise<boolean>;
   createCategory: (
     input: FavoritePromptCategoryInput,
   ) => Promise<FavoritePromptCategory | null>;
@@ -176,6 +216,12 @@ interface FavoritePromptContextValue {
     changes: Partial<FavoritePromptCategoryInput>,
   ) => Promise<FavoritePromptCategory | null>;
   deleteCategory: (categoryId: string) => Promise<boolean>;
+  /** すべてをファイルとして保存する（CSV の見出しは表示言語に合わせる） */
+  exportPrompts: (format: FavoritePromptFileFormat) => Promise<boolean>;
+  /** 書き込まずに、追加・上書きされる内容を確認する */
+  previewImport: (file: File) => Promise<FavoritePromptImportPreview | null>;
+  /** 取り込んで一覧を置き換え、結果を通知する */
+  importPrompts: (file: File) => Promise<FavoritePromptImportResult | null>;
 }
 
 const FavoritePromptContext = createContext<FavoritePromptContextValue | null>(
@@ -183,7 +229,7 @@ const FavoritePromptContext = createContext<FavoritePromptContextValue | null>(
 );
 
 export function FavoritePromptProvider({ children }: { children: ReactNode }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { showNotification } = useNotification();
   const [state, dispatch] = useReducer(favoritePromptReducer, initialState);
   const onInsertRef = useRef<((content: string) => void) | null>(null);
@@ -290,6 +336,37 @@ export function FavoritePromptProvider({ children }: { children: ReactNode }) {
     [reportError, t],
   );
 
+  const movePrompt = useCallback(
+    async (promptId: string, target: FavoritePromptDropTarget) => {
+      const placements = moveFavoritePrompt(
+        state.prompts,
+        state.categories,
+        promptId,
+        target,
+      );
+      if (!placements) return true;
+      const previous = {
+        prompts: state.prompts,
+        categories: state.categories,
+      };
+      dispatch({ type: "APPLY_ORDER", placements });
+      try {
+        const data = await reorderFavoritePrompts(placements);
+        dispatch({
+          type: "LOAD_DONE",
+          prompts: data.prompts,
+          categories: data.categories,
+        });
+        return true;
+      } catch (err) {
+        dispatch({ type: "LOAD_DONE", ...previous });
+        reportError(t("favoritePrompts.reorderFailed"), err);
+        return false;
+      }
+    },
+    [state.prompts, state.categories, reportError, t],
+  );
+
   const createCategory = useCallback(
     async (input: FavoritePromptCategoryInput) => {
       try {
@@ -338,6 +415,79 @@ export function FavoritePromptProvider({ children }: { children: ReactNode }) {
     [reportError, t],
   );
 
+  const exportPrompts = useCallback(
+    async (format: FavoritePromptFileFormat) => {
+      try {
+        const language = i18n.language?.startsWith("en") ? "en" : "ja";
+        await exportFavoritePrompts(format, language);
+        return true;
+      } catch (err) {
+        reportError(t("favoritePrompts.transfer.exportFailed"), err);
+        return false;
+      }
+    },
+    [i18n.language, reportError, t],
+  );
+
+  const previewImport = useCallback(
+    async (file: File) => {
+      try {
+        return await previewFavoritePromptImport(file);
+      } catch (err) {
+        reportError(t("favoritePrompts.transfer.importFailed"), err);
+        return null;
+      }
+    },
+    [reportError, t],
+  );
+
+  const importPrompts = useCallback(
+    async (file: File) => {
+      try {
+        const result = await importFavoritePrompts(file);
+        loadedRef.current = true;
+        dispatch({
+          type: "LOAD_DONE",
+          prompts: result.prompts,
+          categories: result.categories,
+        });
+        const changed =
+          result.create_count +
+          result.overwrites.length +
+          result.new_categories.length;
+        if (changed === 0) {
+          showNotification(
+            "info",
+            t("favoritePrompts.title"),
+            t("favoritePrompts.transfer.importNothing"),
+          );
+        } else {
+          const counts = {
+            created: result.create_count,
+            overwritten: result.overwrites.length,
+          };
+          showNotification(
+            "success",
+            t("favoritePrompts.title"),
+            result.new_categories.length > 0
+              ? t("favoritePrompts.transfer.importDoneWithCategories", {
+                  ...counts,
+                  names: result.new_categories.join(
+                    t("favoritePrompts.transfer.listSeparator"),
+                  ),
+                })
+              : t("favoritePrompts.transfer.importDone", counts),
+          );
+        }
+        return result;
+      } catch (err) {
+        reportError(t("favoritePrompts.transfer.importFailed"), err);
+        return null;
+      }
+    },
+    [reportError, showNotification, t],
+  );
+
   const value = useMemo<FavoritePromptContextValue>(
     () => ({
       prompts: state.prompts,
@@ -353,9 +503,13 @@ export function FavoritePromptProvider({ children }: { children: ReactNode }) {
       createPrompt,
       updatePrompt,
       deletePrompt,
+      movePrompt,
       createCategory,
       updateCategory,
       deleteCategory,
+      exportPrompts,
+      previewImport,
+      importPrompts,
     }),
     [
       state,
@@ -367,9 +521,13 @@ export function FavoritePromptProvider({ children }: { children: ReactNode }) {
       createPrompt,
       updatePrompt,
       deletePrompt,
+      movePrompt,
       createCategory,
       updateCategory,
       deleteCategory,
+      exportPrompts,
+      previewImport,
+      importPrompts,
     ],
   );
 

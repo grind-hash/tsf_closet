@@ -3,13 +3,8 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 
 from ..schemas.settings import (
-    ChangeSettingsModel,
-    InpaintSettingsModel,
     SelfProfileGenerateRequest,
     SelfProfileSaveRequest,
-    SettingsModel,
-    SettingsResponse,
-    SettingsUpdateRequest,
     UserSettingsResponse,
     UserSettingsUpdateRequest,
 )
@@ -18,36 +13,6 @@ from ..services.settings_service import settings_service
 from ..settings.config import settings as app_settings
 
 router = APIRouter(prefix="/settings", tags=["settings"])
-
-
-@router.get("", response_model=SettingsResponse)
-async def get_settings(session_id: str = "default") -> SettingsResponse:
-    settings = settings_service.get_settings_for_session(session_id, SettingsModel)
-    return SettingsResponse(settings=settings, saved_at=None)
-
-
-@router.put("", response_model=SettingsResponse)
-async def update_settings(
-    request: SettingsUpdateRequest, session_id: str = "default"
-) -> SettingsResponse:
-    try:
-        updated = settings_service.update_settings_for_session(
-            session_id=session_id,
-            updates=request,
-            settings_model_cls=SettingsModel,
-            inpaint_model_cls=InpaintSettingsModel,
-            change_model_cls=ChangeSettingsModel,
-        )
-        return SettingsResponse(
-            settings=updated, saved_at=settings_service.utc_now_iso()
-        )
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@router.delete("")
-async def reset_settings(session_id: str = "default") -> dict[str, str]:
-    return settings_service.reset_settings_for_session(session_id)
 
 
 @router.get("/user", response_model=UserSettingsResponse)
@@ -83,6 +48,7 @@ async def update_user_settings(
             tts_speaker_id=request.tts_speaker_id,
             tts_style_id=request.tts_style_id,
             tts_output_format=request.tts_output_format,
+            history_lookback_count=request.history_lookback_count,
         )
         return UserSettingsResponse(
             **updated,

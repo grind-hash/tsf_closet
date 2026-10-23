@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+from ..consts.history_lookback import (
+    HISTORY_LOOKBACK_DEFAULT,
+    HISTORY_LOOKBACK_MAX,
+    HISTORY_LOOKBACK_MIN,
+)
+
 _TYPE_LABELS = {
     "dress_up": "着替",
     "reality_alter": "改変",
@@ -24,6 +30,15 @@ def resolve_history_lookback_enabled(
     if transformation_type == "reality":
         return False
     return False
+
+
+def clamp_history_lookback_count(value: object) -> int:
+    """履歴遡及件数を [MIN, MAX] に収める。数値でなければ既定値を返す。"""
+    try:
+        ivalue = int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return HISTORY_LOOKBACK_DEFAULT
+    return max(HISTORY_LOOKBACK_MIN, min(HISTORY_LOOKBACK_MAX, ivalue))
 
 
 def build_history_context(entries: list[tuple[str, str]] | None) -> str:

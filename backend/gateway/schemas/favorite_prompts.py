@@ -23,6 +23,17 @@ class FavoritePromptUpdateRequest(BaseModel):
     category_id: str | None = None
 
 
+class FavoritePromptPlacement(BaseModel):
+    id: str
+    category_id: str | None = Field(None, description="カテゴリーID（null で未分類）")
+
+
+class FavoritePromptReorderRequest(BaseModel):
+    """表示順（未分類 → カテゴリー順）に並べたプロンプトと、それぞれの移動先。"""
+
+    prompts: list[FavoritePromptPlacement]
+
+
 class FavoritePromptCategoryCreateRequest(BaseModel):
     label: str = Field(..., max_length=80, description="カテゴリー名")
     color: str | None = Field(None, description="#RRGGBB（省略時は既定色）")
@@ -61,3 +72,48 @@ class FavoritePromptListResponse(BaseModel):
 class DeleteFavoritePromptResponse(BaseModel):
     success: bool = True
     deleted: bool = True
+
+
+# ---- インポート / エクスポート ----
+# ID は環境ごとに異なるため、ファイルではカテゴリーを名前で参照する。
+# 文字数などの検証はサービス側で行い、何件目の項目かをメッセージに含める。
+
+
+class FavoritePromptFileCategory(BaseModel):
+    label: str
+    color: str | None = None
+
+
+class FavoritePromptFilePrompt(BaseModel):
+    category: str | None = Field(None, description="カテゴリー名（null で未分類）")
+    label: str
+    content: str
+    color: str | None = None
+
+
+class FavoritePromptFile(BaseModel):
+    """エクスポートファイルの中身（インポート時もこの形で受け取る）。"""
+
+    format: str
+    version: int
+    exported_at: datetime | None = None
+    categories: list[FavoritePromptFileCategory] = Field(default_factory=list)
+    prompts: list[FavoritePromptFilePrompt] = Field(default_factory=list)
+
+
+class FavoritePromptImportTarget(BaseModel):
+    category: str | None = None
+    label: str
+
+
+class FavoritePromptImportPreviewResponse(BaseModel):
+    create_count: int
+    overwrites: list[FavoritePromptImportTarget]
+    new_categories: list[str]
+
+
+class FavoritePromptImportResponse(FavoritePromptImportPreviewResponse):
+    """取り込み結果と、取り込み後の一覧。"""
+
+    categories: list[FavoritePromptCategoryResponse]
+    prompts: list[FavoritePromptItemResponse]

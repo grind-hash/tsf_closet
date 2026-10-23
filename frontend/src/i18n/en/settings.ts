@@ -231,6 +231,12 @@ export const settings = {
   fontBizUDMinchoDesc: "Universal Design Mincho (serif)",
   fontInterDesc: "Modern sans-serif for English",
   fontRobotoMonoDesc: "Monospace font (English)",
+  newSettingsScreen: "Use new settings screen",
+  searchPlaceholder: "Search settings…",
+  searchAria: "Search settings",
+  searchClear: "Clear search",
+  searchNoResults: "No settings match “{{query}}”",
+  categoryNavLabel: "Settings categories",
   selfProfile: {
     sectionTitle: "Character Settings for Self Mode",
     inputLabel: "Describe the personality you want to use",

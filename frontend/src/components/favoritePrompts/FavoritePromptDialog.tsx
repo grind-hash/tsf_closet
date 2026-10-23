@@ -1,7 +1,8 @@
 /**
  * お気に入りプロンプトのダイアログ本体。
  *
- * 1 枚のパネルの中で「一覧 / プロンプト編集 / カテゴリー編集」を切り替える。
+ * 1 枚のパネルの中で「一覧 / プロンプト編集 / カテゴリー編集 / ファイルの書き出し・読み込み」
+ * を切り替える。
  * 他のモーダル（キャスト編集・画像タグ編集など）の上に重なるため、キー入力は window の
  * capture 段で受け取り、親モーダルや背後の画面のショートカットまで届かないようにする。
  */
@@ -15,12 +16,14 @@ import { useFavoritePrompts } from "../../contexts/FavoritePromptContext";
 import FavoritePromptCategoryForm from "./FavoritePromptCategoryForm";
 import FavoritePromptForm from "./FavoritePromptForm";
 import FavoritePromptList from "./FavoritePromptList";
+import FavoritePromptTransfer from "./FavoritePromptTransfer";
 import "./FavoritePromptDialog.css";
 
 type View =
   | { kind: "list" }
   | { kind: "prompt"; prompt: FavoritePrompt | null; initialContent?: string }
-  | { kind: "category"; category: FavoritePromptCategory | null };
+  | { kind: "category"; category: FavoritePromptCategory | null }
+  | { kind: "transfer" };
 
 export default function FavoritePromptDialog() {
   const { dialog, closeDialog, ensureLoaded } = useFavoritePrompts();
@@ -79,6 +82,7 @@ export default function FavoritePromptDialog() {
             onClose={closeDialog}
             onAddPrompt={() => setView({ kind: "prompt", prompt: null })}
             onAddCategory={() => setView({ kind: "category", category: null })}
+            onOpenTransfer={() => setView({ kind: "transfer" })}
             onEditPrompt={(prompt) => setView({ kind: "prompt", prompt })}
             onEditCategory={(category) =>
               setView({ kind: "category", category })
@@ -101,6 +105,14 @@ export default function FavoritePromptDialog() {
             category={view.category}
             onDone={leaveForm}
             onCancel={leaveForm}
+            onChildOpenChange={setChildOpen}
+          />
+        )}
+        {view.kind === "transfer" && (
+          <FavoritePromptTransfer
+            titleId={titleId}
+            onClose={closeDialog}
+            onBack={() => setView({ kind: "list" })}
             onChildOpenChange={setChildOpen}
           />
         )}

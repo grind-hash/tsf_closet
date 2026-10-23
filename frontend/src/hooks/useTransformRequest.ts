@@ -39,6 +39,8 @@ interface PendingTransform {
   transformOptions: TransformOptions | undefined;
   instructionType?: string;
   useMemory: boolean;
+  /** 送信済みのユーザーメッセージに紐づく pending identity のトークン */
+  tempToken: string;
 }
 
 /** UI 上の指示種別からバックエンドの transformation_type / instruction_type を決める */
@@ -55,10 +57,11 @@ export function resolveTransformKinds(instructionType: string) {
  * 変身(dress_up / reality_alter / action / image_only)の送信前処理。
  * NovelAI の画像オプション(マスク・i2i 強度・精密参照)を組み立て、
  * V5 利用上限の使い切りと精密参照の Anlas 追加消費は確認ダイアログを挟む。
+ * ダイアログをキャンセルした場合は、積んだユーザーメッセージを取り下げて文面を入力欄へ戻す。
  */
 export function useTransformRequest(onTransform: TransformHandler) {
   const { state: settingsState, isNovelaiV5Active } = useSettings();
-  const { state: chatState } = useChat();
+  const { state: chatState, discardPendingIdentity, setInputText } = useChat();
   const imageProvider = settingsState.imageProvider;
   const inpaintSettings = settingsState.inpaintSettings;
   const { maskDataUrl, selectedMaskId } = settingsState.inpaintMask;
@@ -156,6 +159,7 @@ export function useTransformRequest(onTransform: TransformHandler) {
           transformOptions,
           instructionType: backendInstructionType,
           useMemory,
+          tempToken,
         });
         return false; // Wait for user confirmation
       }
@@ -172,7 +176,7 @@ export function useTransformRequest(onTransform: TransformHandler) {
             transformationType,
             transformOptions,
             backendInstructionType,
-            undefined,
+            tempToken,
             useMemory,
           );
           return true;
@@ -184,6 +188,7 @@ export function useTransformRequest(onTransform: TransformHandler) {
           anlasCost: enabledRefCount * 5,
           instructionType: backendInstructionType,
           useMemory,
+          tempToken,
         });
         return false; // Wait for user confirmation
       }
@@ -209,6 +214,15 @@ export function useTransformRequest(onTransform: TransformHandler) {
     ],
   );
 
+  /** 確認ダイアログのキャンセル: 送信前のユーザーメッセージを取り下げ、文面を入力欄へ戻す */
+  const restoreCancelledMessage = useCallback(
+    ({ message, tempToken }: PendingTransform) => {
+      discardPendingIdentity(tempToken);
+      setInputText(message);
+    },
+    [discardPendingIdentity, setInputText],
+  );
+
   // Anlas confirmation dialog handlers
   const handleAnlasConfirm = useCallback(
     (doNotShowAgain: boolean) => {
@@ -219,6 +233,7 @@ export function useTransformRequest(onTransform: TransformHandler) {
         transformOptions,
         instructionType: pendingInstructionType,
         useMemory,
+        tempToken,
       } = anlasConfirmPending;
       if (doNotShowAgain) {
         writeStorageFlag("session", ANLAS_WARN_SUPPRESSED_KEY, true);
@@ -230,7 +245,7 @@ export function useTransformRequest(onTransform: TransformHandler) {
         transformationType,
         transformOptions,
         pendingInstructionType,
-        undefined,
+        tempToken,
         useMemory,
       );
     },
@@ -238,8 +253,11 @@ export function useTransformRequest(onTransform: TransformHandler) {
   );
 
   const handleAnlasCancel = useCallback(() => {
+    if (anlasConfirmPending) {
+      restoreCancelledMessage(anlasConfirmPending);
+    }
     setAnlasConfirmPending(null);
-  }, []);
+  }, [anlasConfirmPending, restoreCancelledMessage]);
 
   // V5 利用上限使い切り警告ダイアログのハンドラー
   const handleUsageWarnConfirm = useCallback(
@@ -251,6 +269,7 @@ export function useTransformRequest(onTransform: TransformHandler) {
         transformOptions,
         instructionType: pendingInstructionType,
         useMemory,
+        tempToken,
       } = usageWarnPending;
       if (doNotShowAgain) {
         writeStorageFlag("session", V5_USAGE_WARN_SUPPRESSED_KEY, true);
@@ -262,7 +281,7 @@ export function useTransformRequest(onTransform: TransformHandler) {
         transformationType,
         transformOptions,
         pendingInstructionType,
-        undefined,
+        tempToken,
         useMemory,
       );
     },
@@ -270,8 +289,11 @@ export function useTransformRequest(onTransform: TransformHandler) {
   );
 
   const handleUsageWarnCancel = useCallback(() => {
+    if (usageWarnPending) {
+      restoreCancelledMessage(usageWarnPending);
+    }
     setUsageWarnPending(null);
-  }, []);
+  }, [usageWarnPending, restoreCancelledMessage]);
 
   return {
     submitTransform,

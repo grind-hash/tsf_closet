@@ -7,15 +7,6 @@ import type { UiLanguage } from "../constants/language";
 import { API_BASE } from "../utils/api";
 import { jsonInit, requestJson } from "../utils/http";
 
-/**
- * spec 004 (US4): Session-level settings persisted via /api/settings.
- * Mirrors backend `SettingsModel` (subset relevant to the frontend).
- */
-export interface Settings {
-  /** プロンプト生成時の履歴遡及件数 (5..20, default 10) */
-  history_lookback_count: number;
-}
-
 export interface SelfProfile {
   display_name: string;
   personality: string;
@@ -92,6 +83,8 @@ export interface UserSettingsResponse {
   tts_speaker_id?: string | null;
   tts_style_id?: string | null;
   tts_output_format?: "wav";
+  /** プロンプト生成時の履歴遡及件数 (5..20, default 10) */
+  history_lookback_count?: number;
   /** ENABLE_PROMPT_PREVIEW。読み取り専用(PUT では送らない) */
   enable_prompt_preview?: boolean;
   /** サーバーに TAVILY_API_KEY があるか(キャラチャットの Web 検索)。読み取り専用 */
@@ -114,22 +107,4 @@ export async function updateUserSettings(
     `${API_BASE}/settings/user`,
     jsonInit("PUT", update),
   );
-}
-
-/** GET /api/settings は `{ settings: {...} }` か設定そのものを返す（旧形式互換） */
-export async function fetchAppSettings(): Promise<Partial<Settings>> {
-  const data = await requestJson<
-    { settings?: Partial<Settings> } | Partial<Settings> | null
-  >(`${API_BASE}/settings`);
-  const settings =
-    data && typeof data === "object" && "settings" in data && data.settings
-      ? data.settings
-      : data;
-  return (settings ?? {}) as Partial<Settings>;
-}
-
-export async function updateAppSettings(
-  update: Partial<Settings>,
-): Promise<void> {
-  await requestJson<unknown>(`${API_BASE}/settings`, jsonInit("PUT", update));
 }

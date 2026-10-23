@@ -115,6 +115,7 @@ from .gender_congruence import (
 )
 from .history_context import (
     build_history_context,
+    clamp_history_lookback_count,
     resolve_history_lookback_enabled,
 )
 from .image_generation import ImageGenerationService, image_service
@@ -1876,7 +1877,6 @@ class GameService:
             instruction_type=request.instruction_type,
             transformation_type=request.transformation_type,
         )
-        history_lookback_count = settings_service.get_history_lookback_count(session.id)
 
         # 履歴からのベース画像選択
         if request.base_history_id:
@@ -1909,6 +1909,9 @@ class GameService:
         # ユーザー設定を取得（DB永続化されたnsfw_mode, difficulty）。
         # リクエストでオーバーライドされた場合はそちらを優先
         user_settings = await session_store.get_user_settings()
+        history_lookback_count = clamp_history_lookback_count(
+            user_settings.get("history_lookback_count")
+        )
         nsfw_mode = (
             request.nsfw_mode_override
             if request.nsfw_mode_override is not None
@@ -4233,8 +4236,9 @@ class GameService:
             instruction_type=instruction_type,
             transformation_type=transformation_type,
         )
-        history_lookback_count = settings_service.get_history_lookback_count(
-            session_id if session_id else "default"
+        user_settings = await session_store.get_user_settings()
+        history_lookback_count = clamp_history_lookback_count(
+            user_settings.get("history_lookback_count")
         )
 
         if session_id:
@@ -4244,8 +4248,6 @@ class GameService:
                 if session:
                     stats = await session_store.get_or_create_session_stats(session_id)
 
-                    # ユーザー設定からnsfw_modeを取得
-                    user_settings = await session_store.get_user_settings(session_id)
                     nsfw_mode = user_settings.get("nsfw_mode", False)
                     effective_novelai_text_model = user_settings.get(
                         "novelai_text_model"

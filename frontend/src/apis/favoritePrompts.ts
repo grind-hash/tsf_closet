@@ -5,7 +5,8 @@
  */
 
 import { API_BASE } from "../utils/api";
-import { jsonInit, requestJson } from "../utils/http";
+import { downloadBlob } from "../utils/exportChat";
+import { apiErrorFromResponse, jsonInit, requestJson } from "../utils/http";
 
 export interface FavoritePrompt {
   id: string;
@@ -43,6 +44,29 @@ export interface FavoritePromptCategoryInput {
   label: string;
   color: string;
 }
+
+/** インポート / エクスポートのファイル形式（CSV は Excel 等で編集する人向け） */
+export type FavoritePromptFileFormat = "csv" | "json";
+
+/** CSV の列見出しの言語 */
+export type FavoritePromptCsvLanguage = "ja" | "en";
+
+/** 上書き対象（カテゴリーは名前で照合する。null は未分類） */
+export interface FavoritePromptImportTarget {
+  category: string | null;
+  label: string;
+}
+
+export interface FavoritePromptImportPreview {
+  create_count: number;
+  overwrites: FavoritePromptImportTarget[];
+  new_categories: string[];
+}
+
+/** 取り込み結果と、取り込み後の一覧 */
+export interface FavoritePromptImportResult
+  extends FavoritePromptImportPreview,
+    FavoritePromptList {}
 
 const BASE = `${API_BASE}/favorite-prompts`;
 
@@ -84,6 +108,27 @@ export async function deleteFavoritePrompt(promptId: string): Promise<void> {
   );
 }
 
+/** 表示順に並べたプロンプトと、それぞれの移動先カテゴリー */
+export interface FavoritePromptPlacement {
+  id: string;
+  category_id: string | null;
+}
+
+/** 並び順とカテゴリーをまとめて保存し、保存後の一覧を受け取る */
+export async function reorderFavoritePrompts(
+  placements: FavoritePromptPlacement[],
+): Promise<FavoritePromptList> {
+  const data = await requestJson<Partial<FavoritePromptList>>(
+    `${BASE}/order`,
+    jsonInit("PUT", { prompts: placements }),
+    { fallbackMessage: "並べ替えを保存できませんでした" },
+  );
+  return {
+    categories: data.categories ?? [],
+    prompts: data.prompts ?? [],
+  };
+}
+
 export function createFavoritePromptCategory(
   input: FavoritePromptCategoryInput,
 ): Promise<FavoritePromptCategory> {
@@ -113,5 +158,63 @@ export async function deleteFavoritePromptCategory(
     `${BASE}/categories/${encodeURIComponent(categoryId)}`,
     { method: "DELETE" },
     { fallbackMessage: "カテゴリーの削除に失敗しました" },
+  );
+}
+
+function exportFileName(format: FavoritePromptFileFormat): string {
+  const now = new Date();
+  const date = [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, "0"),
+    String(now.getDate()).padStart(2, "0"),
+  ].join("");
+  return `tsf-closet-favorite-prompts-${date}.${format}`;
+}
+
+/** すべてのお気に入りプロンプトとカテゴリーをファイルとして保存する */
+export async function exportFavoritePrompts(
+  format: FavoritePromptFileFormat,
+  language: FavoritePromptCsvLanguage,
+): Promise<void> {
+  const params = new URLSearchParams({ format, lang: language });
+  const response = await fetch(`${BASE}/export?${params.toString()}`);
+  if (!response.ok) {
+    throw await apiErrorFromResponse(
+      response,
+      "お気に入りプロンプトの書き出しに失敗しました",
+    );
+  }
+  downloadBlob(await response.blob(), exportFileName(format));
+}
+
+/**
+ * ファイルをそのまま送る（文字コードや CSV / JSON の判別はバックエンドで行う）。
+ * Content-Type はブラウザが multipart 境界付きで設定するため明示しない。
+ */
+function fileInit(file: File): RequestInit {
+  const form = new FormData();
+  form.append("file", file, file.name);
+  return { method: "POST", body: form };
+}
+
+/** 書き込まずに、追加・上書きされる内容を確認する */
+export function previewFavoritePromptImport(
+  file: File,
+): Promise<FavoritePromptImportPreview> {
+  return requestJson<FavoritePromptImportPreview>(
+    `${BASE}/import/preview`,
+    fileInit(file),
+    { fallbackMessage: "ファイルを読み込めませんでした" },
+  );
+}
+
+/** 同じカテゴリー・同じ名前のものは上書きし、無いカテゴリーは作成する */
+export function importFavoritePrompts(
+  file: File,
+): Promise<FavoritePromptImportResult> {
+  return requestJson<FavoritePromptImportResult>(
+    `${BASE}/import`,
+    fileInit(file),
+    { fallbackMessage: "ファイルを読み込めませんでした" },
   );
 }

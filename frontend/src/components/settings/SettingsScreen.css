@@ -11,10 +11,24 @@
   overflow: hidden;
 }
 
-/* ヘッダー */
+/* ヘッダー。右端に「新しい設定画面を利用」を置き、本文の幅にそろえる */
 .settings-screen__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem 1rem;
+  max-width: 600px;
   margin-bottom: 1.5rem;
   flex-shrink: 0;
+}
+
+.settings-screen__header-toggle {
+  gap: 0.75rem;
+}
+
+.settings-screen__header-toggle .settings-screen__item-label {
+  font-size: 0.875rem;
 }
 
 .settings-screen__title {
@@ -441,6 +455,7 @@
     padding: 1rem;
   }
 
+  .settings-screen__header,
   .settings-screen__content {
     max-width: none;
   }
@@ -495,4 +510,418 @@
   text-transform: none;
   letter-spacing: normal;
   opacity: 0.85;
+}
+
+/* 新しい設定画面: 左ナビ(検索欄＋カテゴリ一覧)と右ペイン */
+.settings-screen--v2 .settings-screen__header {
+  max-width: 984px;
+}
+
+.settings-v2 {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  gap: 1.5rem;
+  max-width: 984px;
+}
+
+.settings-v2__nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.settings-v2__content {
+  max-width: none;
+  min-height: 0;
+}
+
+/* 検索欄(ギャラリーの検索欄と同じ見た目) */
+.settings-v2__search {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.settings-v2__search-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+  min-width: 0;
+  padding: 0.55rem 0.85rem;
+  background-color: var(--card-bg, #16213e);
+  border: 1px solid var(--border-color, #333);
+  border-radius: 10px;
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s;
+}
+
+.settings-v2__search-label:focus-within {
+  border-color: var(--accent-color, #e94560);
+  box-shadow: 0 0 0 2px rgba(233, 69, 96, 0.2);
+}
+
+.settings-v2__search-icon {
+  flex-shrink: 0;
+  font-size: 0.9rem;
+  opacity: 0.75;
+}
+
+.settings-v2__search-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text-color, #eee);
+  font-size: 0.95rem;
+  font-family: inherit;
+}
+
+.settings-v2__search-input::placeholder {
+  color: var(--text-muted, #888);
+}
+
+.settings-v2__search-input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.settings-v2__search-clear {
+  flex-shrink: 0;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 1px solid var(--border-color, #333);
+  border-radius: 8px;
+  background-color: var(--card-bg, #16213e);
+  color: var(--text-muted, #888);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background-color 0.2s,
+    color 0.2s,
+    border-color 0.2s;
+}
+
+.settings-v2__search-clear:hover {
+  background-color: var(--hover-bg, #1f2f50);
+  border-color: var(--accent-color, #e94560);
+  color: var(--text-color, #eee);
+}
+
+/* カテゴリ一覧 */
+.settings-v2__categories {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.settings-v2__category {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-color, #eee);
+  font: inherit;
+  font-size: 0.9rem;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color 0.2s,
+    border-color 0.2s;
+}
+
+.settings-v2__category:hover {
+  background-color: var(--hover-bg, #1f2f50);
+}
+
+.settings-v2__category:focus-visible {
+  outline: none;
+  border-color: var(--accent-color, #e94560);
+}
+
+.settings-v2__category.is-active {
+  background-color: var(--card-bg, #16213e);
+  border-color: var(--border-color, #333);
+  box-shadow: inset 3px 0 0 var(--accent-color, #e94560);
+  font-weight: 600;
+}
+
+/* 検索中に一致が無いカテゴリ */
+.settings-v2__category.is-empty {
+  color: var(--text-muted, #888);
+  opacity: 0.6;
+}
+
+.settings-v2__category-label {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 検索中の一致件数。行末に置く */
+.settings-v2__category-count {
+  flex-shrink: 0;
+  min-width: 1.5rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  background-color: rgba(233, 69, 96, 0.15);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+.settings-v2__category.is-empty .settings-v2__category-count {
+  background-color: transparent;
+  font-weight: 400;
+}
+
+/* 検索で一致が無いとき */
+.settings-v2__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 1.25rem;
+  border: 1px dashed var(--border-color, #333);
+  border-radius: 12px;
+  color: var(--text-muted, #888);
+}
+
+.settings-v2__empty-text {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.settings-v2__empty-clear {
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--border-color, #333);
+  border-radius: 8px;
+  background-color: transparent;
+  color: var(--text-color, #eee);
+  font: inherit;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+.settings-v2__empty-clear:hover {
+  border-color: var(--accent-color, #e94560);
+}
+
+/* 検索欄の "/" ショートカットの目印 */
+.settings-v2__search-kbd {
+  flex-shrink: 0;
+  padding: 0 0.4rem;
+  border: 1px solid var(--border-color, #333);
+  border-radius: 4px;
+  color: var(--text-muted, #888);
+  font-family: inherit;
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+/* 検索で一致した文字 */
+::highlight(settings-search) {
+  background-color: rgba(233, 69, 96, 0.4);
+}
+
+/* 新しい設定画面のカード見出し。カテゴリ名として読めるよう大きくする */
+.settings-screen--v2 .settings-screen__section-title {
+  margin-bottom: 0.5rem;
+  font-size: 1.05rem;
+  color: var(--text-color, #eee);
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+/* 新しい設定画面の行: ラベルと説明は左、操作は右 */
+.settings-screen--v2 .settings-screen__item-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.settings-screen--v2 .settings-screen__item:has(> .settings-screen__segmented),
+.settings-screen--v2
+  .settings-screen__item:has(> .settings-screen__select-wrapper),
+.settings-screen--v2
+  .settings-screen__item:has(> .settings-screen__readonly-value) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 1.25rem;
+  row-gap: 0.5rem;
+}
+
+.settings-screen--v2 .settings-screen__item > .settings-screen__item-header {
+  margin-bottom: 0;
+}
+
+/* 選択肢の文言を省略しないよう、選択欄は中身の幅に合わせる */
+.settings-screen--v2 .settings-screen__item > .settings-screen__select-wrapper {
+  max-width: 100%;
+}
+
+.settings-screen--v2
+  .settings-screen__item
+  > .settings-screen__select-wrapper
+  .settings-screen__select {
+  width: auto;
+  max-width: 100%;
+}
+
+.settings-screen--v2 .settings-screen__item > .settings-screen__readonly-value {
+  padding: 0.5rem 0.85rem;
+  font-size: 0.875rem;
+}
+
+.settings-screen--v2 .settings-screen__item > .settings-screen__choice-desc,
+.settings-screen--v2 .settings-screen__item > .settings-screen__font-preview {
+  grid-column: 1 / -1;
+}
+
+/* 択一選択のセグメント型(Prompt Expander のモード切替と同じ見た目) */
+.settings-screen__segmented {
+  display: inline-flex;
+  border: 1px solid var(--border-color, #333);
+  border-radius: 8px;
+  background-color: var(--bg-color, #1a1a2e);
+  overflow: hidden;
+}
+
+.settings-screen__segment {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.4rem 0.85rem;
+  border-left: 1px solid var(--border-color, #333);
+  color: var(--text-muted, #888);
+  font-size: 0.85rem;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  transition:
+    background-color 0.15s,
+    color 0.15s;
+}
+
+.settings-screen__segment:first-child {
+  border-left: none;
+}
+
+.settings-screen__segment input {
+  position: absolute;
+  width: 0;
+  height: 0;
+  margin: 0;
+  opacity: 0;
+}
+
+.settings-screen__segment:hover {
+  background-color: var(--hover-bg, #1f2f50);
+  color: var(--text-color, #eee);
+}
+
+.settings-screen__segment.is-active,
+.settings-screen__segment.is-active:hover {
+  background-color: var(--accent-color, #e94560);
+  color: #fff;
+  font-weight: 600;
+}
+
+.settings-screen__segment:has(input:focus-visible) {
+  box-shadow: inset 0 0 0 2px var(--accent-hover, #ff6b6b);
+}
+
+/* 選んでいる選択肢の説明 */
+.settings-screen__choice-desc {
+  margin: 0;
+  color: var(--text-muted, #888);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+/* 狭い画面: ナビを上に置き、カテゴリは横スクロールのチップにする */
+@media (max-width: 768px) {
+  .settings-screen--v2 .settings-screen__header {
+    max-width: none;
+  }
+
+  .settings-v2 {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: 1rem;
+    max-width: none;
+  }
+
+  .settings-v2__nav {
+    overflow: visible;
+  }
+
+  .settings-v2__categories {
+    flex-direction: row;
+    gap: 0.5rem;
+    overflow-x: auto;
+    padding-bottom: 0.25rem;
+    scrollbar-width: thin;
+  }
+
+  .settings-v2__categories li {
+    flex-shrink: 0;
+  }
+
+  .settings-v2__category {
+    width: auto;
+    padding: 0.4rem 0.8rem;
+    border-color: var(--border-color, #333);
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+
+  .settings-v2__category.is-active {
+    border-color: var(--accent-color, #e94560);
+    box-shadow: none;
+  }
+
+  /* 行は縦積みに戻し、セグメントは幅いっぱいに広げる */
+  .settings-screen--v2
+  .settings-screen__item:has(> .settings-screen__segmented),
+  .settings-screen--v2
+    .settings-screen__item:has(> .settings-screen__select-wrapper),
+  .settings-screen--v2
+    .settings-screen__item:has(> .settings-screen__readonly-value) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .settings-screen--v2
+    .settings-screen__item
+    > .settings-screen__select-wrapper
+    .settings-screen__select {
+    width: 100%;
+  }
+
+  .settings-screen__segmented {
+    display: flex;
+  }
+
+  .settings-screen__segment {
+    flex: 1;
+    white-space: normal;
+    text-align: center;
+  }
 }

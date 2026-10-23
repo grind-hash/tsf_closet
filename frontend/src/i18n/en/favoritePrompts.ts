@@ -26,8 +26,13 @@ export const favoritePrompts = {
     "No favorite prompts yet. Add one with + at the top right, or use the save buttons on each screen.",
   emptyCategory: "Empty category",
   previewHint:
-    "Hover over a name to see its content. Click it to insert into the field.",
+    "Hover over a name to see its content. Click it to insert into the field. Drag it to reorder or move it to another category.",
+  dropHere: "Move here",
+  dropToUncategorized: "Move to Uncategorized",
+  reorderFailed: "Could not save the new order",
   toggleCategory: 'Expand or collapse category "{{name}}"',
+  expandAllCategories: "Expand all categories",
+  collapseAllCategories: "Collapse all categories",
   deletePrompt: "Delete this favorite prompt",
   deleteCategory: "Delete this category",
   deletePromptConfirm: 'Delete "{{name}}"?',
@@ -36,4 +41,42 @@ export const favoritePrompts = {
   loadFailed: "Could not load favorite prompts",
   saveFailed: "Could not save",
   deleteFailed: "Could not delete",
+  transfer: {
+    open: "Save to a file / Load from a file",
+    title: "Save or Load a File",
+    exportHeading: "Export",
+    exportDescription:
+      "Saves all favorite prompts and categories into a single file.",
+    exportCsv: "Save as a CSV file",
+    exportJson: "Save as a JSON file",
+    exportFormatHint:
+      "CSV files can be opened and edited in Excel or Google Sheets. JSON is meant for backups.",
+    exportEmpty: "There are no favorite prompts to export yet.",
+    exporting: "Saving…",
+    importHeading: "Import",
+    importDescription: "Loads the contents of a CSV or JSON file.",
+    importRuleOverwrite:
+      "Favorite prompts with the same category and name are overwritten by the file (you will be asked first).",
+    importRuleCategory: "Categories that do not exist yet are created.",
+    csvColumnsTitle: "CSV columns",
+    csvColumns: "Category / Name / Content / Color / Category Color",
+    csvColumnsHint:
+      "Name and Content are required. An empty Category means Uncategorized. An empty Color keeps the current color when overwriting and uses the default for new items. Starting from an exported CSV is the easiest way.",
+    importButton: "Choose a file to load",
+    importing: "Loading…",
+    back: "Back to the list",
+    overwriteTitle: "Confirm Overwrite",
+    overwriteMessage:
+      "Favorite prompts to be overwritten: {{count}}. Do you want to continue?",
+    overwriteExtra: "New favorite prompts to be added: {{count}}.",
+    overwriteNewCategories: "Categories to be created: {{names}}",
+    overwriteConfirm: "Overwrite and load",
+    importDone: "Added: {{created}}, overwritten: {{overwritten}}.",
+    importDoneWithCategories:
+      "Added: {{created}}, overwritten: {{overwritten}}. Created categories: {{names}}",
+    importNothing: "There was nothing to import.",
+    importFailed: "Could not load the file",
+    exportFailed: "Could not export",
+    listSeparator: ", ",
+  },
 };

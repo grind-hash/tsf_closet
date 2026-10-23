@@ -9,12 +9,24 @@ from __future__ import annotations
 
 import re
 import uuid
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..databases.models import FavoritePrompt, FavoritePromptCategory
+from ..schemas.favorite_prompts import (
+    FavoritePromptFile,
+    FavoritePromptFileCategory,
+    FavoritePromptFilePrompt,
+)
+from .favorite_prompt_file import (
+    EXPORT_FORMAT,
+    EXPORT_VERSION,
+    FavoritePromptFileEntries,
+)
 from .session import DEFAULT_USER_ID
 
 LABEL_MAX_LENGTH = 80
@@ -111,6 +123,113 @@ async def _resolve_category_id(
         return None
     category = await _get_category(db, category_id, user_id)
     return category.id
+
+
+@dataclass(frozen=True)
+class FavoritePromptImportItem:
+    category: str | None
+    label: str
+    content: str
+    # 未指定なら上書き時は既存の色を残し、新規追加時は既定色にする
+    color: str | None
+
+
+@dataclass
+class FavoritePromptImportPlan:
+    """インポートで行う変更。プレビューと実行で同じ計画を使う。"""
+
+    # 既存カテゴリー名 → ID（同名が複数あるときは並び順で先のもの）
+    category_ids: dict[str, str] = field(default_factory=dict)
+    # 新しく作るカテゴリー（名前, 色）
+    new_categories: list[tuple[str, str]] = field(default_factory=list)
+    creates: list[FavoritePromptImportItem] = field(default_factory=list)
+    overwrites: list[tuple[FavoritePrompt, FavoritePromptImportItem]] = field(
+        default_factory=list
+    )
+
+
+def _with_position(
+    position: str, exc: FavoritePromptServiceError
+) -> FavoritePromptServiceError:
+    return FavoritePromptServiceError(exc.code, f"{position}: {exc.message}")
+
+
+def _normalize_optional_color(color: str | None) -> str | None:
+    if color is None or not color.strip():
+        return None
+    return _normalize_color(color)
+
+
+def _normalize_file_category(label: str | None) -> str | None:
+    if label is None or not label.strip():
+        return None
+    return _normalize_label(label)
+
+
+async def _build_import_plan(
+    db: AsyncSession, entries: FavoritePromptFileEntries, user_id: str
+) -> FavoritePromptImportPlan:
+    """ファイルの内容を検証し、既存データと照合する。
+
+    カテゴリーは名前で照合し、無ければ新しく作る（既存カテゴリーの色は変えない）。
+    プロンプトは「カテゴリー + 名前」で照合し、一致したものは内容と色を上書きする
+    （色が空なら既存の色を残す）。
+    """
+    # ファイルに書かれた順。色の指定が無ければ None（新規作成時は既定色）
+    category_colors: dict[str, str | None] = {}
+    for entry in entries.categories:
+        try:
+            label = _normalize_label(entry.label)
+            color = _normalize_optional_color(entry.color)
+        except FavoritePromptServiceError as exc:
+            raise _with_position(entry.position, exc) from exc
+        if category_colors.get(label) is None:
+            category_colors[label] = color
+
+    items: dict[tuple[str | None, str], FavoritePromptImportItem] = {}
+    for entry in entries.prompts:
+        try:
+            category = _normalize_file_category(entry.category)
+        except FavoritePromptServiceError as exc:
+            raise _with_position(f"{entry.position}のカテゴリー", exc) from exc
+        try:
+            item = FavoritePromptImportItem(
+                category=category,
+                label=_normalize_label(entry.label),
+                content=_normalize_content(entry.content),
+                color=_normalize_optional_color(entry.color),
+            )
+        except FavoritePromptServiceError as exc:
+            raise _with_position(entry.position, exc) from exc
+        # ファイル内の重複は後の項目の内容を使う（並び順は最初の位置のまま）
+        items[(item.category, item.label)] = item
+
+    categories, prompts = await FavoritePromptService.list_all(db, user_id=user_id)
+    plan = FavoritePromptImportPlan()
+    for existing_category in categories:
+        plan.category_ids.setdefault(existing_category.label, existing_category.id)
+    existing: dict[tuple[str | None, str], FavoritePrompt] = {}
+    for prompt in prompts:
+        existing.setdefault((prompt.category_id, prompt.label), prompt)
+
+    required = [*category_colors, *(i.category for i in items.values())]
+    for label in dict.fromkeys(required):
+        if label is not None and label not in plan.category_ids:
+            plan.new_categories.append(
+                (label, category_colors.get(label) or DEFAULT_COLOR)
+            )
+
+    for item in items.values():
+        if item.category is not None and item.category not in plan.category_ids:
+            plan.creates.append(item)
+            continue
+        category_id = plan.category_ids[item.category] if item.category else None
+        target = existing.get((category_id, item.label))
+        if target is None:
+            plan.creates.append(item)
+        else:
+            plan.overwrites.append((target, item))
+    return plan
 
 
 class FavoritePromptService:
@@ -257,3 +376,114 @@ class FavoritePromptService:
         await db.delete(category)
         await db.flush()
         return True
+
+    @staticmethod
+    async def export_file(
+        db: AsyncSession,
+        *,
+        user_id: str = DEFAULT_USER_ID,
+    ) -> FavoritePromptFile:
+        categories, prompts = await FavoritePromptService.list_all(db, user_id=user_id)
+        labels = {c.id: c.label for c in categories}
+        return FavoritePromptFile(
+            format=EXPORT_FORMAT,
+            version=EXPORT_VERSION,
+            exported_at=datetime.now(UTC),
+            categories=[
+                FavoritePromptFileCategory(label=c.label, color=c.color)
+                for c in categories
+            ],
+            prompts=[
+                FavoritePromptFilePrompt(
+                    category=labels.get(p.category_id) if p.category_id else None,
+                    label=p.label,
+                    content=p.content,
+                    color=p.color,
+                )
+                for p in prompts
+            ],
+        )
+
+    @staticmethod
+    async def preview_import(
+        db: AsyncSession,
+        *,
+        entries: FavoritePromptFileEntries,
+        user_id: str = DEFAULT_USER_ID,
+    ) -> FavoritePromptImportPlan:
+        """書き込まずに、インポートで追加・上書きされる内容を返す。"""
+        return await _build_import_plan(db, entries, user_id)
+
+    @staticmethod
+    async def import_file(
+        db: AsyncSession,
+        *,
+        entries: FavoritePromptFileEntries,
+        user_id: str = DEFAULT_USER_ID,
+    ) -> FavoritePromptImportPlan:
+        """ファイルの内容を取り込む。新しいカテゴリーとプロンプトは末尾に追加する。"""
+        plan = await _build_import_plan(db, entries, user_id)
+        category_ids = dict(plan.category_ids)
+        category_order = await _next_sort_order(db, FavoritePromptCategory, user_id)
+        for offset, (label, color) in enumerate(plan.new_categories):
+            category = FavoritePromptCategory(
+                id=str(uuid.uuid4()),
+                user_id=user_id,
+                label=label,
+                color=color,
+                sort_order=category_order + offset,
+            )
+            db.add(category)
+            category_ids[label] = category.id
+        for prompt, item in plan.overwrites:
+            prompt.content = item.content
+            if item.color is not None:
+                prompt.color = item.color
+        prompt_order = await _next_sort_order(db, FavoritePrompt, user_id)
+        for offset, item in enumerate(plan.creates):
+            db.add(
+                FavoritePrompt(
+                    id=str(uuid.uuid4()),
+                    user_id=user_id,
+                    category_id=category_ids[item.category] if item.category else None,
+                    label=item.label,
+                    content=item.content,
+                    color=item.color or DEFAULT_COLOR,
+                    sort_order=prompt_order + offset,
+                )
+            )
+        await db.flush()
+        return plan
+
+    @staticmethod
+    async def reorder_prompts(
+        db: AsyncSession,
+        *,
+        placements: list[tuple[str, str | None]],
+        user_id: str = DEFAULT_USER_ID,
+    ) -> None:
+        """並び順とカテゴリーをまとめて保存する（ドラッグ＆ドロップの並べ替え用）。
+
+        ``placements`` は表示順に並べた (プロンプトID, カテゴリーID)。含まれないプロンプト
+        （別の画面で追加された直後など）は、元の並びのまま後ろに置く。
+        """
+        categories, prompts = await FavoritePromptService.list_all(db, user_id=user_id)
+        by_id = {p.id: p for p in prompts}
+        category_ids = {c.id for c in categories}
+        ordered: list[tuple[FavoritePrompt, str | None]] = []
+        for prompt_id, category_id in placements:
+            prompt = by_id.pop(prompt_id, None)
+            if prompt is None:
+                raise FavoritePromptServiceError(
+                    "prompt_not_found", "お気に入りプロンプトが見つかりません"
+                )
+            if category_id is not None and category_id not in category_ids:
+                raise FavoritePromptServiceError(
+                    "category_not_found", "カテゴリーが見つかりません"
+                )
+            ordered.append((prompt, category_id))
+        ordered.extend((p, p.category_id) for p in by_id.values())
+        for index, (prompt, category_id) in enumerate(ordered):
+            prompt.sort_order = index
+            prompt.category_id = category_id
+        await db.flush()
