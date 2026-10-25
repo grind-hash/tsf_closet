@@ -143,6 +143,18 @@ class Settings:
         if os.getenv("COMFYUI_TXT2IMG_WORKFLOW_PATH")
         else None
     )
+    # 着せ替えゲーム用ワークフローの差し替え (例: VRAM の少ない GPU 向けの GGUF 版)。
+    # 未設定なら DEFAULT_WORKFLOWS の instruct_game / instruct_game_nsfw を使う
+    comfyui_game_workflow_path: Path | None = (
+        _resolve_path(os.environ["COMFYUI_GAME_WORKFLOW_PATH"])
+        if os.getenv("COMFYUI_GAME_WORKFLOW_PATH")
+        else None
+    )
+    comfyui_game_nsfw_workflow_path: Path | None = (
+        _resolve_path(os.environ["COMFYUI_GAME_NSFW_WORKFLOW_PATH"])
+        if os.getenv("COMFYUI_GAME_NSFW_WORKFLOW_PATH")
+        else None
+    )
     comfyui_client_id: str = os.getenv("COMFYUI_CLIENT_ID", "fastapi-openai-gateway")
     comfyui_request_timeout: float = float(os.getenv("COMFYUI_REQUEST_TIMEOUT", "180"))
     comfyui_poll_interval: float = float(os.getenv("COMFYUI_POLL_INTERVAL", "1.0"))
@@ -368,6 +380,9 @@ class Settings:
     def get_workflow_path(self, workflow_name: str | None = None) -> Path:
         """ワークフロー名からパスを取得する。
 
+        instruct_game / instruct_game_nsfw は COMFYUI_GAME_WORKFLOW_PATH /
+        COMFYUI_GAME_NSFW_WORKFLOW_PATH が設定されていればそちらを返す。
+
         Args:
             workflow_name: ワークフロー名 (例: "instruct_game", "default")
                           Noneの場合はデフォルトのワークフローパスを返す
@@ -380,6 +395,14 @@ class Settings:
         """
         if workflow_name is None:
             return self.comfyui_workflow_path
+
+        overrides = {
+            "instruct_game": self.comfyui_game_workflow_path,
+            "instruct_game_nsfw": self.comfyui_game_nsfw_workflow_path,
+        }
+        override = overrides.get(workflow_name)
+        if override is not None:
+            return override
 
         if workflow_name in DEFAULT_WORKFLOWS:
             return _resolve_path(DEFAULT_WORKFLOWS[workflow_name])

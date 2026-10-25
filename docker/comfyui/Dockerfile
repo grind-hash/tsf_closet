@@ -41,6 +41,10 @@ RUN pip install --no-cache-dir torch==2.9.0 torchvision==0.24.0 torchaudio==2.9.
 # Install ComfyUI requirements
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Install ComfyUI-GGUF custom node (loads the GGUF-quantized diffusion models)
+RUN git clone https://github.com/city96/ComfyUI-GGUF.git custom_nodes/ComfyUI-GGUF \
+    && pip install --no-cache-dir -r custom_nodes/ComfyUI-GGUF/requirements.txt
+
 # Create model directories
 RUN mkdir -p models/diffusion_models \
     models/text_encoders \

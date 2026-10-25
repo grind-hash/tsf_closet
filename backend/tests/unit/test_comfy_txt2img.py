@@ -18,6 +18,10 @@ EDIT_LOCAL = WORKFLOWS_DIR / "qwen_image_edit_template_local.json"
 EDIT_LOCAL_NSFW = WORKFLOWS_DIR / "qwen_image_edit_template_local_nsfw.json"
 TXT2IMG_LOCAL = WORKFLOWS_DIR / "qwen_image_txt2img_template_local.json"
 TXT2IMG_LOCAL_NSFW = WORKFLOWS_DIR / "qwen_image_txt2img_template_local_nsfw.json"
+TXT2IMG_LOCAL_GGUF = WORKFLOWS_DIR / "qwen_image_txt2img_template_local_gguf.json"
+TXT2IMG_LOCAL_NSFW_GGUF = (
+    WORKFLOWS_DIR / "qwen_image_txt2img_template_local_nsfw_gguf.json"
+)
 
 
 def _install_fake_comfy(monkeypatch, captured: dict) -> None:
@@ -70,6 +74,8 @@ def _install_fake_comfy(monkeypatch, captured: dict) -> None:
     [
         ("qwen_image_edit_template_local.json", TXT2IMG_LOCAL),
         ("qwen_image_edit_template_local_nsfw.json", TXT2IMG_LOCAL_NSFW),
+        ("qwen_image_edit_template_local_gguf.json", TXT2IMG_LOCAL_GGUF),
+        ("qwen_image_edit_template_local_nsfw_gguf.json", TXT2IMG_LOCAL_NSFW_GGUF),
         # 導出先が存在しない / 命名規則に合わない場合は同梱の既定へ倒す
         ("qwen_image_edit_template.json", TXT2IMG_LOCAL),
         ("custom_workflow.json", TXT2IMG_LOCAL),
@@ -94,7 +100,12 @@ def test_get_txt2img_workflow_path_prefers_explicit_setting(
 
 def test_txt2img_templates_use_empty_latent_without_image_inputs() -> None:
     """同梱の txt2img テンプレートは LoadImage を持たず、空 latent をサンプラーに繋ぐ。"""
-    for path in (TXT2IMG_LOCAL, TXT2IMG_LOCAL_NSFW):
+    for path in (
+        TXT2IMG_LOCAL,
+        TXT2IMG_LOCAL_NSFW,
+        TXT2IMG_LOCAL_GGUF,
+        TXT2IMG_LOCAL_NSFW_GGUF,
+    ):
         graph = json.loads(path.read_text(encoding="utf-8"))
         class_types = {node["class_type"] for node in graph.values()}
         assert "LoadImage" not in class_types

@@ -486,12 +486,14 @@ Additional events include cost (`cost`), Anlas balance (`anlas`), and processing
 
 ### ComfyUI (selfhost)
 
-| Variable                        | Default                                                                                                                                                            |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `COMFYUI_BASE_URL`              | `http://127.0.0.1:8188`                                                                                                                                            |
-| `COMFYUI_WORKFLOW_PATH`         | `workflows/qwen_image_edit_template.json`                                                                                                                          |
-| `COMFYUI_TXT2IMG_WORKFLOW_PATH` | When unset, the `COMFYUI_WORKFLOW_PATH` file name with `image_edit` replaced by `image_txt2img` (falls back to `workflows/qwen_image_txt2img_template_local.json`) |
-| `COMFYUI_REQUEST_TIMEOUT`       | `180`                                                                                                                                                              |
+| Variable                          | Default                                                                                                                                                                                                           |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `COMFYUI_BASE_URL`                | `http://127.0.0.1:8188`                                                                                                                                                                                           |
+| `COMFYUI_WORKFLOW_PATH`           | `workflows/qwen_image_edit_template.json`                                                                                                                                                                         |
+| `COMFYUI_TXT2IMG_WORKFLOW_PATH`   | When unset, the `COMFYUI_WORKFLOW_PATH` file name with `image_edit` replaced by `image_txt2img` (falls back to `workflows/qwen_image_txt2img_template_local.json`)                                                |
+| `COMFYUI_GAME_WORKFLOW_PATH`      | Workflow for the dress-up game. Defaults to `workflows/qwen_image_edit_template_local.json` (for ~8 GB VRAM, use the GGUF version `workflows/qwen_image_edit_template_local_gguf.json`)                           |
+| `COMFYUI_GAME_NSFW_WORKFLOW_PATH` | Workflow for the dress-up game when NSFW is on. Defaults to `workflows/qwen_image_edit_template_local_nsfw.json` (for ~8 GB VRAM, use the GGUF version `workflows/qwen_image_edit_template_local_nsfw_gguf.json`) |
+| `COMFYUI_REQUEST_TIMEOUT`         | `180`                                                                                                                                                                                                             |
 
 ### LiteLLM (selfhost)
 

@@ -1,5 +1,5 @@
 # LiteLLM Proxy Dockerfile
-FROM ghcr.io/berriai/litellm:main-latest
+FROM ghcr.io/berriai/litellm:v1.104.6
 
 # Copy configuration file
 COPY docker/litellm/config.yaml /app/config.yaml

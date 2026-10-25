@@ -486,12 +486,14 @@ AivisSpeech エンジンによるセリフの読み上げに対応した実験�
 
 ### ComfyUI (selfhost)
 
-| 変数名                          | デフォルト                                                                                                                                                       |
-| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `COMFYUI_BASE_URL`              | `http://127.0.0.1:8188`                                                                                                                                          |
-| `COMFYUI_WORKFLOW_PATH`         | `workflows/qwen_image_edit_template.json`                                                                                                                        |
-| `COMFYUI_TXT2IMG_WORKFLOW_PATH` | 未設定時は `COMFYUI_WORKFLOW_PATH` のファイル名の `image_edit` を `image_txt2img` に置き換えたもの (無ければ `workflows/qwen_image_txt2img_template_local.json`) |
-| `COMFYUI_REQUEST_TIMEOUT`       | `180`                                                                                                                                                            |
+| 変数名                            | デフォルト                                                                                                                                                                                      |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `COMFYUI_BASE_URL`                | `http://127.0.0.1:8188`                                                                                                                                                                         |
+| `COMFYUI_WORKFLOW_PATH`           | `workflows/qwen_image_edit_template.json`                                                                                                                                                       |
+| `COMFYUI_TXT2IMG_WORKFLOW_PATH`   | 未設定時は `COMFYUI_WORKFLOW_PATH` のファイル名の `image_edit` を `image_txt2img` に置き換えたもの (無ければ `workflows/qwen_image_txt2img_template_local.json`)                                |
+| `COMFYUI_GAME_WORKFLOW_PATH`      | 着せ替えゲームのワークフロー。未設定時は `workflows/qwen_image_edit_template_local.json` (VRAM 8GB 程度なら GGUF 版の `workflows/qwen_image_edit_template_local_gguf.json`)                     |
+| `COMFYUI_GAME_NSFW_WORKFLOW_PATH` | 着せ替えゲームの NSFW 時のワークフロー。未設定時は `workflows/qwen_image_edit_template_local_nsfw.json` (VRAM 8GB 程度なら GGUF 版の `workflows/qwen_image_edit_template_local_nsfw_gguf.json`) |
+| `COMFYUI_REQUEST_TIMEOUT`         | `180`                                                                                                                                                                                           |
 
 ### LiteLLM (selfhost)
 
