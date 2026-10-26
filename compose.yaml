@@ -129,6 +129,8 @@ services:
       - ollama_data:/root/.ollama
     environment:
       - OLLAMA_CONTEXT_LENGTH=16384
+      # 画像モデルがVRAMを利用できるように、テキスト生成後は都度解放する
+      - OLLAMA_KEEP_ALIVE=0
     deploy:
       resources:
         reservations:

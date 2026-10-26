@@ -11,9 +11,9 @@ model_list:
       custom_llm_provider: custom_openai
 
   # gemma4:e4
-  - model_name: gemma4:e4b
+  - model_name: gemma4:e2b
     litellm_params:
-      model: gemma4:e4b
+      model: gemma4:e2b
       api_base: http://ollama:11434/v1
       request_timeout: 300
       custom_llm_provider: custom_openai
