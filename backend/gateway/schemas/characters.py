@@ -331,6 +331,8 @@ class CharacterProfileGenerateRequest(BaseModel):
     appearance_natural: str = Field("", max_length=1000)
     appearance_tags: str = Field("", max_length=2000)
     memo: str = Field("", max_length=PROFILE_MEMO_MAX_LEN)
+    # キャラクターメイク: メモに書かれた話し方とセリフの例も取り出す
+    include_speech: bool = False
 
 
 class CharacterSourceResolveRequest(BaseModel):

@@ -150,6 +150,21 @@ CHARACTER_PROFILE_GEN_SYSTEM_PROMPT = """あなたはキャラクター設定の
 - tsf_attitude はメモに無ければ、性格から想像できる態度を中立寄りに書く
 - 必ず有効なJSONのみを出力すること"""
 
+# キャラクターメイクから呼ぶときだけ足す出力項目。メモに書かれた話し方・セリフの
+# 例だけを取り出し、書かれていなければ空にする(新しく作らせない)
+CHARACTER_PROFILE_GEN_SPEECH_ADDENDUM = """
+
+追加の出力項目（上の JSON に含める）:
+  "speech_style": "メモに書かれた話し方・口調を1-2文に整理",
+  "sample_lines": "メモに書かれたセリフの例を、1行に1つずつ改行（\\n）区切りで"
+
+追加のルール:
+- speech_style と sample_lines は、メモに話し方・口調やセリフの例が書かれているときだけ入れる。書かれていなければ空文字にする
+- sample_lines はメモのセリフを書き写すだけにし、新しいセリフを作らない"""
+
+# 話し方の項目を求めない呼び出しで、LLM が返しても捨てる項目
+_SPEECH_FIELDS = ("speech_style", "sample_lines")
+
 
 def build_character_profile_generation_prompt(
     *,
@@ -157,8 +172,12 @@ def build_character_profile_generation_prompt(
     appearance_natural: str,
     appearance_tags: str,
     memo: str,
+    include_speech: bool = False,
 ) -> tuple[str, str]:
-    """登場人物の性格プロフィールを生成するための (system, user) プロンプト。"""
+    """登場人物の性格プロフィールを生成するための (system, user) プロンプト。
+
+    include_speech はメモに書かれた話し方・セリフの例も取り出すか(キャラクターメイク用)。
+    """
     lines = ["以下の登場人物の性格プロフィールを生成してください。", ""]
     lines.append(f"名前: {name.strip() or '（未設定）'}")
     if appearance_natural.strip():
@@ -169,7 +188,10 @@ def build_character_profile_generation_prompt(
     lines.append("")
     lines.append("メモ:")
     lines.append(memo_text or "（なし）")
-    return CHARACTER_PROFILE_GEN_SYSTEM_PROMPT, "\n".join(lines)
+    system_prompt = CHARACTER_PROFILE_GEN_SYSTEM_PROMPT
+    if include_speech:
+        system_prompt += CHARACTER_PROFILE_GEN_SPEECH_ADDENDUM
+    return system_prompt, "\n".join(lines)
 
 
 async def generate_character_profile(
@@ -178,11 +200,14 @@ async def generate_character_profile(
     appearance_natural: str,
     appearance_tags: str,
     memo: str,
+    include_speech: bool = False,
 ) -> dict[str, Any]:
     """LLM で登場人物の性格プロフィールを生成する。
 
     プロバイダは本文生成と同じ FEELING_PROVIDER に従い、NovelAI のときは
     ユーザー設定のテキストモデルを使う（別プロバイダへの振り替えはしない）。
+    include_speech のときは、メモに書かれた話し方とセリフの例も返す
+    （書かれていなければ空）。
 
     Raises:
         CharacterProfileGenerationError: LLM 呼び出し・JSON 解析の失敗
@@ -196,6 +221,7 @@ async def generate_character_profile(
         appearance_natural=appearance_natural,
         appearance_tags=appearance_tags,
         memo=memo,
+        include_speech=include_speech,
     )
     user_settings = await session_store.get_user_settings()
     try:
@@ -219,6 +245,14 @@ async def generate_character_profile(
         raise CharacterProfileGenerationError("invalid_json") from exc
     if not isinstance(data, dict):
         raise CharacterProfileGenerationError("invalid_json")
+    if include_speech:
+        lines = data.get("sample_lines")
+        if isinstance(lines, list):
+            # 配列で返したときも 1 行に 1 つの形にそろえる
+            data["sample_lines"] = "\n".join(str(line) for line in lines if line)
+    else:
+        for key in _SPEECH_FIELDS:
+            data.pop(key, None)
     return normalize_character_profile({**data, "memo": memo})
 
 

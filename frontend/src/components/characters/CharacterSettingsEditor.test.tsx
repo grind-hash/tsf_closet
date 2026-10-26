@@ -137,6 +137,46 @@ describe("CharacterSettingsEditor", () => {
     });
   });
 
+  it("fills speech fields only when the notes contained them", async () => {
+    mocks.generateCharacterProfile.mockResolvedValue({
+      personality: "おっとり",
+      reaction_style: "gentle",
+      pronoun: "わたし",
+      gender: "woman",
+      interests: [],
+      tsf_attitude: "",
+      memo: "",
+      speech_style: "",
+      sample_lines: "「ほら、行くよ」\n「しょうがないなあ」",
+    });
+    render(
+      <CharacterSettingsEditor
+        preset={{
+          ...PRESET,
+          profile: { ...PRESET.profile!, speech_style: "丁寧語" },
+        }}
+        onSaved={vi.fn()}
+        sectionStorageKey="test_sections"
+      />,
+    );
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: "LLM で性格を下書き" }),
+      );
+    });
+    await waitFor(() => expect(mocks.updateCharacterPreset).toHaveBeenCalled());
+    expect(mocks.generateCharacterProfile.mock.calls[0][0]).toMatchObject({
+      include_speech: true,
+    });
+    const [, payload] = mocks.updateCharacterPreset.mock.calls[0];
+    // メモから取り出せなかった口調は今の値を残し、取り出せたセリフの例は入れる
+    expect(payload.profile).toMatchObject({
+      speech_style: "丁寧語",
+      sample_lines: "「ほら、行くよ」\n「しょうがないなあ」",
+      knowledge: "喫茶店で働いている",
+    });
+  });
+
   it("picks the speaker's first style when choosing a voice", async () => {
     renderEditor();
     const select = await screen.findByLabelText("声");

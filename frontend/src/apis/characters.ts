@@ -159,6 +159,8 @@ export interface GenerateCharacterProfilePayload {
   appearance_natural: string;
   appearance_tags: string;
   memo: string;
+  /** メモに書かれた話し方とセリフの例も取り出す(キャラクター画面だけ) */
+  include_speech?: boolean;
 }
 
 /** 名前・外見・メモから性格プロフィールを LLM で生成する（保存はしない） */

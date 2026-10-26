@@ -112,3 +112,59 @@ async def test_generate_raises_on_invalid_json(monkeypatch) -> None:
         await character_profile.generate_character_profile(
             name="サクラ", appearance_natural="", appearance_tags="", memo=""
         )
+
+
+@pytest.mark.asyncio
+async def test_generate_extracts_speech_from_memo_when_asked(monkeypatch) -> None:
+    content = json.dumps(
+        {
+            "personality": "明るい",
+            "reaction_style": "cheerful",
+            "pronoun": "あたし",
+            "gender": "woman",
+            "interests": [],
+            "tsf_attitude": "",
+            "speech_style": "砕けたタメ口",
+            "sample_lines": ["「ほら、行くよ」", "「しょうがないなあ」"],
+        },
+        ensure_ascii=False,
+    )
+    generate = _stub_services(monkeypatch, content=content, user_settings={})
+
+    profile = await character_profile.generate_character_profile(
+        name="サクラ",
+        appearance_natural="",
+        appearance_tags="",
+        memo="タメ口で話す。口癖は「ほら、行くよ」「しょうがないなあ」",
+        include_speech=True,
+    )
+
+    assert "sample_lines" in generate.await_args.kwargs["system_prompt"]
+    assert profile["speech_style"] == "砕けたタメ口"
+    # 配列で返っても 1 行に 1 つの形にそろえる
+    assert profile["sample_lines"] == "「ほら、行くよ」\n「しょうがないなあ」"
+
+
+@pytest.mark.asyncio
+async def test_generate_ignores_speech_unless_asked(monkeypatch) -> None:
+    content = json.dumps(
+        {
+            "personality": "明るい",
+            "reaction_style": "cheerful",
+            "pronoun": "あたし",
+            "gender": "woman",
+            "speech_style": "砕けたタメ口",
+            "sample_lines": "「ほら」",
+        },
+        ensure_ascii=False,
+    )
+    generate = _stub_services(monkeypatch, content=content, user_settings={})
+
+    profile = await character_profile.generate_character_profile(
+        name="サクラ", appearance_natural="", appearance_tags="", memo="タメ口"
+    )
+
+    # 通常プレイの登場人物の下書きでは、話し方の項目を求めず、返っても捨てる
+    assert "sample_lines" not in generate.await_args.kwargs["system_prompt"]
+    assert profile["speech_style"] == ""
+    assert profile["sample_lines"] == ""

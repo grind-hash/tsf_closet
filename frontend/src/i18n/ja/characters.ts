@@ -67,7 +67,7 @@ export const characters = {
   generateProfile: "LLM で性格を下書き",
   generatingProfile: "下書きしています...",
   generateProfileHint:
-    "名前・外見・メモから、性格・一人称・性別・趣味などを埋めます。口調・セリフの例・知識は変えません。",
+    "名前・外見・メモから、性格・一人称・性別・趣味などを埋めます。メモに話し方やセリフの例が書いてあれば、「口調・話し方」と「セリフの例」にも入れます。知識・背景は変えません。",
   generateProfileError: "性格を下書きできませんでした。",
   generateTags: "外見の自然文からタグを作る",
   generatingTags: "タグを作っています...",

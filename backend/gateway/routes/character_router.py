@@ -517,6 +517,7 @@ async def generate_character_profile_endpoint(
             appearance_natural=payload.appearance_natural,
             appearance_tags=payload.appearance_tags,
             memo=payload.memo,
+            include_speech=payload.include_speech,
         )
     except CharacterProfileGenerationError as exc:
         raise HTTPException(

@@ -67,7 +67,7 @@ export const characters = {
   generateProfile: "Draft the personality with the LLM",
   generatingProfile: "Drafting...",
   generateProfileHint:
-    "Fills in personality, pronoun, gender, interests and so on from the name, look and notes. Speech style, sample lines and knowledge are kept.",
+    "Fills in personality, pronoun, gender, interests and so on from the name, look and notes. When the notes describe how the character talks or include sample lines, they also go into Speech style and Sample lines. Knowledge is kept.",
   generateProfileError: "Could not draft the personality.",
   generateTags: "Make tags from the description",
   generatingTags: "Making tags...",

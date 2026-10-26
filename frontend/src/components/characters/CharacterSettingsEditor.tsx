@@ -102,9 +102,13 @@ export default function CharacterSettingsEditor({
         appearance_natural: preset.appearance_natural,
         appearance_tags: preset.appearance_tags,
         memo: profileRef.current.memo,
+        include_speech: true,
       });
-      // 下書きは性格まわりだけ。口調・セリフの例・知識・最初のひとことは残す
+      // 口調とセリフの例は、メモに書かれていて取り出せたときだけ置き換える。
+      // 知識と最初のひとことは下書きの対象にしない
       const current = profileRef.current;
+      const speechStyle = generated.speech_style?.trim() ?? "";
+      const sampleLines = generated.sample_lines?.trim() ?? "";
       await commitProfile({
         personality: generated.personality,
         reaction_style: generated.reaction_style,
@@ -112,6 +116,8 @@ export default function CharacterSettingsEditor({
         gender: generated.gender,
         interests: generated.interests,
         tsf_attitude: generated.tsf_attitude,
+        speech_style: speechStyle || current.speech_style,
+        sample_lines: sampleLines || current.sample_lines,
         memo: current.memo,
       });
     } catch (err) {
