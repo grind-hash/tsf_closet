@@ -23,8 +23,21 @@ export const characterChat = {
       base: "Guide",
       session: "Session",
       adventure: "Scenario",
+      character: "Characters",
     },
     filterEmpty: "No conversations of this kind yet.",
+    kindCharacter: "Character",
+    characterSection: "Talk with a character you made",
+    characterIntro:
+      "Talk with a character whose name, pronoun, personality, knowledge and look you set on the Characters screen.",
+    characterButton: "Choose a character",
+    characterManage: "Manage characters",
+    characterPickerTitle: "Choose a character to talk with",
+    characterPickerEmpty:
+      "No characters yet. You can create one on the Characters screen.",
+    characterPickerCreate: "Create a new character",
+    characterPickerLoading: "Loading characters...",
+    characterPickerFailed: "Could not load characters.",
     kindBase: "Guide",
     kindAdventure: "Scenario",
     kindSession: "From a session",
@@ -85,7 +98,7 @@ export const characterChat = {
     avatarCurrentNone: "No 3D model (showing the 2D portrait)",
     avatarAuto: "Automatic (default)",
     avatarAutoHint:
-      "The guide uses the bundled dedicated model, scenario characters use the face-to-face model of the scenario, and otherwise a registered model whose character name matches.",
+      "Characters with a 3D model set on the Characters screen use that model, the guide uses the bundled dedicated model, scenario characters use the face-to-face model of the scenario, and otherwise a registered model whose character name matches.",
     avatarNone: "Use the 2D portrait",
     avatarRegistered: "Choose a registered model",
     avatarRegisteredLoading: "Loading the model list...",
@@ -94,6 +107,7 @@ export const characterChat = {
     avatarRegisteredFailed: "Could not load the model list",
     avatarSourceBundled: "bundled model",
     avatarSourceRegistered: "registered model",
+    avatarSourceCharacter: "character setting",
     avatarSourceRun: "scenario setting",
     avatarMissing:
       "The chosen 3D model has been deleted, so the selection went back to automatic.",
@@ -105,6 +119,53 @@ export const characterChat = {
     regeneratePortraitHint:
       "Redraw the full-body portrait from the current appearance tags (image generation takes a while)",
     appearanceMenu: "Appearance",
+    lightingHeading: "Lighting",
+    lightingHint:
+      "How light falls on the 3D model. Also applies to TSF scenarios and the settings preview.",
+    lightingUnavailable:
+      "Available while a 3D model is shown (has no effect on 2D portraits or Live2D).",
+    lightingPresets: {
+      standard: "Standard",
+      bright: "Bright",
+      sunset: "Sunset",
+      night: "Night",
+    },
+    expressionMenu: "Expression",
+    cameraHeading: "Camera",
+    cameraFramings: {
+      full: "Full body",
+      upper: "Upper body",
+      face: "Face",
+    },
+    cameraLive2dNote: "For Live2D, use the zoom toggle on the stage.",
+    cameraPortraitNote: "Available while a 3D model is shown.",
+    expressionHeading: "Expression",
+    expressionReset: "Back to the reply's expression",
+    expressionHint:
+      "The chosen expression stays until the next reply arrives or you go back to the reply's expression.",
+    expressionMissingNote:
+      "Disabled expressions are not provided by this model. The chosen expression stays until the next reply arrives.",
+    expressionLive2dNote: "Live2D supports neutral, happy, sad and angry.",
+    expressionPortraitNote:
+      "Draw expression variants below to try expressions on a 2D portrait.",
+    expressionPortraitVariantsNote:
+      "You can try the expressions you have drawn. They also switch automatically to match each reply.",
+    expressionVariantsHeading: "Expression variants (2D portrait)",
+    expressionVariantsHint:
+      "Draws the current portrait again with only the expression changed. ✓ marks the expressions already drawn.",
+    expressionVariantsNoPortrait:
+      'There is no portrait to start from. Draw one first from the "Appearance" menu.',
+    expressionPreciseHint:
+      "When on, the current portrait is sent as a precise reference (character reference); each reference costs extra Anlas.",
+    expressionVariantsProgress:
+      'Drawing "{{expression}}" ({{current}}/{{total}})',
+    expressionVariantsGenerate: "Draw the chosen expressions ({{count}})",
+    expressionVariantsCost:
+      "Generates one image per expression (this takes a while). Redraw the variants after redrawing the portrait.",
+    expressionAnlasBody:
+      "The expression variants will be drawn with a precise reference. Each reference costs extra Anlas. Continue?",
+    gestureHeading: "Gesture",
+    gestureUnavailable: "Gestures can be tried while a 3D model is shown.",
     resetAppearance: "Back to the first appearance",
     resetAppearanceHint:
       "Restores the appearance from when the character was created (the bundled portrait, or the chosen image and its tags). No image generation.",
@@ -112,12 +173,15 @@ export const characterChat = {
     generatePortrait: "Generate portrait",
     portraitMissing:
       'No portrait image. Place an image at backend/images/character_chat/{{file}}, or use "Generate portrait" to draw one from the appearance tags.',
+    portraitMissingCharacter:
+      'No portrait yet. Use "Generate portrait" to draw one from the appearance tags.',
     portraitBusy: "Drawing the portrait...",
     portraitBusyHint:
       "Image generation can take about a minute. It keeps running if you leave this screen and is applied when you come back.",
     appearanceUpdating: "Changing the appearance...",
     sourceBase: "Bundled portrait",
     sourceSession: "Session image",
+    sourceCharacter: "character's portrait",
     sourcePromptExpander: "Prompt Expander image",
     sourceStanding: "Generated portrait",
     appearanceTitle: "Current appearance",
@@ -226,6 +290,28 @@ export const characterChat = {
     milestones: "Milestones reached",
     recentScenes: "Recent scenes",
     speechStyle: "Speech style",
+    character: "Character settings",
+    characterHint:
+      "These are the character's own settings. Changes here also apply to this character's other conversations and to normal-play cast members.",
+    characterOpen: "Open on the Characters screen",
+    characterLoading: "Loading the character...",
+    characterLoadFailed: "Could not load the character.",
+    characterMissing:
+      "The linked character has been deleted. The conversation continues with the current name and pronoun.",
+    characterSessionIntro:
+      "You can add character settings such as personality, speech style and knowledge to this session's person. The session history stays as it is.",
+    characterCreateFromThread:
+      "Create a character from the current name and look",
+    characterChoose: "Add a character you made",
+    characterUnlink: "Remove the character settings",
+    characterUnlinkHint:
+      "When removed, the name and pronoun return to the session's person. The character itself is kept.",
+    characterUnavailableBase:
+      "Character settings cannot be added to the guide character.",
+    characterUnavailableAdventure:
+      "A scenario person's settings are decided by the scenario.",
+    characterAppearanceNote:
+      "Change the look during a conversation from the Appearance menu. The character's own look and portrait are edited on the Characters screen.",
     runMissing:
       "This scenario has ended or been deleted (showing the last known state).",
     timelineType: {
@@ -244,5 +330,7 @@ export const characterChat = {
     appearanceFailed: "Could not change the appearance",
     avatarFailed: "Could not switch the character display",
     deleteFailed: "Could not delete the conversation",
+    linkFailed: "Could not change the character settings",
+    expressionFailed: "Could not draw the expression portraits",
   },
 };

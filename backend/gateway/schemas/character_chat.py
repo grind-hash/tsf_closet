@@ -25,8 +25,40 @@ class CharacterChatSourceRequest(BaseModel):
         return self
 
 
-class CharacterChatCreateRequest(CharacterChatSourceRequest):
-    """セッション由来キャラの作成。"""
+class CharacterChatCreateRequest(BaseModel):
+    """キャラチャットの作成。
+
+    source_character_preset_id だけなら、キャラクターメイクで作ったキャラと話す
+    スレッドを作る。セッション / Prompt Expander と一緒に渡すと、その素材の人物に
+    キャラクター設定(性格・口調・知識)を重ねる。
+    """
+
+    source_session_id: str | None = Field(None, min_length=1)
+    source_history_id: str | None = None
+    source_prompt_expander_entry_id: str | None = Field(None, max_length=80)
+    source_character_preset_id: str | None = Field(None, min_length=1, max_length=64)
+
+    @model_validator(mode="after")
+    def _require_source(self) -> CharacterChatCreateRequest:
+        if (
+            not self.source_session_id
+            and not self.source_prompt_expander_entry_id
+            and not self.source_character_preset_id
+        ):
+            raise ValueError(
+                "source_session_id, source_prompt_expander_entry_id or "
+                "source_character_preset_id is required"
+            )
+        return self
+
+
+class CharacterChatCharacterLinkRequest(BaseModel):
+    """セッション由来のスレッドにキャラクターを紐づける。
+
+    preset_id を省くと、いまのスレッドの名前・一人称・姿から新しくキャラクターを作る。
+    """
+
+    preset_id: str | None = Field(None, min_length=1, max_length=64)
 
 
 class CharacterChatAppearanceRequest(CharacterChatSourceRequest):
@@ -65,6 +97,20 @@ class CharacterChatAvatarRequest(BaseModel):
     mode: Literal["auto", "none", "model", "live2d"] = "auto"
     avatar_id: str | None = None
     live2d_costume: str | None = Field(None, max_length=40)
+
+
+ExpressionPortraitKey = Literal["happy", "sad", "angry", "surprised", "relaxed"]
+
+
+class CharacterChatExpressionRequest(BaseModel):
+    """2D 立ち絵の表情差分を描く。
+
+    expressions は描く表情(neutral はいまの立ち絵そのもの)。use_precise_reference は
+    NovelAI の精密参照(Anlas 消費)を使うか。
+    """
+
+    expressions: list[ExpressionPortraitKey] = Field(..., min_length=1, max_length=5)
+    use_precise_reference: bool = False
 
 
 class CharacterChatPortraitRequest(BaseModel):

@@ -137,6 +137,22 @@ def identity_tags_only(tags: str) -> str:
     return ", ".join(identity)
 
 
+def split_appearance_tags(tags: str) -> tuple[str, str]:
+    """カンマ区切りタグを (同一性タグ, 服装タグ) に分ける。情景・動作のタグは捨てる。
+
+    キャラクターの外見タグ(1 列)をキャラチャットの姿(外見と服装の 2 列)にするときに使う。
+    """
+    parts = [tag.strip() for tag in tags.split(",") if tag.strip()]
+    clothing = [tag for tag in parts if CLOTHING_TAG_PATTERN.search(tag)]
+    identity = [
+        tag
+        for tag in parts
+        if not CLOTHING_TAG_PATTERN.search(tag)
+        and not SCENE_OR_ACTION_TAG_PATTERN.search(tag)
+    ]
+    return ", ".join(identity), ", ".join(clothing)
+
+
 async def resolve_session_identity(session: Any) -> tuple[str, str]:
     """セッションの人物名と一人称を (self_profile → テンプレ → カスタム) の順で解決する。
 

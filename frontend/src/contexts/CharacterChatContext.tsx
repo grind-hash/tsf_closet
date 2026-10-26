@@ -30,20 +30,25 @@ import {
   deleteCharacterChatThread,
   fetchCharacterChatThread,
   fetchCharacterChatThreads,
+  linkCharacterChatCharacter,
   openAdventureCharacterChatThread,
   openBaseCharacterChatThread,
   resetCharacterChatAppearance,
   setCharacterChatAdventureAppearance,
   setCharacterChatAppearance,
   setCharacterChatAvatar,
+  streamCharacterChatExpressions,
   streamCharacterChatMessage,
   streamCharacterChatPortrait,
+  unlinkCharacterChatCharacter,
 } from "../apis/characterChat";
 import type { AdventureSourceSelection } from "../components/adventure/AdventureSessionPickerModal";
+import type { AvatarExpressionKey } from "../constants/companionAvatar";
 import {
   type UseAdventureVoiceResult,
   useAdventureVoice,
 } from "../hooks/useAdventureVoice";
+import type { CharacterPreset } from "../types";
 import { stripStageDirections } from "../utils/adventureDialogue";
 import { textToVoiceSegments } from "../utils/adventureVoiceSegments";
 import { useChat } from "./ChatContext";
@@ -78,6 +83,8 @@ interface CharacterChatContextValue {
     selection: AdventureSourceSelection,
     options?: { generatePortrait?: boolean },
   ) => Promise<string | null>;
+  /** キャラクターメイクで作ったキャラと話すスレッドを作る */
+  createFromCharacter: (presetId: string) => Promise<string | null>;
   /** createFromSource で立ち絵生成を予約したスレッドなら true を 1 回だけ返す */
   takePendingPortrait: (threadId: string) => boolean;
   loadThread: (threadId: string) => Promise<CharacterChatThread | null>;
@@ -114,9 +121,41 @@ interface CharacterChatContextValue {
     avatarId?: string | null,
     live2dCostume?: string | null,
   ) => Promise<boolean>;
+  /**
+   * セッション由来の会話にキャラクターを紐づける。presetId を省くと、いまの
+   * 名前・一人称・姿から新しくキャラクターを作る
+   */
+  linkCharacter: (presetId?: string) => Promise<boolean>;
+  /** セッション由来の会話からキャラクターの紐づけを外す */
+  unlinkCharacter: () => Promise<boolean>;
+  /**
+   * 右パネルでキャラクター本体を直したとき、表示中の会話の名前・一人称・声を
+   * 合わせる(サーバー側もスレッドの名前と一人称を書き写している)
+   */
+  applyCharacterUpdate: (preset: CharacterPreset) => void;
+  /**
+   * 2D 立ち絵の表情差分を描く。描けた表情から順に表示へ反映する。
+   * usePrecise は NovelAI の精密参照(Anlas 消費。呼び出し側で確認済みの前提)
+   */
+  generateExpressions: (
+    expressions: string[],
+    options?: { usePrecise?: boolean },
+  ) => Promise<boolean>;
+  /** 表示中スレッドで表情差分を描いている最中なら、その進み具合 */
+  expressionProgress: {
+    expression: string;
+    done: number;
+    total: number;
+  } | null;
   /** 3D モデルの読込に失敗したら立ち絵へ戻す(スレッド切替でリセット) */
   avatarFailed: boolean;
   setAvatarFailed: (failed: boolean) => void;
+  /**
+   * 「表情」メニューで選んだ表情。返答の表情より優先する。次のキャラ発言が
+   * 届くと無効になる(null = 上書きなし)
+   */
+  expressionPreview: AvatarExpressionKey | null;
+  setExpressionPreview: (expression: AvatarExpressionKey | null) => void;
   /** ENABLE_PROMPT_PREVIEW。開発者向けの案内を出し分ける */
   promptPreviewEnabled: boolean;
   /** 一覧をまだ取っていなければ取る(会話画面へ直接来たとき用) */
@@ -150,9 +189,16 @@ function errorMessage(error: unknown, fallback: string): string {
 export function CharacterChatProvider({ children }: { children: ReactNode }) {
   const { t } = useTranslation();
   const { addTotalCost, state: settingsState } = useSettings();
+  const [activeThread, setActiveThread] = useState<CharacterChatThread | null>(
+    null,
+  );
+  // キャラクターに声が決めてあればその声、無ければ設定画面の声で読み上げる
+  const characterVoice = activeThread?.character?.voice ?? null;
   const voice = useAdventureVoice({
     available: settingsState.ttsEnabled,
     speakerId:
+      characterVoice?.style_id.trim() ||
+      characterVoice?.speaker_id.trim() ||
       settingsState.ttsStyleId?.trim() ||
       settingsState.ttsSpeakerId?.trim() ||
       null,
@@ -177,9 +223,6 @@ export function CharacterChatProvider({ children }: { children: ReactNode }) {
   const { clearMessages, setInputText, setInstructionType } = useChat();
   const [threads, setThreads] = useState<CharacterChatThread[]>([]);
   const [threadsLoading, setThreadsLoading] = useState(false);
-  const [activeThread, setActiveThread] = useState<CharacterChatThread | null>(
-    null,
-  );
   const [threadLoading, setThreadLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [phase, setPhase] = useState<CharacterChatPhase | "idle">("idle");
@@ -194,10 +237,25 @@ export function CharacterChatProvider({ children }: { children: ReactNode }) {
   busyPortraitsRef.current = busyPortraits;
   const [error, setError] = useState<string | null>(null);
   const [avatarFailed, setAvatarFailed] = useState(false);
+  // 表情差分の生成はスレッド単位で追う(1 枚ずつ時間がかかるため、他の会話へ
+  // 移っても続け、戻ったときに進み具合を出す)
+  const [expressionJobs, setExpressionJobs] = useState<
+    Record<string, { expression: string; done: number; total: number }>
+  >({});
+  const expressionJobsRef = useRef(expressionJobs);
+  expressionJobsRef.current = expressionJobs;
+  // 選んだ時点の最新のキャラ発言を覚え、それより新しい発言が届いたら上書きをやめる
+  const [expressionPreviewState, setExpressionPreviewState] = useState<{
+    threadId: string;
+    messageId: string | null;
+    expression: AvatarExpressionKey;
+  } | null>(null);
   const [promptPreviewEnabled, setPromptPreviewEnabled] = useState(false);
   // 送信中に別スレッドへ移動しても古いストリームの結果を混ぜない
   const activeThreadIdRef = useRef<string | null>(null);
   activeThreadIdRef.current = activeThread?.id ?? null;
+  const activeThreadRef = useRef(activeThread);
+  activeThreadRef.current = activeThread;
   const threadEpochRef = useRef(0);
   // Hub で「立ち絵を生成する」を ON にして作ったスレッド。Room が開いた時点で 1 回だけ描く
   const pendingPortraitRef = useRef<string | null>(null);
@@ -306,6 +364,25 @@ export function CharacterChatProvider({ children }: { children: ReactNode }) {
         pendingPortraitRef.current = options?.generatePortrait
           ? thread.id
           : null;
+        return thread.id;
+      } catch (err) {
+        setError(errorMessage(err, t("characterChat.errors.createFailed")));
+        return null;
+      } finally {
+        setThreadLoading(false);
+      }
+    },
+    [t],
+  );
+
+  const createFromCharacter = useCallback(
+    async (presetId: string) => {
+      setThreadLoading(true);
+      try {
+        const thread = await createCharacterChatThread({
+          source_character_preset_id: presetId,
+        });
+        setThreads((prev) => [thread, ...prev]);
         return thread.id;
       } catch (err) {
         setError(errorMessage(err, t("characterChat.errors.createFailed")));
@@ -444,6 +521,8 @@ export function CharacterChatProvider({ children }: { children: ReactNode }) {
                     portrait_url: image_url,
                     portrait_missing: false,
                     appearance,
+                    // 表情差分は前の立ち絵から作ったものなので使わない
+                    expression_portraits: {},
                   }
                 : prev,
             );
@@ -571,6 +650,7 @@ export function CharacterChatProvider({ children }: { children: ReactNode }) {
                 portrait_missing: false,
                 appearance,
                 can_reset_appearance: true,
+                expression_portraits: {},
               });
             } else if (event.type === "cost") {
               const cost = Number(event.data.cost_usd);
@@ -602,6 +682,71 @@ export function CharacterChatProvider({ children }: { children: ReactNode }) {
     },
     [addTotalCost, t, markPortraitBusy, applyThreadUpdate, showNotification],
   );
+
+  const generateExpressions = useCallback(
+    async (expressions: string[], options?: { usePrecise?: boolean }) => {
+      const thread = activeThreadRef.current;
+      if (!thread || expressionJobsRef.current[thread.id]) return false;
+      const threadId = thread.id;
+      const total = expressions.length;
+      let done = 0;
+      let collected = { ...(thread.expression_portraits ?? {}) };
+      let failed: string | null = null;
+      const setJob = (
+        job: { expression: string; done: number; total: number } | null,
+      ) =>
+        setExpressionJobs((prev) => {
+          const next = { ...prev };
+          if (job) next[threadId] = job;
+          else delete next[threadId];
+          expressionJobsRef.current = next;
+          return next;
+        });
+      setJob({ expression: expressions[0] ?? "", done, total });
+      try {
+        await streamCharacterChatExpressions(
+          threadId,
+          expressions,
+          (event) => {
+            if (event.type === "status") {
+              setJob({ expression: event.data.expression, done, total });
+            } else if (event.type === "expression_image") {
+              done += 1;
+              collected = {
+                ...collected,
+                [event.data.expression]: event.data.image_url,
+              };
+              applyThreadUpdate(threadId, { expression_portraits: collected });
+            } else if (event.type === "cost") {
+              const cost = Number(event.data.cost_usd);
+              if (Number.isFinite(cost) && cost > 0) addTotalCost(cost);
+            } else if (event.type === "error") {
+              failed = event.data.message;
+            }
+          },
+          { use_precise_reference: Boolean(options?.usePrecise) },
+        );
+      } catch (err) {
+        failed = errorMessage(err, t("characterChat.errors.expressionFailed"));
+      } finally {
+        setJob(null);
+      }
+      if (failed) {
+        setError(failed);
+        showNotification(
+          "warning",
+          t("characterChat.errors.expressionFailed"),
+          failed,
+        );
+        return false;
+      }
+      return true;
+    },
+    [addTotalCost, t, applyThreadUpdate, showNotification],
+  );
+  const expressionProgress = activeThread
+    ? (expressionJobs[activeThread.id] ?? null)
+    : null;
 
   const resetAppearance = useCallback(async () => {
     const threadId = activeThreadIdRef.current;
@@ -638,6 +783,57 @@ export function CharacterChatProvider({ children }: { children: ReactNode }) {
       }
     },
     [t, markPortraitBusy, applyThreadUpdate],
+  );
+
+  const linkCharacter = useCallback(
+    async (presetId?: string) => {
+      const threadId = activeThreadIdRef.current;
+      if (!threadId) return false;
+      try {
+        const { messages: _ignored, ...thread } =
+          await linkCharacterChatCharacter(threadId, presetId);
+        applyThreadUpdate(threadId, thread);
+        return true;
+      } catch (err) {
+        setError(errorMessage(err, t("characterChat.errors.linkFailed")));
+        return false;
+      }
+    },
+    [t, applyThreadUpdate],
+  );
+
+  const unlinkCharacter = useCallback(async () => {
+    const threadId = activeThreadIdRef.current;
+    if (!threadId) return false;
+    try {
+      const { messages: _ignored, ...thread } =
+        await unlinkCharacterChatCharacter(threadId);
+      applyThreadUpdate(threadId, thread);
+      return true;
+    } catch (err) {
+      setError(errorMessage(err, t("characterChat.errors.linkFailed")));
+      return false;
+    }
+  }, [t, applyThreadUpdate]);
+
+  const applyCharacterUpdate = useCallback(
+    (preset: CharacterPreset) => {
+      const threadId = activeThreadIdRef.current;
+      if (!threadId) return;
+      const pronoun = preset.profile?.pronoun?.trim();
+      const patch: Partial<CharacterChatThread> = {
+        name: preset.name.slice(0, 80),
+        character: {
+          id: preset.id,
+          name: preset.name,
+          voice: preset.voice,
+          missing: false,
+        },
+      };
+      if (pronoun) patch.pronoun = pronoun.slice(0, 16);
+      applyThreadUpdate(threadId, patch);
+    },
+    [applyThreadUpdate],
   );
 
   const setAvatar = useCallback(
@@ -677,6 +873,34 @@ export function CharacterChatProvider({ children }: { children: ReactNode }) {
     : null;
   const portraitBusy = activeBusyKind !== null;
 
+  const latestCharacterMessageId = useMemo(() => {
+    const messages = activeThread?.messages ?? [];
+    for (let index = messages.length - 1; index >= 0; index--) {
+      if (messages[index].role === "character") return messages[index].id;
+    }
+    return null;
+  }, [activeThread]);
+  const expressionPreview =
+    expressionPreviewState &&
+    expressionPreviewState.threadId === activeThread?.id &&
+    expressionPreviewState.messageId === latestCharacterMessageId
+      ? expressionPreviewState.expression
+      : null;
+  const setExpressionPreview = useCallback(
+    (expression: AvatarExpressionKey | null) => {
+      setExpressionPreviewState(
+        expression && activeThread
+          ? {
+              threadId: activeThread.id,
+              messageId: latestCharacterMessageId,
+              expression,
+            }
+          : null,
+      );
+    },
+    [activeThread, latestCharacterMessageId],
+  );
+
   const value = useMemo<CharacterChatContextValue>(
     () => ({
       voice,
@@ -696,6 +920,7 @@ export function CharacterChatProvider({ children }: { children: ReactNode }) {
       openBase,
       openAdventure,
       createFromSource,
+      createFromCharacter,
       takePendingPortrait,
       loadThread,
       leaveThread,
@@ -708,8 +933,15 @@ export function CharacterChatProvider({ children }: { children: ReactNode }) {
       resetAppearance,
       setAdventureAppearance,
       setAvatar,
+      linkCharacter,
+      unlinkCharacter,
+      applyCharacterUpdate,
+      generateExpressions,
+      expressionProgress,
       avatarFailed,
       setAvatarFailed,
+      expressionPreview,
+      setExpressionPreview,
       promptPreviewEnabled,
       ensureThreadsLoaded,
       clearError,
@@ -732,6 +964,7 @@ export function CharacterChatProvider({ children }: { children: ReactNode }) {
       openBase,
       openAdventure,
       createFromSource,
+      createFromCharacter,
       takePendingPortrait,
       loadThread,
       leaveThread,
@@ -744,7 +977,14 @@ export function CharacterChatProvider({ children }: { children: ReactNode }) {
       resetAppearance,
       setAdventureAppearance,
       setAvatar,
+      linkCharacter,
+      unlinkCharacter,
+      applyCharacterUpdate,
+      generateExpressions,
+      expressionProgress,
       avatarFailed,
+      expressionPreview,
+      setExpressionPreview,
       promptPreviewEnabled,
       ensureThreadsLoaded,
       clearError,

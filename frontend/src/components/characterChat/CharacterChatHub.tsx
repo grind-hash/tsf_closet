@@ -14,6 +14,7 @@ import { ROUTES } from "../../routes";
 import AdventureSessionPickerModal, {
   type AdventureSourceSelection,
 } from "../adventure/AdventureSessionPickerModal";
+import CharacterPickerModal from "../characters/CharacterPickerModal";
 import MainLayout from "../layout/MainLayout";
 import ConfirmDialog from "../ui/ConfirmDialog";
 
@@ -25,6 +26,7 @@ export const CHARACTER_CHAT_THREAD_FILTER_KEY = "character_chat_thread_filter";
 const THREAD_FILTERS: readonly CharacterChatThreadFilter[] = [
   "all",
   "base",
+  "character",
   "session",
   "adventure",
 ];
@@ -33,6 +35,7 @@ const KIND_LABEL_KEY: Record<CharacterChatKind, TranslationKey> = {
   base: "characterChat.hub.kindBase",
   session: "characterChat.hub.kindSession",
   adventure: "characterChat.hub.kindAdventure",
+  character: "characterChat.hub.kindCharacter",
 };
 
 function isThreadFilter(value: string): value is CharacterChatThreadFilter {
@@ -40,8 +43,8 @@ function isThreadFilter(value: string): value is CharacterChatThreadFilter {
 }
 
 /**
- * キャラチャットの入口。案内役キャラ(セレナ)のカード、「セッションから作る」、
- * 既存スレッドの一覧(種類で絞り込み可能)を並べる。
+ * キャラチャットの入口。案内役キャラ(セレナ)のカード、「作ったキャラクターと話す」、
+ * 「セッションから作る」、既存スレッドの一覧(種類で絞り込み可能)を並べる。
  */
 export default function CharacterChatHub() {
   const { t, i18n } = useTranslation();
@@ -56,9 +59,11 @@ export default function CharacterChatHub() {
     refreshThreads,
     openBase,
     createFromSource,
+    createFromCharacter,
     deleteThread,
   } = useCharacterChat();
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [characterPickerOpen, setCharacterPickerOpen] = useState(false);
   const [generatePortrait, setGeneratePortrait] =
     useCharacterChatPortraitPreference();
   const [deleteTarget, setDeleteTarget] = useState<CharacterChatThread | null>(
@@ -97,6 +102,7 @@ export default function CharacterChatHub() {
       base: 0,
       session: 0,
       adventure: 0,
+      character: 0,
     };
     for (const thread of threads) {
       result[thread.kind] += 1;
@@ -131,6 +137,17 @@ export default function CharacterChatHub() {
   const handleSelectSource = async (selection: AdventureSourceSelection) => {
     setPickerOpen(false);
     const id = await createFromSource(selection, { generatePortrait });
+    if (id) navigate(`${ROUTES.CHARACTER_CHAT}/${id}`);
+  };
+
+  const handleSelectCharacter = async (presetId: string) => {
+    setCharacterPickerOpen(false);
+    // 作ったキャラクターとの会話があれば続きを開き、無ければ新しく始める
+    const existing = threads.find(
+      (thread) =>
+        thread.kind === "character" && thread.character?.id === presetId,
+    );
+    const id = existing?.id ?? (await createFromCharacter(presetId));
     if (id) navigate(`${ROUTES.CHARACTER_CHAT}/${id}`);
   };
 
@@ -202,33 +219,61 @@ export default function CharacterChatHub() {
             </div>
           </section>
 
-          <section className="character-chat__card">
-            <h2>{t("characterChat.hub.createSection")}</h2>
-            <p>{t("characterChat.hub.createIntro")}</p>
-            <button
-              type="button"
-              className="character-chat__secondary"
-              disabled={threadLoading}
-              onClick={() => setPickerOpen(true)}
-            >
-              {t("characterChat.hub.createButton")}
-            </button>
-            <label className="character-chat__switch-row character-chat__switch-row--card">
-              <span className="character-chat__switch-info">
-                <strong>{t("characterChat.hub.generatePortraitToggle")}</strong>
-                <small>
-                  {t("characterChat.hub.generatePortraitToggleHint")}
-                </small>
-              </span>
-              <input
-                type="checkbox"
-                className="character-chat__switch-input"
-                checked={generatePortrait}
-                onChange={(event) => setGeneratePortrait(event.target.checked)}
-              />
-              <span className="character-chat__switch" />
-            </label>
-          </section>
+          <div className="character-chat__hub-side">
+            <section className="character-chat__card">
+              <h2>{t("characterChat.hub.characterSection")}</h2>
+              <p>{t("characterChat.hub.characterIntro")}</p>
+              <div className="character-chat__card-buttons">
+                <button
+                  type="button"
+                  className="character-chat__secondary"
+                  disabled={threadLoading}
+                  onClick={() => setCharacterPickerOpen(true)}
+                >
+                  {t("characterChat.hub.characterButton")}
+                </button>
+                <button
+                  type="button"
+                  className="character-chat__secondary"
+                  onClick={() => navigate(ROUTES.CHARACTERS)}
+                >
+                  {t("characterChat.hub.characterManage")}
+                </button>
+              </div>
+            </section>
+
+            <section className="character-chat__card">
+              <h2>{t("characterChat.hub.createSection")}</h2>
+              <p>{t("characterChat.hub.createIntro")}</p>
+              <button
+                type="button"
+                className="character-chat__secondary"
+                disabled={threadLoading}
+                onClick={() => setPickerOpen(true)}
+              >
+                {t("characterChat.hub.createButton")}
+              </button>
+              <label className="character-chat__switch-row character-chat__switch-row--card">
+                <span className="character-chat__switch-info">
+                  <strong>
+                    {t("characterChat.hub.generatePortraitToggle")}
+                  </strong>
+                  <small>
+                    {t("characterChat.hub.generatePortraitToggleHint")}
+                  </small>
+                </span>
+                <input
+                  type="checkbox"
+                  className="character-chat__switch-input"
+                  checked={generatePortrait}
+                  onChange={(event) =>
+                    setGeneratePortrait(event.target.checked)
+                  }
+                />
+                <span className="character-chat__switch" />
+              </label>
+            </section>
+          </div>
         </div>
 
         <section className="character-chat__card">
@@ -333,6 +378,14 @@ export default function CharacterChatHub() {
           )}
         </section>
       </div>
+
+      {characterPickerOpen && (
+        <CharacterPickerModal
+          title={t("characterChat.hub.characterPickerTitle")}
+          onSelect={(preset) => void handleSelectCharacter(preset.id)}
+          onClose={() => setCharacterPickerOpen(false)}
+        />
+      )}
 
       {pickerOpen && (
         <AdventureSessionPickerModal

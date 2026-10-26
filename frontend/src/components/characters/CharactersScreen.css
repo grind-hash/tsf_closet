@@ -1,0 +1,392 @@
+/*
+ * キャラクター(/characters)。一覧・編集画面と、キャラチャットから開く選択モーダル。
+ * カード・ボタンの見た目はキャラチャット(CharacterChatScreen.css)に揃える。
+ */
+
+.characters__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.characters__header .character-chat__primary {
+  flex: 0 0 auto;
+}
+
+.characters__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.characters__card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.9rem;
+  border: 1px solid var(--border-color, #333);
+  border-radius: 12px;
+  background-color: var(--card-bg, #16213e);
+}
+
+.characters__card-open,
+.character-picker__item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.8rem;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.characters__thumb {
+  flex: 0 0 64px;
+  height: 84px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 8px;
+  background: radial-gradient(circle at 50% 30%, #2a2f5a, #0f1330);
+  font-size: 1.6rem;
+}
+
+.characters__thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top;
+}
+
+.characters__card-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.characters__card-text strong {
+  font-size: 1rem;
+  overflow-wrap: anywhere;
+}
+
+.characters__card-personality {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--text-muted, #aaa);
+  font-size: 0.85rem;
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+/* 幅が変わるバッジは行末に寄せる */
+.characters__badges {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 0.3rem;
+}
+
+.characters__card-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.characters__card-actions .character-chat__primary {
+  flex: 1 1 auto;
+}
+
+.characters__editor-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.characters__editor-header h1 {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  font-size: 1.3rem;
+  overflow-wrap: anywhere;
+}
+
+.characters__back {
+  align-self: flex-start;
+}
+
+/* 設定フォーム(キャラクター画面とキャラチャットの右パネルで共用) */
+.character-maker {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.character-maker__section {
+  border: 1px solid var(--border-color, #333);
+  border-radius: 10px;
+  background-color: var(--card-bg, #16213e);
+}
+
+.character-maker__section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.55rem 0.8rem;
+}
+
+.character-maker__section-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.character-maker__section-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  padding: 0 0.8rem 0.9rem;
+}
+
+.character-maker__error {
+  margin: 0;
+  color: #fca5a5;
+  font-size: 0.85rem;
+}
+
+.character-maker__note {
+  margin: 0;
+  padding: 0.6rem 0.8rem;
+  border: 1px dashed var(--border-color, #444);
+  border-radius: 10px;
+  color: var(--text-muted, #aaa);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.character-maker__select-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+}
+
+.character-maker__select-field select {
+  padding: 0.45rem 0.5rem;
+  border: 1px solid var(--border-color, #444);
+  border-radius: 6px;
+  background: var(--bg-color, #1a1a2e);
+  color: var(--text-color, #eee);
+  font-size: 0.9rem;
+}
+
+.character-maker__select-sub {
+  color: var(--text-muted, #aaa);
+}
+
+.character-maker__appearance {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.character-maker__portrait {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.character-maker__portrait-frame {
+  flex: 0 0 180px;
+  height: 260px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 10px;
+  background: radial-gradient(circle at 50% 30%, #2a2f5a, #0f1330);
+}
+
+.character-maker__portrait-frame img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.character-maker__portrait-empty {
+  padding: 0 1rem;
+  color: var(--text-muted, #aaa);
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+.character-maker__portrait-actions {
+  flex: 1 1 240px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.character-maker__portrait-actions .character-cast__hint {
+  margin: 0;
+}
+
+.character-maker__progress {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.character-maker__progress small {
+  color: var(--text-muted, #aaa);
+}
+
+/* 右パネルのプレビュー */
+.character-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1rem;
+  color: var(--text-color, #eee);
+}
+
+.character-preview__title {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.character-preview__stage {
+  position: relative;
+  height: 440px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 10px;
+  background: radial-gradient(
+    ellipse 70% 55% at 50% 38%,
+    rgb(58 52 74 / 90%) 0%,
+    rgb(28 26 38 / 95%) 55%,
+    rgb(8 10 12 / 100%) 100%
+  );
+}
+
+.character-preview__stage img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.character-preview__empty {
+  color: var(--text-muted, #aaa);
+  font-size: 0.85rem;
+}
+
+.character-preview .character-chat__preview-chips {
+  padding: 0;
+}
+
+.character-preview__talk {
+  width: 100%;
+  align-self: stretch;
+}
+
+/* キャラクター選択モーダル */
+.character-picker {
+  position: fixed;
+  inset: 0;
+  z-index: 1500;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgb(6 9 12 / 78%);
+}
+
+.character-picker__dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(640px, 100%);
+  max-height: min(640px, calc(100dvh - 40px));
+  overflow: hidden;
+  border: 1px solid #505a63;
+  border-radius: 8px;
+  color: #f4f6f8;
+  background: #171c21;
+  box-shadow: 0 18px 60px rgb(0 0 0 / 45%);
+}
+
+.character-picker__dialog > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 18px;
+  border-bottom: 1px solid #394149;
+}
+
+.character-picker__dialog h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.character-picker__close {
+  border: none;
+  background: none;
+  color: inherit;
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.character-picker__body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 12px 18px;
+}
+
+.character-picker__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.character-picker__item {
+  padding: 0.6rem;
+  border: 1px solid #394149;
+  border-radius: 8px;
+}
+
+.character-picker__item:hover,
+.character-picker__item:focus-visible {
+  border-color: #efb85a;
+}
+
+.character-picker__footer {
+  display: flex;
+  justify-content: flex-end;
+  padding: 12px 18px;
+  border-top: 1px solid #394149;
+}

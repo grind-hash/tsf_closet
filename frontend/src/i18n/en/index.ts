@@ -11,6 +11,7 @@ import { branchSession } from "./branchSession";
 import { character } from "./character";
 import { characterChat } from "./characterChat";
 import { characterPanel } from "./characterPanel";
+import { characters } from "./characters";
 import { chat } from "./chat";
 import { common } from "./common";
 import { consentDeclined } from "./consentDeclined";
@@ -58,5 +59,6 @@ export const en = {
   apiKeyConsent,
   character,
   characterChat,
+  characters,
   promptExpander,
 };

@@ -497,6 +497,9 @@ class CharacterPreset(Base):
     """Global character preset reusable across sessions (spec 005).
 
     No FK relationship to SessionCharacter; deletion is independent.
+    キャラクターメイクで作ったキャラクターも兼ねる。avatar_model_id は FK を
+    張らず(SQLite の table rebuild 回避)、削除済みのモデルは読み時に無視する。
+    立ち絵は data/character_images/{id}/ に置き portrait_path に data 相対パスを持つ。
     """
 
     __tablename__ = "character_preset"
@@ -514,6 +517,10 @@ class CharacterPreset(Base):
     )
     profile_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     thumbnail_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    avatar_model_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    # {"speaker_id": ..., "style_id": ...}。未設定ならユーザー設定の声
+    voice_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    portrait_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         default=func.current_timestamp(), nullable=False
     )
@@ -875,8 +882,9 @@ class AvatarModel(Base):
 class CharacterChatThread(Base):
     """キャラチャット(TSF シナリオを経由しない 1 対 1 の会話)のスレッド。
 
-    kind は "base"(案内役キャラ。ユーザーごとに 1 件)か "session"(過去セッション
-    時点の人物をスナップショットしたキャラ)。persona_json / appearance_json は
+    kind は "base"(案内役キャラ。ユーザーごとに 1 件)、"session"(過去セッション
+    時点の人物をスナップショットしたキャラ)、"adventure"(TSF シナリオの攻略対象)、
+    "character"(キャラクターメイクで作ったキャラ)。persona_json / appearance_json は
     services/character_chat_service が読み書きする JSON で、立ち絵は
     data/character_chat_images/{thread_id}/ に置き portrait_path に data 相対パスを
     持つ(base で NULL のときは同梱 PNG を読み時に解決する)。
@@ -912,6 +920,9 @@ class CharacterChatThread(Base):
     # kind="adventure" のとき紐づく TSF シナリオ(AdventureRun)の ID。人物設定は
     # 毎回 run からライブで読む。run 削除後も会話を残すため FK は張らない
     source_run_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    # 紐づくキャラクター(CharacterPreset)の ID。性格・口調・知識は毎回ここから
+    # ライブで読む。キャラクター削除後も会話を残すため FK は張らない
+    character_preset_id: Mapped[str | None] = mapped_column(String, nullable=True)
     # 長いスレッド向けのローリング要約と、要約に反映済みのメッセージ数
     summary_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     summary_message_count: Mapped[int] = mapped_column(
@@ -943,6 +954,7 @@ class CharacterChatThread(Base):
         Index("idx_character_chat_threads_user_updated", "user_id", "updated_at"),
         Index("idx_character_chat_threads_user_kind", "user_id", "kind"),
         Index("idx_character_chat_threads_source_run", "source_run_id"),
+        Index("idx_character_chat_threads_character_preset", "character_preset_id"),
     )
 
 

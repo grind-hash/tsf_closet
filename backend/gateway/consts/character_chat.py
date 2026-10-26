@@ -20,11 +20,36 @@ CHARACTER_CHAT_KIND_BASE = "base"
 CHARACTER_CHAT_KIND_SESSION = "session"
 # TSF シナリオ(Adventure、恋愛シミュレーション)の攻略対象。run に紐づけて毎回ライブで読む
 CHARACTER_CHAT_KIND_ADVENTURE = "adventure"
+# キャラクターメイクで作ったキャラ(CharacterPreset)。人物設定は毎回プリセットから読む
+CHARACTER_CHAT_KIND_CHARACTER = "character"
 CHARACTER_CHAT_KINDS = (
     CHARACTER_CHAT_KIND_BASE,
     CHARACTER_CHAT_KIND_SESSION,
     CHARACTER_CHAT_KIND_ADVENTURE,
+    CHARACTER_CHAT_KIND_CHARACTER,
 )
+
+# 2D 立ち絵の表情差分。neutral はいまの立ち絵そのものを使うので作らない。
+# NovelAI は立ち絵を下敷きにした img2img で表情タグを足し、OpenRouter / ComfyUI は
+# 立ち絵を編集元にして表情だけを変える指示を出す
+EXPRESSION_PORTRAIT_TAGS: dict[str, str] = {
+    "happy": "smile, happy, open mouth",
+    "sad": "sad, frown, teary eyes, looking down",
+    "angry": "angry, frown, v-shaped eyebrows, pout",
+    "surprised": "surprised, wide-eyed, open mouth",
+    "relaxed": "light smile, relaxed, half-closed eyes",
+}
+EXPRESSION_PORTRAIT_EDIT_DESCRIPTIONS: dict[str, str] = {
+    "happy": "a bright, happy smile",
+    "sad": "a sad face with teary eyes",
+    "angry": "an angry, pouting face with furrowed brows",
+    "surprised": "a surprised face with wide eyes and an open mouth",
+    "relaxed": "a calm, relaxed face with a soft smile",
+}
+EXPRESSION_PORTRAIT_KEYS: tuple[str, ...] = tuple(EXPRESSION_PORTRAIT_TAGS)
+# NovelAI の img2img で表情を描き替える強さ。高いほど表情は変わるが、髪や服の
+# 細部が元の立ち絵から離れる
+EXPRESSION_PORTRAIT_I2I_STRENGTH = 0.5
 
 # adventure 種: 次の手番へ文脈として渡す「前の手番以降のチャット発言」の直近件数と、
 # 返答の system prompt に渡す直近の場面(手番)数

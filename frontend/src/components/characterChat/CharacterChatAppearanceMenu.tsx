@@ -6,14 +6,14 @@ import type {
   CharacterChatAvatarInfo,
   CharacterChatAvatarMode,
 } from "../../apis/characterChat";
+import { AVATAR_LIGHTING_PRESETS } from "../../constants/companionAvatar";
 import { useCharacterChat } from "../../contexts/CharacterChatContext";
+import { useAvatarLighting } from "../../hooks/useAvatarViewPreferences";
+import {
+  avatarModelLabel,
+  sortAvatarModels,
+} from "../../utils/avatarModelLabel";
 import { live2dCoreAvailable } from "./live2d/cubismPilotRenderer";
-
-/** 登録済みモデルの表示名(分類済みなら「キャラクター / 差分」) */
-function avatarModelLabel(model: AvatarModel): string {
-  if (!model.character_name) return model.name;
-  return `${model.character_name} / ${model.variant_label ?? model.name}`;
-}
 
 interface CharacterChatAppearanceMenuProps {
   open: boolean;
@@ -68,9 +68,11 @@ export default function CharacterChatAppearanceMenu({
 }: CharacterChatAppearanceMenuProps) {
   const { t } = useTranslation();
   const { activeThread, setAvatar, promptPreviewEnabled } = useCharacterChat();
+  const [lighting, setLighting] = useAvatarLighting();
   const isAdventure = Boolean(adventure);
   const mode = adventure?.appearance_mode ?? "default";
   const avatarMode = avatar?.mode ?? "auto";
+  const showingVrm = avatarMode !== "live2d" && Boolean(avatar?.url);
   // Cubism Core は同梱しない。未配置なら Live2D は選べないので、判定できるまでは
   // 押せない状態にしておく(判定前は null)
   const [coreAvailable, setCoreAvailable] = useState<boolean | null>(null);
@@ -93,11 +95,7 @@ export default function CharacterChatAppearanceMenu({
     listAvatarModels()
       .then((items) => {
         if (cancelled) return;
-        setModels(
-          [...items].sort((a, b) =>
-            avatarModelLabel(a).localeCompare(avatarModelLabel(b), "ja"),
-          ),
-        );
+        setModels(sortAvatarModels(items));
       })
       .catch(() => {
         if (!cancelled) setModelsFailed(true);
@@ -118,7 +116,9 @@ export default function CharacterChatAppearanceMenu({
         ? t("characterChat.room.avatarSourceRun")
         : avatar?.source === "registered"
           ? t("characterChat.room.avatarSourceRegistered")
-          : "";
+          : avatar?.source === "character"
+            ? t("characterChat.room.avatarSourceCharacter")
+            : "";
   const avatarCurrentLabel =
     avatarMode === "live2d"
       ? currentCostume
@@ -250,6 +250,31 @@ export default function CharacterChatAppearanceMenu({
               })}
             </div>
           )}
+          <p className="character-chat-room__menu-heading character-chat-room__menu-heading--sub">
+            {t("characterChat.room.lightingHeading")}
+          </p>
+          <fieldset
+            className="character-chat__segments"
+            aria-label={t("characterChat.room.lightingHeading")}
+          >
+            {AVATAR_LIGHTING_PRESETS.map((preset) => (
+              <button
+                key={preset}
+                type="button"
+                className={lighting === preset ? "is-active" : undefined}
+                aria-pressed={lighting === preset}
+                disabled={!showingVrm}
+                onClick={() => setLighting(preset)}
+              >
+                {t(`characterChat.room.lightingPresets.${preset}`)}
+              </button>
+            ))}
+          </fieldset>
+          <p className="character-chat-room__menu-note">
+            {showingVrm
+              ? t("characterChat.room.lightingHint")
+              : t("characterChat.room.lightingUnavailable")}
+          </p>
           <hr className="character-chat-room__menu-divider" />
           {isAdventure && adventure && (
             <>

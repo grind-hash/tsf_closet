@@ -13,8 +13,12 @@ Endpoints (all under /api/game prefix when registered in app.py):
 - POST   /game/characters/resolve-source
 - GET    /game/character-presets
 - POST   /game/character-presets
+- GET    /game/character-presets/{preset_id}
 - PUT    /game/character-presets/{preset_id}
 - DELETE /game/character-presets/{preset_id}
+- GET    /game/character-presets/{preset_id}/images/{filename}
+- POST   /game/character-presets/{preset_id}/portrait/from-source
+- POST   /game/character-presets/{preset_id}/portrait/stream (SSE)
 - GET    /game/character-group-presets
 - POST   /game/character-group-presets
 - PUT    /game/character-group-presets/{group_id}
@@ -23,12 +27,17 @@ Endpoints (all under /api/game prefix when registered in app.py):
 
 from __future__ import annotations
 
+import json
 import logging
+from collections.abc import AsyncGenerator
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Body, HTTPException, Query, status
+from fastapi.responses import FileResponse
 from sqlalchemy import select
+from sse_starlette.sse import EventSourceResponse
 
 from ..databases.base import async_session_factory
+from ..databases.character_repo import fetch_character_preset
 from ..databases.models import Session as SessionORM
 from ..schemas.characters import (
     CharacterGroupMember,
@@ -37,12 +46,15 @@ from ..schemas.characters import (
     CharacterGroupPresetRead,
     CharacterGroupPresetUpdate,
     CharacterPresetListResponse,
+    CharacterPresetPortraitImportResponse,
+    CharacterPresetPortraitRequest,
     CharacterPresetRead,
     CharacterPresetUpdate,
     CharacterProfile,
     CharacterProfileGenerateRequest,
     CharacterSourceResolveRequest,
     CharacterSourceResolveResponse,
+    CharacterVoice,
     GenerateTagsRequest,
     GenerateTagsResponse,
     GenerateTagsResultItem,
@@ -52,6 +64,14 @@ from ..schemas.characters import (
     SessionCharacterListResponse,
     SessionCharacterRead,
     SessionCharacterUpdate,
+)
+from ..services.character_preset_portrait import (
+    CharacterPresetPortraitError,
+    import_preset_portrait,
+    preset_image_file,
+    preset_portrait_url,
+    remove_preset_images,
+    stream_preset_portrait,
 )
 from ..services.character_profile import (
     CharacterProfileGenerationError,
@@ -69,6 +89,7 @@ from ..services.character_service import (
     group_members,
     load_character_looks,
     record_profile,
+    record_voice,
     resolve_character_look,
 )
 from ..services.llm_service import LLMServiceError, llm_service
@@ -145,8 +166,27 @@ def _serialize_preset(record) -> CharacterPresetRead:
         negative_tags=record.negative_tags or "",
         profile=_serialize_profile(record),
         thumbnail_url=record.thumbnail_url,
+        avatar_model_id=record.avatar_model_id,
+        voice=(
+            CharacterVoice.model_validate(voice)
+            if (voice := record_voice(record))
+            else None
+        ),
+        portrait_url=preset_portrait_url(record),
         created_at=record.created_at,
         updated_at=record.updated_at,
+    )
+
+
+_PORTRAIT_NOT_FOUND_CODES = {"preset_not_found", "source_not_found", "image_not_found"}
+
+
+def _portrait_http_error(error: CharacterPresetPortraitError) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND
+        if error.code in _PORTRAIT_NOT_FOUND_CODES
+        else status.HTTP_400_BAD_REQUEST,
+        detail={"detail": str(error), "code": error.code},
     )
 
 
@@ -526,6 +566,22 @@ async def list_character_presets() -> CharacterPresetListResponse:
     )
 
 
+@router.get(
+    "/character-presets/{preset_id}",
+    response_model=CharacterPresetRead,
+    summary="Get one character preset",
+)
+async def get_character_preset(preset_id: str) -> CharacterPresetRead:
+    async with async_session_factory() as db:
+        record = await fetch_character_preset(db, preset_id)
+    if record is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"detail": "preset_not_found", "code": "preset_not_found"},
+        )
+    return _serialize_preset(record)
+
+
 @router.post(
     "/character-presets",
     response_model=CharacterPresetRead,
@@ -553,6 +609,8 @@ async def create_character_preset(
                     negative_tags=payload.negative_tags,
                     profile=payload.profile.model_dump() if payload.profile else None,
                     thumbnail_url=payload.thumbnail_url,
+                    avatar_model_id=payload.avatar_model_id,
+                    voice=payload.voice.model_dump() if payload.voice else None,
                 )
         except LookupError as exc:
             raise HTTPException(
@@ -614,6 +672,89 @@ async def delete_character_preset_endpoint(preset_id: str) -> None:
                 detail={"detail": "preset_not_found", "code": "preset_not_found"},
             )
         await db.commit()
+    remove_preset_images(preset_id)
+
+
+@router.get(
+    "/character-presets/{preset_id}/images/{filename}",
+    summary="Serve a character's portrait image",
+)
+async def get_character_preset_image(preset_id: str, filename: str) -> FileResponse:
+    try:
+        path = preset_image_file(preset_id, filename)
+    except CharacterPresetPortraitError as error:
+        raise _portrait_http_error(error) from error
+    return FileResponse(path)
+
+
+@router.post(
+    "/character-presets/{preset_id}/portrait/from-source",
+    response_model=CharacterPresetPortraitImportResponse,
+    summary="Use an image from a session / favorite / Prompt Expander as the portrait",
+)
+async def import_character_preset_portrait(
+    preset_id: str, payload: CharacterSourceResolveRequest
+) -> CharacterPresetPortraitImportResponse:
+    try:
+        record, resolved = await import_preset_portrait(
+            preset_id,
+            session_id=payload.session_id,
+            history_id=payload.history_id,
+            prompt_expander_entry_id=payload.prompt_expander_entry_id,
+        )
+    except CharacterPresetPortraitError as error:
+        raise _portrait_http_error(error) from error
+    return CharacterPresetPortraitImportResponse(
+        preset=_serialize_preset(record),
+        source=CharacterSourceResolveResponse.model_validate(resolved),
+    )
+
+
+@router.post(
+    "/character-presets/{preset_id}/portrait/stream",
+    summary="Draw the character's portrait from its appearance tags (SSE)",
+)
+async def stream_character_preset_portrait(
+    preset_id: str,
+    request: CharacterPresetPortraitRequest | None = Body(default=None),
+) -> EventSourceResponse:
+    options = request or CharacterPresetPortraitRequest()
+
+    def _error_event(error: Exception) -> dict:
+        return {
+            "event": "error",
+            "data": json.dumps(
+                {
+                    "code": getattr(error, "code", "internal_error"),
+                    "message": str(error) or type(error).__name__,
+                },
+                ensure_ascii=False,
+            ),
+        }
+
+    async def event_generator() -> AsyncGenerator[dict, None]:
+        try:
+            async for event in stream_preset_portrait(
+                preset_id, use_precise_reference=options.use_precise_reference
+            ):
+                data = event["data"]
+                if event["event"] == "portrait_image":
+                    data = {
+                        "preset": _serialize_preset(data["preset"]).model_dump(
+                            mode="json"
+                        )
+                    }
+                yield {
+                    "event": event["event"],
+                    "data": json.dumps(data, ensure_ascii=False),
+                }
+        except CharacterPresetPortraitError as error:
+            yield _error_event(error)
+        except Exception as error:  # noqa: BLE001 - SSE には他に伝える経路が無い
+            logger.exception("character preset portrait stream failed")
+            yield _error_event(error)
+
+    return EventSourceResponse(event_generator())
 
 
 # ---------------------------------------------------------------------------

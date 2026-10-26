@@ -10,6 +10,8 @@ import {
   CHARACTER_GROUP_PRESET,
   CHARACTER_GROUP_PRESETS,
   CHARACTER_PRESET,
+  CHARACTER_PRESET_PORTRAIT_FROM_SOURCE,
+  CHARACTER_PRESET_PORTRAIT_STREAM,
   CHARACTER_PRESETS,
   CHARACTERS_FROM_GROUP,
   CHARACTERS_FROM_PRESET,
@@ -25,9 +27,11 @@ import type {
   CharacterPosition,
   CharacterPreset,
   CharacterProfile,
+  CharacterVoice,
   SessionCharacter,
 } from "../types";
-import { requestJson } from "../utils/http";
+import { apiErrorFromResponse, jsonInit, requestJson } from "../utils/http";
+import { readSseEvents } from "../utils/sse";
 
 /** JSON ヘッダーを既定で付ける薄いラッパー（エラー解釈は utils/http に委ねる） */
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -219,6 +223,12 @@ export async function listCharacterPresets(): Promise<CharacterPreset[]> {
   return data.presets;
 }
 
+export async function getCharacterPreset(
+  presetId: string,
+): Promise<CharacterPreset> {
+  return request<CharacterPreset>(CHARACTER_PRESET(presetId));
+}
+
 export interface CreatePresetFromCharacterPayload {
   from_character_id: string;
   name: string;
@@ -232,6 +242,8 @@ export interface CreatePresetRawPayload {
   negative_tags?: string;
   profile?: CharacterProfile | null;
   thumbnail_url?: string | null;
+  avatar_model_id?: string | null;
+  voice?: CharacterVoice | null;
 }
 
 export async function createCharacterPreset(
@@ -251,6 +263,10 @@ export interface UpdateCharacterPresetPayload {
   negative_tags?: string;
   profile?: CharacterProfile;
   thumbnail_url?: string;
+  /** 空文字で「3D モデルなし」に戻す */
+  avatar_model_id?: string;
+  /** 話者・スタイルとも空で「ユーザー設定の声」に戻す */
+  voice?: CharacterVoice;
 }
 
 export async function updateCharacterPreset(
@@ -267,6 +283,52 @@ export async function deleteCharacterPreset(presetId: string): Promise<void> {
   await request<void>(CHARACTER_PRESET(presetId), {
     method: "DELETE",
   });
+}
+
+export interface CharacterPresetPortraitImport {
+  preset: CharacterPreset;
+  /** 素材から取り出した名前と外見(空の欄を埋めるかは呼び出し側が決める) */
+  source: ResolvedCharacterSource;
+}
+
+/** セッション・お気に入り・Prompt Expander の画像をキャラクターの立ち絵にする */
+export async function importCharacterPresetPortrait(
+  presetId: string,
+  payload: ResolveCharacterSourcePayload,
+): Promise<CharacterPresetPortraitImport> {
+  return request<CharacterPresetPortraitImport>(
+    CHARACTER_PRESET_PORTRAIT_FROM_SOURCE(presetId),
+    { method: "POST", body: JSON.stringify(payload) },
+  );
+}
+
+export type CharacterPresetPortraitEvent =
+  | { type: "status"; data: { phase: "portrait" } }
+  | { type: "portrait_image"; data: { preset: CharacterPreset } }
+  | { type: "cost"; data: { cost_usd: number } }
+  | { type: "complete"; data: Record<string, never> }
+  | { type: "error"; data: { code: string; message: string } };
+
+/** 外見タグから立ち絵を描く(SSE)。精密参照は NovelAI のときだけ効く */
+export async function streamCharacterPresetPortrait(
+  presetId: string,
+  onEvent: (event: CharacterPresetPortraitEvent) => void,
+  options?: { use_precise_reference?: boolean },
+): Promise<void> {
+  const response = await fetch(
+    CHARACTER_PRESET_PORTRAIT_STREAM(presetId),
+    jsonInit("POST", options ?? {}),
+  );
+  if (!response.ok || !response.body) {
+    throw await apiErrorFromResponse(response);
+  }
+  for await (const { event, data } of readSseEvents(response.body)) {
+    if (event === "message") continue;
+    onEvent({
+      type: event,
+      data: JSON.parse(data),
+    } as CharacterPresetPortraitEvent);
+  }
 }
 
 // ---------------------------------------------------------------------------

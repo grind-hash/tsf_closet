@@ -13,6 +13,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, replace
 from typing import Any
 
+from sqlalchemy import update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..consts.character_limits import (
@@ -38,7 +39,12 @@ from ..databases.character_repo import (
     update_character_preset,
     update_session_character,
 )
-from ..databases.models import CharacterGroupPreset, CharacterPreset, SessionCharacter
+from ..databases.models import (
+    CharacterChatThread,
+    CharacterGroupPreset,
+    CharacterPreset,
+    SessionCharacter,
+)
 from .character_profile import format_profile_line_ja
 
 logger = logging.getLogger(__name__)
@@ -90,6 +96,72 @@ def _profile_patch(patch: dict[str, Any]) -> dict[str, Any]:
     if profile is not None:
         converted["profile_json"] = dump_profile(profile) or ""
     return converted
+
+
+def dump_voice(voice: dict[str, Any] | None) -> str:
+    """声の指定を voice_json 列の値にする。話者もスタイルも空なら空文字(未設定)。"""
+    if not voice:
+        return ""
+    speaker_id = str(voice.get("speaker_id") or "").strip()
+    style_id = str(voice.get("style_id") or "").strip()
+    if not speaker_id and not style_id:
+        return ""
+    return json.dumps(
+        {"speaker_id": speaker_id, "style_id": style_id}, ensure_ascii=False
+    )
+
+
+def record_voice(record: Any) -> dict[str, str] | None:
+    """voice_json 列を dict に戻す。未設定や壊れた JSON は None。"""
+    raw = getattr(record, "voice_json", None)
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    speaker_id = str(data.get("speaker_id") or "").strip()
+    style_id = str(data.get("style_id") or "").strip()
+    if not speaker_id and not style_id:
+        return None
+    return {"speaker_id": speaker_id, "style_id": style_id}
+
+
+def _preset_patch(patch: dict[str, Any]) -> dict[str, Any]:
+    """プリセット更新の API 値を DB の列へ置き換える(profile / voice / 3D モデル)。"""
+    converted = _profile_patch(patch)
+    if "voice" in converted:
+        converted = dict(converted)
+        voice = converted.pop("voice")
+        if voice is not None:
+            converted["voice_json"] = dump_voice(voice)
+    if converted.get("avatar_model_id") is not None:
+        converted["avatar_model_id"] = str(converted["avatar_model_id"]).strip()
+    return converted
+
+
+# キャラチャットのスレッド列の長さ(name は String(80)、pronoun は String(16))
+_THREAD_NAME_MAX_LEN = 80
+_THREAD_PRONOUN_MAX_LEN = 16
+
+
+async def sync_linked_chat_threads(db: AsyncSession, preset: CharacterPreset) -> None:
+    """キャラクターに紐づくキャラチャットの名前・一人称を最新の設定へ揃える。
+
+    性格・口調・知識は会話のたびにプリセットから読むが、名前と一人称はスレッドの
+    列としても一覧・要約・表情ヘッダで使うため、更新時に書き写す。
+    """
+    values: dict[str, Any] = {"name": preset.name[:_THREAD_NAME_MAX_LEN]}
+    pronoun = str((record_profile(preset) or {}).get("pronoun") or "").strip()
+    if pronoun:
+        values["pronoun"] = pronoun[:_THREAD_PRONOUN_MAX_LEN]
+    await db.execute(
+        sa_update(CharacterChatThread)
+        .where(CharacterChatThread.character_preset_id == preset.id)
+        .values(**values)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -280,6 +352,8 @@ class CharacterPresetService:
         negative_tags: str = "",
         profile: dict[str, Any] | None = None,
         thumbnail_url: str | None = None,
+        avatar_model_id: str | None = None,
+        voice: dict[str, Any] | None = None,
     ) -> CharacterPreset:
         if default_position not in ALLOWED_POSITIONS:
             raise ValueError(f"invalid_position:{default_position}")
@@ -292,6 +366,8 @@ class CharacterPresetService:
             negative_tags=negative_tags,
             profile_json=dump_profile(profile),
             thumbnail_url=thumbnail_url,
+            avatar_model_id=(avatar_model_id or "").strip() or None,
+            voice_json=dump_voice(voice) or None,
         )
 
     @staticmethod
@@ -327,13 +403,22 @@ class CharacterPresetService:
             and patch["default_position"] not in ALLOWED_POSITIONS
         ):
             raise ValueError(f"invalid_position:{patch['default_position']}")
-        return await update_character_preset(db, preset_id, **_profile_patch(patch))
+        record = await update_character_preset(db, preset_id, **_preset_patch(patch))
+        if record is not None and ("name" in patch or "profile" in patch):
+            await sync_linked_chat_threads(db, record)
+        return record
 
     @staticmethod
     async def delete_preset(db: AsyncSession, preset_id: str) -> bool:
+        """プリセットを消す。紐づくキャラチャットは会話を残し、紐づけだけ外す。"""
         existing = await fetch_character_preset(db, preset_id)
         if existing is None:
             return False
+        await db.execute(
+            sa_update(CharacterChatThread)
+            .where(CharacterChatThread.character_preset_id == preset_id)
+            .values(character_preset_id=None)
+        )
         await delete_character_preset(db, preset_id)
         return True
 
@@ -974,7 +1059,7 @@ def keep_bystander_looks(
             if not can_receive_effects(member) and member.look_tags:
                 tags = member.look_tags
                 if not member.is_protagonist:
-                    tags = _with_gender_token(tags, member.profile)
+                    tags = with_gender_token(tags, member.profile)
                 if item.get("prompt") != tags:
                     logger.info(
                         "kept bystander look for %s: %r -> %r",
@@ -1190,7 +1275,7 @@ _GENDER_TOKEN_PATTERN = re.compile(
 )
 
 
-def _with_gender_token(tags: str, profile: dict[str, Any] | None) -> str:
+def with_gender_token(tags: str, profile: dict[str, Any] | None) -> str:
     """性別トークンが無いタグに、性格プロフィールの性別から 1girl / 1boy を補う。
 
     性別トークンが無いと女性寄りに描かれやすいため、画像用の一覧に載せるときだけ補う。
@@ -1247,7 +1332,7 @@ def build_novelai_characters_section(
         position = _POSITION_LABEL_EN.get(character.position, character.position)
         tags = character.look_tags
         if not character.is_protagonist:
-            tags = _with_gender_token(tags, character.profile)
+            tags = with_gender_token(tags, character.profile)
         descriptor: list[str] = [f"position: {position}"]
         if tags:
             descriptor.append(f"tags: {tags}")
@@ -1527,6 +1612,7 @@ __all__ = [
     "build_session_characters_prompt_section",
     "build_stage_roster",
     "dump_profile",
+    "dump_voice",
     "extract_protagonist_tags_from_history",
     "group_members",
     "load_character_looks",
@@ -1534,10 +1620,13 @@ __all__ = [
     "looks_by_id",
     "parse_character_states",
     "record_profile",
+    "record_voice",
     "ref_to_stage_index",
     "resolve_character_look",
     "resolve_protagonist_image_identity",
     "resolve_stage_limit",
     "stage_ref",
+    "sync_linked_chat_threads",
     "upsert_protagonist_session_character",
+    "with_gender_token",
 ]

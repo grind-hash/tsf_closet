@@ -11,6 +11,8 @@ export const menu = {
   promptExpander: "Prompt Expander",
   promptExpanderDesc:
     "Expand instructions into NovelAI prompts and generate images",
+  characters: "Characters",
+  charactersDesc: "Create and manage characters to talk with",
   characterChat: "Character Chat",
   characterChatDesc: "Talk one-on-one with a character outside the scenario",
   endings: "Endings",

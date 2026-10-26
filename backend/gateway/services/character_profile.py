@@ -21,11 +21,15 @@ from ..consts.character_limits import (
 from ..consts.character_profile import (
     DEFAULT_REACTION_STYLE,
     GENDERS,
+    PROFILE_GREETING_MAX_LEN,
     PROFILE_INTEREST_MAX_LEN,
     PROFILE_INTERESTS_MAX_COUNT,
+    PROFILE_KNOWLEDGE_MAX_LEN,
     PROFILE_MEMO_MAX_LEN,
     PROFILE_PERSONALITY_MAX_LEN,
     PROFILE_PRONOUN_MAX_LEN,
+    PROFILE_SAMPLE_LINES_MAX_LEN,
+    PROFILE_SPEECH_STYLE_MAX_LEN,
     PROFILE_TSF_ATTITUDE_MAX_LEN,
     PROMPT_INTERESTS_MAX_COUNT,
     PROMPT_PERSONALITY_MAX_LEN,
@@ -47,6 +51,11 @@ class CharacterSourceNotFoundError(LookupError):
 
 def _text(value: Any, max_len: int) -> str:
     return str(value or "").strip()[:max_len]
+
+
+def _multiline(value: Any, max_len: int) -> str:
+    """改行を保ったまま前後の空白だけ落とす(セリフ例・知識の欄)。"""
+    return str(value or "").replace("\r\n", "\n").strip()[:max_len]
 
 
 def normalize_character_profile(raw: dict[str, Any]) -> dict[str, Any]:
@@ -76,6 +85,12 @@ def normalize_character_profile(raw: dict[str, Any]) -> dict[str, Any]:
         "interests": interests,
         "tsf_attitude": _text(raw.get("tsf_attitude"), PROFILE_TSF_ATTITUDE_MAX_LEN),
         "memo": _text(raw.get("memo"), PROFILE_MEMO_MAX_LEN),
+        "speech_style": _text(raw.get("speech_style"), PROFILE_SPEECH_STYLE_MAX_LEN),
+        "sample_lines": _multiline(
+            raw.get("sample_lines"), PROFILE_SAMPLE_LINES_MAX_LEN
+        ),
+        "knowledge": _multiline(raw.get("knowledge"), PROFILE_KNOWLEDGE_MAX_LEN),
+        "greeting": _multiline(raw.get("greeting"), PROFILE_GREETING_MAX_LEN),
     }
 
 

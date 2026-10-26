@@ -37,7 +37,11 @@ from ..consts.character_chat import (
     BASE_PORTRAIT_FILENAME,
     CHARACTER_CHAT_KIND_ADVENTURE,
     CHARACTER_CHAT_KIND_BASE,
+    CHARACTER_CHAT_KIND_CHARACTER,
     CHARACTER_CHAT_KIND_SESSION,
+    EXPRESSION_PORTRAIT_EDIT_DESCRIPTIONS,
+    EXPRESSION_PORTRAIT_I2I_STRENGTH,
+    EXPRESSION_PORTRAIT_TAGS,
     HISTORY_MESSAGES,
     LIVE2D_COSTUME_IDS,
     LIVE2D_COSTUMES,
@@ -80,6 +84,7 @@ from ..databases.models import (
     AvatarModel,
     CharacterChatMessage,
     CharacterChatThread,
+    CharacterPreset,
     User,
 )
 from ..settings.config import settings
@@ -125,6 +130,7 @@ from .character_chat_prompts import (
     appearance_change_system_prompt,
     appearance_change_user_prompt,
     base_persona_block,
+    character_persona_block,
     current_time_block,
     lookup_block,
     memory_block,
@@ -142,12 +148,23 @@ from .character_chat_prompts import (
     summary_user_prompt,
     web_search_refusal_block,
 )
+from .character_preset_portrait import (
+    attach_preset_portrait,
+    preset_portrait_file,
+    preset_portrait_is_generated,
+)
+from .character_profile import normalize_character_profile
+from .character_service import CharacterPresetService, record_profile, record_voice
 from .conversation import get_stage_display_name, get_stage_name
 from .cost_tracker import begin_cost_tracking, record_cost
 from .image_paths import resolve_stored_image_path
 from .llm_json import StructuredOutputError, generate_validated, strip_code_fence
 from .llm_service import llm_service
-from .portrait_generation import PortraitGenerationError, generate_portrait_bytes
+from .portrait_generation import (
+    PortraitGenerationError,
+    generate_expression_bytes,
+    generate_portrait_bytes,
+)
 from .providers import Provider, resolve_image_provider, resolve_text_provider
 from .session import DEFAULT_USER_ID, session_store
 from .settings_service import settings_service
@@ -157,6 +174,7 @@ from .source_snapshot import (
     build_source_snapshot,
     identity_tags_only,
     resolve_session_identity,
+    split_appearance_tags,
 )
 from .summary_service import summary_service
 
@@ -164,8 +182,14 @@ logger = logging.getLogger(__name__)
 
 _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}
 _GENERATED_PORTRAIT_PREFIX = "portrait-"
+_EXPRESSION_PORTRAIT_PREFIX = "expr-"
 _FALLBACK_NAME = {"ja": "キャラクター", "en": "Character"}
 _FALLBACK_PRONOUN = {"ja": "僕", "en": "I"}
+# キャラクターメイクのキャラで一人称が未設定のとき
+_CHARACTER_FALLBACK_PRONOUN = {"ja": "私", "en": "I"}
+# キャラチャットのスレッド列の長さ(name は String(80)、pronoun は String(16))
+_THREAD_NAME_MAX_LEN = 80
+_THREAD_PRONOUN_MAX_LEN = 16
 
 
 class CharacterChatError(RuntimeError):
@@ -615,6 +639,26 @@ class CharacterChatService:
         if path.is_file():
             path.unlink(missing_ok=True)
 
+    def _expression_portraits(
+        self, thread: CharacterChatThread, appearance: dict[str, Any]
+    ) -> dict[str, str]:
+        """いまの立ち絵から作った表情差分の配信 URL。立ち絵が変わっていたら空。"""
+        stored = appearance.get("expression_portraits")
+        if not isinstance(stored, dict):
+            return {}
+        portrait = self._portrait_file(thread)
+        if portrait is None or stored.get("base_portrait") != portrait.name:
+            return {}
+        result: dict[str, str] = {}
+        for key, filename in (stored.get("items") or {}).items():
+            name = Path(str(filename)).name
+            if (
+                key in EXPRESSION_PORTRAIT_TAGS
+                and (self._thread_dir(thread.id) / name).is_file()
+            ):
+                result[key] = self.image_url(thread.id, name)
+        return result
+
     # ------------------------------------------------------------------
     # 直列化
     # ------------------------------------------------------------------
@@ -678,6 +722,52 @@ class CharacterChatService:
             "meta": _json_load(message.meta_json, {}),
             "created_at": _to_iso(message.created_at),
         }
+
+    @staticmethod
+    async def _linked_preset(db, thread: CharacterChatThread) -> CharacterPreset | None:
+        if not thread.character_preset_id:
+            return None
+        return await db.get(CharacterPreset, thread.character_preset_id)
+
+    async def _character_summary(
+        self, db, thread: CharacterChatThread
+    ) -> dict[str, Any] | None:
+        """紐づくキャラクターの要約(右パネル・声の切り替え用)。削除済みなら missing。"""
+        if not thread.character_preset_id:
+            return None
+        preset = await self._linked_preset(db, thread)
+        if preset is None:
+            return {
+                "id": thread.character_preset_id,
+                "name": None,
+                "voice": None,
+                "missing": True,
+            }
+        return {
+            "id": preset.id,
+            "name": preset.name,
+            "voice": record_voice(preset),
+            "missing": False,
+        }
+
+    async def _character_context(
+        self, thread: CharacterChatThread
+    ) -> dict[str, Any] | None:
+        """返答の人物設定に使うキャラクターの最新値(名前・一人称・プロフィール)。"""
+        if not thread.character_preset_id:
+            return None
+        async with async_session_factory() as db:
+            preset = await self._linked_preset(db, thread)
+            if preset is None:
+                return None
+            profile = normalize_character_profile(record_profile(preset) or {})
+            return {
+                "name": preset.name,
+                "pronoun": profile["pronoun"]
+                or thread.pronoun
+                or _CHARACTER_FALLBACK_PRONOUN[_lang(thread.language)],
+                "profile": profile,
+            }
 
     @staticmethod
     def _public_persona(thread: CharacterChatThread) -> dict[str, Any]:
@@ -827,6 +917,7 @@ class CharacterChatService:
         messages: list[CharacterChatMessage] | None = None,
         adventure: dict[str, Any] | None = None,
         avatar: dict[str, Any] | None = None,
+        character: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         appearance = _json_load(thread.appearance_json, {})
         portrait = self._portrait_file(thread)
@@ -835,6 +926,8 @@ class CharacterChatService:
             "kind": thread.kind,
             "source_run_id": thread.source_run_id,
             "adventure": adventure,
+            # 紐づくキャラクター(キャラクターメイク)の要約。紐づけが無ければ None
+            "character": character,
             # 3D モデル(VRM)の解決結果。一覧では省略(None)
             "avatar": avatar,
             "name": thread.name,
@@ -851,6 +944,8 @@ class CharacterChatService:
                 "source": appearance.get("source") or {},
             },
             "persona": self._public_persona(thread),
+            # 2D 立ち絵の表情差分({expression: 配信 URL})。いまの立ち絵から作った分だけ
+            "expression_portraits": self._expression_portraits(thread, appearance),
             "can_reset_appearance": self._can_reset_appearance(thread, appearance),
             "summary_text": thread.summary_text,
             "message_count": int(message_count),
@@ -893,6 +988,7 @@ class CharacterChatService:
             messages=messages if with_messages else None,
             adventure=adventure,
             avatar=avatar,
+            character=await self._character_summary(db, thread),
         )
 
     # ------------------------------------------------------------------
@@ -925,6 +1021,7 @@ class CharacterChatService:
                         message_count=count,
                         last_message=last[-1] if last else None,
                         adventure=adventure,
+                        character=await self._character_summary(db, thread),
                     )
                 )
             return payloads
@@ -1006,11 +1103,22 @@ class CharacterChatService:
         source_session_id: str | None,
         source_history_id: str | None,
         source_prompt_expander_entry_id: str | None = None,
+        character_preset_id: str | None = None,
     ) -> dict[str, Any]:
         """過去セッション(または Prompt Expander エントリ)の人物からスレッドを作る。
 
         人物設定は作成時点のスナップショット。ユーザーメモリだけは会話のたびに最新を読む。
+        character_preset_id を渡すと、そのキャラクターの名前・一人称・性格・口調・
+        知識を重ねる(こちらは会話のたびにプリセットから読む)。
         """
+        character = None
+        if character_preset_id:
+            async with async_session_factory() as db:
+                character = await db.get(CharacterPreset, character_preset_id)
+            if character is None:
+                raise CharacterChatError(
+                    "character_not_found", "キャラクターが見つかりません"
+                )
         try:
             (
                 snapshot,
@@ -1103,6 +1211,15 @@ class CharacterChatService:
             "history_id": source_history_id,
             "entry_id": source_prompt_expander_entry_id,
         }
+        # キャラクターを重ねるときは、スレッドの名前・一人称だけをキャラクター側にする
+        # (persona にはセッションの人物を残し、紐づけを外したときに戻せるようにする)
+        thread_name, thread_pronoun = name, pronoun
+        if character is not None:
+            thread_name = character.name[:_THREAD_NAME_MAX_LEN]
+            thread_pronoun = (
+                str((record_profile(character) or {}).get("pronoun") or "").strip()
+                or pronoun
+            )[:_THREAD_PRONOUN_MAX_LEN]
         thread_id = uuid.uuid4().hex
         filename = self._copy_source_image(thread_id, Path(image_path))
         appearance = _with_initial(
@@ -1122,20 +1239,171 @@ class CharacterChatService:
                 id=thread_id,
                 user_id=DEFAULT_USER_ID,
                 kind=CHARACTER_CHAT_KIND_SESSION,
-                name=name,
-                pronoun=pronoun,
+                name=thread_name,
+                pronoun=thread_pronoun,
                 persona_json=json.dumps(persona, ensure_ascii=False),
                 appearance_json=json.dumps(appearance, ensure_ascii=False),
                 portrait_path=self._stored_path(thread_id, filename),
                 source_session_id=source_session_id if session else None,
                 source_history_id=source_history_id if session else None,
                 source_prompt_expander_entry_id=source_prompt_expander_entry_id,
+                character_preset_id=character.id if character is not None else None,
                 language=lang,
                 nsfw_mode=bool(nsfw_mode),
                 created_at=now,
                 updated_at=now,
             )
             db.add(thread)
+            await db.commit()
+            await db.refresh(thread)
+            return await self._thread_payload(db, thread, with_messages=False, limit=1)
+
+    async def create_character_thread(self, preset_id: str) -> dict[str, Any]:
+        """キャラクターメイクで作ったキャラと話すスレッドを作る。
+
+        姿(立ち絵と外見タグ)は作成時点で写し、以後の着替えはスレッド側に持つ。
+        名前・一人称・性格・口調・知識は会話のたびにキャラクターから読む。
+        最初のひとことがあれば、キャラの最初の発言として 1 件入れる。
+        """
+        async with async_session_factory() as db:
+            preset = await db.get(CharacterPreset, preset_id)
+            if preset is None:
+                raise CharacterChatError(
+                    "character_not_found", "キャラクターが見つかりません"
+                )
+            profile = normalize_character_profile(record_profile(preset) or {})
+            portrait_source = preset_portrait_file(preset)
+            generated = preset_portrait_is_generated(preset)
+            name = preset.name[:_THREAD_NAME_MAX_LEN]
+            appearance_tags = preset.appearance_tags.strip()
+        user_settings = await session_store.get_user_settings()
+        lang = _lang(user_settings.get("language"))
+        pronoun = (profile["pronoun"] or _CHARACTER_FALLBACK_PRONOUN[lang])[
+            :_THREAD_PRONOUN_MAX_LEN
+        ]
+        identity, clothing = split_appearance_tags(appearance_tags)
+        thread_id = uuid.uuid4().hex
+        portrait_path: str | None = None
+        if portrait_source is not None:
+            filename = self._copy_source_image(thread_id, portrait_source)
+            portrait_path = self._stored_path(thread_id, filename)
+        appearance = _with_initial(
+            {
+                "identity_tags": identity or appearance_tags,
+                "clothing_tags": clothing,
+                "description": "",
+                # 外見タグから描いた立ち絵は白抜きして立たせる。素材の画像はそのまま
+                "portrait_kind": "standing" if generated else "scene",
+                "source": {"type": "character", "preset_id": preset_id},
+            },
+            portrait_path=portrait_path,
+        )
+        now = datetime.now()
+        async with async_session_factory() as db:
+            await self._ensure_user(db)
+            thread = CharacterChatThread(
+                id=thread_id,
+                user_id=DEFAULT_USER_ID,
+                kind=CHARACTER_CHAT_KIND_CHARACTER,
+                name=name,
+                pronoun=pronoun,
+                persona_json="{}",
+                appearance_json=json.dumps(appearance, ensure_ascii=False),
+                portrait_path=portrait_path,
+                character_preset_id=preset_id,
+                language=lang,
+                nsfw_mode=bool(user_settings.get("nsfw_mode")),
+                created_at=now,
+                updated_at=now,
+            )
+            db.add(thread)
+            if profile["greeting"]:
+                db.add(
+                    CharacterChatMessage(
+                        id=uuid.uuid4().hex,
+                        thread_id=thread_id,
+                        role="character",
+                        content=profile["greeting"],
+                        meta_json=json.dumps({"greeting": True}, ensure_ascii=False),
+                        created_at=now,
+                    )
+                )
+            await db.commit()
+            await db.refresh(thread)
+            return await self._thread_payload(db, thread, with_messages=False, limit=1)
+
+    async def link_character(
+        self, thread_id: str, *, preset_id: str | None
+    ) -> dict[str, Any]:
+        """セッション由来のスレッドにキャラクターを紐づける。
+
+        preset_id を省くと、いまの名前・一人称・姿から新しくキャラクターを作って紐づける。
+        """
+        async with self._thread_locks[thread_id], async_session_factory() as db:
+            thread = await self._get_thread_orm(db, thread_id)
+            if thread.kind != CHARACTER_CHAT_KIND_SESSION:
+                raise CharacterChatError(
+                    "character_link_unsupported",
+                    "この会話にはキャラクターを紐づけられません",
+                )
+            if preset_id:
+                preset = await db.get(CharacterPreset, preset_id)
+                if preset is None:
+                    raise CharacterChatError(
+                        "character_not_found", "キャラクターが見つかりません"
+                    )
+            else:
+                appearance = _json_load(thread.appearance_json, {})
+                tags = ", ".join(
+                    part
+                    for part in (
+                        str(appearance.get("identity_tags") or "").strip(),
+                        str(appearance.get("clothing_tags") or "").strip(),
+                    )
+                    if part
+                )
+                preset = await CharacterPresetService.create_preset_raw(
+                    db,
+                    name=thread.name,
+                    appearance_tags=tags,
+                    profile={"pronoun": thread.pronoun},
+                )
+                portrait = self._portrait_file(thread)
+                if portrait is not None:
+                    attach_preset_portrait(
+                        preset,
+                        portrait,
+                        generated=appearance.get("portrait_kind") == "standing",
+                    )
+            thread.character_preset_id = preset.id
+            thread.name = preset.name[:_THREAD_NAME_MAX_LEN]
+            pronoun = str((record_profile(preset) or {}).get("pronoun") or "").strip()
+            if pronoun:
+                thread.pronoun = pronoun[:_THREAD_PRONOUN_MAX_LEN]
+            thread.updated_at = datetime.now()
+            await db.commit()
+            await db.refresh(thread)
+            return await self._thread_payload(db, thread, with_messages=False, limit=1)
+
+    async def unlink_character(self, thread_id: str) -> dict[str, Any]:
+        """セッション由来のスレッドからキャラクターの紐づけを外す(キャラクターは残す)。"""
+        async with self._thread_locks[thread_id], async_session_factory() as db:
+            thread = await self._get_thread_orm(db, thread_id)
+            if thread.kind != CHARACTER_CHAT_KIND_SESSION:
+                raise CharacterChatError(
+                    "character_link_unsupported",
+                    "この会話のキャラクターは外せません",
+                )
+            persona = _json_load(thread.persona_json, {})
+            thread.character_preset_id = None
+            # 名前・一人称はセッションの人物に戻す
+            thread.name = str(persona.get("character_name") or thread.name)[
+                :_THREAD_NAME_MAX_LEN
+            ]
+            thread.pronoun = str(persona.get("pronoun") or thread.pronoun)[
+                :_THREAD_PRONOUN_MAX_LEN
+            ]
+            thread.updated_at = datetime.now()
             await db.commit()
             await db.refresh(thread)
             return await self._thread_payload(db, thread, with_messages=False, limit=1)
@@ -1381,6 +1649,153 @@ class CharacterChatService:
                 yield {"event": "cost", "data": {"cost_usd": tracker.total_usd}}
             yield {"event": "complete", "data": {}}
 
+    async def _store_expression_portrait(
+        self, thread_id: str, *, base_portrait: str, expression: str, filename: str
+    ) -> str:
+        """描いた表情差分を記録し、配信 URL を返す。古い立ち絵の差分は消す。"""
+        directory = self._thread_dir(thread_id)
+        async with self._thread_locks[thread_id], async_session_factory() as db:
+            thread = await self._get_thread_orm(db, thread_id)
+            portrait = self._portrait_file(thread)
+            if portrait is None or portrait.name != base_portrait:
+                # 描いている間に立ち絵が変わった。古い立ち絵の表情は使わない
+                (directory / filename).unlink(missing_ok=True)
+                raise CharacterChatError(
+                    "portrait_changed",
+                    "表情を描いている間に立ち絵が変わりました。もう一度お試しください",
+                )
+            appearance = _json_load(thread.appearance_json, {})
+            stored = appearance.get("expression_portraits")
+            if (
+                not isinstance(stored, dict)
+                or stored.get("base_portrait") != base_portrait
+            ):
+                old_items = (
+                    (stored.get("items") or {}) if isinstance(stored, dict) else {}
+                )
+                for old in old_items.values():
+                    (directory / Path(str(old)).name).unlink(missing_ok=True)
+                stored = {"base_portrait": base_portrait, "items": {}}
+            items = dict(stored.get("items") or {})
+            previous = items.get(expression)
+            if previous and Path(str(previous)).name != filename:
+                (directory / Path(str(previous)).name).unlink(missing_ok=True)
+            items[expression] = filename
+            appearance["expression_portraits"] = {
+                "base_portrait": base_portrait,
+                "items": items,
+            }
+            thread.appearance_json = json.dumps(appearance, ensure_ascii=False)
+            await db.commit()
+        return self.image_url(thread_id, filename)
+
+    async def stream_expression_portraits(
+        self,
+        thread_id: str,
+        *,
+        expressions: list[str],
+        use_precise_reference: bool = False,
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """いまの立ち絵から、表情だけを変えた立ち絵(表情差分)を描く。
+
+        画像生成は 1 枚ずつ時間がかかるため、スレッドのロックは記録するときだけ取り、
+        描いている間も会話を続けられるようにする。use_precise_reference は NovelAI の
+        精密参照(Anlas 消費)で、FE が確認済みの前提。
+
+        Yields:
+            status{phase: expression, expression} / expression_image{expression,
+            image_url} / cost{cost_usd} / complete{}
+        """
+        wanted = [
+            key for key in dict.fromkeys(expressions) if key in EXPRESSION_PORTRAIT_TAGS
+        ]
+        if not wanted:
+            raise CharacterChatError("invalid_expression", "描く表情を選んでください")
+        tracker = begin_cost_tracking()
+        async with async_session_factory() as db:
+            thread = await self._get_thread_orm(db, thread_id)
+            appearance = _json_load(thread.appearance_json, {})
+            reference = self._portrait_file(thread)
+            kind = thread.kind
+            thread_nsfw = bool(thread.nsfw_mode)
+        if reference is None:
+            raise CharacterChatError(
+                "portrait_unavailable", "表情の元にする立ち絵がありません"
+            )
+        user_settings = await session_store.get_user_settings()
+        nsfw_mode = (
+            bool(user_settings.get("nsfw_mode"))
+            if kind == CHARACTER_CHAT_KIND_BASE
+            else thread_nsfw
+        )
+        provider = resolve_image_provider()
+        image_model = (
+            resolve_user_image_model(user_settings, nsfw_mode)
+            if provider == Provider.NOVELAI
+            else None
+        )
+        tags = ", ".join(
+            part
+            for part in (
+                str(appearance.get("identity_tags") or "").strip(),
+                str(appearance.get("clothing_tags") or "").strip(),
+            )
+            if part
+        )
+        reference_bytes = reference.read_bytes()
+        directory = self._thread_dir(thread_id)
+        for expression in wanted:
+            yield {
+                "event": "status",
+                "data": {"phase": "expression", "expression": expression},
+            }
+            try:
+                data = await generate_expression_bytes(
+                    tags=tags,
+                    expression_tags=EXPRESSION_PORTRAIT_TAGS[expression],
+                    expression_description=EXPRESSION_PORTRAIT_EDIT_DESCRIPTIONS[
+                        expression
+                    ],
+                    reference_bytes=reference_bytes,
+                    nsfw_mode=nsfw_mode,
+                    provider=provider,
+                    image_model=image_model,
+                    i2i_strength=EXPRESSION_PORTRAIT_I2I_STRENGTH,
+                    use_character_reference=bool(use_precise_reference),
+                )
+            except PortraitGenerationError as exc:
+                raise CharacterChatError(exc.code, str(exc)) from exc
+            except Exception as exc:
+                logger.warning(
+                    "character chat expression portrait failed: %s: %s",
+                    type(exc).__name__,
+                    exc,
+                    exc_info=True,
+                )
+                detail = str(exc) or type(exc).__name__
+                raise CharacterChatError(
+                    "image_generation_failed",
+                    f"表情の立ち絵の生成に失敗しました({detail})",
+                ) from exc
+            directory.mkdir(parents=True, exist_ok=True)
+            filename = (
+                f"{_EXPRESSION_PORTRAIT_PREFIX}{expression}-{uuid.uuid4().hex[:8]}.png"
+            )
+            (directory / filename).write_bytes(data)
+            image_url = await self._store_expression_portrait(
+                thread_id,
+                base_portrait=reference.name,
+                expression=expression,
+                filename=filename,
+            )
+            yield {
+                "event": "expression_image",
+                "data": {"expression": expression, "image_url": image_url},
+            }
+        if tracker.total_usd > 0:
+            yield {"event": "cost", "data": {"cost_usd": tracker.total_usd}}
+        yield {"event": "complete", "data": {}}
+
     # ------------------------------------------------------------------
     # 会話
     # ------------------------------------------------------------------
@@ -1471,8 +1886,9 @@ class CharacterChatService:
     ) -> dict[str, Any]:
         """表示する 3D モデルを決める。
 
-        優先順は 明示選択 → (案内役) 同梱 serena.vrm → (adventure 種) run の対面会話
-        モデル → character_name が一致する登録済みモデル → なし(2D 立ち絵)。
+        優先順は 明示選択 → 紐づくキャラクターの 3D モデル → (案内役) 同梱 serena.vrm →
+        (adventure 種) run の対面会話モデル → character_name が一致する登録済みモデル →
+        なし(2D 立ち絵)。
         adventure は _adventure_summary の dict(companion_avatar_id / partner_name)。
         """
         appearance = _json_load(thread.appearance_json, {})
@@ -1512,6 +1928,19 @@ class CharacterChatService:
                     variants=await list_avatar_variants(db, model.id),
                 )
             missing = True
+        preset = await self._linked_preset(db, thread)
+        if preset is not None and preset.avatar_model_id:
+            model = await db.get(AvatarModel, preset.avatar_model_id)
+            if model is not None:
+                return payload(
+                    mode="auto",
+                    source="character",
+                    url=avatar_file_url(model.id),
+                    name=avatar_display_name(model),
+                    model=model,
+                    variants=await list_avatar_variants(db, model.id),
+                    missing=missing,
+                )
         if is_base and _base_avatar_file() is not None:
             return payload(
                 mode="auto",
@@ -2453,11 +2882,14 @@ class CharacterChatService:
         search_refused: bool = False,
         play_proposal_text: str = "",
         live2d_costume_id: str = "",
+        character: dict[str, Any] | None = None,
     ) -> str:
         """返答本文の system prompt を組む。
 
         live2d_costume_id は同梱 Live2D を表示している手番の衣装。着替えの依頼が
         無い手番でだけ、見えている衣装を姿として渡す(保存した外見タグは変えない)。
+        character は紐づくキャラクターの最新値(_character_context)。キャラクター種は
+        その設定だけで人物を組み、セッション由来はセッションの経緯に重ねる。
         """
         persona = _json_load(thread.persona_json, {})
         appearance = _json_load(thread.appearance_json, {})
@@ -2493,12 +2925,34 @@ class CharacterChatService:
                 appearance_change_request=appearance_change_request,
             )
         is_base = thread.kind == CHARACTER_CHAT_KIND_BASE
+        name, pronoun = thread.name, thread.pronoun
+        if character is not None:
+            name, pronoun = str(character["name"]), str(character["pronoun"])
         if is_base:
             persona_text = base_persona_block(language)
+        elif thread.kind == CHARACTER_CHAT_KIND_CHARACTER:
+            persona_text = character_persona_block(
+                name=name,
+                pronoun=pronoun,
+                profile=character["profile"] if character else None,
+                language=language,
+            )
         else:
+            if character is not None:
+                persona = {**persona, "character_name": name, "pronoun": pronoun}
             persona_text = session_persona_block(
                 persona, language, self_profile=self_profile
             )
+            if character is not None:
+                supplement = character_persona_block(
+                    name=name,
+                    pronoun=pronoun,
+                    profile=character["profile"],
+                    language=language,
+                    supplement=True,
+                )
+                if supplement:
+                    persona_text = f"{persona_text}\n\n{supplement}"
         description = str(appearance.get("description") or "").strip()
         if not description:
             tags = ", ".join(
@@ -2512,8 +2966,8 @@ class CharacterChatService:
             description = tags
         return reply_system_prompt(
             language,
-            name=thread.name,
-            pronoun=thread.pronoun,
+            name=name,
+            pronoun=pronoun,
             persona_block=persona_text,
             memory_block_text=memory_block(memory_text, language),
             summary_text=thread.summary_text,
@@ -2527,7 +2981,8 @@ class CharacterChatService:
             ),
             origin_lore_block_text=origin_lore_block(origin_lore_text, language),
             header_instruction=header_instruction,
-            relaxed_length=thread.kind == CHARACTER_CHAT_KIND_SESSION,
+            relaxed_length=thread.kind
+            in (CHARACTER_CHAT_KIND_SESSION, CHARACTER_CHAT_KIND_CHARACTER),
             # いまの日時と現実世界の調べ物は案内役キャラだけ(セッション由来は作中の人物)
             current_time_text=(
                 current_time_block(_local_now(), language) if is_base else ""
@@ -2693,6 +3148,7 @@ class CharacterChatService:
                     nsfw_mode = bool(view.run.nsfw_mode)
                     after_turn = int(view.run.turn_count or 0)
             appearance = _json_load(thread.appearance_json, {})
+            character_context = await self._character_context(thread)
             # 選択したアバターで表現できる表情・身振りのヘッダを求める
             async with async_session_factory() as db:
                 avatar = await self._resolve_avatar(
@@ -2717,6 +3173,11 @@ class CharacterChatService:
                     header_instruction = avatar_talk_header_instruction()
                     header_expressions = avatar_expression_keys()
                     header_gestures = avatar_gesture_keys()
+            elif self._expression_portraits(thread, appearance):
+                # 2D 立ち絵でも表情差分があれば、返答の表情で立ち絵を差し替える
+                header_instruction = avatar_talk_header_instruction()
+                header_expressions = avatar_expression_keys()
+                header_gestures = avatar_gesture_keys()
 
             # 現実世界の調べ物(Web 検索・天気)は案内役キャラだけが使う
             real_world_kinds = (
@@ -2827,6 +3288,7 @@ class CharacterChatService:
                     if avatar.get("mode") == "live2d" and avatar_shown
                     else ""
                 ),
+                character=character_context,
             )
             history = _reply_history(
                 recent, expressions=header_expressions, gestures=header_gestures

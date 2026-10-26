@@ -183,6 +183,12 @@ async def delete_non_protagonist_session_characters(
 # ---------------------------------------------------------------------------
 
 
+# 空文字を渡すと NULL(未設定)へ戻す列
+_CLEARABLE_PRESET_COLUMNS = frozenset(
+    {"avatar_model_id", "voice_json", "portrait_path", "thumbnail_url"}
+)
+
+
 async def fetch_character_presets(
     db: AsyncSession,
 ) -> Sequence[CharacterPreset]:
@@ -212,6 +218,9 @@ async def insert_character_preset(
     negative_tags: str = "",
     profile_json: str | None = None,
     thumbnail_url: str | None = None,
+    avatar_model_id: str | None = None,
+    voice_json: str | None = None,
+    portrait_path: str | None = None,
 ) -> CharacterPreset:
     """Insert a new preset; returns the persisted instance."""
     record = CharacterPreset(
@@ -224,6 +233,9 @@ async def insert_character_preset(
         negative_tags=negative_tags,
         profile_json=profile_json,
         thumbnail_url=thumbnail_url,
+        avatar_model_id=avatar_model_id,
+        voice_json=voice_json,
+        portrait_path=portrait_path,
     )
     db.add(record)
     await db.flush()
@@ -235,7 +247,10 @@ async def update_character_preset(
     preset_id: str,
     **patch: Any,
 ) -> CharacterPreset | None:
-    """Partial update of a preset. Returns the updated row or None."""
+    """Partial update of a preset. Returns the updated row or None.
+
+    None は「変更しない」。空文字で NULL に戻せる列は _CLEARABLE_PRESET_COLUMNS。
+    """
     record = await fetch_character_preset(db, preset_id)
     if record is None:
         return None
@@ -248,9 +263,16 @@ async def update_character_preset(
         "negative_tags",
         "profile_json",
         "thumbnail_url",
+        "avatar_model_id",
+        "voice_json",
+        "portrait_path",
     }
     for key, value in patch.items():
-        if key in allowed and value is not None:
+        if key not in allowed or value is None:
+            continue
+        if key in _CLEARABLE_PRESET_COLUMNS and value == "":
+            setattr(record, key, None)
+        else:
             setattr(record, key, value)
     await db.flush()
     return record

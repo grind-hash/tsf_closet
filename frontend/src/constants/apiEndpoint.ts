@@ -36,6 +36,14 @@ export const CHARACTER_PRESETS = `${API_BASE}/game/character-presets`;
 export const CHARACTER_PRESET = (presetId: string): string =>
   `${API_BASE}/game/character-presets/${encodeURIComponent(presetId)}`;
 
+export const CHARACTER_PRESET_PORTRAIT_FROM_SOURCE = (
+  presetId: string,
+): string =>
+  `${API_BASE}/game/character-presets/${encodeURIComponent(presetId)}/portrait/from-source`;
+
+export const CHARACTER_PRESET_PORTRAIT_STREAM = (presetId: string): string =>
+  `${API_BASE}/game/character-presets/${encodeURIComponent(presetId)}/portrait/stream`;
+
 export const CHARACTERS_FROM_GROUP = (
   sessionId: string,
   groupId: string,

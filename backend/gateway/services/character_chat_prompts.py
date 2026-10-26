@@ -22,6 +22,7 @@ from ..consts.character_chat import (
     REAL_WORLD_LOOKUP_KINDS,
     SUMMARY_MAX_CHARS,
 )
+from ..consts.character_profile import REACTION_STYLE_LABELS_JA
 from .conversation import (
     get_language_rules,
     get_psychological_description,
@@ -452,6 +453,101 @@ def session_persona_block(
             )
         if play_memory:
             lines.append(f"そのセッションのメモ:{play_memory}")
+    return "\n".join(lines)
+
+
+def character_persona_block(
+    *,
+    name: str,
+    pronoun: str,
+    profile: dict[str, Any] | None,
+    language: str,
+    supplement: bool = False,
+) -> str:
+    """キャラクターメイクで作ったキャラの人物設定。ユーザーが書いた設定をそのまま渡す。
+
+    supplement はセッション由来のスレッドにキャラクターを紐づけたときの追記で、
+    名乗りの行を省き、上の経緯より優先する設定として足す。
+    """
+    lang = _lang(language)
+    data = profile or {}
+
+    def text(key: str) -> str:
+        return str(data.get(key) or "").strip()
+
+    gender = text("gender")
+    reaction = text("reaction_style")
+    interests = [str(item).strip() for item in data.get("interests") or [] if item]
+    lines: list[str] = []
+    if lang == "en":
+        if supplement:
+            lines.append(
+                "Character settings the user wrote for you (they take priority over "
+                "the history above when the two disagree):"
+            )
+        else:
+            lines.append(
+                f"You are {name}, a character the user created, talking one-on-one "
+                f'with the user. Your first-person pronoun is "{pronoun}". The '
+                "settings below are your own; stay in character."
+            )
+        if gender in ("woman", "man"):
+            lines.append(f"Gender: {'female' if gender == 'woman' else 'male'}")
+        if text("personality"):
+            lines.append(f"Personality: {text('personality')}")
+        if reaction and reaction != "default":
+            lines.append(f"Reaction style: {reaction}")
+        if text("speech_style"):
+            lines.append(f"Speech style: {text('speech_style')}")
+        if text("sample_lines"):
+            lines.append(
+                "Sample lines (a reference for your voice; do not repeat them as-is):"
+            )
+            lines.append(text("sample_lines"))
+        if interests:
+            lines.append(f"Interests: {', '.join(interests)}")
+        if text("tsf_attitude"):
+            lines.append(f"Attitude toward TSF: {text('tsf_attitude')}")
+        if text("knowledge"):
+            lines.append("Knowledge and background (true facts for you):")
+            lines.append(text("knowledge"))
+        if text("memo"):
+            lines.append(f"Notes: {text('memo')}")
+    else:
+        if supplement:
+            lines.append(
+                "ユーザーが決めたキャラクター設定(上の経緯と食い違うときは、こちらを優先):"
+            )
+        else:
+            lines.append(
+                f"あなたは「{name}」。ユーザーが作ったキャラクターとして、相手(ユーザー)と"
+                f"1 対 1 で話しています。一人称は「{pronoun}」。以下はあなた自身の設定で、"
+                "役柄を保ってください。"
+            )
+        if gender in ("woman", "man"):
+            lines.append(f"性別: {'女性' if gender == 'woman' else '男性'}")
+        if text("personality"):
+            lines.append(f"性格: {text('personality')}")
+        if reaction and reaction != "default":
+            lines.append(
+                f"反応の傾向: {REACTION_STYLE_LABELS_JA.get(reaction, reaction)}"
+            )
+        if text("speech_style"):
+            lines.append(f"口調・話し方: {text('speech_style')}")
+        if text("sample_lines"):
+            lines.append("セリフの例(口調の参考。そのまま繰り返さない):")
+            lines.append(text("sample_lines"))
+        if interests:
+            lines.append(f"興味・好きなもの: {'、'.join(interests)}")
+        if text("tsf_attitude"):
+            lines.append(f"TSF への態度: {text('tsf_attitude')}")
+        if text("knowledge"):
+            lines.append("知識・背景(あなたにとっての事実):")
+            lines.append(text("knowledge"))
+        if text("memo"):
+            lines.append(f"メモ: {text('memo')}")
+    if supplement and len(lines) == 1:
+        return ""
     return "\n".join(lines)
 
 

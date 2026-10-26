@@ -5,12 +5,13 @@
  * SSE の解析は utils/sse.ts の readSseEvents を使い、通常ゲームの useSSE には流さない。
  */
 
-import type { InstructionType } from "../types";
+import type { CharacterVoice, InstructionType } from "../types";
 import { API_BASE } from "../utils/api";
 import { apiErrorFromResponse, jsonInit, requestJson } from "../utils/http";
 import { readSseEvents } from "../utils/sse";
 
-export type CharacterChatKind = "base" | "session" | "adventure";
+/** character = キャラクターメイクで作ったキャラ */
+export type CharacterChatKind = "base" | "session" | "adventure" | "character";
 
 export type CharacterChatAdventureAppearanceMode =
   | "default"
@@ -45,10 +46,12 @@ export interface CharacterChatAdventureInfo {
 }
 
 export interface CharacterChatAppearanceSource {
-  type?: "base" | "session" | "prompt_expander";
+  /** character = キャラクターメイクのキャラの立ち絵を写した */
+  type?: "base" | "session" | "prompt_expander" | "character";
   session_id?: string | null;
   history_id?: string | null;
   entry_id?: string | null;
+  preset_id?: string | null;
 }
 
 export interface CharacterChatAppearance {
@@ -154,7 +157,21 @@ export interface CharacterChatPersona {
 }
 
 export type CharacterChatAvatarMode = "auto" | "none" | "model" | "live2d";
-export type CharacterChatAvatarSource = "bundled" | "registered" | "run";
+export type CharacterChatAvatarSource =
+  | "bundled"
+  | "registered"
+  | "run"
+  | "character";
+
+/** 紐づくキャラクター(キャラクターメイク)の要約 */
+export interface CharacterChatCharacterInfo {
+  id: string;
+  /** 削除済みなら null */
+  name: string | null;
+  voice: CharacterVoice | null;
+  /** キャラクターが削除されている */
+  missing: boolean;
+}
 
 /** アバターの解決結果。live2d の URL はフロント配信、それ以外は API 配信 */
 export interface CharacterChatAvatarInfo {
@@ -195,6 +212,10 @@ export interface CharacterChatThread {
   adventure?: CharacterChatAdventureInfo | null;
   /** 3D モデル(VRM)の解決結果。一覧では省略(null) */
   avatar?: CharacterChatAvatarInfo | null;
+  /** 紐づくキャラクター。紐づけが無ければ null */
+  character?: CharacterChatCharacterInfo | null;
+  /** 2D 立ち絵の表情差分({表情: API_BASE 付き URL})。いまの立ち絵から作った分だけ */
+  expression_portraits?: Record<string, string>;
   summary_text: string | null;
   message_count: number;
   last_message: {
@@ -213,6 +234,8 @@ export interface CharacterChatSourceRequest {
   source_session_id?: string;
   source_history_id?: string;
   source_prompt_expander_entry_id?: string;
+  /** キャラクターメイクのキャラ。単独ならそのキャラと話すスレッドを作る */
+  source_character_preset_id?: string;
 }
 
 /**
@@ -302,11 +325,18 @@ function normalizeThread(thread: CharacterChatThread): CharacterChatThread {
             : characterChatImageUrl(thread.avatar.url),
       }
     : (thread.avatar ?? null);
+  const expressionPortraits = Object.fromEntries(
+    Object.entries(thread.expression_portraits ?? {}).map(([key, url]) => [
+      key,
+      characterChatImageUrl(url) ?? url,
+    ]),
+  );
   return {
     ...thread,
     portrait_url: characterChatImageUrl(thread.portrait_url),
     adventure,
     avatar,
+    expression_portraits: expressionPortraits,
   };
 }
 
@@ -418,6 +448,105 @@ export async function setCharacterChatAvatar(
     jsonInit("PUT", request),
   );
   return normalizeThread(thread);
+}
+
+/**
+ * キャラクターとの会話を開く。そのキャラクターの会話があれば最新のもの、
+ * 無ければ新しく作って、スレッドの ID を返す
+ */
+export async function openCharacterChatForPreset(
+  presetId: string,
+): Promise<string> {
+  const { threads } = await fetchCharacterChatThreads();
+  const existing = threads.find(
+    (thread) =>
+      thread.kind === "character" && thread.character?.id === presetId,
+  );
+  if (existing) return existing.id;
+  const thread = await createCharacterChatThread({
+    source_character_preset_id: presetId,
+  });
+  return thread.id;
+}
+
+/**
+ * セッション由来の会話にキャラクターを紐づける。presetId を省くと、いまの名前・
+ * 一人称・姿から新しくキャラクターを作って紐づける
+ */
+export async function linkCharacterChatCharacter(
+  threadId: string,
+  presetId?: string,
+): Promise<CharacterChatThread> {
+  const thread = await requestJson<CharacterChatThread>(
+    `${BASE}/threads/${encodeURIComponent(threadId)}/character`,
+    jsonInit("POST", presetId ? { preset_id: presetId } : {}),
+  );
+  return normalizeThread(thread);
+}
+
+/** セッション由来の会話からキャラクターの紐づけを外す(キャラクターは残る) */
+export async function unlinkCharacterChatCharacter(
+  threadId: string,
+): Promise<CharacterChatThread> {
+  const thread = await requestJson<CharacterChatThread>(
+    `${BASE}/threads/${encodeURIComponent(threadId)}/character`,
+    { method: "DELETE" },
+  );
+  return normalizeThread(thread);
+}
+
+export type CharacterChatExpressionEvent =
+  | { type: "status"; data: { phase: "expression"; expression: string } }
+  | {
+      type: "expression_image";
+      data: { expression: string; image_url: string };
+    }
+  | { type: "cost"; data: { cost_usd: number } }
+  | { type: "complete"; data: Record<string, never> }
+  | {
+      type: "error";
+      data: {
+        code: string;
+        message: string;
+        phase: string;
+        retryable: boolean;
+      };
+    };
+
+/** いまの立ち絵から、表情だけを変えた立ち絵(表情差分)を描く(SSE) */
+export async function streamCharacterChatExpressions(
+  threadId: string,
+  expressions: string[],
+  onEvent: (event: CharacterChatExpressionEvent) => void,
+  options?: { use_precise_reference?: boolean },
+): Promise<void> {
+  const response = await fetch(
+    `${BASE}/threads/${encodeURIComponent(threadId)}/expressions/stream`,
+    jsonInit("POST", { expressions, ...options }),
+  );
+  if (!response.ok || !response.body) {
+    throw await apiErrorFromResponse(response);
+  }
+  for await (const { event, data } of readSseEvents(response.body)) {
+    if (event === "message") continue;
+    const parsed = JSON.parse(data) as Record<string, unknown>;
+    if (event === "expression_image") {
+      const payload = parsed as { expression: string; image_url: string };
+      onEvent({
+        type: "expression_image",
+        data: {
+          expression: payload.expression,
+          image_url:
+            characterChatImageUrl(payload.image_url) ?? payload.image_url,
+        },
+      });
+      continue;
+    }
+    onEvent({
+      type: event,
+      data: parsed,
+    } as CharacterChatExpressionEvent);
+  }
 }
 
 /** 姿を作成時点(同梱の立ち絵 / 選んだ画像とタグ)へ戻す。画像生成はしない */
