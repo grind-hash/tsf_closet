@@ -1440,6 +1440,14 @@
   gap: 0.25rem;
 }
 
+/*
+ * 高さの上限を超えたときはメニュー自体をスクロールさせ、中身は縮めない。
+ * 縦並びの flex では overflow を持つ子(選択欄・モデル一覧)が高さ 0 まで潰れるため
+ */
+.character-chat-room__menu > * {
+  flex-shrink: 0;
+}
+
 .character-chat-room__menu-item {
   display: flex;
   flex-direction: column;
