@@ -73,6 +73,8 @@ class CharacterChatMessageRequest(BaseModel):
     # 「おすすめのプレイを聞く」ボタンからの送信。案内役キャラのスレッドでだけ、判定 LLM を
     # 待たずに必ず提案を作る
     request_play_proposal: bool = False
+    # この返答を読み上げるか。読み上げない手番は返答の文数を増やす
+    read_aloud: bool = False
 
 
 class CharacterChatAdventureAppearanceRequest(BaseModel):

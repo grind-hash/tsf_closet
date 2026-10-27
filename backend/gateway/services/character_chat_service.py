@@ -2883,6 +2883,7 @@ class CharacterChatService:
         play_proposal_text: str = "",
         live2d_costume_id: str = "",
         character: dict[str, Any] | None = None,
+        read_aloud: bool = False,
     ) -> str:
         """返答本文の system prompt を組む。
 
@@ -2890,6 +2891,7 @@ class CharacterChatService:
         無い手番でだけ、見えている衣装を姿として渡す(保存した外見タグは変えない)。
         character は紐づくキャラクターの最新値(_character_context)。キャラクター種は
         その設定だけで人物を組み、セッション由来はセッションの経緯に重ねる。
+        read_aloud は返答を読み上げる手番(読み上げない手番は文数を増やす)。
         """
         persona = _json_load(thread.persona_json, {})
         appearance = _json_load(thread.appearance_json, {})
@@ -2923,6 +2925,7 @@ class CharacterChatService:
                 lookup_block_text=lookup_block(lookup_text, language),
                 chat_appearance_description=chat_look,
                 appearance_change_request=appearance_change_request,
+                read_aloud=read_aloud,
             )
         is_base = thread.kind == CHARACTER_CHAT_KIND_BASE
         name, pronoun = thread.name, thread.pronoun
@@ -2983,6 +2986,7 @@ class CharacterChatService:
             header_instruction=header_instruction,
             relaxed_length=thread.kind
             in (CHARACTER_CHAT_KIND_SESSION, CHARACTER_CHAT_KIND_CHARACTER),
+            read_aloud=read_aloud,
             # いまの日時と現実世界の調べ物は案内役キャラだけ(セッション由来は作中の人物)
             current_time_text=(
                 current_time_block(_local_now(), language) if is_base else ""
@@ -3071,6 +3075,7 @@ class CharacterChatService:
         use_web_search: bool = False,
         use_weather: bool = False,
         request_play_proposal: bool = False,
+        read_aloud: bool = False,
     ) -> AsyncGenerator[dict[str, Any], None]:
         """1 発言の処理。
 
@@ -3078,7 +3083,8 @@ class CharacterChatService:
         サーバーにキー・地点が設定されているときだけ効く。request_play_proposal は
         「おすすめのプレイを聞く」ボタンからの送信で、案内役キャラのスレッドでは判定 LLM を
         省いて必ず提案する(判定 LLM が依頼を拾った手番も提案する)。提案は
-        character_message の meta.play_proposal に載る。
+        character_message の meta.play_proposal に載る。read_aloud は返答を読み上げる
+        手番で、読み上げない手番は返答の文数を増やす。
 
         Yields:
             status{phase: plan|search|propose|reply|portrait|memory} /
@@ -3289,6 +3295,7 @@ class CharacterChatService:
                     else ""
                 ),
                 character=character_context,
+                read_aloud=read_aloud,
             )
             history = _reply_history(
                 recent, expressions=header_expressions, gestures=header_gestures

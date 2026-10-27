@@ -615,6 +615,8 @@ export interface CharacterChatMessageRequest {
   use_weather?: boolean;
   /** 案内役のスレッドで true のとき、返答におすすめの通常プレイの提案を必ず添えさせる */
   request_play_proposal?: boolean;
+  /** この返答を読み上げるか。読み上げないときはサーバーが返答の文数を増やす */
+  read_aloud?: boolean;
 }
 
 /** 発言を送り、判定 → (調べ物) → 返答チャンク → 確定 → (立ち絵) → (要約) → cost → complete を受ける */

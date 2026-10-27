@@ -4836,22 +4836,32 @@ def test_romance_replay_player_selection_restores_stored_choice() -> None:
     # テンプレートキャラクター形式
     assert _romance_replay_player_selection(
         {"sim": {"player_character_id": "char2"}}
-    ) == ("char2", None, None, None)
+    ) == ("char2", None, None, None, None)
     # セッション形式は時点IDも復元する
     assert _romance_replay_player_selection(
         {"sim": {"player_character_id": "session:abc", "player_history_id": "42"}}
-    ) == (None, "abc", "42", None)
+    ) == (None, "abc", "42", None, None)
     # 時点IDを持たない旧runはセッションの現在状態
     assert _romance_replay_player_selection(
         {"sim": {"player_character_id": "session:abc"}}
-    ) == (None, "abc", None, None)
+    ) == (None, "abc", None, None, None)
     # Prompt Expander エントリ形式
     assert _romance_replay_player_selection(
         {"sim": {"player_character_id": "prompt_expander:pe-1"}}
-    ) == (None, None, None, "pe-1")
+    ) == (None, None, None, "pe-1", None)
+    # キャラクターメイクのキャラクター形式(テンプレート ID 扱いにしない)
+    assert _romance_replay_player_selection(
+        {"sim": {"player_character_id": "character:preset-1"}}
+    ) == (None, None, None, None, "preset-1")
     # 主人公情報のないさらに古いrunは既定キャラクターへフォールバック
-    assert _romance_replay_player_selection({"sim": {}}) == (None, None, None, None)
-    assert _romance_replay_player_selection({}) == (None, None, None, None)
+    assert _romance_replay_player_selection({"sim": {}}) == (
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    assert _romance_replay_player_selection({}) == (None, None, None, None, None)
 
 
 @pytest.mark.asyncio
@@ -4879,6 +4889,7 @@ async def test_setup_romance_uses_prompt_expander_entry_as_player(
         romance_player_session_id=None,
         romance_player_history_id=None,
         romance_player_character_id=None,
+        romance_player_character_preset_id=None,
         player_name_override="サクラ",
     )
 

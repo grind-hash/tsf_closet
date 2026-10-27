@@ -391,6 +391,11 @@ export interface AdventureSetupRequest {
   source_history_id?: string;
   /** Prompt Expander のエントリから開始する。session と両方あればこちらが優先される */
   source_prompt_expander_entry_id?: string;
+  /**
+   * キャラクターメイクのキャラクターから開始する。最優先。romance では攻略対象、
+   * それ以外では主人公本人になり、性格・口調も反映される
+   */
+  source_character_preset_id?: string;
   preset: AdventurePreset;
   /** 自動生成タイプのターン数。未指定なら15。作品シナリオ・リプレイでは無視される */
   scenario_max_turns?: number;
@@ -441,6 +446,8 @@ export interface AdventureCreateRequest extends AdventureSetupRequest {
   romance_player_history_id?: string;
   /** romance の主人公を Prompt Expander エントリの姿にする場合に指定 */
   romance_player_prompt_expander_entry_id?: string;
+  /** romance の主人公をキャラクターメイクのキャラクター本人にする場合に指定 */
+  romance_player_character_preset_id?: string;
   /** romance の主人公の呼び名(攻略対象がセリフで呼ぶ名前)。空ならキャラクター名 */
   romance_player_name?: string;
   /** romance の攻略対象の口調。空なら人物像からLLMが決める */

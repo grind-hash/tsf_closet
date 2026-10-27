@@ -77,6 +77,7 @@ import {
   type Vec3,
   ZERO_POSE,
 } from "./avatarMotion";
+import { dropRestPoseColliderOverlaps } from "./springBoneColliders";
 
 export interface VrmAvatarEngineOptions {
   canvas: HTMLCanvasElement;
@@ -747,6 +748,13 @@ export function createVrmAvatarEngine(
     if (specVersion === "0") {
       // 0.x は -Z 向きで出力されるため 1.0 と同じ +Z 向きに揃える
       VRMUtils.rotateVRM0(loaded);
+    }
+    // 腕を下ろす前(作者の静止姿勢)で、髪や裾が埋まっている当たり判定を外す
+    if (loaded.springBoneManager) {
+      dropRestPoseColliderOverlaps(
+        loaded.scene,
+        loaded.springBoneManager.joints,
+      );
     }
     loaded.scene.traverse((object) => {
       object.frustumCulled = false;

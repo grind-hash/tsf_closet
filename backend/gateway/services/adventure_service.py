@@ -12,7 +12,7 @@ import shutil
 import uuid
 from collections import defaultdict
 from collections.abc import AsyncGenerator, Iterable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any, TypeVar
@@ -134,6 +134,8 @@ from .adventure_romance import (
     init_romance_state,
     normalize_player_name,
     opening_sim_view,
+    partner_profile_from_persona,
+    partner_speech_from_persona,
     public_sim_view,
     resolve_romance_action,
     romance_companion_narrative_guidance,
@@ -193,6 +195,7 @@ from .source_snapshot import (
     CLOTHING_TAG_PATTERN,
     SCENE_OR_ACTION_TAG_PATTERN,
     SourceSnapshotError,
+    build_character_preset_snapshot,
     build_prompt_expander_snapshot,
     build_source_snapshot,
     history_visual_description,
@@ -1030,6 +1033,24 @@ PRESETS: dict[str, dict[str, Any]] = {
             "現地で入手可能な制服、社員服、ドレス、作業着などを具体的に登場させ、"
             "服を着る行為はプレイヤーが選んだ場合だけ描写する。"
         ),
+        # 開始素材がキャラクター(主人公＝その人物本人で、変身していない)のときの目的・指針
+        "persona_objective": (
+            "なりすます立場に合った服装と振る舞いを整え、正体を怪しまれず目的を達成する"
+        ),
+        "persona_guidance": (
+            "プレイヤーは state.player_persona の人物本人で、身体は変身していない。"
+            "外見は開始スナップショットのまま変えない。"
+            "なりすます相手は、NPC が顔より立場や評判で知っている役割"
+            "(新任の職員、代役、招待客など)とし、開始場面でその名前と役割を具体的に示す。"
+            "その立場の人物の記憶、知識、人間関係、口癖、技能、暗証番号、認証情報は"
+            "プレイヤーへ与えない(player_persona に書かれた本人の知識は使ってよい)。"
+            "プレイヤーは観察、会話、持ち物や服装の確認、即興の演技によって"
+            "その立場の人物らしく振る舞い、NPCの疑念を避ける必要がある。"
+            "NPCは服装と振る舞いからその立場の人物として扱ってよいが、"
+            "行動の矛盾には事実に基づいて疑念を示す。"
+            "現地で入手可能な制服、社員服、ドレス、作業着などを具体的に登場させ、"
+            "服を着る行為はプレイヤーが選んだ場合だけ描写する。"
+        ),
         "milestones": [
             {"id": "learn_identity", "label": "対象人物の立場と振る舞いを把握する"},
             {"id": "complete_outfit", "label": "対象人物らしい服装と小物を整える"},
@@ -1052,6 +1073,22 @@ PRESETS: dict[str, dict[str, Any]] = {
         "milestones": ROMANCE_MILESTONES,
     },
 }
+
+
+def _preset_guidance(preset: str, *, player_persona: bool) -> str:
+    """プリセットの指針。主人公がキャラクター本人の run は専用の指針があれば使う。"""
+    config = PRESETS.get(preset, {})
+    if player_persona and config.get("persona_guidance"):
+        return str(config["persona_guidance"])
+    return str(config.get("guidance", ""))
+
+
+def _preset_objective(preset: str, *, player_persona: bool) -> str:
+    """プリセットの既定の目的。主人公がキャラクター本人の run は専用の目的があれば使う。"""
+    config = PRESETS.get(preset, {})
+    if player_persona and config.get("persona_objective"):
+        return str(config["persona_objective"])
+    return str(config.get("objective", ""))
 
 
 # エンディング後の継続プレイ(エピローグ)で scenario_guidance へ連結する指示
@@ -1117,23 +1154,65 @@ def _build_setup_user_draft(
     return draft
 
 
-def _romance_prompt_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
-    """romance の攻略対象素材として LLM へ渡す snapshot。
+_SETUP_PLAYER_PERSONA_GUIDANCE = (
+    " player_persona is the player character, a character the user created; the "
+    "player IS this person and is named player_persona.name. Fit the setting and "
+    "constraints to who they are (personality, interests, and the background in "
+    "player_persona.knowledge), call the player by that name when the setup names "
+    "them, and never give the player another name or memories, relationships, "
+    "skills, or credentials beyond player_persona."
+)
 
-    character_name はそのセッションの変身前の主人公名であり、変身後の姿である
-    攻略対象の名前ではないため除外する(相手の名前は LLM が新しく考える)。
+
+def _setup_disguise_rule(player_persona: bool) -> str:
+    """ミッション案生成でのなりすましの扱い。主人公がキャラクター本人なら変身していない。"""
+    if player_persona:
+        return (
+            "For a disguise mission, the player has not transformed and "
+            "source_snapshot.appearance is their own body: generate the name and role "
+            "of an identity the player poses as, one the NPCs know by position or "
+            "reputation rather than by face, while keeping the supplied appearance "
+            "exactly; the player does not have that identity's memories, "
+            "relationships, habits, skills, credentials, passwords, or authentication "
+            "information."
+        )
+    return (
+        "For a disguise mission, generate the transformed person's name and role "
+        "while keeping the supplied appearance exactly; the player does not have that "
+        "person's memories, relationships, habits, skills, credentials, passwords, or "
+        "authentication information."
+    )
+
+
+def _partner_character_payload(snapshot: dict[str, Any]) -> dict[str, Any]:
+    """romance の攻略対象がキャラクターのとき LLM へ渡す、固定の名前と人物設定。"""
+    return {
+        "name": str(snapshot.get("character_name") or ""),
+        "persona": snapshot.get("persona") or {},
+    }
+
+
+def _prompt_snapshot(snapshot: dict[str, Any], *, romance: bool) -> dict[str, Any]:
+    """LLM へ渡す source_snapshot。
+
+    キャラクターの人物設定(persona)は player_persona / partner_character として別キーで
+    渡すため常に除く。romance では攻略対象の素材になるため character_name も除く
+    (セッションの character_name は変身前の主人公名で、攻略対象の名前ではない。
+    キャラクターが攻略対象のときは partner_character.name で名前を固定する)。
     """
-    return {key: value for key, value in snapshot.items() if key != "character_name"}
+    omit = {"persona", "character_name"} if romance else {"persona"}
+    return {key: value for key, value in snapshot.items() if key not in omit}
 
 
 def _romance_replay_player_selection(
     replay_state: dict[str, Any],
-) -> tuple[str | None, str | None, str | None, str | None]:
+) -> tuple[str | None, str | None, str | None, str | None, str | None]:
     """リプレイ元 run の sim から主人公の選択を復元する。
 
-    返り値は (character_id, session_id, history_id, prompt_expander_entry_id)。
-    sim の player_character_id は "session:{id}" 形式でセッション由来、
-    "prompt_expander:{id}" 形式で Prompt Expander エントリ由来の主人公を表す。
+    返り値は (character_id, session_id, history_id, prompt_expander_entry_id,
+    character_preset_id)。sim の player_character_id は "session:{id}" 形式で
+    セッション由来、"prompt_expander:{id}" 形式で Prompt Expander エントリ由来、
+    "character:{id}" 形式でキャラクターメイクのキャラクター由来の主人公を表す。
     history_id を持たない旧 run はセッションの現在状態から始め直す。
     player_character_id を持たないさらに古い run は全て None を返し、
     既定キャラクターへフォールバックする。
@@ -1148,6 +1227,7 @@ def _romance_replay_player_selection(
             stored_player.removeprefix("session:"),
             str(replay_sim.get("player_history_id") or "") or None,
             None,
+            None,
         )
     if stored_player.startswith("prompt_expander:"):
         return (
@@ -1155,10 +1235,13 @@ def _romance_replay_player_selection(
             None,
             None,
             stored_player.removeprefix("prompt_expander:"),
+            None,
         )
+    if stored_player.startswith("character:"):
+        return None, None, None, None, stored_player.removeprefix("character:")
     if stored_player:
-        return stored_player, None, None, None
-    return None, None, None, None
+        return stored_player, None, None, None, None
+    return None, None, None, None, None
 
 
 def _romance_replay_player_name(replay_state: dict[str, Any]) -> str:
@@ -1743,6 +1826,19 @@ def normalize_partner_speech_style(value: str | None) -> str:
     return " ".join(str(value or "").split()).strip()[:PARTNER_SPEECH_STYLE_MAX_LENGTH]
 
 
+def _with_persona_speech(
+    request: CreateRunRequest, persona: dict[str, Any]
+) -> CreateRunRequest:
+    """主人公がキャラクター本人のとき、口調が既定のままならキャラクターの口調を使う。
+
+    自由入力の口調として入れるので、プレイ中の口調設定から後で変えられる。
+    """
+    speech = normalize_speech_custom(str(persona.get("speech_style") or ""))
+    if not speech or request.player_speech_style != SPEECH_STYLE_DEFAULT:
+        return request
+    return replace(request, player_speech_style="custom", player_speech_custom=speech)
+
+
 def _speech_style_instruction(
     style: str | None,
     custom: str | None,
@@ -1856,6 +1952,38 @@ def _speech_rule_from_state(state: dict[str, Any]) -> str:
         partner_name=str(sim.get("partner_name") or ""),
         player_name=str(sim.get("player_name") or ""),
     )
+
+
+# 主人公がキャラクター本人の run で、口調指示の後ろへ付ける人物設定の扱い
+_PLAYER_PERSONA_INSTRUCTION = (
+    "PLAYER PERSONA: state.player_persona (player_persona in the opening request) "
+    "is the profile of the player character, written by the user. The player IS "
+    "this person, not someone who borrowed their looks: player_persona.name is the "
+    "player's own name, and the gender, personality, reaction_style, interests, "
+    "tsf_attitude, and knowledge it lists are true facts about the player. They "
+    "count as supplied source facts about the player themself, so the player may "
+    "use the knowledge and skills player_persona.knowledge explicitly states; never "
+    "invent memories, relationships, skills, credentials, or passwords beyond it. "
+    "In the player's own quoted lines, use player_persona.pronoun as the "
+    "first-person pronoun and let speech_style and sample_lines set their tone and "
+    "verbal habits (sample_lines are reference only; never quote them verbatim); "
+    "when SPEECH REGISTER names a different register, follow SPEECH REGISTER for "
+    "the register and keep only the persona's tone. The persona shapes only how "
+    "the words and actions chosen in the player's input come across; it never "
+    "decides the player's feelings, consent, wishes, bodily sensations, or "
+    "voluntary actions, and never adds actions the input did not choose."
+)
+
+
+def _turn_style_rules(state: dict[str, Any]) -> str:
+    """手番のシステムプロンプト末尾に置く口調指示(主人公の人物設定があれば添える)。
+
+    キャラチャットへ export する speech_rule_from_state には人物設定を含めない。
+    """
+    rule = _speech_rule_from_state(state)
+    if state.get("player_persona"):
+        return f"{rule}\n{_PLAYER_PERSONA_INSTRUCTION}"
+    return rule
 
 
 def _normalize_reality_rule(rule: Any) -> str:
@@ -2193,6 +2321,8 @@ class CreateRunRequest:
     companion_mode: bool = False
     companion_avatar_id: str | None = None
     inventory_enabled: bool = False
+    source_character_preset_id: str | None = None
+    romance_player_character_preset_id: str | None = None
 
 
 @dataclass
@@ -2217,6 +2347,8 @@ class _ScenarioSource:
     romance_player_history_id: str | None
     romance_player_prompt_expander_entry_id: str | None
     player_name_override: str
+    source_character_preset_id: str | None = None
+    romance_player_character_preset_id: str | None = None
 
 
 @dataclass
@@ -2247,6 +2379,10 @@ class _RomanceSetup:
     player_image: Path
     # セッション時点 / Prompt Expander エントリの主人公が着ている服装。テンプレキャラは空
     player_clothing: str = ""
+    # 主人公がキャラクターメイクのキャラクターのとき、その人物設定
+    player_persona: dict[str, Any] | None = None
+    # 攻略対象がキャラクターのとき、口調の参考にするセリフ例
+    partner_sample_lines: str = ""
 
 
 class AdventureService:
@@ -2275,8 +2411,17 @@ class AdventureService:
         source_history_id: str | None,
         *,
         source_prompt_expander_entry_id: str | None = None,
+        source_character_preset_id: str | None = None,
     ) -> tuple[dict[str, Any], Path, str, bool]:
-        """開始素材のスナップショット(source_snapshot へ委譲。エラーは AdventureError に写す)。"""
+        """開始素材のスナップショット(source_snapshot へ委譲。エラーは AdventureError に写す)。
+
+        複数指定されたときはキャラクター > Prompt Expander > セッションの順に使う。
+        """
+        if source_character_preset_id:
+            try:
+                return await build_character_preset_snapshot(source_character_preset_id)
+            except SourceSnapshotError as exc:
+                raise AdventureError(exc.code, str(exc)) from exc
         if source_prompt_expander_entry_id:
             return await self._build_prompt_expander_snapshot(
                 source_prompt_expander_entry_id
@@ -2713,7 +2858,14 @@ scene_tags contains only environment, camera, composition, lighting, and the obs
         preset: str = "",
         draft: dict[str, Any] | None = None,
         companion: bool = False,
+        partner_character: bool = False,
+        player_persona: bool = False,
     ) -> str:
+        """ミッション案生成の system prompt。
+
+        partner_character は romance の攻略対象がキャラクター(名前・人物設定を固定)、
+        player_persona は主人公がキャラクター本人(romance 以外)のとき。
+        """
         response_language = "Japanese" if language == "ja" else "English"
         if preset == "romance":
             romance_turns = clamp_romance_max_turns(max_turns)
@@ -2729,11 +2881,16 @@ scene_tags contains only environment, camera, composition, lighting, and the obs
             within = (
                 f"within {romance_turns} turns" if companion else f"within {days} days"
             )
+            naming = (
+                "partner_character is the partner's fixed identity, written by the user: use partner_character.name verbatim as the partner's name in the objective, never another name or a nickname, and keep the setting consistent with partner_character.persona (personality, interests, and background)."
+                if partner_character
+                else "source_snapshot deliberately contains no name for the partner: invent a fitting new name from their appearance and situation, and use that name in the objective. Never name the partner after the player."
+            )
             prompt = f"""You design a concise setup for {horizon} in which the player aims to start dating one partner character.
 Return one JSON object only, in {response_language}, matching this schema:
 {{"setting":"...","objective":"...","constraints":["...","..."]}}
 The constraints array must contain between 1 and 4 items.
-The partner is the character shown in source_snapshot; keep their appearance and situation consistent with it. source_snapshot deliberately contains no name for the partner: invent a fitting new name from their appearance and situation, and use that name in the objective. Never name the partner after the player. The player is a separate person courting that partner; never treat the snapshot character as the player. The setting describes where the player and the partner cross paths in daily life. The objective must name the partner and state that the player starts dating them {within}. Constraints must create romantic complications such as schedules, shyness, or circumstances, without dictating the player's feelings, consent, memories, bodily sensations, or voluntary actions. Do not introduce another body transformation or assign physical traits that conflict with source_snapshot.appearance."""
+The partner is the character shown in source_snapshot; keep their appearance and situation consistent with it. {naming} The player is a separate person courting that partner; never treat the snapshot character as the player. The setting describes where the player and the partner cross paths in daily life. The objective must name the partner and state that the player starts dating them {within}. Constraints must create romantic complications such as schedules, shyness, or circumstances, without dictating the player's feelings, consent, memories, bodily sensations, or voluntary actions. Do not introduce another body transformation or assign physical traits that conflict with source_snapshot.appearance."""
             if draft:
                 prompt += _SETUP_DRAFT_GUIDANCE + _SETUP_DRAFT_ROMANCE_GUIDANCE
             return prompt
@@ -2742,7 +2899,9 @@ The partner is the character shown in source_snapshot; keep their appearance and
 Return one JSON object only, in {response_language}, matching this schema:
 {{"setting":"...","objective":"...","constraints":["...","..."]}}
 The constraints array must contain between 1 and 4 items.
-The objective must name a concrete target and an observable end condition that can be judged as achieved or failed within {turns} turns. Scale the scope of the objective to that turn budget: a longer budget should leave room for searching for clues and scouting the surroundings, not add unrelated sub-goals. Do not use vague goals such as succeed, investigate the situation, or reach the objective. The setting, objective, and constraints must fit the selected mission preset and supplied character snapshot. Constraints must create actionable complications without dictating the player's feelings, consent, memories, bodily sensations, or voluntary actions. Do not introduce another body transformation or assign physical traits that conflict with source_snapshot.appearance. For a disguise mission, generate the transformed person's name and role while keeping the supplied appearance exactly; the player does not have that person's memories, relationships, habits, skills, credentials, passwords, or authentication information."""
+The objective must name a concrete target and an observable end condition that can be judged as achieved or failed within {turns} turns. Scale the scope of the objective to that turn budget: a longer budget should leave room for searching for clues and scouting the surroundings, not add unrelated sub-goals. Do not use vague goals such as succeed, investigate the situation, or reach the objective. The setting, objective, and constraints must fit the selected mission preset and supplied character snapshot. Constraints must create actionable complications without dictating the player's feelings, consent, memories, bodily sensations, or voluntary actions. Do not introduce another body transformation or assign physical traits that conflict with source_snapshot.appearance. {_setup_disguise_rule(player_persona)}"""
+        if player_persona:
+            prompt += _SETUP_PLAYER_PERSONA_GUIDANCE
         if draft:
             prompt += _SETUP_DRAFT_GUIDANCE
         return prompt
@@ -2757,9 +2916,17 @@ The objective must name a concrete target and an observable end condition that c
         preset: str = "",
         draft: dict[str, Any] | None = None,
         companion: bool = False,
+        partner_character: bool = False,
+        player_persona: bool = False,
     ) -> AdventureSetupOutput:
         system_prompt = self._setup_system_prompt(
-            language, max_turns, preset, draft, companion=companion
+            language,
+            max_turns,
+            preset,
+            draft,
+            companion=companion,
+            partner_character=partner_character,
+            player_persona=player_persona,
         )
         try:
             return await generate_validated(
@@ -2794,6 +2961,7 @@ The objective must name a concrete target and an observable end condition that c
         source_history_id: str | None,
         preset: str,
         source_prompt_expander_entry_id: str | None = None,
+        source_character_preset_id: str | None = None,
         max_turns: int = ADVENTURE_TURNS_DEFAULT,
         draft_setting: str = "",
         draft_objective: str = "",
@@ -2818,28 +2986,38 @@ The objective must name a concrete target and an observable end condition that c
             source_session_id,
             source_history_id,
             source_prompt_expander_entry_id=source_prompt_expander_entry_id,
+            source_character_preset_id=source_character_preset_id,
         )
         user_settings = await session_store.get_user_settings()
         language = str(user_settings.get("language") or "ja")
         text_model = str(
             user_settings.get("novelai_text_model") or settings.novelai_text_model
         )
+        # キャラクターが開始素材なら、romance では攻略対象、それ以外では主人公本人になる
+        persona = snapshot.get("persona") or None
+        romance = preset == "romance"
         prompt_payload: dict[str, Any] = {
             "task": "Generate one mission setup for the selected preset.",
             "preset": preset,
             "max_turns": turn_budget,
             "mission_definition": {
                 "title": preset_config["title"],
-                "default_objective": preset_config["objective"],
+                "default_objective": _preset_objective(
+                    preset, player_persona=bool(persona) and not romance
+                ),
                 "milestones": preset_config["milestones"],
-                "guidance": preset_config["guidance"],
+                "guidance": _preset_guidance(
+                    preset, player_persona=bool(persona) and not romance
+                ),
             },
-            "source_snapshot": _romance_prompt_snapshot(snapshot)
-            if preset == "romance"
-            else snapshot,
+            "source_snapshot": _prompt_snapshot(snapshot, romance=romance),
             "required_visual_appearance": appearance
             or "Preserve the source image appearance",
         }
+        if persona and romance:
+            prompt_payload["partner_character"] = _partner_character_payload(snapshot)
+        elif persona:
+            prompt_payload["player_persona"] = persona
         if user_draft:
             prompt_payload["user_draft"] = user_draft
         companion = preset == "romance" and bool(companion_mode)
@@ -2855,6 +3033,8 @@ The objective must name a concrete target and an observable end condition that c
             preset=preset,
             draft=user_draft or None,
             companion=companion,
+            partner_character=bool(persona) and romance,
+            player_persona=bool(persona) and not romance,
         )
         payload = generated.model_dump()
         if tracker.total_usd > 0:
@@ -2910,6 +3090,8 @@ The objective must name a concrete target and an observable end condition that c
         companion_mode: bool = False,
         companion_avatar_id: str | None = None,
         inventory_enabled: bool = False,
+        source_character_preset_id: str | None = None,
+        romance_player_character_preset_id: str | None = None,
     ) -> dict[str, Any]:
         """Run を作成する。
 
@@ -2951,6 +3133,8 @@ The objective must name a concrete target and an observable end condition that c
             companion_mode=companion_mode,
             companion_avatar_id=companion_avatar_id,
             inventory_enabled=inventory_enabled,
+            source_character_preset_id=source_character_preset_id,
+            romance_player_character_preset_id=romance_player_character_preset_id,
         )
         # Run作成全体(セットアップLLM・開幕画像)のAPI料金を集計して応答へ載せる
         tracker = begin_cost_tracking()
@@ -2972,6 +3156,7 @@ The objective must name a concrete target and an observable end condition that c
             source.source_session_id,
             source.source_history_id,
             source_prompt_expander_entry_id=source.source_prompt_expander_entry_id,
+            source_character_preset_id=source.source_character_preset_id,
         )
         user_settings = await session_store.get_user_settings()
         language = str(user_settings.get("language") or "ja")
@@ -2987,7 +3172,15 @@ The objective must name a concrete target and an observable end condition that c
         effective_image_model = image_model_override or resolve_user_image_model(
             user_settings, nsfw_mode
         )
-        definition = self._build_scenario_definition(source, request, language)
+        # キャラクターが開始素材なら、romance 以外では主人公がその人物本人になる
+        snapshot_persona = snapshot.get("persona") or None
+        definition = self._build_scenario_definition(
+            source,
+            request,
+            language,
+            player_persona=bool(snapshot_persona)
+            and source.effective_preset != "romance",
+        )
 
         # 恋愛シミュレーションの相手・バイト・カタログ・隠し好みはサーバ側で
         # 1回だけ生成する。/setup/generate のレスポンスには載せない
@@ -3010,6 +3203,11 @@ The objective must name a concrete target and an observable end condition that c
             appearance = romance.player_appearance
             source_image = romance.player_image
             romance_partner_speech_style = romance.partner_speech_style
+        player_persona = (
+            romance.player_persona if romance is not None else snapshot_persona
+        )
+        if player_persona:
+            request = _with_persona_speech(request, player_persona)
 
         # 対面会話モードは romance 専用。開幕本文も台本形式で書かせる
         companion_mode_effective = bool(request.companion_mode) and romance is not None
@@ -3029,6 +3227,7 @@ The objective must name a concrete target and an observable end condition that c
             partner_speech_style=romance_partner_speech_style,
             start_state=start_state,
             visual_style=visual_style,
+            player_persona=player_persona,
         )
 
         run_id = str(uuid.uuid4())
@@ -3053,6 +3252,7 @@ The objective must name a concrete target and an observable end condition that c
             start_state=start_state,
             authored_scene_tags=_authored_scene_tags(template=template),
             language=language,
+            player_persona=player_persona,
         )
         await self._persist_new_run(
             run_id,
@@ -3086,10 +3286,12 @@ The objective must name a concrete target and an observable end condition that c
         source_session_id = request.source_session_id
         source_history_id = request.source_history_id
         source_prompt_expander_entry_id = request.source_prompt_expander_entry_id
+        source_character_preset_id = request.source_character_preset_id
         romance_player_character_id = request.romance_player_character_id
         romance_player_session_id = request.romance_player_session_id
         romance_player_history_id = request.romance_player_history_id
         romance_player_pe_entry_id = request.romance_player_prompt_expander_entry_id
+        romance_player_preset_id = request.romance_player_character_preset_id
         # 主人公の呼び名の上書き。空ならテンプレート名・セッション名へ倒す
         player_name_override = normalize_player_name(request.romance_player_name)
         replay_run = None
@@ -3109,8 +3311,18 @@ The objective must name a concrete target and an observable end condition that c
                 replay_pe_entry_id = getattr(
                     replay_run, "source_prompt_expander_entry_id", None
                 )
-                if replay_pe_entry_id:
+                # キャラクターは run の列を持たず、スナップショットに ID が残る
+                replay_preset_id = _json_load(replay_run.snapshot_json, {}).get(
+                    "source_character_preset_id"
+                )
+                if replay_preset_id:
+                    source_character_preset_id = str(replay_preset_id)
+                    source_prompt_expander_entry_id = None
+                    source_session_id = None
+                    source_history_id = None
+                elif replay_pe_entry_id:
                     source_prompt_expander_entry_id = replay_pe_entry_id
+                    source_character_preset_id = None
                     source_session_id = None
                     source_history_id = None
                 else:
@@ -3119,16 +3331,19 @@ The objective must name a concrete target and an observable end condition that c
                     )
                     source_history_id = replay_run.source_history_id
                     source_prompt_expander_entry_id = None
+                    source_character_preset_id = None
                 if not (
                     romance_player_character_id
                     or romance_player_session_id
                     or romance_player_pe_entry_id
+                    or romance_player_preset_id
                 ):
                     (
                         romance_player_character_id,
                         romance_player_session_id,
                         romance_player_history_id,
                         romance_player_pe_entry_id,
+                        romance_player_preset_id,
                     ) = _romance_replay_player_selection(replay_state)
                     # 主人公の選択ごと引き継ぐときは呼び名も元 run に揃える
                     if not player_name_override:
@@ -3161,16 +3376,28 @@ The objective must name a concrete target and an observable end condition that c
             romance_player_history_id=romance_player_history_id,
             romance_player_prompt_expander_entry_id=romance_player_pe_entry_id,
             player_name_override=player_name_override,
+            source_character_preset_id=source_character_preset_id,
+            romance_player_character_preset_id=romance_player_preset_id,
         )
 
     @staticmethod
     def _build_scenario_definition(
-        source: _ScenarioSource, request: CreateRunRequest, language: str
+        source: _ScenarioSource,
+        request: CreateRunRequest,
+        language: str,
+        *,
+        player_persona: bool = False,
     ) -> _ScenarioDefinition:
-        """テンプレート / リプレイ / 新規入力から、舞台・目的・制約・手数を決める。"""
+        """テンプレート / リプレイ / 新規入力から、舞台・目的・制約・手数を決める。
+
+        player_persona は主人公がキャラクター本人の run(プリセットの指針を切り替える)。
+        """
         template = source.template
         preset_config = source.preset_config
         replay_run = source.replay_run
+        guidance = _preset_guidance(
+            source.effective_preset, player_persona=player_persona
+        )
         if template:
             return _ScenarioDefinition(
                 setting=str(template_localized(template, "setting", language)),
@@ -3179,9 +3406,7 @@ The objective must name a concrete target and an observable end condition that c
                 milestones=list(template_localized(template, "milestones", language)),
                 title=str(template_localized(template, "title", language)),
                 max_turns=int(template["max_turns"]),
-                scenario_guidance=(
-                    str(preset_config["guidance"]) + " " + str(template["guidance"])
-                ),
+                scenario_guidance=guidance + " " + str(template["guidance"]),
                 opening_premise=str(
                     template_localized(template, "opening_premise", language)
                 ),
@@ -3200,7 +3425,7 @@ The objective must name a concrete target and an observable end condition that c
                 ),
                 title=replay_run.title,
                 max_turns=max_turns,
-                scenario_guidance=str(preset_config["guidance"]),
+                scenario_guidance=guidance,
                 opening_premise="",
             )
         return _ScenarioDefinition(
@@ -3208,7 +3433,9 @@ The objective must name a concrete target and an observable end condition that c
             objective=(
                 request.scenario_objective.strip()
                 or request.custom_setup.strip()
-                or str(preset_config["objective"])
+                or _preset_objective(
+                    source.effective_preset, player_persona=player_persona
+                )
             ),
             constraints=[
                 item.strip()
@@ -3222,7 +3449,7 @@ The objective must name a concrete target and an observable end condition that c
                 if source.effective_preset == "romance"
                 else clamp_generated_max_turns(request.scenario_max_turns)
             ),
-            scenario_guidance=str(preset_config["guidance"]),
+            scenario_guidance=guidance,
             opening_premise="",
         )
 
@@ -3239,11 +3466,26 @@ The objective must name a concrete target and an observable end condition that c
         language: str,
     ) -> _RomanceSetup:
         """主人公(自分)を解決し、相手・バイト・ギフトカタログを LLM で 1 回だけ設計する。"""
-        # 主人公(自分)を解決する。Prompt Expander エントリ指定があればその姿、
-        # セッション指定があればその時点の変身状態、なければテンプレート
-        # キャラクター(既定 char1)を使う
+        # 主人公(自分)を解決する。キャラクター指定があればその人物本人、
+        # Prompt Expander エントリ指定があればその姿、セッション指定があれば
+        # その時点の変身状態、なければテンプレートキャラクター(既定 char1)を使う
         player_pe_entry_id = source.romance_player_prompt_expander_entry_id
-        if player_pe_entry_id or source.romance_player_session_id:
+        player_preset_id = source.romance_player_character_preset_id
+        player_persona: dict[str, Any] | None = None
+        if player_preset_id:
+            (
+                player_snapshot,
+                player_image,
+                player_appearance,
+                _,
+            ) = await self._build_snapshot(
+                None, None, source_character_preset_id=player_preset_id
+            )
+            player_name = str(player_snapshot.get("character_name") or "")
+            player_clothing = str(player_snapshot.get("clothing") or "")
+            player_ref = f"character:{player_preset_id}"
+            player_persona = player_snapshot.get("persona") or None
+        elif player_pe_entry_id or source.romance_player_session_id:
             (
                 player_snapshot,
                 player_image,
@@ -3281,6 +3523,23 @@ The objective must name a concrete target and an observable end condition that c
         # セットアップで呼び名が指定されていればそちらを優先する
         if source.player_name_override:
             player_name = source.player_name_override
+        # 攻略対象がキャラクターなら、名前と人物設定はキャラクターのものに固定する
+        partner_persona = snapshot.get("persona") or None
+        user_payload: dict[str, Any] = {
+            "task": "Design the romance simulation setup.",
+            "days": definition.max_turns // ROMANCE_SLOTS_PER_DAY,
+            "turns": definition.max_turns,
+            "companion_mode": bool(request.companion_mode),
+            "setting": definition.setting,
+            "objective": definition.objective,
+            "constraints": definition.constraints,
+            "source_snapshot": _prompt_snapshot(snapshot, romance=True),
+            "player_name": player_name,
+        }
+        if partner_persona:
+            user_payload["partner_character"] = _partner_character_payload(snapshot)
+        if player_persona:
+            user_payload["player_persona"] = player_persona
         romance_days = definition.max_turns // ROMANCE_SLOTS_PER_DAY
         setup = await self._generate_structured_output(
             RomanceSetupOutput,
@@ -3289,30 +3548,37 @@ The objective must name a concrete target and an observable end condition that c
                 romance_days,
                 companion=bool(request.companion_mode),
                 turns=definition.max_turns,
+                partner_character=bool(partner_persona),
+                player_persona=bool(player_persona),
             ),
-            user_prompt=json.dumps(
-                {
-                    "task": "Design the romance simulation setup.",
-                    "days": romance_days,
-                    "turns": definition.max_turns,
-                    "companion_mode": bool(request.companion_mode),
-                    "setting": definition.setting,
-                    "objective": definition.objective,
-                    "constraints": definition.constraints,
-                    "source_snapshot": _romance_prompt_snapshot(snapshot),
-                    "player_name": player_name,
-                },
-                ensure_ascii=False,
-            ),
+            user_prompt=json.dumps(user_payload, ensure_ascii=False),
             text_model=text_model,
             error_code="invalid_model_output",
             error_message=(
                 "恋愛シナリオの生成結果を解析できませんでした。もう一度お試しください"
             ),
         )
-        # ユーザーがセットアップで書いた口調があれば LLM 生成値より優先する
+        partner_sample_lines = ""
+        if partner_persona:
+            # LLM の出力に任せず、名前とプロフィール先頭の人物設定をコードで固定する
+            setup = setup.model_copy(
+                update={
+                    "partner_name": str(snapshot.get("character_name") or "")[:80]
+                    or setup.partner_name,
+                    "partner_profile": partner_profile_from_persona(
+                        partner_persona, setup.partner_profile, language
+                    ),
+                }
+            )
+            partner_sample_lines = str(partner_persona.get("sample_lines") or "")
+        # 口調はユーザーがセットアップで書いたもの > キャラクターの口調 > LLM 生成値
         partner_speech_style = (
             request.romance_partner_speech_style
+            or (
+                partner_speech_from_persona(partner_persona, language)
+                if partner_persona
+                else ""
+            )
             or normalize_partner_speech_style(setup.partner_speech_style)
         )
         return _RomanceSetup(
@@ -3325,6 +3591,8 @@ The objective must name a concrete target and an observable end condition that c
             player_appearance=player_appearance,
             player_image=player_image,
             player_clothing=player_clothing,
+            player_persona=player_persona,
+            partner_sample_lines=partner_sample_lines,
         )
 
     async def _generate_opening(
@@ -3342,11 +3610,24 @@ The objective must name a concrete target and an observable end condition that c
         partner_speech_style: str,
         start_state: dict[str, Any],
         visual_style: dict[str, Any] | None,
+        player_persona: dict[str, Any] | None = None,
     ) -> AdventureDirectorOutput:
-        """開幕シーンをディレクター LLM で生成し、外見・服装・画風の方針を反映する。"""
+        """開幕シーンをディレクター LLM で生成し、外見・服装・画風の方針を反映する。
+
+        player_persona は主人公がキャラクター本人のときの人物設定。
+        """
         template = source.template
         romance_setup = romance.setup if romance is not None else None
         romance_player_name = romance.player_name if romance is not None else ""
+        speech_rule = _speech_style_instruction(
+            request.player_speech_style,
+            request.player_speech_custom,
+            partner_style=partner_speech_style,
+            partner_name=romance_setup.partner_name if romance_setup else "",
+            player_name=romance_player_name,
+        )
+        if player_persona:
+            speech_rule = f"{speech_rule}\n{_PLAYER_PERSONA_INSTRUCTION}"
         prompt = json.dumps(
             {
                 "task": "Create the opening scene for this adventure.",
@@ -3361,16 +3642,22 @@ The objective must name a concrete target and an observable end condition that c
                 "authored_opening_premise": definition.opening_premise,
                 "authored_visual_style": visual_style,
                 "scenario_capabilities": start_state,
-                "source_snapshot": _romance_prompt_snapshot(snapshot)
-                if romance_setup is not None
-                else snapshot,
+                "source_snapshot": _prompt_snapshot(
+                    snapshot, romance=romance_setup is not None
+                ),
                 "required_visual_appearance": appearance
                 or "Preserve the source image appearance",
+                **({"player_persona": player_persona} if player_persona else {}),
                 # 開幕描写に相手と関係性を織り込む(隠し好みは渡さない)
                 "romance_setup": {
                     "partner_name": romance_setup.partner_name,
                     "partner_profile": romance_setup.partner_profile,
                     "partner_speech_style": partner_speech_style,
+                    **(
+                        {"partner_sample_lines": romance.partner_sample_lines}
+                        if romance.partner_sample_lines
+                        else {}
+                    ),
                     "partner_appearance": romance.partner_appearance,
                     "relationship_origin": romance_setup.relationship_origin,
                     "job_name": romance_setup.job_name,
@@ -3398,13 +3685,7 @@ The objective must name a concrete target and an observable end condition that c
             text_model=text_model,
             narration_voice=request.narration_voice,
             narration_pronoun=request.narration_pronoun,
-            speech_rule=_speech_style_instruction(
-                request.player_speech_style,
-                request.player_speech_custom,
-                partner_style=partner_speech_style,
-                partner_name=romance_setup.partner_name if romance_setup else "",
-                player_name=romance_player_name,
-            ),
+            speech_rule=speech_rule,
             romance=romance_setup is not None,
             script_names=romance_script_names(
                 {
@@ -3487,8 +3768,12 @@ The objective must name a concrete target and an observable end condition that c
         start_state: dict[str, Any],
         authored_scene_tags: str,
         language: str,
+        player_persona: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """run の初期 state を組み立てる（作品シナリオの装備選択肢は opening にも反映）。"""
+        """run の初期 state を組み立てる（作品シナリオの装備選択肢は opening にも反映）。
+
+        player_persona は主人公がキャラクター本人のときの人物設定で、毎ターン LLM へ渡す。
+        """
         template = source.template
         state: dict[str, Any] = {
             "milestones": definition.milestones,
@@ -3541,6 +3826,9 @@ The objective must name a concrete target and an observable end condition that c
             # 対面会話モードで攻略対象の立ち絵の代わりに描く VRM の登録 ID
             "companion_avatar_id": companion_avatar,
         }
+        if player_persona:
+            # 主人公がキャラクター本人。性格・口調・知識を毎ターンの state で渡す
+            state["player_persona"] = player_persona
         # 持ち物システム(既定 OFF)。作品シナリオは独自の装備判定を持つため強制 OFF
         state["inventory_enabled"] = bool(request.inventory_enabled) and not template
         if state["inventory_enabled"]:
@@ -3558,6 +3846,7 @@ The objective must name a concrete target and an observable end condition that c
                 and not source.romance_player_prompt_expander_entry_id
                 else "",
                 partner_speech_style=partner_speech_style,
+                partner_sample_lines=romance.partner_sample_lines,
             )
             # 攻略対象の開始時の外見。主人公側と同じく乖離判定にだけ使う
             state["initial_partner_appearance"] = romance.partner_appearance
@@ -3813,7 +4102,9 @@ The objective must name a concrete target and an observable end condition that c
             if equipment_choices:
                 choices = equipment_choices
             else:
-                scenario_guidance = PRESETS.get(run.preset, {}).get("guidance", "")
+                scenario_guidance = _preset_guidance(
+                    run.preset, player_persona=bool(state.get("player_persona"))
+                )
                 if template:
                     scenario_guidance = f"{scenario_guidance} {template['guidance']}"
                 previous_turns = [
@@ -4713,7 +5004,9 @@ The objective must name a concrete target and an observable end condition that c
             template_resolution = self._resolve_template_action(
                 template, state, user_input
             )
-            scenario_guidance = PRESETS.get(run.preset, {}).get("guidance", "")
+            scenario_guidance = _preset_guidance(
+                run.preset, player_persona=bool(state.get("player_persona"))
+            )
             if template:
                 scenario_guidance = f"{scenario_guidance} {template['guidance']}"
             previous_turns = [
@@ -4746,7 +5039,7 @@ The objective must name a concrete target and an observable end condition that c
                 text_model=run.text_model,
                 narration_voice=narration_voice,
                 narration_pronoun=narration_pronoun,
-                speech_rule=_speech_rule_from_state(state),
+                speech_rule=_turn_style_rules(state),
                 fallback_appearance=str(
                     state.get("appearance_lock")
                     or state.get("visual_state", {}).get("appearance")
@@ -5977,7 +6270,9 @@ The objective must name a concrete target and an observable end condition that c
         )
         template = SCENARIO_TEMPLATES.get(str(state.get("scenario_template_id")))
         template_resolution = self._resolve_template_action(template, state, user_input)
-        scenario_guidance = PRESETS.get(run.preset, {}).get("guidance", "")
+        scenario_guidance = _preset_guidance(
+            run.preset, player_persona=bool(state.get("player_persona"))
+        )
         if template:
             scenario_guidance = f"{scenario_guidance} {template['guidance']}"
         if epilogue:
@@ -6087,7 +6382,7 @@ The objective must name a concrete target and an observable end condition that c
             input_kind=input_kind,
             narration_voice=narration_voice,
             narration_pronoun=narration_pronoun,
-            speech_rule=_speech_rule_from_state(state),
+            speech_rule=_turn_style_rules(state),
             appearance_update_allowed=appearance_update_allowed,
             template=template,
             template_resolution=template_resolution,

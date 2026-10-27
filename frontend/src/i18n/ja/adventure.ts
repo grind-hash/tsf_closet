@@ -21,6 +21,17 @@ export const adventure = {
     notSelected: "未選択",
     tabPromptExpander: "Prompt Expander",
     promptExpanderOrigin: "Prompt Expander",
+    tabCharacters: "キャラクター",
+    characterOrigin: "キャラクター",
+    characterNoPortrait:
+      "立ち絵が未設定のため選べません。キャラクターメイクで立ち絵を用意してください",
+    charactersEmpty: "まだキャラクターがいません",
+    charactersLoadFailed: "キャラクターを読み込めませんでした",
+    characterCreateLink: "キャラクターメイクで作る",
+    characterPersonaHint:
+      "このキャラクター本人として遊びます。名前・性格・口調・知識が主人公に反映されます",
+    characterPartnerHint:
+      "このキャラクターが攻略対象になります。名前・性格・口調はキャラクターの設定を使います",
   },
   startMode: "開始方式",
   startModes: {
@@ -78,7 +89,11 @@ export const adventure = {
       "恋愛シミュレーションで操作する自分のキャラクター。選択は次回にも保存されます",
     playerLoading: "読み込み中...",
     playerFromSession: "セッションの姿を使う",
+    playerFromCharacter: "作ったキャラクターを使う",
     playerSession: "主人公にするセッション",
+    playerCharacter: "主人公にするキャラクター",
+    playerCharacterHint:
+      "このキャラクター本人として遊びます。名前・性格・口調・知識が主人公に反映されます",
     playerState: "主人公の姿（時点）",
     playerName: "呼び名",
     playerNameHint:
@@ -91,6 +106,8 @@ export const adventure = {
       "例: ため口。語尾を伸ばすギャル口調。一人称はアタシ",
     partnerSpeechStyleHint:
       "空欄なら人物像に合わせて自動で決まります。開始後も変更できます",
+    partnerSpeechStyleCharacterHint:
+      "空欄ならキャラクターの「口調・話し方」を使います。開始後も変更できます",
     partnerSpeechStyleAuto: "自動（人物像に合わせる）",
     previewTurn: "Day {{day}}/{{total}} {{slot}}（{{turn}}/{{max}}手）",
     day: "Day",
@@ -183,6 +200,8 @@ export const adventure = {
     noObjective: "ゴールを入力するか、自動生成してください",
     tooManyConstraints: "制約は最大{{max}}件です（現在{{count}}件）",
     noScenario: "シナリオを選択してください",
+    noPlayerCharacter: "主人公にするキャラクターを選択してください",
+    samePartnerAndPlayer: "攻略対象と主人公に同じキャラクターは選べません",
   },
   start: "シナリオを開始",
   storyOptions: "物語の演出",
@@ -204,6 +223,8 @@ export const adventure = {
   speechStyleChip: "口調",
   speechStyleHint:
     "主人公のセリフの話し方を決めます。開始後も変更でき、次の手番から反映されます。",
+  speechStylePersonaHint:
+    "主人公にキャラクターを選んでいて口調が「丁寧語」のままなら、キャラクターの「口調・話し方」を使います。",
   speechStyles: {
     polite: "丁寧語",
     casual: "ため口",

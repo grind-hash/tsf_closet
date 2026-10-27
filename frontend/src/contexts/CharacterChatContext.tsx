@@ -474,6 +474,7 @@ export function CharacterChatProvider({ children }: { children: ReactNode }) {
           use_web_search: settingsState.characterChatWebSearchEnabled,
           use_weather: settingsState.characterChatWeatherEnabled,
           ...(requestPlayProposal ? { request_play_proposal: true } : {}),
+          read_aloud: voiceRef.current.canSpeak,
         };
         await streamCharacterChatMessage(threadId, request, (event) => {
           if (

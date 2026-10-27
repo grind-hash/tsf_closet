@@ -40,18 +40,25 @@ SCENARIO_MAX_TURNS_REQUEST_MAX = max(
 
 
 class AdventureSetupGenerateRequest(BaseModel):
-    # 開始素材はゲームセッション（＋履歴時点）か Prompt Expander エントリのどちらか。
-    # 両方あれば Prompt Expander エントリを優先する
+    # 開始素材はゲームセッション（＋履歴時点）、Prompt Expander エントリ、
+    # キャラクターメイクのキャラクターのいずれか。
+    # 複数あればキャラクター > Prompt Expander エントリ > セッションの順に使う
     source_session_id: str | None = Field(default=None, min_length=1)
     source_history_id: str | None = None
     source_prompt_expander_entry_id: str | None = Field(default=None, max_length=80)
+    source_character_preset_id: str | None = Field(default=None, max_length=80)
     preset: Literal["infiltration", "escape", "negotiation", "disguise", "romance"]
 
     @model_validator(mode="after")
     def _require_source(self) -> AdventureSetupGenerateRequest:
-        if not self.source_session_id and not self.source_prompt_expander_entry_id:
+        if not (
+            self.source_session_id
+            or self.source_prompt_expander_entry_id
+            or self.source_character_preset_id
+        ):
             raise ValueError(
-                "source_session_id か source_prompt_expander_entry_id のいずれかが必要です"
+                "source_session_id・source_prompt_expander_entry_id・"
+                "source_character_preset_id のいずれかが必要です"
             )
         return self
 
@@ -77,19 +84,23 @@ class AdventureCreateRequest(BaseModel):
     source_session_id: str | None = Field(default=None, min_length=1)
     source_history_id: str | None = None
     source_prompt_expander_entry_id: str | None = Field(default=None, max_length=80)
+    # キャラクターメイクのキャラクター。romance では攻略対象、それ以外では主人公本人
+    source_character_preset_id: str | None = Field(default=None, max_length=80)
     preset: Literal["infiltration", "escape", "negotiation", "disguise", "romance"]
     custom_setup: str = Field(default="", max_length=1000)
 
     @model_validator(mode="after")
     def _require_source(self) -> AdventureCreateRequest:
         # リプレイ（replay_run_id）は元 run から素材を引き継ぐため素材未指定を許す
-        if (
-            not self.source_session_id
-            and not self.source_prompt_expander_entry_id
-            and not self.replay_run_id
+        if not (
+            self.source_session_id
+            or self.source_prompt_expander_entry_id
+            or self.source_character_preset_id
+            or self.replay_run_id
         ):
             raise ValueError(
-                "source_session_id か source_prompt_expander_entry_id のいずれかが必要です"
+                "source_session_id・source_prompt_expander_entry_id・"
+                "source_character_preset_id のいずれかが必要です"
             )
         return self
 
@@ -136,6 +147,9 @@ class AdventureCreateRequest(BaseModel):
     romance_player_prompt_expander_entry_id: str | None = Field(
         default=None, max_length=80
     )
+    # romance の主人公をキャラクターメイクのキャラクター本人にする場合に指定。
+    # 名前・性格・口調もそのキャラクターのものを使い、他の主人公指定より優先される
+    romance_player_character_preset_id: str | None = Field(default=None, max_length=80)
     # romance の主人公の呼び名(攻略対象がセリフで呼ぶ名前)。空なら
     # テンプレートキャラクター名またはセッションの主人公名を使う
     romance_player_name: str = Field(

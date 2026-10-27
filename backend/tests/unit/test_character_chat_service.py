@@ -365,7 +365,8 @@ async def test_create_self_mode_session_thread(
     assert "性格: 論理的で前向き" in system
     assert "興味・関心: 筋トレ" in system
     assert "女性として過ごすのも悪くない" in system
-    assert "通常は 2〜5 文" in system
+    # 読み上げを指定しない送信は、返答の文数を増やす目安になる
+    assert "通常は 3〜6 文" in system
     assert "開花" not in system
     assert "心理段階:" not in system
     assert "抵抗・困惑" not in system

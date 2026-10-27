@@ -21,6 +21,12 @@ from ..consts.character_limits import (
 from ..consts.character_profile import (
     DEFAULT_REACTION_STYLE,
     GENDERS,
+    PERSONA_INTERESTS_MAX_COUNT,
+    PERSONA_KNOWLEDGE_MAX_LEN,
+    PERSONA_PERSONALITY_MAX_LEN,
+    PERSONA_SAMPLE_LINES_MAX_LEN,
+    PERSONA_SPEECH_STYLE_MAX_LEN,
+    PERSONA_TSF_ATTITUDE_MAX_LEN,
     PROFILE_GREETING_MAX_LEN,
     PROFILE_INTEREST_MAX_LEN,
     PROFILE_INTERESTS_MAX_COUNT,
@@ -124,6 +130,61 @@ def format_profile_line_ja(profile: dict[str, Any] | None) -> str:
     if tsf_attitude:
         parts.append(f"TSFへの態度={tsf_attitude[:PROMPT_TSF_ATTITUDE_MAX_LEN]}")
     return " / ".join(parts)
+
+
+def _cut_lines(value: str, max_len: int) -> str:
+    """max_len 以内に収まるところまで、行単位で残す(1 行目が長すぎれば切る)。"""
+    if len(value) <= max_len:
+        return value
+    kept: list[str] = []
+    size = 0
+    for line in value.split("\n"):
+        extra = len(line) + (1 if kept else 0)
+        if size + extra > max_len:
+            break
+        kept.append(line)
+        size += extra
+    return "\n".join(kept) if kept else value[:max_len]
+
+
+def character_persona_for_prompt(name: str, profile: dict[str, Any]) -> dict[str, Any]:
+    """キャラクターを TSFシナリオの人物設定として LLM へ渡す形にする。
+
+    profile は normalize_character_profile 済みの値。毎ターンの状態に載るため保存時より
+    短く切り、空の項目は省く。memo(自動生成の種)と greeting は物語に使わない。
+    """
+    gender = {"man": "male", "woman": "female"}.get(str(profile.get("gender") or ""))
+    reaction = str(profile.get("reaction_style") or "")
+    interests = [
+        str(item).strip()
+        for item in profile.get("interests") or []
+        if str(item).strip()
+    ][:PERSONA_INTERESTS_MAX_COUNT]
+    persona: dict[str, Any] = {
+        "name": str(name or "").strip(),
+        "pronoun": str(profile.get("pronoun") or "").strip(),
+        "gender": gender or "",
+        "personality": _text(profile.get("personality"), PERSONA_PERSONALITY_MAX_LEN),
+        "reaction_style": (
+            reaction if reaction and reaction != DEFAULT_REACTION_STYLE else ""
+        ),
+        "speech_style": _text(
+            profile.get("speech_style"), PERSONA_SPEECH_STYLE_MAX_LEN
+        ),
+        "sample_lines": _cut_lines(
+            _multiline(profile.get("sample_lines"), PROFILE_SAMPLE_LINES_MAX_LEN),
+            PERSONA_SAMPLE_LINES_MAX_LEN,
+        ),
+        "interests": interests,
+        "tsf_attitude": _text(
+            profile.get("tsf_attitude"), PERSONA_TSF_ATTITUDE_MAX_LEN
+        ),
+        "knowledge": _cut_lines(
+            _multiline(profile.get("knowledge"), PROFILE_KNOWLEDGE_MAX_LEN),
+            PERSONA_KNOWLEDGE_MAX_LEN,
+        ),
+    }
+    return {key: value for key, value in persona.items() if value}
 
 
 # ── 自動生成 ──
