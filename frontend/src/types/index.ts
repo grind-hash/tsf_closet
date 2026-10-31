@@ -38,6 +38,12 @@ export interface Character {
   name: string;
   thumbnail: string;
   description: string;
+  /** 以下はテンプレートキャラクター一覧(/game/characters)が返す人物像 */
+  pronoun?: string;
+  personality?: string;
+  gender?: string;
+  /** TSF(性転換・変身)への態度。依頼モードの依頼文と反応に使う */
+  tsf_attitude?: string;
 }
 
 // Ending

@@ -247,6 +247,8 @@ class Character:
     personality: str = ""
     gender: str = "man"
     base_tags: str = ""
+    # 性転換・変身(TSF)への態度。依頼モードの依頼文と、頼んでいない体の変化への反応に使う
+    tsf_attitude: str = ""
 
 
 @dataclass

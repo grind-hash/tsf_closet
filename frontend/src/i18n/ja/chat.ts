@@ -114,6 +114,13 @@ export const chat = {
     pronounPlaceholder: "一人称",
     defaultPronoun: "僕",
     personalityPlaceholder: "パーソナリティ（性格）",
+    tsfAttitudePlaceholder: "TSFへの態度（任意）",
+    tsfAttitudeHint:
+      "例: 可愛い服に密かに憧れている。依頼モードで、依頼の内容と、頼んでいない体の変化への反応に使われます。空欄なら性格から想像します。",
+    profileTitle: "{{name}}の人物像",
+    profilePersonality: "性格",
+    profilePronoun: "一人称",
+    profileTsfAttitude: "TSFへの態度",
     baseTagsPlaceholder:
       "外見タグ (Danbooru形式、例: short black hair, blue eyes)",
     generateTags: "タグを自動生成",

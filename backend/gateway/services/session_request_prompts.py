@@ -24,7 +24,7 @@ Return one JSON object only, in {_response_language(language)}, matching this sc
 {{"wish":"...","preferences":[{{"text":"...","hint":"..."}}]}}
 wish: what the character says to the stylist, in their own voice, at most 120 Japanese characters or 40 English words.{pronoun_rule} It names the overall look or mood they want (for example, a princess at a ball, a cool office worker, a shrine maiden) without listing every detail.
 preferences: 2 or 3 concrete conditions the character secretly cares about but does not say, such as a color family, a skirt or dress length, a fabric or decoration, an accessory, or a hairstyle. Each must be checkable from a written description of the finished look, and they must not contradict the wish or each other. text states the condition plainly in at most 40 Japanese characters or 12 English words. hint names only its category in at most 8 Japanese characters or 3 English words (for example, color, length, accessory), so the player has something to guess from.
-Keep everything consistent with the character's personality and background, and never write sexual content."""
+Keep everything consistent with the character's personality and background, and never write sexual content. When tsf_attitude is given, let the wish grow out of that attitude toward transformation (for example, a hidden longing to look like a princess, or curiosity about living as the other sex), without stating the attitude itself."""
     user = json.dumps(
         {
             "character": {
@@ -32,6 +32,7 @@ Keep everything consistent with the character's personality and background, and 
                 "gender": profile.get("gender") or "",
                 "personality": profile.get("personality") or "",
                 "description": profile.get("description") or "",
+                "tsf_attitude": profile.get("tsf_attitude") or "",
             },
             "current_look": appearance,
         },

@@ -115,6 +115,13 @@ export const chat = {
     pronounPlaceholder: "Pronoun",
     defaultPronoun: "I",
     personalityPlaceholder: "Personality",
+    tsfAttitudePlaceholder: "Attitude toward TSF (optional)",
+    tsfAttitudeHint:
+      "e.g. secretly longs to wear cute clothes. In request mode it shapes the request and the reaction to body changes nobody asked for. If left empty, it is inferred from the personality.",
+    profileTitle: "About {{name}}",
+    profilePersonality: "Personality",
+    profilePronoun: "Pronoun",
+    profileTsfAttitude: "Attitude toward TSF",
     baseTagsPlaceholder:
       "Appearance tags (Danbooru format, e.g. short black hair, blue eyes)",
     generateTags: "Auto-generate tags",

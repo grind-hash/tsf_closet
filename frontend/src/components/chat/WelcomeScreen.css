@@ -226,6 +226,20 @@
   color: var(--text-color, #eee);
 }
 
+/* TSF への態度: 入力欄と、使い道を示す注記で 1 行を占める */
+.welcome-screen__tsf-attitude {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 0.25rem;
+}
+
+.welcome-screen__tsf-attitude-hint {
+  margin: 0;
+  color: var(--text-muted, #888);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
 /* 外見タグ行 (入力欄 + 自動生成ボタン) */
 .welcome-screen__base-tags-row {
   grid-column: 1 / -1;
@@ -307,6 +321,53 @@
 }
 
 /* Self mode section */
+/* 選んだテンプレートキャラクターの人物像。文章は省略せず全文を出す */
+.welcome-screen__profile {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 1rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--border-color, #333);
+  border-radius: 8px;
+  background-color: var(--bg-color, #1a1a2e);
+}
+
+.welcome-screen__profile-name {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.welcome-screen__profile-description {
+  margin: 0;
+  color: var(--text-muted, #888);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.welcome-screen__profile-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.35rem 1rem;
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.welcome-screen__profile-facts > div {
+  display: contents;
+}
+
+.welcome-screen__profile-facts dt {
+  color: var(--text-muted, #888);
+  font-weight: 600;
+}
+
+.welcome-screen__profile-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
 /* 自分自身モード・依頼モード: どちらも ON/OFF をトグルスイッチで示す */
 .welcome-screen__self-mode,
 .welcome-screen__request-mode {

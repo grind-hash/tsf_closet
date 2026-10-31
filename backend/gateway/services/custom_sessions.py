@@ -109,6 +109,7 @@ def _custom_profile(custom_image_id: str, metadata: dict[str, Any]) -> dict[str,
         "personality": metadata.get("personality", ""),
         "gender": normalize_gender(metadata.get("gender", "other")),
         "base_tags": metadata.get("base_tags", ""),
+        "tsf_attitude": metadata.get("tsf_attitude", ""),
     }
 
 

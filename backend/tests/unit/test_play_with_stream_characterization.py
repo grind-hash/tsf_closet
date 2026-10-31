@@ -1107,3 +1107,106 @@ async def test_request_mode_replaces_reality_feeling(monkeypatch) -> None:
     assert "元に戻して" not in call["system_prompt"]
     # TSF への態度が無ければ、性格から想像させる
     assert "TSFへの態度:" not in call["system_prompt"]
+
+
+@pytest.mark.asyncio
+async def test_request_mode_falls_back_to_template_tsf_attitude(monkeypatch) -> None:
+    # 人物パネルに主人公の設定が無ければ、テンプレートキャラクターの TSF への態度を使う
+    store = FakeSessionStore(session_request=_SESSION_REQUEST)
+    character = _character()
+    character.tsf_attitude = "お嬢様にずっと憧れている"
+    harness = _build(monkeypatch, store=store, character=character)
+    monkeypatch.setattr(
+        gs_module.session_request_service,
+        "evaluate_turn",
+        AsyncMock(return_value=None),
+    )
+
+    await _run(harness)
+
+    assert (
+        "TSFへの態度: お嬢様にずっと憧れている"
+        in harness.feeling_calls[0]["system_prompt"]
+    )
+
+
+@pytest.mark.asyncio
+async def test_request_mode_uses_custom_character_tsf_attitude(monkeypatch) -> None:
+    # テンプレートにも人物パネルにも無ければ、カスタム画像のキャラクターの設定を使う
+    store = FakeSessionStore(session_request=_SESSION_REQUEST)
+    harness = _build(monkeypatch, store=store)
+    monkeypatch.setattr(
+        harness.service,
+        "_load_custom_session_metadata",
+        lambda _id: {"tsf_attitude": "王子様になってみたい"},
+    )
+    monkeypatch.setattr(
+        gs_module.session_request_service,
+        "evaluate_turn",
+        AsyncMock(return_value=None),
+    )
+
+    await _run(harness)
+
+    assert (
+        "TSFへの態度: 王子様になってみたい" in harness.feeling_calls[0]["system_prompt"]
+    )
+
+
+# ---------------------------------------------------------------------------
+# カスタム画像のキャラクター(テンプレートキャラクター無し)
+# ---------------------------------------------------------------------------
+
+_CUSTOM_METADATA = {
+    "name": "リン",
+    "pronoun": "私",
+    "gender": "woman",
+    "personality": "気が強いツンデレ",
+    "description": "赤髪の剣士",
+}
+
+
+def _build_custom(monkeypatch, **kwargs) -> Harness:
+    harness = _build(monkeypatch, **kwargs)
+    monkeypatch.setattr(
+        harness.service,
+        "_get_or_create_session_for_stream",
+        AsyncMock(return_value=(_session(), None, b"before-image")),
+    )
+    monkeypatch.setattr(
+        harness.service, "_load_custom_session_metadata", lambda _id: _CUSTOM_METADATA
+    )
+    return harness
+
+
+@pytest.mark.asyncio
+async def test_custom_character_personality_reaches_dress_up_feeling(
+    monkeypatch,
+) -> None:
+    harness = _build_custom(monkeypatch)
+
+    await _run(harness, character_id=None)
+
+    system_prompt = harness.feeling_calls[0]["system_prompt"]
+    assert "- 性格: 気が強いツンデレ" in system_prompt
+    assert "- 説明: 赤髪の剣士" in system_prompt
+
+
+@pytest.mark.asyncio
+async def test_custom_character_personality_reaches_action_text(monkeypatch) -> None:
+    store = FakeSessionStore(
+        latest_history=SimpleNamespace(
+            after_description="current look", feeling_text="", instruction="x"
+        )
+    )
+    harness = _build_custom(monkeypatch, store=store)
+
+    await _run(
+        harness, character_id=None, instruction="街を歩く", instruction_type="action"
+    )
+
+    prompts = (
+        harness.feeling_calls[0]["system_prompt"]
+        + harness.feeling_calls[0]["user_prompt"]
+    )
+    assert "気が強いツンデレ" in prompts

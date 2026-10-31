@@ -334,6 +334,7 @@ async def start_game_custom(request: CustomStartRequest) -> GameStartResponse:
             personality=request.personality,
             gender=request.gender,
             base_tags=request.base_tags,
+            tsf_attitude=request.tsf_attitude,
             difficulty=request.difficulty,
             nsfw_mode=request.nsfw_mode,
             self_mode=request.self_mode,

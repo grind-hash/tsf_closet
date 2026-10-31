@@ -38,6 +38,11 @@ class CharacterInfo(BaseModel):
     name: str = Field(..., description="キャラクター名")
     thumbnail: str = Field(..., description="Base64エンコードされたサムネイル画像")
     description: str = Field(..., description="キャラクター説明")
+    # 開始画面で選んだキャラクターの人物像として表示する
+    pronoun: str = Field("", description="一人称")
+    personality: str = Field("", description="性格")
+    gender: str = Field("", description="性別 (man/woman/other)")
+    tsf_attitude: str = Field("", description="TSF(性転換・変身)への態度")
 
 
 class CharacterListResponse(BaseModel):

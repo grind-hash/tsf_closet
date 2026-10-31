@@ -12,6 +12,7 @@ from gateway.consts.session_request import REQUEST_FULFILL_THRESHOLD
 from gateway.databases.models import History as HistoryORM
 from gateway.databases.models import Session as SessionORM
 from gateway.databases.models import SessionCharacter, User
+from gateway.models import Character
 from gateway.services import session_request_service as request_module
 from gateway.services.achievements import (
     ACHIEVEMENTS,
@@ -365,3 +366,49 @@ async def test_get_protagonist_profile_reads_panel_protagonist(isolated_db) -> N
         await db.commit()
     profile = await session_store.get_protagonist_profile("s1")
     assert profile == {"tsf_attitude": "可愛い姿に憧れている"}
+
+
+@pytest.mark.asyncio
+async def test_create_request_passes_tsf_attitude_with_panel_priority(
+    isolated_db, monkeypatch
+) -> None:
+    await _seed_session(isolated_db.async_factory)
+    async with isolated_db.async_factory() as db:
+        await db.execute(
+            update(SessionORM).where(SessionORM.id == "s1").values(character_id="c1")
+        )
+        await db.commit()
+    monkeypatch.setattr(
+        request_module.character_manager,
+        "get_by_id",
+        lambda _id: Character(
+            id="c1",
+            name="テスト",
+            image_path="x.png",
+            description="",
+            tsf_attitude="お嬢様にずっと憧れている",
+        ),
+    )
+    calls = _fake_generation(monkeypatch, [_GENERATED])
+
+    await session_request_service.create_request("s1", language="ja")
+    assert json.loads(calls[0])["character"]["tsf_attitude"] == (
+        "お嬢様にずっと憧れている"
+    )
+
+    # 人物パネルの主人公に設定があれば、そちらを優先する
+    async with isolated_db.async_factory() as db:
+        db.add(
+            SessionCharacter(
+                id="c-main",
+                session_id="s1",
+                name="主人公",
+                is_protagonist=True,
+                profile_json=json.dumps(
+                    {"tsf_attitude": "王子様になってみたい"}, ensure_ascii=False
+                ),
+            )
+        )
+        await db.commit()
+    await session_request_service.create_request("s1", language="ja")
+    assert json.loads(calls[1])["character"]["tsf_attitude"] == "王子様になってみたい"

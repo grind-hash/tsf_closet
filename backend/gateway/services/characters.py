@@ -55,6 +55,7 @@ class CharacterManager:
                 personality=item.get("personality", ""),
                 gender=item.get("gender", "man"),
                 base_tags=item.get("base_tags", ""),
+                tsf_attitude=item.get("tsf_attitude", ""),
             )
             for item in data
         ]
@@ -135,6 +136,10 @@ class CharacterManager:
             name=character.name,
             thumbnail=self.get_thumbnail_base64(character),
             description=character.description,
+            pronoun=character.pronoun,
+            personality=character.personality,
+            gender=character.gender,
+            tsf_attitude=character.tsf_attitude,
         )
 
     def get_all_api_models(self) -> list[CharacterInfo]:

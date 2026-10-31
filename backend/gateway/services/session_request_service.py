@@ -226,6 +226,7 @@ async def _character_profile(session: PersistedSession) -> dict[str, Any]:
                 "gender": character.gender,
                 "personality": character.personality,
                 "description": character.description,
+                "tsf_attitude": character.tsf_attitude,
             }
     metadata = load_custom_session_metadata(session.id) or {}
     return {
@@ -234,6 +235,7 @@ async def _character_profile(session: PersistedSession) -> dict[str, Any]:
         "gender": metadata.get("gender") or "",
         "personality": metadata.get("personality") or "",
         "description": metadata.get("description") or "",
+        "tsf_attitude": metadata.get("tsf_attitude") or "",
     }
 
 
@@ -270,6 +272,10 @@ class SessionRequestService:
                 "request_locked", "最初の着せ替えの後は依頼を作り直せません"
             )
         profile = await _character_profile(session)
+        # 人物パネルの主人公に TSF への態度が設定されていれば、そちらを優先する
+        panel_profile = await session_store.get_protagonist_profile(session_id) or {}
+        if str(panel_profile.get("tsf_attitude") or "").strip():
+            profile["tsf_attitude"] = panel_profile["tsf_attitude"]
         latest = await session_store.get_latest_history(session_id)
         appearance = (
             (latest.after_description or latest.before_description or "")

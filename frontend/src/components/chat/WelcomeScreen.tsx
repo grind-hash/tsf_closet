@@ -14,6 +14,7 @@ import {
   type PromptExpanderEntry,
   promptExpanderImageUrl,
 } from "../../apis/promptExpander";
+import { TSF_ATTITUDE_MAX_LENGTH } from "../../constants/playLimits";
 import { useGame } from "../../contexts/GameContext";
 import { useSettings } from "../../contexts/SettingsContext";
 import { ROUTES } from "../../routes";
@@ -39,6 +40,7 @@ interface CustomCharacter {
   pronoun: string;
   personality: string;
   gender: string;
+  tsf_attitude?: string;
 }
 
 export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
@@ -78,6 +80,7 @@ export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
     t("chat.welcome.defaultPronoun"),
   );
   const [customPersonality, setCustomPersonality] = useState("");
+  const [customTsfAttitude, setCustomTsfAttitude] = useState("");
   const [customGender, setCustomGender] = useState("other");
   const [customBaseTags, setCustomBaseTags] = useState("");
   const [isGeneratingTags, setIsGeneratingTags] = useState(false);
@@ -275,6 +278,7 @@ export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
     setCustomDescription(character.description);
     setCustomPronoun(character.pronoun || t("chat.welcome.defaultPronoun"));
     setCustomPersonality(character.personality);
+    setCustomTsfAttitude(character.tsf_attitude || "");
     setCustomGender(character.gender || "other");
     // base_tagsが保存済みなら復元
     setCustomBaseTags(
@@ -308,6 +312,7 @@ export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
             description: customDescription,
             pronoun: customPronoun || t("chat.welcome.defaultPronoun"),
             personality: customPersonality,
+            tsf_attitude: customTsfAttitude.trim(),
             gender: customGender || "other",
             base_tags: customBaseTags,
           }),
@@ -366,6 +371,9 @@ export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
   };
 
   const canStart = selectedCharacterId || customImage;
+  const selectedCharacter = characters.find(
+    (character) => character.id === selectedCharacterId,
+  );
 
   return (
     <div className="welcome-screen">
@@ -415,6 +423,9 @@ export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
               </button>
             ))}
           </div>
+        )}
+        {selectedCharacter && (
+          <CharacterProfileSummary character={selectedCharacter} />
         )}
       </div>
 
@@ -529,6 +540,23 @@ export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
               <option value="woman">{t("chat.welcome.genderWoman")}</option>
               <option value="other">{t("chat.welcome.genderOther")}</option>
             </select>
+            {/* 説明が長いので 1 行を占め、使い道と例は折り返す注記で全文を見せる */}
+            <div className="welcome-screen__tsf-attitude">
+              <input
+                type="text"
+                value={customTsfAttitude}
+                onChange={(e) => setCustomTsfAttitude(e.target.value)}
+                placeholder={t("chat.welcome.tsfAttitudePlaceholder")}
+                aria-describedby="welcome-tsf-attitude-hint"
+                maxLength={TSF_ATTITUDE_MAX_LENGTH}
+              />
+              <p
+                id="welcome-tsf-attitude-hint"
+                className="welcome-screen__tsf-attitude-hint"
+              >
+                {t("chat.welcome.tsfAttitudeHint")}
+              </p>
+            </div>
             <div className="welcome-screen__base-tags-row">
               <input
                 type="text"
@@ -582,6 +610,7 @@ export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
           <input
             type="checkbox"
             role="switch"
+            aria-checked={gameState.selfMode}
             checked={gameState.selfMode}
             onChange={(e) => setSelfMode(e.target.checked)}
             className="welcome-screen__self-mode-checkbox welcome-screen__switch"
@@ -610,6 +639,7 @@ export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
           <input
             type="checkbox"
             role="switch"
+            aria-checked={gameState.requestMode}
             checked={gameState.requestMode}
             onChange={(e) => setRequestMode(e.target.checked)}
             className="welcome-screen__switch"
@@ -662,5 +692,53 @@ export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
         />
       )}
     </div>
+  );
+}
+
+/**
+ * 選んだテンプレートキャラクターの人物像。依頼モードの依頼文と反応は性格と
+ * TSF への態度で決まるため、選ぶ前に全文で読めるようにする。空の項目は出さない。
+ */
+function CharacterProfileSummary({ character }: { character: Character }) {
+  const { t } = useTranslation();
+  const facts = [
+    {
+      key: "personality",
+      label: t("chat.welcome.profilePersonality"),
+      value: character.personality,
+    },
+    {
+      key: "pronoun",
+      label: t("chat.welcome.profilePronoun"),
+      value: character.pronoun,
+    },
+    {
+      key: "tsf_attitude",
+      label: t("chat.welcome.profileTsfAttitude"),
+      value: character.tsf_attitude,
+    },
+  ].filter((fact) => (fact.value ?? "").trim());
+  return (
+    <section
+      className="welcome-screen__profile"
+      aria-label={t("chat.welcome.profileTitle", { name: character.name })}
+    >
+      <h4 className="welcome-screen__profile-name">{character.name}</h4>
+      {character.description && (
+        <p className="welcome-screen__profile-description">
+          {character.description}
+        </p>
+      )}
+      {facts.length > 0 && (
+        <dl className="welcome-screen__profile-facts">
+          {facts.map((fact) => (
+            <div key={fact.key}>
+              <dt>{fact.label}</dt>
+              <dd>{fact.value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+    </section>
   );
 }

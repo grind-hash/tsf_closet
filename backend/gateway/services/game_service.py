@@ -541,6 +541,20 @@ class TurnContext:
         return self.request.instruction
 
     @property
+    def character_personality(self) -> str:
+        """テンプレートキャラクターの性格。カスタム画像のキャラクターはメタデータから読む。"""
+        if self.character is not None:
+            return self.character.personality
+        return str(self.custom_metadata.get("personality") or "")
+
+    @property
+    def character_description(self) -> str:
+        """テンプレートキャラクターの説明。カスタム画像のキャラクターはメタデータから読む。"""
+        if self.character is not None:
+            return self.character.description
+        return str(self.custom_metadata.get("description") or "")
+
+    @property
     def is_novelai(self) -> bool:
         return self.provider == "novelai"
 
@@ -769,6 +783,7 @@ class GameService:
         nsfw_mode: bool,
         self_mode: bool,
         use_saved_profile: bool = False,
+        tsf_attitude: str = "",
     ) -> tuple[PersistedSession, SessionStats, str]:
         """アップロード画像（または保存済みカスタムキャラクター）でセッションを開始する。
 
@@ -790,6 +805,7 @@ class GameService:
             personality = str(saved.get("personality") or "")
             gender = str(saved.get("gender") or "other")
             base_tags = str(saved.get("base_tags") or "")
+            tsf_attitude = str(saved.get("tsf_attitude") or "")
         await session_store.reset_session()
 
         custom_image_id = custom_character_id or str(uuid.uuid4())
@@ -802,6 +818,7 @@ class GameService:
             "personality": personality,
             "gender": normalized_gender,
             "base_tags": base_tags,
+            "tsf_attitude": tsf_attitude.strip(),
         }
         if custom_character_id and custom_image_path.exists():
             image_bytes = custom_image_path.read_bytes()
@@ -2667,14 +2684,15 @@ class GameService:
 
         # アクションテキストプロンプトを構築
         #   - self_mode: 自分自身プロフィールの性格を使用
+        #   - それ以外: テンプレート / カスタム画像のキャラクターの性格を使用
         #   - 変身前 (transformation_count==0): 日常生活プロンプト
         action_personality = ""
         action_description = ""
         if ctx.self_profile:
             action_personality = ctx.self_profile.get("personality", "")
-        elif ctx.character:
-            action_personality = ctx.character.personality
-            action_description = ctx.character.description
+        else:
+            action_personality = ctx.character_personality
+            action_description = ctx.character_description
         logger.info("action_gender=%s", ctx.gender)
 
         # 005: マルチキャラクター在席時のプロンプト追加
@@ -3566,8 +3584,8 @@ class GameService:
                 changes=observed_changes,
                 protagonist_look=after_desc,
                 is_reality=request.is_reality,
-                personality=ctx.character.personality if ctx.character else "",
-                description=ctx.character.description if ctx.character else "",
+                personality=ctx.character_personality,
+                description=ctx.character_description,
                 attributes=attributes,
                 language=ctx.language,
                 enable_multiple_people=request.enable_multiple_people,
@@ -3603,8 +3621,8 @@ class GameService:
                 bloom=current_bloom,
                 attributes=attributes,
                 transformation_count=ctx.session.transformation_count,
-                personality=ctx.character.personality if ctx.character else "",
-                description=ctx.character.description if ctx.character else "",
+                personality=ctx.character_personality,
+                description=ctx.character_description,
                 used_openings=used_openings,
                 **common,
             )
@@ -3620,8 +3638,8 @@ class GameService:
             bloom=current_bloom,
             attributes=attributes,
             transformation_count=ctx.session.transformation_count,
-            personality=ctx.character.personality if ctx.character else "",
-            description=ctx.character.description if ctx.character else "",
+            personality=ctx.character_personality,
+            description=ctx.character_description,
             used_openings=used_openings,
             gender_congruence=congruence,
             **common,
@@ -3708,8 +3726,9 @@ class GameService:
             language=ctx.language,
             novelai_model=ctx.novelai_text_model,
         )
-        # 頼んでいない体の変化への反応は、人物パネルの主人公の「TSFへの態度」に従わせる。
-        # 設定が無ければ性格から想像させる
+        # 頼んでいない体の変化への反応は「TSFへの態度」に従わせる。人物パネルの主人公の
+        # 設定を優先し、無ければテンプレート / カスタム画像のキャラクターの設定、
+        # それも無ければ性格から想像させる
         try:
             profile = await session_store.get_protagonist_profile(ctx.session.id)
         except Exception as error:
@@ -3724,7 +3743,9 @@ class GameService:
             **feeling_kwargs,
             request_feeling=_RequestFeeling(
                 block=feeling_context(session_request, state.evaluation, ctx.language),
-                tsf_attitude=str((profile or {}).get("tsf_attitude") or ""),
+                tsf_attitude=str((profile or {}).get("tsf_attitude") or "").strip()
+                or str(getattr(ctx.character, "tsf_attitude", "") or "")
+                or str(ctx.custom_metadata.get("tsf_attitude") or ""),
             ),
         ):
             yield chunk

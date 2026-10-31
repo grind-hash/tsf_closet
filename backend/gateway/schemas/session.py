@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+from ..consts.character_profile import PROFILE_TSF_ATTITUDE_MAX_LEN
 from ..consts.play_limits import ATTRIBUTE_TEXT_MAX_LENGTH
 from .conversation import ConversationMessageResponse
 from .parameters import SessionStatsResponse
@@ -238,6 +239,11 @@ class CustomStartRequest(BaseModel):
     personality: str = Field("", description="パーソナリティ")
     gender: str = Field("other", description="性別 (man/woman/other)")
     base_tags: str = Field("", description="Danbooru形式の外見タグ (英語)")
+    tsf_attitude: str = Field(
+        "",
+        max_length=PROFILE_TSF_ATTITUDE_MAX_LEN,
+        description="TSF(性転換・変身)への態度。依頼モードの依頼文と反応に使う",
+    )
     self_mode: bool = Field(False, description="自分自身モード")
     use_saved_profile: bool = Field(
         False,
