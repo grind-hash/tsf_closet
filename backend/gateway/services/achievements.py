@@ -141,6 +141,17 @@ ACHIEVEMENTS: dict[str, Achievement] = {
         condition_value=50,
         hint="より多くの変身画像をコレクションしましょう",
     ),
+    "request_first": Achievement(
+        id="request_first",
+        name="願いを叶える",
+        description="依頼モードで初めてキャラクターの依頼を達成した",
+        category="transform",
+        icon="💌",
+        condition_type="count",
+        condition_target="request_fulfilled",
+        condition_value=1,
+        hint="依頼モードで、キャラクターの願いを着せ替えで叶えてみましょう",
+    ),
     "bloom_50": Achievement(
         id="bloom_50",
         name="開花の兆し",
@@ -316,6 +327,7 @@ class AchievementStats(BaseModel):
     self_transform_count: int = 0
     self_reality_alter_count: int = 0
     self_action_count: int = 0
+    request_fulfilled_count: int = 0
     bloom: int = 0
     shame: int = 0
     adaptation: int = 0
@@ -340,6 +352,8 @@ def check_achievement(achievement: Achievement, stats: AchievementStats) -> bool
             return stats.self_reality_alter_count >= achievement.condition_value
         elif target == "self_action":
             return stats.self_action_count >= achievement.condition_value
+        elif target == "request_fulfilled":
+            return stats.request_fulfilled_count >= achievement.condition_value
     elif achievement.condition_type == "threshold":
         target = achievement.condition_target
         if target == "bloom":

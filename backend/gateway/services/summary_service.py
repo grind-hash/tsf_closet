@@ -18,6 +18,7 @@ from .llm_json import strip_code_fence
 from .session import session_store
 from .summary_prompts import (
     build_branch_situation_user_prompt,
+    build_summary_request_note,
     build_summary_user_prompt,
     get_branch_situation_system_prompt,
     get_summary_system_prompt,
@@ -74,6 +75,18 @@ class SummaryService:
         # Build prompts
         system_prompt = get_summary_system_prompt(language)
         user_prompt = build_summary_user_prompt(timeline_data, language)
+        request = await session_store.get_session_request(session_id)
+        if request is not None:
+            evaluations = await session_store.get_request_evaluations(session_id)
+            satisfaction = (
+                int(evaluations[-1].get("satisfaction") or 0) if evaluations else 0
+            )
+            user_prompt += build_summary_request_note(
+                request,
+                satisfaction,
+                request.get("status") == "fulfilled",
+                language,
+            )
 
         logger.info(
             "Generating summary for session %s (%d actions)",

@@ -74,6 +74,26 @@ def build_summary_user_prompt(
         return f"Please summarize the following play history:\n\n{action_list}"
 
 
+def build_summary_request_note(
+    request: dict, satisfaction: int, fulfilled: bool, language: str = "ja"
+) -> str:
+    """依頼モードのセッションで、要約の user prompt に添える依頼の結果。"""
+    wish = str(request.get("wish") or "")
+    if language == "ja":
+        result = "達成" if fulfilled else "未達成"
+        return (
+            f"\n\nこのプレイは依頼モードで、キャラクターは「{wish}」と依頼していました。"
+            f"最終的な満足度は {satisfaction}/100（依頼は{result}）です。"
+            "依頼に応えたかどうかも要約と称号に反映してください。"
+        )
+    result = "fulfilled" if fulfilled else "not fulfilled"
+    return (
+        f'\n\nThis play used request mode: the character asked, "{wish}". '
+        f"The final satisfaction was {satisfaction}/100 (request {result}). "
+        "Reflect whether the request was answered in the summary and the title."
+    )
+
+
 def get_summary_system_prompt(language: str = "ja") -> str:
     """Get the system prompt for the given language."""
     if language == "en":

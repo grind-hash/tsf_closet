@@ -3,6 +3,7 @@ import type {
   AdventureInventory,
   AdventureInventoryLogEntry,
   AdventurePartnerPortraitStatus,
+  AdventureRealityCostApplied,
   AdventureRun,
   AdventureSim,
   AdventureTurn,
@@ -56,6 +57,8 @@ export interface AdventureStageFrame {
   inventory?: AdventureInventory | null;
   /** 持ち物 ON のみ。この手番で適用した持ち物の変化 */
   worldEvents?: AdventureInventoryLogEntry[];
+  /** 改変の代償 ON のみ。この手番で発生・解決した代償 */
+  realityCostsApplied?: AdventureRealityCostApplied[];
 }
 
 /**
@@ -162,6 +165,7 @@ export function buildStageFrames(
         narrative: turn.narrative,
         inventory: turn.inventory ?? null,
         worldEvents: turn.world_events_applied ?? [],
+        realityCostsApplied: turn.reality_costs_applied ?? [],
         location: turn.location,
         sim: turn.sim ?? null,
         partnerNote: turn.partner_note ?? null,
@@ -226,6 +230,7 @@ export function buildStageFrames(
         narrative: turn.narrative,
         inventory: turn.inventory ?? null,
         worldEvents: turn.world_events_applied ?? [],
+        realityCostsApplied: turn.reality_costs_applied ?? [],
         location: turn.location,
         sim: turn.sim ?? null,
         partnerNote: turn.partner_note ?? null,
@@ -291,6 +296,7 @@ export function buildStageFrames(
         narrative: turn.narrative,
         inventory: turn.inventory ?? null,
         worldEvents: turn.world_events_applied ?? [],
+        realityCostsApplied: turn.reality_costs_applied ?? [],
         location: turn.location,
         sim: turn.sim ?? null,
         partnerNote: turn.partner_note ?? null,

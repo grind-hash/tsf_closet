@@ -6,6 +6,7 @@
 import { useCallback, useRef } from "react";
 import type {
   AnlasBalance,
+  SessionRequestView,
   SSEAchievementData,
   SSECriticalData,
   SSEEndingData,
@@ -30,6 +31,11 @@ export interface UseSSEOptions {
   onRealityAttributeAdded?: (data: {
     attribute_id: string;
     attribute_text: string;
+  }) => void;
+  /** 依頼モード: 手番の評価後の依頼。newly_fulfilled はこの手番で達成したか */
+  onRequestEvaluation?: (data: {
+    request: SessionRequestView;
+    newly_fulfilled: boolean;
   }) => void;
   onError?: (message: string) => void;
 }
@@ -153,6 +159,11 @@ export function useSSE(options: UseSSEOptions): UseSSEReturn {
           case "reality_attribute_added":
             if (options.onRealityAttributeAdded) {
               options.onRealityAttributeAdded(data);
+            }
+            break;
+          case "request_evaluation":
+            if (options.onRequestEvaluation && data.request) {
+              options.onRequestEvaluation(data);
             }
             break;
           case "error":

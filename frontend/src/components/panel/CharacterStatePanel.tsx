@@ -29,6 +29,7 @@ import AttributePresetSaveDialog from "../attributes/AttributePresetSaveDialog";
 import ComparisonSliderModal from "../gallery/ComparisonSliderModal";
 import BranchSessionDialog from "../session/BranchSessionDialog";
 import "./CharacterStatePanel.css";
+import RequestCard from "./RequestCard";
 
 interface CharacterStatePanelProps {
   onImageClick?: () => void;
@@ -450,6 +451,10 @@ export default function CharacterStatePanel({
           »
         </button>
       </div>
+
+      {/* 依頼モードの依頼。画像とその履歴操作の直後に置き、スクロールせずに読めるようにする
+          (依頼の無いセッションでは何も出さない) */}
+      <RequestCard />
 
       {selectedHistory && (
         <div className="character-state-panel__branch-row">

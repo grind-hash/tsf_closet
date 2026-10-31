@@ -127,6 +127,33 @@ export interface AdventureInventoryItem {
   obtained_turn: number;
 }
 
+/**
+ * 改変の代償。現実改変を確定させた手番ごとに1件生まれる。
+ * amount があるもの(romance のみ)は請求で、HUD から支払うと解決する
+ */
+export interface AdventureRealityCost {
+  id: string;
+  text: string;
+  severity: "minor" | "major" | string;
+  /** 代償を生んだ現実改変ルール */
+  source_rule: string;
+  /** romance の請求額。物語上の障害(非 romance)は null */
+  amount: number | null;
+  created_turn: number | null;
+  /** 解決した手番。未解決は null */
+  resolved_turn: number | null;
+  /** story(物語の中で解決) / paid(支払い済み)。未解決は null */
+  resolution: "story" | "paid" | string | null;
+}
+
+/** 手番で発生・解決した代償の記録 */
+export interface AdventureRealityCostApplied {
+  type: "created" | "resolved" | string;
+  id: string;
+  text: string;
+  amount: number | null;
+}
+
 /** 持ち物の変化の記録。origin は event(判定)/reality(現実改変)/action(パネル操作) */
 export interface AdventureInventoryLogEntry {
   turn: number;
@@ -262,6 +289,10 @@ export interface AdventureTurn {
   inventory?: AdventureInventory | null;
   /** 持ち物 ON のみ。この手番で適用した持ち物の変化 */
   world_events_applied?: AdventureInventoryLogEntry[];
+  /** 改変の代償 ON のみ。この手番確定時点の代償の一覧 */
+  reality_costs?: AdventureRealityCost[];
+  /** 改変の代償 ON のみ。この手番で発生・解決した代償 */
+  reality_costs_applied?: AdventureRealityCostApplied[];
 }
 
 /**
@@ -366,6 +397,10 @@ export interface AdventureRun {
   inventory?: AdventureInventory | null;
   /** 持ち物 ON のときだけ。NPC ごとの境界侵害の記録 */
   npc_states?: Record<string, AdventureNpcState> | null;
+  /** 改変の代償(全プリセット)。既定 OFF。作品シナリオでは常に false */
+  reality_cost_enabled: boolean;
+  /** 改変の代償の一覧(解決済みを含む)。一度も ON にしていない run は null */
+  reality_costs?: AdventureRealityCost[] | null;
   turns: AdventureTurn[];
   created_at: string | null;
   updated_at: string | null;
@@ -460,6 +495,8 @@ export interface AdventureCreateRequest extends AdventureSetupRequest {
   companion_avatar_id?: string;
   /** 持ち物システム(全プリセット)。既定 false。作品シナリオでは無視される */
   inventory_enabled?: boolean;
+  /** 改変の代償(全プリセット)。既定 false。作品シナリオでは無視される */
+  reality_cost_enabled?: boolean;
 }
 
 export interface AdventureSettingsUpdateRequest {
@@ -480,6 +517,8 @@ export interface AdventureSettingsUpdateRequest {
   companion_avatar_id?: string;
   /** 持ち物システム。未指定なら維持(作品シナリオでは無視される) */
   inventory_enabled?: boolean;
+  /** 改変の代償。未指定なら維持(作品シナリオでは無視される) */
+  reality_cost_enabled?: boolean;
 }
 
 export interface AdventureStreamEvent {
@@ -515,6 +554,8 @@ function normalizeRun(run: AdventureRun): AdventureRun {
     inventory_enabled: Boolean(run.inventory_enabled),
     inventory: run.inventory ?? null,
     npc_states: run.npc_states ?? null,
+    reality_cost_enabled: Boolean(run.reality_cost_enabled),
+    reality_costs: run.reality_costs ?? null,
     image_model_override: run.image_model_override ?? null,
     // 旧runやモック応答にキーが無くても表示側が undefined を掴まないようにする
     narration_voice: run.narration_voice ?? "second_person",
@@ -804,6 +845,19 @@ export async function updateAdventureRealityRules(
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ rules }),
       },
+    ),
+  );
+}
+
+/** romance の代償(請求)を所持金から支払う。手番は消費しない */
+export async function payAdventureRealityCost(
+  runId: string,
+  costId: string,
+): Promise<AdventureRun> {
+  return normalizeRun(
+    await requestJson<AdventureRun>(
+      `${API_BASE}/adventure/runs/${runId}/reality-costs/${encodeURIComponent(costId)}/pay`,
+      { method: "POST" },
     ),
   );
 }

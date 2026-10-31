@@ -113,6 +113,17 @@ export function useGameSSE() {
         );
       }
     },
+    onRequestEvaluation: ({ request, newly_fulfilled }) => {
+      game.applyRequestView(request);
+      if (newly_fulfilled) {
+        showNotification(
+          "success",
+          t("chat.request.fulfilledTitle"),
+          t("chat.request.fulfilledMessage", { wish: request.wish }),
+          8000,
+        );
+      }
+    },
     onError: (message) => {
       const tempToken = resolvePendingToken();
       if (tempToken) {

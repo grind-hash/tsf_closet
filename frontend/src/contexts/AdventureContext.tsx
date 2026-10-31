@@ -26,6 +26,7 @@ import {
   fetchAdventureTemplates,
   generateAdventureSetup,
   normalizeAdventureImageUrl,
+  payAdventureRealityCost,
   regenerateAdventureChoices,
   rewindAdventureRun,
   startAdventureEpilogue,
@@ -145,6 +146,8 @@ interface AdventureContextValue {
   updateSettings: (settings: AdventureSettingsUpdateRequest) => Promise<void>;
   /** 付与済みの現実改変ルールを丸ごと置き換える(手番は消費しない) */
   updateRealityRules: (rules: string[]) => Promise<void>;
+  /** romance の代償(請求)を所持金から支払う(手番は消費しない) */
+  payRealityCost: (costId: string) => Promise<void>;
   clearError: () => void;
   /** 登録済みの 3D モデル(VRM)。セットアップと⚙ポップオーバーの選択肢 */
   avatarModels: AvatarModel[];
@@ -752,6 +755,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
                   player_speech_custom: updated.player_speech_custom,
                   sim: updated.sim,
                   inventory_enabled: updated.inventory_enabled,
+                  reality_cost_enabled: updated.reality_cost_enabled,
                 }
               : run,
           ),
@@ -776,6 +780,32 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
         setActiveRun((current) =>
           current && current.id === runId
             ? { ...current, reality_rules: updated.reality_rules ?? [] }
+            : current,
+        );
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : String(caught));
+        throw caught;
+      }
+    },
+    [activeRun],
+  );
+
+  const payRealityCost = useCallback(
+    async (costId: string) => {
+      if (!activeRun) return;
+      const runId = activeRun.id;
+      setError(null);
+      try {
+        const updated = await payAdventureRealityCost(runId, costId);
+        // 支払いが変えるのは所持金と代償の一覧だけ。run 全体を差し込むと、
+        // ストリームで先に入った画像URL等を古い値へ巻き戻す
+        setActiveRun((current) =>
+          current && current.id === runId
+            ? {
+                ...current,
+                sim: updated.sim ?? current.sim,
+                reality_costs: updated.reality_costs ?? null,
+              }
             : current,
         );
       } catch (caught) {
@@ -864,6 +894,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       regenerateChoices,
       updateSettings,
       updateRealityRules,
+      payRealityCost,
       rewindRun,
       startEpilogue,
       clearError: () => setError(null),
@@ -902,6 +933,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       regenerateChoices,
       updateSettings,
       updateRealityRules,
+      payRealityCost,
       rewindRun,
       startEpilogue,
       avatarModels,

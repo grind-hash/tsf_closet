@@ -3,7 +3,7 @@
  * プロンプトプレビュー・最新履歴削除など
  */
 
-import type { Character, InstructionType } from "../types";
+import type { Character, InstructionType, SessionRequestView } from "../types";
 import { API_BASE } from "../utils/api";
 import { jsonInit, requestJson } from "../utils/http";
 
@@ -368,5 +368,22 @@ export async function regeneratePlayMemory(
     `${API_BASE}/game/sessions/${sessionId}/play-memory/regenerate?${params}`,
     { method: "POST" },
     { fallbackMessage: "自動メモの再生成に失敗しました" },
+  );
+}
+
+export interface CreateSessionRequestResponse {
+  request: SessionRequestView;
+  /** OpenRouter 利用時のみ。生成で発生した API 料金(USD) */
+  cost_usd: number | null;
+}
+
+/** 依頼モード: キャラクターの依頼を生成する(最初の着せ替え前なら作り直し) */
+export async function createSessionRequest(
+  sessionId: string,
+  language: string,
+): Promise<CreateSessionRequestResponse> {
+  return requestJson<CreateSessionRequestResponse>(
+    `${API_BASE}/game/sessions/${sessionId}/request`,
+    jsonInit("POST", { language }),
   );
 }

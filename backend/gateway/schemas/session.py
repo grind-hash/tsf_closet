@@ -88,6 +88,40 @@ class PlayMemoryUpdateRequest(BaseModel):
     user_text: str | None = Field(None, max_length=4000)
 
 
+class RequestPreferenceResponse(BaseModel):
+    """依頼の好み1件。本文は一度満たされるまで null"""
+
+    id: str
+    hint: str = Field("", description="好みの分類(色合い・丈など)")
+    text: str | None = Field(None, description="好みの本文。満たされるまで null")
+    met: bool = Field(False, description="最新の手番で満たしているか")
+
+
+class SessionRequestResponse(BaseModel):
+    """依頼モードの依頼(公開ビュー)"""
+
+    wish: str
+    status: str = Field("active", description="active / fulfilled")
+    satisfaction: int = Field(0, description="最新の手番の満足度 (0-100)")
+    threshold: int = Field(..., description="依頼達成となる満足度")
+    fit: str | None = Field(None, description="願いへの近さ (none〜perfect)")
+    hint: str = Field("", description="最新の手番のヒント")
+    preferences: list[RequestPreferenceResponse] = Field(default_factory=list)
+    evaluated_turns: int = 0
+    can_regenerate: bool = Field(False, description="作り直せるか(最初の着せ替え前)")
+
+
+class SessionRequestCreateRequest(BaseModel):
+    """依頼を生成(作り直し)するリクエスト"""
+
+    language: str | None = Field(None, description="依頼の言語。未指定はユーザー設定")
+
+
+class SessionRequestCreateResponse(BaseModel):
+    request: SessionRequestResponse
+    cost_usd: float | None = Field(None, description="生成で発生したAPI料金(USD)")
+
+
 class SessionResponse(BaseModel):
     """セッション情報レスポンス"""
 
@@ -111,6 +145,9 @@ class SessionResponse(BaseModel):
     )
     self_mode: bool = Field(False, description="Self mode enabled")
     play_memory: PlayMemoryResponse = Field(default_factory=PlayMemoryResponse)
+    request: SessionRequestResponse | None = Field(
+        None, description="依頼モードの依頼。依頼の無いセッションは null"
+    )
 
 
 class BranchSessionRequest(BaseModel):

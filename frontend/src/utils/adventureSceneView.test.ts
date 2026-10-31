@@ -236,4 +236,61 @@ describe("buildAdventureSceneView", () => {
       "adventure.inventoryLogEntry.boundary_violation",
     );
   });
+
+  it("改変の代償は一度も ON にしていない run では null、ON なら未解決を数える", () => {
+    expect(build(makeRun({})).realityCosts).toBeNull();
+    expect(build(makeRun({ reality_cost_enabled: true })).realityCosts).toEqual(
+      [],
+    );
+    const view = build(
+      makeRun({
+        reality_cost_enabled: false,
+        reality_costs: [
+          {
+            id: "cost1",
+            text: "固定資産税",
+            severity: "major",
+            source_rule: "豪邸の主",
+            amount: 6000,
+            created_turn: 1,
+            resolved_turn: null,
+            resolution: null,
+          },
+          {
+            id: "cost2",
+            text: "噂",
+            severity: "minor",
+            source_rule: "",
+            amount: null,
+            created_turn: 1,
+            resolved_turn: 2,
+            resolution: "story",
+          },
+        ],
+      }),
+    );
+    // OFF にしても記録は表示する
+    expect(view.realityCosts).toHaveLength(2);
+    expect(view.activeRealityCostCount).toBe(1);
+  });
+
+  it("表示中フレームで発生・解決した代償を1行にまとめる", () => {
+    const latest = makeFrame({
+      realityCostsApplied: [
+        { type: "created", id: "cost1", text: "固定資産税", amount: 6000 },
+        { type: "resolved", id: "cost2", text: "噂", amount: null },
+      ],
+    });
+    const view = build(makeRun({ reality_cost_enabled: true }), {
+      latestFrame: latest,
+    });
+    expect(view.realityCostNote).toBe(
+      "adventure.realityCost.noteCreatedBill / adventure.realityCost.noteResolved",
+    );
+    expect(
+      build(makeRun({ reality_cost_enabled: true }), {
+        latestFrame: makeFrame({}),
+      }).realityCostNote,
+    ).toBeNull();
+  });
 });

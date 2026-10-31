@@ -307,26 +307,70 @@
 }
 
 /* Self mode section */
-.welcome-screen__self-mode {
+/* 自分自身モード・依頼モード: どちらも ON/OFF をトグルスイッチで示す */
+.welcome-screen__self-mode,
+.welcome-screen__request-mode {
   padding: 0.75rem 1rem;
 }
 
-.welcome-screen__self-mode-label {
-  display: flex;
+.welcome-screen__self-mode-label,
+.welcome-screen__request-mode-label {
+  display: inline-flex;
   align-items: center;
   gap: 0.5rem;
   cursor: pointer;
   font-weight: 500;
 }
 
-.welcome-screen__self-mode-desc {
-  margin: 0.25rem 0 0 1.75rem;
+/* チェックボックス自体をスイッチに描き替える(ラベルのクリック・キー操作はそのまま) */
+.welcome-screen__switch {
+  position: relative;
+  flex: 0 0 auto;
+  width: 44px;
+  height: 24px;
+  margin: 0;
+  border-radius: 12px;
+  background-color: var(--border-color, #333);
+  appearance: none;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.welcome-screen__switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background-color: white;
+  transition: transform 0.2s;
+}
+
+.welcome-screen__switch:checked {
+  background-color: var(--accent-color, #e94560);
+}
+
+.welcome-screen__switch:checked::after {
+  transform: translateX(20px);
+}
+
+.welcome-screen__switch:focus-visible {
+  outline: 2px solid var(--accent-color, #e94560);
+  outline-offset: 2px;
+}
+
+/* 説明と注記はスイッチの右の見出し文字に揃える */
+.welcome-screen__self-mode-desc,
+.welcome-screen__request-mode-desc {
+  margin: 0.25rem 0 0 calc(44px + 0.5rem);
   font-size: 0.85rem;
   color: var(--text-muted, #888);
 }
 
 .welcome-screen__self-mode-warning {
-  margin: 0.5rem 0 0 1.75rem;
+  margin: 0.5rem 0 0 calc(44px + 0.5rem);
   padding: 0.5rem 0.75rem;
   font-size: 0.85rem;
   color: var(--warning-text, #b8860b);

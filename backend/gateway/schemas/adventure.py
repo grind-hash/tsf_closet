@@ -168,6 +168,8 @@ class AdventureCreateRequest(BaseModel):
     companion_avatar_id: str | None = Field(default=None, max_length=80)
     # 持ち物システム(既定 OFF、全プリセット)。作品シナリオでは無視される
     inventory_enabled: bool = False
+    # 改変の代償(既定 OFF、全プリセット)。作品シナリオでは無視される
+    reality_cost_enabled: bool = False
 
 
 class AdventureSettingsUpdateRequest(BaseModel):
@@ -191,6 +193,8 @@ class AdventureSettingsUpdateRequest(BaseModel):
     companion_avatar_id: str | None = Field(default=None, max_length=80)
     # 持ち物システム。未指定なら既存値を維持する(作品シナリオでは無視)
     inventory_enabled: bool | None = None
+    # 改変の代償。未指定なら既存値を維持する(作品シナリオでは無視)
+    reality_cost_enabled: bool | None = None
 
 
 class AdventureRealityRulesUpdateRequest(BaseModel):

@@ -268,6 +268,8 @@ class PersistedHistory:
     seed: int | None = None
     surroundings_image_path: str | None = None
     character_states_json: str | None = None
+    # 依頼モード: この手番の評価(JSON)。依頼の無いセッション・評価しない手番は None
+    request_evaluation_json: str | None = None
 
     @classmethod
     def from_row(cls, row: dict) -> PersistedHistory:

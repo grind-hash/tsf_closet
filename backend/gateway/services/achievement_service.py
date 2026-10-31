@@ -12,6 +12,7 @@ from ..databases.models import (
     AchievementCount,
     History,
     Session,
+    SessionRequest,
     SessionStats,
     UserAchievement,
 )
@@ -107,6 +108,13 @@ class AchievementService:
                 )
             )
 
+            # 依頼モードで達成した依頼の件数
+            request_fulfilled_count = session.scalar(
+                select(func.count(SessionRequest.session_id)).where(
+                    SessionRequest.status == "fulfilled"
+                )
+            )
+
             latest_stats = session.execute(
                 select(SessionStats)
                 .join(Session, Session.id == SessionStats.session_id)
@@ -125,6 +133,7 @@ class AchievementService:
                 "self_transform_count": int(self_transform_count or 0),
                 "self_reality_alter_count": int(self_reality_alter_count or 0),
                 "self_action_count": int(self_action_count or 0),
+                "request_fulfilled_count": int(request_fulfilled_count or 0),
                 "bloom": latest_stats.bloom if latest_stats else 0,
                 "shame": latest_stats.shame if latest_stats else 50,
                 "adaptation": latest_stats.adaptation if latest_stats else 0,

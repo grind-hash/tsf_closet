@@ -88,6 +88,17 @@ export default function AdventureImageSettingsPopover({
           onChange={(next) => saveRunSettings({ inventory_enabled: next })}
         />
       )}
+      {/* 改変の代償(全プリセット)。作品シナリオは対象外。次の手番から反映 */}
+      {!activeRun.scenario_template_id && (
+        <AdventureToggleRow
+          className="adventure-reality-cost-toggle"
+          label={t("adventure.realityCost.enable")}
+          hint={t("adventure.realityCost.playHint")}
+          checked={activeRun.reality_cost_enabled}
+          disabled={busy}
+          onChange={(next) => saveRunSettings({ reality_cost_enabled: next })}
+        />
+      )}
       {/* 対面会話モード(romance 専用)。次の手番から反映 */}
       {activeRun.preset === "romance" && (
         <AdventureToggleRow

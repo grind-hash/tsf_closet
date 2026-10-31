@@ -179,6 +179,9 @@ class History(Base):
     # 複数人表示: この手番で描いた各人物の姿 [{character_id, tags, spec_rev}]。
     # 人物ごとのタグが無い手番（非 Opus・生成失敗など）は NULL
     character_states_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 依頼モード: この手番の評価 {satisfaction, fit, met_preference_ids, hint}。
+    # 依頼の無いセッション・評価しない手番は NULL
+    request_evaluation_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         default=func.current_timestamp(), nullable=False
     )
@@ -582,6 +585,37 @@ class PlaySummary(Base):
     )
 
     session: Mapped[Session] = relationship(backref="play_summary")
+
+
+class SessionRequest(Base):
+    """依頼モード: キャラクターが「なりたい姿」を依頼する、セッション 1 件の依頼内容。
+
+    願い(表示)と伏せた好みは LLM が生成する。手番ごとの評価は
+    history.request_evaluation_json に置き、ここは依頼そのものと達成状態だけを持つ。
+    """
+
+    __tablename__ = "session_requests"
+
+    session_id: Mapped[str] = mapped_column(
+        String,
+        ForeignKey("sessions.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    wish_text: Mapped[str] = mapped_column(Text, nullable=False)
+    # [{id, text, hint}]。text はフロントへ送らない(満たされた分だけ開示する)
+    preferences_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    language: Mapped[str] = mapped_column(String, nullable=False, default="ja")
+    # active / fulfilled。一度満たしたら fulfilled のまま(後の手番で下がっても戻さない)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="active")
+    fulfilled_history_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        default=func.current_timestamp(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        default=func.current_timestamp(),
+        onupdate=func.current_timestamp(),
+        nullable=False,
+    )
 
 
 class ParameterChangeLog(Base):

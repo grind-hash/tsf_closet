@@ -45,6 +45,9 @@ from ..schemas.session import (
     SessionAttributeCreateRequest,
     SessionAttributeUpdateRequest,
     SessionListResponse,
+    SessionRequestCreateRequest,
+    SessionRequestCreateResponse,
+    SessionRequestResponse,
     SessionResetResponse,
     SessionResponse,
     SessionSummary,
@@ -580,6 +583,50 @@ async def update_play_memory(
     if updated is None:
         raise HTTPException(status_code=404, detail="session not found")
     return updated
+
+
+@router.get(
+    "/sessions/{session_id}/request",
+    response_model=SessionRequestResponse | None,
+    summary="依頼取得",
+)
+async def get_session_request(session_id: str) -> SessionRequestResponse | None:
+    """依頼モードの依頼を返す。依頼の無いセッションは null。"""
+    from ..services.session_request_service import session_request_service
+
+    view = await session_request_service.get_request_view(session_id)
+    return SessionRequestResponse(**view) if view is not None else None
+
+
+@router.post(
+    "/sessions/{session_id}/request",
+    response_model=SessionRequestCreateResponse,
+    summary="依頼生成",
+    description="キャラクターの人物像から依頼を生成する。最初の着せ替えの前なら作り直せる",
+    responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+)
+async def create_session_request(
+    session_id: str, request: SessionRequestCreateRequest
+) -> SessionRequestCreateResponse:
+    from ..services.session_request_service import (
+        SessionRequestError,
+        session_request_service,
+    )
+
+    user_settings = await session_store.get_user_settings()
+    language = normalize_language(request.language or user_settings.get("language"))
+    try:
+        view, cost_usd = await session_request_service.create_request(
+            session_id, language=language
+        )
+    except SessionRequestError as error:
+        raise HTTPException(
+            status_code=404 if error.code == "session_not_found" else 400,
+            detail={"error": error.code, "message": str(error)},
+        ) from error
+    return SessionRequestCreateResponse(
+        request=SessionRequestResponse(**view), cost_usd=cost_usd or None
+    )
 
 
 @router.post(

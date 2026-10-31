@@ -1069,6 +1069,192 @@ def _build_attribute_section(attributes: list[str] | None) -> str:
     )
 
 
+# ========================================
+# 依頼モードの心境
+# ========================================
+# 依頼モードでは、姿は本人がスタイリスト(プレイヤー)に頼んだもの。通常の心理段階
+# (強制された変身への抵抗)を使うと願いと矛盾するため、依頼専用の指示に丸ごと差し替える。
+# 開花度は抵抗の強さではなく、喜びをどれだけ素直に出せるかに効かせる。
+
+REQUEST_FEELING_SYSTEM_PROMPT = """あなたは物語の主人公の心の声を書く作家です。
+主人公は、自分から「なりたい姿」をスタイリストに依頼し、いまその姿に変えてもらったところです。
+この変化は強制ではなく、本人が望んで頼んだものです。
+
+キャラクターの一人称視点で、変身した直後の心境をモノローグ形式で表現してください。
+
+**依頼モードの心理:**
+- 頼んだ姿（服装・雰囲気）そのものを否定させないでください。「こんなの聞いてない」「元に戻りたい」「嘘でしょ」のように、頼んだ姿を拒む反応は書かないこと
+- 願いにどれだけ近いかで反応を変えてください。近ければ喜び・高揚・照れ、遠ければもどかしさや物足りなさ（ただし拒絶ではない）
+- まだ満たされていない好みは、名指しせずにそれとなくほのめかしてください
+{openness}
+
+**頼んでいない変化への反応:**
+- 依頼に含まれていない体の変化（性別、髪、目の色、体つきなど）が起きている場合、その受け止め方は、このキャラクターの性格とTSFへの態度に従って決めてください
+- TSFへの態度が示されていなければ、性格から自然に想像してください。喜ぶ・照れる・戸惑う・はっきり嫌がる、どれもあり得ます
+- 戸惑いや拒否を書いてよいのは、頼んでいない変化についてだけです{nsfw}
+
+**文字数指示: 300～500文字で詳細に描写してください。**
+自然な日本語で、感情豊かに書いてください。
+
+**一人称ルール（厳守）**: ユーザープロンプトで指定された一人称を必ず使ってください。「僕」「俺」「私」など勝手に変えてはいけません。"""
+
+# 開花度ごとの素直さ。範囲は PSYCHOLOGICAL_STAGES の区切りに合わせる
+REQUEST_FEELING_OPENNESS: tuple[tuple[int, str], ...] = (
+    (
+        24,
+        "- まだ照れが強く、嬉しさを素直に口に出せません。うれしいのに、強がったりごまかしたりしてしまいます",
+    ),
+    (
+        49,
+        "- 照れながらも、嬉しさが少しずつ言葉や表情に出始めています",
+    ),
+    (
+        74,
+        "- 照れより嬉しさが勝ち、もっと見てほしい、もっと近づきたいという気持ちを素直に認めています",
+    ),
+    (
+        100,
+        "- 心から楽しんでいて、次はどんな姿になりたいかを自分から思い描いています",
+    ),
+)
+
+REQUEST_FIRST_TIME_OPENNESS = "- 初めて願いが形になる瞬間です。期待と緊張が入り混じり、鏡を見るのが少し怖いほどです"
+
+REQUEST_FEELING_NSFW_RULE = """
+- NSFWモード: 身体感覚には官能的な高まりを含めてよいですが、本人が望んだ姿であることは崩さないでください"""
+
+# 書き出しは結果の良し悪しを決めつけない中立なものにする(評価で反応を変えるため)
+REQUEST_FEELING_OPENINGS: dict[str, list[str]] = {
+    "default": [
+        "わ…これが、{pronoun}…？",
+        "えっと…これ、{pronoun}…なんだよね…",
+        "鏡の中の{pronoun}…",
+        "どう、なったのかな…{pronoun}…",
+        "あ…これが、頼んだ姿…",
+    ],
+    "bold": [
+        "へぇ…どれどれ…",
+        "ふん…見せてみろよ、{pronoun}…",
+        "…おい、これが{pronoun}か…",
+    ],
+    "gentle": [
+        "まあ…{pronoun}、こんなふうに…",
+        "ふぁ…鏡を見るの、ドキドキする…",
+    ],
+    "cheerful": [
+        "わっ！どうなったかな！？",
+        "見て見て、{pronoun}…！",
+    ],
+    "shy": [
+        "う…か、鏡、見るの怖い…",
+        "あ、あの…{pronoun}、どうなって…",
+    ],
+    "calm": [
+        "……さて。どうなったかな",
+        "これが、{pronoun}…か",
+    ],
+    "passionate": [
+        "どうだ…！{pronoun}、どうなった…！",
+        "ついに…この瞬間が…！",
+    ],
+}
+
+REQUEST_FEELING_USER_PROMPT_TEMPLATE = """あなたは物語の主人公。{situation}直後の心境を、モノローグで書いてください。
+
+条件：
+- 一人称は必ず「{pronoun}」を使用（厳守。他のいかなる一人称にも変えないこと）
+- 相手のセリフは禁止
+- 構成は必ず以下の順で、各2〜3文ずつ。合計300〜500文字
+
+1. 第一印象（願いと照らして）
+   - 鏡に映った自分を見た瞬間の反応
+   - 頼んだ姿にどれだけ近いかの直感
+
+2. 身体感覚（布・締め付け・肌の露出など）
+   - 肌に触れる素材の感触
+   - 体のラインや重心の変化
+
+3. 願いとの距離
+   - 満たされた好みへの喜び
+   - まだ足りない好みは名指しせず、それとなく
+   - 頼んでいない変化があれば、性格とTSFへの態度に沿った受け止め方
+
+4. 本音（照れ・高揚・次への期待）
+
+直前の状態：{before_desc}
+現在の状態：{after_desc}
+
+冒頭は「{opening}」で開始してください。"""
+
+
+def _request_openness(bloom: int, transformation_count: int) -> str:
+    if transformation_count == 0:
+        return REQUEST_FIRST_TIME_OPENNESS
+    for upper, text in REQUEST_FEELING_OPENNESS:
+        if bloom <= upper:
+            return text
+    return REQUEST_FEELING_OPENNESS[-1][1]
+
+
+def build_request_feeling_prompt(
+    *,
+    before_desc: str,
+    after_desc: str,
+    instruction: str,
+    is_reality: bool,
+    bloom: int = 0,
+    pronoun: str = "僕",
+    attributes: list[str] | None = None,
+    nsfw_mode: bool = False,
+    transformation_count: int = 0,
+    personality: str = "",
+    description: str = "",
+    tsf_attitude: str = "",
+    used_openings: list[str] | None = None,
+    enable_multiple_people: bool = False,
+    session_characters_section: str | None = None,
+) -> tuple[str, str]:
+    """依頼モードの心境プロンプト。着せ替えと現実改変の両方で通常の心理段階を置き換える。
+
+    依頼そのもの(願い・満たした好み)は呼び出し側が user prompt の末尾に足す。
+    """
+    system_prompt = REQUEST_FEELING_SYSTEM_PROMPT.format(
+        openness=_request_openness(bloom, transformation_count),
+        nsfw=REQUEST_FEELING_NSFW_RULE if nsfw_mode else "",
+    )
+    personality_section = _build_personality_section(personality, description)
+    if tsf_attitude.strip():
+        if not personality_section:
+            personality_section = "\n\n【このキャラクターの性格】"
+        personality_section += f"\n- TSFへの態度: {tsf_attitude.strip()[:300]}"
+    system_prompt += personality_section
+    if enable_multiple_people:
+        system_prompt += build_multi_people_rule(session_characters_section)
+
+    situation = (
+        f"「{instruction}」という現実改変で、世界ごと姿が書き換わった"
+        if is_reality
+        else f"「{instruction}」という指示で衣装が変更された"
+    )
+    opening = select_opening(
+        openings=REQUEST_FEELING_OPENINGS,
+        personality_type=classify_personality_type(personality, description),
+        pronoun=pronoun,
+        used_openings=used_openings,
+    )
+    user_prompt = REQUEST_FEELING_USER_PROMPT_TEMPLATE.format(
+        situation=situation,
+        pronoun=pronoun,
+        before_desc=before_desc,
+        after_desc=after_desc,
+        opening=opening,
+    ) + _build_attribute_section(attributes)
+    user_prompt = append_session_characters_section(
+        user_prompt, session_characters_section
+    )
+    return system_prompt, user_prompt
+
+
 # 主人公以外の登場人物だけが指示の対象になった手番の心境
 OBSERVER_FEELING_SYSTEM_PROMPT = """あなたは物語の主人公の心の声を書く作家です。
 今回の指示で姿が変わったのは主人公ではなく、同じ場面にいる別の人物です。主人公の服装と姿は変わっていません。

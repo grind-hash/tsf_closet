@@ -359,6 +359,35 @@ export const adventure = {
   realityRules: "現実改変",
   realityRulesHint:
     "宣言済みの世界ルールです。以降のすべての判定に適用され、ルールが覆う行動だけでミッション失敗にはなりません。",
+  /** HUD チップとポップオーバーの見出し */
+  realityCosts: "改変の代償",
+  realityCost: {
+    enable: "改変の代償を有効化する",
+    hint: "OFFが既定です。ONにすると、現実改変を確定させるたびに、その改変から生じる予期せぬ代償が1つ生まれます（例: 豪邸の主になる → 固定資産税の通知が届く）。代償は自分の行動で解決するまで物語に残り、現実改変では消せません。未解決の代償を残したまま目標を達成すると、部分的な成功になります。恋愛シミュレーションでは代償が請求として届き、所持金から支払うと解決します。",
+    playHint:
+      "次の手番から反映されます。ONの間は現実改変のたびに代償が生まれ、未解決の代償を残した成功は部分的な成功になります。OFFにしても記録は残りますが、新しい代償は生まれず、結末にも影響しません。",
+    panelHint:
+      "現実改変から生じた代償です。自分の行動で解決するまで物語に残り、現実改変では消せません。未解決のまま目標を達成すると部分的な成功になります。",
+    panelHintRomance:
+      "現実改変から生じた請求です。所持金から支払うと解決します（手番は使いません）。未払いのまま交際が始まると部分的な成功になります。",
+    disabledNote:
+      "いまは改変の代償がOFFです。新しい代償は生まれず、結末にも影響しません。",
+    empty: "まだ代償はありません",
+    major: "深刻",
+    origin: "手番 {{turn}} の現実改変「{{rule}}」から",
+    originNoRule: "手番 {{turn}} の現実改変から",
+    resolvedStory: "解決済み（手番 {{turn}}）",
+    resolvedPaid: "{{amount}}円を支払い済み",
+    pay: "{{amount}}円を支払う",
+    paying: "支払い中…",
+    cannotPayFunds: "所持金が{{shortage}}円足りません",
+    cannotPayEnded: "終了したシナリオでは支払えません",
+    cannotPayPast: "過去の場面を表示中は支払えません",
+    cannotPayDisabled: "改変の代償がOFFの間は支払えません",
+    noteCreated: "代償: {{text}}",
+    noteCreatedBill: "代償: {{text}}（請求 {{amount}}円）",
+    noteResolved: "代償を解決: {{text}}",
+  },
   inventory: "持ち物",
   inventoryEnable: "持ち物システムを有効化する",
   inventoryHint:

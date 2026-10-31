@@ -21,6 +21,7 @@ import type {
   HistoryItem,
   SessionAttribute,
   SessionCharacter,
+  SessionRequestView,
   SessionStats,
   SurroundingsImageState,
 } from "../types";
@@ -61,6 +62,7 @@ import {
 import {
   addSessionAttribute as apiAddSessionAttribute,
   branchSessionFromHistory as apiBranchSessionFromHistory,
+  createSessionRequest as apiCreateSessionRequest,
   deleteActiveSession as apiDeleteActiveSession,
   fetchActiveSession as apiFetchActiveSession,
   fetchCharacters as apiFetchCharacters,
@@ -98,6 +100,14 @@ interface GameState {
   lastSurroundingsImage: SurroundingsImageState | null;
   sessionCharacters: SessionCharacter[];
   playMemory: PlayMemoryState;
+  /** 開始画面の「依頼モード」。次に開始するセッションで依頼を作るか */
+  requestMode: boolean;
+  /** 依頼モードの依頼。依頼の無いセッションは null */
+  request: SessionRequestView | null;
+  /** 依頼を生成中か */
+  requestGenerating: boolean;
+  /** 依頼の生成に失敗したときの文言。カードから作り直せるよう保持する */
+  requestError: string | null;
 }
 
 type GameAction =
@@ -123,7 +133,14 @@ type GameAction =
         selfMode: boolean;
         transformationCount: number;
         playMemory: PlayMemoryState;
+        request: SessionRequestView | null;
       };
+    }
+  | { type: "SET_REQUEST_MODE"; payload: boolean }
+  | { type: "SET_REQUEST"; payload: SessionRequestView | null }
+  | {
+      type: "SET_REQUEST_GENERATING";
+      payload: { generating: boolean; error?: string | null };
     }
   | { type: "SET_CHARACTERS"; payload: Character[] }
   | { type: "UPDATE_STATS"; payload: Partial<SessionStats> }
@@ -187,6 +204,10 @@ const defaultState: GameState = {
     userText: null,
     systemUpdatedAt: null,
   },
+  requestMode: false,
+  request: null,
+  requestGenerating: false,
+  requestError: null,
 };
 
 function gameReducer(state: GameState, action: GameAction): GameState {
@@ -210,6 +231,9 @@ function gameReducer(state: GameState, action: GameAction): GameState {
         lastGeneratedSeed: null,
         lastSurroundingsImage: null,
         playMemory: action.payload.playMemory ?? defaultState.playMemory,
+        request: null,
+        requestGenerating: false,
+        requestError: null,
       };
     case "RESTORE_SESSION":
       return {
@@ -226,7 +250,27 @@ function gameReducer(state: GameState, action: GameAction): GameState {
         selfMode: action.payload.selfMode,
         transformationCount: action.payload.transformationCount,
         playMemory: action.payload.playMemory,
+        request: action.payload.request,
+        // 別セッションへ切り替えたときは生成中の表示を持ち越さない
+        ...(action.payload.sessionId !== state.sessionId
+          ? { requestGenerating: false, requestError: null }
+          : {}),
         error: null,
+      };
+    case "SET_REQUEST_MODE":
+      return { ...state, requestMode: action.payload };
+    case "SET_REQUEST":
+      return {
+        ...state,
+        request: action.payload,
+        requestGenerating: false,
+        requestError: null,
+      };
+    case "SET_REQUEST_GENERATING":
+      return {
+        ...state,
+        requestGenerating: action.payload.generating,
+        requestError: action.payload.error ?? null,
       };
     case "SET_CHARACTERS":
       return { ...state, characters: action.payload };
@@ -424,6 +468,15 @@ interface GameContextType {
   removeAttribute: (id: string) => Promise<void>;
   setAttributes: (attributes: SessionAttribute[]) => void;
   setSelfMode: (selfMode: boolean) => void;
+  /** 開始画面の「依頼モード」を切り替える */
+  setRequestMode: (requestMode: boolean) => void;
+  /**
+   * 依頼を生成する(最初の着せ替えの前なら作り直し)。開始直後は state の
+   * sessionId がまだ古いので、対象のセッション ID を明示して渡す
+   */
+  generateRequest: (sessionId: string) => Promise<void>;
+  /** 手番の評価(SSE)で届いた依頼を反映する */
+  applyRequestView: (request: SessionRequestView) => void;
   setConversationHistory: (history: ConversationMessage[]) => void;
   appendFeelingText: (chunk: string) => void;
   setFeelingText: (text: string) => void;
@@ -523,6 +576,7 @@ function mapSessionResponse(data: {
   }>;
   self_mode?: boolean;
   character_id?: string | null;
+  request?: SessionRequestView | null;
   play_memory?: {
     system_enabled?: boolean;
     user_enabled?: boolean;
@@ -580,6 +634,7 @@ function mapSessionResponse(data: {
         instruction_type: message.instruction_type ?? undefined,
       })),
       selfMode: Boolean(data.self_mode),
+      request: data.request ?? null,
       transformationCount: data.transformation_count ?? history.length,
       playMemory: {
         systemEnabled: data.play_memory?.system_enabled ?? true,
@@ -599,6 +654,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
     state: settingsState,
     setPlayMemorySystemEnabled,
     setPlayMemoryUserEnabled,
+    addTotalCost,
   } = useSettings();
   const [state, dispatch] = useReducer(gameReducer, defaultState);
   const previousPlayMemoryEnabledRef = useRef(settingsState.playMemoryEnabled);
@@ -713,6 +769,8 @@ export function GameProvider({ children }: { children: ReactNode }) {
             systemEnabled: settingsState.playMemorySystemEnabled,
             userEnabled: settingsState.playMemoryUserEnabled,
           },
+          // 同じセッションの再表示なら依頼を保ち、別セッションなら復元応答で入れ直す
+          request: sessionId === state.sessionId ? state.request : null,
         },
       });
       void syncPlayMemoryPreferences(sessionId).then((playMemory) => {
@@ -725,6 +783,8 @@ export function GameProvider({ children }: { children: ReactNode }) {
       settingsState.playMemorySystemEnabled,
       settingsState.playMemoryUserEnabled,
       state.conversationHistory,
+      state.request,
+      state.sessionId,
       syncPlayMemoryPreferences,
     ],
   );
@@ -967,6 +1027,43 @@ export function GameProvider({ children }: { children: ReactNode }) {
 
   const setSelfMode = useCallback((selfMode: boolean) => {
     dispatch({ type: "SET_SELF_MODE", payload: selfMode });
+  }, []);
+
+  const setRequestMode = useCallback((requestMode: boolean) => {
+    dispatch({ type: "SET_REQUEST_MODE", payload: requestMode });
+  }, []);
+
+  const generateRequest = useCallback(
+    async (sessionId: string) => {
+      dispatch({
+        type: "SET_REQUEST_GENERATING",
+        payload: { generating: true },
+      });
+      try {
+        const data = await apiCreateSessionRequest(
+          sessionId,
+          settingsState.language,
+        );
+        if (data.cost_usd) addTotalCost(data.cost_usd);
+        dispatch({ type: "SET_REQUEST", payload: data.request });
+      } catch (error) {
+        dispatch({
+          type: "SET_REQUEST_GENERATING",
+          payload: {
+            generating: false,
+            error:
+              error instanceof Error
+                ? error.message
+                : t("chat.request.generateFailed"),
+          },
+        });
+      }
+    },
+    [addTotalCost, settingsState.language, t],
+  );
+
+  const applyRequestView = useCallback((request: SessionRequestView) => {
+    dispatch({ type: "SET_REQUEST", payload: request });
   }, []);
 
   const setConversationHistory = useCallback(
@@ -1255,6 +1352,9 @@ export function GameProvider({ children }: { children: ReactNode }) {
       removeAttribute,
       setAttributes,
       setSelfMode,
+      setRequestMode,
+      generateRequest,
+      applyRequestView,
       setConversationHistory,
       appendFeelingText,
       setFeelingText,
@@ -1303,6 +1403,9 @@ export function GameProvider({ children }: { children: ReactNode }) {
       removeAttribute,
       setAttributes,
       setSelfMode,
+      setRequestMode,
+      generateRequest,
+      applyRequestView,
       setConversationHistory,
       appendFeelingText,
       setFeelingText,

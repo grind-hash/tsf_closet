@@ -360,6 +360,35 @@ export const adventure = {
   realityRules: "Reality",
   realityRulesHint:
     "Declared world rules. They apply to every later judgement, and behaviour they cover alone never fails the mission.",
+  /** HUD chip and popover title */
+  realityCosts: "Reality costs",
+  realityCost: {
+    enable: "Enable reality costs",
+    hint: "Off by default. When on, every reality alteration you establish brings one unforeseen consequence that follows from it (for example, becoming the owner of a mansion brings a property tax notice). A cost stays in the story until your own actions settle it, and another reality alteration cannot erase it. Reaching the goal while a cost is still unresolved counts only as a partial success. In the dating sim, costs arrive as bills that you settle by paying from your money.",
+    playHint:
+      "Applies from the next turn. While on, each reality alteration brings a cost, and a success with unresolved costs counts only as partial. Turning it off keeps the record, but no new costs appear and they no longer affect the ending.",
+    panelHint:
+      "Consequences of your reality alterations. Each stays in the story until your own actions settle it, and a reality alteration cannot erase it. Reaching the goal while one is unresolved counts only as a partial success.",
+    panelHintRomance:
+      "Bills caused by your reality alterations. Paying from your money settles them without using a turn. Starting to date while a bill is unpaid counts only as a partial success.",
+    disabledNote:
+      "Reality costs are off right now. No new costs appear and they do not affect the ending.",
+    empty: "No costs yet",
+    major: "Serious",
+    origin: 'From the reality alteration on turn {{turn}}: "{{rule}}"',
+    originNoRule: "From the reality alteration on turn {{turn}}",
+    resolvedStory: "Settled (turn {{turn}})",
+    resolvedPaid: "Paid ¥{{amount}}",
+    pay: "Pay ¥{{amount}}",
+    paying: "Paying…",
+    cannotPayFunds: "You are ¥{{shortage}} short",
+    cannotPayEnded: "You cannot pay in a finished scenario",
+    cannotPayPast: "You cannot pay while viewing a past scene",
+    cannotPayDisabled: "You cannot pay while reality costs are off",
+    noteCreated: "Cost: {{text}}",
+    noteCreatedBill: "Cost: {{text}} (bill ¥{{amount}})",
+    noteResolved: "Cost settled: {{text}}",
+  },
   inventory: "Items",
   inventoryEnable: "Enable the inventory system",
   inventoryHint:

@@ -18,6 +18,7 @@ from sqlalchemy import and_, delete, desc, exists, func, select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from ..databases.base import async_session_factory
+from ..databases.character_repo import fetch_protagonist_session_character
 from ..databases.models import (
     AchievedEnding as AchievedEndingORM,
 )
@@ -32,6 +33,9 @@ from ..databases.models import (
 )
 from ..databases.models import (
     SessionAttribute as SessionAttributeORM,
+)
+from ..databases.models import (
+    SessionRequest as SessionRequestORM,
 )
 from ..databases.models import (
     SessionStats as SessionStatsORM,
@@ -137,6 +141,7 @@ class DatabaseSessionStore:
             seed=orm_history.seed,
             surroundings_image_path=orm_history.surroundings_image_path,
             character_states_json=orm_history.character_states_json,
+            request_evaluation_json=orm_history.request_evaluation_json,
         )
 
     async def get_active_session(
@@ -480,14 +485,21 @@ class DatabaseSessionStore:
         seed: int | None = None,
         surroundings_image_path: str | None = None,
         character_states: list[dict] | None = None,
+        request_evaluation: dict | None = None,
     ) -> PersistedHistory:
         """履歴を追加
 
         character_states は複数人表示で描いた各人物の姿（人物 ID ごとのタグ）。
+        request_evaluation は依頼モードでこの手番を評価した結果。
         """
         character_states_json = (
             json.dumps(character_states, ensure_ascii=False)
             if character_states is not None
+            else None
+        )
+        request_evaluation_json = (
+            json.dumps(request_evaluation, ensure_ascii=False)
+            if request_evaluation is not None
             else None
         )
         history_id = str(uuid.uuid4())
@@ -512,6 +524,7 @@ class DatabaseSessionStore:
                 seed=seed,
                 surroundings_image_path=surroundings_image_path,
                 character_states_json=character_states_json,
+                request_evaluation_json=request_evaluation_json,
             )
             db_session.add(orm_history)
             await db_session.commit()
@@ -532,7 +545,112 @@ class DatabaseSessionStore:
             seed=seed,
             surroundings_image_path=surroundings_image_path,
             character_states_json=character_states_json,
+            request_evaluation_json=request_evaluation_json,
         )
+
+    # ------------------------------------------------------------------
+    # 依頼モード
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _request_to_dict(row: SessionRequestORM) -> dict:
+        try:
+            preferences = json.loads(row.preferences_json or "[]")
+        except (TypeError, ValueError):
+            preferences = []
+        return {
+            "session_id": row.session_id,
+            "wish": row.wish_text,
+            "preferences": [item for item in preferences if isinstance(item, dict)],
+            "language": row.language,
+            "status": row.status,
+            "fulfilled_history_id": row.fulfilled_history_id,
+        }
+
+    async def get_session_request(self, session_id: str) -> dict | None:
+        """依頼を取得する。無ければ None。preferences は伏せた本文を含む。"""
+        async with async_session_factory() as db_session:
+            row = await db_session.get(SessionRequestORM, session_id)
+            return self._request_to_dict(row) if row is not None else None
+
+    async def save_session_request(
+        self,
+        session_id: str,
+        *,
+        wish: str,
+        preferences: list[dict],
+        language: str,
+    ) -> dict:
+        """依頼を作成する。既にあれば作り直し、達成状態も初期化する。"""
+        now = datetime.now()
+        async with async_session_factory() as db_session:
+            row = await db_session.get(SessionRequestORM, session_id)
+            if row is None:
+                row = SessionRequestORM(session_id=session_id, created_at=now)
+                db_session.add(row)
+            row.wish_text = wish
+            row.preferences_json = json.dumps(preferences, ensure_ascii=False)
+            row.language = language
+            row.status = "active"
+            row.fulfilled_history_id = None
+            row.updated_at = now
+            await db_session.commit()
+            await db_session.refresh(row)
+            return self._request_to_dict(row)
+
+    async def mark_session_request_fulfilled(
+        self, session_id: str, history_id: str
+    ) -> None:
+        """依頼を達成済みにする(既に達成済みなら何もしない)。"""
+        async with async_session_factory() as db_session:
+            await db_session.execute(
+                update(SessionRequestORM)
+                .where(
+                    SessionRequestORM.session_id == session_id,
+                    SessionRequestORM.status != "fulfilled",
+                )
+                .values(
+                    status="fulfilled",
+                    fulfilled_history_id=history_id,
+                    updated_at=datetime.now(),
+                )
+            )
+            await db_session.commit()
+
+    async def get_protagonist_profile(self, session_id: str) -> dict | None:
+        """人物パネルの主人公の性格プロフィール。主人公の行や設定が無ければ None。"""
+        async with async_session_factory() as db_session:
+            row = await fetch_protagonist_session_character(db_session, session_id)
+        if row is None or not row.profile_json:
+            return None
+        try:
+            profile = json.loads(row.profile_json)
+        except (TypeError, ValueError):
+            return None
+        return profile if isinstance(profile, dict) else None
+
+    async def get_request_evaluations(self, session_id: str) -> list[dict]:
+        """評価済みの手番の評価を古い順に返す。"""
+        async with async_session_factory() as db_session:
+            rows = (
+                await db_session.execute(
+                    select(HistoryORM.request_evaluation_json)
+                    .where(
+                        HistoryORM.session_id == session_id,
+                        HistoryORM.request_evaluation_json.is_not(None),
+                    )
+                    .order_by(HistoryORM.created_at.asc(), HistoryORM.id.asc())
+                )
+            ).scalars()
+            evaluations: list[dict] = []
+            for raw in rows:
+                try:
+                    value = json.loads(raw)
+                except (TypeError, ValueError):
+                    continue
+                if isinstance(value, dict):
+                    evaluations.append(value)
+            return evaluations
 
     async def get_history(
         self,

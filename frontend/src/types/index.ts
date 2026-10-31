@@ -591,3 +591,30 @@ export interface CharacterGroupPreset {
   created_at: string;
   updated_at: string;
 }
+
+/** 依頼モード: 依頼の好み1件。本文は一度満たされるまで null */
+export interface SessionRequestPreference {
+  id: string;
+  /** 好みの分類(色合い・丈など)。未開示でも見える手掛かり */
+  hint: string;
+  text: string | null;
+  /** 最新の手番で満たしているか */
+  met: boolean;
+}
+
+/** 依頼モードの依頼(公開ビュー)。backend の SessionRequestResponse と同じ形 */
+export interface SessionRequestView {
+  wish: string;
+  status: "active" | "fulfilled" | string;
+  /** 最新の手番の満足度 (0-100) */
+  satisfaction: number;
+  /** 依頼達成となる満足度 */
+  threshold: number;
+  fit: string | null;
+  /** 最新の手番のヒント。好みを全部満たしていれば空 */
+  hint: string;
+  preferences: SessionRequestPreference[];
+  evaluated_turns: number;
+  /** 依頼を作り直せるか(最初の着せ替えの前だけ) */
+  can_regenerate: boolean;
+}

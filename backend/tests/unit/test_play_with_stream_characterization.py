@@ -38,6 +38,8 @@ class FakeSessionStore:
         latest_history: Any | None = None,
         attributes: list[str] | None = None,
         transformation_count: int = 2,
+        session_request: dict[str, Any] | None = None,
+        protagonist_profile: dict[str, Any] | None = None,
     ) -> None:
         self.user_settings = user_settings or {
             "nsfw_mode": False,
@@ -51,6 +53,8 @@ class FakeSessionStore:
         self.attributes = list(attributes or [])
         self.stats = SessionStats.create_with_difficulty(SESSION_ID, "normal", False)
         self.transformation_count = transformation_count
+        self.session_request = session_request
+        self.protagonist_profile = protagonist_profile
         self.calls: list[tuple[str, dict[str, Any]]] = []
 
     def _record(self, name: str, **kwargs: Any) -> None:
@@ -129,6 +133,19 @@ class FakeSessionStore:
 
     async def update_history_surroundings(self, **kwargs):
         self._record("update_history_surroundings", **kwargs)
+
+    async def get_session_request(self, session_id):
+        return copy.deepcopy(self.session_request)
+
+    async def get_protagonist_profile(self, session_id):
+        return copy.deepcopy(self.protagonist_profile)
+
+    async def mark_session_request_fulfilled(self, session_id, history_id):
+        self._record(
+            "mark_session_request_fulfilled",
+            session_id=session_id,
+            history_id=history_id,
+        )
 
 
 class Harness:
@@ -936,3 +953,157 @@ async def test_turn_targeting_only_another_character_keeps_protagonist(
     assert by_id["aya"]["stats"]["transformation_count"] == 2
     assert set(by_id["aya"]["stats"]) == set(aya_stats)
     assert "stats" not in by_id["emi"]
+
+
+# ---------------------------------------------------------------------------
+# 依頼モード
+# ---------------------------------------------------------------------------
+
+_SESSION_REQUEST = {
+    "wish": "舞踏会のお姫様になってみたい",
+    "status": "active",
+    "preferences": [
+        {"id": "p1", "text": "淡いピンクのドレス", "hint": "色合い"},
+        {"id": "p2", "text": "膝より長い丈", "hint": "丈"},
+    ],
+}
+
+
+@pytest.mark.asyncio
+async def test_request_mode_evaluates_before_feeling_and_reports_fulfilment(
+    monkeypatch,
+) -> None:
+    store = FakeSessionStore(session_request=_SESSION_REQUEST)
+    harness = _build(monkeypatch, store=store)
+    evaluation = {
+        "satisfaction": 100,
+        "fit": "perfect",
+        "met_preference_ids": ["p1", "p2"],
+        "hint": "",
+    }
+    evaluate = AsyncMock(return_value=evaluation)
+    view = {"wish": _SESSION_REQUEST["wish"], "satisfaction": 100}
+    monkeypatch.setattr(gs_module.session_request_service, "evaluate_turn", evaluate)
+    monkeypatch.setattr(
+        gs_module.session_request_service,
+        "get_request_view",
+        AsyncMock(return_value=view),
+    )
+
+    events = await _run(harness)
+
+    assert _types(events) == [
+        "text",
+        "text",
+        "tags",
+        "stats",
+        "request_evaluation",
+        "image",
+        "cost",
+        "complete",
+    ]
+    assert _one(events, "request_evaluation").data == {
+        "request": view,
+        "newly_fulfilled": True,
+    }
+    # 評価は画像生成前に確定した姿で行い、心境に依頼の願いと満たした好みを渡す
+    assert (
+        evaluate.await_args.kwargs["current_look"] == "赤いドレスに着替えるに変身した姿"
+    )
+    feeling_prompt = harness.feeling_calls[0]["user_prompt"]
+    assert "舞踏会のお姫様になってみたい" in feeling_prompt
+    assert "淡いピンクのドレス" in feeling_prompt
+    [history] = store.calls_of("add_history")
+    assert history["request_evaluation"] == evaluation
+    assert store.calls_of("mark_session_request_fulfilled") == [
+        {"session_id": SESSION_ID, "history_id": "hist-1"}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_request_mode_keeps_turn_when_evaluation_fails(monkeypatch) -> None:
+    store = FakeSessionStore(
+        session_request={**_SESSION_REQUEST, "status": "fulfilled"}
+    )
+    harness = _build(monkeypatch, store=store)
+    monkeypatch.setattr(
+        gs_module.session_request_service,
+        "evaluate_turn",
+        AsyncMock(return_value=None),
+    )
+
+    events = await _run(harness)
+
+    # 評価に失敗した手番は記録も配信もせず、心境には願いだけを添える
+    assert "request_evaluation" not in _types(events)
+    assert "舞踏会のお姫様になってみたい" in harness.feeling_calls[0]["user_prompt"]
+    assert store.calls_of("add_history")[0]["request_evaluation"] is None
+    assert store.calls_of("mark_session_request_fulfilled") == []
+
+
+def _assert_request_feeling_prompt(call: dict[str, Any]) -> None:
+    """依頼モードの心境は、強制された変身として書く心理段階を使わない。"""
+    system_prompt = call["system_prompt"]
+    user_prompt = call["user_prompt"]
+    assert "強制ではなく、本人が望んで頼んだもの" in system_prompt
+    assert "強制的に変えられる" not in system_prompt
+    assert "3. 願いとの距離" in user_prompt
+    assert "抵抗と理屈" not in user_prompt
+    assert "嘘でしょ...こんなの聞いてない..." not in user_prompt
+
+
+@pytest.mark.asyncio
+async def test_request_mode_replaces_forced_stage_on_first_dress_up(
+    monkeypatch,
+) -> None:
+    # 初回変身(強制された変身として書く段階)でも依頼用の心境に差し替える
+    store = FakeSessionStore(
+        session_request=_SESSION_REQUEST,
+        protagonist_profile={"tsf_attitude": "女の子の姿には密かに憧れている"},
+    )
+    harness = _build(monkeypatch, store=store, session=_session(count=0))
+    monkeypatch.setattr(
+        gs_module.session_request_service,
+        "evaluate_turn",
+        AsyncMock(return_value=None),
+    )
+
+    await _run(harness)
+
+    call = harness.feeling_calls[0]
+    _assert_request_feeling_prompt(call)
+    assert "初めて願いが形になる瞬間" in call["system_prompt"]
+    # 頼んでいない体の変化は、主人公の TSF への態度に従わせる
+    assert "TSFへの態度: 女の子の姿には密かに憧れている" in call["system_prompt"]
+
+
+@pytest.mark.asyncio
+async def test_request_mode_replaces_reality_feeling(monkeypatch) -> None:
+    store = FakeSessionStore(session_request=_SESSION_REQUEST)
+    harness = _build(monkeypatch, store=store)
+    monkeypatch.setattr(
+        gs_module.session_request_service,
+        "evaluate_turn",
+        AsyncMock(
+            return_value={
+                "satisfaction": 20,
+                "fit": "partial",
+                "met_preference_ids": [],
+                "hint": "",
+            }
+        ),
+    )
+
+    await _run(
+        harness,
+        instruction="世界の常識が変わる",
+        transformation_type="reality",
+        instruction_type="reality_alter",
+    )
+
+    call = harness.feeling_calls[0]
+    _assert_request_feeling_prompt(call)
+    assert "という現実改変で、世界ごと姿が書き換わった" in call["user_prompt"]
+    assert "元に戻して" not in call["system_prompt"]
+    # TSF への態度が無ければ、性格から想像させる
+    assert "TSFへの態度:" not in call["system_prompt"]

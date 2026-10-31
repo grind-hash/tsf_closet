@@ -99,6 +99,7 @@ async def create_run(request: AdventureCreateRequest) -> dict:
             companion_mode=request.companion_mode,
             companion_avatar_id=request.companion_avatar_id,
             inventory_enabled=request.inventory_enabled,
+            reality_cost_enabled=request.reality_cost_enabled,
             source_character_preset_id=request.source_character_preset_id,
             romance_player_character_preset_id=(
                 request.romance_player_character_preset_id
@@ -170,6 +171,7 @@ async def update_run_settings(
             companion_mode=request.companion_mode,
             companion_avatar_id=request.companion_avatar_id,
             inventory_enabled=request.inventory_enabled,
+            reality_cost_enabled=request.reality_cost_enabled,
         )
     except AdventureError as error:
         raise _http_error(error) from error
@@ -199,6 +201,14 @@ async def update_reality_rules(
 ) -> dict:
     try:
         return await adventure_service.update_reality_rules(run_id, request.rules)
+    except AdventureError as error:
+        raise _http_error(error) from error
+
+
+@router.post("/runs/{run_id}/reality-costs/{cost_id}/pay")
+async def pay_reality_cost(run_id: str, cost_id: str) -> dict:
+    try:
+        return await adventure_service.pay_reality_cost(run_id, cost_id)
     except AdventureError as error:
         raise _http_error(error) from error
 

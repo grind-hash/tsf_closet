@@ -1,6 +1,8 @@
 import type { TFunction } from "i18next";
 import type {
   AdventureInventory,
+  AdventureRealityCost,
+  AdventureRealityCostApplied,
   AdventureRun,
   AdventureSim,
   AdventureTurn,
@@ -24,6 +26,13 @@ export interface AdventureSceneView {
   /** 持ち物システム(全プリセット)。OFF の run は null */
   inventory: AdventureInventory | null;
   inventoryCount: number;
+  /**
+   * 改変の代償(解決済みを含む)。OFF でも記録が残っていれば一覧を出すため、
+   * 一度も ON にしていない run だけ null
+   */
+  realityCosts: AdventureRealityCost[] | null;
+  /** 未解決の代償の件数 */
+  activeRealityCostCount: number;
   /** romance の公開シミュ状態。他プリセットでは null */
   sim: AdventureSim | null;
   cast: AdventureVisualCharacter[];
@@ -34,6 +43,28 @@ export interface AdventureSceneView {
   inventoryNote: string | null;
   /** 表示中フレームの境界侵害(1行)。持ち物の増減ではないので別扱い。無ければ null */
   boundaryNote: string | null;
+  /** 表示中フレームで発生・解決した代償(1行)。無ければ null */
+  realityCostNote: string | null;
+}
+
+/** 手番で発生・解決した代償を1行にまとめる */
+export function formatRealityCostsApplied(
+  entries: AdventureRealityCostApplied[],
+  t: TFunction,
+): string {
+  return entries
+    .map((entry) => {
+      if (entry.type === "resolved") {
+        return t("adventure.realityCost.noteResolved", { text: entry.text });
+      }
+      return entry.amount != null
+        ? t("adventure.realityCost.noteCreatedBill", {
+            text: entry.text,
+            amount: entry.amount.toLocaleString(),
+          })
+        : t("adventure.realityCost.noteCreated", { text: entry.text });
+    })
+    .join(" / ");
 }
 
 interface BuildSceneViewOptions {
@@ -86,6 +117,17 @@ export function buildAdventureSceneView({
   const inventoryCount = inventory
     ? inventory.items.reduce((sum, item) => sum + item.quantity, 0)
     : 0;
+  const realityCosts =
+    activeRun.reality_costs ?? (activeRun.reality_cost_enabled ? [] : null);
+  const activeRealityCostCount = (realityCosts ?? []).filter(
+    (cost) => cost.resolved_turn === null,
+  ).length;
+  const frameRealityCosts =
+    (isViewingPast ? selectedFrame : latestFrame)?.realityCostsApplied ?? [];
+  const realityCostNote =
+    frameRealityCosts.length > 0
+      ? formatRealityCostsApplied(frameRealityCosts, t)
+      : null;
   const sim = activeRun.preset === "romance" ? (activeRun.sim ?? null) : null;
   const cast = activeRun.visual_state?.main_characters ?? [];
   // 攻略対象の服装は sim ではなく現在の場面側に載る。名前の部分一致で引く
@@ -133,6 +175,8 @@ export function buildAdventureSceneView({
     realityRules,
     inventory,
     inventoryCount,
+    realityCosts,
+    activeRealityCostCount,
     sim,
     cast,
     partnerName,
@@ -140,5 +184,6 @@ export function buildAdventureSceneView({
     playerDisplayName,
     inventoryNote,
     boundaryNote,
+    realityCostNote,
   };
 }

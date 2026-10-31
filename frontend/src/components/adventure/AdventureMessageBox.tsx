@@ -98,6 +98,7 @@ export default function AdventureMessageBox({
     playerDisplayName,
     inventoryNote,
     boundaryNote,
+    realityCostNote,
   } = scene;
 
   return (
@@ -149,6 +150,12 @@ export default function AdventureMessageBox({
           <span className="adventure-messagebox__boundary-note">
             <span aria-hidden>⚠</span>
             {boundaryNote}
+          </span>
+        )}
+        {realityCostNote && (
+          <span className="adventure-messagebox__cost-note">
+            <span aria-hidden>⚖</span>
+            {realityCostNote}
           </span>
         )}
         <button

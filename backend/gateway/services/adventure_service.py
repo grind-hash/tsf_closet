@@ -120,6 +120,22 @@ from .adventure_models import (
     _image_prompt_payload,
     _sanitize_choices,
 )
+from .adventure_reality_cost import (
+    REALITY_COST_DUE_INSTRUCTION,
+    REALITY_COST_NARRATIVE_INSTRUCTION,
+    REALITY_COST_RESOLUTION_INSTRUCTION,
+    ROMANCE_REALITY_COST_DUE_INSTRUCTION,
+    RealityCostError,
+    add_reality_cost,
+    applied_entry,
+    gate_ending_status,
+    gated_ending_note,
+    pay_reality_bill,
+    public_reality_costs,
+    reality_cost_enabled,
+    reality_costs_for_llm,
+    resolve_reality_costs,
+)
 from .adventure_romance import (
     ROMANCE_COMPANION_RESOLUTION_GUIDANCE,
     ROMANCE_NARRATIVE_GUIDANCE,
@@ -393,6 +409,12 @@ def _lean_state_for_llm(state: dict[str, Any]) -> dict[str, Any]:
         "inventory",
         "npc_states",
         "world_events_applied",
+        # 改変の代償は turn_context["active_reality_costs"] に未解決分だけ整形して
+        # 渡す。reality_costs_applied は表示用の記録
+        "reality_cost_enabled",
+        "reality_costs",
+        "reality_cost_next_id",
+        "reality_costs_applied",
     }
     return {key: value for key, value in state.items() if key not in omit}
 
@@ -2155,6 +2177,11 @@ class _TurnContexts:
     inventory_enabled: bool = False
     # 持ち物パネル由来の行動の検証結果(resolve_item_action)。無ければ None
     item_resolution: dict[str, Any] | None = None
+    # 改変の代償が有効な run か。プロンプトの代償ブロックと適用処理のゲート
+    reality_cost_enabled: bool = False
+    # この手番で確定した現実改変ルール(宣言・手番外の付与の両方)。代償の発生源。
+    # 代償が有効で、エピローグ外の手番だけ入る
+    reality_cost_source: str | None = None
     # 主人公の同一性タグ署名(state["identity_tags"])。visual プロンプトの
     # required_identity_tags と、画像生成への override に使う
     identity_tags: str = ""
@@ -2321,6 +2348,7 @@ class CreateRunRequest:
     companion_mode: bool = False
     companion_avatar_id: str | None = None
     inventory_enabled: bool = False
+    reality_cost_enabled: bool = False
     source_character_preset_id: str | None = None
     romance_player_character_preset_id: str | None = None
 
@@ -2538,11 +2566,15 @@ Return JSON only and keep the entire response under 1200 characters. Do not repe
         script_names: tuple[str, str] | None = None,
         wardrobe: bool = False,
         inventory: bool = False,
+        reality_cost: bool = False,
     ) -> str:
         response_language = "Japanese" if language == "ja" else "English"
         voice_rule = _narration_voice_instruction(narration_voice, narration_pronoun)
         # 持ち物システム: プレイヤー入力を事実にしない・NPC の意思と社会通念で判定する
         inventory_rule = f"\n{INVENTORY_NARRATIVE_INSTRUCTION}" if inventory else ""
+        if reality_cost:
+            # 改変の代償: 未解決の代償を物語上の障害として扱い、勝手に解決させない
+            inventory_rule += f"\n{REALITY_COST_NARRATIVE_INSTRUCTION}"
         if romance:
             # 対面会話モード(script_names あり)は半日枠でなく1往復の会話にする
             romance_rule = (
@@ -2580,6 +2612,8 @@ Keep the narrative under 800 characters. Never decide the player's feelings, con
         inventory: bool = False,
         reality_patch: bool = False,
         work: bool = False,
+        reality_cost: bool = False,
+        reality_cost_due: bool = False,
     ) -> str:
         response_language = "Japanese" if language == "ja" else "English"
         # 選択肢ラベルは行動フレーズなので、人称を載せない旨を併記する
@@ -2626,6 +2660,16 @@ Keep the narrative under 800 characters. Never decide the player's feelings, con
                 inventory_rule = f"{inventory_rule}\n{REALITY_PATCH_INSTRUCTION}"
                 inventory_schema += ',"reality_patch":null'
             voice_rule = f"{inventory_rule}\n{voice_rule}"
+        if reality_cost:
+            # 改変の代償: 解決の申告は毎手番、発生は改変が確定した手番だけ求める
+            cost_rule = REALITY_COST_RESOLUTION_INSTRUCTION
+            inventory_schema += ',"resolved_reality_cost_ids":[]'
+            if reality_cost_due:
+                cost_rule = f"{cost_rule}\n{REALITY_COST_DUE_INSTRUCTION}"
+                if romance:
+                    cost_rule = f"{cost_rule} {ROMANCE_REALITY_COST_DUE_INSTRUCTION}"
+                inventory_schema += ',"reality_cost":{"text":"...","severity":"minor"}'
+            voice_rule = f"{cost_rule}\n{voice_rule}"
         # 手掛かり抽出OFF時もスキーマは変えず、常に空リストを要求するだけに留める
         if not include_clues:
             voice_rule = (
@@ -2718,6 +2762,8 @@ scene_tags contains only environment, camera, composition, lighting, and the obs
         inventory: bool = False,
         reality_patch: bool = False,
         work: bool = False,
+        reality_cost: bool = False,
+        reality_cost_due: bool = False,
     ) -> AdventureResolutionOutput:
         return await self._generate_structured_output(
             AdventureRomanceResolutionOutput if romance else AdventureResolutionOutput,
@@ -2732,6 +2778,8 @@ scene_tags contains only environment, camera, composition, lighting, and the obs
                 inventory=inventory,
                 reality_patch=reality_patch,
                 work=work,
+                reality_cost=reality_cost,
+                reality_cost_due=reality_cost_due,
             ),
             user_prompt=json.dumps(
                 {**turn_context, "narrative": narrative}, ensure_ascii=False
@@ -3090,6 +3138,7 @@ The objective must name a concrete target and an observable end condition that c
         companion_mode: bool = False,
         companion_avatar_id: str | None = None,
         inventory_enabled: bool = False,
+        reality_cost_enabled: bool = False,
         source_character_preset_id: str | None = None,
         romance_player_character_preset_id: str | None = None,
     ) -> dict[str, Any]:
@@ -3133,6 +3182,7 @@ The objective must name a concrete target and an observable end condition that c
             companion_mode=companion_mode,
             companion_avatar_id=companion_avatar_id,
             inventory_enabled=inventory_enabled,
+            reality_cost_enabled=reality_cost_enabled,
             source_character_preset_id=source_character_preset_id,
             romance_player_character_preset_id=romance_player_character_preset_id,
         )
@@ -3834,6 +3884,10 @@ The objective must name a concrete target and an observable end condition that c
         if state["inventory_enabled"]:
             state["inventory"] = init_inventory_state()
             state["npc_states"] = {}
+        # 改変の代償(既定 OFF)。作品シナリオは作者の判定と衝突するため強制 OFF
+        state["reality_cost_enabled"] = (
+            bool(request.reality_cost_enabled) and not template
+        )
         if romance is not None:
             state["sim"] = init_romance_state(
                 romance.setup,
@@ -4267,6 +4321,8 @@ The objective must name a concrete target and an observable end condition that c
         # 持ち物システムの ON/OFF は設定。所持品そのものは巻き戻し先の
         # スナップショットに従う(再生成前に得た品だけが残ることはない)
         "inventory_enabled",
+        # 改変の代償の ON/OFF も設定。代償そのものはスナップショットに従う
+        "reality_cost_enabled",
         # 画像シードは run 定数。バックフィル前のスナップショットへ戻っても再採番しない
         "image_seed",
     )
@@ -5347,6 +5403,7 @@ The objective must name a concrete target and an observable end condition that c
                 script_names=contexts.script_names,
                 wardrobe=bool(contexts.outfit_options),
                 inventory=contexts.inventory_enabled,
+                reality_cost=contexts.reality_cost_enabled,
             ),
             json.dumps(contexts.turn_context, ensure_ascii=False),
             provider_override=resolve_text_provider(),
@@ -5429,6 +5486,8 @@ The objective must name a concrete target and an observable end condition that c
                 inventory=contexts.inventory_enabled,
                 reality_patch=contexts.input_kind == "reality_alter",
                 work=contexts.input_kind == "work",
+                reality_cost=contexts.reality_cost_enabled,
+                reality_cost_due=contexts.reality_cost_source is not None,
             )
             await queue.put(("resolution", resolution))
         except Exception as error:
@@ -6048,6 +6107,39 @@ The objective must name a concrete target and an observable end condition that c
             state["world_events_applied"] = world_events_applied
         else:
             state.pop("world_events_applied", None)
+        # 改変の代償。宣言手番の解決申告は無視する(改変で代償は消せない)。
+        # 空でも毎手番書き、前手番の記録が残らないようにする
+        if contexts.reality_cost_enabled:
+            costs_applied: list[dict[str, Any]] = []
+            if contexts.reality_cost_source is None and input_kind != "reality_alter":
+                costs_applied.extend(
+                    applied_entry("resolved", cost)
+                    for cost in resolve_reality_costs(
+                        state,
+                        resolution.resolved_reality_cost_ids,
+                        turn_number=turn_number,
+                    )
+                )
+            if contexts.reality_cost_source is not None:
+                created = add_reality_cost(
+                    state,
+                    resolution.reality_cost,
+                    turn_number=turn_number,
+                    source_rule=contexts.reality_cost_source,
+                    romance=romance_sim is not None,
+                )
+                if created is not None:
+                    costs_applied.append(applied_entry("created", created))
+                elif resolution.reality_cost is None:
+                    logger.warning(
+                        "Adventure reality cost missing on alteration turn: "
+                        "run_id=%s turn=%s",
+                        run.id,
+                        turn_number,
+                    )
+            state["reality_costs_applied"] = costs_applied
+        else:
+            state.pop("reality_costs_applied", None)
         # 現実改変宣言によるタイムリミット変更。_merge_output の手数切れ
         # 判定より前に run.max_turns(romance は sim["total_days"] も)へ反映する
         _apply_time_limit_alteration(
@@ -6065,6 +6157,19 @@ The objective must name a concrete target and an observable end condition that c
         next_state, next_status, _, _ = self._merge_output(
             run, output, turn_number, state_override=state, epilogue=epilogue
         )
+        if not epilogue:
+            # 未解決の代償を残した成功は部分成功に留める。全マイルストーン達成による
+            # 成功(_merge_output)と romance の Python 判定の両方に掛けるため、ここで行う。
+            # エピローグの逆転成功は対象外(結末が確定済みのため)
+            next_status, blocking_costs = gate_ending_status(next_state, next_status)
+            if blocking_costs:
+                note = gated_ending_note(blocking_costs, run.language)
+                summary = str(next_state.get("ending_summary") or "").strip()
+                next_state["ending_summary"] = (
+                    f"{summary}\n\n{note}" if summary else note
+                )
+                # 成功を前提に書かれた題を使わず、部分成功の既定題にする
+                output.ending_title = None
         # 立ち絵(主人公または攻略対象)を描いた手番はタグを更新する。対面会話モードは
         # 主人公立ち絵を常に省くため、主人公側だけを条件にすると開幕値のまま凍り、
         # 「場面に変化なし」判定・visual LLM の previous_image_tags・↻ の再描画タグが
@@ -6367,6 +6472,17 @@ The objective must name a concrete target and an observable end condition that c
                 turn_context["item_action"] = item_action
             if item_resolution is not None:
                 turn_context["item_resolution"] = item_resolution
+        # 改変の代償。未解決分を毎手番渡し、改変が確定した手番は新たな代償を求める。
+        # エピローグでは結末が確定済みのため発生させない
+        cost_enabled = reality_cost_enabled(state)
+        reality_cost_source: str | None = None
+        if cost_enabled:
+            turn_context["active_reality_costs"] = reality_costs_for_llm(state)
+            if not epilogue and (
+                input_kind == "reality_alter" or declared_this_turn is not None
+            ):
+                reality_cost_source = declared_this_turn or user_input
+                turn_context["reality_cost_due"] = True
         visual_turn_context = {
             **turn_context,
             "authored_visual_style": _template_visual_style(template),
@@ -6394,6 +6510,8 @@ The objective must name a concrete target and an observable end condition that c
             outfit_options=list(outfit_options or []) if script_names else [],
             inventory_enabled=enabled,
             item_resolution=item_resolution,
+            reality_cost_enabled=cost_enabled,
+            reality_cost_source=reality_cost_source,
             identity_tags=str(state.get("identity_tags") or ""),
             partner_identity_tags=str(state.get("partner_identity_tags") or "")
             if romance_sim is not None
@@ -7936,6 +8054,14 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 for entry in state_delta.get("world_events_applied") or []
                 if isinstance(entry, dict)
             ]
+        # 改変の代償: この手番確定時点の一覧と、この手番で発生・解決したもの
+        if "reality_costs" in state_delta:
+            result["reality_costs"] = public_reality_costs(state_delta)
+            result["reality_costs_applied"] = [
+                entry
+                for entry in state_delta.get("reality_costs_applied") or []
+                if isinstance(entry, dict)
+            ]
         # romance ではターン確定時点の公開シミュ状態と攻略対象の様子を返す。
         # state_delta は当該ターン適用後の全 state のため、隠し好みは
         # public_sim_view で除外する
@@ -8002,6 +8128,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         companion_mode: bool | None = None,
         companion_avatar_id: str | None = None,
         inventory_enabled: bool | None = None,
+        reality_cost_enabled: bool | None = None,
     ) -> dict[str, Any]:
         """実行中シナリオの画像設定と口調を更新する（次の手番から反映）。
 
@@ -8052,6 +8179,12 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                     state.get("inventory"), dict
                 ):
                     state["inventory"] = init_inventory_state()
+            # 改変の代償。作品シナリオでは無視する。OFF にしても代償の記録は残し、
+            # OFF の間は発生・結末への影響を止める
+            if reality_cost_enabled is not None and not state.get(
+                "scenario_template_id"
+            ):
+                state["reality_cost_enabled"] = bool(reality_cost_enabled)
             async with async_session_factory() as db:
                 persisted = await db.get(AdventureRun, run.id)
                 if persisted is None:
@@ -8104,6 +8237,38 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             state["pending_reality_rules"] = [
                 rule for rule in pending if rule in normalized
             ]
+            async with async_session_factory() as db:
+                persisted = await db.get(AdventureRun, run.id)
+                if persisted is None:
+                    raise AdventureError(
+                        "run_not_found", "アドベンチャーが見つかりません"
+                    )
+                persisted.state_json = json.dumps(state, ensure_ascii=False)
+                persisted.updated_at = datetime.now()
+                await db.commit()
+            turns = sorted(run.turns, key=lambda item: item.turn_number)
+            run.state_json = json.dumps(state, ensure_ascii=False)
+            return self._serialize_run(run, turns)
+
+    async def pay_reality_cost(self, run_id: str, cost_id: str) -> dict[str, Any]:
+        """romance の代償(請求)を所持金から支払う(手番は消費しない)。
+
+        update_reality_rules と同じく state だけを書き換える。巻き戻しは対象手番の
+        スナップショットを復元するため、その手番より後の支払いは巻き戻しで失われる。
+        """
+        async with self._run_locks[run_id]:
+            run = await self.get_run_orm(run_id, with_turns=True)
+            state = _json_load(run.state_json, {})
+            if run.status != "active" or state.get("epilogue"):
+                raise AdventureError("run_completed", "このシナリオは終了しています")
+            if not reality_cost_enabled(state):
+                raise AdventureError(
+                    "reality_cost_disabled", "改変の代償が無効になっています"
+                )
+            try:
+                pay_reality_bill(state, cost_id, turn_number=run.turn_count)
+            except RealityCostError as error:
+                raise AdventureError(error.code, str(error)) from error
             async with async_session_factory() as db:
                 persisted = await db.get(AdventureRun, run.id)
                 if persisted is None:
@@ -8183,6 +8348,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                     script_names=contexts.script_names,
                     wardrobe=bool(contexts.outfit_options),
                     inventory=contexts.inventory_enabled,
+                    reality_cost=contexts.reality_cost_enabled,
                 ),
                 "user": turn_user_prompt,
             },
@@ -8199,6 +8365,8 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                     inventory=contexts.inventory_enabled,
                     reality_patch=contexts.input_kind == "reality_alter",
                     work=contexts.input_kind == "work",
+                    reality_cost=contexts.reality_cost_enabled,
+                    reality_cost_due=contexts.reality_cost_source is not None,
                 ),
                 "user": turn_user_prompt,
             },
@@ -8433,6 +8601,11 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             else None,
             "npc_states": public_npc_states(state)
             if state.get("inventory_enabled")
+            else None,
+            # 改変の代償。一度も ON にしていない run は null
+            "reality_cost_enabled": reality_cost_enabled(state),
+            "reality_costs": public_reality_costs(state)
+            if "reality_costs" in state or reality_cost_enabled(state)
             else None,
             "turns": serialized_turns,
             "created_at": run.created_at.isoformat() if run.created_at else None,

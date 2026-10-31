@@ -49,6 +49,8 @@ export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
     setError,
     state: gameState,
     setSelfMode,
+    setRequestMode,
+    generateRequest,
   } = useGame();
 
   // キャラクター一覧
@@ -343,6 +345,10 @@ export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
           selectedCharacter,
           sessionData.image_path,
         );
+        // 依頼モード: 開始を待たせず、依頼カードのスピナーを出しながら生成する
+        if (gameState.requestMode && !gameState.selfMode) {
+          void generateRequest(sessionData.session_id);
+        }
 
         onSessionStart?.();
       }
@@ -575,9 +581,10 @@ export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
         <label className="welcome-screen__self-mode-label">
           <input
             type="checkbox"
+            role="switch"
             checked={gameState.selfMode}
             onChange={(e) => setSelfMode(e.target.checked)}
-            className="welcome-screen__self-mode-checkbox"
+            className="welcome-screen__self-mode-checkbox welcome-screen__switch"
           />
           <span>{t("chat.welcome.selfMode")}</span>
         </label>
@@ -593,6 +600,28 @@ export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
             >
               {t("chat.welcome.selfModeGoSettings")}
             </Link>
+          </p>
+        )}
+      </div>
+
+      {/* 依頼モード(既定 OFF)。自分自身モードでは効かないが、隠さず理由を示す */}
+      <div className="welcome-screen__request-mode">
+        <label className="welcome-screen__request-mode-label">
+          <input
+            type="checkbox"
+            role="switch"
+            checked={gameState.requestMode}
+            onChange={(e) => setRequestMode(e.target.checked)}
+            className="welcome-screen__switch"
+          />
+          <span>{t("chat.request.mode")}</span>
+        </label>
+        <p className="welcome-screen__request-mode-desc">
+          {t("chat.request.modeDescription")}
+        </p>
+        {gameState.requestMode && gameState.selfMode && (
+          <p className="welcome-screen__self-mode-warning">
+            {t("chat.request.modeNoopSelf")}
           </p>
         )}
       </div>
