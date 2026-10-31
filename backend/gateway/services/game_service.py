@@ -31,6 +31,7 @@ from ..consts.novelai_models import (
 )
 from ..consts.play_limits import REALITY_ATTRIBUTE_PREFIX
 from ..consts.prompt_expander import MAX_CHARACTER_PROMPTS_V45, max_character_prompts
+from ..consts.session_request import REQUEST_EVALUATION_FAILED
 from ..databases.base import async_session_factory
 from ..databases.character_repo import (
     fetch_latest_character_states,
@@ -152,6 +153,7 @@ from .session_request_service import (
     feeling_context,
     is_fulfilled,
     session_request_service,
+    turns_remaining,
 )
 from .settings_service import settings_service
 from .tag_classifier import TransformationTags
@@ -3022,6 +3024,23 @@ class GameService:
         request = ctx.request
         is_reality = request.is_reality
 
+        # 依頼モード: 施術の手数を使い切っていたら、画像生成や LLM を呼ぶ前に止める
+        # (自分自身モードは対象外)
+        session_request = (
+            None
+            if ctx.session.self_mode
+            else await session_store.get_session_request(ctx.session.id)
+        )
+        if session_request is not None:
+            remaining = turns_remaining(
+                session_request,
+                await session_store.get_request_evaluations(ctx.session.id),
+            )
+            if remaining is not None and remaining <= 0:
+                raise GameServiceError(
+                    "施術の手数を使い切りました", code="request_turn_limit"
+                )
+
         # 現在のstatsを取得 (T059: 開花度ベースの心理段階)
         current_stats = await session_store.get_or_create_session_stats(ctx.session.id)
         current_bloom = current_stats.bloom
@@ -3178,11 +3197,8 @@ class GameService:
             "observed_changes": observed_changes,
         }
         # 依頼モード: 主人公の姿が変わる手番だけ評価する(自分自身モードは対象外)
-        session_request = (
-            await session_store.get_session_request(ctx.session.id)
-            if targets.protagonist and not ctx.session.self_mode
-            else None
-        )
+        if not targets.protagonist:
+            session_request = None
         request_turn = _RequestTurnState()
         text_stream = (
             self._request_feeling_stream(
@@ -3217,6 +3233,11 @@ class GameService:
         tags = await resolve_tags(ctx.original_instruction)
         stats_updates = self._advance_character_stats(ctx, targets, sections, tags)
 
+        # 依頼モード: 評価に失敗した手番も手数に数えるため、失敗の印を残す
+        stored_evaluation = request_turn.evaluation
+        if session_request is not None and stored_evaluation is None:
+            stored_evaluation = dict(REQUEST_EVALUATION_FAILED)
+
         # 5. 履歴に追加
         history = await session_store.add_history(
             session_id=ctx.session.id,
@@ -3230,7 +3251,7 @@ class GameService:
             character_states=await self._character_states_for_history(
                 ctx, sections, payload.api_characters, stats_updates=stats_updates
             ),
-            request_evaluation=request_turn.evaluation,
+            request_evaluation=stored_evaluation,
         )
 
         # FR-010: 主人公の行が無ければ作り、名前を合わせる（姿は履歴に残した）
@@ -3256,7 +3277,7 @@ class GameService:
             tags=tags,
             targets=targets,
             session_request=session_request,
-            request_evaluation=request_turn.evaluation,
+            request_evaluation=stored_evaluation,
         )
         async for event in self._stream_post_turn_events(ctx, cost, outcome):
             yield event
@@ -3725,6 +3746,13 @@ class GameService:
             instruction=ctx.original_instruction,
             language=ctx.language,
             novelai_model=ctx.novelai_text_model,
+            # Opus 以外では変身後の説明がこの手番の指示しか書いていないため、
+            # 画像から読んだ手番前の姿を一緒に渡し、前の手番までの装いも判定に含める
+            previous_look=None
+            if ctx.is_novelai_opus
+            else str(feeling_kwargs.get("before_desc") or ""),
+            # Opus の姿はタグ列。根拠をタグ単位で照合する
+            look_is_tags=ctx.is_novelai_opus,
         )
         # 頼んでいない体の変化への反応は「TSFへの態度」に従わせる。人物パネルの主人公の
         # 設定を優先し、無ければテンプレート / カスタム画像のキャラクターの設定、

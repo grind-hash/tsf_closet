@@ -14,7 +14,10 @@ import {
   type PromptExpanderEntry,
   promptExpanderImageUrl,
 } from "../../apis/promptExpander";
-import { TSF_ATTITUDE_MAX_LENGTH } from "../../constants/playLimits";
+import {
+  REQUEST_TURN_LIMIT_CHOICES,
+  TSF_ATTITUDE_MAX_LENGTH,
+} from "../../constants/playLimits";
 import { useGame } from "../../contexts/GameContext";
 import { useSettings } from "../../contexts/SettingsContext";
 import { ROUTES } from "../../routes";
@@ -52,6 +55,7 @@ export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
     state: gameState,
     setSelfMode,
     setRequestMode,
+    setRequestTurnLimit,
     generateRequest,
   } = useGame();
 
@@ -352,7 +356,9 @@ export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
         );
         // 依頼モード: 開始を待たせず、依頼カードのスピナーを出しながら生成する
         if (gameState.requestMode && !gameState.selfMode) {
-          void generateRequest(sessionData.session_id);
+          void generateRequest(sessionData.session_id, {
+            turnLimit: gameState.requestTurnLimit,
+          });
         }
 
         onSessionStart?.();
@@ -649,6 +655,36 @@ export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
         <p className="welcome-screen__request-mode-desc">
           {t("chat.request.modeDescription")}
         </p>
+        {/* 施術の手数。依頼モードを OFF にしていても隠さず、何に効くかを文言で示す */}
+        <div className="welcome-screen__request-turns">
+          <span id="welcome-request-turns-label">
+            {t("chat.request.turnLimitLabel")}
+          </span>
+          <div
+            className="welcome-screen__segments"
+            role="group"
+            aria-labelledby="welcome-request-turns-label"
+          >
+            {REQUEST_TURN_LIMIT_CHOICES.map((value) => (
+              <button
+                key={value ?? "none"}
+                type="button"
+                className={
+                  gameState.requestTurnLimit === value ? "is-active" : undefined
+                }
+                aria-pressed={gameState.requestTurnLimit === value}
+                onClick={() => setRequestTurnLimit(value)}
+              >
+                {value === null
+                  ? t("chat.request.turnLimitNone")
+                  : t("chat.request.turnLimitValue", { count: value })}
+              </button>
+            ))}
+          </div>
+          <p className="welcome-screen__request-mode-desc">
+            {t("chat.request.turnLimitHint")}
+          </p>
+        </div>
         {gameState.requestMode && gameState.selfMode && (
           <p className="welcome-screen__self-mode-warning">
             {t("chat.request.modeNoopSelf")}

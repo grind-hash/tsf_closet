@@ -61,6 +61,7 @@ import {
 } from "../apis/characters";
 import {
   addSessionAttribute as apiAddSessionAttribute,
+  askSessionRequestQuestion as apiAskSessionRequestQuestion,
   branchSessionFromHistory as apiBranchSessionFromHistory,
   createSessionRequest as apiCreateSessionRequest,
   deleteActiveSession as apiDeleteActiveSession,
@@ -102,6 +103,8 @@ interface GameState {
   playMemory: PlayMemoryState;
   /** 開始画面の「依頼モード」。次に開始するセッションで依頼を作るか */
   requestMode: boolean;
+  /** 開始画面で選んだ施術の手数の上限。null は上限なし */
+  requestTurnLimit: number | null;
   /** 依頼モードの依頼。依頼の無いセッションは null */
   request: SessionRequestView | null;
   /** 依頼を生成中か */
@@ -137,6 +140,7 @@ type GameAction =
       };
     }
   | { type: "SET_REQUEST_MODE"; payload: boolean }
+  | { type: "SET_REQUEST_TURN_LIMIT"; payload: number | null }
   | { type: "SET_REQUEST"; payload: SessionRequestView | null }
   | {
       type: "SET_REQUEST_GENERATING";
@@ -205,6 +209,7 @@ const defaultState: GameState = {
     systemUpdatedAt: null,
   },
   requestMode: false,
+  requestTurnLimit: null,
   request: null,
   requestGenerating: false,
   requestError: null,
@@ -259,6 +264,8 @@ function gameReducer(state: GameState, action: GameAction): GameState {
       };
     case "SET_REQUEST_MODE":
       return { ...state, requestMode: action.payload };
+    case "SET_REQUEST_TURN_LIMIT":
+      return { ...state, requestTurnLimit: action.payload };
     case "SET_REQUEST":
       return {
         ...state,
@@ -470,11 +477,18 @@ interface GameContextType {
   setSelfMode: (selfMode: boolean) => void;
   /** 開始画面の「依頼モード」を切り替える */
   setRequestMode: (requestMode: boolean) => void;
+  /** 開始画面の「施術の手数」を選ぶ。null は上限なし */
+  setRequestTurnLimit: (turnLimit: number | null) => void;
   /**
    * 依頼を生成する(最初の着せ替えの前なら作り直し)。開始直後は state の
-   * sessionId がまだ古いので、対象のセッション ID を明示して渡す
+   * sessionId がまだ古いので、対象のセッション ID と手数の上限を明示して渡す
    */
-  generateRequest: (sessionId: string) => Promise<void>;
+  generateRequest: (
+    sessionId: string,
+    limits: { turnLimit: number | null; questionLimit?: number },
+  ) => Promise<void>;
+  /** カウンセリングの質問をする。失敗したら投げる(入力欄の文字を残すため) */
+  askRequestQuestion: (question: string) => Promise<void>;
   /** 手番の評価(SSE)で届いた依頼を反映する */
   applyRequestView: (request: SessionRequestView) => void;
   setConversationHistory: (history: ConversationMessage[]) => void;
@@ -1033,8 +1047,15 @@ export function GameProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "SET_REQUEST_MODE", payload: requestMode });
   }, []);
 
+  const setRequestTurnLimit = useCallback((turnLimit: number | null) => {
+    dispatch({ type: "SET_REQUEST_TURN_LIMIT", payload: turnLimit });
+  }, []);
+
   const generateRequest = useCallback(
-    async (sessionId: string) => {
+    async (
+      sessionId: string,
+      limits: { turnLimit: number | null; questionLimit?: number },
+    ) => {
       dispatch({
         type: "SET_REQUEST_GENERATING",
         payload: { generating: true },
@@ -1043,6 +1064,12 @@ export function GameProvider({ children }: { children: ReactNode }) {
         const data = await apiCreateSessionRequest(
           sessionId,
           settingsState.language,
+          {
+            turn_limit: limits.turnLimit,
+            ...(limits.questionLimit !== undefined
+              ? { question_limit: limits.questionLimit }
+              : {}),
+          },
         );
         if (data.cost_usd) addTotalCost(data.cost_usd);
         dispatch({ type: "SET_REQUEST", payload: data.request });
@@ -1060,6 +1087,20 @@ export function GameProvider({ children }: { children: ReactNode }) {
       }
     },
     [addTotalCost, settingsState.language, t],
+  );
+
+  const askRequestQuestion = useCallback(
+    async (question: string) => {
+      if (!state.sessionId) return;
+      const data = await apiAskSessionRequestQuestion(
+        state.sessionId,
+        question,
+        settingsState.language,
+      );
+      if (data.cost_usd) addTotalCost(data.cost_usd);
+      dispatch({ type: "SET_REQUEST", payload: data.request });
+    },
+    [addTotalCost, settingsState.language, state.sessionId],
   );
 
   const applyRequestView = useCallback((request: SessionRequestView) => {
@@ -1353,7 +1394,9 @@ export function GameProvider({ children }: { children: ReactNode }) {
       setAttributes,
       setSelfMode,
       setRequestMode,
+      setRequestTurnLimit,
       generateRequest,
+      askRequestQuestion,
       applyRequestView,
       setConversationHistory,
       appendFeelingText,
@@ -1404,7 +1447,9 @@ export function GameProvider({ children }: { children: ReactNode }) {
       setAttributes,
       setSelfMode,
       setRequestMode,
+      setRequestTurnLimit,
       generateRequest,
+      askRequestQuestion,
       applyRequestView,
       setConversationHistory,
       appendFeelingText,

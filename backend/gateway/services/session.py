@@ -558,6 +558,10 @@ class DatabaseSessionStore:
             preferences = json.loads(row.preferences_json or "[]")
         except (TypeError, ValueError):
             preferences = []
+        try:
+            questions = json.loads(row.questions_json or "[]")
+        except (TypeError, ValueError):
+            questions = []
         return {
             "session_id": row.session_id,
             "wish": row.wish_text,
@@ -565,6 +569,9 @@ class DatabaseSessionStore:
             "language": row.language,
             "status": row.status,
             "fulfilled_history_id": row.fulfilled_history_id,
+            "turn_limit": row.turn_limit,
+            "question_limit": int(row.question_limit or 0),
+            "questions": [item for item in questions if isinstance(item, dict)],
         }
 
     async def get_session_request(self, session_id: str) -> dict | None:
@@ -580,8 +587,10 @@ class DatabaseSessionStore:
         wish: str,
         preferences: list[dict],
         language: str,
+        turn_limit: int | None = None,
+        question_limit: int = 2,
     ) -> dict:
-        """依頼を作成する。既にあれば作り直し、達成状態も初期化する。"""
+        """依頼を作成する。既にあれば作り直し、達成状態と質問のやり取りも初期化する。"""
         now = datetime.now()
         async with async_session_factory() as db_session:
             row = await db_session.get(SessionRequestORM, session_id)
@@ -591,6 +600,9 @@ class DatabaseSessionStore:
             row.wish_text = wish
             row.preferences_json = json.dumps(preferences, ensure_ascii=False)
             row.language = language
+            row.turn_limit = turn_limit
+            row.question_limit = question_limit
+            row.questions_json = "[]"
             row.status = "active"
             row.fulfilled_history_id = None
             row.updated_at = now
@@ -616,6 +628,22 @@ class DatabaseSessionStore:
                 )
             )
             await db_session.commit()
+
+    async def append_request_question(
+        self, session_id: str, *, question: str, answer: str
+    ) -> dict | None:
+        """カウンセリングのやり取りを1件足して依頼を返す。依頼が無ければ None。"""
+        async with async_session_factory() as db_session:
+            row = await db_session.get(SessionRequestORM, session_id)
+            if row is None:
+                return None
+            questions = self._request_to_dict(row)["questions"]
+            questions.append({"question": question, "answer": answer})
+            row.questions_json = json.dumps(questions, ensure_ascii=False)
+            row.updated_at = datetime.now()
+            await db_session.commit()
+            await db_session.refresh(row)
+            return self._request_to_dict(row)
 
     async def get_protagonist_profile(self, session_id: str) -> dict | None:
         """人物パネルの主人公の性格プロフィール。主人公の行や設定が無ければ None。"""

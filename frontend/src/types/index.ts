@@ -621,6 +621,26 @@ export interface SessionRequestView {
   hint: string;
   preferences: SessionRequestPreference[];
   evaluated_turns: number;
+  /** 施術の手数の上限。null は上限なし */
+  turn_limit: number | null;
+  /** 使った手数(評価に失敗した手番も含む) */
+  turns_used: number;
+  /** 残りの手数。null は上限なし */
+  turns_remaining: number | null;
+  /** カウンセリングで質問できる回数と、そのやり取り */
+  question_limit: number;
+  questions: SessionRequestQuestion[];
+  questions_remaining: number;
+  /** 最新の手番で、カウンセリングの答えを汲んだことによる加点 */
+  listening_bonus: number;
   /** 依頼を作り直せるか(最初の着せ替えの前だけ) */
   can_regenerate: boolean;
+}
+
+/** カウンセリングのやり取り1件 */
+export interface SessionRequestQuestion {
+  question: string;
+  answer: string;
+  /** 最新の手番の姿がこの答えを汲んでいるか(加点の対象) */
+  reflected: boolean;
 }

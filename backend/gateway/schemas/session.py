@@ -6,6 +6,12 @@ from pydantic import BaseModel, Field
 
 from ..consts.character_profile import PROFILE_TSF_ATTITUDE_MAX_LEN
 from ..consts.play_limits import ATTRIBUTE_TEXT_MAX_LENGTH
+from ..consts.session_request import (
+    REQUEST_QUESTION_LIMIT_DEFAULT,
+    REQUEST_QUESTION_LIMIT_MAX,
+    REQUEST_QUESTION_MAX,
+    REQUEST_TURN_LIMIT_MAX,
+)
 from .conversation import ConversationMessageResponse
 from .parameters import SessionStatsResponse
 
@@ -98,6 +104,14 @@ class RequestPreferenceResponse(BaseModel):
     met: bool = Field(False, description="最新の手番で満たしているか")
 
 
+class RequestQuestionResponse(BaseModel):
+    """カウンセリングのやり取り1件"""
+
+    question: str
+    answer: str
+    reflected: bool = Field(False, description="最新の手番の姿がこの答えを汲んでいるか")
+
+
 class SessionRequestResponse(BaseModel):
     """依頼モードの依頼(公開ビュー)"""
 
@@ -109,6 +123,17 @@ class SessionRequestResponse(BaseModel):
     hint: str = Field("", description="最新の手番のヒント")
     preferences: list[RequestPreferenceResponse] = Field(default_factory=list)
     evaluated_turns: int = 0
+    turn_limit: int | None = Field(
+        None, description="施術の手数の上限。null は上限なし"
+    )
+    turns_used: int = Field(0, description="使った手数(評価に失敗した手番も含む)")
+    turns_remaining: int | None = Field(None, description="残りの手数。null は上限なし")
+    question_limit: int = Field(0, description="カウンセリングで質問できる回数")
+    questions: list[RequestQuestionResponse] = Field(default_factory=list)
+    questions_remaining: int = 0
+    listening_bonus: int = Field(
+        0, description="最新の手番のヒアリングの反映による加点"
+    )
     can_regenerate: bool = Field(False, description="作り直せるか(最初の着せ替え前)")
 
 
@@ -116,6 +141,25 @@ class SessionRequestCreateRequest(BaseModel):
     """依頼を生成(作り直し)するリクエスト"""
 
     language: str | None = Field(None, description="依頼の言語。未指定はユーザー設定")
+    turn_limit: int | None = Field(
+        None,
+        ge=1,
+        le=REQUEST_TURN_LIMIT_MAX,
+        description="施術の手数の上限。null は上限なし",
+    )
+    question_limit: int = Field(
+        REQUEST_QUESTION_LIMIT_DEFAULT,
+        ge=0,
+        le=REQUEST_QUESTION_LIMIT_MAX,
+        description="カウンセリングで質問できる回数",
+    )
+
+
+class SessionRequestQuestionRequest(BaseModel):
+    """カウンセリングの質問"""
+
+    question: str = Field(..., min_length=1, max_length=REQUEST_QUESTION_MAX)
+    language: str | None = Field(None, description="答えの言語。未指定はユーザー設定")
 
 
 class SessionRequestCreateResponse(BaseModel):

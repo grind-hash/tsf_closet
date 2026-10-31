@@ -1684,6 +1684,14 @@ Adult content tags are allowed.
 ```
 JSON only. No explanation or preamble."""
 
+# 指示の修飾語(色の濃淡・丈・素材・飾りの位置)がタグ変換で落ちると、指示どおりに
+# 頼んでも画像にも依頼の評価にも反映されない。曖昧な日本語の言い回しも対応するタグへ写させる
+OUTFIT_MODIFIER_RULE = """
+- **MODIFIER RULE**: Keep every modifier the instruction gives for clothing and accessories as explicit tags. Never drop a modifier, and never fall back to the previous prompt's color, length, or material when the instruction changes or refines it.
+  - Color tone: soft, gentle, pale, or light (優しい, 柔らかい, 淡い, パステル) → pastel colors plus pale <color> or light <color> (e.g. 優しい青色 → pale blue dress, pastel colors); deep or dark (濃い, 深い) → dark <color>; vivid (鮮やか) → vivid colors.
+  - Length: mini or above the knee (ミニ, 膝上) → short dress or miniskirt; knee-length (膝丈) → knee-length dress or knee-length skirt; long or floor-length (ロング, 床まで) → long dress or floor-length dress.
+  - Material, pattern, and decoration (lace, satin, tulle, polka dots, frills, ribbons, bows), and where an accessory sits (hair ribbon, hair bow, choker)."""
+
 NOVELAI_PROMPT_GENERATION_USER_TEMPLATE = """Previous prompt: {previous_prompt}
 
 User instruction: {instruction}
@@ -1726,6 +1734,9 @@ def get_novelai_prompt_generation_system(
         base = NOVELAI_PROMPT_GENERATION_SYSTEM_NSFW
     else:
         base = NOVELAI_PROMPT_GENERATION_SYSTEM
+    base = base.replace(
+        "\n## Output Format", OUTFIT_MODIFIER_RULE + "\n\n## Output Format"
+    )
 
     if suppress_gender_discomfort_cues:
         # "appropriate for the outfit" が shy/sexy に寄るのを上書き

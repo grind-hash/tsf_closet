@@ -381,9 +381,22 @@ export interface CreateSessionRequestResponse {
 export async function createSessionRequest(
   sessionId: string,
   language: string,
+  limits: { turn_limit: number | null; question_limit?: number },
 ): Promise<CreateSessionRequestResponse> {
   return requestJson<CreateSessionRequestResponse>(
     `${API_BASE}/game/sessions/${sessionId}/request`,
-    jsonInit("POST", { language }),
+    jsonInit("POST", { language, ...limits }),
+  );
+}
+
+/** 依頼モード: カウンセリングの質問に、依頼主本人が答える */
+export async function askSessionRequestQuestion(
+  sessionId: string,
+  question: string,
+  language: string,
+): Promise<CreateSessionRequestResponse> {
+  return requestJson<CreateSessionRequestResponse>(
+    `${API_BASE}/game/sessions/${sessionId}/request/questions`,
+    jsonInit("POST", { question, language }),
   );
 }

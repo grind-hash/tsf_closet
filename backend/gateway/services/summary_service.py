@@ -77,10 +77,13 @@ class SummaryService:
         user_prompt = build_summary_user_prompt(timeline_data, language)
         request = await session_store.get_session_request(session_id)
         if request is not None:
-            evaluations = await session_store.get_request_evaluations(session_id)
-            satisfaction = (
-                int(evaluations[-1].get("satisfaction") or 0) if evaluations else 0
-            )
+            # 評価に失敗した手番(失敗の印)は満足度を持たないので除く
+            scored = [
+                item
+                for item in await session_store.get_request_evaluations(session_id)
+                if not item.get("failed")
+            ]
+            satisfaction = int(scored[-1].get("satisfaction") or 0) if scored else 0
             user_prompt += build_summary_request_note(
                 request,
                 satisfaction,

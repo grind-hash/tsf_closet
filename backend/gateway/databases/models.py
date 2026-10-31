@@ -605,6 +605,15 @@ class SessionRequest(Base):
     # [{id, text, hint}]。text はフロントへ送らない(満たされた分だけ開示する)
     preferences_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     language: Mapped[str] = mapped_column(String, nullable=False, default="ja")
+    # 施術の手数の上限。None は上限なし。使った手数は履歴の評価済み手番から数える
+    turn_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # カウンセリングで質問できる回数と、そのやり取り [{question, answer}]
+    question_limit: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=2, server_default="2"
+    )
+    questions_json: Mapped[str] = mapped_column(
+        Text, nullable=False, default="[]", server_default="[]"
+    )
     # active / fulfilled。一度満たしたら fulfilled のまま(後の手番で下がっても戻さない)
     status: Mapped[str] = mapped_column(String, nullable=False, default="active")
     fulfilled_history_id: Mapped[str | None] = mapped_column(String, nullable=True)

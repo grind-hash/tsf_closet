@@ -226,6 +226,54 @@
   color: var(--text-color, #eee);
 }
 
+/* 依頼モードの施術の手数(セグメント型) */
+.welcome-screen__request-turns {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0.6rem 0 0 calc(44px + 0.5rem);
+  font-size: 0.85rem;
+}
+
+.welcome-screen__request-turns .welcome-screen__request-mode-desc {
+  margin: 0;
+}
+
+.welcome-screen__segments {
+  display: grid;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  max-width: 320px;
+  border: 1px solid var(--border-color, #333);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.welcome-screen__segments button {
+  min-height: 32px;
+  padding: 0.3rem 0.5rem;
+  border: none;
+  border-left: 1px solid var(--border-color, #333);
+  background: transparent;
+  color: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.welcome-screen__segments button:first-child {
+  border-left: none;
+}
+
+.welcome-screen__segments button.is-active {
+  background: var(--accent-color, #e94560);
+  color: white;
+  font-weight: 700;
+}
+
+.welcome-screen__segments button:focus-visible {
+  outline: 2px solid var(--accent-color, #e94560);
+  outline-offset: -2px;
+}
+
 /* TSF への態度: 入力欄と、使い道を示す注記で 1 行を占める */
 .welcome-screen__tsf-attitude {
   grid-column: 1 / -1;

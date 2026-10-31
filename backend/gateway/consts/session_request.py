@@ -23,5 +23,20 @@ REQUEST_FIT_SCORES: dict[str, int] = {
     "perfect": 60,
 }
 REQUEST_PREFERENCES_SCORE: int = 40
-# この満足度に初めて達した手番で依頼達成とする
-REQUEST_FULFILL_THRESHOLD: int = 80
+# この満足度に初めて達した手番で依頼達成とする。LLM の判定は曖昧なので、好みを全部
+# 満たさなくても、ヒアリングを活かせば届く水準にする
+REQUEST_FULFILL_THRESHOLD: int = 70
+# ヒアリングの反映: カウンセリングの答えを汲んだ姿への加点(1件ごと・上限)
+REQUEST_LISTENING_BONUS_PER_ANSWER: int = 10
+REQUEST_LISTENING_BONUS_MAX: int = 20
+
+# 施術の手数の上限。None(上限なし)のほか、この範囲で依頼ごとに決める
+REQUEST_TURN_LIMIT_MAX: int = 20
+# カウンセリングで質問できる回数(既定と上限)と、質問・答えの長さ
+REQUEST_QUESTION_LIMIT_DEFAULT: int = 2
+REQUEST_QUESTION_LIMIT_MAX: int = 5
+REQUEST_QUESTION_MAX: int = 200
+REQUEST_ANSWER_MAX: int = 200
+
+# 評価に失敗した手番も手数として数えるため、履歴へこの印を残す(満足度には使わない)
+REQUEST_EVALUATION_FAILED: dict[str, bool] = {"failed": True}

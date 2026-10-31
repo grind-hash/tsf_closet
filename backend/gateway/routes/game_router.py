@@ -47,6 +47,7 @@ from ..schemas.session import (
     SessionListResponse,
     SessionRequestCreateRequest,
     SessionRequestCreateResponse,
+    SessionRequestQuestionRequest,
     SessionRequestResponse,
     SessionResetResponse,
     SessionResponse,
@@ -618,11 +619,47 @@ async def create_session_request(
     language = normalize_language(request.language or user_settings.get("language"))
     try:
         view, cost_usd = await session_request_service.create_request(
-            session_id, language=language
+            session_id,
+            language=language,
+            turn_limit=request.turn_limit,
+            question_limit=request.question_limit,
         )
     except SessionRequestError as error:
         raise HTTPException(
             status_code=404 if error.code == "session_not_found" else 400,
+            detail={"error": error.code, "message": str(error)},
+        ) from error
+    return SessionRequestCreateResponse(
+        request=SessionRequestResponse(**view), cost_usd=cost_usd or None
+    )
+
+
+@router.post(
+    "/sessions/{session_id}/request/questions",
+    response_model=SessionRequestCreateResponse,
+    summary="依頼主への質問",
+    description="カウンセリングの質問に依頼主本人が答える。回数は依頼ごとの上限まで",
+    responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+)
+async def ask_session_request_question(
+    session_id: str, request: SessionRequestQuestionRequest
+) -> SessionRequestCreateResponse:
+    from ..services.session_request_service import (
+        SessionRequestError,
+        session_request_service,
+    )
+
+    user_settings = await session_store.get_user_settings()
+    language = normalize_language(request.language or user_settings.get("language"))
+    try:
+        view, cost_usd = await session_request_service.ask_question(
+            session_id, request.question, language=language
+        )
+    except SessionRequestError as error:
+        raise HTTPException(
+            status_code=404
+            if error.code in {"session_not_found", "request_not_found"}
+            else 400,
             detail={"error": error.code, "message": str(error)},
         ) from error
     return SessionRequestCreateResponse(

@@ -40,6 +40,7 @@ class FakeSessionStore:
         transformation_count: int = 2,
         session_request: dict[str, Any] | None = None,
         protagonist_profile: dict[str, Any] | None = None,
+        request_evaluations: list[dict[str, Any]] | None = None,
     ) -> None:
         self.user_settings = user_settings or {
             "nsfw_mode": False,
@@ -55,6 +56,7 @@ class FakeSessionStore:
         self.transformation_count = transformation_count
         self.session_request = session_request
         self.protagonist_profile = protagonist_profile
+        self.request_evaluations = list(request_evaluations or [])
         self.calls: list[tuple[str, dict[str, Any]]] = []
 
     def _record(self, name: str, **kwargs: Any) -> None:
@@ -139,6 +141,9 @@ class FakeSessionStore:
 
     async def get_protagonist_profile(self, session_id):
         return copy.deepcopy(self.protagonist_profile)
+
+    async def get_request_evaluations(self, session_id):
+        return copy.deepcopy(self.request_evaluations)
 
     async def mark_session_request_fulfilled(self, session_id, history_id):
         self._record(
@@ -1010,6 +1015,9 @@ async def test_request_mode_evaluates_before_feeling_and_reports_fulfilment(
     assert (
         evaluate.await_args.kwargs["current_look"] == "赤いドレスに着替えるに変身した姿"
     )
+    # 画像を読むプロバイダーでは、手番前の姿(画像の説明)も評価に渡し、自然文で照合する
+    assert evaluate.await_args.kwargs["previous_look"] == "described image"
+    assert evaluate.await_args.kwargs["look_is_tags"] is False
     feeling_prompt = harness.feeling_calls[0]["user_prompt"]
     assert "舞踏会のお姫様になってみたい" in feeling_prompt
     assert "淡いピンクのドレス" in feeling_prompt
@@ -1032,12 +1040,19 @@ async def test_request_mode_keeps_turn_when_evaluation_fails(monkeypatch) -> Non
         AsyncMock(return_value=None),
     )
 
+    monkeypatch.setattr(
+        gs_module.session_request_service,
+        "get_request_view",
+        AsyncMock(return_value={"wish": _SESSION_REQUEST["wish"]}),
+    )
+
     events = await _run(harness)
 
-    # 評価に失敗した手番は記録も配信もせず、心境には願いだけを添える
-    assert "request_evaluation" not in _types(events)
+    # 評価に失敗しても手番は続け、心境には願いだけを添える。手数として数えるため
+    # 失敗の印を履歴に残し、残り手数を画面へ届ける
     assert "舞踏会のお姫様になってみたい" in harness.feeling_calls[0]["user_prompt"]
-    assert store.calls_of("add_history")[0]["request_evaluation"] is None
+    assert store.calls_of("add_history")[0]["request_evaluation"] == {"failed": True}
+    assert _one(events, "request_evaluation").data["newly_fulfilled"] is False
     assert store.calls_of("mark_session_request_fulfilled") == []
 
 
@@ -1210,3 +1225,42 @@ async def test_custom_character_personality_reaches_action_text(monkeypatch) -> 
         + harness.feeling_calls[0]["user_prompt"]
     )
     assert "気が強いツンデレ" in prompts
+
+
+@pytest.mark.asyncio
+async def test_request_turn_limit_stops_before_generation(monkeypatch) -> None:
+    # 施術の手数を使い切ったら、画像生成も LLM も呼ばずに止める
+    store = FakeSessionStore(
+        session_request={**_SESSION_REQUEST, "turn_limit": 2},
+        request_evaluations=[{"satisfaction": 40}, {"failed": True}],
+    )
+    harness = _build(monkeypatch, store=store)
+    evaluate = AsyncMock(return_value=None)
+    monkeypatch.setattr(gs_module.session_request_service, "evaluate_turn", evaluate)
+
+    events = await _run(harness)
+
+    assert _types(events) == ["error"]
+    assert "施術の手数を使い切りました" in events[0].data["message"]
+    assert harness.image_calls == []
+    assert harness.feeling_calls == []
+    assert evaluate.await_count == 0
+    assert store.calls_of("add_history") == []
+
+
+@pytest.mark.asyncio
+async def test_request_turn_limit_leaves_action_turns_alone(monkeypatch) -> None:
+    # 行動の手番は施術の手数に数えず、上限に達していても行える
+    store = FakeSessionStore(
+        session_request={**_SESSION_REQUEST, "turn_limit": 1},
+        request_evaluations=[{"satisfaction": 40}],
+        latest_history=SimpleNamespace(
+            after_description="current look", feeling_text="", instruction="x"
+        ),
+    )
+    harness = _build(monkeypatch, store=store)
+
+    events = await _run(harness, instruction="街を歩く", instruction_type="action")
+
+    assert "error" not in _types(events)
+    assert store.calls_of("add_history")[0]["instruction_type"] == "action"

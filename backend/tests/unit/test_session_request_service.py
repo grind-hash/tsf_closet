@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
+from typing import Any
 
 import pytest
 from sqlalchemy import update
@@ -28,7 +29,9 @@ from gateway.services.session_request_service import (
     compute_satisfaction,
     evaluation_record,
     feeling_context,
+    grounded_met_ids,
     is_fulfilled,
+    listening_bonus,
     public_request_view,
     session_request_service,
 )
@@ -50,28 +53,100 @@ def test_compute_satisfaction_combines_fit_and_preferences() -> None:
     assert compute_satisfaction("good", 2, 2) >= REQUEST_FULFILL_THRESHOLD
 
 
+_LOOK = (
+    "1boy, solo, short black hair, princess dress, frills, pale pink dress, long dress"
+)
+
+
+def _output(met: list[tuple[str, str]], fit: str = "good", hint: str = "") -> Any:
+    return RequestEvaluationOutput.model_validate(
+        {
+            "fit": fit,
+            "met_preferences": [{"id": i, "evidence": e} for i, e in met],
+            "hint": hint,
+        }
+    )
+
+
 def test_evaluation_record_drops_unknown_ids_and_clears_hint_when_all_met() -> None:
     partial = evaluation_record(
-        RequestEvaluationOutput.model_validate(
-            {"fit": "GOOD", "met_preference_ids": ["p2", "p9"], "hint": "色が気になる"}
-        ),
+        _output([("p1", "pale pink dress"), ("p9", "frills")], fit="GOOD", hint="丈"),
         _PREFERENCES,
+        look_text=_LOOK,
+        look_is_tags=True,
     )
     assert partial == {
         "satisfaction": 60,
         "fit": "good",
-        "met_preference_ids": ["p2"],
-        "hint": "色が気になる",
+        "met_preference_ids": ["p1"],
+        "reflected_answers": [],
+        "listening_bonus": 0,
+        "hint": "丈",
     }
     assert not is_fulfilled(partial)
     complete = evaluation_record(
-        RequestEvaluationOutput.model_validate(
-            {"fit": "good", "met_preference_ids": ["p1", "p2"], "hint": "残り"}
-        ),
+        _output([("p1", "pale pink dress"), ("p2", "long dress")], hint="残り"),
         _PREFERENCES,
+        look_text=_LOOK,
+        look_is_tags=True,
     )
     assert complete["hint"] == ""
     assert is_fulfilled(complete)
+
+
+@pytest.mark.parametrize(
+    ("evidence", "met"),
+    [
+        # 実際の誤判定: 短い髪・タグの一部・説明全体・無関係な服のタグを丈の根拠にした
+        ("short black hair", False),
+        ("short", False),
+        ("short black hair, princess dress, frills, pale pink dress", False),
+        ("princess dress", False),
+        # 丈を表す完全なタグなら認める(強調記号付きでもよい)
+        ("long dress", True),
+        ("{long dress}", True),
+    ],
+)
+def test_grounded_met_ids_rejects_unsupported_length_evidence(evidence, met) -> None:
+    ids = grounded_met_ids(
+        _output([("p2", evidence)]), _PREFERENCES, _LOOK, look_is_tags=True
+    )
+    assert (ids == ["p2"]) is met
+
+
+def test_grounded_met_ids_allows_hair_tags_for_head_accessories() -> None:
+    preferences = [
+        {"id": "p1", "text": "リボンつきのヘッドアクセサリー", "hint": "小物"},
+        {"id": "p2", "text": "淡いパステルカラー", "hint": "色合い"},
+    ]
+    look = "1boy, solo, short black hair, pale blue dress, hair ribbon"
+    ids = grounded_met_ids(
+        _output([("p1", "hair ribbon"), ("p2", "short black hair")]),
+        preferences,
+        look,
+        look_is_tags=True,
+    )
+    # 頭の飾りの好みには髪のタグを使えるが、色の好みに髪のタグは使えない
+    assert ids == ["p1"]
+    # 画像を読むプロバイダーの自然文では、部分一致で照合する
+    natural = grounded_met_ids(
+        _output([("p2", "淡いパステルカラーのドレス")]),
+        preferences,
+        "「淡いパステルカラーのドレスにする」に変身した姿",
+    )
+    assert natural == ["p2"]
+
+
+def test_evaluation_record_falls_back_to_category_hint() -> None:
+    record = evaluation_record(
+        _output([("p1", "pale pink dress")]),
+        _PREFERENCES,
+        look_text=_LOOK,
+        look_is_tags=True,
+        language="ja",
+    )
+    assert record["hint"] == "「丈」のあたりが、まだ少し気になっているようです"
+
     # 語彙外の fit は none に倒す
     assert RequestEvaluationOutput.model_validate({"fit": "great"}).fit == "none"
 
@@ -412,3 +487,277 @@ async def test_create_request_passes_tsf_attitude_with_panel_priority(
         await db.commit()
     await session_request_service.create_request("s1", language="ja")
     assert json.loads(calls[1])["character"]["tsf_attitude"] == "王子様になってみたい"
+
+
+def test_public_request_view_counts_failed_turns_and_questions() -> None:
+    request = {
+        **_REQUEST,
+        "turn_limit": 3,
+        "question_limit": 2,
+        "questions": [{"question": "好きな色は？", "answer": "春の花みたいな色かな"}],
+    }
+    evaluations = [
+        {"satisfaction": 60, "fit": "good", "met_preference_ids": ["p1"]},
+        {"failed": True},
+    ]
+    view = public_request_view(request, evaluations, can_regenerate=False)
+    # 失敗した手番は満足度に使わないが、手数には数える
+    assert view["satisfaction"] == 60
+    assert view["evaluated_turns"] == 1
+    assert view["turns_used"] == 2
+    assert view["turns_remaining"] == 1
+    assert view["questions"] == [
+        {
+            "question": "好きな色は？",
+            "answer": "春の花みたいな色かな",
+            "reflected": False,
+        }
+    ]
+    assert view["questions_remaining"] == 1
+    unlimited = public_request_view(_REQUEST, evaluations, can_regenerate=False)
+    assert unlimited["turn_limit"] is None
+    assert unlimited["turns_remaining"] is None
+    assert unlimited["questions_remaining"] == 0
+
+
+def test_feeling_context_includes_counselling_answers() -> None:
+    request = {
+        **_REQUEST,
+        "questions": [{"question": "好きな色は？", "answer": "春の花みたいな色かな"}],
+    }
+    text = feeling_context(request, None, "ja")
+    assert "カウンセリングで本人が答えたこと" in text
+    assert "「好きな色は？」→「春の花みたいな色かな」" in text
+    assert "What the character said in counselling" in feeling_context(
+        request, None, "en"
+    )
+
+
+@pytest.mark.asyncio
+async def test_create_request_normalizes_limits_and_resets_questions(
+    isolated_db, monkeypatch
+) -> None:
+    await _seed_session(isolated_db.async_factory)
+    _fake_generation(monkeypatch, [_GENERATED])
+
+    view, _ = await session_request_service.create_request(
+        "s1", language="ja", turn_limit=99, question_limit=-1
+    )
+    assert view["turn_limit"] == 20
+    assert view["question_limit"] == 0
+
+    await session_store.append_request_question("s1", question="Q", answer="A")
+    view, _ = await session_request_service.create_request(
+        "s1", language="ja", turn_limit=3, question_limit=None
+    )
+    # 作り直すと質問のやり取りも初期化し、回数は既定に戻る
+    assert view["turn_limit"] == 3
+    assert view["question_limit"] == 2
+    assert view["questions"] == []
+
+
+@pytest.mark.asyncio
+async def test_ask_question_answers_in_character_up_to_the_limit(
+    isolated_db, monkeypatch
+) -> None:
+    await _seed_session(isolated_db.async_factory)
+    await session_store.save_session_request(
+        "s1",
+        wish=_REQUEST["wish"],
+        preferences=_PREFERENCES,
+        language="ja",
+        question_limit=1,
+    )
+    prompts: list[tuple[str, str]] = []
+
+    async def fake(system_prompt: str, user_prompt: str, *, novelai_model):
+        prompts.append((system_prompt, user_prompt))
+        return "「 春に咲く花みたいな、やわらかい色が好きなんだ 」"
+
+    monkeypatch.setattr(request_module, "_generate_text", fake)
+
+    with pytest.raises(SessionRequestError) as empty:
+        await session_request_service.ask_question("s1", "   ", language="ja")
+    assert empty.value.code == "empty_question"
+
+    view, _ = await session_request_service.ask_question(
+        "s1", "好きな色はある？", language="ja"
+    )
+    assert view["questions"] == [
+        {
+            "question": "好きな色はある？",
+            "answer": "春に咲く花みたいな、やわらかい色が好きなんだ",
+            "reflected": False,
+        }
+    ]
+    assert view["questions_remaining"] == 0
+    # 伏せた好みは手掛かりにするため答える側へ渡すが、画面へは本文を送らない
+    payload = json.loads(prompts[0][1])
+    assert payload["hidden_preferences"][0]["text"] == "淡いピンクのドレス"
+    assert payload["stylist_question"] == "好きな色はある？"
+    assert "without ever stating the preference itself" in prompts[0][0]
+    assert all(item["text"] is None for item in view["preferences"])
+
+    with pytest.raises(SessionRequestError) as limit:
+        await session_request_service.ask_question("s1", "もう一つ", language="ja")
+    assert limit.value.code == "request_question_limit"
+
+    with pytest.raises(SessionRequestError) as missing:
+        await session_request_service.ask_question("s9", "質問", language="ja")
+    assert missing.value.code == "session_not_found"
+
+
+def test_evaluation_prompt_requires_evidence_and_previous_look() -> None:
+    from gateway.services.session_request_prompts import build_request_evaluation_prompt
+
+    system, user = build_request_evaluation_prompt(
+        wish="お姫様",
+        preferences=_PREFERENCES,
+        current_look="「リボンを付ける」に変身した姿",
+        instruction="リボンを付ける",
+        language="ja",
+        previous_look="a boy in a pale pink dress",
+    )
+    assert '"met_preferences":[{"id":"p1","evidence":"..."}]' in system
+    assert "a short hairstyle says nothing about the length of a dress" in system
+    assert "judge the look as previous_look updated by that change" in system
+    assert json.loads(user)["previous_look"] == "a boy in a pale pink dress"
+    tags_only, tags_user = build_request_evaluation_prompt(
+        wish="お姫様",
+        preferences=_PREFERENCES,
+        current_look="1boy, pale pink dress",
+        instruction="ピンク",
+        language="ja",
+    )
+    assert "previous_look" not in tags_only and "previous_look" not in tags_user
+
+
+@pytest.mark.asyncio
+async def test_evaluate_turn_strips_worn_under_layers(monkeypatch) -> None:
+    prompts: list[str] = []
+
+    async def fake(system_prompt: str, user_prompt: str, *, novelai_model):
+        prompts.append(user_prompt)
+        return json.dumps(
+            {
+                "fit": "good",
+                "met_preferences": [{"id": "p1", "evidence": "pink lace panties"}],
+            }
+        )
+
+    monkeypatch.setattr(request_module, "_generate_text", fake)
+    record = await session_request_service.evaluate_turn(
+        _REQUEST,
+        current_look="1boy, white dress\n\nWORN_UNDER_LAYERS: pink lace panties",
+        instruction="ドレス",
+        language="ja",
+        novelai_model=None,
+        look_is_tags=True,
+    )
+    # 重ね着の記録(見えない下着)は評価に渡さず、根拠にも使わせない
+    assert "WORN_UNDER_LAYERS" not in prompts[0]
+    assert record["met_preference_ids"] == []
+
+
+_QUESTIONS = [
+    {"question": "何色が好き？", "answer": "桜が咲く頃の空みたいな、柔らかい色かな"},
+    {
+        "question": "どんな気分？",
+        "answer": "なんだか、ふわふわした気持ちになりたいんだ",
+    },
+]
+
+
+def test_listening_bonus_is_capped_and_lowers_the_bar() -> None:
+    assert listening_bonus(0) == 0
+    assert listening_bonus(1) == 10
+    assert listening_bonus(5) == 20
+    # 好みを全部満たさなくても、ヒアリングを汲めば達成ラインに届く
+    assert compute_satisfaction("good", 1, 2) < REQUEST_FULFILL_THRESHOLD
+    assert compute_satisfaction("good", 1, 2, 1) >= REQUEST_FULFILL_THRESHOLD
+    assert compute_satisfaction("perfect", 2, 2, 2) == 100
+
+
+def test_evaluation_record_credits_grounded_counselling_answers() -> None:
+    output = RequestEvaluationOutput.model_validate(
+        {
+            "fit": "good",
+            "met_preferences": [],
+            "reflected_answers": [
+                {"index": 1, "evidence": "pale blue dress"},
+                # 気分の答えに、色の答えと関係ない髪のタグを根拠にしたものは捨てる
+                {"index": 2, "evidence": "short black hair"},
+                {"index": 9, "evidence": "frills"},
+                {"index": "x", "evidence": "frills"},
+            ],
+        }
+    )
+    record = evaluation_record(
+        output,
+        _PREFERENCES,
+        look_text="1boy, short black hair, pale blue dress, frills",
+        look_is_tags=True,
+        questions=_QUESTIONS,
+    )
+    assert record["reflected_answers"] == [1]
+    assert record["listening_bonus"] == 10
+    assert record["satisfaction"] == 50
+    # 色の答えを、色の語が無いタグで裏付けることはできない
+    frills_only = evaluation_record(
+        RequestEvaluationOutput.model_validate(
+            {"fit": "good", "reflected_answers": [{"index": 1, "evidence": "frills"}]}
+        ),
+        _PREFERENCES,
+        look_text="1boy, pale blue dress, frills",
+        look_is_tags=True,
+        questions=_QUESTIONS,
+    )
+    assert frills_only["reflected_answers"] == []
+
+
+def test_public_view_marks_reflected_answers_and_bonus() -> None:
+    request = {**_REQUEST, "question_limit": 2, "questions": _QUESTIONS}
+    view = public_request_view(
+        request,
+        [
+            {
+                "satisfaction": 60,
+                "fit": "good",
+                "met_preference_ids": [],
+                "reflected_answers": [1],
+                "listening_bonus": 10,
+            }
+        ],
+        can_regenerate=False,
+    )
+    assert [item["reflected"] for item in view["questions"]] == [True, False]
+    assert view["listening_bonus"] == 10
+    assert view["threshold"] == REQUEST_FULFILL_THRESHOLD
+
+
+def test_evaluation_prompt_lists_counselling_only_when_asked() -> None:
+    from gateway.services.session_request_prompts import build_request_evaluation_prompt
+
+    system, user = build_request_evaluation_prompt(
+        wish="お姫様",
+        preferences=_PREFERENCES,
+        current_look="1boy, pale blue dress",
+        instruction="青",
+        language="ja",
+        questions=_QUESTIONS,
+    )
+    assert '"reflected_answers":[{"index":1,"evidence":"..."}]' in system
+    assert json.loads(user)["counselling"][0] == {
+        "index": 1,
+        "question": "何色が好き？",
+        "answer": "桜が咲く頃の空みたいな、柔らかい色かな",
+    }
+    plain, plain_user = build_request_evaluation_prompt(
+        wish="お姫様",
+        preferences=_PREFERENCES,
+        current_look="1boy, pale blue dress",
+        instruction="青",
+        language="ja",
+    )
+    assert "reflected_answers" not in plain
+    assert "counselling" not in plain_user

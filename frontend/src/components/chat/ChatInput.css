@@ -339,3 +339,14 @@
     padding: 0.4rem 0.5rem;
   }
 }
+
+/* 依頼モードで施術の手数を使い切ったときの案内 */
+.chat-input__notice {
+  margin: 0 0 0.4rem;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--warning-border, rgba(255, 193, 7, 0.3));
+  border-radius: 6px;
+  color: var(--warning-text, #b8860b);
+  background: var(--warning-bg, rgba(255, 193, 7, 0.1));
+  font-size: 0.82rem;
+}

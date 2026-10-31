@@ -14,3 +14,13 @@ export const ATTRIBUTE_TEXT_MAX_LENGTH =
 
 /** TSF(性転換・変身)への態度の上限(backend の PROFILE_TSF_ATTITUDE_MAX_LEN と揃える) */
 export const TSF_ATTITUDE_MAX_LENGTH = 300;
+
+/** 依頼モードの「施術の手数」の選択肢。null は上限なし(既定) */
+export const REQUEST_TURN_LIMIT_CHOICES: readonly (number | null)[] = [
+  null,
+  3,
+  5,
+];
+
+/** カウンセリングの質問の上限(backend の REQUEST_QUESTION_MAX と揃える) */
+export const REQUEST_QUESTION_MAX_LENGTH = 200;
