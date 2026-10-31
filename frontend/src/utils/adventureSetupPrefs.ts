@@ -23,8 +23,10 @@ export type AdventureSetupPrefs = {
   companionMode: boolean;
   /** 対面会話モードで描く 3D モデル(VRM)の登録 ID。"" は「なし(立ち絵)」 */
   companionAvatarId: string;
-  /** romance の主人公(自分)。テンプレキャラID または __session__。次回にも引き継ぐ */
+  /** romance の主人公(自分)。テンプレキャラID・__session__・__character__。次回にも引き継ぐ */
   romancePlayerCharacterId: string;
+  /** 主人公に「作ったキャラクター」を選んだときのキャラクターID */
+  romancePlayerCharacterPresetId: string;
   /** 主人公を「セッションの姿」にしたときのセッションID */
   romancePlayerSessionId: string;
   /** 主人公に Prompt Expander エントリを選んだときのエントリID */

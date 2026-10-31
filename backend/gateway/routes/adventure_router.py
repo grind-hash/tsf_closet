@@ -53,6 +53,7 @@ async def generate_setup(request: AdventureSetupGenerateRequest) -> dict:
             source_session_id=request.source_session_id,
             source_history_id=request.source_history_id,
             source_prompt_expander_entry_id=request.source_prompt_expander_entry_id,
+            source_character_preset_id=request.source_character_preset_id,
             preset=request.preset,
             max_turns=request.scenario_max_turns,
             draft_setting=request.scenario_setting,
@@ -98,6 +99,10 @@ async def create_run(request: AdventureCreateRequest) -> dict:
             companion_mode=request.companion_mode,
             companion_avatar_id=request.companion_avatar_id,
             inventory_enabled=request.inventory_enabled,
+            source_character_preset_id=request.source_character_preset_id,
+            romance_player_character_preset_id=(
+                request.romance_player_character_preset_id
+            ),
         )
     except AdventureError as error:
         raise _http_error(error) from error

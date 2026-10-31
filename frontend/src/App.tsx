@@ -9,6 +9,7 @@ import AdventureScreen from "./components/adventure/AdventureScreen";
 import { hasApiKeyConsent } from "./components/apiKeyConsentStorage";
 import BgmTestScreen from "./components/bgm/BgmTestScreen";
 import CharacterChatScreen from "./components/characterChat/CharacterChatScreen";
+import CharactersScreen from "./components/characters/CharactersScreen";
 import EndingModal from "./components/EndingModal";
 import EndingsScreen from "./components/endings/EndingsScreen";
 import FavoritePromptHost from "./components/favoritePrompts/FavoritePromptHost";
@@ -119,6 +120,19 @@ function AppRoutes() {
         <CharacterChatScreen />
       </CharacterChatProvider>
     );
+  }
+  // キャラクター（キャラチャットで話すキャラクターの作成・管理）。ゲートはキャラチャットと同じ
+  if (
+    location.pathname === "/characters" ||
+    location.pathname.startsWith("/characters/")
+  ) {
+    if (
+      !settingsState.experimentalCharacterChatEnabled &&
+      !settingsState.adventureEnabled
+    ) {
+      return <Navigate to="/play/new" replace />;
+    }
+    return <CharactersScreen />;
   }
   // Prompt Expander（実験機能）。ゲートは設定画面のトグルで切り替える
   if (location.pathname.startsWith("/prompt-expander")) {

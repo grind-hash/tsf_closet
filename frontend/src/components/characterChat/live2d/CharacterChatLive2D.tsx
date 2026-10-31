@@ -21,8 +21,15 @@ function isPilotCamera(value: string): value is PilotCamera {
 export default function CharacterChatLive2D() {
   const { t } = useTranslation();
   const { showNotification } = useNotification();
-  const { activeThread, sending, pendingInput, error, voice, setAvatarFailed } =
-    useCharacterChat();
+  const {
+    activeThread,
+    sending,
+    pendingInput,
+    error,
+    voice,
+    setAvatarFailed,
+    expressionPreview,
+  } = useCharacterChat();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   // 寄りの構図を収める範囲(メッセージ窓の上端まで)。キャンバスは窓の裏まで伸びる
   const frameRef = useRef<HTMLDivElement>(null);
@@ -40,7 +47,8 @@ export default function CharacterChatLive2D() {
   const message =
     messages.find((item) => `chat:${item.id}` === voice.currentKey) ??
     [...messages].reverse().find((item) => item.role === "character");
-  const expression = message?.meta.expression;
+  // 「表情」メニューで選んだ表情を、返答の表情より優先する
+  const expression = expressionPreview ?? message?.meta.expression;
   const emotion: PilotEmotion = thinking
     ? "thinking"
     : expression === "happy" || expression === "angry" || expression === "sad"

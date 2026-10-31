@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import type { CharacterChatThread } from "../../apis/characterChat";
 import { ROUTES } from "../../routes";
 import { FavoritePromptSaveButton } from "../favoritePrompts/FavoritePromptButtons";
+import CharacterChatCharacterSection from "./CharacterChatCharacterSection";
 
 interface CharacterChatInfoPanelProps {
   thread: CharacterChatThread;
@@ -44,7 +45,9 @@ export default function CharacterChatInfoPanel({
       ? t("characterChat.room.sourcePromptExpander")
       : source.type === "session"
         ? t("characterChat.room.sourceSession")
-        : t("characterChat.room.sourceBase");
+        : source.type === "character"
+          ? t("characterChat.room.sourceCharacter")
+          : t("characterChat.room.sourceBase");
   const avatar = thread.avatar ?? null;
   const avatarSourceLabel =
     avatar?.source === "bundled"
@@ -53,7 +56,9 @@ export default function CharacterChatInfoPanel({
         ? t("characterChat.room.avatarSourceRun")
         : avatar?.source === "registered"
           ? t("characterChat.room.avatarSourceRegistered")
-          : "";
+          : avatar?.source === "character"
+            ? t("characterChat.room.avatarSourceCharacter")
+            : "";
   const avatarLabel = avatar?.url
     ? t("characterChat.room.avatarCurrent", {
         name: avatar.name ?? "",
@@ -85,6 +90,8 @@ export default function CharacterChatInfoPanel({
       <h2 className="character-chat-panel__title">
         {t("characterChat.panel.title")}
       </h2>
+
+      <CharacterChatCharacterSection thread={thread} />
 
       <section className="character-chat-panel__section">
         <h3>{t("characterChat.panel.memory")}</h3>

@@ -16,6 +16,7 @@ from gateway.services.character_chat_models import (
     non_english_tag_parts,
 )
 from gateway.services.character_chat_prompts import (
+    adventure_persona_prompt,
     appearance_change_system_prompt,
     appearance_change_user_prompt,
     base_persona_block,
@@ -178,16 +179,68 @@ def test_reply_system_prompt_length_rule() -> None:
         appearance_description="",
         appearance_change_request=None,
     )
-    default_ja = reply_system_prompt("ja", **common)
-    assert "通常は 1〜4 文" in default_ja
-    relaxed_ja = reply_system_prompt("ja", relaxed_length=True, **common)
+    # 読み上げる手番は、声で聞く長さに収めるため従来の目安のまま
+    spoken_ja = reply_system_prompt("ja", read_aloud=True, **common)
+    assert "通常は 1〜4 文" in spoken_ja
+    relaxed_ja = reply_system_prompt(
+        "ja", relaxed_length=True, read_aloud=True, **common
+    )
     assert "通常は 2〜5 文" in relaxed_ja
     assert "7 文程度まで" in relaxed_ja
     assert "1〜4 文" not in relaxed_ja
-    default_en = reply_system_prompt("en", **common)
-    assert "one to four sentences" in default_en
-    relaxed_en = reply_system_prompt("en", relaxed_length=True, **common)
+    spoken_en = reply_system_prompt("en", read_aloud=True, **common)
+    assert "one to four sentences" in spoken_en
+    relaxed_en = reply_system_prompt(
+        "en", relaxed_length=True, read_aloud=True, **common
+    )
     assert "two to five sentences" in relaxed_en
+
+
+def test_reply_system_prompt_unspoken_reply_is_longer() -> None:
+    common = dict(
+        name="サクラ",
+        pronoun="僕",
+        persona_block="人物設定",
+        memory_block_text="",
+        summary_text=None,
+        lookup_block_text="",
+        appearance_description="",
+        appearance_change_request=None,
+    )
+    # 読み上げない手番(既定)は会話の種類を問わず厚めにする
+    for relaxed in (False, True):
+        ja = reply_system_prompt("ja", relaxed_length=relaxed, **common)
+        assert "通常は 3〜6 文" in ja
+        assert "8 文程度まで" in ja
+        assert "一言や相づちだけで終わらせず" in ja
+        assert "1〜4 文" not in ja
+        assert "2〜5 文" not in ja
+        en = reply_system_prompt("en", relaxed_length=relaxed, **common)
+        assert "three to six sentences" in en
+        assert "one-liner" in en
+        assert "one to four sentences" not in en
+
+
+def test_adventure_persona_prompt_length_follows_read_aloud() -> None:
+    common = dict(
+        partner_name="サクラ",
+        player_name="ユウ",
+        speech_rule="",
+        header_instruction="",
+        context={},
+        memory_block_text="",
+        summary_text=None,
+        lookup_block_text="",
+        chat_appearance_description="",
+        appearance_change_request=None,
+    )
+    spoken = adventure_persona_prompt("ja", read_aloud=True, **common)
+    assert "two to five sentences, up to about seven" in spoken
+    assert "three to six" not in spoken
+    unspoken = adventure_persona_prompt("ja", **common)
+    assert "three to six sentences, up to about eight" in unspoken
+    assert "one-liner" in unspoken
+    assert "two to five" not in unspoken
 
 
 def test_planner_prompt_lists_every_lookup_kind() -> None:

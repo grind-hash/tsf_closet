@@ -9,6 +9,7 @@
  */
 
 import {
+  type MToonMaterial,
   type VRM,
   type VRMHumanBoneName,
   type VRMHumanoid,
@@ -19,12 +20,21 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import {
   AVATAR_EXPRESSION_DEFAULT,
+  AVATAR_FRAMING_DEFAULT,
   AVATAR_GESTURE_DEFAULT,
+  AVATAR_LIGHTING_DEFAULT,
   type AvatarExpressionKey,
+  type AvatarFraming,
   type AvatarGestureKey,
+  type AvatarLightingPreset,
 } from "../../../constants/companionAvatar";
 import type { VisemeFrame } from "../../../utils/visemeTimeline";
 import { smoothLevel } from "../../../utils/voiceLevelMeter";
+import {
+  AVATAR_KEY_LIGHT_DIRECTION,
+  AVATAR_LIGHTING_SPECS,
+  AVATAR_RIM_FRESNEL_POWER,
+} from "./avatarLighting";
 import {
   ARM_REST,
   type ArmChannels,
@@ -67,6 +77,7 @@ import {
   type Vec3,
   ZERO_POSE,
 } from "./avatarMotion";
+import { dropRestPoseColliderOverlaps } from "./springBoneColliders";
 
 export interface VrmAvatarEngineOptions {
   canvas: HTMLCanvasElement;
@@ -77,6 +88,10 @@ export interface VrmAvatarEngineOptions {
   container: HTMLElement;
   /** 待機姿勢の種類。既定は腕を体側へ下ろす relaxed */
   restPose?: AvatarRestPose;
+  /** ライティングの種類。既定は standard */
+  lighting?: AvatarLightingPreset;
+  /** カメラの構図。既定は upper(上半身) */
+  framing?: AvatarFraming;
   onError: (error: unknown) => void;
 }
 
@@ -98,6 +113,9 @@ export interface VrmAvatarEngine {
   setVisemeSource: (source: (() => VisemeFrame | null) | null) => void;
   /** 待機姿勢の種類を切り替える(読み込み済みのモデルへ即座に反映する) */
   setRestPose: (pose: AvatarRestPose) => void;
+  setLighting: (preset: AvatarLightingPreset) => void;
+  /** カメラの構図を切り替える(読み込み済みなら滑らかに寄る・引く) */
+  setFraming: (framing: AvatarFraming) => void;
   dispose: () => void;
 }
 
@@ -118,6 +136,25 @@ const EXPRESSION_MAX_WEIGHT = 0.9;
 /** 上半身の見せ方: 外接ボックスの上端からモデル全高のこの割合までを収める */
 const FRAME_VISIBLE_RATIO = 0.62;
 const FRAME_HEADROOM_RATIO = 0.06;
+/** 全身の見せ方: 足元の下に残す余白(モデル全高に対する割合) */
+const FRAME_FOOT_MARGIN_RATIO = 0.03;
+/**
+ * 顔の見せ方: 腰から頭ボーンまでの長さを単位に、頭ボーンの上下へ収める範囲。
+ * 外接ボックスは髪飾りや後光で膨らむモデルがあるため、顔はボーンで測る
+ */
+const FRAME_FACE_ABOVE_HEAD = 0.5;
+const FRAME_FACE_BELOW_HEAD = 0.32;
+/** 構図を切り替えるときの追従の時定数(秒) */
+const FRAME_TRANSITION_TAU = 0.12;
+
+/** 構図を決めるために読込時に測る高さ(ワールド座標の y) */
+interface ModelMeasurements {
+  boxTop: number;
+  boxBottom: number;
+  height: number;
+  headY: number | null;
+  hipsY: number | null;
+}
 
 /** 片腕のリグ。待機姿勢を基準に、毎フレーム持ち上げ・前振り・肘の曲げを組み直す */
 interface ArmRig {
@@ -469,6 +506,9 @@ export function createVrmAvatarEngine(
 ): VrmAvatarEngine {
   const { canvas, container, onError } = options;
   let restPoseKind: AvatarRestPose = options.restPose ?? "relaxed";
+  let lightingKind: AvatarLightingPreset =
+    options.lighting ?? AVATAR_LIGHTING_DEFAULT;
+  let framingKind: AvatarFraming = options.framing ?? AVATAR_FRAMING_DEFAULT;
   const renderer = new THREE.WebGLRenderer({
     canvas,
     alpha: true,
@@ -484,10 +524,12 @@ export function createVrmAvatarEngine(
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(CAMERA_FOV_DEG, 1, 0.05, 30);
   camera.position.set(0, 1.3, 3);
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x444466, 1.0));
-  const keyLight = new THREE.DirectionalLight(0xffffff, 1.2);
-  keyLight.position.set(1, 2, 3);
-  scene.add(keyLight);
+  const hemisphereLight = new THREE.HemisphereLight();
+  const keyLight = new THREE.DirectionalLight();
+  // 注視点へ向けるため target もシーンに置き、ワールド行列を更新させる
+  scene.add(hemisphereLight, keyLight, keyLight.target);
+  /** 読み込んだモデルのうち、こちらでリムを足した MToon 材質 */
+  let rimMaterials: MToonMaterial[] = [];
 
   const timer = new THREE.Timer();
   let vrm: VRM | null = null;
@@ -510,7 +552,30 @@ export function createVrmAvatarEngine(
   let blinkTimer = nextBlinkDelay(Math.random);
   let blinkElapsed = -1;
 
+  /** いま映している縦の範囲。構図の切替時は targetSpan へ毎フレーム近づける */
   const frameSpan = { bottom: 0, top: 1.6 };
+  const targetSpan = { bottom: 0, top: 1.6 };
+  let measurements: ModelMeasurements | null = null;
+
+  function applyLighting(): void {
+    const spec = AVATAR_LIGHTING_SPECS[lightingKind];
+    keyLight.color.setHex(spec.keyColor);
+    keyLight.intensity = Math.PI * spec.keyScale;
+    hemisphereLight.color.setHex(spec.hemisphereSky);
+    hemisphereLight.groundColor.setHex(spec.hemisphereGround);
+    hemisphereLight.intensity = spec.hemisphereIntensity;
+    for (const material of rimMaterials) {
+      material.parametricRimColorFactor
+        .setHex(spec.rimColor)
+        .multiplyScalar(spec.rimStrength);
+    }
+  }
+
+  function setLighting(preset: AvatarLightingPreset): void {
+    if (preset === lightingKind) return;
+    lightingKind = preset;
+    applyLighting();
+  }
 
   function resize(): void {
     const width = Math.max(1, canvas.clientWidth);
@@ -525,28 +590,109 @@ export function createVrmAvatarEngine(
     frameCamera();
   }
 
-  /** 上半身(腰の少し下〜頭上)が縦に収まる距離を求め、下端寄せで構える */
+  /** frameSpan が縦に収まる距離を求めて構える。主光源もカメラ側から当て直す */
   function frameCamera(): void {
-    const span = Math.max(0.3, frameSpan.top - frameSpan.bottom);
+    const span = Math.max(0.15, frameSpan.top - frameSpan.bottom);
     const halfFov = THREE.MathUtils.degToRad(CAMERA_FOV_DEG / 2);
     const distance = span / 2 / Math.tan(halfFov);
     const center = (frameSpan.top + frameSpan.bottom) / 2;
     camera.position.set(0, center, distance);
     camera.lookAt(0, center, 0);
     camera.updateProjectionMatrix();
+    const [dx, dy, dz] = AVATAR_KEY_LIGHT_DIRECTION;
+    keyLight.target.position.set(0, center, 0);
+    keyLight.position.set(dx, center + dy, dz);
   }
 
-  /**
-   * 外接ボックスからモデル全高を取り、頭上に少し余白を残して上半身を収める。
-   * 頭ボーンの位置は頭頂より低く、髪型で高さも変わるためボーンでは測らない
-   */
+  /** 構図ごとの縦の範囲。まだモデルが無ければ現在の範囲のまま */
+  function spanFor(framing: AvatarFraming): { bottom: number; top: number } {
+    if (!measurements) return { ...frameSpan };
+    const { boxTop, boxBottom, height, headY, hipsY } = measurements;
+    if (framing === "face" && headY !== null) {
+      const unit = Math.max(0.2, headY - (hipsY ?? boxBottom));
+      return {
+        top: headY + unit * FRAME_FACE_ABOVE_HEAD,
+        bottom: headY - unit * FRAME_FACE_BELOW_HEAD,
+      };
+    }
+    if (framing === "full") {
+      return {
+        top: boxTop + height * FRAME_HEADROOM_RATIO,
+        bottom: Math.min(boxBottom, 0) - height * FRAME_FOOT_MARGIN_RATIO,
+      };
+    }
+    // 上半身(顔の構図で頭ボーンが無いモデルもここへ倒す)。
+    // 頭ボーンの位置は頭頂より低く、髪型で高さも変わるため外接ボックスで測る
+    return {
+      top: boxTop + height * FRAME_HEADROOM_RATIO,
+      bottom: boxTop - height * FRAME_VISIBLE_RATIO,
+    };
+  }
+
+  function setFraming(framing: AvatarFraming): void {
+    if (framing === framingKind) return;
+    framingKind = framing;
+    Object.assign(targetSpan, spanFor(framing));
+  }
+
+  /** 構図の切替中だけ、現在の範囲を目標へ寄せてカメラを構え直す */
+  function updateFraming(delta: number): void {
+    const dTop = targetSpan.top - frameSpan.top;
+    const dBottom = targetSpan.bottom - frameSpan.bottom;
+    if (Math.abs(dTop) < 1e-4 && Math.abs(dBottom) < 1e-4) return;
+    const k = 1 - Math.exp(-delta / FRAME_TRANSITION_TAU);
+    frameSpan.top += dTop * k;
+    frameSpan.bottom += dBottom * k;
+    frameCamera();
+  }
+
   function measureModel(model: VRM): void {
     model.scene.updateMatrixWorld(true);
     const box = new THREE.Box3().setFromObject(model.scene);
-    const height = Math.max(0.5, box.max.y - box.min.y);
-    frameSpan.top = box.max.y + height * FRAME_HEADROOM_RATIO;
-    frameSpan.bottom = box.max.y - height * FRAME_VISIBLE_RATIO;
+    const boneY = (name: VRMHumanBoneName): number | null => {
+      const node = model.humanoid.getNormalizedBoneNode(name);
+      return node ? node.getWorldPosition(new THREE.Vector3()).y : null;
+    };
+    measurements = {
+      boxTop: box.max.y,
+      boxBottom: box.min.y,
+      height: Math.max(0.5, box.max.y - box.min.y),
+      headY: boneY("head"),
+      hipsY: boneY("hips"),
+    };
+    // 読み込み直後は寄せずに目標の構図へ置く
+    Object.assign(targetSpan, spanFor(framingKind));
+    Object.assign(frameSpan, targetSpan);
     frameCamera();
+  }
+
+  /**
+   * 暗い背景から輪郭を浮かせるリムを足す。モデルが元からリムを持つ材質と、
+   * 輪郭線(アウトライン)の材質には触らない
+   */
+  function collectRimMaterials(model: VRM): MToonMaterial[] {
+    const found = new Set<MToonMaterial>();
+    model.scene.traverse((object) => {
+      const mesh = object as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const list = Array.isArray(mesh.material)
+        ? mesh.material
+        : [mesh.material];
+      for (const material of list) {
+        const mtoon = material as Partial<MToonMaterial>;
+        if (!mtoon.isMToonMaterial || mtoon.isOutline) continue;
+        const rim = mtoon.parametricRimColorFactor;
+        if (!rim || rim.r + rim.g + rim.b > 1e-3) continue;
+        found.add(material as MToonMaterial);
+      }
+    });
+    for (const material of found) {
+      material.parametricRimFresnelPowerFactor = AVATAR_RIM_FRESNEL_POWER;
+      material.parametricRimLiftFactor = 0;
+      // 光の強さに追従させ、夜のプリセットではリムも控えめになるようにする
+      material.rimLightingMixFactor = 1;
+    }
+    return [...found];
   }
 
   function applyRestPose(model: VRM, specVersion: "0" | "1"): RestPose {
@@ -578,6 +724,8 @@ export function createVrmAvatarEngine(
     gesture = null;
     availableExpressions = new Set();
     expressionWeights.clear();
+    rimMaterials = [];
+    measurements = null;
   }
 
   async function load(url: string): Promise<VrmAvatarLoadResult> {
@@ -601,12 +749,21 @@ export function createVrmAvatarEngine(
       // 0.x は -Z 向きで出力されるため 1.0 と同じ +Z 向きに揃える
       VRMUtils.rotateVRM0(loaded);
     }
+    // 腕を下ろす前(作者の静止姿勢)で、髪や裾が埋まっている当たり判定を外す
+    if (loaded.springBoneManager) {
+      dropRestPoseColliderOverlaps(
+        loaded.scene,
+        loaded.springBoneManager.joints,
+      );
+    }
     loaded.scene.traverse((object) => {
       object.frustumCulled = false;
     });
     if (loaded.lookAt) loaded.lookAt.target = camera;
     scene.add(loaded.scene);
     vrm = loaded;
+    rimMaterials = collectRimMaterials(loaded);
+    applyLighting();
     rest = applyRestPose(loaded, specVersion);
     loaded.update(0);
     measureModel(loaded);
@@ -788,6 +945,7 @@ export function createVrmAvatarEngine(
     timer.update();
     const delta = Math.min(timer.getDelta(), 0.1);
     elapsed += delta;
+    updateFraming(delta);
     if (vrm && rest) {
       updatePose(vrm, rest);
       updateBlink(delta, vrm);
@@ -827,6 +985,7 @@ export function createVrmAvatarEngine(
   const observer = new ResizeObserver(() => resize());
   observer.observe(container);
   observer.observe(canvas);
+  applyLighting();
   resize();
 
   function dispose(): void {
@@ -849,6 +1008,8 @@ export function createVrmAvatarEngine(
     setLevelSource,
     setVisemeSource,
     setRestPose,
+    setLighting,
+    setFraming,
     dispose,
   };
 }

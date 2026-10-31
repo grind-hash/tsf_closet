@@ -8,7 +8,10 @@ Adventure 側の生成メソッド(_generate_portrait_unlocked 等)は run の s
 from __future__ import annotations
 
 import re
+from io import BytesIO
 from typing import Any
+
+from PIL import Image
 
 from ..consts.novelai_models import is_v5_image_model, supports_character_references
 from ..settings.config import settings
@@ -178,5 +181,104 @@ async def generate_portrait_bytes(
     if not result.images:
         raise PortraitGenerationError(
             "image_generation_failed", "立ち絵が生成されませんでした"
+        )
+    return result.images[0]
+
+
+# 立ち絵の出力サイズ(NovelAI / ComfyUI のプリセット "portrait" と同じ)
+PORTRAIT_CANVAS_SIZE = (832, 1216)
+
+EXPRESSION_EDIT_INSTRUCTION = (
+    "Change only the facial expression of the character in the attached image "
+    "to {expression}. Keep the same face, hair, outfit, pose, framing and "
+    "background exactly as they are.\n"
+)
+
+
+def fit_portrait_canvas(image_bytes: bytes) -> bytes:
+    """立ち絵を出力サイズの白背景キャンバスへ縦横比を保って収めた PNG にする。
+
+    img2img の入力は出力と同じ大きさにそろえる。透過の立ち絵は白背景に重ねる。
+    """
+    with Image.open(BytesIO(image_bytes)) as source:
+        image = source.convert("RGBA")
+    canvas = Image.new("RGB", PORTRAIT_CANVAS_SIZE, (255, 255, 255))
+    scale = min(
+        PORTRAIT_CANVAS_SIZE[0] / image.width, PORTRAIT_CANVAS_SIZE[1] / image.height
+    )
+    size = (max(1, round(image.width * scale)), max(1, round(image.height * scale)))
+    resized = image.resize(size, Image.LANCZOS)
+    offset = (
+        (PORTRAIT_CANVAS_SIZE[0] - size[0]) // 2,
+        (PORTRAIT_CANVAS_SIZE[1] - size[1]) // 2,
+    )
+    canvas.paste(resized, offset, resized)
+    buffer = BytesIO()
+    canvas.save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+async def generate_expression_bytes(
+    *,
+    tags: str,
+    expression_tags: str,
+    expression_description: str,
+    reference_bytes: bytes,
+    nsfw_mode: bool,
+    provider: Provider | str,
+    image_model: str | None,
+    i2i_strength: float,
+    use_character_reference: bool = False,
+) -> bytes:
+    """いまの立ち絵から、表情だけを変えた立ち絵を 1 枚描いて PNG bytes を返す。
+
+    NovelAI は立ち絵を下敷きにした img2img に表情タグを足す(精密参照は任意で、
+    Anlas を消費するため呼び出し側が利用者の確認を取ること)。OpenRouter /
+    ComfyUI は立ち絵を編集元にして、表情だけを変える指示を出す。
+    料金は cost_tracker に記録する。
+    """
+    provider_name = str(provider)
+    prompt = build_portrait_prompt(
+        f"{tags}, {expression_tags}" if tags else expression_tags,
+        image_model,
+        nsfw_mode=nsfw_mode,
+    )
+    if provider_name == "novelai":
+        character_references = None
+        if use_character_reference and supports_character_references(image_model):
+            character_references = [
+                character_reference_entry(
+                    reference_bytes, outfit_changed=False, has_fresh_portrait=True
+                )
+            ]
+        result = await image_service.generate_image(
+            prompt,
+            image_bytes=fit_portrait_canvas(reference_bytes),
+            provider_override="novelai",
+            negative_prompt=merge_negative_prompt(
+                settings.novelai_negative_prompt, PORTRAIT_EXTRA_NEGATIVE
+            ),
+            i2i_strength_override=i2i_strength,
+            nsfw_mode=nsfw_mode,
+            character_references=character_references,
+            characters=None,
+            size_override="portrait",
+            novelai_model_override=image_model,
+        )
+    else:
+        instruction = EXPRESSION_EDIT_INSTRUCTION.format(
+            expression=expression_description
+        )
+        result = await image_service.generate_image(
+            instruction + prompt,
+            image_bytes=reference_bytes,
+            provider_override=provider_name,  # type: ignore[arg-type]
+            nsfw_mode=nsfw_mode,
+            size_override="portrait",
+        )
+    record_cost(result.cost_usd)
+    if not result.images:
+        raise PortraitGenerationError(
+            "image_generation_failed", "表情の立ち絵が生成されませんでした"
         )
     return result.images[0]

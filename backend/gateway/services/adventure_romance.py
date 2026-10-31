@@ -46,6 +46,7 @@ from ..consts.adventure_romance import (
     ROMANCE_WORK_WAGE,
 )
 from ..consts.adventure_speech import PARTNER_SPEECH_STYLE_MAX_LENGTH
+from ..consts.character_profile import REACTION_STYLE_LABELS_JA
 
 _RESERVED_CHOICE_RE = re.compile(
     "|".join(f"(?:{pattern})" for pattern in ROMANCE_RESERVED_CHOICE_PATTERNS),
@@ -343,6 +344,7 @@ def init_romance_state(
     player_character_id: str = "",
     player_history_id: str = "",
     partner_speech_style: str = "",
+    partner_sample_lines: str = "",
 ) -> dict[str, Any]:
     """state_json["sim"] の初期値を組み立てる。hidden_preferences は隠し情報。
 
@@ -352,6 +354,7 @@ def init_romance_state(
     リプレイ時に同じ変身状態から始め直すために保存する。
     partner_speech_style はユーザーがセットアップで指定した上書き値で、
     空なら LLM が生成した setup.partner_speech_style を使う。
+    partner_sample_lines は攻略対象がキャラクターのときのセリフ例(口調の参考)。
     """
     rng = rng or random.Random()
     catalog = [
@@ -373,7 +376,7 @@ def init_romance_state(
     if not disliked:
         candidates = [item for item in all_ids if item not in liked]
         disliked = set(rng.sample(candidates, min(2, len(candidates))))
-    return {
+    sim: dict[str, Any] = {
         "total_days": int(max_turns) // ROMANCE_SLOTS_PER_DAY,
         "affection": ROMANCE_AFFECTION_START,
         "money": ROMANCE_INITIAL_MONEY,
@@ -398,6 +401,54 @@ def init_romance_state(
         "given_gifts": [],
         "confessed": False,
     }
+    if partner_sample_lines.strip():
+        sim["partner_sample_lines"] = partner_sample_lines.strip()
+    return sim
+
+
+def partner_profile_from_persona(
+    persona: dict[str, Any], daily_life: str, language: str
+) -> str:
+    """攻略対象がキャラクターのときのプロフィール。人物設定の行を先頭に置く。
+
+    daily_life は LLM が書いた現在の暮らし・境遇。RomanceSetupOutput と同じ 600 字に収める。
+    """
+    ja = language == "ja"
+    reaction = str(persona.get("reaction_style") or "")
+    interests = "、".join(str(item) for item in persona.get("interests") or [])
+    knowledge = str(persona.get("knowledge") or "").replace("\n", " ").strip()
+    parts = [
+        ("性格" if ja else "Personality", str(persona.get("personality") or "")),
+        (
+            "反応" if ja else "Reaction",
+            REACTION_STYLE_LABELS_JA.get(reaction, reaction) if ja else reaction,
+        ),
+        ("興味" if ja else "Interests", interests),
+        (
+            "TSFへの態度" if ja else "Attitude toward TSF",
+            str(persona.get("tsf_attitude") or ""),
+        ),
+        ("背景" if ja else "Background", knowledge[:200]),
+    ]
+    separator = ": " if not ja else "="
+    line = " / ".join(f"{label}{separator}{value}" for label, value in parts if value)
+    profile = "\n".join(part for part in (line, daily_life.strip()) if part)
+    return profile[:600]
+
+
+def partner_speech_from_persona(persona: dict[str, Any], language: str) -> str:
+    """攻略対象がキャラクターのときの口調文。一人称が書かれていなければ補う。"""
+    speech = " ".join(str(persona.get("speech_style") or "").split()).strip()
+    if not speech:
+        return ""
+    pronoun = str(persona.get("pronoun") or "").strip()
+    if pronoun and pronoun not in speech:
+        speech = (
+            f"一人称は「{pronoun}」。{speech}"
+            if language == "ja"
+            else f"First-person pronoun: {pronoun}. {speech}"
+        )
+    return speech[:PARTNER_SPEECH_STYLE_MAX_LENGTH]
 
 
 def resolve_romance_action(
@@ -836,7 +887,10 @@ _ROMANCE_NARRATIVE_CORE = (
     "endings it names, on every turn, and it never drifts toward the player's "
     "own register no matter how close they become. When it is empty, derive "
     "their manner of speech from state.sim.partner_profile and keep it "
-    "identical across turns. state.sim.hidden_preferences is secret game "
+    "identical across turns. When state.sim.partner_sample_lines is present, it "
+    "holds reference lines showing the partner's voice: match their tone and "
+    "verbal habits, but never quote them verbatim. "
+    "state.sim.hidden_preferences is secret game "
     "data: weave its hints naturally into conversation, but never list it "
     "outright. In this scenario reality_rules are mainly used to rewrite the "
     "partner's appearance, personality, circumstances, or feelings. Depict a "
@@ -1088,11 +1142,19 @@ ROMANCE_COMPANION_RESOLUTION_GUIDANCE = (
 
 
 def romance_setup_system_prompt(
-    language: str, days: int, *, companion: bool = False, turns: int = 0
+    language: str,
+    days: int,
+    *,
+    companion: bool = False,
+    turns: int = 0,
+    partner_character: bool = False,
+    player_persona: bool = False,
 ) -> str:
     """RomanceSetupOutput 生成用のシステムプロンプト。
 
     companion(対面会話モード)では日数でなくターン数(1ターン=1往復)で尺を示す。
+    partner_character は攻略対象がキャラクター(名前と人物設定を固定)、
+    player_persona は主人公がキャラクター本人のとき。
     """
     response_language = "Japanese" if language == "ja" else "English"
     if companion:
@@ -1105,10 +1167,38 @@ def romance_setup_system_prompt(
     else:
         horizon = f"a {days}-day romance simulation"
         within = f"within {days} days"
+    if partner_character:
+        identity = (
+            "partner_character is the partner's fixed identity, written by the user. "
+            "Set partner_name to partner_character.name exactly, never a different "
+            "name or a nickname. The player is a separate person courting that "
+            "partner; never treat the snapshot character as the player. "
+            "partner_profile must describe only the partner's current daily life and "
+            "circumstances (occupation, routine, where they spend time) consistent "
+            "with partner_character.persona; do not restate or change their "
+            "personality. Base partner_speech_style, liked_gift_names, "
+            "disliked_gift_names, likes_hint, and dislikes_hint on "
+            "partner_character.persona."
+        )
+    else:
+        identity = (
+            "source_snapshot deliberately contains no name for the partner: when the "
+            "supplied setting or objective already names the partner, reuse that "
+            "name as partner_name; otherwise invent a fitting new name from their "
+            "appearance. Never use player_name as the partner's name. The player is "
+            "a separate person courting that partner; never treat the snapshot "
+            "character as the player. partner_profile describes personality and "
+            "daily life."
+        )
+    if player_persona:
+        identity += (
+            " player_persona is the player character the user created; make "
+            "relationship_origin fit who they are and never contradict it."
+        )
     return f"""You design the setup of {horizon} where the player tries to start dating one partner character.
 Return one JSON object only, in {response_language}, matching this schema:
 {{"partner_name":"...","partner_profile":"...","partner_speech_style":"...","relationship_origin":"...","job_name":"...","gift_catalog":[{{"name":"...","price":1500,"tier":"budget|standard|luxury"}}],"liked_gift_names":["..."],"disliked_gift_names":["..."],"likes_hint":"...","dislikes_hint":"..."}}
-The partner is the character shown in source_snapshot; keep their appearance and situation consistent with it. source_snapshot deliberately contains no name for the partner: when the supplied setting or objective already names the partner, reuse that name as partner_name; otherwise invent a fitting new name from their appearance. Never use player_name as the partner's name. The player is a separate person courting that partner; never treat the snapshot character as the player. partner_profile describes personality and daily life. partner_speech_style states, in {response_language}, exactly how the partner speaks, in one short sentence a writer can follow verbatim: politeness level (敬体 or 常体), first-person pronoun, how they address the player (built from player_name, for example with an honorific, by given name or surname alone, or as a nickname; never as a bare "you"/「あなた」), sentence endings, and any verbal tic. Make it match the personality in partner_profile, so a brash or casual personality actually speaks casually rather than politely. relationship_origin describes how the player and the partner currently know each other, at an acquaintance level that can grow into dating {within}. job_name is a part-time job the player can work at, where the partner occasionally appears. gift_catalog must contain 8 to 12 concrete purchasable gifts with prices inside their tier band: budget 500-2000, standard 2001-6000, luxury 6001-15000. liked_gift_names and disliked_gift_names must each pick exactly 2 or 3 names verbatim from gift_catalog, reflecting the partner's personality. likes_hint and dislikes_hint describe those tastes indirectly, as hints the partner might drop in conversation, without naming the exact gifts. Keep every value concise."""
+The partner is the character shown in source_snapshot; keep their appearance and situation consistent with it. {identity} partner_speech_style states, in {response_language}, exactly how the partner speaks, in one short sentence a writer can follow verbatim: politeness level (敬体 or 常体), first-person pronoun, how they address the player (built from player_name, for example with an honorific, by given name or surname alone, or as a nickname; never as a bare "you"/「あなた」), sentence endings, and any verbal tic. Make it match the partner's personality, so a brash or casual personality actually speaks casually rather than politely. relationship_origin describes how the player and the partner currently know each other, at an acquaintance level that can grow into dating {within}. job_name is a part-time job the player can work at, where the partner occasionally appears. gift_catalog must contain 8 to 12 concrete purchasable gifts with prices inside their tier band: budget 500-2000, standard 2001-6000, luxury 6001-15000. liked_gift_names and disliked_gift_names must each pick exactly 2 or 3 names verbatim from gift_catalog, reflecting the partner's personality. likes_hint and dislikes_hint describe those tastes indirectly, as hints the partner might drop in conversation, without naming the exact gifts. Keep every value concise."""
 
 
 def normalize_player_name(value: str | None) -> str:

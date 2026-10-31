@@ -1,4 +1,4 @@
-"""開始素材(セッション / 履歴 / Prompt Expander エントリ)のスナップショット。
+"""開始素材(セッション / 履歴 / Prompt Expander エントリ / キャラクター)のスナップショット。
 
 Adventure の run 作成とキャラチャットのキャラ作成・姿の変更が共用する。
 「セッション時点の画像ファイル・外見タグ・服装タグ・経緯・属性・統計」を
@@ -13,7 +13,13 @@ from pathlib import Path
 from typing import Any
 
 from ..databases.base import async_session_factory
-from .character_service import extract_protagonist_tags_from_history
+from ..databases.character_repo import fetch_character_preset
+from .character_profile import character_persona_for_prompt, normalize_character_profile
+from .character_service import (
+    extract_protagonist_tags_from_history,
+    record_profile,
+    with_gender_token,
+)
 from .characters import character_manager
 from .custom_sessions import load_custom_session_metadata
 from .image_paths import resolve_stored_image_path
@@ -137,6 +143,22 @@ def identity_tags_only(tags: str) -> str:
     return ", ".join(identity)
 
 
+def split_appearance_tags(tags: str) -> tuple[str, str]:
+    """カンマ区切りタグを (同一性タグ, 服装タグ) に分ける。情景・動作のタグは捨てる。
+
+    キャラクターの外見タグ(1 列)をキャラチャットの姿(外見と服装の 2 列)にするときに使う。
+    """
+    parts = [tag.strip() for tag in tags.split(",") if tag.strip()]
+    clothing = [tag for tag in parts if CLOTHING_TAG_PATTERN.search(tag)]
+    identity = [
+        tag
+        for tag in parts
+        if not CLOTHING_TAG_PATTERN.search(tag)
+        and not SCENE_OR_ACTION_TAG_PATTERN.search(tag)
+    ]
+    return ", ".join(identity), ", ".join(clothing)
+
+
 async def resolve_session_identity(session: Any) -> tuple[str, str]:
     """セッションの人物名と一人称を (self_profile → テンプレ → カスタム) の順で解決する。
 
@@ -199,6 +221,48 @@ async def build_prompt_expander_snapshot(
         "stats": None,
     }
     return snapshot, image_path, appearance, nsfw_mode
+
+
+async def build_character_preset_snapshot(
+    preset_id: str,
+) -> tuple[dict[str, Any], Path, str, bool]:
+    """キャラクターメイクのキャラクターを開始素材にしたスナップショットを組み立てる。
+
+    画像は立ち絵、外見・服装はキャラクターの外見タグから取り出し、性別トークンを補う。
+    persona は名前・一人称・性格・口調・知識などの人物設定(毎ターン載せる短縮版)。
+    経緯・属性・統計は無い。NSFW はユーザー設定に任せる。
+    """
+    # character_preset_portrait はこのモジュールを import するため、ここで読む
+    from .character_preset_portrait import preset_portrait_file
+
+    async with async_session_factory() as db:
+        preset = await fetch_character_preset(db, preset_id)
+        if preset is None:
+            raise SourceSnapshotError(
+                "source_not_found", "開始元のキャラクターが見つかりません"
+            )
+        image_path = preset_portrait_file(preset)
+        name = preset.name
+        tags = preset.appearance_tags.strip()
+        profile = normalize_character_profile(record_profile(preset) or {})
+    if image_path is None:
+        raise SourceSnapshotError("image_not_found", "キャラクターの立ち絵がありません")
+    identity, clothing = split_appearance_tags(tags)
+    appearance = with_gender_token(identity or tags, profile)
+    snapshot = {
+        "source_session_id": None,
+        "source_history_id": None,
+        "source_prompt_expander_entry_id": None,
+        "source_character_preset_id": preset_id,
+        "character_name": name,
+        "appearance": appearance,
+        "clothing": clothing,
+        "attributes": [],
+        "timeline": [],
+        "stats": None,
+        "persona": character_persona_for_prompt(name, profile),
+    }
+    return snapshot, image_path, appearance, False
 
 
 async def build_source_snapshot(

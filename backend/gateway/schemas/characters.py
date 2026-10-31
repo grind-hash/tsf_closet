@@ -12,11 +12,15 @@ from ..consts.character_limits import (
     NEGATIVE_TAGS_MAX_LEN,
 )
 from ..consts.character_profile import (
+    PROFILE_GREETING_MAX_LEN,
     PROFILE_INTEREST_MAX_LEN,
     PROFILE_INTERESTS_MAX_COUNT,
+    PROFILE_KNOWLEDGE_MAX_LEN,
     PROFILE_MEMO_MAX_LEN,
     PROFILE_PERSONALITY_MAX_LEN,
     PROFILE_PRONOUN_MAX_LEN,
+    PROFILE_SAMPLE_LINES_MAX_LEN,
+    PROFILE_SPEECH_STYLE_MAX_LEN,
     PROFILE_TSF_ATTITUDE_MAX_LEN,
 )
 
@@ -53,7 +57,11 @@ ProfileGenderLiteral = Literal["man", "woman", ""]
 
 
 class CharacterProfile(BaseModel):
-    """登場人物の性格プロフィール（自分自身モードの SelfProfile と同じ項目）。"""
+    """登場人物の性格プロフィール（自分自身モードの SelfProfile と同じ項目）。
+
+    speech_style 以降はキャラクターメイクで足した項目で、キャラチャットの
+    人物設定にだけ使う（通常プレイの登場人物一覧には載せない）。
+    """
 
     personality: str = Field("", max_length=PROFILE_PERSONALITY_MAX_LEN)
     reaction_style: ReactionStyleLiteral = "default"
@@ -64,6 +72,10 @@ class CharacterProfile(BaseModel):
     )
     tsf_attitude: str = Field("", max_length=PROFILE_TSF_ATTITUDE_MAX_LEN)
     memo: str = Field("", max_length=PROFILE_MEMO_MAX_LEN)
+    speech_style: str = Field("", max_length=PROFILE_SPEECH_STYLE_MAX_LEN)
+    sample_lines: str = Field("", max_length=PROFILE_SAMPLE_LINES_MAX_LEN)
+    knowledge: str = Field("", max_length=PROFILE_KNOWLEDGE_MAX_LEN)
+    greeting: str = Field("", max_length=PROFILE_GREETING_MAX_LEN)
 
     @model_validator(mode="after")
     def _clip_interests(self) -> CharacterProfile:
@@ -151,6 +163,13 @@ class SessionCharacterUpdate(BaseModel):
     reset_look: bool | None = None
 
 
+class CharacterVoice(BaseModel):
+    """キャラクターの声(AivisSpeech)。空ならユーザー設定の声を使う。"""
+
+    speaker_id: str = Field("", max_length=64)
+    style_id: str = Field("", max_length=64)
+
+
 class CharacterPresetRead(BaseModel):
     """Read model for CharacterPreset."""
 
@@ -162,6 +181,11 @@ class CharacterPresetRead(BaseModel):
     negative_tags: str = ""
     profile: CharacterProfile | None = None
     thumbnail_url: str | None = None
+    # キャラクターメイクの項目。3D モデルは登録済みモデルの ID(削除済みのこともある)
+    avatar_model_id: str | None = None
+    voice: CharacterVoice | None = None
+    # 立ち絵(API 相対 URL)。未設定なら None
+    portrait_url: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -185,10 +209,16 @@ class PresetCreateRaw(BaseModel):
     thumbnail_url: str | None = Field(
         None, max_length=_THUMBNAIL_URL_MAX_LEN, pattern=_THUMBNAIL_URL_PATTERN
     )
+    avatar_model_id: str | None = Field(None, max_length=64)
+    voice: CharacterVoice | None = None
 
 
 class CharacterPresetUpdate(BaseModel):
-    """Partial update payload for a preset."""
+    """Partial update payload for a preset.
+
+    avatar_model_id は空文字で「3D モデルなし」に戻す。voice は両方空で
+    「ユーザー設定の声」に戻す。
+    """
 
     name: str | None = Field(None, min_length=1, max_length=120)
     appearance_natural: str | None = Field(None, max_length=1000)
@@ -199,6 +229,15 @@ class CharacterPresetUpdate(BaseModel):
     thumbnail_url: str | None = Field(
         None, max_length=_THUMBNAIL_URL_MAX_LEN, pattern=_THUMBNAIL_URL_PATTERN
     )
+    avatar_model_id: str | None = Field(None, max_length=64)
+    voice: CharacterVoice | None = None
+
+
+class CharacterPresetPortraitRequest(BaseModel):
+    """キャラクターの立ち絵を外見タグから描くときの指定。"""
+
+    # NovelAI の精密参照(Anlas を消費する。FE で確認済みの前提)
+    use_precise_reference: bool = False
 
 
 class GenerateTagsItem(BaseModel):
@@ -292,6 +331,8 @@ class CharacterProfileGenerateRequest(BaseModel):
     appearance_natural: str = Field("", max_length=1000)
     appearance_tags: str = Field("", max_length=2000)
     memo: str = Field("", max_length=PROFILE_MEMO_MAX_LEN)
+    # キャラクターメイク: メモに書かれた話し方とセリフの例も取り出す
+    include_speech: bool = False
 
 
 class CharacterSourceResolveRequest(BaseModel):
@@ -314,6 +355,16 @@ class CharacterSourceResolveResponse(BaseModel):
     name: str | None = None
     appearance_natural: str = ""
     appearance_tags: str = ""
+
+
+class CharacterPresetPortraitImportResponse(BaseModel):
+    """素材の画像をキャラクターの立ち絵として取り込んだ結果。
+
+    取り出した名前と外見も返し、空の欄を埋めるかは FE が決める。
+    """
+
+    preset: CharacterPresetRead
+    source: CharacterSourceResolveResponse
 
 
 class GenerateBaseTagsRequest(BaseModel):

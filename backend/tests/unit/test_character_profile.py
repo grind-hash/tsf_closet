@@ -11,6 +11,7 @@ import pytest
 from gateway.services import character_profile
 from gateway.services.character_profile import (
     CharacterProfileGenerationError,
+    character_persona_for_prompt,
     format_profile_line_ja,
     normalize_character_profile,
 )
@@ -112,3 +113,92 @@ async def test_generate_raises_on_invalid_json(monkeypatch) -> None:
         await character_profile.generate_character_profile(
             name="サクラ", appearance_natural="", appearance_tags="", memo=""
         )
+
+
+@pytest.mark.asyncio
+async def test_generate_extracts_speech_from_memo_when_asked(monkeypatch) -> None:
+    content = json.dumps(
+        {
+            "personality": "明るい",
+            "reaction_style": "cheerful",
+            "pronoun": "あたし",
+            "gender": "woman",
+            "interests": [],
+            "tsf_attitude": "",
+            "speech_style": "砕けたタメ口",
+            "sample_lines": ["「ほら、行くよ」", "「しょうがないなあ」"],
+        },
+        ensure_ascii=False,
+    )
+    generate = _stub_services(monkeypatch, content=content, user_settings={})
+
+    profile = await character_profile.generate_character_profile(
+        name="サクラ",
+        appearance_natural="",
+        appearance_tags="",
+        memo="タメ口で話す。口癖は「ほら、行くよ」「しょうがないなあ」",
+        include_speech=True,
+    )
+
+    assert "sample_lines" in generate.await_args.kwargs["system_prompt"]
+    assert profile["speech_style"] == "砕けたタメ口"
+    # 配列で返っても 1 行に 1 つの形にそろえる
+    assert profile["sample_lines"] == "「ほら、行くよ」\n「しょうがないなあ」"
+
+
+@pytest.mark.asyncio
+async def test_generate_ignores_speech_unless_asked(monkeypatch) -> None:
+    content = json.dumps(
+        {
+            "personality": "明るい",
+            "reaction_style": "cheerful",
+            "pronoun": "あたし",
+            "gender": "woman",
+            "speech_style": "砕けたタメ口",
+            "sample_lines": "「ほら」",
+        },
+        ensure_ascii=False,
+    )
+    generate = _stub_services(monkeypatch, content=content, user_settings={})
+
+    profile = await character_profile.generate_character_profile(
+        name="サクラ", appearance_natural="", appearance_tags="", memo="タメ口"
+    )
+
+    # 通常プレイの登場人物の下書きでは、話し方の項目を求めず、返っても捨てる
+    assert "sample_lines" not in generate.await_args.kwargs["system_prompt"]
+    assert profile["speech_style"] == ""
+    assert profile["sample_lines"] == ""
+
+
+def test_persona_for_prompt_trims_and_drops_empty_fields() -> None:
+    profile = normalize_character_profile(
+        {
+            "personality": "p" * 500,
+            "reaction_style": "default",
+            "pronoun": "僕",
+            "gender": "man",
+            "interests": ["a", "b", "c", "d", "e", "f"],
+            "memo": "種",
+            "greeting": "やあ",
+            "sample_lines": "\n".join(
+                f"セリフ{index:02d}" + "。" * 20 for index in range(30)
+            ),
+            "knowledge": "k" * 900,
+        }
+    )
+    persona = character_persona_for_prompt(" ユウ ", profile)
+    assert persona["name"] == "ユウ"
+    assert persona["gender"] == "male"
+    assert len(persona["personality"]) == 300
+    assert persona["interests"] == ["a", "b", "c", "d", "e"]
+    # セリフ例は行の途中で切らない
+    assert len(persona["sample_lines"]) <= 300
+    assert all(
+        line.startswith("セリフ") for line in persona["sample_lines"].split("\n")
+    )
+    # 1 行しかない長文は上限で切る
+    assert len(persona["knowledge"]) == 600
+    # 既定の反応・自動生成の種・挨拶・空の項目は載せない
+    for key in ("reaction_style", "memo", "greeting", "tsf_attitude", "speech_style"):
+        assert key not in persona

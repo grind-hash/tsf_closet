@@ -33,10 +33,13 @@ from gateway.services.adventure_romance import (
     apply_romance_time_of_day,
     clamp_romance_max_turns,
     init_romance_state,
+    partner_profile_from_persona,
+    partner_speech_from_persona,
     public_sim_view,
     resolve_romance_action,
     romance_confession_threshold,
     romance_day_slot,
+    romance_setup_system_prompt,
     romance_stage,
     strip_duplicate_action_choices,
 )
@@ -986,3 +989,65 @@ def test_recent_scene_context_bounds_and_uses_previous_turn_as_baseline() -> Non
     assert legacy[0]["input_kind"] is None
     assert legacy[1]["affection_change"] is None
     assert recent_scene_context([], limit) == []
+
+
+def test_init_romance_state_keeps_partner_sample_lines() -> None:
+    sim = init_romance_state(
+        make_setup(), 14, rng=random.Random(0), partner_sample_lines=" やるじゃん！ "
+    )
+    assert sim["partner_sample_lines"] == "やるじゃん！"
+    # 指定が無ければ項目自体を持たない
+    assert "partner_sample_lines" not in init_romance_state(
+        make_setup(), 14, rng=random.Random(0)
+    )
+    assert "partner_sample_lines" in ROMANCE_NARRATIVE_GUIDANCE
+
+
+def test_partner_profile_from_persona_puts_character_first() -> None:
+    persona = {
+        "personality": "負けず嫌い",
+        "reaction_style": "cheerful",
+        "interests": ["料理", "ランニング"],
+        "knowledge": "定食屋の娘\n" + "x" * 400,
+    }
+    profile = partner_profile_from_persona(persona, "駅前の花屋で働いている", "ja")
+    first, rest = profile.split("\n", 1)
+    assert first.startswith("性格=負けず嫌い / 反応=明るい / 興味=料理、ランニング")
+    assert "背景=定食屋の娘" in first
+    assert rest == "駅前の花屋で働いている"
+    long_profile = partner_profile_from_persona(
+        {"personality": "y" * 300}, "z" * 600, "en"
+    )
+    assert long_profile.startswith("Personality: yyy")
+    assert len(long_profile) == 600
+
+
+def test_partner_speech_from_persona_adds_pronoun() -> None:
+    assert (
+        partner_speech_from_persona(
+            {"pronoun": "あたし", "speech_style": "砕けた口調"}, "ja"
+        )
+        == "一人称は「あたし」。砕けた口調"
+    )
+    # 口調文に一人称が含まれていれば補わない
+    assert (
+        partner_speech_from_persona(
+            {"pronoun": "あたし", "speech_style": "一人称はあたし"}, "ja"
+        )
+        == "一人称はあたし"
+    )
+    assert partner_speech_from_persona({"pronoun": "僕"}, "ja") == ""
+    long_style = partner_speech_from_persona({"speech_style": "a" * 300}, "en")
+    assert len(long_style) == 200
+
+
+def test_romance_setup_prompt_fixes_character_partner_name() -> None:
+    plain = romance_setup_system_prompt("ja", 10)
+    assert "invent a fitting new name" in plain
+    assert "partner_character" not in plain
+    fixed = romance_setup_system_prompt(
+        "ja", 10, partner_character=True, player_persona=True
+    )
+    assert "Set partner_name to partner_character.name exactly" in fixed
+    assert "invent a fitting new name" not in fixed
+    assert "player_persona is the player character" in fixed

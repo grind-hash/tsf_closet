@@ -48,6 +48,9 @@ export const ROMANCE_DEFAULT_PLAYER_ID = "char1";
 // 主人公セレクトで「セッションの姿を使う」を表す特殊値
 export const ROMANCE_PLAYER_SESSION_VALUE = "__session__";
 
+// 主人公セレクトで「作ったキャラクターを使う」を表す特殊値
+export const ROMANCE_PLAYER_CHARACTER_VALUE = "__character__";
+
 export function clampMaxTurns(value: number): number {
   if (!Number.isFinite(value)) return DEFAULT_MAX_TURNS;
   return Math.min(MAX_MAX_TURNS, Math.max(MIN_MAX_TURNS, Math.round(value)));

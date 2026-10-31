@@ -22,6 +22,17 @@ export const adventure = {
     notSelected: "Not selected",
     tabPromptExpander: "Prompt Expander",
     promptExpanderOrigin: "Prompt Expander",
+    tabCharacters: "Characters",
+    characterOrigin: "Character",
+    characterNoPortrait:
+      "No portrait yet, so it can't be used. Add a portrait in Character Maker.",
+    charactersEmpty: "No characters yet",
+    charactersLoadFailed: "Couldn't load characters",
+    characterCreateLink: "Create one in Character Maker",
+    characterPersonaHint:
+      "You play as this character. Their name, personality, speech, and background apply to the protagonist.",
+    characterPartnerHint:
+      "This character becomes the romance partner, with their own name, personality, and speech.",
   },
   startMode: "Start Mode",
   startModes: {
@@ -79,7 +90,11 @@ export const adventure = {
       "The character you play as in the romance simulation. The choice is remembered for next time.",
     playerLoading: "Loading...",
     playerFromSession: "Use a session state",
+    playerFromCharacter: "Use a character you made",
     playerSession: "Session for your character",
+    playerCharacter: "Character to play as",
+    playerCharacterHint:
+      "You play as this character. Their name, personality, speech, and background apply to the protagonist.",
     playerState: "Your appearance (point in time)",
     playerName: "Name",
     playerNameHint:
@@ -92,6 +107,8 @@ export const adventure = {
       "e.g. casual gyaru speech with drawn-out endings, calls herself Atashi",
     partnerSpeechStyleHint:
       "Leave blank to derive it from the generated persona. It can be changed after the start.",
+    partnerSpeechStyleCharacterHint:
+      "Leave blank to use the character's speech style. It can be changed after the start.",
     partnerSpeechStyleAuto: "Automatic (from the persona)",
     previewTurn: "Day {{day}}/{{total}} {{slot}} (turn {{turn}}/{{max}})",
     day: "Day",
@@ -183,6 +200,9 @@ export const adventure = {
     tooManyConstraints:
       "Up to {{max}} constraints are allowed (currently {{count}})",
     noScenario: "Select a scenario",
+    noPlayerCharacter: "Select a character to play as",
+    samePartnerAndPlayer:
+      "The partner and the protagonist can't be the same character",
   },
   start: "Start Scenario",
   storyOptions: "Story Presentation",
@@ -204,6 +224,8 @@ export const adventure = {
   speechStyleChip: "Speech",
   speechStyleHint:
     "Chooses how the player character speaks in dialogue. It can be changed after the scenario starts and applies from the next turn.",
+  speechStylePersonaHint:
+    "When you play as a character and leave this at Polite, the character's own speech style is used.",
   speechStyles: {
     polite: "Polite",
     casual: "Casual",

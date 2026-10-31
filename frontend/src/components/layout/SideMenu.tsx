@@ -89,6 +89,13 @@ const getMenuItems = (
     ...(showCharacterChatMenu
       ? [
           {
+            id: "characters",
+            label: t("menu.characters"),
+            icon: "👤",
+            path: ROUTES.CHARACTERS,
+            description: t("menu.charactersDesc"),
+          },
+          {
             id: "character-chat",
             label: t("menu.characterChat"),
             icon: "💬",

@@ -7,13 +7,20 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type {
-  AvatarExpressionKey,
-  AvatarGestureKey,
+import {
+  AVATAR_FRAMING_DEFAULT,
+  type AvatarExpressionKey,
+  type AvatarFraming,
+  type AvatarGestureKey,
 } from "../../../constants/companionAvatar";
+import { useAvatarLighting } from "../../../hooks/useAvatarViewPreferences";
 import type { VisemeFrame } from "../../../utils/visemeTimeline";
 import type { AvatarRestPose } from "./avatarMotion";
-import { createVrmAvatarEngine, type VrmAvatarEngine } from "./vrmAvatarEngine";
+import {
+  createVrmAvatarEngine,
+  type VrmAvatarEngine,
+  type VrmAvatarLoadResult,
+} from "./vrmAvatarEngine";
 import "./CompanionAvatarStage.css";
 
 export interface CompanionAvatarStageProps {
@@ -24,6 +31,8 @@ export interface CompanionAvatarStageProps {
   gestureKey: string | null;
   /** 待機姿勢。既定は腕を体側へ下ろす relaxed、clasped は手を前で重ねる */
   restPose?: AvatarRestPose;
+  /** カメラの構図。既定は上半身(ライティングは全画面共通の好みを読む) */
+  framing?: AvatarFraming;
   /** 口パク用の音量レベル(0..1)。毎フレーム呼ばれる */
   getVoiceLevel: () => number;
   /**
@@ -31,7 +40,7 @@ export interface CompanionAvatarStageProps {
    * getVoiceLevel の音量ベース口パクへフォールバックする
    */
   getVisemeFrame?: (() => VisemeFrame | null) | null;
-  onReady?: () => void;
+  onReady?: (result: VrmAvatarLoadResult) => void;
   onError: (error: unknown) => void;
 }
 
@@ -43,12 +52,14 @@ export default function CompanionAvatarStage({
   gesture,
   gestureKey,
   restPose = "relaxed",
+  framing = AVATAR_FRAMING_DEFAULT,
   getVoiceLevel,
   getVisemeFrame,
   onReady,
   onError,
 }: CompanionAvatarStageProps) {
   const { t } = useTranslation();
+  const [lighting] = useAvatarLighting();
   const containerRef = useRef<HTMLDivElement>(null);
   const engineRef = useRef<VrmAvatarEngine | null>(null);
   const [status, setStatus] = useState<StageStatus>("loading");
@@ -65,6 +76,10 @@ export default function CompanionAvatarStage({
   // エンジンは 1 度しか作らないため、初期値は ref 経由で渡す
   const restPoseRef = useRef(restPose);
   restPoseRef.current = restPose;
+  const lightingRef = useRef(lighting);
+  lightingRef.current = lighting;
+  const framingRef = useRef(framing);
+  framingRef.current = framing;
 
   useEffect(() => {
     const container = containerRef.current;
@@ -81,6 +96,8 @@ export default function CompanionAvatarStage({
         canvas,
         container,
         restPose: restPoseRef.current,
+        lighting: lightingRef.current,
+        framing: framingRef.current,
         onError: (error) => {
           setStatus("error");
           onErrorRef.current(error);
@@ -109,10 +126,10 @@ export default function CompanionAvatarStage({
     setStatus("loading");
     engine
       .load(fileUrl)
-      .then(() => {
+      .then((result) => {
         if (cancelled) return;
         setStatus("ready");
-        onReadyRef.current?.();
+        onReadyRef.current?.(result);
       })
       .catch((error: unknown) => {
         if (cancelled) return;
@@ -134,6 +151,14 @@ export default function CompanionAvatarStage({
   useEffect(() => {
     engineRef.current?.setRestPose(restPose);
   }, [restPose]);
+
+  useEffect(() => {
+    engineRef.current?.setLighting(lighting);
+  }, [lighting]);
+
+  useEffect(() => {
+    engineRef.current?.setFraming(framing);
+  }, [framing]);
 
   // gestureKey が変わったときだけ再生する(gesture は ref 経由で読む)
   useEffect(() => {

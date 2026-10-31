@@ -19,7 +19,9 @@ from ..schemas.character_chat import (
     CharacterChatAdventureAppearanceRequest,
     CharacterChatAppearanceRequest,
     CharacterChatAvatarRequest,
+    CharacterChatCharacterLinkRequest,
     CharacterChatCreateRequest,
+    CharacterChatExpressionRequest,
     CharacterChatMessageRequest,
     CharacterChatPortraitRequest,
 )
@@ -40,6 +42,7 @@ _NOT_FOUND_CODES = {
     "run_not_found",
     "reference_not_found",
     "avatar_not_found",
+    "character_not_found",
 }
 
 
@@ -97,13 +100,51 @@ async def open_adventure_thread(run_id: str) -> dict:
 
 @router.post("/threads", status_code=201)
 async def create_thread(request: CharacterChatCreateRequest) -> dict:
-    """過去セッション(または Prompt Expander エントリ)の人物からスレッドを作る。"""
+    """スレッドを作る。
+
+    キャラクターだけを指定したらキャラクターメイクのキャラと話すスレッド、
+    過去セッション(または Prompt Expander エントリ)を指定したらその人物のスレッド
+    (キャラクターも指定すればその設定を重ねる)。
+    """
     try:
+        if (
+            request.source_character_preset_id
+            and not request.source_session_id
+            and not request.source_prompt_expander_entry_id
+        ):
+            return await character_chat_service.create_character_thread(
+                request.source_character_preset_id
+            )
         return await character_chat_service.create_session_thread(
             source_session_id=request.source_session_id,
             source_history_id=request.source_history_id,
             source_prompt_expander_entry_id=request.source_prompt_expander_entry_id,
+            character_preset_id=request.source_character_preset_id,
         )
+    except CharacterChatError as error:
+        raise _http_error(error) from error
+
+
+@router.post("/threads/{thread_id}/character")
+async def link_character(
+    thread_id: str,
+    request: CharacterChatCharacterLinkRequest | None = Body(default=None),
+) -> dict:
+    """セッション由来の会話にキャラクターを紐づける(省略時はいまの姿から作る)。"""
+    options = request or CharacterChatCharacterLinkRequest()
+    try:
+        return await character_chat_service.link_character(
+            thread_id, preset_id=options.preset_id
+        )
+    except CharacterChatError as error:
+        raise _http_error(error) from error
+
+
+@router.delete("/threads/{thread_id}/character")
+async def unlink_character(thread_id: str) -> dict:
+    """セッション由来の会話からキャラクターの紐づけを外す(キャラクターは残す)。"""
+    try:
+        return await character_chat_service.unlink_character(thread_id)
     except CharacterChatError as error:
         raise _http_error(error) from error
 
@@ -143,6 +184,7 @@ async def message_stream(
                 use_web_search=request.use_web_search,
                 use_weather=request.use_weather,
                 request_play_proposal=request.request_play_proposal,
+                read_aloud=request.read_aloud,
             ):
                 yield {
                     "event": event["event"],
@@ -243,6 +285,32 @@ async def portrait_stream(
         except Exception as error:  # noqa: BLE001 - SSE には他に伝える経路が無い
             logger.exception("character chat portrait stream failed")
             yield _sse_error(error, "portrait")
+
+    return EventSourceResponse(event_generator())
+
+
+@router.post("/threads/{thread_id}/expressions/stream")
+async def expression_stream(
+    thread_id: str, request: CharacterChatExpressionRequest
+) -> EventSourceResponse:
+    """いまの立ち絵から、表情だけを変えた立ち絵(表情差分)を描く。"""
+
+    async def event_generator() -> AsyncGenerator[dict, None]:
+        try:
+            async for event in character_chat_service.stream_expression_portraits(
+                thread_id,
+                expressions=list(request.expressions),
+                use_precise_reference=request.use_precise_reference,
+            ):
+                yield {
+                    "event": event["event"],
+                    "data": json.dumps(event["data"], ensure_ascii=False),
+                }
+        except CharacterChatError as error:
+            yield _sse_error(error, "expression")
+        except Exception as error:  # noqa: BLE001 - SSE には他に伝える経路が無い
+            logger.exception("character chat expression stream failed")
+            yield _sse_error(error, "expression")
 
     return EventSourceResponse(event_generator())
 

@@ -5,24 +5,33 @@ import { fetchGallerySessions } from "../../apis/gallery";
 import type { PromptExpanderEntry } from "../../apis/promptExpander";
 import { useGallery } from "../../hooks/useGallery";
 import { useInfiniteScroll } from "../../hooks/useInfiniteScroll";
-import type { GallerySession } from "../../types";
+import type { CharacterPreset, GallerySession } from "../../types";
 import { API_BASE } from "../../utils/api";
 import PromptExpanderEntryGrid from "../promptExpander/PromptExpanderEntryGrid";
+import AdventureCharacterPresetGrid from "./AdventureCharacterPresetGrid";
 import "./AdventureSessionPickerModal.css";
 
-export type AdventureSourceOrigin = "session" | "favorite" | "prompt_expander";
+export type AdventureSourceOrigin =
+  | "session"
+  | "favorite"
+  | "prompt_expander"
+  | "character";
 
 /**
  * 開始セッション(+時点)の選択結果。
  * サマリ表示に必要なメタ情報も一緒に返し、親コンポーネントでの再取得を不要にする。
  */
 export interface AdventureSourceSelection {
-  /** origin が prompt_expander のときは空文字 */
+  /** origin が prompt_expander / character のときは空文字 */
   sessionId: string;
   /** undefined = 現在の状態 */
   historyId?: string;
   /** origin が prompt_expander のときだけ入る Prompt Expander エントリID */
   promptExpanderEntryId?: string;
+  /** origin が character のときだけ入る、キャラクターメイクのキャラクターID */
+  characterPresetId?: string;
+  /** origin が character のときのキャラクターの一人称(未設定なら undefined) */
+  characterPronoun?: string;
   characterName: string | null;
   thumbnailUrl: string;
   /** 時点の指示テキストまたはお気に入りラベル。null = 現在の状態 */
@@ -60,6 +69,22 @@ export function selectionFromPromptExpanderEntry(
   };
 }
 
+/** キャラクターメイクのキャラクターを選んだときの選択結果を作る */
+export function selectionFromCharacterPreset(
+  preset: CharacterPreset,
+): AdventureSourceSelection {
+  return {
+    sessionId: "",
+    historyId: undefined,
+    characterPresetId: preset.id,
+    characterPronoun: preset.profile?.pronoun?.trim() || undefined,
+    characterName: preset.name,
+    thumbnailUrl: preset.portrait_url ?? preset.thumbnail_url ?? "",
+    pointLabel: preset.profile?.personality?.trim() || null,
+    origin: "character",
+  };
+}
+
 function mediaUrl(url: string): string {
   if (url.startsWith(`${API_BASE}/`)) return url;
   return url.startsWith("/") ? `${API_BASE}${url}` : url;
@@ -78,7 +103,13 @@ function formatSessionDate(iso: string, locale: string): string {
 const PAGE_SIZE = 20;
 const HISTORY_PAGE_SIZE = 30;
 
-type PickerTab = "sessions" | "favorites" | "prompt_expander";
+type PickerTab = "sessions" | "favorites" | "prompt_expander" | "characters";
+
+/**
+ * キャラクタータブの出し方。off は出さない、tab は他のタブと並べる、
+ * only はキャラクターだけを選ばせる(タブ列と検索を隠し、セッションを読まない)
+ */
+export type AdventurePickerCharacters = "off" | "tab" | "only";
 
 interface SessionHistoryListProps {
   session: GallerySession;
@@ -195,6 +226,8 @@ interface AdventureSessionPickerModalProps {
   onClose: () => void;
   /** true のとき Prompt Expander エントリのタブを出す(開始セッションの選択時のみ) */
   allowPromptExpander?: boolean;
+  /** キャラクターメイクのキャラクターを選ぶタブの出し方。既定は出さない */
+  characters?: AdventurePickerCharacters;
 }
 
 /**
@@ -203,6 +236,7 @@ interface AdventureSessionPickerModalProps {
  * カードから「現在の状態で選択」で即決定、サムネイルクリックで時点一覧へドリルダウン。
  * お気に入りタブ: 1クリックでセッションと時点を同時決定する。
  * Prompt Expander タブ(allowPromptExpander 時のみ): エントリ1クリックで決定する。
+ * キャラクタータブ(characters が off 以外): キャラクター1クリックで決定する。
  */
 export default function AdventureSessionPickerModal({
   title,
@@ -210,9 +244,15 @@ export default function AdventureSessionPickerModal({
   onSelect,
   onClose,
   allowPromptExpander = false,
+  characters = "off",
 }: AdventureSessionPickerModalProps) {
   const { t, i18n } = useTranslation();
+  const charactersOnly = characters === "only";
   const [tab, setTab] = useState<PickerTab>(() => {
+    if (charactersOnly) return "characters";
+    if (selected?.origin === "character" && characters === "tab") {
+      return "characters";
+    }
     if (selected?.origin === "favorite") return "favorites";
     if (selected?.origin === "prompt_expander" && allowPromptExpander) {
       return "prompt_expander";
@@ -306,9 +346,10 @@ export default function AdventureSessionPickerModal({
   // 初回と検索語変更時に1ページ目から取り直す。
   // お気に入り由来のキャラ名解決にも使うため、タブに関わらず読み込む
   useEffect(() => {
+    if (charactersOnly) return;
     setSessions([]);
     void loadSessions(1, searchQuery);
-  }, [searchQuery, loadSessions]);
+  }, [charactersOnly, searchQuery, loadSessions]);
 
   // お気に入りはタブ初回アクティブ時に遅延取得する
   useEffect(() => {
@@ -330,7 +371,7 @@ export default function AdventureSessionPickerModal({
   const initialFocusDoneRef = useRef(false);
   useEffect(() => {
     if (initialFocusDoneRef.current || !contentEl) return;
-    // Prompt Expander タブは EntryGrid 側で読み込むため、ここでは待たない
+    // Prompt Expander・キャラクタータブは各グリッド側で読み込むため、ここでは待たない
     const fetchedOnce =
       tab === "sessions"
         ? sessionsFetchedOnce
@@ -632,7 +673,7 @@ export default function AdventureSessionPickerModal({
                 t("adventure.unnamedCharacter")}
             </strong>
           </div>
-        ) : (
+        ) : charactersOnly ? null : (
           <>
             <div className="adventure-scenario-tabs" role="tablist">
               <button
@@ -662,6 +703,17 @@ export default function AdventureSessionPickerModal({
                   onClick={() => setTab("prompt_expander")}
                 >
                   {t("adventure.sourcePicker.tabPromptExpander")}
+                </button>
+              )}
+              {characters === "tab" && (
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={tab === "characters"}
+                  className={tab === "characters" ? "is-active" : ""}
+                  onClick={() => setTab("characters")}
+                >
+                  {t("adventure.sourcePicker.tabCharacters")}
                 </button>
               )}
             </div>
@@ -699,6 +751,17 @@ export default function AdventureSessionPickerModal({
               root={contentEl}
               selected={selected}
               onSelect={onSelect}
+            />
+          ) : tab === "characters" && characters !== "off" ? (
+            <AdventureCharacterPresetGrid
+              selectedPresetId={
+                selected?.origin === "character"
+                  ? (selected.characterPresetId ?? null)
+                  : null
+              }
+              onSelect={(preset) =>
+                onSelect(selectionFromCharacterPreset(preset))
+              }
             />
           ) : tab === "sessions" ? (
             renderSessionsTab()

@@ -2,14 +2,17 @@ import { lazy, Suspense } from "react";
 import { useTranslation } from "react-i18next";
 import type { CharacterChatThread } from "../../apis/characterChat";
 import { PORTRAIT_ALPHA_OPTIONS } from "../../constants/adventure";
-import type {
-  AvatarExpressionKey,
-  AvatarGestureKey,
+import {
+  type AvatarExpressionKey,
+  type AvatarGestureKey,
+  normalizeAvatarExpression,
 } from "../../constants/companionAvatar";
 import { useCharacterChat } from "../../contexts/CharacterChatContext";
+import { useAvatarFraming } from "../../hooks/useAvatarViewPreferences";
 import { useTransparentImage } from "../../hooks/useTransparentImage";
 import type { VisemeFrame } from "../../utils/visemeTimeline";
 import type { AvatarRestPose } from "../adventure/avatar/avatarMotion";
+import type { VrmAvatarLoadResult } from "../adventure/avatar/vrmAvatarEngine";
 
 // three.js を含むため別チャンクにする(Adventure の対面会話モードと同じ)
 const CompanionAvatarStage = lazy(
@@ -26,6 +29,7 @@ export interface CharacterChatStageAvatar {
   gestureKey: string | null;
   getVoiceLevel: () => number;
   getVisemeFrame: () => VisemeFrame | null;
+  onReady: (result: VrmAvatarLoadResult) => void;
   onError: (error: unknown) => void;
 }
 
@@ -56,12 +60,24 @@ export default function CharacterChatStage({
   avatar,
 }: CharacterChatStageProps) {
   const { t } = useTranslation();
-  const { avatarFailed } = useCharacterChat();
+  const { avatarFailed, expressionPreview } = useCharacterChat();
+  const [framing] = useAvatarFraming();
   const live2d =
     thread.kind === "base" && thread.avatar?.mode === "live2d" && !avatarFailed;
   const standing = thread.appearance.portrait_kind === "standing";
+  // 2D 立ち絵: 「表情」メニューの選択か、最新の返答の表情に合う表情差分があれば差し替える
+  const latestCharacterMessage = [...(thread.messages ?? [])]
+    .reverse()
+    .find((message) => message.role === "character");
+  const expression =
+    expressionPreview ??
+    normalizeAvatarExpression(latestCharacterMessage?.meta?.expression ?? null);
+  const expressionUrl =
+    expression && expression !== "neutral"
+      ? (thread.expression_portraits?.[expression] ?? null)
+      : null;
   const { url, processing } = useTransparentImage(
-    avatar || live2d ? null : thread.portrait_url,
+    avatar || live2d ? null : (expressionUrl ?? thread.portrait_url),
     standing,
     PORTRAIT_ALPHA_OPTIONS,
   );
@@ -83,8 +99,10 @@ export default function CharacterChatStage({
               gesture={avatar.gesture}
               gestureKey={avatar.gestureKey}
               restPose={avatar.restPose}
+              framing={framing}
               getVoiceLevel={avatar.getVoiceLevel}
               getVisemeFrame={avatar.getVisemeFrame}
+              onReady={avatar.onReady}
               onError={avatar.onError}
             />
           </Suspense>
@@ -105,9 +123,11 @@ export default function CharacterChatStage({
           {thread.portrait_missing && (
             <>
               <p>
-                {t("characterChat.room.portraitMissing", {
-                  file: BUNDLED_PORTRAIT_FILENAME,
-                })}
+                {thread.kind === "base"
+                  ? t("characterChat.room.portraitMissing", {
+                      file: BUNDLED_PORTRAIT_FILENAME,
+                    })
+                  : t("characterChat.room.portraitMissingCharacter")}
               </p>
               <button
                 type="button"

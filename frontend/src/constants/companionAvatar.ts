@@ -43,6 +43,25 @@ export type AvatarGestureKey = (typeof AVATAR_GESTURES)[number];
 export const AVATAR_EXPRESSION_DEFAULT: AvatarExpressionKey = "neutral";
 export const AVATAR_GESTURE_DEFAULT: AvatarGestureKey = "idle";
 
+/*
+ * ここから下はフロントエンドだけで使う見せ方の設定(バックエンドとの同期は不要)。
+ */
+
+/** ライティングの種類。光源の数値は avatar/avatarLighting.ts が持つ */
+export const AVATAR_LIGHTING_PRESETS = [
+  "standard",
+  "bright",
+  "sunset",
+  "night",
+] as const;
+export type AvatarLightingPreset = (typeof AVATAR_LIGHTING_PRESETS)[number];
+export const AVATAR_LIGHTING_DEFAULT: AvatarLightingPreset = "standard";
+
+/** カメラの構図。upper が従来の上半身の構図 */
+export const AVATAR_FRAMINGS = ["full", "upper", "face"] as const;
+export type AvatarFraming = (typeof AVATAR_FRAMINGS)[number];
+export const AVATAR_FRAMING_DEFAULT: AvatarFraming = "upper";
+
 /**
  * バックエンドの `_normalize_key` と同じ規則で正規化する。
  * 前後空白を除き、小文字化し、`-` と空白を `_` に置き換える。
@@ -68,4 +87,14 @@ export function normalizeAvatarGesture(
   value: unknown,
 ): AvatarGestureKey | null {
   return normalizeKey(value, AVATAR_GESTURES);
+}
+
+export function normalizeAvatarLighting(
+  value: unknown,
+): AvatarLightingPreset | null {
+  return normalizeKey(value, AVATAR_LIGHTING_PRESETS);
+}
+
+export function normalizeAvatarFraming(value: unknown): AvatarFraming | null {
+  return normalizeKey(value, AVATAR_FRAMINGS);
 }

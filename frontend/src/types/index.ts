@@ -489,6 +489,24 @@ export interface CharacterProfile {
   tsf_attitude: string;
   /** 自動生成の元にするメモ */
   memo: string;
+  /*
+   * ここから下はキャラクターメイクで足した項目。キャラチャットの人物設定にだけ
+   * 使う。バックエンドは常に返すが、登場人物の編集など古い経路では省略できる。
+   */
+  /** 口調・話し方 */
+  speech_style?: string;
+  /** セリフの例(改行区切り) */
+  sample_lines?: string;
+  /** 知識・背景 */
+  knowledge?: string;
+  /** キャラチャットを始めたときの最初のひとこと */
+  greeting?: string;
+}
+
+/** キャラクターの声(AivisSpeech)。未設定ならユーザー設定の声を使う */
+export interface CharacterVoice {
+  speaker_id: string;
+  style_id: string;
 }
 
 /** 今の姿の出どころ: 設定 / 直前の手番の結果（履歴） / 姿を固定 */
@@ -542,6 +560,11 @@ export interface CharacterPreset {
   negative_tags: string;
   profile: CharacterProfile | null;
   thumbnail_url: string | null;
+  /** 3D モデル(登録済み VRM)の ID。削除済みのモデルを指していることもある */
+  avatar_model_id: string | null;
+  voice: CharacterVoice | null;
+  /** 立ち絵(API 相対 URL)。未設定なら null */
+  portrait_url: string | null;
   created_at: string;
   updated_at: string;
 }

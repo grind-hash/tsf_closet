@@ -50,6 +50,9 @@ export const ROUTES = {
   // /adventure 配下に置かないこと(AdventureScreen が runId として解釈する)
   CHARACTER_CHAT: "/talk",
   CHARACTER_CHAT_THREAD: "/talk/:threadId",
+  // キャラクターメイク(キャラチャットで話すキャラクターの作成・管理)
+  CHARACTERS: "/characters",
+  CHARACTER_EDIT: "/characters/:presetId",
 } as const;
 
 // セッションID付きのゲームURLを生成するヘルパー

@@ -21,11 +21,21 @@ from ..consts.character_limits import (
 from ..consts.character_profile import (
     DEFAULT_REACTION_STYLE,
     GENDERS,
+    PERSONA_INTERESTS_MAX_COUNT,
+    PERSONA_KNOWLEDGE_MAX_LEN,
+    PERSONA_PERSONALITY_MAX_LEN,
+    PERSONA_SAMPLE_LINES_MAX_LEN,
+    PERSONA_SPEECH_STYLE_MAX_LEN,
+    PERSONA_TSF_ATTITUDE_MAX_LEN,
+    PROFILE_GREETING_MAX_LEN,
     PROFILE_INTEREST_MAX_LEN,
     PROFILE_INTERESTS_MAX_COUNT,
+    PROFILE_KNOWLEDGE_MAX_LEN,
     PROFILE_MEMO_MAX_LEN,
     PROFILE_PERSONALITY_MAX_LEN,
     PROFILE_PRONOUN_MAX_LEN,
+    PROFILE_SAMPLE_LINES_MAX_LEN,
+    PROFILE_SPEECH_STYLE_MAX_LEN,
     PROFILE_TSF_ATTITUDE_MAX_LEN,
     PROMPT_INTERESTS_MAX_COUNT,
     PROMPT_PERSONALITY_MAX_LEN,
@@ -47,6 +57,11 @@ class CharacterSourceNotFoundError(LookupError):
 
 def _text(value: Any, max_len: int) -> str:
     return str(value or "").strip()[:max_len]
+
+
+def _multiline(value: Any, max_len: int) -> str:
+    """改行を保ったまま前後の空白だけ落とす(セリフ例・知識の欄)。"""
+    return str(value or "").replace("\r\n", "\n").strip()[:max_len]
 
 
 def normalize_character_profile(raw: dict[str, Any]) -> dict[str, Any]:
@@ -76,6 +91,12 @@ def normalize_character_profile(raw: dict[str, Any]) -> dict[str, Any]:
         "interests": interests,
         "tsf_attitude": _text(raw.get("tsf_attitude"), PROFILE_TSF_ATTITUDE_MAX_LEN),
         "memo": _text(raw.get("memo"), PROFILE_MEMO_MAX_LEN),
+        "speech_style": _text(raw.get("speech_style"), PROFILE_SPEECH_STYLE_MAX_LEN),
+        "sample_lines": _multiline(
+            raw.get("sample_lines"), PROFILE_SAMPLE_LINES_MAX_LEN
+        ),
+        "knowledge": _multiline(raw.get("knowledge"), PROFILE_KNOWLEDGE_MAX_LEN),
+        "greeting": _multiline(raw.get("greeting"), PROFILE_GREETING_MAX_LEN),
     }
 
 
@@ -111,6 +132,61 @@ def format_profile_line_ja(profile: dict[str, Any] | None) -> str:
     return " / ".join(parts)
 
 
+def _cut_lines(value: str, max_len: int) -> str:
+    """max_len 以内に収まるところまで、行単位で残す(1 行目が長すぎれば切る)。"""
+    if len(value) <= max_len:
+        return value
+    kept: list[str] = []
+    size = 0
+    for line in value.split("\n"):
+        extra = len(line) + (1 if kept else 0)
+        if size + extra > max_len:
+            break
+        kept.append(line)
+        size += extra
+    return "\n".join(kept) if kept else value[:max_len]
+
+
+def character_persona_for_prompt(name: str, profile: dict[str, Any]) -> dict[str, Any]:
+    """キャラクターを TSFシナリオの人物設定として LLM へ渡す形にする。
+
+    profile は normalize_character_profile 済みの値。毎ターンの状態に載るため保存時より
+    短く切り、空の項目は省く。memo(自動生成の種)と greeting は物語に使わない。
+    """
+    gender = {"man": "male", "woman": "female"}.get(str(profile.get("gender") or ""))
+    reaction = str(profile.get("reaction_style") or "")
+    interests = [
+        str(item).strip()
+        for item in profile.get("interests") or []
+        if str(item).strip()
+    ][:PERSONA_INTERESTS_MAX_COUNT]
+    persona: dict[str, Any] = {
+        "name": str(name or "").strip(),
+        "pronoun": str(profile.get("pronoun") or "").strip(),
+        "gender": gender or "",
+        "personality": _text(profile.get("personality"), PERSONA_PERSONALITY_MAX_LEN),
+        "reaction_style": (
+            reaction if reaction and reaction != DEFAULT_REACTION_STYLE else ""
+        ),
+        "speech_style": _text(
+            profile.get("speech_style"), PERSONA_SPEECH_STYLE_MAX_LEN
+        ),
+        "sample_lines": _cut_lines(
+            _multiline(profile.get("sample_lines"), PROFILE_SAMPLE_LINES_MAX_LEN),
+            PERSONA_SAMPLE_LINES_MAX_LEN,
+        ),
+        "interests": interests,
+        "tsf_attitude": _text(
+            profile.get("tsf_attitude"), PERSONA_TSF_ATTITUDE_MAX_LEN
+        ),
+        "knowledge": _cut_lines(
+            _multiline(profile.get("knowledge"), PROFILE_KNOWLEDGE_MAX_LEN),
+            PERSONA_KNOWLEDGE_MAX_LEN,
+        ),
+    }
+    return {key: value for key, value in persona.items() if value}
+
+
 # ── 自動生成 ──
 
 CHARACTER_PROFILE_GEN_SYSTEM_PROMPT = """あなたはキャラクター設定の専門家です。
@@ -135,6 +211,21 @@ CHARACTER_PROFILE_GEN_SYSTEM_PROMPT = """あなたはキャラクター設定の
 - tsf_attitude はメモに無ければ、性格から想像できる態度を中立寄りに書く
 - 必ず有効なJSONのみを出力すること"""
 
+# キャラクターメイクから呼ぶときだけ足す出力項目。メモに書かれた話し方・セリフの
+# 例だけを取り出し、書かれていなければ空にする(新しく作らせない)
+CHARACTER_PROFILE_GEN_SPEECH_ADDENDUM = """
+
+追加の出力項目（上の JSON に含める）:
+  "speech_style": "メモに書かれた話し方・口調を1-2文に整理",
+  "sample_lines": "メモに書かれたセリフの例を、1行に1つずつ改行（\\n）区切りで"
+
+追加のルール:
+- speech_style と sample_lines は、メモに話し方・口調やセリフの例が書かれているときだけ入れる。書かれていなければ空文字にする
+- sample_lines はメモのセリフを書き写すだけにし、新しいセリフを作らない"""
+
+# 話し方の項目を求めない呼び出しで、LLM が返しても捨てる項目
+_SPEECH_FIELDS = ("speech_style", "sample_lines")
+
 
 def build_character_profile_generation_prompt(
     *,
@@ -142,8 +233,12 @@ def build_character_profile_generation_prompt(
     appearance_natural: str,
     appearance_tags: str,
     memo: str,
+    include_speech: bool = False,
 ) -> tuple[str, str]:
-    """登場人物の性格プロフィールを生成するための (system, user) プロンプト。"""
+    """登場人物の性格プロフィールを生成するための (system, user) プロンプト。
+
+    include_speech はメモに書かれた話し方・セリフの例も取り出すか(キャラクターメイク用)。
+    """
     lines = ["以下の登場人物の性格プロフィールを生成してください。", ""]
     lines.append(f"名前: {name.strip() or '（未設定）'}")
     if appearance_natural.strip():
@@ -154,7 +249,10 @@ def build_character_profile_generation_prompt(
     lines.append("")
     lines.append("メモ:")
     lines.append(memo_text or "（なし）")
-    return CHARACTER_PROFILE_GEN_SYSTEM_PROMPT, "\n".join(lines)
+    system_prompt = CHARACTER_PROFILE_GEN_SYSTEM_PROMPT
+    if include_speech:
+        system_prompt += CHARACTER_PROFILE_GEN_SPEECH_ADDENDUM
+    return system_prompt, "\n".join(lines)
 
 
 async def generate_character_profile(
@@ -163,11 +261,14 @@ async def generate_character_profile(
     appearance_natural: str,
     appearance_tags: str,
     memo: str,
+    include_speech: bool = False,
 ) -> dict[str, Any]:
     """LLM で登場人物の性格プロフィールを生成する。
 
     プロバイダは本文生成と同じ FEELING_PROVIDER に従い、NovelAI のときは
     ユーザー設定のテキストモデルを使う（別プロバイダへの振り替えはしない）。
+    include_speech のときは、メモに書かれた話し方とセリフの例も返す
+    （書かれていなければ空）。
 
     Raises:
         CharacterProfileGenerationError: LLM 呼び出し・JSON 解析の失敗
@@ -181,6 +282,7 @@ async def generate_character_profile(
         appearance_natural=appearance_natural,
         appearance_tags=appearance_tags,
         memo=memo,
+        include_speech=include_speech,
     )
     user_settings = await session_store.get_user_settings()
     try:
@@ -204,6 +306,14 @@ async def generate_character_profile(
         raise CharacterProfileGenerationError("invalid_json") from exc
     if not isinstance(data, dict):
         raise CharacterProfileGenerationError("invalid_json")
+    if include_speech:
+        lines = data.get("sample_lines")
+        if isinstance(lines, list):
+            # 配列で返したときも 1 行に 1 つの形にそろえる
+            data["sample_lines"] = "\n".join(str(line) for line in lines if line)
+    else:
+        for key in _SPEECH_FIELDS:
+            data.pop(key, None)
     return normalize_character_profile({**data, "memo": memo})
 
 

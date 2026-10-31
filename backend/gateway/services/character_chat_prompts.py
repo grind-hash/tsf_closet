@@ -22,6 +22,7 @@ from ..consts.character_chat import (
     REAL_WORLD_LOOKUP_KINDS,
     SUMMARY_MAX_CHARS,
 )
+from ..consts.character_profile import REACTION_STYLE_LABELS_JA
 from .conversation import (
     get_language_rules,
     get_psychological_description,
@@ -47,6 +48,17 @@ _LOOKUP_DESCRIPTIONS = {
     "recent_adventures": "recent TSF scenario (adventure) runs: title, preset, status, progress. Use when the user asks about scenarios they played.",
 }
 # 現実世界の調べ物。案内役キャラで設定が有効なときだけ判定 LLM に見せる
+# 返答を読み上げないときの文数の目安。声で聞かない分、一言で終わらせず厚めにする
+_UNSPOKEN_LENGTH_RULE_JA = (
+    "通常は 3〜6 文、気持ちを語る場面は 8 文程度まで。一言や相づちだけで終わらせず、"
+    "自分の考えや気持ち、話を広げるひと言を添えてください。"
+)
+_UNSPOKEN_LENGTH_RULE_EN = (
+    "usually three to six sentences, up to about eight when you talk about your "
+    "feelings. Do not stop at a one-liner or a bare acknowledgement: add your own "
+    "thoughts or feelings, or something that carries the conversation forward"
+)
+
 _REAL_WORLD_LOOKUP_DESCRIPTIONS = {
     "web_search": "a web search about the real world outside this app: news, current events, releases, products, prices, trends, and real works, people or places. Needs query (neutral keywords).",
     "weather": "the current weather at the user's location (configured on the server). No query.",
@@ -455,6 +467,101 @@ def session_persona_block(
     return "\n".join(lines)
 
 
+def character_persona_block(
+    *,
+    name: str,
+    pronoun: str,
+    profile: dict[str, Any] | None,
+    language: str,
+    supplement: bool = False,
+) -> str:
+    """キャラクターメイクで作ったキャラの人物設定。ユーザーが書いた設定をそのまま渡す。
+
+    supplement はセッション由来のスレッドにキャラクターを紐づけたときの追記で、
+    名乗りの行を省き、上の経緯より優先する設定として足す。
+    """
+    lang = _lang(language)
+    data = profile or {}
+
+    def text(key: str) -> str:
+        return str(data.get(key) or "").strip()
+
+    gender = text("gender")
+    reaction = text("reaction_style")
+    interests = [str(item).strip() for item in data.get("interests") or [] if item]
+    lines: list[str] = []
+    if lang == "en":
+        if supplement:
+            lines.append(
+                "Character settings the user wrote for you (they take priority over "
+                "the history above when the two disagree):"
+            )
+        else:
+            lines.append(
+                f"You are {name}, a character the user created, talking one-on-one "
+                f'with the user. Your first-person pronoun is "{pronoun}". The '
+                "settings below are your own; stay in character."
+            )
+        if gender in ("woman", "man"):
+            lines.append(f"Gender: {'female' if gender == 'woman' else 'male'}")
+        if text("personality"):
+            lines.append(f"Personality: {text('personality')}")
+        if reaction and reaction != "default":
+            lines.append(f"Reaction style: {reaction}")
+        if text("speech_style"):
+            lines.append(f"Speech style: {text('speech_style')}")
+        if text("sample_lines"):
+            lines.append(
+                "Sample lines (a reference for your voice; do not repeat them as-is):"
+            )
+            lines.append(text("sample_lines"))
+        if interests:
+            lines.append(f"Interests: {', '.join(interests)}")
+        if text("tsf_attitude"):
+            lines.append(f"Attitude toward TSF: {text('tsf_attitude')}")
+        if text("knowledge"):
+            lines.append("Knowledge and background (true facts for you):")
+            lines.append(text("knowledge"))
+        if text("memo"):
+            lines.append(f"Notes: {text('memo')}")
+    else:
+        if supplement:
+            lines.append(
+                "ユーザーが決めたキャラクター設定(上の経緯と食い違うときは、こちらを優先):"
+            )
+        else:
+            lines.append(
+                f"あなたは「{name}」。ユーザーが作ったキャラクターとして、相手(ユーザー)と"
+                f"1 対 1 で話しています。一人称は「{pronoun}」。以下はあなた自身の設定で、"
+                "役柄を保ってください。"
+            )
+        if gender in ("woman", "man"):
+            lines.append(f"性別: {'女性' if gender == 'woman' else '男性'}")
+        if text("personality"):
+            lines.append(f"性格: {text('personality')}")
+        if reaction and reaction != "default":
+            lines.append(
+                f"反応の傾向: {REACTION_STYLE_LABELS_JA.get(reaction, reaction)}"
+            )
+        if text("speech_style"):
+            lines.append(f"口調・話し方: {text('speech_style')}")
+        if text("sample_lines"):
+            lines.append("セリフの例(口調の参考。そのまま繰り返さない):")
+            lines.append(text("sample_lines"))
+        if interests:
+            lines.append(f"興味・好きなもの: {'、'.join(interests)}")
+        if text("tsf_attitude"):
+            lines.append(f"TSF への態度: {text('tsf_attitude')}")
+        if text("knowledge"):
+            lines.append("知識・背景(あなたにとっての事実):")
+            lines.append(text("knowledge"))
+        if text("memo"):
+            lines.append(f"メモ: {text('memo')}")
+    if supplement and len(lines) == 1:
+        return ""
+    return "\n".join(lines)
+
+
 def lookup_block(rendered: str, language: str) -> str:
     text = str(rendered or "").strip()
     if not text:
@@ -773,6 +880,7 @@ def reply_system_prompt(
     origin_lore_block_text: str = "",
     header_instruction: str = "",
     relaxed_length: bool = False,
+    read_aloud: bool = False,
     current_time_text: str = "",
     real_world_block_text: str = "",
     search_refusal_text: str = "",
@@ -785,6 +893,7 @@ def reply_system_prompt(
     live2d_costume_text は同梱 Live2D で表示中の衣装の姿。保存している外見と
     食い違うとき(会話で着替えた後など)に、見えている方を優先させるために置く。
     relaxed_length はセッション由来キャラ向けに文数の目安を緩める(案内役は短めのまま)。
+    read_aloud は返答を読み上げる手番。読み上げない手番は種類を問わず文数を増やす。
     current_time_text / real_world_block_text は案内役キャラだけが受け取る、いまの日時と
     Web 検索・天気の結果。過去プレイの調べ物の後ろに置く。search_refusal_text は
     Web 検索を利用規約で見送った手番の説明(同じく案内役キャラだけ)。
@@ -858,12 +967,15 @@ def reply_system_prompt(
             )
         )
     if lang == "en":
-        length_rule = (
-            "usually two to five sentences, up to about seven when you talk about "
-            "your feelings"
-            if relaxed_length
-            else "usually one to four sentences"
-        )
+        if not read_aloud:
+            length_rule = _UNSPOKEN_LENGTH_RULE_EN
+        elif relaxed_length:
+            length_rule = (
+                "usually two to five sentences, up to about seven when you talk "
+                "about your feelings"
+            )
+        else:
+            length_rule = "usually one to four sentences"
         reply_lead = (
             "Start with the header line described at the end, then reply"
             if header_instruction
@@ -882,11 +994,12 @@ def reply_system_prompt(
             f"{get_language_rules('en')}"
         )
     else:
-        length_rule = (
-            "通常は 2〜5 文、気持ちを語る場面は 7 文程度まで。"
-            if relaxed_length
-            else "通常は 1〜4 文。"
-        )
+        if not read_aloud:
+            length_rule = _UNSPOKEN_LENGTH_RULE_JA
+        elif relaxed_length:
+            length_rule = "通常は 2〜5 文、気持ちを語る場面は 7 文程度まで。"
+        else:
+            length_rule = "通常は 1〜4 文。"
         reply_lead = (
             "末尾で指定する表情ヘッダ行を 1 行目に置き、2 行目から"
             if header_instruction
@@ -1013,14 +1126,22 @@ def adventure_persona_prompt(
     lookup_block_text: str,
     chat_appearance_description: str,
     appearance_change_request: str | None,
+    read_aloud: bool = False,
 ) -> str:
     """恋愛シミュレーションの攻略対象として、物語の外で会話させる system prompt。
 
     人物設定・関係性・場面は context の JSON で渡し、会話そのものはメッセージ列で
     渡す(かつて Adventure のトークモードが使っていた規則を移したもの)。
+    read_aloud は返答を読み上げる手番。読み上げない手番は文数を増やす。
     """
     lang = _lang(language)
     response_language = "Japanese" if lang == "ja" else "English"
+    length_rule = (
+        "usually as two to five sentences, up to about seven when you talk about "
+        "your feelings."
+        if read_aloud
+        else f"{_UNSPOKEN_LENGTH_RULE_EN}."
+    )
     rule = (
         f"You are {partner_name}, the partner character of a romance simulation, "
         f"chatting directly with {player_name} outside the story scenes. The "
@@ -1031,8 +1152,7 @@ def adventure_persona_prompt(
         "message as a continuation of that conversation, pick up its topic, and "
         "never restart as if you were meeting for the first time or repeat an "
         f"earlier reply. Reply in {response_language} with {partner_name}'s spoken "
-        "words only, in the first person, usually as two to five sentences, up to "
-        "about seven when you talk about your feelings. You may "
+        f"words only, in the first person, {length_rule} You may "
         "add at most one brief action or expression in parentheses before or after "
         "the words. Do not write narration, the player's lines, your name as a "
         "prefix, corner brackets, JSON, markdown, or any commentary. Stay in the "

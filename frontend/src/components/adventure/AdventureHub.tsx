@@ -8,6 +8,7 @@ import type {
   AdventureSpeechStyle,
 } from "../../apis/adventure";
 import { canActOnRun } from "../../apis/adventure";
+import { getCharacterPreset } from "../../apis/characters";
 import { fetchGallerySessions } from "../../apis/gallery";
 import { fetchPromptExpanderEntry } from "../../apis/promptExpander";
 import {
@@ -29,6 +30,7 @@ import {
   ROMANCE_DEFAULT_PLAYER_ID,
   ROMANCE_MAX_DAYS,
   ROMANCE_MIN_DAYS,
+  ROMANCE_PLAYER_CHARACTER_VALUE,
   ROMANCE_PLAYER_NAME_MAX_LENGTH,
   ROMANCE_PLAYER_SESSION_VALUE,
   RUN_FILTERS,
@@ -81,6 +83,7 @@ import {
 import AdventureScenarioPickerModal from "./AdventureScenarioPickerModal";
 import AdventureSessionPickerModal, {
   type AdventureSourceSelection,
+  selectionFromCharacterPreset,
   selectionFromPromptExpanderEntry,
   selectionFromSession,
 } from "./AdventureSessionPickerModal";
@@ -115,7 +118,11 @@ function SourceSelectionSummary({
     selection.origin === "prompt_expander"
       ? t("adventure.sourcePicker.promptExpanderOrigin")
       : (selection.characterName ?? t("adventure.unnamedCharacter"));
-  const state = selection.pointLabel ?? t("adventure.currentState");
+  const state =
+    selection.pointLabel ??
+    (selection.origin === "character"
+      ? t("adventure.sourcePicker.characterOrigin")
+      : t("adventure.currentState"));
   return (
     <div
       className="adventure-source-summary"
@@ -229,10 +236,11 @@ export default function AdventureHub() {
   // 開始セッション(+時点)の選択。送信用IDは下で派生値として取り出す
   const [sourceSelection, setSourceSelection] =
     useState<AdventureSourceSelection | null>(null);
-  // 選択モーダルの対象。source=開始セッション、player=romanceの主人公セッション
-  const [pickerTarget, setPickerTarget] = useState<"source" | "player" | null>(
-    null,
-  );
+  // 選択モーダルの対象。source=開始セッション、player=romanceの主人公セッション、
+  // playerCharacter=romanceの主人公にするキャラクター
+  const [pickerTarget, setPickerTarget] = useState<
+    "source" | "player" | "playerCharacter" | null
+  >(null);
   const [startMode, setStartMode] = useState<"generated" | "authored">(
     "generated",
   );
@@ -335,6 +343,9 @@ export default function AdventureHub() {
   // 主人公を「セッションの姿」にする場合の選択。保存済みIDは sessions ロード後に解決する
   const [playerSelection, setPlayerSelection] =
     useState<AdventureSourceSelection | null>(null);
+  // 主人公を「作ったキャラクター」にする場合の選択。保存済みIDは下で取り直す
+  const [playerCharacterSelection, setPlayerCharacterSelection] =
+    useState<AdventureSourceSelection | null>(null);
   // romance の主人公の呼び名(攻略対象がセリフで呼ぶ名前)。選択したキャラクターの
   // 名前を既定値として埋め、ユーザーが書き換えた値は選択を変えても保持する
   const [romancePlayerName, setRomancePlayerName] = useState(() => {
@@ -348,17 +359,26 @@ export default function AdventureHub() {
   const sourceSessionId = sourceSelection?.sessionId ?? "";
   const sourceHistoryId = sourceSelection?.historyId;
   const sourcePeEntryId = sourceSelection?.promptExpanderEntryId;
-  // 開始元はセッションか Prompt Expander エントリのどちらかがあればよい
-  const hasSource = Boolean(sourceSessionId || sourcePeEntryId);
+  const sourcePresetId = sourceSelection?.characterPresetId;
+  // 開始元はセッション・Prompt Expander エントリ・キャラクターのいずれかがあればよい
+  const hasSource = Boolean(
+    sourceSessionId || sourcePeEntryId || sourcePresetId,
+  );
   const romancePlayerSessionId = playerSelection?.sessionId ?? "";
   const romancePlayerHistoryId = playerSelection?.historyId;
   const romancePlayerPeEntryId = playerSelection?.promptExpanderEntryId ?? "";
-  // 呼び名の既定値。テンプレキャラならその名前、セッションの姿なら紐づく主人公名
+  const romancePlayerPresetId =
+    playerCharacterSelection?.characterPresetId ?? "";
+  // 呼び名の既定値。テンプレキャラならその名前、セッションの姿なら紐づく主人公名、
+  // 作ったキャラクターならその名前
   const romancePlayerDefaultName =
     romancePlayerId === ROMANCE_PLAYER_SESSION_VALUE
       ? (playerSelection?.characterName ?? "")
-      : (playerCharacters.find((character) => character.id === romancePlayerId)
-          ?.name ?? "");
+      : romancePlayerId === ROMANCE_PLAYER_CHARACTER_VALUE
+        ? (playerCharacterSelection?.characterName ?? "")
+        : (playerCharacters.find(
+            (character) => character.id === romancePlayerId,
+          )?.name ?? "");
   const previousPlayerDefaultNameRef = useRef("");
   useEffect(() => {
     // 候補の読み込み前やセッション未解決の間(既定値が空)は何もしない
@@ -383,6 +403,7 @@ export default function AdventureHub() {
       companionMode,
       companionAvatarId,
       romancePlayerCharacterId: romancePlayerId,
+      romancePlayerCharacterPresetId: romancePlayerPresetId,
       romancePlayerSessionId,
       romancePlayerPromptExpanderEntryId: romancePlayerPeEntryId,
       romancePlayerName,
@@ -403,6 +424,7 @@ export default function AdventureHub() {
     companionMode,
     companionAvatarId,
     romancePlayerId,
+    romancePlayerPresetId,
     romancePlayerSessionId,
     romancePlayerPeEntryId,
     romancePlayerName,
@@ -451,6 +473,40 @@ export default function AdventureHub() {
     savedSetupPrefs,
     settingsState.experimentalPromptExpanderEnabled,
     playerPeRestoreFailed,
+  ]);
+
+  // 保存済みのキャラクターが取得できない・立ち絵が無いときは選ばずに理由を出す
+  const [playerCharacterRestoreFailed, setPlayerCharacterRestoreFailed] =
+    useState(false);
+  // 作ったキャラクターモードで未選択の間は、保存済みのキャラクターを取り直す。
+  // 別のキャラクターへ黙って倒さない
+  useEffect(() => {
+    if (romancePlayerId !== ROMANCE_PLAYER_CHARACTER_VALUE) return;
+    if (playerCharacterSelection || playerCharacterRestoreFailed) return;
+    const savedPresetId = savedSetupPrefs.romancePlayerCharacterPresetId;
+    if (!savedPresetId) return;
+    let cancelled = false;
+    void getCharacterPreset(savedPresetId)
+      .then((preset) => {
+        if (cancelled) return;
+        if (preset.portrait_url) {
+          setPlayerCharacterSelection(selectionFromCharacterPreset(preset));
+        } else {
+          setPlayerCharacterRestoreFailed(true);
+        }
+      })
+      .catch((caught: unknown) => {
+        console.warn("Failed to load character preset:", caught);
+        if (!cancelled) setPlayerCharacterRestoreFailed(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    romancePlayerId,
+    playerCharacterSelection,
+    playerCharacterRestoreFailed,
+    savedSetupPrefs,
   ]);
 
   // 主人公候補は romance を選んだときだけ読み込む
@@ -517,6 +573,37 @@ export default function AdventureHub() {
   // 実際に開始されるプリセット。リプレイ・作品シナリオは選択側が優先される
   const effectivePreset =
     startMode === "authored" ? (selectedScenarioPreset ?? preset) : preset;
+  // romance の主人公に「作ったキャラクター」を選んでいる(自動生成のときだけ送る)
+  const playerIsCharacter =
+    startMode === "generated" &&
+    preset === "romance" &&
+    romancePlayerId === ROMANCE_PLAYER_CHARACTER_VALUE;
+  // 主人公がキャラクター本人になる選択。romance では主人公欄、それ以外は開始素材
+  const personaSelection =
+    effectivePreset === "romance"
+      ? playerIsCharacter
+        ? playerCharacterSelection
+        : null
+      : sourceSelection?.origin === "character"
+        ? sourceSelection
+        : null;
+  const personaPronoun = personaSelection?.characterPronoun ?? "";
+  const previousPersonaPronounRef = useRef("");
+  useEffect(() => {
+    const previous = previousPersonaPronounRef.current;
+    previousPersonaPronounRef.current = personaPronoun;
+    if (previous === personaPronoun) return;
+    // 語りの一人称が既定値か直前のキャラクターのままなら、選んだキャラクターに合わせる。
+    // 書き換え済みの値は保持する
+    setNarrationPronoun((current) => {
+      const value = current.trim();
+      const untouched =
+        value === "" ||
+        value === DEFAULT_NARRATION_PRONOUN ||
+        (previous !== "" && value === previous);
+      return untouched ? personaPronoun || DEFAULT_NARRATION_PRONOUN : current;
+    });
+  }, [personaPronoun]);
   // 生成時間の見積もりと「テキストのみ」告知は同じ設定から導く
   const setupCompanion = effectivePreset === "romance" && companionMode;
   const setupAvatarKnown =
@@ -596,6 +683,11 @@ export default function AdventureHub() {
     setPickerTarget(null);
   };
 
+  const handlePlayerCharacterSelect = (selection: AdventureSourceSelection) => {
+    setPlayerCharacterSelection(selection);
+    setPickerTarget(null);
+  };
+
   const effectiveMaxTurns = clampMaxTurns(
     Number.parseInt(scenarioMaxTurns, 10),
   );
@@ -628,6 +720,7 @@ export default function AdventureHub() {
         source_session_id: sourceSessionId || undefined,
         source_history_id: sourceHistoryId,
         source_prompt_expander_entry_id: sourcePeEntryId,
+        source_character_preset_id: sourcePresetId,
         preset,
         scenario_max_turns: effectiveScenarioTurns,
         companion_mode: preset === "romance" && companionMode,
@@ -648,6 +741,11 @@ export default function AdventureHub() {
 
   const startDisabledReason = (): string | null => {
     if (!hasSource) return t("adventure.disabledReason.noSession");
+    // 主人公の選択はゴールより上で決める項目なので、ゴール未入力より先に知らせる
+    if (playerIsCharacter && !romancePlayerPresetId)
+      return t("adventure.disabledReason.noPlayerCharacter");
+    if (playerIsCharacter && romancePlayerPresetId === sourcePresetId)
+      return t("adventure.disabledReason.samePartnerAndPlayer");
     if (startMode === "generated" && !scenarioObjective.trim())
       return t("adventure.disabledReason.noObjective");
     if (startMode === "generated" && tooManyConstraints)
@@ -670,6 +768,7 @@ export default function AdventureHub() {
         source_session_id: sourceSessionId || undefined,
         source_history_id: sourceHistoryId,
         source_prompt_expander_entry_id: sourcePeEntryId,
+        source_character_preset_id: sourcePresetId,
         preset: selectedReplayRun?.preset ?? authoredTemplate?.preset ?? preset,
         custom_setup: "",
         scenario_setting: startMode === "generated" ? scenarioSetting : "",
@@ -704,9 +803,13 @@ export default function AdventureHub() {
         romance_player_character_id:
           startMode === "generated" &&
           preset === "romance" &&
-          romancePlayerId !== ROMANCE_PLAYER_SESSION_VALUE
+          romancePlayerId !== ROMANCE_PLAYER_SESSION_VALUE &&
+          romancePlayerId !== ROMANCE_PLAYER_CHARACTER_VALUE
             ? romancePlayerId
             : undefined,
+        romance_player_character_preset_id: playerIsCharacter
+          ? romancePlayerPresetId || undefined
+          : undefined,
         romance_player_session_id:
           startMode === "generated" &&
           preset === "romance" &&
@@ -808,6 +911,13 @@ export default function AdventureHub() {
             disabled={setupGenerating || loading}
             onOpenPicker={() => setPickerTarget("source")}
           />
+          {sourceSelection?.origin === "character" && (
+            <p className="adventure-card__hint">
+              {effectivePreset === "romance"
+                ? t("adventure.sourcePicker.characterPartnerHint")
+                : t("adventure.sourcePicker.characterPersonaHint")}
+            </p>
+          )}
         </section>
 
         <section className="adventure-card adventure-card--mission">
@@ -1007,6 +1117,9 @@ export default function AdventureHub() {
                         <option value={ROMANCE_PLAYER_SESSION_VALUE}>
                           {t("adventure.romance.playerFromSession")}
                         </option>
+                        <option value={ROMANCE_PLAYER_CHARACTER_VALUE}>
+                          {t("adventure.romance.playerFromCharacter")}
+                        </option>
                       </select>
                     </label>
                     <label
@@ -1100,6 +1213,23 @@ export default function AdventureHub() {
                       disabled={setupGenerating || loading || creating}
                       onOpenPicker={() => setPickerTarget("player")}
                     />
+                  </div>
+                )}
+
+              {preset === "romance" &&
+                romancePlayerId === ROMANCE_PLAYER_CHARACTER_VALUE && (
+                  <div className="adventure-romance-player-source">
+                    <span className="adventure-romance-player-source__label">
+                      {t("adventure.romance.playerCharacter")}
+                    </span>
+                    <SourceSelectionSummary
+                      selection={playerCharacterSelection}
+                      disabled={setupGenerating || loading || creating}
+                      onOpenPicker={() => setPickerTarget("playerCharacter")}
+                    />
+                    <small className="adventure-romance-player-source__hint">
+                      {t("adventure.romance.playerCharacterHint")}
+                    </small>
                   </div>
                 )}
 
@@ -1282,6 +1412,11 @@ export default function AdventureHub() {
                 <p className="adventure-speech-style__hint">
                   {t("adventure.speechStyleHint")}
                 </p>
+                {personaSelection && (
+                  <p className="adventure-speech-style__hint">
+                    {t("adventure.speechStylePersonaHint")}
+                  </p>
+                )}
               </fieldset>
               {speechStyle === "custom" && (
                 <label className="adventure-speech-style__custom">
@@ -1311,7 +1446,11 @@ export default function AdventureHub() {
                       setPartnerSpeechStyle(event.target.value)
                     }
                   />
-                  <small>{t("adventure.romance.partnerSpeechStyleHint")}</small>
+                  <small>
+                    {sourceSelection?.origin === "character"
+                      ? t("adventure.romance.partnerSpeechStyleCharacterHint")
+                      : t("adventure.romance.partnerSpeechStyleHint")}
+                  </small>
                 </label>
               )}
             </div>
@@ -1478,22 +1617,37 @@ export default function AdventureHub() {
         }}
         onClose={() => setScenarioPickerOpen(false)}
       />
-      {pickerTarget && (
+      {pickerTarget === "playerCharacter" ? (
         <AdventureSessionPickerModal
-          title={
-            pickerTarget === "source"
-              ? t("adventure.sourceSession")
-              : t("adventure.romance.playerSession")
-          }
-          selected={
-            pickerTarget === "source" ? sourceSelection : playerSelection
-          }
-          onSelect={
-            pickerTarget === "source" ? handleSourceSelect : handlePlayerSelect
-          }
+          title={t("adventure.romance.playerCharacter")}
+          selected={playerCharacterSelection}
+          onSelect={handlePlayerCharacterSelect}
           onClose={() => setPickerTarget(null)}
-          allowPromptExpander={settingsState.experimentalPromptExpanderEnabled}
+          characters="only"
         />
+      ) : (
+        pickerTarget && (
+          <AdventureSessionPickerModal
+            title={
+              pickerTarget === "source"
+                ? t("adventure.sourceSession")
+                : t("adventure.romance.playerSession")
+            }
+            selected={
+              pickerTarget === "source" ? sourceSelection : playerSelection
+            }
+            onSelect={
+              pickerTarget === "source"
+                ? handleSourceSelect
+                : handlePlayerSelect
+            }
+            onClose={() => setPickerTarget(null)}
+            allowPromptExpander={
+              settingsState.experimentalPromptExpanderEnabled
+            }
+            characters={pickerTarget === "source" ? "tab" : "off"}
+          />
+        )
       )}
       {creating && (
         <div

@@ -23,8 +23,21 @@ export const characterChat = {
       base: "案内役",
       session: "セッション",
       adventure: "シナリオ",
+      character: "キャラクター",
     },
     filterEmpty: "この種類の会話はまだありません。",
+    kindCharacter: "キャラクター",
+    characterSection: "作ったキャラクターと話す",
+    characterIntro:
+      "キャラクター画面で名前・一人称・性格・知識・姿を決めたキャラクターと話します。",
+    characterButton: "キャラクターを選ぶ",
+    characterManage: "キャラクターを管理する",
+    characterPickerTitle: "話すキャラクターを選ぶ",
+    characterPickerEmpty:
+      "まだキャラクターがありません。キャラクター画面で作れます。",
+    characterPickerCreate: "新しいキャラクターを作る",
+    characterPickerLoading: "キャラクターを読み込んでいます...",
+    characterPickerFailed: "キャラクターを読み込めませんでした。",
     kindBase: "案内役",
     kindAdventure: "シナリオ",
     kindSession: "セッション由来",
@@ -84,7 +97,7 @@ export const characterChat = {
     avatarCurrentNone: "3Dモデルなし（2D 立ち絵を表示）",
     avatarAuto: "自動（既定）",
     avatarAutoHint:
-      "案内役は同梱の専用モデル、シナリオ由来は対面会話モードのモデル、いずれも無ければキャラクター名が一致する登録済みモデルを使います。",
+      "キャラクター画面で 3D モデルを決めたキャラはそのモデル、案内役は同梱の専用モデル、シナリオ由来は対面会話モードのモデル、いずれも無ければキャラクター名が一致する登録済みモデルを使います。",
     avatarNone: "2D 立ち絵を使う",
     avatarRegistered: "登録済みモデルから選ぶ",
     avatarRegisteredLoading: "モデル一覧を読み込んでいます...",
@@ -93,6 +106,7 @@ export const characterChat = {
     avatarRegisteredFailed: "モデル一覧を読み込めませんでした",
     avatarSourceBundled: "同梱モデル",
     avatarSourceRegistered: "登録済みモデル",
+    avatarSourceCharacter: "キャラクターの設定",
     avatarSourceRun: "シナリオの設定",
     avatarMissing:
       "選んでいた 3D モデルが削除されていたため、自動に戻しました。",
@@ -104,6 +118,55 @@ export const characterChat = {
     regeneratePortraitHint:
       "いまの外見タグから全身の立ち絵を描き直します（画像生成の待ち時間がかかります）",
     appearanceMenu: "姿",
+    lightingHeading: "ライティング",
+    lightingHint:
+      "3D モデルへの光の当て方です。TSFシナリオと設定のプレビューにも反映されます。",
+    lightingUnavailable:
+      "3D モデルを表示しているときに使えます（2D 立ち絵と Live2D には効きません）。",
+    lightingPresets: {
+      standard: "標準",
+      bright: "明るめ",
+      sunset: "夕暮れ",
+      night: "夜",
+    },
+    expressionMenu: "表情",
+    cameraHeading: "カメラ",
+    cameraFramings: {
+      full: "全身",
+      upper: "上半身",
+      face: "顔",
+    },
+    cameraLive2dNote:
+      "Live2D の寄り・引きは、画面上の切り替えを使ってください。",
+    cameraPortraitNote: "3D モデルを表示しているときに使えます。",
+    expressionHeading: "表情",
+    expressionReset: "返答の表情に戻す",
+    expressionHint:
+      "選んだ表情は、次の返答が届くか「返答の表情に戻す」を押すまで続きます。",
+    expressionMissingNote:
+      "押せない表情は、このモデルに用意されていません。選んだ表情は次の返答が届くまで続きます。",
+    expressionLive2dNote:
+      "Live2D で試せるのは、ふつう・うれしい・かなしい・おこるの 4 つです。",
+    expressionPortraitNote:
+      "2D 立ち絵の表情は、下の「表情差分」で描くと試せるようになります。",
+    expressionPortraitVariantsNote:
+      "表情差分を描いた表情を試せます。描いた表情は、返答の表情に合わせて自動で切り替わります。",
+    expressionVariantsHeading: "表情差分（2D 立ち絵）",
+    expressionVariantsHint:
+      "いまの立ち絵から、表情だけを変えた立ち絵を描きます。✓ は描いた表情です。",
+    expressionVariantsNoPortrait:
+      "立ち絵が無いため描けません。先に「姿」メニューで立ち絵を描いてください。",
+    expressionPreciseHint:
+      "ONにするといまの立ち絵を精密参照（character reference）として送り、参照1枚あたり Anlas を追加消費します。",
+    expressionVariantsProgress:
+      "「{{expression}}」を描いています（{{current}}/{{total}}）",
+    expressionVariantsGenerate: "選んだ表情を描く（{{count}} 枚）",
+    expressionVariantsCost:
+      "表情ごとに 1 枚ずつ画像を生成します（待ち時間がかかります）。立ち絵を描き直したら、表情差分も描き直します。",
+    expressionAnlasBody:
+      "精密参照を使って表情差分を描きます。参照1枚あたり Anlas を追加消費します。続けますか？",
+    gestureHeading: "しぐさ",
+    gestureUnavailable: "しぐさは 3D モデルを表示しているときに試せます。",
     resetAppearance: "最初の姿に戻す",
     resetAppearanceHint:
       "作成したときの姿（同梱の立ち絵、または選んだ画像とタグ）に戻します。画像生成はしません。",
@@ -111,6 +174,8 @@ export const characterChat = {
     generatePortrait: "立ち絵を生成",
     portraitMissing:
       "立ち絵の画像がありません。backend/images/character_chat/{{file}} に画像を置くか、「立ち絵を生成」で外見タグから描けます。",
+    portraitMissingCharacter:
+      "立ち絵がありません。「立ち絵を生成」で外見タグから描けます。",
     portraitBusy: "立ち絵を描いています...",
     portraitBusyHint:
       "画像生成には1分ほどかかることがあります。他の画面へ移動しても生成は続き、戻ると反映されます。",
@@ -118,6 +183,7 @@ export const characterChat = {
     sourceBase: "同梱の立ち絵",
     sourceSession: "セッションの画像",
     sourcePromptExpander: "Prompt Expander の画像",
+    sourceCharacter: "キャラクターの立ち絵",
     sourceStanding: "生成した立ち絵",
     appearanceTitle: "いまの姿",
     appearanceTags: "外見タグ",
@@ -224,6 +290,27 @@ export const characterChat = {
     milestones: "達成した節目",
     recentScenes: "直近の場面",
     speechStyle: "口調",
+    character: "キャラクター設定",
+    characterHint:
+      "キャラクター本体の設定です。ここで直すと、このキャラクターの他の会話と通常プレイの登場人物にも反映されます。",
+    characterOpen: "キャラクター画面で開く",
+    characterLoading: "キャラクターを読み込んでいます...",
+    characterLoadFailed: "キャラクターを読み込めませんでした。",
+    characterMissing:
+      "紐づいていたキャラクターは削除されています。会話はいまの名前と一人称のまま続きます。",
+    characterSessionIntro:
+      "このセッションの人物に、性格・口調・知識などのキャラクター設定を重ねられます。セッションの経緯はそのまま残ります。",
+    characterCreateFromThread: "いまの名前と姿でキャラクターを作る",
+    characterChoose: "作ったキャラクターを重ねる",
+    characterUnlink: "キャラクター設定を外す",
+    characterUnlinkHint:
+      "外すと、名前と一人称はセッションの人物に戻ります。キャラクター本体は残ります。",
+    characterUnavailableBase:
+      "案内役のキャラクターには、キャラクター設定を重ねられません。",
+    characterUnavailableAdventure:
+      "シナリオの人物の設定は、シナリオの側で決まります。",
+    characterAppearanceNote:
+      "会話中の姿は「姿」メニューで変えられます。キャラクター本体の外見と立ち絵はキャラクター画面で編集します。",
     runMissing:
       "このシナリオは終了または削除されています（最後に読んだ状態です）。",
     timelineType: {
@@ -242,5 +329,7 @@ export const characterChat = {
     appearanceFailed: "姿を変更できませんでした",
     avatarFailed: "キャラクター表示を切り替えられませんでした",
     deleteFailed: "会話を削除できませんでした",
+    linkFailed: "キャラクター設定を変更できませんでした",
+    expressionFailed: "表情の立ち絵を描けませんでした",
   },
 };
