@@ -627,6 +627,86 @@ class SessionRequest(Base):
     )
 
 
+class SalonRun(Base):
+    """サロン経営モードの1シーズン(開店から決算まで)。
+
+    数値(現金・評判・週)は Python が決める。週ごとの収支の記録と決算は state_json に置く。
+    """
+
+    __tablename__ = "salon_runs"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(80), nullable=False)
+    # active / completed / bankrupt
+    status: Mapped[str] = mapped_column(String, nullable=False, default="active")
+    week: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    total_weeks: Mapped[int] = mapped_column(Integer, nullable=False)
+    cash: Mapped[int] = mapped_column(Integer, nullable=False)
+    reputation: Mapped[int] = mapped_column(Integer, nullable=False)
+    # 予約の抽選に使う。run ごとに固定し、同じ週の予約は作り直しても同じになる
+    seed: Mapped[int] = mapped_column(Integer, nullable=False)
+    state_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    created_at: Mapped[datetime] = mapped_column(
+        default=func.current_timestamp(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        default=func.current_timestamp(),
+        onupdate=func.current_timestamp(),
+        nullable=False,
+    )
+
+    __table_args__ = (Index("idx_salon_runs_user_updated", "user_id", "updated_at"),)
+
+
+class SalonVisit(Base):
+    """サロンへの来店1件(予約から会計まで)。接客は依頼付きの通常セッションで行う。"""
+
+    __tablename__ = "salon_visits"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    salon_id: Mapped[str] = mapped_column(
+        String, ForeignKey("salon_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    week: Mapped[int] = mapped_column(Integer, nullable=False)
+    slot: Mapped[int] = mapped_column(Integer, nullable=False)
+    # template / custom(保存済みカスタムキャラ)
+    customer_source: Mapped[str] = mapped_column(String, nullable=False)
+    customer_id: Mapped[str] = mapped_column(String, nullable=False)
+    customer_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    session_id: Mapped[str | None] = mapped_column(
+        String, ForeignKey("sessions.id", ondelete="SET NULL"), nullable=True
+    )
+    # booked / serving / done / declined
+    status: Mapped[str] = mapped_column(String, nullable=False, default="booked")
+    satisfaction: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    fulfilled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="0"
+    )
+    payment: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    reputation_delta: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    review: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        default=func.current_timestamp(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        default=func.current_timestamp(),
+        onupdate=func.current_timestamp(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        Index("idx_salon_visits_salon_week", "salon_id", "week", "slot"),
+        Index("idx_salon_visits_session", "session_id"),
+    )
+
+
 class ParameterChangeLog(Base):
     """Per-stat parameter change record per history entry.
 

@@ -290,6 +290,14 @@ export const SETTINGS_ITEMS = [
     ],
   },
   {
+    id: "salon",
+    category: "experimental",
+    searchKeys: [
+      "settings.experimentalSalon",
+      "settings.experimentalSalonDesc",
+    ],
+  },
+  {
     id: "surroundings",
     category: "image",
     section: "experimental",

@@ -20,7 +20,7 @@ class Achievement:
     id: str  # 一意識別子 (例: "first_transform")
     name: str  # 表示名 (例: "初めての変身")
     description: str  # 説明文
-    category: str  # カテゴリ (transform, crossdress, reality, collection)
+    category: str  # カテゴリ (transform, crossdress, reality, collection, self, salon)
     icon: str  # アイコン識別子/絵文字
     condition_type: str  # 条件タイプ (count, specific, threshold)
     condition_target: str  # 条件対象 (transform, crossdress, reality_alter, gallery)
@@ -254,6 +254,63 @@ ACHIEVEMENTS: dict[str, Achievement] = {
         condition_value=10,
         hint="自分モードで積極的に行動しましょう",
     ),
+    # サロン経営: シーズンの決算(12週目の締め)で判定する。黒字は期末の現金 − 開業資金で、
+    # 難易度による開業資金の差が出ないようにする
+    "salon_first_season": Achievement(
+        id="salon_first_season",
+        name="初めての決算",
+        description="サロン経営で、倒産せずにシーズンを終えた",
+        category="salon",
+        icon="📒",
+        condition_type="count",
+        condition_target="salon_completed",
+        condition_value=1,
+        hint="サロン経営で、12週を倒産せずに乗り切りましょう",
+    ),
+    "salon_success": Achievement(
+        id="salon_success",
+        name="黒字経営",
+        description="サロン経営で、開業資金より多くの現金を残してシーズンを終えた",
+        category="salon",
+        icon="💰",
+        condition_type="count",
+        condition_target="salon_success",
+        condition_value=1,
+        hint="お客様の願いを叶えて、開業資金より多くの現金を残しましょう",
+    ),
+    "salon_success_hard": Achievement(
+        id="salon_success_hard",
+        name="敏腕オーナー",
+        description="経営の難易度「むずかしい」で、サロン経営のシーズンを黒字で終えた",
+        category="salon",
+        icon="👑",
+        condition_type="count",
+        condition_target="salon_hard_success",
+        condition_value=1,
+        hint="開業資金の少ない「むずかしい」で、黒字を目指しましょう",
+    ),
+    "salon_profit_30": Achievement(
+        id="salon_profit_30",
+        name="繁盛店",
+        description="サロン経営で、黒字30万円以上を残してシーズンを終えた",
+        category="salon",
+        icon="🌹",
+        condition_type="threshold",
+        condition_target="salon_best_profit",
+        condition_value=300_000,
+        hint="多くのお客様の願いを叶えて、黒字を伸ばしましょう",
+    ),
+    "salon_profit_50": Achievement(
+        id="salon_profit_50",
+        name="名店の誉れ",
+        description="サロン経営で、黒字50万円以上を残してシーズンを終えた",
+        category="salon",
+        icon="💎",
+        condition_type="threshold",
+        condition_target="salon_best_profit",
+        condition_value=500_000,
+        hint="予約を断らず、ほとんどのお客様の願いを叶えると届きます",
+    ),
 }
 
 
@@ -328,6 +385,10 @@ class AchievementStats(BaseModel):
     self_reality_alter_count: int = 0
     self_action_count: int = 0
     request_fulfilled_count: int = 0
+    salon_completed_count: int = 0
+    salon_success_count: int = 0
+    salon_hard_success_count: int = 0
+    salon_best_profit: int = 0
     bloom: int = 0
     shame: int = 0
     adaptation: int = 0
@@ -354,6 +415,12 @@ def check_achievement(achievement: Achievement, stats: AchievementStats) -> bool
             return stats.self_action_count >= achievement.condition_value
         elif target == "request_fulfilled":
             return stats.request_fulfilled_count >= achievement.condition_value
+        elif target == "salon_completed":
+            return stats.salon_completed_count >= achievement.condition_value
+        elif target == "salon_success":
+            return stats.salon_success_count >= achievement.condition_value
+        elif target == "salon_hard_success":
+            return stats.salon_hard_success_count >= achievement.condition_value
     elif achievement.condition_type == "threshold":
         target = achievement.condition_target
         if target == "bloom":
@@ -362,6 +429,8 @@ def check_achievement(achievement: Achievement, stats: AchievementStats) -> bool
             return stats.shame >= achievement.condition_value
         elif target == "adaptation":
             return stats.adaptation >= achievement.condition_value
+        elif target == "salon_best_profit":
+            return stats.salon_best_profit >= achievement.condition_value
     elif achievement.condition_type == "specific":
         if achievement.condition_target == "gender_change":
             return stats.has_gender_change

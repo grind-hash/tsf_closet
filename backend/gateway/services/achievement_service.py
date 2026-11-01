@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import uuid
 from collections.abc import Callable
 from datetime import datetime
@@ -11,6 +12,7 @@ from ..databases.base import sync_session_factory
 from ..databases.models import (
     AchievementCount,
     History,
+    SalonRun,
     Session,
     SessionRequest,
     SessionStats,
@@ -115,6 +117,8 @@ class AchievementService:
                 )
             )
 
+            salon_stats = self._salon_season_stats(session)
+
             latest_stats = session.execute(
                 select(SessionStats)
                 .join(Session, Session.id == SessionStats.session_id)
@@ -134,11 +138,39 @@ class AchievementService:
                 "self_reality_alter_count": int(self_reality_alter_count or 0),
                 "self_action_count": int(self_action_count or 0),
                 "request_fulfilled_count": int(request_fulfilled_count or 0),
+                **salon_stats,
                 "bloom": latest_stats.bloom if latest_stats else 0,
                 "shame": latest_stats.shame if latest_stats else 50,
                 "adaptation": latest_stats.adaptation if latest_stats else 0,
                 "has_gender_change": (counts.gender_change_count if counts else 0) > 0,
             }
+
+    @staticmethod
+    def _salon_season_stats(session: Any) -> dict[str, int]:
+        """決算まで終えた(倒産していない)サロンの件数・成功・黒字の最大値。"""
+        completed = session.execute(
+            select(SalonRun.state_json).where(SalonRun.status == "completed")
+        ).scalars()
+        completed_count = success_count = hard_success_count = 0
+        best_profit = 0
+        for state_json in completed:
+            try:
+                state = json.loads(state_json or "{}")
+            except (TypeError, ValueError):
+                continue
+            result = state.get("result") or {}
+            completed_count += 1
+            if result.get("outcome") == "success":
+                success_count += 1
+                if state.get("difficulty") == "hard":
+                    hard_success_count += 1
+            best_profit = max(best_profit, int(result.get("profit") or 0))
+        return {
+            "salon_completed_count": completed_count,
+            "salon_success_count": success_count,
+            "salon_hard_success_count": hard_success_count,
+            "salon_best_profit": best_profit,
+        }
 
     def save_user_achievement(self, achievement_id: str) -> None:
         with sync_session_factory() as session:

@@ -32,6 +32,7 @@ from .routes import (
     novelai_router,
     openai_images_router,
     prompt_expander_router,
+    salon_router,
     settings_router,
     system_router,
 )
@@ -162,6 +163,9 @@ app.include_router(avatar_router, prefix="/api")
 app.include_router(character_chat_router, prefix="/api")
 
 app.include_router(history_router, prefix="/api")
+
+# サロン経営モード(開店・予約・会計・週の締め。接客の手番は game_router)
+app.include_router(salon_router, prefix="/api")
 
 # 互換・補助 API（従来どおり /api 配下ではないパス）。prefix 無しでそのまま公開する
 app.include_router(system_router)

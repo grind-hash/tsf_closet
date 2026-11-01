@@ -324,7 +324,7 @@ export interface Achievement {
   id: string;
   name: string;
   description: string;
-  category: string; // transform, crossdress, reality, collection
+  category: string; // transform, crossdress, reality, collection, self, salon
   icon: string;
   condition_type: string; // count, specific, threshold
   condition_target: string;

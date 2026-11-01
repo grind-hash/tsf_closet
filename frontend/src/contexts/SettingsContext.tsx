@@ -97,6 +97,8 @@ export interface SettingsState {
   adventureEnabled: boolean;
   experimentalPromptExpanderEnabled: boolean;
   experimentalCharacterChatEnabled: boolean;
+  /** サロン経営モード(実験機能)。ON でサイドメニューに出し /salon を開ける */
+  experimentalSalonEnabled: boolean;
   // キャラチャット: セレナの Web 検索・天気。発言ごとに送り、サーバー側の設定が無ければ使われない
   characterChatWebSearchEnabled: boolean;
   characterChatWeatherEnabled: boolean;
@@ -210,6 +212,7 @@ type SettingsAction =
   | { type: "SET_ADVENTURE_ENABLED"; payload: boolean }
   | { type: "SET_EXPERIMENTAL_PROMPT_EXPANDER_ENABLED"; payload: boolean }
   | { type: "SET_EXPERIMENTAL_CHARACTER_CHAT_ENABLED"; payload: boolean }
+  | { type: "SET_EXPERIMENTAL_SALON_ENABLED"; payload: boolean }
   | { type: "SET_CHARACTER_CHAT_WEB_SEARCH_ENABLED"; payload: boolean }
   | { type: "SET_CHARACTER_CHAT_WEATHER_ENABLED"; payload: boolean }
   | { type: "SET_PLAY_MEMORY_ENABLED"; payload: boolean }
@@ -281,6 +284,7 @@ const defaultState: SettingsState = {
   adventureEnabled: true,
   experimentalPromptExpanderEnabled: false,
   experimentalCharacterChatEnabled: false,
+  experimentalSalonEnabled: false,
   characterChatWebSearchEnabled: false,
   characterChatWeatherEnabled: false,
   playMemoryEnabled: false,
@@ -393,6 +397,8 @@ function settingsReducer(
       return { ...state, experimentalPromptExpanderEnabled: action.payload };
     case "SET_EXPERIMENTAL_CHARACTER_CHAT_ENABLED":
       return { ...state, experimentalCharacterChatEnabled: action.payload };
+    case "SET_EXPERIMENTAL_SALON_ENABLED":
+      return { ...state, experimentalSalonEnabled: action.payload };
     case "SET_CHARACTER_CHAT_WEB_SEARCH_ENABLED":
       return { ...state, characterChatWebSearchEnabled: action.payload };
     case "SET_CHARACTER_CHAT_WEATHER_ENABLED":
@@ -535,6 +541,7 @@ interface SettingsContextType {
   setAdventureEnabled: (enabled: boolean) => void;
   setExperimentalPromptExpanderEnabled: (enabled: boolean) => void;
   setExperimentalCharacterChatEnabled: (enabled: boolean) => void;
+  setExperimentalSalonEnabled: (enabled: boolean) => void;
   setCharacterChatWebSearchEnabled: (enabled: boolean) => void;
   setCharacterChatWeatherEnabled: (enabled: boolean) => void;
   setPlayMemoryEnabled: (enabled: boolean) => void;
@@ -1006,6 +1013,9 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     },
     [],
   );
+  const setExperimentalSalonEnabled = useCallback((enabled: boolean) => {
+    dispatch({ type: "SET_EXPERIMENTAL_SALON_ENABLED", payload: enabled });
+  }, []);
   const setCharacterChatWebSearchEnabled = useCallback((enabled: boolean) => {
     dispatch({
       type: "SET_CHARACTER_CHAT_WEB_SEARCH_ENABLED",
@@ -1304,6 +1314,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       setAdventureEnabled,
       setExperimentalPromptExpanderEnabled,
       setExperimentalCharacterChatEnabled,
+      setExperimentalSalonEnabled,
       setCharacterChatWebSearchEnabled,
       setCharacterChatWeatherEnabled,
       setPlayMemoryEnabled,
@@ -1378,6 +1389,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       setAdventureEnabled,
       setExperimentalPromptExpanderEnabled,
       setExperimentalCharacterChatEnabled,
+      setExperimentalSalonEnabled,
       setCharacterChatWebSearchEnabled,
       setCharacterChatWeatherEnabled,
       setPlayMemoryEnabled,

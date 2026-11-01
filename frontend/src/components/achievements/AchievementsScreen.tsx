@@ -44,6 +44,7 @@ export default function AchievementsScreen({
     { id: "reality", label: t("achievements.filterReality") },
     { id: "collection", label: t("achievements.filterCollection") },
     { id: "self", label: t("achievements.filterSelf") },
+    { id: "salon", label: t("achievements.filterSalon") },
   ];
 
   // 実績を取得

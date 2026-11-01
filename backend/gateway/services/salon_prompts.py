@@ -1,0 +1,77 @@
+"""Prompts for the salon management mode: the customer's review at checkout."""
+
+from __future__ import annotations
+
+import json
+from typing import Any
+
+from ..consts.salon import SALON_GOOD_SATISFACTION, SALON_LOW_SATISFACTION
+
+
+def _response_language(language: str) -> str:
+    return "Japanese" if language == "ja" else "English"
+
+
+def build_salon_review_prompt(
+    *,
+    profile: dict[str, Any],
+    wish: str,
+    satisfaction: int,
+    fulfilled: bool,
+    final_look: str,
+    language: str,
+) -> tuple[str, str]:
+    """会計のとき、お客様本人の口調で書く口コミの (system, user) を返す。"""
+    pronoun = str(profile.get("pronoun") or "").strip()
+    pronoun_rule = (
+        f" Use the first-person pronoun {pronoun} if the customer refers to themselves."
+        if pronoun
+        else ""
+    )
+    system = f"""You write a short review that a customer leaves after a visit to a dress-up salon, in the customer's own voice and personality.
+Reply in {_response_language(language)}, with one or two sentences, at most 80 Japanese characters or 30 English words.{pronoun_rule}
+Let the tone follow how the visit went: satisfaction is 0 to 100, and wish_fulfilled tells whether the wish came true. Mention one concrete detail of final_look.
+Never mention scores, numbers, or game mechanics, and never write sexual content. Output only the review, without quotation marks."""
+    user = json.dumps(
+        {
+            "customer": {
+                "name": profile.get("name") or "",
+                "personality": profile.get("personality") or "",
+                "tsf_attitude": profile.get("tsf_attitude") or "",
+            },
+            "wish": wish,
+            "satisfaction": satisfaction,
+            "wish_fulfilled": fulfilled,
+            "final_look": final_look,
+        },
+        ensure_ascii=False,
+    )
+    return system, user
+
+
+_FALLBACK_REVIEWS: dict[str, dict[str, str]] = {
+    "ja": {
+        "fulfilled": "願いどおりの姿にしてもらえました。また来たいです。",
+        "good": "素敵な時間でした。次はもっと近づけたらうれしいです。",
+        "fair": "少し思っていたのと違ったけれど、楽しかったです。",
+        "poor": "今回は、思い描いていた姿とは遠かったかな……。",
+    },
+    "en": {
+        "fulfilled": "I got exactly the look I wished for. I will be back.",
+        "good": "A lovely time. I hope we get even closer next time.",
+        "fair": "Not quite what I imagined, but I had fun.",
+        "poor": "This time it was far from what I had pictured...",
+    },
+}
+
+
+def fallback_salon_review(satisfaction: int, fulfilled: bool, language: str) -> str:
+    """口コミの生成に失敗したときの定型文。会計そのものは止めない。"""
+    reviews = _FALLBACK_REVIEWS["ja" if language == "ja" else "en"]
+    if fulfilled:
+        return reviews["fulfilled"]
+    if satisfaction >= SALON_GOOD_SATISFACTION:
+        return reviews["good"]
+    if satisfaction >= SALON_LOW_SATISFACTION:
+        return reviews["fair"]
+    return reviews["poor"]

@@ -41,6 +41,7 @@ const getMenuItems = (
   showAdventureMenu: boolean,
   showPromptExpanderMenu: boolean,
   showCharacterChatMenu: boolean,
+  showSalonMenu: boolean,
 ): MenuItem[] => {
   return [
     {
@@ -104,6 +105,17 @@ const getMenuItems = (
           },
         ]
       : []),
+    ...(showSalonMenu
+      ? [
+          {
+            id: "salon",
+            label: t("menu.salon"),
+            icon: "🪞",
+            path: ROUTES.SALON,
+            description: t("menu.salonDesc"),
+          },
+        ]
+      : []),
     {
       id: "endings",
       label: t("menu.endings"),
@@ -150,6 +162,7 @@ export default function SideMenu() {
     settingsState.adventureEnabled,
     settingsState.experimentalPromptExpanderEnabled,
     settingsState.experimentalCharacterChatEnabled,
+    settingsState.experimentalSalonEnabled,
   );
 
   // プレイ中のゲームがあるかどうか

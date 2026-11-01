@@ -1,0 +1,1252 @@
+/*
+ * サロン経営(一覧・帳場・接客)。配色と ADV の骨格は TSF シナリオ
+ * (AdventureScreen.css)の HUD・ステージ・メッセージ窓に倣う。
+ */
+
+.salon-page,
+.salon-serving {
+  --salon-bg: #11151a;
+  --salon-surface: #161b21;
+  --salon-surface-2: #1c2228;
+  --salon-border: #3a4148;
+  --salon-border-strong: #4a535c;
+  --salon-text: #f4f6f8;
+  --salon-text-2: #d6dce1;
+  --salon-muted: #aeb7bf;
+  --salon-accent: #efb85a;
+  --salon-success: #5fc28a;
+  --salon-danger: #e66767;
+  --salon-series: #3987e5;
+
+  color: var(--salon-text);
+  background: var(--salon-bg);
+  font-family: var(--font-sans, sans-serif);
+}
+
+.salon-page {
+  flex: 1 1 auto;
+  min-height: 0;
+  box-sizing: border-box;
+  padding: 28px clamp(16px, 4vw, 52px) 52px;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+}
+
+.salon-page > * {
+  max-width: 1040px;
+  margin-inline: auto;
+}
+
+.salon-page h1 {
+  margin: 0;
+  font-size: 1.6rem;
+}
+
+.salon-page h2 {
+  margin: 0 0 10px;
+  font-size: 1.05rem;
+}
+
+.salon-eyebrow {
+  margin: 0 0 4px;
+  color: var(--salon-accent);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.salon-page__header {
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--salon-border);
+}
+
+.salon-page__lead {
+  margin: 10px 0 0;
+  color: var(--salon-muted);
+  font-size: 0.9rem;
+  line-height: 1.7;
+}
+
+.salon-card,
+.salon-section {
+  margin-top: 22px;
+}
+
+.salon-card {
+  display: grid;
+  gap: 16px;
+  padding: 20px;
+  border: 1px solid var(--salon-border);
+  border-radius: 10px;
+  background: var(--salon-surface);
+}
+
+.salon-card h2 {
+  margin: 0;
+}
+
+.salon-section__hint {
+  margin: -4px 0 12px;
+  color: var(--salon-muted);
+  font-size: 0.8rem;
+  line-height: 1.6;
+}
+
+.salon-empty {
+  margin: 0;
+  color: var(--salon-muted);
+  font-size: 0.88rem;
+}
+
+.salon-error {
+  margin: 16px auto 0;
+  padding: 10px 14px;
+  border: 1px solid rgb(230 103 103 / 55%);
+  border-radius: 8px;
+  color: #f3c1c1;
+  background: rgb(230 103 103 / 12%);
+  font-size: 0.85rem;
+}
+
+.salon-window__panel .salon-error {
+  margin: 0;
+}
+
+/* フォーム */
+
+.salon-field {
+  display: grid;
+  gap: 6px;
+  color: var(--salon-text-2);
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.salon-field input,
+.salon-field textarea {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--salon-border);
+  border-radius: 6px;
+  color: var(--salon-text);
+  background: #12161a;
+  font: inherit;
+  font-weight: 400;
+}
+
+.salon-field textarea {
+  resize: vertical;
+  line-height: 1.6;
+}
+
+.salon-field input:focus-visible,
+.salon-field textarea:focus-visible {
+  border-color: var(--salon-accent);
+  outline: none;
+}
+
+.salon-field__hint {
+  margin: 0;
+  color: var(--salon-muted);
+  font-size: 0.8rem;
+  font-weight: 400;
+}
+
+.salon-open__goal {
+  margin: 0;
+  color: var(--salon-text-2);
+  font-size: 0.85rem;
+  line-height: 1.6;
+}
+
+.salon-open__submit {
+  justify-self: start;
+}
+
+/* セグメント型トグル(選択中は塗り、未選択は枠のみ) */
+.salon-segments {
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  border: 1px solid var(--salon-border-strong);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.salon-segments button {
+  min-height: 36px;
+  padding: 0 18px;
+  border: 0;
+  border-left: 1px solid var(--salon-border-strong);
+  color: var(--salon-text-2);
+  background: transparent;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.salon-segments button:first-child {
+  border-left: 0;
+}
+
+.salon-segments button.is-active {
+  color: #12161a;
+  background: var(--salon-accent);
+}
+
+/* ボタン */
+
+.salon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 0 16px;
+  border: 1px solid var(--salon-border-strong);
+  border-radius: 6px;
+  color: var(--salon-text-2);
+  background: var(--salon-surface-2);
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.salon-button:hover:not(:disabled) {
+  border-color: var(--salon-accent);
+  color: var(--salon-accent);
+}
+
+.salon-button--primary {
+  border-color: var(--salon-accent);
+  color: #12161a;
+  background: var(--salon-accent);
+  font-weight: 800;
+}
+
+.salon-button--primary:hover:not(:disabled) {
+  color: #12161a;
+  background: #f5c97a;
+}
+
+.salon-button:disabled,
+.salon-icon-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.salon-icon-button {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--salon-muted);
+  background: transparent;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.salon-icon-button--danger:hover {
+  border-color: rgb(230 103 103 / 60%);
+  color: var(--salon-danger);
+  background: rgb(230 103 103 / 12%);
+}
+
+.salon-back {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--salon-border-strong);
+  border-radius: 50%;
+  color: var(--salon-text);
+  background: var(--salon-surface-2);
+  font-size: 1.1rem;
+  cursor: pointer;
+}
+
+/* チップ(一覧の行では行末に置く) */
+
+.salon-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 9px;
+  border: 1px solid var(--salon-border-strong);
+  border-radius: 999px;
+  color: var(--salon-text-2);
+  background: var(--salon-surface-2);
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.salon-chip--hard {
+  border-color: rgb(239 184 90 / 60%);
+  color: var(--salon-accent);
+}
+
+.salon-chip--success {
+  margin-left: 8px;
+  border-color: rgb(95 194 138 / 55%);
+  color: var(--salon-success);
+  background: rgb(95 194 138 / 10%);
+}
+
+.salon-chip--status-serving {
+  border-color: rgb(239 184 90 / 60%);
+  color: var(--salon-accent);
+}
+
+.salon-chip--status-done {
+  border-color: rgb(95 194 138 / 55%);
+  color: var(--salon-success);
+}
+
+.salon-chip--status-declined {
+  color: var(--salon-muted);
+}
+
+/* 処理中(通常のヒント文と見分けがつくようスピナーを添える) */
+
+.salon-progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  color: var(--salon-accent);
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.salon-spinner {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgb(239 184 90 / 30%);
+  border-top-color: var(--salon-accent);
+  border-radius: 50%;
+  animation: salon-spin 0.8s linear infinite;
+}
+
+.salon-button--primary .salon-spinner {
+  border-color: rgb(18 22 26 / 30%);
+  border-top-color: #12161a;
+}
+
+@keyframes salon-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* サロン一覧 */
+
+.salon-run-list,
+.salon-visit-list,
+.salon-review-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.salon-run-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--salon-border);
+  border-radius: 8px;
+  background: var(--salon-surface);
+}
+
+.salon-run-row__main {
+  display: grid;
+  flex: 1 1 auto;
+  min-width: 0;
+  gap: 2px;
+}
+
+.salon-run-row__main strong {
+  overflow-wrap: anywhere;
+}
+
+.salon-run-row__meta {
+  color: var(--salon-muted);
+  font-size: 0.8rem;
+}
+
+/* 帳場 */
+
+.salon-office__header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--salon-border);
+}
+
+.salon-office__title {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.salon-office__title h1 {
+  overflow-wrap: anywhere;
+}
+
+.salon-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.salon-tile {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--salon-border);
+  border-radius: 8px;
+  background: var(--salon-surface);
+}
+
+.salon-tile > span:first-child {
+  color: var(--salon-muted);
+  font-size: 0.75rem;
+}
+
+.salon-tile strong {
+  font-size: 1.3rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.salon-tile strong small {
+  margin-left: 4px;
+  color: var(--salon-muted);
+  font-size: 0.75rem;
+  font-weight: 400;
+}
+
+.salon-tile .salon-tile__small {
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.is-negative {
+  color: var(--salon-danger);
+}
+
+.salon-meter {
+  display: block;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--salon-surface-2);
+  overflow: hidden;
+}
+
+.salon-meter span {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--salon-accent);
+}
+
+.salon-visit {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--salon-border);
+  border-radius: 8px;
+  background: var(--salon-surface);
+}
+
+.salon-visit.is-serving {
+  border-color: rgb(239 184 90 / 55%);
+}
+
+.salon-visit.is-declined {
+  opacity: 0.65;
+}
+
+.salon-visit__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.salon-visit__head .salon-chip {
+  margin-left: auto;
+}
+
+.salon-visit__number {
+  color: var(--salon-muted);
+  font-size: 0.78rem;
+}
+
+.salon-visit__summary,
+.salon-visit__review {
+  margin: 0;
+  color: var(--salon-text-2);
+  font-size: 0.85rem;
+  line-height: 1.6;
+}
+
+.salon-visit__review {
+  font-family: var(--font-serif, serif);
+}
+
+.salon-visit__review > span {
+  margin-right: 8px;
+  color: var(--salon-muted);
+  font-family: var(--font-sans, sans-serif);
+  font-size: 0.75rem;
+}
+
+.salon-visit__actions,
+.salon-result__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.salon-close-week {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.salon-close-week .salon-section__hint {
+  margin: 0;
+}
+
+.salon-result {
+  margin-top: 18px;
+  padding: 18px 20px;
+  border: 1px solid var(--salon-border-strong);
+  border-radius: 10px;
+  background: var(--salon-surface);
+}
+
+.salon-result--success {
+  border-color: rgb(95 194 138 / 60%);
+}
+
+.salon-result--bankrupt {
+  border-color: rgb(230 103 103 / 60%);
+}
+
+.salon-result h2 {
+  margin: 0 0 6px;
+}
+
+.salon-result p {
+  margin: 0 0 12px;
+  color: var(--salon-text-2);
+}
+
+/* 帳簿 */
+
+.salon-ledger {
+  margin-top: 12px;
+  overflow-x: auto;
+}
+
+.salon-ledger table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.salon-ledger th,
+.salon-ledger td {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--salon-border);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.salon-ledger thead th {
+  color: var(--salon-muted);
+  font-weight: 700;
+}
+
+.salon-ledger th:first-child {
+  text-align: left;
+}
+
+.salon-chart {
+  margin: 0;
+  padding: 14px 16px 10px;
+  border: 1px solid var(--salon-border);
+  border-radius: 8px;
+  background: var(--salon-surface);
+}
+
+.salon-chart__title {
+  margin-bottom: 6px;
+  color: var(--salon-text-2);
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.salon-chart__frame {
+  position: relative;
+}
+
+.salon-chart svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.salon-chart svg:focus-visible {
+  outline: 2px solid var(--salon-accent);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+
+.salon-chart__grid {
+  stroke: #262d34;
+  stroke-width: 1;
+}
+
+.salon-chart__goal {
+  stroke: var(--salon-muted);
+  stroke-width: 1;
+}
+
+.salon-chart__zero {
+  stroke: #6b747d;
+  stroke-width: 1;
+}
+
+.salon-chart__crosshair {
+  stroke: var(--salon-muted);
+  stroke-width: 1;
+}
+
+.salon-chart__line {
+  fill: none;
+  stroke: var(--salon-series);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.salon-chart__dot {
+  fill: var(--salon-series);
+  stroke: var(--salon-surface);
+  stroke-width: 2;
+}
+
+.salon-chart__axis {
+  fill: var(--salon-muted);
+  font-size: 11px;
+}
+
+.salon-chart__end-label {
+  fill: var(--salon-text);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.salon-chart__hit {
+  fill: transparent;
+  cursor: crosshair;
+}
+
+.salon-chart__tooltip {
+  position: absolute;
+  top: 0;
+  display: grid;
+  gap: 2px;
+  padding: 6px 10px;
+  border: 1px solid var(--salon-border-strong);
+  border-radius: 6px;
+  background: rgb(13 17 20 / 94%);
+  font-size: 0.75rem;
+  white-space: nowrap;
+  transform: translate(-50%, -100%);
+  pointer-events: none;
+}
+
+.salon-chart__tooltip strong {
+  color: var(--salon-text);
+  font-size: 0.9rem;
+}
+
+.salon-chart__tooltip span {
+  color: var(--salon-muted);
+}
+
+.salon-chart__legend {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0 0;
+  color: var(--salon-muted);
+  font-size: 0.75rem;
+}
+
+.salon-chart__goal-key {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 1px;
+  background: var(--salon-muted);
+}
+
+/* 口コミ */
+
+.salon-review-list li {
+  padding: 12px 14px;
+  border-left: 2px solid var(--salon-accent);
+  background: var(--salon-surface);
+}
+
+.salon-review-list__text {
+  margin: 0 0 4px;
+  font-family: var(--font-serif, serif);
+  line-height: 1.7;
+}
+
+.salon-review-list__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  margin: 0;
+  color: var(--salon-muted);
+  font-size: 0.75rem;
+}
+
+/* 接客(ADV) */
+
+.salon-serving {
+  --salon-window-height: clamp(270px, 38vh, 400px);
+  --salon-window-inset: clamp(0px, 1.6vw, 20px);
+  --salon-hud-height: 56px;
+
+  position: relative;
+  height: 100vh;
+  height: 100dvh;
+  min-height: 600px;
+  overflow: hidden;
+  background: #080a0c;
+}
+
+.salon-hud {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  z-index: 6;
+  display: flex;
+  box-sizing: border-box;
+  min-height: var(--salon-hud-height);
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px;
+  background: linear-gradient(to bottom, rgb(8 10 12 / 82%), rgb(8 10 12 / 0%));
+  pointer-events: none;
+}
+
+.salon-hud__back,
+.salon-hud__tile {
+  pointer-events: auto;
+}
+
+.salon-hud__back {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  border: 1px solid #46505a;
+  border-radius: 50%;
+  color: var(--salon-text);
+  background: rgb(13 17 20 / 82%);
+  font-size: 1.2rem;
+  cursor: pointer;
+}
+
+.salon-hud__title {
+  flex: 1 1 auto;
+  min-width: 5rem;
+}
+
+.salon-hud__title h1 {
+  margin: 0;
+  overflow: hidden;
+  font-size: 1rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.salon-hud__title p {
+  margin: 0;
+  overflow: hidden;
+  color: var(--salon-muted);
+  font-size: 0.68rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.salon-hud__tile {
+  display: grid;
+  align-self: center;
+  justify-items: center;
+  gap: 2px;
+  min-width: 66px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: rgb(13 17 20 / 78%);
+}
+
+.salon-hud__tile > span {
+  color: var(--salon-muted);
+  font-size: 0.62rem;
+}
+
+.salon-hud__tile strong {
+  color: var(--salon-accent);
+  font-size: 0.9rem;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+.salon-stage {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  padding: var(--salon-hud-height) 12px
+    calc(var(--salon-window-height) + var(--salon-window-inset) + 8px);
+}
+
+.salon-stage__image {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  transition: opacity 160ms ease;
+}
+
+.salon-stage__image.is-generating {
+  opacity: 0.42;
+}
+
+.salon-stage__backdrop {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    ellipse 70% 55% at 50% 38%,
+    rgb(74 58 52 / 90%) 0%,
+    rgb(38 30 28 / 95%) 55%,
+    rgb(8 10 12 / 100%) 100%
+  );
+}
+
+.salon-stage__pair {
+  display: flex;
+  justify-content: center;
+  gap: clamp(8px, 2vw, 24px);
+  width: 100%;
+  height: 100%;
+}
+
+.salon-stage__pair figure {
+  display: flex;
+  flex: 0 1 auto;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 48%;
+  height: 100%;
+  margin: 0;
+}
+
+/* 枠の幅を元画像ではなく表示する高さに合わせ、2枚を寄せて並べる */
+.salon-stage__pair img {
+  width: auto;
+  max-width: 100%;
+  height: calc(100% - 30px);
+  object-fit: contain;
+}
+
+.salon-stage__pair figcaption {
+  padding: 2px 12px;
+  border-radius: 999px;
+  color: var(--salon-text-2);
+  background: rgb(13 17 20 / 82%);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.salon-window {
+  position: absolute;
+  right: var(--salon-window-inset);
+  bottom: var(--salon-window-inset);
+  left: var(--salon-window-inset);
+  z-index: 5;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(260px, 32%, 360px);
+  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-areas:
+    "meta meta"
+    "text panel";
+  height: var(--salon-window-height);
+  max-width: 1120px;
+  margin-inline: auto;
+  border: 1px solid rgb(239 184 90 / 42%);
+  border-radius: 12px;
+  background: linear-gradient(
+    to bottom,
+    rgb(16 22 30 / 92%),
+    rgb(8 11 16 / 94%)
+  );
+  box-shadow:
+    0 18px 40px rgb(0 0 0 / 55%),
+    inset 0 1px 0 rgb(255 255 255 / 8%);
+  backdrop-filter: blur(6px);
+  transition:
+    transform 220ms ease,
+    opacity 180ms ease;
+}
+
+/* ADV ウィンドウらしい二重罫 */
+.salon-window::before {
+  position: absolute;
+  inset: 5px;
+  border: 1px solid rgb(239 184 90 / 18%);
+  border-radius: 8px;
+  content: "";
+  pointer-events: none;
+}
+
+.salon-window.is-hidden {
+  opacity: 0;
+  transform: translateY(calc(100% + var(--salon-window-inset)));
+  pointer-events: none;
+}
+
+.salon-window__meta {
+  grid-area: meta;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 20px 0;
+}
+
+.salon-acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  min-width: 0;
+  margin: 0 auto 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.salon-acts li {
+  padding: 2px 10px;
+  border: 1px solid #3a4148;
+  border-radius: 999px;
+  color: #7d8790;
+}
+
+.salon-acts li.is-done {
+  color: var(--salon-muted);
+}
+
+.salon-acts li.is-current {
+  border-color: var(--salon-accent);
+  color: var(--salon-accent);
+}
+
+.salon-window__log-button {
+  flex: 0 0 auto;
+  min-height: 28px;
+  padding: 2px 12px;
+  border: 1px solid var(--salon-border-strong);
+  border-radius: 999px;
+  color: #cbd2d7;
+  background: var(--salon-surface-2);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.salon-window__hide-button {
+  display: grid;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--salon-border-strong);
+  border-radius: 50%;
+  color: #cbd2d7;
+  background: var(--salon-surface-2);
+  font-size: 0.85rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.salon-window__log-button:hover:not(:disabled),
+.salon-window__hide-button:hover {
+  border-color: var(--salon-accent);
+  color: var(--salon-accent);
+}
+
+.salon-window__text {
+  grid-area: text;
+  min-height: 0;
+  padding: 8px 24px 16px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.salon-window__speaker {
+  margin: 0 0 6px;
+  color: var(--salon-accent);
+  font-size: 0.85rem;
+  font-weight: 800;
+}
+
+.salon-window__label {
+  margin: 0 0 4px;
+  color: var(--salon-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.salon-window__line {
+  max-width: 44em;
+  margin: 0 0 10px;
+  font-family: var(--font-serif, serif);
+  font-size: 1.05rem;
+  line-height: 1.8;
+  white-space: pre-wrap;
+}
+
+.salon-window__note {
+  margin: 0;
+  color: var(--salon-muted);
+  font-size: 0.82rem;
+  line-height: 1.6;
+}
+
+.salon-window__hint {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 4px 0 0;
+  padding: 6px 10px;
+  border-left: 2px solid #8a949d;
+  color: #cbd2d7;
+  background: #20262b;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.salon-window__hint span {
+  flex: 0 0 auto;
+  color: var(--salon-accent);
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
+.salon-qa {
+  margin-top: 6px;
+}
+
+.salon-qa__question {
+  margin: 0 0 2px;
+  color: var(--salon-text-2);
+  font-size: 0.85rem;
+}
+
+.salon-qa__question::before {
+  margin-right: 6px;
+  color: var(--salon-muted);
+  content: "Q.";
+}
+
+.salon-window__panel {
+  grid-area: panel;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  margin: 8px 18px 16px 0;
+  padding: 12px;
+  border: 1px solid #2c333a;
+  border-radius: 8px;
+  background: rgb(20 26 32 / 80%);
+  overflow-y: auto;
+}
+
+.salon-window__panel .salon-button {
+  width: 100%;
+}
+
+.salon-receipt {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.salon-receipt div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.salon-receipt dt {
+  color: var(--salon-muted);
+  font-size: 0.8rem;
+}
+
+.salon-receipt dd {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.salon-receipt__big {
+  color: var(--salon-accent);
+  font-size: 1.6rem !important;
+}
+
+.salon-receipt__verdict {
+  margin: 0;
+  color: var(--salon-muted);
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.salon-receipt__verdict.is-fulfilled {
+  color: var(--salon-success);
+}
+
+.salon-window-restore {
+  position: absolute;
+  right: calc(var(--salon-window-inset) + 12px);
+  bottom: calc(var(--salon-window-inset) + 12px);
+  z-index: 6;
+  min-height: 34px;
+  padding: 6px 16px;
+  border: 1px solid rgb(239 184 90 / 55%);
+  border-radius: 999px;
+  color: var(--salon-accent);
+  background: rgb(13 17 20 / 82%);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.salon-log {
+  position: absolute;
+  top: calc(var(--salon-hud-height) + 8px);
+  right: 12px;
+  bottom: 12px;
+  z-index: 8;
+  display: flex;
+  flex-direction: column;
+  width: min(420px, calc(100% - 24px));
+  border: 1px solid var(--salon-border-strong);
+  border-radius: 10px;
+  background: rgb(13 17 20 / 96%);
+  box-shadow: 0 18px 40px rgb(0 0 0 / 55%);
+}
+
+.salon-log header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--salon-border);
+}
+
+.salon-log h2 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.salon-log ol {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  margin: 0;
+  padding: 14px;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.salon-log li > span {
+  color: var(--salon-accent);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.salon-log li p {
+  margin: 2px 0 0;
+  color: var(--salon-text-2);
+  font-size: 0.85rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+@media (max-width: 720px) {
+  .salon-serving {
+    --salon-window-height: min(60vh, 520px);
+  }
+
+  .salon-window {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "meta"
+      "text"
+      "panel";
+  }
+
+  /* 操作(質問・施術・会計)を隠さないよう、操作欄は中身の高さで出し、本文の側をスクロールさせる */
+  .salon-window__panel {
+    overflow: visible;
+    margin: 0 12px 12px;
+  }
+
+  .salon-window__text {
+    padding: 6px 16px 10px;
+  }
+
+  .salon-window__meta {
+    padding: 10px 12px 0;
+  }
+
+  .salon-hud__tile {
+    min-width: 0;
+    padding: 4px 6px;
+  }
+
+  .salon-run-row {
+    flex-wrap: wrap;
+  }
+}

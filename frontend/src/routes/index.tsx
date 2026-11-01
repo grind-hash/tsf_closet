@@ -23,6 +23,9 @@ import SettingsScreen from "../components/settings/SettingsScreen";
  * /settings             → 設定画面
  * /prompt-expander      → Prompt Expander（セッション一覧）
  * /prompt-expander/:sessionId → Prompt Expander（セッション詳細）
+ * /salon                → サロン経営（サロン一覧と開店）
+ * /salon/:runId         → サロンの帳場（予約帳・帳簿・口コミ）
+ * /salon/:runId/visits/:visitId → 接客（ADV 風の画面）
  *
  * 注: /gameはバックエンドAPIで使用されているため、フロントエンドは/playを使用
  */
@@ -53,11 +56,20 @@ export const ROUTES = {
   // キャラクターメイク(キャラチャットで話すキャラクターの作成・管理)
   CHARACTERS: "/characters",
   CHARACTER_EDIT: "/characters/:presetId",
+  // サロン経営(一覧と開店 → 帳場 → 接客)
+  SALON: "/salon",
+  SALON_RUN: "/salon/:runId",
+  SALON_VISIT: "/salon/:runId/visits/:visitId",
 } as const;
 
 // セッションID付きのゲームURLを生成するヘルパー
 export const getGameSessionPath = (sessionId: string): string =>
   `/play/${sessionId}`;
+
+export const getSalonRunPath = (runId: string): string => `/salon/${runId}`;
+
+export const getSalonVisitPath = (runId: string, visitId: string): string =>
+  `/salon/${runId}/visits/${visitId}`;
 
 // 画面コンポーネントのエクスポート（App.tsxで使用）
 export { AchievementsScreen, EndingsScreen, GalleryScreen, SettingsScreen };

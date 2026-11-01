@@ -56,6 +56,9 @@ export const settings = {
   experimentalCharacterChat: "キャラチャット",
   experimentalCharacterChatDesc:
     "TSFシナリオを経由せず、キャラクターと1対1で会話する画面をメニューに表示します。案内役のセレナと、過去セッションの人物を呼び出して話せます",
+  experimentalSalon: "サロン経営",
+  experimentalSalonDesc:
+    "お客様を着せ替えで願いどおりの姿にして、12週のあいだサロンを経営するモードをメニューに表示します。接客は依頼モードと同じ仕組み（施術3手・質問2回）で、会計の満足度から売上と評判が決まります",
   characterChatWebSearch: "セレナがWeb検索で調べる",
   characterChatWebSearchDesc:
     "キャラチャットで最近の出来事や現実の話題を聞かれたときだけ、セレナがWeb検索（Tavily）で調べて答えます。送るのは話題のキーワードだけで、会話の文章は送りません。性的に露骨な内容など、Tavilyの利用規約に反するおそれのある検索はしません（セレナがその旨を伝えます）。ONにするときに利用条件への同意を確認します。検索1回につきTavilyのクレジットを1消費します。",

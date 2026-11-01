@@ -107,6 +107,7 @@ export default function SettingsScreen() {
     setAdventureEnabled,
     setExperimentalPromptExpanderEnabled,
     setExperimentalCharacterChatEnabled,
+    setExperimentalSalonEnabled,
     setAdventureEnableCompositeScene,
     setPlayMemoryEnabled,
     setEnableSurroundingsImage,
@@ -704,6 +705,34 @@ export default function SettingsScreen() {
       </div>
     ),
     characterChatRealWorld: <CharacterChatRealWorldSettings />,
+    salon: (
+      <div className="settings-screen__item">
+        <label className="settings-screen__toggle">
+          <div className="settings-screen__toggle-info">
+            <span className="settings-screen__item-label">
+              {t("settings.experimentalSalon")}
+              <span
+                className="feature-chip-experimental"
+                data-feature-version="v0.10.0"
+                style={{ marginLeft: "0.5rem" }}
+              >
+                Experimental
+              </span>
+            </span>
+            <span className="settings-screen__item-desc">
+              {t("settings.experimentalSalonDesc")}
+            </span>
+          </div>
+          <input
+            type="checkbox"
+            checked={state.experimentalSalonEnabled}
+            onChange={(e) => setExperimentalSalonEnabled(e.target.checked)}
+            className="settings-screen__toggle-input"
+          />
+          <span className="settings-screen__toggle-switch" />
+        </label>
+      </div>
+    ),
     surroundings: (
       <div className="settings-screen__item">
         <label className="settings-screen__toggle">

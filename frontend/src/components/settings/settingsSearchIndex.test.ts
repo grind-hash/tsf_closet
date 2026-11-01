@@ -154,6 +154,7 @@ describe("getItemIdsIn", () => {
       "promptExpander",
       "characterChat",
       "characterChatRealWorld",
+      "salon",
       "surroundings",
       "surroundingsPeople",
       "clothingColor",
@@ -172,6 +173,7 @@ describe("getItemIdsIn", () => {
       "promptExpander",
       "characterChat",
       "characterChatRealWorld",
+      "salon",
       "playMemory",
     ]);
     expect(getItemIdsIn("image", "v2")).toEqual([

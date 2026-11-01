@@ -68,6 +68,7 @@ export default function GuideScreen() {
     setAdventureEnabled,
     setExperimentalPromptExpanderEnabled,
     setExperimentalCharacterChatEnabled,
+    setExperimentalSalonEnabled,
     setPlayMemoryEnabled,
   } = useSettings();
 
@@ -233,6 +234,35 @@ export default function GuideScreen() {
                 onClick={() => navigate(ROUTES.CHARACTER_CHAT)}
               >
                 {t("guide.characterChat.open")}
+              </button>
+            )}
+          </GuideCard>
+
+          <GuideCard
+            icon="🪞"
+            title={t("guide.salon.title")}
+            desc={t("guide.salon.desc")}
+            note={t("guide.salon.note")}
+          >
+            <div className="guide-screen__card-status">
+              <GuideToggle
+                label={t("guide.enable")}
+                checked={state.experimentalSalonEnabled}
+                onChange={setExperimentalSalonEnabled}
+              />
+              {state.experimentalSalonEnabled && (
+                <span className="guide-screen__added" role="status">
+                  {t("guide.addedToMenu")}
+                </span>
+              )}
+            </div>
+            {state.experimentalSalonEnabled && (
+              <button
+                type="button"
+                className="guide-screen__cta"
+                onClick={() => navigate(ROUTES.SALON)}
+              >
+                {t("guide.salon.open")}
               </button>
             )}
           </GuideCard>

@@ -611,6 +611,21 @@ async def _request_profile(session: PersistedSession) -> dict[str, Any]:
     return profile
 
 
+async def session_profile(session_id: str) -> dict[str, Any] | None:
+    """セッションの主人公(依頼主)の人物像。サロンの口コミなど、依頼の外でも使う。"""
+    session = await session_store.get_session_by_id(session_id)
+    if session is None:
+        return None
+    return await _request_profile(session)
+
+
+async def generate_customer_text(
+    system_prompt: str, user_prompt: str, *, novelai_model: str | None
+) -> str:
+    """依頼主の言葉を生成する(本文と同じプロバイダー・テキストモデル)。料金は記録する。"""
+    return await _generate_text(system_prompt, user_prompt, novelai_model=novelai_model)
+
+
 class SessionRequestService:
     async def get_request_view(self, session_id: str) -> dict[str, Any] | None:
         request = await session_store.get_session_request(session_id)

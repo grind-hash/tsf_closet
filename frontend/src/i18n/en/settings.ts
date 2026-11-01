@@ -57,6 +57,9 @@ export const settings = {
   experimentalCharacterChat: "Character Chat",
   experimentalCharacterChatDesc:
     "Show a screen for one-on-one conversations with a character outside the TSF scenario: the guide character Serena, or a character brought back from a past session",
+  experimentalSalon: "Salon Management",
+  experimentalSalonDesc:
+    "Show a mode in the menu where you run a dress-up salon for 12 weeks, turning customers into the look they wish for. Serving uses the same rules as request mode (3 styling turns, 2 questions), and the satisfaction at checkout decides sales and reputation",
   characterChatWebSearch: "Let Serena search the web",
   characterChatWebSearchDesc:
     "In Character Chat, Serena searches the web (Tavily) only when you ask about recent events or real-world topics. Only the topic keywords are sent, never the conversation text. Searches that may go against Tavily's terms, such as sexually explicit topics, are skipped (Serena tells you when this happens). You are asked to agree to the terms when turning this on. Each search uses 1 Tavily credit.",

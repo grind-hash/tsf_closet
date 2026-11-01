@@ -28,6 +28,7 @@ import { menu } from "./menu";
 import { novelaiWarning } from "./novelaiWarning";
 import { promptExpander } from "./promptExpander";
 import { rightPanel } from "./rightPanel";
+import { salon } from "./salon";
 import { sessionList } from "./sessionList";
 import { settings } from "./settings";
 
@@ -61,4 +62,5 @@ export const ja = {
   characterChat,
   characters,
   promptExpander,
+  salon,
 };
