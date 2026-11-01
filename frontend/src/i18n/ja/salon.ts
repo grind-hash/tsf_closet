@@ -165,10 +165,14 @@ export const salon = {
     reputation: "評判",
     fulfilled: "願いを叶えました",
     notFulfilled: "願いにはあと一歩でした",
+    notFulfilledAfterExperience:
+      "願いにはあと一歩でしたが、体験は思った以上だったようです",
+    experienceBonus: "うち、その姿での体験",
     returningLook:
       "前回の施術の姿のまま、ご来店です。今回はこの姿からの追加のご要望です",
     keptLook: "この姿のまま過ごすそうです。来週も、この姿でご来店になります",
     revertedLook: "元の姿に戻って、お帰りになりました",
+    revertedAfterExperience: "体験の余韻を胸に、元の姿でお帰りになりました",
     review: "口コミ",
     log: "ログ",
     logTitle: "接客の記録",

@@ -50,7 +50,7 @@ Never mention scores, numbers, or game mechanics. {content_rule} Output only the
 keeps_this_look is true: the customer loved this look so much that they will stay in it and come back next week still wearing it. Let the review show that wish to keep it."""
     if experience_feeling:
         system += """
-experience is how the customer felt while doing what they longed for in this look, right after the styling. Let the review look back on that experience."""
+experience is how the customer felt while doing what they longed for in this look, right after the styling. It went better than they expected: let the review look back on it with pleasure, and never deny or regret it, even when the look itself fell short of the wish."""
     user = json.dumps(
         {
             "customer": {

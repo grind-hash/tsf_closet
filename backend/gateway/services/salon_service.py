@@ -69,9 +69,11 @@ from .session import DEFAULT_USER_ID, session_store
 from .session_branch_service import SessionBranchError, branch_session_from_history
 from .session_request_service import (
     SessionRequestError,
+    experience_bonus,
     generate_customer_text,
     session_profile,
     session_request_service,
+    with_experience,
 )
 
 logger = logging.getLogger(__name__)
@@ -149,6 +151,7 @@ def _serialize_visit(visit: SalonVisit, visits: list[SalonVisit]) -> dict[str, A
         "previous_review": previous_reviews[-1] if previous_reviews else None,
         "kept_look": visit.kept_history_id is not None,
         "returning_look": visit.start_history_id is not None,
+        "experience_bonus": int(visit.experience_bonus or 0),
     }
 
 
@@ -519,27 +522,38 @@ class SalonService:
             raise SalonError("request_missing", "依頼が見つかりません")
         if int(request.get("turns_used") or 0) == 0:
             raise SalonError("not_served", "まだ施術をしていません")
-        satisfaction = int(request.get("satisfaction") or 0)
+        # お披露目の体験の場面は施術ではない(依頼の評価が付かない最後の手番)
+        styled = await session_store.get_latest_evaluated_history(session_id)
+        latest = await session_store.get_latest_history(session_id)
+        sensitive = bool(request.get("sensitive"))
+        experienced = (
+            sensitive
+            and latest is not None
+            and styled is not None
+            and latest.id != styled.id
+        )
+        experience_feeling = (latest.feeling_text or "") if experienced else ""
+        # 体験してみたら思ったより良かった、を満足度に入れる。施術の満足度は土台が決め、
+        # 体験の加点で依頼達成の線を越えたら、達成として扱う
+        bonus = experience_bonus(experienced)
+        satisfaction = with_experience(
+            int(request.get("satisfaction") or 0), experienced
+        )
         fulfilled = request.get("status") == "fulfilled"
+        if not fulfilled and satisfaction >= int(request.get("threshold") or 0) > 0:
+            fulfilled = True
+            if styled is not None:
+                await session_store.mark_session_request_fulfilled(
+                    session_id, styled.id
+                )
         payment = visit_payment(satisfaction, fulfilled)
         delta = visit_reputation_delta(satisfaction, fulfilled)
         # 願いを叶えたお客様は、最後の施術の姿のまま帰り、翌週もその姿で来る。
-        # お披露目の体験の場面は施術ではないので、持ち帰る姿にしない
-        styled = await session_store.get_latest_evaluated_history(session_id)
-        latest = await session_store.get_latest_history(session_id)
+        # 体験の場面は持ち帰る姿にしない
         kept_history_id = (
             styled.id
             if styled is not None and keeps_look(fulfilled, week, total_weeks)
             else None
-        )
-        sensitive = bool(request.get("sensitive"))
-        experience_feeling = (
-            latest.feeling_text or ""
-            if sensitive
-            and latest is not None
-            and styled is not None
-            and latest.id != styled.id
-            else ""
         )
 
         tracker = begin_cost_tracking()
@@ -567,6 +581,7 @@ class SalonService:
             visit.reputation_delta = delta
             visit.review = review
             visit.kept_history_id = kept_history_id
+            visit.experience_bonus = bonus
             visit.updated_at = datetime.now()
             run.cash += payment
             run.reputation = clamp_reputation(run.reputation + delta)

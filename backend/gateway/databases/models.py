@@ -710,6 +710,10 @@ class SalonVisit(Base):
     kept_history_id: Mapped[str | None] = mapped_column(String, nullable=True)
     # 前回持ち帰った姿で来店する予約なら、その手番。接客はここから分岐して始める
     start_history_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    # 過激施術のお披露目で体験の場面まで描けたときの、満足度への加点(satisfaction に含む)
+    experience_bonus: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
     created_at: Mapped[datetime] = mapped_column(
         default=func.current_timestamp(), nullable=False
     )

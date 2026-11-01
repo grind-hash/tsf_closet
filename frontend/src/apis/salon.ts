@@ -39,6 +39,8 @@ export interface SalonVisit {
   kept_look: boolean;
   /** 前回持ち帰った姿のまま来店する予約 */
   returning_look: boolean;
+  /** 過激施術のお披露目で体験まで描けたときの満足度への加点(satisfaction に含む) */
+  experience_bonus: number;
 }
 
 /** 締めた週の収支 */

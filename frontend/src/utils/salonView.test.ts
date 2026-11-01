@@ -31,6 +31,7 @@ function visit(overrides: Partial<SalonVisit>): SalonVisit {
     previous_review: null,
     kept_look: false,
     returning_look: false,
+    experience_bonus: 0,
     ...overrides,
   };
 }

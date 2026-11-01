@@ -169,10 +169,15 @@ export const salon = {
     reputation: "Reputation",
     fulfilled: "Wish granted",
     notFulfilled: "Just short of the wish",
+    notFulfilledAfterExperience:
+      "Just short of the wish, but the experience was better than they expected",
+    experienceBonus: "Of which, living the wish",
     returningLook:
       "Back in the look from the last visit. This time it is an additional request on top of it",
     keptLook: "They will stay in this look and come back next week wearing it",
     revertedLook: "They went home back in their original look",
+    revertedAfterExperience:
+      "They went home in their original look, still glowing from the experience",
     review: "Review",
     log: "Log",
     logTitle: "Visit log",

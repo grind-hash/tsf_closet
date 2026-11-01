@@ -740,6 +740,12 @@ export default function SalonServing({
                       {checkedOut.satisfaction ?? 0}%
                     </dd>
                   </div>
+                  {checkedOut.experience_bonus > 0 && (
+                    <div>
+                      <dt>{t("salon.serving.experienceBonus")}</dt>
+                      <dd>+{checkedOut.experience_bonus}%</dd>
+                    </div>
+                  )}
                   <div>
                     <dt>{t("salon.serving.payment")}</dt>
                     <dd>{formatYen(checkedOut.payment, language)}</dd>
@@ -755,7 +761,9 @@ export default function SalonServing({
                   {t(
                     checkedOut.fulfilled
                       ? "salon.serving.fulfilled"
-                      : "salon.serving.notFulfilled",
+                      : checkedOut.experience_bonus > 0
+                        ? "salon.serving.notFulfilledAfterExperience"
+                        : "salon.serving.notFulfilled",
                   )}
                 </p>
                 {(checkedOut.kept_look || !checkedOut.fulfilled) && (
@@ -763,7 +771,9 @@ export default function SalonServing({
                     {t(
                       checkedOut.kept_look
                         ? "salon.serving.keptLook"
-                        : "salon.serving.revertedLook",
+                        : checkedOut.experience_bonus > 0
+                          ? "salon.serving.revertedAfterExperience"
+                          : "salon.serving.revertedLook",
                     )}
                   </p>
                 )}

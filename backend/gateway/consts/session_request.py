@@ -28,6 +28,9 @@ REQUEST_PREFERENCES_SCORE: int = 40
 # この満足度に初めて達した手番で依頼達成とする。LLM の判定は曖昧なので、好みを全部
 # 満たさなくても、ヒアリングを活かせば届く水準にする
 REQUEST_FULFILL_THRESHOLD: int = 70
+# 成人向けの依頼で、お披露目の体験の場面まで描けたときの満足度への加点。
+# 施術が「良い」帯(55)まで届いていれば、体験で依頼達成(70)に届く大きさにする
+REQUEST_EXPERIENCE_BONUS: int = 15
 # ヒアリングの反映: カウンセリングの答えを汲んだ姿への加点(1件ごと・上限)
 REQUEST_LISTENING_BONUS_PER_ANSWER: int = 10
 REQUEST_LISTENING_BONUS_MAX: int = 20

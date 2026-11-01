@@ -60,6 +60,11 @@ class SalonVisitResponse(BaseModel):
     returning_look: bool = Field(
         False, description="前回持ち帰った姿のまま来店する予約"
     )
+    experience_bonus: int = Field(
+        0,
+        description="過激施術のお披露目で体験まで描けたときの満足度への加点"
+        "(satisfaction に含む)",
+    )
 
 
 class SalonWeekResponse(BaseModel):

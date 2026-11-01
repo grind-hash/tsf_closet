@@ -28,6 +28,7 @@ from ..consts.sensitive_desires import (
 from ..consts.session_request import (
     REQUEST_ANSWER_MAX,
     REQUEST_EVALUATION_HINT_MAX,
+    REQUEST_EXPERIENCE_BONUS,
     REQUEST_EXPERIENCE_MAX,
     REQUEST_FIT_SCORES,
     REQUEST_FITS,
@@ -259,6 +260,16 @@ def compute_satisfaction(
     return max(0, min(100, total_score))
 
 
+def experience_bonus(experienced: bool) -> int:
+    """お披露目の体験の場面まで描けたときの満足度への加点(体験が無ければ 0)。"""
+    return REQUEST_EXPERIENCE_BONUS if experienced else 0
+
+
+def with_experience(satisfaction: int, experienced: bool) -> int:
+    """施術の満足度に体験の加点を足した、会計の満足度(0-100)。"""
+    return max(0, min(100, satisfaction + experience_bonus(experienced)))
+
+
 def _normalize_for_match(text: str) -> str:
     return " ".join(str(text or "").lower().split())
 
@@ -288,7 +299,22 @@ _BODY_PREFERENCE_WORDS = (
 # (好みの文に現れる語, 根拠に必要な語)
 _ATTRIBUTE_VOCABULARY: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (
-        ("丈", "短", "ミニ", "膝", "ロング", "床", "length", "short", "mini", "knee"),
+        (
+            "丈",
+            "短",
+            "ミニ",
+            "膝",
+            "ロング",
+            "床",
+            "ミモレ",
+            "マキシ",
+            "length",
+            "short",
+            "mini",
+            "knee",
+            "midi",
+            "maxi",
+        ),
         (
             "short",
             "mini",
@@ -296,6 +322,7 @@ _ATTRIBUTE_VOCABULARY: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
             "long",
             "knee",
             "thigh",
+            "calf",
             "floor",
             "ankle",
             "maxi",
@@ -386,6 +413,36 @@ _ATTRIBUTE_VOCABULARY: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
 )
 
 
+# 丈の向き。短い丈の好みに長い丈の根拠を通さない(逆も)。評価役は丈の語があれば
+# 向きを問わず根拠に挙げることがある(ミモレ丈の好みに blue miniskirt など)。
+# 好みの文は短い側を先に見る(「膝上」は短い側、「膝丈」「膝下」は長い側)
+_SHORT_LENGTH_PREFERENCE = ("短", "ミニ", "膝上", "マイクロ", "short", "mini", "micro")
+_LONG_LENGTH_PREFERENCE = (
+    "ロング",
+    "長",
+    "ミモレ",
+    "マキシ",
+    "膝丈",
+    "膝下",
+    "くるぶし",
+    "床",
+    "long",
+    "midi",
+    "maxi",
+)
+_SHORT_LENGTH_EVIDENCE = ("short", "mini", "micro", "thigh", "cropped")
+_LONG_LENGTH_EVIDENCE = ("long", "midi", "maxi", "knee", "calf", "ankle", "floor")
+
+
+def _length_direction_supported(preference_text: str, evidence: str) -> bool:
+    """丈の好みに向きがあれば、根拠も同じ向きの丈を示しているか。向きが無ければ True。"""
+    if any(word in preference_text for word in _SHORT_LENGTH_PREFERENCE):
+        return any(word in evidence for word in _SHORT_LENGTH_EVIDENCE)
+    if any(word in preference_text for word in _LONG_LENGTH_PREFERENCE):
+        return any(word in evidence for word in _LONG_LENGTH_EVIDENCE)
+    return True
+
+
 def _clean_tag(raw: str) -> str:
     """NovelAI の強調記号({}・[]・1.2::…::)を外して小文字にそろえたタグ。"""
     tag = re.sub(r"^-?\d+(?:\.\d+)?::|::$", "", raw.strip())
@@ -422,6 +479,8 @@ def _evidence_supports(
             word in joined for word in evidence_words
         ):
             return False
+    if not _length_direction_supported(preference_text, joined):
+        return False
     tags = _look_tags(look_text) if look_is_tags else None
     look = _normalize_for_match(look_text)
     for part in parts:
@@ -912,6 +971,7 @@ class SessionRequestService:
             language=language,
             previous_look=visible_previous,
             questions=request.get("questions", []),
+            sensitive=bool(request.get("sensitive")),
         )
 
         async def generate(system: str, user: str) -> str:

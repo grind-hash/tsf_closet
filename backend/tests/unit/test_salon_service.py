@@ -801,3 +801,84 @@ async def test_character_maker_customer_starts_from_the_character(stubs) -> None
     await salon_service.start_visit(run["id"], visit["id"], language="ja")
 
     assert stubs.started == [("preset", "preset-1")]
+
+
+async def _serve_sensitive(
+    stubs, isolated_db, *, satisfaction: int, experience: bool, sensitive: bool = True
+) -> tuple[dict[str, Any], str, str]:
+    """過激施術の来店を接客し、施術1手(と体験の場面)まで済ませる。"""
+    run = await salon_service.create_run("店")
+    await _set_nsfw_mode(isolated_db, True)
+    await salon_service.update_settings(run["id"], sensitive=sensitive)
+    visit = _booked(run)[0]
+    started = await salon_service.start_visit(run["id"], visit["id"], language="ja")
+    session_id = started["session_id"]
+    await session_store.save_session_request(
+        session_id, wish="ふんわりした姿に", preferences=[], language="ja"
+    )
+    await _add_turn(isolated_db, session_id, "styled")
+    if experience:
+        await _add_experience(isolated_db, session_id, "experience")
+    stubs.views[session_id].update(
+        status="active", satisfaction=satisfaction, turns_used=1
+    )
+    return run, visit["id"], session_id
+
+
+async def test_experience_bonus_can_fulfil_the_wish(stubs, isolated_db) -> None:
+    run, visit_id, session_id = await _serve_sensitive(
+        stubs, isolated_db, satisfaction=57, experience=True
+    )
+
+    done = (await salon_service.checkout_visit(run["id"], visit_id, language="ja"))[
+        "visit"
+    ]
+
+    # 施術 57 + 体験 15 = 72 で依頼達成。姿は最後の施術の姿を持ち帰る
+    assert done["satisfaction"] == 72
+    assert done["experience_bonus"] == 15
+    assert done["fulfilled"] is True
+    assert done["kept_look"] is True
+    assert done["payment"] == round(SALON_BASE_PRICE * 1.5)
+    stored = await session_store.get_session_request(session_id)
+    assert stored["status"] == "fulfilled"
+    assert stored["fulfilled_history_id"] == "styled"
+
+
+async def test_experience_bonus_lifts_satisfaction_without_fulfilling(
+    stubs, isolated_db
+) -> None:
+    run, visit_id, _ = await _serve_sensitive(
+        stubs, isolated_db, satisfaction=30, experience=True
+    )
+
+    done = (await salon_service.checkout_visit(run["id"], visit_id, language="ja"))[
+        "visit"
+    ]
+
+    # 30 + 15 = 45: 半額ではなく通常の支払いになるが、依頼達成には届かない
+    assert done["satisfaction"] == 45
+    assert done["fulfilled"] is False
+    assert done["payment"] == SALON_BASE_PRICE
+    assert done["kept_look"] is False
+
+
+@pytest.mark.parametrize(("sensitive", "experience"), [(True, False), (False, True)])
+async def test_no_experience_bonus_without_a_sensitive_experience(
+    stubs, isolated_db, sensitive, experience
+) -> None:
+    run, visit_id, _ = await _serve_sensitive(
+        stubs,
+        isolated_db,
+        satisfaction=57,
+        experience=experience,
+        sensitive=sensitive,
+    )
+
+    done = (await salon_service.checkout_visit(run["id"], visit_id, language="ja"))[
+        "visit"
+    ]
+
+    assert done["satisfaction"] == 57
+    assert done["experience_bonus"] == 0
+    assert done["fulfilled"] is False

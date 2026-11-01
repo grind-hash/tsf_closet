@@ -123,12 +123,15 @@ def build_request_evaluation_prompt(
     language: str,
     previous_look: str | None = None,
     questions: list[dict[str, Any]] | None = None,
+    sensitive: bool = False,
 ) -> tuple[str, str]:
     """手番評価の (system, user) を返す。
 
     previous_look は、current_look がこの手番の変更しか書いていない経路(画像を読む
     プロバイダー)で、手番前の姿を補うために渡す。questions はカウンセリングのやり取りで、
     答えを汲んだ姿をヒアリングの反映として加点するために渡す。
+    sensitive(成人向けの依頼)では、願いの行為は別の場面(お披露目の体験)で叶うので、
+    願いへの近さは姿の部分だけで判定させる。
     """
     counselling = [
         {
@@ -159,13 +162,18 @@ def build_request_evaluation_prompt(
         if previous_look
         else ""
     )
+    sensitive_rule = (
+        " The wish also names a sexual act that happens later in a separate scene, not in this look: judge fit only on the look the wish asks for (body, outfit, mood), and never lower fit because the act itself is not shown."
+        if sensitive
+        else ""
+    )
     system = f"""You judge how well a finished look fulfils a character's request in a dress-up game.
 Return one JSON object only, matching this schema:
 {{"fit":"none|partial|good|perfect","met_preferences":[{{"id":"p1","evidence":"..."}}]{counselling_schema},"hint":"..."}}
 current_look describes the look after this turn.{previous_rule}
-fit rates how well the look as a whole matches wish: none when it is unrelated, partial when it captures only some of the mood, good when it is clearly the requested look, perfect when it is exactly the requested look with nothing out of place.
-met_preferences lists the preferences that the look actually satisfies. For each one, evidence must copy, word for word and in its original language, the tag or phrase of the look that describes that same attribute of the clothing or accessory, such as its color tone, length, material, or decoration; a close synonym counts (for example, pale blue dress or pastel colors for a soft, pale color). Tags about hair, eyes, skin, or face never count for clothing: a short hairstyle says nothing about the length of a dress. If no words in the look show the attribute, the preference is not met: never assume a default length, color, or accessory. player_instruction is what the player asked for, not proof that it happened, so never quote it as evidence.{counselling_rule}
-hint is one short sentence in {_response_language(language)}, at most 50 Japanese characters or 20 English words, that nudges toward one preference that is not met, phrased as something the stylist could notice about the character's reaction, without stating the preference outright. Use an empty string when every preference is met."""
+fit rates how well the look as a whole matches wish: none when it is unrelated, partial when it captures only some of the mood, good when it is clearly the requested look, perfect when it is exactly the requested look with nothing out of place.{sensitive_rule}
+met_preferences lists the preferences that the look actually satisfies. For each one, evidence must copy, word for word and in its original language, the tag or phrase of the look that describes that same attribute of the clothing or accessory, such as its color tone, length, material, or decoration; a close synonym counts (for example, pale blue dress or pastel colors for a soft, pale color). Tags about hair, eyes, skin, or face never count for clothing: a short hairstyle says nothing about the length of a dress. If no words in the look show the attribute, the preference is not met: never assume a default length, color, or accessory. player_instruction is what the player asked for, not proof that it happened, so never quote it as evidence. Judge each preference by its own text only: never drop a preference the look satisfies because the wish or your own taste seems to call for something else (for example, a mid-calf skirt meets a mid-calf preference even if a shorter skirt seems to suit the wish).{counselling_rule}
+hint is one short sentence in {_response_language(language)}, at most 50 Japanese characters or 20 English words, that nudges toward one preference in preferences that is not met, phrased as something the stylist could notice about the character's reaction, without stating the preference outright. It must be about that unmet preference's attribute and say which way to change it toward the preference's own text (for example, longer for a mid-calf preference, more see-through for a sheer one), never against it; never base it on counselling answers or on anything outside preferences. Use an empty string when every preference is met."""
     user = json.dumps(
         {
             "wish": wish,

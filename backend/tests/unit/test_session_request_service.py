@@ -1072,3 +1072,58 @@ def test_generation_prompt_offers_candidates_and_follows_the_motive() -> None:
     # 全年齢の依頼には行為の候補を渡さない
     _, plain_user = build_request_generation_prompt(profile, "1boy", "ja")
     assert "desire_candidates" not in json.loads(plain_user)
+
+
+@pytest.mark.parametrize(
+    ("preference", "evidence", "met"),
+    [
+        # 実際の誤判定: ミモレ丈の好みを miniskirt で満たしたことにし、mid-calf を通さなかった
+        ("ふわっとしたミモレ丈のスカート", "blue miniskirt", False),
+        ("ふわっとしたミモレ丈のスカート", "mid-calf skirt", True),
+        ("ふわっとしたミモレ丈のスカート", "long skirt", True),
+        ("膝上の短い丈", "miniskirt", True),
+        ("膝上の短い丈", "long skirt", False),
+        ("膝丈のスカート", "knee-length skirt", True),
+    ],
+)
+def test_grounded_met_ids_requires_the_same_length_direction(
+    preference, evidence, met
+) -> None:
+    preferences = [{"id": "p1", "text": preference, "hint": "丈"}]
+    ids = grounded_met_ids(
+        _output([("p1", evidence)]),
+        preferences,
+        f"1girl, white blouse, {evidence}",
+        look_is_tags=True,
+    )
+    assert (ids == ["p1"]) is met
+
+
+def test_evaluation_prompt_judges_only_the_look_for_sensitive_requests() -> None:
+    from gateway.services.session_request_prompts import (
+        build_request_evaluation_prompt,
+    )
+
+    args = {
+        "wish": "女の子にして、クンニされたい",
+        "preferences": _PREFERENCES,
+        "current_look": "1girl, frills skirt",
+        "instruction": "フリルスカート",
+        "language": "ja",
+    }
+    sensitive_system, _ = build_request_evaluation_prompt(**args, sensitive=True)
+    plain_system, _ = build_request_evaluation_prompt(**args)
+
+    assert "never lower fit because the act itself is not shown" in sensitive_system
+    assert "never lower fit" not in plain_system
+    # ヒントはまだ満たしていない好みについて、どちらへ変えるかを示す
+    assert "never base it on counselling answers" in plain_system
+    assert "say which way to change it" in plain_system
+
+
+def test_experience_bonus_is_added_and_capped() -> None:
+    from gateway.services.session_request_service import with_experience
+
+    assert with_experience(57, True) == 72
+    assert with_experience(57, False) == 57
+    assert with_experience(95, True) == 100
