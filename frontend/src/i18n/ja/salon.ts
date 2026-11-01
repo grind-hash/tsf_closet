@@ -6,7 +6,7 @@ export const salon = {
   open: {
     heading: "新しく開店する",
     nameLabel: "サロンの名前",
-    namePlaceholder: "例: サロン・ド・ローズ",
+    namePlaceholder: "例: Le Rêve Secret",
     difficultyLabel: "経営の難易度",
     difficulty: {
       easy: "やさしい",
@@ -31,7 +31,7 @@ export const salon = {
       bankrupt: "倒産",
     },
     cash: "現金 {{cash}}",
-    open: "帳場を開く",
+    open: "オーナー室を開く",
     delete: "削除",
     deleteTitle: "サロンを削除しますか？",
     deleteBody:
@@ -112,7 +112,7 @@ export const salon = {
     newSalon: "新しく開店する",
   },
   serving: {
-    back: "帳場へ戻る",
+    back: "オーナー室へ戻る",
     hudWeek: "第{{week}}週 · {{salon}}",
     turns: "施術",
     questions: "質問",
@@ -140,6 +140,8 @@ export const salon = {
     toReveal: "お披露目へ進む",
     reaction: "お客様の様子",
     waiting: "お客様が鏡の前で待っています",
+    transparent: "透過",
+    transparentHint: "お客様の背景を透過して、サロンの背景に重ねます",
     revealBefore: "ご来店時",
     revealAfter: "施術後",
     revealHint:
@@ -167,5 +169,14 @@ export const salon = {
     preparing: "お客様をお迎えしています…",
     notFound: "この予約は見つかりません",
     closed: "この予約は接客を終えています",
+  },
+  bgm: {
+    settings: "BGM設定",
+    enable: "BGMを流す",
+    enableHint:
+      "接客とオーナー室で、場面に合わせた曲を流します。TSF シナリオ・BGMテストと共通の設定です",
+    volume: "音量",
+    autoplayBlocked:
+      "ブラウザにより自動再生がブロックされています。画面のどこかをクリックすると再生が始まります。",
   },
 };

@@ -1,26 +1,62 @@
 /*
- * サロン経営(一覧・帳場・接客)。配色と ADV の骨格は TSF シナリオ
- * (AdventureScreen.css)の HUD・ステージ・メッセージ窓に倣う。
+ * サロン経営(一覧・オーナー室・接客)。ADV の骨格は TSF シナリオ
+ * (AdventureScreen.css)の HUD・ステージ・メッセージ窓に倣い、配色は
+ * ノワール × シャンパンゴールド(温かみのある黒・アイボリーの文字・金の細い罫)。
  */
+
+.main-layout--salon,
+.salon-page,
+.salon-serving {
+  --salon-bg: #0c0b0a;
+  --salon-menu-bg: #0f0d0b;
+  --salon-surface: #141210;
+  --salon-surface-2: #1b1815;
+  --salon-border: #3b342b;
+  --salon-border-strong: #574c3e;
+  --salon-text: #f4eee4;
+  --salon-text-2: #ddd3c4;
+  --salon-muted: #a89d8c;
+  --salon-faint: #8a7f70;
+  --salon-accent: #d6b46f;
+  --salon-accent-strong: #ecd39a;
+  --salon-gold-deep: #b8924c;
+  --salon-on-accent: #17120a;
+  /* 金の罫(細い縁取り)と、強めの縁取り */
+  --salon-hairline: color-mix(in srgb, var(--salon-accent) 22%, transparent);
+  --salon-accent-line: color-mix(in srgb, var(--salon-accent) 50%, transparent);
+  --salon-glow: color-mix(in srgb, var(--salon-accent) 12%, transparent);
+  --salon-scrim: color-mix(in srgb, var(--salon-bg) 84%, transparent);
+  --salon-spot: #2b241c;
+  --salon-grid: #2a2520;
+  /* 接客のステージの、メッセージ窓より手前の暗がり(床の木の色から黒へ溶かす) */
+  --salon-forestage: rgb(48 34 22 / 85%);
+  /* 透過したお客様の足元に落とす影 */
+  --salon-portrait-shadow: drop-shadow(0 8px 6px rgb(0 0 0 / 45%));
+  --salon-success: #6fc292;
+  --salon-danger: #e07070;
+  --salon-danger-text: #f3c4bd;
+  /* グラフの系列色。背景に対し validate_palette.js(dark)の全項目を満たす濃い金 */
+  --salon-series: #bb8a33;
+  --salon-display: "BIZ UDMincho", "Yu Mincho", "Hiragino Mincho ProN", serif;
+}
 
 .salon-page,
 .salon-serving {
-  --salon-bg: #11151a;
-  --salon-surface: #161b21;
-  --salon-surface-2: #1c2228;
-  --salon-border: #3a4148;
-  --salon-border-strong: #4a535c;
-  --salon-text: #f4f6f8;
-  --salon-text-2: #d6dce1;
-  --salon-muted: #aeb7bf;
-  --salon-accent: #efb85a;
-  --salon-success: #5fc28a;
-  --salon-danger: #e66767;
-  --salon-series: #3987e5;
-
   color: var(--salon-text);
   background: var(--salon-bg);
   font-family: var(--font-sans, sans-serif);
+}
+
+/* サロンの画面にいる間は、サイドメニューもサロンの配色にする */
+.main-layout.main-layout--salon {
+  --bg-color: var(--salon-bg);
+  --side-menu-bg: var(--salon-menu-bg);
+  --border-color: var(--salon-hairline);
+  --text-color: var(--salon-text);
+  --text-muted: var(--salon-muted);
+  --hover-bg: var(--salon-surface-2);
+  --accent-color: var(--salon-accent);
+  --accent-hover: var(--salon-accent-strong);
 }
 
 .salon-page {
@@ -30,6 +66,10 @@
   padding: 28px clamp(16px, 4vw, 52px) 52px;
   overflow-y: auto;
   overscroll-behavior-y: contain;
+  /* 上からの淡い光で、照明の落ちた店内の奥行きを出す */
+  background:
+    radial-gradient(110% 70% at 50% -12%, var(--salon-glow), transparent 62%),
+    var(--salon-bg);
 }
 
 .salon-page > * {
@@ -39,26 +79,45 @@
 
 .salon-page h1 {
   margin: 0;
-  font-size: 1.6rem;
+  font-family: var(--salon-display);
+  font-size: 2rem;
+  font-weight: 400;
+  letter-spacing: 0.08em;
 }
 
 .salon-page h2 {
   margin: 0 0 10px;
-  font-size: 1.05rem;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--salon-hairline);
+  font-family: var(--salon-display);
+  font-size: 1.12rem;
+  font-weight: 400;
+  letter-spacing: 0.16em;
 }
 
 .salon-eyebrow {
-  margin: 0 0 4px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 6px;
   color: var(--salon-accent);
-  font-size: 0.78rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
+  font-size: 0.68rem;
+  font-weight: 400;
+  letter-spacing: 0.34em;
   text-transform: uppercase;
+}
+
+.salon-eyebrow::before {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 1px;
+  background: var(--salon-accent);
+  content: "";
 }
 
 .salon-page__header {
   padding-bottom: 18px;
-  border-bottom: 1px solid var(--salon-border);
+  border-bottom: 1px solid var(--salon-hairline);
 }
 
 .salon-page__lead {
@@ -73,13 +132,30 @@
   margin-top: 22px;
 }
 
+/* 面(カード・タイル・予約・一覧の行・グラフ・決算・口コミ)は金の細い罫と、わずかな陰影で揃える */
+.salon-card,
+.salon-tile,
+.salon-visit,
+.salon-run-row,
+.salon-chart,
+.salon-result,
+.salon-review-list li {
+  border: 1px solid var(--salon-hairline);
+  border-radius: 2px;
+  background: linear-gradient(
+    180deg,
+    var(--salon-surface-2),
+    var(--salon-surface)
+  );
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 4%),
+    0 14px 32px rgb(0 0 0 / 38%);
+}
+
 .salon-card {
   display: grid;
   gap: 16px;
   padding: 20px;
-  border: 1px solid var(--salon-border);
-  border-radius: 10px;
-  background: var(--salon-surface);
 }
 
 .salon-card h2 {
@@ -102,10 +178,10 @@
 .salon-error {
   margin: 16px auto 0;
   padding: 10px 14px;
-  border: 1px solid rgb(230 103 103 / 55%);
-  border-radius: 8px;
-  color: #f3c1c1;
-  background: rgb(230 103 103 / 12%);
+  border: 1px solid color-mix(in srgb, var(--salon-danger) 55%, transparent);
+  border-radius: 2px;
+  color: var(--salon-danger-text);
+  background: color-mix(in srgb, var(--salon-danger) 12%, transparent);
   font-size: 0.85rem;
 }
 
@@ -129,9 +205,9 @@
   width: 100%;
   padding: 8px 10px;
   border: 1px solid var(--salon-border);
-  border-radius: 6px;
+  border-radius: 2px;
   color: var(--salon-text);
-  background: #12161a;
+  background: var(--salon-bg);
   font: inherit;
   font-weight: 400;
 }
@@ -171,7 +247,7 @@
   width: fit-content;
   max-width: 100%;
   border: 1px solid var(--salon-border-strong);
-  border-radius: 8px;
+  border-radius: 2px;
   overflow: hidden;
 }
 
@@ -183,7 +259,8 @@
   color: var(--salon-text-2);
   background: transparent;
   font: inherit;
-  font-weight: 700;
+  font-weight: 400;
+  letter-spacing: 0.08em;
   cursor: pointer;
 }
 
@@ -192,8 +269,9 @@
 }
 
 .salon-segments button.is-active {
-  color: #12161a;
+  color: var(--salon-on-accent);
   background: var(--salon-accent);
+  font-weight: 700;
 }
 
 /* ボタン */
@@ -204,14 +282,15 @@
   justify-content: center;
   gap: 8px;
   min-height: 38px;
-  padding: 0 16px;
+  padding: 0 18px;
   border: 1px solid var(--salon-border-strong);
-  border-radius: 6px;
+  border-radius: 2px;
   color: var(--salon-text-2);
-  background: var(--salon-surface-2);
+  background: transparent;
   font: inherit;
   font-size: 0.88rem;
-  font-weight: 700;
+  font-weight: 400;
+  letter-spacing: 0.1em;
   cursor: pointer;
 }
 
@@ -220,22 +299,39 @@
   color: var(--salon-accent);
 }
 
+/* 主ボタンは金箔のようなグラデーション */
 .salon-button--primary {
-  border-color: var(--salon-accent);
-  color: #12161a;
-  background: var(--salon-accent);
-  font-weight: 800;
+  border-color: transparent;
+  color: var(--salon-on-accent);
+  background: linear-gradient(
+    120deg,
+    var(--salon-gold-deep),
+    var(--salon-accent-strong) 48%,
+    var(--salon-gold-deep)
+  );
+  box-shadow: 0 6px 18px var(--salon-glow);
+  font-weight: 700;
 }
 
 .salon-button--primary:hover:not(:disabled) {
-  color: #12161a;
-  background: #f5c97a;
+  border-color: transparent;
+  color: var(--salon-on-accent);
+  filter: brightness(1.08);
 }
 
 .salon-button:disabled,
 .salon-icon-button:disabled {
   cursor: not-allowed;
   opacity: 0.5;
+}
+
+/* 押せない主ボタンは金を外し、枠だけにして押せないと分かる見た目にする */
+.salon-button--primary:disabled {
+  border-color: var(--salon-border-strong);
+  color: var(--salon-muted);
+  background: transparent;
+  box-shadow: none;
+  opacity: 0.7;
 }
 
 .salon-icon-button {
@@ -245,7 +341,7 @@
   place-items: center;
   padding: 0;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: 2px;
   color: var(--salon-muted);
   background: transparent;
   font-size: 1rem;
@@ -253,21 +349,26 @@
 }
 
 .salon-icon-button--danger:hover {
-  border-color: rgb(230 103 103 / 60%);
+  border-color: color-mix(in srgb, var(--salon-danger) 60%, transparent);
   color: var(--salon-danger);
-  background: rgb(230 103 103 / 12%);
+  background: color-mix(in srgb, var(--salon-danger) 12%, transparent);
 }
 
 .salon-back {
   flex: 0 0 auto;
   width: 36px;
   height: 36px;
-  border: 1px solid var(--salon-border-strong);
+  border: 1px solid var(--salon-hairline);
   border-radius: 50%;
   color: var(--salon-text);
-  background: var(--salon-surface-2);
+  background: transparent;
   font-size: 1.1rem;
   cursor: pointer;
+}
+
+.salon-back:hover {
+  border-color: var(--salon-accent);
+  color: var(--salon-accent);
 }
 
 /* チップ(一覧の行では行末に置く) */
@@ -278,40 +379,41 @@
   min-height: 22px;
   padding: 0 9px;
   border: 1px solid var(--salon-border-strong);
-  border-radius: 999px;
+  border-radius: 2px;
   color: var(--salon-text-2);
-  background: var(--salon-surface-2);
+  background: transparent;
   font-size: 0.72rem;
   font-weight: 700;
+  letter-spacing: 0.06em;
   white-space: nowrap;
 }
 
 .salon-chip--hard {
-  border-color: rgb(239 184 90 / 60%);
+  border-color: var(--salon-accent-line);
   color: var(--salon-accent);
 }
 
 .salon-chip--success {
   margin-left: 8px;
-  border-color: rgb(95 194 138 / 55%);
+  border-color: color-mix(in srgb, var(--salon-success) 55%, transparent);
   color: var(--salon-success);
-  background: rgb(95 194 138 / 10%);
+  background: color-mix(in srgb, var(--salon-success) 10%, transparent);
 }
 
 /* 施術した姿のまま翌週も来店する */
 .salon-chip--kept {
   margin-left: 8px;
-  border-color: rgb(239 184 90 / 60%);
+  border-color: var(--salon-accent-line);
   color: var(--salon-accent);
 }
 
 .salon-chip--status-serving {
-  border-color: rgb(239 184 90 / 60%);
+  border-color: var(--salon-accent-line);
   color: var(--salon-accent);
 }
 
 .salon-chip--status-done {
-  border-color: rgb(95 194 138 / 55%);
+  border-color: color-mix(in srgb, var(--salon-success) 55%, transparent);
   color: var(--salon-success);
 }
 
@@ -335,15 +437,15 @@
   flex: 0 0 auto;
   width: 14px;
   height: 14px;
-  border: 2px solid rgb(239 184 90 / 30%);
+  border: 2px solid color-mix(in srgb, var(--salon-accent) 30%, transparent);
   border-top-color: var(--salon-accent);
   border-radius: 50%;
   animation: salon-spin 0.8s linear infinite;
 }
 
 .salon-button--primary .salon-spinner {
-  border-color: rgb(18 22 26 / 30%);
-  border-top-color: #12161a;
+  border-color: color-mix(in srgb, var(--salon-on-accent) 30%, transparent);
+  border-top-color: var(--salon-on-accent);
 }
 
 @keyframes salon-spin {
@@ -369,9 +471,6 @@
   align-items: center;
   gap: 12px;
   padding: 12px 14px;
-  border: 1px solid var(--salon-border);
-  border-radius: 8px;
-  background: var(--salon-surface);
 }
 
 .salon-run-row__main {
@@ -382,6 +481,8 @@
 }
 
 .salon-run-row__main strong {
+  font-family: var(--salon-display);
+  letter-spacing: 0.06em;
   overflow-wrap: anywhere;
 }
 
@@ -390,14 +491,14 @@
   font-size: 0.8rem;
 }
 
-/* 帳場 */
+/* オーナー室 */
 
 .salon-office__header {
   display: flex;
   align-items: center;
   gap: 14px;
   padding-bottom: 16px;
-  border-bottom: 1px solid var(--salon-border);
+  border-bottom: 1px solid var(--salon-hairline);
 }
 
 .salon-office__title {
@@ -421,9 +522,6 @@
   align-content: start;
   gap: 6px;
   padding: 12px 14px;
-  border: 1px solid var(--salon-border);
-  border-radius: 8px;
-  background: var(--salon-surface);
 }
 
 .salon-tile > span:first-child {
@@ -432,7 +530,10 @@
 }
 
 .salon-tile strong {
-  font-size: 1.3rem;
+  font-family: var(--salon-display);
+  font-size: 1.35rem;
+  font-weight: 400;
+  letter-spacing: 0.04em;
   font-variant-numeric: tabular-nums;
 }
 
@@ -444,7 +545,9 @@
 }
 
 .salon-tile .salon-tile__small {
+  font-family: inherit;
   font-size: 0.85rem;
+  font-weight: 700;
   line-height: 1.5;
 }
 
@@ -454,8 +557,8 @@
 
 .salon-meter {
   display: block;
-  height: 4px;
-  border-radius: 2px;
+  height: 3px;
+  border-radius: 0;
   background: var(--salon-surface-2);
   overflow: hidden;
 }
@@ -463,21 +566,21 @@
 .salon-meter span {
   display: block;
   height: 100%;
-  border-radius: 2px;
-  background: var(--salon-accent);
+  background: linear-gradient(
+    90deg,
+    var(--salon-gold-deep),
+    var(--salon-accent-strong)
+  );
 }
 
 .salon-visit {
   display: grid;
   gap: 8px;
-  padding: 14px;
-  border: 1px solid var(--salon-border);
-  border-radius: 8px;
-  background: var(--salon-surface);
+  padding: 14px 16px;
 }
 
 .salon-visit.is-serving {
-  border-color: rgb(239 184 90 / 55%);
+  border-color: var(--salon-accent-line);
 }
 
 .salon-visit.is-declined {
@@ -489,6 +592,12 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 8px 12px;
+}
+
+.salon-visit__head strong {
+  font-family: var(--salon-display);
+  font-size: 1.05rem;
+  letter-spacing: 0.06em;
 }
 
 .salon-visit__head .salon-chip {
@@ -516,7 +625,7 @@
 }
 
 .salon-visit__review {
-  font-family: var(--font-serif, serif);
+  font-family: var(--salon-display);
 }
 
 .salon-visit__review > span {
@@ -547,21 +656,20 @@
 .salon-result {
   margin-top: 18px;
   padding: 18px 20px;
-  border: 1px solid var(--salon-border-strong);
-  border-radius: 10px;
-  background: var(--salon-surface);
 }
 
 .salon-result--success {
-  border-color: rgb(95 194 138 / 60%);
+  border-color: color-mix(in srgb, var(--salon-success) 60%, transparent);
 }
 
 .salon-result--bankrupt {
-  border-color: rgb(230 103 103 / 60%);
+  border-color: color-mix(in srgb, var(--salon-danger) 60%, transparent);
 }
 
 .salon-result h2 {
   margin: 0 0 6px;
+  padding-bottom: 0;
+  border-bottom: 0;
 }
 
 .salon-result p {
@@ -603,9 +711,6 @@
 .salon-chart {
   margin: 0;
   padding: 14px 16px 10px;
-  border: 1px solid var(--salon-border);
-  border-radius: 8px;
-  background: var(--salon-surface);
 }
 
 .salon-chart__title {
@@ -629,11 +734,11 @@
 .salon-chart svg:focus-visible {
   outline: 2px solid var(--salon-accent);
   outline-offset: 4px;
-  border-radius: 4px;
+  border-radius: 2px;
 }
 
 .salon-chart__grid {
-  stroke: #262d34;
+  stroke: var(--salon-grid);
   stroke-width: 1;
 }
 
@@ -643,7 +748,7 @@
 }
 
 .salon-chart__zero {
-  stroke: #6b747d;
+  stroke: var(--salon-faint);
   stroke-width: 1;
 }
 
@@ -688,9 +793,9 @@
   display: grid;
   gap: 2px;
   padding: 6px 10px;
-  border: 1px solid var(--salon-border-strong);
-  border-radius: 6px;
-  background: rgb(13 17 20 / 94%);
+  border: 1px solid var(--salon-accent-line);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--salon-bg) 94%, transparent);
   font-size: 0.75rem;
   white-space: nowrap;
   transform: translate(-50%, -100%);
@@ -725,15 +830,14 @@
 /* 口コミ */
 
 .salon-review-list li {
-  padding: 12px 14px;
-  border-left: 2px solid var(--salon-accent);
-  background: var(--salon-surface);
+  padding: 12px 16px;
+  border-left-color: var(--salon-accent);
 }
 
 .salon-review-list__text {
   margin: 0 0 4px;
-  font-family: var(--font-serif, serif);
-  line-height: 1.7;
+  font-family: var(--salon-display);
+  line-height: 1.8;
 }
 
 .salon-review-list__meta {
@@ -768,6 +872,163 @@
   padding-left: 12px;
 }
 
+/* BGM(♪ ボタンと設定パネル。オーナー室の見出しと接客の HUD に置く) */
+
+.salon-bgm {
+  position: relative;
+  flex: 0 0 auto;
+  pointer-events: auto;
+}
+
+.salon-bgm__button {
+  position: relative;
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--salon-hairline);
+  border-radius: 50%;
+  color: var(--salon-accent);
+  background: var(--salon-scrim);
+  font-size: 1.05rem;
+  cursor: pointer;
+}
+
+.salon-bgm__button:hover {
+  border-color: var(--salon-accent);
+}
+
+/* 消音中は斜線を引き、色も落とす */
+.salon-bgm__button.is-muted {
+  color: var(--salon-muted);
+}
+
+.salon-bgm__button.is-muted::after {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 22px;
+  height: 1px;
+  background: var(--salon-muted);
+  content: "";
+  transform: translate(-50%, -50%) rotate(-45deg);
+}
+
+.salon-bgm__panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 20;
+  display: grid;
+  gap: 12px;
+  width: min(300px, calc(100vw - 32px));
+  padding: 14px;
+  border: 1px solid var(--salon-accent-line);
+  border-radius: 2px;
+  color: var(--salon-text);
+  background: var(--salon-bg);
+  box-shadow: 0 18px 40px rgb(0 0 0 / 60%);
+}
+
+.salon-bgm__volume {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) 3.2em;
+  align-items: center;
+  gap: 10px;
+  color: var(--salon-text-2);
+  font-size: 0.8rem;
+}
+
+.salon-bgm__volume input {
+  width: 100%;
+  accent-color: var(--salon-accent);
+}
+
+.salon-bgm__value {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.salon-bgm__hint {
+  margin: 0;
+  color: var(--salon-muted);
+  font-size: 0.75rem;
+  line-height: 1.6;
+}
+
+/* トグルスイッチ(ON/OFF の設定) */
+.salon-toggle {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+}
+
+.salon-toggle__info {
+  display: grid;
+  flex: 1 1 auto;
+  gap: 2px;
+  min-width: 0;
+}
+
+.salon-toggle__info strong {
+  font-size: 0.85rem;
+}
+
+.salon-toggle__info small {
+  color: var(--salon-muted);
+  font-size: 0.72rem;
+  line-height: 1.5;
+}
+
+.salon-toggle__input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.salon-toggle__switch {
+  position: relative;
+  flex: 0 0 auto;
+  width: 40px;
+  height: 22px;
+  border: 1px solid var(--salon-border-strong);
+  border-radius: 999px;
+  background: var(--salon-surface-2);
+  transition:
+    background-color 0.15s,
+    border-color 0.15s;
+}
+
+.salon-toggle__switch::after {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--salon-muted);
+  content: "";
+  transition: transform 0.15s;
+}
+
+.salon-toggle__input:checked + .salon-toggle__switch {
+  border-color: var(--salon-accent);
+  background: color-mix(in srgb, var(--salon-accent) 35%, transparent);
+}
+
+.salon-toggle__input:checked + .salon-toggle__switch::after {
+  background: var(--salon-accent);
+  transform: translateX(18px);
+}
+
+.salon-toggle__input:focus-visible + .salon-toggle__switch {
+  outline: 2px solid var(--salon-accent);
+  outline-offset: 2px;
+}
+
 /* 接客(ADV) */
 
 .salon-serving {
@@ -780,7 +1041,7 @@
   height: 100dvh;
   min-height: 600px;
   overflow: hidden;
-  background: #080a0c;
+  background: var(--salon-bg);
 }
 
 .salon-hud {
@@ -795,7 +1056,7 @@
   align-items: center;
   gap: 12px;
   padding: 8px 14px;
-  background: linear-gradient(to bottom, rgb(8 10 12 / 82%), rgb(8 10 12 / 0%));
+  background: linear-gradient(to bottom, var(--salon-scrim), transparent);
   pointer-events: none;
 }
 
@@ -808,23 +1069,37 @@
   flex: 0 0 auto;
   width: 36px;
   height: 36px;
-  border: 1px solid #46505a;
+  border: 1px solid var(--salon-hairline);
   border-radius: 50%;
   color: var(--salon-text);
-  background: rgb(13 17 20 / 82%);
+  background: var(--salon-scrim);
   font-size: 1.2rem;
   cursor: pointer;
 }
 
+/* お客様名と「第N週 · サロン名」。明るい背景の上でも読めるよう、右側の表示と同じ暗い下地を敷く */
 .salon-hud__title {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
+  box-sizing: border-box;
   min-width: 5rem;
+  padding: 4px 12px;
+  border: 1px solid var(--salon-hairline);
+  border-radius: 2px;
+  background: var(--salon-scrim);
+}
+
+/* 残り回数・透過・BGM は右端に寄せる(お客様名の直後の要素から) */
+.salon-hud__title + * {
+  margin-left: auto;
 }
 
 .salon-hud__title h1 {
   margin: 0;
   overflow: hidden;
-  font-size: 1rem;
+  font-family: var(--salon-display);
+  font-size: 1.05rem;
+  font-weight: 400;
+  letter-spacing: 0.08em;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -832,8 +1107,9 @@
 .salon-hud__title p {
   margin: 0;
   overflow: hidden;
-  color: var(--salon-muted);
-  font-size: 0.68rem;
+  color: var(--salon-text-2);
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -845,13 +1121,37 @@
   gap: 2px;
   min-width: 66px;
   padding: 4px 10px;
-  border-radius: 8px;
-  background: rgb(13 17 20 / 78%);
+  border: 1px solid var(--salon-hairline);
+  border-radius: 2px;
+  background: var(--salon-scrim);
 }
 
 .salon-hud__tile > span {
   color: var(--salon-muted);
   font-size: 0.62rem;
+}
+
+/* HUD のトグル(お客様の背景の透過) */
+.salon-hud__toggle {
+  position: relative;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.salon-hud__toggle .salon-toggle__switch {
+  width: 32px;
+  height: 16px;
+}
+
+.salon-hud__toggle .salon-toggle__switch::after {
+  top: 2px;
+  left: 2px;
+  width: 10px;
+  height: 10px;
+}
+
+.salon-hud__toggle .salon-toggle__input:checked + .salon-toggle__switch::after {
+  transform: translateX(16px);
 }
 
 .salon-hud__tile strong {
@@ -873,9 +1173,12 @@
 }
 
 .salon-stage__image {
+  position: relative;
+  z-index: 1;
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
+  filter: var(--salon-portrait-shadow);
   transition: opacity 160ms ease;
 }
 
@@ -883,18 +1186,59 @@
   opacity: 0.42;
 }
 
+/*
+ * 昼のサロンの背景(frontend/public/backgrounds/salon_atelier.png)。画像が無いときは
+ * いちばん下の、舞台の照明のような暗がりが見える。
+ * 部屋はメッセージ窓より上に収め、床の手前の端をお客様の足元(ステージの下端)より
+ * 少し下に置く。床に立って見えるようにするため(窓の奥の床では宙に浮いて見える)。
+ * HUD の文字が沈まないよう上端を暗くし、わずかにぼかしてお客様を手前に浮かせる
+ */
 .salon-stage__backdrop {
   position: absolute;
-  inset: 0;
-  background: radial-gradient(
-    ellipse 70% 55% at 50% 38%,
-    rgb(74 58 52 / 90%) 0%,
-    rgb(38 30 28 / 95%) 55%,
-    rgb(8 10 12 / 100%) 100%
+  top: -8px;
+  right: -8px;
+  left: -8px;
+  height: calc(
+    100% -
+    var(--salon-window-height) -
+    var(--salon-window-inset) +
+    24px
   );
+  background:
+    linear-gradient(
+      to bottom,
+      color-mix(in srgb, var(--salon-bg) 55%, transparent) 0%,
+      transparent 18%
+    ),
+    url("/backgrounds/salon_atelier.png") center bottom / cover no-repeat,
+    radial-gradient(
+      ellipse 70% 55% at 50% 38%,
+      var(--salon-spot) 0%,
+      var(--salon-surface) 55%,
+      var(--salon-bg) 100%
+    );
+  filter: blur(1.5px);
+}
+
+/* 部屋より手前(メッセージ窓の高さ)は、床から黒へ溶かした暗がりにする */
+.salon-stage::after {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 0;
+  height: calc(var(--salon-window-height) + var(--salon-window-inset) - 16px);
+  background: linear-gradient(
+    to bottom,
+    var(--salon-forestage),
+    var(--salon-bg) 70%
+  );
+  content: "";
 }
 
 .salon-stage__pair {
+  position: relative;
+  z-index: 1;
   display: flex;
   justify-content: center;
   gap: clamp(8px, 2vw, 24px);
@@ -920,15 +1264,18 @@
   max-width: 100%;
   height: calc(100% - 30px);
   object-fit: contain;
+  filter: var(--salon-portrait-shadow);
 }
 
 .salon-stage__pair figcaption {
   padding: 2px 12px;
-  border-radius: 999px;
+  border: 1px solid var(--salon-hairline);
+  border-radius: 2px;
   color: var(--salon-text-2);
-  background: rgb(13 17 20 / 82%);
+  background: var(--salon-scrim);
   font-size: 0.75rem;
   font-weight: 700;
+  letter-spacing: 0.1em;
 }
 
 .salon-window {
@@ -946,16 +1293,16 @@
   height: var(--salon-window-height);
   max-width: 1120px;
   margin-inline: auto;
-  border: 1px solid rgb(239 184 90 / 42%);
-  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--salon-accent) 45%, transparent);
+  border-radius: 2px;
   background: linear-gradient(
     to bottom,
-    rgb(16 22 30 / 92%),
-    rgb(8 11 16 / 94%)
+    color-mix(in srgb, var(--salon-surface) 92%, transparent),
+    color-mix(in srgb, var(--salon-bg) 94%, transparent)
   );
   box-shadow:
-    0 18px 40px rgb(0 0 0 / 55%),
-    inset 0 1px 0 rgb(255 255 255 / 8%);
+    0 24px 70px rgb(0 0 0 / 65%),
+    inset 0 1px 0 rgb(255 255 255 / 6%);
   backdrop-filter: blur(6px);
   transition:
     transform 220ms ease,
@@ -965,9 +1312,9 @@
 /* ADV ウィンドウらしい二重罫 */
 .salon-window::before {
   position: absolute;
-  inset: 5px;
-  border: 1px solid rgb(239 184 90 / 18%);
-  border-radius: 8px;
+  inset: 6px;
+  border: 1px solid var(--salon-hairline);
+  border-radius: 1px;
   content: "";
   pointer-events: none;
 }
@@ -1000,9 +1347,10 @@
 
 .salon-acts li {
   padding: 2px 10px;
-  border: 1px solid #3a4148;
-  border-radius: 999px;
-  color: #7d8790;
+  border: 1px solid var(--salon-border);
+  border-radius: 2px;
+  color: var(--salon-faint);
+  letter-spacing: 0.06em;
 }
 
 .salon-acts li.is-done {
@@ -1019,10 +1367,11 @@
   min-height: 28px;
   padding: 2px 12px;
   border: 1px solid var(--salon-border-strong);
-  border-radius: 999px;
-  color: #cbd2d7;
-  background: var(--salon-surface-2);
+  border-radius: 2px;
+  color: var(--salon-text-2);
+  background: transparent;
   font-size: 0.75rem;
+  letter-spacing: 0.06em;
   cursor: pointer;
 }
 
@@ -1035,8 +1384,8 @@
   padding: 0;
   border: 1px solid var(--salon-border-strong);
   border-radius: 50%;
-  color: #cbd2d7;
-  background: var(--salon-surface-2);
+  color: var(--salon-text-2);
+  background: transparent;
   font-size: 0.85rem;
   line-height: 1;
   cursor: pointer;
@@ -1060,8 +1409,10 @@
 .salon-window__speaker {
   margin: 0 0 6px;
   color: var(--salon-accent);
-  font-size: 0.85rem;
-  font-weight: 800;
+  font-family: var(--salon-display);
+  font-size: 0.9rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
 }
 
 .salon-window__label {
@@ -1074,7 +1425,7 @@
 .salon-window__line {
   max-width: 44em;
   margin: 0 0 10px;
-  font-family: var(--font-serif, serif);
+  font-family: var(--salon-display);
   font-size: 1.05rem;
   line-height: 1.8;
   white-space: pre-wrap;
@@ -1093,9 +1444,9 @@
   gap: 10px;
   margin: 4px 0 0;
   padding: 6px 10px;
-  border-left: 2px solid #8a949d;
-  color: #cbd2d7;
-  background: #20262b;
+  border-left: 1px solid var(--salon-accent-line);
+  color: var(--salon-text-2);
+  background: var(--salon-surface-2);
   font-size: 0.82rem;
   line-height: 1.5;
 }
@@ -1137,9 +1488,9 @@
   min-height: 0;
   margin: 8px 18px 16px 0;
   padding: 12px;
-  border: 1px solid #2c333a;
-  border-radius: 8px;
-  background: rgb(20 26 32 / 80%);
+  border: 1px solid var(--salon-hairline);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--salon-surface) 85%, transparent);
   overflow-y: auto;
 }
 
@@ -1174,7 +1525,9 @@
 
 .salon-receipt__big {
   color: var(--salon-accent);
-  font-size: 1.6rem !important;
+  font-family: var(--salon-display);
+  font-size: 1.7rem !important;
+  font-weight: 400 !important;
 }
 
 .salon-receipt__verdict {
@@ -1202,10 +1555,10 @@
   z-index: 6;
   min-height: 34px;
   padding: 6px 16px;
-  border: 1px solid rgb(239 184 90 / 55%);
-  border-radius: 999px;
+  border: 1px solid var(--salon-accent-line);
+  border-radius: 2px;
   color: var(--salon-accent);
-  background: rgb(13 17 20 / 82%);
+  background: var(--salon-scrim);
   font-size: 0.8rem;
   cursor: pointer;
 }
@@ -1219,10 +1572,10 @@
   display: flex;
   flex-direction: column;
   width: min(420px, calc(100% - 24px));
-  border: 1px solid var(--salon-border-strong);
-  border-radius: 10px;
-  background: rgb(13 17 20 / 96%);
-  box-shadow: 0 18px 40px rgb(0 0 0 / 55%);
+  border: 1px solid var(--salon-hairline);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--salon-bg) 96%, transparent);
+  box-shadow: 0 18px 40px rgb(0 0 0 / 60%);
 }
 
 .salon-log header {
@@ -1236,7 +1589,10 @@
 
 .salon-log h2 {
   margin: 0;
+  font-family: var(--salon-display);
   font-size: 0.95rem;
+  font-weight: 400;
+  letter-spacing: 0.12em;
 }
 
 .salon-log ol {
@@ -1266,6 +1622,17 @@
 @media (max-width: 720px) {
   .salon-serving {
     --salon-window-height: min(60vh, 520px);
+    /* HUD を2段にする(1段目: 戻る・お客様、2段目: 残り・透過・BGM) */
+    --salon-hud-height: 96px;
+  }
+
+  .salon-hud {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+
+  .salon-hud__title {
+    flex-basis: calc(100% - 48px);
   }
 
   .salon-window {
@@ -1292,8 +1659,9 @@
   }
 
   .salon-hud__tile {
+    flex: 0 0 auto;
     min-width: 0;
-    padding: 4px 6px;
+    padding: 4px 8px;
   }
 
   .salon-run-row {

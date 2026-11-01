@@ -26,6 +26,14 @@ export function useTransparentImage(
   const [processing, setProcessing] = useState(false);
   const threshold = options?.threshold;
   const featherRadius = options?.featherRadius;
+  // 依存配列で比べられるよう文字列にする。null は四隅から背景色を読み取る指定
+  const targetColor = options?.targetColor;
+  const targetColorKey =
+    targetColor === undefined
+      ? undefined
+      : targetColor === null
+        ? "auto"
+        : `${targetColor.r},${targetColor.g},${targetColor.b}`;
 
   useEffect(() => {
     if (!src) {
@@ -42,7 +50,11 @@ export function useTransparentImage(
     let cancelled = false;
     setProcessing(true);
 
-    const handle = retainTransparentImage(src, { threshold, featherRadius });
+    const handle = retainTransparentImage(src, {
+      targetColor: parseTargetColor(targetColorKey),
+      threshold,
+      featherRadius,
+    });
     handle.url
       .then((processedUrl) => {
         if (!cancelled) setUrl(processedUrl);
@@ -59,7 +71,16 @@ export function useTransparentImage(
       cancelled = true;
       handle.release();
     };
-  }, [src, enabled, threshold, featherRadius]);
+  }, [src, enabled, threshold, featherRadius, targetColorKey]);
 
   return { url, processing };
+}
+
+function parseTargetColor(
+  key: string | undefined,
+): RemoveBackgroundOptions["targetColor"] {
+  if (key === undefined) return undefined;
+  if (key === "auto") return null;
+  const [r, g, b] = key.split(",").map(Number);
+  return { r, g, b };
 }

@@ -51,7 +51,7 @@ export default function SalonHub() {
   };
 
   return (
-    <MainLayout>
+    <MainLayout variant="salon">
       <div className="salon-page">
         <header className="salon-page__header">
           <p className="salon-eyebrow">{t("salon.eyebrow")}</p>

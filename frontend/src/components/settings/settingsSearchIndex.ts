@@ -148,6 +148,14 @@ export const SETTINGS_ITEMS = [
       "settings.confirmFavoriteRemoveDesc",
     ],
   },
+  {
+    id: "gallerySalonSessions",
+    category: "display",
+    searchKeys: [
+      "settings.gallerySalonSessions",
+      "settings.gallerySalonSessionsDesc",
+    ],
+  },
 
   // 画像生成
   {

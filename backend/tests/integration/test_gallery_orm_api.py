@@ -7,7 +7,14 @@ from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 import gateway.settings.config as cfg_mod
-from gateway.databases.models import Conversation, History, Session, User
+from gateway.databases.models import (
+    Conversation,
+    History,
+    SalonRun,
+    SalonVisit,
+    Session,
+    User,
+)
 from gateway.routes.gallery_router import router
 
 
@@ -246,3 +253,77 @@ def test_gallery_delete_removes_image_files(isolated_db, monkeypatch, tmp_path: 
     assert item_response.status_code == 200
     assert list(history_dir.glob("*.png")) == []
     assert reusable_character.exists()
+
+
+async def _link_session_to_salon(
+    test_session_factory: async_sessionmaker, session_id: str
+) -> None:
+    async with test_session_factory() as db_session:
+        db_session.add(
+            SalonRun(
+                id="salon-run",
+                user_id="gallery-user",
+                name="店",
+                total_weeks=12,
+                cash=2_000_000,
+                reputation=20,
+                seed=1,
+            )
+        )
+        db_session.add(
+            SalonVisit(
+                id="salon-visit",
+                salon_id="salon-run",
+                week=1,
+                slot=0,
+                customer_source="template",
+                customer_id="char-2",
+                customer_name="客",
+                session_id=session_id,
+                status="done",
+            )
+        )
+        await db_session.commit()
+
+
+def test_gallery_sessions_filter_by_origin(isolated_db, monkeypatch):
+    import asyncio
+
+    asyncio.run(_seed_gallery_data(isolated_db.async_factory))
+    asyncio.run(_link_session_to_salon(isolated_db.async_factory, "gallery-session-2"))
+    module = sys.modules["gateway.routes.gallery_router"]
+    monkeypatch.setattr(module, "CharacterManager", lambda: _NoCharacters())
+    app = FastAPI()
+    app.include_router(router, prefix="/api")
+
+    with TestClient(app) as client:
+        everything = client.get("/api/gallery/sessions").json()
+        play = client.get("/api/gallery/sessions", params={"origin": "play"}).json()
+        salon = client.get("/api/gallery/sessions", params={"origin": "salon"}).json()
+        searched = client.get(
+            "/api/gallery/sessions", params={"q": "赤いドレス", "origin": "salon"}
+        ).json()
+        invalid = client.get("/api/gallery/sessions", params={"origin": "other"})
+
+    counts = {"all": 2, "play": 1, "salon": 1}
+    assert everything["origin_counts"] == counts
+    assert everything["has_salon_sessions"] is True
+    assert {item["session_id"]: item["origin"] for item in everything["sessions"]} == {
+        "gallery-session-1": "play",
+        "gallery-session-2": "salon",
+    }
+    assert [item["session_id"] for item in play["sessions"]] == ["gallery-session-1"]
+    assert play["total"] == 1
+    assert play["origin_counts"] == counts
+    assert [item["session_id"] for item in salon["sessions"]] == ["gallery-session-2"]
+    assert salon["total"] == 1
+    # 検索語に当たるサロンの接客は無いが、絞り込みは出したままにできるよう has_salon_sessions は真
+    assert searched["sessions"] == []
+    assert searched["origin_counts"] == {"all": 1, "play": 1, "salon": 0}
+    assert searched["has_salon_sessions"] is True
+    assert invalid.status_code == 422
+
+
+class _NoCharacters:
+    def get_by_id(self, _character_id: str):
+        return None

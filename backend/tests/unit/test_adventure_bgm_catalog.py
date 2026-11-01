@@ -54,6 +54,57 @@ def test_catalog_accessors_reflect_json(catalog_path: Path) -> None:
     assert "bar (cafes and bars)" in guide
 
 
+def test_salon_tracks_are_not_offered_to_the_adventure_llm(
+    catalog_path: Path,
+) -> None:
+    write_catalog(
+        catalog_path,
+        default_key="salon_office",
+        tracks=[
+            {
+                "key": "salon_office",
+                "file": "office.ogg",
+                "description": "salon mode only",
+                "scope": "salon",
+            },
+            {"key": "daily", "file": "daily.ogg", "description": "everyday scenes"},
+            {
+                "key": "bar",
+                "file": "bar.ogg",
+                "description": "cafes and bars",
+                "scope": "adventure",
+            },
+        ],
+    )
+
+    assert adventure_bgm.get_bgm_keys() == ("daily", "bar")
+    assert "salon_office" not in adventure_bgm.get_bgm_prompt_guide()
+    # 既定曲もシナリオの曲から選ぶ
+    assert adventure_bgm.get_bgm_default() == "daily"
+    catalog = adventure_bgm.get_bgm_catalog()
+    assert [track.scope for track in catalog.tracks] == [
+        "salon",
+        "adventure",
+        "adventure",
+    ]
+
+
+def test_unknown_scope_breaks_the_catalog_and_keeps_builtin(catalog_path: Path) -> None:
+    write_catalog(
+        catalog_path,
+        tracks=[
+            {
+                "key": "daily",
+                "file": "daily.ogg",
+                "description": "everyday",
+                "scope": "other",
+            }
+        ],
+    )
+
+    assert adventure_bgm.get_bgm_catalog() is adventure_bgm._BUILTIN_CATALOG
+
+
 def test_credit_is_preserved_verbatim(catalog_path: Path) -> None:
     """credit は表示文そのもの。バックエンドは加工せずそのまま保持する。"""
     write_catalog(
@@ -180,3 +231,41 @@ def test_track_with_path_separator_in_file_is_rejected(catalog_path: Path) -> No
     # 検証失敗はカタログ全体の破損として扱われ、組み込み既定へ倒れる
     assert adventure_bgm.get_bgm_keys() == ("daily",)
     assert adventure_bgm.resolve_bgm_audio_path("../daily.ogg") is None
+
+
+def test_bgm_endpoint_lists_only_tracks_with_audio_and_their_scope(
+    catalog_path: Path,
+) -> None:
+    import asyncio
+
+    from gateway.routes.adventure_router import get_bgm_tracks
+
+    write_catalog(
+        catalog_path,
+        tracks=[
+            {"key": "daily", "file": "daily.ogg", "description": "everyday"},
+            {
+                "key": "salon_office",
+                "file": "office.ogg",
+                "description": "salon mode only",
+                "scope": "salon",
+            },
+            {
+                "key": "salon_reveal",
+                "file": "reveal.ogg",
+                "description": "salon mode only",
+                "scope": "salon",
+            },
+        ],
+    )
+    (catalog_path.parent / "daily.ogg").write_bytes(b"ogg")
+    (catalog_path.parent / "office.ogg").write_bytes(b"ogg")
+
+    payload = asyncio.run(get_bgm_tracks())
+
+    # 音声ファイルの無い salon_reveal は返さない
+    assert [(track["key"], track["scope"]) for track in payload["tracks"]] == [
+        ("daily", "adventure"),
+        ("salon_office", "salon"),
+    ]
+    assert payload["default_key"] == "daily"

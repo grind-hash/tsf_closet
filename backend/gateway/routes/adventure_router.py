@@ -336,7 +336,10 @@ async def get_image(run_id: str, filename: str) -> FileResponse:
 @router.get("/bgm")
 async def get_bgm_tracks() -> dict:
     """BGMカタログを返す。ファイル名・説明・出所表記はBGMテスト画面の表示に使う。
-    LLM とのやり取りには semantic key しか使わず、この endpoint は経由しない。"""
+    LLM とのやり取りには semantic key しか使わず、この endpoint は経由しない。
+
+    音声ファイルがまだ置かれていない曲は返さない(未知のキーとして扱われ、鳴らない)。
+    """
     catalog = get_bgm_catalog()
     return {
         "default_key": catalog.resolved_default_key(),
@@ -346,9 +349,11 @@ async def get_bgm_tracks() -> dict:
                 "file": track.file,
                 "description": track.description,
                 "credit": track.credit,
+                "scope": track.scope,
                 "url": f"/adventure/bgm/audio/{track.file}",
             }
             for track in catalog.tracks
+            if resolve_bgm_audio_path(track.file) is not None
         ],
     }
 

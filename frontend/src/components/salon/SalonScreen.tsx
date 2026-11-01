@@ -4,7 +4,7 @@ import SalonOffice from "./SalonOffice";
 import SalonServing from "./SalonServing";
 import "./SalonScreen.css";
 
-// /salon（一覧と開店）・/salon/:runId（帳場）・/salon/:runId/visits/:visitId（接客）を切り替える入口。
+// /salon（一覧と開店）・/salon/:runId（オーナー室）・/salon/:runId/visits/:visitId（接客）を切り替える入口。
 
 export default function SalonScreen() {
   const location = useLocation();

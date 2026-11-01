@@ -5,6 +5,7 @@ import type { SalonRun, SalonVisit } from "../../apis/salon";
 import { SALON_DECLINE_PENALTY } from "../../constants/salon";
 import { useSalon } from "../../contexts/SalonContext";
 import { useSettings } from "../../contexts/SettingsContext";
+import { useAdventureBgm } from "../../hooks/useAdventureBgm";
 import { getSalonVisitPath, ROUTES } from "../../routes";
 import {
   formatSignedNumber,
@@ -16,9 +17,10 @@ import {
 } from "../../utils/salonView";
 import MainLayout from "../layout/MainLayout";
 import ConfirmDialog from "../ui/ConfirmDialog";
+import SalonBgmControl from "./SalonBgmControl";
 import SalonCashChart from "./SalonCashChart";
 
-/** サロンの帳場(/salon/:runId)。予約帳・週の締め・帳簿・口コミ・決算 */
+/** サロンのオーナー室(/salon/:runId)。予約帳・週の締め・帳簿・口コミ・決算 */
 export default function SalonOffice({ runId }: { runId: string }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -33,10 +35,13 @@ export default function SalonOffice({ runId }: { runId: string }) {
     void openRun(runId);
   }, [openRun, runId]);
 
+  // オーナー室の BGM。曲がまだ置かれていなければ鳴らさない(シナリオの曲へは倒さない)
+  const bgm = useAdventureBgm("salon_office", { fallbackToDefault: false });
+
   const run = activeRun?.id === runId ? activeRun : null;
   if (!run) {
     return (
-      <MainLayout>
+      <MainLayout variant="salon">
         <div className="salon-page">
           {error ? (
             <p className="salon-error" role="alert">
@@ -79,7 +84,7 @@ export default function SalonOffice({ runId }: { runId: string }) {
   };
 
   return (
-    <MainLayout>
+    <MainLayout variant="salon">
       <div className="salon-page">
         <header className="salon-office__header">
           <button
@@ -98,6 +103,7 @@ export default function SalonOffice({ runId }: { runId: string }) {
           <span className={`salon-chip salon-chip--${run.difficulty}`}>
             {t(`salon.open.difficulty.${run.difficulty}`)}
           </span>
+          <SalonBgmControl bgm={bgm} />
         </header>
 
         {error && (

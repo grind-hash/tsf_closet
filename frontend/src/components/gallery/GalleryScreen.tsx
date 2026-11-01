@@ -14,11 +14,16 @@ import {
   toggleFavorite,
   updateFavoriteLabel,
 } from "../../apis/favorites";
-import { deleteGalleryItem, fetchGallerySessions } from "../../apis/gallery";
+import {
+  deleteGalleryItem,
+  fetchGallerySessions,
+  type GalleryOriginCounts,
+} from "../../apis/gallery";
 import { useChat } from "../../contexts/ChatContext";
 import { useGame } from "../../contexts/GameContext";
 import { useSettings } from "../../contexts/SettingsContext";
 import { useInfiniteScroll } from "../../hooks/useInfiniteScroll";
+import { useSessionOriginFilter } from "../../hooks/useSessionOriginFilter";
 import { getGameSessionPath } from "../../routes";
 import type { GalleryItem, GallerySession } from "../../types";
 import { API_BASE } from "../../utils/api";
@@ -27,6 +32,7 @@ import BranchSessionDialog from "../session/BranchSessionDialog";
 import ComparisonSliderModal from "./ComparisonSliderModal";
 import GalleryCard from "./GalleryCard";
 import PlaySummaryModal from "./PlaySummaryModal";
+import SessionOriginFilter from "./SessionOriginFilter";
 import "./GalleryScreen.css";
 
 function favoriteToGalleryItem(fav: FavoriteItem): GalleryItem {
@@ -126,6 +132,18 @@ export default function GalleryScreen({ onSelectItem }: GalleryScreenProps) {
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
 
+  // 絞り込み(すべて / 通常プレイ / サロン経営)。設定で外していれば「すべて」にサロン経営の接客を含めない
+  const [originFilter, setOriginFilter] = useSessionOriginFilter("gallery");
+  const [originCounts, setOriginCounts] = useState<GalleryOriginCounts>({
+    all: 0,
+    play: 0,
+    salon: 0,
+  });
+  const [hasSalonSessions, setHasSalonSessions] = useState(false);
+  const includeSalon = settingsState.includeSalonSessionsInGallery;
+  const requestOrigin =
+    originFilter === "all" && !includeSalon ? "play" : originFilter;
+
   // スクロールコンテナ（IntersectionObserver の root）
   const [contentEl, setContentEl] = useState<HTMLDivElement | null>(null);
   // isLoading の state 更新前の二重リクエスト防止
@@ -152,7 +170,12 @@ export default function GalleryScreen({ onSelectItem }: GalleryScreenProps) {
         setIsLoading(true);
         setError(null);
 
-        const data = await fetchGallerySessions(pageNum, pageSize, query);
+        const data = await fetchGallerySessions(
+          pageNum,
+          pageSize,
+          query,
+          requestOrigin,
+        );
 
         // より新しい検索要求が走っている場合は結果を捨てる
         if (requestId !== sessionsRequestIdRef.current) {
@@ -164,6 +187,8 @@ export default function GalleryScreen({ onSelectItem }: GalleryScreenProps) {
         );
         setSessionsHasMore(data.has_more);
         setSessionsTotal(data.total);
+        if (data.origin_counts) setOriginCounts(data.origin_counts);
+        setHasSalonSessions(Boolean(data.has_salon_sessions));
       } catch (err) {
         if (requestId !== sessionsRequestIdRef.current) {
           return;
@@ -178,7 +203,7 @@ export default function GalleryScreen({ onSelectItem }: GalleryScreenProps) {
         }
       }
     },
-    [t, searchQuery],
+    [t, searchQuery, requestOrigin],
   );
 
   // アイテム一覧を取得（特定セッション）
@@ -694,6 +719,26 @@ export default function GalleryScreen({ onSelectItem }: GalleryScreenProps) {
           </div>
         )}
 
+        {displayMode === "sessions" && hasSalonSessions && (
+          <div className="gallery-screen__origin">
+            <SessionOriginFilter
+              value={originFilter}
+              counts={{
+                ...originCounts,
+                all: includeSalon ? originCounts.all : originCounts.play,
+              }}
+              onChange={setOriginFilter}
+            />
+            {!includeSalon &&
+              originFilter === "all" &&
+              originCounts.salon > 0 && (
+                <p className="gallery-screen__origin-hint">
+                  {t("gallery.origin.salonHidden")}
+                </p>
+              )}
+          </div>
+        )}
+
         {/* コンテンツ（スクロールコンテナ = 無限スクロールの root） */}
         <div ref={setContentEl} className="gallery-screen__content">
           {error && (
@@ -774,6 +819,11 @@ export default function GalleryScreen({ onSelectItem }: GalleryScreenProps) {
                             {session.self_mode && (
                               <span className="gallery-screen__self-mode-chip">
                                 {t("gallery.selfModeChip")}
+                              </span>
+                            )}
+                            {session.origin === "salon" && (
+                              <span className="session-origin-salon-chip">
+                                {t("gallery.origin.salon")}
                               </span>
                             )}
                           </h3>

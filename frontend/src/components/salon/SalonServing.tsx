@@ -10,6 +10,8 @@ import { useChat } from "../../contexts/ChatContext";
 import { useGame } from "../../contexts/GameContext";
 import { useSalon } from "../../contexts/SalonContext";
 import { useSettings } from "../../contexts/SettingsContext";
+import { useAdventureBgm } from "../../hooks/useAdventureBgm";
+import { usePersistedState } from "../../hooks/usePersistedState";
 import { usePlayTurn } from "../../hooks/usePlayTurn";
 import { useTransformRequest } from "../../hooks/useTransformRequest";
 import { getSalonRunPath } from "../../routes";
@@ -22,8 +24,12 @@ import {
 } from "../../utils/salonView";
 import MainLayout from "../layout/MainLayout";
 import AnlasConfirmDialog from "../ui/AnlasConfirmDialog";
+import SalonBgmControl from "./SalonBgmControl";
+import SalonPortrait from "./SalonPortrait";
 
 const ACTS: readonly SalonAct[] = ["counsel", "styling", "reveal", "checkout"];
+
+const SALON_TRANSPARENT_PORTRAIT_KEY = "salon_transparent_portrait";
 
 /** お披露目の時点の施術前後の画像。会計でゲームのセッションを手放した後も見せる */
 interface RevealFrame {
@@ -71,6 +77,24 @@ export default function SalonServing({
   const [checkedOut, setCheckedOut] = useState<SalonVisit | null>(null);
   const startedRef = useRef<string | null>(null);
   const language = settingsState.language;
+  // お客様の背景を透過してサロンの背景に立たせる。白い服が欠けるなど合わないときは切れる
+  const [transparentPortrait, setTransparentPortrait] =
+    usePersistedState<boolean>(SALON_TRANSPARENT_PORTRAIT_KEY, true, {
+      deserialize: (raw) => {
+        const value = JSON.parse(raw);
+        if (typeof value !== "boolean") throw new Error("invalid");
+        return value;
+      },
+    });
+  // 幕に合わせた BGM。曲がまだ置かれていなければ鳴らさない(シナリオの曲へは倒さない)
+  const bgm = useAdventureBgm(
+    blocked
+      ? null
+      : act === "reveal" || act === "checkout"
+        ? "salon_reveal"
+        : "salon_serving",
+    { fallbackToDefault: false },
+  );
 
   // 開いた来店の接客を1度だけ始める(接客中なら同じセッションに戻る)
   useEffect(() => {
@@ -109,7 +133,7 @@ export default function SalonServing({
 
   if (blocked) {
     return (
-      <MainLayout>
+      <MainLayout variant="salon">
         <div className="salon-page">
           <p className="salon-empty">{t(`salon.serving.${blocked}`)}</p>
           <button type="button" className="salon-button" onClick={backToOffice}>
@@ -190,7 +214,7 @@ export default function SalonServing({
   const actIndex = act ? ACTS.indexOf(act) : -1;
 
   return (
-    <MainLayout>
+    <MainLayout variant="salon">
       <div className="salon-serving">
         <header className="salon-hud">
           <button
@@ -241,29 +265,56 @@ export default function SalonServing({
               <strong>${settingsState.totalCost.toFixed(4)}</strong>
             </div>
           )}
+          <label
+            className="salon-hud__tile salon-hud__toggle"
+            title={t("salon.serving.transparentHint")}
+          >
+            <span>{t("salon.serving.transparent")}</span>
+            <input
+              type="checkbox"
+              className="salon-toggle__input"
+              checked={transparentPortrait}
+              aria-label={t("salon.serving.transparentHint")}
+              onChange={(event) => setTransparentPortrait(event.target.checked)}
+            />
+            <span className="salon-toggle__switch" aria-hidden />
+          </label>
+          <SalonBgmControl bgm={bgm} />
         </header>
 
         <div className="salon-stage">
+          <div className="salon-stage__backdrop" aria-hidden />
           {showPair ? (
             <div className="salon-stage__pair">
               <figure>
-                {reveal.before && <img src={reveal.before} alt="" />}
+                {reveal.before && (
+                  <SalonPortrait
+                    src={reveal.before}
+                    alt=""
+                    transparent={transparentPortrait}
+                  />
+                )}
                 <figcaption>{t("salon.serving.revealBefore")}</figcaption>
               </figure>
               <figure>
-                {reveal.after && <img src={reveal.after} alt="" />}
+                {reveal.after && (
+                  <SalonPortrait
+                    src={reveal.after}
+                    alt=""
+                    transparent={transparentPortrait}
+                  />
+                )}
                 <figcaption>{t("salon.serving.revealAfter")}</figcaption>
               </figure>
             </div>
           ) : game.currentImage && act && act !== "checkout" ? (
-            <img
+            <SalonPortrait
               className={`salon-stage__image${game.isTransforming ? " is-generating" : ""}`}
               src={game.currentImage}
               alt={customerName}
+              transparent={transparentPortrait}
             />
-          ) : (
-            <div className="salon-stage__backdrop" />
-          )}
+          ) : null}
         </div>
 
         <section

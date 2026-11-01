@@ -6,7 +6,7 @@ export const salon = {
   open: {
     heading: "Open a new salon",
     nameLabel: "Salon name",
-    namePlaceholder: "e.g. Salon de Rose",
+    namePlaceholder: "e.g. Le Rêve Secret",
     difficultyLabel: "Management difficulty",
     difficulty: {
       easy: "Easy",
@@ -32,7 +32,7 @@ export const salon = {
       bankrupt: "Bankrupt",
     },
     cash: "Cash {{cash}}",
-    open: "Open the office",
+    open: "Open the owner's room",
     delete: "Delete",
     deleteTitle: "Delete this salon?",
     deleteBody:
@@ -115,7 +115,7 @@ export const salon = {
     newSalon: "Open a new salon",
   },
   serving: {
-    back: "Back to the office",
+    back: "Back to the owner's room",
     hudWeek: "Week {{week}} · {{salon}}",
     turns: "Styling",
     questions: "Questions",
@@ -143,6 +143,9 @@ export const salon = {
     toReveal: "Move on to the reveal",
     reaction: "How the customer looks",
     waiting: "The customer is waiting in front of the mirror",
+    transparent: "Cutout",
+    transparentHint:
+      "Make the customer's image background transparent and place them in the salon",
     revealBefore: "On arrival",
     revealAfter: "After styling",
     revealHint:
@@ -170,5 +173,14 @@ export const salon = {
     preparing: "Welcoming the customer…",
     notFound: "This booking was not found",
     closed: "This visit is already over",
+  },
+  bgm: {
+    settings: "BGM settings",
+    enable: "Play BGM",
+    enableHint:
+      "Plays music that fits the serving and the owner's room. Shared with the TSF scenario and the BGM test",
+    volume: "Volume",
+    autoplayBlocked:
+      "The browser blocked autoplay. Click anywhere on the screen to start playback.",
   },
 };

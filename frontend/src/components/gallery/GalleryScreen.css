@@ -150,6 +150,20 @@
   flex-shrink: 0;
 }
 
+/* 絞り込み(すべて / 通常プレイ / サロン経営) */
+.gallery-screen__origin {
+  display: grid;
+  gap: 0.4rem;
+  margin: -0.4rem 0 1rem;
+  flex-shrink: 0;
+}
+
+.gallery-screen__origin-hint {
+  margin: 0;
+  color: var(--text-muted, #888);
+  font-size: 0.75rem;
+}
+
 .gallery-screen__search-label {
   display: flex;
   align-items: center;

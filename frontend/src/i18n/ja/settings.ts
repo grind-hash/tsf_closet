@@ -223,6 +223,9 @@ export const settings = {
   confirmFavoriteRemove: "お気に入り削除の確認",
   confirmFavoriteRemoveDesc:
     "お気に入り一覧から外すときに確認メッセージを表示します。「次回から表示しない」でオフにした場合も、ここで再度オンにできます",
+  gallerySalonSessions: "ギャラリーの「すべて」にサロン経営の接客を含める",
+  gallerySalonSessionsDesc:
+    "サロン経営で接客したお客様のセッションを、ギャラリーの「すべて」にも並べます。オフでも「サロン経営」の絞り込みで見られます。サロン経営を使っていなければ影響しません",
   fontSystem: "システムフォント",
   fontSystemDesc: "OS標準のUIフォントを使用",
   fontBrowserDefault: "ブラウザのデフォルト",

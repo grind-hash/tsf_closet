@@ -7,7 +7,7 @@
  * fade out → 停止 → 差し替え → loop 再生 → fade in を行う。
  * BGM は補助機能であり、失敗してもストーリー進行を妨げない。
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AdventureBgmKey } from "../apis/adventure";
 import { fetchAdventureBgmCatalog } from "../apis/adventure";
 import type { BgmPreferences } from "../utils/bgmPreferences";
@@ -47,7 +47,17 @@ interface BgmFade {
   onDone?: () => void;
 }
 
+export interface UseAdventureBgmOptions {
+  /**
+   * 未知のキーや読み込みに失敗した曲を、カタログの既定曲(TSF シナリオの daily)へ
+   * 倒すか。既定 true。サロン経営の画面は false にし、曲が無ければ鳴らさない
+   */
+  fallbackToDefault?: boolean;
+}
+
 export interface UseAdventureBgmResult {
+  /** 要求したキーの曲がカタログにあり、鳴らせる状態か(未ロード中は false) */
+  playable: boolean;
   muted: boolean;
   /** マスター音量 0.0〜1.0。表示側で 0〜100% に換算する */
   volume: number;
@@ -62,13 +72,45 @@ export interface UseAdventureBgmResult {
 /** ダッキング中の BGM 音量係数 */
 export const BGM_DUCK_FACTOR = 0.3;
 
+/** フェードアウトの音量更新の間隔。タブが裏に回っても止まりきるよう rAF ではなくタイマーで回す */
+const RELEASE_FADE_STEP_MS = 50;
+
+/**
+ * 画面を離れた後に残った Audio 要素を、音量を下げきってから解放する。
+ * 次の画面の BGM のフェードインと重なり、短いクロスフェードになる。
+ */
+function fadeOutAndRelease(audio: HTMLAudioElement, durationMs: number): void {
+  const release = () => {
+    audio.pause();
+    audio.removeAttribute("src");
+    audio.load();
+  };
+  const from = audio.volume;
+  if (audio.paused || audio.muted || from <= 0 || durationMs <= 0) {
+    release();
+    return;
+  }
+  const startedAt = performance.now();
+  const timer = window.setInterval(() => {
+    const progress = clamp01((performance.now() - startedAt) / durationMs);
+    audio.volume = from * (1 - progress);
+    if (progress >= 1) {
+      window.clearInterval(timer);
+      release();
+    }
+  }, RELEASE_FADE_STEP_MS);
+}
+
 /**
  * `bgmKey` が示す BGM をループ再生する。null/undefined は停止（run 未ロード時）。
  * 呼び出し側で旧 run のキー欠落を "daily" に正規化してから渡すこと。
  */
 export function useAdventureBgm(
   bgmKey: AdventureBgmKey | null | undefined,
+  options: UseAdventureBgmOptions = {},
 ): UseAdventureBgmResult {
+  const fallbackToDefaultRef = useRef(options.fallbackToDefault ?? true);
+  fallbackToDefaultRef.current = options.fallbackToDefault ?? true;
   const [prefs, setPrefs] = useState<BgmPreferences>(loadBgmPreferences);
   const [autoplayBlocked, setAutoplayBlocked] = useState(false);
   // カタログは ref に持ち、既存 callback 群の依存配列を増やさない。
@@ -97,11 +139,14 @@ export function useAdventureBgm(
     };
   }, []);
 
-  /** 未知キーは既定曲へ倒す。カタログ未ロード時は null */
+  /** 未知キーは既定曲へ倒す(fallbackToDefault が false なら倒さない)。カタログ未ロード時は null */
   const resolveBgmUrl = useCallback((key: AdventureBgmKey): string | null => {
     const catalog = catalogRef.current;
     if (!catalog) return null;
-    return catalog.files[key] ?? catalog.files[catalog.defaultKey] ?? null;
+    const fallback = fallbackToDefaultRef.current
+      ? catalog.files[catalog.defaultKey]
+      : undefined;
+    return catalog.files[key] ?? fallback ?? null;
   }, []);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -204,6 +249,7 @@ export function useAdventureBgm(
       const catalog = catalogRef.current;
       const fallbackUrl = catalog ? catalog.files[catalog.defaultKey] : null;
       if (
+        fallbackToDefaultRef.current &&
         !fallbackTriedRef.current &&
         catalog &&
         fallbackUrl &&
@@ -345,22 +391,21 @@ export function useAdventureBgm(
     // blocked: targetKeyRef の更新だけで十分。ユーザー操作時の再試行が拾う
   }, [bgmKey, catalogLoaded, clearRetryListeners, startFade, swapToTarget]);
 
-  // アンマウント時（/adventure 離脱時）は完全に停止する。破棄の印は
+  // アンマウント時（画面を離れたとき）はフェードアウトしてから停止する。破棄の印は
   // audioRef を null にすることで表し、hook 全体の旗は持たない
-  // (StrictMode の再マウントで旗が立ったまま残り、再生不能になるため)
+  // (StrictMode の再マウントで旗が立ったまま残り、再生不能になるため)。
+  // 残った要素は audioRef から外すので、error や play() の遅延解決は無視される
   useEffect(() => {
     return () => {
       stopFade();
       clearRetryListeners();
       const audio = audioRef.current;
-      if (audio) {
-        audio.pause();
-        audio.removeAttribute("src");
-        audio.load();
-      }
       audioRef.current = null;
       phaseRef.current = "idle";
       currentKeyRef.current = null;
+      if (audio) {
+        fadeOutAndRelease(audio, BGM_FADE_OUT_MS);
+      }
     };
   }, [clearRetryListeners, stopFade]);
 
@@ -414,7 +459,13 @@ export function useAdventureBgm(
     [applyEffectiveVolume],
   );
 
+  const playable = useMemo(
+    () => Boolean(catalogLoaded && bgmKey && resolveBgmUrl(bgmKey)),
+    [bgmKey, catalogLoaded, resolveBgmUrl],
+  );
+
   return {
+    playable,
     muted: prefs.muted,
     volume: prefs.volume,
     autoplayBlocked,

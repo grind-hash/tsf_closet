@@ -47,6 +47,8 @@ export interface AdventureBgmTrack {
    * （例: "SUNO v4.5-all で作成"）。表記不要な曲では未設定。
    */
   credit?: string | null;
+  /** どのモードの曲か。salon はサロン経営の画面だけが使う */
+  scope?: "adventure" | "salon";
 }
 
 /** GET /adventure/bgm が返すBGMカタログ */

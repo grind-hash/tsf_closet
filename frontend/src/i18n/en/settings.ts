@@ -224,6 +224,9 @@ export const settings = {
   confirmFavoriteRemove: "Confirm favorite removal",
   confirmFavoriteRemoveDesc:
     "Show a confirmation when removing items from the favorites list. If you chose “Don’t show again”, you can re-enable it here",
+  gallerySalonSessions: "Include salon visits in the gallery's All view",
+  gallerySalonSessionsDesc:
+    "List the sessions of customers you served in Salon mode under All in the gallery as well. When off, they are still shown under the Salon filter. Has no effect if you do not use Salon mode",
   fontPreview: "The quick brown fox jumps あいうえお 0123456789",
   fontSystem: "System Font",
   fontSystemDesc: "Use the OS system UI font",

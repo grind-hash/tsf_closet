@@ -116,6 +116,7 @@ export default function SettingsScreen() {
     setRespectClothingLayers,
     setFontFamily,
     setConfirmFavoriteRemove,
+    setIncludeSalonSessionsInGallery,
     setLinkChatToImage,
     setEnableMultiplePeople,
     setNovelaiTextModel,
@@ -492,6 +493,27 @@ export default function SettingsScreen() {
             type="checkbox"
             checked={state.confirmFavoriteRemove}
             onChange={(e) => setConfirmFavoriteRemove(e.target.checked)}
+            className="settings-screen__toggle-input"
+          />
+          <span className="settings-screen__toggle-switch" />
+        </label>
+      </div>
+    ),
+    gallerySalonSessions: (
+      <div className="settings-screen__item">
+        <label className="settings-screen__toggle">
+          <div className="settings-screen__toggle-info">
+            <span className="settings-screen__item-label">
+              {t("settings.gallerySalonSessions")}
+            </span>
+            <span className="settings-screen__item-desc">
+              {t("settings.gallerySalonSessionsDesc")}
+            </span>
+          </div>
+          <input
+            type="checkbox"
+            checked={state.includeSalonSessionsInGallery}
+            onChange={(e) => setIncludeSalonSessionsInGallery(e.target.checked)}
             className="settings-screen__toggle-input"
           />
           <span className="settings-screen__toggle-switch" />

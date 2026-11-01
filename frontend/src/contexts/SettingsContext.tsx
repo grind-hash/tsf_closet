@@ -109,6 +109,9 @@ export interface SettingsState {
   // お気に入り一覧からの削除時に確認ダイアログを表示する (spec 009)
   confirmFavoriteRemove: boolean;
 
+  /** ギャラリーの「すべて」にサロン経営の接客のセッションを含める(既定 OFF。「サロン経営」の絞り込みでは常に見られる) */
+  includeSalonSessionsInGallery: boolean;
+
   // 設定画面を検索・カテゴリ別の新しいレイアウトで表示する（既定 OFF）
   newSettingsScreenEnabled: boolean;
 
@@ -219,6 +222,7 @@ type SettingsAction =
   | { type: "SET_PLAY_MEMORY_SYSTEM_ENABLED"; payload: boolean }
   | { type: "SET_PLAY_MEMORY_USER_ENABLED"; payload: boolean }
   | { type: "SET_CONFIRM_FAVORITE_REMOVE"; payload: boolean }
+  | { type: "SET_INCLUDE_SALON_SESSIONS_IN_GALLERY"; payload: boolean }
   | { type: "SET_NEW_SETTINGS_SCREEN_ENABLED"; payload: boolean }
   | { type: "SET_SOUND_ENABLED"; payload: boolean }
   | { type: "SET_SOUND_VOLUME"; payload: number }
@@ -291,6 +295,7 @@ const defaultState: SettingsState = {
   playMemorySystemEnabled: true,
   playMemoryUserEnabled: true,
   confirmFavoriteRemove: true,
+  includeSalonSessionsInGallery: false,
   newSettingsScreenEnabled: false,
   soundEnabled: true,
   soundVolume: 0.5,
@@ -411,6 +416,8 @@ function settingsReducer(
       return { ...state, playMemoryUserEnabled: action.payload };
     case "SET_CONFIRM_FAVORITE_REMOVE":
       return { ...state, confirmFavoriteRemove: action.payload };
+    case "SET_INCLUDE_SALON_SESSIONS_IN_GALLERY":
+      return { ...state, includeSalonSessionsInGallery: action.payload };
     case "SET_NEW_SETTINGS_SCREEN_ENABLED":
       return { ...state, newSettingsScreenEnabled: action.payload };
     case "SET_SOUND_ENABLED":
@@ -548,6 +555,7 @@ interface SettingsContextType {
   setPlayMemorySystemEnabled: (enabled: boolean) => void;
   setPlayMemoryUserEnabled: (enabled: boolean) => void;
   setConfirmFavoriteRemove: (enabled: boolean) => void;
+  setIncludeSalonSessionsInGallery: (enabled: boolean) => void;
   setNewSettingsScreenEnabled: (enabled: boolean) => void;
   setSoundEnabled: (enabled: boolean) => void;
   setSoundVolume: (volume: number) => void;
@@ -1037,6 +1045,12 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const setConfirmFavoriteRemove = useCallback((enabled: boolean) => {
     dispatch({ type: "SET_CONFIRM_FAVORITE_REMOVE", payload: enabled });
   }, []);
+  const setIncludeSalonSessionsInGallery = useCallback((enabled: boolean) => {
+    dispatch({
+      type: "SET_INCLUDE_SALON_SESSIONS_IN_GALLERY",
+      payload: enabled,
+    });
+  }, []);
   const setNewSettingsScreenEnabled = useCallback((enabled: boolean) => {
     dispatch({ type: "SET_NEW_SETTINGS_SCREEN_ENABLED", payload: enabled });
   }, []);
@@ -1321,6 +1335,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       setPlayMemorySystemEnabled,
       setPlayMemoryUserEnabled,
       setConfirmFavoriteRemove,
+      setIncludeSalonSessionsInGallery,
       setNewSettingsScreenEnabled,
       setSoundEnabled,
       setSoundVolume,
@@ -1396,6 +1411,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       setPlayMemorySystemEnabled,
       setPlayMemoryUserEnabled,
       setConfirmFavoriteRemove,
+      setIncludeSalonSessionsInGallery,
       setNewSettingsScreenEnabled,
       setSoundEnabled,
       setSoundVolume,

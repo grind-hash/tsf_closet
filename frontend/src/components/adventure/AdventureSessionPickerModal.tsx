@@ -1,12 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { type FavoriteItem, fetchFavorites } from "../../apis/favorites";
-import { fetchGallerySessions } from "../../apis/gallery";
+import {
+  fetchGallerySessions,
+  type GalleryOriginCounts,
+} from "../../apis/gallery";
 import type { PromptExpanderEntry } from "../../apis/promptExpander";
 import { useGallery } from "../../hooks/useGallery";
 import { useInfiniteScroll } from "../../hooks/useInfiniteScroll";
+import { useSessionOriginFilter } from "../../hooks/useSessionOriginFilter";
 import type { CharacterPreset, GallerySession } from "../../types";
 import { API_BASE } from "../../utils/api";
+import SessionOriginFilter from "../gallery/SessionOriginFilter";
 import PromptExpanderEntryGrid from "../promptExpander/PromptExpanderEntryGrid";
 import AdventureCharacterPresetGrid from "./AdventureCharacterPresetGrid";
 import "./AdventureSessionPickerModal.css";
@@ -276,6 +281,16 @@ export default function AdventureSessionPickerModal({
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+  // 絞り込み(すべて / 通常プレイ / サロン経営)。姿を選ぶ画面では、設定によらず
+  // 「すべて」にサロン経営の接客も含める(仕上げた姿を素材に使えるように)
+  const [originFilter, setOriginFilter] =
+    useSessionOriginFilter("sessionPicker");
+  const [originCounts, setOriginCounts] = useState<GalleryOriginCounts>({
+    all: 0,
+    play: 0,
+    salon: 0,
+  });
+  const [hasSalonSessions, setHasSalonSessions] = useState(false);
 
   const [favorites, setFavorites] = useState<FavoriteItem[]>([]);
   const [favoritesPage, setFavoritesPage] = useState(1);
@@ -297,30 +312,40 @@ export default function AdventureSessionPickerModal({
     return () => window.clearTimeout(timer);
   }, [searchInput]);
 
-  const loadSessions = useCallback(async (pageNum: number, query: string) => {
-    const requestId = ++sessionsRequestIdRef.current;
-    sessionsLoadingRef.current = true;
-    setSessionsLoading(true);
-    setSessionsError(false);
-    try {
-      const data = await fetchGallerySessions(pageNum, PAGE_SIZE, query);
-      if (requestId !== sessionsRequestIdRef.current) return;
-      setSessions((prev) =>
-        pageNum === 1 ? data.sessions : [...prev, ...data.sessions],
-      );
-      setSessionsPage(pageNum);
-      setSessionsHasMore(data.has_more);
-    } catch {
-      if (requestId !== sessionsRequestIdRef.current) return;
-      setSessionsError(true);
-    } finally {
-      if (requestId === sessionsRequestIdRef.current) {
-        sessionsLoadingRef.current = false;
-        setSessionsLoading(false);
-        setSessionsFetchedOnce(true);
+  const loadSessions = useCallback(
+    async (pageNum: number, query: string) => {
+      const requestId = ++sessionsRequestIdRef.current;
+      sessionsLoadingRef.current = true;
+      setSessionsLoading(true);
+      setSessionsError(false);
+      try {
+        const data = await fetchGallerySessions(
+          pageNum,
+          PAGE_SIZE,
+          query,
+          originFilter,
+        );
+        if (requestId !== sessionsRequestIdRef.current) return;
+        setSessions((prev) =>
+          pageNum === 1 ? data.sessions : [...prev, ...data.sessions],
+        );
+        setSessionsPage(pageNum);
+        setSessionsHasMore(data.has_more);
+        if (data.origin_counts) setOriginCounts(data.origin_counts);
+        setHasSalonSessions(Boolean(data.has_salon_sessions));
+      } catch {
+        if (requestId !== sessionsRequestIdRef.current) return;
+        setSessionsError(true);
+      } finally {
+        if (requestId === sessionsRequestIdRef.current) {
+          sessionsLoadingRef.current = false;
+          setSessionsLoading(false);
+          setSessionsFetchedOnce(true);
+        }
       }
-    }
-  }, []);
+    },
+    [originFilter],
+  );
 
   const loadFavorites = useCallback(async (pageNum: number) => {
     if (favoritesLoadingRef.current) return;
@@ -501,7 +526,14 @@ export default function AdventureSessionPickerModal({
                   <img src={mediaUrl(session.thumbnail_url)} alt="" />
                 </button>
                 <div className="adventure-session-picker__card-info">
-                  <strong>{name}</strong>
+                  <strong>
+                    {name}
+                    {session.origin === "salon" && (
+                      <span className="session-origin-salon-chip">
+                        {t("gallery.origin.salon")}
+                      </span>
+                    )}
+                  </strong>
                   <span className="adventure-session-picker__card-meta">
                     {session.item_count}
                     {t("gallery.itemsUnit")}・
@@ -740,6 +772,14 @@ export default function AdventureSessionPickerModal({
                   </button>
                 )}
               </div>
+            )}
+            {tab === "sessions" && hasSalonSessions && (
+              <SessionOriginFilter
+                className="adventure-session-picker__origin"
+                value={originFilter}
+                counts={originCounts}
+                onChange={setOriginFilter}
+              />
             )}
           </>
         )}

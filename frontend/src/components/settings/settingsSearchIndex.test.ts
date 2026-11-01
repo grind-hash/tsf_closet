@@ -195,6 +195,7 @@ describe("getItemIdsIn", () => {
     expect(getItemIdsIn("display", "v2")).toEqual([
       "fontFamily",
       "confirmFavoriteRemove",
+      "gallerySalonSessions",
       "linkChatToImage",
     ]);
   });

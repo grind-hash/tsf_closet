@@ -380,6 +380,8 @@ export interface GallerySession {
   match_snippet?: string | null;
   /** 最新 History の指示テキスト（セッション識別用） */
   last_instruction?: string | null;
+  /** play: 通常のプレイ / salon: サロン経営の接客から生まれたセッション */
+  origin?: "play" | "salon";
 }
 
 /**
