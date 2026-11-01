@@ -6,9 +6,12 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from sqlalchemy import update
 
 from gateway.consts.salon import (
     SALON_BASE_PRICE,
@@ -20,7 +23,7 @@ from gateway.consts.salon import (
     SALON_WEEKLY_FIXED_COST,
     SALON_WEEKLY_SALARY,
 )
-from gateway.databases.models import SalonRun, User
+from gateway.databases.models import History, SalonRun, SalonVisit, User
 from gateway.schemas.salon import (
     SalonCheckoutResponse,
     SalonRunResponse,
@@ -28,9 +31,11 @@ from gateway.schemas.salon import (
 )
 from gateway.services import salon_service as salon_module
 from gateway.services.cost_tracker import record_cost
+from gateway.services.salon_prompts import returning_visit_summary
 from gateway.services.salon_rules import Customer
 from gateway.services.salon_service import SalonError, salon_service
 from gateway.services.session import DEFAULT_USER_ID, session_store
+from gateway.services.session_branch_service import SessionBranchError
 
 NORMAL_CASH = SALON_DIFFICULTY_INITIAL_CASH["normal"]
 
@@ -41,6 +46,9 @@ class _Stubs:
         self.request_calls: list[dict[str, Any]] = []
         self.views: dict[str, dict[str, Any]] = {}
         self.review: str | Exception = "すてきな髪飾りでした。また来ます。"
+        self.review_prompts: list[str] = []
+        self.branched: list[dict[str, Any]] = []
+        self.branch_error: SessionBranchError | None = None
 
 
 @pytest.fixture
@@ -73,13 +81,23 @@ async def stubs(isolated_db, monkeypatch) -> _Stubs:
         session = await session_store.create_session(image_path="")
         return session, None, "normal"
 
-    async def fake_create_request(session_id, *, language, turn_limit, question_limit):
+    async def fake_create_request(
+        session_id,
+        *,
+        language,
+        turn_limit,
+        question_limit,
+        emphasize_hints,
+        previous_visit,
+    ):
         state.request_calls.append(
             {
                 "session_id": session_id,
                 "language": language,
                 "turn_limit": turn_limit,
                 "question_limit": question_limit,
+                "emphasize_hints": emphasize_hints,
+                "previous_visit": previous_visit,
             }
         )
         view = {"wish": "ふんわりした姿に", "threshold": 70, "turns_used": 0}
@@ -92,7 +110,15 @@ async def stubs(isolated_db, monkeypatch) -> _Stubs:
     async def fake_profile(_session_id):
         return {"name": "客", "personality": "", "tsf_attitude": ""}
 
-    async def fake_customer_text(_system, _user, *, novelai_model):
+    async def fake_branch(history_id, **kwargs):
+        if state.branch_error is not None:
+            raise state.branch_error
+        state.branched.append({"history_id": history_id, **kwargs})
+        session = await session_store.create_session(image_path="")
+        return SimpleNamespace(session_id=session.id)
+
+    async def fake_customer_text(system, _user, *, novelai_model):
+        state.review_prompts.append(system)
         if isinstance(state.review, Exception):
             raise state.review
         record_cost(0.002)
@@ -108,6 +134,7 @@ async def stubs(isolated_db, monkeypatch) -> _Stubs:
     monkeypatch.setattr(
         salon_module.session_request_service, "get_request_view", fake_get_request_view
     )
+    monkeypatch.setattr(salon_module, "branch_session_from_history", fake_branch)
     monkeypatch.setattr(salon_module, "session_profile", fake_profile)
     monkeypatch.setattr(salon_module, "generate_customer_text", fake_customer_text)
     return state
@@ -154,6 +181,18 @@ async def test_difficulty_decides_opening_funds(stubs, difficulty) -> None:
     assert run["initial_cash"] == SALON_DIFFICULTY_INITIAL_CASH[difficulty]
 
 
+@pytest.mark.parametrize(
+    ("difficulty", "emphasized"), [("easy", True), ("normal", True), ("hard", False)]
+)
+async def test_difficulty_decides_hint_emphasis(stubs, difficulty, emphasized) -> None:
+    run = await salon_service.create_run("店", difficulty)
+    visit = _booked(run)[0]
+
+    await salon_service.start_visit(run["id"], visit["id"], language="ja")
+
+    assert stubs.request_calls[-1]["emphasize_hints"] is emphasized
+
+
 async def test_create_run_rejects_unknown_difficulty(stubs) -> None:
     with pytest.raises(SalonError) as error:
         await salon_service.create_run("店", "nightmare")
@@ -198,6 +237,8 @@ async def test_start_visit_links_session_with_salon_request_limits(stubs) -> Non
             "language": "ja",
             "turn_limit": SALON_TURN_LIMIT,
             "question_limit": SALON_QUESTION_LIMIT,
+            "emphasize_hints": True,
+            "previous_visit": None,
         }
     ]
     started = result["run"]["visits"][0]
@@ -363,6 +404,113 @@ async def test_regular_customer_shows_visit_number_and_previous_review(
     assert stubs.started == [("custom", "c1")]
     assert returning["visit_number"] == 2
     assert returning["previous_review"] == "すてきな髪飾りでした。また来ます。"
+    # 願いを叶えていないので、元の姿で来る
+    assert returning["returning_look"] is False
+
+
+async def _add_turn(isolated_db, session_id: str, history_id: str) -> None:
+    async with isolated_db.async_factory() as db:
+        db.add(
+            History(
+                id=history_id,
+                session_id=session_id,
+                instruction="淡い水色のワンピース",
+                image_path=f"img/{history_id}.png",
+                after_description="1girl, pale blue dress",
+                instruction_type="dress_up",
+                created_at=datetime(2026, 11, 1, 12, 0),
+            )
+        )
+        await db.commit()
+
+
+async def _serve_fulfilled(stubs, isolated_db, run: dict[str, Any]) -> dict[str, Any]:
+    visit = _booked(run)[0]
+    started = await salon_service.start_visit(run["id"], visit["id"], language="ja")
+    session_id = started["session_id"]
+    await session_store.save_session_request(
+        session_id, wish="ふんわりした姿に", preferences=[], language="ja"
+    )
+    await _add_turn(isolated_db, session_id, f"turn-{visit['id']}")
+    stubs.views[session_id].update(status="fulfilled", satisfaction=82, turns_used=2)
+    return await salon_service.checkout_visit(run["id"], visit["id"], language="ja")
+
+
+async def test_fulfilled_customer_keeps_look_and_comes_back_next_week(
+    stubs, isolated_db
+) -> None:
+    run = await salon_service.create_run("店")
+    first = _booked(run)[0]
+
+    done = (await _serve_fulfilled(stubs, isolated_db, run))["visit"]
+
+    assert done["kept_look"] is True
+    assert "keeps_this_look is true" in stubs.review_prompts[-1]
+    closed = (await salon_service.close_week(run["id"]))["run"]
+    # 評判が上がって予約は2件。持ち越しのお客様が先頭で、もう1件は別のお客様
+    booked = _booked(closed)
+    assert len(booked) == 2
+    returning, fresh = booked
+    assert returning["customer"] == first["customer"]
+    assert returning["returning_look"] is True
+    assert fresh["customer"] != first["customer"]
+    assert fresh["returning_look"] is False
+
+    started = await salon_service.start_visit(run["id"], returning["id"], language="ja")
+
+    assert stubs.branched == [
+        {
+            "history_id": f"turn-{first['id']}",
+            "inherit_stats": True,
+            "self_mode": False,
+            "language": "ja",
+            "summary": returning_visit_summary("ja"),
+        }
+    ]
+    # 分岐から始めたので、元の姿のセッションは作らない
+    assert len(stubs.started) == 1
+    assert stubs.request_calls[-1]["session_id"] == started["session_id"]
+    assert stubs.request_calls[-1]["previous_visit"] == {
+        "wish": "ふんわりした姿に",
+        "review": "すてきな髪飾りでした。また来ます。",
+    }
+
+
+async def test_kept_look_falls_back_to_original_look_when_branch_fails(
+    stubs, isolated_db
+) -> None:
+    run = await salon_service.create_run("店")
+    await _serve_fulfilled(stubs, isolated_db, run)
+    closed = (await salon_service.close_week(run["id"]))["run"]
+    returning = _booked(closed)[0]
+    stubs.branch_error = SessionBranchError("image_not_found", "画像がありません")
+
+    await salon_service.start_visit(run["id"], returning["id"], language="ja")
+
+    assert len(stubs.started) == 2
+    assert stubs.request_calls[-1]["previous_visit"] is None
+
+
+async def test_fulfilled_customer_in_final_week_does_not_keep_look(
+    stubs, isolated_db
+) -> None:
+    run = await salon_service.create_run("店")
+    await _set_run(isolated_db, run["id"], week=SALON_TOTAL_WEEKS)
+    # 最終週の予約にする
+    async with isolated_db.async_factory() as db:
+        await db.execute(
+            update(SalonVisit)
+            .where(SalonVisit.salon_id == run["id"])
+            .values(week=SALON_TOTAL_WEEKS)
+        )
+        await db.commit()
+    run = await salon_service.get_run(run["id"])
+
+    done = (await _serve_fulfilled(stubs, isolated_db, run))["visit"]
+
+    assert done["fulfilled"] is True
+    assert done["kept_look"] is False
+    assert "keeps_this_look is true" not in stubs.review_prompts[-1]
 
 
 async def test_close_week_with_negative_cash_goes_bankrupt(stubs, isolated_db) -> None:

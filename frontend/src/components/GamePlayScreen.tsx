@@ -25,6 +25,7 @@ import {
 import { useWindowFileDrop } from "../hooks/useWindowFileDrop";
 import type { ChatMessage, InstructionType } from "../types";
 import { generateUUID } from "../utils/generateUUID";
+import { stripHintMarkers } from "../utils/hintMarkers";
 import { readStorageFlag } from "../utils/storage";
 import AnlasBar from "./AnlasBar";
 import AudioControlBar from "./chat/AudioControlBar";
@@ -654,7 +655,7 @@ export default function GamePlayScreen({
                   {t("imagePreview.generatedText")}
                 </h2>
                 <p className="image-preview-modal__detail-text">
-                  {currentPreviewHistory.feelingText.trim() ||
+                  {stripHintMarkers(currentPreviewHistory.feelingText).trim() ||
                     t("imagePreview.noGeneratedText")}
                 </p>
               </section>

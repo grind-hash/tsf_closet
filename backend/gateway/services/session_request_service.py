@@ -546,6 +546,7 @@ def public_request_view(
         "listening_bonus": int(latest.get("listening_bonus") or 0) if latest else 0,
         "questions_remaining": questions_remaining(request),
         "can_regenerate": can_regenerate,
+        "emphasize_hints": bool(request.get("emphasize_hints")),
     }
 
 
@@ -562,6 +563,7 @@ def feeling_context(
         fit=evaluation.get("fit") if evaluation else None,
         questions=list(request.get("questions", [])),
         language=language,
+        emphasize_hints=bool(request.get("emphasize_hints")),
     )
 
 
@@ -646,10 +648,14 @@ class SessionRequestService:
         language: str,
         turn_limit: int | None = None,
         question_limit: int | None = None,
+        emphasize_hints: bool = False,
+        previous_visit: dict[str, Any] | None = None,
     ) -> tuple[dict[str, Any], float]:
         """依頼を生成して保存し、(公開ビュー, API 料金 USD) を返す。
 
         作り直しは最初の着せ替えの前だけ許す。turn_limit が None なら施術の手数は上限なし。
+        emphasize_hints なら、心境の中のヒントの一文に目印を付けさせる。
+        previous_visit({wish, review})があれば、今の姿を土台にした追加の要望にする。
         """
         session = await session_store.get_session_by_id(session_id)
         if session is None:
@@ -674,7 +680,7 @@ class SessionRequestService:
         novelai_model = user_settings.get("novelai_text_model")
         tracker = begin_cost_tracking()
         system_prompt, user_prompt = build_request_generation_prompt(
-            profile, appearance, language
+            profile, appearance, language, previous_visit
         )
 
         async def generate(system: str, user: str) -> str:
@@ -696,6 +702,7 @@ class SessionRequestService:
             language=language,
             turn_limit=normalize_turn_limit(turn_limit),
             question_limit=normalize_question_limit(question_limit),
+            emphasize_hints=emphasize_hints,
         )
         return public_request_view(saved, [], can_regenerate=True), tracker.total_usd
 

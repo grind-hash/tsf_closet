@@ -3,6 +3,7 @@ import { useLocation } from "react-router-dom";
 import { useChat } from "../contexts/ChatContext";
 import { useGame } from "../contexts/GameContext";
 import type { ChatMessage, InstructionType } from "../types";
+import { stripHintMarkers } from "../utils/hintMarkers";
 
 /**
  * セッション復元時にチャット欄を組み直す。history(変身履歴)と
@@ -50,7 +51,7 @@ export function useRestoredChatMessages(isNewGameRoute: boolean) {
             id: `feeling-${h.id}`,
             sessionId: sessionId,
             role: "system",
-            content: `💭 ${h.feelingText}`,
+            content: `💭 ${stripHintMarkers(h.feelingText)}`,
             createdAt: h.timestamp,
             isFeelingText: true,
             relatedHistoryId: h.id,

@@ -6,15 +6,24 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from ..consts.session_request import REQUEST_HINT_MARK_CLOSE, REQUEST_HINT_MARK_OPEN
+
 
 def _response_language(language: str) -> str:
     return "Japanese" if language == "ja" else "English"
 
 
 def build_request_generation_prompt(
-    profile: dict[str, Any], appearance: str, language: str
+    profile: dict[str, Any],
+    appearance: str,
+    language: str,
+    previous_visit: dict[str, Any] | None = None,
 ) -> tuple[str, str]:
-    """依頼生成の (system, user) を返す。"""
+    """依頼生成の (system, user) を返す。
+
+    previous_visit({wish, review})は、前回の施術の姿のまま来たお客様の前回の来店。
+    今の姿を土台にした追加の要望を願いにさせる。
+    """
     pronoun = str(profile.get("pronoun") or "").strip()
     pronoun_rule = (
         f" Use the first-person pronoun {pronoun} for the character." if pronoun else ""
@@ -31,19 +40,24 @@ Return one JSON object only, in {_response_language(language)}, matching this sc
 wish: what the character says to the stylist, in their own voice, at most 120 Japanese characters or 40 English words.{pronoun_rule} It names the overall look or mood they want (for example, a princess at a ball, a cool office worker, a shrine maiden) without listing every detail.
 preferences: 2 or 3 concrete conditions the character secretly cares about but does not say, such as a color family, a skirt or dress length, a fabric or decoration, an accessory, or a hairstyle. Each must be checkable from a written description of the finished look, and they must not contradict the wish or each other. text states the condition plainly in at most 40 Japanese characters or 12 English words. hint names only its category, written in {_response_language(language)}, in at most 8 Japanese characters or 3 English words ({category_examples}), so the player has something to guess from.
 Keep everything consistent with the character's personality and background, and never write sexual content. When tsf_attitude is given, let the wish grow out of that attitude toward transformation (for example, a hidden longing to look like a princess, or curiosity about living as the other sex), without stating the attitude itself."""
-    user = json.dumps(
-        {
-            "character": {
-                "name": profile.get("name") or "",
-                "gender": profile.get("gender") or "",
-                "personality": profile.get("personality") or "",
-                "description": profile.get("description") or "",
-                "tsf_attitude": profile.get("tsf_attitude") or "",
-            },
-            "current_look": appearance,
+    payload: dict[str, Any] = {
+        "character": {
+            "name": profile.get("name") or "",
+            "gender": profile.get("gender") or "",
+            "personality": profile.get("personality") or "",
+            "description": profile.get("description") or "",
+            "tsf_attitude": profile.get("tsf_attitude") or "",
         },
-        ensure_ascii=False,
-    )
+        "current_look": appearance,
+    }
+    if previous_visit:
+        system += """
+previous_visit is given: on that visit the character was styled into current_look, loved it, and came back still in it (current_look may differ from the character's original sex; gender is the original one). Make the wish an additional request that builds on current_look, such as taking it further or adding something new, and never a request to undo it. The wish may refer to the last visit."""
+        payload["previous_visit"] = {
+            "wish": previous_visit.get("wish") or "",
+            "review": previous_visit.get("review") or "",
+        }
+    user = json.dumps(payload, ensure_ascii=False)
     return system, user
 
 
@@ -183,10 +197,12 @@ def build_request_feeling_context(
     fit: str | None,
     language: str,
     questions: list[dict[str, Any]] | None = None,
+    emphasize_hints: bool = False,
 ) -> str:
     """心境プロンプトの user prompt に添える依頼ブロック。
 
     まだ満たされていない好みは本人の反応でほのめかすだけにし、名指しさせない。
+    emphasize_hints なら、ほのめかす一文を目印の記号で囲ませる(画面が強調表示する)。
     """
     labels = _FIT_LABELS["ja" if language == "ja" else "en"]
     if language == "ja":
@@ -204,6 +220,12 @@ def build_request_feeling_context(
                 "・まだ満たされていない好み（口に出して名指しせず、反応の中でそれとなく"
                 f"ほのめかす）: {'、'.join(unmet_texts)}"
             )
+            if emphasize_hints:
+                lines.append(
+                    "・ほのめかしている一文だけを"
+                    f"{REQUEST_HINT_MARK_OPEN}と{REQUEST_HINT_MARK_CLOSE}で囲んでください"
+                    "（1か所だけ。囲んだ中でも好みを名指ししない。ほかの文には使わない）"
+                )
         if questions:
             # 本人がカウンセリングで言ったことと、反応が食い違わないようにする
             lines.append("・カウンセリングで本人が答えたこと:")
@@ -229,6 +251,12 @@ def build_request_feeling_context(
             "- Preferences not yet satisfied (never name them outright; only hint "
             f"at them through the reaction): {'; '.join(unmet_texts)}"
         )
+        if emphasize_hints:
+            lines.append(
+                "- Wrap only the one sentence that hints at them in "
+                f"{REQUEST_HINT_MARK_OPEN} and {REQUEST_HINT_MARK_CLOSE} (exactly one "
+                "place; still never name the preference; use these marks nowhere else)"
+            )
     if questions:
         # Keep the reaction consistent with what the character said in counselling
         lines.append("- What the character said in counselling:")

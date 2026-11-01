@@ -45,6 +45,12 @@ class SalonVisitResponse(BaseModel):
     review: str | None
     visit_number: int = Field(..., description="このお客様の何回目の来店か")
     previous_review: str | None = Field(None, description="前回の来店の口コミ")
+    kept_look: bool = Field(
+        False, description="願いを叶え、施術した姿のまま帰った(翌週もこの姿で来る)"
+    )
+    returning_look: bool = Field(
+        False, description="前回持ち帰った姿のまま来店する予約"
+    )
 
 
 class SalonWeekResponse(BaseModel):

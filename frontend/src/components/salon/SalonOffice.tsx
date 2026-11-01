@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import type { SalonRun, SalonVisit } from "../../apis/salon";
 import { SALON_DECLINE_PENALTY } from "../../constants/salon";
 import { useSalon } from "../../contexts/SalonContext";
@@ -284,6 +284,7 @@ export default function SalonOffice({ runId }: { runId: string }) {
                         {t("salon.office.fulfilled")}
                       </span>
                     )}
+                    <SalonRecordLink visit={visit} />
                   </p>
                 </li>
               ))}
@@ -363,6 +364,9 @@ function SalonVisitCard({
           {t(`salon.office.visitStatus.${visit.status}`)}
         </span>
       </div>
+      {visit.returning_look && visit.status !== "done" && (
+        <p className="salon-visit__note">{t("salon.office.returningLook")}</p>
+      )}
       {visit.previous_review && visit.status !== "done" && (
         <p className="salon-visit__review">
           <span>{t("salon.office.previousReview")}</span>「
@@ -382,10 +386,16 @@ function SalonVisitCard({
                 {t("salon.office.fulfilled")}
               </span>
             )}
+            {visit.kept_look && (
+              <span className="salon-chip salon-chip--kept">
+                {t("salon.office.keptLook")}
+              </span>
+            )}
           </p>
           {visit.review && (
             <p className="salon-visit__review">「{visit.review}」</p>
           )}
+          <SalonRecordLink visit={visit} />
         </>
       )}
       {(visit.status === "booked" || visit.status === "serving") && (
@@ -459,5 +469,19 @@ function SalonResultBanner({
         </button>
       </div>
     </section>
+  );
+}
+
+/** 施術した姿を、ギャラリーのセッション表示で見るリンク。セッションが消えていれば出さない */
+function SalonRecordLink({ visit }: { visit: SalonVisit }) {
+  const { t } = useTranslation();
+  if (!visit.session_id) return null;
+  return (
+    <Link
+      className="salon-record-link"
+      to={`${ROUTES.GALLERY}/${visit.session_id}`}
+    >
+      {t("salon.office.viewRecord")}
+    </Link>
   );
 }

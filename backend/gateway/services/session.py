@@ -572,6 +572,7 @@ class DatabaseSessionStore:
             "turn_limit": row.turn_limit,
             "question_limit": int(row.question_limit or 0),
             "questions": [item for item in questions if isinstance(item, dict)],
+            "emphasize_hints": bool(row.emphasize_hints),
         }
 
     async def get_session_request(self, session_id: str) -> dict | None:
@@ -589,6 +590,7 @@ class DatabaseSessionStore:
         language: str,
         turn_limit: int | None = None,
         question_limit: int = 2,
+        emphasize_hints: bool = False,
     ) -> dict:
         """依頼を作成する。既にあれば作り直し、達成状態と質問のやり取りも初期化する。"""
         now = datetime.now()
@@ -603,6 +605,7 @@ class DatabaseSessionStore:
             row.turn_limit = turn_limit
             row.question_limit = question_limit
             row.questions_json = "[]"
+            row.emphasize_hints = emphasize_hints
             row.status = "active"
             row.fulfilled_history_id = None
             row.updated_at = now

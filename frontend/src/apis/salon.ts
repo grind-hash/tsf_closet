@@ -34,6 +34,10 @@ export interface SalonVisit {
   /** このお客様の何回目の来店か */
   visit_number: number;
   previous_review: string | null;
+  /** 願いを叶え、施術した姿のまま帰った(翌週もこの姿で来る) */
+  kept_look: boolean;
+  /** 前回持ち帰った姿のまま来店する予約 */
+  returning_look: boolean;
 }
 
 /** 締めた週の収支 */

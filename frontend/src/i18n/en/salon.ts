@@ -49,7 +49,7 @@ export const salon = {
     weeklyBalanceValue: "Day job +{{salary}} / Fixed costs −{{fixed}}",
     bookings: "This week's bookings",
     bookingsHint:
-      "Every 25 reputation adds one booking next week (up to 4). Each visit has 3 styling turns and 2 questions.",
+      "Each 25 reputation adds one booking next week (up to 4). Customers whose wish came true come back next week in the look you styled. Each visit allows 3 styling turns and 2 questions.",
     bookingsEmpty: "No bookings this week",
     visitFirst: "First visit",
     visitNumber: "Visit #{{count}}",
@@ -100,6 +100,9 @@ export const salon = {
     reviews: "Reviews",
     reviewsEmpty: "No reviews yet",
     reviewMeta: "Week {{week}} · {{name}} · Satisfaction {{satisfaction}}%",
+    viewRecord: "View styling record",
+    returningLook: "Coming back in the look from the last visit",
+    keptLook: "Back next week in this look",
     result: {
       success: "The season closed in the black",
       partial: "The season closed without bankruptcy",
@@ -151,6 +154,10 @@ export const salon = {
     reputation: "Reputation",
     fulfilled: "Wish granted",
     notFulfilled: "Just short of the wish",
+    returningLook:
+      "Back in the look from the last visit. This time it is an additional request on top of it",
+    keptLook: "They will stay in this look and come back next week wearing it",
+    revertedLook: "They went home back in their original look",
     review: "Review",
     hide: "Hide the message window",
     show: "Show the message window",

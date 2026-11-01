@@ -13,6 +13,7 @@ import json
 import logging
 import random
 import uuid
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
@@ -22,6 +23,7 @@ from ..consts.salon import (
     SALON_BASE_PRICE,
     SALON_DEFAULT_DIFFICULTY,
     SALON_DIFFICULTY_INITIAL_CASH,
+    SALON_HINT_EMPHASIS_DIFFICULTIES,
     SALON_INITIAL_REPUTATION,
     SALON_NAME_MAX,
     SALON_QUESTION_LIMIT,
@@ -45,12 +47,17 @@ from .clothing_layers import split_worn_under_layers
 from .cost_tracker import begin_cost_tracking
 from .custom_sessions import list_custom_character_profiles
 from .game_service import GameServiceError, game_service
-from .salon_prompts import build_salon_review_prompt, fallback_salon_review
+from .salon_prompts import (
+    build_salon_review_prompt,
+    fallback_salon_review,
+    returning_visit_summary,
+)
 from .salon_rules import (
     Customer,
     bookings_count,
     clamp_reputation,
     declined_reputation_delta,
+    keeps_look,
     pick_customers,
     season_result,
     visit_payment,
@@ -58,6 +65,7 @@ from .salon_rules import (
     week_summary,
 )
 from .session import DEFAULT_USER_ID, session_store
+from .session_branch_service import SessionBranchError, branch_session_from_history
 from .session_request_service import (
     SessionRequestError,
     generate_customer_text,
@@ -133,6 +141,8 @@ def _serialize_visit(visit: SalonVisit, visits: list[SalonVisit]) -> dict[str, A
         "review": visit.review,
         "visit_number": len(same_customer) + 1,
         "previous_review": previous_reviews[-1] if previous_reviews else None,
+        "kept_look": visit.kept_history_id is not None,
+        "returning_look": visit.start_history_id is not None,
     }
 
 
@@ -225,15 +235,27 @@ class SalonService:
             raise SalonError("salon_closed", "このサロンのシーズンは終わっています")
 
     @staticmethod
-    def _book_week(db: Any, run: SalonRun) -> None:
-        """run.week の予約を評判に応じて入れる。"""
-        customers = pick_customers(
+    def _book_week(db: Any, run: SalonRun, kept: Sequence[SalonVisit] = ()) -> None:
+        """run.week の予約を評判に応じて入れる。
+
+        kept は前の週に施術した姿のまま帰ったお客様の来店で、必ず予約に入れ、
+        残りの枠を抽選で埋める。
+        """
+        fresh = pick_customers(
             _customer_pool(),
             seed=run.seed,
             week=run.week,
-            count=bookings_count(run.reputation),
+            count=bookings_count(run.reputation) - len(kept),
+            exclude={(item.customer_source, item.customer_id) for item in kept},
         )
-        for slot, customer in enumerate(customers):
+        bookings = [
+            (
+                Customer(item.customer_source, item.customer_id, item.customer_name),
+                item.kept_history_id,
+            )
+            for item in kept
+        ] + [(customer, None) for customer in fresh]
+        for slot, (customer, start_history_id) in enumerate(bookings):
             db.add(
                 SalonVisit(
                     id=str(uuid.uuid4()),
@@ -244,6 +266,7 @@ class SalonService:
                     customer_id=customer.id,
                     customer_name=customer.name,
                     status="booked",
+                    start_history_id=start_history_id,
                 )
             )
 
@@ -341,9 +364,30 @@ class SalonService:
                     "serving_other", "先に、接客中のお客様の会計を済ませてください"
                 )
             customer = visit.customer_source, visit.customer_id
+            difficulty = _load_state(run).get("difficulty", SALON_DEFAULT_DIFFICULTY)
+            start_history_id = visit.start_history_id
+            previous = next(
+                (
+                    item
+                    for item in visits
+                    if start_history_id and item.kept_history_id == start_history_id
+                ),
+                None,
+            )
+            previous_visit_info = (
+                (previous.session_id, previous.review) if previous else (None, None)
+            )
 
         try:
-            if customer[0] == "template":
+            session = None
+            previous_visit = None
+            if start_history_id:
+                session = await self._branch_kept_look(start_history_id, language)
+            if session is not None:
+                previous_visit = await self._previous_visit_context(
+                    *previous_visit_info
+                )
+            elif customer[0] == "template":
                 session, _, _ = await game_service.start_session(
                     character_id=customer[1],
                     difficulty="normal",
@@ -370,6 +414,8 @@ class SalonService:
                 language=language,
                 turn_limit=SALON_TURN_LIMIT,
                 question_limit=SALON_QUESTION_LIMIT,
+                emphasize_hints=difficulty in SALON_HINT_EMPHASIS_DIFFICULTIES,
+                previous_visit=previous_visit,
             )
         except (GameServiceError, SessionRequestError) as error:
             raise SalonError("start_failed", str(error)) from error
@@ -392,6 +438,35 @@ class SalonService:
                 "cost_usd": cost_usd or None,
             }
 
+    @staticmethod
+    async def _branch_kept_look(history_id: str, language: str) -> Any | None:
+        """前回持ち帰った姿から、接客用のセッションを分岐して作る。
+
+        前回のセッションや画像が消えていて分岐できなければ None(元の姿から始める)。
+        """
+        try:
+            branched = await branch_session_from_history(
+                history_id,
+                inherit_stats=True,
+                self_mode=False,
+                language=language,
+                summary=returning_visit_summary(language),
+            )
+        except SessionBranchError as error:
+            logger.info("Salon kept look is unavailable: %s", error.code)
+            return None
+        return await session_store.get_session_by_id(branched.session_id)
+
+    @staticmethod
+    async def _previous_visit_context(
+        session_id: str | None, review: str | None
+    ) -> dict[str, Any]:
+        """前回の来店の願いと口コミ。依頼の生成で、追加の要望の手掛かりにする。"""
+        request = (
+            await session_store.get_session_request(session_id) if session_id else None
+        )
+        return {"wish": (request or {}).get("wish") or "", "review": review or ""}
+
     async def checkout_visit(
         self, run_id: str, visit_id: str, *, language: str
     ) -> dict[str, Any]:
@@ -403,6 +478,7 @@ class SalonService:
             if visit.status != "serving" or not visit.session_id:
                 raise SalonError("not_serving", "接客中のお客様ではありません")
             session_id = visit.session_id
+            week, total_weeks = run.week, run.total_weeks
 
         request = await session_request_service.get_request_view(session_id)
         if request is None:
@@ -413,6 +489,13 @@ class SalonService:
         fulfilled = request.get("status") == "fulfilled"
         payment = visit_payment(satisfaction, fulfilled)
         delta = visit_reputation_delta(satisfaction, fulfilled)
+        # 願いを叶えたお客様は、最後の手番の姿のまま帰り、翌週もその姿で来る
+        latest = await session_store.get_latest_history(session_id)
+        kept_history_id = (
+            latest.id
+            if latest is not None and keeps_look(fulfilled, week, total_weeks)
+            else None
+        )
 
         tracker = begin_cost_tracking()
         review = await self._write_review(
@@ -421,6 +504,7 @@ class SalonService:
             satisfaction=satisfaction,
             fulfilled=fulfilled,
             language=language,
+            keeps_look=kept_history_id is not None,
         )
 
         async with async_session_factory() as db:
@@ -434,6 +518,7 @@ class SalonService:
             visit.payment = payment
             visit.reputation_delta = delta
             visit.review = review
+            visit.kept_history_id = kept_history_id
             visit.updated_at = datetime.now()
             run.cash += payment
             run.reputation = clamp_reputation(run.reputation + delta)
@@ -458,6 +543,7 @@ class SalonService:
         satisfaction: int,
         fulfilled: bool,
         language: str,
+        keeps_look: bool = False,
     ) -> str:
         """お客様本人の口調で口コミを書かせる。失敗したら定型文にする。"""
         try:
@@ -474,6 +560,7 @@ class SalonService:
                 fulfilled=fulfilled,
                 final_look=final_look,
                 language=language,
+                keeps_look=keeps_look,
             )
             raw = await generate_customer_text(
                 system_prompt,
@@ -559,7 +646,12 @@ class SalonService:
                 }
             else:
                 run.week += 1
-                self._book_week(db, run)
+                kept = [
+                    item
+                    for item in this_week
+                    if item.status == "done" and item.kept_history_id
+                ]
+                self._book_week(db, run, kept)
             run.state_json = json.dumps(state, ensure_ascii=False)
             run.updated_at = now
             await db.commit()

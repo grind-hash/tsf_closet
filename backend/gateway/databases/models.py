@@ -614,6 +614,10 @@ class SessionRequest(Base):
     questions_json: Mapped[str] = mapped_column(
         Text, nullable=False, default="[]", server_default="[]"
     )
+    # 心境の中のヒント(まだ満たされていない好みをほのめかす一文)に目印を付けさせるか
+    emphasize_hints: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="0"
+    )
     # active / fulfilled。一度満たしたら fulfilled のまま(後の手番で下がっても戻さない)
     status: Mapped[str] = mapped_column(String, nullable=False, default="active")
     fulfilled_history_id: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -692,6 +696,10 @@ class SalonVisit(Base):
         Integer, nullable=False, default=0, server_default="0"
     )
     review: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 願いを叶えて、施術した姿のまま帰ったときの最後の手番。翌週もこの姿で来店する
+    kept_history_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    # 前回持ち帰った姿で来店する予約なら、その手番。接客はここから分岐して始める
+    start_history_id: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         default=func.current_timestamp(), nullable=False
     )

@@ -20,8 +20,12 @@ def build_salon_review_prompt(
     fulfilled: bool,
     final_look: str,
     language: str,
+    keeps_look: bool = False,
 ) -> tuple[str, str]:
-    """会計のとき、お客様本人の口調で書く口コミの (system, user) を返す。"""
+    """会計のとき、お客様本人の口調で書く口コミの (system, user) を返す。
+
+    keeps_look なら、この姿のまま過ごして翌週もこの姿で来ることを口コミに滲ませる。
+    """
     pronoun = str(profile.get("pronoun") or "").strip()
     pronoun_rule = (
         f" Use the first-person pronoun {pronoun} if the customer refers to themselves."
@@ -32,6 +36,9 @@ def build_salon_review_prompt(
 Reply in {_response_language(language)}, with one or two sentences, at most 80 Japanese characters or 30 English words.{pronoun_rule}
 Let the tone follow how the visit went: satisfaction is 0 to 100, and wish_fulfilled tells whether the wish came true. Mention one concrete detail of final_look.
 Never mention scores, numbers, or game mechanics, and never write sexual content. Output only the review, without quotation marks."""
+    if keeps_look:
+        system += """
+keeps_this_look is true: the customer loved this look so much that they will stay in it and come back next week still wearing it. Let the review show that wish to keep it."""
     user = json.dumps(
         {
             "customer": {
@@ -43,6 +50,7 @@ Never mention scores, numbers, or game mechanics, and never write sexual content
             "satisfaction": satisfaction,
             "wish_fulfilled": fulfilled,
             "final_look": final_look,
+            "keeps_this_look": keeps_look,
         },
         ensure_ascii=False,
     )
@@ -75,3 +83,10 @@ def fallback_salon_review(satisfaction: int, fulfilled: bool, language: str) -> 
     if satisfaction >= SALON_LOW_SATISFACTION:
         return reviews["fair"]
     return reviews["poor"]
+
+
+def returning_visit_summary(language: str) -> str:
+    """前回の施術の姿のまま来たお客様のセッションの、最初の履歴に置く一文。"""
+    if language == "ja":
+        return "前回の施術の姿のまま、サロンへ来店した"
+    return "Came back to the salon in the look from the last visit"

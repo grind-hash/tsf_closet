@@ -204,12 +204,18 @@ Requirements:
 - Prefer specific visual tags over abstract descriptions.
 - End the result with "moe, anime, very aesthetic, best quality"."""
 
-# 日本語の空似言葉（false friend）に関する語彙注意。タグモード・漫画モードの本体に追記する。
+# 日本語の空似言葉（false friend）に関する語彙注意。タグモード・漫画モードの本体と、
+# 着せ替えのタグ生成（llm_service.generate_novelai_image_prompt）に追記する。
 # 「ショーツ」は女性下着（panties）であり、英語の shorts（短パン）ではない。
+# 逆に「ハーフパンツ」「ズボン」は外衣で、下着の panties ではない。
 JAPANESE_TAG_GLOSSARY_RULE = (
     '\n- Japanese vocabulary note: the Japanese word ショーツ ("shorts") '
     'means women\'s underwear; render it as "panties", never as "shorts". Use the tag '
-    '"shorts" only for outerwear explicitly described as such (denim shorts, gym shorts, etc.).'
+    '"shorts" only for outerwear explicitly described as such (denim shorts, gym shorts, etc.). '
+    "Conversely, ズボン and fashion terms ending in パンツ (ハーフパンツ, ショートパンツ, "
+    "短パン, ワイドパンツ, スキニーパンツ, etc.) are outerwear bottoms: render them as shorts "
+    'or pants (e.g. "shorts", "knee-length shorts", "pants", "wide-leg pants"), never as '
+    "underwear."
 )
 
 # 背景透過モード（Prompt Expander の「画像の背景を透過」ON）。本体の「背景を保持する」規則より
@@ -1002,9 +1008,10 @@ def _ensure_quality_tags(prompt: str) -> str:
     return base + ", " + ", ".join(missing)
 
 
-# カンマ区切りの単独トークン "shorts" だけに一致する（denim shorts / boyshorts は不一致）
+# カンマ区切りの単独トークン "shorts" だけに一致する（denim shorts / boyshorts は不一致）。
+# JSON 文字列の値（"character": "1girl, shorts"）の先頭・末尾にある場合も一致させる。
 _FALSE_FRIEND_SHORTS_PATTERN = re.compile(
-    r"(^|,)(\s*)shorts(\s*)(?=,|$)", re.IGNORECASE | re.MULTILINE
+    r'(^|[,"])(\s*)shorts(\s*)(?=[,"]|$)', re.IGNORECASE | re.MULTILINE
 )
 
 

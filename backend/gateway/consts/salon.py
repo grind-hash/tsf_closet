@@ -27,6 +27,9 @@ SALON_DIFFICULTY_INITIAL_CASH: dict[str, int] = {
     "hard": 1_500_000,  # 満足度 50 前後が続いても倒産する
 }
 SALON_DEFAULT_DIFFICULTY: str = "normal"
+# 施術中の心境で、まだ叶っていない好みをほのめかす一文を強調する難易度。
+# むずかしいでは強調せず、文中に紛れたヒントを読み取らせる
+SALON_HINT_EMPHASIS_DIFFICULTIES: frozenset[str] = frozenset({"easy", "normal"})
 
 # 基本コースの料金と、満足度による係数
 SALON_BASE_PRICE: int = 50_000

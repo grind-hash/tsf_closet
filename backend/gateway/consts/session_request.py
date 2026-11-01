@@ -38,5 +38,10 @@ REQUEST_QUESTION_LIMIT_MAX: int = 5
 REQUEST_QUESTION_MAX: int = 200
 REQUEST_ANSWER_MAX: int = 200
 
+# ヒントの強調(サロンのやさしい・ふつう)。心境の中で、まだ満たされていない好みを
+# ほのめかす一文をこの記号で囲ませ、接客画面が強調表示する。他の画面では取り除く
+REQUEST_HINT_MARK_OPEN: str = "〔"
+REQUEST_HINT_MARK_CLOSE: str = "〕"
+
 # 評価に失敗した手番も手数として数えるため、履歴へこの印を残す(満足度には使わない)
 REQUEST_EVALUATION_FAILED: dict[str, bool] = {"failed": True}

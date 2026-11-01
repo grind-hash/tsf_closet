@@ -8,6 +8,7 @@ writes a number. The salon service applies these to the database.
 from __future__ import annotations
 
 import random
+from collections.abc import Collection
 from dataclasses import dataclass
 from typing import Any
 
@@ -53,13 +54,27 @@ def bookings_count(reputation: int) -> int:
 
 
 def pick_customers(
-    pool: list[Customer], *, seed: int, week: int, count: int
+    pool: list[Customer],
+    *,
+    seed: int,
+    week: int,
+    count: int,
+    exclude: Collection[tuple[str, str]] = (),
 ) -> list[Customer]:
-    """その週のお客様を選ぶ。同じ週に同じ人は来ない。seed と週が同じなら同じ結果になる。"""
-    if count <= 0 or not pool:
+    """その週のお客様を選ぶ。同じ週に同じ人は来ない。seed と週が同じなら同じ結果になる。
+
+    exclude は (source, id) で、既に予約が決まっているお客様(前回の姿のまま来る常連)。
+    """
+    candidates = [item for item in pool if (item.source, item.id) not in exclude]
+    if count <= 0 or not candidates:
         return []
     rng = random.Random(f"{seed}:{week}")
-    return rng.sample(pool, min(count, len(pool)))
+    return rng.sample(candidates, min(count, len(candidates)))
+
+
+def keeps_look(fulfilled: bool, week: int, total_weeks: int) -> bool:
+    """願いを叶えたお客様は、施術した姿のまま翌週も来店する(最終週は翌週が無い)。"""
+    return fulfilled and week < total_weeks
 
 
 def visit_payment(satisfaction: int, fulfilled: bool) -> int:

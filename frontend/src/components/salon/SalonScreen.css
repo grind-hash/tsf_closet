@@ -298,6 +298,13 @@
   background: rgb(95 194 138 / 10%);
 }
 
+/* 施術した姿のまま翌週も来店する */
+.salon-chip--kept {
+  margin-left: 8px;
+  border-color: rgb(239 184 90 / 60%);
+  color: var(--salon-accent);
+}
+
 .salon-chip--status-serving {
   border-color: rgb(239 184 90 / 60%);
   color: var(--salon-accent);
@@ -491,6 +498,13 @@
 .salon-visit__number {
   color: var(--salon-muted);
   font-size: 0.78rem;
+}
+
+.salon-visit__note {
+  margin: 0;
+  color: var(--salon-accent);
+  font-size: 0.8rem;
+  font-weight: 700;
 }
 
 .salon-visit__summary,
@@ -729,6 +743,29 @@
   margin: 0;
   color: var(--salon-muted);
   font-size: 0.75rem;
+}
+
+/* 施術の記録(ギャラリーのセッション表示)へのリンク */
+.salon-record-link {
+  justify-self: start;
+  color: var(--salon-accent);
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.salon-record-link::after {
+  content: " \203A";
+}
+
+.salon-record-link:hover,
+.salon-record-link:focus-visible {
+  text-decoration: underline;
+}
+
+.salon-review-list__meta .salon-record-link {
+  margin-left: auto;
+  padding-left: 12px;
 }
 
 /* 接客(ADV) */
@@ -1063,6 +1100,12 @@
   line-height: 1.5;
 }
 
+/* 心境の中で、まだ叶っていない好みをほのめかす一文(やさしい・ふつう) */
+.salon-hint-mark {
+  color: var(--salon-accent);
+  font-weight: 800;
+}
+
 .salon-window__hint span {
   flex: 0 0 auto;
   color: var(--salon-accent);
@@ -1143,6 +1186,13 @@
 
 .salon-receipt__verdict.is-fulfilled {
   color: var(--salon-success);
+}
+
+.salon-receipt__look {
+  margin: 0;
+  color: var(--salon-text-2);
+  font-size: 0.82rem;
+  line-height: 1.6;
 }
 
 .salon-window-restore {

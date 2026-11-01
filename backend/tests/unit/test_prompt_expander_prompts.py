@@ -467,6 +467,13 @@ class TestJapaneseGlossary:
             ("1girl, short shorts", "1girl, short shorts"),
             ("1girl, boyshorts", "1girl, boyshorts"),
             ("1girl, shortstack", "1girl, shortstack"),
+            # JSON 文字列の値の先頭・末尾
+            ('{"character": "1girl, shorts"}', '{"character": "1girl, panties"}'),
+            ('{"character": "shorts, 1girl"}', '{"character": "panties, 1girl"}'),
+            (
+                '{"character": "1girl, black shorts"}',
+                '{"character": "1girl, black shorts"}',
+            ),
         ],
     )
     def test_replace_false_friend_tokens(self, prompt, expected):

@@ -27,6 +27,8 @@ function visit(overrides: Partial<SalonVisit>): SalonVisit {
     review: null,
     visit_number: 1,
     previous_review: null,
+    kept_look: false,
+    returning_look: false,
     ...overrides,
   };
 }

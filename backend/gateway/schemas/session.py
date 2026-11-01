@@ -135,6 +135,10 @@ class SessionRequestResponse(BaseModel):
         0, description="最新の手番のヒアリングの反映による加点"
     )
     can_regenerate: bool = Field(False, description="作り直せるか(最初の着せ替え前)")
+    emphasize_hints: bool = Field(
+        False,
+        description="心境の中のヒントの一文が〔〕で囲まれているか(強調表示する)",
+    )
 
 
 class SessionRequestCreateRequest(BaseModel):

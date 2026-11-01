@@ -48,7 +48,7 @@ export const salon = {
     weeklyBalanceValue: "本業 +{{salary}} / 固定費 −{{fixed}}",
     bookings: "今週の予約",
     bookingsHint:
-      "評判が25上がるごとに、翌週の予約が1件増えます（最大4件）。接客は施術3手・質問2回です。",
+      "評判が25上がるごとに、翌週の予約が1件増えます（最大4件）。願いを叶えたお客様は、施術した姿のまま翌週も来店します。接客は施術3手・質問2回です。",
     bookingsEmpty: "今週の予約はありません",
     visitFirst: "初来店",
     visitNumber: "{{count}}回目の来店",
@@ -98,6 +98,9 @@ export const salon = {
     reviews: "口コミ",
     reviewsEmpty: "まだ口コミがありません",
     reviewMeta: "第{{week}}週 · {{name}} · 満足度 {{satisfaction}}%",
+    viewRecord: "施術の記録を見る",
+    returningLook: "前回の施術の姿のまま、ご来店です",
+    keptLook: "来週もこの姿で来店",
     result: {
       success: "黒字で決算しました",
       partial: "倒産せずに決算しました",
@@ -148,6 +151,10 @@ export const salon = {
     reputation: "評判",
     fulfilled: "願いを叶えました",
     notFulfilled: "願いにはあと一歩でした",
+    returningLook:
+      "前回の施術の姿のまま、ご来店です。今回はこの姿からの追加のご要望です",
+    keptLook: "この姿のまま過ごすそうです。来週も、この姿でご来店になります",
+    revertedLook: "元の姿に戻って、お帰りになりました",
     review: "口コミ",
     hide: "メッセージ窓を隠す",
     show: "メッセージ窓を表示する",

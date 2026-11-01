@@ -145,8 +145,12 @@ async def branch_session_from_history(
     inherit_stats: bool = True,
     self_mode: bool | None = None,
     language: str | None = None,
+    summary: str | None = None,
 ) -> BranchSessionResponse:
-    """Create a new session branched from the given history entry."""
+    """Create a new session branched from the given history entry.
+
+    summary を渡すと、LLM に状況のまとめを書かせずにそれを初期の履歴に使う。
+    """
     source_history = await session_store.get_history_by_id(history_id)
     if source_history is None:
         raise SessionBranchError("history_not_found", "履歴が見つかりません")
@@ -174,20 +178,23 @@ async def branch_session_from_history(
     user_settings = await session_store.get_user_settings()
     effective_language = language or user_settings.get("language") or "ja"
 
-    timeline = await session_store.get_session_timeline_until(
-        source_session.id,
-        until_created_at=source_history.created_at,
-        limit=30,
-    )
     appearance = (
         source_history.after_description or source_history.before_description or ""
     )
-    branch_summary = await summary_service.generate_branch_situation_summary(
-        timeline,
-        appearance_description=appearance,
-        language=effective_language,
-        fallback_instruction=source_history.instruction,
-    )
+    if summary:
+        branch_summary = summary
+    else:
+        timeline = await session_store.get_session_timeline_until(
+            source_session.id,
+            until_created_at=source_history.created_at,
+            limit=30,
+        )
+        branch_summary = await summary_service.generate_branch_situation_summary(
+            timeline,
+            appearance_description=appearance,
+            language=effective_language,
+            fallback_instruction=source_history.instruction,
+        )
 
     # Deactivate current active session, then create the branch session
     await session_store.reset_session()

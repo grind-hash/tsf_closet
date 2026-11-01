@@ -635,6 +635,8 @@ export interface SessionRequestView {
   listening_bonus: number;
   /** 依頼を作り直せるか(最初の着せ替えの前だけ) */
   can_regenerate: boolean;
+  /** 心境の中のヒントの一文が〔〕で囲まれているか(サロンのやさしい・ふつう) */
+  emphasize_hints?: boolean;
 }
 
 /** カウンセリングのやり取り1件 */

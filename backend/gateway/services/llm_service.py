@@ -286,13 +286,6 @@ _NOVELAI_MODEL_PARAMS: dict[str, dict[str, Any]] = {
 }
 
 
-# NovelAI画像プロンプト用タグ置換マップ
-# LLMが出力しがちな表現をNovelAI画像生成で有効なタグに変換する
-_NOVELAI_PROMPT_TAG_REPLACEMENTS: dict[str, str] = {
-    "shorts": "panties",
-}
-
-
 class NovelAILLMClient:
     """NovelAI LLMクライアント (OpenAI互換エンドポイント)
 
@@ -874,6 +867,10 @@ class LLMService:
         Returns:
             NovelAI用タグプロンプト（カンマ区切り）
         """
+        from .prompt_expander_prompts import (
+            JAPANESE_TAG_GLOSSARY_RULE,
+            replace_false_friend_tokens,
+        )
         from .prompts import (
             GENDER_CONGRUENT_IMAGE_CUE_RULE,
             build_novelai_prompt_generation_user,
@@ -892,6 +889,8 @@ class LLMService:
                 enable_multiple_people=enable_multiple_people,
                 suppress_gender_discomfort_cues=suppress_gender_discomfort_cues,
             )
+        # ショーツ(下着)とハーフパンツ(外衣)の取り違えを防ぐ語彙注意
+        system_prompt = system_prompt + "\n" + JAPANESE_TAG_GLOSSARY_RULE
         if extra_system_suffix:
             system_prompt = system_prompt + extra_system_suffix
         user_prompt = build_novelai_prompt_generation_user(
@@ -910,9 +909,9 @@ class LLMService:
         # 生成されたプロンプトをクリーンアップ（余分な空白・改行を除去）
         generated_prompt = result.content.strip()
 
-        # タグ置換: LLMが出す不適切な表現をNovelAI有効タグに変換
-        for old_tag, new_tag in _NOVELAI_PROMPT_TAG_REPLACEMENTS.items():
-            generated_prompt = generated_prompt.replace(old_tag, new_tag)
+        # 「ショーツ」を英語の shorts と直訳した単独タグだけを panties に直す。
+        # 一律に置換すると men's shorts / black shorts まで下着になる。
+        generated_prompt = replace_false_friend_tokens(generated_prompt, instruction)
 
         logger.info(
             f"NovelAI prompt generation: instruction='{instruction[:30]}...', "

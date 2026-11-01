@@ -16,6 +16,7 @@ from gateway.services.salon_rules import (
     bookings_count,
     clamp_reputation,
     declined_reputation_delta,
+    keeps_look,
     pick_customers,
     season_result,
     visit_payment,
@@ -39,6 +40,24 @@ def test_pick_customers_is_deterministic_per_week_without_duplicates() -> None:
     assert first == pick_customers(POOL, seed=42, week=3, count=4)
     assert len(first) == 4
     assert len(set(first)) == 4
+
+
+def test_pick_customers_skips_customers_already_booked() -> None:
+    booked = {("template", "c0"), ("template", "c1")}
+    picked = pick_customers(POOL, seed=42, week=3, count=4, exclude=booked)
+    assert len(picked) == 4
+    assert not booked & {(item.source, item.id) for item in picked}
+    assert pick_customers(POOL[:2], seed=1, week=1, count=2, exclude=booked) == []
+
+
+@pytest.mark.parametrize(
+    ("fulfilled", "week", "expected"),
+    [(True, 1, True), (True, 11, True), (True, 12, False), (False, 3, False)],
+)
+def test_customer_keeps_look_only_when_fulfilled_before_final_week(
+    fulfilled, week, expected
+) -> None:
+    assert keeps_look(fulfilled, week, 12) is expected
 
 
 def test_pick_customers_caps_at_pool_size_and_handles_empty() -> None:

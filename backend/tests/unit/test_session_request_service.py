@@ -22,6 +22,7 @@ from gateway.services.achievements import (
 )
 from gateway.services.prompts import build_request_feeling_prompt
 from gateway.services.session import DEFAULT_USER_ID, session_store
+from gateway.services.session_request_prompts import build_request_generation_prompt
 from gateway.services.session_request_service import (
     GeneratedRequest,
     RequestEvaluationOutput,
@@ -533,6 +534,21 @@ def test_feeling_context_includes_counselling_answers() -> None:
     )
 
 
+def test_feeling_context_marks_hint_sentence_only_when_emphasized() -> None:
+    evaluation = {"fit": "partial", "met_preference_ids": ["p1"]}
+    emphasized = {**_REQUEST, "emphasize_hints": True}
+
+    ja = feeling_context(emphasized, evaluation, "ja")
+    en = feeling_context(emphasized, evaluation, "en")
+
+    assert "〔と〕で囲んで" in ja
+    assert "in 〔 and 〕" in en
+    assert "〔" not in feeling_context(_REQUEST, evaluation, "ja")
+    # 好みを全部満たしたら、ほのめかす一文が無いので目印も頼まない
+    all_met = {"fit": "perfect", "met_preference_ids": ["p1", "p2"]}
+    assert "〔" not in feeling_context(emphasized, all_met, "ja")
+
+
 @pytest.mark.asyncio
 async def test_create_request_normalizes_limits_and_resets_questions(
     isolated_db, monkeypatch
@@ -554,6 +570,58 @@ async def test_create_request_normalizes_limits_and_resets_questions(
     assert view["turn_limit"] == 3
     assert view["question_limit"] == 2
     assert view["questions"] == []
+    assert view["emphasize_hints"] is False
+
+
+@pytest.mark.asyncio
+async def test_create_request_builds_on_the_kept_look_of_the_previous_visit(
+    isolated_db, monkeypatch
+) -> None:
+    await _seed_session(isolated_db.async_factory)
+    calls = _fake_generation(monkeypatch, [_GENERATED, _GENERATED])
+
+    await session_request_service.create_request("s1", language="ja")
+    await session_request_service.create_request(
+        "s1",
+        language="ja",
+        previous_visit={"wish": "ふんわりした姿に", "review": "また来ます"},
+    )
+
+    first, second = (json.loads(call) for call in calls)
+    assert "previous_visit" not in first
+    assert second["previous_visit"] == {
+        "wish": "ふんわりした姿に",
+        "review": "また来ます",
+    }
+    assert second["current_look"] == "制服姿の少年"
+
+
+def test_request_generation_asks_for_an_additional_request_on_kept_look() -> None:
+    profile = {"name": "サクラ", "gender": "man"}
+    plain_system, _ = build_request_generation_prompt(profile, "1girl, dress", "ja")
+    system, user = build_request_generation_prompt(
+        profile, "1girl, dress", "ja", {"wish": "W", "review": "R"}
+    )
+
+    assert "previous_visit" not in plain_system
+    assert "additional request that builds on current_look" in system
+    assert "never a request to undo it" in system
+    assert json.loads(user)["previous_visit"] == {"wish": "W", "review": "R"}
+
+
+@pytest.mark.asyncio
+async def test_create_request_stores_hint_emphasis(isolated_db, monkeypatch) -> None:
+    await _seed_session(isolated_db.async_factory)
+    _fake_generation(monkeypatch, [_GENERATED])
+
+    view, _ = await session_request_service.create_request(
+        "s1", language="ja", emphasize_hints=True
+    )
+
+    assert view["emphasize_hints"] is True
+    stored = await session_store.get_session_request("s1")
+    assert stored["emphasize_hints"] is True
+    assert "〔" in feeling_context(stored, None, "ja")
 
 
 @pytest.mark.asyncio

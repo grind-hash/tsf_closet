@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import type { SalonVisit } from "../../apis/salon";
@@ -13,6 +13,7 @@ import { useSettings } from "../../contexts/SettingsContext";
 import { usePlayTurn } from "../../hooks/usePlayTurn";
 import { useTransformRequest } from "../../hooks/useTransformRequest";
 import { getSalonRunPath } from "../../routes";
+import { splitHintMarkers, stripHintMarkers } from "../../utils/hintMarkers";
 import {
   formatSignedNumber,
   formatYen,
@@ -29,6 +30,7 @@ interface RevealFrame {
   before: string | null;
   after: string | null;
   feeling: string;
+  emphasizeHints: boolean;
 }
 
 /**
@@ -123,6 +125,8 @@ export default function SalonServing({
   const turnsRemaining = request?.turns_remaining ?? null;
   const questionsRemaining = request?.questions_remaining ?? 0;
   const latest = game.history.at(-1);
+  // やさしい・ふつうの来店では、心境の中のヒントの一文に目印が付いている
+  const emphasizeHints = Boolean(request?.emphasize_hints);
   const feeling = game.isTransforming
     ? game.feelingText
     : turnsUsed > 0
@@ -169,6 +173,7 @@ export default function SalonServing({
       before: game.history[0]?.imageUrl ?? null,
       after: game.currentImage,
       feeling: latest?.feelingText ?? "",
+      emphasizeHints,
     });
     setAct("reveal");
   };
@@ -312,6 +317,11 @@ export default function SalonServing({
             )}
             {act === "counsel" && request && (
               <>
+                {visit?.returning_look && (
+                  <p className="salon-window__note">
+                    {t("salon.serving.returningLook")}
+                  </p>
+                )}
                 <p className="salon-window__speaker">{customerName}</p>
                 <p className="salon-window__line">「{request.wish}」</p>
                 {request.questions.map((item) => (
@@ -332,7 +342,11 @@ export default function SalonServing({
               <>
                 <p className="salon-window__speaker">{customerName}</p>
                 {feeling ? (
-                  <p className="salon-window__line">{feeling}</p>
+                  <SalonFeelingText
+                    className="salon-window__line"
+                    text={feeling}
+                    emphasizeHints={emphasizeHints}
+                  />
                 ) : game.isTransforming ? null : (
                   <p className="salon-window__note">
                     {t("salon.serving.waiting")}
@@ -350,7 +364,11 @@ export default function SalonServing({
               <>
                 <p className="salon-window__speaker">{customerName}</p>
                 {reveal.feeling && (
-                  <p className="salon-window__line">{reveal.feeling}</p>
+                  <SalonFeelingText
+                    className="salon-window__line"
+                    text={reveal.feeling}
+                    emphasizeHints={reveal.emphasizeHints}
+                  />
                 )}
                 <p className="salon-window__note">
                   {t("salon.serving.revealHint")}
@@ -512,6 +530,15 @@ export default function SalonServing({
                       : "salon.serving.notFulfilled",
                   )}
                 </p>
+                {(checkedOut.kept_look || !checkedOut.fulfilled) && (
+                  <p className="salon-receipt__look">
+                    {t(
+                      checkedOut.kept_look
+                        ? "salon.serving.keptLook"
+                        : "salon.serving.revertedLook",
+                    )}
+                  </p>
+                )}
                 <button
                   type="button"
                   className="salon-button salon-button--primary"
@@ -562,7 +589,12 @@ export default function SalonServing({
                 <li key={item.id}>
                   <span>{t("salon.serving.logInstruction")}</span>
                   <p>{item.instruction}</p>
-                  {item.feelingText && <p>{item.feelingText}</p>}
+                  {item.feelingText && (
+                    <SalonFeelingText
+                      text={item.feelingText}
+                      emphasizeHints={emphasizeHints}
+                    />
+                  )}
                 </li>
               ))}
             </ol>
@@ -592,5 +624,42 @@ export default function SalonServing({
         onCancel={transformRequest.handleUsageWarnCancel}
       />
     </MainLayout>
+  );
+}
+
+/**
+ * お客様の心境。emphasizeHints なら目印で囲まれたヒントの一文を強調し、
+ * そうでなければ目印を取り除いて表示する。
+ */
+function SalonFeelingText({
+  text,
+  emphasizeHints,
+  className,
+}: {
+  text: string;
+  emphasizeHints: boolean;
+  className?: string;
+}) {
+  if (!emphasizeHints) {
+    return <p className={className}>{stripHintMarkers(text)}</p>;
+  }
+  let offset = 0;
+  const segments = splitHintMarkers(text).map((segment) => {
+    const key = offset;
+    offset += segment.text.length + 1;
+    return { ...segment, key };
+  });
+  return (
+    <p className={className}>
+      {segments.map((segment) =>
+        segment.hint ? (
+          <strong key={segment.key} className="salon-hint-mark">
+            {segment.text}
+          </strong>
+        ) : (
+          <Fragment key={segment.key}>{segment.text}</Fragment>
+        ),
+      )}
+    </p>
   );
 }
