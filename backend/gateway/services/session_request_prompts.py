@@ -4,8 +4,10 @@ and the request block added to the character's feeling prompt."""
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from typing import Any
 
+from ..consts.sensitive_desires import SensitiveDesire
 from ..consts.session_request import REQUEST_HINT_MARK_CLOSE, REQUEST_HINT_MARK_OPEN
 
 
@@ -24,13 +26,19 @@ def build_request_generation_prompt(
     previous_visit: dict[str, Any] | None = None,
     *,
     sensitive: bool = False,
+    desires: Sequence[SensitiveDesire] | None = None,
+    motive: str = "self",
 ) -> tuple[str, str]:
     """依頼生成の (system, user) を返す。
 
     previous_visit({wish, review})は、前回の施術の姿のまま来たお客様の前回の来店。
     今の姿を土台にした追加の要望を願いにさせる。
     sensitive なら成人向けの願いにし、その姿でしたいこと(experience)も書かせる。
+    願う行為は desires(Python が選んだテーマの候補)から、キャラクターの TSF への態度と
+    性格に合う1つを選ばせ、言葉にさせる。motive が crush なら意中の相手の好みを理由にさせる。
     """
+    if sensitive and not desires:
+        raise ValueError("成人向けの依頼には desires が要ります")
     pronoun = str(profile.get("pronoun") or "").strip()
     pronoun_rule = (
         f" Use the first-person pronoun {pronoun} for the character." if pronoun else ""
@@ -42,14 +50,21 @@ def build_request_generation_prompt(
         else "for example, color, length, accessory"
     )
     if sensitive:
-        schema = '{"wish":"...","preferences":[{"text":"...","hint":"..."}],"experience":"..."}'
-        wish_rule = "It names the body and look they want and what they long to do as that body, an adult desire such as being embraced by a man or a sexual act they want to try (for example, a busty beauty who wants a man to hold her, a glamorous woman who wants to seduce someone), without listing every detail."
-        preference_examples = "such as a body trait (breast size, figure), lingerie or a revealing outfit, a color family, an accessory, or a hairstyle"
-        content_rule = (
-            f"Sexual content is allowed in wish and experience. {ADULT_CONTENT_RULE}"
-        )
+        schema = '{"desire_id":"...","wish":"...","preferences":[{"text":"...","hint":"..."}],"experience":"..."}'
+        wish_rule = "It has the shape \"make me into <the look they want, with a body of the chosen desire's target_body>, I want to <the chosen desire's act>\": it asks for the look and then names that sexual act plainly, in the character's own words (everyday or slang words for the act are fine). A shy character may hesitate or blush, but must still name the act; a hug, a kiss, or being held is never enough on its own, and never soften the act into something vaguer. Do not list every detail of the look."
+        preference_examples = "such as a body trait (breast size, figure), lingerie or a revealing outfit, a color family, an accessory, or a hairstyle. At least one of them is about lingerie, exposure, or a body trait that suits the chosen act (its look_hint is a good candidate)"
+        content_rule = f"Write the sexual content of wish and experience explicitly. Never pair a male body with a male partner. {ADULT_CONTENT_RULE}"
         experience_rule = """
-experience: one sentence of at most 80 Japanese characters or 40 English words, written as a stage direction of the scene where the character, in the finished look, does what the wish longs for. When another person takes part, describe them only as a faceless adult (for example, a faceless adult man) and keep the character the focus."""
+experience: one sentence of at most 80 Japanese characters or 40 English words, written as a stage direction of the scene where the character, in the finished look, does the chosen act. Name the act and the position or pose explicitly. When the chosen desire's partner is man or woman, describe that partner only as a faceless adult of that sex (a faceless adult man or a faceless adult woman; in Japanese, 顔の見えない男性 or 顔の見えない女性, never 無表情) and keep the character the focus. When its partner is none, no one else appears."""
+        choice_rule = """
+desire_id: the id of the one candidate in desire_candidates that best fits the character. target_body is the body they ask for (gender man matches male, woman matches female): different from gender means becoming the other sex, the same as gender means staying their own sex in an ideal body. Choose by tsf_attitude and personality: a character who longs to become the other sex takes that body, and one who has never wished to change sex stays their own sex. partner is who they do it with (none means alone)."""
+        if motive == "crush":
+            choice_rule += """
+motive is crush: the character wants this look to become the ideal of someone they love, and the wish gives that person's taste as the reason (for example, that the person likes huge breasts). That person is the partner in experience."""
+        else:
+            choice_rule += """
+motive is self: the wish grows out of the character's own longing or curiosity."""
+        experience_rule = choice_rule + experience_rule
     else:
         schema = '{"wish":"...","preferences":[{"text":"...","hint":"..."}]}'
         wish_rule = "It names the overall look or mood they want (for example, a princess at a ball, a cool office worker, a shrine maiden) without listing every detail."
@@ -72,9 +87,25 @@ Keep everything consistent with the character's personality and background. {con
         },
         "current_look": appearance,
     }
+    if sensitive and desires:
+        payload["desire_candidates"] = [
+            {
+                "id": desire.id,
+                "act": desire.act,
+                "target_body": desire.body,
+                "partner": desire.partner,
+                "look_hint": desire.look_hint,
+            }
+            for desire in desires
+        ]
+        payload["motive"] = motive
     if previous_visit:
         system += """
 previous_visit is given: on that visit the character was styled into current_look, loved it, and came back still in it (current_look may differ from the character's original sex; gender is the original one). Make the wish an additional request that builds on current_look, such as taking it further or adding something new, and never a request to undo it. The wish may refer to the last visit."""
+        if sensitive:
+            system += (
+                " In this look, the character now longs for the chosen desire's act."
+            )
         payload["previous_visit"] = {
             "wish": previous_visit.get("wish") or "",
             "review": previous_visit.get("review") or "",

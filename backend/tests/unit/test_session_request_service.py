@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 from sqlalchemy import update
 
+from gateway.consts.sensitive_desires import SENSITIVE_DESIRES
 from gateway.consts.session_request import REQUEST_FULFILL_THRESHOLD
 from gateway.databases.models import History as HistoryORM
 from gateway.databases.models import Session as SessionORM
@@ -34,7 +35,10 @@ from gateway.services.session_request_service import (
     grounded_met_ids,
     is_fulfilled,
     listening_bonus,
+    pick_sensitive_candidates,
+    pick_sensitive_motive,
     public_request_view,
+    sensitive_body_options,
     session_request_service,
 )
 from gateway.services.session_response import build_session_response
@@ -871,10 +875,20 @@ async def test_create_request_sensitive_saves_the_experience(
     stored = await session_store.get_session_request("s1")
     assert stored["sensitive"] is True
     assert stored["experience"] == _SENSITIVE_GENERATED["experience"]
-    system = prompts[0][0]
-    assert "Sexual content is allowed" in system
+    system, user = prompts[0]
+    assert "Write the sexual content of wish and experience explicitly" in system
+    assert "a hug, a kiss, or being held is never enough" in system
     assert "18 or older" in system
     assert '"experience"' in system
+    assert "Never pair a male body with a male partner" in system
+    # 願う行為は Python が選んだテーマの候補で、異性の体と同性の体の両方が並ぶ
+    payload = json.loads(user)
+    candidates = payload["desire_candidates"]
+    assert {item["act"] for item in candidates} <= {
+        item.act for item in SENSITIVE_DESIRES
+    }
+    assert {item["target_body"] for item in candidates} == {"female", "male"}
+    assert payload["motive"] in {"self", "crush"}
 
 
 @pytest.mark.asyncio
@@ -969,3 +983,92 @@ def test_grounded_met_ids_accepts_body_and_lingerie_tags() -> None:
         _output([("p1", "long black hair")]), preferences, look, look_is_tags=True
     )
     assert hair == []
+
+
+def test_catalog_never_pairs_a_male_body_with_a_male_partner() -> None:
+    assert all(
+        not (item.body == "male" and item.partner == "man")
+        for item in SENSITIVE_DESIRES
+    )
+    # 女性の体で男性と・女性と(百合)・ひとり、男性の体で女性と・ひとりのテーマがある
+    pairs = {(item.body, item.partner) for item in SENSITIVE_DESIRES}
+    assert pairs == {
+        ("female", "man"),
+        ("female", "woman"),
+        ("female", "none"),
+        ("male", "woman"),
+        ("male", "none"),
+    }
+
+
+@pytest.mark.parametrize(
+    ("look", "returning", "bodies"),
+    [
+        # 初めての来店は異性の体も同性の体もありうる(生成が態度から選ぶ)
+        ("1boy, short black hair", False, ("female", "male")),
+        ("1girl, long hair", False, ("female", "male")),
+        # 前回の姿のまま来たお客様は、いまの姿の体のまま
+        ("1girl, long black hair, large breasts", True, ("female",)),
+        ("1boy, suit", True, ("male",)),
+        ("", True, ("female", "male")),
+    ],
+)
+def test_sensitive_body_options(look, returning, bodies) -> None:
+    assert sensitive_body_options(look, returning=returning) == bodies
+
+
+def test_candidates_cover_each_body_and_vary() -> None:
+    seen: set[str] = set()
+    for index in range(40):
+        candidates = pick_sensitive_candidates(
+            ("female", "male"), f"s{index}", motive="self"
+        )
+        assert len(candidates) == 3
+        assert {item.body for item in candidates} == {"female", "male"}
+        assert len({item.id for item in candidates}) == 3
+        seen.update(item.id for item in candidates)
+    assert len(seen) > 8
+    # 前回の姿のまま来たお客様は、その体のテーマだけ
+    returning = pick_sensitive_candidates(("female",), "s1", motive="self")
+    assert {item.body for item in returning} == {"female"}
+    # 意中の相手のための願いには、ひとりのテーマを入れない
+    for index in range(40):
+        crush = pick_sensitive_candidates(
+            ("female", "male"), f"c{index}", motive="crush"
+        )
+        assert not any(item.solo for item in crush)
+
+
+def test_motive_is_crush_for_about_a_third_of_visits() -> None:
+    motives = [pick_sensitive_motive(f"m{index}") for index in range(1000)]
+    rate = motives.count("crush") / len(motives)
+    assert 0.25 < rate < 0.35
+    assert pick_sensitive_motive("m1") == pick_sensitive_motive("m1")
+
+
+def test_generation_prompt_offers_candidates_and_follows_the_motive() -> None:
+    profile = {"name": "ユウ", "gender": "man", "pronoun": "僕"}
+    candidates = pick_sensitive_candidates(("female", "male"), "s1", motive="crush")
+
+    with pytest.raises(ValueError):
+        build_request_generation_prompt(profile, "1boy", "ja", sensitive=True)
+    crush_system, crush_user = build_request_generation_prompt(
+        profile, "1boy", "ja", sensitive=True, desires=candidates, motive="crush"
+    )
+    self_system, _ = build_request_generation_prompt(
+        profile, "1boy", "ja", sensitive=True, desires=candidates, motive="self"
+    )
+
+    payload = json.loads(crush_user)
+    assert [item["id"] for item in payload["desire_candidates"]] == [
+        item.id for item in candidates
+    ]
+    assert payload["desire_candidates"][0]["partner"] in {"man", "woman", "none"}
+    assert "desire_id" in crush_system
+    assert "one who has never wished to change sex stays their own sex" in crush_system
+    assert "motive is crush" in crush_system
+    assert "motive is self" in self_system
+    assert "faceless adult" in crush_system
+    # 全年齢の依頼には行為の候補を渡さない
+    _, plain_user = build_request_generation_prompt(profile, "1boy", "ja")
+    assert "desire_candidates" not in json.loads(plain_user)

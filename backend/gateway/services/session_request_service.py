@@ -13,11 +13,18 @@ can reuse them for generated customers.
 from __future__ import annotations
 
 import logging
+import random
 import re
 from typing import Any
 
 from pydantic import BaseModel, field_validator
 
+from ..consts.sensitive_desires import (
+    SENSITIVE_CRUSH_MOTIVE_RATE,
+    SENSITIVE_DESIRE_CANDIDATES,
+    SENSITIVE_DESIRES,
+    SensitiveDesire,
+)
 from ..consts.session_request import (
     REQUEST_ANSWER_MAX,
     REQUEST_EVALUATION_HINT_MAX,
@@ -54,6 +61,58 @@ from .session_request_prompts import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+_FEMALE_LOOK_PATTERN = re.compile(r"\b\d*girls?\b|\bfemale\b|\bwom[ae]n\b", re.I)
+_MALE_LOOK_PATTERN = re.compile(r"\b\d*boys?\b|\bmale\b|\bm[ae]n\b", re.I)
+
+
+def sensitive_body_options(current_look: str, *, returning: bool) -> tuple[str, ...]:
+    """成人向けの依頼で願いうる姿の体(female / male)。
+
+    前回の施術の姿のまま来たお客様は、いまの姿の体のまま次を願う。初めての来店は
+    異性の体(TSF)も同性のまま理想の体もありうるので両方を返し、どちらにするかは
+    生成で TSF への態度と性格から選ばせる。
+    """
+    if returning:
+        if _FEMALE_LOOK_PATTERN.search(current_look):
+            return ("female",)
+        if _MALE_LOOK_PATTERN.search(current_look):
+            return ("male",)
+    return ("female", "male")
+
+
+def pick_sensitive_motive(seed: str) -> str:
+    """願いの動機。crush(意中の相手の好みに合わせたい) / self(自分の憧れ・好奇心)。"""
+    return (
+        "crush"
+        if random.Random(seed).random() < SENSITIVE_CRUSH_MOTIVE_RATE
+        else "self"
+    )
+
+
+def pick_sensitive_candidates(
+    bodies: tuple[str, ...], seed: str, *, motive: str
+) -> list[SensitiveDesire]:
+    """生成に渡す行為のテーマの候補。体ごとに少なくとも1つずつ選び、残りの枠を埋める。
+
+    意中の相手のための願いには、相手のいないテーマを入れない。
+    """
+    rng = random.Random(seed)
+    pool = [
+        desire
+        for desire in SENSITIVE_DESIRES
+        if desire.body in bodies and not (motive == "crush" and desire.solo)
+    ]
+    picked = [
+        rng.choice([desire for desire in pool if desire.body == body])
+        for body in bodies
+    ]
+    rest = [desire for desire in pool if desire not in picked]
+    while len(picked) < SENSITIVE_DESIRE_CANDIDATES and rest:
+        picked.append(rest.pop(rng.randrange(len(rest))))
+    rng.shuffle(picked)
+    return picked
 
 
 class SessionRequestError(Exception):
@@ -111,9 +170,13 @@ class GeneratedRequest(BaseModel):
 
 
 class GeneratedSensitiveRequest(GeneratedRequest):
-    """成人向けの依頼。願いの姿でしたいこと(experience)も要る。"""
+    """成人向けの依頼。願いの姿でしたいこと(experience)も要る。
+
+    desire_id は候補から選んだテーマ(記録用。候補外でも依頼は受け付ける)。
+    """
 
     experience: str
+    desire_id: str = ""
 
     @field_validator("experience", mode="before")
     @classmethod
@@ -705,9 +768,30 @@ class SessionRequestService:
         async def generate(system: str, user: str) -> str:
             return await _generate_text(system, user, novelai_model=novelai_model)
 
+        # 願う行為の候補と動機は Python が選ぶ(LLM に任せると穏当な願いに寄り、毎回同じになる)。
+        # 候補のどれにするか(異性になるか同性のままか)は、生成が TSF への態度と性格から選ぶ
+        motive = pick_sensitive_motive(f"{session_id}:motive")
+        desires = (
+            pick_sensitive_candidates(
+                sensitive_body_options(
+                    appearance, returning=previous_visit is not None
+                ),
+                f"{session_id}:desire",
+                motive=motive,
+            )
+            if sensitive
+            else []
+        )
+
         async def generate_request(adult: bool) -> GeneratedRequest:
             system_prompt, user_prompt = build_request_generation_prompt(
-                profile, appearance, language, previous_visit, sensitive=adult
+                profile,
+                appearance,
+                language,
+                previous_visit,
+                sensitive=adult,
+                desires=desires if adult else None,
+                motive=motive,
             )
             return await generate_validated(
                 GeneratedSensitiveRequest if adult else GeneratedRequest,
